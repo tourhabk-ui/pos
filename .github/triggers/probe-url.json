@@ -1,16 +1,12 @@
 {
- "bytes": 500,
- "timeout": 60,
- "retries": 0,
- "note": "Проба 94: сужаем. Проба 93 дала 200 на /or/api/v1/models, но в заголовках был age: 42 и public-кэш — ответ мог прийти из кэша Cloudflare, не доходя до OpenRouter, поэтому доказательством живого пути он не является. Диагностика прода стучит в /or/api/v1/key с ключом и получает 403 «Access denied by security policy». Стучим в тот же /key БЕЗ ключа: 401 в формате OpenRouter = путь живой и дело в самом ключе; тот же 403 = путь режется на этом эндпоинте независимо от ключа.",
- "run": 94,
- "urls": [
-  "https://vedar-ai-relay.tourhabk.workers.dev/or/api/v1/key",
-  "https://openrouter.ai/api/v1/key"
- ],
- "grep": [
-  "Access denied by security policy",
-  "No auth credentials found",
-  "\"error\""
- ]
+  "note": "Проба 145: почему разведчик молчит 21 день. Первый URL — история прогонов с причинами (маркер scout_diagnose_v1, read-only): одна причина двадцать раз означает стену, разные — россыпь. Второй — боевой прогон дайджеста уже с честным судьёй (callAIFastOrNull): если ворота откроются, выпуск уйдёт в канал; если нет — причина будет названа верно, включая новую judge_unavailable.",
+  "urls": [
+    "https://vedarai.ru/api/cron/scout-diagnose?limit=40",
+    "https://vedarai.ru/api/cron/scout-digest"
+  ],
+  "until": "scout_diagnose_v1",
+  "retries": 20,
+  "retryDelay": 60,
+  "timeout": 120,
+  "bytes": 9000
 }
