@@ -84,7 +84,7 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
         AND NOT EXISTS (
           SELECT 1 FROM operator_bookings ob
           WHERE ob.user_id = s.user_id
-            AND ob.tour_id = s.tour_id
+            AND ob.operator_tour_id = s.tour_id
             AND ob.booking_status NOT IN ('cancelled', 'rejected', 'cancelled_by_tourist')
             AND ob.created_at > s.created_at
         )

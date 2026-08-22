@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) * COALESCE(pr.commission_current, 10) / 100 ELSE 0 END), 0) as commission,
         COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) * (1 - COALESCE(pr.commission_current, 10) / 100) ELSE 0 END), 0) as net_income
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       LEFT JOIN partners pr ON pr.id = t.operator_id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
         CONCAT('Booking for ', t.title, ' by ', u.name) as description,
         b.id as booking_id
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       JOIN users u ON b.user_id = u.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2

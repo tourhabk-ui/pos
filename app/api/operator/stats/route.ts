@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN b.booking_status = 'completed' THEN 1 ELSE 0 END) as completed,
         SUM(CASE WHEN b.booking_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
        FROM operator_bookings b
-       JOIN operator_tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.operator_tour_id = t.id
        WHERE t.operator_id = $1
          AND b.deleted_at IS NULL
          AND t.deleted_at IS NULL`,
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
                            AND EXTRACT(MONTH FROM b.booking_date) = EXTRACT(MONTH FROM CURRENT_DATE)
                            THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END), 0) as monthly_revenue
        FROM operator_bookings b
-       JOIN operator_tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.operator_tour_id = t.id
        WHERE t.operator_id = $1
          AND b.deleted_at IS NULL
          AND t.deleted_at IS NULL`,
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
         t.title as tour_name,
         u.name as user_name
        FROM operator_bookings b
-       JOIN operator_tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.operator_tour_id = t.id
        JOIN users u ON b.user_id = u.id
        WHERE t.operator_id = $1
          AND b.deleted_at IS NULL

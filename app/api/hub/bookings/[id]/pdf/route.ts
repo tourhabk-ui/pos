@@ -73,7 +73,7 @@ export async function GET(
         COALESCE(p.contacts->>'email', u.email)         AS operator_email,
         NULL::text                                       AS operator_inn
       FROM operator_bookings b
-      JOIN operator_tours t    ON t.id = COALESCE(b.operator_tour_id, b.tour_id)
+      JOIN operator_tours t    ON t.id = b.operator_tour_id
       LEFT JOIN partners p     ON p.id = t.operator_id
       LEFT JOIN users    u     ON u.id = p.user_id
       WHERE b.id = $1

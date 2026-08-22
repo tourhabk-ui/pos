@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
         COUNT(b.id) as bookings_count,
         t.title as tour_title
       FROM operator_tours t
-      LEFT JOIN operator_bookings b ON t.id = b.tour_id AND b.deleted_at IS NULL
+      LEFT JOIN operator_bookings b ON t.id = b.operator_tour_id AND b.deleted_at IS NULL
       WHERE t.guide_id = $1
         AND t.location IS NOT NULL
         AND t.deleted_at IS NULL
