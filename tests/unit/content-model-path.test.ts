@@ -76,9 +76,15 @@ describe('резолвер модели общий, но кэш раздельн
 });
 
 describe('генераторы контента подключены к качественному пути', () => {
-  it('дайджест и пост в AI-канал генерируются через callAIQuality', () => {
-    expect(DIGEST).toMatch(/digest = await callAIQuality\(/);
-    expect(DIGEST).toMatch(/aiDigest = await callAIQuality\(/);
+  it('дайджест и пост в AI-канал генерируются качественным путём', () => {
+    // Правило — ВЕТКА, а не написание. 22.08 синтез перешёл на честный к
+    // отказу callAIQualityOrNull (заглушка отказа шла дальше как текст, и
+    // дайджест «сервис недоступен» судил фактгейт). Ветка та же, у Editor
+    // ниже она давно такая же.
+    expect(DIGEST).toMatch(/digest = await callAIQuality(OrNull)?\(/);
+    expect(DIGEST).toMatch(/aiDigest = await callAIQuality(OrNull)?\(/);
+    // И не быстрая гонка: для текста, который читают люди, скорость не мера.
+    expect(DIGEST, 'синтез съехал на быструю ветку').not.toMatch(/digest = await callAIFast/);
   });
 
   it('описания Editor — тоже', () => {

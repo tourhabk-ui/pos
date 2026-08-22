@@ -15,7 +15,7 @@
  * Хранит результат в agent_memory для истории.
  */
 
-import { callAIFast, callAIQuality, fetchWithRetry } from '@/lib/ai/providers';
+import { callAIFast, callAIQualityOrNull, fetchWithRetry } from '@/lib/ai/providers';
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -689,9 +689,23 @@ export async function runScoutDigest(): Promise<DigestResult> {
     },
   ];
 
+  /**
+   * Синтез через ЧЕСТНЫЙ к отказу вызов (22.08).
+   *
+   * `callAIQuality` при отказе всех провайдеров возвращает не пустоту, а
+   * строку-заглушку. Она непустая, поэтому проверка `synthesis_null` её
+   * пропускала, и прогон шёл дальше — с «дайджестом», в котором написано
+   * «сервис недоступен». Дальше его судил фактгейт и, разумеется, заворачивал.
+   * Улика была на виду: у всех 21 несостоявшегося прогона `llm_calls: 1`
+   * против 2-7 у состоявшихся — ответ не пришёл ни один.
+   *
+   * `callAIQualityOrNull` отдаёт то же самое честным `null`. Заглушка,
+   * принятая за текст, — третье место того же дефекта за день (были судья
+   * фактгейта и диагноз в алерте).
+   */
   let digest: string | null = null;
   try {
-    digest = await callAIQuality(messages, { maxTokens: 1600 });
+    digest = await callAIQualityOrNull(messages, { maxTokens: 1600 });
   } catch {
     digest = null;
   }
@@ -725,7 +739,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         { role: 'assistant', content: digest },
         { role: 'user', content: `В тексте есть проценты, которых НЕТ в сигналах: ${bad.join(', ')}. Перепиши дайджест, убрав все неподтверждённые числа (формулируй без них). Верни только исправленный текст.` },
       ];
-      const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+      const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
       if (retry) { digest = retry; bad = unsourcedPercents(digest, signalsList); }
     }
     if (bad.length > 0) {
@@ -751,7 +765,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         { role: 'assistant', content: digest },
         { role: 'user', content: `Эти утверждения НЕ подтверждаются сигналами (выдумка или искажение): ${claims.join(' | ')}. Перепиши дайджест строго по источникам, не добавляя новых непроверенных фактов. Верни только исправленный текст.` },
       ];
-      const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+      const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
       if (retry) { digest = retry; claims = await unsupportedClaims(digest, signalsList); }
     }
     if (claims === null || claims.length > 0) {
@@ -858,7 +872,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
           content: `Сигналы:\n\n${aiSignals}`,
         },
       ];
-      let aiDigest = await callAIQuality(aiMessages, { maxTokens: 1600 }).catch(() => null);
+      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
       if (!aiDigest) aiSkip = 'ai_synthesis_null';
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──
@@ -872,7 +886,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
             { role: 'assistant', content: aiDigest },
             { role: 'user', content: `В тексте есть проценты, которых НЕТ в исходных заголовках: ${bad.join(', ')}. Это запрещено. Перепиши пост, полностью убрав все цифры и проценты, не подтверждённые заголовками (формулируй без чисел). Верни только исправленный пост.` },
           ];
-          const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+          const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; bad = unsourcedPercents(aiDigest, aiSignals); }
         }
         if (bad.length > 0) {
@@ -895,7 +909,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
             { role: 'assistant', content: aiDigest },
             { role: 'user', content: `Эти утверждения НЕ подтверждаются текстом статей (выдумка или искажение): ${claims.join(' | ')}. Перепиши пост, убрав или исправив их строго по источникам. Не добавляй новых непроверенных фактов. Верни только исправленный пост.` },
           ];
-          const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+          const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; claims = await unsupportedClaims(aiDigest, aiSignals); }
           // После переписи: остаток выдумок ИЛИ повторный сбой судьи — не публикуем.
           if (claims === null || claims.length > 0) { aiDigest = null; aiSkip = 'ai_factcheck_failed'; }
