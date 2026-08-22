@@ -97,6 +97,10 @@ interface KamchatourDB extends DBSchema {
     key: string;
     value: FieldCheckArea;
   };
+  fieldTracks: {
+    key: string;
+    value: FieldTrackDraft;
+  };
   fieldPacks: {
     key: string;
     value: FieldPackRecord;
@@ -155,6 +159,25 @@ export interface FieldCheckArea {
   savedAt: number;
 }
 
+/**
+ * Идущая запись трека. Хранится на диске, а не в памяти вкладки: система
+ * усыпляет и выгружает вкладку без спроса, и запись, пережившая полдня
+ * ходьбы, не должна умирать от того, что человек переключился на камеру.
+ *
+ * Одна запись за раз — ключ постоянный. Две одновременные записи в поле
+ * это не возможность, а способ потерять обе.
+ */
+export interface FieldTrackDraft {
+  id: 'current';
+  name: string;
+  startedAt: number;
+  /** Принятые точки: [lat, lng, высота|null, время]. */
+  points: Array<[number, number, number | null, number]>;
+  /** Отброшенные засечки по причинам — отказ съёмки обязан быть виден. */
+  dropped: Record<string, number>;
+  lengthM: number;
+}
+
 // ─── DB singleton ─────────────────────────────────────────────────────────────
 
 const DB_NAME = 'kamchatour-offline';
@@ -168,7 +191,10 @@ const DB_NAME = 'kamchatour-offline';
 // а в поле именно фотография решает спор о том, что там на земле.
 // v5 — store fieldCheckAreas: заготовка выхода, скачанная дома. Выход идёт
 // по маршруту, а не по одной точке, и на перевале список уже не подгрузить.
-const DB_VERSION = 5;
+// v6 — store fieldTracks: идущая запись трека. На диске, а не в памяти
+// вкладки: система выгружает вкладку без спроса, и полдня ходьбы не должны
+// пропасть от переключения на камеру.
+const DB_VERSION = 6;
 
 let _db: IDBPDatabase<KamchatourDB> | null = null;
 
@@ -195,6 +221,9 @@ export async function getDB(): Promise<IDBPDatabase<KamchatourDB>> {
       }
       if (!db.objectStoreNames.contains('fieldCheckAreas')) {
         db.createObjectStore('fieldCheckAreas', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('fieldTracks')) {
+        db.createObjectStore('fieldTracks', { keyPath: 'id' });
       }
     },
   });
@@ -387,3 +416,21 @@ export const GLOBAL_SOS_CONTACTS: SosContact[] = [
     type: 'rescue',
   },
 ];
+
+
+// ─── Идущая запись трека ─────────────────────────────────────────────────────
+
+export async function saveTrackDraft(draft: FieldTrackDraft): Promise<void> {
+  const db = await getDB();
+  await db.put('fieldTracks', draft);
+}
+
+export async function getTrackDraft(): Promise<FieldTrackDraft | undefined> {
+  const db = await getDB();
+  return db.get('fieldTracks', 'current');
+}
+
+export async function clearTrackDraft(): Promise<void> {
+  const db = await getDB();
+  await db.delete('fieldTracks', 'current');
+}
