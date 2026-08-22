@@ -63,10 +63,19 @@ export const alertInputSchema = z.object({
   zone: z.enum(ALERT_ZONES),
   severity: z.enum(ALERT_SEVERITIES),
   title: z.string().trim().min(5, 'Заголовок слишком короткий').max(200, 'Заголовок длиннее 200 символов'),
-  message: z.string().trim().min(10, 'Опишите ограничение подробнее'),
-  source: z.string().trim().min(2).max(100).default('МЧС Камчатка'),
-  /** Когда предупреждение перестаёт действовать. null — до снятия рукой. */
-  active_until: z.string().datetime({ offset: true }).nullable().optional(),
+  message: z.string().trim().min(10, 'Опишите ограничение подробнее').max(4000),
+  /**
+   * Кто сказал. Обязателен и без умолчания: предупреждение без источника
+   * через день неотличимо от слуха, а решение по нему принимает человек в
+   * поле. Умолчание «МЧС Камчатка» было бы приписыванием чужих слов.
+   */
+  source: z.string().trim().min(3, 'Назовите источник').max(100),
+  /**
+   * Когда перестаёт действовать. Поле ОБЯЗАТЕЛЬНО, `null` — законный ответ
+   * «срок неизвестен, снимем вручную». Умолчания нет намеренно: «до какого
+   * числа это верно» надо сказать вслух, а не забыть (§4.0).
+   */
+  active_until: z.string().datetime({ offset: true }).nullable(),
 });
 
 export type AlertInput = z.infer<typeof alertInputSchema>;
@@ -86,13 +95,23 @@ export async function createAlert(input: AlertInput, createdBy: string | null): 
 /**
  * Снять предупреждение. Не удаляем: снятое ограничение — такой же факт, как
  * введённое, и по нему потом восстанавливают, что и когда было закрыто.
+ *
+ * Причина снятия обязательна и дописывается в текст. Отдельной колонки под неё
+ * в миграции 065 нет, а заводить схему ради одной строки в разгар сведения двух
+ * приёмников — лишний риск; текст снятого предупреждения туристу уже не
+ * показывается, так что дописка никого не путает. Колонку стоит завести, когда
+ * до `safety_alerts` дойдут руками.
  */
-export async function deactivateAlert(id: string): Promise<boolean> {
-  const res = await pool.query(
-    `UPDATE safety_alerts SET is_active = FALSE WHERE id = $1 AND is_active = TRUE`,
-    [id],
+export async function deactivateAlert(id: string, reason: string): Promise<{ id: string; title: string } | null> {
+  const { rows } = await pool.query<{ id: string; title: string }>(
+    `UPDATE safety_alerts
+        SET is_active = FALSE,
+            message = message || E'\\n\\n[снято: ' || $2 || ']'
+      WHERE id = $1::uuid AND is_active = TRUE
+    RETURNING id::text, title`,
+    [id, reason],
   );
-  return (res.rowCount ?? 0) > 0;
+  return rows[0] ?? null;
 }
 
 export async function listAlerts(includeInactive = false): Promise<SafetyAlert[]> {

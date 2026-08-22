@@ -19,6 +19,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'fs';
+import { execSync } from 'child_process';
 import { join } from 'path';
 import { ALERT_ZONES, ALERT_SEVERITIES, alertInputSchema } from '@/lib/safety/alerts';
 
@@ -31,7 +32,7 @@ describe('safety_alerts: предупреждение можно завести'
   it('есть модуль записи с INSERT в таблицу', () => {
     const src = code('lib/safety/alerts.ts');
     expect(src).toMatch(/INSERT INTO safety_alerts/);
-    expect(src).toMatch(/UPDATE safety_alerts SET is_active = FALSE/);
+    expect(src).toMatch(/UPDATE safety_alerts[\s\S]{0,80}is_active = FALSE/);
   });
 
   it('есть адрес, по которому администратор её заводит', () => {
@@ -93,21 +94,46 @@ describe('safety_alerts: зоны и уровни не расходятся с �
     }
   });
 
-  it('форма отвергает пустое и слишком длинное', () => {
-    expect(alertInputSchema.safeParse({
-      zone: 'northern', severity: 'critical', title: 'кор', message: 'мало', source: 'МЧС',
-    }).success).toBe(false);
+  const GOOD = {
+    zone: 'northern', severity: 'critical',
+    title: 'Посещение природного парка «Ключевской» временно ограничено',
+    message: 'Паводок на реке Студёной, разрушена подъездная дорога, сквозной проезд перекрыт.',
+    source: 'МЧС Камчатка',
+    active_until: null,
+  };
 
-    expect(alertInputSchema.safeParse({
-      zone: 'northern', severity: 'critical',
-      title: 'Посещение природного парка «Ключевской» временно ограничено',
-      message: 'Паводок на реке Студёной, разрушена подъездная дорога, сквозной проезд перекрыт.',
-      source: 'МЧС Камчатка',
-    }).success).toBe(true);
+  it('форма принимает полное предупреждение', () => {
+    expect(alertInputSchema.safeParse(GOOD).success).toBe(true);
+  });
 
-    expect(alertInputSchema.safeParse({
-      zone: 'нет-такой-зоны', severity: 'critical',
-      title: 'Заголовок нормальной длины', message: 'Сообщение нормальной длины.',
-    }).success).toBe(false);
+  it('форма отвергает пустое, короткое и чужую зону', () => {
+    expect(alertInputSchema.safeParse({ ...GOOD, title: 'кор', message: 'мало' }).success).toBe(false);
+    expect(alertInputSchema.safeParse({ ...GOOD, zone: 'нет-такой-зоны' }).success).toBe(false);
+  });
+
+  it('источник обязателен: предупреждение без него — слух', () => {
+    const { source, ...noSource } = GOOD;
+    expect(alertInputSchema.safeParse(noSource).success).toBe(false);
+    expect(alertInputSchema.safeParse({ ...GOOD, source: '  ' }).success).toBe(false);
+  });
+
+  it('срок обязателен как ПОЛЕ, но null — законный ответ', () => {
+    // Умолчания нет намеренно: «до какого числа это верно» говорят вслух, а не
+    // забывают. Отсутствие поля — это забывчивость, null — сказанное решение.
+    const { active_until, ...noUntil } = GOOD;
+    expect(alertInputSchema.safeParse(noUntil).success).toBe(false);
+    expect(alertInputSchema.safeParse({ ...GOOD, active_until: null }).success).toBe(true);
+    expect(alertInputSchema.safeParse({ ...GOOD, active_until: '2026-09-01T00:00:00Z' }).success).toBe(true);
+  });
+
+  it('единственный писатель таблицы — домен', () => {
+    // Тот же дефект, что с копиями SOS-кнопки и карточки тура: два писателя
+    // одной таблицы расходятся правилами молча. 23.08 их и было два.
+    const offenders = execSync(
+      "git ls-files 'app/**/*.ts' 'lib/**/*.ts' 'scripts/**/*.ts'", { encoding: 'utf-8' },
+    ).trim().split('\n').filter(Boolean)
+      .filter(f => f !== 'lib/safety/alerts.ts')
+      .filter(f => /INSERT INTO safety_alerts|UPDATE safety_alerts/.test(code(f)));
+    expect(offenders, `пишут в safety_alerts мимо домена: ${offenders.join(', ')}`).toEqual([]);
   });
 });

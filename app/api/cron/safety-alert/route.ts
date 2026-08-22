@@ -36,28 +36,24 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { pool } from '@/lib/db-pool';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import {
+  ALERT_ZONES, ALERT_SEVERITIES, alertInputSchema,
+  createAlert, deactivateAlert, listAlerts,
+} from '@/lib/safety/alerts';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-/** Зоны — из CHECK миграции 065. Своих не выдумываем. */
-export const ALERT_ZONES = ['avachinsky', 'western', 'eastern', 'northern', 'all'] as const;
-export const ALERT_SEVERITIES = ['critical', 'important', 'info'] as const;
+// Зоны, уровни и правила приёма — из lib/safety/alerts.ts. Своих здесь нет
+// намеренно: 23.08 у таблицы появились ДВА приёмника разом (этот и админский
+// экран), каждый со своей проверкой. Две проверки одного — это две разные
+// правды о том, что считается допустимым предупреждением, и расходятся они
+// молча. Домен один, входов может быть сколько угодно.
+export { ALERT_ZONES, ALERT_SEVERITIES };
 
-const PublishSchema = z.object({
-  action: z.literal('publish'),
-  zone: z.enum(ALERT_ZONES),
-  severity: z.enum(ALERT_SEVERITIES),
-  title: z.string().trim().min(5).max(200),
-  message: z.string().trim().min(10).max(4000),
-  /** Кто сказал. Предупреждение без источника — слух. */
-  source: z.string().trim().min(3).max(100),
-  /** ISO-время или null — «снимем вручную». Умолчания нет: срок говорят вслух. */
-  active_until: z.string().datetime().nullable(),
-});
+const PublishSchema = alertInputSchema.extend({ action: z.literal('publish') });
 
 const DeactivateSchema = z.object({
   action: z.literal('deactivate'),
@@ -84,16 +80,9 @@ export async function GET(request: NextRequest) {
   const denied = unauthorized(request);
   if (denied) return denied;
   try {
-    const { rows } = await pool.query(
-      `SELECT id::text, zone, severity, title, message, source,
-              active_from, active_until, is_active
-         FROM safety_alerts
-        WHERE is_active = TRUE
-        ORDER BY severity = 'critical' DESC, active_from DESC
-        LIMIT 50`,
-    );
+    const items = await listAlerts();
     return NextResponse.json({
-      success: true, probe: 'safety_alert_v1', total: rows.length, items: rows,
+      success: true, probe: 'safety_alert_v1', total: items.length, items,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка чтения предупреждений';
@@ -131,15 +120,8 @@ export async function POST(request: NextRequest) {
   const d = parsed.data;
   try {
     if (d.action === 'deactivate') {
-      const { rows } = await pool.query<{ id: string; title: string }>(
-        `UPDATE safety_alerts
-            SET is_active = FALSE,
-                message = message || E'\\n\\n[снято: ' || $2 || ']'
-          WHERE id = $1::uuid AND is_active = TRUE
-        RETURNING id::text, title`,
-        [d.id, d.reason],
-      );
-      if (rows.length === 0) {
+      const removed = await deactivateAlert(d.id, d.reason);
+      if (removed === null) {
         // Не «сняли» — либо нет такого, либо уже снято. Это разные вещи для
         // человека, и обе не равны успеху.
         return NextResponse.json(
@@ -148,20 +130,17 @@ export async function POST(request: NextRequest) {
         );
       }
       return NextResponse.json({
-        success: true, probe: 'safety_alert_v1', deactivated: rows[0].id, title: rows[0].title,
+        success: true, probe: 'safety_alert_v1', deactivated: removed.id, title: removed.title,
       });
     }
 
-    const { rows } = await pool.query<{ id: string }>(
-      `INSERT INTO safety_alerts (zone, severity, title, message, source, active_until)
-       VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
-       RETURNING id::text`,
-      [d.zone, d.severity, d.title, d.message, d.source, d.active_until],
-    );
+    // created_by здесь null: запрос принесён по CRON_SECRET, конкретного
+    // пользователя за ним нет, и выдумывать его нельзя.
+    const created = await createAlert(d, null);
     return NextResponse.json({
       success: true,
       probe: 'safety_alert_v1',
-      created: rows[0].id,
+      created: created.id,
       zone: d.zone,
       severity: d.severity,
       // Названо вслух: бессрочное предупреждение снимает человек, и об этом

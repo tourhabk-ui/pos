@@ -60,8 +60,11 @@ export function ZoneAlertsPanel() {
   const [severity, setSeverity] = useState<string>('critical');
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
-  const [source, setSource] = useState('МЧС Камчатка');
+  // Умолчания у источника нет намеренно: «МЧС Камчатка» по умолчанию — это
+  // приписывание чужих слов. Кто сказал, говорят вслух.
+  const [source, setSource] = useState('');
   const [until, setUntil] = useState('');
+  const [noDeadline, setNoDeadline] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -88,7 +91,9 @@ export function ZoneAlertsPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           zone, severity, title, message, source,
-          active_until: until === '' ? null : new Date(until).toISOString(),
+          // Пусто — это законный ответ «срок неизвестен, снимем вручную», но
+          // выбирает его человек галочкой, а не забывчивостью.
+          active_until: noDeadline ? null : new Date(until).toISOString(),
         }),
       });
       const data = await res.json().catch(() => null);
@@ -96,7 +101,7 @@ export function ZoneAlertsPanel() {
         setError(data?.error ?? 'Предупреждение не сохранено');
         return;
       }
-      setTitle(''); setMessage(''); setUntil('');
+      setTitle(''); setMessage(''); setUntil(''); setNoDeadline(false); setSource('');
       setOpen(false);
       await load();
     } catch {
@@ -107,8 +112,16 @@ export function ZoneAlertsPanel() {
   }
 
   async function remove(id: string) {
+    // Причина снятия обязательна: история предупреждений — история решений,
+    // и «почему сняли» через неделю не восстановить по памяти.
+    const reason = window.prompt('Почему снимаем предупреждение?')?.trim() ?? '';
+    if (reason.length < 3) return;
     try {
-      const res = await fetch(`/api/admin/safety/alerts/${id}`, { method: 'PATCH' });
+      const res = await fetch(`/api/admin/safety/alerts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
       if (res.ok) await load();
     } catch {
       // Молча не оставляем: список перечитается и покажет настоящее состояние.
@@ -169,11 +182,21 @@ export function ZoneAlertsPanel() {
           <div className="grid sm:grid-cols-2 gap-3">
             <label className="block">
               <span className="ds-label">Источник</span>
-              <input className="ds-input" value={source} onChange={e => setSource(e.target.value)} maxLength={100} />
+              <input
+                className="ds-input" value={source} onChange={e => setSource(e.target.value)}
+                maxLength={100} placeholder="МЧС Камчатка / дирекция парка / оператор"
+              />
             </label>
             <label className="block">
-              <span className="ds-label">Действует до (пусто — до снятия рукой)</span>
-              <input type="datetime-local" className="ds-input" value={until} onChange={e => setUntil(e.target.value)} />
+              <span className="ds-label">Действует до</span>
+              <input
+                type="datetime-local" className="ds-input" value={until} disabled={noDeadline}
+                onChange={e => setUntil(e.target.value)}
+              />
+              <span className="flex items-center gap-2 mt-1.5 text-xs text-[var(--text-secondary)]">
+                <input type="checkbox" checked={noDeadline} onChange={e => setNoDeadline(e.target.checked)} />
+                Срок неизвестен — снимем вручную
+              </span>
             </label>
           </div>
 

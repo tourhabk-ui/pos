@@ -19,37 +19,45 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALERT_ZONES, ALERT_SEVERITIES } from '@/app/api/cron/safety-alert/route';
 
+const DOMAIN = readFileSync(join(process.cwd(), 'lib/safety/alerts.ts'), 'utf-8');
 const ROUTE = readFileSync(join(process.cwd(), 'app/api/cron/safety-alert/route.ts'), 'utf-8');
 const ENGINE = readFileSync(join(process.cwd(), 'lib/planner/engine.ts'), 'utf-8');
 const MIGRATION = readFileSync(join(process.cwd(), 'migrations/065_safety_alerts.sql'), 'utf-8');
 
 describe('вход в слой предупреждений существует', () => {
   it('умеет и публиковать, и снимать', () => {
-    expect(ROUTE).toMatch(/INSERT INTO safety_alerts/);
-    expect(ROUTE).toMatch(/UPDATE safety_alerts[\s\S]{0,120}is_active = FALSE/);
+    // 23.08 у таблицы появились ДВА приёмника разом: этот и админский экран.
+    // Две проверки одного — две разные правды о допустимом предупреждении, и
+    // расходятся они молча. SQL сведён в lib/safety/alerts.ts, роут остаётся
+    // входом; проверяем и то, и другое.
+    expect(ROUTE).toMatch(/createAlert/);
+    expect(ROUTE).toMatch(/deactivateAlert/);
+    expect(DOMAIN).toMatch(/INSERT INTO safety_alerts/);
+    expect(DOMAIN).toMatch(/UPDATE safety_alerts[\s\S]{0,120}is_active = FALSE/);
   });
 
   it('снятие не стирает строку — история решений сохраняется', () => {
     expect(ROUTE).not.toMatch(/DELETE FROM safety_alerts/);
+    expect(DOMAIN).not.toMatch(/DELETE FROM safety_alerts/);
     expect(ROUTE).toMatch(/reason/);
   });
 
   it('«не нашлось» и «уже снято» не выдаются за успех', () => {
-    expect(ROUTE).toMatch(/rows\.length === 0/);
+    expect(ROUTE).toMatch(/removed === null/);
     expect(ROUTE).toMatch(/не найдено или уже снято/);
   });
 });
 
 describe('предупреждение несёт источник и срок', () => {
   it('источник обязателен — иначе это слух', () => {
-    expect(ROUTE).toMatch(/source: z\.string\(\)/);
-    expect(ROUTE).not.toMatch(/source:[^\n]*\.optional\(\)/);
+    expect(DOMAIN).toMatch(/source: z\.string\(\)/);
+    expect(DOMAIN).not.toMatch(/source:[^\n]*\.optional\(\)|source:[^\n]*\.default\(/);
   });
 
   it('срок обязателен как поле, но null — законный ответ', () => {
     // «До какого числа это верно» надо сказать вслух, а не забыть.
-    expect(ROUTE).toMatch(/active_until: z\.string\(\)\.datetime\(\)\.nullable\(\)/);
-    expect(ROUTE).not.toMatch(/active_until:[^\n]*\.default\(|active_until:[^\n]*\.optional\(\)/);
+    expect(DOMAIN).toMatch(/active_until: z\.string\(\)\.datetime\([^)]*\)\.nullable\(\)/);
+    expect(DOMAIN).not.toMatch(/active_until:[^\n]*\.default\(|active_until:[^\n]*\.optional\(\)/);
   });
 
   it('бессрочное предупреждение названо вслух в ответе', () => {
