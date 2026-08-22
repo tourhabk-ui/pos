@@ -78,7 +78,7 @@ export async function GET(
           AND b.booking_status IN ('confirmed', 'new')
           AND DATE(b.booking_date) BETWEEN $1 AND $2
           AND b.deleted_at IS NULL
-        GROUP BY DATE(b.start_date)
+        GROUP BY DATE(b.booking_date)
       )
       SELECT
         ds.date::text,

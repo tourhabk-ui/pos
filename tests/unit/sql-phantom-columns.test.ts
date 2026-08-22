@@ -136,7 +136,6 @@ const BASELINE = new Set<string>([
   "lib/services/operators/lead-processor.service.ts → lead_proposals.conversion_prob",
   "lib/services/operators/lead-processor.service.ts → lead_proposals.recommended_action",
   "lib/services/operators/lead-processor.service.ts → lead_proposals.verdict_urgency",
-  "lib/services/operators/operator-tour-scraper.ts → tour_availability.is_available",
   "lib/services/operators/support.service.ts → agents.category",
   "lib/services/operators/support.service.ts → agents.description",
   "lib/services/operators/support.service.ts → agents.status",
@@ -229,5 +228,74 @@ describe('весь SQL кодовой базы — только существу
       `SQL ссылается на колонки, которых нет в миграциях (фантомы класса tour_type/guests_count):\n${unique.join('\n')}\n` +
       `Если колонка реально существует — проверь парсер/добавь миграцию; осознанное исключение — в ALLOWLIST с причиной.`,
     ).toEqual([]);
+  });
+});
+
+/**
+ * Старшинство источников DDL (22.08.2026).
+ *
+ * Реестр читает два каталога, и они не равны: `migrations/` накатывается на
+ * прод, `lib/database/*.sql` — нет. Пока они просто объединялись, мёртвое
+ * объявление ручалось за живые колонки, и гард фантомов молчал на настоящей
+ * ошибке: `tour_availability.tour_id` (миграция 040 знает только
+ * `operator_tour_id`) стояла в двух местах и валила инструмент оператора
+ * `my_tours` на каждом вызове.
+ */
+describe('источники DDL не равны: миграция старше базового файла', () => {
+  it('повторный CREATE TABLE ниже по списку колонок не добавляет', () => {
+    const reg: SchemaRegistry = { tables: new Map(), views: new Set(), created: new Set() };
+    // Каталог-источник (роль migrations/).
+    applyDdl(`CREATE TABLE demo_slots (id BIGSERIAL, owner_tour_id BIGINT, date DATE);`, reg);
+    const authoritative = new Set(reg.created);
+    // Каталог ниже (роль lib/database/*.sql): та же таблица, другая форма.
+    applyDdl(
+      `CREATE TABLE IF NOT EXISTS demo_slots (id UUID, tour_id UUID, spots INT);
+       ALTER TABLE demo_slots ADD COLUMN IF NOT EXISTS note TEXT;`,
+      reg,
+      authoritative,
+    );
+    const cols = reg.tables.get('demo_slots')!;
+    expect([...cols].sort()).toEqual(['date', 'id', 'note', 'owner_tour_id']);
+    // ALTER из младшего источника применился, CREATE — нет.
+    expect(cols.has('note')).toBe(true);
+    expect(cols.has('tour_id')).toBe(false);
+    expect(cols.has('spots')).toBe(false);
+  });
+
+  it('tour_availability знает форму миграции 040, а не schema.sql', () => {
+    const reg = buildSchemaRegistry();
+    const cols = reg.tables.get('tour_availability')!;
+    expect(cols.has('operator_tour_id')).toBe(true);
+    // Форма из lib/database/schema.sql: tour_id UUID → tours(id). На проде её
+    // нет (миграция 812 поймала id как BIGSERIAL), и знать её реестр не должен.
+    expect(cols.has('tour_id')).toBe(false);
+    expect(cols.has('available_spots')).toBe(false);
+  });
+
+  it('живой SQL по заездам ссылается на реальную колонку', () => {
+    const reg = buildSchemaRegistry();
+    for (const f of [
+      'lib/agents/sdk/operator-tools.ts',
+      'lib/services/operators/operator-tour-scraper.ts',
+    ]) {
+      const src = readFileSync(join(ROOT, f), 'utf-8');
+      for (const lit of sqlLiteralsOf(src)) {
+        expect(findPhantomRefs(lit, reg), `${f}: фантом в SQL`).toEqual([]);
+      }
+      expect(src, `${f}: ta.tour_id — колонки нет`).not.toMatch(/tour_availability[^`]*\btour_id\b/s);
+    }
+  });
+
+  it('отказ вставки заезда не глушится пустым catch', () => {
+    const src = readFileSync(join(ROOT, 'lib/services/operators/operator-tour-scraper.ts'), 'utf-8');
+    // Пустой catch и держал эту вставку мёртвой: «column does not exist»
+    // выглядел как «оператор не публикует дат» (§4.0). Правило про ЗАПИСЬ
+    // в базу, а не про весь файл: битый href — это правда «не ссылка»,
+    // и его catch законен.
+    const at = src.indexOf('INSERT INTO tour_availability');
+    expect(at).toBeGreaterThan(0);
+    const around = src.slice(at, at + 1600);
+    expect(around, 'отказ записи заезда проглочен').not.toMatch(/catch\s*(\([^)]*\))?\s*\{\s*(\/\*[\s\S]*?\*\/|\/\/[^\n]*)?\s*\}/);
+    expect(around).toMatch(/console\.error\([\s\S]*?SQLSTATE/);
   });
 });

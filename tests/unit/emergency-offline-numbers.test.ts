@@ -53,7 +53,11 @@ describe('копии номеров в офлайн-хранилище нет', 
   it('IndexedDB не держит собственный список телефонов спасения', () => {
     // Он писался при скачивании региона и не читался ни разу: копия, которая
     // могла разойтись с реестром, ничего не давая взамен.
-    const db = fs.readFileSync(path.join(process.cwd(), 'lib/offline/db.ts'), 'utf8');
+    // Комментарий, объясняющий, ПОЧЕМУ списка здесь нет, сам списком не
+    // является: разбираем код без пояснений, иначе сторож ловит собственное
+    // объяснение (шестой раз за перепись).
+    const raw = fs.readFileSync(path.join(process.cwd(), 'lib/offline/db.ts'), 'utf8');
+    const db = raw.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
     expect(db).not.toMatch(/GLOBAL_SOS_CONTACTS/);
     expect(db).not.toMatch(/export async function (get|save)(All)?SosContacts/);
   });

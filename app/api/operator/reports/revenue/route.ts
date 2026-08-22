@@ -55,13 +55,13 @@ export async function GET(request: NextRequest) {
       `SELECT
         ${dateGrouping} as period,
         COUNT(*) as bookings_count,
-        COUNT(DISTINCT b.tour_id) as tours_count,
+        COUNT(DISTINCT b.operator_tour_id) as tours_count,
         SUM(COALESCE(b.final_price, b.base_total_price)) as total_revenue,
         SUM(CASE WHEN b.payment_status = 'paid' THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END) as paid_revenue,
         SUM(CASE WHEN b.payment_status = 'pending' THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END) as pending_revenue,
         AVG(COALESCE(b.final_price, b.base_total_price)) as avg_booking_value
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN b.payment_status = 'paid' THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END) as paid_revenue,
         AVG(COALESCE(b.final_price, b.base_total_price)) as avg_booking_value
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) as count,
         SUM(COALESCE(b.final_price, b.base_total_price)) as total
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
         MIN(COALESCE(b.final_price, b.base_total_price)) as min_booking_value,
         MAX(COALESCE(b.final_price, b.base_total_price)) as max_booking_value
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3

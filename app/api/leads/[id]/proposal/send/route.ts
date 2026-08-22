@@ -23,6 +23,9 @@ const STATUS_BY_REASON = {
   no_proposal: 409,
   already_sent: 409,
   proposal_missing: 404,
+  // Каналы отказали, статус лида откачен — повтор осмысленен, значит 502,
+  // а не 409: клиенту нечего показывать как «уже сделано».
+  not_delivered: 502,
 } as const;
 
 export async function POST(

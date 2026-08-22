@@ -94,10 +94,26 @@ describe('немых выходов больше нет: каждый пропу
   const SRC = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
 
   it('каждый return с digest_sent: false несёт digest_skip_reason', () => {
-    const falseReturns = SRC.split('\n').filter((l) => l.includes('digest_sent: false'));
-    expect(falseReturns.length).toBeGreaterThanOrEqual(7);
-    for (const line of falseReturns) {
-      expect(line, `немой выход: ${line.trim()}`).toMatch(/digest_skip_reason/);
+    // Правило про ВЫХОД, а не про строку. 22.08 один выход стал
+    // многострочным (к причине добавилась улика — начало неразобранного
+    // ответа), и построчный сторож покраснел при сохранном правиле.
+    const exits: string[] = [];
+    const re = /return \{/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(SRC)) !== null) {
+      let depth = 0;
+      for (let i = m.index + 'return '.length; i < SRC.length; i++) {
+        if (SRC[i] === '{') depth++;
+        else if (SRC[i] === '}') {
+          depth--;
+          if (depth === 0) { exits.push(SRC.slice(m.index, i + 1)); break; }
+        }
+      }
+    }
+    const falseExits = exits.filter(e => e.includes('digest_sent: false'));
+    expect(falseExits.length).toBeGreaterThanOrEqual(7);
+    for (const e of falseExits) {
+      expect(e, `немой выход: ${e.slice(0, 120)}`).toMatch(/digest_skip_reason/);
     }
   });
 
@@ -109,5 +125,36 @@ describe('немых выходов больше нет: каждый пропу
     const HEALTH = readFileSync(join(process.cwd(), 'app/api/cron/health/route.ts'), 'utf-8');
     expect(HEALTH).toMatch(/Разведчик молчит/);
     expect(HEALTH).toMatch(/intel\/scout\//);
+  });
+});
+
+/**
+ * Заглушка отказа не выдаётся за текст (22.08).
+ *
+ * `callAIQuality` при отказе ВСЕХ провайдеров возвращает не пустоту, а
+ * строку-заглушку. Она непустая, поэтому проверка `synthesis_null` её
+ * пропускала: прогон шёл дальше с «дайджестом», где написано «сервис
+ * недоступен», и заворачивался уже фактгейтом — с причиной про судью.
+ *
+ * Улика лежала на виду 21 прогон: `llm_calls: 1` у каждого несостоявшегося
+ * против 2-7 у состоявшихся. Ни одного настоящего ответа.
+ */
+describe('отказ провайдера не притворяется контентом', () => {
+  const SRC2 = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+
+  it('синтез идёт через честный к отказу вызов', () => {
+    expect(SRC2).toMatch(/callAIQualityOrNull/);
+  });
+
+  it('вызова со строкой-заглушкой не осталось ни одного', () => {
+    // Правило, а не место: любой callAIQuality( без OrNull вернёт заглушку,
+    // и она поедет дальше как текст.
+    const bare = SRC2.match(/callAIQuality\((?!OrNull)/g) ?? [];
+    expect(bare, 'остался вызов, возвращающий заглушку вместо отказа').toEqual([]);
+  });
+
+  it('импортируется именно честный вариант', () => {
+    expect(SRC2).toMatch(/import \{[^}]*callAIQualityOrNull[^}]*\} from '@\/lib\/ai\/providers'/);
+    expect(SRC2).not.toMatch(/import \{[^}]*\bcallAIQuality\b[^}]*\} from '@\/lib\/ai\/providers'/);
   });
 });

@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,12 @@ const BodySchema = z.object({
   source: z.enum(['appinstalled', 'standalone-launch']).optional(),
 });
 
+const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!limiter.check(getClientIp(request.headers))) {
+    return NextResponse.json({ error: 'Слишком часто' }, { status: 429 });
+  }
   let parsed: z.infer<typeof BodySchema>;
   try {
     parsed = BodySchema.parse(await request.json());

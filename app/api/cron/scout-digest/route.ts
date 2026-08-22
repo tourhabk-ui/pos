@@ -48,7 +48,12 @@ export async function GET(req: Request) {
       //
       // `null` при отправленном выпуске — это «проверено, причины нет», а не
       // «не записали»: поле есть всегда.
-      metadata: { digest_skip_reason: result.digest_skip_reason ?? null },
+      metadata: {
+        digest_skip_reason: result.digest_skip_reason ?? null,
+        // Улика переживает запрос вместе с причиной: без неё «ответила
+        // прозой» остаётся догадкой, а догадка уже стоила трёх недель.
+        digest_skip_detail: result.digest_skip_detail ?? null,
+      },
     });
     /**
      * Молчание подряд — повод покраснеть, а не только предупредить.

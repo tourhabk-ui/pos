@@ -76,9 +76,15 @@ describe('резолвер модели общий, но кэш раздельн
 });
 
 describe('генераторы контента подключены к качественному пути', () => {
-  it('дайджест и пост в AI-канал генерируются через callAIQuality', () => {
-    expect(DIGEST).toMatch(/digest = await callAIQuality\(/);
-    expect(DIGEST).toMatch(/aiDigest = await callAIQuality\(/);
+  it('дайджест и пост в AI-канал генерируются качественным путём', () => {
+    // Правило — ВЕТКА, а не написание. 22.08 синтез перешёл на честный к
+    // отказу callAIQualityOrNull (заглушка отказа шла дальше как текст, и
+    // дайджест «сервис недоступен» судил фактгейт). Ветка та же, у Editor
+    // ниже она давно такая же.
+    expect(DIGEST).toMatch(/digest = await callAIQuality(OrNull)?\(/);
+    expect(DIGEST).toMatch(/aiDigest = await callAIQuality(OrNull)?\(/);
+    // И не быстрая гонка: для текста, который читают люди, скорость не мера.
+    expect(DIGEST, 'синтез съехал на быструю ветку').not.toMatch(/digest = await callAIFast/);
   });
 
   it('описания Editor — тоже', () => {
@@ -93,8 +99,12 @@ describe('генераторы контента подключены к каче
     // (гейты понадобились всем публикаторам каналов) — контракт «быстрая
     // ветка» проверяется по новому адресу, дайджест обязан импортировать оттуда.
     const factCheck = read('lib/agents/fact-check.ts');
-    // 18.08 вызов переехал в try/catch ради причины отказа — ветка та же.
-    expect(factCheck).toMatch(/await callAIFast\(/);
+    // Правило — ВЕТКА, а не имя функции. 18.08 вызов переехал в try/catch,
+    // 22.08 — на честный к отказу callAIFastOrNull (заглушка «Сервис временно
+    // недоступен.» читалась как ответ модели). Оба раза сторож, пришпиленный
+    // к написанию, краснел при сохранном правиле.
+    expect(factCheck, 'фактчек ушёл с быстрой ветки').toMatch(/callAIFast(OrNull)?\(/);
+    expect(factCheck, 'фактчек занял качественную ветку').not.toMatch(/callAIQuality\(|callAIWaterfall\(/);
     expect(DIGEST).toMatch(/from '@\/lib\/agents\/fact-check'/);
   });
 });

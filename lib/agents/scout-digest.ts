@@ -15,7 +15,7 @@
  * Хранит результат в agent_memory для истории.
  */
 
-import { callAIFast, callAIQuality, fetchWithRetry } from '@/lib/ai/providers';
+import { callAIFast, callAIQualityOrNull, fetchWithRetry } from '@/lib/ai/providers';
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -48,6 +48,12 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   // Владелец видел «модель не ответила» семнадцать дней и искал причину в
   // блокировке провайдера — а из четырёх случаев это верно ровно в одном.
   judge_silent: 'проверяющая модель вернула пустоту — молчит провайдер',
+  // 22.08: заглушка callAIFast («Сервис временно недоступен.») — непустой
+  // текст без JSON, и судья звал это «прозой вместо JSON, сбой в промпте».
+  // Владелец три недели читал совет чинить промпт при мёртвых провайдерах.
+  judge_unavailable: 'не ответил ни один провайдер — чинить у провайдера, не в промпте',
+  // Обрыв — не проза: модель отвечала верно и не поместилась в потолок.
+  judge_truncated: 'ответ судьи оборвался на середине — не хватило потолка токенов',
   judge_unparseable: 'проверяющая модель ответила прозой вместо JSON — сбой в промпте, не в провайдере',
   judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
   judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
@@ -79,6 +85,16 @@ export interface DigestResult {
    * telegram_send_failed. Отсутствует — выпуск ушёл.
    */
   digest_skip_reason?: string;
+  /**
+   * Улика к причине: начало ответа, который не разобрался (22.08).
+   *
+   * Код `judge_unparseable` называет КЛАСС беды — «модель ответила не тем».
+   * Чинить надо конкретное: преамбулу перед JSON, markdown-забор, обрыв на
+   * середине или отказ отвечать. Без самой строки это гадание, а гадание уже
+   * стоило трёх недель — алерт уверенно советовал чинить промпт при вопросе,
+   * которого никто не видел. Не более 200 символов, только в ответ и журнал.
+   */
+  digest_skip_detail?: string;
   /**
    * Ушёл ли пост во ВТОРОЙ канал — AI-канал.
    *
@@ -507,7 +523,7 @@ async function fetchArticleText(url: string): Promise<string> {
 
 /** Причина отказа судьи → код пропуска. Слова живут в SKIP_REASON_LABELS. */
 function judgeSkipReason(why: JudgeFailure): string {
-  return `judge_${why === 'silent' ? 'silent' : why === 'unparseable' ? 'unparseable' : why === 'bad_shape' ? 'bad_shape' : 'threw'}`;
+  return `judge_${why}`;
 }
 
 /**
@@ -673,9 +689,23 @@ export async function runScoutDigest(): Promise<DigestResult> {
     },
   ];
 
+  /**
+   * Синтез через ЧЕСТНЫЙ к отказу вызов (22.08).
+   *
+   * `callAIQuality` при отказе всех провайдеров возвращает не пустоту, а
+   * строку-заглушку. Она непустая, поэтому проверка `synthesis_null` её
+   * пропускала, и прогон шёл дальше — с «дайджестом», в котором написано
+   * «сервис недоступен». Дальше его судил фактгейт и, разумеется, заворачивал.
+   * Улика была на виду: у всех 21 несостоявшегося прогона `llm_calls: 1`
+   * против 2-7 у состоявшихся — ответ не пришёл ни один.
+   *
+   * `callAIQualityOrNull` отдаёт то же самое честным `null`. Заглушка,
+   * принятая за текст, — третье место того же дефекта за день (были судья
+   * фактгейта и диагноз в алерте).
+   */
   let digest: string | null = null;
   try {
-    digest = await callAIQuality(messages, { maxTokens: 1600 });
+    digest = await callAIQualityOrNull(messages, { maxTokens: 1600 });
   } catch {
     digest = null;
   }
@@ -709,7 +739,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         { role: 'assistant', content: digest },
         { role: 'user', content: `В тексте есть проценты, которых НЕТ в сигналах: ${bad.join(', ')}. Перепиши дайджест, убрав все неподтверждённые числа (формулируй без них). Верни только исправленный текст.` },
       ];
-      const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+      const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
       if (retry) { digest = retry; bad = unsourcedPercents(digest, signalsList); }
     }
     if (bad.length > 0) {
@@ -721,7 +751,12 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // оба отправляет чинить не туда.
     const verdict = await judgeClaims(digest, signalsList);
     if (!verdict.ok) {
-      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: judgeSkipReason(verdict.why), duration_ms: Date.now() - start, ...health, repeats_suppressed };
+      return {
+        signals_found: freshItems.length, digest_sent: false,
+        digest_skip_reason: judgeSkipReason(verdict.why),
+        ...(verdict.sample ? { digest_skip_detail: verdict.sample } : {}),
+        duration_ms: Date.now() - start, ...health, repeats_suppressed,
+      };
     }
     let claims: string[] | null = verdict.unsupported;
     if (claims.length > 0) {
@@ -730,7 +765,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         { role: 'assistant', content: digest },
         { role: 'user', content: `Эти утверждения НЕ подтверждаются сигналами (выдумка или искажение): ${claims.join(' | ')}. Перепиши дайджест строго по источникам, не добавляя новых непроверенных фактов. Верни только исправленный текст.` },
       ];
-      const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+      const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
       if (retry) { digest = retry; claims = await unsupportedClaims(digest, signalsList); }
     }
     if (claims === null || claims.length > 0) {
@@ -837,7 +872,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
           content: `Сигналы:\n\n${aiSignals}`,
         },
       ];
-      let aiDigest = await callAIQuality(aiMessages, { maxTokens: 1600 }).catch(() => null);
+      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
       if (!aiDigest) aiSkip = 'ai_synthesis_null';
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──
@@ -851,7 +886,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
             { role: 'assistant', content: aiDigest },
             { role: 'user', content: `В тексте есть проценты, которых НЕТ в исходных заголовках: ${bad.join(', ')}. Это запрещено. Перепиши пост, полностью убрав все цифры и проценты, не подтверждённые заголовками (формулируй без чисел). Верни только исправленный пост.` },
           ];
-          const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+          const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; bad = unsourcedPercents(aiDigest, aiSignals); }
         }
         if (bad.length > 0) {
@@ -874,7 +909,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
             { role: 'assistant', content: aiDigest },
             { role: 'user', content: `Эти утверждения НЕ подтверждаются текстом статей (выдумка или искажение): ${claims.join(' | ')}. Перепиши пост, убрав или исправив их строго по источникам. Не добавляй новых непроверенных фактов. Верни только исправленный пост.` },
           ];
-          const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+          const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; claims = await unsupportedClaims(aiDigest, aiSignals); }
           // После переписи: остаток выдумок ИЛИ повторный сбой судьи — не публикуем.
           if (claims === null || claims.length > 0) { aiDigest = null; aiSkip = 'ai_factcheck_failed'; }

@@ -76,7 +76,21 @@ export async function recordCommissionFromBooking(
        ON CONFLICT (invoice_id) DO NOTHING`,
       [bookingId, invoiceId, PLATFORM_COMMISSION_PERCENT],
     );
-  } catch {
-    // Не прерываем платёжный flow при ошибке записи комиссии.
+  } catch (err) {
+    // Платёжный поток не прерываем — деньги важнее записи о комиссии. Но
+    // молчать нельзя (§4.0): именно тишина здесь стоила всех начислений.
+    //
+    // Таблицы `operator_commissions` на проде не существовало: миграция 084
+    // числилась применённой, а её действия в базе не было (перепись 22.08,
+    // задача #58). Каждая вставка комиссии падала на «relation does not
+    // exist», пустой catch превращал это в «ничего не произошло», и наружу
+    // отсутствие комиссий выглядело как отсутствие продаж.
+    const e = err as { code?: string; message?: string };
+    console.error(
+      '[commission] начисление не записано:',
+      `booking=${bookingId}`,
+      `sqlstate=${e?.code ?? 'нет'}`,
+      e?.message ?? String(err),
+    );
   }
 }

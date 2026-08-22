@@ -40,7 +40,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
+import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
@@ -51,7 +51,9 @@ import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-
 // падает на DeepSeek/Gemini. Если задан релей вне РФ (Cloudflare Worker/VPS —
 // прозрачный прокси, форвардит путь и Authorization как есть), базовые URL
 // указывают на него. Переменные не заданы → прежнее прямое поведение.
-const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+/** Домашний адрес OpenRouter — база по умолчанию и эталон для диагностики релея. */
+const OPENROUTER_DIRECT = 'https://openrouter.ai/api/v1';
+const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || OPENROUTER_DIRECT).replace(/\/+$/, '');
 // Экспортируется: прямой вызов Anthropic нужен там, где waterfall не годится
 // (image-tagger — ему нужно зрение, а waterfall текстовый). Такие места обязаны
 // брать базу отсюда, иначе релей их не спасёт и они останутся мертвы в РФ.
@@ -250,29 +252,89 @@ function clearOpenRouterFailure(): void {
 export async function probeOpenRouterKeyStatus(): Promise<{
   key_source: 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null;
   both_env_set: boolean;
+  /** Куда реально ушёл запрос: через релей или напрямую в openrouter.ai. */
+  route: 'relay' | 'direct';
+  /** Хост назначения (без пути и без ключей) — чтобы отличить один релей от другого. */
+  route_host: string;
   http_status: number | null;
   detail: string;
+  /**
+   * Тот же запрос НАПРЯМУЮ в openrouter.ai, минуя релей. Заполняется только
+   * когда база релейная — иначе это был бы дубль основного измерения (null).
+   *
+   * Зачем. 22.08 прод через релей получал 403 с телом
+   * `{ "success": false, "error": "Access denied by security policy." }`, тогда
+   * как раннер тем же путём получал настоящий ответ OpenRouter
+   * (`{"error":{"message":"No cookie auth credentials found","code":401}}`).
+   * Формат чужой, значит отвечает не OpenRouter — а кто, по одному коду не
+   * узнать. Сравнение с прямым путём разделяет два разных диагноза:
+   * совпало — режет край сети по нашему адресу, и релей его не прячет
+   * (лечится сменой площадки релея); не совпало — режет что-то на выходе
+   * из Timeweb именно к релею (лечится в другом месте).
+   */
+  direct_status: number | null;
+  direct_detail: string | null;
+  /**
+   * Форма ключа без его содержимого: длина, ожидаемое начало, пробелы.
+   * 22.08 OpenRouter отвечал «Missing Authentication header» при непустой
+   * переменной — а это сходится ровно тогда, когда значение непусто как
+   * строка и пусто как ключ. Три этих факта разделяют «вставили не то»,
+   * «вставили с переводом строки» и «ключ настоящий, отказывает провайдер».
+   */
+  key_shape: ReturnType<typeof describeOpenRouterKey>;
 }> {
   const key_source = getOpenRouterKeySource();
   const both_env_set = !!process.env.OR_API_KEY && !!process.env.OPENROUTER_API_KEY;
-  const apiKey = getOpenRouterKey();
-  if (!apiKey) return { key_source, both_env_set, http_status: null, detail: 'ключ не задан' };
+  // Голый статус без адресата не диагноз: 403 «напрямую» — это гео-блок и
+  // лечится релеем, а 403 «через релей» — это уже сам релей (не поднят, не
+  // тот путь, закрыт по РФ) и лечится совсем иначе. Раньше диагностика
+  // печатала только код, и по нему нельзя было отличить одно от другого —
+  // ровно то «место, где нельзя сказать „не знаю“», о котором правило §4.0.
+  const route: 'relay' | 'direct' =
+    OPENROUTER_BASE === 'https://openrouter.ai/api/v1' ? 'direct' : 'relay';
+  let route_host = 'openrouter.ai';
+  try { route_host = new URL(OPENROUTER_BASE).host; } catch { /* оставляем дефолт */ }
 
-  try {
-    const res = await fetch(`${OPENROUTER_BASE}/key`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(8_000),
-    });
-    const body = (await res.text()).slice(0, 300);
-    return { key_source, both_env_set, http_status: res.status, detail: body };
-  } catch (e) {
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) {
     return {
-      key_source,
-      both_env_set,
-      http_status: null,
-      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+      key_source, both_env_set, route, route_host,
+      http_status: null, detail: 'ключ не задан',
+      direct_status: null, direct_detail: null,
+      key_shape: describeOpenRouterKey(),
     };
   }
+
+  /** Один и тот же запрос по заданному адресу. Ключ уходит только на openrouter.ai или на наш релей. */
+  const ask = async (base: string): Promise<{ status: number | null; detail: string }> => {
+    try {
+      const res = await fetch(`${base}/key`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8_000),
+      });
+      return { status: res.status, detail: (await res.text()).slice(0, 300) };
+    } catch (e) {
+      // Третий исход: сеть не ответила — это не «доступ закрыт» и не «всё хорошо».
+      return { status: null, detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}` };
+    }
+  };
+
+  const main = await ask(OPENROUTER_BASE);
+
+  // Прямой путь меряем ТОЛЬКО когда основной релейный: иначе это тот же запрос дважды.
+  const direct = route === 'relay' ? await ask(OPENROUTER_DIRECT) : null;
+
+  return {
+    key_source,
+    both_env_set,
+    route,
+    route_host,
+    http_status: main.status,
+    detail: main.detail,
+    direct_status: direct ? direct.status : null,
+    direct_detail: direct ? direct.detail : null,
+    key_shape: describeOpenRouterKey(),
+  };
 }
 
 export async function callOpenrouter(messages: ChatMessage[]): Promise<string | null> {
@@ -335,6 +397,20 @@ export interface OpenRouterModelOptions {
   jsonMode?: boolean;
   /** JSON Schema for structured outputs (supported by GPT-4.1, Gemini 2.5, etc.) */
   jsonSchema?: { name: string; strict?: boolean; schema: Record<string, unknown> };
+  /**
+   * Зовётся, когда модель НЕ ответила, и называет причину.
+   *
+   * Функция отдаёт `null` на четыре разных события: провайдер отказал по HTTP,
+   * ответ пришёл без текста, запрос не дошёл, ключа нет. Наружу все четыре
+   * выглядели одинаково, и отчёт судьи писал про первую ступень «ключ есть,
+   * ответа нет» — фразу, из которой нельзя понять ни 401, ни 402, ни 403.
+   * Рядом ступень Anthropic честно печатала тело ошибки («credit balance is
+   * too low»), и разница была видна невооружённым глазом.
+   *
+   * Здесь не выдумывается новое поведение: возврат по-прежнему `null`, просто
+   * причина больше не пропадает. Тело обрезается — в нём бывает эхо запроса.
+   */
+  onRefusal?: (info: { kind: 'http' | 'empty' | 'network' | 'no_key'; status: number | null; detail: string }) => void;
 }
 
 export async function callOpenRouterModel(
@@ -345,11 +421,17 @@ export async function callOpenRouterModel(
   const opts: OpenRouterModelOptions = typeof timeoutOrOpts === 'number'
     ? { timeoutMs: timeoutOrOpts }
     : timeoutOrOpts;
-  const { timeoutMs = 15_000, maxTokens = 800, temperature = 0.4, jsonMode = false, jsonSchema } = opts;
+  const { timeoutMs = 15_000, maxTokens = 800, temperature = 0.4, jsonMode = false, jsonSchema, onRefusal } = opts;
 
   const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
-  if (isOpenRouterTemporarilyDisabled()) return null;
+  if (!apiKey) {
+    onRefusal?.({ kind: 'no_key', status: null, detail: 'ключ OpenRouter не задан' });
+    return null;
+  }
+  if (isOpenRouterTemporarilyDisabled()) {
+    onRefusal?.({ kind: 'no_key', status: null, detail: 'провайдер временно отключён после отказа авторизации' });
+    return null;
+  }
 
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
@@ -381,15 +463,27 @@ export async function callOpenRouterModel(
       if (res.status === 401) {
         markOpenRouterAuthFailure();
       }
+      if (onRefusal) {
+        const body = await res.text().catch(() => '');
+        onRefusal({ kind: 'http', status: res.status, detail: body.slice(0, 200) || 'тело ответа пустое' });
+      }
       return null;
     }
 
     clearOpenRouterFailure();
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     const text = data?.choices?.[0]?.message?.content;
-    if (!text?.trim()) return null;
+    if (!text?.trim()) {
+      onRefusal?.({ kind: 'empty', status: res.status, detail: 'ответ 200, но текста в нём нет' });
+      return null;
+    }
     return { text: text.trim(), model_used: modelId };
-  } catch {
+  } catch (e) {
+    onRefusal?.({
+      kind: 'network',
+      status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message.slice(0, 150) : 'ошибка'}`,
+    });
     return null;
   }
 }
@@ -841,7 +935,10 @@ export async function callYandexGPT(messages: ChatMessage[]): Promise<string | n
 // никто; удалён 22.08.2026.
 
 // ── DeepSeek (direct API) ──────────────────────────────────────
-export async function callDeepSeek(messages: ChatMessage[]): Promise<string | null> {
+export async function callDeepSeek(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
   const apiKey = getDeepSeekKey();
   if (!apiKey) return null;
 
@@ -857,10 +954,11 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
       body: JSON.stringify({
         model,
         temperature: 0.4,
-        max_tokens: 800,
+        max_tokens: opts?.maxTokens ?? 800,
         messages: payload,
+        ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
       }),
-    }, { timeoutMs: 20_000, label: 'deepseek' });
+    }, { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'deepseek' });
     if (!res.ok) return null;
     const data = await res.json() as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -905,7 +1003,10 @@ async function resolveKimiModel(): Promise<string> {
  * Один вызов Kimi (OpenAI-совместимый). Нет ключа → null (выпадает из гонки).
  * Зеркалит callDeepSeek: та же форма запроса/ответа, свой timeout.
  */
-export async function callKimi(messages: ChatMessage[]): Promise<string | null> {
+export async function callKimi(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
   const apiKey = getMoonshotKey();
   if (!apiKey) return null;
   try {
@@ -914,8 +1015,13 @@ export async function callKimi(messages: ChatMessage[]): Promise<string | null> 
     const res = await fetchWithRetry(`${MOONSHOT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, temperature: 0.4, max_tokens: 800, messages: payload }),
-    }, { timeoutMs: 20_000, label: `kimi:${model}` });
+      body: JSON.stringify({
+        model, temperature: 0.4,
+        max_tokens: opts?.maxTokens ?? 800,
+        messages: payload,
+        ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
+      }),
+    }, { timeoutMs: opts?.timeoutMs ?? 20_000, label: `kimi:${model}` });
     if (!res.ok) return null;
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
     const text = data?.choices?.[0]?.message?.content;
@@ -1333,11 +1439,20 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     why.push('flagship: OPENROUTER_API_KEY не задан');
   } else {
     try {
+      // Причина отказа приходит из самой ступени. Прежняя строка «ключ есть,
+      // ответа нет» была честной ровно наполовину: она сообщала ЧТО, но не
+      // ПОЧЕМУ, и по ней нельзя было отличить недействительный ключ от
+      // исчерпанного счёта или закрытого доступа. Прогон 22.08 повторил её
+      // сорок восемь раз — с раннера GitHub, где ни релея, ни гео-блока нет.
+      let refusal: string | null = null;
       const flag = await callOpenRouterModel(payload, flagshipModel, {
         timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
+        onRefusal: ({ status, detail }) => {
+          refusal = status === null ? detail : `HTTP ${status} ${detail}`;
+        },
       });
       if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
-      why.push(`flagship(${flagshipModel}): ключ есть, ответа нет`);
+      why.push(`flagship(${flagshipModel}): ${refusal ?? 'ключ есть, ответа нет'}`);
     } catch (e) { why.push(`flagship(${flagshipModel}): ${(e as Error).message.slice(0, 100)}`); }
   }
 
@@ -1864,7 +1979,10 @@ export async function callMiniMax(messages: ChatMessage[]): Promise<string | nul
 }
 
 // ── Google Gemini (direct API) ─────────────────────────────────
-export async function callGeminiDirect(messages: ChatMessage[]): Promise<string | null> {
+export async function callGeminiDirect(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
   const apiKey = getGeminiKey();
   if (!apiKey) return null;
 
@@ -1880,6 +1998,12 @@ export async function callGeminiDirect(messages: ChatMessage[]): Promise<string 
     if (systemMsg) {
       body.systemInstruction = { parts: [{ text: systemMsg.content }] };
     }
+    if (opts?.maxTokens || opts?.json) {
+      body.generationConfig = {
+        ...(opts.maxTokens ? { maxOutputTokens: opts.maxTokens } : {}),
+        ...(opts.json ? { responseMimeType: 'application/json' } : {}),
+      };
+    }
 
     const res = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
@@ -1888,7 +2012,7 @@ export async function callGeminiDirect(messages: ChatMessage[]): Promise<string 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       },
-      { timeoutMs: 20_000, label: 'gemini-direct' },
+      { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'gemini-direct' },
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -2680,25 +2804,60 @@ export async function callAIQualityOrNull(
 export const AI_FAST_UNAVAILABLE = 'Сервис временно недоступен.';
 
 /**
+ * Опции быстрой ветки. Обе появились 22.08 из-за судьи фактгейта.
+ *
+ * `maxTokens` — потолок ответа. По умолчанию у ног гонки 600-800 токенов:
+ * для реплики в чате достаточно, а судья обязан ЦИТИРОВАТЬ неподтверждённые
+ * утверждения, и на длинном выпуске обрывался на середине. Оборванный JSON
+ * не имеет закрывающей скобки, разбор его не берёт — и отказ назывался
+ * «ответила прозой», хотя модель отвечала правильно и просто не поместилась.
+ *
+ * `json` — просить у провайдера ФОРМАТ, а не уговаривать словами. Просьба
+ * «верни ТОЛЬКО JSON» в системном промпте — не гарантия; response_format
+ * у DeepSeek/OpenRouter — гарантия. Кто формата не умеет, работает как
+ * прежде: разбор и один повтор остаются страховкой.
+ */
+export interface FastCallOptions {
+  maxTokens?: number;
+  json?: boolean;
+  /**
+   * Свой предел ожидания ноги гонки (22.08).
+   *
+   * У ног быстрой ветки 20 секунд: для короткой реплики достаточно. Судья
+   * фактгейта получает на вход до 9000 знаков источников плюс сам выпуск —
+   * и не укладывается. Качественный путь на тех же провайдерах ждёт 45
+   * секунд и отвечает: 22.08 синтез прошёл, а судья на том же прогоне
+   * вернул «не ответил никто». Разница между ними — только предел ожидания.
+   */
+  timeoutMs?: number;
+}
+
+/**
  * Быстрый вызов, честный к отказу: null — не ответил НИ ОДИН провайдер.
  * Обычный callAIFast для совместимости подставляет строку-заглушку, из-за чего
  * вызывающий не мог отличить «модель так ответила» от «всё упало».
  */
-export async function callAIFastOrNull(messages: ChatMessage[]): Promise<string | null> {
-  const text = await callAIFast(messages);
+export async function callAIFastOrNull(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
+  const text = await callAIFast(messages, opts);
   return text === AI_FAST_UNAVAILABLE ? null : text;
 }
 
-export async function callAIFast(messages: ChatMessage[]): Promise<string> {
+export async function callAIFast(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string> {
   const apiKey = getOpenRouterKey();
 
   // MiMo убран 04.07.2026 — прямой api.xiaomimimo.com не отвечал (см. callAIWaterfall).
   // callKimi — третий достижимый из РФ провайдер: нет MOONSHOT_API_KEY → null,
   // из гонки выпадает. Оживляет судью фактгейта, когда DeepSeek/Gemini молчат.
   const calls: Promise<string | null>[] = [
-    callDeepSeek(messages),
-    callGeminiDirect(messages),
-    callKimi(messages),
+    callDeepSeek(messages, opts),
+    callGeminiDirect(messages, opts),
+    callKimi(messages, opts),
   ];
 
   // DeepSeek via OpenRouter (inline to avoid extra function)
@@ -2716,10 +2875,11 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
         body: JSON.stringify({
           model: 'deepseek/deepseek-chat-v3-0324',
           temperature: 0.3,
-          max_tokens: 600,
+          max_tokens: opts?.maxTokens ?? 600,
           messages: payload,
+          ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
         }),
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? 12_000),
       })
         .then(async (res) => {
           if (!res.ok) {

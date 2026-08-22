@@ -202,7 +202,7 @@ export async function verifyBookingOwnership(userId: string, bookingId: string):
     const result = await query(
       `SELECT b.id
        FROM operator_bookings b
-       JOIN operator_tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.operator_tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE p.user_id = $1 AND b.id = $2 AND b.deleted_at IS NULL AND t.deleted_at IS NULL`,
       [userId, bookingId]

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sun, Moon, UserCircle, Search } from 'lucide-react';
+import { Sun, Moon, UserCircle, Search, LogIn } from 'lucide-react';
 import { useScrollY } from '@/hooks/useScrollY';
 import { useTheme } from '@/contexts/ThemeContext';
 import { GeoToggle } from '@/components/geo/GeoToggle';
@@ -27,6 +27,20 @@ const iconBtnBase: React.CSSProperties = {
 
 export function Header() {
   const scrollY = useScrollY();
+  /**
+   * Вошёл ли смотрящий. `null` — ещё не спросили или сеть не ответила: это
+   * отдельное состояние, а не «гость». Спрашивается один раз за монтирование,
+   * ответ дешёвый и не кэшируется прокси (роут force-dynamic).
+   */
+  const [authed, setAuthed] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then(r => { if (alive) setAuthed(r.ok); })
+      .catch(() => { /* связи нет — состояние остаётся «не знаю» */ });
+    return () => { alive = false; };
+  }, []);
   const scrolled = scrollY > 60;
   const { isDark, toggleTheme } = useTheme();
   const iconColor = scrolled ? 'var(--text-secondary)' : 'rgba(255,255,255,0.85)';
@@ -135,14 +149,26 @@ export function Header() {
           {isDark ? <Sun size={18} /> : <Moon size={18} />}
         </button>
 
-        {/* Profile */}
+        {/*
+          Вход. Значок аккаунта стоял здесь ВСЕГДА — и у вошедшего, и у
+          гостя. Сайт из-за этого выглядел залогиненным для всех, и человек
+          узнавал правду только упёршись в отказ на действии: владелец 21.08
+          на Диких озерках получил «Не авторизован» при отправке фото, будучи
+          уверенным, что он в аккаунте, — и был прав в своей уверенности,
+          потому что подтверждала её наша же шапка.
+
+          Три исхода, а не два: пока ответ о входе не пришёл, значок остаётся
+          прежним и ничего не обещает — путь /profile сам уводит на вход, если
+          он нужен. Врать в одну сторону («вы гость») ничем не лучше, чем в
+          другую.
+        */}
         <Link
-          href="/profile"
-          aria-label="Личный кабинет"
+          href={authed === false ? '/auth/login' : '/profile'}
+          aria-label={authed === false ? 'Войти' : 'Личный кабинет'}
           style={iconBtn}
           className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
-          <UserCircle size={18} />
+          {authed === false ? <LogIn size={18} /> : <UserCircle size={18} />}
         </Link>
       </div>
     </header>

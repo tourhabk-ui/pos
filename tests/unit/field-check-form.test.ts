@@ -28,10 +28,18 @@ describe('приём проверки — очередь, а не правка',
 
   it('вход валидируется Zod и параметризован', () => {
     expect(report).toContain('BodySchema.parse');
-    // Плейсхолдеров стало больше вместе с координатой объекта (миграция
-    // 900); сторож держит не их число, а то, что значения не склеиваются
-    // в строку запроса.
-    expect(report).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8(, \$9, \$10, \$11)?\)/);
+    // Держим ПРАВИЛО, а не счёт плейсхолдеров: их число росло с каждой
+    // новой колонкой (900 — координата объекта, 905 — находка), и каждый
+    // раз краснел не дефект, а сам сторож. Правило же одно: в VALUES стоят
+    // только позиционные параметры, нумерация сплошная, и внутри запроса
+    // ничего не склеивается шаблоном.
+    const values = /VALUES \(([^)]*)\)/.exec(report);
+    expect(values, 'не нашёл VALUES у вставки проверки').not.toBeNull();
+    const params = values![1].split(',').map(x => x.trim());
+    expect(params.every(x => /^\$\d+$/.test(x)), `в VALUES не только параметры: ${params.join('|')}`)
+      .toBe(true);
+    expect(params.map(x => parseInt(x.slice(1), 10)))
+      .toEqual(params.map((_, i) => i + 1));
     expect(report).not.toMatch(/INSERT INTO route_field_checks[\s\S]{0,400}\$\{/);
   });
 
@@ -81,7 +89,13 @@ describe('PWA и фотографии', () => {
   });
 
   it('версия кэша поднята вместе с составом прекэша', () => {
-    expect(sw).toMatch(/CACHE_NAME = 'kamchatour-v27'/);
+    // Черта, а не номер: привязка к 'v27' ломалась при каждом следующем
+    // подъёме версии, хотя правило — «состав прекэша сменился, значит имя
+    // кэша обязано смениться тоже», и оно не про конкретную цифру.
+    const m = /CACHE_NAME = 'kamchatour-v(\d+)'/.exec(sw);
+    expect(m, 'имя кэша не найдено').not.toBeNull();
+    expect(parseInt(m![1], 10)).toBeGreaterThanOrEqual(27);
+    expect(sw).toContain('/field-check');
   });
 
   it('форма регистрирует service worker сама', () => {
@@ -162,8 +176,11 @@ describe('юзабилити поля: рука в перчатке, ветер,
   });
 
   it('без спутников экран не бесполезен — координаты вручную', () => {
-    expect(client).toContain('Ввести координаты вручную');
+    // Черта, а не подпись: слово на кнопке меняется при упрощении формы, а
+    // возможность ввести координату руками терять нельзя — именно там, где
+    // спутников нет, экран и нужен.
     expect(client).toContain('applyManualCenter');
+    expect(client).toMatch(/manualCenter/);
   });
 
   it('видно, сколько сделано и сколько ждёт связи', () => {
@@ -209,8 +226,14 @@ describe('выход по маршруту и офлайн-заготовка', 
   });
 
   it('район сохраняется на телефон и открывается без сети', () => {
+    // Черта, а не номер. Привязка к конкретной версии базы ломается при
+    // КАЖДОМ новом хранилище — за сутки это случилось трижды, и каждый раз
+    // краснел не дефект, а собственный сторож. Правило же простое:
+    // хранилище объявлено, и версия не ниже той, где оно появилось.
     expect(db2).toMatch(/fieldCheckAreas/);
-    expect(db2).toMatch(/DB_VERSION = 5/);
+    const m = /const DB_VERSION = (\d+)/.exec(db2);
+    expect(m, 'версия базы не найдена').not.toBeNull();
+    expect(parseInt(m![1], 10)).toBeGreaterThanOrEqual(5);
     expect(client).toContain('saveFieldCheckArea');
     expect(client).toContain('openSavedArea');
   });
@@ -218,5 +241,191 @@ describe('выход по маршруту и офлайн-заготовка', 
   it('сохранённый выход виден на первом экране', () => {
     expect(client).toMatch(/Открыть выход: \{savedArea\.label\}/);
     expect(client).toContain('работает без интернета');
+  });
+});
+
+/**
+ * «1 точек пути» — мелочь, которая читается как небрежность ко всему
+ * остальному: человек, увидевший кривое слово, не поверит и цифре рядом.
+ */
+describe('склонение числа путевых точек', () => {
+  it('единственное, двойственное и множественное', async () => {
+    const { waypointsPhrase } = await import('@/app/field-check/_FieldCheckClient');
+    expect(waypointsPhrase(1)).toBe('1 точка пути');
+    expect(waypointsPhrase(2)).toBe('2 точки пути');
+    expect(waypointsPhrase(4)).toBe('4 точки пути');
+    expect(waypointsPhrase(5)).toBe('5 точек пути');
+    expect(waypointsPhrase(11)).toBe('11 точек пути');
+    expect(waypointsPhrase(14)).toBe('14 точек пути');
+    expect(waypointsPhrase(21)).toBe('21 точка пути');
+    expect(waypointsPhrase(22)).toBe('22 точки пути');
+    expect(waypointsPhrase(111)).toBe('111 точек пути');
+  });
+});
+
+/**
+ * Упрощение формы (владелец 21.08: «нужно проще»).
+ *
+ * Проверяется не красота, а два свойства: свёрнутая карточка не выгружает
+ * базу на экран, и вопрос о координате задаётся только тому, кто сказал,
+ * что точка не там.
+ */
+describe('форма проще', () => {
+  it('свёрнутая карточка несёт одно обещание, а не все факты', async () => {
+    const { headlineClaim } = await import('@/app/field-check/_FieldCheckClient');
+    expect(headlineClaim({
+      kind: 'route', subtitle: 'medium',
+      facts: [{ label: 'дистанция', value: '12.10 км' }, { label: 'линия', value: 'есть (external)' }],
+    })).toBe('обещаем 12,1 км');
+    // У места отдельного обещания нет: тип уже стоит строкой выше, и
+    // повторять его значит занимать строку ничем.
+    expect(headlineClaim({ kind: 'place', subtitle: 'waterfall', facts: [] })).toBeNull();
+  });
+
+  it('число по-русски, без хвоста нулей из колонки NUMERIC', async () => {
+    const { ruAmount } = await import('@/app/field-check/_FieldCheckClient');
+    expect(ruAmount('12.10 км')).toBe('12,1 км');
+    expect(ruAmount('45.00 км')).toBe('45 км');
+    expect(ruAmount('1.90 км')).toBe('1,9 км');
+    // Не число — отдаётся как есть, а не превращается в мусор.
+    expect(ruAmount('не знаем')).toBe('не знаем');
+  });
+
+  it('код базы не показывается человеку: незнакомый ярлык молчит', async () => {
+    const { subtitleWord } = await import('@/app/field-check/_FieldCheckClient');
+    expect(subtitleWord('waterfall')).toBe('водопад');
+    expect(subtitleWord('medium')).toBe('средне');
+    expect(subtitleWord('lava_dome_xyz')).toBeNull();
+    expect(subtitleWord(null)).toBeNull();
+  });
+
+  it('нечего обещать — строки нет, а не «не знаем»', async () => {
+    const { headlineClaim } = await import('@/app/field-check/_FieldCheckClient');
+    expect(headlineClaim({
+      kind: 'route', subtitle: null, facts: [{ label: 'дистанция', value: null }],
+    })).toBeNull();
+    expect(headlineClaim({ kind: 'place', subtitle: null, facts: [] })).toBeNull();
+  });
+
+  it('координата объекта спрашивается только у вердикта «точка не там»', () => {
+    expect(client).toMatch(/problem === 'coords_wrong' && \(/);
+  });
+
+  it('редкие настройки убраны под одну ссылку', () => {
+    expect(client).toContain("Ещё: координаты вручную, радиус");
+    expect(client).toMatch(/\{showMore && \(/);
+  });
+});
+
+/**
+ * Находка: место, которого у нас нет (владелец 22.08, стоя на Диких
+ * озерках: «а если места нет и в выборе тоже?»).
+ *
+ * До этого экран умел сказать «ваша запись врёт», но не умел «здесь есть
+ * то, чего у вас нет вовсе» — и это был тупик. А ценность обратная:
+ * ошибку в существующей записи мы рано или поздно поймаем переписью;
+ * места, которого нет в базе, не найдёт никто, кроме того, кто на нём
+ * стоит.
+ */
+describe('находка — место, которого нет в базе', () => {
+  const report = readFileSync(join(process.cwd(), 'app/api/field-check/report/route.ts'), 'utf-8');
+  const queueRead = readFileSync(
+    join(process.cwd(), 'app/api/cron/field-check-queue/route.ts'), 'utf-8');
+  const mig = readFileSync(
+    join(process.cwd(), 'migrations/905_field_check_new_place.sql'), 'utf-8');
+
+  it('находка идёт той же очередью, без отдельной ветки', () => {
+    expect(client).toMatch(/targetKind: 'new'/);
+    expect(client).toContain('queueFieldCheck');
+    // Отдельной таблицы не заводим — это ещё один род цели.
+    expect(mig).not.toMatch(/CREATE TABLE/);
+  });
+
+  it('у находки нет id записи, и это закреплено ограничением', () => {
+    expect(mig).toMatch(/\(target_kind = 'new'\) = \(target_id IS NULL\)/);
+    expect(report).toContain('У находки не бывает id записи');
+  });
+
+  it('проверка нашей записи без id не принимается — это потерянная связь', () => {
+    expect(report).toContain('Не указано, какую запись проверяли');
+  });
+
+  it('безымянная находка не принимается: её нельзя ни завести, ни найти', () => {
+    expect(report).toMatch(/Назовите находку/);
+    expect(client).toMatch(/findingName\.trim\(\)\.length < 2/);
+  });
+
+  it('координата находки — её единственный адрес, берётся с телефона', () => {
+    expect(client).toMatch(/objectLat: objCoord\?\.lat \?\? fix\?\.lat \?\? null/);
+  });
+
+  it('очередь различает два разных «нет цели»', () => {
+    // У находки цели нет ПО ЗАМЫСЛУ; у проверки — цель не нашлась.
+    expect(queueRead).toMatch(/r\.target_kind === 'new' \? r\.proposed_name : r\.target_title/);
+    expect(queueRead).toMatch(/i\.target\.kind !== 'new' && i\.target\.title === null/);
+    expect(queueRead).toContain('findings');
+  });
+});
+
+/**
+ * Поиск за радиусом (владелец 22.08, накануне выхода на Вилючинский перевал:
+ * «завтра утром едут, а в форме его нет»).
+ *
+ * Записи были обе — маршрут и место. Владелец стоял в Паратунке, в
+ * шестидесяти километрах, а список строится вокруг стоящего. Строка поиска
+ * фильтровала только уже показанное и отвечала пустотой, которую нельзя
+ * прочитать иначе как «у вас такого нет».
+ */
+describe('«нет рядом» и «нет в базе» — разные ответы', () => {
+  const client = readFileSync(join(process.cwd(), 'app/field-check/_FieldCheckClient.tsx'), 'utf-8');
+  const search = readFileSync(join(process.cwd(), 'app/api/field-check/routes/route.ts'), 'utf-8');
+
+  it('поиск по имени спрашивает всю базу, а не только показанное', () => {
+    expect(client).toMatch(/farHits/);
+    expect(client).toMatch(/visible\.length === 0/);
+    expect(client).toMatch(/field-check\/routes\?q=/);
+  });
+
+  it('у поиска за радиусом три исхода, а не два', () => {
+    // Нашлось; не нашлось нигде; не смогли спросить. Третий не равен второму:
+    // в поле связи может не быть, и «в базе нет» тогда — неправда (§4.0).
+    expect(client).toMatch(/farBusy/);
+    expect(client).toMatch(/farFailed/);
+    expect(client).toMatch(/Ни рядом, ни во всей базе/);
+    expect(client).toMatch(/Это не значит, что записи нет/);
+  });
+
+  it('пустой фильтр называет радиус, а не отвечает «ничего нет»', () => {
+    expect(client).not.toMatch(/По этому запросу ничего нет/);
+    expect(client).toMatch(/км такого нет/);
+  });
+
+  it('имя ищется и среди мест, не только среди маршрутов', () => {
+    // Человек не обязан знать, чем у нас числится перевал — точкой или путём.
+    expect(search).toMatch(/FROM places p/);
+    expect(search).toMatch(/p\.name ILIKE/);
+    expect(search).toMatch(/places_total/);
+  });
+
+  it('расстояние считается общей мерой платформы', () => {
+    // Своя формула разошлась бы с серверной, и «км от вас» стало бы
+    // двумя разными числами на одном экране. Брать её надо из модуля БЕЗ
+    // серверных зависимостей: импорт тянет модуль целиком, и через
+    // track-import в клиентскую сборку приезжал node:zlib (#1337).
+    expect(client).toMatch(/import \{ haversineKm \} from '@\/lib\/field\/geo'/);
+  });
+
+  it('форма открывается по ссылке сразу на маршрут', () => {
+    // Выход готовит не тот, кто пойдёт. Инструкция «нажми то, потом сё»
+    // на шестидесяти километрах от места даёт пустой экран.
+    expect(client).toMatch(/searchParams|URLSearchParams/i);
+    expect(client).toMatch(/get\('route'\)/);
+    expect(client).toMatch(/routeParamUsed/);
+  });
+
+  it('имя района при переходе по ссылке берётся с сервера', () => {
+    const nearby = readFileSync(join(process.cwd(), 'app/api/field-check/nearby/route.ts'), 'utf-8');
+    expect(nearby).toMatch(/route_title/);
+    expect(client).toMatch(/j\.route_title/);
   });
 });

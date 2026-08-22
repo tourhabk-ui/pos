@@ -5,10 +5,57 @@
  * Server-side only (lib/), never exposed to client.
  */
 
+/**
+ * Строка из одних пробелов — не ключ.
+ *
+ * 22.08 отчёт судьи назвал причину отказа первой ступени:
+ * `HTTP 401 {"error":{"message":"Missing Authentication header","code":401}}`.
+ * OpenRouter говорит, что заголовка авторизации НЕТ, — при том что ветка
+ * «ключ не задан» не срабатывала, то есть переменная непустая. Обе вещи
+ * сходятся ровно в одном случае: значение непусто как строка, но пусто как
+ * ключ. `Bearer ` с пустым содержимым — заголовок формально есть, а
+ * авторизации в нём нет.
+ *
+ * Отсюда правило: значение обрезается, и после обрезки пустое считается
+ * отсутствующим. Это не косметика — это разница между «ключа нет» (лечится
+ * за минуту) и «ключ есть, но не работает» (мы искали причину полдня в
+ * релее, гео-блоке и Cloudflare).
+ */
+function envKey(name: string): string | null {
+  const raw = process.env[name];
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export function getOpenRouterKey(): string | null {
-  return process.env.OR_API_KEY
-    || process.env.OPENROUTER_API_KEY
-    || null;
+  return envKey('OR_API_KEY') || envKey('OPENROUTER_API_KEY');
+}
+
+/**
+ * Форма ключа БЕЗ его содержимого — для диагностики.
+ *
+ * Наружу уходят только длина, признак ожидаемого начала (`sk-or-`) и флаг
+ * пробелов внутри. Ни одного символа самого ключа: ответ health читают в
+ * логах Actions, и там ему не место. Этих трёх фактов хватает, чтобы
+ * отличить «вставили не то» от «вставили с переводом строки» и от
+ * «ключ настоящий, отказывает провайдер».
+ */
+export function describeOpenRouterKey(): {
+  key_len: number;
+  key_prefix_ok: boolean;
+  key_had_outer_space: boolean;
+  key_has_inner_space: boolean;
+} | null {
+  const raw = process.env.OR_API_KEY || process.env.OPENROUTER_API_KEY;
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return {
+    key_len: trimmed.length,
+    key_prefix_ok: trimmed.startsWith('sk-or-'),
+    key_had_outer_space: trimmed.length !== raw.length,
+    key_has_inner_space: /\s/.test(trimmed),
+  };
 }
 
 /**
@@ -17,8 +64,11 @@ export function getOpenRouterKey(): string | null {
  * замена OPENROUTER_API_KEY ничего не меняет — это надо видеть, а не гадать.
  */
 export function getOpenRouterKeySource(): 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null {
-  if (process.env.OR_API_KEY) return 'OR_API_KEY';
-  if (process.env.OPENROUTER_API_KEY) return 'OPENROUTER_API_KEY';
+  // Судим по тому же правилу, что и выдача ключа: иначе диагностика скажет
+  // «источник OPENROUTER_API_KEY», а вызов получит null — и это снова будут
+  // два несогласных ответа об одном и том же.
+  if (envKey('OR_API_KEY')) return 'OR_API_KEY';
+  if (envKey('OPENROUTER_API_KEY')) return 'OPENROUTER_API_KEY';
   return null;
 }
 

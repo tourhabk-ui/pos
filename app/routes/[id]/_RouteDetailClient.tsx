@@ -22,6 +22,7 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { trackLine } from '@/lib/map/line-standard';
+import { lineOwnership } from '@/lib/routes/line-ownership';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
@@ -561,6 +562,8 @@ export default function RouteDetailClient({ id }: { id: string }) {
         trackCoords: null as [number, number][] | null,
         mapCenter: [53.02, 158.65] as [number, number],
         cardMapMarkers: [] as MapMarker[],
+        approachCaption: null as string | null,
+        hiddenCaption: null as string | null,
       };
     }
     // Трек для карты: серверный GPS-трек, при его отсутствии — линия по
@@ -591,6 +594,43 @@ export default function RouteDetailClient({ id }: { id: string }) {
       trackCoords,
       usingServerTrack ? (route.geometrySource ?? null) : 'waypoints_synthetic',
     );
+    // Подъезд, влитый в линию. Перепись 22.08: у 129 маршрутов из 290 линия
+    // доходит до места, но начинается за десятки километров — в неё записана
+    // дорога заброски. Врёт при этом не линия, а её ПОДАЧА: длина по всей
+    // ломаной выдаётся за пеший маршрут. Пока число не расшито на «подъезд +
+    // путь», честный минимум — сказать это словами рядом с картой.
+    // Только для серверного трека: у наброска по точкам подъезда не бывает.
+    const ownership = usingServerTrack && trackCoords
+      ? lineOwnership({
+          routePoint: route.lat != null && route.lng != null
+            ? { lat: Number(route.lat), lng: Number(route.lng) } : null,
+          coords: trackCoords.map(([lat, lng]) => [lng, lat]),
+        })
+      : null;
+    const approachCaption = ownership?.verdict === 'own_with_approach' && ownership.tailKm !== null
+      ? `Линия включает подъезд: её дальний конец в ${Math.round(ownership.tailKm)} км от места. ` +
+        'Длина считается по всей линии, вместе с дорогой.'
+      : null;
+    /**
+     * Линия есть, но она не сходится с местом — не рисуем (решение
+     * владельца 22.08, пункт 2: «спрятать»).
+     *
+     * Судья ставит `unclear`, когда линия подходит к своей точке на
+     * расстояние между порогами: не настолько близко, чтобы считать её
+     * своей, и не настолько далеко, чтобы назвать чужой. Таких линий 19.
+     * Нарисованная, такая линия обещает ведение ровно так же уверенно, как
+     * проверенная, — и решение «идти по ней» человек примет, глядя на
+     * карту, а не на наши пороги. Пока не разобрались глазами, честнее
+     * показать место без линии и сказать словами, что путь не подтверждён.
+     *
+     * Данные не трогаются: линия остаётся в записи и вернётся на карту
+     * сама, как только сойдётся с местом.
+     */
+    const lineHidden = ownership?.verdict === 'unclear';
+    const hiddenCaption = lineHidden && ownership?.nearestKm !== null && ownership !== null
+      ? `Линия записана, но проходит в ${ownership.nearestKm} км от самого места — ` +
+        'мы не показываем её, пока не проверим на земле. Ориентируйтесь по точкам маршрута.'
+      : null;
     const cardMapMarkers: MapMarker[] = [
       {
         coords: mapCenter,
@@ -604,7 +644,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
         // маршрутов geometry построена миграцией 168 прямыми между точками:
         // такая линия проходит через каньон и реку и выглядела здесь ровно
         // так же уверенно, как снятый GPS-трек.
-        ...(track
+        ...(track && !lineHidden
           ? { geometry: { type: 'polyline' as const, coordinates: trackCoords as [number, number][], ...track.style } }
           : {}),
       },
@@ -617,7 +657,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
         category: w.locationType ?? 'other',
       })),
     ];
-    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track };
+    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track, approachCaption, hiddenCaption };
   }, [route, pathWaypoints]);
 
   if (loading) {
@@ -1426,6 +1466,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 {track && track.caption !== '' && (
                   <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{track.caption}</p>
                 )}
+                {mapData.approachCaption && (
+                  <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.approachCaption}</p>
+                )}
+                {mapData.hiddenCaption && (
+                  <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.hiddenCaption}</p>
+                )}
               </section>
             )}
 
@@ -1600,6 +1646,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       «идти по этой линии» человек принимает именно здесь. */}
                   {track && track.caption !== '' && (
                     <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{track.caption}</p>
+                  )}
+                  {mapData.approachCaption && (
+                    <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.approachCaption}</p>
+                  )}
+                  {mapData.hiddenCaption && (
+                    <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.hiddenCaption}</p>
                   )}
                 </div>
               )}

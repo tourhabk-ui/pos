@@ -106,17 +106,28 @@ async function saveTour(tour: ScrapedTour, operatorId: string): Promise<'inserte
         // — со старым именем ON CONFLICT не находил арбитра и падал вместе со
         // всей вставкой (issue #1331).
         await pool.query(
-          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_available)
-           VALUES ($1, $2::date, COALESCE($3, 10), TRUE)
+          // Колонок tour_id и is_available в tour_availability НЕТ: таблицу
+          // создаёт миграция 040 (operator_tour_id, booked_slots). Обе
+          // выдумки жили здесь, потому что их объявляла призрачная копия
+          // таблицы в lib/database/schema.sql, которую деплой не применяет.
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots)
+           VALUES ($1, $2::date, COALESCE($3, 10), 0)
            ON CONFLICT (operator_tour_id, date) DO UPDATE SET
              available_slots = COALESCE(EXCLUDED.available_slots, tour_availability.available_slots),
-             is_available    = TRUE`,
+             is_cancelled    = FALSE`,
           [tourId, dep.date_from, dep.seats_left],
         );
       } catch (err) {
-        // Пустой catch здесь означал «пропущены плохие даты», а на деле
-        // глотал отказ по НЕСУЩЕСТВУЮЩЕЙ колонке — то есть не записывалась
-        // ни одна дата, и молчание читалось как успех (CLAUDE.md §4.0).
+        // Не «skip bad dates»: пустой catch и держал эту вставку мёртвой.
+        // Каждый заезд падал на «column does not exist», а наружу это
+        // выглядело как «оператор не публикует дат». Дата бывает и правда
+        // кривой — но тогда это видно в логе, а не выдаётся за отсутствие
+        // заездов (§4.0). Пишем и построчный SQLSTATE, и итог по прогону:
+        // первый говорит ЧТО упало, второй — сколько именно потеряно.
+        const code = (err as { code?: string } | null)?.code ?? 'unknown';
+        console.error(
+          `[scraper] заезд не записан: тур ${tourId}, дата ${dep.date_from}, SQLSTATE ${code}`,
+        );
         failedDates++;
         if (lastDateError === null) {
           lastDateError = err instanceof Error ? err.message : String(err);

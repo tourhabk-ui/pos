@@ -159,14 +159,20 @@ describe('сбой судьи = отмена публикации, не проп
     // Раньше сбой возвращал [] — неотличимо от «подтверждено», и гейт
     // становился сквозным ровно когда переставал работать.
     expect(factCheck).toMatch(/Promise<string\[\] \| null>/);
-    // Свойство, а не написание: пустой ответ провайдера обязан быть ОТКАЗОМ,
-    // а не «чисто». 18.08 отказ стал называть свою причину (silent /
-    // unparseable / bad_shape / threw), и прежняя редакция сторожа покраснела
-    // на этом, хотя свойство сохранилось.
-    expect(factCheck, 'пустой ответ провайдера снова трактуется как «чисто»')
-      .toMatch(/if \(!raw \|\| !raw\.trim\(\)\) return \{ ok: false, why: 'silent' \}/);
-    expect(factCheck, 'исключение снова трактуется как «чисто»')
-      .toMatch(/return \{ ok: false, why: 'threw' \}/);
+    // Свойство, а не написание. 18.08 отказ стал называть причину, 22.08
+    // добавилась ещё одна (unavailable) — и обе правки роняли сторожа,
+    // пришпиленный к точной строке, при сохранном свойстве. Проверяем само
+    // свойство: НИ ОДИН отказ провайдера не заканчивается успехом судьи.
+    const refusals = [...factCheck.matchAll(/return \{ ok: false, why: '(\w+)'/g)].map(m => m[1]);
+    // Пустота, отсутствие ответа и исключение — обязаны быть среди отказов.
+    expect(refusals, 'пустой ответ провайдера снова трактуется как «чисто»').toContain('silent');
+    expect(refusals, 'отказ всех провайдеров снова трактуется как «чисто»').toContain('unavailable');
+    expect(refusals, 'исключение снова трактуется как «чисто»').toContain('threw');
+    // Ни одна ветка проверки сырого ответа не возвращает ok: true.
+    expect(factCheck, 'пустой ответ снова считается чистым')
+      .not.toMatch(/!raw[^\n]*return \{ ok: true/);
+    expect(factCheck, 'отсутствие ответа снова считается чистым')
+      .not.toMatch(/raw === null[^\n]*return \{ ok: true/);
     // Обёртка сохраняет прежний контракт для тех, кому причина не нужна.
     expect(factCheck).toMatch(/return r\.ok \? r\.unsupported : null/);
   });
@@ -186,5 +192,73 @@ describe('сбой судьи = отмена публикации, не проп
   it('scout-дайджест не публикует при null от судьи', () => {
     expect(scout).toMatch(/if \(claims === null\)/);
     expect(scout).toMatch(/claims === null \|\| claims\.length > 0/);
+  });
+});
+
+/**
+ * Судья фактгейта после прогона 22.08 (владелец: «разведчика почини»).
+ *
+ * Прогон дошёл ДО судьи: 52 сигнала, синтез состоялся, все 10 источников
+ * живы — и встал на `judge_unparseable`. Значит провайдеры работали, а
+ * версия «молчит провайдер» этим прогоном опровергнута. Осталось два
+ * механизма, дающих «JSON не нашёлся» от работающей модели: преамбула
+ * вокруг ответа и обрыв по потолку токенов. Оба закрыты здесь.
+ */
+describe('судья просит формат, а не уговаривает', () => {
+  const factCheck = readFileSync(join(process.cwd(), 'lib/agents/fact-check.ts'), 'utf-8');
+  const providers = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
+
+  it('формат просится у провайдера, а не только словами в промпте', () => {
+    expect(factCheck).toMatch(/json:\s*true/);
+    expect(providers).toMatch(/response_format:\s*\{\s*type:\s*'json_object'\s*\}/);
+  });
+
+  it('у судьи свой потолок ответа, больше умолчания ветки', () => {
+    const cap = /JUDGE_MAX_TOKENS\s*=\s*(\d+)/.exec(factCheck);
+    expect(cap).not.toBeNull();
+    // Умолчания ног быстрой ветки — 600-800. Судья цитирует утверждения,
+    // ему нужно заметно больше, иначе ответ обрывается на середине.
+    expect(Number(cap![1])).toBeGreaterThan(800);
+    expect(factCheck).toMatch(/maxTokens: JUDGE_MAX_TOKENS/);
+  });
+
+  it('судья ждёт столько же, сколько качественный путь', () => {
+    // Прогон 22.08: синтез на ТЕХ ЖЕ провайдерах прошёл (45 с), судья на том
+    // же прогоне вернул «не ответил никто» (20 с). Разница — только предел
+    // ожидания. Плюс поднятый потолок ответа делает ответ длиннее, то есть
+    // без этой правки судья упирался бы в предел чаще.
+    const t = /JUDGE_TIMEOUT_MS\s*=\s*([\d_]+)/.exec(factCheck);
+    expect(t).not.toBeNull();
+    expect(Number(t![1].replace(/_/g, ''))).toBeGreaterThanOrEqual(45_000);
+    expect(factCheck).toMatch(/timeoutMs: JUDGE_TIMEOUT_MS/);
+    // И предел доезжает до ног гонки, а не остаётся объявлением.
+    expect(providers).toMatch(/timeoutMs: opts\?\.timeoutMs \?\? 20_000, label: 'deepseek'/);
+  });
+
+  it('обрыв назван обрывом, а не прозой', () => {
+    // Разные беды — разный ремонт: потолок токенов против промпта.
+    expect(factCheck).toMatch(/why: JudgeFailure = raw\.includes\('\{'\) \? 'truncated' : 'unparseable'/);
+  });
+
+  it('разбор берёт сбалансированный объект, а не «от первой до последней»', () => {
+    // Жадная /\{[\s\S]*\}/ склеивала два объекта в заведомо битую строку.
+    expect(factCheck).toMatch(/extractJsonObject/);
+    expect(factCheck).not.toMatch(/raw\.match\(\/\\\{\[\\s\\S\]\*\\\}\/\)/);
+  });
+
+  it('улика доезжает до человека, а не гибнет в функции', () => {
+    const digest = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+    const route = readFileSync(join(process.cwd(), 'app/api/cron/scout-digest/route.ts'), 'utf-8');
+    // Код называет класс беды, строка ответа — саму беду. Без неё чинят наугад.
+    expect(digest).toMatch(/digest_skip_detail/);
+    expect(digest).toMatch(/verdict\.sample/);
+    expect(route).toMatch(/digest_skip_detail: result\.digest_skip_detail/);
+  });
+
+  it('повтор идёт на бедах разбора, но не на молчании провайдера', () => {
+    // Молчащего вторым запросом не оживить, а гейт публикации не место
+    // для долбёжки.
+    expect(factCheck).toMatch(/fixableByAsking/);
+    expect(factCheck).toMatch(/\['unparseable', 'truncated', 'bad_shape'\]/);
   });
 });
