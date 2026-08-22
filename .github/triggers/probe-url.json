@@ -1,12 +1,23 @@
 {
-  "note": "Проба 145: почему разведчик молчит 21 день. Первый URL — история прогонов с причинами (маркер scout_diagnose_v1, read-only): одна причина двадцать раз означает стену, разные — россыпь. Второй — боевой прогон дайджеста уже с честным судьёй (callAIFastOrNull): если ворота откроются, выпуск уйдёт в канал; если нет — причина будет названа верно, включая новую judge_unavailable.",
-  "urls": [
-    "https://vedarai.ru/api/cron/scout-diagnose?limit=40",
-    "https://vedarai.ru/api/cron/scout-digest"
-  ],
-  "until": "scout_diagnose_v1",
-  "retries": 20,
-  "retryDelay": 60,
-  "timeout": 120,
-  "bytes": 9000
+ "bytes": 4000,
+ "timeout": 120,
+ "retries": 10,
+ "retryDelay": 60,
+ "until": "\"declared_tables\"",
+ "note": "Проба 95: первый замер расхождений схемы на проде (/api/cron/schema-drift из #1335). Сверяет действия, а не имена файлов: колонки из CREATE TABLE и ADD COLUMN в migrations/ против information_schema живой базы. Черновая сверка по снимку 15.08 давала 23 таблицы и 32 колонки, но снимок недельной давности — здесь цифра свежая с обеих сторон.",
+ "run": 95,
+ "urls": [
+  "https://vedarai.ru/api/cron/schema-drift"
+ ],
+ "grep": [
+  "\"ok\":true",
+  "\"drift_total\":0"
+ ],
+ "around": [
+  "\"missing_tables\":[",
+  "\"missing_columns\":[",
+  "\"drift_total\""
+ ],
+ "aroundLines": 70,
+ "aroundHits": 1
 }
