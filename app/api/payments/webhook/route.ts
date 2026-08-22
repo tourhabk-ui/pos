@@ -370,13 +370,16 @@ async function handleFailedPayment(webhook: CloudPaymentsWebhook) {
 
     // Отправляем email о неуспешном платеже
     try {
-      // Получаем детали платежа для email
+      // Получаем детали платежа для email.
+      //
+      // Здесь стояло `SELECT p.*, b.booking_type` с тремя LEFT JOIN на брони
+      // тура, жилья и трансфера. Колонки booking_type у operator_bookings нет
+      // — она у самого платежа, и `p.*` её уже отдаёт. То есть запрос падал
+      // на «column b.booking_type does not exist», и письмо о неудачной оплате
+      // не уходило никогда. Джойны при этом ничего не выбирали.
       const paymentDetails = await query<PaymentRow>(`
-        SELECT p.*, b.booking_type
+        SELECT p.*
         FROM payments p
-        LEFT JOIN operator_bookings b ON p.booking_id = b.id AND p.booking_type = 'tour'
-        LEFT JOIN accommodation_bookings ab ON p.booking_id = ab.id AND p.booking_type = 'accommodation'
-        LEFT JOIN transfer_bookings tb ON p.booking_id = tb.id AND p.booking_type = 'transfer'
         WHERE p.id = $1
       `, [paymentId]);
 

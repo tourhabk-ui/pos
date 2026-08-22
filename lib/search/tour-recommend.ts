@@ -61,14 +61,14 @@ async function getSimilarUsersRecommendations(
          t.rating,
          t.images, t.eco_points_reward
        FROM operator_bookings b1
-       JOIN operator_bookings b2 ON b2.tour_id = b1.tour_id
+       JOIN operator_bookings b2 ON b2.operator_tour_id = b1.operator_tour_id
                                 AND b2.user_id != $1
                                 AND b2.booking_status IN ('confirmed', 'completed')
                                 AND b2.deleted_at IS NULL
        JOIN operator_bookings b3 ON b3.user_id = b2.user_id
                                 AND b3.booking_status IN ('confirmed', 'completed')
                                 AND b3.deleted_at IS NULL
-       JOIN operator_tours t ON t.id = b3.tour_id
+       JOIN operator_tours t ON t.id = b3.operator_tour_id
                             AND t.id != ALL($2::text[])
                             AND t.is_active = true
                             AND t.deleted_at IS NULL
@@ -91,6 +91,14 @@ async function getSimilarUsersRecommendations(
       strategyLabel: STRATEGY_LABELS.SIMILAR_USERS,
     }));
   } catch (err) {
+    // Пустой catch превращал отказ в «похожих нет»: запрос джойнился по
+    // фантомной operator_bookings.tour_id и падал на каждом вызове, а наружу
+    // это выглядело как честный пустой ответ (§4.0). Ловим, но не молчим.
+    console.error(
+      '[tour-recommend] SIMILAR_USERS не выполнен:',
+      err instanceof Error ? err.message : err,
+      (err as { code?: string })?.code ?? '',
+    );
     return [];
   }
 }

@@ -55,18 +55,11 @@ export interface ImportedFile {
   problems: string[];
 }
 
-const R_KM = 6371;
-
-export function haversineKm(
-  aLat: number, aLng: number, bLat: number, bLng: number,
-): number {
-  const dLat = ((bLat - aLat) * Math.PI) / 180;
-  const dLng = ((bLng - aLng) * Math.PI) / 180;
-  const la1 = (aLat * Math.PI) / 180;
-  const la2 = (bLat * Math.PI) / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
-  return 2 * R_KM * Math.asin(Math.min(1, Math.sqrt(h)));
-}
+// Расстояние живёт в отдельном модуле без серверных зависимостей: см.
+// lib/field/geo.ts. Реэкспорт сохранён — этот модуль остаётся точкой входа
+// для серверной стороны, и звать её оттуда по-прежнему можно.
+import { haversineKm } from './geo';
+export { haversineKm };
 
 /** Потолок распакованного: архив сжимается в тысячи раз, вход мы ограничили,
  *  а выход — нет. У самого Organic Maps этой защиты нет (zip_reader.cpp

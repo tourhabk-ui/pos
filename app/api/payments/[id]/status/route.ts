@@ -61,7 +61,7 @@ export async function GET(
       const operatorAccessResult = await query(
         `SELECT b.id
          FROM operator_bookings b
-         JOIN operator_tours t ON b.tour_id = t.id
+         JOIN operator_tours t ON b.operator_tour_id = t.id
          JOIN partners p ON t.operator_id = p.id
          WHERE b.id = $1 AND p.user_id = $2
          LIMIT 1`,
