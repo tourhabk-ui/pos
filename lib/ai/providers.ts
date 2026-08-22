@@ -905,7 +905,10 @@ export async function callGemini(messages: ChatMessage[]): Promise<string | null
 }
 
 // ── DeepSeek (direct API) ──────────────────────────────────────
-export async function callDeepSeek(messages: ChatMessage[]): Promise<string | null> {
+export async function callDeepSeek(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
   const apiKey = getDeepSeekKey();
   if (!apiKey) return null;
 
@@ -921,8 +924,9 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
       body: JSON.stringify({
         model,
         temperature: 0.4,
-        max_tokens: 800,
+        max_tokens: opts?.maxTokens ?? 800,
         messages: payload,
+        ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
       }),
     }, { timeoutMs: 20_000, label: 'deepseek' });
     if (!res.ok) return null;
@@ -969,7 +973,10 @@ async function resolveKimiModel(): Promise<string> {
  * Один вызов Kimi (OpenAI-совместимый). Нет ключа → null (выпадает из гонки).
  * Зеркалит callDeepSeek: та же форма запроса/ответа, свой timeout.
  */
-export async function callKimi(messages: ChatMessage[]): Promise<string | null> {
+export async function callKimi(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
   const apiKey = getMoonshotKey();
   if (!apiKey) return null;
   try {
@@ -978,7 +985,12 @@ export async function callKimi(messages: ChatMessage[]): Promise<string | null> 
     const res = await fetchWithRetry(`${MOONSHOT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, temperature: 0.4, max_tokens: 800, messages: payload }),
+      body: JSON.stringify({
+        model, temperature: 0.4,
+        max_tokens: opts?.maxTokens ?? 800,
+        messages: payload,
+        ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
+      }),
     }, { timeoutMs: 20_000, label: `kimi:${model}` });
     if (!res.ok) return null;
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
@@ -1928,7 +1940,10 @@ export async function callMiniMax(messages: ChatMessage[]): Promise<string | nul
 }
 
 // ── Google Gemini (direct API) ─────────────────────────────────
-export async function callGeminiDirect(messages: ChatMessage[]): Promise<string | null> {
+export async function callGeminiDirect(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
   const apiKey = getGeminiKey();
   if (!apiKey) return null;
 
@@ -1943,6 +1958,12 @@ export async function callGeminiDirect(messages: ChatMessage[]): Promise<string 
     const body: Record<string, unknown> = { contents };
     if (systemMsg) {
       body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+    }
+    if (opts?.maxTokens || opts?.json) {
+      body.generationConfig = {
+        ...(opts.maxTokens ? { maxOutputTokens: opts.maxTokens } : {}),
+        ...(opts.json ? { responseMimeType: 'application/json' } : {}),
+      };
     }
 
     const res = await fetchWithRetry(
@@ -2761,25 +2782,50 @@ export async function callAIQualityOrNull(
 export const AI_FAST_UNAVAILABLE = 'Сервис временно недоступен.';
 
 /**
+ * Опции быстрой ветки. Обе появились 22.08 из-за судьи фактгейта.
+ *
+ * `maxTokens` — потолок ответа. По умолчанию у ног гонки 600-800 токенов:
+ * для реплики в чате достаточно, а судья обязан ЦИТИРОВАТЬ неподтверждённые
+ * утверждения, и на длинном выпуске обрывался на середине. Оборванный JSON
+ * не имеет закрывающей скобки, разбор его не берёт — и отказ назывался
+ * «ответила прозой», хотя модель отвечала правильно и просто не поместилась.
+ *
+ * `json` — просить у провайдера ФОРМАТ, а не уговаривать словами. Просьба
+ * «верни ТОЛЬКО JSON» в системном промпте — не гарантия; response_format
+ * у DeepSeek/OpenRouter — гарантия. Кто формата не умеет, работает как
+ * прежде: разбор и один повтор остаются страховкой.
+ */
+export interface FastCallOptions {
+  maxTokens?: number;
+  json?: boolean;
+}
+
+/**
  * Быстрый вызов, честный к отказу: null — не ответил НИ ОДИН провайдер.
  * Обычный callAIFast для совместимости подставляет строку-заглушку, из-за чего
  * вызывающий не мог отличить «модель так ответила» от «всё упало».
  */
-export async function callAIFastOrNull(messages: ChatMessage[]): Promise<string | null> {
-  const text = await callAIFast(messages);
+export async function callAIFastOrNull(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string | null> {
+  const text = await callAIFast(messages, opts);
   return text === AI_FAST_UNAVAILABLE ? null : text;
 }
 
-export async function callAIFast(messages: ChatMessage[]): Promise<string> {
+export async function callAIFast(
+  messages: ChatMessage[],
+  opts?: FastCallOptions,
+): Promise<string> {
   const apiKey = getOpenRouterKey();
 
   // MiMo убран 04.07.2026 — прямой api.xiaomimimo.com не отвечал (см. callAIWaterfall).
   // callKimi — третий достижимый из РФ провайдер: нет MOONSHOT_API_KEY → null,
   // из гонки выпадает. Оживляет судью фактгейта, когда DeepSeek/Gemini молчат.
   const calls: Promise<string | null>[] = [
-    callDeepSeek(messages),
-    callGeminiDirect(messages),
-    callKimi(messages),
+    callDeepSeek(messages, opts),
+    callGeminiDirect(messages, opts),
+    callKimi(messages, opts),
   ];
 
   // DeepSeek via OpenRouter (inline to avoid extra function)
@@ -2797,8 +2843,9 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
         body: JSON.stringify({
           model: 'deepseek/deepseek-chat-v3-0324',
           temperature: 0.3,
-          max_tokens: 600,
+          max_tokens: opts?.maxTokens ?? 600,
           messages: payload,
+          ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
         }),
         signal: AbortSignal.timeout(12_000),
       })

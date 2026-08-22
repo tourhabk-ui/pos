@@ -57,7 +57,10 @@ export async function GET(request: NextRequest) {
     );
 
     const runs = rows.map(r => {
-      const meta = r.metadata as { digest_skip_reason?: string | null } | null;
+      const meta = r.metadata as {
+        digest_skip_reason?: string | null;
+        digest_skip_detail?: string | null;
+      } | null;
       const code = meta?.digest_skip_reason ?? null;
       return {
         at: r.started_at instanceof Date ? r.started_at.toISOString() : String(r.started_at),
@@ -69,6 +72,9 @@ export async function GET(request: NextRequest) {
         // записывать (причина стёрта). Различаем статусом, не пустотой.
         skip_reason: code,
         skip_label: code ? (SKIP_REASON_LABELS[code] ?? code) : null,
+        // Начало неразобранного ответа. Класс беды называет код, саму беду —
+        // эта строка; без неё чинят наугад.
+        skip_detail: meta?.digest_skip_detail ?? null,
       };
     });
 

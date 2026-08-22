@@ -88,6 +88,7 @@ export function unsourcedPercents(post: string, source: string): string[] {
  *   silent      — провайдер вернул пустоту: молчание модели;
  *   unavailable — не ответил НИ ОДИН провайдер (22.08);
  *   unparseable — ответ есть, но JSON в нём не нашёлся (модель ответила прозой);
+ *   truncated   — JSON начался и оборвался: не хватило потолка токенов;
  *   bad_shape   — JSON есть, а поля `unsupported` в нём нет или оно не список;
  *   threw       — запрос упал с исключением (сеть, ключ, таймаут).
  *
@@ -102,7 +103,8 @@ export function unsourcedPercents(post: string, source: string): string[] {
  * провайдеры. Заглушка — это ответ вызывающему «я не смог», и путать её с
  * ответом модели нельзя: `callAIFastOrNull` отдаёт то же самое честным `null`.
  */
-export type JudgeFailure = 'silent' | 'unavailable' | 'unparseable' | 'bad_shape' | 'threw';
+export type JudgeFailure =
+  | 'silent' | 'unavailable' | 'unparseable' | 'truncated' | 'bad_shape' | 'threw';
 
 export type JudgeOutcome =
   | { ok: true; unsupported: string[] }
@@ -155,11 +157,27 @@ function extractJsonObject(raw: string): string | null {
   return null;
 }
 
+/**
+ * Потолок ответа судьи.
+ *
+ * У ног быстрой ветки по умолчанию 600-800 токенов. Судья обязан ЦИТИРОВАТЬ
+ * неподтверждённые утверждения, и на длинном выпуске ответ обрывался на
+ * середине. У оборванного JSON нет закрывающей скобки, разбор его не берёт —
+ * и отказ назывался «ответила прозой», хотя модель отвечала верно и просто
+ * не поместилась. Проба 22.08: прогон дошёл до судьи (52 сигнала, синтез
+ * состоялся, все 10 источников живы) и встал именно здесь.
+ */
+const JUDGE_MAX_TOKENS = 1600;
+
 /** Одна попытка: спросить судью и разобрать ответ. */
 async function judgeOnce(messages: ChatMessage[]): Promise<JudgeOutcome> {
   let raw: string | null;
   try {
-    raw = await callAIFastOrNull(messages);
+    // json: формат просим у ПРОВАЙДЕРА, а не уговариваем словами в промпте.
+    // «Верни ТОЛЬКО JSON» — просьба, response_format — гарантия. Провайдер,
+    // который формата не умеет, работает как прежде: разбор и повтор ниже
+    // остаются страховкой.
+    raw = await callAIFastOrNull(messages, { maxTokens: JUDGE_MAX_TOKENS, json: true });
   } catch {
     return { ok: false, why: 'threw' };
   }
@@ -170,7 +188,13 @@ async function judgeOnce(messages: ChatMessage[]): Promise<JudgeOutcome> {
   if (!raw.trim()) return { ok: false, why: 'silent' };
 
   const body = extractJsonObject(raw);
-  if (!body) return { ok: false, why: 'unparseable', sample: sampleOf(raw) };
+  if (!body) {
+    // Открытая скобка без закрывающей — это ОБРЫВ, а не проза. Лечится
+    // потолком токенов, а не промптом, и путать их нельзя: один и тот же
+    // код отправлял чинить не туда три недели.
+    const why: JudgeFailure = raw.includes('{') ? 'truncated' : 'unparseable';
+    return { ok: false, why, sample: sampleOf(raw) };
+  }
   try {
     const parsed = JSON.parse(body) as { unsupported?: unknown };
     if (!Array.isArray(parsed.unsupported)) {
@@ -192,13 +216,14 @@ export async function judgeClaims(post: string, sources: string): Promise<JudgeO
   // Проза вместо JSON лечится прямым указанием, а не ожиданием. Повтор ТОЛЬКО
   // на беде разбора: молчащего провайдера вторым запросом не оживить, а гейт
   // публикации не место для долбёжки.
-  if (first.ok || (first.why !== 'unparseable' && first.why !== 'bad_shape')) return first;
+  const fixableByAsking: JudgeFailure[] = ['unparseable', 'truncated', 'bad_shape'];
+  if (first.ok || !fixableByAsking.includes(first.why)) return first;
   const retry = await judgeOnce([
     ...messages,
     { role: 'assistant', content: first.sample ?? '' },
     {
       role: 'user',
-      content: 'Ответ не разобран. Верни ТОЛЬКО объект JSON вида {"unsupported":[]} — без пояснений, без markdown, без текста до и после.',
+      content: 'Ответ не разобран. Верни ТОЛЬКО объект JSON вида {"unsupported":[]} — без пояснений, без markdown, без текста до и после. Формулировки в списке сокращай до сути, чтобы ответ поместился целиком.',
     },
   ]);
   // Вернуть исход повтора, но снимок оставить ПЕРВЫЙ: он показывает, с чего
