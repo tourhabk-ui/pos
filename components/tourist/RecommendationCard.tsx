@@ -35,13 +35,12 @@ export function RecommendationCardSkeleton() {
 export default function RecommendationCard({ tour, onCardClick }: RecommendationCardProps) {
   const badge = STRATEGY_BADGES[tour.strategy];
 
+  // Маяк /api/analytics/recommendation-click убран 22.08: такого роута нет
+  // и не было — запрос падал на Edge (401), а долетев, получил бы 404.
+  // Код, изображающий учёт, хуже отсутствия учёта: по нему решают, что
+  // данные собираются. Понадобится статистика кликов — сначала роут и
+  // таблица, потом маяк.
   const handleClick = () => {
-    fetch('/api/analytics/recommendation-click', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tourId: tour.id, strategy: tour.strategy }),
-    }).catch(() => {});
-
     onCardClick?.(tour.id, tour.strategy);
   };
 
