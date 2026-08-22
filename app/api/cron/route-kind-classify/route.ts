@@ -23,6 +23,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getCronSecret } from '@/lib/auth/cron';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { lineOwnership } from '@/lib/routes/line-ownership';
 
@@ -36,8 +38,11 @@ interface Row {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = request.headers.get('authorization');
-  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Сравнение секрета — только за постоянное время: обычное !== отвечает тем
+  // быстрее, чем раньше разошлись строки, и по времени ответа секрет
+  // подбирается посимвольно. Общий гейт: getCronSecret + timingSafeCompare.
+  const secret = getCronSecret(request);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ success: false, error: 'Не авторизован' }, { status: 401 });
   }
 
