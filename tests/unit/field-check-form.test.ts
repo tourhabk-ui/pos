@@ -81,7 +81,13 @@ describe('PWA и фотографии', () => {
   });
 
   it('версия кэша поднята вместе с составом прекэша', () => {
-    expect(sw).toMatch(/CACHE_NAME = 'kamchatour-v27'/);
+    // Черта, а не номер: привязка к 'v27' ломалась при каждом следующем
+    // подъёме версии, хотя правило — «состав прекэша сменился, значит имя
+    // кэша обязано смениться тоже», и оно не про конкретную цифру.
+    const m = /CACHE_NAME = 'kamchatour-v(\d+)'/.exec(sw);
+    expect(m, 'имя кэша не найдено').not.toBeNull();
+    expect(parseInt(m![1], 10)).toBeGreaterThanOrEqual(27);
+    expect(sw).toContain('/field-check');
   });
 
   it('форма регистрирует service worker сама', () => {
