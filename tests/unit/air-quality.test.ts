@@ -56,6 +56,9 @@ describe('getZoneAirQuality (IQAir — volcanic ash signal)', () => {
       aqiUs: 42,
       mainPollutant: 'p2',
       category: 'good',
+      // Источник в этой фикстуре города не назвал — станции нет, и это
+      // честный null, а не «станция прямо в зоне» (23.08).
+      station: null,
     });
   });
 
