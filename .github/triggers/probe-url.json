@@ -3,24 +3,24 @@
  "timeout": 120,
  "retries": 12,
  "retryDelay": 60,
- "until": "\"drift_total\"",
- "note": "Проба 97: честная цифра расхождений после трёх правок. 907 вернула комиссию платформы, блокировку пользователя, связь гида с оператором, security_blocks и zone_capacity_limits. Модуль поддержки (8 таблиц) объявлен сознательно отсутствующим по решению владельца. Разборщик научился читать DROP COLUMN и DROP TABLE — снятое позже больше не числится пропавшим. Было 43; ожидается около 32, и все настоящие. Заодно проверяем, что 907 накатилась: спрашиваем базу, а не запись applied.",
- "run": 97,
+ "until": "partners_total",
+ "note": "Проба 98: картина по партнёрам перед чисткой. Владелец сказал «два партнёра с турами, остальное мусор» и разрешил удалять. Удаление необратимо, поэтому сначала список: сколько всего, разбиение по категориям, у скольких имя не имя, кто с турами (товар), кто держится бронями/входом в кабинет/аттестациями, и сколько по-настоящему бесхозных. Заодно повторный замер расхождений схемы — прошлая проба обогнала выкат и не увидела правку про DROP; ожидаемое число записано в маркере ниже.",
+ "run": 98,
  "urls": [
-  "https://vedarai.ru/api/cron/schema-drift",
-  "https://vedarai.ru/api/cron/schema-audit"
+  "https://vedarai.ru/api/cron/partner-junk-census",
+  "https://vedarai.ru/api/cron/schema-drift"
  ],
  "grep": [
-  "\"table\":\"operator_commissions\"",
-  "\"table\":\"tickets\"",
-  "\"column\":\"tags\"",
-  "\"column\":\"guide_operator_id\""
+  "\"drift_total\":26",
+  "\"column\":\"tags\""
  ],
  "around": [
-  "\"missing_tables\":[",
-  "\"missing_columns\":[",
+  "\"by_category\"",
+  "\"with_tours\":[",
+  "\"linked\":[",
+  "\"orphan_sample\":[",
   "\"drift_total\""
  ],
- "aroundLines": 60,
+ "aroundLines": 45,
  "aroundHits": 1
 }
