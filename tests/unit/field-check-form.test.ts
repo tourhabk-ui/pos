@@ -162,8 +162,11 @@ describe('юзабилити поля: рука в перчатке, ветер,
   });
 
   it('без спутников экран не бесполезен — координаты вручную', () => {
-    expect(client).toContain('Ввести координаты вручную');
+    // Черта, а не подпись: слово на кнопке меняется при упрощении формы, а
+    // возможность ввести координату руками терять нельзя — именно там, где
+    // спутников нет, экран и нужен.
     expect(client).toContain('applyManualCenter');
+    expect(client).toMatch(/manualCenter/);
   });
 
   it('видно, сколько сделано и сколько ждёт связи', () => {
@@ -237,5 +240,59 @@ describe('склонение числа путевых точек', () => {
     expect(waypointsPhrase(21)).toBe('21 точка пути');
     expect(waypointsPhrase(22)).toBe('22 точки пути');
     expect(waypointsPhrase(111)).toBe('111 точек пути');
+  });
+});
+
+/**
+ * Упрощение формы (владелец 21.08: «нужно проще»).
+ *
+ * Проверяется не красота, а два свойства: свёрнутая карточка не выгружает
+ * базу на экран, и вопрос о координате задаётся только тому, кто сказал,
+ * что точка не там.
+ */
+describe('форма проще', () => {
+  it('свёрнутая карточка несёт одно обещание, а не все факты', async () => {
+    const { headlineClaim } = await import('@/app/field-check/_FieldCheckClient');
+    expect(headlineClaim({
+      kind: 'route', subtitle: 'medium',
+      facts: [{ label: 'дистанция', value: '12.10 км' }, { label: 'линия', value: 'есть (external)' }],
+    })).toBe('обещаем 12,1 км');
+    // У места отдельного обещания нет: тип уже стоит строкой выше, и
+    // повторять его значит занимать строку ничем.
+    expect(headlineClaim({ kind: 'place', subtitle: 'waterfall', facts: [] })).toBeNull();
+  });
+
+  it('число по-русски, без хвоста нулей из колонки NUMERIC', async () => {
+    const { ruAmount } = await import('@/app/field-check/_FieldCheckClient');
+    expect(ruAmount('12.10 км')).toBe('12,1 км');
+    expect(ruAmount('45.00 км')).toBe('45 км');
+    expect(ruAmount('1.90 км')).toBe('1,9 км');
+    // Не число — отдаётся как есть, а не превращается в мусор.
+    expect(ruAmount('не знаем')).toBe('не знаем');
+  });
+
+  it('код базы не показывается человеку: незнакомый ярлык молчит', async () => {
+    const { subtitleWord } = await import('@/app/field-check/_FieldCheckClient');
+    expect(subtitleWord('waterfall')).toBe('водопад');
+    expect(subtitleWord('medium')).toBe('средне');
+    expect(subtitleWord('lava_dome_xyz')).toBeNull();
+    expect(subtitleWord(null)).toBeNull();
+  });
+
+  it('нечего обещать — строки нет, а не «не знаем»', async () => {
+    const { headlineClaim } = await import('@/app/field-check/_FieldCheckClient');
+    expect(headlineClaim({
+      kind: 'route', subtitle: null, facts: [{ label: 'дистанция', value: null }],
+    })).toBeNull();
+    expect(headlineClaim({ kind: 'place', subtitle: null, facts: [] })).toBeNull();
+  });
+
+  it('координата объекта спрашивается только у вердикта «точка не там»', () => {
+    expect(client).toMatch(/problem === 'coords_wrong' && \(/);
+  });
+
+  it('редкие настройки убраны под одну ссылку', () => {
+    expect(client).toContain("Ещё: координаты вручную, радиус");
+    expect(client).toMatch(/\{showMore && \(/);
   });
 });
