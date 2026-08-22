@@ -51,7 +51,9 @@ import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-
 // падает на DeepSeek/Gemini. Если задан релей вне РФ (Cloudflare Worker/VPS —
 // прозрачный прокси, форвардит путь и Authorization как есть), базовые URL
 // указывают на него. Переменные не заданы → прежнее прямое поведение.
-const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+/** Домашний адрес OpenRouter — база по умолчанию и эталон для диагностики релея. */
+const OPENROUTER_DIRECT = 'https://openrouter.ai/api/v1';
+const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || OPENROUTER_DIRECT).replace(/\/+$/, '');
 // Экспортируется: прямой вызов Anthropic нужен там, где waterfall не годится
 // (image-tagger — ему нужно зрение, а waterfall текстовый). Такие места обязаны
 // брать базу отсюда, иначе релей их не спасёт и они останутся мертвы в РФ.
@@ -282,6 +284,22 @@ export async function probeOpenRouterKeyStatus(): Promise<{
   route_host: string;
   http_status: number | null;
   detail: string;
+  /**
+   * Тот же запрос НАПРЯМУЮ в openrouter.ai, минуя релей. Заполняется только
+   * когда база релейная — иначе это был бы дубль основного измерения (null).
+   *
+   * Зачем. 22.08 прод через релей получал 403 с телом
+   * `{ "success": false, "error": "Access denied by security policy." }`, тогда
+   * как раннер тем же путём получал настоящий ответ OpenRouter
+   * (`{"error":{"message":"No cookie auth credentials found","code":401}}`).
+   * Формат чужой, значит отвечает не OpenRouter — а кто, по одному коду не
+   * узнать. Сравнение с прямым путём разделяет два разных диагноза:
+   * совпало — режет край сети по нашему адресу, и релей его не прячет
+   * (лечится сменой площадки релея); не совпало — режет что-то на выходе
+   * из Timeweb именно к релею (лечится в другом месте).
+   */
+  direct_status: number | null;
+  direct_detail: string | null;
 }> {
   const key_source = getOpenRouterKeySource();
   const both_env_set = !!process.env.OR_API_KEY && !!process.env.OPENROUTER_API_KEY;
@@ -296,25 +314,43 @@ export async function probeOpenRouterKeyStatus(): Promise<{
   try { route_host = new URL(OPENROUTER_BASE).host; } catch { /* оставляем дефолт */ }
 
   const apiKey = getOpenRouterKey();
-  if (!apiKey) return { key_source, both_env_set, route, route_host, http_status: null, detail: 'ключ не задан' };
-
-  try {
-    const res = await fetch(`${OPENROUTER_BASE}/key`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(8_000),
-    });
-    const body = (await res.text()).slice(0, 300);
-    return { key_source, both_env_set, route, route_host, http_status: res.status, detail: body };
-  } catch (e) {
+  if (!apiKey) {
     return {
-      key_source,
-      both_env_set,
-      route,
-      route_host,
-      http_status: null,
-      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+      key_source, both_env_set, route, route_host,
+      http_status: null, detail: 'ключ не задан',
+      direct_status: null, direct_detail: null,
     };
   }
+
+  /** Один и тот же запрос по заданному адресу. Ключ уходит только на openrouter.ai или на наш релей. */
+  const ask = async (base: string): Promise<{ status: number | null; detail: string }> => {
+    try {
+      const res = await fetch(`${base}/key`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8_000),
+      });
+      return { status: res.status, detail: (await res.text()).slice(0, 300) };
+    } catch (e) {
+      // Третий исход: сеть не ответила — это не «доступ закрыт» и не «всё хорошо».
+      return { status: null, detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}` };
+    }
+  };
+
+  const main = await ask(OPENROUTER_BASE);
+
+  // Прямой путь меряем ТОЛЬКО когда основной релейный: иначе это тот же запрос дважды.
+  const direct = route === 'relay' ? await ask(OPENROUTER_DIRECT) : null;
+
+  return {
+    key_source,
+    both_env_set,
+    route,
+    route_host,
+    http_status: main.status,
+    detail: main.detail,
+    direct_status: direct ? direct.status : null,
+    direct_detail: direct ? direct.detail : null,
+  };
 }
 
 export async function callOpenrouter(messages: ChatMessage[]): Promise<string | null> {
