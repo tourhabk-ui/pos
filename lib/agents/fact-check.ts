@@ -169,6 +169,21 @@ function extractJsonObject(raw: string): string | null {
  */
 const JUDGE_MAX_TOKENS = 1600;
 
+/**
+ * Предел ожидания судьи.
+ *
+ * У ног быстрой ветки 20 секунд. Судья получает до 9000 знаков источников
+ * плюс сам выпуск — и не укладывается. Прогон 22.08 показал это в паре:
+ * синтез на ТЕХ ЖЕ провайдерах прошёл (у качественного пути 45 секунд), а
+ * судья на том же прогоне вернул «не ответил никто». Разница между ними —
+ * только предел ожидания.
+ *
+ * Отдельно важно: поднятый потолок ответа (1600 против 600-800) делает ответ
+ * ДЛИННЕЕ, то есть без этой правки судья стал бы упираться в 20 секунд чаще,
+ * а не реже.
+ */
+const JUDGE_TIMEOUT_MS = 45_000;
+
 /** Одна попытка: спросить судью и разобрать ответ. */
 async function judgeOnce(messages: ChatMessage[]): Promise<JudgeOutcome> {
   let raw: string | null;
@@ -177,7 +192,11 @@ async function judgeOnce(messages: ChatMessage[]): Promise<JudgeOutcome> {
     // «Верни ТОЛЬКО JSON» — просьба, response_format — гарантия. Провайдер,
     // который формата не умеет, работает как прежде: разбор и повтор ниже
     // остаются страховкой.
-    raw = await callAIFastOrNull(messages, { maxTokens: JUDGE_MAX_TOKENS, json: true });
+    raw = await callAIFastOrNull(messages, {
+      maxTokens: JUDGE_MAX_TOKENS,
+      json: true,
+      timeoutMs: JUDGE_TIMEOUT_MS,
+    });
   } catch {
     return { ok: false, why: 'threw' };
   }

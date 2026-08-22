@@ -222,6 +222,19 @@ describe('судья просит формат, а не уговаривает',
     expect(factCheck).toMatch(/maxTokens: JUDGE_MAX_TOKENS/);
   });
 
+  it('судья ждёт столько же, сколько качественный путь', () => {
+    // Прогон 22.08: синтез на ТЕХ ЖЕ провайдерах прошёл (45 с), судья на том
+    // же прогоне вернул «не ответил никто» (20 с). Разница — только предел
+    // ожидания. Плюс поднятый потолок ответа делает ответ длиннее, то есть
+    // без этой правки судья упирался бы в предел чаще.
+    const t = /JUDGE_TIMEOUT_MS\s*=\s*([\d_]+)/.exec(factCheck);
+    expect(t).not.toBeNull();
+    expect(Number(t![1].replace(/_/g, ''))).toBeGreaterThanOrEqual(45_000);
+    expect(factCheck).toMatch(/timeoutMs: JUDGE_TIMEOUT_MS/);
+    // И предел доезжает до ног гонки, а не остаётся объявлением.
+    expect(providers).toMatch(/timeoutMs: opts\?\.timeoutMs \?\? 20_000, label: 'deepseek'/);
+  });
+
   it('обрыв назван обрывом, а не прозой', () => {
     // Разные беды — разный ремонт: потолок токенов против промпта.
     expect(factCheck).toMatch(/why: JudgeFailure = raw\.includes\('\{'\) \? 'truncated' : 'unparseable'/);
