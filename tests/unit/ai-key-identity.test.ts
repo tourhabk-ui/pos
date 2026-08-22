@@ -107,6 +107,34 @@ describe('keyReport: снимок по всем отслеживаемым кл�
     expect(rows).toHaveLength(TRACKED_KEYS.length);
     expect(rows.every(r => r.identity.present === false)).toBe(true);
   });
+
+  it('реестр не только про ИИ: IQAir в нём есть', () => {
+    // 23.08 владелец вставил ключ в переменные Timeweb, и убедиться, что прод
+    // его ВИДИТ, было нечем. Ключ, о котором нельзя спросить «дошёл ли»,
+    // проверяется догадкой.
+    expect(TRACKED_KEYS.map(k => k.env)).toContain('IQAIR_API_KEY');
+  });
+});
+
+describe('ключ IQAir: пробелы не считаются заданным ключом', () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+
+  it('ни одно место не судит о ключе по truthiness', () => {
+    // `if (!process.env.IQAIR_API_KEY)` пропускает строку из пробелов: ключ
+    // «задан», уезжает в URL, провайдер отвечает отказом — и платформа
+    // показывает «данных нет» вместо «ключ неверный» (§4.0).
+    const offenders = [
+      'lib/services/safety/air-quality.ts',
+      'app/api/admin/health/air-quality-coverage/route.ts',
+      'app/api/admin/health/air-quality/route.ts',
+    ].filter(f => /!!?process\.env\.IQAIR_API_KEY/.test(read(f)));
+    expect(offenders, `судят о ключе по truthiness: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('строка из пробелов опознаётся как незаданная', () => {
+    expect(keyIdentity(' \t ').present).toBe(false);
+  });
 });
 
 describe('граница ключей: какая поверхность чем спрашивает', () => {
