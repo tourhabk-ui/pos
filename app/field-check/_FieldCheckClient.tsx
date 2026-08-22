@@ -27,6 +27,9 @@ import {
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
+// Мера расстояния одна на платформу: свою формулу здесь заводить нельзя —
+// разойдётся с той, по которой считается «км от вас» на сервере.
+import { haversineKm } from '@/lib/field/track-import';
 import {
   queueFieldCheck, listFieldChecks, deleteFieldCheck,
   saveFieldCheckArea, getFieldCheckArea,
@@ -226,6 +229,25 @@ export function FieldCheckClient() {
   const [savedArea, setSavedArea] = useState<{ label: string; savedAt: number; count: number } | null>(null);
   const [saving, setSaving] = useState(false);
 
+  /**
+   * Поиск ЗА радиусом (владелец 22.08, стоя в Паратунке накануне выхода на
+   * Вилючинский перевал: «завтра утром едут, а в форме его нет»).
+   *
+   * Строка поиска фильтровала только уже показанные записи, то есть «что в
+   * 15 км». Перевал в шестидесяти — и форма отвечала пустотой, которую
+   * нельзя было прочитать иначе как «у вас такого нет». Одно слово на два
+   * разных ответа: «нет рядом» и «нет в базе». Теперь, когда рядом ничего
+   * не нашлось, спрашиваем всю базу и говорим, что именно из двух.
+   *
+   * `null` — ещё не спрашивали (а не «пусто»).
+   */
+  const [farHits, setFarHits] = useState<
+    { routes: Array<{ id: string; title: string; waypoints: number; lat: number | null; lng: number | null }>;
+      places: Array<{ id: string; name: string; location_type: string | null; lat: number; lng: number }> } | null
+  >(null);
+  const [farBusy, setFarBusy] = useState(false);
+  const [farFailed, setFarFailed] = useState(false);
+
   useEffect(() => {
     setDone(readDone());
     void listFieldChecks().then(q => setQueueLen(q.length)).catch(() => undefined);
@@ -392,7 +414,7 @@ export function FieldCheckClient() {
    * Список по маршруту: центр и радиус считает сервер по путевым точкам —
    * выход идёт не в одну локацию, и радиус должен накрыть весь путь.
    */
-  const loadByRoute = useCallback(async (routeId: string, title: string) => {
+  const loadByRoute = useCallback(async (routeId: string, title?: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -404,7 +426,9 @@ export function FieldCheckClient() {
         return;
       }
       setItems(Array.isArray(j.items) ? j.items : []);
-      setAreaLabel(title);
+      // Имя приходит с сервера: по ссылке /field-check?route=<id> назвать
+      // район больше нечем, а «Маршрут» вместо имени — та же пустота.
+      setAreaLabel(title ?? (typeof j.route_title === 'string' ? j.route_title : null));
       setFix({
         lat: j.center?.lat ?? 0,
         lng: j.center?.lng ?? 0,
@@ -417,6 +441,24 @@ export function FieldCheckClient() {
       setLoading(false);
     }
   }, [radiusKm]);
+
+  /**
+   * Ссылка сразу на маршрут: /field-check?route=<id>.
+   *
+   * Владелец 22.08: выход завтра утром, а форму открывает не он. Пересылать
+   * человеку инструкцию «нажми взять точку, потом найди в поиске» — способ
+   * получить пустой экран: список строится вокруг того, кто стоит, а выход
+   * готовится дома за шестьдесят километров. По ссылке форма открывается
+   * уже на нужном маршруте, и остаётся нажать «Район на телефон».
+   */
+  const routeParamUsed = useRef(false);
+  useEffect(() => {
+    if (routeParamUsed.current) return;
+    const id = new URLSearchParams(window.location.search).get('route');
+    if (!id) return;
+    routeParamUsed.current = true;
+    void loadByRoute(id);
+  }, [loadByRoute]);
 
   /** Сохранить район на телефон: в поле его уже не скачать. */
   /**
@@ -734,6 +776,49 @@ export function FieldCheckClient() {
   }, [items, query, onlyPending, done]);
 
   const checkedCount = items ? items.filter(i => done[i.id]).length : 0;
+
+  /**
+   * Рядом не нашлось — спросить всю базу. Только когда локальный фильтр пуст:
+   * пока человек видит совпадения, лезть в сеть незачем, а в поле её может и
+   * не быть. Отказ сети — отдельное состояние, а не «в базе нет».
+   */
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2 || visible.length > 0) {
+      setFarHits(null);
+      setFarFailed(false);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(async () => {
+      setFarBusy(true);
+      setFarFailed(false);
+      try {
+        const res = await fetch(`/api/field-check/routes?q=${encodeURIComponent(q)}`);
+        const j = await res.json();
+        if (!alive) return;
+        if (!j?.success) { setFarFailed(true); setFarHits(null); return; }
+        setFarHits({
+          routes: Array.isArray(j.items) ? j.items : [],
+          places: Array.isArray(j.places) ? j.places : [],
+        });
+      } catch {
+        if (alive) { setFarFailed(true); setFarHits(null); }
+      } finally {
+        if (alive) setFarBusy(false);
+      }
+    }, 450);
+    return () => { alive = false; clearTimeout(t); };
+  }, [query, visible.length]);
+
+  /** Перенести список на выбранный объект: готовиться надо там, где сеть. */
+  const centerOn = useCallback((lat: number, lng: number, label: string) => {
+    setQuery('');
+    setFarHits(null);
+    setAreaLabel(label);
+    setFix({ lat, lng, accuracy: null });
+    void loadNearby(lat, lng, radiusKm);
+  }, [loadNearby, radiusKm]);
 
   // ── Шаг 1: где я ───────────────────────────────────────────────────────────
   if (!fix) {
@@ -1071,8 +1156,79 @@ export function FieldCheckClient() {
 
         {items !== null && items.length > 0 && visible.length === 0 && (
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {onlyPending ? 'Всё вокруг проверено. Спасибо.' : 'По этому запросу ничего нет.'}
+            {onlyPending
+              ? 'Всё вокруг проверено. Спасибо.'
+              : `В ${radiusKm} км такого нет.`}
           </p>
+        )}
+
+        {/*
+          Поиск за радиусом. «Нет рядом» и «нет в базе» — разные ответы, и
+          человек перед выходом должен видеть, какой из них его.
+        */}
+        {query.trim().length >= 2 && visible.length === 0 && !onlyPending && (
+          <div className="flex flex-col gap-3 p-3 rounded-lg"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+
+            {farBusy && (
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Ищем во всей базе…</p>
+            )}
+
+            {farFailed && (
+              <p className="text-sm" style={{ color: 'var(--warning)' }}>
+                Нет связи — дальше радиуса сейчас не посмотреть. Это не значит, что записи нет.
+              </p>
+            )}
+
+            {farHits && farHits.routes.length === 0 && farHits.places.length === 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                  Ни рядом, ни во всей базе такого нет.
+                </p>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Если вы стоите на этом месте — отметьте его находкой, и запись заведём.
+                </p>
+              </div>
+            )}
+
+            {farHits && (farHits.routes.length > 0 || farHits.places.length > 0) && (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                  Рядом нет, но в базе есть. Откройте — список перенесётся туда.
+                </p>
+
+                {farHits.routes.map(r => (
+                  <button key={`r-${r.id}`} onClick={() => loadByRoute(r.id, r.title)}
+                    className="flex flex-col gap-1 text-left p-3 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {r.title}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      маршрут · {r.waypoints > 0 ? `${r.waypoints} путевых точек` : 'путевых точек нет'}
+                      {fix && r.lat !== null && r.lng !== null
+                        ? ` · ${Math.round(haversineKm(fix.lat, fix.lng, r.lat, r.lng))} км от вас`
+                        : ''}
+                    </span>
+                  </button>
+                ))}
+
+                {farHits.places.map(pl => (
+                  <button key={`p-${pl.id}`} onClick={() => centerOn(pl.lat, pl.lng, pl.name)}
+                    className="flex flex-col gap-1 text-left p-3 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {pl.name}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      место{pl.location_type ? ` · ${pl.location_type}` : ''}
+                      {fix ? ` · ${Math.round(haversineKm(fix.lat, fix.lng, pl.lat, pl.lng))} км от вас` : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {visible.map(item => {

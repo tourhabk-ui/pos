@@ -93,8 +93,12 @@ describe('генераторы контента подключены к каче
     // (гейты понадобились всем публикаторам каналов) — контракт «быстрая
     // ветка» проверяется по новому адресу, дайджест обязан импортировать оттуда.
     const factCheck = read('lib/agents/fact-check.ts');
-    // 18.08 вызов переехал в try/catch ради причины отказа — ветка та же.
-    expect(factCheck).toMatch(/await callAIFast\(/);
+    // Правило — ВЕТКА, а не имя функции. 18.08 вызов переехал в try/catch,
+    // 22.08 — на честный к отказу callAIFastOrNull (заглушка «Сервис временно
+    // недоступен.» читалась как ответ модели). Оба раза сторож, пришпиленный
+    // к написанию, краснел при сохранном правиле.
+    expect(factCheck, 'фактчек ушёл с быстрой ветки').toMatch(/callAIFast(OrNull)?\(/);
+    expect(factCheck, 'фактчек занял качественную ветку').not.toMatch(/callAIQuality\(|callAIWaterfall\(/);
     expect(DIGEST).toMatch(/from '@\/lib\/agents\/fact-check'/);
   });
 });
