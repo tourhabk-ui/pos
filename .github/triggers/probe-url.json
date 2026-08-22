@@ -1,12 +1,16 @@
 {
- "bytes": 6000,
+ "bytes": 4000,
  "timeout": 90,
- "note": "Проба 85 (аудит OpenRouter, вопрос владельца): ключ на GitHub есть, активности на openrouter.ai нет. Снимаем факт с прода: openrouter_key_diag (какая env реально даёт ключ, заданы ли обе), ai.openrouter (достижим ли), баланс. Гипотеза: OR_API_KEY имеет приоритет над OPENROUTER_API_KEY, плюс гео-блок РФ-IP Timeweb.",
- "run": 85,
+ "retries": 10,
+ "retryDelay": 90,
+ "until": "route_host",
+ "note": "Проба 86: ответ на вопрос владельца «Cloudflare настраивали, почему не работает». Диагностика теперь называет адресата: route (relay|direct) и route_host. Маркер выката — поле route_host, в старой сборке его нет, поэтому ретраи ждут деплой. Если route=direct — релей просто не прописан в env Timeweb; если relay и снова 403 — беда в самом релее.",
+ "run": 86,
  "urls": [
   "https://vedarai.ru/api/cron/health"
  ],
  "markers": [
+  "route_host",
   "openrouter"
  ]
 }
