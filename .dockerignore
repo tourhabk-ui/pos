@@ -5,9 +5,19 @@ npm-debug.log
 README.md
 .next
 .git
-# …но .git/HEAD (41 байт) нужен для version.json: Timeweb собирает в
-# detached HEAD, там лежит чистый sha коммита — без git-бинаря и сети.
+# …но ссылки нужны для version.json: маркер деплоя пишется без git-бинаря и
+# сети, читая файлы .git напрямую.
+#
+# 23.08: маркер отдавал `unknown`, и из-за этого шаг «Verify deploy reached
+# production» падал на КАЖДОМ деплое — сайт не мог назвать свой коммит, то
+# есть «доехало ли» было неизвестно всегда. Причина: сюда клали только HEAD,
+# в расчёте на detached-сборку с чистым sha внутри. Сборка идёт с веткой, в
+# HEAD лежит `ref: refs/heads/main`, а файла, на который он указывает, в
+# образе не было. Поэтому ниже — и сам ref, и packed-refs.
 !.git/HEAD
+!.git/refs
+!.git/refs/**
+!.git/packed-refs
 .gitignore
 .env
 .env.local

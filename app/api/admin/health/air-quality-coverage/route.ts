@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { getCoverageStats } from '@/lib/services/safety/air-quality';
+import { keyIdentity } from '@/lib/ai/key-identity';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,9 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   // Без ключа — честный degraded с причиной, а не фейковые 100%
-  if (!process.env.IQAIR_API_KEY) {
+  // Пробелы — не ключ: значение из пробелов проходит truthiness и
+  // превращает «ключа нет» в «ключ есть, данных почему-то нет».
+  if (!keyIdentity(process.env.IQAIR_API_KEY).present) {
     return NextResponse.json({
       status: 'degraded',
       reason: 'IQAIR_API_KEY не задан — сигнал качества воздуха отключён',

@@ -79,13 +79,21 @@ export const RUN_PLACE_LABELS: Record<RunPlace, string> = {
   unknown: 'место запуска не определено',
 };
 
-/** Ключи, о которых спрашивают чаще всего, — в одном месте, чтобы не разъезжались. */
+/**
+ * Ключи, о которых спрашивают чаще всего, — в одном месте, чтобы не разъезжались.
+ *
+ * Список не только про ИИ: 23.08 владелец вставил в переменные Timeweb
+ * `IQAIR_API_KEY` и убедиться, что прод его ВИДИТ, было нечем — отпечатки
+ * показывались лишь для пяти AI-провайдеров. Ключ, о котором нельзя спросить
+ * «дошёл ли», проверяется догадкой.
+ */
 export const TRACKED_KEYS = [
   { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY' },
   { id: 'deepseek',   label: 'DeepSeek',   env: 'DEEPSEEK_API_KEY' },
   { id: 'dashscope',  label: 'Qwen',       env: 'DASHSCOPE_API_KEY' },
   { id: 'anthropic',  label: 'Anthropic',  env: 'ANTHROPIC_API_KEY' },
   { id: 'gemini',     label: 'Gemini',     env: 'GEMINI_API_KEY' },
+  { id: 'iqair',      label: 'IQAir',      env: 'IQAIR_API_KEY' },
 ] as const;
 
 export interface KeyReport {

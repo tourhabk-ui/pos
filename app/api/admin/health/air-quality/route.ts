@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { getAllZonesAirQuality } from '@/lib/services/safety/air-quality';
+import { keyIdentity } from '@/lib/ai/key-identity';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
 
   const zones = await getAllZonesAirQuality();
   return NextResponse.json({
-    configured: !!process.env.IQAIR_API_KEY,
+    configured: keyIdentity(process.env.IQAIR_API_KEY).present,
     zones,
   });
 }

@@ -57,8 +57,11 @@ export function clearAirQualityFreshness(): void {
 }
 
 export async function getZoneAirQuality(zoneKey: ZoneKey): Promise<ZoneAirQuality | null> {
-  const apiKey = process.env.IQAIR_API_KEY;
-  if (!apiKey) return null;
+  // Обрезка обязательна: значение из пробелов проходит проверку на
+  // truthiness и уезжает в URL как ключ. Провайдер отвечает отказом, а
+  // платформа считает, что ключ задан, — 09.08 это уже стоило дня разбора.
+  const apiKey = (process.env.IQAIR_API_KEY ?? '').trim();
+  if (apiKey === '') return null;
 
   const zone = ZONES[zoneKey];
   try {
