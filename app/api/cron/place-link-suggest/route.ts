@@ -17,7 +17,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
-import { suggestRoutes, type RouteCandidateInput } from '@/lib/routes/place-link';
+import {
+  suggestRoutes, conflictingPairs, NAME_MATCH_MAX_KM,
+  type RouteCandidateInput, type CoordinateConflict,
+} from '@/lib/routes/place-link';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -88,12 +91,34 @@ export async function GET(request: NextRequest) {
 
     const withCandidates = items.filter(i => i.candidates.length > 0);
 
+    // Улики собираются ПО ВСЕМ сиротам, а не только по тем, у кого остались
+    // кандидаты: одноимённый маршрут за 851 км — находка сам по себе, и
+    // теряться из-за того, что связывать нечего, он не должен.
+    const conflicts: CoordinateConflict[] = orphans.flatMap(p =>
+      conflictingPairs(
+        {
+          id: p.id, name: p.name,
+          lat: p.lat == null ? null : Number(p.lat),
+          lng: p.lng == null ? null : Number(p.lng),
+        },
+        routes,
+      ),
+    );
+
     return NextResponse.json({
       success: true,
+      probe: 'place_link_suggest_v2',
       scope,
       orphans_total: orphans.length,
       with_candidates: withCandidates.length,
       without_candidates: orphans.length - withCandidates.length,
+      // Улики: имя совпало, объекты дальше потолка. Это НЕ кандидаты на
+      // связь — по ним чинят координаты. Отсев назван вслух, иначе «стало
+      // меньше кандидатов» неотличимо от «стало меньше работы» (§4.0).
+      name_match_max_km: NAME_MATCH_MAX_KM,
+      coordinate_conflicts_total: conflicts.length,
+      coordinate_conflicts: conflicts.slice(0, 40),
+      coordinate_conflicts_dropped: Math.max(0, conflicts.length - 40),
       items: withCandidates,
     });
   } catch (err) {

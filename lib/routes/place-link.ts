@@ -14,6 +14,18 @@
  * Совпадение имени сильнее близости: «Малкинские горячие источники» и
  * маршрут «Малкинские» — это одно и то же место, даже если координата
  * маршрута стоит у парковки в трёх километрах.
+ *
+ * НО У ИМЕНИ ЕСТЬ ПОТОЛОК (23.08). Правило «имя сильнее близости» стояло
+ * без ограничения расстояния, и сухой прогон на 140 местах показал, во что
+ * это обходится: «Большие Тюшевские источники» сватались одноимённому
+ * маршруту за 329 км, «Дранкинские» — за 220, а «Корякский природный
+ * заповедник» (север края) — «Вулкану Корякскому» у Петропавловска, за
+ * 851 км, с идеальным совпадением имени. Совпало слово, а не предмет.
+ *
+ * Оправданием потолка была парковка в трёх километрах — три, не восемьсот.
+ * Поэтому пара с совпавшим именем и расстоянием больше NAME_MATCH_MAX_KM
+ * перестаёт быть кандидатом на связь и становится УЛИКОЙ: одна из двух
+ * координат врёт. Выбрасывать её нельзя — это находка, а не шум.
  */
 
 const KM_PER_DEG_LAT = 111.32;
@@ -78,6 +90,49 @@ export function distanceKm(
   );
 }
 
+/**
+ * Потолок для пары, совпавшей ИМЕНЕМ.
+ *
+ * Координата маршрута — часто НЕ объект, а начало пути: стоянка, посёлок,
+ * иногда сам Петропавловск. До Авачинского от города двадцать пять
+ * километров, до Мутновского — семьдесят, и такая пара честна.
+ *
+ * Сначала здесь стояло 25 — и сторож `place-link` тут же покраснел на
+ * маршруте «Восхождение на Авачинский вулкан» с городским стартом: 25.4 км
+ * до собственной цели. Порог, отсекающий настоящую связь, хуже отсутствия
+ * порога, поэтому цифра выбрана по данным, а не по интуиции.
+ *
+ * Замер 23.08 на 140 местах: честные пары лежали в 0.6-25.4 км, ложные
+ * начинались со 133 (дальше 220, 243, 329, 443, 851). Между тридцатью и
+ * ста тридцатью — пустота; 80 стоит в её середине и с запасом накрывает
+ * дневной выезд по камчатским расстояниям.
+ */
+export const NAME_MATCH_MAX_KM = 80;
+
+/**
+ * Род пары «место — маршрут»: связь, улика или незнание.
+ *
+ *   link     — можно связывать: имя и расстояние сходятся;
+ *   conflict — имя совпало, объекты далеко: одна из координат врёт;
+ *   unknown  — расстояние не посчитать (нет координаты у кого-то из двух).
+ *
+ * Третий исход НЕ равен второму и не равен первому: незнание решает
+ * человек, и молча превращать его в «связь» или в «улику» нельзя (§4.0).
+ */
+export type PairKind = 'link' | 'conflict' | 'unknown';
+
+export function classifyPair(
+  nameScore: number,
+  distanceKm: number | null,
+  maxKm: number = NAME_MATCH_MAX_KM,
+): PairKind {
+  if (distanceKm === null) return 'unknown';
+  if (distanceKm <= maxKm) return 'link';
+  // Далеко. Совпавшее имя тут не оправдание, а как раз причина насторожиться:
+  // два одноимённых объекта в сотнях километров — это ошибка в данных.
+  return nameScore > 0 ? 'conflict' : 'link';
+}
+
 export interface RouteCandidateInput {
   id: string; title: string;
   lat: number | null; lng: number | null;
@@ -101,9 +156,10 @@ export interface RouteCandidate {
 export function suggestRoutes(
   place: { lat: number | null; lng: number | null; name: string },
   routes: RouteCandidateInput[],
-  opts: { maxKm?: number; limit?: number } = {},
+  opts: { maxKm?: number; limit?: number; farKm?: number } = {},
 ): RouteCandidate[] {
   const maxKm = opts.maxKm ?? 20;
+  const farKm = opts.farKm ?? NAME_MATCH_MAX_KM;
   const limit = opts.limit ?? 4;
 
   const scored = routes.map((r) => {
@@ -115,7 +171,11 @@ export function suggestRoutes(
       routeId: r.id, title: r.title, nameScore, distanceKm: d,
       hasGeometry: r.hasGeometry, waypointCount: r.waypointCount,
     };
-  }).filter(c => c.nameScore > 0 || (c.distanceKm != null && c.distanceKm <= maxKm));
+  }).filter(c => c.nameScore > 0 || (c.distanceKm != null && c.distanceKm <= maxKm))
+    // Пары-улики в кандидаты не идут: предложить связь на 851 км значит
+    // предложить нарисовать на карточке заповедника маршрут на чужой вулкан.
+    // Собирает их отдельно conflictingPairs — терять их нельзя.
+    .filter(c => classifyPair(c.nameScore, c.distanceKm, farKm) !== 'conflict');
 
   scored.sort((a, b) => {
     if (b.nameScore !== a.nameScore) return b.nameScore - a.nameScore;
@@ -148,9 +208,10 @@ export interface PlaceCandidate {
 export function suggestPlaces(
   route: { title: string; lat: number | null; lng: number | null },
   places: PlaceCandidateInput[],
-  opts: { maxKm?: number; limit?: number } = {},
+  opts: { maxKm?: number; limit?: number; farKm?: number } = {},
 ): PlaceCandidate[] {
   const maxKm = opts.maxKm ?? 20;
+  const farKm = opts.farKm ?? NAME_MATCH_MAX_KM;
   const limit = opts.limit ?? 4;
 
   const scored = places.map((p) => {
@@ -159,7 +220,11 @@ export function suggestPlaces(
       ? Math.round(distanceKm(route.lat, route.lng, p.lat, p.lng) * 10) / 10
       : null;
     return { placeId: p.id, name: p.name, locationType: p.locationType, nameScore, distanceKm: d };
-  }).filter(c => c.nameScore > 0 || (c.distanceKm != null && c.distanceKm <= maxKm));
+  }).filter(c => c.nameScore > 0 || (c.distanceKm != null && c.distanceKm <= maxKm))
+    // Пары-улики в кандидаты не идут: предложить связь на 851 км значит
+    // предложить нарисовать на карточке заповедника маршрут на чужой вулкан.
+    // Собирает их отдельно conflictingPairs — терять их нельзя.
+    .filter(c => classifyPair(c.nameScore, c.distanceKm, farKm) !== 'conflict');
 
   scored.sort((a, b) => {
     if (b.nameScore !== a.nameScore) return b.nameScore - a.nameScore;
@@ -168,6 +233,43 @@ export function suggestPlaces(
     return da - db;
   });
   return scored.slice(0, limit);
+}
+
+/** Пара, у которой имя совпало, а объекты далеко: одна координата врёт. */
+export interface CoordinateConflict {
+  placeId: string; placeName: string;
+  routeId: string; routeTitle: string;
+  nameScore: number; distanceKm: number;
+}
+
+/**
+ * Улики по одному месту: одноимённые маршруты дальше потолка.
+ *
+ * Отдельная функция, а не побочный результат подсказчика, ровно по правилу
+ * «отсев виден»: связь и улика — разные исходы, и второй не должен
+ * растворяться в первом. По этим парам чинят не связи, а координаты.
+ */
+export function conflictingPairs(
+  place: { id: string; name: string; lat: number | null; lng: number | null },
+  routes: RouteCandidateInput[],
+  farKm: number = NAME_MATCH_MAX_KM,
+): CoordinateConflict[] {
+  if (place.lat === null || place.lng === null) return [];
+  const out: CoordinateConflict[] = [];
+  for (const r of routes) {
+    if (r.lat === null || r.lng === null) continue;
+    const nameScore = nameMatchScore(place.name, r.title);
+    if (nameScore <= 0) continue;
+    const d = Math.round(distanceKm(place.lat, place.lng, r.lat, r.lng) * 10) / 10;
+    if (classifyPair(nameScore, d, farKm) !== 'conflict') continue;
+    out.push({
+      placeId: place.id, placeName: place.name,
+      routeId: r.id, routeTitle: r.title,
+      nameScore, distanceKm: d,
+    });
+  }
+  // Дальние — первыми: чем больше расхождение, тем очевиднее ошибка.
+  return out.sort((a, b) => b.distanceKm - a.distanceKm);
 }
 
 export interface LinkPair { place: string; route: string }
