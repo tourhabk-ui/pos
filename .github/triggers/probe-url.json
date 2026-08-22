@@ -1,13 +1,12 @@
 {
-  "note": "Проба 141: три решения владельца 22.08. Первый URL — СУХОЙ прогон разметки рода (маркер route_kind_classify_v1, боевого apply здесь нет): сколько записей уйдёт в «как добраться», сколько останется путями, кто останется без рода, и поимённо первые 25 уносимых. Второй — перепись дублей: шесть пар близнецов, которые владелец просил показать перед решением. Третий — счётчики принадлежности: контроль, что миграция 902 применилась и живых записей столько же (в пробе 140 их стало 392 вместо 393 — это надо увидеть).",
-  "urls": [
-    "https://vedarai.ru/api/cron/route-kind-classify",
-    "https://vedarai.ru/api/cron/route-geometry-census?mode=duplicates",
-    "https://vedarai.ru/api/cron/route-geometry-census?mode=ownership"
-  ],
-  "until": "route_kind_classify_v1",
-  "retries": 16,
-  "retryDelay": 60,
-  "timeout": 110,
-  "bytes": 9000
+ "bytes": 6000,
+ "timeout": 90,
+ "note": "Проба 85 (аудит OpenRouter, вопрос владельца): ключ на GitHub есть, активности на openrouter.ai нет. Снимаем факт с прода: openrouter_key_diag (какая env реально даёт ключ, заданы ли обе), ai.openrouter (достижим ли), баланс. Гипотеза: OR_API_KEY имеет приоритет над OPENROUTER_API_KEY, плюс гео-блок РФ-IP Timeweb.",
+ "run": 85,
+ "urls": [
+  "https://vedarai.ru/api/cron/health"
+ ],
+ "markers": [
+  "openrouter"
+ ]
 }
