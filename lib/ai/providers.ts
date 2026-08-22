@@ -1022,7 +1022,7 @@ export async function callDeepSeek(
         messages: payload,
         ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
       }),
-    }, { timeoutMs: 20_000, label: 'deepseek' });
+    }, { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'deepseek' });
     if (!res.ok) return null;
     const data = await res.json() as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -1085,7 +1085,7 @@ export async function callKimi(
         messages: payload,
         ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
       }),
-    }, { timeoutMs: 20_000, label: `kimi:${model}` });
+    }, { timeoutMs: opts?.timeoutMs ?? 20_000, label: `kimi:${model}` });
     if (!res.ok) return null;
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
     const text = data?.choices?.[0]?.message?.content;
@@ -2076,7 +2076,7 @@ export async function callGeminiDirect(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       },
-      { timeoutMs: 20_000, label: 'gemini-direct' },
+      { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'gemini-direct' },
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -2901,6 +2901,16 @@ export const AI_FAST_UNAVAILABLE = 'Сервис временно недосту
 export interface FastCallOptions {
   maxTokens?: number;
   json?: boolean;
+  /**
+   * Свой предел ожидания ноги гонки (22.08).
+   *
+   * У ног быстрой ветки 20 секунд: для короткой реплики достаточно. Судья
+   * фактгейта получает на вход до 9000 знаков источников плюс сам выпуск —
+   * и не укладывается. Качественный путь на тех же провайдерах ждёт 45
+   * секунд и отвечает: 22.08 синтез прошёл, а судья на том же прогоне
+   * вернул «не ответил никто». Разница между ними — только предел ожидания.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -2950,7 +2960,7 @@ export async function callAIFast(
           messages: payload,
           ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
         }),
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? 12_000),
       })
         .then(async (res) => {
           if (!res.ok) {
