@@ -76,6 +76,9 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
   'partner-junk-census':       { kind: 'manual', writes: false, note: 'партнёры, у которых имя не имя (реестровый номер вместо названия)' },
+  // Расписания у уборки нет и быть не должно: удаление необратимо, и запускает
+  // его человек по цифрам переписи. Сам роут без `confirm: true` не удаляет.
+  'partner-cleanup':           { kind: 'manual', writes: true,  note: 'удаление бесхозных партнёров: ни туров, ни броней, ни входа, ни аттестаций' },
   'safety-alert':              { kind: 'manual', writes: true,  note: 'приём предупреждения по зоне: публикация и снятие' },
   'field-check-photo':         { kind: 'manual', writes: false, note: 'снимок полевой проверки по id, только чтение' },
   'field-check-queue':         { kind: 'manual', writes: false, note: 'очередь полевых проверок с расхождениями, только чтение' },
