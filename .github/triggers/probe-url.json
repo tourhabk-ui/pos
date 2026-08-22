@@ -1,16 +1,16 @@
 {
- "bytes": 700,
+ "bytes": 500,
  "timeout": 60,
  "retries": 0,
- "note": "Проба 93: кто отдаёт 403. Ключ прод видит, маршрут релейный, но ответ «Access denied by security policy» — это не тело нашего воркера (он отвечает {\"error\":\"forbidden\"}). Стучим в релей с раннера по двум путям: если /gh-api/ проходит, а /or/ нет — режет сторона OpenRouter; если оба 403 тем же телом — режет что-то перед воркером; если оба {\"error\":\"forbidden\"} — на воркере задан RELAY_SECRET, а провайдеры его не шлют (заголовок есть только в github-fetch).",
- "run": 93,
+ "note": "Проба 94: сужаем. Проба 93 дала 200 на /or/api/v1/models, но в заголовках был age: 42 и public-кэш — ответ мог прийти из кэша Cloudflare, не доходя до OpenRouter, поэтому доказательством живого пути он не является. Диагностика прода стучит в /or/api/v1/key с ключом и получает 403 «Access denied by security policy». Стучим в тот же /key БЕЗ ключа: 401 в формате OpenRouter = путь живой и дело в самом ключе; тот же 403 = путь режется на этом эндпоинте независимо от ключа.",
+ "run": 94,
  "urls": [
-  "https://vedar-ai-relay.tourhabk.workers.dev/gh-api/rate_limit",
-  "https://vedar-ai-relay.tourhabk.workers.dev/or/api/v1/models"
+  "https://vedar-ai-relay.tourhabk.workers.dev/or/api/v1/key",
+  "https://openrouter.ai/api/v1/key"
  ],
  "grep": [
   "Access denied by security policy",
-  "forbidden",
-  "unknown_upstream"
+  "No auth credentials found",
+  "\"error\""
  ]
 }
