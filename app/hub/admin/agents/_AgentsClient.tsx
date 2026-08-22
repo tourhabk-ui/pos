@@ -41,6 +41,11 @@ interface LivenessResponse {
   posture: Posture;
   counts: { total: number; instrumented: number; alive: number; late: number; dead: number; unknown: number };
   groups: LivenessGroup[];
+  /** Кроны вне GitHub Actions: их живость реестр не меряет и не может. */
+  outside?: {
+    external: Array<{ endpoint: string; note: string; writes: boolean; liveness: 'unverifiable' }>;
+    manual_count: number;
+  };
   generated_at: string;
 }
 
@@ -274,6 +279,43 @@ export default function AgentsClient() {
               {counts.dead > 0 && <StatChip icon={AlertTriangle} label="Мёртвы" value={String(counts.dead)} tone="danger" />}
               <StatChip icon={HelpCircle} label="Без телеметрии" value={String(counts.unknown)} tone="muted" />
             </div>
+          )}
+
+          {/* Кроны вне GitHub Actions: расписание обещано, подтвердить нечем.
+              Блок стоит ПЕРЕД разрядами намеренно — иначе панель, полная
+              зелёного, читается как «всё запланировано», а payouts (деньги
+              оператора) в ней просто отсутствует. */}
+          {liveness?.outside && liveness.outside.external.length > 0 && (
+            <section className="ds-card">
+              <SectionHeader
+                icon={HelpCircle}
+                title="Вне GitHub Actions"
+                subtitle={`${liveness.outside.external.length} с обещанным расписанием · ${liveness.outside.manual_count} ручных`}
+              />
+              <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-3">
+                Эти джобы обещают расписание своей шапкой, но запускает их не GitHub Actions,
+                а внешний планировщик. Идёт оно или нет — из репозитория не видно: проверяется
+                запросом к agent_run_history на проде.
+              </p>
+              <div className="space-y-2.5">
+                {liveness.outside.external.map(x => (
+                  <div key={x.endpoint} className="rounded-lg bg-[var(--bg-card)] border border-[var(--border)] p-3.5">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="font-mono text-sm text-[var(--text-primary)]">{x.endpoint}</span>
+                      <span className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full">
+                        не подтверждается
+                      </span>
+                      {x.writes && (
+                        <span className="text-[11px] text-[var(--warning)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full">
+                          пишет в БД
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{x.note}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
 
           {/* Liveness по разрядам */}

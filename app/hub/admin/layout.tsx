@@ -7,6 +7,7 @@ import {
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, MapPin, Cpu,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
+  Trash2, Webhook, Eye,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
@@ -38,6 +39,10 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/content/places-import', label: 'Импорт мест', icon: MapPin, section: 'Контент' },
   { href: '/hub/admin/enrich-places', label: 'Обогащение мест', icon: Sprout, section: 'Контент' },
   { href: '/hub/admin/places-photos', label: 'Фото мест', icon: ImageIcon, section: 'Контент' },
+  // Экран существовал без единой ссылки — найти его можно было, только помня
+  // URL наизусть (перепись достижимости 22.08). То же ниже: Transparency Hub
+  // и Webhook Telegram.
+  { href: '/hub/admin/places', label: 'Чистка мест', icon: Trash2, section: 'Контент' },
   { href: '/hub/admin/user-photos', label: 'Фото туристов', icon: ImageIcon, section: 'Контент' },
   { href: '/hub/admin/photos', label: 'Загрузка фото', icon: ImageIcon, section: 'Контент' },
   { href: '/hub/admin/videos', label: 'Видео', icon: Video, section: 'Контент' },
@@ -58,12 +63,17 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/brain', label: 'Volcano Brain', icon: Brain, section: 'AI' },
   { href: '/hub/admin/taaft', label: 'AI-инструменты', icon: Globe, section: 'AI' },
   { href: '/hub/admin/knowledge', label: 'База знаний AI', icon: Brain, section: 'AI' },
+  // Отчёт по AI-инициативам. Живёт вне /hub/admin, свою проверку роли делает
+  // сам; в меню его не было ни разу.
+  { href: '/transparency', label: 'Transparency Hub', icon: Eye, section: 'AI' },
   { href: '/hub/admin/intelligence', label: 'Разведка', icon: Radar, section: 'AI' },
   { href: '/hub/admin/ai-prompts', label: 'Оптим. промптов', icon: Sparkles, section: 'AI' },
 
   // Каналы
   { href: '/hub/admin/channels', label: 'Каналы продаж', icon: Share2, section: 'Каналы' },
   { href: '/hub/admin/telegram', label: 'Telegram-бот', icon: MessageCircle, section: 'Каналы' },
+  // Регистрирует вебхук бота самим фактом открытия — потому и нужен в меню.
+  { href: '/hub/admin/telegram/webhook', label: 'Webhook Telegram', icon: Webhook, section: 'Каналы' },
   { href: '/hub/admin/email', label: 'Email', icon: Mail, section: 'Каналы' },
   { href: '/hub/admin/notifications', label: 'Уведомления', icon: Bell, section: 'Каналы' },
   { href: '/hub/admin/integrations', label: 'Интеграции / OCTO', icon: Plug, section: 'Каналы' },

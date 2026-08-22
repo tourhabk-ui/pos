@@ -20,6 +20,10 @@ const PLATFORM = [
   { label: 'Вопросы и ответы', href: '/faq' },
   { label: 'О платформе', href: '/about' },
   { label: 'Блог', href: '/blog' },
+  // Статьи и связь были в sitemap, но кликнуть на них было неоткуда: поисковику
+  // страница предъявлена, человеку — нет (перепись достижимости 22.08).
+  { label: 'Статьи о Камчатке', href: '/articles' },
+  { label: 'Связь на маршруте', href: '/safety/communication' },
   { label: 'Инциденты и алерты', href: '/safety/incidents' },
 ];
 

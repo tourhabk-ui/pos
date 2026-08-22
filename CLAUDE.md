@@ -95,7 +95,11 @@ rounded-2xl        → rounded-lg (кроме glass-элементов и bento-
   решение владельца 29.07, #887) — в таб-баре его НЕТ и возвращать нельзя:
   две кнопки одного действия расходятся поведением (уже случалось)
 - Футер: только desktop
-- Homepage: `components/homepage/` (Hero, BentoGrid, LiveFeed, ActivityCircles, CTASection, Marquee, Reveal)
+- Homepage: `components/homepage/` (HeroStatus, BentoSection, EditorialSection, StoriesRail,
+  FeaturedTour, KuzmichBriefing, LiveOnTrails, StatsBand, MoodEntry, OperatorPromo,
+  AgentModelSection, MessengerAgentsSection, HomeMapPreview, TrailReportSheet).
+  Прежний перечень (Hero, BentoGrid, LiveFeed, ActivityCircles, CTASection, Marquee,
+  Reveal) не совпадал ни с одним файлом на диске — сверено 22.08
 
 ---
 

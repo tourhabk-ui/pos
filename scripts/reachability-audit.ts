@@ -151,7 +151,10 @@ function components() {
   for (const c of all) {
     const base = path.basename(c, '.tsx');
     const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`from\\s+['"][^'"]*/${esc}['"]`);
+    // И статический `from '...'`, и ленивый `dynamic(() => import('...'))`.
+    // Без второго 19 живых компонентов карточки точки числились мёртвыми:
+    // _PlaceDetailClient грузит их все через next/dynamic.
+    const re = new RegExp(`(from|import\\()\\s*['"][^'"]*/${esc}['"]`);
     const where: string[] = [];
     let prod = false;
     for (const [f, body] of src) {

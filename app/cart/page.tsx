@@ -1,17 +1,16 @@
-import type { Metadata } from 'next';
-import { Header } from '@/components/layout/Header';
-import CartClient from '@/app/hub/tourist/cart/_CartClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Корзина | Tourhab',
-  robots: { index: false, follow: true },
-};
-
-export default function CartPage() {
-  return (
-    <>
-      <Header />
-      <CartClient />
-    </>
-  );
+/**
+ * /cart — второй вход в корзину, упразднён (перепись достижимости 22.08).
+ *
+ * Страница рисовала тот же `app/hub/tourist/cart/_CartClient`, что и
+ * каноническая `/hub/tourist/cart`, но без layout'а кабинета: из этой корзины
+ * некуда было вернуться — ни бокового меню, ни хлебных крошек. Ссылок на неё
+ * не было ни одной, а `robots: index: false` означал, что и поисковик её не
+ * знает. Две двери в одну комнату, одна без ручки изнутри.
+ *
+ * URL сохранён редиректом: закладка или старая внешняя ссылка не ломается.
+ */
+export default function CartRedirect() {
+  redirect('/hub/tourist/cart');
 }

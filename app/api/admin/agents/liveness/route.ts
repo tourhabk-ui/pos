@@ -13,6 +13,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { CRON_REGISTRY, entriesByTier, type CronTier } from '@/lib/agents/cron-registry';
 import { computeLiveness, overallPosture, type LivenessStatus } from '@/lib/agents/cron-liveness';
+import { EXTERNAL_SCHEDULE, MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,5 +103,20 @@ export async function GET(request: NextRequest) {
     unknown: items.filter(i => i.liveness === 'unknown').length,
   };
 
-  return NextResponse.json({ success: true, posture, counts, groups, generated_at: new Date().toISOString() });
+  // Кроны вне GitHub Actions. Реестр их не меряет и не может: расписание
+  // «каждый час» живёт в чужой панели (cron-job.org), а ручную перепись никто
+  // и не обещал запускать. Отдаём отдельно, чтобы «не знаю» было ВИДНО, а не
+  // отсутствовало (§4.0): молчание панели читается как «всё запланировано».
+  const outside = {
+    external: Object.entries(EXTERNAL_SCHEDULE).map(([endpoint, d]) => ({
+      endpoint: `/api/cron/${endpoint}`,
+      note: d.note,
+      writes: d.writes,
+      // Подтвердить исполнение из репозитория нечем — так и говорим.
+      liveness: 'unverifiable' as const,
+    })),
+    manual_count: Object.keys(MANUAL_ENDPOINTS).length,
+  };
+
+  return NextResponse.json({ success: true, posture, counts, groups, outside, generated_at: new Date().toISOString() });
 }

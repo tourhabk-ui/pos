@@ -56,19 +56,6 @@
   50%      { transform: scale(1.6); opacity: 0.4; }
 }
 
-/* ═══ Scroll reveal ══════════════════════════════════════════════════════════ */
-
-.kh-reveal {
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.65s var(--kh-ease), transform 0.65s var(--kh-ease);
-}
-.kh-reveal.kh-visible { opacity: 1; transform: translateY(0); }
-.kh-reveal-d1 { transition-delay: 0.06s; }
-.kh-reveal-d2 { transition-delay: 0.12s; }
-.kh-reveal-d3 { transition-delay: 0.18s; }
-.kh-reveal-d4 { transition-delay: 0.24s; }
-
-@media (prefers-reduced-motion: reduce) {
-  .kh-reveal { transform: none; transition: opacity 0.4s ease; }
-}
+/* Scroll reveal (.kh-reveal) удалён вместе с components/homepage/Reveal.tsx —
+   единственным, кто эти классы ставил. Главная его не звала (перепись
+   достижимости 22.08). */
