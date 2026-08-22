@@ -5,8 +5,25 @@ import { z } from 'zod';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+/**
+ * Действия, которые роут ПРИНИМАЕТ.
+ *
+ * Список вынесен и экспортирован намеренно: до 23.08 он расходился с тем, что
+ * шлёт кнопка. В перечне не было `publish_ai_news`, хотя ветка для него ниже
+ * написана целиком — значит кнопка «AI-дайджест» не работала НИ РАЗУ с момента
+ * появления: Zod заворачивал запрос до неё и отдавал наружу своё «Invalid
+ * input». Владелец видел это на проде 23.08.
+ *
+ * Почему молчал tsc: две проверки выше сужают тип `body.action` до `never`, а
+ * сравнение `never` с литералом язык разрешает. Мёртвая ветка выглядела живой
+ * и для человека, и для компилятора. Сторож `intelligence-actions` сверяет
+ * этот перечень с тремя вещами разом: ветками роута, вызовами клиента и
+ * собой — расхождение любой пары красит сборку.
+ */
+export const TEST_ACTIONS = ['test_rss', 'run_cycle', 'publish_ai_news'] as const;
+
 const TestSchema = z.object({
-  action: z.enum(['test_rss', 'run_cycle']),
+  action: z.enum(TEST_ACTIONS),
   // Только http(s) — сервер не должен фетчить file:// и прочие схемы
   url: z.string().url().max(500).refine(u => /^https?:\/\//i.test(u), 'только http(s) URL').optional(),
 });
@@ -25,10 +42,15 @@ export async function POST(request: NextRequest) {
   try {
     const parsed = TestSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
-        { status: 400 },
-      );
+      // Своё сообщение, а не Zod-овское. «Invalid input» не называет ни поля,
+      // ни допустимых значений — по нему нельзя понять ни что сломалось, ни
+      // что чинить, и оно ещё и по-английски (CLAUDE.md: ошибки на русском).
+      const issue = parsed.error.issues[0];
+      const field = issue?.path.join('.') || 'тело запроса';
+      const error = field === 'action'
+        ? `Неизвестное действие. Роут принимает: ${TEST_ACTIONS.join(', ')}`
+        : `Не разобрано поле «${field}»: ${issue?.message ?? 'некорректное значение'}`;
+      return NextResponse.json({ success: false, error }, { status: 400 });
     }
     const body = parsed.data;
 
@@ -104,7 +126,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: false, error: 'Unknown action' }, { status: 400 });
+    // Недостижимо, пока перечень и ветки сходятся, — и именно это стережёт
+    // тест. Сообщение всё равно человеческое: молчаливых тупиков не держим.
+    return NextResponse.json(
+      { success: false, error: `Действие не обработано роутом. Принимаются: ${TEST_ACTIONS.join(', ')}` },
+      { status: 400 },
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[admin/intelligence-sources/test] failed:', msg);
