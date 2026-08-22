@@ -75,11 +75,25 @@ function extractTgLinks(text: string): string[] {
 
 // ── Валидация имени оператора ─────────────────────────────────────────────────
 
-function isValidOperatorName(name: string): boolean {
+/** Экспортируется: тем же правилом судит перепись уже сохранённых партнёров.
+ *  Иначе появилось бы второе правило — ровно то, из-за чего мусор и попал
+ *  в базу (разбор markdown имел свою проверку). */
+export function isValidOperatorName(name: string): boolean {
   if (name.length < 3 || name.length > 150) return false;
   if (/^https?:\/\//i.test(name)) return false;
   if (/@/.test(name)) return false;
   if (/^РТО\s*\d/i.test(name)) return false;
+  // У названия должно быть СЛОВО — буквенная цепочка хотя бы из трёх букв.
+  //
+  // Иначе реестровый номер туроператора проходит за имя. 22.08 владелец нашёл
+  // в админке партнёра «В031-00161-77/01529555» и не понял, откуда тот взялся:
+  // это номер в федеральном реестре, а не название. Проверка выше отсекала
+  // форму «РТО 12345», но не сам номер — в нём есть буква «В», значит условие
+  // «есть хоть одна буква» выполнялось.
+  //
+  // Правило по смыслу: у компании есть слово. «Край путешествий», «Kamchatka
+  // Land», «ИП Иванов» его имеют; «В031-00161-77/01529555» — нет.
+  if (!/[а-яёa-z]{3,}/i.test(name)) return false;
   // Domain without protocol (в-комфорте.рф, photoexpedition.pro)
   if (/^[^\s]{3,60}\.[a-zа-я]{2,6}$/i.test(name)) return false;
   // Obvious UI/navigation text
@@ -88,6 +102,35 @@ function isValidOperatorName(name: string): boolean {
   if (/^[\d\s+\-()]{7,}$/.test(name)) return false;
   if (!/[а-яёА-ЯЁa-zA-Z]/.test(name)) return false;
   return true;
+}
+
+
+/**
+ * Сайт ли это оператора.
+ *
+ * В каталоге рядом с оператором стоит ссылка на его карточку в федеральном
+ * реестре туроператоров (`ev.economy.gov.ru/lk_exp/registry/to/...`). Разбор
+ * брал первую попавшуюся ссылку и записывал реестр как «сайт партнёра» —
+ * турист, нажав «сайт», попадал бы в чужой личный кабинет госсистемы.
+ *
+ * Список закрытых хостов явный: неизвестный адрес считается сайтом оператора,
+ * потому что «не знаю» здесь безопаснее запрета — пустой сайт хуже чужого
+ * только в одном случае, а лишний запрет обрубает настоящие адреса.
+ */
+const NOT_OPERATOR_SITES = [
+  'ev.economy.gov.ru',   // федеральный реестр туроператоров
+  'visitkamchatka.ru',   // сам каталог, откуда идёт разбор
+  't.me',                // телеграм лежит в своём поле
+];
+
+function isOperatorSite(url: string | undefined): url is string {
+  if (!url) return false;
+  try {
+    const host = new URL(url).host.replace(/^www\./, '');
+    return !NOT_OPERATOR_SITES.some((bad) => host === bad || host.endsWith('.' + bad));
+  } catch {
+    return false;
+  }
 }
 
 // ── Нормализация телефона ─────────────────────────────────────────────────────
@@ -121,7 +164,10 @@ function toSlug(name: string): string {
 
 // ── Парсинг markdown (Firecrawl output) ──────────────────────────────────────
 
-function parseMarkdownOperators(markdown: string): OperatorRecord[] {
+/** Экспортируется ради сторожа: правило имени проверяется через ПОВЕДЕНИЕ
+ *  разбора, а не через приватную функцию — иначе тест держал бы устройство,
+ *  а не результат. */
+export function parseOperatorsMarkdown(markdown: string): OperatorRecord[] {
   const records: OperatorRecord[] = [];
 
   // Разбиваем по карточкам операторов:
@@ -132,9 +178,16 @@ function parseMarkdownOperators(markdown: string): OperatorRecord[] {
     const titleMatch = section.match(/^#{1,3}\s+(.+)/m);
     if (!titleMatch) continue;
     const name = titleMatch[1].trim().replace(/\*+/g, '').trim();
-    if (name.length < 3 || name.length > 150) continue;
-    // Пропускаем системные заголовки страницы
-    if (/туроператор|каталог|главная|навигация|меню/i.test(name)) continue;
+    // Правило имени ОДНО на весь импортёр. Здесь стояла своя проверка — только
+    // длина и служебные заголовки, — и она пропускала то, что общая уже
+    // отсекала. Так «В031-00161-77/01529555» и стал партнёром: разбор HTML
+    // спрашивал isValidOperatorName, разбор markdown — нет. Одно правило,
+    // реализованное дважды, — это два правила, и они расходятся.
+    if (!isValidOperatorName(name)) continue;
+    // Заголовки самой страницы каталога: проверяются по всей строке, а не
+    // только с начала, — общая проверка этого не делает намеренно, иначе
+    // «Туроператор Край путешествий» не прошёл бы.
+    if (/^(туроператор|каталог|главная|навигация|меню)/i.test(name)) continue;
 
     const phone = extractPhone(section);
     const email = extractEmail(section);
@@ -143,7 +196,8 @@ function parseMarkdownOperators(markdown: string): OperatorRecord[] {
     // Сайт из markdown ссылок [текст](url)
     const siteMatch = section.match(/\[(?:сайт|website|www|официальный)[^\]]*\]\(([^)]+)\)/i)
       ?? section.match(/https?:\/\/(?!t\.me|visitkamchatka)[\w\-]+\.[\w.\/]+/);
-    const website = siteMatch ? (siteMatch[1] ?? siteMatch[0]) : undefined;
+    const rawSite = siteMatch ? (siteMatch[1] ?? siteMatch[0]) : undefined;
+    const website = isOperatorSite(rawSite) ? rawSite : undefined;
 
     // Определяем тип услуг из текста
     const services: string[] = [];
@@ -217,7 +271,7 @@ function parseHtmlOperators(html: string): OperatorRecord[] {
       records.push({
         name, slug: toSlug(name),
         phone: extractPhone(text), email: extractEmail(text),
-        website: siteMatch?.[1], telegram_group_url: tgLinks[0],
+        website: isOperatorSite(siteMatch?.[1]) ? siteMatch![1] : undefined, telegram_group_url: tgLinks[0],
         external_source_url: OPERATORS_URL,
       });
     }
@@ -240,7 +294,7 @@ function parseHtmlOperators(html: string): OperatorRecord[] {
       records.push({
         name, slug: toSlug(name),
         phone, email: extractEmail(text),
-        website: siteMatch?.[1], telegram_group_url: tgLinks[0],
+        website: isOperatorSite(siteMatch?.[1]) ? siteMatch![1] : undefined, telegram_group_url: tgLinks[0],
         external_source_url: OPERATORS_URL,
       });
     }
