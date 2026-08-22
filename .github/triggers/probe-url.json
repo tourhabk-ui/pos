@@ -1,10 +1,11 @@
 {
- "bytes": 3000,
+ "bytes": 2500,
  "timeout": 90,
- "retries": 6,
- "retryDelay": 60,
- "note": "Проба 88: владелец вернул OPENROUTER_API_KEY. Ждём в openrouter_key_diag http_status 200 и ai.openrouter=true. Если придёт 404 unknown_upstream — не тот хвост пути у OPENROUTER_BASE_URL (нужен /or/api/v1).",
- "run": 88,
+ "retries": 14,
+ "retryDelay": 90,
+ "until": "\"key_source\":\"OPENROUTER",
+ "note": "Проба 89: ключ вписан, но прод его ещё не видел (проба 88: key_source=null). Переменные Timeweb подхватываются при рестарте контейнера — ждём выкат до 20 минут. until ловит момент, когда ключ стал виден. Дальше смотрим http_status: 200 = релей работает сквозь, 404 unknown_upstream = не тот хвост пути.",
+ "run": 89,
  "urls": [
   "https://vedarai.ru/api/cron/health"
  ],
