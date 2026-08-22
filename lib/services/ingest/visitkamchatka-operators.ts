@@ -75,7 +75,10 @@ function extractTgLinks(text: string): string[] {
 
 // ── Валидация имени оператора ─────────────────────────────────────────────────
 
-function isValidOperatorName(name: string): boolean {
+/** Экспортируется: тем же правилом судит перепись уже сохранённых партнёров.
+ *  Иначе появилось бы второе правило — ровно то, из-за чего мусор и попал
+ *  в базу (разбор markdown имел свою проверку). */
+export function isValidOperatorName(name: string): boolean {
   if (name.length < 3 || name.length > 150) return false;
   if (/^https?:\/\//i.test(name)) return false;
   if (/@/.test(name)) return false;
