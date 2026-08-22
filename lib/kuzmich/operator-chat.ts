@@ -114,7 +114,23 @@ export async function findOperatorByMaxChatId(chatId: number): Promise<OperatorC
   } catch { return null; }
 }
 
-/** Загрузить бизнес-контекст оператора для системного промпта. */
+/**
+ * Загрузить бизнес-контекст оператора для системного промпта.
+ *
+ * Две правки 22.08 (находка эволюции):
+ *
+ * 1. Связь тура с оператором идёт через `partners.id` — так объявлена
+ *    внешним ключом сама колонка (миграция 040: `operator_id UUID
+ *    REFERENCES partners(id)`). Запрос же сравнивал её с `partners.user_id`,
+ *    то есть с идентификатором ЧЕЛОВЕКА, а не компании. Оператор всегда
+ *    видел пустой список своих туров и своих броней.
+ *
+ * 2. Отказ запроса больше не выдаётся за пустоту. Прежде `allSettled`
+ *    превращал упавший запрос в `[]`, и в системный промпт уходило
+ *    «Бронирований на этой неделе нет» — Кузьмич уверенно сообщал оператору
+ *    небылицу о его собственном бизнесе. Теперь у каждого блока есть третий
+ *    исход: «не смог получить» (§4.0), и он отличается от «нет».
+ */
 async function buildOperatorContext(partnerId: number, partnerName: string): Promise<string> {
   const now = new Date();
   const weekStart = new Date(now);
@@ -125,7 +141,7 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
       `SELECT id, title, base_price, is_active,
               available_slots, next_available_date::text
        FROM operator_tours
-       WHERE operator_id = (SELECT user_id FROM partners WHERE id = $1)
+       WHERE operator_id = $1
          AND deleted_at IS NULL
        ORDER BY is_active DESC, created_at DESC
        LIMIT 10`,
@@ -136,7 +152,7 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
               ob.final_price, ob.booking_status
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-       WHERE ot.operator_id = (SELECT user_id FROM partners WHERE id = $1)
+       WHERE ot.operator_id = $1
          AND ob.created_at >= $2
        ORDER BY ob.created_at DESC
        LIMIT 10`,
@@ -146,25 +162,31 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
       `SELECT COUNT(*)::text AS cnt
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-       WHERE ot.operator_id = (SELECT user_id FROM partners WHERE id = $1)
+       WHERE ot.operator_id = $1
          AND ob.booking_status IN ('pending_payment','confirmed')
          AND ob.booking_date >= CURRENT_DATE`,
       [partnerId],
     ),
   ]);
 
-  const tours =
-    toursResult.status === 'fulfilled'
-      ? toursResult.value.rows
-      : [];
-  const weekBookings =
-    bookingsResult.status === 'fulfilled'
-      ? bookingsResult.value.rows
-      : [];
+  /** Отказ запроса — не пустой результат. Молчать о нём нельзя (§4.0). */
+  const failed = (what: string, r: PromiseSettledResult<unknown>): boolean => {
+    if (r.status !== 'rejected') return false;
+    const code = (r.reason as { code?: string } | null)?.code ?? 'unknown';
+    console.error(`[operator-chat] контекст оператора ${partnerId}: ${what} не прочитан, SQLSTATE ${code}`);
+    return true;
+  };
+
+  const toursFailed = failed('туры', toursResult);
+  const bookingsFailed = failed('брони за неделю', bookingsResult);
+  const pendingFailed = failed('предстоящие брони', pendingResult);
+
+  const tours = toursResult.status === 'fulfilled' ? toursResult.value.rows : [];
+  const weekBookings = bookingsResult.status === 'fulfilled' ? bookingsResult.value.rows : [];
   const pendingCount =
     pendingResult.status === 'fulfilled'
       ? parseInt(pendingResult.value.rows[0]?.cnt ?? '0', 10)
-      : 0;
+      : null;
 
   const toursText = tours.length
     ? tours
@@ -173,7 +195,9 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
             `- "${t.title}" | ${t.base_price.toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}`,
         )
         .join('\n')
-    : 'Туры не найдены.';
+    : toursFailed
+      ? 'НЕ УДАЛОСЬ ПРОЧИТАТЬ список туров — не утверждай, что туров нет.'
+      : 'Туры не найдены.';
 
   const bookingsText = weekBookings.length
     ? weekBookings
@@ -182,11 +206,15 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
             `- ${b.tourist_name}, ${b.participants} чел, ${new Date(b.booking_date).toLocaleDateString('ru-RU')}, ${Number(b.final_price).toLocaleString('ru-RU')} ₽ [${b.booking_status}]`,
         )
         .join('\n')
-    : 'Бронирований на этой неделе нет.';
+    : bookingsFailed
+      ? 'НЕ УДАЛОСЬ ПРОЧИТАТЬ брони — не утверждай, что броней нет.'
+      : 'Бронирований на этой неделе нет.';
 
   return [
     `ОПЕРАТОР: ${partnerName}`,
-    `Предстоящих активных бронирований: ${pendingCount}`,
+    pendingFailed || pendingCount === null
+      ? 'Предстоящие активные бронирования: НЕ УДАЛОСЬ ПРОЧИТАТЬ.'
+      : `Предстоящих активных бронирований: ${pendingCount}`,
     '',
     `МОИ ТУРЫ:`,
     toursText,

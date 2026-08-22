@@ -98,14 +98,25 @@ async function saveTour(tour: ScrapedTour, operatorId: string): Promise<'inserte
       if (!dep.date_from) continue;
       try {
         await pool.query(
-          `INSERT INTO tour_availability (tour_id, date, available_slots, is_available)
-           VALUES ($1, $2::date, COALESCE($3, 10), TRUE)
-           ON CONFLICT (tour_id, date) DO UPDATE SET
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots)
+           VALUES ($1, $2::date, COALESCE($3, 10), 0)
+           ON CONFLICT (operator_tour_id, date) DO UPDATE SET
              available_slots = COALESCE(EXCLUDED.available_slots, tour_availability.available_slots),
-             is_available    = TRUE`,
+             is_cancelled    = FALSE`,
           [tourId, dep.date_from, dep.seats_left],
         );
-      } catch { /* skip bad dates */ }
+      } catch (err) {
+        // Не «skip bad dates»: пустой catch и держал эту вставку мёртвой.
+        // Колонок tour_id / is_available в tour_availability нет (миграция
+        // 040 — operator_tour_id), значит КАЖДЫЙ заезд падал на
+        // «column does not exist», а наружу это выглядело как «оператор не
+        // публикует дат». Дата бывает и правда кривой — но тогда это видно
+        // в логе, а не выдаётся за отсутствие заездов (§4.0).
+        const code = (err as { code?: string } | null)?.code ?? 'unknown';
+        console.error(
+          `[scraper] заезд не записан: тур ${tourId}, дата ${dep.date_from}, SQLSTATE ${code}`,
+        );
+      }
     }
   }
 

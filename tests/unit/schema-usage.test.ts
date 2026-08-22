@@ -79,7 +79,6 @@ const KNOWN_GAPS = [
   'lead_proposals.recommended_action',
   'lead_proposals.verdict_urgency',
   'operator_tours.created_via',
-  'tour_availability.is_available',
 ];
 
 describe('код пишет только в объявленные колонки', () => {

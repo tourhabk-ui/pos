@@ -69,8 +69,19 @@ function extractParenBody(src: string, openIdx: number): string | null {
 
 const ident = (s: string) => s.replace(/^"|"$/g, '').toLowerCase();
 
-/** Применяет DDL одного SQL-текста к реестру. Экспортирован для тестов. */
-export function applyDdl(sqlRaw: string, reg: SchemaRegistry): void {
+/**
+ * Применяет DDL одного SQL-текста к реестру. Экспортирован для тестов.
+ *
+ * `supersededBy` — имена таблиц, чьё объявление здесь УЖЕ перекрыто более
+ * достоверным источником: CREATE TABLE такой таблицы колонок не добавляет.
+ * ALTER-ы применяются всегда — они дописывают колонки, а не переопределяют
+ * форму. Зачем — см. `buildSchemaRegistry`.
+ */
+export function applyDdl(
+  sqlRaw: string,
+  reg: SchemaRegistry,
+  supersededBy?: ReadonlySet<string>,
+): void {
   const sql = stripSqlComments(sqlRaw);
 
   // CREATE TABLE [IF NOT EXISTS] name ( ... )
@@ -80,6 +91,8 @@ export function applyDdl(sqlRaw: string, reg: SchemaRegistry): void {
     const table = ident(m[1]).replace(/^public\./, '');
     const body = extractParenBody(sql, ctRe.lastIndex - 1);
     if (body === null) continue;
+    // Таблицу уже создал источник поважнее — это объявление мёртвое.
+    if (supersededBy?.has(table)) continue;
     const cols = reg.tables.get(table) ?? new Set<string>();
     for (const part of splitTopLevel(body)) {
       const def = part.trim();
@@ -127,14 +140,41 @@ export function applyDdl(sqlRaw: string, reg: SchemaRegistry): void {
  * - lib/database/*.sql — базовые *_schema.sql (partners, users, transfer_* и
  *   прочие таблицы, созданные до эры нумерованных миграций).
  * Кастомный список каталогов — для тестов парсера.
+ *
+ * ── Порядок каталогов — это старшинство, а не обход ────────────────────────
+ *
+ * Источники не равны. `migrations/` НАКАТЫВАЮТСЯ на прод при каждом деплое;
+ * `lib/database/*.sql` не накатывается ничем (единственный, кто его читает, —
+ * `scripts/migrate.js`, не подключённый ни к одной npm-команде). Пока реестр
+ * их просто ОБЪЕДИНЯЛ, мёртвый файл ручался за живые колонки.
+ *
+ * Чем это кончилось (22.08.2026): `tour_availability` объявлена дважды —
+ * миграцией 040 (`operator_tour_id BIGINT` → operator_tours) и schema.sql
+ * (`tour_id UUID` → tours, таблица, обращаться к которой CLAUDE.md прямо
+ * запрещает). На проде живёт форма из 040 — это видно по миграции 812,
+ * поймавшей `id` как BIGSERIAL. Но союзный реестр знал ОБА имени, поэтому
+ * гард фантомных колонок молчал на `ta.tour_id` в двух местах: инструмент
+ * оператора `my_tours` падал на каждом вызове, а скрейпер туров не записал
+ * НИ ОДНОГО заезда — его вставка гасилась пустым catch.
+ *
+ * Отсюда правило: **CREATE TABLE в более раннем каталоге старше**. Повторное
+ * объявление той же таблицы ниже по списку колонок не добавляет. ALTER-ы
+ * применяются из всех источников: они дописывают колонки к существующей
+ * форме, а не заявляют другую.
+ *
+ * Замер на момент введения: строгий реестр меняет ровно две ссылки — обе
+ * настоящие ошибки, ни одного нового ложного фантома.
  */
 export function buildSchemaRegistry(dirs?: string[]): SchemaRegistry {
   const roots = dirs ?? [join(process.cwd(), 'migrations'), join(process.cwd(), 'lib/database')];
   const reg: SchemaRegistry = { tables: new Map(), views: new Set(), created: new Set() };
+  const authoritative = new Set<string>();
   for (const dir of roots) {
     for (const f of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
-      applyDdl(readFileSync(join(dir, f), 'utf-8'), reg);
+      applyDdl(readFileSync(join(dir, f), 'utf-8'), reg, authoritative);
     }
+    // Всё, что создал этот каталог, закрыто для переобъявления следующими.
+    for (const t of reg.created) authoritative.add(t);
   }
   return reg;
 }
