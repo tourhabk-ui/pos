@@ -16,14 +16,35 @@ const EXPLAIN = readFileSync(join(ROOT, 'app/api/cron/explain-availability/route
 const PLANNER = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf-8');
 
 describe('probe-url: POST-пробы', () => {
-  it('секрет уходит ТОЛЬКО своим крон-роутам — то же case-правило, что у GET', () => {
-    const postBlock = WF.slice(WF.indexOf('POST-пробы'));
-    expect(postBlock).toMatch(/case "\$PURL" in/);
-    expect(postBlock).toMatch(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/);
-    // Bearer только в крон-ветке; чужая ветка — последний wildcard-arm
-    // (первый '*)' — это хвост паттерна с адресом крон-роутов).
-    const foreign = postBlock.slice(postBlock.lastIndexOf('*)'));
-    expect(foreign).not.toMatch(/Authorization: Bearer/);
+  /**
+   * Сторож судит СВОЙСТВО, а не написание.
+   *
+   * Прежде здесь требовалось РОВНО ДВА блока `case "$PURL" in` — по одному на
+   * GET и POST. Когда 22.08 обе одинаковые ветки схлопнулись в общую функцию
+   * запроса, свойство стало СТРОЖЕ (решение о секрете принимается в одном
+   * месте на оба метода), а сторож покраснел — он считал копии, а не смысл.
+   *
+   * Проверяемое свойство: каждое появление заголовка с секретом стоит внутри
+   * ветки, отобранной по адресу `https://vedarai.ru/api/cron/*`. Сколько таких
+   * веток — одна или пять — правилу безразлично.
+   */
+  it('секрет уходит ТОЛЬКО своим крон-роутам — на всяком пути, GET и POST', () => {
+    const lines = WF.split('\n');
+    const bearer = lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => /Authorization: Bearer/.test(l));
+
+    expect(bearer.length, 'заголовок с секретом исчез из пробы — секрет никуда не уходит?').toBeGreaterThan(0);
+
+    for (const { l, i } of bearer) {
+      // Отбор по адресу стоит либо на самой строке (`case`-arm с командой в
+      // одну строку), либо чуть выше — берём окно, включающее саму строку.
+      const window = lines.slice(Math.max(0, i - 6), i + 1).join('\n');
+      expect(
+        window,
+        `строка ${i + 1} шлёт CRON_SECRET, но выше нет отбора по адресу крон-роутов: ${l.trim()}`,
+      ).toMatch(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/);
+    }
   });
 
   it('адрес секрета сузился до крон-роутов: домен целиком больше не адресат', () => {
@@ -31,7 +52,15 @@ describe('probe-url: POST-пробы', () => {
     // Edge-middleware — проба публичного JSON была невозможна (09.08). Заодно
     // это строго уже прежнего правила: мест, куда уходит секрет, стало меньше.
     expect(WF).not.toMatch(/https:\/\/vedarai\.ru\/\*\)/);
-    expect(WF.match(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/g) ?? []).toHaveLength(2);
+    expect(WF).toMatch(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/);
+  });
+
+  it('POST ждёт выката тем же правилом, что GET — петля ожидания одна на всех', () => {
+    // Проба 99 сняла 404 у ещё не собравшегося роута и отчиталась успехом:
+    // повтор и маркер свежести жили только в GET-ветке, POST бил один раз.
+    // Две петли ожидания — это два правила, и одно из них снова отстанет.
+    expect(WF.match(/while : ; do/g) ?? [], 'петля ожидания выката должна быть одна на оба метода').toHaveLength(1);
+    expect(WF).toMatch(/ПРОБА НЕ УДАЛАСЬ/);
   });
 
   it('тело — из файла триггера, без shell-интерполяции JSON', () => {
