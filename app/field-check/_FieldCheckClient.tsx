@@ -29,7 +29,7 @@ import { FieldActionBar, type FieldAction } from '@/components/field/FieldAction
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
 // Мера расстояния одна на платформу: свою формулу здесь заводить нельзя —
 // разойдётся с той, по которой считается «км от вас» на сервере.
-import { haversineKm } from '@/lib/field/track-import';
+import { haversineKm } from '@/lib/field/geo';
 import {
   queueFieldCheck, listFieldChecks, deleteFieldCheck,
   saveFieldCheckArea, getFieldCheckArea,
