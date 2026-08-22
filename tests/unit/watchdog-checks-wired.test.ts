@@ -55,4 +55,38 @@ describe('Watchdog: состав проверок', () => {
   it('падение миграции снова доходит до тревоги', () => {
     expect(wiredChecks()).toContain('checkFailedMigrations');
   });
+
+  it('удержанные платежи проверяются: у /api/cron/payouts планировщик снаружи', () => {
+    // Единственный доступный способ узнать, идёт ли внешнее расписание, — след
+    // в данных. Убрать эту проверку значит снова остаться без ответа на вопрос
+    // «отпускаются ли деньги оператору» (перепись достижимости 22.08).
+    expect(wiredChecks()).toContain('checkStuckPayouts');
+  });
+
+  it('ни одна проверка не глушит отказ: «не смог» попадает в лог', () => {
+    // §4.0: пустой catch превращает поломку в «данных нет», а у сторожа
+    // «данных нет» читается как «всё хорошо». 22.08 таких было девять из
+    // семнадцати — то есть больше половины сторожевых запросов могли падать
+    // беззвучно. Исключений в этом списке нет и заводить их нельзя: место, где
+    // нельзя сказать «не знаю», заполняется враньём.
+    const names = declaredChecks();
+    const starts = names.map(n => ({ n, i: CODE.indexOf(`async function ${n}(`) })).sort((a, b) => a.i - b.i);
+    const silent: string[] = [];
+    let withCatch = 0;
+    for (let k = 0; k < starts.length; k++) {
+      const body = CODE.slice(starts[k].i, k + 1 < starts.length ? starts[k + 1].i : CODE.length);
+      if (!/catch\s*(\([^)]*\))?\s*\{/.test(body)) continue;
+      withCatch++;
+      if (!/console\.error/.test(body)) silent.push(starts[k].n);
+    }
+
+    // Разбор не вырожден: catch'и он вообще находит — иначе тест зеленел бы на
+    // любом коде, включая заведомо неправильный.
+    expect(withCatch, 'разбор тел проверок сломался: catch не найден ни в одной').toBeGreaterThan(5);
+
+    expect(
+      silent,
+      `проверка глушит отказ без записи в лог: ${silent.join(', ')}`,
+    ).toEqual([]);
+  });
 });
