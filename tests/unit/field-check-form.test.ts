@@ -28,10 +28,18 @@ describe('приём проверки — очередь, а не правка',
 
   it('вход валидируется Zod и параметризован', () => {
     expect(report).toContain('BodySchema.parse');
-    // Плейсхолдеров стало больше вместе с координатой объекта (миграция
-    // 900); сторож держит не их число, а то, что значения не склеиваются
-    // в строку запроса.
-    expect(report).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8(, \$9, \$10, \$11)?\)/);
+    // Держим ПРАВИЛО, а не счёт плейсхолдеров: их число росло с каждой
+    // новой колонкой (900 — координата объекта, 905 — находка), и каждый
+    // раз краснел не дефект, а сам сторож. Правило же одно: в VALUES стоят
+    // только позиционные параметры, нумерация сплошная, и внутри запроса
+    // ничего не склеивается шаблоном.
+    const values = /VALUES \(([^)]*)\)/.exec(report);
+    expect(values, 'не нашёл VALUES у вставки проверки').not.toBeNull();
+    const params = values![1].split(',').map(x => x.trim());
+    expect(params.every(x => /^\$\d+$/.test(x)), `в VALUES не только параметры: ${params.join('|')}`)
+      .toBe(true);
+    expect(params.map(x => parseInt(x.slice(1), 10)))
+      .toEqual(params.map((_, i) => i + 1));
     expect(report).not.toMatch(/INSERT INTO route_field_checks[\s\S]{0,400}\$\{/);
   });
 
@@ -306,5 +314,55 @@ describe('форма проще', () => {
   it('редкие настройки убраны под одну ссылку', () => {
     expect(client).toContain("Ещё: координаты вручную, радиус");
     expect(client).toMatch(/\{showMore && \(/);
+  });
+});
+
+/**
+ * Находка: место, которого у нас нет (владелец 22.08, стоя на Диких
+ * озерках: «а если места нет и в выборе тоже?»).
+ *
+ * До этого экран умел сказать «ваша запись врёт», но не умел «здесь есть
+ * то, чего у вас нет вовсе» — и это был тупик. А ценность обратная:
+ * ошибку в существующей записи мы рано или поздно поймаем переписью;
+ * места, которого нет в базе, не найдёт никто, кроме того, кто на нём
+ * стоит.
+ */
+describe('находка — место, которого нет в базе', () => {
+  const report = readFileSync(join(process.cwd(), 'app/api/field-check/report/route.ts'), 'utf-8');
+  const queueRead = readFileSync(
+    join(process.cwd(), 'app/api/cron/field-check-queue/route.ts'), 'utf-8');
+  const mig = readFileSync(
+    join(process.cwd(), 'migrations/905_field_check_new_place.sql'), 'utf-8');
+
+  it('находка идёт той же очередью, без отдельной ветки', () => {
+    expect(client).toMatch(/targetKind: 'new'/);
+    expect(client).toContain('queueFieldCheck');
+    // Отдельной таблицы не заводим — это ещё один род цели.
+    expect(mig).not.toMatch(/CREATE TABLE/);
+  });
+
+  it('у находки нет id записи, и это закреплено ограничением', () => {
+    expect(mig).toMatch(/\(target_kind = 'new'\) = \(target_id IS NULL\)/);
+    expect(report).toContain('У находки не бывает id записи');
+  });
+
+  it('проверка нашей записи без id не принимается — это потерянная связь', () => {
+    expect(report).toContain('Не указано, какую запись проверяли');
+  });
+
+  it('безымянная находка не принимается: её нельзя ни завести, ни найти', () => {
+    expect(report).toMatch(/Назовите находку/);
+    expect(client).toMatch(/findingName\.trim\(\)\.length < 2/);
+  });
+
+  it('координата находки — её единственный адрес, берётся с телефона', () => {
+    expect(client).toMatch(/objectLat: objCoord\?\.lat \?\? fix\?\.lat \?\? null/);
+  });
+
+  it('очередь различает два разных «нет цели»', () => {
+    // У находки цели нет ПО ЗАМЫСЛУ; у проверки — цель не нашлась.
+    expect(queueRead).toMatch(/r\.target_kind === 'new' \? r\.proposed_name : r\.target_title/);
+    expect(queueRead).toMatch(/i\.target\.kind !== 'new' && i\.target\.title === null/);
+    expect(queueRead).toContain('findings');
   });
 });

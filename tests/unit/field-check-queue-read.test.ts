@@ -58,7 +58,13 @@ describe('очередь полевых проверок — чтение', () =
 
   it('ненайденная цель — отдельное состояние, а не пустая строка', () => {
     expect(queue).toContain('orphaned');
-    expect(queue).toMatch(/title: r\.target_title,/);
+    // Правило, а не строчка: имя цели берётся из строки БД и остаётся
+    // nullable. Подстановка литерала ('—', '') стёрла бы разницу между
+    // «цель называется так» и «цели не нашлось».
+    const title = /title:([^\n]*),/.exec(queue);
+    expect(title).not.toBeNull();
+    expect(title![1]).toMatch(/r\.target_title/);
+    expect(title![1]).not.toMatch(/(\?\?|\|\|)\s*['"`]/);
   });
 
   it('снимки не тонут в списке: число и вес, байты — отдельно', () => {
