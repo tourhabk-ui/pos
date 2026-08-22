@@ -1,11 +1,17 @@
 {
-  "note": "Проба 153: повтор переписи мест без маршрута. Проба 152 отработала (HTTP 200), но тело ответа не пролезло в читалку логов: перепись отдаёт полные списки имён, это килобайты. Счётчики стоят в начале JSON, поэтому режем выдачу до 1400 байт — их хватит на total_live_places, linked, lost, never и начало разбивки по типам. Полные списки снимем отдельно, когда решим, что с ними делать.",
-  "urls": [
-    "https://vedarai.ru/api/cron/places-routes-census"
-  ],
-  "until": "total_live_places",
-  "retries": 6,
-  "retryDelay": 30,
-  "timeout": 120,
-  "bytes": 1400
+ "bytes": 3000,
+ "timeout": 120,
+ "retries": 12,
+ "retryDelay": 60,
+ "until": "would_delete",
+ "note": "Проба 99: СУХОЙ прогон уборки партнёров. Тело без confirm — роут обязан вернуть dry_run: true и список кандидатов, ничего не удаляя. Это проверка не только данных, но и самого тормоза: если в ответе окажется deleted_count, значит защита не работает и удалять нельзя.",
+ "run": 99,
+ "urls": [],
+ "post": [
+  { "url": "https://vedarai.ru/api/cron/partner-cleanup", "body": {} }
+ ],
+ "grep": [
+  "\"dry_run\":true",
+  "\"deleted_count\""
+ ]
 }
