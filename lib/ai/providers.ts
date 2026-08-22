@@ -51,7 +51,9 @@ import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-
 // падает на DeepSeek/Gemini. Если задан релей вне РФ (Cloudflare Worker/VPS —
 // прозрачный прокси, форвардит путь и Authorization как есть), базовые URL
 // указывают на него. Переменные не заданы → прежнее прямое поведение.
-const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+/** Домашний адрес OpenRouter — база по умолчанию и эталон для диагностики релея. */
+const OPENROUTER_DIRECT = 'https://openrouter.ai/api/v1';
+const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || OPENROUTER_DIRECT).replace(/\/+$/, '');
 // Экспортируется: прямой вызов Anthropic нужен там, где waterfall не годится
 // (image-tagger — ему нужно зрение, а waterfall текстовый). Такие места обязаны
 // брать базу отсюда, иначе релей их не спасёт и они останутся мертвы в РФ.
@@ -282,6 +284,22 @@ export async function probeOpenRouterKeyStatus(): Promise<{
   route_host: string;
   http_status: number | null;
   detail: string;
+  /**
+   * Тот же запрос НАПРЯМУЮ в openrouter.ai, минуя релей. Заполняется только
+   * когда база релейная — иначе это был бы дубль основного измерения (null).
+   *
+   * Зачем. 22.08 прод через релей получал 403 с телом
+   * `{ "success": false, "error": "Access denied by security policy." }`, тогда
+   * как раннер тем же путём получал настоящий ответ OpenRouter
+   * (`{"error":{"message":"No cookie auth credentials found","code":401}}`).
+   * Формат чужой, значит отвечает не OpenRouter — а кто, по одному коду не
+   * узнать. Сравнение с прямым путём разделяет два разных диагноза:
+   * совпало — режет край сети по нашему адресу, и релей его не прячет
+   * (лечится сменой площадки релея); не совпало — режет что-то на выходе
+   * из Timeweb именно к релею (лечится в другом месте).
+   */
+  direct_status: number | null;
+  direct_detail: string | null;
 }> {
   const key_source = getOpenRouterKeySource();
   const both_env_set = !!process.env.OR_API_KEY && !!process.env.OPENROUTER_API_KEY;
@@ -296,25 +314,43 @@ export async function probeOpenRouterKeyStatus(): Promise<{
   try { route_host = new URL(OPENROUTER_BASE).host; } catch { /* оставляем дефолт */ }
 
   const apiKey = getOpenRouterKey();
-  if (!apiKey) return { key_source, both_env_set, route, route_host, http_status: null, detail: 'ключ не задан' };
-
-  try {
-    const res = await fetch(`${OPENROUTER_BASE}/key`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(8_000),
-    });
-    const body = (await res.text()).slice(0, 300);
-    return { key_source, both_env_set, route, route_host, http_status: res.status, detail: body };
-  } catch (e) {
+  if (!apiKey) {
     return {
-      key_source,
-      both_env_set,
-      route,
-      route_host,
-      http_status: null,
-      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+      key_source, both_env_set, route, route_host,
+      http_status: null, detail: 'ключ не задан',
+      direct_status: null, direct_detail: null,
     };
   }
+
+  /** Один и тот же запрос по заданному адресу. Ключ уходит только на openrouter.ai или на наш релей. */
+  const ask = async (base: string): Promise<{ status: number | null; detail: string }> => {
+    try {
+      const res = await fetch(`${base}/key`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8_000),
+      });
+      return { status: res.status, detail: (await res.text()).slice(0, 300) };
+    } catch (e) {
+      // Третий исход: сеть не ответила — это не «доступ закрыт» и не «всё хорошо».
+      return { status: null, detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}` };
+    }
+  };
+
+  const main = await ask(OPENROUTER_BASE);
+
+  // Прямой путь меряем ТОЛЬКО когда основной релейный: иначе это тот же запрос дважды.
+  const direct = route === 'relay' ? await ask(OPENROUTER_DIRECT) : null;
+
+  return {
+    key_source,
+    both_env_set,
+    route,
+    route_host,
+    http_status: main.status,
+    detail: main.detail,
+    direct_status: direct ? direct.status : null,
+    direct_detail: direct ? direct.detail : null,
+  };
 }
 
 export async function callOpenrouter(messages: ChatMessage[]): Promise<string | null> {
@@ -377,6 +413,20 @@ export interface OpenRouterModelOptions {
   jsonMode?: boolean;
   /** JSON Schema for structured outputs (supported by GPT-4.1, Gemini 2.5, etc.) */
   jsonSchema?: { name: string; strict?: boolean; schema: Record<string, unknown> };
+  /**
+   * Зовётся, когда модель НЕ ответила, и называет причину.
+   *
+   * Функция отдаёт `null` на четыре разных события: провайдер отказал по HTTP,
+   * ответ пришёл без текста, запрос не дошёл, ключа нет. Наружу все четыре
+   * выглядели одинаково, и отчёт судьи писал про первую ступень «ключ есть,
+   * ответа нет» — фразу, из которой нельзя понять ни 401, ни 402, ни 403.
+   * Рядом ступень Anthropic честно печатала тело ошибки («credit balance is
+   * too low»), и разница была видна невооружённым глазом.
+   *
+   * Здесь не выдумывается новое поведение: возврат по-прежнему `null`, просто
+   * причина больше не пропадает. Тело обрезается — в нём бывает эхо запроса.
+   */
+  onRefusal?: (info: { kind: 'http' | 'empty' | 'network' | 'no_key'; status: number | null; detail: string }) => void;
 }
 
 export async function callOpenRouterModel(
@@ -387,11 +437,17 @@ export async function callOpenRouterModel(
   const opts: OpenRouterModelOptions = typeof timeoutOrOpts === 'number'
     ? { timeoutMs: timeoutOrOpts }
     : timeoutOrOpts;
-  const { timeoutMs = 15_000, maxTokens = 800, temperature = 0.4, jsonMode = false, jsonSchema } = opts;
+  const { timeoutMs = 15_000, maxTokens = 800, temperature = 0.4, jsonMode = false, jsonSchema, onRefusal } = opts;
 
   const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
-  if (isOpenRouterTemporarilyDisabled()) return null;
+  if (!apiKey) {
+    onRefusal?.({ kind: 'no_key', status: null, detail: 'ключ OpenRouter не задан' });
+    return null;
+  }
+  if (isOpenRouterTemporarilyDisabled()) {
+    onRefusal?.({ kind: 'no_key', status: null, detail: 'провайдер временно отключён после отказа авторизации' });
+    return null;
+  }
 
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
@@ -423,15 +479,27 @@ export async function callOpenRouterModel(
       if (res.status === 401) {
         markOpenRouterAuthFailure();
       }
+      if (onRefusal) {
+        const body = await res.text().catch(() => '');
+        onRefusal({ kind: 'http', status: res.status, detail: body.slice(0, 200) || 'тело ответа пустое' });
+      }
       return null;
     }
 
     clearOpenRouterFailure();
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     const text = data?.choices?.[0]?.message?.content;
-    if (!text?.trim()) return null;
+    if (!text?.trim()) {
+      onRefusal?.({ kind: 'empty', status: res.status, detail: 'ответ 200, но текста в нём нет' });
+      return null;
+    }
     return { text: text.trim(), model_used: modelId };
-  } catch {
+  } catch (e) {
+    onRefusal?.({
+      kind: 'network',
+      status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message.slice(0, 150) : 'ошибка'}`,
+    });
     return null;
   }
 }
@@ -1413,11 +1481,20 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     why.push('flagship: OPENROUTER_API_KEY не задан');
   } else {
     try {
+      // Причина отказа приходит из самой ступени. Прежняя строка «ключ есть,
+      // ответа нет» была честной ровно наполовину: она сообщала ЧТО, но не
+      // ПОЧЕМУ, и по ней нельзя было отличить недействительный ключ от
+      // исчерпанного счёта или закрытого доступа. Прогон 22.08 повторил её
+      // сорок восемь раз — с раннера GitHub, где ни релея, ни гео-блока нет.
+      let refusal: string | null = null;
       const flag = await callOpenRouterModel(payload, flagshipModel, {
         timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
+        onRefusal: ({ status, detail }) => {
+          refusal = status === null ? detail : `HTTP ${status} ${detail}`;
+        },
       });
       if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
-      why.push(`flagship(${flagshipModel}): ключ есть, ответа нет`);
+      why.push(`flagship(${flagshipModel}): ${refusal ?? 'ключ есть, ответа нет'}`);
     } catch (e) { why.push(`flagship(${flagshipModel}): ${(e as Error).message.slice(0, 100)}`); }
   }
 

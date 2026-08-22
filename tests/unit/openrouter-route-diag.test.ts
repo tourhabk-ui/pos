@@ -44,9 +44,28 @@ describe('probeOpenRouterKeyStatus: маршрут в диагнозе', () => {
     expect(FN).not.toMatch(/route_host = OPENROUTER_BASE\b/);
   });
 
-  it('маршрут сообщается и когда ключа нет, и когда сеть молчит', () => {
-    // Иначе «ключ не задан» и таймаут снова оставили бы читателя без адресата.
-    const branches = FN.match(/route,\s*route_host,/g) ?? [];
-    expect(branches.length).toBeGreaterThanOrEqual(3);
+  it('ни один выход диагноза не молчит о маршруте', () => {
+    // Считать вхождения «route, route_host,» было ошибкой: это проверка
+    // НАПИСАНИЯ, а не смысла. Она покраснела на правке, которая ничего не
+    // ухудшила — просто собрала три ветки в одну. Правило же в другом: любой
+    // ответ наружу обязан называть адресата. Публичный ответ узнаём по
+    // key_source — он есть только в нём.
+    const returns = FN.match(/return\s*\{[\s\S]*?\n {2}\};/g) ?? [];
+    const publicReturns = returns.filter((r) => r.includes('key_source'));
+    expect(publicReturns.length).toBeGreaterThanOrEqual(2);
+    for (const r of publicReturns) {
+      expect(r, 'ответ без адресата').toMatch(/\broute\b/);
+      expect(r, 'ответ без хоста').toMatch(/\broute_host\b/);
+    }
+  });
+
+  it('релейный путь сверяется с прямым', () => {
+    // 403 через релей и 403 напрямую — разные болезни: первое лечится сменой
+    // площадки релея, второе нет. Без сравнения их не различить, и читатель
+    // снова достраивает причину сам.
+    expect(FN).toMatch(/direct_status/);
+    expect(FN).toMatch(/direct_detail/);
+    // Прямое измерение только при релейной базе — иначе это тот же запрос дважды.
+    expect(FN).toMatch(/route === 'relay'/);
   });
 });
