@@ -131,6 +131,30 @@ export function parseDeclarations(files: Array<{ name: string; sql: string }>): 
         put(m[1], a[1], name);
       }
     }
+
+    // ── Снятое позже — не расхождение, а решение ───────────────
+    //
+    // Третья причина расхождений, найденная 22.08 уже после первого прогона:
+    // колонка объявлена, а следом ДРУГАЯ миграция её удаляет. Так вышло с
+    // `operator_tours.tags` (заведена в 040, снята в 041 — на её месте
+    // `ai_tags`), `tour_availability.suggested_alternatives` и
+    // `weather_alerts.affected_bookings`.
+    //
+    // Разбор этого не знал и звал такие колонки пропавшими. Беда не в цифре:
+    // перепись подталкивала ВЕРНУТЬ то, что убрали намеренно. Ложная тревога
+    // опаснее молчания — на неё перестают смотреть.
+    //
+    // Файлы идут по порядку имён, поэтому удаление действует на всё, что
+    // объявлено раньше, и не трогает то, что заведут позже.
+    for (const m of sql.matchAll(/ALTER TABLE\s+(?:ONLY\s+)?(?:IF EXISTS\s+)?(?:public\.)?"?([a-z_]\w*)"?\s+([\s\S]*?);/gi)) {
+      for (const d of m[2].matchAll(/DROP COLUMN\s+(?:IF EXISTS\s+)?"?([a-z_]\w*)"?/gi)) {
+        tables.get(m[1])?.delete(d[1]);
+      }
+    }
+
+    for (const m of sql.matchAll(/DROP TABLE\s+(?:IF EXISTS\s+)?(?:public\.)?"?([a-z_]\w*)"?/gi)) {
+      tables.delete(m[1]);
+    }
   }
 
   return { tables };

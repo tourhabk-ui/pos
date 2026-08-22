@@ -185,3 +185,36 @@ describe('список сознательно отсутствующих', () =>
     }
   });
 });
+
+describe('снятое позже — не расхождение', () => {
+  it('колонка, удалённая другой миграцией, не числится пропавшей', () => {
+    // operator_tours.tags: заведена в 040, снята в 041 (на её месте ai_tags).
+    // Перепись 22.08 звала её пропавшей и тем самым подталкивала ВЕРНУТЬ то,
+    // что убрали намеренно. Ложная тревога опаснее молчания.
+    const d = parseDeclarations([
+      { name: '040_tools.sql', sql: 'CREATE TABLE operator_tours (\n  id BIGSERIAL,\n  tags VARCHAR(255)[]\n);' },
+      { name: '041_normalize.sql', sql: 'ALTER TABLE operator_tours DROP COLUMN IF EXISTS tags;' },
+    ]);
+    expect([...d.tables.get('operator_tours')!.keys()]).toEqual(['id']);
+  });
+
+  it('порядок важен: заведённое ПОСЛЕ удаления остаётся', () => {
+    const d = parseDeclarations([
+      { name: '040.sql', sql: 'CREATE TABLE t (id INT, c TEXT);' },
+      { name: '041.sql', sql: 'ALTER TABLE t DROP COLUMN c;' },
+      { name: '900.sql', sql: 'ALTER TABLE t ADD COLUMN c TEXT;' },
+    ]);
+    expect(d.tables.get('t')!.has('c')).toBe(true);
+    // Виновником называется тот, кто завёл её В ПОСЛЕДНИЙ раз, а не файл 040:
+    // действие 040 отменено, и искать пропажу надо в 900.
+    expect(d.tables.get('t')!.get('c')).toBe('900.sql');
+  });
+
+  it('удалённая таблица перестаёт числиться объявленной', () => {
+    const d = parseDeclarations([
+      { name: '01.sql', sql: 'CREATE TABLE place_aliases (id INT);' },
+      { name: '02.sql', sql: 'DROP TABLE IF EXISTS place_aliases;' },
+    ]);
+    expect(d.tables.has('place_aliases')).toBe(false);
+  });
+});
