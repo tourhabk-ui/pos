@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
-import { hashPassword } from '@/lib/auth/password';
+import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createToken } from '@/lib/auth/jwt';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
@@ -22,7 +22,7 @@ const RegisterSchema = z.object({
   contact_name: z.string().min(2, 'Имя минимум 2 символа').max(255),
   email:        z.string().email('Неверный формат email'),
   phone:        z.string().min(10, 'Телефон слишком короткий').max(20),
-  password:     z.string().min(8, 'Пароль минимум 8 символов').max(100),
+  password:     passwordSchema,
   telegram:     z.string().max(255).optional(),
 });
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { SignJWT } from 'jose';
 import { z } from 'zod';
 import { pool } from '@/lib/database';
-import { hashPassword } from '@/lib/auth/password';
+import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
@@ -11,7 +11,7 @@ const PARTNER_ROLE_SET = new Set(['operator', 'guide', 'transfer', 'agent', 'sta
 
 const RegisterSchema = z.object({
   email: z.string({ message: 'Email обязателен' }).email('Неверный формат email'),
-  password: z.string({ message: 'Пароль обязателен' }).min(6, 'Пароль должен быть минимум 6 символов'),
+  password: passwordSchema,
   name: z.string({ message: 'Имя обязательно' }).min(1, 'Имя не может быть пустым'),
   role: z.enum(VALID_ROLES).optional(),
   roles: z.array(z.enum(VALID_ROLES)).optional(),

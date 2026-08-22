@@ -9,7 +9,7 @@
 import { query } from '@/lib/database';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { validateRoutePost, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail } from '@/lib/notifications/post-validation';
+import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail } from '@/lib/notifications/post-validation';
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -252,16 +252,50 @@ export async function maxChannelPost(
  * публикаторов идут через эту функцию, поэтому проверка стоит тут: дешёвая,
  * синхронная, без сети — и обойти её, не тронув эту строку, нельзя.
  */
-async function postToAllChannels(
-  mainChannelId: string,
-  text: string,
-  photoUrl?: string | null,
-  fallbackPhotoUrl?: string | null,
-): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Единственный путь автоматической публикации в оба канала — и единственное
+ * место, где текст проверяется целиком.
+ *
+ * `postType` нужен не для красоты: без него отказ ложится в журнал безымянным,
+ * и «пост не вышел» нельзя связать с публикатором.
+ *
+ * Про двойную проверку. Пост о маршруте проходит `validateRoutePost` до
+ * вызова, и текстовая часть проверится дважды — лишние HEAD-запросы на
+ * несколько постов в сутки. Это дешевле, чем восемь публикаторов, каждый со
+ * своим решением, проверяться ему или нет: ровно так после инцидента 12.07
+ * проверку получил один вид постов из девяти.
+ */
+interface ChannelPost {
+  /** id основного Telegram-канала */
+  channelId: string;
+  /** Кто публикует: `route`, `kuzmich_tip`, `safety`… — попадает в журнал отказа */
+  postType: string;
+  text: string;
+  photoUrl?: string | null;
+  /** Куратор-фото: уходит, если Telegram не смог скачать основное */
+  fallbackPhotoUrl?: string | null;
+}
+
+async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; error?: string }> {
+  const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl } = post;
   const issue = blockingTextIssue(text);
   if (issue) {
     const error = `Публикация отменена: ${issue}`;
     console.error('[postToAllChannels]', error, `| текст: ${JSON.stringify(text.slice(0, 120))}`);
+    return { ok: false, error };
+  }
+
+  // Полная проверка текста: качество, запрещённое и ЖИВОСТЬ ВСЕХ ССЫЛОК.
+  // 12.07.2026 канал опубликовал ссылку на мёртвую страницу — валидатор для
+  // этого существовал и был подключён только к постам о маршрутах.
+  const validation = await validateTextPost(text);
+  for (const w of validation.warnings) {
+    console.error('[postToAllChannels] предупреждение:', postType, w);
+  }
+  if (!validation.valid) {
+    const error = `Публикация отменена: ${validation.errors.join('; ')}`;
+    console.error('[postToAllChannels]', postType, error);
+    await logValidationFailure(postType, validation);
     return { ok: false, error };
   }
 
@@ -383,7 +417,7 @@ export async function postRouteToChannel(routeId: string, photoUrl?: string): Pr
   lines.push(`<a href="${appUrl}/routes/${r.id}">Смотреть маршрут →</a>`);
 
   const text = lines.join('\n');
-  return postToAllChannels(channelId, text, photoUrl);
+  return postToAllChannels({ channelId, postType: 'route', text, photoUrl });
 }
 
 interface PartnerRow {
@@ -425,7 +459,7 @@ export async function postOperatorToChannel(slug: string, photoUrl?: string): Pr
 
   const text = lines.join('\n');
   const photo = photoUrl ?? p.hero_image ?? undefined;
-  return postToAllChannels(channelId, text, photo);
+  return postToAllChannels({ channelId, postType: 'operator', text, photoUrl: photo });
 }
 
 /**
@@ -469,7 +503,7 @@ ${KUZMICH_CHANNEL_VOICE}`;
     { role: 'user', content: prompt },
   ], getModelForAgent('kuzmich'));
 
-  return postToAllChannels(channelId, text);
+  return postToAllChannels({ channelId, postType: 'sezon', text });
 }
 
 // ── Справочник «Друзья» — внешние партнёры без страницы на сайте ─────────────
@@ -530,7 +564,7 @@ ${KUZMICH_CHANNEL_VOICE}`;
     { role: 'user', content: prompt },
   ], getModelForAgent('kuzmich'));
 
-  return postToAllChannels(channelId, text);
+  return postToAllChannels({ channelId, postType: 'friend', text });
 }
 
 // ── А2. Кузьмич — AI-пост о конкретном маршруте (автономный cron) ────────────
@@ -783,9 +817,13 @@ ${KUZMICH_CHANNEL_VOICE}`;
     // не в отдельное сообщение: подпись, оторванная от фото, читается как
     // разговор о чём-то другом.
     const body = photo.url && !photo.ofThisPlace ? `${text}${NOT_THIS_PLACE_NOTE}` : text;
-    const result = await postToAllChannels(
-      channelId, body, photo.url, curatorUrl !== photo.url ? curatorUrl : null,
-    );
+    const result = await postToAllChannels({
+      channelId,
+      postType: 'kuzmich_route',
+      text: body,
+      photoUrl: photo.url,
+      fallbackPhotoUrl: curatorUrl !== photo.url ? curatorUrl : null,
+    });
 
     if (result.ok) {
       try {
@@ -860,7 +898,7 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 ${KUZMICH_CHANNEL_VOICE}`;
 
   const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-  const result = await postToAllChannels(channelId, text, `${appUrl}${picked.photo}`);
+  const result = await postToAllChannels({ channelId, postType: 'kuzmich_tip', text, photoUrl: `${appUrl}${picked.photo}` });
 
   if (result.ok) {
     try {
@@ -1033,7 +1071,23 @@ ${signalCtx}
     skipSmartImage: opts.skipLLM,
   });
 
-  // 4. Publish to AI channel (photo + caption)
+  // 4. Тот же текстовый гейт, что и у остальных постов. Этот публикатор не
+  //    ходит через postToAllChannels — у него свой канал, — и потому легко
+  //    остаётся без общей проверки: ровно так и вышло после 12.07.
+  //    В тест-режиме админки пропускается вместе с фактчеком: тест проверяет
+  //    доставку, а не текст, и не должен ждать сетевых проб.
+  if (!opts.skipLLM) {
+    const textCheck = await validateTextPost(postText);
+    for (const w of textCheck.warnings) console.error('[postAINewsToChannel] предупреждение:', w);
+    if (!textCheck.valid) {
+      const error = `Публикация отменена: ${textCheck.errors.join('; ')}`;
+      console.error('[postAINewsToChannel]', error);
+      await logValidationFailure('ai_news', textCheck);
+      return { ok: false, error };
+    }
+  }
+
+  // 5. Publish to AI channel (photo + caption)
   const result = await tgPostPhoto(channelId, cover.url, postText);
 
   // 5. Log action
@@ -1121,7 +1175,7 @@ ${signalCtx}
   const cover = await resolveCoverImage(finding.summary, 'travel', seed);
 
   // 4. Publish to TourHub channel (with MAX parallel post)
-  const result = await postToAllChannels(channelId, postText, cover.url);
+  const result = await postToAllChannels({ channelId, postType: 'travel_news', text: postText, photoUrl: cover.url });
 
   // 5. Log action
   if (result.ok) {
@@ -1220,7 +1274,7 @@ ${KUZMICH_CHANNEL_VOICE}`;
   const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=1280&height=720&seed=${seed}&nologo=true`;
 
   // 4. Publish to all channels
-  const result = await postToAllChannels(channelId, postText, imageUrl);
+  const result = await postToAllChannels({ channelId, postType: 'safety', text: postText, photoUrl: imageUrl });
 
   if (result.ok) {
     try {

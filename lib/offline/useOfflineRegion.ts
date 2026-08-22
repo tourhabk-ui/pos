@@ -14,8 +14,6 @@ import {
   getRegion,
   deleteRegion,
   saveRoutes,
-  saveSosContacts,
-  GLOBAL_SOS_CONTACTS,
   type RegionMeta,
   type OfflineRoute,
 } from '@/lib/offline/db';
@@ -160,8 +158,11 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       }));
       await saveRoutes(routesWithRegion);
 
-      // ── Шаг 3: Сохраняем глобальные SOS-контакты ──────────────────────
-      await saveSosContacts(GLOBAL_SOS_CONTACTS);
+      // Шага «сохранить SOS-контакты» здесь больше нет. Номера спасения
+      // живут в lib/safety/emergency-numbers.ts, приезжают в бандл каждого
+      // экрана и лежат в офлайн-странице /emergency. Копия в IndexedDB
+      // писалась и не читалась ни разу — то есть могла молча разойтись с
+      // реестром, не давая взамен ничего (перепись 22.08.2026).
 
       // ── Шаг 4: Отправляем тайлы в SW ──────────────────────────────────
       const tileUrls = generateTileUrls(bbox);

@@ -53,6 +53,24 @@ export async function onRequestError(
   }
 }
 
+/**
+ * Сообщить владельцу о непригодной конфигурации. Best-effort: без токена
+ * бота молчит, ошибку отправки не поднимает — задача не сорвать старт, а не
+ * дать неисправности остаться незамеченной.
+ */
+function notifyBrokenConfig(fatal: string[]): void {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  const text = ['<b>Платформа поднялась с непригодной конфигурацией</b>', '', ...fatal.map(f => `— ${f}`)].join('\n');
+  void fetch(`${process.env.TELEGRAM_API_BASE ?? 'https://api.telegram.org'}/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    signal: AbortSignal.timeout(8_000),
+  }).catch(() => {});
+}
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     // ── 0. Global safety net ───────────────────────────────────
@@ -65,6 +83,28 @@ export async function register(): Promise<void> {
     process.on('uncaughtException', (err) => {
       console.error('[uncaughtException]', err);
     });
+
+    // ── 0.5. Проверка конфигурации ────────────────────────────────────
+    // `validateConfig()` была написана и не вызывалась ниоткуда: прод с
+    // `JWT_SECRET`, равным строке-заглушке из примера, поднялся бы молча — а
+    // это значит, что токен любого пользователя подделает кто угодно.
+    //
+    // Процесс намеренно НЕ убивается: выше стоят обработчики, которые держат
+    // сервер живым ради healthcheck Timeweb, и брошенное здесь исключение они
+    // же и проглотят. Поэтому громкость даётся тем каналом, который человек
+    // действительно читает, — сообщением в Telegram, помимо лога.
+    try {
+      const { validateConfig } = await import('@/lib/config');
+      const check = validateConfig();
+      for (const w of check.warnings) console.error('[config] предупреждение:', w);
+      if (check.fatal.length > 0) {
+        for (const f of check.fatal) console.error('[config] НЕИСПРАВНО:', f);
+        void notifyBrokenConfig(check.fatal);
+      }
+    } catch (err) {
+      // Отказ самой проверки — не «конфигурация в порядке».
+      console.error('[config] проверка конфигурации не выполнилась:', err);
+    }
 
     // ── 1. Warm up AI embeddings model ────────────────────────────────
     // NOTE: disabled eager warm-up — @huggingface/transformers pulls sharp

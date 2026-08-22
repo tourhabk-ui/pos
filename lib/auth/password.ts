@@ -4,6 +4,7 @@
  */
 
 import bcrypt from 'bcryptjs';
+import { z } from 'zod';
 
 // Align bcrypt cost across the app; 12 is baseline for production workloads.
 const SALT_ROUNDS = 12;
@@ -23,7 +24,17 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 /**
- * Validate password strength
+ * ЕДИНСТВЕННОЕ правило пароля платформы.
+ *
+ * До 22.08.2026 функция была написана и не вызывалась ниоткуда, а шесть точек
+ * входа держали шесть своих правил: регистрация туриста — `min(6)`,
+ * регистрация оператора — `min(8)`, партнёра — `min(8)`, смена пароля — свои.
+ * Правило, которое каждый пишет заново, — это не одно правило, а шесть, и
+ * слабейшее из них и есть настоящее.
+ *
+ * Буквы считаются по ЮНИКОДУ, а не по латинице. Прежние `[A-Z]`/`[a-z]`
+ * отвергли бы «Вулкан2024»: у русскоязычного туриста заглавная буква русская,
+ * и сообщение «нужна заглавная» на пароле с заглавной читается как поломка.
  */
 export function validatePassword(password: string): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
@@ -32,15 +43,15 @@ export function validatePassword(password: string): { valid: boolean; errors: st
     errors.push('Пароль должен содержать минимум 8 символов');
   }
 
-  if (!/[A-Z]/.test(password)) {
+  if (!/\p{Lu}/u.test(password)) {
     errors.push('Пароль должен содержать хотя бы одну заглавную букву');
   }
 
-  if (!/[a-z]/.test(password)) {
+  if (!/\p{Ll}/u.test(password)) {
     errors.push('Пароль должен содержать хотя бы одну строчную букву');
   }
 
-  if (!/[0-9]/.test(password)) {
+  if (!/\p{Nd}/u.test(password)) {
     errors.push('Пароль должен содержать хотя бы одну цифру');
   }
 
@@ -49,3 +60,18 @@ export function validatePassword(password: string): { valid: boolean; errors: st
     errors
   };
 }
+
+/**
+ * То же правило схемой Zod — чтобы маршруты его не переписывали.
+ *
+ * Сообщения приходят все сразу: «минимум 8 символов», а после исправления
+ * «нужна цифра» — это два похода вместо одного.
+ */
+export const passwordSchema = z
+  .string({ message: 'Пароль обязателен' })
+  .max(200, 'Пароль длиннее 200 символов')
+  .superRefine((value, ctx) => {
+    for (const message of validatePassword(value).errors) {
+      ctx.addIssue({ code: 'custom', message });
+    }
+  });

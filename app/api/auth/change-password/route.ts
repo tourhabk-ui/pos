@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
-import { verifyPassword, hashPassword } from '@/lib/auth/password';
+import { verifyPassword, hashPassword, passwordSchema } from '@/lib/auth/password';
 import { requireAuth } from '@/lib/auth/middleware';
 
 const Schema = z.object({
   current_password: z.string().min(1, 'Текущий пароль обязателен'),
-  new_password: z.string().min(8, 'Новый пароль — минимум 8 символов'),
+  new_password: passwordSchema,
 });
 
 export const dynamic = 'force-dynamic';

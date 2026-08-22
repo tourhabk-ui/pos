@@ -34,7 +34,11 @@ vi.mock('@/lib/rate-limit', () => ({
 }));
 
 const hashPasswordMock = vi.fn().mockResolvedValue('$platform-hash$');
-vi.mock('@/lib/auth/password', () => ({
+// Подменяется только хеширование. `passwordSchema` берётся настоящая:
+// правило пароля — часть контракта регистрации, и проверять её на
+// заглушке значит не проверять вовсе.
+vi.mock('@/lib/auth/password', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/password')>()),
   hashPassword: (...args: unknown[]) => hashPasswordMock(...args),
 }));
 
@@ -59,8 +63,8 @@ const VALID_BODY = {
   agreeUserAgreement: true,
   agreeOffer: true,
   agreeCommission: true,
-  password: 'secret-password',
-  confirmPassword: 'secret-password',
+  password: 'Secret-Password1',
+  confirmPassword: 'Secret-Password1',
 };
 
 function registerReq(body: Record<string, unknown>): NextRequest {
@@ -103,7 +107,7 @@ describe('POST /api/partners/register', () => {
     expect(res.status).toBe(201);
 
     // Пароль — единым методом платформы
-    expect(hashPasswordMock).toHaveBeenCalledWith('secret-password');
+    expect(hashPasswordMock).toHaveBeenCalledWith('Secret-Password1');
 
     // users: главная роль — первая из выбранных
     const userInsert = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO users'))!;
