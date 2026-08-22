@@ -1,19 +1,13 @@
 {
-  "note": "Проба 140 (повтор 139 с маркером): витрина для гостя. Первый запуск пролетел за 21 секунду и снял ПРЕЖНЮЮ сборку — 401 старого Edge неотличим от честного отказа, ретраи по коду 401 не заводятся. Теперь первый URL — метрики главной с маркером home_metrics_v2: он появится только в новой сборке, и до него проба ждёт. Ожидание: все публичные URL без «Не авторизован», а /api/trips/active (последний) остаётся 401 — личное не открылось. И миграция 902 в этом же выкате снимет две чужие линии.",
+  "note": "Проба 141: три решения владельца 22.08. Первый URL — СУХОЙ прогон разметки рода (маркер route_kind_classify_v1, боевого apply здесь нет): сколько записей уйдёт в «как добраться», сколько останется путями, кто останется без рода, и поимённо первые 25 уносимых. Второй — перепись дублей: шесть пар близнецов, которые владелец просил показать перед решением. Третий — счётчики принадлежности: контроль, что миграция 902 применилась и живых записей столько же (в пробе 140 их стало 392 вместо 393 — это надо увидеть).",
   "urls": [
-    "https://vedarai.ru/api/home/metrics",
-    "https://vedarai.ru/api/search?q=%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD",
-    "https://vedarai.ru/api/live-feed",
-    "https://vedarai.ru/api/parks",
-    "https://vedarai.ru/api/gear",
-    "https://vedarai.ru/api/accommodations",
-    "https://vedarai.ru/api/safety/geofence-zones",
-    "https://vedarai.ru/api/cron/route-geometry-census?mode=ownership",
-    "https://vedarai.ru/api/trips/active"
+    "https://vedarai.ru/api/cron/route-kind-classify",
+    "https://vedarai.ru/api/cron/route-geometry-census?mode=duplicates",
+    "https://vedarai.ru/api/cron/route-geometry-census?mode=ownership"
   ],
-  "until": "home_metrics_v2",
+  "until": "route_kind_classify_v1",
   "retries": 16,
   "retryDelay": 60,
-  "timeout": 90,
-  "bytes": 2500
+  "timeout": 110,
+  "bytes": 9000
 }
