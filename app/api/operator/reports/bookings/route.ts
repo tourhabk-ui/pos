@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) as count,
         SUM(COALESCE(b.final_price, b.base_total_price)) as revenue
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
           COUNT(*) FILTER (WHERE b.booking_status = 'completed') as completed,
           COUNT(*) FILTER (WHERE b.booking_status = 'cancelled') as cancelled
         FROM operator_bookings b
-        JOIN operator_tours t ON b.tour_id = t.id
+        JOIN operator_tours t ON b.operator_tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
           AND b.created_at <= $3
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
         MIN(EXTRACT(DAY FROM (b.booking_date - b.created_at::DATE))) as min_lead_time_days,
         MAX(EXTRACT(DAY FROM (b.booking_date - b.created_at::DATE))) as max_lead_time_days
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
         END as group_size,
         COUNT(*) as count
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
           b.user_id,
           COUNT(*) as booking_count
         FROM operator_bookings b
-        JOIN operator_tours t ON b.tour_id = t.id
+        JOIN operator_tours t ON b.operator_tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
           AND b.created_at <= $3
