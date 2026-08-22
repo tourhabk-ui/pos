@@ -136,6 +136,7 @@ const PROBLEMS: Array<{ value: string; label: string }> = [
 ];
 
 const VERDICT_LABEL: Record<string, string> = {
+  new_place: 'находка — места у нас нет',
   confirmed: 'всё сходится',
   ...Object.fromEntries(PROBLEMS.map(p => [p.value, p.label.toLowerCase()])),
 };
@@ -205,6 +206,16 @@ export function FieldCheckClient() {
   const recorder = useTrackRecorder();
   const [barError, setBarError] = useState<string | null>(null);
   const [sendingTrack, setSendingTrack] = useState(false);
+  /**
+   * Находка: здесь есть то, чего у нас нет (владелец 22.08, стоя на Диких
+   * озерках: «а если места нет и в выборе тоже?»). До этого экран умел
+   * сказать «ваша запись врёт», но не умел «здесь есть то, чего у вас нет
+   * вовсе» — а это самое ценное, что приносят из поля: ошибку в записи мы
+   * рано или поздно поймаем переписью, а места, которого нет в базе, не
+   * найдёт никто, кроме того, кто на нём стоит.
+   */
+  const [findingOpen, setFindingOpen] = useState(false);
+  const [findingName, setFindingName] = useState('');
   const [done, setDone] = useState<Record<string, string>>({});
 
   /** Выход по маршруту: поиск и выбор — дома, пока есть сеть. */
@@ -256,7 +267,8 @@ export function FieldCheckClient() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             target_kind: item.targetKind,
-            target_id: item.targetId,
+            target_id: item.targetKind === 'new' ? null : item.targetId,
+            proposed_name: item.proposedName ?? null,
             verdict: item.verdict,
             reported_lat: item.reportedLat,
             reported_lng: item.reportedLng,
@@ -558,12 +570,15 @@ export function FieldCheckClient() {
         label: 'Отметить место',
         icon: <MapPinPlus className="w-6 h-6" />,
         onPress: () => {
-          // Отметка места — это проверка «здесь чего-то нет»: та же очередь,
-          // тот же разбор. Отдельного пути заводить не станем.
+          // Место, которого у нас нет, — самостоятельная находка, а не
+          // проверка чужой записи. Прежде кнопка просто брала координату и
+          // отправляла человека искать подходящую запись ниже; если её там
+          // не было — тупик.
           setOpenId(null);
           setProblemFor(null);
           takeMyFix();
-          setBarError('Точка взята. Выберите запись ниже или пришлите фото — что видите.');
+          setFindingOpen(true);
+          setBarError(null);
         },
       });
     }
@@ -663,6 +678,50 @@ export function FieldCheckClient() {
     try { if (tripTag.trim()) localStorage.setItem(TAG_KEY, tripTag.trim()); } catch { /* ignore */ }
     void flushQueue();
   }, [fix, note, tripTag, photos, objCoord, rememberDone, resetForm, flushQueue]);
+
+  /**
+   * Отправить находку. Тот же путь, что у обычной проверки: очередь на
+   * телефоне, тот же разбор, та же обратимость. Отдельной ветки не заводим —
+   * она разошлась бы с первой.
+   */
+  const submitFinding = useCallback(async () => {
+    const name = findingName.trim();
+    if (name.length < 2) {
+      setError('Назовите находку — хотя бы «стоянка» или «брод»');
+      return;
+    }
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const check: FieldCheckQueueItem = {
+      id,
+      targetKind: 'new',
+      targetId: null,
+      proposedName: name,
+      verdict: 'new_place',
+      reportedLat: fix?.lat ?? null,
+      reportedLng: fix?.lng ?? null,
+      accuracyM: fix?.accuracy ?? null,
+      note: note.trim() || null,
+      tripTag: tripTag.trim() || null,
+      // Координата находки — та, где человек стоит, если он не указал
+      // другую. Для места, которого нет в базе, это единственный адрес.
+      objectLat: objCoord?.lat ?? fix?.lat ?? null,
+      objectLng: objCoord?.lng ?? fix?.lng ?? null,
+      objectSource: objCoord?.source ?? (fix ? 'my_fix' : null),
+      photos,
+      queuedAt: Date.now(),
+    };
+    try {
+      await queueFieldCheck(check);
+      setQueueLen(n => n + 1);
+    } catch {
+      setError('Не удалось сохранить находку на телефоне — отправляем сразу');
+    }
+    setFindingOpen(false);
+    setFindingName('');
+    resetForm();
+    setBarError('Находка записана. Уйдёт, когда появится связь.');
+    void flushQueue();
+  }, [findingName, fix, note, tripTag, objCoord, photos, resetForm, flushQueue]);
 
   const visible = useMemo(() => {
     if (!items) return [];
@@ -894,6 +953,92 @@ export function FieldCheckClient() {
         {/* Полоса действий: одно касание — одно действие (образец MAPS.ME).
             Заготовка района переехала сюда из отдельной кнопки ниже. */}
         <FieldActionBar actions={barActions} error={barError} />
+
+        {findingOpen && (
+          <div className="rounded-lg p-4 flex flex-col gap-3"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--ocean)' }}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Здесь есть то, чего у нас нет
+                </span>
+                <span className="text-xs leading-snug" style={{ color: 'var(--text-secondary)' }}>
+                  Стоянка, брод, развилка, источник, изба. Мы заведём точку по
+                  вашей координате.
+                </span>
+              </div>
+              <button onClick={() => { setFindingOpen(false); setFindingName(''); }}
+                aria-label="Закрыть" className="shrink-0 p-1">
+                <X className="w-5 h-5" style={{ color: 'var(--text-muted)' }} />
+              </button>
+            </div>
+
+            <input value={findingName}
+              onChange={e => setFindingName(e.target.value.slice(0, 120))}
+              placeholder="Что это? Например: стоянка у ручья"
+              className="ds-input" autoFocus />
+
+            {/* Координата находки — её единственный адрес: записи, к которой
+                можно было бы привязаться, ещё нет. */}
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+              <Crosshair className="w-4 h-4 shrink-0" style={{ color: 'var(--ocean)' }} />
+              <span className="tabular-nums">
+                {objCoord
+                  ? `${objCoord.lat.toFixed(5)}, ${objCoord.lng.toFixed(5)}`
+                  : fix
+                    ? `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)}`
+                    : 'координаты нет'}
+              </span>
+              {fix?.accuracy !== null && fix?.accuracy !== undefined && (
+                <span style={{ color: 'var(--text-muted)' }}>±{fix.accuracy} м</span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {photos.map((data, i) => (
+                <div key={i} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`data:image/jpeg;base64,${data}`} alt={`Снимок ${i + 1}`}
+                    className="w-16 h-16 object-cover rounded-lg"
+                    style={{ border: '1px solid var(--border)' }} />
+                  <button onClick={() => setPhotos(p => p.filter((_, k) => k !== i))}
+                    aria-label="Убрать снимок"
+                    className="absolute -top-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center"
+                    style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                    <X className="w-3 h-3" style={{ color: 'var(--text-primary)' }} />
+                  </button>
+                </div>
+              ))}
+              {photos.length < PHOTO_LIMIT && (
+                <button onClick={() => fileRef.current?.click()}
+                  className="rounded-lg flex flex-col items-center justify-center gap-1"
+                  style={{
+                    width: 64, height: 64,
+                    background: 'var(--bg-hover)', border: '1px dashed var(--border-strong)',
+                  }}>
+                  <Camera className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
+                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>фото</span>
+                </button>
+              )}
+            </div>
+
+            <textarea value={note} onChange={e => setNote(e.target.value.slice(0, 600))}
+              placeholder="Что важно знать. Необязательно."
+              rows={2} className="ds-input" />
+
+            <button onClick={() => void submitFinding()}
+              disabled={findingName.trim().length < 2}
+              className="inline-flex items-center justify-center gap-2 rounded-lg font-semibold"
+              style={{
+                background: findingName.trim().length < 2 ? 'var(--bg-hover)' : 'var(--ocean)',
+                color: findingName.trim().length < 2 ? 'var(--text-muted)' : '#FFFFFF',
+                minHeight: TAP,
+              }}>
+              <Send className="w-5 h-5" />
+              {findingName.trim().length < 2 ? 'Назовите находку' : 'Отправить находку'}
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="flex items-start gap-2 text-sm p-3 rounded-lg"

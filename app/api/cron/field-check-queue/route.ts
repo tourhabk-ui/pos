@@ -42,8 +42,9 @@ function distanceKm(
 
 interface Row {
   id: string;
-  target_kind: 'route' | 'place';
-  target_id: string;
+  target_kind: 'route' | 'place' | 'new';
+  target_id: string | null;
+  proposed_name: string | null;
   verdict: string;
   note: string | null;
   trip_tag: string | null;
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const { rows } = await pool.query<Row>(
-      `SELECT c.id::text AS id, c.target_kind, c.target_id, c.verdict,
+      `SELECT c.id::text AS id, c.target_kind, c.target_id, c.proposed_name, c.verdict,
               c.note, c.trip_tag, c.status, c.created_at::text AS created_at,
               c.reported_lat::text AS reported_lat, c.reported_lng::text AS reported_lng,
               c.accuracy_m,
@@ -135,9 +136,11 @@ export async function GET(request: NextRequest) {
         target: {
           kind: r.target_kind,
           id: r.target_id,
-          // null — цель не нашлась: запись могли скрыть или слить между
-          // выходом и разбором. Это состояние, а не пустая строка.
-          title: r.target_title,
+          // У находки (`new`) записи ещё НЕТ — здесь стоит имя, которое дал
+          // человек. У проверки нашей записи null значит другое: цель не
+          // нашлась, её могли скрыть или слить между выходом и разбором.
+          // Два разных «нет», и путать их нельзя.
+          title: r.target_kind === 'new' ? r.proposed_name : r.target_title,
           lat: tLat, lng: tLng,
         },
         stood_at: rLat !== null && rLng !== null
@@ -163,8 +166,12 @@ export async function GET(request: NextRequest) {
       status,
       total: items.length,
       with_photos: items.filter(i => i.photos > 0).length,
-      // Проверки, где цель не нашлась: их нельзя молча считать обычными.
-      orphaned: items.filter(i => i.target.title === null).length,
+      // Находки: по ним ЗАВОДЯТ записи, а не правят существующие — это
+      // отдельная куча работы, и её размер надо видеть отдельно.
+      findings: items.filter(i => i.target.kind === 'new').length,
+      // Проверки, где НАША цель не нашлась: их нельзя молча считать
+      // обычными. Находки сюда не попадают — у них цели нет по замыслу.
+      orphaned: items.filter(i => i.target.kind !== 'new' && i.target.title === null).length,
       by_verdict: byVerdict,
       items,
     });

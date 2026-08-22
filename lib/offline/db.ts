@@ -118,8 +118,14 @@ interface KamchatourDB extends DBSchema {
 export interface FieldCheckQueueItem {
   /** Локальный ключ: время постановки + случайный хвост. */
   id: string;
-  targetKind: 'route' | 'place';
-  targetId: string;
+  /**
+   * `new` — находка: здесь есть то, чего нет в базе (владелец 22.08).
+   * У находки нет targetId — записи ещё не существует, связывать не с чем.
+   */
+  targetKind: 'route' | 'place' | 'new';
+  /** Как человек назвал находку. Только у `new`. */
+  proposedName?: string | null;
+  targetId: string | null;
   verdict: string;
   /** Координата проверяющего; null — проверка не с места, это законно. */
   reportedLat: number | null;
