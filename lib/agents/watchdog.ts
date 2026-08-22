@@ -29,12 +29,13 @@ import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
+import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
 import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents/migration-status';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'cron_fruitless';
   count: number;
   details: string;
   /**
@@ -961,6 +962,51 @@ async function checkFailingCrons(): Promise<WatchdogAlert | null> {
  * в логе деплоя, которую никто не читает на следующий день, а схема тихо
  * расходилась с кодом. Сравниваем файлы на диске с таблицей учёта.
  */
+/**
+ * Кроны, которые идут и не доводят дело до конца. Четвёртый вопрос.
+ *
+ * 23.08.2026: разведчик молчал двадцать два дня при зелёном кроне. Каждое утро
+ * он запускался, находил свежие материалы в лентах — значит для сторожа
+ * холостых «работу сделал», — и не выпускал ничего, потому что фактчек-судья
+ * не мог ответить: провайдеры молчали. Статус таких прогонов `partial`, а
+ * сторож падающих считает только `failed`. Двадцать два прогона подряд не
+ * подняли ни одной тревоги, и немоту нашёл владелец руками.
+ *
+ * Разбор порога и оговорок — в lib/agents/cron-fruitless.ts.
+ */
+async function checkFruitlessCrons(): Promise<WatchdogAlert | null> {
+  try {
+    const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
+    if (ids.length === 0) return null;
+
+    // Причину пропуска крон кладёт в metadata; берём её вместе со статусом,
+    // иначе тревога скажет «молчит» и не скажет, где чинить.
+    const { rows } = await pool.query<CronOutcomeRow>(
+      `SELECT agent_id, status, ended_at::text AS ended_at,
+              metadata->>'digest_skip_reason' AS skip_reason
+         FROM agent_run_history
+        WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
+        ORDER BY ended_at DESC
+        LIMIT $2`,
+      [ids, ids.length * FRUITLESS_RUNS_THRESHOLD * 8],
+    );
+
+    const fruitless = findFruitlessCrons(CRON_REGISTRY, rows, Date.now());
+    if (fruitless.length === 0) return null;
+
+    const safetyKeys = new Set(CRON_REGISTRY.filter(e => e.tier === 'safety').map(e => e.key));
+    return {
+      type: 'cron_fruitless',
+      count: fruitless.length,
+      critical: fruitless.some(c => safetyKeys.has(c.key)),
+      details: `Крон идёт, но результата нет — ${formatFruitlessCrons(fruitless)}.`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkFruitlessCrons:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
   try {
     const dir = join(process.cwd(), 'migrations');
@@ -1066,6 +1112,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkUndeliveredSafetyPush,
     checkIdleCrons,
     checkFailingCrons,
+    checkFruitlessCrons,
     checkUnappliedMigrations,
     checkFailedMigrations,
   ];
