@@ -154,3 +154,53 @@ export function notifyTouristBookingCancelled(
     } catch {}
   })();
 }
+
+/**
+ * Срок документа подходит к концу.
+ *
+ * Отправляется один раз на документ — отметку ставит вызывающий
+ * (`markDocumentReminderSent`), иначе напоминание придёт каждый день до
+ * самого истечения.
+ *
+ * Номер документа В СООБЩЕНИЕ НЕ ИДЁТ: это персональные данные, а Telegram —
+ * зарубежный канал. Человеку хватает вида документа и даты, чтобы понять, о
+ * чём речь.
+ */
+export function notifyTouristDocumentExpiring(
+  userId: string,
+  doc: { documentType: string; expiryDate: string; daysLeft: number },
+): void {
+  void (async () => {
+    try {
+      const chatId = await getTouristTelegramId(userId);
+      if (!chatId) return;
+      const when = doc.daysLeft <= 0
+        ? 'срок уже истёк'
+        : `осталось дней: ${doc.daysLeft}`;
+      await telegramService.sendMessage({
+        chatId,
+        text: [
+          '<b>Документ скоро станет недействителен</b>',
+          '',
+          `${DOCUMENT_LABELS[doc.documentType] ?? doc.documentType} — до ${doc.expiryDate} (${when}).`,
+          '',
+          'Проверьте перед поездкой: без действующего документа не пустят на маршрут и не оформят страховку.',
+        ].join('\n'),
+      });
+    } catch (err) {
+      // Молчать нельзя: непришедшее напоминание неотличимо от «напоминать было не о чем».
+      console.error('[booking-notify] напоминание о документе не ушло:',
+        err instanceof Error ? err.message : err);
+    }
+  })();
+}
+
+/** Как называется вид документа для человека. Неизвестный вид показывается как есть. */
+const DOCUMENT_LABELS: Record<string, string> = {
+  passport: 'Паспорт',
+  international_passport: 'Загранпаспорт',
+  insurance: 'Страховка',
+  visa: 'Виза',
+  driver_license: 'Водительское удостоверение',
+  medical: 'Медицинская справка',
+};

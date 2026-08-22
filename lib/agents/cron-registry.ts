@@ -160,6 +160,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 120, tier: 'ops', agentId: 'route-escalation', triggerable: false,
   },
   {
+    key: 'document-expiry', label: 'Document Expiry',
+    description: 'Истекающие документы туриста (30 дней) → одно напоминание в TG.',
+    workflow: 'cron-document-expiry.yml', cron: '30 5 * * *', schedule: 'ежедневно · 05:30 UTC',
+    everyMin: DAY, tier: 'ops', agentId: 'document-expiry', triggerable: true,
+  },
+  {
     key: 'tour-reminder', label: 'Tour Reminder',
     description: 'Напоминание о туре за 24ч.',
     workflow: 'cron-tour-reminder.yml', cron: '0 6 * * *', schedule: 'ежедневно · 06:00 UTC',
@@ -403,6 +409,11 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // Ноль проблем со здоровьем системы и ноль сгоревших эко — норма.
   'health': 'normal',
   'eco-expire': 'normal',
+  // Ноль напоминаний = ни у кого из туристов документ не кончается в ближайшие
+  // 30 дней. При нынешнем числе загруженных документов это обычное дело, а не
+  // поломка: прогон, нашедший кого предупредить и не предупредивший, отдаёт
+  // 500 и краснеет сам.
+  'document-expiry': 'normal',
   // Ниже — кроны, которые счётчик работы не пишут вовсе: судить не по чему.
   'leads': 'unknown',
   'tg-watchdog': 'unknown',

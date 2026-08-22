@@ -227,21 +227,16 @@ export async function getTouristRecommendations(userId: string, limit: number = 
   }
 }
 
-/**
- * Calculate loyalty discount
- */
-export function calculateLoyaltyDiscount(loyaltyTier: string, amount: number): number {
-  const discounts: { [key: string]: number } = {
-    'bronze': 0,
-    'silver': 0.05,
-    'gold': 0.10,
-    'platinum': 0.15,
-    'diamond': 0.20
-  };
-
-  const discountPercentage = discounts[loyaltyTier] || 0;
-  return amount * discountPercentage;
-}
+// Скидки по уровню лояльности здесь нет.
+//
+// `calculateLoyaltyDiscount` держала лестницу 0-5-10-15-20% и не звалась
+// ниоткуда: точки применения к чеку не существует. Числа при этом выглядели
+// как утверждённые — а решение о размере скидки принимает владелец, и
+// принимается оно вместе с тем, кто её оплатит (для эко-скидок это уже
+// сделано: lib/eco/compensation, реестр стоков и плательщик).
+//
+// Удалено 22.08.2026 (перепись). Появится программа лояльности — её условия
+// лягут в реестр рядом с эко-стоками, а не константой в утилите профиля.
 
 /**
  * Get tourist travel stats

@@ -239,42 +239,18 @@ export async function hasTourDayConflict(params: {
   }
 }
 
-/**
- * Calculate guide earnings from booking
- * Default commission: 10%
- */
-export async function calculateGuideEarnings(
-  bookingPrice: number,
-  commissionRate: number = 10.0
-): Promise<number> {
-  return Math.round((bookingPrice * commissionRate) / 100 * 100) / 100;
-}
-
-/**
- * Record guide earnings
- */
-export async function recordGuideEarnings(
-  guideId: string,
-  bookingId: string,
-  tourId: string | null,
-  amount: number,
-  date: string,
-  commissionRate: number = 10.0
-): Promise<string> {
-  try {
-    const result = await query(
-      `INSERT INTO guide_earnings (
-        guide_id, booking_id, tour_id, amount, commission_rate, date, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-      RETURNING id`,
-      [guideId, bookingId, tourId, amount, commissionRate, date]
-    );
-    
-    return result.rows[0].id as string;
-  } catch (error) {
-    throw error;
-  }
-}
+// Расчёта и записи заработка гида здесь нет — и это не пропуск.
+//
+// `recordGuideEarnings` был написан против ПРИЗРАКА: schema.sql держал два
+// объявления guide_earnings, применялось первое, а функция писала во второе —
+// booking_id, date и status в настоящей таблице не существуют, первый же
+// INSERT упал бы. Вызовов не было, поэтому расхождение жило незамеченным
+// (перепись 22.08.2026; сторож — tests/unit/schema-single-declaration.test.ts).
+//
+// Экран заработка (app/api/guide/earnings) ЧИТАЕТ настоящую таблицу и ждёт
+// писателя. Писатель проектируется вместе с выплатой — кто начисляет, при
+// каком событии брони и по какой ставке; это решение владельца, а не утилита
+// с ставкой 10% по умолчанию.
 
 /**
  * Get guide statistics
@@ -365,151 +341,14 @@ export async function getGuideStats(userId: string): Promise<Record<string, unkn
   }
 }
 
-/**
- * Get guide's weekly availability pattern
- */
-export async function getGuideAvailability(guideId: string): Promise<Record<string, unknown>[]> {
-  try {
-    const result = await query(
-      `SELECT 
-        day_of_week,
-        start_time,
-        end_time,
-        is_available
-      FROM guide_availability
-      WHERE guide_id = $1
-      ORDER BY day_of_week, start_time`,
-      [guideId]
-    );
-    
-    return result.rows.map(row => ({
-      dayOfWeek: row.day_of_week,
-      startTime: row.start_time,
-      endTime: row.end_time,
-      isAvailable: row.is_available
-    }));
-  } catch (error) {
-    return [];
-  }
-}
-
-/**
- * Check if guide is available for specific date/time
- */
-export async function isGuideAvailable(
-  guideId: string,
-  startTime: string,
-  endTime: string
-): Promise<boolean> {
-  try {
-    // Check overall availability status
-    const statusResult = await query(
-      `SELECT is_available FROM partners WHERE id = $1`,
-      [guideId]
-    );
-    
-    if (!statusResult.rows[0]?.is_available) {
-      return false;
-    }
-    
-    // Check for schedule conflicts
-    const noConflicts = await checkScheduleConflicts(guideId, startTime, endTime);
-    
-    return noConflicts;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
- * Find available guides by criteria
- */
-export async function findAvailableGuides(
-  startTime: string,
-  endTime: string,
-  specialization?: string,
-  language?: string,
-  location?: { lat: number; lng: number; radiusKm?: number }
-): Promise<Record<string, unknown>[]> {
-  try {
-    let queryStr = `
-      SELECT 
-        p.id,
-        p.name,
-        p.rating,
-        p.review_count,
-        p.experience_years,
-        p.specializations,
-        p.languages,
-        p.bio,
-        ST_X(p.location::geometry) as longitude,
-        ST_Y(p.location::geometry) as latitude,
-        a.url as logo_url
-      FROM partners p
-      LEFT JOIN assets a ON p.logo_asset_id = a.id
-      WHERE p.category = 'guide'
-        AND p.is_available = true
-    `;
-    
-    const params: (string | number)[] = [startTime, endTime];
-    let paramIndex = 3;
-    
-    if (specialization) {
-      queryStr += ` AND $${paramIndex} = ANY(p.specializations)`;
-      params.push(specialization);
-      paramIndex++;
-    }
-    
-    if (language) {
-      queryStr += ` AND $${paramIndex} = ANY(p.languages)`;
-      params.push(language);
-      paramIndex++;
-    }
-    
-    if (location) {
-      const radiusMeters = (location.radiusKm || 50) * 1000;
-      queryStr += ` AND ST_DWithin(
-        p.location,
-        ST_SetSRID(ST_MakePoint($${paramIndex}, $${paramIndex + 1}), 4326)::geography,
-        $${paramIndex + 2}
-      )`;
-      params.push(location.lng, location.lat, radiusMeters);
-      paramIndex += 3;
-    }
-    
-    // Check for schedule conflicts
-    queryStr += `
-      AND NOT EXISTS (
-        SELECT 1 FROM guide_schedule gs
-        WHERE gs.guide_id = p.id
-          AND gs.status != 'cancelled'
-          AND tstzrange(gs.start_time, gs.end_time) && tstzrange($1, $2)
-      )
-    `;
-    
-    queryStr += ` ORDER BY p.rating DESC, p.review_count DESC LIMIT 20`;
-    
-    const result = await query(queryStr, params);
-    
-    return result.rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      rating: parseFloat(row.rating as string),
-      reviewCount: row.review_count,
-      experienceYears: row.experience_years,
-      specializations: row.specializations,
-      languages: row.languages,
-      bio: row.bio,
-      location: row.latitude && row.longitude ? {
-        lat: parseFloat(row.latitude as string),
-        lng: parseFloat(row.longitude as string)
-      } : null,
-      logoUrl: row.logo_url
-    }));
-  } catch (error) {
-    return [];
-  }
-}
+// Подбора гида по расписанию здесь нет.
+//
+// Три функции (`getGuideAvailability`, `isGuideAvailable`, `findAvailableGuides`)
+// читали guide_availability — таблицу, в которую НИКТО не пишет: ни экрана,
+// ни импорта, ни API. Читатели пустоты гарантированно возвращали «гид
+// недоступен» — и не звались ниоткуда (перепись 22.08.2026). Занятость гида
+// сегодня живёт в guide_schedule с EXCLUDE-ограничением пересечений; подбор
+// гида начнётся с формы, которой гид заполняет свои окна, а не с читателей.
 
 /**
  * Get guide's expertise zones for map display

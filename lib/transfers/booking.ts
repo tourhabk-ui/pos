@@ -260,136 +260,22 @@ export async function createBookingWithLock(
   }
 }
 
-/**
- * Временная блокировка мест (hold)
- * Используется когда пользователь находится на странице оплаты
- * 
- * Автоматически освобождается через timeout (15 минут)
- */
-export async function holdSeats(
-  scheduleId: string,
-  passengersCount: number,
-  userId: string,
-  timeoutMinutes: number = 15
-): Promise<BookingResult> {
-  try {
-    return await transaction(async (client: PoolClient) => {
-      // Блокируем расписание
-      const lockQuery = `
-        SELECT available_seats
-        FROM transfer_schedules
-        WHERE id = $1 AND is_active = true
-        FOR UPDATE NOWAIT
-      `;
-
-      let scheduleResult;
-      try {
-        scheduleResult = await client.query(lockQuery, [scheduleId]);
-      } catch (error: unknown) {
-        if ((error as { code?: string }).code === '55P03') {
-          return {
-            success: false,
-            error: 'Расписание занято другим пользователем',
-            errorCode: 'LOCK_TIMEOUT'
-          };
-        }
-        throw error;
-      }
-
-      if (scheduleResult.rows.length === 0) {
-        return {
-          success: false,
-          error: 'Расписание не найдено',
-          errorCode: 'SCHEDULE_NOT_FOUND'
-        };
-      }
-
-      const availableSeats = scheduleResult.rows[0].available_seats;
-
-      if (availableSeats < passengersCount) {
-        return {
-          success: false,
-          error: 'Недостаточно мест',
-          errorCode: 'INSUFFICIENT_SEATS'
-        };
-      }
-
-      // Создаем временную блокировку в таблице (нужно создать таблицу seat_holds)
-      const holdQuery = `
-        INSERT INTO seat_holds (
-          schedule_id,
-          user_id,
-          seats_count,
-          expires_at,
-          created_at
-        -- Срок блокировки параметром: интервал умножается на число, и
-        -- обходить правило «только $1, $2» ради минут было незачем.
-        ) VALUES ($1, $2, $3, NOW() + (INTERVAL '1 minute' * $4), NOW())
-        RETURNING *
-      `;
-
-      const holdResult = await client.query(holdQuery, [
-        scheduleId,
-        userId,
-        passengersCount,
-        Number.isFinite(timeoutMinutes) ? Math.trunc(timeoutMinutes) : 15
-      ]);
-
-      return {
-        success: true,
-        booking: holdResult.rows[0]
-      };
-    });
-
-  } catch (error: unknown) {
-    return {
-      success: false,
-      error: 'Ошибка блокировки мест',
-      errorCode: 'HOLD_ERROR'
-    };
-  }
-}
-
-/**
- * Освобождение временной блокировки
- */
-export async function releaseHold(holdId: string): Promise<boolean> {
-  try {
-    return await transaction(async (client: PoolClient) => {
-      const query = `
-        DELETE FROM seat_holds
-        WHERE id = $1
-        RETURNING *
-      `;
-
-      const result = await client.query(query, [holdId]);
-      return (result.rowCount ?? 0) > 0;
-    });
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
- * Очистка истекших блокировок (запускать по cron каждые 5 минут)
- */
-export async function cleanupExpiredHolds(): Promise<number> {
-  try {
-    return await transaction(async (client: PoolClient) => {
-      const query = `
-        DELETE FROM seat_holds
-        WHERE expires_at < NOW()
-        RETURNING id
-      `;
-
-      const result = await client.query(query);
-      return result.rowCount || 0;
-    });
-  } catch (error) {
-    return 0;
-  }
-}
-
+// Временного удержания мест здесь нет — и не потому, что его забыли.
+//
+// `holdSeats`/`releaseHold`/`cleanupExpiredHolds` были написаны и не звались
+// ниоткуда. Разбор 22.08.2026 показал три причины, каждой хватило бы одной:
+//
+//   1. Таблицы `seat_holds` не существует — ни в migrations/, ни в
+//      lib/database/schema.sql. Первый же вызов упал бы на INSERT.
+//   2. Гонка за место уже закрыта: `createBookingWithLock` выше берёт
+//      строку расписания `SELECT ... FOR UPDATE NOWAIT` внутри транзакции.
+//   3. Удерживать нечего: `app/api/transfers/book` сначала СОЗДАЁТ бронь и
+//      только потом платёж. Окна «человек оплачивает, место ещё свободно»
+//      в этом порядке нет.
+//
+// Понадобится стадия «место придержано на время оплаты» — она начинается с
+// миграции и с изменения порядка в маршруте бронирования, а не с возврата
+// этих функций.
 /**
  * Генерация уникального кода подтверждения
  */

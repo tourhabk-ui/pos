@@ -15,6 +15,8 @@ import { query } from '@/lib/database';
 import crypto from 'crypto';
 import * as ledger from '@/lib/eco/ledger';
 import { award, EMISSION_RULES } from '@/lib/eco/emission';
+import { recordClaim, maxEcoForCheck, countActiveOperators, type ClaimResult } from '@/lib/eco/compensation';
+import { resolveSink } from '@/lib/eco/sinks';
 
 interface UserLevel {
   name: string;
@@ -262,8 +264,53 @@ export class LoyaltySystem {
     userId: string,
     pointsToRedeem: number,
     description: string,
-    sink: string = 'tour_discount'
-  ): Promise<{ success: boolean; pointsRedeemed: number; discountAmount: number; message: string }> {
+    sink: string = 'tour_discount',
+    /**
+     * Чек, к которому применяется скидка, и оператор этого чека.
+     *
+     * Оба необязательны — и оба меняют смысл списания:
+     *   * без `checkAmountRub` потолок стока (`maxEcoForCheck`, доля чека)
+     *     применить НЕЧЕМ. Списание проходит, но в ответе это сказано прямо:
+     *     молча пропустить предел значит выдать «предел соблюдён»;
+     *   * без `operatorId` обязательство не зафиксируется, когда платит
+     *     оператор, — `recordClaim` откажет и назовёт причину.
+     */
+    context?: { checkAmountRub?: number; operatorId?: string | null },
+  ): Promise<{
+    success: boolean;
+    pointsRedeemed: number;
+    discountAmount: number;
+    message: string;
+    /** Зафиксировано ли обязательство по компенсации. `null` — не пытались. */
+    claim?: ClaimResult | null;
+    /** Проверен ли потолок стока. `false` — сумма чека не передана. */
+    capChecked: boolean;
+  }> {
+    // Потолок стока: скидка не может съесть чек целиком (Закон 6 — эко не
+    // покупает безопасность, и доля чека ограничена реестром стоков).
+    let capChecked = false;
+    if (context?.checkAmountRub !== undefined) {
+      const resolved = resolveSink(sink);
+      if (resolved.ok) {
+        try {
+          const cap = maxEcoForCheck(resolved.sink, context.checkAmountRub, await countActiveOperators());
+          capChecked = true;
+          if (pointsToRedeem > cap) {
+            return {
+              success: false, pointsRedeemed: 0, discountAmount: 0, capChecked,
+              message: `Этот чек примет не больше ${cap} эко`,
+              claim: null,
+            };
+          }
+        } catch (err) {
+          // Не смогли посчитать потолок — так и говорим. `capChecked`
+          // остаётся false, и это НЕ то же самое, что «потолок соблюдён».
+          console.error('[loyalty] потолок стока не проверен:',
+            err instanceof Error ? err.message : err);
+        }
+      }
+    }
+
     // Проверка достаточности и само списание — одна атомарная операция.
     // Раньше между чтением баланса и вставкой был зазор, в который проходило
     // параллельное списание, и баланс уходил в минус.
@@ -279,14 +326,50 @@ export class LoyaltySystem {
       const message = result.reason === 'insufficient_funds'
         ? 'Недостаточно эко'
         : `Ошибка списания эко: ${result.message}`;
-      return { success: false, pointsRedeemed: 0, discountAmount: 0, message };
+      return { success: false, pointsRedeemed: 0, discountAmount: 0, message, claim: null, capChecked };
+    }
+
+    // Скидка выдана — значит кто-то её оплатит. Обязательство фиксируется
+    // ЗДЕСЬ, а не «когда-нибудь потом»: `recordClaim` был написан для этого и
+    // не звался ниоткуда, так что скидки уходили бы в никем не считанный долг
+    // (перепись 22.08.2026).
+    //
+    // Повтор проводки (`applied: false`) обязательства не порождает: долг уже
+    // записан первым разом.
+    let claim: ClaimResult | null = null;
+    if (result.applied) {
+      // Списание УЖЕ состоялось и откату здесь не подлежит. Значит фиксация
+      // обязательства не имеет права его уронить: иначе человек увидит
+      // ошибку при успешно списанных эко. Отказ фиксации — это отдельная
+      // беда (скидка, которую никто не считает), и она уходит в лог, а не в
+      // ответ пользователю.
+      try {
+        claim = await recordClaim({
+          ledgerId: result.id,
+          sinkKey: sink,
+          ecoAmount: pointsToRedeem,
+          rubAmount: pointsToRedeem,
+          operatorId: context?.operatorId ?? null,
+        });
+        if (!claim.ok) {
+          console.error('[loyalty] обязательство по эко-скидке не записано:', claim.message);
+        }
+      } catch (err) {
+        console.error('[loyalty] обязательство по эко-скидке не записано:',
+          err instanceof Error ? err.message : err);
+        claim = null;
+      }
     }
 
     return {
       success: true,
       pointsRedeemed: pointsToRedeem,
       discountAmount: pointsToRedeem,
-      message: `Списано ${pointsToRedeem} эко`,
+      message: capChecked
+        ? `Списано ${pointsToRedeem} эко`
+        : `Списано ${pointsToRedeem} эко (потолок стока не проверялся — сумма чека не передана)`,
+      claim,
+      capChecked,
     };
   }
 
