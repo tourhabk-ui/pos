@@ -204,6 +204,18 @@ export async function getFieldPackRecord(routeId: string): Promise<FieldPackReco
   return db.get('fieldPacks', routeId);
 }
 
+/**
+ * Все сохранённые полевые пакеты.
+ *
+ * Нужно, чтобы решить, держит ли тайл кто-то ещё: пакет маршрута лежит внутри
+ * региона и делит с ним адреса. Без списка удаление региона проделало бы дыру
+ * в карте пакета, и обнаружилось бы это в поле.
+ */
+export async function listFieldPackRecords(): Promise<FieldPackRecord[]> {
+  const db = await getDB();
+  return db.getAll('fieldPacks');
+}
+
 export async function deleteFieldPackRecord(routeId: string): Promise<void> {
   const db = await getDB();
   await db.delete('fieldPacks', routeId);
@@ -259,15 +271,12 @@ export async function listRegions(): Promise<RegionMeta[]> {
 
 export async function deleteRegion(id: RegionId): Promise<void> {
   const db = await getDB();
-  // Удаляем метаданные региона
   await db.delete('regions', id);
-
-  // Удаляем все маршруты региона
-  const tx = db.transaction('routes', 'readwrite');
-  const index = tx.store.index('by-region');
-  const keys = await index.getAllKeys(id);
-  await Promise.all(keys.map((k) => tx.store.delete(k)));
-  await tx.done;
+  // Удаление маршрутов раньше было ЗДЕСЬ отдельной копией того же кода, что
+  // и в `deleteRoutesByRegion` ниже, — строка в строку. Два места об одном
+  // расходятся молча; перепись 22.08.2026 показала копию, потому что
+  // «оригинал» при этом числился никем не вызванным.
+  await deleteRoutesByRegion(id);
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────

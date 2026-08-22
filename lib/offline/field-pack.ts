@@ -24,7 +24,11 @@
 
 import {
   saveFieldPackRecord, getFieldPackRecord, deleteFieldPackRecord,
+  listFieldPackRecords, listRegions,
 } from '@/lib/offline/db';
+import {
+  planTileRelease, regionTileUrls, packTileHolder, type TileHolder,
+} from '@/lib/offline/tile-ownership';
 
 export type PackAssetStatus = 'ready' | 'partial' | 'missing' | 'stale';
 
@@ -95,8 +99,49 @@ export async function loadFieldPack(routeId: string): Promise<FieldPackManifest 
   }
 }
 
-export async function removeFieldPack(routeId: string): Promise<void> {
+/**
+ * Убрать полевой пакет — вместе с его картой.
+ *
+ * До 22.08.2026 функция снимала только запись манифеста и не звалась ниоткуда:
+ * удалить пакет было нельзя вовсе, а его тайлы коридора (до нескольких десятков
+ * мегабайт) оставались навсегда. Хранилище источника при переполнении браузер
+ * выбрасывает целиком — то есть накопленный мусор отнимает карту у того, кто
+ * собрался в поход.
+ *
+ * Адреса тайлов восстанавливаются ТОЧНО: `planCorridor` детерминирована от
+ * трека, а манифест хранит трек, буфер и отброшенные зумы. Удаляется ровно
+ * разность — адреса пакета минус те, что держит скачанный регион или другой
+ * пакет: дыра в чужой карте обнаружится в поле.
+ *
+ * Возвращает, сколько адресов отдано на удаление. `null` — тайлы снять не
+ * удалось (нет service worker, отказ хранилища); запись пакета при этом всё
+ * равно снимается: остаться с пакетом, которого нет, хуже. Молчаливым
+ * успехом это не считается.
+ */
+export async function removeFieldPack(routeId: string): Promise<number | null> {
+  let released: number | null = null;
+
+  try {
+    const record = await getFieldPackRecord(routeId);
+    if (record !== undefined && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const [regions, packs] = await Promise.all([listRegions(), listFieldPackRecords()]);
+      const leaving = packTileHolder(record);
+      const remaining: TileHolder[] = [
+        ...regions.map((m) => ({ id: `region:${m.id}`, urls: regionTileUrls(m.id) })),
+        ...packs.map(packTileHolder),
+      ];
+      const plan = planTileRelease(leaving, remaining);
+      const sw = await navigator.serviceWorker.ready;
+      sw.active?.postMessage({ type: 'CLEAR_TILES', urls: plan.release, reason: `pack:${routeId}` });
+      released = plan.release.length;
+    }
+  } catch (err) {
+    console.error('[field-pack] тайлы пакета не удалены:',
+      err instanceof Error ? err.message : err);
+  }
+
   try { await deleteFieldPackRecord(routeId); } catch { /* нет записи — нет работы */ }
+  return released;
 }
 
 /**
