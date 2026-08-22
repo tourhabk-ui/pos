@@ -11,6 +11,8 @@
  * конкретные миграции уедут в историю.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseDeclarations, diffAgainstActual } from '@/lib/db/schema-drift';
 
 const actualOf = (o: Record<string, string[]>) =>
@@ -147,5 +149,39 @@ describe('комментарии не читаются как объявлени
 ALTER TABLE t ADD COLUMN IF NOT EXISTS real_col TEXT;`,
     }]);
     expect([...d.tables.get('t')!.keys()]).toEqual(['real_col']);
+  });
+});
+
+describe('список сознательно отсутствующих', () => {
+  const SRC = readFileSync(join(process.cwd(), 'app/api/cron/schema-drift/route.ts'), 'utf-8');
+  const LIST = SRC.slice(SRC.indexOf('const INTENTIONALLY_ABSENT'), SRC.indexOf(']);', SRC.indexOf('const INTENTIONALLY_ABSENT')));
+
+  it('модуль поддержки внесён целиком', () => {
+    // Решение владельца 22.08.2026: поддержки в продукте нет. Половинчатый
+    // список хуже пустого: часть таблиц молчала бы, часть краснела, и
+    // читатель не понял бы, решение это или недосмотр.
+    for (const t of ['tickets', 'ticket_messages', 'sla_policies', 'sla_violations',
+                     'sla_notifications', 'surveys', 'support_agents', 'feedback']) {
+      expect(LIST, `${t} не внесена`).toMatch(new RegExp(`'${t}'`));
+    }
+  });
+
+  it('knowledge_base_articles НЕ внесена вместе с поддержкой', () => {
+    // Объявлена тем же файлом 02_support_tables.sql, но соседство по файлу —
+    // не родство: её читают база знаний ИИ и rag.service. Внести её заодно
+    // значило бы принять решение, которого никто не принимал.
+    expect(LIST).not.toMatch(/'knowledge_base_articles'/);
+  });
+
+  it('каждая запись объяснена: у списка есть автор и дата решения', () => {
+    const doc = SRC.slice(SRC.indexOf('Объявлено миграцией, отсутствует'), SRC.indexOf('const INTENTIONALLY_ABSENT'));
+    expect(doc).toMatch(/Решение владельца \d{2}\.\d{2}\.\d{4}/);
+  });
+
+  it('прощает только названное — операторские таблицы в списке не появились', () => {
+    // Сторож против расползания: список — исключение, а не свалка.
+    for (const t of ['operator_commissions', 'operator_bookings', 'operator_tours', 'partners', 'users']) {
+      expect(LIST, `${t} не должна прощаться`).not.toMatch(new RegExp(`'${t}'`));
+    }
   });
 });
