@@ -1,14 +1,13 @@
 {
- "bytes": 3000,
- "timeout": 90,
- "retries": 6,
- "retryDelay": 60,
- "note": "Проба 87: владелец прописал OPENROUTER_BASE_URL. Ждём в openrouter_key_diag route=relay и хост воркера вместо openrouter.ai. Заодно видно, вернулся ли ключ (key_source) — владелец его удалял.",
- "run": 87,
- "urls": [
-  "https://vedarai.ru/api/cron/health"
- ],
- "markers": [
-  "route_host"
- ]
+  "note": "Проба 143: приём треков и очередь проверок после разбора исходника Organic Maps. Первый URL — очередь полевых проверок (маркер field_check_queue_v1): пустая сегодня, это честный ноль. Второй — сухой прогон разметки рода. Третий — перепись принадлежности, контроль после миграций 903/904. Сам приёмник треков (POST /api/field-check/track) пробой не дёргаю: он пишет в очередь, а пустой прогон туда мусор не кладёт.",
+  "urls": [
+    "https://vedarai.ru/api/cron/field-check-queue?status=all",
+    "https://vedarai.ru/api/cron/route-kind-classify",
+    "https://vedarai.ru/api/cron/route-geometry-census?mode=ownership"
+  ],
+  "until": "field_check_queue_v1",
+  "retries": 16,
+  "retryDelay": 60,
+  "timeout": 90,
+  "bytes": 5000
 }
