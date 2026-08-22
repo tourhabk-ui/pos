@@ -1,13 +1,12 @@
 {
-  "note": "Проба 144 (СРОЧНО, выход завтра утром). Владелец стоял в Паратунке (53.2630, 158.4149) и не нашёл в форме Вилючинский перевал. Радиус по умолчанию 15 км, перевал примерно в 60 км южнее — вопрос в том, ЕСТЬ ли запись вообще. Первый URL: поиск маршрута по имени (маркер field_check_routes_v1). Второй: что платформа знает вокруг самого перевала. Третий: что знает вокруг Вилючинского вулкана — перевал могли завести под другим именем.",
+  "note": "Проба 145: почему разведчик молчит 21 день. Первый URL — история прогонов с причинами (маркер scout_diagnose_v1, read-only): одна причина двадцать раз означает стену, разные — россыпь. Второй — боевой прогон дайджеста уже с честным судьёй (callAIFastOrNull): если ворота откроются, выпуск уйдёт в канал; если нет — причина будет названа верно, включая новую judge_unavailable.",
   "urls": [
-    "https://vedarai.ru/api/field-check/routes?q=%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD",
-    "https://vedarai.ru/api/field-check/nearby?lat=52.72&lng=158.20&radius_km=25",
-    "https://vedarai.ru/api/field-check/nearby?lat=52.6889&lng=158.2792&radius_km=20"
+    "https://vedarai.ru/api/cron/scout-diagnose?limit=40",
+    "https://vedarai.ru/api/cron/scout-digest"
   ],
-  "until": "field_check_routes_v1",
-  "retries": 8,
-  "retryDelay": 45,
-  "timeout": 90,
+  "until": "scout_diagnose_v1",
+  "retries": 20,
+  "retryDelay": 60,
+  "timeout": 120,
   "bytes": 9000
 }
