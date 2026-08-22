@@ -9,15 +9,25 @@
  * за собой то, чего у Watchdog нет:
  *   1. Погодные угрозы для ближайших туров (Open-Meteo по зоне бронирования)
  *   2. Операторы без бронирований >7 дней (сигнал оттока, severity info)
+ *   3. Опасность по зонам — оценки крона danger-analysis (с 22.08.2026)
  *
  * SOS и брони >24ч → Watchdog. Не возвращать их сюда — расширять того сторожа.
+ *
+ * Про третий пункт. Крон `danger-analysis` считал риск по четырём зонам и
+ * складывал в `danger_assessments`; читателей у таблицы не было ни одного —
+ * обе функции чтения (`getZoneAssessment`, `getFullDangerSummary`) стояли
+ * написанными и никем не звались, а вторая прямо подписана «для AI Спасателя».
+ * Крон работал, платил за модель и говорил в пустоту.
  */
 
 import { pool } from '@/lib/db-pool';
 import { fetchWeatherForecast } from '@/lib/planner/intelligence';
+import {
+  ZONES, ZONE_NAMES, getZoneAssessment, getFullDangerSummary,
+} from '@/lib/agents/agencies/danger-analyst-agency';
 
 export interface RescueAlert {
-  type: 'weather_threat' | 'operator_no_response';
+  type: 'weather_threat' | 'operator_no_response' | 'zone_danger';
   severity: 'critical' | 'warning' | 'info';
   title: string;
   body: string;
@@ -70,6 +80,9 @@ export async function runRescueScan(): Promise<RescueScanResult> {
   // NB: это НЕ то же, что Watchdog.checkOperatorNoResponse (там оператор
   // игнорирует конкретную бронь >48ч) — здесь про тишину/отток.
   alerts.push(...await checkOperatorResponse());
+
+  // Опасность по зонам — то, ради чего крон danger-analysis считает.
+  alerts.push(...await checkZoneDanger());
 
   // SOS и брони >24ч сюда НЕ возвращать — их сторожит Watchdog (см. заголовок).
   if (alerts.some(a => a.severity === 'critical')) {
@@ -180,6 +193,51 @@ async function checkOperatorResponse(): Promise<RescueAlert[]> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+// ── Опасность по зонам ────────────────────────────────────────────────────
+
+/**
+ * Зоны, где оценка риска высокая или критическая.
+ *
+ * Оценки считает крон `danger-analysis`; здесь они впервые доходят до
+ * человека. Молчание при отсутствии оценки — не «спокойно»: если зона не
+ * оценивалась ни разу, тревожить по этому поводу спасателя нечем, но и
+ * выдавать пустоту за безопасность нельзя — поэтому отсутствие пишется в лог,
+ * а не глотается.
+ */
+async function checkZoneDanger(): Promise<RescueAlert[]> {
+  const alerts: RescueAlert[] = [];
+  const unassessed: string[] = [];
+
+  for (const zone of ZONES) {
+    let risk;
+    try {
+      risk = await getZoneAssessment(zone);
+    } catch (err) {
+      console.error('[rescue] оценка зоны не прочиталась:', zone, err instanceof Error ? err.message : err);
+      continue;
+    }
+    if (risk === null) { unassessed.push(zone); continue; }
+    if (risk.risk_level !== 'critical' && risk.risk_level !== 'high') continue;
+
+    const threats = risk.threat_types.length > 0 ? risk.threat_types.join(', ') : 'угрозы не перечислены';
+    alerts.push({
+      type: 'zone_danger',
+      severity: risk.risk_level === 'critical' ? 'critical' : 'warning',
+      title: `Опасность: ${ZONE_NAMES[zone]}`,
+      body:
+        `Уровень ${risk.risk_level}, оценка ${risk.risk_score}. ${threats}. ` +
+        `Туристов в зоне риска: ${risk.tourists_at_risk}, активных туров: ${risk.active_tours_count}.` +
+        (risk.similar_event ? ` Похожий случай: ${risk.similar_event}.` : ''),
+      action: 'Проверить туры в зоне и связаться с операторами',
+    });
+  }
+
+  if (unassessed.length > 0) {
+    console.error('[rescue] зоны без оценки опасности:', unassessed.join(', '));
+  }
+  return alerts;
+}
+
 async function sendCriticalAlerts(alerts: RescueAlert[]): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -189,11 +247,23 @@ async function sendCriticalAlerts(alerts: RescueAlert[]): Promise<void> {
     `<b>${a.title}</b>\n${a.body}\n<i>${a.action}</i>`
   ).join('\n\n');
 
+  // К критическому сообщению — картина по всем зонам, а не только по той,
+  // что подала голос: отвечающему нужно видеть, куда уводить людей.
+  let summary = '';
+  if (alerts.some(a => a.type === 'zone_danger')) {
+    try {
+      summary = `\n\n<b>Обстановка по зонам</b>\n${await getFullDangerSummary()}`;
+    } catch (err) {
+      console.error('[rescue] сводка по зонам не собралась:', err instanceof Error ? err.message : err);
+      summary = '\n\n<i>Сводку по зонам собрать не удалось.</i>';
+    }
+  }
+
   try {
     await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+      body: JSON.stringify({ chat_id: chatId, text: text + summary, parse_mode: 'HTML' }),
     });
   } catch { /* silent */ }
 }

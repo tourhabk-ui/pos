@@ -77,9 +77,9 @@ describe('watchdog: трансферы в симметрии booking-домен�
     expect(WATCHDOG).toContain('FROM transfer_bookings tb');
     expect(WATCHDOG).toContain("tb.status = 'pending'");
     expect(WATCHDOG).toContain("INTERVAL '24 hours'");
-    // Включена в Promise.all прогона, а не мёртвая функция.
-    const runBlock = WATCHDOG.slice(WATCHDOG.indexOf('export async function runWatchdog'));
-    expect(runBlock).toContain('checkPendingTransferBookings()');
+    // Включена в прогон, а не мёртвая функция.
+    const checks = /const CHECKS\b[^[]*?=\s*\[([\s\S]*?)\n\s*\];/.exec(WATCHDOG)?.[1] ?? '';
+    expect(checks).toMatch(/\bcheckPendingTransferBookings\b/);
   });
 
   it('прямой пинок оператору ведёт в раздел «Брони» кабинета', () => {

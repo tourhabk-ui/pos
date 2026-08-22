@@ -52,8 +52,8 @@ describe('watchdog сторожит gear', () => {
   it('есть проверка pending-аренд >24ч и она входит в прогон', () => {
     expect(WATCHDOG).toContain('checkPendingGearRentals');
     expect(WATCHDOG).toContain('pending_gear_rental');
-    const runBlock = WATCHDOG.match(/export async function runWatchdog[\s\S]*?Promise\.all\(\[([\s\S]*?)\]\)/)?.[1] ?? '';
-    expect(runBlock).toContain('checkPendingGearRentals()');
+    const checks = /const CHECKS\b[^[]*?=\s*\[([\s\S]*?)\n\s*\];/.exec(WATCHDOG)?.[1] ?? '';
+    expect(checks).toMatch(/\bcheckPendingGearRentals\b/);
   });
 });
 

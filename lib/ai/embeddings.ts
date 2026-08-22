@@ -63,8 +63,16 @@ async function getEmbeddingPipeline(): Promise<PipelineInstance> {
 }
 
 /**
- * Pre-warm the model so first search request is fast.
- * Call from instrumentation.ts on server start (non-blocking).
+ * Прогрев модели, чтобы первый поиск не ждал загрузку.
+ *
+ * ВЫЗОВА НЕТ НАМЕРЕННО. Единственное подходящее место — `instrumentation.ts`
+ * при старте сервера; там вызов написан и закомментирован: `@huggingface/transformers`
+ * тянет `sharp`, и на Alpine-образе Timeweb контейнер падал на старте. Модель
+ * грузится лениво при первом поиске.
+ *
+ * Функция оставлена сознательно (перепись 22.08.2026): вернуть прогрев можно
+ * ровно тогда, когда решится вопрос со `sharp` на musl, — не раньше. Убрать
+ * её значит потерять вместе с ней и записанную причину.
  */
 export async function warmModel(): Promise<void> {
   await getEmbeddingPipeline();
@@ -124,13 +132,11 @@ async function loadEmbeddingCache(): Promise<CachedRoute[]> {
   return embeddingCache;
 }
 
-/**
- * Invalidate the in-memory cache (call after re-indexing).
- */
-export function invalidateCache(): void {
-  embeddingCache = null;
-  cacheTimestamp = 0;
-}
+// Ручного сброса кэша здесь нет: переиндексации в платформе не существует —
+// эмбеддинги читаются из agent_route_knowledge, и единственное обновление —
+// истечение TTL. `invalidateCache()` три месяца ждал вызывающего, которого
+// некому было написать; удалён 22.08.2026. Появится переиндексация — сброс
+// вернётся вместе с ней, а не до неё.
 
 // ── Cosine similarity ─────────────────────────────────────────
 

@@ -8,6 +8,15 @@
  * Принципиальное отличие от классических агентов:
  *   Классика: intent → switch → SQL → callAI(данные) → ответ  (1 LLM-вызов)
  *   SDK:      message → Claude → [tool?] → execute → Claude → [tool?] → ... → ответ (N вызовов)
+ *
+ * Инструменты сюда НЕ кладутся: их даёт вызывающий, типизированными наборами по
+ * роли — `tourist-tools.ts` и `operator-tools.ts`. Универсальные `makeQueryTool`
+ * (произвольный SELECT) и `makeReadMemoryTool` (чтение `agent_memory`) здесь
+ * лежали и не были подключены ни к одному набору; удалены 22.08.2026. Причина
+ * не в чистоте: произвольный SELECT в чате означает, что подсказка, пришедшая
+ * от собеседника, может вычитать `leads.phone` или чужие брони и отправить их
+ * в зарубежную модель. Это расширение доступа, а не закрытие пробела. Нужен
+ * новый инструмент — заводить его типизированным, в наборе своей роли.
  */
 
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
@@ -236,76 +245,4 @@ async function logSession(s: SessionLog): Promise<void> {
       s.durationMs, s.outcome, s.finalResponse, JSON.stringify(s.toolCallsLog),
     ]
   ).catch(() => { /* non-critical telemetry */ });
-}
-
-// ── Helpers: стандартные инструменты для агентов ──────────────────────────────
-
-/** Безопасный SELECT-инструмент: только SELECT, лимит 100 строк */
-export function makeQueryTool(agentId: string): SDKTool {
-  return {
-    name:        'query_db',
-    description: 'READ-ONLY SQL к базе платформы (PostgreSQL). Разрешены только SELECT/WITH, максимум 100 строк. ' +
-      'Канонические таблицы: operator_tours (туры: title, base_price, activity_type, duration_hours, is_active), ' +
-      'operator_bookings (бронирования, статус в колонке booking_status), ' +
-      'places (точки/локации: name, lat, lng, location_type), ' +
-      'kamchatka_routes (маршруты: title, distance_km, difficulty), ' +
-      'partners (операторы и гиды), leads (заявки). ' +
-      'Перечисляй нужные колонки явно. Значения передавай только через параметры $1..$N, не вставляй их в текст запроса.',
-    parameters: {
-      type: 'object',
-      properties: {
-        sql:    { type: 'string', description: 'SELECT/WITH запрос. Значения только через плейсхолдеры $1..$N, конкатенация значений в строку запрещена. Перечисляй колонки явно.' },
-        params: { type: 'string', description: 'JSON-массив значений для $1..$N по порядку, например [30, "active"]. Пустой [] если параметров нет.' },
-      },
-      required: ['sql'],
-    },
-    execute: async (args) => {
-      const sql    = String(args.sql ?? '');
-      const params = args.params ? JSON.parse(String(args.params)) as unknown[] : [];
-
-      // Только SELECT
-      const normalized = sql.trim().toUpperCase();
-      if (!normalized.startsWith('SELECT') && !normalized.startsWith('WITH')) {
-        return 'Ошибка: разрешены только SELECT / WITH запросы';
-      }
-
-      // Лимит защита
-      const limited = /LIMIT\s+\d+/i.test(sql) ? sql : `${sql} LIMIT 100`;
-
-      try {
-        const { rows } = await pool.query(limited, params);
-        return JSON.stringify(rows.slice(0, 100));
-      } catch (err) {
-        return `SQL ошибка: ${err instanceof Error ? err.message : String(err)}`;
-      }
-    },
-  };
-}
-
-/** Чтение памяти агента */
-export function makeReadMemoryTool(): SDKTool {
-  return {
-    name:        'read_memory',
-    description: 'Прочитать записи из памяти агентов (agent_memory) по ключу или паттерну.',
-    parameters: {
-      type: 'object',
-      properties: {
-        key_pattern: { type: 'string', description: 'Паттерн ключа (LIKE), например "intel_%"' },
-        agent_id:    { type: 'string', description: 'ID агента, чью память читать' },
-        limit:       { type: 'string', description: 'Сколько записей вернуть (макс 20)' },
-      },
-    },
-    execute: async (args) => {
-      const { rows } = await pool.query(
-        `SELECT key, value, created_at FROM agent_memory
-         WHERE ($1::text IS NULL OR key LIKE $1)
-           AND ($2::text IS NULL OR agent_id = $2)
-           AND (expires_at IS NULL OR expires_at > NOW())
-         ORDER BY created_at DESC
-         LIMIT $3`,
-        [args.key_pattern ?? null, args.agent_id ?? null, Math.min(parseInt(String(args.limit ?? '10')), 20)]
-      );
-      return rows.length ? JSON.stringify(rows) : 'Записи не найдены';
-    },
-  };
 }

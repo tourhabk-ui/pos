@@ -25,15 +25,17 @@
 export const FOREIGN_LLM_CALLERS = [
   'callAIFast',
   'callAIWaterfall',
-  'callAIWaterfallDirect',
   'callAIWithModel',
   'callAIWithModelDirect',
   'callAIDecision',
   'callDeepSeek',
-  'callMiMo',
   'callOpenrouter',
   'callOpenRouterModel',
-  'callGemini',
+  // Дверь в Google зовут `callGeminiDirect` (водопад) и `callGeminiTranscribe`
+  // (голос в Telegram/MAX). Раньше здесь стоял `callGemini` — вариант через
+  // OpenRouter, которого не звал никто: страж сторожил не ту дверь.
+  'callGeminiDirect',
+  'callGeminiTranscribe',
 ] as const;
 
 /** Однозначные ПД-поля: телефон и почта. У места/тура/маршрута их нет — ложняков нет. */

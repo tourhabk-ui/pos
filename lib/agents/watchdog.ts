@@ -25,6 +25,7 @@ import { pool } from '@/lib/db-pool';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
+import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
@@ -33,7 +34,7 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike';
   count: number;
   details: string;
   /**
@@ -497,6 +498,36 @@ async function notifyTransferOperatorDirectly(
   } catch { /* не блокируем */ }
 }
 
+/**
+ * Всплеск регистраций операторов: сегодня втрое выше медианы за две недели.
+ *
+ * Резкий наплыв «операторов» — не рост, а типичный след накрутки или чужого
+ * скрипта. Движок (`detectRegistrationSpike`) был написан, подписан «used by
+ * health cron» и не вызывался ниоткуда — то есть сигнал считался и терялся.
+ *
+ * Молчим при исходе `unknown` (истории нет — сравнивать не с чем): это не
+ * «спокойно», а «судить рано», и поднимать по нему тревогу значит приучить
+ * пролистывать её.
+ */
+async function checkOperatorRegistrationSpike(): Promise<WatchdogAlert | null> {
+  try {
+    const spike = await detectRegistrationSpike();
+    if (spike.verdict !== 'spike') return null;
+    return {
+      type: 'operator_registration_spike',
+      count: spike.today,
+      details:
+        `Регистраций операторов сегодня: ${spike.today} при обычных ` +
+        `${spike.baseline_median} в день (медиана за 14 дней). Проверить, не накрутка ли.`,
+    };
+  } catch (err) {
+    // Отказ проверки не выдаём за отсутствие всплеска: §4.0 — «не смог» это
+    // третий исход, и он обязан попасть хотя бы в лог.
+    console.error('[watchdog] checkOperatorRegistrationSpike:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
@@ -931,28 +962,41 @@ async function checkFailedMigrations(): Promise<WatchdogAlert | null> {
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, failingCrons, unappliedMigrations, failedMigrations] = await Promise.all([
-    checkUnconfirmedBookings(),
-    checkUnconfirmedStayBookings(),
-    checkPendingGearRentals(),
-    checkPendingTransferBookings(),
-    checkOperatorNoResponse(),
-    checkUnprocessedLeads(),
-    checkIgnoredSOS(),
-    checkSeismicCronDead(),
+  // Проверки перечислены СПИСКОМ, а не позиционной деструктуризацией.
+  //
+  // Так было до 22.08.2026: пятнадцать вызовов в `Promise.all` разбирались в
+  // четырнадцать имён. Лишний вызов молча уезжал за край — `checkFailedMigrations()`
+  // выполнялся каждые полчаса, и его результат выбрасывался: тревога «миграция
+  // упала» не срабатывала ни разу. Заодно все имена, начиная с девятого,
+  // держали чужое значение, и читать этот код было нельзя.
+  //
+  // Позиционное сопоставление длинного списка — ловушка без сигнала: добавил
+  // проверку, забыл имя — и потеря выглядит как тишина. Здесь имён нет, терять
+  // нечего. Сторож состава — `tests/unit/watchdog-checks-wired.test.ts`.
+  const CHECKS: Array<() => Promise<WatchdogAlert | null>> = [
+    checkUnconfirmedBookings,
+    checkUnconfirmedStayBookings,
+    checkPendingGearRentals,
+    checkPendingTransferBookings,
+    checkOperatorNoResponse,
+    checkOperatorRegistrationSpike,
+    checkUnprocessedLeads,
+    checkIgnoredSOS,
+    checkSeismicCronDead,
     // Отдельно от предыдущей: та меряет ЛЮБОЙ прогон и удовлетворяется
     // heartbeat'ом, который Telegram получить не может. Задержка канала,
     // приносящего КБГС и EQKam, до этой правки не измерялась вовсе.
-    checkSeismicWorkflowDelay(),
-    checkDeadSafetyCrons(),
-    checkUndeliveredSafetyPush(),
-    checkIdleCrons(),
-    checkFailingCrons(),
-    checkUnappliedMigrations(),
-    checkFailedMigrations(),
-  ]);
+    checkSeismicWorkflowDelay,
+    checkDeadSafetyCrons,
+    checkUndeliveredSafetyPush,
+    checkIdleCrons,
+    checkFailingCrons,
+    checkUnappliedMigrations,
+    checkFailedMigrations,
+  ];
 
-  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, failingCrons, unappliedMigrations, failedMigrations].filter(Boolean) as WatchdogAlert[];
+  const results = await Promise.all(CHECKS.map(run => run()));
+  const alerts = results.filter((a): a is WatchdogAlert => a !== null);
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];

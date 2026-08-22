@@ -118,32 +118,3 @@ export function getMistralKey(): string | null {
 export function getFuguKey(): string | null {
   return process.env.FUGU_API_KEY || null;
 }
-
-export function getMolmoWebConfig(): {
-  baseUrl: string;
-  apiKey: string | null;
-  model: string;
-  mode: 'native' | 'openai';
-  endpointPath: string;
-} | null {
-  const baseUrl = process.env.MOLMO_WEB_URL || process.env.MOLMOWEB_URL || '';
-  if (!baseUrl) return null;
-
-  const mode = (process.env.MOLMO_WEB_MODE || 'openai').toLowerCase() === 'native'
-    ? 'native'
-    : 'openai';
-  const endpointPath = process.env.MOLMO_WEB_ENDPOINT
-    || (mode === 'native' ? '/predict' : '/v1/chat/completions');
-
-  return {
-    baseUrl,
-    apiKey: process.env.MOLMO_WEB_API_KEY || process.env.MOLMOWEB_API_KEY || null,
-    model: process.env.MOLMO_WEB_MODEL || 'allenai/Molmo-7B-D-0924',
-    mode,
-    endpointPath,
-  };
-}
-
-export function isMolmoPilotEnabled(): boolean {
-  return process.env.MOLMO_PILOT_ENABLED === 'true';
-}

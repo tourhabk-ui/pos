@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { CRON_REGISTRY, TIER_ORDER, TIER_LABELS, type CronTier } from '@/lib/agents/cron-registry';
+import { CRON_REGISTRY, entriesByTier, type CronTier } from '@/lib/agents/cron-registry';
 import { computeLiveness, overallPosture, type LivenessStatus } from '@/lib/agents/cron-liveness';
 
 export const dynamic = 'force-dynamic';
@@ -84,10 +84,13 @@ export async function GET(request: NextRequest) {
 
   const posture = overallPosture(items.map(i => ({ tier: i.tier, status: i.liveness })));
 
-  const groups = TIER_ORDER.map(tier => ({
-    tier,
-    label: TIER_LABELS[tier],
-    items: items.filter(i => i.tier === tier),
+  // Порядок разрядов и их подписи знает реестр, а не этот роут: здесь та же
+  // группировка была написана заново, и два места об одном расходятся молча.
+  const byKey = new Map(items.map(i => [i.key, i]));
+  const groups = entriesByTier().map(g => ({
+    tier: g.tier,
+    label: g.label,
+    items: g.entries.map(e => byKey.get(e.key)).filter((i): i is LivenessItem => i !== undefined),
   })).filter(g => g.items.length > 0);
 
   const counts = {

@@ -20,10 +20,10 @@ import { getModelForAgent } from '@/lib/ai/agent-models';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
-const ZONES = ['avachinsky', 'northern', 'eastern', 'western'] as const;
-type Zone = typeof ZONES[number];
+export const ZONES = ['avachinsky', 'northern', 'eastern', 'western'] as const;
+export type Zone = typeof ZONES[number];
 
-const ZONE_NAMES: Record<Zone, string> = {
+export const ZONE_NAMES: Record<Zone, string> = {
   avachinsky: 'Авачинско-Петропавловский район',
   northern:   'Северная Камчатка',
   eastern:    'Восточное побережье',
@@ -69,7 +69,7 @@ interface ZoneRawData {
   high_risk_routes: number;
 }
 
-interface ZoneAssessment {
+export interface ZoneAssessment {
   zone: Zone;
   risk_score: number;
   risk_level: 'low' | 'moderate' | 'high' | 'critical';
@@ -359,8 +359,22 @@ export async function runDangerAnalysis(): Promise<{
 
 // ── Получить актуальную оценку для конкретной зоны ───────────────────────
 
-export async function getZoneAssessment(zone: Zone): Promise<ZoneAssessment | null> {
-  const result = await query<ZoneAssessment>(
+/**
+ * Только те поля, которые запрос действительно выбирает.
+ *
+ * Раньше здесь стоял полный `ZoneAssessment`, а SELECT перечислял восемь
+ * колонок из двенадцати: `recommended_action` и `analysis_text` были обещаны
+ * типом и приходили `undefined`. Тип, обещающий больше, чем есть в данных, —
+ * это заказ на выдумку у того, кто им пользуется (CLAUDE.md §4.0).
+ */
+export type ZoneRisk = Pick<
+  ZoneAssessment,
+  'zone' | 'risk_score' | 'risk_level' | 'threat_types' | 'tourists_at_risk' | 'active_tours_count' | 'confidence' | 'similar_event'
+>;
+
+/** Текущая оценка одной зоны. `null` — оценки нет; это не «спокойно». */
+export async function getZoneAssessment(zone: Zone): Promise<ZoneRisk | null> {
+  const result = await query<ZoneRisk>(
     `SELECT zone, risk_score, risk_level, threat_types, tourists_at_risk, active_tours_count, confidence, similar_event FROM v_current_danger WHERE zone = $1 LIMIT 1`,
     [zone]
   );

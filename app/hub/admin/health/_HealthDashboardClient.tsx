@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2, Bot } from 'lucide-react';
+import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2, Bot, Plug, Loader2 } from 'lucide-react';
 
 /**
  * Сводный health-дашборд данных: все /api/admin/health/* метрики на одной
@@ -94,6 +94,20 @@ function useHealth<T>(url: string): { data: T | null; error: boolean } {
   return { data, error };
 }
 
+interface ProviderStatus {
+  id: string;
+  name: string;
+  available: boolean;
+  latency_ms?: number;
+  error?: string;
+}
+
+interface PreflightData {
+  providers: ProviderStatus[];
+  any_available: boolean;
+  openrouter_balance: { total_credits: number; total_usage: number; remaining: number | null; low: boolean } | null;
+}
+
 function StatusDot({ ok }: { ok: boolean }) {
   return ok
     ? <CheckCircle2 className="w-4 h-4 text-[var(--success)]" />
@@ -150,6 +164,31 @@ export default function HealthDashboardClient() {
   const air = useHealth<AirCoverage>('/api/admin/health/air-quality-coverage');
   const grounding = useHealth<GroundingHealth>('/api/admin/health/kuzmich-grounding');
   const phones = useHealth<{ success: boolean; data: PhonesHealth }>('/api/admin/health/emergency-contacts');
+
+  // Провайдеры ИИ проверяются ПО КНОПКЕ, а не при открытии страницы: проба
+  // шлёт каждому провайдеру настоящий запрос и тратит их квоту. Состояние
+  // тройное — «не проверяли» это не «всё хорошо».
+  const [preflight, setPreflight] = useState<PreflightData | null>(null);
+  const [preflightRunning, setPreflightRunning] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
+
+  async function runPreflight() {
+    setPreflightRunning(true);
+    setPreflightError(null);
+    try {
+      const res = await fetch('/api/admin/health/ai-providers');
+      const json = await res.json() as { success?: boolean; data?: PreflightData; error?: string };
+      if (!res.ok || json.success !== true || !json.data) {
+        setPreflightError(json.error ?? `Ответ ${res.status}`);
+      } else {
+        setPreflight(json.data);
+      }
+    } catch {
+      setPreflightError('Запрос не ушёл — проверьте сеть');
+    } finally {
+      setPreflightRunning(false);
+    }
+  }
 
   const phonesData = phones.data?.data ?? null;
 
@@ -217,6 +256,73 @@ export default function HealthDashboardClient() {
             </div>
           )}
         </MetricCard>
+      </div>
+
+      {/* Провайдеры ИИ — проба по кнопке, а не метрика */}
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+          <div className="flex items-center gap-2">
+            <Plug className="w-4 h-4 text-[var(--text-muted)]" />
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Провайдеры ИИ</p>
+          </div>
+          <button
+            type="button"
+            onClick={runPreflight}
+            disabled={preflightRunning}
+            className="ds-btn ds-btn-secondary text-xs disabled:opacity-60"
+          >
+            {preflightRunning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {preflightRunning ? 'Проверяю' : 'Проверить провайдеров'}
+          </button>
+        </div>
+        <p className="text-xs text-[var(--text-secondary)] mb-4">
+          Каждому провайдеру уходит короткий настоящий запрос, поэтому проверка идёт по кнопке,
+          а не при открытии страницы. Рядом — остаток OpenRouter числом, а не по обрывку чужой ошибки.
+        </p>
+
+        {preflightError && (
+          <p className="text-xs text-[var(--danger)]">Проверка не выполнилась: {preflightError}</p>
+        )}
+        {!preflight && !preflightError && !preflightRunning && (
+          <p className="text-xs text-[var(--text-muted)]">Проверка не запускалась — состояние провайдеров неизвестно.</p>
+        )}
+        {preflightRunning && <div className="ds-skeleton h-20 rounded-lg" />}
+
+        {preflight && (
+          <div className="space-y-4">
+            {preflight.openrouter_balance ? (
+              <p className={`text-xs ${preflight.openrouter_balance.low ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}>
+                OpenRouter: потрачено {preflight.openrouter_balance.total_usage.toFixed(2)} из{' '}
+                {preflight.openrouter_balance.total_credits.toFixed(2)}
+                {preflight.openrouter_balance.remaining !== null
+                  ? `, остаток ${preflight.openrouter_balance.remaining.toFixed(2)}`
+                  : ', лимита нет (pay-as-you-go)'}
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--text-muted)]">Остаток OpenRouter получить не удалось.</p>
+            )}
+
+            {!preflight.any_available && (
+              <p className="text-xs text-[var(--danger)]">Не ответил ни один провайдер.</p>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {preflight.providers.map(pr => (
+                <div key={pr.id} className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+                  <StatusDot ok={pr.available} />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-[var(--text-primary)]">{pr.name}</p>
+                    <p className="text-xs text-[var(--text-muted)] break-words">
+                      {pr.available
+                        ? `ответил за ${pr.latency_ms ?? 0} мс`
+                        : pr.error ?? 'причина не названа'}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Сверка телефонов (issue #366) — рабочий экран для сверки с Артёмом */}

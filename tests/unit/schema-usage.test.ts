@@ -62,7 +62,8 @@ const foundUpdates = flatten(findUndeclaredUpdates(SOURCES, schema));
  * вывод сторожа тоже проверяется фактом, а не принимается на веру.
  */
 const KNOWN_GAPS = [
-  'agent_approvals.agent_id',
+  // agent_approvals.agent_id ушёл 22.08.2026 вместе с lib/agents/tools/agent-toolkits.ts
+  // — модулем инструментов Совета директоров, удалённого в апреле.
   'ai_actions_log.agent_id',
   'ai_actions_log.agent_name',
   'ai_actions_log.details',

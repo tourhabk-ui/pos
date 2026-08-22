@@ -1,4 +1,5 @@
 import { pool } from '@/lib/db-pool';
+import { smokeTestMemoryWrites } from '@/lib/agents/smoke-test';
 import { callAIFast } from '@/lib/ai/providers';
 import { searchExternalTools, trackToolUsage } from '@/lib/agents/tools/taaft-search';
 import { telegramService } from '@/lib/notifications/telegram';
@@ -12,6 +13,11 @@ export interface EvolverAnalysisResult {
   avg_kuzmich_score: number | null;
   skipped: boolean;
   duration_ms: number;
+  /**
+   * Сошлось ли заявленное число предложений с записанным в agent_memory.
+   * `null` — прогон пропущен по остыванию, сверять было нечего.
+   */
+  smoke_passed: boolean | null;
 }
 
 interface ActionStat {
@@ -44,7 +50,7 @@ export async function runEvolverAnalysis(): Promise<EvolverAnalysisResult> {
   if (lastRunRows.length > 0) {
     const elapsed = Date.now() - new Date(lastRunRows[0].updated_at).getTime();
     if (elapsed < COOLDOWN_HOURS * 60 * 60 * 1000) {
-      return { analyzed: 0, proposals: 0, external_tools_found: 0, outcomes_analyzed: 0, avg_kuzmich_score: null, skipped: true, duration_ms: 0 };
+      return { analyzed: 0, proposals: 0, external_tools_found: 0, outcomes_analyzed: 0, avg_kuzmich_score: null, skipped: true, duration_ms: 0, smoke_passed: null };
     }
   }
 
@@ -80,12 +86,17 @@ export async function runEvolverAnalysis(): Promise<EvolverAnalysisResult> {
   // 3. For each proposal with need_external_tool, search the catalog and notify
   const externalToolsFound = await processProposals(proposals);
 
-  // 4. Mark last run
+  // 4. Сверить заявленное с записанным — ДО отметки о запуске, иначе она сама
+  //    и станет тем «одним найденным рядом», ради которого проверка заведена.
+  const smoke = await smokeTestMemoryWrites('evo', proposals.length, new Date(startedAt), 'proposal');
+
+  // 5. Mark last run
   await markLastRun(proposals.length);
 
   return {
     analyzed: stats.length,
     proposals: proposals.length,
+    smoke_passed: smoke.passed,
     external_tools_found: externalToolsFound,
     outcomes_analyzed: outcomesResult.count,
     avg_kuzmich_score: outcomesResult.avg_score,

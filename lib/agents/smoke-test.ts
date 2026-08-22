@@ -145,6 +145,13 @@ export async function smokeTestMemoryWrites(
   agentId: string,
   claimed: number,
   startedAt: Date,
+  /**
+   * Какой РОД записей считать. Без него проверка считает всё, что агент
+   * тронул за прогон, — включая собственную отметку «последний запуск». Тогда
+   * «заявил 5 предложений, сохранил 0» выглядит успехом: одна строка-то есть.
+   * Проверка, которую нельзя провалить, — не проверка.
+   */
+  memoryType?: string,
 ): Promise<SmokeResult> {
   if (claimed === 0) {
     return { passed: true, kind: 'skip', claimed: 0, actual: 0, message: 'Claimed 0 — skip' };
@@ -153,8 +160,9 @@ export async function smokeTestMemoryWrites(
   try {
     const { rows } = await pool.query<{ cnt: string }>(
       `SELECT COUNT(*)::text AS cnt FROM agent_memory
-       WHERE agent_id = $1 AND updated_at >= $2`,
-      [agentId, startedAt],
+       WHERE agent_id = $1 AND updated_at >= $2
+         AND ($3::text IS NULL OR memory_type = $3)`,
+      [agentId, startedAt, memoryType ?? null],
     );
 
     const actual = parseInt(rows[0]?.cnt ?? '0', 10);
@@ -163,7 +171,8 @@ export async function smokeTestMemoryWrites(
       const msg =
         `<b>SMOKE FAIL: ${agentId}</b>\n` +
         `Агент сообщил: <b>${claimed}</b> записей в памяти\n` +
-        `Реально записано: <b>0</b> (agent_memory с ${startedAt.toISOString().slice(0, 16)})\n` +
+        `Реально записано: <b>0</b> (agent_memory${memoryType ? `, род «${memoryType}»` : ''} ` +
+        `с ${startedAt.toISOString().slice(0, 16)})\n` +
         `Тихая ошибка — данные НЕ сохранены.`;
       sendTgAlertAsync(msg);
       return { passed: false, kind: 'silent_fail', claimed, actual: 0, message: msg };

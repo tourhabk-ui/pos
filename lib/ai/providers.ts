@@ -205,37 +205,11 @@ export async function fetchWithRetry(
   throw lastErr instanceof Error ? lastErr : new Error('fetchWithRetry: retries exhausted');
 }
 
-// ── Xiaomi MiMo-V2-Pro ────────────────────────────────────────
-export async function callMiMo(messages: ChatMessage[]): Promise<string | null> {
-  const apiKey = getMiMoKey();
-  if (!apiKey) return null;
-
-  try {
-    const payload = messages.map(({ role, content }) => ({ role, content }));
-    const res = await fetchWithRetry('https://api.xiaomimimo.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'mimo-v2-pro',
-        temperature: 0.4,
-        max_tokens: 800,
-        messages: payload,
-      }),
-    }, { timeoutMs: 20_000, label: 'mimo' });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      return null;
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    return null;
-  }
-}
+// Xiaomi MiMo: прямой api.xiaomimimo.com отключён 04.07.2026 (эндпоинт не
+// отвечал), а функция callMiMo пережила отключение и три недели значилась
+// «оставленной на будущее» — при том что заявленный путь возврата проходит
+// через OpenRouter (модель-id в OR_MODELS), а не через прямой вызов. Удалена
+// 22.08.2026: обещание в комментарии не есть механизм.
 
 // ── OpenRouter ─────────────────────────────────────────────────
 // Пробует несколько моделей по очереди — защита от rate limit одной модели.
@@ -862,47 +836,9 @@ export async function callYandexGPT(messages: ChatMessage[]): Promise<string | n
   }
 }
 
-// ── Google Gemini (via OpenRouter) ────────────────────────────
-export async function callGemini(messages: ChatMessage[]): Promise<string | null> {
-  const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
-
-  try {
-    const systemMsg = messages.find(m => m.role === 'system');
-    const turns = messages.filter(m => m.role !== 'system');
-    const payload = turns.map(({ role, content }) => ({
-      role: role === 'assistant' ? 'assistant' : 'user',
-      content,
-    }));
-
-    if (systemMsg) {
-      payload.unshift({ role: 'user', content: `[System]: ${systemMsg.content}` });
-    }
-
-    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'Vedarai Kamchatka',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-lite',
-        temperature: 0.4,
-        max_tokens: 1200,
-        messages: payload,
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch {
-    return null;
-  }
-}
+// Gemini зовётся напрямую через Google API (`callGeminiDirect`, ниже) — так
+// он и стоит в водопаде. Вариант через OpenRouter (`callGemini`) не звал
+// никто; удалён 22.08.2026.
 
 // ── DeepSeek (direct API) ──────────────────────────────────────
 export async function callDeepSeek(messages: ChatMessage[]): Promise<string | null> {
@@ -2313,24 +2249,6 @@ export async function preflightProviders(): Promise<{
     }
   }
 
-  async function probeMiMo() {
-    const apiKey = process.env.XIAOMI_API_KEY;
-    if (!apiKey) return { ok: false, error: 'XIAOMI_API_KEY not set' };
-    try {
-      const res = await fetch('https://api.xiaomimimo.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'mimo-v2-pro', max_tokens: 5, messages: testMsg }),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
-      }
-      return { ok: true };
-    } catch (e) { return { ok: false, error: String(e) }; }
-  }
-
   async function probeOpenrouter() {
     const apiKey = getOpenRouterKey();
     if (!apiKey) return { ok: false, error: 'OPENROUTER_API_KEY not set' };
@@ -2493,7 +2411,8 @@ export async function preflightProviders(): Promise<{
 
   const [providers, openrouter_balance] = await Promise.all([
     Promise.all([
-      probeDetailed('mimo',       'MiMo-V2-Pro (Xiaomi)',        probeMiMo),
+      // MiMo в преполётной проверке нет: прямой эндпоинт Xiaomi отключён 04.07.2026,
+      // и вечно красная строка про выключенное по решению — шум, а не диагноз.
       probeDetailed('openrouter', 'OpenRouter (GPT-4o-mini)',     probeOpenrouter),
       probeDetailed('deepseek',   'DeepSeek-V3 (DeepSeek)',       probeDeepSeek),
       probeDetailed('fugu',       'Sakana Fugu',                  probeFugu),
@@ -2819,13 +2738,6 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
 
   const result = await raceProviders(calls);
   return result ?? AI_FAST_UNAVAILABLE;
-}
-
-// ── Waterfall Direct — алиас основного ────────────────────────
-// Claude 4.6 на Timeweb корректно обрабатывает system prompt,
-// поэтому отдельный обход больше не нужен.
-export async function callAIWaterfallDirect(messages: ChatMessage[]): Promise<string> {
-  return callAIWaterfall(messages);
 }
 
 /** Like callAIWithModel but returns plain string (for callsites that don't need model_used). */
