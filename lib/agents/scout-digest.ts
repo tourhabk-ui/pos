@@ -48,6 +48,10 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   // Владелец видел «модель не ответила» семнадцать дней и искал причину в
   // блокировке провайдера — а из четырёх случаев это верно ровно в одном.
   judge_silent: 'проверяющая модель вернула пустоту — молчит провайдер',
+  // 22.08: заглушка callAIFast («Сервис временно недоступен.») — непустой
+  // текст без JSON, и судья звал это «прозой вместо JSON, сбой в промпте».
+  // Владелец три недели читал совет чинить промпт при мёртвых провайдерах.
+  judge_unavailable: 'не ответил ни один провайдер — чинить у провайдера, не в промпте',
   judge_unparseable: 'проверяющая модель ответила прозой вместо JSON — сбой в промпте, не в провайдере',
   judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
   judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
@@ -507,7 +511,7 @@ async function fetchArticleText(url: string): Promise<string> {
 
 /** Причина отказа судьи → код пропуска. Слова живут в SKIP_REASON_LABELS. */
 function judgeSkipReason(why: JudgeFailure): string {
-  return `judge_${why === 'silent' ? 'silent' : why === 'unparseable' ? 'unparseable' : why === 'bad_shape' ? 'bad_shape' : 'threw'}`;
+  return `judge_${why}`;
 }
 
 /**

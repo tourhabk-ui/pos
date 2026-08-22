@@ -32,9 +32,11 @@ const QuerySchema = z.object({
  * такой, чтобы накрыть его путевые точки: выход готовится дома, где есть
  * сеть, и в поле список уже лежит на телефоне.
  */
-async function centerFromRoute(routeId: string): Promise<{ lat: number; lng: number; radiusKm: number } | null> {
-  const { rows } = await pool.query<{ lat: number | null; lng: number | null; span_km: number | null }>(
-    `SELECT r.lat::float8 AS lat, r.lng::float8 AS lng,
+async function centerFromRoute(
+  routeId: string,
+): Promise<{ lat: number; lng: number; radiusKm: number; title: string } | null> {
+  const { rows } = await pool.query<{ lat: number | null; lng: number | null; span_km: number | null; title: string }>(
+    `SELECT r.lat::float8 AS lat, r.lng::float8 AS lng, r.title,
             (SELECT MAX(
                sqrt(power(111.0 * (p.lat::float8 - r.lat::float8), 2)
                   + power(67.0 * (p.lng::float8 - r.lng::float8), 2)))
@@ -52,7 +54,10 @@ async function centerFromRoute(routeId: string): Promise<{ lat: number; lng: num
   // Точек может не быть вовсе — тогда берём разумный запас вокруг маршрута,
   // а не выдумываем протяжённость.
   const span = typeof row.span_km === 'number' && Number.isFinite(row.span_km) ? row.span_km : 0;
-  return { lat: row.lat, lng: row.lng, radiusKm: Math.min(60, Math.max(8, Math.ceil(span + 5))) };
+  return {
+    lat: row.lat, lng: row.lng, title: row.title,
+    radiusKm: Math.min(60, Math.max(8, Math.ceil(span + 5))),
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -60,6 +65,10 @@ export async function GET(request: NextRequest) {
   const routeId = (sp.get('route_id') ?? '').trim();
 
   let lat: number, lng: number, radius_km: number;
+  // Имя маршрута отдаётся вместе со списком: по ссылке вида
+  // /field-check?route=<id> форма открывается уже готовой, и подписать
+  // район ей больше нечем — параметр в URL человек редактировать не должен.
+  let routeTitle: string | null = null;
   if (routeId) {
     let center: Awaited<ReturnType<typeof centerFromRoute>>;
     try {
@@ -73,7 +82,7 @@ export async function GET(request: NextRequest) {
         { status: 404 },
       );
     }
-    lat = center.lat; lng = center.lng; radius_km = center.radiusKm;
+    lat = center.lat; lng = center.lng; radius_km = center.radiusKm; routeTitle = center.title;
   } else {
     const parsed = QuerySchema.safeParse({
       lat: sp.get('lat'), lng: sp.get('lng'), radius_km: sp.get('radius_km') ?? undefined,
@@ -169,9 +178,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      probe: 'field_check_nearby_v1',
+      probe: 'field_check_nearby_v2',
       mode: routeId ? 'route' : 'point',
       route_id: routeId || null,
+      route_title: routeTitle,
       center: { lat, lng },
       radius_km,
       total: items.length,

@@ -17,7 +17,8 @@
  * Принцип: лучше не выпустить пост, чем выпустить с выдумкой.
  */
 
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIFastOrNull } from '@/lib/ai/providers';
+import type { ChatMessage } from '@/lib/ai/prompts';
 
 /** Инструкция судье. Вынесена в константу: её читают два места. */
 const JUDGE_SYSTEM = 'Ты строгий фактчекер. Сверь ПРОВЕРЯЕМЫЕ факты поста (цифры, проценты, версии, названия фич/моделей, технический механизм) с источниками. Проверяемым фактом считается: (1) СВЯЗЬ между фактами — причинность, обобщение «доказал/подтвердил/показал, что…», объединение РАЗНЫХ материалов в один сюжет или общий вывод; (2) ЭКОНОМИЧЕСКОЕ или ПРАКТИЧЕСКОЕ СЛЕДСТВИЕ — «без затрат на персонал», «экономит N», «заменяет сотрудников», «окупается за…» — если источник такого вывода не делает, это выдумка, а не оценка; (3) АТРИБУЦИЯ — кто именно сделал/внедрил. Всё это обязано присутствовать в самих источниках, а не следовать из их соседства. Чисто оценочные суждения вкуса («это красиво», «полезно инженеру») НЕ проверяй. Верни ТОЛЬКО JSON: {"unsupported":["конкретное утверждение/связка/следствие, которых нет в источниках или которые им противоречат"]}. Если всё подтверждено — {"unsupported":[]}.';
@@ -85,18 +86,32 @@ export function unsourcedPercents(post: string, source: string): string[] {
  * случаев верно ровно в одном.
  *
  *   silent      — провайдер вернул пустоту: молчание модели;
+ *   unavailable — не ответил НИ ОДИН провайдер (22.08);
  *   unparseable — ответ есть, но JSON в нём не нашёлся (модель ответила прозой);
  *   bad_shape   — JSON есть, а поля `unsupported` в нём нет или оно не список;
  *   threw       — запрос упал с исключением (сеть, ключ, таймаут).
  *
- * Первый и четвёртый чинятся у провайдера, второй и третий — в промпте или
- * разборе. Одно слово на всех отправляет чинить не туда.
+ * Первый, второй и пятый чинятся у провайдера, третий и четвёртый — в промпте
+ * или разборе. Одно слово на всех отправляет чинить не туда.
+ *
+ * `unavailable` заведён 22.08 по живому случаю. `callAIFast` при отказе ВСЕХ
+ * провайдеров возвращает не пустоту и не исключение, а строку-заглушку
+ * «Сервис временно недоступен.». Судья видел непустой текст без фигурных
+ * скобок и объявлял `unparseable`, то есть «сбой в промпте, НЕ в провайдере».
+ * Владелец три недели читал в алерте предложение чинить промпт, пока молчали
+ * провайдеры. Заглушка — это ответ вызывающему «я не смог», и путать её с
+ * ответом модели нельзя: `callAIFastOrNull` отдаёт то же самое честным `null`.
  */
-export type JudgeFailure = 'silent' | 'unparseable' | 'bad_shape' | 'threw';
+export type JudgeFailure = 'silent' | 'unavailable' | 'unparseable' | 'bad_shape' | 'threw';
 
 export type JudgeOutcome =
   | { ok: true; unsupported: string[] }
-  | { ok: false; why: JudgeFailure };
+  /**
+   * `sample` — начало ответа, который не разобрался. Без него «ответила прозой»
+   * называет КЛАСС беды, но не саму беду: чинить приходится вслепую. Режется до
+   * 200 символов и уходит только в лог/алерт владельцу, не в публикацию.
+   */
+  | { ok: false; why: JudgeFailure; sample?: string };
 
 /**
  * Судья фактгейта: какие утверждения поста НЕ подтверждаются источниками.
@@ -105,28 +120,90 @@ export type JudgeOutcome =
  * обёртка `unsupportedClaims` ниже оставлена для вызывающих, которым причина
  * не нужна.
  */
-export async function judgeClaims(post: string, sources: string): Promise<JudgeOutcome> {
-  let raw: string;
+/** Начало ответа для диагноза: не «проза», а какая именно проза. */
+function sampleOf(raw: string): string {
+  return raw.trim().replace(/\s+/g, ' ').slice(0, 200);
+}
+
+/**
+ * Достаёт объект JSON из ответа модели.
+ *
+ * Не жадной регуляркой `/\{[\s\S]*\}/`: та берёт от ПЕРВОЙ скобки до
+ * ПОСЛЕДНЕЙ, и ответ вида «вот разбор {…} а вот пример {…}» склеивался в
+ * заведомо битую строку. Сканируем со счётчиком скобок и берём первый
+ * сбалансированный объект, игнорируя скобки внутри строк.
+ */
+function extractJsonObject(raw: string): string | null {
+  const text = raw.replace(/```(?:json)?/gi, ' ');
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (esc) { esc = false; continue; }
+      if (c === '\\') { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+/** Одна попытка: спросить судью и разобрать ответ. */
+async function judgeOnce(messages: ChatMessage[]): Promise<JudgeOutcome> {
+  let raw: string | null;
   try {
-    raw = await callAIFast([
-      { role: 'system', content: JUDGE_SYSTEM },
-      { role: 'user', content: `ИСТОЧНИКИ:\n${sources.slice(0, 9000)}\n\nПОСТ:\n${post}` },
-    ]);
+    raw = await callAIFastOrNull(messages);
   } catch {
     return { ok: false, why: 'threw' };
   }
+  // Ни один провайдер не ответил. Это отказ ИНФРАСТРУКТУРЫ, и путать его с
+  // ответом модели нельзя: чинить придётся в разных местах.
+  if (raw === null) return { ok: false, why: 'unavailable' };
   // Пустой ответ провайдера (молчит) — это НЕ «чисто», это сбой судьи.
-  if (!raw || !raw.trim()) return { ok: false, why: 'silent' };
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return { ok: false, why: 'unparseable' };
+  if (!raw.trim()) return { ok: false, why: 'silent' };
+
+  const body = extractJsonObject(raw);
+  if (!body) return { ok: false, why: 'unparseable', sample: sampleOf(raw) };
   try {
-    const parsed = JSON.parse(m[0]) as { unsupported?: unknown };
-    if (!Array.isArray(parsed.unsupported)) return { ok: false, why: 'bad_shape' };
+    const parsed = JSON.parse(body) as { unsupported?: unknown };
+    if (!Array.isArray(parsed.unsupported)) {
+      return { ok: false, why: 'bad_shape', sample: sampleOf(raw) };
+    }
     return { ok: true, unsupported: parsed.unsupported.filter((x): x is string => typeof x === 'string') };
   } catch {
     // Скобки нашлись, но внутри не JSON — та же беда, что «ответила прозой».
-    return { ok: false, why: 'unparseable' };
+    return { ok: false, why: 'unparseable', sample: sampleOf(raw) };
   }
+}
+
+export async function judgeClaims(post: string, sources: string): Promise<JudgeOutcome> {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: JUDGE_SYSTEM },
+    { role: 'user', content: `ИСТОЧНИКИ:\n${sources.slice(0, 9000)}\n\nПОСТ:\n${post}` },
+  ];
+  const first = await judgeOnce(messages);
+  // Проза вместо JSON лечится прямым указанием, а не ожиданием. Повтор ТОЛЬКО
+  // на беде разбора: молчащего провайдера вторым запросом не оживить, а гейт
+  // публикации не место для долбёжки.
+  if (first.ok || (first.why !== 'unparseable' && first.why !== 'bad_shape')) return first;
+  const retry = await judgeOnce([
+    ...messages,
+    { role: 'assistant', content: first.sample ?? '' },
+    {
+      role: 'user',
+      content: 'Ответ не разобран. Верни ТОЛЬКО объект JSON вида {"unsupported":[]} — без пояснений, без markdown, без текста до и после.',
+    },
+  ]);
+  // Вернуть исход повтора, но снимок оставить ПЕРВЫЙ: он показывает, с чего
+  // всё началось, а второй — уже реакцию на упрёк.
+  return retry.ok ? retry : { ...retry, sample: first.sample ?? retry.sample };
 }
 
 /** Прежняя форма ответа: список или `null`. Причину см. в `judgeClaims`. */

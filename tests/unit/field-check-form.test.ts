@@ -366,3 +366,64 @@ describe('находка — место, которого нет в базе', (
     expect(queueRead).toContain('findings');
   });
 });
+
+/**
+ * Поиск за радиусом (владелец 22.08, накануне выхода на Вилючинский перевал:
+ * «завтра утром едут, а в форме его нет»).
+ *
+ * Записи были обе — маршрут и место. Владелец стоял в Паратунке, в
+ * шестидесяти километрах, а список строится вокруг стоящего. Строка поиска
+ * фильтровала только уже показанное и отвечала пустотой, которую нельзя
+ * прочитать иначе как «у вас такого нет».
+ */
+describe('«нет рядом» и «нет в базе» — разные ответы', () => {
+  const client = readFileSync(join(process.cwd(), 'app/field-check/_FieldCheckClient.tsx'), 'utf-8');
+  const search = readFileSync(join(process.cwd(), 'app/api/field-check/routes/route.ts'), 'utf-8');
+
+  it('поиск по имени спрашивает всю базу, а не только показанное', () => {
+    expect(client).toMatch(/farHits/);
+    expect(client).toMatch(/visible\.length === 0/);
+    expect(client).toMatch(/field-check\/routes\?q=/);
+  });
+
+  it('у поиска за радиусом три исхода, а не два', () => {
+    // Нашлось; не нашлось нигде; не смогли спросить. Третий не равен второму:
+    // в поле связи может не быть, и «в базе нет» тогда — неправда (§4.0).
+    expect(client).toMatch(/farBusy/);
+    expect(client).toMatch(/farFailed/);
+    expect(client).toMatch(/Ни рядом, ни во всей базе/);
+    expect(client).toMatch(/Это не значит, что записи нет/);
+  });
+
+  it('пустой фильтр называет радиус, а не отвечает «ничего нет»', () => {
+    expect(client).not.toMatch(/По этому запросу ничего нет/);
+    expect(client).toMatch(/км такого нет/);
+  });
+
+  it('имя ищется и среди мест, не только среди маршрутов', () => {
+    // Человек не обязан знать, чем у нас числится перевал — точкой или путём.
+    expect(search).toMatch(/FROM places p/);
+    expect(search).toMatch(/p\.name ILIKE/);
+    expect(search).toMatch(/places_total/);
+  });
+
+  it('расстояние считается общей мерой платформы', () => {
+    // Своя формула разошлась бы с серверной, и «км от вас» стало бы
+    // двумя разными числами на одном экране.
+    expect(client).toMatch(/import \{ haversineKm \}/);
+  });
+
+  it('форма открывается по ссылке сразу на маршрут', () => {
+    // Выход готовит не тот, кто пойдёт. Инструкция «нажми то, потом сё»
+    // на шестидесяти километрах от места даёт пустой экран.
+    expect(client).toMatch(/searchParams|URLSearchParams/i);
+    expect(client).toMatch(/get\('route'\)/);
+    expect(client).toMatch(/routeParamUsed/);
+  });
+
+  it('имя района при переходе по ссылке берётся с сервера', () => {
+    const nearby = readFileSync(join(process.cwd(), 'app/api/field-check/nearby/route.ts'), 'utf-8');
+    expect(nearby).toMatch(/route_title/);
+    expect(client).toMatch(/j\.route_title/);
+  });
+});
