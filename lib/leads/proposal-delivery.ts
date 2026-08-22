@@ -21,7 +21,11 @@ export type DeliveryChannel = 'telegram' | 'email' | 'both';
 
 export type DeliveryOutcome =
   | { ok: true; sent: string[]; failed: string[]; pdfUrl: string; message: string }
-  | { ok: false; reason: 'not_found' | 'no_proposal' | 'already_sent' | 'proposal_missing'; message: string };
+  | {
+      ok: false;
+      reason: 'not_found' | 'no_proposal' | 'already_sent' | 'proposal_missing' | 'not_delivered';
+      message: string;
+    };
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -48,6 +52,17 @@ async function tgSend(chatId: string | number, text: string): Promise<boolean> {
  * Идемпотентность: статус лида — сторож. Повторный вызов (второе нажатие
  * кнопки, ретрай Telegram) вернёт already_sent и НИЧЕГО не отправит: клиент
  * не должен получить одно предложение дважды.
+ *
+ * Сторож работает ЗАХВАТОМ, а не чтением (эволюция, 22.08). Прежде статус
+ * читался в начале, а писался в конце — между ними лежала отправка в
+ * Telegram. Два одновременных вызова (двойное нажатие, ретрай кнопки) оба
+ * видели «ещё не отправлено» и оба отправляли: ровно то, что этот файл
+ * обещает не допускать. Теперь лид ЗАНИМАЕТСЯ условным UPDATE до отправки:
+ * второй вызов не находит строки и уходит с already_sent.
+ *
+ * Захват откатывается, если доставить не удалось НИЧЕМ: иначе сбой Telegram
+ * навсегда пометил бы лид отправленным, и клиент не получил бы предложение
+ * никогда — молчаливая потеря вместо честного «не смог» (§4.0).
  */
 export async function sendProposalToClient(
   leadId: string,
@@ -81,6 +96,29 @@ export async function sendProposalToClient(
   if (!proposal) {
     return { ok: false, reason: 'proposal_missing', message: 'Данные предложения не найдены.' };
   }
+
+  // Захват: перевести лид в proposal_sent МОЖЕТ только один вызов. Проверка
+  // выше — для внятного сообщения, а гонку закрывает именно это условие.
+  const claim = await pool.query<{ prev_status: string }>(
+    `WITH prev AS (SELECT status FROM leads WHERE id = $1)
+     UPDATE leads SET status = 'proposal_sent', updated_at = NOW()
+      WHERE id = $1 AND status IS DISTINCT FROM 'proposal_sent'
+     RETURNING (SELECT status FROM prev) AS prev_status`,
+    [leadId],
+  );
+  if (claim.rowCount === 0) {
+    return { ok: false, reason: 'already_sent', message: 'Предложение уже было отправлено.' };
+  }
+  const prevStatus = claim.rows[0].prev_status;
+
+  /** Вернуть лид в прежний статус: доставки не было, повтор должен быть возможен. */
+  const releaseClaim = async () => {
+    await pool.query(
+      `UPDATE leads SET status = $2, updated_at = NOW()
+        WHERE id = $1 AND status = 'proposal_sent'`,
+      [leadId, prevStatus],
+    );
+  };
 
   const pdfUrl = `${getPublicBaseUrl()}/api/leads/${leadId}/proposal/pdf`;
   const sent: string[] = [];
@@ -118,10 +156,19 @@ export async function sendProposalToClient(
     sent.push('email_queued');
   }
 
-  await pool.query(
-    `UPDATE leads SET status = 'proposal_sent', updated_at = NOW() WHERE id = $1`,
-    [leadId],
-  );
+  if (sent.length === 0) {
+    // Ни один канал не сработал (нет chat_id и почты, либо Telegram отказал).
+    // Держать при этом статус «отправлено» — соврать оператору и потерять
+    // клиента: он ждёт предложения, которого никто не послал.
+    await releaseClaim();
+    return {
+      ok: false,
+      reason: 'not_delivered',
+      message: failed.length > 0
+        ? 'Не удалось доставить предложение ни одним каналом. Статус лида не изменён — попробуйте ещё раз.'
+        : 'Некуда отправлять: у лида нет ни Telegram, ни почты. Статус лида не изменён.',
+    };
+  }
 
   return {
     ok: true,

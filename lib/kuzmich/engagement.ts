@@ -13,6 +13,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
+import { getPublicBaseUrl } from '@/lib/config';
 
 // ── Записать сигнал интереса ──────────────────────────────────────
 
@@ -146,6 +147,20 @@ const ACTIVITY_LABELS: Record<string, string> = {
   snowmobile: 'снегоходного тура',
 };
 
+/**
+ * Текст напоминания.
+ *
+ * Две правки 22.08 (находка эволюции):
+ *
+ * 1. Ссылка вела на `/routes/<id>`, подставляя туда id ТУРА. Маршрут и тур —
+ *    разные сущности с разными таблицами (§4.1), и по id тура страница
+ *    маршрута открывала либо ничего, либо чужой маршрут. Карточка тура одна —
+ *    `/marketplace/tours/[id]` (§11), туда и ведём.
+ * 2. Из текста убрано утверждение о свободных местах: занятость лежит в
+ *    `tour_availability`, а запрос её не читает — сказать было нечем.
+ *    Наличие мест — критичный факт, его нельзя сочинять (CLAUDE.md §8).
+ *    Вернуть такую строку можно только вместе с чтением занятости.
+ */
 function buildReminderText(row: EngagementRow): string {
   const activity = row.activity_type ? (ACTIVITY_LABELS[row.activity_type] ?? row.activity_type) : 'тура';
   const price    = row.base_price.toLocaleString('ru-RU');
@@ -156,9 +171,9 @@ function buildReminderText(row: EngagementRow): string {
     `<b>${row.tour_title}</b>`,
     `от ${price} руб.`,
     '',
-    `Места ещё есть. Если остались вопросы — напиши мне, помогу с выбором и бронированием.`,
+    `Если остались вопросы — напиши мне, помогу с выбором и бронированием.`,
     '',
-    `vedarai.ru/routes/${row.tour_id}`,
+    `${getPublicBaseUrl()}/marketplace/tours/${row.tour_id}`,
   ];
 
   return lines.join('\n');
