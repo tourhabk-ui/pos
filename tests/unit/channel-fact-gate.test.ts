@@ -194,3 +194,58 @@ describe('сбой судьи = отмена публикации, не проп
     expect(scout).toMatch(/claims === null \|\| claims\.length > 0/);
   });
 });
+
+/**
+ * Судья фактгейта после прогона 22.08 (владелец: «разведчика почини»).
+ *
+ * Прогон дошёл ДО судьи: 52 сигнала, синтез состоялся, все 10 источников
+ * живы — и встал на `judge_unparseable`. Значит провайдеры работали, а
+ * версия «молчит провайдер» этим прогоном опровергнута. Осталось два
+ * механизма, дающих «JSON не нашёлся» от работающей модели: преамбула
+ * вокруг ответа и обрыв по потолку токенов. Оба закрыты здесь.
+ */
+describe('судья просит формат, а не уговаривает', () => {
+  const factCheck = readFileSync(join(process.cwd(), 'lib/agents/fact-check.ts'), 'utf-8');
+  const providers = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
+
+  it('формат просится у провайдера, а не только словами в промпте', () => {
+    expect(factCheck).toMatch(/json:\s*true/);
+    expect(providers).toMatch(/response_format:\s*\{\s*type:\s*'json_object'\s*\}/);
+  });
+
+  it('у судьи свой потолок ответа, больше умолчания ветки', () => {
+    const cap = /JUDGE_MAX_TOKENS\s*=\s*(\d+)/.exec(factCheck);
+    expect(cap).not.toBeNull();
+    // Умолчания ног быстрой ветки — 600-800. Судья цитирует утверждения,
+    // ему нужно заметно больше, иначе ответ обрывается на середине.
+    expect(Number(cap![1])).toBeGreaterThan(800);
+    expect(factCheck).toMatch(/maxTokens: JUDGE_MAX_TOKENS/);
+  });
+
+  it('обрыв назван обрывом, а не прозой', () => {
+    // Разные беды — разный ремонт: потолок токенов против промпта.
+    expect(factCheck).toMatch(/why: JudgeFailure = raw\.includes\('\{'\) \? 'truncated' : 'unparseable'/);
+  });
+
+  it('разбор берёт сбалансированный объект, а не «от первой до последней»', () => {
+    // Жадная /\{[\s\S]*\}/ склеивала два объекта в заведомо битую строку.
+    expect(factCheck).toMatch(/extractJsonObject/);
+    expect(factCheck).not.toMatch(/raw\.match\(\/\\\{\[\\s\\S\]\*\\\}\/\)/);
+  });
+
+  it('улика доезжает до человека, а не гибнет в функции', () => {
+    const digest = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+    const route = readFileSync(join(process.cwd(), 'app/api/cron/scout-digest/route.ts'), 'utf-8');
+    // Код называет класс беды, строка ответа — саму беду. Без неё чинят наугад.
+    expect(digest).toMatch(/digest_skip_detail/);
+    expect(digest).toMatch(/verdict\.sample/);
+    expect(route).toMatch(/digest_skip_detail: result\.digest_skip_detail/);
+  });
+
+  it('повтор идёт на бедах разбора, но не на молчании провайдера', () => {
+    // Молчащего вторым запросом не оживить, а гейт публикации не место
+    // для долбёжки.
+    expect(factCheck).toMatch(/fixableByAsking/);
+    expect(factCheck).toMatch(/\['unparseable', 'truncated', 'bad_shape'\]/);
+  });
+});

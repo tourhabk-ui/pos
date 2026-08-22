@@ -52,6 +52,8 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   // текст без JSON, и судья звал это «прозой вместо JSON, сбой в промпте».
   // Владелец три недели читал совет чинить промпт при мёртвых провайдерах.
   judge_unavailable: 'не ответил ни один провайдер — чинить у провайдера, не в промпте',
+  // Обрыв — не проза: модель отвечала верно и не поместилась в потолок.
+  judge_truncated: 'ответ судьи оборвался на середине — не хватило потолка токенов',
   judge_unparseable: 'проверяющая модель ответила прозой вместо JSON — сбой в промпте, не в провайдере',
   judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
   judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
@@ -83,6 +85,16 @@ export interface DigestResult {
    * telegram_send_failed. Отсутствует — выпуск ушёл.
    */
   digest_skip_reason?: string;
+  /**
+   * Улика к причине: начало ответа, который не разобрался (22.08).
+   *
+   * Код `judge_unparseable` называет КЛАСС беды — «модель ответила не тем».
+   * Чинить надо конкретное: преамбулу перед JSON, markdown-забор, обрыв на
+   * середине или отказ отвечать. Без самой строки это гадание, а гадание уже
+   * стоило трёх недель — алерт уверенно советовал чинить промпт при вопросе,
+   * которого никто не видел. Не более 200 символов, только в ответ и журнал.
+   */
+  digest_skip_detail?: string;
   /**
    * Ушёл ли пост во ВТОРОЙ канал — AI-канал.
    *
@@ -725,7 +737,12 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // оба отправляет чинить не туда.
     const verdict = await judgeClaims(digest, signalsList);
     if (!verdict.ok) {
-      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: judgeSkipReason(verdict.why), duration_ms: Date.now() - start, ...health, repeats_suppressed };
+      return {
+        signals_found: freshItems.length, digest_sent: false,
+        digest_skip_reason: judgeSkipReason(verdict.why),
+        ...(verdict.sample ? { digest_skip_detail: verdict.sample } : {}),
+        duration_ms: Date.now() - start, ...health, repeats_suppressed,
+      };
     }
     let claims: string[] | null = verdict.unsupported;
     if (claims.length > 0) {

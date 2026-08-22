@@ -1,23 +1,12 @@
 {
- "bytes": 4000,
- "timeout": 120,
- "retries": 10,
- "retryDelay": 60,
- "until": "\"declared_tables\"",
- "note": "Проба 95: первый замер расхождений схемы на проде (/api/cron/schema-drift из #1335). Сверяет действия, а не имена файлов: колонки из CREATE TABLE и ADD COLUMN в migrations/ против information_schema живой базы. Черновая сверка по снимку 15.08 давала 23 таблицы и 32 колонки, но снимок недельной давности — здесь цифра свежая с обеих сторон.",
- "run": 95,
- "urls": [
-  "https://vedarai.ru/api/cron/schema-drift"
- ],
- "grep": [
-  "\"ok\":true",
-  "\"drift_total\":0"
- ],
- "around": [
-  "\"missing_tables\":[",
-  "\"missing_columns\":[",
-  "\"drift_total\""
- ],
- "aroundLines": 70,
- "aroundHits": 1
+  "note": "Проба 146: контрольный прогон разведчика после починки судьи. Прогон 12:05 дошёл ДО судьи (52 сигнала, синтез состоялся, все 10 источников живы) и встал на judge_unparseable — значит провайдеры работали, а версия «молчит провайдер» опровергнута. Закрыты оба механизма, дающих «JSON не нашёлся» от работающей модели: формат теперь просится у провайдера (response_format), потолок судьи поднят с 600-800 до 1600 токенов, обрыв назван обрывом. Первый URL — история прогонов с уликами (маркер scout_diagnose_v1). Второй — боевой прогон: если ворота откроются, выпуск уйдёт в канал; если нет, в ответе будет digest_skip_detail — начало ответа, которого нам три недели не хватало.",
+  "urls": [
+    "https://vedarai.ru/api/cron/scout-diagnose?limit=40",
+    "https://vedarai.ru/api/cron/scout-digest"
+  ],
+  "until": "scout_diagnose_v1",
+  "retries": 25,
+  "retryDelay": 60,
+  "timeout": 120,
+  "bytes": 9000
 }

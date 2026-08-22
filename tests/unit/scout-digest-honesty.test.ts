@@ -94,10 +94,26 @@ describe('немых выходов больше нет: каждый пропу
   const SRC = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
 
   it('каждый return с digest_sent: false несёт digest_skip_reason', () => {
-    const falseReturns = SRC.split('\n').filter((l) => l.includes('digest_sent: false'));
-    expect(falseReturns.length).toBeGreaterThanOrEqual(7);
-    for (const line of falseReturns) {
-      expect(line, `немой выход: ${line.trim()}`).toMatch(/digest_skip_reason/);
+    // Правило про ВЫХОД, а не про строку. 22.08 один выход стал
+    // многострочным (к причине добавилась улика — начало неразобранного
+    // ответа), и построчный сторож покраснел при сохранном правиле.
+    const exits: string[] = [];
+    const re = /return \{/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(SRC)) !== null) {
+      let depth = 0;
+      for (let i = m.index + 'return '.length; i < SRC.length; i++) {
+        if (SRC[i] === '{') depth++;
+        else if (SRC[i] === '}') {
+          depth--;
+          if (depth === 0) { exits.push(SRC.slice(m.index, i + 1)); break; }
+        }
+      }
+    }
+    const falseExits = exits.filter(e => e.includes('digest_sent: false'));
+    expect(falseExits.length).toBeGreaterThanOrEqual(7);
+    for (const e of falseExits) {
+      expect(e, `немой выход: ${e.slice(0, 120)}`).toMatch(/digest_skip_reason/);
     }
   });
 

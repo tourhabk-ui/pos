@@ -34,8 +34,14 @@ describe('Kimi проведён в оба пути', () => {
   });
 
   it('включён в гонку судьи (callAIFast)', () => {
-    // callKimi рядом с callDeepSeek/callGeminiDirect в массиве гонки.
-    expect(providers).toMatch(/callDeepSeek\(messages\),\s*\n\s*callGeminiDirect\(messages\),\s*\n\s*callKimi\(messages\)/);
+    // Правило — УЧАСТИЕ в гонке, а не написание аргументов. 22.08 ноги
+    // получили опции (потолок токенов и json-формат для судьи), и сторож,
+    // пришпиленный к `callKimi(messages)`, покраснел при сохранном правиле.
+    const race = /const calls: Promise<string \| null>\[\] = \[([\s\S]*?)\];/.exec(providers);
+    expect(race, 'массив гонки быстрой ветки не найден').not.toBeNull();
+    for (const leg of ['callDeepSeek', 'callGeminiDirect', 'callKimi']) {
+      expect(race![1], `${leg} выпал из гонки судьи`).toContain(`${leg}(messages`);
+    }
   });
 
   it('в решателе НЕ участвует — решение владельца 04.08', () => {
