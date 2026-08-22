@@ -44,6 +44,7 @@ import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiM
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
+import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key-identity';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -2262,6 +2263,8 @@ export async function callGeminiPDF(
 
 // ── Preflight: быстрая проверка доступности провайдеров ──────
 // Минимальный запрос к каждому провайдеру, параллельно, 5s timeout
+// Ключи в GitHub и Timeweb намеренно разные (решение владельца 23.08):
+// отчёт обязан называть, какой именно отвечал и откуда его спросили.
 export interface ProviderStatus {
   id: string;
   name: string;
@@ -2344,6 +2347,9 @@ export async function preflightProviders(): Promise<{
   providers: ProviderStatus[];
   any_available: boolean;
   openrouter_balance: OpenRouterBalance | null;
+  /** Где спрашивали и какими ключами — иначе два отказа неразличимы. */
+  place: RunPlace;
+  keys: KeyReport[];
 }> {
   const testMsg: ChatMessage[] = [{ role: 'user', content: 'ok' }];
 
@@ -2551,6 +2557,8 @@ export async function preflightProviders(): Promise<{
     providers,
     any_available: providers.some(p => p.available),
     openrouter_balance,
+    place: runPlace(),
+    keys: keyReport(),
   };
 }
 

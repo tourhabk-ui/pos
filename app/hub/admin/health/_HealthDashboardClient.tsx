@@ -106,7 +106,20 @@ interface PreflightData {
   providers: ProviderStatus[];
   any_available: boolean;
   openrouter_balance: { total_credits: number; total_usage: number; remaining: number | null; low: boolean } | null;
+  /** Откуда спрашивали: у раннера GitHub и у прода ключи РАЗНЫЕ намеренно. */
+  place?: string;
+  keys?: Array<{
+    id: string; label: string; env: string;
+    identity: { present: boolean; format: string | null; length: number; fingerprint: string | null };
+  }>;
 }
+
+const PLACE_LABELS: Record<string, string> = {
+  'github-actions': 'раннер GitHub (ключи из секретов репозитория)',
+  prod: 'прод Timeweb (ключи из переменных приложения)',
+  local: 'локальная машина (.env.local)',
+  unknown: 'место запуска не определено',
+};
 
 function StatusDot({ ok }: { ok: boolean }) {
   return ok
@@ -304,6 +317,34 @@ export default function HealthDashboardClient() {
 
             {!preflight.any_available && (
               <p className="text-xs text-[var(--danger)]">Не ответил ни один провайдер.</p>
+            )}
+
+            {/* Ключи в GitHub и в Timeweb разные намеренно (решение владельца
+                23.08). Без отпечатка два отказа выглядят одинаково, и понять,
+                какой именно ключ сломан, нельзя. Отпечаток — восемь hex от
+                SHA-256: ключ по нему не восстановить, а различить два ключа
+                можно с первого взгляда. */}
+            {preflight.keys !== undefined && (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3">
+                <p className="text-xs font-medium text-[var(--text-primary)] mb-1.5">
+                  Чем спрашивали: {PLACE_LABELS[preflight.place ?? 'unknown'] ?? preflight.place}
+                </p>
+                <div className="space-y-1">
+                  {preflight.keys.map(k => (
+                    <p key={k.id} className="text-xs text-[var(--text-muted)] break-words">
+                      {k.label} · {k.env}:{' '}
+                      {k.identity.present ? (
+                        <>
+                          отпечаток <span className="font-mono text-[var(--text-secondary)]">{k.identity.fingerprint}</span>
+                          {', '}{k.identity.format ?? 'формат не распознан'}, {k.identity.length} симв.
+                        </>
+                      ) : (
+                        <span className="text-[var(--warning)]">не задан</span>
+                      )}
+                    </p>
+                  ))}
+                </div>
+              </div>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
