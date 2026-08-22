@@ -413,6 +413,20 @@ export interface OpenRouterModelOptions {
   jsonMode?: boolean;
   /** JSON Schema for structured outputs (supported by GPT-4.1, Gemini 2.5, etc.) */
   jsonSchema?: { name: string; strict?: boolean; schema: Record<string, unknown> };
+  /**
+   * Зовётся, когда модель НЕ ответила, и называет причину.
+   *
+   * Функция отдаёт `null` на четыре разных события: провайдер отказал по HTTP,
+   * ответ пришёл без текста, запрос не дошёл, ключа нет. Наружу все четыре
+   * выглядели одинаково, и отчёт судьи писал про первую ступень «ключ есть,
+   * ответа нет» — фразу, из которой нельзя понять ни 401, ни 402, ни 403.
+   * Рядом ступень Anthropic честно печатала тело ошибки («credit balance is
+   * too low»), и разница была видна невооружённым глазом.
+   *
+   * Здесь не выдумывается новое поведение: возврат по-прежнему `null`, просто
+   * причина больше не пропадает. Тело обрезается — в нём бывает эхо запроса.
+   */
+  onRefusal?: (info: { kind: 'http' | 'empty' | 'network' | 'no_key'; status: number | null; detail: string }) => void;
 }
 
 export async function callOpenRouterModel(
@@ -423,11 +437,17 @@ export async function callOpenRouterModel(
   const opts: OpenRouterModelOptions = typeof timeoutOrOpts === 'number'
     ? { timeoutMs: timeoutOrOpts }
     : timeoutOrOpts;
-  const { timeoutMs = 15_000, maxTokens = 800, temperature = 0.4, jsonMode = false, jsonSchema } = opts;
+  const { timeoutMs = 15_000, maxTokens = 800, temperature = 0.4, jsonMode = false, jsonSchema, onRefusal } = opts;
 
   const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
-  if (isOpenRouterTemporarilyDisabled()) return null;
+  if (!apiKey) {
+    onRefusal?.({ kind: 'no_key', status: null, detail: 'ключ OpenRouter не задан' });
+    return null;
+  }
+  if (isOpenRouterTemporarilyDisabled()) {
+    onRefusal?.({ kind: 'no_key', status: null, detail: 'провайдер временно отключён после отказа авторизации' });
+    return null;
+  }
 
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
@@ -459,15 +479,27 @@ export async function callOpenRouterModel(
       if (res.status === 401) {
         markOpenRouterAuthFailure();
       }
+      if (onRefusal) {
+        const body = await res.text().catch(() => '');
+        onRefusal({ kind: 'http', status: res.status, detail: body.slice(0, 200) || 'тело ответа пустое' });
+      }
       return null;
     }
 
     clearOpenRouterFailure();
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     const text = data?.choices?.[0]?.message?.content;
-    if (!text?.trim()) return null;
+    if (!text?.trim()) {
+      onRefusal?.({ kind: 'empty', status: res.status, detail: 'ответ 200, но текста в нём нет' });
+      return null;
+    }
     return { text: text.trim(), model_used: modelId };
-  } catch {
+  } catch (e) {
+    onRefusal?.({
+      kind: 'network',
+      status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message.slice(0, 150) : 'ошибка'}`,
+    });
     return null;
   }
 }
@@ -1449,11 +1481,20 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     why.push('flagship: OPENROUTER_API_KEY не задан');
   } else {
     try {
+      // Причина отказа приходит из самой ступени. Прежняя строка «ключ есть,
+      // ответа нет» была честной ровно наполовину: она сообщала ЧТО, но не
+      // ПОЧЕМУ, и по ней нельзя было отличить недействительный ключ от
+      // исчерпанного счёта или закрытого доступа. Прогон 22.08 повторил её
+      // сорок восемь раз — с раннера GitHub, где ни релея, ни гео-блока нет.
+      let refusal: string | null = null;
       const flag = await callOpenRouterModel(payload, flagshipModel, {
         timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
+        onRefusal: ({ status, detail }) => {
+          refusal = status === null ? detail : `HTTP ${status} ${detail}`;
+        },
       });
       if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
-      why.push(`flagship(${flagshipModel}): ключ есть, ответа нет`);
+      why.push(`flagship(${flagshipModel}): ${refusal ?? 'ключ есть, ответа нет'}`);
     } catch (e) { why.push(`flagship(${flagshipModel}): ${(e as Error).message.slice(0, 100)}`); }
   }
 
