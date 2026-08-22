@@ -6,6 +6,7 @@ import {
   RefreshCw, Radio, CloudRain, BookOpen, ShieldAlert, PhoneCall,
   Send, MessageSquare,
 } from 'lucide-react';
+import { ZoneAlertsPanel } from '@/components/admin/ZoneAlertsPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -446,7 +447,7 @@ export function SafetyDashboardClient() {
   const [capacity, setCapacity]       = useState<CapacityItem[]>([]);
   const [capacityMeta, setCapacityMeta] = useState<CapacityMeta>({ total: 0, red_locations: 0, yellow_locations: 0 });
   const [loading, setLoading]         = useState(true);
-  const [tab, setTab] = useState<'alerts' | 'capacity' | 'consult' | 'artem'>('alerts');
+  const [tab, setTab] = useState<'alerts' | 'zones' | 'capacity' | 'consult' | 'artem'>('alerts');
   const [refreshed, setRefreshed] = useState<Date | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -519,7 +520,7 @@ export function SafetyDashboardClient() {
         {/* ── Вкладки: Алерты / Ёмкость ────────────────────────────── */}
         <div className="ds-card mb-6">
           <div className="flex border-b border-[var(--border)]">
-            {(['alerts', 'capacity', 'consult', 'artem'] as const).map(t => (
+            {(['alerts', 'zones', 'capacity', 'consult', 'artem'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -530,6 +531,7 @@ export function SafetyDashboardClient() {
                 }`}
               >
                 {t === 'alerts'   ? `Алерты (${alerts.length})` :
+                 t === 'zones'    ? 'Ограничения зон' :
                  t === 'capacity' ? `Ёмкость (${capacityMeta.total})` :
                  t === 'consult'  ? 'Консультация МЧС' :
                  'Артём'}
@@ -574,6 +576,8 @@ export function SafetyDashboardClient() {
                   </div>
                 ))}
               </div>
+            ) : tab === 'zones' ? (
+              <ZoneAlertsPanel />
             ) : tab === 'consult' ? (
               <MchsConsultChat />
             ) : tab === 'artem' ? (

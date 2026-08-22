@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { getHazardSignals, getOverallDangerLevel } from '@/lib/safety/hazard-signals';
+import { activeAlertsForZone, type SafetyAlert } from '@/lib/safety/alerts';
 
 /**
  * GET /api/safety/warnings?route_id=XXX
@@ -131,6 +132,21 @@ export async function GET(req: Request) {
       zoneRisk = riskRes.rows[0] ?? null;
     }
 
+    // Предупреждения, заведённые человеком: закрытая зона, размытая дорога,
+    // ограничение парка. До 22.08.2026 они не доходили сюда вовсе — таблицу
+    // `safety_alerts` читал только планировщик, то есть турист, открывший
+    // карточку маршрута напрямую, о закрытии не узнавал.
+    let zoneAlerts: SafetyAlert[] = [];
+    let alertsChecked = true;
+    try {
+      zoneAlerts = await activeAlertsForZone(routeInfo.zone);
+    } catch (err) {
+      // Третий исход: «не смог спросить» — не «ограничений нет» (§4.0).
+      // Клиент обязан различать пустоту и незнание, поэтому отдаём флаг.
+      alertsChecked = false;
+      console.error('[safety-warnings] предупреждения зоны не прочитаны:', err instanceof Error ? err.message : err);
+    }
+
     // Контакты МЧС для зоны
     let emergencyContacts: Array<{ name: string; phone: string; type: string }> = [];
     if (routeInfo.zone) {
@@ -155,6 +171,16 @@ export async function GET(req: Request) {
       alert_severity: routeInfo.alert_severity,
       alert_message: routeInfo.alert_message,
       zone_risk: zoneRisk,
+      zone_alerts: zoneAlerts.map(a => ({
+        id: a.id,
+        severity: a.severity,
+        title: a.title,
+        message: a.message,
+        source: a.source,
+        active_until: a.active_until,
+      })),
+      /** false — запрос за предупреждениями не выполнился; пусто ≠ чисто. */
+      zone_alerts_checked: alertsChecked,
       signals: signals.map(s => ({
         hazard: s.hazard,
         level: s.level,
