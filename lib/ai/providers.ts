@@ -276,13 +276,27 @@ function clearOpenRouterFailure(): void {
 export async function probeOpenRouterKeyStatus(): Promise<{
   key_source: 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null;
   both_env_set: boolean;
+  /** Куда реально ушёл запрос: через релей или напрямую в openrouter.ai. */
+  route: 'relay' | 'direct';
+  /** Хост назначения (без пути и без ключей) — чтобы отличить один релей от другого. */
+  route_host: string;
   http_status: number | null;
   detail: string;
 }> {
   const key_source = getOpenRouterKeySource();
   const both_env_set = !!process.env.OR_API_KEY && !!process.env.OPENROUTER_API_KEY;
+  // Голый статус без адресата не диагноз: 403 «напрямую» — это гео-блок и
+  // лечится релеем, а 403 «через релей» — это уже сам релей (не поднят, не
+  // тот путь, закрыт по РФ) и лечится совсем иначе. Раньше диагностика
+  // печатала только код, и по нему нельзя было отличить одно от другого —
+  // ровно то «место, где нельзя сказать „не знаю“», о котором правило §4.0.
+  const route: 'relay' | 'direct' =
+    OPENROUTER_BASE === 'https://openrouter.ai/api/v1' ? 'direct' : 'relay';
+  let route_host = 'openrouter.ai';
+  try { route_host = new URL(OPENROUTER_BASE).host; } catch { /* оставляем дефолт */ }
+
   const apiKey = getOpenRouterKey();
-  if (!apiKey) return { key_source, both_env_set, http_status: null, detail: 'ключ не задан' };
+  if (!apiKey) return { key_source, both_env_set, route, route_host, http_status: null, detail: 'ключ не задан' };
 
   try {
     const res = await fetch(`${OPENROUTER_BASE}/key`, {
@@ -290,11 +304,13 @@ export async function probeOpenRouterKeyStatus(): Promise<{
       signal: AbortSignal.timeout(8_000),
     });
     const body = (await res.text()).slice(0, 300);
-    return { key_source, both_env_set, http_status: res.status, detail: body };
+    return { key_source, both_env_set, route, route_host, http_status: res.status, detail: body };
   } catch (e) {
     return {
       key_source,
       both_env_set,
+      route,
+      route_host,
       http_status: null,
       detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
     };
