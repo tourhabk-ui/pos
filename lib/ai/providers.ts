@@ -40,7 +40,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
+import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
@@ -300,6 +300,14 @@ export async function probeOpenRouterKeyStatus(): Promise<{
    */
   direct_status: number | null;
   direct_detail: string | null;
+  /**
+   * Форма ключа без его содержимого: длина, ожидаемое начало, пробелы.
+   * 22.08 OpenRouter отвечал «Missing Authentication header» при непустой
+   * переменной — а это сходится ровно тогда, когда значение непусто как
+   * строка и пусто как ключ. Три этих факта разделяют «вставили не то»,
+   * «вставили с переводом строки» и «ключ настоящий, отказывает провайдер».
+   */
+  key_shape: ReturnType<typeof describeOpenRouterKey>;
 }> {
   const key_source = getOpenRouterKeySource();
   const both_env_set = !!process.env.OR_API_KEY && !!process.env.OPENROUTER_API_KEY;
@@ -319,6 +327,7 @@ export async function probeOpenRouterKeyStatus(): Promise<{
       key_source, both_env_set, route, route_host,
       http_status: null, detail: 'ключ не задан',
       direct_status: null, direct_detail: null,
+      key_shape: describeOpenRouterKey(),
     };
   }
 
@@ -350,6 +359,7 @@ export async function probeOpenRouterKeyStatus(): Promise<{
     detail: main.detail,
     direct_status: direct ? direct.status : null,
     direct_detail: direct ? direct.detail : null,
+    key_shape: describeOpenRouterKey(),
   };
 }
 
