@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v27'; // bumped: /field-check в прекэше — форма полевой проверки обязана открываться без сети
+const CACHE_NAME = 'kamchatour-v28'; // bumped: /field-check закэширован с повторами и внесён в офлайн-белый список
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const MAX_TOUR_PAGES = 30;  // столько же карточек туров — иначе evictOldTourPages сравнивал с undefined и не чистил ничего
 const MAX_TRIP_PAGES = 10;  // планы поездок /trip/[token] — свой план + пара чужих по ссылкам
@@ -79,10 +79,16 @@ const OPTIONAL_URLS = [
   '/offline/manage',
   '/planning',
   '/ai-assistant',
-  // Форма полевой проверки (владелец 21.08): её открывают ровно там, где
-  // связи нет — на перевале. Без прекэша PWA бесполезна: список рядом не
-  // загрузится, но сама форма обязана открыться и принять проверку в
-  // очередь на телефоне.
+];
+
+// ПОЛЕВЫЕ — не СОС, но их открывают именно там, где связи нет, и один
+// промах прекэша стоит всего выхода.
+//
+// `/field-check` лежал среди опциональных, то есть клался в кэш ОДНОЙ
+// попыткой без повтора: сеть моргнула в момент установки — и на перевале
+// человек получает страницу «нет соединения» вместо формы, узнав об этом
+// там, где переспросить не у кого. Здесь у них те же повторы, что у СОС.
+const FIELD_URLS = [
   '/field-check',
 ];
 
@@ -114,6 +120,7 @@ self.addEventListener('install', (event) => {
     // Критичные — 2 повтора каждый, независимо друг от друга
     await Promise.allSettled(CRITICAL_URLS.map((u) => cacheOne(cache, u, 2)));
     // Опциональные — без повторов, тихо
+    await Promise.allSettled(FIELD_URLS.map((u) => cacheOne(cache, u, 2)));
     await Promise.allSettled(OPTIONAL_URLS.map((u) => cacheOne(cache, u, 0)));
     await self.skipWaiting();
   })());
@@ -330,7 +337,18 @@ async function cacheTilesForRegion(tileUrls, regionId, client) {
 }
 
 // ─── Whitelist: страницы которые умеют работать офлайн (IndexedDB / клиентское состояние) ───
-const OFFLINE_CAPABLE_ROUTES = ['/', '/map', '/offline', '/offline/manage', '/planning', '/ai-assistant'];
+// Пути, которым офлайн отдаётся КЭШ, а не страница «нет соединения».
+//
+// Список решает две вещи разом: как отвечать без сети и обновлять ли кэш при
+// удачном онлайн-заходе. `/field-check` в нём не значился — форма открывалась
+// без сети только тем, что общая ветка тоже смотрит в кэш, а свежую копию не
+// получала НИКОГДА: в кэше навсегда оставалась версия с момента установки
+// service worker. Для экрана, который правят каждый день, это значит, что в
+// поле уходит вчерашняя форма.
+const OFFLINE_CAPABLE_ROUTES = [
+  '/', '/map', '/offline', '/offline/manage', '/planning', '/ai-assistant',
+  '/field-check',
+];
 
 function isOfflineCapable(pathname) {
   return OFFLINE_CAPABLE_ROUTES.some(route =>
