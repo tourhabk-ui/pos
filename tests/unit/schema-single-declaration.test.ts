@@ -33,6 +33,10 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
+/** Значение из разбора — в шаблон только экранированным. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+
 const ROOT = process.cwd();
 const SCHEMA = fs.readFileSync(path.join(ROOT, 'lib/database/schema.sql'), 'utf8');
 
@@ -118,7 +122,7 @@ describe('bootstrap-схема', () => {
 
 /** Имена колонок из тела CREATE TABLE. Ограничения и ключи пропускаются. */
 function columnsOf(sql: string, table: string): Set<string> | null {
-  const re = new RegExp(`CREATE TABLE(?:\\s+IF NOT EXISTS)?\\s+${table}\\s*\\(`, 'i');
+  const re = new RegExp(`CREATE TABLE(?:\\s+IF NOT EXISTS)?\\s+${escapeRe(table)}\\s*\\(`, 'i');
   const m = re.exec(sql);
   if (m === null) return null;
   let depth = 0, body = '';

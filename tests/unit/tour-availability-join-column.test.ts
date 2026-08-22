@@ -25,6 +25,10 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** Значение из разбора — в шаблон только экранированным. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+
 const ROOT = process.cwd();
 
 /** Код без комментариев: и блочных, и строчных, и SQL-строчных внутри запроса. */
@@ -51,7 +55,7 @@ describe('tour_availability: связь с туром', () => {
       // берём алиас прямо из текста запроса.
       for (const m of src.matchAll(/tour_availability\s+(?:AS\s+)?([a-zA-Z_]\w*)/gi)) {
         const alias = m[1];
-        const joinOnPhantom = new RegExp(`\\b${alias}\\.tour_id\\b`);
+        const joinOnPhantom = new RegExp(`\\b${escapeRe(alias)}\\.tour_id\\b`);
         if (joinOnPhantom.test(src)) offenders.push(`${f} → ${alias}.tour_id`);
       }
     }

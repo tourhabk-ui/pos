@@ -15,6 +15,10 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
+/** Значение из разбора — в шаблон только экранированным. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+
 const ROOT = process.cwd();
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const code = (p: string) => read(p).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/gm, ' ');
@@ -111,7 +115,7 @@ describe('удалённое не возвращается', () => {
 
   for (const [file, name] of gone) {
     it(`${name} не возвращается в ${file}`, () => {
-      expect(code(file)).not.toMatch(new RegExp(`export (async )?function ${name}\\b`));
+      expect(code(file)).not.toMatch(new RegExp(`export (async )?function ${escapeRe(name)}\\b`));
     });
   }
 

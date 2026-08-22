@@ -14,6 +14,10 @@ import {
   type ImportEdge, type ExportRecord,
 } from '../lib/quality/export-census';
 
+/** Значение из разбора — в шаблон только экранированным. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+
 const ROOT = path.resolve(__dirname, '..');
 const SCAN = ['lib', 'app', 'components', 'hooks', 'scripts', 'tests', 'infra'];
 const EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
@@ -99,7 +103,9 @@ const sum = summarize(records);
  */
 const entries = [...src.entries()];
 function mentionedElsewhere(rec: ExportRecord): string[] {
-  const re = new RegExp(`\\b${rec.name}\\b`);
+  // Имя приходит из разбора чужого файла: в регулярку его кладут только
+  // экранированным, иначе символ вроде `$` меняет смысл шаблона.
+  const re = new RegExp(`\\b${escapeRe(rec.name)}\\b`);
   const hits: string[] = [];
   for (const [f, s] of entries) {
     if (f === rec.file) continue;
