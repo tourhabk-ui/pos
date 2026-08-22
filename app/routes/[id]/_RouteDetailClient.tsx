@@ -562,6 +562,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
         mapCenter: [53.02, 158.65] as [number, number],
         cardMapMarkers: [] as MapMarker[],
         approachCaption: null as string | null,
+        hiddenCaption: null as string | null,
       };
     }
     // Трек для карты: серверный GPS-трек, при его отсутствии — линия по
@@ -609,6 +610,26 @@ export default function RouteDetailClient({ id }: { id: string }) {
       ? `Линия включает подъезд: её дальний конец в ${Math.round(ownership.tailKm)} км от места. ` +
         'Длина считается по всей линии, вместе с дорогой.'
       : null;
+    /**
+     * Линия есть, но она не сходится с местом — не рисуем (решение
+     * владельца 22.08, пункт 2: «спрятать»).
+     *
+     * Судья ставит `unclear`, когда линия подходит к своей точке на
+     * расстояние между порогами: не настолько близко, чтобы считать её
+     * своей, и не настолько далеко, чтобы назвать чужой. Таких линий 19.
+     * Нарисованная, такая линия обещает ведение ровно так же уверенно, как
+     * проверенная, — и решение «идти по ней» человек примет, глядя на
+     * карту, а не на наши пороги. Пока не разобрались глазами, честнее
+     * показать место без линии и сказать словами, что путь не подтверждён.
+     *
+     * Данные не трогаются: линия остаётся в записи и вернётся на карту
+     * сама, как только сойдётся с местом.
+     */
+    const lineHidden = ownership?.verdict === 'unclear';
+    const hiddenCaption = lineHidden && ownership?.nearestKm !== null && ownership !== null
+      ? `Линия записана, но проходит в ${ownership.nearestKm} км от самого места — ` +
+        'мы не показываем её, пока не проверим на земле. Ориентируйтесь по точкам маршрута.'
+      : null;
     const cardMapMarkers: MapMarker[] = [
       {
         coords: mapCenter,
@@ -622,7 +643,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
         // маршрутов geometry построена миграцией 168 прямыми между точками:
         // такая линия проходит через каньон и реку и выглядела здесь ровно
         // так же уверенно, как снятый GPS-трек.
-        ...(track
+        ...(track && !lineHidden
           ? { geometry: { type: 'polyline' as const, coordinates: trackCoords as [number, number][], ...track.style } }
           : {}),
       },
@@ -635,7 +656,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
         category: w.locationType ?? 'other',
       })),
     ];
-    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track, approachCaption };
+    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track, approachCaption, hiddenCaption };
   }, [route, pathWaypoints]);
 
   if (loading) {
@@ -1443,6 +1464,9 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 {mapData.approachCaption && (
                   <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.approachCaption}</p>
                 )}
+                {mapData.hiddenCaption && (
+                  <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.hiddenCaption}</p>
+                )}
               </section>
             )}
 
@@ -1620,6 +1644,9 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   )}
                   {mapData.approachCaption && (
                     <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.approachCaption}</p>
+                  )}
+                  {mapData.hiddenCaption && (
+                    <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{mapData.hiddenCaption}</p>
                   )}
                 </div>
               )}
