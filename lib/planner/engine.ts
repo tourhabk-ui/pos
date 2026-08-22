@@ -556,8 +556,18 @@ interface SafetyAlertRow {
 }
 
 /**
- * Fetch active МЧС / safety alerts from DB.
- * Falls back to empty array if table doesn't exist yet.
+ * Активные предупреждения безопасности из БД.
+ *
+ * Пустой список при ОТКАЗЕ запроса — самая дорогая подмена на платформе:
+ * планировщик подмешивает эти предупреждения в рекомендации, и «не смог
+ * прочитать» превращается в «в этой зоне всё спокойно». Человек получает
+ * маршрут туда, откуда, возможно, сейчас не выехать.
+ *
+ * Отказ по-прежнему не роняет планирование — но молчать о нём нельзя: имя
+ * проверки и SQLSTATE идут в лог (§4.0). 23.08 выяснилось, что таблицу
+ * вдобавок никто не ЗАПОЛНЯЛ: приёмник появился только тогда
+ * (/api/cron/safety-alert), а до него слой предупреждений был пуст и
+ * выглядел работающим.
  */
 async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): Promise<SafetyAlert[]> {
   try {
@@ -577,8 +587,12 @@ async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): 
       params
     );
     return rows as SafetyAlert[];
-  } catch {
-    // Table may not exist yet — graceful fallback
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code ?? 'unknown';
+    console.error(
+      `[planner] предупреждения безопасности не прочитаны, SQLSTATE ${code} — ` +
+      'рекомендации строятся БЕЗ них',
+    );
     return [];
   }
 }
