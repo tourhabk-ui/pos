@@ -1,16 +1,14 @@
 {
- "bytes": 4000,
+ "bytes": 3000,
  "timeout": 90,
- "retries": 10,
- "retryDelay": 90,
- "until": "route_host",
- "note": "Проба 86: ответ на вопрос владельца «Cloudflare настраивали, почему не работает». Диагностика теперь называет адресата: route (relay|direct) и route_host. Маркер выката — поле route_host, в старой сборке его нет, поэтому ретраи ждут деплой. Если route=direct — релей просто не прописан в env Timeweb; если relay и снова 403 — беда в самом релее.",
- "run": 86,
+ "retries": 6,
+ "retryDelay": 60,
+ "note": "Проба 87: владелец прописал OPENROUTER_BASE_URL. Ждём в openrouter_key_diag route=relay и хост воркера вместо openrouter.ai. Заодно видно, вернулся ли ключ (key_source) — владелец его удалял.",
+ "run": 87,
  "urls": [
   "https://vedarai.ru/api/cron/health"
  ],
  "markers": [
-  "route_host",
-  "openrouter"
+  "route_host"
  ]
 }
