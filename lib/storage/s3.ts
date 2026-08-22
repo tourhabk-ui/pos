@@ -112,9 +112,5 @@ export async function deleteFromS3(key: string): Promise<void> {
 
 // ── Public URL helper ────────────────────────────────────────────────────────
 
-/**
- * Получить публичный URL для ключа.
- */
-export function getS3PublicUrl(key: string): string {
-  return `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
-}
+// getS3PublicUrl убрана 22.08.2026 (перепись): адрес файла собирают там, где
+// он и появляется — при загрузке, из ответа хранилища.

@@ -186,46 +186,14 @@ export async function markDocumentReminderSent(documentId: string): Promise<void
   }
 }
 
-/**
- * Get tourist recommendations
- */
-export async function getTouristRecommendations(userId: string, limit: number = 10): Promise<Record<string, unknown>> {
-  try {
-    const profile = await getTouristProfile(userId);
-    if (!profile) return { tours: [], accommodations: [] };
-
-    const preferences = profile.preferences || {};
-    const interests = (profile.interests as string[]) || [];
-
-    let toursQuery = `
-      SELECT t.*, p.name as partner_name
-      FROM operator_tours t
-      JOIN partners p ON t.operator_id = p.id
-      WHERE t.is_active = TRUE AND t.deleted_at IS NULL
-    `;
-
-    const params: (string | number | string[])[] = [];
-    let paramIndex = 1;
-
-    if (interests.length > 0) {
-      toursQuery += ` AND t.tags && $${paramIndex}::text[]`;
-      params.push(interests);
-      paramIndex++;
-    }
-
-    toursQuery += ` ORDER BY t.rating DESC, t.review_count DESC LIMIT $${paramIndex}`;
-    params.push(limit);
-
-    const toursResult = await query(toursQuery, params);
-
-    return {
-      tours: toursResult.rows,
-      accommodations: []
-    };
-  } catch (error) {
-    return { tours: [], accommodations: [] };
-  }
-}
+// getTouristRecommendations и getUpcomingTripsWithReminders убраны 22.08.2026.
+//
+// Первая — ЧЕТВЁРТЫЙ движок подбора туров: платформа держит ровно три
+// (lead-processor, lib/planner, lib/search), и правило прямо запрещает
+// заводить новый вместо расширения существующего.
+//
+// Вторая собирала ближайшие поездки с напоминаниями и не звалась: напоминания
+// о туре шлёт крон tour-reminder, о документах — document-expiry.
 
 // Скидки по уровню лояльности здесь нет.
 //
@@ -346,38 +314,4 @@ export function validateDocumentData(data: {
     valid: errors.length === 0,
     errors
   };
-}
-
-/**
- * Get upcoming trips with reminders
- */
-export async function getUpcomingTripsWithReminders(userId: string, daysAhead: number = 7): Promise<Record<string, unknown>[]> {
-  try {
-    const profile = await getTouristProfile(userId);
-    if (!profile) return [];
-    const days = Number.isFinite(daysAhead) ? Math.trunc(daysAhead) : 7;
-
-    const result = await query(
-      `SELECT tt.*, 
-        (SELECT json_agg(json_build_object(
-          'id', tb.booking_id,
-          'type', tb.booking_type,
-          'start_time', tb.start_time
-        ) ORDER BY tb.start_time)
-        FROM trip_bookings tb
-        WHERE tb.trip_id = tt.id) as bookings
-       FROM tourist_trips tt
-       WHERE tt.tourist_id = $1
-         AND tt.status IN ('planning', 'upcoming')
-         -- Тот же случай, что в getExpiringDocuments: интервал параметром.
-         AND tt.start_date <= CURRENT_DATE + (INTERVAL '1 day' * $2)
-         AND tt.start_date > CURRENT_DATE
-       ORDER BY tt.start_date ASC`,
-      [profile.id, days]
-    );
-
-    return result.rows;
-  } catch (error) {
-    return [];
-  }
 }

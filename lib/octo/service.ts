@@ -7,40 +7,12 @@
 import { pool } from '@/lib/db-pool';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
 
-/**
- * Check if a tour meets the "real tour" standard:
- * - Has partner (operator)
- * - Has filled calendar with available slots
- * - All required fields filled
- * - Has photos
- */
-export async function isRealTour(tourId: string): Promise<boolean> {
-  const { rows } = await pool.query<{
-    has_operator: boolean;
-    has_calendar: boolean;
-    fields_complete: boolean;
-    has_photo: boolean;
-  }>(
-    `SELECT
-       (ot.operator_id IS NOT NULL) as has_operator,
-       (ta.id IS NOT NULL) as has_calendar,
-       (ot.title IS NOT NULL AND ot.description IS NOT NULL AND
-        ot.base_price > 0 AND ot.location_type IS NOT NULL AND
-        ot.activity_type IS NOT NULL AND ot.max_participants > 0) as fields_complete,
-       (ot.hero_image IS NOT NULL OR ot.gallery IS NOT NULL) as has_photo
-     FROM operator_tours ot
-     LEFT JOIN tour_availability ta ON ta.operator_tour_id = ot.id
-       AND ta.available_slots > 0 AND ta.is_cancelled = false AND ta.deleted_at IS NULL
-     WHERE ot.id = $1 AND ot.is_published = true AND ot.deleted_at IS NULL
-     LIMIT 1`,
-    [tourId]
-  );
-
-  if (rows.length === 0) return false;
-
-  const row = rows[0];
-  return !!(row.has_operator && row.has_calendar && row.fields_complete && row.has_photo);
-}
+// isRealTour убрана 22.08.2026 (перепись).
+//
+// Проверяла «настоящность» тура: есть оператор, календарь, заполненные поля,
+// фото. Не звалась, и витрина показывает что есть. Стандарт «настоящего тура»
+// — правило продукта, и жить ему в одном месте с витриной, а не отдельной
+// функцией, о которой витрина не знает.
 
 // --- Suppliers ---
 

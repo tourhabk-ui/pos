@@ -331,9 +331,5 @@ export async function runGroupScout(): Promise<ScoutResult> {
   return result;
 }
 
-/**
- * Возвращает текущий реестр разведанных групп (для дашборда).
- */
-export async function getScoutRegistry(): Promise<ScoutRegistry> {
-  return getRegistry();
-}
+// getScoutRegistry убрана 22.08.2026 (перепись): обёртка над внутренним
+// getRegistry «для дашборда», которого нет.

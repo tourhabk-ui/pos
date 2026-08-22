@@ -13,6 +13,7 @@ import { emailService } from '@/lib/notifications/email-service';
 import { createUonRequest } from '@/lib/integrations/uon';
 import { verifyToken, extractToken } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
+import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -172,6 +173,21 @@ export async function POST(req: NextRequest) {
       const bookingId = bookingResult.rows[0]!.id;
       return { bookingId, total_price, tour };
     });
+
+    // Турист узнаёт, что заявка дошла. Раньше уведомление шло только
+    // ОПЕРАТОРУ: человек отправлял бронь и молчал до подтверждения, а
+    // Watchdog бьёт тревогу лишь через сутки. Функция для этого была написана
+    // и не звалась ниоткуда (перепись 22.08.2026); её соседи о подтверждении
+    // и отмене подключены давно.
+    if (userId !== null) {
+      notifyTouristBookingCreated(userId, {
+        id: String(result.bookingId),
+        tourTitle: String(result.tour.title),
+        date: new Date(data.booking_date),
+        participants: data.participants_count,
+        totalAmount: result.total_price,
+      });
+    }
 
     // Уведомление оператору + U-ON sync — fire-and-forget, не блокирует ответ
     void (async () => {

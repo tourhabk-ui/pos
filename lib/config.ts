@@ -297,24 +297,9 @@ export function validateConfig(): ConfigCheck {
   return { fatal, warnings };
 }
 
-// Получение конфигурации для клиента (без секретов)
-export function getClientConfig() {
-  return {
-    app: {
-      name: config.app.name,
-      version: config.app.version,
-      environment: config.app.environment,
-    },
-    maps: {
-      yandex: {
-        apiKey: config.maps.yandex.apiKey,
-      },
-    },
-    payments: {
-      stripe: {
-        publishableKey: config.payments.stripe.publishableKey,
-      },
-    },
-    monitoring: {},
-  };
-}
+// getClientConfig убрана 22.08.2026 (перепись): не звалась.
+//
+// Она собирала «конфигурацию без секретов» для браузера, а клиентские
+// компоненты берут NEXT_PUBLIC_* из process.env напрямую — 33 места. Одна
+// дверь для того, что видно браузеру, была бы лучше, но заводится она сразу
+// для всех, иначе получается два способа и оба неполные.

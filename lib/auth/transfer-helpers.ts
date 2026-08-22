@@ -21,6 +21,12 @@ export async function getTransferPartnerId(userId: string): Promise<string | nul
 
     return (result.rows[0]?.id as string | undefined) ?? null;
   } catch (error) {
+    // `null` здесь значит «такой роли у пользователя нет», и вызывающие
+    // читают его как отказ в правах. Отказ БАЗЫ выглядит точно так же —
+    // человек с правами получает «нет прав», и причину не найти. Тип менять
+    // нельзя, не тронув всех вызывающих, поэтому отказ хотя бы называется.
+    console.error('[auth] getTransferPartnerId: запрос к partners не выполнился:',
+      error instanceof Error ? error.message : error);
     return null;
   }
 }
@@ -169,24 +175,12 @@ export async function verifyTransferOwnership(userId: string, transferId: string
   }
 }
 
-/**
- * Verify user owns a route
- */
-export async function verifyRouteOwnership(userId: string, routeId: string): Promise<boolean> {
-  try {
-    const result = await query(
-      `SELECT r.id 
-       FROM transfer_routes r
-       JOIN partners p ON r.operator_id = p.id
-       WHERE p.user_id = $1 AND r.id = $2`,
-      [userId, routeId]
-    );
-    
-    return result.rows.length > 0;
-  } catch (error) {
-    return false;
-  }
-}
+// verifyRouteOwnership и assignDriverToVehicle убраны 22.08.2026 (перепись).
+//
+// Обе не звались. Проверка владения маршрутом опасна именно в таком виде:
+// при отказе БД она возвращала false, то есть «не ваш маршрут» — а вызывающий
+// прочёл бы это как проверенный запрет. Наряд водителя на машину — действие
+// без экрана: заводить его вместе с экраном, а не заранее.
 
 /**
  * Check if driver is available for specific date and time range
@@ -263,22 +257,6 @@ export async function checkVehicleAvailability(
     }
     
     return result.rows.length === 0;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
- * Assign driver to vehicle
- */
-export async function assignDriverToVehicle(driverId: string, vehicleId: string): Promise<boolean> {
-  try {
-    await query(
-      `UPDATE drivers SET vehicle_id = $1 WHERE id = $2`,
-      [vehicleId, driverId]
-    );
-    
-    return true;
   } catch (error) {
     return false;
   }

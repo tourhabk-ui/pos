@@ -288,37 +288,12 @@ function generateConfirmationCode(): string {
   return result;
 }
 
-/**
- * Проверка доступности мест без блокировки (для отображения в UI)
- */
-export async function checkAvailability(
-  scheduleId: string,
-  passengersCount: number
-): Promise<{
-  available: boolean;
-  seatsLeft: number;
-}> {
-  const { query } = await import('@/lib/database');
-  
-  try {
-    const result = await query(
-      `SELECT available_seats FROM transfer_schedules WHERE id = $1 AND is_active = true`,
-      [scheduleId]
-    );
-
-    if (result.rows.length === 0) {
-      return { available: false, seatsLeft: 0 };
-    }
-
-    const seatsLeft = result.rows[0].available_seats as number;
-    return {
-      available: seatsLeft >= passengersCount,
-      seatsLeft
-    };
-  } catch (error) {
-    return { available: false, seatsLeft: 0 };
-  }
-}
+// checkAvailability убрана 22.08.2026 (перепись).
+//
+// Считала свободные места рейса и не звалась: бронирование спрашивает места
+// внутри транзакции под блокировкой (createBookingWithLock выше) — иначе
+// ответ устареет между проверкой и записью. Отдельная проверка «до» такой
+// гарантии не даёт и потому вводит в заблуждение.
 
 /**
  * Отмена бронирования с возвратом мест

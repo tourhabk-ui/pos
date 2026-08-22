@@ -457,29 +457,9 @@ export const FISHING_TOURS: FishingTourData[] = [
   },
 ];
 
-// Функция получения туров по типу
-export function getToursByType(type: 'daily' | 'multi' | 'family' | 'all' = 'all'): FishingTourData[] {
-  if (type === 'all') return FISHING_TOURS;
-  return FISHING_TOURS.filter(tour => tour.type === type);
-}
-
-// Функция получения туров по сезону
-export function getToursBySeason(month: number): FishingTourData[] {
-  const monthStr = month.toString().padStart(2, '0');
-  return FISHING_TOURS.filter(tour => {
-    const startMonth = parseInt(tour.season.start.split('-')[0]);
-    const endMonth = parseInt(tour.season.end.split('-')[0]);
-    
-    if (startMonth <= endMonth) {
-      return month >= startMonth && month <= endMonth;
-    } else {
-      // Переход через год (например, ноябрь-январь)
-      return month >= startMonth || month <= endMonth;
-    }
-  });
-}
-
-// Функция получения тура по ID
-export function getTourById(id: string): FishingTourData | undefined {
-  return FISHING_TOURS.find(tour => tour.id === id);
-}
+// Геттеров по типу, сезону и id здесь больше нет (перепись 22.08.2026).
+//
+// Ни один не звался. Живёт сама константа FISHING_TOURS — её читает умный
+// поиск (app/api/ai/smart-search). Витрина же берёт туры из operator_tours, а
+// этот модуль остаётся известным долгом: сторож no-hardcoded-partner-contacts
+// держит файл в списке именно как захардкоженные данные партнёра.

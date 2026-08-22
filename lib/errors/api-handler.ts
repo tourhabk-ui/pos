@@ -87,16 +87,13 @@ type Handler = (
   ctx?: RouteContext,
 ) => Promise<NextResponse> | NextResponse;
 
-export function withErrorHandler(handler: Handler): Handler {
-  return async (req: NextRequest, ctx?: RouteContext) => {
-    try {
-      return await handler(req, ctx);
-    } catch (error) {
-      const { message, status } = classifyError(error);
-      return NextResponse.json(
-        { success: false, error: message },
-        { status },
-      );
-    }
-  };
-}
+// Обёртки withErrorHandler здесь больше нет.
+//
+// Она превращала исключение в аккуратный JSON, зовя classifyError ниже, и не
+// применялась ни к одному из 676 маршрутов. Единый формат ошибки — решение,
+// которое принимается один раз и применяется целиком; обёртка, подключённая к
+// трём роутам, даёт видимость единообразия, а не единообразие.
+//
+// Сам разбор остаётся доступен каждому: classifyError экспортируется и уже
+// зовётся напрямую (app/api/payments/create). Понадобится общий формат —
+// начинать с решения о нём, а не с обёртки (перепись 22.08.2026).

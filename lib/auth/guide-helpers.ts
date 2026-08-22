@@ -20,6 +20,12 @@ export async function getGuidePartnerId(userId: string): Promise<string | null> 
     
     return (result.rows[0]?.id as string | undefined) ?? null;
   } catch (error) {
+    // `null` здесь значит «такой роли у пользователя нет», и вызывающие
+    // читают его как отказ в правах. Отказ БАЗЫ выглядит точно так же —
+    // человек с правами получает «нет прав», и причину не найти. Тип менять
+    // нельзя, не тронув всех вызывающих, поэтому отказ хотя бы называется.
+    console.error('[auth] getGuidePartnerId: запрос к partners не выполнился:',
+      error instanceof Error ? error.message : error);
     return null;
   }
 }

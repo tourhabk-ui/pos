@@ -61,17 +61,8 @@ export async function firecrawlScrape(url: string): Promise<FirecrawlPage | null
 
 // ── Batch scrape (up to 10 URLs) ─────────────────────────────────────────────
 
-export async function firecrawlBatch(urls: string[]): Promise<FirecrawlPage[]> {
-  if (!key() || urls.length === 0) return [];
-
-  const results = await Promise.allSettled(
-    urls.slice(0, 10).map(u => firecrawlScrape(u)),
-  );
-
-  return results
-    .filter((r): r is PromiseFulfilledResult<FirecrawlPage> => r.status === 'fulfilled' && r.value !== null)
-    .map(r => r.value);
-}
+// firecrawlBatch убрана 22.08.2026 (перепись): импорт идёт по одному адресу
+// (firecrawlScrape), пакетная обёртка на десять за раз не понадобилась.
 
 // ── Check if Firecrawl is configured ─────────────────────────────────────────
 
