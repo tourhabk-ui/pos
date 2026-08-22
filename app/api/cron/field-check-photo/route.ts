@@ -35,9 +35,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const { rows } = await pool.query<{
-      mime: string; byte_size: number; bytes: Buffer; check_id: string; created_at: string;
+      mime: string; byte_size: number; bytes: Buffer | null;
+      s3_url: string | null; check_id: string; created_at: string;
     }>(
-      `SELECT mime, byte_size, bytes, check_id::text AS check_id, created_at::text AS created_at
+      `SELECT mime, byte_size, bytes, s3_url, check_id::text AS check_id,
+              created_at::text AS created_at
        FROM route_field_check_photos WHERE id = $1 LIMIT 1`,
       [id],
     );
@@ -52,12 +54,26 @@ export async function GET(request: NextRequest) {
         probe: 'field_check_photo_v1',
         id, check_id: row.check_id, mime: row.mime,
         byte_size: row.byte_size,
+        stored: row.s3_url !== null ? 's3' : 'db',
+        url: row.s3_url,
         // Байты в базе и заявленный размер могут разойтись только при
         // порче записи — тогда об этом надо знать, а не показывать снимок.
-        stored_bytes: row.bytes.length,
-        intact: row.bytes.length === row.byte_size,
+        stored_bytes: row.bytes === null ? null : row.bytes.length,
+        intact: row.bytes === null ? null : row.bytes.length === row.byte_size,
         created_at: row.created_at,
       });
+    }
+
+    // Снимок в хранилище — отдаём адрес, а не перекачиваем через себя:
+    // раздача файлов не работа прикладного роута.
+    if (row.s3_url !== null) {
+      return NextResponse.redirect(row.s3_url, 302);
+    }
+    if (row.bytes === null) {
+      return NextResponse.json(
+        { success: false, error: 'Снимок записан без содержимого' },
+        { status: 404 },
+      );
     }
 
     return new NextResponse(new Uint8Array(row.bytes), {

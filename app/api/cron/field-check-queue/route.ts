@@ -57,6 +57,7 @@ interface Row {
   object_source: string | null;
   photos: number;
   photo_bytes: string | null;
+  photo_urls: string[] | null;
   target_title: string | null;
   target_lat: string | null;
   target_lng: string | null;
@@ -90,6 +91,7 @@ export async function GET(request: NextRequest) {
               c.object_source,
               COALESCE(p.n, 0)::int AS photos,
               p.total_bytes::text AS photo_bytes,
+              p.urls AS photo_urls,
               -- Наша запись рядом с проверкой: без неё «точка не там» нечем
               -- сверить. Маршрут и место лежат в разных таблицах, поэтому
               -- обе подтягиваются и склеиваются по роду цели.
@@ -98,7 +100,8 @@ export async function GET(request: NextRequest) {
               COALESCE(r.lng, pl.lng)::text AS target_lng
        FROM route_field_checks c
        LEFT JOIN (
-         SELECT check_id, COUNT(*) AS n, SUM(byte_size) AS total_bytes
+         SELECT check_id, COUNT(*) AS n, SUM(byte_size) AS total_bytes,
+                ARRAY_REMOVE(ARRAY_AGG(s3_url), NULL) AS urls
          FROM route_field_check_photos GROUP BY check_id
        ) p ON p.check_id = c.id
        LEFT JOIN kamchatka_routes r
@@ -144,6 +147,10 @@ export async function GET(request: NextRequest) {
         off_by_km: offKm,
         photos: r.photos,
         photo_kb: r.photo_bytes === null ? 0 : Math.round(parseInt(r.photo_bytes, 10) / 1024),
+        // Ссылки есть только у снимков, доехавших до хранилища. Разница
+        // между числом снимков и числом ссылок — это те, что легли в базу
+        // запасным путём, и её видно, а не сглажено.
+        photo_urls: Array.isArray(r.photo_urls) ? r.photo_urls : [],
       };
     });
 

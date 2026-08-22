@@ -72,6 +72,18 @@ describe('очередь полевых проверок — чтение', () =
   });
 
   it('целость снимка проверяется, а не предполагается', () => {
-    expect(photo).toMatch(/intact: row\.bytes\.length === row\.byte_size/);
+    // Черта, а не выражение: снимок теперь может лежать в S3, и тогда
+    // байтов в базе нет — «не знаю» вместо ложного «цел».
+    expect(photo).toMatch(/intact: row\.bytes === null \? null :/);
+    expect(photo).toContain('row.bytes.length === row.byte_size');
+  });
+
+  it('снимок из хранилища отдаётся адресом, а не перекачкой через себя', () => {
+    expect(photo).toMatch(/NextResponse\.redirect\(row\.s3_url, 302\)/);
+  });
+
+  it('очередь отдаёт ссылки на снимки, а не только их число', () => {
+    expect(queue).toContain('photo_urls');
+    expect(queue).toContain('ARRAY_REMOVE(ARRAY_AGG(s3_url), NULL)');
   });
 });
