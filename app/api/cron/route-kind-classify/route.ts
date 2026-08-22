@@ -23,9 +23,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getCronSecret } from '@/lib/auth/cron';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { lineOwnership } from '@/lib/routes/line-ownership';
-import { verifyCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -37,11 +38,11 @@ interface Row {
 }
 
 export async function GET(request: NextRequest) {
-  // Сравнение секрета — только через verifyCronSecret: посимвольное `!==`
-  // выходит из цикла на первом различии, и по времени ответа секрет
-  // подбирается побайтно. Сторож secret-compare-timing-safe поймал это
-  // прямо здесь, на первом же прогоне.
-  if (!verifyCronSecret(request)) {
+  // Сравнение секрета — только за постоянное время: обычное !== отвечает тем
+  // быстрее, чем раньше разошлись строки, и по времени ответа секрет
+  // подбирается посимвольно. Общий гейт: getCronSecret + timingSafeCompare.
+  const secret = getCronSecret(request);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ success: false, error: 'Не авторизован' }, { status: 401 });
   }
 
