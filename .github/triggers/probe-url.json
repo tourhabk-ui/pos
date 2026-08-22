@@ -1,23 +1,23 @@
 {
- "bytes": 300,
+ "bytes": 1200,
  "timeout": 120,
- "retries": 12,
+ "retries": 6,
  "retryDelay": 60,
- "until": "reseller_reference character varying",
- "note": "Проба 91: приёмка миграции 906. Запись «applied» доверия не заслуживает — она и была причиной беды, поэтому спрашиваем саму базу: появились ли user_id, reseller_reference, admin_notes у operator_bookings. until ловит момент, когда новая колонка видна. Заодно counts — сколько строк реально лежит в таблицах.",
- "run": 91,
+ "note": "Проба 92: ключ OpenRouter вписан заново. Смотрим key_source (null = прод переменной не видит), route/route_host (relay или direct) и http_status запроса к моделям через релей. relay-check показывает сквозной путь.",
+ "run": 92,
  "urls": [
-  "https://vedarai.ru/api/cron/schema-audit"
+  "https://vedarai.ru/api/cron/health",
+  "https://vedarai.ru/api/ai/relay-check"
  ],
  "grep": [
-  "user_id uuid",
-  "reseller_reference character varying",
-  "admin_notes text"
+  "\"key_source\":null",
+  "\"route\":\"relay\"",
+  "\"http_status\":200"
  ],
  "around": [
-  "\"operator_bookings\":[",
-  "\"counts\":{"
+  "\"openrouter\":{",
+  "\"key_source\""
  ],
- "aroundLines": 55,
- "aroundHits": 1
+ "aroundLines": 14,
+ "aroundHits": 2
 }
