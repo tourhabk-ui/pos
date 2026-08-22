@@ -1,13 +1,13 @@
 {
-  "note": "Проба 143: приём треков и очередь проверок после разбора исходника Organic Maps. Первый URL — очередь полевых проверок (маркер field_check_queue_v1): пустая сегодня, это честный ноль. Второй — сухой прогон разметки рода. Третий — перепись принадлежности, контроль после миграций 903/904. Сам приёмник треков (POST /api/field-check/track) пробой не дёргаю: он пишет в очередь, а пустой прогон туда мусор не кладёт.",
+  "note": "Проба 144 (СРОЧНО, выход завтра утром). Владелец стоял в Паратунке (53.2630, 158.4149) и не нашёл в форме Вилючинский перевал. Радиус по умолчанию 15 км, перевал примерно в 60 км южнее — вопрос в том, ЕСТЬ ли запись вообще. Первый URL: поиск маршрута по имени (маркер field_check_routes_v1). Второй: что платформа знает вокруг самого перевала. Третий: что знает вокруг Вилючинского вулкана — перевал могли завести под другим именем.",
   "urls": [
-    "https://vedarai.ru/api/cron/field-check-queue?status=all",
-    "https://vedarai.ru/api/cron/route-kind-classify",
-    "https://vedarai.ru/api/cron/route-geometry-census?mode=ownership"
+    "https://vedarai.ru/api/field-check/routes?q=%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD",
+    "https://vedarai.ru/api/field-check/nearby?lat=52.72&lng=158.20&radius_km=25",
+    "https://vedarai.ru/api/field-check/nearby?lat=52.6889&lng=158.2792&radius_km=20"
   ],
-  "until": "field_check_queue_v1",
-  "retries": 16,
-  "retryDelay": 60,
+  "until": "field_check_routes_v1",
+  "retries": 8,
+  "retryDelay": 45,
   "timeout": 90,
-  "bytes": 5000
+  "bytes": 9000
 }
