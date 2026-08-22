@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireRole } from '@/lib/auth/middleware';
 import { PlatformAgent } from '@/lib/agents/platform-agent';
-import { canDispatchIntent } from '@/lib/agents/permissions';
+import { canDispatchIntent, allowedIntentsForRole } from '@/lib/agents/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,8 +58,15 @@ export async function POST(req: NextRequest) {
 
   // Permission gate: only op_* allowed
   if (!canDispatchIntent('operator', result.intent)) {
+    // Отказ называет и намерение, и то, что роли доступно. «Недостаточно прав»
+    // без этого не отличимо от поломки: оператор не знает, ошибся ли он
+    // формулировкой или упёрся в границу роли.
     return NextResponse.json(
-      { success: false, error: 'Недостаточно прав для этого намерения' },
+      {
+        success: false,
+        error: `Намерение «${result.intent}» недоступно роли «оператор»`,
+        allowed_intents: allowedIntentsForRole('operator'),
+      },
       { status: 403 }
     );
   }

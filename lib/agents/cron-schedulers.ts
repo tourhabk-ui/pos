@@ -1,0 +1,146 @@
+/**
+ * lib/agents/cron-schedulers.ts
+ *
+ * Кто запускает каждый эндпоинт под `/api/cron/`.
+ *
+ * Реестр `cron-registry.ts` описывает джобы GitHub Actions и меряет их живость.
+ * Но эндпоинтов под `/api/cron/` больше, чем workflow: перепись достижимости
+ * 22.08 нашла 122 роута против 74, дёргаемых из `.github/workflows`. Оставшиеся
+ * 44 не запускает НИЧТО, что видно из репозитория, — и это два разных случая,
+ * которые до сих пор были неотличимы по имени каталога:
+ *
+ *   external — шапка роута обещает расписание снаружи («каждый час»,
+ *              «cron-job.org каждые 30 минут»). Идёт оно или нет, репозиторий
+ *              подтвердить не может: cron-job.org настраивается в чужой панели.
+ *              Это НЕ «работает» и НЕ «сломано» — это «не знаю», и оно обязано
+ *              называться так вслух (CLAUDE.md §4.0). Для `payouts` цена
+ *              незнания — удержанные платежи оператору, которые никто не
+ *              отпускает.
+ *   manual   — перепись, разбор или починка, которую человек зовёт по адресу.
+ *              Живёт под `/api/cron/`, потому что `CRON_SECRET` сужен на этот
+ *              префикс (09.08, после утечки секрета на сторонний хост).
+ *              Отсутствие расписания — норма, а не поломка.
+ *
+ * Третье состояние здесь — `undeclared`: новый роут, о котором никто ничего не
+ * сказал. Сторож `tests/unit/cron-scheduler-declared.test.ts` требует, чтобы
+ * такого не было: либо workflow, либо строка здесь. Молчание — не ответ.
+ */
+
+export type SchedulerKind = 'workflow' | 'external' | 'manual' | 'undeclared';
+
+export interface SchedulerDeclaration {
+  kind: 'external' | 'manual';
+  /** Что обещает шапка роута (external) или что роут делает (manual). */
+  note: string;
+  /** Меняет ли данные. Ручной пишущий разбор опаснее ручной переписи. */
+  writes: boolean;
+}
+
+/**
+ * Расписание заявлено, планировщик снаружи репозитория.
+ * Формулировки — из шапок самих роутов, не придуманы здесь.
+ */
+export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
+  payouts: {
+    kind: 'external', writes: false,
+    note: 'шапка: «запускать каждый час» — релиз HELD-платежей через 36 ч после тура',
+  },
+  'leads-followup': {
+    kind: 'external', writes: false,
+    note: 'шапка: «cron-job.org каждые 30 минут» — добивка лидов и эскалация к админу',
+  },
+  digest: {
+    kind: 'external', writes: true,
+    note: 'шапка: «cron-job.org 1 раз в день в 09:00 KMT»',
+  },
+  'legislation-sync': {
+    kind: 'external', writes: false,
+    note: 'шапка: «раз в сутки/неделю» — Firecrawl → legislation_docs',
+  },
+  'industry-intel': {
+    kind: 'external', writes: false,
+    note: 'шапка: «1-2 раза в день»',
+  },
+  'memory-reflect': {
+    kind: 'external', writes: false,
+    note: 'шапка: «раз в сутки»',
+  },
+  'memory-contradiction': {
+    kind: 'external', writes: false,
+    note: 'шапка: «раз в сутки»',
+  },
+};
+
+/** Ручные переписи, разборы и починки — расписания у них быть и не должно. */
+export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
+  'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
+  'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
+  'partner-junk-census':       { kind: 'manual', writes: false, note: 'партнёры, у которых имя не имя (реестровый номер вместо названия)' },
+  'safety-alert':              { kind: 'manual', writes: true,  note: 'приём предупреждения по зоне: публикация и снятие' },
+  'field-check-photo':         { kind: 'manual', writes: false, note: 'снимок полевой проверки по id, только чтение' },
+  'field-check-queue':         { kind: 'manual', writes: false, note: 'очередь полевых проверок с расхождениями, только чтение' },
+  'route-kind-classify':       { kind: 'manual', writes: true,  note: 'разметка рода записи: путь или «как добраться»' },
+  'schema-drift':              { kind: 'manual', writes: false, note: 'объявленные колонки против information_schema живой базы' },
+  'scout-diagnose':            { kind: 'manual', writes: false, note: 'почему разведчик молчит: причины за все прогоны' },
+  'elevation-backfill':        { kind: 'manual', writes: false, note: 'добор высот по точкам' },
+  'explain-availability':      { kind: 'manual', writes: false, note: 'разбор занятости тура' },
+  'hidden-tracks-census':      { kind: 'manual', writes: false, note: 'перепись скрытых треков' },
+  'idilesom-gap':              { kind: 'manual', writes: false, note: 'чего нет у нас против источника' },
+  'idilesom-name-gap':         { kind: 'manual', writes: false, note: 'расхождение имён с источником' },
+  'idilesom-scout':            { kind: 'manual', writes: false, note: 'разведка источника маршрутов' },
+  'inspect-tour-card':         { kind: 'manual', writes: false, note: 'осмотр карточки тура' },
+  'partner-candidates-census': { kind: 'manual', writes: false, note: 'перепись кандидатов в партнёры' },
+  'place-link':                { kind: 'manual', writes: true,  note: 'привязка места к маршруту' },
+  'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },
+  'place-unlink':              { kind: 'manual', writes: true,  note: 'отвязка места от маршрута' },
+  'places-by-type':            { kind: 'manual', writes: false, note: 'разрез мест по типу' },
+  'places-candidates':         { kind: 'manual', writes: false, note: 'кандидаты в места' },
+  'places-no-track-census':    { kind: 'manual', writes: false, note: 'места без трека' },
+  'places-routes-census':      { kind: 'manual', writes: false, note: 'связи мест и маршрутов' },
+  'prod-errors':               { kind: 'manual', writes: false, note: 'серверные ошибки прода списком, только чтение' },
+  'prospect-scan':             { kind: 'manual', writes: false, note: 'скан проспектов' },
+  'relief-sanity':             { kind: 'manual', writes: false, note: 'проверка рельефа' },
+  'route-desc-census':         { kind: 'manual', writes: false, note: 'перепись описаний маршрутов' },
+  'route-desc-read':           { kind: 'manual', writes: false, note: 'чтение описания маршрута' },
+  'route-family-merge':        { kind: 'manual', writes: true,  note: 'слияние семьи маршрутов' },
+  'route-fields-backfill':     { kind: 'manual', writes: false, note: 'добор полей маршрута' },
+  'route-geometry-census':     { kind: 'manual', writes: false, note: 'линии, обещающие путь, которого нет' },
+  'route-lay':                 { kind: 'manual', writes: true,  note: 'прокладка линии по дорожному графу (A*)' },
+  'route-lay-census':          { kind: 'manual', writes: false, note: 'перепись рода линий' },
+  'route-link-suggest':        { kind: 'manual', writes: false, note: 'предложения связей маршрута' },
+  'route-place-twins':         { kind: 'manual', writes: false, note: 'двойники маршрут/место' },
+  'route-title-census':        { kind: 'manual', writes: false, note: 'перепись имён маршрутов (§13)' },
+  'route-translit-census':     { kind: 'manual', writes: false, note: 'перепись транслита' },
+  'route-twins-enrich':        { kind: 'manual', writes: true,  note: 'обогащение двойников' },
+  'route-twins-hide':          { kind: 'manual', writes: true,  note: 'скрытие двойников' },
+  'route-web-null':            { kind: 'manual', writes: false, note: 'маршруты без веб-источника' },
+  'routes-dedup':              { kind: 'manual', writes: true,  note: 'схлопывание дублей маршрутов' },
+  'routes-unmerge':            { kind: 'manual', writes: false, note: 'откат схлопывания' },
+  'tour-tracks-census':        { kind: 'manual', writes: false, note: 'перепись треков у туров' },
+  'track-attachment-audit':    { kind: 'manual', writes: false, note: 'разбор привязки треков' },
+  'verdict-census':            { kind: 'manual', writes: false, note: 'перепись вердиктов' },
+  'web-routes-census':         { kind: 'manual', writes: false, note: 'перепись веб-маршрутов' },
+};
+
+export const DECLARED: Record<string, SchedulerDeclaration> = {
+  ...EXTERNAL_SCHEDULE,
+  ...MANUAL_ENDPOINTS,
+};
+
+/**
+ * Чем запускается эндпоинт. `workflowDriven` — множество имён, вычисленное из
+ * `.github/workflows` вызывающей стороной (сторожем или сборкой панели): читать
+ * файлы отсюда нельзя, модуль ходит и в браузер.
+ */
+export function schedulerOf(endpoint: string, workflowDriven: ReadonlySet<string>): SchedulerKind {
+  if (workflowDriven.has(endpoint)) return 'workflow';
+  return DECLARED[endpoint]?.kind ?? 'undeclared';
+}
+
+/** Человеческое имя рода — для панели и логов. */
+export const SCHEDULER_LABELS: Record<SchedulerKind, string> = {
+  workflow: 'GitHub Actions',
+  external: 'планировщик снаружи — подтвердить нечем',
+  manual: 'вручную по адресу',
+  undeclared: 'не объявлено',
+};

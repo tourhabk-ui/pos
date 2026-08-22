@@ -57,14 +57,6 @@ export interface OfflineRoute {
   cachedAt: number;
 }
 
-export interface SosContact {
-  id: string;
-  name: string;
-  phone: string;
-  type: 'mchs' | 'rescue' | 'medical' | 'park' | 'other';
-  region?: RegionId;
-}
-
 /**
  * Полевой пакет маршрута — запись манифеста (тип живёт в
  * lib/offline/field-pack.ts, здесь только хранение). keyPath — routeId:
@@ -84,10 +76,6 @@ interface KamchatourDB extends DBSchema {
     key: string;
     value: OfflineRoute;
     indexes: { 'by-region': RegionId };
-  };
-  sosContacts: {
-    key: string;
-    value: SosContact;
   };
   fieldChecks: {
     key: string;
@@ -216,9 +204,11 @@ export async function getDB(): Promise<IDBPDatabase<KamchatourDB>> {
         const store = db.createObjectStore('routes', { keyPath: 'id' });
         store.createIndex('by-region', 'regionId');
       }
-      if (!db.objectStoreNames.contains('sosContacts')) {
-        db.createObjectStore('sosContacts', { keyPath: 'id' });
-      }
+      // sosContacts здесь больше не заводится: номера спасения живут в
+      // lib/safety/emergency-numbers.ts, приезжают в каждый бандл и лежат в
+      // офлайн-странице /emergency. Копия в IndexedDB писалась и никем не
+      // читалась — то есть могла разойтись с реестром, ничего не давая
+      // взамен. У старых баз стор остаётся пустым и никому не мешает.
       if (!db.objectStoreNames.contains('fieldPacks')) {
         db.createObjectStore('fieldPacks', { keyPath: 'routeId' });
       }
@@ -247,6 +237,18 @@ export async function saveFieldPackRecord(rec: FieldPackRecord): Promise<void> {
 export async function getFieldPackRecord(routeId: string): Promise<FieldPackRecord | undefined> {
   const db = await getDB();
   return db.get('fieldPacks', routeId);
+}
+
+/**
+ * Все сохранённые полевые пакеты.
+ *
+ * Нужно, чтобы решить, держит ли тайл кто-то ещё: пакет маршрута лежит внутри
+ * региона и делит с ним адреса. Без списка удаление региона проделало бы дыру
+ * в карте пакета, и обнаружилось бы это в поле.
+ */
+export async function listFieldPackRecords(): Promise<FieldPackRecord[]> {
+  const db = await getDB();
+  return db.getAll('fieldPacks');
 }
 
 export async function deleteFieldPackRecord(routeId: string): Promise<void> {
@@ -304,15 +306,12 @@ export async function listRegions(): Promise<RegionMeta[]> {
 
 export async function deleteRegion(id: RegionId): Promise<void> {
   const db = await getDB();
-  // Удаляем метаданные региона
   await db.delete('regions', id);
-
-  // Удаляем все маршруты региона
-  const tx = db.transaction('routes', 'readwrite');
-  const index = tx.store.index('by-region');
-  const keys = await index.getAllKeys(id);
-  await Promise.all(keys.map((k) => tx.store.delete(k)));
-  await tx.done;
+  // Удаление маршрутов раньше было ЗДЕСЬ отдельной копией того же кода, что
+  // и в `deleteRoutesByRegion` ниже, — строка в строку. Два места об одном
+  // расходятся молча; перепись 22.08.2026 показала копию, потому что
+  // «оригинал» при этом числился никем не вызванным.
+  await deleteRoutesByRegion(id);
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -343,26 +342,6 @@ export async function deleteRoutesByRegion(regionId: RegionId): Promise<void> {
   await tx.done;
 }
 
-// ─── SOS Contacts ─────────────────────────────────────────────────────────────
-
-export async function saveSosContacts(contacts: SosContact[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('sosContacts', 'readwrite');
-  await Promise.all(contacts.map((c) => tx.store.put(c)));
-  await tx.done;
-}
-
-export async function getAllSosContacts(): Promise<SosContact[]> {
-  const db = await getDB();
-  return db.getAll('sosContacts');
-}
-
-export async function getSosContactsByRegion(regionId: RegionId): Promise<SosContact[]> {
-  const db = await getDB();
-  const all = await db.getAll('sosContacts');
-  return all.filter((c) => !c.region || c.region === regionId);
-}
-
 // ─── Storage estimate ────────────────────────────────────────────────────────
 
 export interface StorageEstimate {
@@ -384,45 +363,12 @@ export async function getStorageEstimate(): Promise<StorageEstimate | null> {
   return { quota, usage, usagePercent };
 }
 
-// ─── Seed global SOS contacts ────────────────────────────────────────────────
-
-/** Глобальные SOS-контакты (МЧС, скорая). Засеиваются при первом скачивании. */
-export const GLOBAL_SOS_CONTACTS: SosContact[] = [
-  {
-    id: 'mchs-112',
-    name: 'МЧС / Единый номер экстренных служб',
-    phone: '112',
-    type: 'mchs',
-  },
-  // Региональные номера убраны до верификации владельцем — неверный номер в ЧП
-  // опаснее его отсутствия. Федеральные короткие покрывают всё (см.
-  // lib/safety/emergency-numbers.ts).
-  {
-    id: 'mchs-101',
-    name: 'Пожарные и спасатели (МЧС)',
-    phone: '101',
-    type: 'mchs',
-  },
-  {
-    id: 'police-102',
-    name: 'Полиция',
-    phone: '102',
-    type: 'rescue',
-  },
-  {
-    id: 'medical-emergency',
-    name: 'Скорая медицинская помощь',
-    phone: '103',
-    type: 'medical',
-  },
-  {
-    id: 'police',
-    name: 'Полиция',
-    phone: '102',
-    type: 'rescue',
-  },
-];
-
+// ─── Контактов спасения здесь нет ───────────────────────────────────────────
+// Намеренно: GLOBAL_SOS_CONTACTS писались в
+// стор sosContacts, которого никто не читал (getSosContactsByRegion без
+// вызывающих). Источник номеров — lib/safety/emergency-numbers.ts, он
+// приезжает в бандл и лежит в офлайн-странице /emergency. Копия, которую
+// только пишут, умеет одно: разойтись с реестром (перепись 22.08).
 
 // ─── Идущая запись трека ─────────────────────────────────────────────────────
 

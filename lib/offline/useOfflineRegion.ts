@@ -14,11 +14,15 @@ import {
   getRegion,
   deleteRegion,
   saveRoutes,
-  saveSosContacts,
-  GLOBAL_SOS_CONTACTS,
+  listRegions,
+  listFieldPackRecords,
+  getRoutesByRegion,
   type RegionMeta,
   type OfflineRoute,
 } from '@/lib/offline/db';
+import {
+  planTileRelease, regionTileUrls, packTileHolder, type TileHolder,
+} from '@/lib/offline/tile-ownership';
 
 /**
  * `partial` — регион скачан не целиком: часть тайлов не легла в кэш (или
@@ -94,9 +98,24 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       setRegionMeta(meta);
       const region = REGIONS[regionId];
       const present = region ? await sampleTilesPresent(generateTileUrls(region.bbox)) : null;
+
+      // Маршруты тоже проверяются ДЕЛОМ, а не записью. Прежний комментарий
+      // утверждал, что при пропавших тайлах «маршруты в IndexedDB живы», —
+      // и это нигде не проверялось. Браузер, вычищая хранилище источника,
+      // снимает и IndexedDB: тогда «41 маршрут скачан» становится неправдой
+      // ровно в тот момент, когда правда нужнее всего.
+      let routesShort = false;
+      try {
+        const stored = await getRoutesByRegion(regionId);
+        routesShort = stored.length < meta.routesCount;
+      } catch {
+        // Прочитать не смогли — это не «маршрутов нет». Оставляем как есть:
+        // выдать непроверенное за проверенное хуже, чем не проверить.
+      }
+
       if (cancelled) return;
-      if (present === false) {
-        // Метаданные есть, тайлов нет: маршруты в IndexedDB живы, карта — нет.
+      if (present === false || routesShort) {
+        // Что-то из обещанного не на месте: карта, маршруты или и то и другое.
         setStatus('partial');
       } else {
         // Тайлы на месте (или проверить нечем — верим записи), но закачка
@@ -160,8 +179,11 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       }));
       await saveRoutes(routesWithRegion);
 
-      // ── Шаг 3: Сохраняем глобальные SOS-контакты ──────────────────────
-      await saveSosContacts(GLOBAL_SOS_CONTACTS);
+      // Шага «сохранить SOS-контакты» здесь больше нет. Номера спасения
+      // живут в lib/safety/emergency-numbers.ts, приезжают в бандл каждого
+      // экрана и лежат в офлайн-странице /emergency. Копия в IndexedDB
+      // писалась и не читалась ни разу — то есть могла молча разойтись с
+      // реестром, не давая взамен ничего (перепись 22.08.2026).
 
       // ── Шаг 4: Отправляем тайлы в SW ──────────────────────────────────
       const tileUrls = generateTileUrls(bbox);
@@ -255,17 +277,37 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
 
   const remove = useCallback(async () => {
     try {
-      // Удаляем маршруты и метаданные из IndexedDB
-      await deleteRegion(regionId);
-
-      // Отправляем команду SW (информационно — tile cache общий)
+      // ── 1. Тайлы. Основной объём региона — от 6 до 22 МБ, и до 22.08.2026
+      //    они не удалялись НИКОГДА: команда service worker'у отвечала
+      //    «готово», не удалив ничего. Считаем адреса, которые не держит
+      //    никто из остающихся, и отдаём готовый список.
+      //
+      //    Считается ДО удаления метаданных: список скачанных регионов нужен,
+      //    чтобы не проделать дыру в карте соседа.
       if ('serviceWorker' in navigator) {
-        const sw = await navigator.serviceWorker.ready;
-        sw.active?.postMessage({
-          type: 'CLEAR_REGION_TILES',
-          regionId,
-        });
+        try {
+          const [regions, packs] = await Promise.all([listRegions(), listFieldPackRecords()]);
+          const leaving: TileHolder = { id: `region:${regionId}`, urls: regionTileUrls(regionId) };
+          const remaining: TileHolder[] = [
+            ...regions
+              .filter((m) => m.id !== regionId)
+              .map((m) => ({ id: `region:${m.id}`, urls: regionTileUrls(m.id) })),
+            ...packs.map(packTileHolder),
+          ];
+          const plan = planTileRelease(leaving, remaining);
+          const sw = await navigator.serviceWorker.ready;
+          sw.active?.postMessage({ type: 'CLEAR_TILES', urls: plan.release, reason: `region:${regionId}` });
+        } catch (err) {
+          // Тайлы не сняты — регион всё равно удаляем: остаться с записью о
+          // регионе, которого нет, хуже. Но молчать нельзя: место не
+          // освободилось, и это не то же самое, что «освободилось».
+          console.error('[offline] тайлы региона не удалены:',
+            err instanceof Error ? err.message : err);
+        }
       }
+
+      // ── 2. Метаданные и маршруты из IndexedDB
+      await deleteRegion(regionId);
 
       setRegionMeta(null);
       setStatus('idle');

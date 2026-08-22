@@ -252,49 +252,54 @@ export const config = {
   },
 };
 
-// Валидация конфигурации
-export function validateConfig(): { isValid: boolean; errors: string[] } {
-  const errors: string[] = [];
+/**
+ * Итог проверки конфигурации: два уровня, а не «валидно / невалидно».
+ *
+ * Одним списком нельзя: отсутствующий ключ карт и подпись токенов известным
+ * всему миру значением — беды разного порядка. Сваленные в кучу, они либо
+ * приучают пролистывать список, либо валят запуск из-за мелочи.
+ */
+export interface ConfigCheck {
+  /** С этим работать нельзя: подпись сессий и доступ к данным. */
+  fatal: string[];
+  /** Работать можно, но часть возможностей не поднимется. */
+  warnings: string[];
+}
 
-  // Проверяем обязательные переменные окружения
+/**
+ * Проверка конфигурации платформы.
+ *
+ * До 22.08.2026 функция была написана и не вызывалась ниоткуда: прод с
+ * `JWT_SECRET`, равным строке-заглушке, поднялся бы молча — а это значит, что
+ * любой желающий подписывает токен любого пользователя. Зовётся при старте
+ * (`instrumentation.ts`).
+ */
+export function validateConfig(): ConfigCheck {
+  const fatal: string[] = [];
+  const warnings: string[] = [];
+
   if (!config.database.url) {
-    errors.push('DATABASE_URL is required');
+    fatal.push('DATABASE_URL не задан — платформа не видит своих данных');
   }
 
-  if (!config.auth.jwtSecret || config.auth.jwtSecret === 'your-secret-key') {
-    errors.push('JWT_SECRET must be set to a secure value');
+  if (!config.auth.jwtSecret) {
+    fatal.push('JWT_SECRET не задан — подписывать сессии нечем');
+  } else if (config.auth.jwtSecret === 'your-secret-key') {
+    fatal.push('JWT_SECRET равен строке-заглушке из примера — токен подделает кто угодно');
+  } else if (config.auth.jwtSecret.length < 32) {
+    fatal.push(`JWT_SECRET короче 32 символов (${config.auth.jwtSecret.length}) — подбор реален`);
   }
 
-  if (config.app.environment === 'production') {
-    if (!config.maps.yandex.apiKey) {
-      errors.push('YANDEX_MAPS_API_KEY is required in production');
-    }
+  if (config.app.environment === 'production' && !config.maps.yandex.apiKey) {
+    warnings.push('YANDEX_MAPS_API_KEY не задан — карты Яндекса в проде не поднимутся');
   }
 
-  return {
-    isValid: errors.length === 0,
-    errors,
-  };
+  return { fatal, warnings };
 }
 
-// Получение конфигурации для клиента (без секретов)
-export function getClientConfig() {
-  return {
-    app: {
-      name: config.app.name,
-      version: config.app.version,
-      environment: config.app.environment,
-    },
-    maps: {
-      yandex: {
-        apiKey: config.maps.yandex.apiKey,
-      },
-    },
-    payments: {
-      stripe: {
-        publishableKey: config.payments.stripe.publishableKey,
-      },
-    },
-    monitoring: {},
-  };
-}
+// getClientConfig убрана 22.08.2026 (перепись): не звалась.
+//
+// Она собирала «конфигурацию без секретов» для браузера, а клиентские
+// компоненты берут NEXT_PUBLIC_* из process.env напрямую — 33 места. Одна
+// дверь для того, что видно браузеру, была бы лучше, но заводится она сразу
+// для всех, иначе получается два способа и оба неполные.

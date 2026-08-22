@@ -25,9 +25,15 @@ describe('watchdog видит упавшие миграции', () => {
   });
 
   it('проверка подключена к прогону, а не просто объявлена', () => {
+    // 22.08.2026 эта проверка проходила, а тревога не работала: она сверяла
+    // ФАКТ ВЫЗОВА (`checkFailedMigrations(),`) и наличие имени
+    // `failedMigrations]` в деструктуризации. Вызов был, имя было — но имён
+    // было четырнадцать на пятнадцать вызовов, и результат этой проверки
+    // выбрасывался. Теперь сверяется членство в списке CHECKS: терять там
+    // нечего, потому что позиций нет.
     expect(src).toContain('async function checkFailedMigrations');
-    expect(src).toMatch(/checkFailedMigrations\(\),/);
-    expect(src).toMatch(/failedMigrations\]/);
+    const checks = /const CHECKS\b[^[]*?=\s*\[([\s\S]*?)\n\s*\];/.exec(src)?.[1] ?? '';
+    expect(checks).toMatch(/\bcheckFailedMigrations\b/);
   });
 
   it('у алерта свой тип — иначе сольётся с «не применены»', () => {

@@ -93,11 +93,23 @@ async function saveTour(tour: ScrapedTour, operatorId: string): Promise<'inserte
 
   const tourId = inserted[0].id;
 
+  let failedDates = 0;
+  let lastDateError: string | null = null;
+
   if (tour.departures?.length) {
     for (const dep of tour.departures) {
       if (!dep.date_from) continue;
       try {
+        // operator_tour_id, а НЕ tour_id: колонку tour_id объявляла призрачная
+        // копия таблицы в lib/database/schema.sql, которую деплой не применяет.
+        // Уникальный ключ у настоящей таблицы тоже по (operator_tour_id, date)
+        // — со старым именем ON CONFLICT не находил арбитра и падал вместе со
+        // всей вставкой (issue #1331).
         await pool.query(
+          // Колонок tour_id и is_available в tour_availability НЕТ: таблицу
+          // создаёт миграция 040 (operator_tour_id, booked_slots). Обе
+          // выдумки жили здесь, потому что их объявляла призрачная копия
+          // таблицы в lib/database/schema.sql, которую деплой не применяет.
           `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots)
            VALUES ($1, $2::date, COALESCE($3, 10), 0)
            ON CONFLICT (operator_tour_id, date) DO UPDATE SET
@@ -107,17 +119,30 @@ async function saveTour(tour: ScrapedTour, operatorId: string): Promise<'inserte
         );
       } catch (err) {
         // Не «skip bad dates»: пустой catch и держал эту вставку мёртвой.
-        // Колонок tour_id / is_available в tour_availability нет (миграция
-        // 040 — operator_tour_id), значит КАЖДЫЙ заезд падал на
-        // «column does not exist», а наружу это выглядело как «оператор не
-        // публикует дат». Дата бывает и правда кривой — но тогда это видно
-        // в логе, а не выдаётся за отсутствие заездов (§4.0).
+        // Каждый заезд падал на «column does not exist», а наружу это
+        // выглядело как «оператор не публикует дат». Дата бывает и правда
+        // кривой — но тогда это видно в логе, а не выдаётся за отсутствие
+        // заездов (§4.0). Пишем и построчный SQLSTATE, и итог по прогону:
+        // первый говорит ЧТО упало, второй — сколько именно потеряно.
         const code = (err as { code?: string } | null)?.code ?? 'unknown';
         console.error(
           `[scraper] заезд не записан: тур ${tourId}, дата ${dep.date_from}, SQLSTATE ${code}`,
         );
+        failedDates++;
+        if (lastDateError === null) {
+          lastDateError = err instanceof Error ? err.message : String(err);
+        }
       }
     }
+  }
+
+  // Даты, не легшие в базу, — это отсутствующие даты у живого тура: человек
+  // увидит «мест нет» там, где они есть. Отказ называется вслух.
+  if (failedDates > 0) {
+    console.error(
+      `[operator-tour-scraper] даты не записаны: ${failedDates} из ${tour.departures?.length ?? 0}` +
+      (lastDateError !== null ? ` · ${lastDateError}` : ''),
+    );
   }
 
   return 'inserted';

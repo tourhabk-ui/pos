@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { linkKindLabel } from '@/lib/routes/link-kind';
 import Image from 'next/image';
 import {
   ArrowLeft, MapPin, Clock, Calendar, Mountain,
@@ -1052,8 +1053,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
             */}
             {nearbyWaypoints.length > 0 && (
               <section>
+                {/* Слово берётся из общего словаря рода связи: то же самое
+                    было написано здесь вторым экземпляром, и разойтись им
+                    ничего не мешало (§4.1 — род связи называется одинаково
+                    везде). */}
                 <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
-                  Рядом с маршрутом
+                  {linkKindLabel('nearby')}
                 </h2>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
                   Эти места находятся поблизости, но маршрут через них не проходит

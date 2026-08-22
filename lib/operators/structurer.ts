@@ -107,33 +107,6 @@ export async function extractToursFromPage(
 
 // ── Форматирование для ответа Тарасу ─────────────────────────────────────────
 
-export function formatToursForUser(
-  tours: Array<ScrapedTour & { operator_name: string }>,
-  groupSize = 2,
-): string {
-  if (!tours.length) return '';
-
-  const lines = tours.map(t => {
-    const priceStr = t.price_from
-      ? (() => {
-          if (t.price_unit === 'per_person') {
-            return `${t.price_from.toLocaleString('ru-RU')}₽/чел (на ${groupSize}: ${(t.price_from * groupSize).toLocaleString('ru-RU')}₽)`;
-          }
-          if (t.price_unit === 'per_group') {
-            return `${t.price_from.toLocaleString('ru-RU')}₽/группа до ${t.group_size_max ?? '?'} чел`;
-          }
-          return `${t.price_from.toLocaleString('ru-RU')}₽ (уточните: за чел или группу)`;
-        })()
-      : 'цена не указана — уточнить напрямую';
-
-    const datesStr = t.departures?.length
-      ? t.departures.map(d => d.date_from ?? '?').join(', ')
-      : 'даты уточнять у оператора';
-
-    const includesStr = t.includes ? ` · ${t.includes}` : '';
-
-    return `• ${t.operator_name} — ${priceStr}${includesStr} · ${datesStr}`;
-  });
-
-  return lines.join('\n');
-}
+// formatToursForUser убрана 22.08.2026 (перепись): готовила текстовый список
+// туров партнёра с ценой на группу и не звалась. Ответы о турах собирает
+// Кузьмич из БД через свои инструменты, а не из заранее свёрстанной строки.

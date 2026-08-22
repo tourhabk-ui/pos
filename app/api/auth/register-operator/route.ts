@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { SignJWT } from 'jose';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
-import { hashPassword } from '@/lib/auth/password';
+import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { emailService } from '@/lib/notifications/email-service';
 import {
@@ -41,7 +41,7 @@ const Schema = z.object({
   contactName:  z.string().min(2, 'Имя контактного лица обязательно'),
   phone:        z.string().min(10, 'Укажите телефон'),
   email:        z.string().email('Неверный формат email'),
-  password:     z.string().min(8, 'Пароль — минимум 8 символов'),
+  password:     passwordSchema,
   pd_consent:   z.literal(true, { message: 'Необходимо согласие на обработку ПД' }),
 });
 

@@ -37,13 +37,15 @@ export function countTilesForZoom(bbox: RegionBbox, zoom: number): number {
   return (maxX - minX + 1) * (maxY - minY + 1);
 }
 
-/** Подсчёт общего числа тайлов для всех zoom levels */
-export function countTotalTiles(
-  bbox: RegionBbox,
-  zoomLevels: number[] = TILE_ZOOM_LEVELS
-): number {
-  return zoomLevels.reduce((sum, z) => sum + countTilesForZoom(bbox, z), 0);
-}
+// Отдельного счёта «сколько всего тайлов» здесь нет.
+//
+// `countTotalTiles` складывала `countTilesForZoom` по всем зумам и не звалась
+// ниоткуда: фактическое число берут из длины списка адресов
+// (`generateTileUrls(bbox).length` — ровно то, что скачивается), а оценку
+// объёма до закачки даёт `estimateTilesMb` ниже. Проверено расчётом по всем
+// десяти регионам: обещанные в реестре диапазоны сходятся с расчётными, то
+// есть человек видит честную цифру ДО решения. Удалено 22.08.2026 как третий
+// способ посчитать одно и то же.
 
 /**
  * Генерирует массив URL тайлов OpenStreetMap для bbox на заданных zoom уровнях.

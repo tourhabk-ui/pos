@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderReport, selectForJudging, readSnippet, type Judged } from '@/scripts/evo-judge';
+import { renderReport, balanceLine, selectForJudging, readSnippet, type Judged } from '@/scripts/evo-judge';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/evo-judge.ts'), 'utf-8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/evo-judge.yml'), 'utf-8');
@@ -473,6 +473,68 @@ describe('прошлые выпуски разбора закрываются с
   it('перед закрытием сказано, куда смотреть дальше', () => {
     // Закрытие без объяснения читается как «замяли».
     expect(WF).toMatch(/Находки живут в базе, а не в этой задаче/);
+  });
+});
+
+/**
+ * Счёт спрашивается, а не выводится из текста чужой ошибки.
+ *
+ * Четверо суток (16-19.08) разбор молчал, и причину читали из тела ответа
+ * модели — «Credit balance is too low», сорок шесть раз подряд. Спросить счёт
+ * напрямую было можно всё это время: checkOpenRouterBalance() написана давно и
+ * не имела НИ ОДНОГО потребителя — тот же сюжет, что с validateRoutePost в
+ * июле, где полный валидатор с комментарием «каждый пост ОБЯЗАН пройти
+ * проверку» никем не вызывался.
+ */
+describe('состояние счёта названо числом', () => {
+  it('остаток печатается прямо', () => {
+    const line = balanceLine({ total_credits: 10, total_usage: 7.5, remaining: 2.5, low: false });
+    expect(line).toContain('$2.5');
+    expect(line).toContain('потрачено $7.5');
+  });
+
+  it('исход на исходе помечен словом, а не только числом', () => {
+    // Человек читает строку глазами; «$0.3» без пометки проскакивает.
+    expect(balanceLine({ total_credits: 10, total_usage: 9.7, remaining: 0.3, low: true }))
+      .toContain('НА ИСХОДЕ');
+  });
+
+  it('постоплата — не «ноль денег»', () => {
+    const line = balanceLine({ total_credits: 0, total_usage: 12, remaining: null, low: false });
+    expect(line).toContain('постоплата');
+    expect(line).not.toContain('НА ИСХОДЕ');
+  });
+
+  it('«не спросили» отличимо от «денег нет»', () => {
+    // Третий исход: ключа управления нет или запрос не прошёл (§4.0).
+    expect(balanceLine(null)).toMatch(/не спросили/);
+  });
+
+  it('счёт попадает в отчёт сразу под числом находок', () => {
+    const md = renderReport(
+      [{ finding: finding('А'), verdict: 'real', reason: 'причина' }],
+      'Счёт OpenRouter: осталось $2.19.',
+    );
+    const lines = md.split('\n');
+    expect(lines[0]).toMatch(/Разобрано находок/);
+    expect(lines[1]).toMatch(/Счёт OpenRouter/);
+  });
+
+  it('без счёта отчёт остаётся валидным', () => {
+    const md = renderReport([{ finding: finding('А'), verdict: 'real', reason: 'причина' }]);
+    expect(md).toMatch(/Разобрано находок/);
+    expect(md).not.toMatch(/Счёт OpenRouter/);
+  });
+
+  it('ключ управления доезжает до джоба', () => {
+    expect(WF).toMatch(/OPENROUTER_MANAGEMENT_KEY: \$\{\{ secrets\.OPENROUTER_MANAGEMENT_KEY \}\}/);
+  });
+
+  it('счёт спрашивается ДО разбора, а не после', () => {
+    // Если денег нет, это должно быть написано в отчёте, а не выведено
+    // человеком из сорока шести одинаковых отказов.
+    const src = SRC;
+    expect(src.indexOf('checkOpenRouterBalance()')).toBeLessThan(src.indexOf('judgeAll(picked)'));
   });
 });
 

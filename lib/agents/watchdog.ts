@@ -25,15 +25,17 @@ import { pool } from '@/lib/db-pool';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
+import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
+import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
 import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents/migration-status';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'cron_fruitless';
   count: number;
   details: string;
   /**
@@ -90,7 +92,10 @@ async function checkUnconfirmedBookings(): Promise<WatchdogAlert | null> {
       count,
       details: `${count} бронирований без подтверждения. Старейшее — ${hours}ч назад.`,
     };
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkUnconfirmedBookings:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -178,7 +183,10 @@ async function checkOperatorNoResponse(): Promise<WatchdogAlert | null> {
       count: rows.length,
       details: `${rows.length} оператор(ов) не ответили на бронирование > 48ч.${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Операторы не подключены к боту.'}`,
     };
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkOperatorNoResponse:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -251,7 +259,10 @@ async function checkUnconfirmedStayBookings(): Promise<WatchdogAlert | null> {
       count: total,
       details: `${total} бронь(и) жилья без подтверждения > 24ч у ${rows.length} владельц(ев).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Владельцы не подключены к боту.'}`,
     };
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkUnconfirmedStayBookings:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -323,7 +334,10 @@ async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
       count: total,
       details: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).`,
     };
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkPendingGearRentals:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -412,7 +426,10 @@ async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
         `(самый ранний: ${(rows[0]?.oldest_title ?? '').slice(0, 80)}). ` +
         `Туристы не предупреждены. ${cause}`,
     };
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkUndeliveredSafetyPush:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -467,7 +484,10 @@ async function checkPendingTransferBookings(): Promise<WatchdogAlert | null> {
       count: total,
       details: `${total} бронь(и) трансфера без подтверждения > 24ч у ${rows.length} оператор(ов).`,
     };
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkPendingTransferBookings:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -497,6 +517,83 @@ async function notifyTransferOperatorDirectly(
   } catch { /* не блокируем */ }
 }
 
+/**
+ * Всплеск регистраций операторов: сегодня втрое выше медианы за две недели.
+ *
+ * Резкий наплыв «операторов» — не рост, а типичный след накрутки или чужого
+ * скрипта. Движок (`detectRegistrationSpike`) был написан, подписан «used by
+ * health cron» и не вызывался ниоткуда — то есть сигнал считался и терялся.
+ *
+ * Молчим при исходе `unknown` (истории нет — сравнивать не с чем): это не
+ * «спокойно», а «судить рано», и поднимать по нему тревогу значит приучить
+ * пролистывать её.
+ */
+async function checkOperatorRegistrationSpike(): Promise<WatchdogAlert | null> {
+  try {
+    const spike = await detectRegistrationSpike();
+    if (spike.verdict !== 'spike') return null;
+    return {
+      type: 'operator_registration_spike',
+      count: spike.today,
+      details:
+        `Регистраций операторов сегодня: ${spike.today} при обычных ` +
+        `${spike.baseline_median} в день (медиана за 14 дней). Проверить, не накрутка ли.`,
+    };
+  } catch (err) {
+    // Отказ проверки не выдаём за отсутствие всплеска: §4.0 — «не смог» это
+    // третий исход, и он обязан попасть хотя бы в лог.
+    console.error('[watchdog] checkOperatorRegistrationSpike:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * Платежи, которые пора было отпустить оператору, но они всё ещё удержаны.
+ *
+ * `/api/cron/payouts` переводит `tour_payments` из HELD в RELEASED, когда
+ * наступил `release_after` (конец тура + 36 ч). Шапка роута обещает запуск
+ * «каждый час» — но запускает его не GitHub Actions, а внешний планировщик,
+ * которого из репозитория не видно (перепись достижимости 22.08,
+ * `lib/agents/cron-schedulers.ts`). Проверить чужую панель нельзя; проверить
+ * СЛЕД можно, и он однозначен: если джоба идёт, HELD с наступившим сроком
+ * живёт максимум час.
+ *
+ * Порог — 6 часов: шесть пропущенных запусков подряд, случайной задержкой уже
+ * не объясняются. Тревога говорит и о деньгах, и о причине: молчащий крон.
+ */
+async function checkStuckPayouts(): Promise<WatchdogAlert | null> {
+  try {
+    const { rows } = await pool.query<{ count: string; total: string | null; oldest_hours: string | null }>(`
+      SELECT COUNT(*)::text                                              AS count,
+             COALESCE(SUM(net_amount), 0)::text                          AS total,
+             MAX(EXTRACT(EPOCH FROM (NOW() - release_after)) / 3600)::text AS oldest_hours
+      FROM tour_payments
+      WHERE status = 'HELD'
+        AND release_after IS NOT NULL
+        AND release_after < NOW() - INTERVAL '6 hours'
+    `);
+    const count = parseInt(rows[0]?.count ?? '0', 10);
+    if (count === 0) return null;
+
+    const total = Math.round(parseFloat(rows[0]?.total ?? '0'));
+    const oldest = Math.round(parseFloat(rows[0]?.oldest_hours ?? '0'));
+    return {
+      type: 'payout_release_stuck',
+      count,
+      critical: true,
+      details:
+        `${count} платежей на ${total} руб. удерживаются после срока релиза ` +
+        `(самый старый — ${oldest} ч). Похоже, /api/cron/payouts не запускается: ` +
+        `его планировщик внешний и из репозитория не виден.`,
+    };
+  } catch (err) {
+    // «Не смог проверить» — не «всё хорошо» (§4.0). Деньги оператора: молчать
+    // об отказе проверки здесь дороже всего.
+    console.error('[watchdog] checkStuckPayouts:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
@@ -512,7 +609,10 @@ async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
       count,
       details: `${count} новых лидов ожидают обработки > 2ч.`,
     };
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkUnprocessedLeads:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -586,7 +686,10 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
       };
     }
     return null;
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkSeismicCronDead:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -679,7 +782,10 @@ async function checkSeismicWorkflowDelay(): Promise<WatchdogAlert | null> {
     const observedMin = (now - new Date(firstAny).getTime()) / 60_000;
     const ageMin = lastPost === null ? null : (now - new Date(lastPost).getTime()) / 60_000;
     return seismicWorkflowDelayIssue(ageMin, observedMin);
-  } catch {
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
+    // упал, обязан оставить след, иначе поломка неотличима от тишины.
+    console.error('[watchdog] checkSeismicWorkflowDelay:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -856,6 +962,51 @@ async function checkFailingCrons(): Promise<WatchdogAlert | null> {
  * в логе деплоя, которую никто не читает на следующий день, а схема тихо
  * расходилась с кодом. Сравниваем файлы на диске с таблицей учёта.
  */
+/**
+ * Кроны, которые идут и не доводят дело до конца. Четвёртый вопрос.
+ *
+ * 23.08.2026: разведчик молчал двадцать два дня при зелёном кроне. Каждое утро
+ * он запускался, находил свежие материалы в лентах — значит для сторожа
+ * холостых «работу сделал», — и не выпускал ничего, потому что фактчек-судья
+ * не мог ответить: провайдеры молчали. Статус таких прогонов `partial`, а
+ * сторож падающих считает только `failed`. Двадцать два прогона подряд не
+ * подняли ни одной тревоги, и немоту нашёл владелец руками.
+ *
+ * Разбор порога и оговорок — в lib/agents/cron-fruitless.ts.
+ */
+async function checkFruitlessCrons(): Promise<WatchdogAlert | null> {
+  try {
+    const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
+    if (ids.length === 0) return null;
+
+    // Причину пропуска крон кладёт в metadata; берём её вместе со статусом,
+    // иначе тревога скажет «молчит» и не скажет, где чинить.
+    const { rows } = await pool.query<CronOutcomeRow>(
+      `SELECT agent_id, status, ended_at::text AS ended_at,
+              metadata->>'digest_skip_reason' AS skip_reason
+         FROM agent_run_history
+        WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
+        ORDER BY ended_at DESC
+        LIMIT $2`,
+      [ids, ids.length * FRUITLESS_RUNS_THRESHOLD * 8],
+    );
+
+    const fruitless = findFruitlessCrons(CRON_REGISTRY, rows, Date.now());
+    if (fruitless.length === 0) return null;
+
+    const safetyKeys = new Set(CRON_REGISTRY.filter(e => e.tier === 'safety').map(e => e.key));
+    return {
+      type: 'cron_fruitless',
+      count: fruitless.length,
+      critical: fruitless.some(c => safetyKeys.has(c.key)),
+      details: `Крон идёт, но результата нет — ${formatFruitlessCrons(fruitless)}.`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkFruitlessCrons:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
   try {
     const dir = join(process.cwd(), 'migrations');
@@ -931,28 +1082,43 @@ async function checkFailedMigrations(): Promise<WatchdogAlert | null> {
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, failingCrons, unappliedMigrations, failedMigrations] = await Promise.all([
-    checkUnconfirmedBookings(),
-    checkUnconfirmedStayBookings(),
-    checkPendingGearRentals(),
-    checkPendingTransferBookings(),
-    checkOperatorNoResponse(),
-    checkUnprocessedLeads(),
-    checkIgnoredSOS(),
-    checkSeismicCronDead(),
+  // Проверки перечислены СПИСКОМ, а не позиционной деструктуризацией.
+  //
+  // Так было до 22.08.2026: пятнадцать вызовов в `Promise.all` разбирались в
+  // четырнадцать имён. Лишний вызов молча уезжал за край — `checkFailedMigrations()`
+  // выполнялся каждые полчаса, и его результат выбрасывался: тревога «миграция
+  // упала» не срабатывала ни разу. Заодно все имена, начиная с девятого,
+  // держали чужое значение, и читать этот код было нельзя.
+  //
+  // Позиционное сопоставление длинного списка — ловушка без сигнала: добавил
+  // проверку, забыл имя — и потеря выглядит как тишина. Здесь имён нет, терять
+  // нечего. Сторож состава — `tests/unit/watchdog-checks-wired.test.ts`.
+  const CHECKS: Array<() => Promise<WatchdogAlert | null>> = [
+    checkUnconfirmedBookings,
+    checkUnconfirmedStayBookings,
+    checkPendingGearRentals,
+    checkPendingTransferBookings,
+    checkOperatorNoResponse,
+    checkOperatorRegistrationSpike,
+    checkStuckPayouts,
+    checkUnprocessedLeads,
+    checkIgnoredSOS,
+    checkSeismicCronDead,
     // Отдельно от предыдущей: та меряет ЛЮБОЙ прогон и удовлетворяется
     // heartbeat'ом, который Telegram получить не может. Задержка канала,
     // приносящего КБГС и EQKam, до этой правки не измерялась вовсе.
-    checkSeismicWorkflowDelay(),
-    checkDeadSafetyCrons(),
-    checkUndeliveredSafetyPush(),
-    checkIdleCrons(),
-    checkFailingCrons(),
-    checkUnappliedMigrations(),
-    checkFailedMigrations(),
-  ]);
+    checkSeismicWorkflowDelay,
+    checkDeadSafetyCrons,
+    checkUndeliveredSafetyPush,
+    checkIdleCrons,
+    checkFailingCrons,
+    checkFruitlessCrons,
+    checkUnappliedMigrations,
+    checkFailedMigrations,
+  ];
 
-  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, failingCrons, unappliedMigrations, failedMigrations].filter(Boolean) as WatchdogAlert[];
+  const results = await Promise.all(CHECKS.map(run => run()));
+  const alerts = results.filter((a): a is WatchdogAlert => a !== null);
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];

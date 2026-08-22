@@ -51,42 +51,13 @@ export async function getOperatorPartnerId(userId: string): Promise<string | nul
   }
 }
 
-/**
- * Get guide partner ID for a guide user
- */
-export async function getGuidePartnerId(userId: string): Promise<string | null> {
-  try {
-    const result = await query(
-      `SELECT id FROM partners 
-       WHERE user_id = $1 AND category = 'guide'
-       LIMIT 1`,
-      [userId]
-    );
-    
-    return (result.rows[0]?.id as string | undefined) ?? null;
-  } catch (error) {
-    return null;
-  }
-}
-
-/**
- * Get transfer partner ID for a transfer operator user
- */
-export async function getTransferPartnerId(userId: string): Promise<string | null> {
-  try {
-    const result = await query(
-      `SELECT id FROM partners
-       WHERE user_id = $1
-       ORDER BY CASE WHEN category = 'transfer' THEN 0 ELSE 1 END
-       LIMIT 1`,
-      [userId]
-    );
-
-    return (result.rows[0]?.id as string | undefined) ?? null;
-  } catch (error) {
-    return null;
-  }
-}
+// Здесь больше нет getGuidePartnerId и getTransferPartnerId.
+//
+// Это были ТОЧНЫЕ копии живых функций из lib/auth/guide-helpers.ts и
+// lib/auth/transfer-helpers.ts — сверено построчно, различался только
+// комментарий у соседа. Зовут те, копии не звал никто, и стоило одной из трёх
+// разойтись с остальными — расхождение проявилось бы как «прав нет» у того,
+// у кого они есть. Удалены 22.08.2026 (перепись).
 
 /**
  * Get partner record with full details
@@ -253,113 +224,6 @@ interface OperatorStats {
   completionRate: number;
 }
 
-/**
- * Get operator statistics
- */
-export async function getOperatorStats(userId: string): Promise<OperatorStats | null> {
-  try {
-    const partnerId = await getOperatorPartnerId(userId);
-    
-    if (!partnerId) {
-      return null;
-    }
-    
-    // Check cache first
-    const cacheResult = await query<Record<string, unknown>>(
-      `SELECT total_tours, active_tours, total_bookings, total_revenue,
-              avg_rating, total_reviews, completion_rate
-       FROM operator_stats_cache
-       WHERE operator_id = $1
-       AND last_calculated > NOW() - INTERVAL '1 hour'`,
-      [partnerId]
-    );
-    
-    if (cacheResult.rows.length > 0) {
-      const cached = cacheResult.rows[0];
-      return {
-        totalTours: Number(cached.total_tours),
-        activeTours: Number(cached.active_tours),
-        totalBookings: Number(cached.total_bookings),
-        totalRevenue: parseFloat(cached.total_revenue as string),
-        avgRating: parseFloat(cached.avg_rating as string),
-        totalReviews: Number(cached.total_reviews),
-        completionRate: parseFloat(cached.completion_rate as string)
-      };
-    }
-    
-    // Calculate fresh stats
-    const statsResult = await query(
-      `WITH tour_stats AS (
-        SELECT
-          COUNT(*) as total_tours,
-          COUNT(CASE WHEN is_active THEN 1 END) as active_tours
-        FROM operator_tours WHERE operator_id = $1 AND deleted_at IS NULL
-      ),
-      booking_stats AS (
-        SELECT
-          COUNT(*) as total_bookings,
-          COALESCE(SUM(COALESCE(b.final_price, b.base_total_price)), 0) as total_revenue,
-          COALESCE(
-            COUNT(CASE WHEN b.booking_status = 'completed' THEN 1 END)::DECIMAL /
-            NULLIF(COUNT(*), 0) * 100,
-            0
-          ) as completion_rate
-        FROM operator_bookings b
-        JOIN operator_tours t ON b.operator_tour_id = t.id
-        WHERE t.operator_id = $1 AND b.deleted_at IS NULL AND t.deleted_at IS NULL
-      ),
-      review_stats AS (
-        SELECT
-          COALESCE(AVG(r.rating), 0) as avg_rating,
-          COUNT(*) as total_reviews
-        FROM reviews r
-        JOIN operator_tours t ON r.tour_id = t.id
-        WHERE t.operator_id = $1 AND t.deleted_at IS NULL
-      )
-      SELECT total_tours, active_tours, total_bookings, total_revenue, completion_rate, avg_rating, total_reviews
-      FROM tour_stats, booking_stats, review_stats`,
-      [partnerId]
-    );
-    
-    const stats = statsResult.rows[0];
-    
-    // Update cache
-    await query(
-      `INSERT INTO operator_stats_cache (
-        operator_id, total_tours, active_tours, total_bookings,
-        total_revenue, avg_rating, total_reviews, completion_rate, last_calculated
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-      ON CONFLICT (operator_id) DO UPDATE SET
-        total_tours = EXCLUDED.total_tours,
-        active_tours = EXCLUDED.active_tours,
-        total_bookings = EXCLUDED.total_bookings,
-        total_revenue = EXCLUDED.total_revenue,
-        avg_rating = EXCLUDED.avg_rating,
-        total_reviews = EXCLUDED.total_reviews,
-        completion_rate = EXCLUDED.completion_rate,
-        last_calculated = NOW()`,
-      [
-        partnerId,
-        stats.total_tours,
-        stats.active_tours,
-        stats.total_bookings,
-        stats.total_revenue,
-        stats.avg_rating,
-        stats.total_reviews,
-        stats.completion_rate
-      ]
-    );
-    
-    return {
-      totalTours: parseInt(String(stats.total_tours ?? 0)),
-      activeTours: parseInt(String(stats.active_tours ?? 0)),
-      totalBookings: parseInt(String(stats.total_bookings ?? 0)),
-      totalRevenue: parseFloat(String(stats.total_revenue ?? 0)),
-      avgRating: parseFloat(String(stats.avg_rating ?? 0)),
-      totalReviews: parseInt(String(stats.total_reviews ?? 0)),
-      completionRate: parseFloat(String(stats.completion_rate ?? 0))
-    };
-  } catch (error) {
-    return null;
-  }
-}
+// getOperatorStats убрана 22.08.2026 (перепись): читала кэш-таблицу
+// operator_stats_cache и не звалась. Кабинет оператора считает свои цифры
+// запросами по месту.

@@ -22,9 +22,8 @@ describe('watchdog сторожит доставку safety-пушей', () => {
   it('проверка существует и включена в прогон', () => {
     expect(WATCHDOG).toContain('checkUndeliveredSafetyPush');
     expect(WATCHDOG).toContain("'push_undelivered'");
-    const runBlock = WATCHDOG.slice(WATCHDOG.indexOf('export async function runWatchdog'));
-    expect(runBlock).toContain('checkUndeliveredSafetyPush()');
-    expect(runBlock).toContain('pushUndelivered');
+    const checks = /const CHECKS\b[^[]*?=\s*\[([\s\S]*?)\n\s*\];/.exec(WATCHDOG)?.[1] ?? '';
+    expect(checks).toMatch(/\bcheckUndeliveredSafetyPush\b/);
   });
 
   it('ловит факт недоставки, а не конкретную причину (VAPID/подписки/отказ)', () => {

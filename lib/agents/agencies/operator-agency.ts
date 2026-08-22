@@ -343,12 +343,22 @@ export class OperatorAgency {
   }
 }
 
-// ── Standalone utility (used by health cron) ──────────────────────────────────
+// ── Всплеск регистраций операторов ───────────────────────────────────────────
+//
+// Сторож — Watchdog (`checkOperatorRegistrationSpike`). До 22.08.2026 функция
+// была подписана «used by health cron» и не вызывалась ниоткуда: подпись
+// описывала намерение, а не связь.
 
 export interface RegistrationSpikeResult {
   today: number;
   baseline_median: number;
   is_spike: boolean;
+  /**
+   * Три исхода, а не два. `unknown` — за две недели не было ни одной
+   * регистрации, кроме сегодняшних: сравнивать не с чем. Ноль в знаменателе
+   * не означает «спокойно», и выдавать его за спокойствие нельзя.
+   */
+  verdict: 'spike' | 'normal' | 'unknown';
 }
 
 export async function detectRegistrationSpike(): Promise<RegistrationSpikeResult> {
@@ -363,7 +373,7 @@ export async function detectRegistrationSpike(): Promise<RegistrationSpikeResult
      ORDER BY day DESC`,
   );
 
-  if (rows.length === 0) return { today: 0, baseline_median: 0, is_spike: false };
+  if (rows.length === 0) return { today: 0, baseline_median: 0, is_spike: false, verdict: 'unknown' };
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const today    = Number(rows.find(r => r.day === todayStr)?.cnt ?? 0);
@@ -381,5 +391,8 @@ export async function detectRegistrationSpike(): Promise<RegistrationSpikeResult
       : history[mid];
   }
 
-  return { today, baseline_median, is_spike: baseline_median > 0 && today > baseline_median * 3 };
+  if (baseline_median === 0) return { today, baseline_median, is_spike: false, verdict: 'unknown' };
+
+  const is_spike = today > baseline_median * 3;
+  return { today, baseline_median, is_spike, verdict: is_spike ? 'spike' : 'normal' };
 }

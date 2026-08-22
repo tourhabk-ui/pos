@@ -86,15 +86,10 @@ export async function setWishlisted(
   }
 }
 
-/** Что уже в избранном на сервере — для начального состояния кнопок. */
-export async function fetchWishlistedIds(type: WishlistItemType): Promise<Set<string>> {
-  try {
-    const res = await fetch(`/api/tourist/wishlist?type=${encodeURIComponent(type)}`);
-    if (!res.ok) return new Set();
-    const json = await res.json() as { data?: Array<{ item_id?: unknown }> };
-    const rows = Array.isArray(json.data) ? json.data : [];
-    return new Set(rows.map(r => String(r.item_id)));
-  } catch {
-    return new Set();
-  }
-}
+// fetchWishlistedIds убрана 22.08.2026 (перепись).
+//
+// Спрашивала у сервера, что уже в избранном, ради начального состояния
+// кнопок в списке. Решение принято другое и записано в hooks/use-wishlist:
+// на карточках показывается локальное зеркало — мгновенно и без запроса, а
+// истина сервера видна в личном кабинете и на странице тура. Цена решения
+// известна: на другом устройстве список покажет пусто.

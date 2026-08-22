@@ -109,7 +109,6 @@ const BASELINE = new Set<string>([
   "lib/agents/execution/initiative-executor.ts → ai_actions_log.agent_id",
   "lib/agents/execution/initiative-executor.ts → ai_actions_log.details",
   "lib/agents/sdk/tourist-tools.ts → users.company_name",
-  "lib/agents/tools/agent-toolkits.ts → agent_approvals.agent_id",
   "lib/agents/tools/board-executor-tools.ts → ai_actions_log.agent_name",
   "lib/agents/tools/board-executor-tools.ts → ai_actions_log.result",
   "lib/auth/guide-helpers.ts → operator_tours.difficulty_level",

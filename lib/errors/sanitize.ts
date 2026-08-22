@@ -50,27 +50,16 @@ export function sanitizeError(error: unknown, isDev = false): SafeError {
   };
 }
 
-/**
- * Check if error looks like database connection issue
- */
-export function isDatabaseError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (
-    error.message.includes('ECONNREFUSED') ||
-    error.message.includes('ENOTFOUND') ||
-    error.message.includes('pool') ||
-    error.message.includes('connection') ||
-    error.message.includes('timeout')
-  );
-}
+// isDatabaseError убрана 22.08.2026 вслед за logError — своим единственным
+// потребителем. Отличать ошибку БД по коду или по подстроке в тексте нужно
+// там, где от этого зависит ответ человеку; такого места нет.
 
-/**
- * Check if error is a validation/client error (not server error)
- */
-export function isClientError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return error.message.includes('validation') || error.message.includes('not found');
-}
+// isClientError и logError убраны 22.08.2026 (перепись): ни одна не звалась.
+//
+// Живут те, которыми пользуются: safeMsg (55 мест) и sanitizeError. Отличать
+// клиентскую ошибку от серверной по подстроке в тексте («validation», «not
+// found») — способ ненадёжный: сообщение меняют, и код ответа меняется вместе
+// с ним незаметно. Понадобится различение — по типу ошибки, а не по её тексту.
 
 /**
  * Safe error message for client response.
@@ -84,26 +73,4 @@ export function safeMsg(error: unknown, fallback = 'Внутренняя оши�
   if (isProduction) return fallback;
   if (error instanceof Error) return error.message;
   return String(error);
-}
-
-/**
- * Log error for debugging (without exposing to client)
- */
-export function logError(context: string, error: unknown): void {
-  if (process.env.NODE_ENV === 'production') {
-    // In production, log only essentials (errors should be in APM like Sentry)
-    const isDb = isDatabaseError(error);
-    if (isDb) {
-      // Database errors are usually critical
-      console.error(`[${context}] Database error occurred`);
-    }
-    return;
-  }
-
-  // In non-prod environments, log full details for debugging
-  if (error instanceof Error) {
-    console.error(`[${context}] ${error.message}\n${error.stack}`);
-  } else {
-    console.error(`[${context}] ${String(error)}`);
-  }
 }

@@ -200,8 +200,15 @@ const SQL_KEYWORD_NOT_ALIAS = new Set([
  * Подзапросные алиасы и таблицы вне FROM/JOIN не проверяются.
  */
 export function extractColumnRefs(sqlRaw: string): ColumnRef[] {
+  // Комментарий к запросу — не запрос. `stripSqlComments` существовала для
+  // этого с самого начала и здесь НЕ вызывалась: сторож фантомных колонок
+  // читал пояснения как обращения к базе и требовал убрать объяснение вместо
+  // ошибки. Обнаружено 22.08.2026 при разборе issue #1331 — на собственном
+  // комментарии, где старое имя колонки названо, чтобы правку можно было
+  // понять.
+  //
   // Интерполяции превращаем в нейтральный токен: их содержимое — не SQL.
-  const sql = sqlRaw.replace(/\$\{[^}]*\}/g, ' __expr__ ');
+  const sql = stripSqlComments(sqlRaw).replace(/\$\{[^}]*\}/g, ' __expr__ ');
 
   const aliasToTable = new Map<string, string>();
   const claim = (table: string, alias?: string) => {

@@ -29,7 +29,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { callAIDecisionDetailed } from '@/lib/ai/providers';
+import { callAIDecisionDetailed, checkOpenRouterBalance } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -348,13 +348,36 @@ async function judgeAll(findings: Finding[]): Promise<Judged[]> {
 }
 
 /** Отчёт для GitHub Issue. Числа сверху, подробности ниже. */
-export function renderReport(judged: Judged[]): string {
+/**
+ * Строка о счёте OpenRouter.
+ *
+ * Четверо суток (16-19.08) разбор молчал, и причину читали из ТЕЛА ОШИБКИ
+ * модели — «Credit balance is too low». Спросить счёт напрямую было можно
+ * всё это время: checkOpenRouterBalance() написана давно и не имела НИ ОДНОГО
+ * потребителя — тот же сюжет, что с validateRoutePost в июле.
+ *
+ * `null` — не «денег нет», а «не спросили»: ключа управления нет или сам
+ * запрос не прошёл. Третий исход отличим от первых двух (CLAUDE.md §4.0).
+ */
+export function balanceLine(b: Awaited<ReturnType<typeof checkOpenRouterBalance>>): string {
+  if (!b) return 'Счёт OpenRouter: не спросили (нет ключа управления или запрос не прошёл).';
+  if (b.remaining === null) {
+    return `Счёт OpenRouter: постоплата, жёсткого лимита нет · потрачено $${b.total_usage}.`;
+  }
+  const warn = b.low ? ' — НА ИСХОДЕ' : '';
+  return `Счёт OpenRouter: осталось $${b.remaining}${warn} (начислено $${b.total_credits}, потрачено $${b.total_usage}).`;
+}
+
+export function renderReport(judged: Judged[], balance?: string): string {
   const by = (v: Verdict) => judged.filter((j) => j.verdict === v);
   const real = by('real'), fixed = by('fixed'), noise = by('noise'),
     info = by('needs_info'), un = by('unjudged');
 
   const lines: string[] = [];
   lines.push(`Разобрано находок: **${judged.length}**`);
+  // Счёт — сразу под числом находок: «не разобрано» и «денег нет» перестают
+  // быть загадкой, которую читают из текста чужой ошибки.
+  if (balance) lines.push(balance);
   // Атрибуция: по прошлым отчётам нельзя было отличить «Anthropic молчит»
   // от «ключа нет» — модель судьи теперь названа в отчёте фактом.
   const models = [...new Set(judged.map((j) => j.model).filter(Boolean))] as string[];
@@ -453,10 +476,15 @@ async function main(): Promise<void> {
     throw new Error(`Нет ни одного ключа модели (${KEYS.join('/')}): разбирать нечем. Пустой отчёт был бы враньём.`);
   }
 
+  // Счёт спрашивается ДО разбора: если денег нет, это должно быть написано в
+  // отчёте, а не выведено человеком из сорока шести одинаковых отказов.
+  const balance = balanceLine(await checkOpenRouterBalance());
+  console.log(balance);
+
   const raw = JSON.parse(readFileSync(inPath, 'utf-8')) as { issues?: Finding[] };
   const findings = Array.isArray(raw.issues) ? raw.issues : [];
   if (findings.length === 0) {
-    writeFileSync(outPath, 'Открытых находок нет.\n');
+    writeFileSync(outPath, `Открытых находок нет.\n\n${balance}\n`);
     return;
   }
 
@@ -476,7 +504,7 @@ async function main(): Promise<void> {
     });
   }
 
-  writeFileSync(outPath, renderReport(judged));
+  writeFileSync(outPath, renderReport(judged, balance));
 }
 
 // Запуск только как скрипт: при импорте из теста main не вызывается.

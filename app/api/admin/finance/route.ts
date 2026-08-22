@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { pendingCompensation } from '@/lib/eco/compensation';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import {
@@ -135,6 +136,21 @@ export async function GET(request: NextRequest) {
         `),
       ]);
 
+    // Долг по эко-скидкам: сколько платформа и операторы должны по
+    // нерасчитанным претензиям. `pendingCompensation()` была написана и не
+    // звалась ниоткуда — выданные скидки не показывались нигде, то есть
+    // считать их было негде (перепись 22.08.2026).
+    //
+    // Отказ этого запроса не валит весь экран финансов: `null` означает «не
+    // смогли посчитать» и так и подписывается — это не то же самое, что ноль.
+    let ecoCompensation: Awaited<ReturnType<typeof pendingCompensation>> | null = null;
+    try {
+      ecoCompensation = await pendingCompensation();
+    } catch (err) {
+      console.error('[admin/finance] долг по эко-компенсациям не посчитан:',
+        err instanceof Error ? err.message : err);
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -143,6 +159,7 @@ export async function GET(request: NextRequest) {
         revenueByType: revenueByType.rows,
         pendingPayouts: pendingPayouts.rows[0],
         recentTransactions: recentTransactions.rows,
+        ecoCompensation,
       },
     });
   } catch (error) {

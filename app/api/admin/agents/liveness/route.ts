@@ -11,8 +11,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { CRON_REGISTRY, TIER_ORDER, TIER_LABELS, type CronTier } from '@/lib/agents/cron-registry';
+import { CRON_REGISTRY, entriesByTier, type CronTier } from '@/lib/agents/cron-registry';
 import { computeLiveness, overallPosture, type LivenessStatus } from '@/lib/agents/cron-liveness';
+import { EXTERNAL_SCHEDULE, MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,10 +85,13 @@ export async function GET(request: NextRequest) {
 
   const posture = overallPosture(items.map(i => ({ tier: i.tier, status: i.liveness })));
 
-  const groups = TIER_ORDER.map(tier => ({
-    tier,
-    label: TIER_LABELS[tier],
-    items: items.filter(i => i.tier === tier),
+  // Порядок разрядов и их подписи знает реестр, а не этот роут: здесь та же
+  // группировка была написана заново, и два места об одном расходятся молча.
+  const byKey = new Map(items.map(i => [i.key, i]));
+  const groups = entriesByTier().map(g => ({
+    tier: g.tier,
+    label: g.label,
+    items: g.entries.map(e => byKey.get(e.key)).filter((i): i is LivenessItem => i !== undefined),
   })).filter(g => g.items.length > 0);
 
   const counts = {
@@ -99,5 +103,20 @@ export async function GET(request: NextRequest) {
     unknown: items.filter(i => i.liveness === 'unknown').length,
   };
 
-  return NextResponse.json({ success: true, posture, counts, groups, generated_at: new Date().toISOString() });
+  // Кроны вне GitHub Actions. Реестр их не меряет и не может: расписание
+  // «каждый час» живёт в чужой панели (cron-job.org), а ручную перепись никто
+  // и не обещал запускать. Отдаём отдельно, чтобы «не знаю» было ВИДНО, а не
+  // отсутствовало (§4.0): молчание панели читается как «всё запланировано».
+  const outside = {
+    external: Object.entries(EXTERNAL_SCHEDULE).map(([endpoint, d]) => ({
+      endpoint: `/api/cron/${endpoint}`,
+      note: d.note,
+      writes: d.writes,
+      // Подтвердить исполнение из репозитория нечем — так и говорим.
+      liveness: 'unverifiable' as const,
+    })),
+    manual_count: Object.keys(MANUAL_ENDPOINTS).length,
+  };
+
+  return NextResponse.json({ success: true, posture, counts, groups, outside, generated_at: new Date().toISOString() });
 }

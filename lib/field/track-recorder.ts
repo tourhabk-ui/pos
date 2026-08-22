@@ -227,6 +227,11 @@ function round6(v: number): number {
 /**
  * GeoJSON снятого трека. Высота идёт ТРЕТЬИМ числом, как её ждёт
  * `trackEvidence`: без неё запись прибора неотличима от перерисовки.
+ *
+ * Потребителя пока нет — экран отдаёт GPX (перепись 22.08 числит функцию
+ * сиротой, потолок поднят до 4 с этой причиной). Оставлена намеренно:
+ * GeoJSON нужен там, где трек кладут в `kamchatka_routes.geometry`, а GPX
+ * туда не ложится.
  */
 export function toGeoJson(state: RecorderState): {
   type: 'LineString'; coordinates: number[][];

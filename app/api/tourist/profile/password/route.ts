@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
-import { verifyPassword, hashPassword } from '@/lib/auth/password';
+import { verifyPassword, hashPassword, passwordSchema } from '@/lib/auth/password';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 const ChangePasswordSchema = z.object({
   currentPassword: z.string({ message: 'Текущий пароль обязателен' }).min(1, 'Текущий пароль не может быть пустым'),
-  newPassword: z.string({ message: 'Новый пароль обязателен' }).min(8, 'Новый пароль должен содержать не менее 8 символов'),
+  newPassword: passwordSchema,
 });
 
 const passwordLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });

@@ -25,7 +25,19 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** Значение из разбора — в шаблон только экранированным. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+
 const ROOT = process.cwd();
+
+/** Код без комментариев: и блочных, и строчных, и SQL-строчных внутри запроса. */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/^\s*--.*$/gm, ' ');
+}
 
 describe('tour_availability: связь с туром', () => {
   it('нигде в app/ и lib/ нет JOIN по фантомной tour_id', () => {
@@ -34,13 +46,16 @@ describe('tour_availability: связь с туром', () => {
 
     const offenders: string[] = [];
     for (const f of files) {
-      const src = readFileSync(join(ROOT, f), 'utf-8');
+      // Комментарии убираем ДО разбора: строка «operator_tour_id, а НЕ
+      // ta.tour_id», объясняющая правило, сама не является нарушением.
+      // Сторож, читающий пояснения как код, ловит того, кто их написал.
+      const src = stripComments(readFileSync(join(ROOT, f), 'utf-8'));
       // Ищем алиас, которым назвали tour_availability, и проверяем, по какой
       // колонке его джойнят. Своё правило именования тут не изобретаем —
       // берём алиас прямо из текста запроса.
       for (const m of src.matchAll(/tour_availability\s+(?:AS\s+)?([a-zA-Z_]\w*)/gi)) {
         const alias = m[1];
-        const joinOnPhantom = new RegExp(`\\b${alias}\\.tour_id\\b`);
+        const joinOnPhantom = new RegExp(`\\b${escapeRe(alias)}\\.tour_id\\b`);
         if (joinOnPhantom.test(src)) offenders.push(`${f} → ${alias}.tour_id`);
       }
     }

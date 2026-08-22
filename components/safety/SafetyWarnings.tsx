@@ -24,6 +24,13 @@ interface WarningData {
   alert_severity: number;
   alert_message: string | null;
   zone_risk: { risk_score: number; risk_level: string; recommended_action: string } | null;
+  /** Ограничения, заведённые человеком: закрытая зона, размытая дорога, парк. */
+  zone_alerts?: Array<{
+    id: string; severity: string; title: string; message: string;
+    source: string; active_until: string | null;
+  }>;
+  /** false — предупреждения спросить не смогли; пусто ≠ чисто (§4.0). */
+  zone_alerts_checked?: boolean;
   signals: HazardSignal[];
   emergency_contacts: Array<{ name: string; phone: string; type: string }>;
   disclaimer: string;
@@ -104,7 +111,11 @@ export default function SafetyWarnings({ tourId, routeId, compact = false }: Saf
       .finally(() => setLoading(false));
   }, [tourId, routeId]);
 
-  if (loading || !data || data.signals.length === 0) return null;
+  const zoneAlerts = data?.zone_alerts ?? [];
+  // Раньше блок исчезал целиком при пустых сигналах. Ограничение зоны —
+  // закрытый парк, размытая дорога — приходит отдельно от них, и прятать его
+  // вместе с ними значит не показать самое важное.
+  if (loading || !data || (data.signals.length === 0 && zoneAlerts.length === 0)) return null;
 
   const topSignals = compact ? data.signals.slice(0, 2) : data.signals;
   const hasMore = compact && data.signals.length > 2;
@@ -136,6 +147,43 @@ export default function SafetyWarnings({ tourId, routeId, compact = false }: Saf
           <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />
         )}
       </button>
+
+      {/* Ограничения, заведённые человеком. Всегда раскрыты и всегда первыми:
+          «парк закрыт, дорога размыта» решает выход на маршрут сильнее любого
+          вычисленного балла риска. */}
+      {zoneAlerts.length > 0 && (
+        <div className="px-4 pb-2 space-y-2">
+          {zoneAlerts.map(a => {
+            const style = a.severity === 'critical' ? LEVEL_STYLES.critical
+              : a.severity === 'important' ? LEVEL_STYLES.warning
+              : LEVEL_STYLES.info;
+            return (
+              <div key={a.id} className={`rounded-lg border ${style.border} ${style.bg} px-3 py-2.5`}>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${style.text}`} />
+                  <div className="min-w-0">
+                    <p className={`text-sm font-semibold ${style.text}`}>{a.title}</p>
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed mt-0.5">{a.message}</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                      Источник: {a.source}
+                      {a.active_until !== null && ` · до ${new Date(a.active_until).toLocaleDateString('ru-RU')}`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Спросить об ограничениях не смогли — это не «ограничений нет». */}
+      {data.zone_alerts_checked === false && (
+        <div className="px-4 pb-2">
+          <p className="text-xs text-[var(--text-muted)]">
+            Проверить ограничения зоны не удалось — сведения могут быть неполными.
+          </p>
+        </div>
+      )}
 
       {/* Zone risk alert */}
       {data.zone_risk && data.zone_risk.risk_level !== 'low' && (

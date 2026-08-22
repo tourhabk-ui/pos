@@ -100,74 +100,9 @@ export async function toAffiliateLink(
   }
 }
 
-/**
- * Convert multiple URLs in one batch (max 10 per API request).
- */
-export async function toAffiliateLinks(
-  urls: string[],
-  subId?: string
-): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
-  const toFetch: string[] = [];
-
-  for (const url of urls) {
-    const cached = getCached(url);
-    if (cached) {
-      result[url] = cached;
-    } else {
-      toFetch.push(url);
-    }
-  }
-
-  if (toFetch.length === 0 || !TOKEN) {
-    for (const url of toFetch) result[url] = buildFallbackUrl(url);
-    return result;
-  }
-
-  const chunks = chunk(toFetch, 10);
-  for (const batch of chunks) {
-    try {
-      const body = {
-        trs:    parseInt(TRS, 10),
-        marker: parseInt(MARKER, 10),
-        shorten: true,
-        links: batch.map(url => ({ url, sub_id: subId ?? 'kamchatour' })),
-      };
-
-      const res = await fetch(API_URL, {
-        method:  'POST',
-        headers: {
-          'Content-Type':   'application/json',
-          'X-Access-Token': TOKEN,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(5000),
-      });
-
-      if (!res.ok) {
-        for (const url of batch) result[url] = buildFallbackUrl(url);
-        continue;
-      }
-
-      const data = await res.json() as {
-        result?: { links?: Array<{ url: string; code: string; partner_url: string }> };
-      };
-
-      for (const link of data.result?.links ?? []) {
-        if (link.code === 'success' && link.partner_url) {
-          setCached(link.url, link.partner_url);
-          result[link.url] = link.partner_url;
-        } else {
-          result[link.url] = buildFallbackUrl(link.url);
-        }
-      }
-    } catch {
-      for (const url of batch) result[url] = buildFallbackUrl(url);
-    }
-  }
-
-  return result;
-}
+// toAffiliateLinks убрана 22.08.2026 вслед за getKamchatkaAffiliateLinks —
+// своим единственным потребителем. Одиночная toAffiliateLink остаётся: её
+// зовёт /api/affiliate/link.
 
 // ── Pre-built Kamchatka URLs ───────────────────────────────────────────────────
 
@@ -192,14 +127,13 @@ export const KAMCHATKA_URLS = {
   cherehapa_insurance: 'https://www.cherehapa.ru',
 } as const;
 
-/**
- * Get all Kamchatka affiliate links at once.
- * Call once at page render (server component) and pass to client.
- */
-export async function getKamchatkaAffiliateLinks(): Promise<Record<string, string>> {
-  const map = await toAffiliateLinks(Object.values(KAMCHATKA_URLS), 'kamchatour_page');
-  return map;
-}
+// getKamchatkaAffiliateLinks убрана 22.08.2026 (перепись).
+//
+// Собирала все партнёрские ссылки разом «для передачи на страницу». Место
+// таких блоков — страница поездки или маршрута; с карточки тура они убраны
+// решением владельца (§11): под карточкой НАШЕГО проверенного оператора
+// рекламный дисклеймер с ИНН постороннего юрлица читается как подмена
+// продавца.
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 

@@ -78,21 +78,9 @@ class Logger {
 // Singleton instance
 export const logger = new Logger();
 
-// Helper functions for API routes
-export function logApiRequest(
-  method: string,
-  path: string,
-  userId?: string,
-  duration?: number
-) {
-  logger.info('API Request', { method, path, userId, duration });
-}
-
-export function logApiError(
-  method: string,
-  path: string,
-  error: Error,
-  userId?: string
-) {
-  logger.error('API Error', error, { method, path, userId });
-}
+// logApiRequest и logApiError убраны 22.08.2026 (перепись): не звались.
+//
+// Сам logger живой, но им пользуется один маршрут. Две обёртки над ним для
+// запросов и ошибок API нужны там, где логируют ВСЕ маршруты, — а такого
+// решения нет; сквозной журнал запросов заводится сразу целиком, иначе он
+// показывает не платформу, а те три места, где про него вспомнили.

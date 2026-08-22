@@ -41,14 +41,19 @@ const KNOWN_UNDECLARED = new Set([
   // который НЕ применяется ничем — это не миграция, а файл рядом.
   'transfer_bookings', 'transfer_schedules', 'transfer_vehicles',
   'transfer_drivers', 'transfer_notifications', 'transfer_payments',
-  'transfer_options', 'seat_holds', 'operator_booking_transfers',
+  // seat_holds ушла 22.08.2026 вместе с кодом удержания мест: таблицы не
+  // существовало ни в миграциях, ни в схеме, а гонку закрывает FOR UPDATE
+  // NOWAIT в createBookingWithLock.
+  'transfer_options', 'operator_booking_transfers',
   // Оператор трансферов; описан в lib/database/operators_schema.sql, тоже
   // вне реестра. На нём стоят и запросы трансферов, и админские ручки.
   'operators',
   // Деньги: не описаны нигде в репозитории вовсе.
   'payments', 'payouts', 'vouchers',
   // Турист: профиль, документы, поездки, достижения, списки.
-  'tourist_profiles', 'tourist_documents', 'tourist_trips', 'trip_bookings',
+  // tourist_documents объявлена миграцией 903 (22.08.2026): форма собрана по
+  // живому коду, который с ней работает.
+  'tourist_profiles', 'tourist_trips', 'trip_bookings',
   'tourist_achievements', 'tourist_reviews', 'tourist_wishlist',
   'tourist_checklists', 'tourist_notification_preferences',
   // Согласия и аудит согласий (152-ФЗ) — тем более странно не иметь схемы.

@@ -239,6 +239,16 @@ CREATE TABLE IF NOT EXISTS guide_schedule (
     weather_conditions JSONB,
     safety_notes TEXT,
     special_requirements TEXT,
+    -- Колонки ниже использует вторая половина кабинета гида (роуты
+    -- /api/guide/schedule и /api/guide/map). Они жили во ВТОРОМ, призрачном
+    -- объявлении этой таблицы и потому не существовали. Сведено 22.08.2026,
+    -- миграция 902.
+    title TEXT,
+    description TEXT,
+    booking_id UUID,
+    location_name TEXT,
+    location JSONB,
+    notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -270,6 +280,14 @@ CREATE TABLE IF NOT EXISTS guide_earnings (
     payment_status VARCHAR(50) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'cancelled')),
     payment_date DATE,
     notes TEXT,
+    -- Колонки ниже читает getGuideStats (кабинет гида, /api/guide/profile).
+    -- Они жили во ВТОРОМ, призрачном объявлении и потому не существовали.
+    -- Сведено 22.08.2026, миграция 902.
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'cancelled')),
+    date DATE,
+    booking_id UUID,
+    payment_method VARCHAR(50),
+    payment_reference TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -494,20 +512,22 @@ CREATE TABLE IF NOT EXISTS operator_settings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Таблица доступности туров
-CREATE TABLE IF NOT EXISTS tour_availability (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tour_id UUID NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
-    date DATE NOT NULL,
-    available_spots INTEGER NOT NULL DEFAULT 0,
-    is_blocked BOOLEAN DEFAULT FALSE,
-    block_reason TEXT,
-    price_override DECIMAL(10,2),
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(tour_id, date)
-);
+-- Объявления tour_availability здесь БОЛЬШЕ НЕТ (убрано 22.08.2026, issue #1331).
+--
+-- Настоящую таблицу создаёт migrations/040_operator_tools.sql:
+--   operator_tour_id BIGINT REFERENCES operator_tours(id)
+-- Именно migrations/ применяет деплой (start.js → scripts/migrate-standalone.js);
+-- этот файл в деплое не участвует вовсе.
+--
+-- Здесь же лежала вторая, несовместимая копия: tour_id UUID REFERENCES tours(id)
+-- — при том что обращение к таблице `tours` запрещено правилами платформы.
+-- Копия не применялась никогда, но читалась как правда: против неё был написан
+-- инструмент оператора my_tours, и его запрос падал бы с «column does not exist».
+--
+-- Насколько давно об этом знали: карта автозамены в
+-- lib/agents/tools/board-executor-tools.ts уже содержала строку
+-- "ta.tour_id = ot.id" → "ta.operator_tour_id = ot.id". То есть ошибку чинили
+-- в SQL, который агенты сочиняют на лету, и не заметили её в самом коде.
 
 -- Таблица переписки с клиентами
 CREATE TABLE IF NOT EXISTS client_communications (
@@ -947,28 +967,13 @@ CREATE TRIGGER update_transfer_reviews_updated_at
 -- total_earnings, is_available
 
 -- Guide schedule with conflict detection
-CREATE TABLE IF NOT EXISTS guide_schedule (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  guide_id UUID NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
-  start_time TIMESTAMPTZ NOT NULL,
-  end_time TIMESTAMPTZ NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  tour_id UUID REFERENCES tours(id) ON DELETE SET NULL,
-  booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
-  max_participants INTEGER DEFAULT 10 CHECK (max_participants > 0),
-  current_participants INTEGER DEFAULT 0 CHECK (current_participants >= 0),
-  location GEOGRAPHY(POINT),
-  location_name TEXT,
-  status VARCHAR(20) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled')),
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  CONSTRAINT no_overlap EXCLUDE USING GIST (
-    guide_id WITH =,
-    tstzrange(start_time, end_time) WITH &&
-  ) WHERE (status != 'cancelled')
-);
+-- Повторного объявления guide_schedule здесь БОЛЬШЕ НЕТ (убрано 22.08.2026).
+--
+-- Таблица объявлялась в этом файле дважды, с разными колонками. Из-за
+-- IF NOT EXISTS применяется ПЕРВОЕ объявление (выше, guide_id → users,
+-- tour_date, start_time TIME), а второе не применялось никогда — но читалось
+-- как правда тем, кто писал код. Так появился писатель заработка гида,
+-- обращавшийся к несуществующим колонкам.
 
 -- Guide reviews and ratings
 CREATE TABLE IF NOT EXISTS guide_reviews (
@@ -1018,20 +1023,16 @@ CREATE TABLE IF NOT EXISTS guide_availability (
 );
 
 -- Guide earnings tracking (10% commission)
-CREATE TABLE IF NOT EXISTS guide_earnings (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  guide_id UUID NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
-  booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
-  tour_id UUID REFERENCES tours(id) ON DELETE SET NULL,
-  amount DECIMAL(10,2) NOT NULL,
-  commission_rate DECIMAL(5,2) DEFAULT 10.0,
-  date DATE NOT NULL,
-  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'cancelled')),
-  payment_method VARCHAR(50),
-  payment_reference TEXT,
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- Повторного объявления guide_earnings здесь БОЛЬШЕ НЕТ (убрано 22.08.2026).
+--
+-- Настоящая таблица — первое объявление выше: guide_id → users(id),
+-- schedule_id, payment_status, commission_amount, payment_date. Экран
+-- заработка гида (app/api/guide/earnings) читает именно её и работает.
+--
+-- Призрак объявлял guide_id → partners(id), booking_id, date и status.
+-- Против него был написан recordGuideEarnings — три колонки из семи не
+-- существуют, INSERT упал бы при первом вызове. Функция не звалась ни разу,
+-- поэтому расхождение прожило незамеченным.
 
 -- Indexes for guide tables
 CREATE INDEX IF NOT EXISTS idx_guide_schedule_guide_id ON guide_schedule(guide_id);
@@ -1042,7 +1043,6 @@ CREATE INDEX IF NOT EXISTS idx_guide_reviews_rating ON guide_reviews(rating);
 CREATE INDEX IF NOT EXISTS idx_guide_certifications_guide_id ON guide_certifications(guide_id);
 CREATE INDEX IF NOT EXISTS idx_guide_availability_guide_id ON guide_availability(guide_id);
 CREATE INDEX IF NOT EXISTS idx_guide_earnings_guide_id ON guide_earnings(guide_id);
-CREATE INDEX IF NOT EXISTS idx_guide_earnings_status ON guide_earnings(status);
 
 -- Triggers for guide tables
 CREATE TRIGGER update_guide_schedule_updated_at

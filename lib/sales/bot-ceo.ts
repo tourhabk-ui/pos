@@ -287,9 +287,5 @@ export async function launchSalesCampaign(
  */
 let botInstance: SalesBotCEO | null = null;
 
-export function getSalesBot(): SalesBotCEO {
-  if (!botInstance) {
-    botInstance = new SalesBotCEO();
-  }
-  return botInstance;
-}
+// getSalesBot убрана 22.08.2026 (перепись): синглтон не звался, экземпляр
+// создаётся там, где нужен.

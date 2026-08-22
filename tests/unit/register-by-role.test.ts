@@ -30,7 +30,11 @@ vi.mock('@/lib/rate-limit', () => ({
   getClientIp: () => '10.0.0.1',
 }));
 
-vi.mock('@/lib/auth/password', () => ({
+// Подменяется только хеширование. `passwordSchema` берётся настоящая:
+// правило пароля — часть контракта регистрации, и проверять её на
+// заглушке значит не проверять вовсе.
+vi.mock('@/lib/auth/password', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/password')>()),
   hashPassword: vi.fn().mockResolvedValue('$hashed$'),
 }));
 
@@ -71,7 +75,7 @@ beforeEach(() => {
 describe('POST /api/auth/register — партнёрские профили по ролям', () => {
   it('stay: создаётся partners-запись с category=stay и user_id', async () => {
     const res = await POST(registerReq({
-      email: 'stay@x.ru', password: 'secret1', name: 'Гостиница',
+      email: 'stay@x.ru', password: 'Secret123', name: 'Гостиница',
       role: 'stay', roles: ['stay'],
     }));
     expect(res.status).toBe(201);
@@ -85,7 +89,7 @@ describe('POST /api/auth/register — партнёрские профили по
 
   it('мультироли gear+transfer: по профилю на каждую роль', async () => {
     const res = await POST(registerReq({
-      email: 'multi@x.ru', password: 'secret1', name: 'Партнёр',
+      email: 'multi@x.ru', password: 'Secret123', name: 'Партнёр',
       roles: ['gear', 'transfer'],
     }));
     expect(res.status).toBe(201);
@@ -96,7 +100,7 @@ describe('POST /api/auth/register — партнёрские профили по
 
   it('tourist: партнёрский профиль не создаётся', async () => {
     const res = await POST(registerReq({
-      email: 't@x.ru', password: 'secret1', name: 'Турист', role: 'tourist',
+      email: 't@x.ru', password: 'Secret123', name: 'Турист', role: 'tourist',
     }));
     expect(res.status).toBe(201);
     expect(partnerInsertCalls()).toHaveLength(0);
@@ -104,7 +108,7 @@ describe('POST /api/auth/register — партнёрские профили по
 
   it('operator: сохраняется расширенная вставка с commission_rate и slug', async () => {
     const res = await POST(registerReq({
-      email: 'op@x.ru', password: 'secret1', name: 'Оператор', role: 'operator',
+      email: 'op@x.ru', password: 'Secret123', name: 'Оператор', role: 'operator',
     }));
     expect(res.status).toBe(201);
 
@@ -116,7 +120,7 @@ describe('POST /api/auth/register — партнёрские профили по
 
   it('ответ содержит role и roles, токен уходит в cookie', async () => {
     const res = await POST(registerReq({
-      email: 'stay2@x.ru', password: 'secret1', name: 'Гостиница',
+      email: 'stay2@x.ru', password: 'Secret123', name: 'Гостиница',
       roles: ['stay', 'gear'],
     }));
     expect(res.status).toBe(201);

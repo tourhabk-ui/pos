@@ -11,7 +11,7 @@ import { SignJWT } from 'jose';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { query } from '@/lib/database';
-import { hashPassword } from '@/lib/auth/password';
+import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 // Валидация входных данных
@@ -58,7 +58,7 @@ const registerSchema = z.object({
   agreeNotifications: z.boolean().optional(),
 
   // Пароль
-  password: z.string().min(8, 'Пароль должен быть минимум 8 символов'),
+  password: passwordSchema,
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Пароли не совпадают',

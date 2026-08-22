@@ -8,6 +8,7 @@ import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
+  Trash2,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
@@ -50,7 +51,7 @@ interface PreviewNavigability {
   reasons: string[];
 }
 import {
-  saveFieldPack, loadFieldPack, verifyFieldPack, fieldPackReadiness, formatSnapshotAge,
+  saveFieldPack, loadFieldPack, removeFieldPack, verifyFieldPack, fieldPackReadiness, formatSnapshotAge,
   type FieldPackManifest, type PackAssetState, type PackSafetySnapshot,
 } from '@/lib/offline/field-pack';
 import { RouteProgressBar } from '@/components/field/RouteProgressBar';
@@ -378,6 +379,8 @@ function OnTrailTab() {
   } | null>(null);
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const [dropNote, setDropNote] = useState<string | null>(null);
   /**
    * Состояние полевого пакета по ассетам (карта/линия/точки/условия) —
    * проверкой, не памятью: verifyFieldPack пробует Cache Storage и меряет
@@ -522,6 +525,28 @@ function OnTrailTab() {
   }, []);
 
   /** Скачать полевой пакет маршрута по явному нажатию (карта — самый тяжёлый ассет). */
+  /**
+   * Убрать полевой пакет вместе с его картой.
+   *
+   * `removeFieldPack` считает, какие тайлы не держит больше никто, и отдаёт
+   * их service worker'у. Возврат `null` означает «тайлы снять не удалось» —
+   * запись пакета при этом всё равно снимается, но выдавать это за
+   * освобождённое место нельзя.
+   */
+  const dropPack = useCallback(async (routeId: string) => {
+    setDropping(true);
+    try {
+      const released = await removeFieldPack(routeId);
+      setSavedMap(null);
+      setPackStates(null);
+      // Отдельная строка, а не общий статус экрана: «пакет убран» и «место
+      // не освободилось» — разные сообщения, и второе нельзя проглотить.
+      setDropNote(released === null ? 'Пакет убран, но карту из хранилища снять не удалось' : null);
+    } finally {
+      setDropping(false);
+    }
+  }, []);
+
   const saveMap = useCallback(async (routeId: string) => {
     if (!mapPlan || !navigator.serviceWorker) return;
     // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
@@ -2048,6 +2073,27 @@ function OnTrailTab() {
                 <span className="w-full" style={{ color: 'var(--warning)' }}>
                   Система может удалить карту при нехватке места на телефоне
                 </span>
+              )}
+              {/* Убрать пакет было НЕЛЬЗЯ до 22.08.2026: манифест снимался
+                  только вручную из кода, а тайлы коридора оставались навсегда.
+                  При переполнении хранилища браузер выбрасывает всё разом —
+                  то есть чужой залежавшийся пакет отнимает карту у того, кто
+                  собрался в поход завтра. */}
+              <button
+                type="button"
+                onClick={() => { const id = crumbsRouteRef.current; if (id) void dropPack(id); }}
+                disabled={dropping}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg disabled:opacity-60"
+                style={{
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {dropping ? 'Убираю' : 'Убрать пакет'}
+              </button>
+              {dropNote && (
+                <span className="w-full" style={{ color: 'var(--warning)' }}>{dropNote}</span>
               )}
             </div>
           ) : mapPlan ? (

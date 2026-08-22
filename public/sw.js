@@ -263,18 +263,55 @@ self.addEventListener('message', (event) => {
     return;
   }
 
-  if (event.data.type === 'CLEAR_REGION_TILES') {
-    // Tile cache общий, удалить конкретный регион нельзя без маппинга.
-    // Отправляем подтверждение — реальная очистка через deleteRegion в IndexedDB.
-    if (event.source) {
-      event.source.postMessage({
-        type: 'REGION_CLEARED',
-        regionId: event.data.regionId,
-      });
-    }
+  // Удаление тайлов ПО СПИСКУ АДРЕСОВ.
+  //
+  // Раньше здесь стоял обработчик CLEAR_REGION_TILES, который не удалял
+  // ничего: он отвечал «готово», и человек видел подтверждение, а 6-22 МБ
+  // тайлов оставались навсегда. Оправдание было в комментарии — «удалить
+  // конкретный регион нельзя без маппинга». Маппинг не нужен: адреса тайлов
+  // вычислимы из bbox региона и из трека полевого пакета, обе функции
+  // детерминированы. Считает их клиент (lib/offline/tile-ownership.ts) —
+  // он же знает, какие адреса держит кто-то ещё, — а сюда приходит готовый
+  // список к удалению.
+  if (event.data.type === 'CLEAR_TILES') {
+    const urls = Array.isArray(event.data.urls) ? event.data.urls : [];
+    deleteTiles(urls, event.data.reason, event.source);
     return;
   }
 });
+
+/**
+ * Удаляет перечисленные тайлы и докладывает, сколько РЕАЛЬНО удалено.
+ *
+ * Число берётся из ответов Cache Storage, а не из длины списка: адрес мог
+ * никогда не кэшироваться, и выдавать намерение за результат нельзя — на
+ * этом обработчик и погорел в прошлый раз.
+ */
+async function deleteTiles(urls, reason, client) {
+  const cacheName = `${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`;
+  let deleted = 0;
+  let failed = 0;
+  try {
+    const cache = await caches.open(cacheName);
+    for (const url of urls) {
+      try {
+        if (await cache.delete(url)) deleted++;
+      } catch (err) {
+        failed++;
+      }
+    }
+  } catch (err) {
+    // Кэш не открылся — сказать об этом честно, а не отчитаться нулём удалений
+    // как об успехе.
+    if (client) {
+      client.postMessage({ type: 'TILES_CLEARED', reason, ok: false, deleted: 0, requested: urls.length, error: String(err) });
+    }
+    return;
+  }
+  if (client) {
+    client.postMessage({ type: 'TILES_CLEARED', reason, ok: true, deleted, failed, requested: urls.length });
+  }
+}
 
 async function cacheTilesForRegion(tileUrls, regionId, client) {
   const cacheName = `${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`;

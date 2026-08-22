@@ -80,33 +80,17 @@ export function normalizePhone(phone: string): string {
   return digits;
 }
 
-export async function getEmergencyContacts(
-  zone?: string,
-  purpose?: string
-): Promise<EmergencyContact[]> {
-  const { rows } = await pool.query(
-    `SELECT id::text, zone, contact_type, name, phone, purpose, source,
-            source_url, verified_at, notes
-     FROM emergency_contacts
-     WHERE ($1::text IS NULL OR zone = $1 OR zone IS NULL)
-       AND ($2::text IS NULL OR purpose = $2)
-     ORDER BY source, purpose, name`,
-    [zone ?? null, purpose ?? null]
-  );
-
-  return rows.map(r => ({
-    id: r.id,
-    zone: r.zone,
-    contactType: r.contact_type,
-    name: r.name,
-    phone: r.phone,
-    purpose: r.purpose,
-    source: r.source,
-    sourceUrl: r.source_url,
-    verifiedAt: r.verified_at,
-    notes: r.notes,
-  }));
-}
+// Читателя таблицы `emergency_contacts` здесь нет намеренно.
+//
+// Таблица — верстак сверки (issue #366): в ней лежат номера из кода,
+// портала visitkamchatka и старого сида вперемешку, и её смысл — показать
+// расхождения человеку. Туристу платформа показывает ДРУГОЙ список —
+// `lib/safety/emergency-numbers.ts`, где только проверенные владельцем
+// номера: «неверный номер в ЧП опаснее его отсутствия».
+//
+// `getEmergencyContacts()` отдавала таблицу как есть и не звалась ниоткуда;
+// удалена 22.08.2026 (перепись). Понадобится выдача по зонам — заводить её
+// вместе с экраном и фильтром по `verified_at`, а не заранее.
 
 interface ContactRow {
   phone: string | null;

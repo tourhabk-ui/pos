@@ -133,15 +133,3 @@ export function locateFailure(input: { category: string; title?: string | null; 
   return CATEGORY_DEFAULT[input.category] ?? null;
 }
 
-/**
- * Отвечает ли модель за эту находку. Тормоз точности гасит догадки модели — и
- * только их: инфраструктурная находка, отвергнутая человеком, ничего не говорит
- * о том, врёт ли модель.
- *
- * `faultSide` не проставлен (находки до этой схемы) — падаем на прежнее правило
- * по категории, чтобы старые записи не меняли смысл задним числом.
- */
-export function isModelFault(faultSide: string | null | undefined, categoryFallback: (category: string) => boolean, category: string): boolean {
-  if (!faultSide) return categoryFallback(category);
-  return faultSide === 'model';
-}

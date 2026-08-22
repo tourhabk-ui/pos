@@ -352,14 +352,13 @@ export function getHazardSignals(route: RouteInfo): HazardSignal[] {
   return signals;
 }
 
-/**
- * Получает ТОЛЬКО критические/опасные сигналы (для карточки тура).
- */
-export function getCriticalSignals(route: RouteInfo): HazardSignal[] {
-  return getHazardSignals(route).filter(s =>
-    s.level === 'critical' || s.level === 'danger'
-  );
-}
+// Отдельной выжимки критических сигналов здесь нет намеренно.
+//
+// `getCriticalSignals()` была написана «для карточки тура» и не звалась
+// ниоткуда: карточка берёт сигналы из /api/safety/warnings, а тот отдаёт
+// полный список с уровнем у каждого — отфильтровать критические клиент
+// может сам. Вторая серверная форма тех же данных расходится с первой
+// молча; удалена 22.08.2026 (перепись).
 
 /**
  * Определяет общий уровень опасности маршрута.

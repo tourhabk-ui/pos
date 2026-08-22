@@ -57,12 +57,3 @@ export const CONSENSUS_MODEL = 'anthropic/claude-fable-5';
 export function getModelForAgent(agentId: string): string | null {
   return (AGENT_MODEL_MAP as Record<string, string>)[agentId] ?? null;
 }
-
-/**
- * Get a human-readable short name from model ID.
- * E.g., 'anthropic/claude-sonnet-4-6' -> 'claude-sonnet-4-6'
- */
-export function getModelDisplayName(modelId: string): string {
-  const parts = modelId.split('/');
-  return parts.length > 1 ? parts[1] : modelId;
-}

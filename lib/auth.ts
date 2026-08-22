@@ -153,34 +153,8 @@ export async function authorizeRole(
   return allowed.some(role => rolesMatch(userResult.rows[0].role, role));
 }
 
-export async function getUserFromToken(token: string | null | undefined): Promise<AuthUser | null> {
-  if (!token) {
-    return null;
-  }
-
-  const payload = await verifyToken(token);
-  if (!payload || typeof payload.userId !== 'string') {
-    return null;
-  }
-
-  const userResult = await query<{ id: string; email: string; role: string }>(
-    'SELECT id, email, role FROM users WHERE id = $1 LIMIT 1',
-    [payload.userId]
-  );
-
-  if (userResult.rows.length === 0) {
-    return null;
-  }
-
-  const user = userResult.rows[0];
-  const role = normalizeRole(user.role);
-  if (!role) {
-    return null;
-  }
-
-  return {
-    id: user.id,
-    email: user.email,
-    role,
-  };
-}
+// getUserFromToken убрана 22.08.2026 (перепись).
+//
+// Пользователя по токену достаёт requireAuth (lib/auth/middleware.ts) — она и
+// проверяет права заодно. Вторая дверь в ту же комнату опасна тем, что не
+// проверяет ничего: позвать её вместо requireAuth легко и незаметно.

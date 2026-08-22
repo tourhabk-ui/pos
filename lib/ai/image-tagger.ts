@@ -150,11 +150,9 @@ Rules:
   }
 }
 
-// ── Основная функция: теггинг одного изображения ─────────────
-export async function tagTourImage(imageUrl: string): Promise<TourImageTags | null> {
-  const r = await analyzeWithClaude(imageUrl);
-  return r.ok ? r.tags : null;
-}
+// Одиночного теггинга нет: снимки размечаются пачкой (`tagTourPhotos` ниже) —
+// именно её зовёт /api/operator/tours/[id]/generate-tags. Двойник на один
+// снимок (`tagTourImage`) не звал никто; удалён 22.08.2026.
 
 const EMPTY_TAGS: TourImageTags = {
   landscape: [], activity: [], difficulty: 'moderate', season: [], features: [],

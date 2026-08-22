@@ -150,31 +150,9 @@ export const REGIONS: Record<RegionId, Region> = {
 /** Список всех регионов как массив */
 export const REGIONS_LIST: Region[] = Object.values(REGIONS);
 
-/**
- * Возвращает маршруты из массива, координаты которых попадают в bbox региона.
- */
-export function getRoutesInBbox<T extends { lat: number; lng: number }>(
-  routes: T[],
-  bbox: RegionBbox
-): T[] {
-  return routes.filter(
-    (r) =>
-      r.lat >= bbox.south &&
-      r.lat <= bbox.north &&
-      r.lng >= bbox.west &&
-      r.lng <= bbox.east
-  );
-}
-
-/**
- * Определяет, в каком регионе находится точка (первое совпадение).
- */
-export function getRegionForPoint(lat: number, lng: number): Region | undefined {
-  return REGIONS_LIST.find(
-    (r) =>
-      lat >= r.bbox.south &&
-      lat <= r.bbox.north &&
-      lng >= r.bbox.west &&
-      lng <= r.bbox.east
-  );
-}
+// getRoutesInBbox и getRegionForPoint убраны 22.08.2026 (перепись).
+//
+// Обе — чистые геометрические утилиты без потребителя. Карта фильтрует
+// маршруты на сервере запросом, а не в памяти браузера; регион для точки
+// нигде не спрашивают — офлайн-пакет человек выбирает сам, и это осознанно:
+// угадать за него, какой район ему нужен, значит скачать не тот.

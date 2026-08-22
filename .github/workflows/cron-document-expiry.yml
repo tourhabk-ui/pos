@@ -1,0 +1,45 @@
+name: Cron — Document Expiry (30 days ahead)
+
+# Ежедневно в 05:30 UTC (17:30 камчатского времени).
+# Туристам, чей паспорт, виза или страховка станут недействительны в
+# ближайшие 30 дней, уходит ОДНО напоминание в Telegram. Повтор не приходит:
+# отправленное помечается в самой записи документа.
+#
+# Просроченный документ вскрывается на маршруте, а не дома: без действующего
+# не пустят в группу и не оформят страховой случай.
+
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  document-expiry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send document expiry reminders
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set — skipping"
+            exit 0
+          fi
+
+          HTTP=$(curl -s -o /tmp/docexp_resp.json -w "%{http_code}" \
+            --max-time 120 \
+            "https://vedarai.ru/api/cron/document-expiry" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "HTTP: $HTTP"
+          cat /tmp/docexp_resp.json 2>/dev/null || true
+
+          if [ "$HTTP" = "200" ]; then
+            echo "Document expiry reminders sent OK"
+          else
+            # 500 здесь означает «нашли кого предупредить и не предупредили» —
+            # это отказ, а не пустой прогон. Пустой прогон отдаёт 200.
+            echo "Unexpected HTTP $HTTP"
+            exit 1
+          fi
