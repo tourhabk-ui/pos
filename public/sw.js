@@ -246,6 +246,17 @@ async function handleTileRequest(request) {
 self.addEventListener('message', (event) => {
   if (!event.data) return;
 
+  // Отправитель должен быть нашей же страницей.
+  //
+  // js/missing-origin-check, 23.08.2026. По спецификации service worker
+  // управляет только клиентами своего origin, так что проверка здесь —
+  // не столько заслон, сколько ЗАПИСАННЫЙ инвариант: обработчик пишет в
+  // кэш тайлов и удаляет из него, и молчаливое допущение «сюда чужой не
+  // достучится» лучше держать проверяемым. `event.origin` бывает пустым
+  // (не все браузеры его заполняют для Client.postMessage) — пустое не
+  // считаем чужим, иначе сломаем офлайн-карту там, где всё в порядке.
+  if (event.origin && event.origin !== self.location.origin) return;
+
   if (event.data.type === 'CACHE_TILES') {
     const { tiles, regionId } = event.data;
     cacheTilesForRegion(tiles, regionId, event.source);
