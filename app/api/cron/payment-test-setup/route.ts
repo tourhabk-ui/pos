@@ -108,8 +108,11 @@ export async function POST(request: NextRequest) {
       // тот же параметр попадает в `name` и в `company_name`, а объявлены они
       // разными типами, и Postgres не смог свести их к одному. Приведение
       // снимает вопрос вместо того, чтобы полагаться на догадку планировщика.
-      `INSERT INTO partners (name, company_name, category, commission_current, is_public, is_verified, external_source)
-       SELECT $1::text, $1::text, 'operator', $2::numeric, false, false, 'service-payment-test'
+      // `contact` у partners объявлен JSONB NOT NULL — без него вставка
+      // падает на 23502. Пустой объект честнее выдуманного телефона:
+      // у служебного партнёра контактов нет и быть не должно.
+      `INSERT INTO partners (name, company_name, category, contact, contacts, commission_current, is_public, is_verified, external_source)
+       SELECT $1::text, $1::text, 'operator', '{}'::jsonb, '{}'::jsonb, $2::numeric, false, false, 'service-payment-test'
         WHERE NOT EXISTS (SELECT 1 FROM partners WHERE name = $1::text)
        RETURNING id::text`,
       [PARTNER_NAME, COMMISSION_PERCENT],
@@ -187,8 +190,14 @@ export async function POST(request: NextRequest) {
       e?.constraint ? `(${e.constraint})` : '',
       e?.message ?? String(err),
     );
+    // `action` есть и в ОТКАЗЕ, а не только в успехе. Проба 106 выбрала
+    // маркером свежести поле, которое появляется лишь при удаче: роут
+    // ответил настоящей ошибкой новой сборки, маркера в ответе не нашлось,
+    // и проба двенадцать минут ждала выката, которого давно не требовалось,
+    // после чего назвала причиной «нет маркера» вместо «роут ответил
+    // ошибкой». Признак сборки обязан быть в ЛЮБОМ её ответе.
     return NextResponse.json(
-      { ok: false, reason: e?.message ?? 'база не ответила', sqlstate: e?.code ?? null },
+      { ok: false, action, reason: e?.message ?? 'база не ответила', sqlstate: e?.code ?? null },
       { status: 500 },
     );
   } finally {
