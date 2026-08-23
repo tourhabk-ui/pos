@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Filter, X } from 'lucide-react';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
+import { stripTags } from '@/lib/html/text';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -114,7 +115,7 @@ export function HomeMapPreview() {
             activityType: r.activityType ?? null,
             category: r.category ?? null,
             difficulty: r.difficulty ?? null,
-            description: (r.description ?? '').replace(/<[^>]+>/g, '').slice(0, 120),
+            description: stripTags(r.description ?? '').slice(0, 120),
             lat: r.lat,
             lng: r.lng,
           }));

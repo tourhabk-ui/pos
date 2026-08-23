@@ -1,14 +1,14 @@
 import { unstable_cache } from 'next/cache';
+import { stripTags } from '@/lib/html/text';
 
 /**
  * Удаление HTML-тегов из строки.
  * Убирает script, style, и все остальные теги, оставляя текст.
  */
 function stripHtml(html: string): string {
-  return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
+  // Снятие тегов — общее (lib/html/text): здесь закрывающий тег требовался
+  // ровно `</script>`, и тело скрипта уезжало в промпт модели.
+  return stripTags(html, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

@@ -29,6 +29,7 @@ import { bridgeMonitorFindings } from '@/lib/agents/evo/intel-bridge';
 import { triageActionItems } from '@/lib/agents/intel/action-quality';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { stripTags } from '@/lib/html/text';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ async function searchHackerNews(query: string): Promise<RawSignal[]> {
       title: h.title,
       url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
       snippet: h._highlightResult?.story_text?.value
-        ? h._highlightResult.story_text.value.replace(/<[^>]+>/g, ' ').substring(0, 400)
+        ? stripTags(h._highlightResult.story_text.value, ' ').substring(0, 400)
         : `${h.points} pts · ${h.num_comments} comments · by ${h.author}`,
       source: 'hackernews',
     }));
@@ -275,7 +276,7 @@ function parseRssItems(xml: string, limit = 8): Array<{ title: string; url: stri
     const title   = (/<title[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/i.exec(block) ?? [])[1]?.trim() ?? '';
     const link    = (/<link[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/link>/i.exec(block) ?? [])[1]?.trim() ?? '';
     const descRaw = (/<description[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i.exec(block) ?? [])[1]?.trim() ?? '';
-    const snippet = descRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 400);
+    const snippet = stripTags(descRaw, ' ').replace(/\s+/g, ' ').trim().substring(0, 400);
 
     if (title && link) {
       items.push({ title, url: link, snippet });
@@ -296,7 +297,7 @@ function parseAtomEntries(xml: string, limit = 8): Array<{ title: string; url: s
     const linkMatch = /<link[^>]*href=["']([^"']+)["'][^>]*\/?>/i.exec(block);
     const link    = linkMatch?.[1]?.trim() ?? '';
     const summary = (/<summary[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/summary>/i.exec(block) ?? [])[1]?.trim() ?? '';
-    const snippet = summary.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 400);
+    const snippet = stripTags(summary, ' ').replace(/\s+/g, ' ').trim().substring(0, 400);
 
     if (title && link) {
       items.push({ title, url: link, snippet });

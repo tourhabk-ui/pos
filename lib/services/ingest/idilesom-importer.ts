@@ -20,6 +20,7 @@ import { createHash } from 'crypto';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { parseTrackBlocks, axisOrder } from '@/lib/services/ingest/track-parse';
+import { stripTags } from '@/lib/html/text';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0',
@@ -179,7 +180,7 @@ export function extractPlaceEntries(body: string): IdilesomEntry[] {
   const byId = new Map<string, string>();
   for (const m of normalized.matchAll(/<a\b[^>]*href="[^"]*\/kam\/places\/(\d+)"[^>]*>([\s\S]*?)<\/a>/g)) {
     const id = m[1];
-    const title = m[2].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const title = stripTags(m[2], ' ').replace(/\s+/g, ' ').trim();
     const prev = byId.get(id);
     if (prev === undefined || (prev === '' && title !== '')) byId.set(id, title);
   }
@@ -301,7 +302,7 @@ export async function scrapePage(id: string): Promise<ScrapedPlace | null> {
     // Description
     const ogDesc = html.match(/property="og:description"\s+content="([^"]+)"/)?.[1]?.trim() ?? '';
     const descMatch = [...html.matchAll(/<p[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/p>/gi)]
-      .map(m => m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())
+      .map(m => stripTags(m[1]).replace(/\s+/g, ' ').trim())
       .find(t => t.length > 30);
     // «Маршрут и все подробности на ИдиЛесом» — реклама конкурента, туристу не показываем.
     const description = stripSourceAttribution(descMatch || ogDesc || '');

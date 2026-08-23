@@ -4,6 +4,7 @@ import { ChevronRight, Rss } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
+import { stripTags } from '@/lib/html/text';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +55,7 @@ async function getLatestDigests(): Promise<DigestEntry[]> {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  return stripTags(html).replace(/\s+/g, ' ').trim();
 }
 
 function formatDate(iso: string): string {

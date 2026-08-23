@@ -14,6 +14,7 @@
 import { pool } from '../lib/db-pool';
 import { isPlausibleTrackPoint } from '../lib/routes/track';
 import { parseTrackBlocks } from '../lib/services/ingest/track-parse';
+import { stripTags } from '@/lib/html/text';
 
 const DELAY_MS = 600;
 const MAX_MATCH_DIST_KM = 5;
@@ -92,7 +93,7 @@ async function scrapePlaceTrack(placeId: string): Promise<PlaceTrack | null> {
 
   // Title
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-  const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+  const title = titleMatch ? stripTags(titleMatch[1]).trim() : '';
 
   // Координаты — общим разбором (lib/services/ingest/track-parse).
   //

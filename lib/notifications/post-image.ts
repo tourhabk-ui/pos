@@ -11,6 +11,8 @@
  * одну обложку (перепост не «переодевается»). Тема новости входит в промпт.
  */
 
+import { stripTags } from '@/lib/html/text';
+
 /** FNV-1a — быстрый детерминированный хэш строки. */
 export function hashStr(s: string): number {
   let h = 0x811c9dc5;
@@ -35,7 +37,7 @@ function pick<T>(pool: readonly T[], hash: number, slot: number): T {
  * содержательный), ограничиваем длину.
  */
 export function themeHint(summary: string): string {
-  const firstLine = summary.replace(/<[^>]+>/g, ' ').split('\n')[0].replace(/\s+/g, ' ').trim();
+  const firstLine = stripTags(summary, ' ').split('\n')[0].replace(/\s+/g, ' ').trim();
   const beforeColon = firstLine.split(':')[0].trim();
   // Короткий префикс до двоеточия («ИИ:», «GPT:») — не заголовок, берём строку целиком.
   const headline = beforeColon.length >= 12 ? beforeColon : firstLine;

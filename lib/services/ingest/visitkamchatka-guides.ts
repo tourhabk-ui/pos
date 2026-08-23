@@ -13,6 +13,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { stripTags } from '@/lib/html/text';
 
 const GUIDES_URL = 'https://visitkamchatka.ru/guides/';
 const HDRS = {
@@ -132,7 +133,7 @@ function parseGuideFromHtml(html: string, url: string): GuideRecord | null {
   const name = h1Match[1].replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
   if (name.length < 3) return null;
 
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const text = stripTags(html, ' ').replace(/\s+/g, ' ');
 
   // Описание — ищем первый длинный абзац
   const pMatch = html.match(/<p[^>]*>([^<]{80,600})<\/p>/i);
@@ -162,7 +163,7 @@ function parseGuideCards(html: string): GuideRecord[] {
     if (!nameMatch) continue;
     const name = nameMatch[1].replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
     if (name.length < 3 || name.length > 150) continue;
-    const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    const text = stripTags(block, ' ').replace(/\s+/g, ' ');
     const urlMatch = block.match(/href="([^"]*\/guides\/[^"#?]{3,}[^"/])"/i);
     const sourceUrl = urlMatch ? `https://visitkamchatka.ru${urlMatch[1].startsWith('/') ? '' : '/'}${urlMatch[1]}` : GUIDES_URL;
     if (!records.find(r => r.name === name)) {

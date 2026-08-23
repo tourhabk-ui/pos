@@ -5,6 +5,7 @@
 
 import nodemailer from 'nodemailer';
 import { decodeHtmlEntities } from '@/lib/html/entities';
+import { stripTags } from '@/lib/html/text';
 
 export interface EmailOptions {
   to: string;
@@ -386,7 +387,7 @@ class EmailService {
   private htmlToText(html: string): string {
     // Разворот сущностей — один проход (lib/html/entities): цепочка
     // разворачивала текст дважды, и `&amp;lt;` становилось символом `<`.
-    return decodeHtmlEntities(html.replace(/<[^>]*>/g, '')).trim();
+    return decodeHtmlEntities(stripTags(html)).trim();
   }
 }
 

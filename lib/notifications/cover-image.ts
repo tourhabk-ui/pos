@@ -26,6 +26,7 @@ import {
 } from '@/lib/notifications/post-image';
 import { buildPollinationsUrl } from '@/lib/services/ingest/pollinations-url';
 import { callAIFastOrNull } from '@/lib/ai/providers';
+import { stripTags } from '@/lib/html/text';
 
 export type CoverChannel = 'ai' | 'travel';
 
@@ -92,7 +93,7 @@ export async function composeCoverPrompt(text: string, channel: CoverChannel): P
       { role: 'system', content: system },
       { role: 'user', content: headline },
     ]);
-    const cleaned = out?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleaned = out ? stripTags(out, ' ').replace(/\s+/g, ' ').trim() : undefined;
     if (cleaned && cleaned.length >= 15) return cleaned.slice(0, 480);
   } catch {
     /* откат ниже */

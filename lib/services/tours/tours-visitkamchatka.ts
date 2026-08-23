@@ -14,6 +14,7 @@
 import { pool } from '@/lib/db-pool';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { stripTags, stripScriptsAndStyles } from '@/lib/html/text';
 
 const TOURS_BASE = 'https://tours.visitkamchatka.ru';
 const TOURS_URL  = `${TOURS_BASE}/tours`;
@@ -342,9 +343,9 @@ function parseMarkdownTours(markdown: string): TourSlot[] {
 function parseHtmlTours(html: string): TourSlot[] {
   const tours: TourSlot[] = [];
 
-  const cleaned = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  // Разметка сохраняется — дальше по ней ищут карточки туров; убираются
+  // только скрипты и стили, общей функцией (lib/html/text).
+  const cleaned = stripScriptsAndStyles(html, '');
 
   // Wide class pattern — cover many possible naming conventions
   const cardPattern = /<(?:div|article|li|section)[^>]*class="[^"]*(?:tour|card|item|product|offer|package|путевка|тур|catalog|listing|result|row)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|article|li|section)>/gi;
@@ -352,7 +353,7 @@ function parseHtmlTours(html: string): TourSlot[] {
 
   while ((m = cardPattern.exec(cleaned)) !== null) {
     const block = m[1];
-    const plain = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    const plain = stripTags(block, ' ').replace(/\s+/g, ' ');
     const titleMatch = block.match(/<(?:h[1-5]|strong|b)[^>]*>([^<]{5,200})<\/(?:h[1-5]|strong|b)>/i);
     if (!titleMatch) continue;
 

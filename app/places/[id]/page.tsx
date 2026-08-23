@@ -6,6 +6,7 @@ import PlaceSOS from '@/components/places/PlaceSOS';
 import { isUuid } from '@/lib/text/slugify';
 import { resolveMergedTarget } from '@/lib/places/aliases';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { stripTags } from '@/lib/html/text';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -134,7 +135,7 @@ export default async function PlaceDetailPage({ params }: Props) {
         ? (imgUrl.startsWith('http') ? imgUrl : `${BASE}${imgUrl}`)
         : (r.has_real_photo ? `${BASE}/api/images/route/${r.ark_id}` : null);
       const typeLabel = PLACE_TYPE_LABEL[r.location_type as string] ?? 'Место';
-      const desc = ((r.essence ?? r.description) as string | null)?.replace(/<[^>]+>/g, '').slice(0, 300) ?? `${typeLabel} на Камчатке`;
+      const desc = stripTags(((r.essence ?? r.description) as string | null) ?? '').slice(0, 300) ?? `${typeLabel} на Камчатке`;
 
       jsonLd = {
         '@context': 'https://schema.org',

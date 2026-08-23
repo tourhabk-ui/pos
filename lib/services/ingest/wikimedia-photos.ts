@@ -10,6 +10,7 @@
  * ai_route_images с атрибуцией. Требует сетевого доступа (работает на проде).
  */
 import { decodeHtmlEntities } from '@/lib/html/entities';
+import { stripTags } from '@/lib/html/text';
 
 const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 // Wikimedia требует осмысленный User-Agent с контактом.
@@ -60,7 +61,7 @@ export function stripHtml(raw: string | null | undefined): string {
   if (!raw) return '';
   // Разворот сущностей — один проход (lib/html/entities): цепочка
   // разворачивала имя автора дважды, и `&amp;lt;` становилось `<`.
-  return decodeHtmlEntities(raw.replace(/<[^>]+>/g, ' '))
+  return decodeHtmlEntities(stripTags(raw, ' '))
     .replace(/\s+/g, ' ')
     .trim();
 }

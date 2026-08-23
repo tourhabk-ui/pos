@@ -7,6 +7,7 @@
  */
 
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { stripTags, stripScriptsAndStyles } from '@/lib/html/text';
 
 const BASE = 'https://visitkamchatka.ru';
 const UA = 'Mozilla/5.0 (compatible; TourHabBot/1.0)';
@@ -128,7 +129,7 @@ function extractInternalLinks(html: string, currentPath: string): { url: string;
   const links: { url: string; text: string }[] = [];
   for (const m of html.matchAll(/<a[^>]+href="(\/[^"?#]{3,100})"[^>]*>([^<]{2,100})<\/a>/gi)) {
     const url = m[1];
-    const text = m[2].replace(/<[^>]+>/g, '').trim();
+    const text = stripTags(m[2]).trim();
     if (url !== currentPath && text && links.length < 40) {
       links.push({ url, text });
     }
@@ -237,10 +238,9 @@ async function auditSection(section: typeof SECTIONS[0], timeoutMs = 22_000): Pr
   base.top_classes = extractTopClasses(html, 25);
   base.nav_links = extractNavLinks(html);
   base.internal_links = extractInternalLinks(html, new URL(section.url).pathname);
-  base.html_preview = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .slice(0, 4000);
+  // Разметка здесь СОХРАНЯЕТСЯ (это превью html), убираются только скрипты
+  // и стили — общей функцией: закрывающий тег читается как браузером.
+  base.html_preview = stripScriptsAndStyles(html, '').slice(0, 4000);
   base.pagination = extractPagination(html);
 
   // Special case for main page: discover all internal section links

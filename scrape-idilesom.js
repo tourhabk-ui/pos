@@ -4,6 +4,8 @@
 
 const API_TOKEN = "eaf70e24-b62f-4a8d-a0b2-9eb760f3f7ec";
 
+const { stripTags } = require('./lib/html/text.js');
+
 const CATEGORIES = [
   { id: 133, slug: "volcanoes",  name: "Вулканы" },
   { id: 146, slug: "thermal",   name: "Горячие источники" },
@@ -38,7 +40,7 @@ function parseList(html) {
   const cardRegex = /href="\/kam\/places\/(\d+)"[^>]*>[\s\S]*?<div[^>]*class="[^"]*title[^"]*"[^>]*>([\s\S]*?)<\/div>/g;
   let m;
   while ((m = cardRegex.exec(html)) !== null) {
-    items.push({ id: m[1], title: m[2].replace(/<[^>]+>/g, "").trim() });
+    items.push({ id: m[1], title: stripTags(m[2]).trim() });
   }
   // Fallback: просто ищем все ссылки на маршруты
   if (items.length === 0) {
@@ -52,7 +54,7 @@ function parseList(html) {
 }
 
 function parseDetail(html, id) {
-  const get = (regex) => { const m = html.match(regex); return m ? m[1].replace(/<[^>]+>/g, "").trim() : null; };
+  const get = (regex) => { const m = html.match(regex); return m ? stripTags(m[1]).trim() : null; };
 
   const title = get(/<h1[^>]*>([\s\S]*?)<\/h1>/) ||
                 get(/class="[^"]*place-title[^"]*"[^>]*>([\s\S]*?)<\//) ;

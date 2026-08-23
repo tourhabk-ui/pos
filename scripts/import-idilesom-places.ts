@@ -12,6 +12,7 @@
 
 import { pool } from '../lib/db-pool';
 import { createHash } from 'crypto';
+import { stripTags } from '@/lib/html/text';
 
 const isDryRun = process.argv.includes('--dry-run');
 const DELAY_MS = 700;
@@ -88,7 +89,7 @@ async function scrapePage(id: string): Promise<IdilesomPlace | null> {
   // Description
   const ogDesc = html.match(/property="og:description"\s+content="([^"]+)"/)?.[1]?.trim() ?? '';
   const descBlocks = [...html.matchAll(/<p[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/p>/gi)]
-    .map(m => m[1].replace(/<[^>]+>/g, '').trim())
+    .map(m => stripTags(m[1]).trim())
     .filter(t => t.length > 30);
   const description = descBlocks[0] || ogDesc || '';
 

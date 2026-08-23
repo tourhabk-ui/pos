@@ -9,6 +9,7 @@ import { pool } from '@/lib/db-pool';
 import { query } from '@/lib/database';
 import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { stripTags } from '@/lib/html/text';
 
 export interface CachedDescription {
   routeId: string;
@@ -101,7 +102,7 @@ function buildDescriptionPrompt(
   originalDesc: string | null,
 ): string {
   const snippet = originalDesc
-    ? originalDesc.replace(/<[^>]+>/g, '').slice(0, 200)
+    ? stripTags(originalDesc).slice(0, 200)
     : '';
 
   return `Ты туристический гайд Камчатки с опытом 20+ лет. Создай привлекательное 3-5 предложений SEO-оптимизированное описание маршрута для поисковых систем.

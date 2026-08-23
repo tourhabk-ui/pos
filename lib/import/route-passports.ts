@@ -7,6 +7,7 @@
  * никаких догадок и автопривязок при неуверенности.
  */
 import { decodeHtmlEntities, normalizePunctuation } from '@/lib/html/entities';
+import { stripTags as stripHtml } from '@/lib/html/text';
 
 export interface PassportLink {
   title: string;
@@ -59,7 +60,7 @@ function stripTags(html: string): string {
   // Разворот — один проход (lib/html/entities), нормализация знаков — шагом
   // ПОСЛЕ. Прежде и то и другое жило в одной цепочке `.replace()`, из-за чего
   // `&amp;lt;` в паспорте маршрута превращалось в символ `<`.
-  return normalizePunctuation(decodeHtmlEntities(html.replace(/<[^>]+>/g, ' ')))
+  return normalizePunctuation(decodeHtmlEntities(stripHtml(html, ' ')))
     .replace(/\s+/g, ' ')
     .trim();
 }

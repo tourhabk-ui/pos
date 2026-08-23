@@ -13,6 +13,7 @@
 import { pool } from '@/lib/db-pool';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import { decodeHtmlEntities } from '@/lib/html/entities';
+import { stripTags } from '@/lib/html/text';
 
 const OPERATORS_URL = 'https://visitkamchatka.ru/tour-operators/';
 const USER_AGENT = 'TourHab/1.0 (KamchatourHub operator importer)';
@@ -267,7 +268,7 @@ function parseHtmlOperators(html: string): OperatorRecord[] {
     // фирмы («ООО &nbsp; Ко» как текст) схлопывалось в пробел.
     const name = decodeHtmlEntities(nameMatch[1]).trim();
     if (!isValidOperatorName(name)) continue;
-    const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    const text = stripTags(block, ' ').replace(/\s+/g, ' ');
     const tgLinks = extractTgLinks(block);
     const siteMatch = block.match(/href="(https?:\/\/(?!visitkamchatka)[^"]+)"/i);
     if (!records.find(r => r.name === name)) {
@@ -289,7 +290,7 @@ function parseHtmlOperators(html: string): OperatorRecord[] {
       if (!nameMatch) continue;
       const name = nameMatch[1].replace(/&[^;]+;/g, '').trim();
       if (!isValidOperatorName(name) || records.find(r => r.name === name)) continue;
-      const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+      const text = stripTags(block, ' ').replace(/\s+/g, ' ');
       const phone = extractPhone(text);
       if (!phone) continue;
       const tgLinks = extractTgLinks(block);
