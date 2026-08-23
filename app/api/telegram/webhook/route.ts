@@ -58,6 +58,8 @@ import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { createLead } from '@/lib/leads/create';
 import { isTechnicalHost } from '@/lib/config';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { applyLeadStatus, LEAD_STATUS_ACTIONS } from '@/lib/leads/status-action';
 
 export const dynamic = 'force-dynamic';
 
@@ -120,7 +122,8 @@ interface TelegramUpdate {
 
 interface RouteRow { id: string; title: string; category: string; description: string | null }
 interface OperatorRow { name: string; slug: string }
-interface LeadRow { id: string; name: string; phone: string; route_title: string | null; created_at: string; status: string }
+/** Список заявок для Telegram: ПД не читаются — их здесь не показывают. */
+interface LeadRow { id: string; route_title: string | null; created_at: string; status: string }
 interface StatsRow {
   bookings_today: string; bookings_30d: string;
   leads_today: string;    leads_30d: string;
@@ -378,32 +381,25 @@ const STATUS_LABEL: Record<string, string> = {
 async function getLastLeads(): Promise<string> {
   try {
     const res = await query<LeadRow>(
-      `SELECT id::text, name, phone, route_title, created_at::text, status
+      `SELECT id::text, route_title, created_at::text, status
        FROM leads ORDER BY created_at DESC LIMIT 5`
     );
     if (!res.rows.length) return 'Заявок пока нет.';
+    // Имя и телефон в Telegram не показываются (решение владельца 23.08):
+    // ПД туриста идут только в MAX и в кабинет. Здесь — очередь и её состояние.
     const lines = ['<b>Последние 5 заявок:</b>', ''];
     res.rows.forEach((l, i) => {
       const date = new Date(l.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
       const statusLabel = STATUS_LABEL[l.status] ?? l.status;
-      lines.push(`${i + 1}. <b>${esc(l.name)}</b>  <code>${esc(l.phone)}</code>  [${statusLabel}]`);
+      lines.push(`${i + 1}. <code>${l.id}</code>  [${statusLabel}]`);
       if (l.route_title) lines.push(`   ${esc(l.route_title)}`);
-      lines.push(`   <i>${date}</i>  <code>${l.id}</code>`);
+      lines.push(`   <i>${date}</i>`);
     });
+    lines.push('', 'Имя и телефон — в MAX и в кабинете.');
     return lines.join('\n');
   } catch {
     return 'Не удалось загрузить лиды.';
   }
-}
-
-async function updateLeadStatus(leadId: string, status: string): Promise<{ name: string; phone: string } | null> {
-  try {
-    const res = await query<{ name: string; phone: string }>(
-      `UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING name, phone`,
-      [status, leadId]
-    );
-    return res.rows[0] ?? null;
-  } catch { return null; }
 }
 
 // ── Lead creation from bot ───────────────────────────────────────────────────
@@ -424,7 +420,13 @@ function extractLastInterestsFromHistory(history: HistoryMessage[]): ExtractedIn
   return {};
 }
 
-interface OperatorRow2 { name: string; slug: string; telegram_chat_id: string | null }
+interface OperatorRow2 {
+  name: string;
+  slug: string;
+  /** Адрес оператора в MAX — туда идут ПД. NULL: ПД ему не уходят. */
+  max_chat_id: string | null;
+  telegram_chat_id: string | null;
+}
 
 async function createLeadFromBot(
   chatId: string,
@@ -485,34 +487,49 @@ async function createLeadFromBot(
     // ── 2. Уведомление нужному оператору ──────────────────────────────────
     if (interestList.length > 0) {
       const opRes = await pool.query<OperatorRow2>(
-        `SELECT p.name, p.slug, p.contacts->>'telegram_chat_id' AS telegram_chat_id
+        `SELECT p.name, p.slug, p.max_chat_id::text AS max_chat_id,
+                p.contacts->>'telegram_chat_id' AS telegram_chat_id
          FROM partners p
          JOIN operator_tours ot ON ot.operator_id = p.user_id
          JOIN agent_route_knowledge ark ON ark.id = ot.route_id
          WHERE ark.activity_type = ANY($1)
            AND p.is_public = TRUE
-           AND (p.contacts->>'telegram_chat_id') IS NOT NULL
-         GROUP BY p.name, p.slug, p.contacts->>'telegram_chat_id'
+           AND (p.max_chat_id IS NOT NULL OR (p.contacts->>'telegram_chat_id') IS NOT NULL)
+         GROUP BY p.name, p.slug, p.max_chat_id, p.contacts->>'telegram_chat_id'
          LIMIT 3`,
         [interestList]
       );
 
+      const facts = [
+        `<b>Интересы:</b> ${interestList.join(', ')}`,
+        interests.dateFrom ? `<b>Даты:</b> ${interests.dateFrom} — ${interests.dateTo}` : '',
+      ].filter(s => s !== '');
+
       for (const op of opRes.rows) {
-        if (!op.telegram_chat_id) continue;
-        await telegramService.sendMessage({
-          chatId: op.telegram_chat_id,
+        // Телефон туриста — ПД: идёт в MAX оператора. Если MAX у него не
+        // привязан, в Telegram уходит заглушка без телефона.
+        const res = await sendPdAlert({
           text: [
-            '🔥 <b>Горячий лид!</b>',
+            '<b>Горячий лид</b>',
             '',
-            `<b>Телефон:</b> <a href="tel:${phone}">${phone}</a>`,
-            `<b>Интересы:</b> ${interestList.join(', ')}`,
-            interests.dateFrom ? `<b>Даты:</b> ${interests.dateFrom} — ${interests.dateTo}` : '',
+            `<b>Телефон:</b> ${esc(phone)}`,
+            ...facts,
             '',
-            '⚡️ Свяжитесь в течение 1–2 часов — турист ждёт!',
-            `<a href="https://vedarai.ru/hub/operator/bookings">Открыть в CRM →</a>`,
-          ].filter(s => s !== '').join('\n'),
-          parseMode: 'HTML',
-        }).catch(() => {});
+            'Свяжитесь в течение 1-2 часов — турист ждёт.',
+          ].join('\n'),
+          stub: [
+            '<b>Горячий лид</b>',
+            '',
+            ...facts,
+            '',
+            'Телефон — в MAX и в кабинете. Свяжитесь в течение 1-2 часов.',
+          ].join('\n'),
+          buttons: [{ text: 'Открыть в CRM', url: 'https://vedarai.ru/hub/operator/bookings' }],
+          to: { maxChatId: op.max_chat_id, telegramChatId: op.telegram_chat_id },
+        });
+        if (!res.delivered) {
+          console.error(`[telegram/webhook] горячий лид ${op.slug}: ПД не доставлены (${res.channel}) — ${res.reason}`);
+        }
       }
     }
 
@@ -1357,28 +1374,25 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Кнопки статуса лида (только admin) ────────────────────────────────
-    const LEAD_STATUSES: Record<string, string> = {
-      'lead_contacted': 'contacted',
-      'lead_qualified': 'qualified',
-      'lead_converted': 'converted',
-      'lead_lost':      'lost',
-    };
-
-    const leadPrefix = Object.keys(LEAD_STATUSES).find(p => data.startsWith(p + ':'));
+    // Карта действий — общая с MAX-вебхуком (lib/leads/status-action.ts):
+    // две копии разошлись бы молча.
+    const leadPrefix = Object.keys(LEAD_STATUS_ACTIONS).find(p => data.startsWith(p + ':'));
     if (leadPrefix) {
       if (!isAdmin(senderChatId)) {
         await telegramService.answerCallback(cq.id, 'Нет прав');
         return NextResponse.json({ ok: true });
       }
       const leadId = data.slice(leadPrefix.length + 1);
-      const newStatus = LEAD_STATUSES[leadPrefix];
-      const lead = await updateLeadStatus(leadId, newStatus);
-      if (lead) {
-        const label = STATUS_LABEL[newStatus] ?? newStatus;
-        await telegramService.answerCallback(cq.id, `${label}: ${lead.name}`);
-        await sendHTML(callbackChatId, `Лид <b>${esc(lead.name)}</b> — статус: <b>${label}</b>\n<code>${leadId}</code>`);
-      } else {
+      const res = await applyLeadStatus(leadPrefix, leadId);
+      if (res.outcome === 'updated') {
+        // Имя туриста в подтверждение не подставляем: это Telegram.
+        await telegramService.answerCallback(cq.id, res.label);
+        await sendHTML(callbackChatId, `Заявка <code>${leadId}</code> — статус: <b>${res.label}</b>`);
+      } else if (res.outcome === 'not_found') {
         await telegramService.answerCallback(cq.id, 'Лид не найден');
+      } else {
+        await telegramService.answerCallback(cq.id, 'Не удалось изменить статус');
+        await sendHTML(callbackChatId, `Статус заявки <code>${leadId}</code> не изменён: ${res.reason}`);
       }
       return NextResponse.json({ ok: true });
     }

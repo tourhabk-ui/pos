@@ -20,9 +20,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { telegramService } from '@/lib/notifications/telegram';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +54,10 @@ interface FollowupLead {
 interface OperatorMatch {
   name: string;
   slug: string;
-  telegram_chat_id: string;
+  /** ПД оператору идут сюда. NULL — значит адреса в MAX у него нет. */
+  max_chat_id: string | null;
+  /** Только для заглушки без ПД, если MAX недоступен. */
+  telegram_chat_id: string | null;
 }
 
 // ── Утилиты ───────────────────────────────────────────────────────────────────
@@ -82,7 +86,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const adminChatId = process.env.TELEGRAM_CHAT_ID ?? '';
 
   try {
     // ── Выбираем лиды, требующие followup ───────────────────────────────────
@@ -109,10 +112,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: true, processed: 0, message: 'Нет лидов для обработки' });
     }
 
-    // Диагностика: сколько операторов с telegram_chat_id
-    const diagRes = await pool.query<{ total: string; with_telegram: string }>(
+    // Диагностика: у скольких операторов есть адрес в MAX (ПД идут туда) и у
+    // скольких — только Telegram (тогда придёт заглушка без имени и телефона).
+    const diagRes = await pool.query<{ total: string; with_telegram: string; with_max: string }>(
       `SELECT COUNT(*) AS total,
-              COUNT(*) FILTER (WHERE contacts->>'telegram_chat_id' IS NOT NULL) AS with_telegram
+              COUNT(*) FILTER (WHERE contacts->>'telegram_chat_id' IS NOT NULL) AS with_telegram,
+              COUNT(*) FILTER (WHERE max_chat_id IS NOT NULL) AS with_max
        FROM partners WHERE is_public = TRUE`
     );
     const diag = diagRes.rows[0];
@@ -132,15 +137,16 @@ export async function GET(request: NextRequest) {
 
       if (interests.length > 0) {
         const opRes = await pool.query<OperatorMatch>(
-          `SELECT p.name, p.slug, p.contacts->>'telegram_chat_id' AS telegram_chat_id
+          `SELECT p.name, p.slug, p.max_chat_id::text AS max_chat_id,
+                  p.contacts->>'telegram_chat_id' AS telegram_chat_id
            FROM partners p
            JOIN operator_tours ot ON ot.operator_id = p.id
            WHERE ot.activity_type = ANY($1)
              AND ot.is_active = TRUE
              AND p.is_public = TRUE
-             AND (p.contacts->>'telegram_chat_id') IS NOT NULL
+             AND (p.max_chat_id IS NOT NULL OR (p.contacts->>'telegram_chat_id') IS NOT NULL)
              AND NOT (p.slug = ANY($2))
-           GROUP BY p.name, p.slug, p.contacts->>'telegram_chat_id'
+           GROUP BY p.name, p.slug, p.max_chat_id, p.contacts->>'telegram_chat_id'
            LIMIT 1`,
           [interests, alreadyNotified]
         );
@@ -150,10 +156,11 @@ export async function GET(request: NextRequest) {
       // Fallback: если нет интересов или не нашли по интересам — любой оператор не из списка
       if (!nextOperator) {
         const fallbackRes = await pool.query<OperatorMatch>(
-          `SELECT name, slug, contacts->>'telegram_chat_id' AS telegram_chat_id
+          `SELECT name, slug, max_chat_id::text AS max_chat_id,
+                  contacts->>'telegram_chat_id' AS telegram_chat_id
            FROM partners
            WHERE is_public = TRUE
-             AND (contacts->>'telegram_chat_id') IS NOT NULL
+             AND (max_chat_id IS NOT NULL OR (contacts->>'telegram_chat_id') IS NOT NULL)
              AND NOT (slug = ANY($1))
            LIMIT 1`,
           [alreadyNotified]
@@ -164,25 +171,42 @@ export async function GET(request: NextRequest) {
       if (nextOperator) {
         // ── Уведомляем следующего оператора ───────────────────────────────
         const attempt = followupCount + 1;
-        const msgLines = [
-          attempt === 1
-            ? '⏰ <b>Напоминание: горячий лид!</b>'
-            : `⏰ <b>Повторное уведомление (попытка ${attempt})</b>`,
-          '',
-          `<b>Имя:</b> ${esc(lead.name)}`,
-          `<b>Телефон:</b> <a href="tel:${esc(lead.phone)}">${esc(lead.phone)}</a>`,
+        const head = attempt === 1
+          ? '<b>Напоминание: горячий лид</b>'
+          : `<b>Повторное уведомление (попытка ${attempt})</b>`;
+        const facts = [
           interests.length > 0 ? `<b>Интересы:</b> ${interests.join(', ')}` : '',
           (sd.date_from ?? sd.arrival) ? `<b>Даты:</b> ${sd.date_from ?? sd.arrival} — ${sd.date_to ?? sd.departure}` : '',
-          '',
-          '⚡️ Турист ещё не получил ответа. Пожалуйста, свяжитесь с ним!',
-          `<a href="https://vedarai.ru/hub/operator/bookings">Открыть в CRM →</a>`,
-        ].filter(Boolean).join('\n');
+        ].filter(Boolean);
 
-        await telegramService.sendMessage({
-          chatId: nextOperator.telegram_chat_id,
+        const msgLines = [
+          head,
+          '',
+          `<b>Имя:</b> ${esc(lead.name)}`,
+          `<b>Телефон:</b> ${esc(lead.phone)}`,
+          ...facts,
+          '',
+          'Турист ещё не получил ответа — свяжитесь с ним.',
+        ].join('\n');
+
+        const stubLines = [
+          head,
+          '',
+          `Заявка <code>${esc(lead.id)}</code> ждёт ответа.`,
+          ...facts,
+          '',
+          'Имя и телефон — в MAX и в кабинете: в Telegram они не передаются.',
+        ].join('\n');
+
+        const opRes2 = await sendPdAlert({
           text: msgLines,
-          parseMode: 'HTML',
-        }).catch(() => {});
+          stub: stubLines,
+          buttons: [{ text: 'Открыть в CRM', url: `${getPublicBaseUrl()}/hub/operator/leads/${lead.id}` }],
+          to: { maxChatId: nextOperator.max_chat_id, telegramChatId: nextOperator.telegram_chat_id },
+        });
+        if (!opRes2.delivered) {
+          console.error(`[cron/leads-followup] ${nextOperator.slug}: ПД не доставлены (${opRes2.channel}) — ${opRes2.reason}`);
+        }
 
         // ── Обновляем source_data ──────────────────────────────────────────
         const newNotified = [...alreadyNotified, nextOperator.slug];
@@ -205,24 +229,35 @@ export async function GET(request: NextRequest) {
         // ── Операторы кончились — эскалация к admin ────────────────────────
         noOperators++;
         escalated++;
-        if (adminChatId) {
-          await telegramService.sendMessage({
-            chatId: adminChatId,
-            text: [
-              '⚠️ <b>Лид без ответа — нужна ручная обработка!</b>',
-              '',
-              `<b>Телефон:</b> <a href="tel:${esc(lead.phone)}">${esc(lead.phone)}</a>`,
-              `<b>Имя:</b> ${esc(lead.name)}`,
-              interests.length > 0 ? `<b>Интересы:</b> ${interests.join(', ')}` : '',
-              (sd.date_from ?? sd.arrival) ? `<b>Даты:</b> ${sd.date_from ?? sd.arrival} — ${sd.date_to ?? sd.departure}` : '',
-              `<b>Уведомлений отправлено:</b> ${followupCount}`,
-              '',
-              'Свободных операторов не осталось. Обработайте вручную.',
-              `<a href="https://vedarai.ru/hub/admin/leads">CRM лиды →</a>`,
-              `<code>${lead.id}</code>`,
-            ].filter(Boolean).join('\n'),
-            parseMode: 'HTML',
-          }).catch(() => {});
+        const admFacts = [
+          interests.length > 0 ? `<b>Интересы:</b> ${interests.join(', ')}` : '',
+          (sd.date_from ?? sd.arrival) ? `<b>Даты:</b> ${sd.date_from ?? sd.arrival} — ${sd.date_to ?? sd.departure}` : '',
+          `<b>Уведомлений отправлено:</b> ${followupCount}`,
+        ].filter(Boolean);
+
+        const admRes = await sendPdAlert({
+          text: [
+            '<b>Лид без ответа — нужна ручная обработка</b>',
+            '',
+            `<b>Имя:</b> ${esc(lead.name)}`,
+            `<b>Телефон:</b> ${esc(lead.phone)}`,
+            ...admFacts,
+            '',
+            'Свободных операторов не осталось.',
+            `<code>${esc(lead.id)}</code>`,
+          ].join('\n'),
+          stub: [
+            '<b>Лид без ответа — нужна ручная обработка</b>',
+            '',
+            `Заявка <code>${esc(lead.id)}</code>.`,
+            ...admFacts,
+            '',
+            'Свободных операторов не осталось. Имя и телефон — в MAX и в кабинете.',
+          ].join('\n'),
+          buttons: [{ text: 'CRM лиды', url: `${getPublicBaseUrl()}/hub/operator/leads/${lead.id}` }],
+        });
+        if (!admRes.delivered) {
+          console.error(`[cron/leads-followup] эскалация ${lead.id}: ПД не доставлены (${admRes.channel}) — ${admRes.reason}`);
         }
 
         // Меняем статус на 'contacted' + помечаем как обработанный кроном
@@ -254,9 +289,12 @@ export async function GET(request: NextRequest) {
       leads_found: leadsRes.rows.length,
       operators_total: Number(diag.total),
       operators_with_telegram: Number(diag.with_telegram),
-      warning: Number(diag.with_telegram) === 0
-        ? 'Ни один оператор не имеет telegram_chat_id — все лиды эскалируются к admin. Добавьте telegram_chat_id в contacts оператора через /hub/admin/operators.'
-        : null,
+      operators_with_max: Number(diag.with_max),
+      warning: Number(diag.with_max) === 0
+        ? 'Ни у одного оператора нет max_chat_id — имя и телефон туриста им не уходят, приходит только заглушка. Привяжите оператора к MAX.'
+        : Number(diag.with_max) + Number(diag.with_telegram) === 0
+          ? 'Ни один оператор не достижим ни в MAX, ни в Telegram — все лиды эскалируются к admin.'
+          : null,
     });
 
   } catch (err) {

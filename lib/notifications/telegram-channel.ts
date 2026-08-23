@@ -919,6 +919,7 @@ import type { IntelligenceFinding } from '@/lib/services/intelligence-monitor.se
 import { hashStr } from '@/lib/notifications/post-image';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { getPublicBaseUrl } from '@/lib/config';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
 
 /**
  * Фактчек перед публикацией — те же два эшелона, что у scout-digest, по одной
@@ -1339,12 +1340,6 @@ export async function notifyAdminNewLead(lead: {
   score?: number;
   labelRu?: string;
 }): Promise<void> {
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!chatId) return;
-
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return;
-
   const sd = lead.sourceData as LeadSourceData | null | undefined;
   const interests = sd?.interests ?? [];
   const dateFrom  = sd?.date_from ?? sd?.arrival;
@@ -1363,7 +1358,7 @@ export async function notifyAdminNewLead(lead: {
     title,
     '',
     `<b>Имя:</b> ${esc(lead.name)}`,
-    `<b>Тел:</b> <code>${esc(lead.phone)}</code> <a href="tel:${esc(lead.phone)}">(позвонить)</a>`,
+    `<b>Тел:</b> <code>${esc(lead.phone)}</code>`,
   ];
 
   if (interests.length > 0) {
@@ -1380,52 +1375,49 @@ export async function notifyAdminNewLead(lead: {
   }
   if (lead.routeTitle) lines.push(`<b>Маршрут:</b> ${esc(lead.routeTitle)}`);
   if (lead.sourceUrl) lines.push(`<b>Страница:</b> ${esc(lead.sourceUrl)}`);
+  lines.push('', `<code>${esc(lead.id)}</code>`);
 
-  // Ссылка на CRM: детальная страница лида живёт в /hub/operator/leads/[id];
-  // /hub/admin/leads/[id] — редирект для старых уже отправленных сообщений
-  lines.push('', `<a href="${baseUrl}/hub/operator/leads/${lead.id}">Открыть в CRM →</a>`, `<code>${lead.id}</code>`);
+  // Заглушка без ПД — на случай, когда MAX недоступен: о лиде узнают, но имя
+  // и телефон остаются за логином, в Telegram они не уходят.
+  const stub = [
+    title,
+    '',
+    `Заявка <code>${esc(lead.id)}</code>${source ? ` — ${esc(source)}` : ''}.`,
+    lead.routeTitle ? `Маршрут: ${esc(lead.routeTitle)}` : '',
+    'Имя и телефон — в кабинете: MAX недоступен, в Telegram они не передаются.',
+  ].filter(Boolean).join('\n');
 
-  const replyMarkup = {
-    inline_keyboard: [
-      [
-        { text: 'Позвонил', callback_data: `lead_contacted:${lead.id}` },
-        { text: 'Квалифицирован', callback_data: `lead_qualified:${lead.id}` },
-      ],
-      [
-        { text: 'Сделка!', callback_data: `lead_converted:${lead.id}` },
-        { text: 'Отказ', callback_data: `lead_lost:${lead.id}` },
-      ],
+  const res = await sendPdAlert({
+    text: lines.join('\n'),
+    stub,
+    buttons: [
+      { text: 'Позвонил', payload: `lead_contacted:${lead.id}` },
+      { text: 'Квалифицирован', payload: `lead_qualified:${lead.id}` },
+      { text: 'Сделка!', payload: `lead_converted:${lead.id}` },
+      { text: 'Отказ', payload: `lead_lost:${lead.id}` },
+      { text: 'Открыть в CRM', url: `${baseUrl}/hub/operator/leads/${lead.id}` },
     ],
-  };
+  });
 
-  const tgData = await tgFetchWithRetry(
-    `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`,
-    {
-      chat_id: chatId,
-      text: lines.join('\n'),
-      parse_mode: 'HTML',
-      reply_markup: replyMarkup,
-    },
-  );
-
-  // Логируем попытку в ai_actions_log
+  // Логируем попытку в ai_actions_log. Исход записывается по имени канала:
+  // «ушла заглушка» — это не доставка, и зелёным выглядеть не должно.
   void query(
     `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
     [
-      'telegram_lead_notification',
+      'lead_notification',
       JSON.stringify({
         lead_id: lead.id,
-        chat_id: chatId,
-        success: tgData.ok,
-        error_description: (tgData.description ?? '').slice(0, 200),
+        channel: res.channel,
+        delivered: res.delivered,
+        reason: res.reason.slice(0, 200),
         score: lead.score ?? null,
         source: source ?? 'unknown',
       }),
     ],
   ).catch(() => {});
 
-  if (!tgData.ok) {
-    console.error(`[notifyAdminNewLead] Telegram error: ${tgData.description}`);
+  if (!res.delivered) {
+    console.error(`[notifyAdminNewLead] ПД не доставлены: ${res.channel} — ${res.reason}`);
   }
 }
 
