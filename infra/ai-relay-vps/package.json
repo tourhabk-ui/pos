@@ -1,0 +1,13 @@
+{
+  "name": "vedar-ai-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Хоп вне Cloudflare к OpenRouter/Anthropic. Зависимостей нет намеренно: меньше кода — меньше поверхности у публичного порта.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

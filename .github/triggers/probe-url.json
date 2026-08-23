@@ -1,22 +1,8 @@
 {
- "run": 105,
- "note": "Проба 105: подготовка проверки оплаты. Два шага: (1) сухой разбор начисления на существующих бронях — сойдётся ли путь бронь → тур → партнёр, какая ставка и откуда, и сколько оплаченных броней уже БЕЗ комиссии; (2) создание служебной обвязки с confirm — партнёр со ставкой 10%, невидимый тур за 1 рубль (is_active=false, витрина его не покажет), бронь в pending_payment. Второй шаг вернёт booking_id, по которому дальше выпускается QR СБП. Маркер свежести — paid_without_commission: это поле есть только в новой сборке. Денег ни один шаг не трогает.",
- "bytes": 6000,
- "timeout": 120,
- "retries": 12,
- "retryDelay": 60,
- "until": "paid_without_commission",
- "urls": [
-  "https://vedarai.ru/api/cron/commission-dry-run"
- ],
- "post": [
-  { "url": "https://vedarai.ru/api/cron/payment-test-setup", "body": { "confirm": true } }
- ],
- "grep": [
-  "\"paid_without_commission\"",
-  "\"rate_source\":\"partners.commission_current\"",
-  "запасная константа",
-  "\"booking_id\"",
-  "\"tour_visible\":false"
- ]
+  "note": "Проба 169: матчасть Timeweb из первых рук. Владелец справедливо заметил, что я гадаю о платформе вместо того, чтобы её знать; в его же вставке нашёлся ключ — у Timeweb есть машиночитаемая документация llms.txt. Берём индекс разделов, чтобы дальше читать нужные (облачные серверы, App Platform, лимиты) по точным адресам, а не наугад. Ключей и секретов не отправляется: адрес публичный, Authorization уходит только на vedarai.ru/api/cron/.",
+  "urls": [
+    "https://timeweb.cloud/docs/llms.txt"
+  ],
+  "timeout": 60,
+  "bytes": 20000
 }
