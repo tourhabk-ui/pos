@@ -71,7 +71,36 @@ export interface IntelligenceReport {
   domains:    IntelligenceFinding[];
   raw_count:  number;
   duration_ms: number;
+  /**
+   * Почему домены не набрались. null — набрались, объяснять нечего.
+   *
+   * Watchdog 23.08: «Intelligence Monitor — 4 прогонов подряд без результата,
+   * ПРИЧИНА ПРОПУСКА НЕ ЗАПИСАНА». Это и был дефект: пустой цикл отчитывался
+   * `partial` молча, и «сходил впустую» было неотличимо от «сходил и честно
+   * не нашёл ничего применимого» — а второе прямо предусмотрено промптом
+   * («сказать об этом — правильный ответ, а не провал задачи»).
+   */
+  skip_reason: IntelligenceSkipReason | null;
+  /** Сколько доменов отвалилось. Прежде в историю прогонов писался жёсткий 0. */
+  errors_count: number;
+  /** Разбор по доменам: сколько каких исходов. Для панели и разбора. */
+  outcomes: Record<IntelligenceOutcome, number>;
 }
+
+/**
+ * Чем закончился один домен. Различать их обязательно: «модель промолчала» —
+ * это провайдер, «ничего применимого» — это правильный ответ модели, и
+ * чинятся они в разных местах.
+ */
+export type IntelligenceOutcome =
+  | 'finding'          // домен дал находку
+  | 'gather_failed'    // сбор сигналов упал (сеть, источник)
+  | 'no_signals'       // источники ответили, но пусто
+  | 'model_mute'       // модель не ответила вовсе — провайдер
+  | 'model_malformed'  // ответ есть, JSON в нём нет
+  | 'nothing_relevant';// модель посмотрела и честно сказала «не применимо»
+
+export type IntelligenceSkipReason = Exclude<IntelligenceOutcome, 'finding'> | 'no_domains_configured';
 
 // ── RSS Sources ──────────────────────────────────────────────────────────────
 
@@ -475,12 +504,17 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Ra
 
 // ── AI Analysis ──────────────────────────────────────────────────────────────
 
+/** Итог разбора одного домена: находка либо ИМЕНОВАННАЯ причина её отсутствия. */
+type AnalyzeResult =
+  | { outcome: 'finding'; finding: IntelligenceFinding }
+  | { outcome: Exclude<IntelligenceOutcome, 'finding' | 'gather_failed'> };
+
 async function analyzeSignals(
   domainKey: string,
   config: DomainSource,
   signals: RawSignal[],
-): Promise<IntelligenceFinding | null> {
-  if (signals.length === 0) return null;
+): Promise<AnalyzeResult> {
+  if (signals.length === 0) return { outcome: 'no_signals' };
 
   const snippets = signals
     .slice(0, 12)
@@ -540,7 +574,12 @@ ${config.ai_filter}
 
   try {
     const text = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
-    if (!text) return null;
+    // Модель не ответила — это ПРОВАЙДЕР, и чинится он не здесь. Прежде этот
+    // исход был неотличим от «модель посмотрела и ничего не нашла».
+    if (!text) {
+      console.error(`[intelligence] ${domainKey}: модель не ответила`);
+      return { outcome: 'model_mute' };
+    }
 
     // Устойчивый разбор: если премиум-модель недоступна, callAIWithModelDirect
     // уходит в waterfall (свободные модели), а те часто добавляют prose/markdown
@@ -548,8 +587,8 @@ ${config.ai_filter}
     // любой текст вокруг ломал JSON.parse, и находка молча терялась (findings: 0).
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) {
-      console.error(`[intelligence] нет JSON-объекта в ответе (len=${text.length}, head="${text.slice(0, 80)}")`);
-      return null;
+      console.error(`[intelligence] ${domainKey}: нет JSON-объекта в ответе (len=${text.length}, head="${text.slice(0, 80)}")`);
+      return { outcome: 'model_malformed' };
     }
     const parsed = JSON.parse(m[0]) as {
       summary: string;
@@ -557,7 +596,9 @@ ${config.ai_filter}
       action_items: string[];
     };
 
-    if (parsed.summary === 'null' || !parsed.summary) return null;
+    // Честный ответ модели «не применимо», а не сбой: промпт прямо этого и
+    // просит. Отдельный исход, чтобы тревога не путала его с немотой.
+    if (parsed.summary === 'null' || !parsed.summary) return { outcome: 'nothing_relevant' };
 
     const claimed = ['critical', 'notable', 'informational'].includes(parsed.urgency)
       ? parsed.urgency as IntelligenceFinding['urgency']
@@ -587,15 +628,18 @@ ${config.ai_filter}
     const urgency: IntelligenceFinding['urgency'] = triage.allResearch ? 'informational' : claimed;
 
     return {
-      domain: domainKey as IntelligenceFinding['domain'],
-      summary: parsed.summary,
-      signals,
-      urgency,
-      action_items: triage.kept,
+      outcome: 'finding',
+      finding: {
+        domain: domainKey as IntelligenceFinding['domain'],
+        summary: parsed.summary,
+        signals,
+        urgency,
+        action_items: triage.kept,
+      },
     };
   } catch (err) {
-    console.error('[intelligence] AI analysis failed:', err instanceof Error ? err.message : err);
-    return null;
+    console.error(`[intelligence] ${domainKey}: разбор ответа упал:`, err instanceof Error ? err.message : err);
+    return { outcome: 'model_malformed' };
   }
 }
 
@@ -683,6 +727,15 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
 
   // Gather all domains in parallel
   const domainEntries = Object.entries(intelligenceDomains);
+
+  // Счёт исходов по доменам. До 23.08 отклонённые обещания молча
+  // выбрасывались, и цикл, у которого упали ВСЕ домены, выглядел так же,
+  // как цикл, честно не нашедший ничего применимого.
+  const outcomes: Record<IntelligenceOutcome, number> = {
+    finding: 0, gather_failed: 0, no_signals: 0,
+    model_mute: 0, model_malformed: 0, nothing_relevant: 0,
+  };
+
   const gatherResults = await Promise.allSettled(
     domainEntries.map(async ([key, config]) => {
       const signals = await gatherDomain(key, config);
@@ -695,16 +748,39 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
       }
 
       rawCount += signals.length;
-      const finding = await analyzeSignals(key, config, signals);
-      return finding;
+      return analyzeSignals(key, config, signals);
     })
   );
 
-  for (const result of gatherResults) {
-    if (result.status === 'fulfilled' && result.value) {
-      findings.push(result.value);
+  for (const [i, result] of gatherResults.entries()) {
+    if (result.status === 'rejected') {
+      // Отказ домена больше не тонет: без этого цикл с упавшей сетью
+      // отчитывался нулём ошибок.
+      outcomes.gather_failed++;
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      console.error(`[intelligence] домен ${domainEntries[i]?.[0] ?? '?'} упал: ${reason}`);
+      continue;
     }
+    outcomes[result.value.outcome]++;
+    if (result.value.outcome === 'finding') findings.push(result.value.finding);
   }
+
+  /**
+   * Что назвать причиной пустого цикла.
+   *
+   * Порядок не произволен: сначала то, что чинится (упавшие домены, немота
+   * провайдера, битый ответ), и только потом «ничего применимого» — честный
+   * ответ модели, которого промпт прямо и просит. Иначе один относящийся к
+   * делу отказ спрячется за пятью законными «не применимо».
+   */
+  const skipReason: IntelligenceSkipReason | null =
+    findings.length > 0 ? null
+    : domainEntries.length === 0 ? 'no_domains_configured'
+    : outcomes.gather_failed > 0 ? 'gather_failed'
+    : outcomes.model_mute > 0 ? 'model_mute'
+    : outcomes.model_malformed > 0 ? 'model_malformed'
+    : outcomes.no_signals > 0 ? 'no_signals'
+    : 'nothing_relevant';
 
   // Store findings in agent_memory (evo agent)
   const dateKey = new Date().toISOString().slice(0, 13).replace('T', '_'); // e.g. 2026-03-31_12
@@ -776,6 +852,9 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
     domains: findings,
     raw_count: rawCount,
     duration_ms: Date.now() - start,
+    skip_reason: skipReason,
+    errors_count: outcomes.gather_failed + outcomes.model_mute + outcomes.model_malformed,
+    outcomes,
   };
 }
 
