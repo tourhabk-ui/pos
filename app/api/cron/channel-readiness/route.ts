@@ -49,7 +49,20 @@ export interface ReadinessRow {
   program_steps: number;
 }
 
-/** Чего не хватает конкретному туру. Пустой список — тур годен. */
+/**
+ * Чего не хватает конкретному туру. Пустой список — тур годен.
+ *
+ * ПРО `pickup` — поправка владельца 23.08. Первая версия называла это
+ * «meeting_point» и считала пустое поле забывчивостью оператора. Это неверно:
+ * операторы ЗАБИРАЮТ туристов сами, фиксированной точки сбора у таких туров
+ * нет и быть не должно. Поэтому пустое поле здесь означает не «оператор не
+ * заполнил», а «у нас не записано, КАК турист попадает на тур».
+ *
+ * Блокировать это всё равно приходится: чужая витрина обязана сказать
+ * покупателю, ждать ли его у отеля или ехать самому, и «не знаю» тут не
+ * публикуется. Но чинится оно не восемью письмами про точки сбора, а одной
+ * фразой на оператора — где и в каких границах он забирает.
+ */
 export function missingFields(r: ReadinessRow): string[] {
   const missing: string[] = [];
   if (!r.title.trim()) missing.push('title');
@@ -57,7 +70,7 @@ export function missingFields(r: ReadinessRow): string[] {
   if (r.photo_count < 1) missing.push('photos');
   if (r.base_price === null || r.base_price <= 0) missing.push('base_price');
   if (r.duration_hours === null) missing.push('duration_hours');
-  if (!r.has_meeting_point) missing.push('meeting_point');
+  if (!r.has_meeting_point) missing.push('pickup');
   if (!r.has_coords) missing.push('coordinates');
   if (!r.has_operator_contact) missing.push('operator_contact');
   return missing;
