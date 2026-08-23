@@ -177,8 +177,8 @@ export async function POST(request: NextRequest) {
 
     // Партнёр и админ узнают о заявке сразу, а не когда сами зайдут в кабинет.
     if (gear.partner_id) {
-      const chat = await query<{ telegram_chat_id: string | null }>(
-        `SELECT telegram_chat_id FROM partners WHERE id = $1`,
+      const chat = await query<{ telegram_chat_id: string | null; max_chat_id: string | null }>(
+        `SELECT telegram_chat_id, max_chat_id::text AS max_chat_id FROM partners WHERE id = $1`,
         [gear.partner_id]
       ).catch(() => null);
       notifyNewGearRental({
@@ -191,6 +191,7 @@ export async function POST(request: NextRequest) {
         customerName: customer.name,
         customerPhone: customer.phone,
         partnerChatId: chat?.rows[0]?.telegram_chat_id ?? null,
+        partnerMaxChatId: chat?.rows[0]?.max_chat_id ?? null,
       }).catch(() => {});
     }
 

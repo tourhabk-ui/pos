@@ -21,6 +21,19 @@ interface TelegramResponse {
   error?: string;
 }
 
+/**
+ * 23.08: три метода удалены — sendBookingAccepted, sendTripReminder и
+ * sendTourBookingNotification. Вызывающих у них не было ни одного, а несли
+ * они ПД (имя и телефон водителя, имя и почта гостя) в Telegram. Мёртвый
+ * код с ПД лечится удалением, а не переносом в другой мессенджер.
+ *
+ * sendDriverNotification остался и по-прежнему шлёт в Telegram имя и телефон
+ * пассажира: у водителей адреса в MAX нет — таблицы transfer_drivers нет ни
+ * в migrations/, ни в baseline, и завести колонку не по чему. Перенести
+ * нельзя, а выкинуть телефон значит лишить водителя способа найти пассажира.
+ * Это записанный остаток, а не недосмотр: чинится заведением адресов
+ * водителей в MAX, и до тех пор состояние названо вслух.
+ */
 export class TelegramNotificationService {
   // Токен читается при каждом вызове — защита от cold start race condition
   private get botToken(): string {
@@ -134,39 +147,6 @@ export class TelegramNotificationService {
     });
   }
 
-  // Подтверждение принятия заявки
-  async sendBookingAccepted(chatId: string, booking: {
-    id: string;
-    route: string;
-    date: string;
-    time: string;
-    driverName: string;
-    driverPhone: string;
-  }): Promise<TelegramResponse> {
-    const text = `
-[✓] <b>Заявка принята!</b>
-
-  <b>Детали поездки:</b>
-• Маршрут: ${booking.route}
-• Дата: ${booking.date}
-• Время: ${booking.time}
-
-  <b>Назначенный водитель:</b>
-• Имя: ${booking.driverName}
-• Телефон: <a href="tel:${booking.driverPhone}">${booking.driverPhone}</a>
-
-🆔 <b>ID заявки:</b> ${booking.id}
-
-<i>Пожалуйста, будьте готовы к поездке в указанное время.</i>
-    `;
-
-    return this.sendMessage({
-      chatId,
-      text,
-      parseMode: 'HTML'
-    });
-  }
-
   // Отклонение заявки
   async sendBookingRejected(chatId: string, booking: {
     id: string;
@@ -189,57 +169,6 @@ export class TelegramNotificationService {
       chatId,
       text,
       parseMode: 'HTML'
-    });
-  }
-
-  // Напоминание о поездке
-  async sendTripReminder(chatId: string, trip: {
-    id: string;
-    route: string;
-    departureTime: string;
-    meetingPoint: string;
-    driverName: string;
-    driverPhone: string;
-  }): Promise<TelegramResponse> {
-    const text = `
-⏰ <b>Напоминание о поездке</b>
-
-  <b>Детали:</b>
-• Маршрут: ${trip.route}
-• Время отправления: ${trip.departureTime}
-• Место встречи: ${trip.meetingPoint}
-
-  <b>Водитель:</b>
-• Имя: ${trip.driverName}
-• Телефон: <a href="tel:${trip.driverPhone}">${trip.driverPhone}</a>
-
-🆔 <b>ID поездки:</b> ${trip.id}
-
-<i>Пожалуйста, будьте готовы к поездке.</i>
-    `;
-
-    const replyMarkup = {
-      inline_keyboard: [
-        [
-          {
-            text: '  Связаться с водителем',
-            callback_data: `call_driver_${trip.driverPhone}`
-          }
-        ],
-        [
-          {
-            text: '📍 Показать на карте',
-            callback_data: `show_map_${trip.id}`
-          }
-        ]
-      ]
-    };
-
-    return this.sendMessage({
-      chatId,
-      text,
-      parseMode: 'HTML',
-      replyMarkup
     });
   }
 
@@ -340,48 +269,6 @@ ${trip.feedback ? `  <b>Отзыв:</b> ${trip.feedback}` : ''}
     });
   }
 
-  // Уведомление партнёру о новом рыболовном туре (с кнопками Подтвердить / Отменить)
-  async sendTourBookingNotification(chatId: string, booking: {
-    id: string;
-    tourName: string;
-    departureDate: string;
-    participants: number;
-    totalAmount: number;
-    touristName: string;
-    touristEmail: string;
-    specialRequests?: string | null;
-  }): Promise<TelegramResponse> {
-    const date = new Date(booking.departureDate).toLocaleDateString('ru-RU', {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-    });
-
-    const lines: string[] = [
-      '🎣 <b>Новое бронирование тура!</b>',
-      '',
-      `<b>Тур:</b> ${booking.tourName}`,
-      `<b>Дата заезда:</b> ${date}`,
-      `<b>Участников:</b> ${booking.participants} чел.`,
-      `<b>Сумма:</b> ${booking.totalAmount.toLocaleString('ru-RU')} ₽`,
-      '',
-      `👤 <b>Гость:</b> ${booking.touristName}`,
-      `📧 ${booking.touristEmail}`,
-    ];
-    if (booking.specialRequests) {
-      lines.push(`\n📝 <i>${booking.specialRequests}</i>`);
-    }
-    lines.push('', `🆔 ID: <code>${booking.id}</code>`);
-
-    const replyMarkup = {
-      inline_keyboard: [[
-        { text: '✅ Подтвердить', callback_data: `confirm_${booking.id}` },
-        { text: '❌ Отменить',    callback_data: `cancel_${booking.id}`  },
-      ]],
-    };
-
-    return this.sendMessage({ chatId, text: lines.join('\n'), parseMode: 'HTML', replyMarkup });
-  }
-
-  // Ответ боту — убирает спиннер с inline-кнопки после нажатия
   async answerCallback(callbackQueryId: string, text?: string): Promise<void> {
     if (!this.botToken) return;
     await fetch(`${this.baseUrl}/answerCallbackQuery`, {

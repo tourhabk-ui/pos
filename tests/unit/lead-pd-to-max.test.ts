@@ -27,11 +27,19 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
  * ловятся общим правилом, потому что пришли голыми идентификаторами.
  */
 const PD_FILES: ReadonlyArray<{ file: string; extra: string[] }> = [
+  // Лиды
   { file: 'lib/notifications/lead-notify.ts', extra: ['proposal.headline'] },
-  { file: 'lib/notifications/telegram-channel.ts', extra: [] },
+  { file: 'lib/notifications/telegram-channel.ts', extra: ['booking.touristName', 'booking.touristEmail'] },
   { file: 'app/api/leads/route.ts', extra: ['leadName', 'proposal.headline'] },
   { file: 'app/api/cron/followups/route.ts', extra: ['row.message_text'] },
   { file: 'app/api/cron/leads-followup/route.ts', extra: [] },
+  // Бронирования, жильё, прокат, поддержка
+  { file: 'lib/notifications/operator-booking.ts', extra: ['touristName', 'touristPhone'] },
+  { file: 'lib/notifications/stay-booking.ts', extra: ['p.guestName', 'p.guestPhone'] },
+  { file: 'lib/notifications/gear-rental.ts', extra: ['p.customerName', 'p.customerPhone'] },
+  { file: 'app/api/cron/abandoned-bookings/route.ts', extra: ['row.tourist_name'] },
+  { file: 'lib/kuzmich/core.ts', extra: ['b.name', 'b.phone'] },
+  { file: 'lib/telegram/admin-notify.ts', extra: ['user'] },
 ];
 
 /** Однозначные ПД-поля. Имя — только у персональных владельцев, не у места. */
@@ -192,32 +200,33 @@ describe('дайджест не отдаёт ПД зарубежной моде�
  * app/api/leads/route.ts законно содержит и вызов Telegram (заглушка), и ПД
  * (в тексте для MAX).
  *
- * Список — не индульгенция. Часть строк здесь законна (сообщение самому
- * субъекту в его же чат, ПД оператора, который сам подал заявку), часть —
- * та же болезнь, что чинили в лидах, но в других доменах: бронирования,
- * трансферы, жильё, прокат, поддержка. Два файла защищены §7 CLAUDE.md
- * (`payments/tochka`, `safety/sos`) и трогаются только по слову владельца.
+ * Файлы, уже переведённые на sendPdAlert, из этой сети исключены: у них
+ * действует точное правило по зонам выше, оно строже.
+ *
+ * Список — не индульгенция, но и не список грехов: у каждой строки записана
+ * ПРИЧИНА, и большинство законны — сообщение самому субъекту, исполнение
+ * договора, §7 CLAUDE.md. Единственный настоящий остаток — телефон пассажира
+ * водителю: перенести его некуда, пока у водителей нет адреса в MAX.
  */
-const TELEGRAM_PD_CENSUS: readonly string[] = [
-  'app/api/cron/abandoned-bookings/route.ts',
-  'app/api/cron/route-escalation/route.ts',
-  'app/api/cron/smart-notify/route.ts',
-  'app/api/hub/admin/support/tickets/[id]/route.ts',
-  'app/api/payments/tochka/webhook/route.ts',
-  'app/api/safety/sos/route.ts',
-  'app/api/telegram/webhook/route.ts',
-  'app/api/transfers/confirm/route.ts',
-  'lib/agents/evo/rescue-agent.ts',
-  'lib/agents/execution/handlers/operator-outreach-executor.ts',
-  'lib/agents/execution/initiative-executor.ts',
-  'lib/kuzmich/core.ts',
-  'lib/leads/proposal-delivery.ts',
-  'lib/notifications/gear-rental.ts',
-  'lib/notifications/operator-booking.ts',
-  'lib/notifications/stay-booking.ts',
-  'lib/notifications/telegram-channel.ts',
-  'lib/notifications/telegram.ts',
-  'lib/telegram/admin-notify.ts',
+const TELEGRAM_PD_CENSUS: ReadonlyArray<{ file: string; why: string }> = [
+  { file: 'app/api/cron/route-escalation/route.ts',
+    why: 'ПД лидера группы уходят экстренному контакту почтой; это и есть назначение' },
+  { file: 'app/api/cron/smart-notify/route.ts',
+    why: 'имя пользователя в его же чате' },
+  { file: 'app/api/hub/admin/support/tickets/[id]/route.ts',
+    why: 'имя обратившегося в его же чате' },
+  { file: 'app/api/payments/tochka/webhook/route.ts',
+    why: 'приём оплаты — §7 CLAUDE.md, только по слову владельца' },
+  { file: 'app/api/safety/sos/route.ts',
+    why: 'SOS — §7 CLAUDE.md, только через staging' },
+  { file: 'app/api/transfers/confirm/route.ts',
+    why: 'контакты водителя туристу — исполнение договора' },
+  { file: 'lib/agents/execution/handlers/operator-outreach-executor.ts',
+    why: 'почта оператора, который сам подал заявку, в отчёте о рассылке' },
+  { file: 'lib/leads/proposal-delivery.ts',
+    why: 'имя туриста в предложении, адресованном самому туристу' },
+  { file: 'lib/notifications/telegram.ts',
+    why: 'телефон пассажира водителю: адреса водителей в MAX нет, схемы transfer_drivers нет ни в migrations/, ни в baseline — завести колонку не по чему, а выкинуть телефон значит лишить водителя способа найти пассажира' },
 ];
 
 const TELEGRAM_SEND =
@@ -245,21 +254,29 @@ describe('перепись ПД в Telegram только сокращается'
   const actual = files
     .filter((f) => {
       const src = readFileSync(f, 'utf8');
-      return TELEGRAM_SEND.test(src) && PD_ANY.test(src);
+      // Файлы под точным правилом (импортируют sendPdAlert) сюда не попадают:
+      // у них гарантия строже, чем «в файле нет ПД рядом с Telegram».
+      return TELEGRAM_SEND.test(src) && PD_ANY.test(src) && !/sendPdAlert/.test(src);
     })
     .map((f) => relative(root, f).split('\\').join('/'))
     .sort();
 
   it('новых файлов с ПД в Telegram не появилось', () => {
-    const added = actual.filter((f) => !TELEGRAM_PD_CENSUS.includes(f));
+    const known = TELEGRAM_PD_CENSUS.map((c) => c.file);
+    const added = actual.filter((f) => !known.includes(f));
     expect(added, `ПД человека уходят в Telegram из файлов вне переписи: ${added.join(', ')}`)
       .toEqual([]);
+  });
+
+  it('у каждой строки переписи есть причина', () => {
+    const empty = TELEGRAM_PD_CENSUS.filter((c) => c.why.trim().length < 20).map((c) => c.file);
+    expect(empty, `в переписи строки без внятной причины: ${empty.join(', ')}`).toEqual([]);
   });
 
   it('вычищенные файлы вычеркнуты из переписи, а не оставлены про запас', () => {
     // Перепись, отставшая от кода, врёт в обратную сторону: работа выглядит
     // несделанной там, где она сделана.
-    const stale = TELEGRAM_PD_CENSUS.filter((f) => !actual.includes(f));
+    const stale = TELEGRAM_PD_CENSUS.filter((c) => !actual.includes(c.file)).map((c) => c.file);
     expect(stale, `в переписи лишние файлы — ПД там уже нет: ${stale.join(', ')}`).toEqual([]);
   });
 });

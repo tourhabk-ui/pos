@@ -118,7 +118,10 @@ async function telegramStub(
  * ПД уходят только в MAX; при отказе MAX в Telegram уходит заглушка без ПД.
  */
 export async function sendPdAlert(params: PdAlertParams): Promise<PdAlertResult> {
-  const target = maxTarget(params.to?.maxChatId);
+  // Если получатель назван явно, адрес берётся ТОЛЬКО у него: молчаливый
+  // откат на рабочий чат платформы отправил бы ПД туриста не тому, кому
+  // сообщение адресовано, а оператор своего уведомления не получил бы вовсе.
+  const target = params.to ? maxTarget(params.to.maxChatId ?? null) : maxTarget(undefined);
 
   if ('error' in target) {
     console.error(`[pd-alert] MAX не настроен: ${target.error} — ПД не отправлены`);

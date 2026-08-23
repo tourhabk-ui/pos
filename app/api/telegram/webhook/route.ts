@@ -1328,12 +1328,13 @@ export async function POST(request: NextRequest) {
         await sendHTML(callbackChatId, statsText);
       } else if (action === 'bookings') {
         try {
+          // Имя и телефон гостя не читаются: это Telegram (решение владельца
+          // 23.08). Здесь — очередь броней и их состояние.
           const r = await query<{
             id: string; tour_title: string | null;
-            guest_name: string; guest_phone: string;
             booking_date: string; booking_status: string;
           }>(
-            `SELECT ob.id::text, ot.title as tour_title, ob.tourist_name as guest_name, ob.tourist_phone as guest_phone,
+            `SELECT ob.id::text, ot.title as tour_title,
                     ob.booking_date::text, ob.booking_status
              FROM operator_bookings ob
              LEFT JOIN operator_tours ot ON ot.id = ob.operator_tour_id
@@ -1345,9 +1346,10 @@ export async function POST(request: NextRequest) {
             const lines = ['<b>Последние бронирования:</b>', ''];
             r.rows.forEach((b, i) => {
               const date = b.booking_date ? new Date(b.booking_date).toLocaleDateString('ru-RU') : '—';
-              lines.push(`${i + 1}. <b>${esc(b.guest_name)}</b>  <code>${esc(b.guest_phone)}</code>  [${b.booking_status}]`);
+              lines.push(`${i + 1}. <code>${esc(b.id)}</code>  [${b.booking_status}]`);
               if (b.tour_title) lines.push(`   ${esc(b.tour_title)}  ${date}`);
             });
+            lines.push('', 'Имя и телефон гостя — в MAX и в кабинете.');
             await sendHTML(callbackChatId, lines.join('\n'));
           }
         } catch {

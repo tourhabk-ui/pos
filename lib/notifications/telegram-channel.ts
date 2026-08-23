@@ -1434,14 +1434,11 @@ export async function notifyAdminNewBooking(booking: {
   touristName: string;
   touristEmail: string;
 }): Promise<void> {
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!chatId) return;
-
   const date = new Date(booking.departureDate).toLocaleDateString('ru-RU', {
     day: 'numeric', month: 'long', year: 'numeric',
   });
 
-  const lines = [
+  const common = [
     '<b>Новое бронирование</b>',
     '',
     `<b>Тур:</b> ${esc(booking.tourName)}`,
@@ -1449,11 +1446,24 @@ export async function notifyAdminNewBooking(booking: {
     `<b>Участников:</b> ${booking.participants}`,
     `<b>Сумма:</b> ${booking.totalAmount.toLocaleString('ru-RU')} ₽`,
     '',
-    `<b>Гость:</b> ${esc(booking.touristName)}`,
-    `<b>Email:</b> ${esc(booking.touristEmail)}`,
-    '',
-    `<code>${booking.id}</code>`,
   ];
 
-  await tgPost(chatId, lines.join('\n'));
+  const res = await sendPdAlert({
+    text: [
+      ...common,
+      `<b>Гость:</b> ${esc(booking.touristName)}`,
+      `<b>Email:</b> ${esc(booking.touristEmail)}`,
+      '',
+      `<code>${esc(booking.id)}</code>`,
+    ].join('\n'),
+    stub: [
+      ...common,
+      `<code>${esc(booking.id)}</code>`,
+      'Имя и почта гостя — в MAX и в кабинете.',
+    ].join('\n'),
+    buttons: [{ text: 'Открыть бронь', url: `${getPublicBaseUrl()}/hub/operator/bookings/${booking.id}` }],
+  });
+  if (!res.delivered) {
+    console.error(`[notifyAdminNewBooking] ПД не доставлены (${res.channel}) — ${res.reason}`);
+  }
 }

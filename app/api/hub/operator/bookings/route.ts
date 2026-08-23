@@ -33,6 +33,7 @@ const CreateBookingSchema = z.object({
 async function getOperatorRow(userId: string) {
   const result = await query(
     `SELECT p.id, p.name,
+            p.max_chat_id::text AS max_chat_id,
             p.contacts->>'telegram_chat_id' as telegram_chat_id
      FROM partners p WHERE p.user_id = $1 LIMIT 1`,
     [userId]
@@ -128,6 +129,8 @@ export async function POST(request: NextRequest) {
     const operator_id = operator.id as string;
     const operator_name = operator.name as string;
     const telegram_chat_id = operator.telegram_chat_id as string | undefined;
+    // Контакты туриста уходят оператору в MAX; Telegram — только заглушка.
+    const max_chat_id = operator.max_chat_id as string | null | undefined;
 
     const body = await request.json();
     const input = CreateBookingSchema.parse(body);
@@ -189,6 +192,7 @@ export async function POST(request: NextRequest) {
       final_price: finalPrice,
       operator_name,
       operator_telegram_chat_id: telegram_chat_id,
+      operator_max_chat_id: max_chat_id,
       via: input.created_via,
     }).catch(() => undefined);
 

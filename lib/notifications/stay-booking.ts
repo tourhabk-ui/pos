@@ -1,9 +1,16 @@
 /**
  * Уведомления о бронях жилья владельцу.
  * Зеркало lib/notifications/operator-booking.ts, но для accommodation_bookings:
- * админ (TELEGRAM_CHAT_ID) + владелец объекта (partners.telegram_chat_id).
- * Всё non-fatal — сбой Telegram не должен ломать создание/отмену брони.
+ * админ платформы + владелец объекта.
+ *
+ * Имя и телефон гостя — ПД, адресованные не гостю: идут в MAX через общую
+ * дверь sendPdAlert (решение владельца 23.08). В Telegram при недоступности
+ * MAX уходит заглушка без имени и телефона.
+ * Всё non-fatal — сбой уведомления не должен ломать создание/отмену брони.
  */
+
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { getPublicBaseUrl } from '@/lib/config';
 
 async function tgSend(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -37,8 +44,10 @@ export interface StayBookingNotifyPayload {
   totalPrice?: number | null;
   guestName?: string | null;
   guestPhone?: string | null;
-  /** Telegram chat владельца объекта (partners.telegram_chat_id) */
+  /** Telegram chat владельца объекта (partners.telegram_chat_id) — только заглушка */
   ownerTelegramChatId?: string | null;
+  /** Адрес владельца в MAX (partners.max_chat_id) — туда идут ПД гостя */
+  ownerMaxChatId?: string | number | null;
 }
 
 function fmtDate(d: string): string {
@@ -47,21 +56,41 @@ function fmtDate(d: string): string {
 }
 
 export async function notifyNewStayBooking(p: StayBookingNotifyPayload): Promise<void> {
-  const text = [
+  const common = [
     `<b>Новая бронь жилья #${p.bookingId}</b>`,
     `Объект: ${esc(p.accommodationName)}`,
     p.roomName ? `Номер: ${esc(p.roomName)}` : null,
     `Заезд: ${fmtDate(p.checkInDate)} · Выезд: ${fmtDate(p.checkOutDate)}`,
     `Гостей: ${p.guests}`,
+    `Сумма: ${money(p.totalPrice)}`,
+  ].filter(Boolean) as string[];
+
+  const contacts = [
     p.guestName ? `Гость: ${esc(p.guestName)}` : null,
     p.guestPhone ? `Телефон: ${esc(p.guestPhone)}` : null,
-    `Сумма: ${money(p.totalPrice)}`,
-    `<a href="https://vedarai.ru/hub/stay/bookings">Открыть брони</a>`,
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean) as string[];
 
-  const adminChatId = process.env.TELEGRAM_CHAT_ID;
-  if (adminChatId) await tgSend(adminChatId, text);
-  if (p.ownerTelegramChatId) await tgSend(p.ownerTelegramChatId, text);
+  const text = [...common, ...contacts].join('\n');
+  const stub = [
+    ...common,
+    contacts.length > 0 ? 'Имя и телефон гостя — в MAX и в кабинете.' : 'Контактов гостя в брони нет.',
+  ].join('\n');
+  const buttons = [{ text: 'Открыть брони', url: `${getPublicBaseUrl()}/hub/stay/bookings` }];
+
+  const adminRes = await sendPdAlert({ text, stub, buttons });
+  if (!adminRes.delivered) {
+    console.error(`[notifyNewStayBooking] админу ПД не доставлены (${adminRes.channel}) — ${adminRes.reason}`);
+  }
+
+  if (p.ownerMaxChatId || p.ownerTelegramChatId) {
+    const ownerRes = await sendPdAlert({
+      text, stub, buttons,
+      to: { maxChatId: p.ownerMaxChatId, telegramChatId: p.ownerTelegramChatId },
+    });
+    if (!ownerRes.delivered) {
+      console.error(`[notifyNewStayBooking] владельцу ПД не доставлены (${ownerRes.channel}) — ${ownerRes.reason}`);
+    }
+  }
 }
 
 export interface StayBookingCancelPayload {

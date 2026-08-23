@@ -102,12 +102,11 @@ async function checkWeatherThreats(): Promise<RescueAlert[]> {
     const { rows: bookings } = await pool.query<{
       id: number; tour_title: string; booking_date: string;
       participants: number; location_name: string | null;
-      operator_name: string; tourist_name: string;
+      operator_name: string;
     }>(`
       SELECT ob.id, ot.title AS tour_title, ob.booking_date,
              ob.participants, ot.location_name,
-             COALESCE(p.name, 'Оператор') AS operator_name,
-             ob.tourist_name
+             COALESCE(p.name, 'Оператор') AS operator_name
       FROM operator_bookings ob
       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
       LEFT JOIN partners p ON p.id = ot.operator_id
@@ -138,7 +137,9 @@ async function checkWeatherThreats(): Promise<RescueAlert[]> {
           type: 'weather_threat',
           severity: 'warning',
           title: `⛈️ Погода: ${weatherLabel} на ${formatDate(booking.booking_date)}`,
-          body: `${booking.tour_title} — ${booking.tourist_name} (${booking.participants} чел.)`,
+          // Имя туриста в алерт не идёт: алерт уходит в Telegram, а находят
+          // бронь по номеру. Оператору его достаточно, чтобы открыть карточку.
+          body: `${booking.tour_title} — бронь #${booking.id} (${booking.participants} чел.)`,
           action: `Предложить альтернативу или перенести. ${weatherLabel}, ветер ${dayWeather.windKmh} км/ч.`,
         });
       }

@@ -278,8 +278,8 @@ export async function POST(
     // Уведомляем владельца объекта (Telegram) — раньше о брони знал только
     // гость (email), владелец узнавал, лишь зайдя в кабинет. Non-fatal.
     try {
-      const ownerResult = await query<{ telegram_chat_id: string | null }>(
-        `SELECT p.telegram_chat_id
+      const ownerResult = await query<{ telegram_chat_id: string | null; max_chat_id: string | null }>(
+        `SELECT p.telegram_chat_id, p.max_chat_id::text AS max_chat_id
          FROM accommodations a
          JOIN partners p ON a.partner_id = p.id
          WHERE a.id = $1`,
@@ -296,6 +296,7 @@ export async function POST(
         guestName: userName,
         guestPhone: userPhone,
         ownerTelegramChatId: ownerResult.rows[0]?.telegram_chat_id ?? null,
+        ownerMaxChatId: ownerResult.rows[0]?.max_chat_id ?? null,
       });
     } catch {
       // Уведомление владельцу не должно ломать бронь

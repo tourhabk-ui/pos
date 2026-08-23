@@ -35,38 +35,14 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { getCronSecret } from '@/lib/auth/cron';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
 function escHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/** true — сообщение ушло, false — не смогли отправить. Молча не глотаем. */
-async function notifyTelegram(telegramId: string, text: string): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
-  try {
-    const res = await fetch(
-      `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: telegramId, text, parse_mode: 'HTML' }),
-        signal: AbortSignal.timeout(8_000),
-      },
-    );
-    if (!res.ok) {
-      console.error('[abandoned-bookings] telegram отказал', res.status);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('[abandoned-bookings] telegram недоступен',
-      err instanceof Error ? err.message : err);
-    return false;
-  }
 }
 
 export async function GET(req: NextRequest) {
@@ -95,9 +71,10 @@ export async function GET(req: NextRequest) {
       final_price: number;
       created_at: Date;
       telegram_id: string | null;
+      max_chat_id: string | null;
     }>(`
       SELECT ob.id, ob.tourist_name, ob.final_price, ob.created_at,
-             u.telegram_id
+             u.telegram_id, p.max_chat_id::text AS max_chat_id
       FROM operator_bookings ob
       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
       JOIN partners p         ON p.id  = ot.operator_id
@@ -109,7 +86,7 @@ export async function GET(req: NextRequest) {
     `);
 
     for (const row of remindRows) {
-      if (!row.telegram_id) {
+      if (!row.telegram_id && !row.max_chat_id) {
         noTelegram++;
         continue;
       }
@@ -117,20 +94,29 @@ export async function GET(req: NextRequest) {
       const hoursAgo = Math.round(
         (now.getTime() - new Date(row.created_at).getTime()) / 3_600_000,
       );
-      const text = [
+      // Имя туриста — ПД: уходит оператору в MAX. В Telegram при
+      // недоступности MAX идёт то же напоминание без имени.
+      const common = [
         '<b>Незавершённая оплата</b>',
         '',
         `Бронирование #${row.id} ждёт оплаты уже ${hoursAgo} ч.`,
-        `Турист: ${escHtml(row.tourist_name)}`,
         `Сумма: ${Number(row.final_price).toLocaleString('ru-RU')} ₽`,
         '',
         `Автоматически отменится через ${Math.max(0, 24 - hoursAgo)} ч.`,
-        `<a href="https://vedarai.ru/hub/operator/bookings">Открыть бронирования</a>`,
-      ].join('\n');
+      ];
+      const text = [...common.slice(0, 3), `Турист: ${escHtml(row.tourist_name)}`, ...common.slice(3)].join('\n');
+      const stub = [...common, 'Имя туриста — в MAX и в кабинете.'].join('\n');
 
       if (dryRun) { reminded++; continue; }
 
-      if (!(await notifyTelegram(row.telegram_id, text))) {
+      const res = await sendPdAlert({
+        text,
+        stub,
+        buttons: [{ text: 'Открыть бронирования', url: `${getPublicBaseUrl()}/hub/operator/bookings` }],
+        to: { maxChatId: row.max_chat_id, telegramChatId: row.telegram_id },
+      });
+      if (!res.delivered) {
+        console.error(`[cron/abandoned-bookings] бронь ${row.id}: ПД не доставлены (${res.channel}) — ${res.reason}`);
         sendFailed++;
         continue; // отметку не ставим: пусть попробует ещё раз через час
       }
