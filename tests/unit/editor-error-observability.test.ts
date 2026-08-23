@@ -48,13 +48,25 @@ const ROUTE: RouteRow = {
   title: 'Вулкан Тестовый',
   description: null,
   category: 'vulkani',
+  // Факты обязательны для нормального пути: с 23.08 запись, о которой в базе
+  // нет ничего кроме названия, в модель НЕ идёт вовсе — это отдельный исход
+  // «источника нет», а не ошибка генерации. Фикстура без фактов проверяла бы
+  // именно его, а не то, ради чего написана.
+  kind: 'place',
+  lat: 53.2551, lng: 158.8307,
+  location_type: 'volcano', activity_type: null, zone: 'avachinsky',
+  source_name: 'visitkamchatka',
+  altitude_m: 2741, terrain_type: 'вулканический шлак', hazard_types: ['камнепад'],
+  difficulty_level: 'medium', nearest_medical_km: 30,
+  distance_km: null, elevation_gain_m: null, duration_hours: null,
+  season: null, route_type: null, hazards: null, equipment: null, park_name: null,
 };
 
 const LONG_TEXT = 'Содержательное описание вулкана. '.repeat(15); // ~495 симв. >= 100
 
 function mockDb(opts: { routes: RouteRow[]; updateError?: Error }) {
   poolQueryMock.mockImplementation((sql: string) => {
-    if (sql.includes('SELECT id, title')) return Promise.resolve({ rows: opts.routes });
+    if (sql.includes('LEFT JOIN location_safety_profile')) return Promise.resolve({ rows: opts.routes });
     if (sql.includes('UPDATE agent_route_knowledge')) {
       if (opts.updateError) return Promise.reject(opts.updateError);
       return Promise.resolve({ rows: [] });
