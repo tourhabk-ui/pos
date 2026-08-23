@@ -1,8 +1,9 @@
 {
-  "note": "Проба 173: каталог моделей шлюза Timeweb и цена. Страница OpenAI-совместимого API прочитана (проба 172) и ответила на вопрос о ключах: авторизация — токен доступа АГЕНТА Timeweb, адрес agent.timeweb.cloud/api/v1/cloud-ai/agents/{id}/v1/chat/completions, ключей провайдеров нигде не требуется. Осталась цена и список: есть ли в каталоге Anthropic и OpenAI и почём токены. Один URL, чтобы содержимое поместилось в окно лога целиком — прошлая проба показала обе страницы, но первая уехала за край.",
+  "note": "Проба 174: цена токена у шлюза Timeweb. Каталог прочитан (проба 173): Anthropic Claude Opus 5 / Sonnet 5 / Fable 5, OpenAI GPT 5.6, Gemini, Qwen, GLM, YandexGPT — всё через токен доступа агента Timeweb, ключей провайдеров нигде. Осталась цена: страница каталога её не называет, только «pay-as-you-go, входящие и исходящие раздельно». Читаем модель тарификации и лимит токенов — от цифры зависит, чем шлюз становится: заменой релея или заменой всей нашей связки провайдеров.",
   "urls": [
-    "https://timeweb.cloud/docs/ai-agents/pricing/models.md"
+    "https://timeweb.cloud/docs/ai-agents/pricing/billing-models.md",
+    "https://timeweb.cloud/docs/ai-agents/pricing/token-limit.md"
   ],
   "timeout": 60,
-  "bytes": 14000
+  "bytes": 7000
 }
