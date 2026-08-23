@@ -74,6 +74,7 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
 /** Ручные переписи, разборы и починки — расписания у них быть и не должно. */
 export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
+  'channel-readiness':         { kind: 'manual', writes: false, note: 'сколько туров годится к выкладке на чужую витрину и что мешает каждому' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },

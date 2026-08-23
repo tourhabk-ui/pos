@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderReport, balanceLine, selectForJudging, readSnippet, type Judged } from '@/scripts/evo-judge';
+import { renderReport, balanceLine, selectForJudging, splitGenres, readSnippet, type Judged } from '@/scripts/evo-judge';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/evo-judge.ts'), 'utf-8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/evo-judge.yml'), 'utf-8');
@@ -581,5 +581,39 @@ describe('ключи доходят до решателя', () => {
     for (const k of ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'DASHSCOPE_API_KEY']) {
       expect(SRC, `проверка ключей не знает про ${k}`).toContain(k);
     }
+  });
+});
+
+describe('разведданные не судятся как дефекты кода', () => {
+  const f = (id: string, category: string, title: string) => ({
+    id, category, severity: 'medium', file_path: null, line_number: null,
+    title, description: null, suggestion: null,
+  });
+
+  it('жанр берётся из категории, а не угадывается по тексту', () => {
+    const { claims, intel } = splitGenres([
+      f('1', 'intel', 'Исследовать применение RAG'),
+      f('2', 'bug', 'SQL-инъекция через фильтры'),
+      // Находка сканера БЕЗ файла остаётся в разборе: у неё есть право на
+      // честный вердикт, а не на молчаливое исключение по форме.
+      f('3', 'bug', 'Предложение без файла от сканера'),
+    ]);
+    expect(intel.map((x) => x.id)).toEqual(['1']);
+    expect(claims.map((x) => x.id)).toEqual(['2', '3']);
+  });
+
+  it('исключённые названы числом и списком, а не выброшены молча', () => {
+    const md = renderReport([], undefined, [
+      f('1', 'intel', 'Внедрить дашборд операторам'),
+      f('2', 'intel', 'Изучить документацию OpenAI'),
+    ]);
+    expect(md).toContain('Разведданных (не судятся): **2**');
+    expect(md).toContain('Внедрить дашборд операторам');
+    expect(md).toContain('Изучить документацию OpenAI');
+  });
+
+  it('без разведданных раздела нет', () => {
+    const md = renderReport([], undefined, []);
+    expect(md).not.toContain('Разведданные');
   });
 });
