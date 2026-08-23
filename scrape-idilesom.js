@@ -2,7 +2,20 @@
 // Запуск: node scrape-idilesom.js
 // Результат: idilesom-tours.json
 
-const API_TOKEN = "eaf70e24-b62f-4a8d-a0b2-9eb760f3f7ec";
+// Токен Bright Data — из переменной окружения, как в scripts/scrape-operator-tours.js.
+// Литерал стоял прямо здесь (владелец подтвердил 23.08.2026, что тот ключ давно
+// перевыпущен). Из истории git строка никуда не делась и деться не может —
+// поэтому важен не сам ключ, а правило: секрет в коде живёт до первого клона
+// репозитория, а живёт репозиторий долго (CLAUDE.md §4).
+const API_TOKEN = process.env.BRIGHTDATA_API_TOKEN;
+
+if (!API_TOKEN || !API_TOKEN.trim()) {
+  // Не «нет данных», а «не смог начать»: без токена Bright Data вернёт отказ,
+  // и скрейп молча запишет пустой результат как успешный прогон (§4.0).
+  console.error('BRIGHTDATA_API_TOKEN не задан — скрейп idilesom не запускается.');
+  console.error('Задать: BRIGHTDATA_API_TOKEN=... node scrape-idilesom.js');
+  process.exit(1);
+}
 
 const { stripTags } = require('./lib/html/text.js');
 
