@@ -167,13 +167,24 @@ export function stripCodeComments(src: string): string {
  */
 import LEGACY_READ from '@/lib/agents/evo/legacy-read-allowlist.json';
 
+/** Только чтение: перепись, разбор, отчёт. */
 export const LEGACY_READ_ALLOWLIST: Record<string, string> = LEGACY_READ.allow;
+
+/**
+ * Необратимое действие над мёртвой таблицей — планка выше.
+ *
+ * Отдельный список, а не общий с чтением: удаление должно идти по НАЗВАННОМУ
+ * перечню строк (предикат завтра захватит больше, чем задумано), в своей
+ * транзакции на строку и только по решению владельца с датой. Разрешать
+ * запись тем же списком, что и чтение, значило бы разрешать её молчанием.
+ */
+export const LEGACY_WRITE_ALLOWLIST: Record<string, string> = LEGACY_READ.allow_write ?? {};
 
 /** Устаревшие таблицы и импорты — прямые запреты CLAUDE.md §4. */
 export function checkLegacyUsage(path: string, content: string): GrowthIssue[] {
   if (!(path.startsWith('lib/') || path.startsWith('app/'))) return [];
   if (path.includes('.test.') || path.includes('__tests__')) return [];
-  if (path in LEGACY_READ_ALLOWLIST) return [];
+  if (path in LEGACY_READ_ALLOWLIST || path in LEGACY_WRITE_ALLOWLIST) return [];
 
   // Паттерны ищем в КОДЕ, не в комментариях (структура строк сохранена —
   // line_number честный).
