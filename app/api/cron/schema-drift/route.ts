@@ -22,6 +22,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { parseDeclarations, diffAgainstActual, type DriftReport } from '@/lib/db/schema-drift';
+import { findTypeConflicts } from '@/lib/db/declared-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,20 +95,49 @@ export async function GET(request: NextRequest) {
   try {
     // Представления тоже считаются существующими: таблица, ставшая
     // представлением (agent_route_knowledge, миграция 663), не пропала.
-    const { rows } = await pool.query<{ table_name: string; column_name: string }>(
-      `SELECT table_name, column_name
+    const { rows } = await pool.query<{ table_name: string; column_name: string; data_type: string; udt_name: string }>(
+      `SELECT table_name, column_name, data_type, udt_name
          FROM information_schema.columns
         WHERE table_schema = 'public'`,
     );
 
     const actual = new Map<string, Set<string>>();
+    const actualType = new Map<string, string>();
     for (const r of rows) {
       if (!actual.has(r.table_name)) actual.set(r.table_name, new Set());
       actual.get(r.table_name)!.add(r.column_name);
+      // `data_type` у массива — «ARRAY», а сам элемент виден только в
+      // `udt_name` (`_text`). Без него TEXT[] и TEXT неотличимы — то есть
+      // ровно тот случай, ради которого сверка типов и заводится.
+      actualType.set(
+        `${r.table_name}.${r.column_name}`,
+        r.data_type === 'ARRAY' ? `${r.udt_name.replace(/^_/, '')}[]` : r.data_type,
+      );
     }
 
     const declared = parseDeclarations(files);
     const diff = diffAgainstActual(declared, actual, INTENTIONALLY_ABSENT);
+
+    /**
+     * Колонки, объявленные РАЗНЫМИ типами, и что из этого лежит на проде.
+     *
+     * Перепись пропажи отвечает «колонки нет» и молчаливо подталкивает
+     * доиграть исходный DDL. Когда объявлений два, это опасно: 084 объявлял
+     * `operator_commissions.booking_id` как UUID, а живая бронь — BIGINT, и
+     * слепое доигрывание завело бы колонку, в которую не ложится id.
+     *
+     * Репозиторий сам по себе на вопрос «какой тип на проде» ответить не
+     * может — это честное «не знаю». Здесь оно закрывается фактом из
+     * `information_schema`; если колонки нет вовсе, так и написано.
+     */
+    const conflicts = findTypeConflicts(files)
+      .filter((c) => c.base_differs)
+      .map((c) => ({
+        table: c.table,
+        column: c.column,
+        declared: c.declarations.map((d) => `${d.normalized} (${d.file})`),
+        actual: actualType.get(`${c.table}.${c.column}`) ?? 'колонки нет',
+      }));
 
     return NextResponse.json({
       ok: true,
@@ -115,6 +145,8 @@ export async function GET(request: NextRequest) {
       migration_files: files.length,
       ...diff,
       drift_total: diff.missing_tables.length + diff.missing_columns.length,
+      type_conflicts_total: conflicts.length,
+      type_conflicts: conflicts,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'база не ответила';
