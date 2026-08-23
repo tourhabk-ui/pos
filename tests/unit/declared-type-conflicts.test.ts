@@ -46,6 +46,14 @@ function migrationFiles() {
  * решать, что безобидно, должен человек с глазами, а не молчание сторожа.
  */
 const KNOWN_CONFLICTS = [
+  // Следы РЕМОНТА, а не долг: миграция объявила ФАКТИЧЕСКИЙ тип прода вместо
+  // исходного. Останутся здесь навсегда — убрать их значило бы стереть след.
+  //   operator_commissions.booking_id — 084 объявлял UUID, бронь BIGINT (907)
+  //   partners.guide_operator_id      — 121 объявлял BIGINT, partners.id uuid (907)
+  //   booking_logs.booking_id         — 019 объявлял UUID REFERENCES bookings(id);
+  //                                     броня живёт в operator_bookings, её id
+  //                                     bigint, а ключа на представление не
+  //                                     бывает — 909
   'agent_experiments.intent',
   'agent_experiments.metric',
   'agent_experiments.name',
@@ -53,6 +61,7 @@ const KNOWN_CONFLICTS = [
   'agent_experiments.winner',
   'agent_memory_edits.agent_id',
   'agent_memory_edits.edited_by',
+  'booking_logs.booking_id',
   'crowd_log.agent_route_id',
   'crowd_log.guide_id',
   'external_alerts.affected_locations',

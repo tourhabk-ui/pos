@@ -34,6 +34,21 @@ export async function GET(request: NextRequest) {
 
   const scopeParam = request.nextUrl.searchParams.get('scope') ?? 'lost';
   const scope = ['lost', 'never', 'all'].includes(scopeParam) ? scopeParam : 'lost';
+  // Ответ делает два дела сразу — предлагает связи и показывает улики, — и
+  // читатель у него один: окно лога. Проба 156 обрубилась на кандидатах,
+  // потому что впереди шли улики; проба 158 обрубилась на уликах, потому
+  // что впереди пошли кандидаты. Перестановка половин местами лечит одну
+  // за счёт другой, поэтому половины разделены явно. ЦИФРЫ печатаются в
+  // обоих случаях: пропасть должен список, а не счёт.
+  const partParam = request.nextUrl.searchParams.get('part') ?? 'both';
+  const part = ['both', 'candidates', 'conflicts'].includes(partParam) ? partParam : 'both';
+  // Улик больше, чем помещается в одно окно, а разбирают их поимённо и
+  // не за один заход. Смещение позволяет дочитать хвост, не раздувая
+  // ответ: порядок кластеров детерминирован (согласие, потом число
+  // свидетелей), поэтому вторая страница — это именно продолжение, а не
+  // случайная выборка.
+  const offsetRaw = Number(request.nextUrl.searchParams.get('offset') ?? '0');
+  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
   // Подсказка для never без совпадения имени — шум: там сотни глухих сопок,
   // которым маршрута не существует. Порог отсекает их молча только для
   // never; у lost показываем всё, там каждый случай — наша потеря.
@@ -123,7 +138,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      probe: 'place_link_suggest_v4',
+      probe: 'place_link_suggest_v6',
+      part,
       scope,
       orphans_total: orphans.length,
       with_candidates: withCandidates.length,
@@ -131,15 +147,18 @@ export async function GET(request: NextRequest) {
       // Материал для решения идёт ПЕРВЫМ: проба 156 показала, как список
       // улик в сорок строк съел весь окно вывода, и семнадцать кандидатов
       // — то, ради чего запрос и делался, — не поместились.
-      items: withCandidates,
+      items: part === 'conflicts' ? undefined : withCandidates,
       name_match_max_km: NAME_MATCH_MAX_KM,
       coordinate_conflicts_total: conflicts.length,
       coordinate_conflicts_strong_total: strong.length,
       coordinate_conflicts_weak_total: conflicts.length - strong.length,
       conflict_agreement_km: CONFLICT_AGREEMENT_KM,
       conflict_places_total: clusters.length,
-      conflict_clusters: clusters.slice(0, 12),
-      conflict_clusters_dropped: Math.max(0, clusters.length - 12),
+      conflict_clusters_offset: offset,
+      conflict_clusters: part === 'candidates' ? undefined : clusters.slice(offset, offset + 12),
+      conflict_clusters_dropped: part === 'candidates'
+        ? undefined
+        : Math.max(0, clusters.length - (offset + 12)),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка подсказчика';

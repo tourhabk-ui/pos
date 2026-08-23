@@ -1167,6 +1167,48 @@ export async function getAnthropicModelIds(): Promise<string[]> {
   } catch { return []; }
 }
 
+/**
+ * Список моделей провайдера С ОТЛИЧИМЫМ ОТКАЗОМ — для диагностики.
+ *
+ * `getProviderModelIds` ниже намеренно снисходителен: он глотает ошибку и
+ * отдаёт пустой список, потому что зовущий его резолвер всё равно упадёт на
+ * безопасный алиас, и это верное поведение живого пути.
+ *
+ * Диагностике так нельзя. «У ключа нет ни одной модели» и «мы не смогли
+ * спросить» — разные ответы, и человек, читающий пустой список как первое,
+ * пойдёт чинить не то. Поэтому здесь третий исход назван вслух (§4.0).
+ */
+export async function probeProviderModels(
+  provider: 'deepseek' | 'qwen',
+): Promise<
+  | { ok: true; ids: string[] }
+  | { ok: false; http_status: number | null; detail: string }
+> {
+  const url = provider === 'deepseek'
+    ? 'https://api.deepseek.com/models'
+    : `${getQwenConfig().base}/models`;
+  const key = provider === 'deepseek' ? getDeepSeekKey() : getQwenConfig().apiKey;
+  if (!key) return { ok: false, http_status: null, detail: 'ключ не задан' };
+
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      return { ok: false, http_status: res.status, detail: (await res.text()).slice(0, 300) };
+    }
+    const data = await res.json() as { data?: Array<{ id?: unknown }> };
+    return {
+      ok: true,
+      ids: (data?.data ?? []).map(m => m.id).filter((x): x is string => typeof x === 'string'),
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'запрос не удался';
+    return { ok: false, http_status: null, detail };
+  }
+}
+
 /** Список id моделей провайдера из /v1/models (для решателя и model-watcher). */
 export async function getProviderModelIds(provider: 'deepseek' | 'qwen'): Promise<string[]> {
   if (provider === 'deepseek') {
