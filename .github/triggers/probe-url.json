@@ -1,17 +1,21 @@
 {
-  "note": "Проба 166: приёмка починки резолвера. Маркером берётся РЕЗУЛЬТАТ, а не строка кода: best_by_rule обязан стать qwen3.8-max вместо qwen3-max-2025-09-23. Своего признака у правки в ответах нет — она меняет только выбор, — поэтому ждём саму предсказанную цифру. Заодно видно, подтянулись ли resolved.chat/content/decision: у них часовой кэш, и первый ответ после выката может отдать прежнюю модель — это не провал, а кэш, и различить надо по best_by_rule.",
-  "urls": [
-    "https://vedarai.ru/api/cron/ai-models"
-  ],
-  "until": "\"best_by_rule\":\"qwen3.8-max\"",
-  "retries": 20,
-  "retryDelay": 45,
-  "timeout": 120,
-  "bytes": 600,
-  "around": [
-    "best_by_rule",
-    "resolved"
-  ],
-  "aroundLines": 4,
-  "aroundHits": 2
+ "run": 104,
+ "note": "Проба 104: снос шести демо-строк из мёртвой tours и освобождение пятерых партнёров. Три шага одним прогоном: (1) сухой прогон сноса — шесть строк поимённо, ничего не удаляется, он же датчик свежести; (2) снос с confirm; (3) повторная уборка партнёров с confirm — пятеро, что упирались в tours_operator_id_fkey, должны освободиться. Проба 103 этой работы не сделала: в её конфиге не оказалось retries, потому что он был собран правкой ЧУЖОГО содержимого файла (его правят две сессии). Этот конфиг написан ЦЕЛИКОМ. Инструмент с тех пор ловит и такую конфигурацию, и продолжение шагов после отказа предпосылки.",
+ "bytes": 6000,
+ "timeout": 120,
+ "retries": 12,
+ "retryDelay": 60,
+ "until": "\"would_delete\":6",
+ "urls": [],
+ "post": [
+  { "url": "https://vedarai.ru/api/cron/legacy-tours-cleanup", "body": {} },
+  { "url": "https://vedarai.ru/api/cron/legacy-tours-cleanup", "body": { "confirm": true } },
+  { "url": "https://vedarai.ru/api/cron/partner-cleanup", "body": { "confirm": true } }
+ ],
+ "grep": [
+  "\"would_delete\":6",
+  "\"deleted_count\":6",
+  "\"deleted_count\":5",
+  "\"skipped_count\":0"
+ ]
 }
