@@ -73,9 +73,13 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
 
 /** Ручные переписи, разборы и починки — расписания у них быть и не должно. */
 export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
-  'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам: available / configured / resolved' },
+  'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
+  'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
+  // Служебная обвязка проверки оплаты: заводит невидимый тур и бронь под
+  // реальный рубль, teardown прячет их мягко. Расписания быть не должно.
+  'payment-test-setup':        { kind: 'manual', writes: true,  note: 'обвязка проверки оплаты и комиссии: служебный партнёр, невидимый тур, бронь под QR' },
   'partner-junk-census':       { kind: 'manual', writes: false, note: 'партнёры, у которых имя не имя (реестровый номер вместо названия)' },
   // Расписания у уборки нет и быть не должно: удаление необратимо, и запускает
   // его человек по цифрам переписи. Сам роут без `confirm: true` не удаляет.
