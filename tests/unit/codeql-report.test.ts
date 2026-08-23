@@ -96,6 +96,18 @@ describe('три исхода разбора', () => {
     expect(f[0].ruleId).toBe('js/sqli');
   });
 
+  it('таблица не разъезжается от находки со слешем и трубой', () => {
+    // Первая же находка нового разбора была на нём самом:
+    // js/incomplete-sanitization — экранирование трубы не трогало обратный
+    // слеш, и `a\\|b` из текста находки ломал столбцы. Порядок замен важен.
+    const f = report.findingsOf(sarif([result('js/x', { message: { text: 'a\\|b | c' } })]));
+    const row = report.render(f).split('\n').find((l: string) => l.includes('js/x'))!;
+    // Разделитель markdown — труба БЕЗ обратного слеша перед ней; ровно так
+    // строку читает рендерер. Наивный split('|') считал бы и экранированные.
+    expect(row.split(/(?<!\\)\|/), 'столбцов должно остаться ровно четыре').toHaveLength(6);
+    expect(row, 'слеш из текста находки обязан быть экранирован').toContain('a\\\\');
+  });
+
   it('находок нет — сказано вслух', () => {
     const text = report.render(report.findingsOf(sarif([])));
     expect(text).toMatch(/Находок нет/);

@@ -98,7 +98,14 @@ function render(findings) {
   lines.push('| --- | --- | --- | --- |');
   for (const f of findings) {
     const sev = f.score === null ? f.severity : `${f.severity} (${f.score})`;
-    const cell = (s) => String(s ?? 'не указано').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    // Обратный слеш экранируется ПЕРВЫМ: иначе добавленный нами `\|`
+    // сам становится материалом для следующей замены, и `a\|b` из находки
+    // разъезжает таблицу. Находка js/incomplete-sanitization на этой самой
+    // строке — первая, что напечатал новый разбор, и она была верной.
+    const cell = (s) => String(s ?? 'не указано')
+      .replace(/\\/g, '\\\\')
+      .replace(/\|/g, '\\|')
+      .replace(/\n/g, ' ');
     lines.push(`| ${cell(sev)} | ${cell(f.ruleId)} | ${cell(f.place)} | ${cell(f.title ?? f.message)} |`);
   }
   lines.push('');
