@@ -79,6 +79,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // Расписания у уборки нет и быть не должно: удаление необратимо, и запускает
   // его человек по цифрам переписи. Сам роут без `confirm: true` не удаляет.
   'partner-cleanup':           { kind: 'manual', writes: true,  note: 'удаление бесхозных партнёров: ни туров, ни броней, ни входа, ни аттестаций' },
+  'legacy-tours-census':       { kind: 'manual', writes: false, note: 'что лежит в мёртвой таблице tours: её ключ держит пятерых партнёров от удаления' },
   'safety-alert':              { kind: 'manual', writes: true,  note: 'приём предупреждения по зоне: публикация и снятие' },
   'field-check-photo':         { kind: 'manual', writes: false, note: 'снимок полевой проверки по id, только чтение' },
   'field-check-queue':         { kind: 'manual', writes: false, note: 'очередь полевых проверок с расхождениями, только чтение' },

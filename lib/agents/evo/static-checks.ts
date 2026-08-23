@@ -146,10 +146,34 @@ export function stripCodeComments(src: string): string {
     .replace(/(^|[^:])\/\/.*$/gm, (m, p1: string) => p1 + ' '.repeat(m.length - p1.length));
 }
 
+/**
+ * Осознанные исключения из запрета на устаревшие таблицы.
+ *
+ * Запрет §4 говорит: платформу не обслуживают из мёртвой таблицы. Он НЕ
+ * говорит «о мёртвой таблице нельзя узнать» — а узнать иногда необходимо
+ * именно потому, что она мертва. 22.08 уборка партнёров упёрлась в
+ * `tours_operator_id_fkey`: на проде живут строки в `tours`, которых никто
+ * не показывает, но которые держат пятерых партнёров от удаления. Понять,
+ * что там, можно только прочитав.
+ *
+ * Список ЦЕНТРАЛЬНЫЙ и поимённый — как ALLOWLIST сканера ПД (§8): добавление
+ * видно диффом. Маркер-комментарий в самом файле не годился бы: его можно
+ * поставить где угодно, и запрет держался бы на дисциплине пишущего.
+ *
+ * Данные вынесены в JSON, потому что читателей ДВА: этот объектив и
+ * пре-коммитный аудит `.claude/skills/kamchatka/scripts/audit.mjs`, который
+ * проверяет то же правило своим набором регулярок. Разрешение, заведённое
+ * только здесь, разошлось бы со вторым читателем в тот же день.
+ */
+import LEGACY_READ from '@/lib/agents/evo/legacy-read-allowlist.json';
+
+export const LEGACY_READ_ALLOWLIST: Record<string, string> = LEGACY_READ.allow;
+
 /** Устаревшие таблицы и импорты — прямые запреты CLAUDE.md §4. */
 export function checkLegacyUsage(path: string, content: string): GrowthIssue[] {
   if (!(path.startsWith('lib/') || path.startsWith('app/'))) return [];
   if (path.includes('.test.') || path.includes('__tests__')) return [];
+  if (path in LEGACY_READ_ALLOWLIST) return [];
 
   // Паттерны ищем в КОДЕ, не в комментариях (структура строк сохранена —
   // line_number честный).
