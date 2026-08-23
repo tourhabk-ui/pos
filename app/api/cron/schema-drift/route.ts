@@ -23,6 +23,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { parseDeclarations, diffAgainstActual, type DriftReport } from '@/lib/db/schema-drift';
 import { findTypeConflicts } from '@/lib/db/declared-types';
+import { unmigratedTables, createdTables, UNAPPLIED_DIR } from '@/lib/db/unmigrated-tables';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,52 @@ const INTENTIONALLY_ABSENT: ReadonlySet<string> = new Set<string>([
   'support_agents',
   'feedback',
 ]);
+
+/**
+ * Колонки одной таблицы из текста её `CREATE TABLE`.
+ *
+ * Разбор грубый и таким задуман: берётся тело скобок и первое слово каждой
+ * строки верхнего уровня. Табличные ограничения (`PRIMARY KEY (a, b)`,
+ * `UNIQUE`, `FOREIGN KEY`, `CONSTRAINT`, `CHECK`) колонками не являются и
+ * отсеиваются по имени. Ошибка разбора здесь безопасна в одну сторону:
+ * лишнее имя попадёт в «объявлено, а на проде нет» — то есть в список,
+ * который человек и так читает глазами.
+ */
+function declaredColumnsOf(sql: string, table: string): string[] {
+  const re = new RegExp(
+    `CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?["']?${table}["']?\\s*\\(`,
+    'i',
+  );
+  const m = re.exec(sql);
+  if (!m) return [];
+  let depth = 1;
+  let i = m.index + m[0].length;
+  const start = i;
+  for (; i < sql.length && depth > 0; i++) {
+    if (sql[i] === '(') depth++;
+    else if (sql[i] === ')') depth--;
+  }
+  const body = sql.slice(start, i - 1);
+
+  const NOT_A_COLUMN = new Set([
+    'primary', 'unique', 'foreign', 'constraint', 'check', 'exclude', 'like',
+  ]);
+  const cols: string[] = [];
+  let level = 0;
+  let line = '';
+  for (const ch of body) {
+    if (ch === '(') level++;
+    if (ch === ')') level--;
+    if (ch === ',' && level === 0) { cols.push(line); line = ''; continue; }
+    line += ch;
+  }
+  cols.push(line);
+
+  return cols
+    .map((c) => c.replace(/--[^\n]*/g, ' ').trim().split(/\s+/)[0] ?? '')
+    .map((c) => c.replace(/^["']|["']$/g, '').toLowerCase())
+    .filter((c) => c && /^[a-z0-9_]+$/.test(c) && !NOT_A_COLUMN.has(c));
+}
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
@@ -139,6 +186,42 @@ export async function GET(request: NextRequest) {
         actual: actualType.get(`${c.table}.${c.column}`) ?? 'колонки нет',
       }));
 
+    /**
+     * Таблицы, форму которых репозиторий знает только из ненакатываемых
+     * файлов (`lib/database/*.sql`). Миграции о них молчат, поэтому спорить
+     * реестру не с кем — и он принимает мёртвое объявление за объявленное.
+     *
+     * Сверка превращает это «не знаю» в факт по каждой таблице: есть ли она
+     * на проде, каких объявленных колонок там нет и какие боевые колонки в
+     * объявлении не значатся. Второе не менее важно первого: колонка,
+     * существующая на проде и отсутствующая в объявлении, — это то, по чему
+     * гард фантомов однажды объявит фантомом живую колонку.
+     *
+     * Ответ намеренно НЕ выносит вердикта «файл врёт» или «файл прав». За
+     * один день 23.08 он оказался и тем, и другим: `partners.contact` он
+     * угадал (прод подтвердил отказом 23502), `tour_availability.tour_id` —
+     * нет. Вердикт по каждой таблице выносит человек, и выносит он его в одно
+     * из двух: миграция, повторяющая боевую форму, либо снос объявления.
+     */
+    const unapplied = createdTables(UNAPPLIED_DIR);
+    const unmigrated = unmigratedTables().map(({ table, declared_in }) => {
+      const actualCols = actual.get(table);
+      if (!actualCols) {
+        return { table, declared_in, on_prod: false as const };
+      }
+      const declaredCols = declaredColumnsOf(
+        readFileSync(join(process.cwd(), UNAPPLIED_DIR, declared_in), 'utf-8'),
+        table,
+      );
+      return {
+        table,
+        declared_in,
+        on_prod: true as const,
+        declared_missing_on_prod: declaredCols.filter((c) => !actualCols.has(c)),
+        on_prod_not_declared: [...actualCols].filter((c) => !declaredCols.includes(c)).sort(),
+      };
+    });
+
     return NextResponse.json({
       ok: true,
       collected_at: new Date().toISOString(),
@@ -147,6 +230,10 @@ export async function GET(request: NextRequest) {
       drift_total: diff.missing_tables.length + diff.missing_columns.length,
       type_conflicts_total: conflicts.length,
       type_conflicts: conflicts,
+      unapplied_files_tables: unapplied.size,
+      unmigrated_total: unmigrated.length,
+      unmigrated_on_prod: unmigrated.filter((u) => u.on_prod).length,
+      unmigrated,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'база не ответила';
