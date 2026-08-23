@@ -69,7 +69,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run Claude sweeper
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@c81e3bc69d1b18badbb63ba39581218f02421678 # v1
         env:
           GH_TOKEN: ${{ github.token }}
         with:

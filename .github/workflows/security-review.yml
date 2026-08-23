@@ -46,7 +46,7 @@ jobs:
 
       - name: Claude security review
         if: ${{ env.CLAUDE_API_KEY != '' }}
-        uses: anthropics/claude-code-security-review@main
+        uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
         with:
           claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
           comment-pr: true
