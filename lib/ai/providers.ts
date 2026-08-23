@@ -2082,12 +2082,75 @@ export async function callMiniMax(messages: ChatMessage[]): Promise<string | nul
 }
 
 // ── Google Gemini (direct API) ─────────────────────────────────
+/**
+ * Модель Gemini для прямого API — РАЗРЕШАЕТСЯ, а не прибивается (§8 CLAUDE.md).
+ *
+ * Замер на проде 23.08: прямой Gemini отвечал 404 «This model
+ * models/gemini-2.0-flash is no longer available. Please update». Ключ был на
+ * месте, провайдер был жив — умер захардкоженный id, снапшот начала 2025 года.
+ * До сегодняшней пробы этого не было видно вовсе: Gemini в преполётной
+ * проверке отсутствовал, а в гонке его отказ был неотличим от любого другого.
+ *
+ * Умолчания-запаски здесь НЕТ намеренно. Вписать сюда «наверное, сейчас
+ * называется так» значит заменить один просроченный снапшот другим и снова
+ * узнать об этом через полгода. Список моделей отдаёт сам Google; не отдал —
+ * нога честно выбывает с причиной «модель не разрешена».
+ *
+ * Ручной обход — env GEMINI_MODEL.
+ */
+const GEMINI_MODELS_TTL_MS = 6 * 60 * 60 * 1000;
+let geminiModelCache: { id: string; at: number } | null = null;
+
+async function listGeminiModels(apiKey: string): Promise<string[]> {
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as {
+      models?: Array<{ name?: unknown; supportedGenerationMethods?: unknown }>;
+    };
+    return (data.models ?? [])
+      .filter((m) => Array.isArray(m.supportedGenerationMethods)
+        && (m.supportedGenerationMethods as unknown[]).includes('generateContent'))
+      .map((m) => (typeof m.name === 'string' ? m.name.replace(/^models\//, '') : ''))
+      .filter((id) => id.length > 0);
+  } catch { return []; }
+}
+
+/** null — модель не разрешена: списка нет и угадывать нечем. */
+export async function resolveGeminiModel(): Promise<string | null> {
+  const override = process.env.GEMINI_MODEL?.trim();
+  if (override) return override;
+
+  if (geminiModelCache && Date.now() - geminiModelCache.at < GEMINI_MODELS_TTL_MS) {
+    return geminiModelCache.id;
+  }
+  const apiKey = getGeminiKey();
+  if (!apiKey) return null;
+
+  const ids = await listGeminiModels(apiKey);
+  if (ids.length === 0) return null;
+
+  // Для быстрой ноги гонки нужен flash-класс; общий отбор (без reasoner/vision/
+  // embed) делает тот же pickBestModel, что и у остальных провайдеров.
+  const flash = ids.filter((id) => /flash/i.test(id));
+  const picked = pickBestModel(flash.length > 0 ? flash : ids);
+  if (!picked) return null;
+
+  geminiModelCache = { id: picked, at: Date.now() };
+  return picked;
+}
+
 export async function callGeminiDirect(
   messages: ChatMessage[],
   opts?: FastCallOptions,
 ): Promise<string | null> {
   const apiKey = getGeminiKey();
   if (!apiKey) { recordAiLegFailure('gemini', 'no_key'); return null; }
+
+  const model = await resolveGeminiModel();
+  if (!model) { recordAiLegFailure('gemini', 'модель не разрешена: список моделей недоступен'); return null; }
 
   try {
     const systemMsg = messages.find(m => m.role === 'system');
@@ -2109,13 +2172,13 @@ export async function callGeminiDirect(
     }
 
     const res = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       },
-      { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'gemini-direct' },
+      { timeoutMs: opts?.timeoutMs ?? 20_000, label: `gemini-direct:${model}` },
     );
     if (!res.ok) {
       recordAiLegFailure('gemini', httpFailureReason(res.status, await res.text().catch(() => '')));

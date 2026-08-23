@@ -78,6 +78,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'tour-pickup':               { kind: 'manual', writes: true,  note: 'записать, как турист попадает на тур: перевозка — свойство оператора, а не поездки' },
   'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
+  'evo-log-cleanup':           { kind: 'manual', writes: true,  note: 'пометить неисполнимые записи очереди эволюции: 21 «ожидает» с апреля, которые рука пропускает каждый прогон' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
   // Служебная обвязка проверки оплаты: заводит невидимый тур и бронь под

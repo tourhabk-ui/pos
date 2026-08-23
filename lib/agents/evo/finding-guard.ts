@@ -102,6 +102,7 @@ export function findingRejectionReason(f: CandidateFinding): string | null {
   if (flagsSanctionedConsoleError(text)) return 'sanctioned_console_error';
   if (flagsForeignStack(text)) return 'foreign_stack';
   if (quotesPlaceholderAsUnsafe(text)) return 'quotes_placeholder_as_unsafe';
+  if (admitsRiskIsHypothetical(text)) return 'admits_risk_is_hypothetical';
   return null;
 }
 
@@ -158,7 +159,37 @@ function quotesPlaceholderAsUnsafe(text: string): boolean {
   if (!claimsSqlInjection(text)) return false;
   // Плейсхолдер в кавычках/бэктиках или сразу после сравнения — то, что модель
   // выдаёт за уязвимый код.
-  return /=\s*\$\d\b/.test(text);
+  if (/=\s*\$\d\b/.test(text)) return true;
+  // 23.08: три находки за один прогон клеймили инъекцией ПОСТРОЕНИЕ номера
+  // плейсхолдера — `$${values.length + 1}`, `$${queryParams.length + 1}`.
+  // Это идиома параметризации: доллар удваивается, потому что строка
+  // шаблонная, а значение уходит в массив. Прежняя проверка искала `$1` с
+  // цифрой и такую запись не видела.
+  return /\$\$\{/.test(text);
+}
+
+/**
+ * Находка сама говорит, что уязвимости СЕЙЧАС нет.
+ *
+ * Три находки 23.08 (`legacy-tours-census`, `partner.service`,
+ * `review.service`) назывались «SQL-инъекция через конкатенацию», а в теле
+ * признавались: «значения параметризованы», «захардкожены», «потенциальная
+ * инъекция ПРИ ИЗМЕНЕНИИ КОДА», «плохая практика». Все три оказались ложными:
+ * в первом имена колонок берутся из системного каталога и пересекаются с
+ * литеральным списком, в двух других склейкой строится номер плейсхолдера.
+ *
+ * Стиль обсуждать можно, но не под именем уязвимости: клеймо «инъекция» на
+ * параметризованном коде обесценивает очередь — настоящую инъекцию перестают
+ * читать среди ложных. Требуем ОБА признака: заявленную инъекцию и
+ * собственное признание находки, что риск будущий или гипотетический.
+ */
+function admitsRiskIsHypothetical(text: string): boolean {
+  if (!claimsSqlInjection(text)) return false;
+  const admitsSafeNow =
+    /значени[а-яё]*\s+(?:параметризован|захардкожен)|тоже\s+захардкожен|хотя\s+(?:значени|параметр)[а-яё]*\s+параметризован|захардкожен[а-яё]*/i;
+  const riskIsFuture =
+    /потенциальн[а-яё]*\s+инъекц|при\s+изменени[а-яё]*\s+кода|плоха[а-яё]*\s+практика|в\s+будущем/i;
+  return admitsSafeNow.test(text) && riskIsFuture.test(text);
 }
 
 /** Есть ли в исходнике конструкция, наличие которой опровергает находку. */
