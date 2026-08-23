@@ -235,11 +235,109 @@ export function suggestPlaces(
   return scored.slice(0, limit);
 }
 
-/** Пара, у которой имя совпало, а объекты далеко: одна координата врёт. */
+/**
+ * Пара, у которой имя совпало, а объекты далеко: одна координата врёт.
+ *
+ * Координаты ОБЕИХ сторон входят в улику намеренно. Проба 157 показала
+ * улику без них: «Большие Тюшевские источники — одноимённый маршрут —
+ * 329 км». Работать с этим нельзя: сказано, что кто-то врёт, но не
+ * сказано, где каждый из двух себя считает, — а чинить надо ровно одну
+ * запись из двух. Улика, по которой нельзя сделать следующий шаг, — это
+ * не находка, а тревога без адреса.
+ */
 export interface CoordinateConflict {
   placeId: string; placeName: string;
+  placeLat: number; placeLng: number;
   routeId: string; routeTitle: string;
+  routeLat: number; routeLng: number;
   nameScore: number; distanceKm: number;
+}
+
+/**
+ * Согласны ли одноимённые маршруты между собой.
+ *
+ *   routes_agree    — их несколько и стоят кучно: в стороне одно место,
+ *                     и подозрение падает на его координату;
+ *   routes_disagree — их несколько и они сами разбросаны: общей правды
+ *                     нет, разбирать поимённо;
+ *   single_witness  — свидетель один, и который из двух врёт — не
+ *                     определить. Это третий исход, и он не равен
+ *                     первому: одиночное расхождение бывает и оттого,
+ *                     что объекты просто разные.
+ */
+export type ConflictAgreement = 'routes_agree' | 'routes_disagree' | 'single_witness';
+
+/** Разброс, в пределах которого одноимённые маршруты считаются кучными. */
+export const CONFLICT_AGREEMENT_KM = 25;
+
+export interface ConflictCluster {
+  placeId: string; placeName: string;
+  placeLat: number; placeLng: number;
+  agreement: ConflictAgreement;
+  /** Наибольшее расстояние между самими маршрутами; null — маршрут один. */
+  routesSpreadKm: number | null;
+  routes: Array<{
+    routeId: string; routeTitle: string;
+    lat: number; lng: number;
+    nameScore: number; distanceKm: number;
+  }>;
+}
+
+/**
+ * Улики, сгруппированные по месту, с ответом на вопрос «кто в одиночестве».
+ *
+ * Вердикта «врёт место» здесь нет намеренно: кучность маршрутов — сильный
+ * довод, но довод, а не доказательство. Функция сообщает ФАКТ (сошлись
+ * свидетели или нет) и обе координаты; вывод делает человек, у которого
+ * есть внешний справочник.
+ */
+export function clusterConflicts(conflicts: CoordinateConflict[]): ConflictCluster[] {
+  const byPlace = new Map<string, CoordinateConflict[]>();
+  for (const c of conflicts) {
+    const bucket = byPlace.get(c.placeId);
+    if (bucket) bucket.push(c); else byPlace.set(c.placeId, [c]);
+  }
+
+  const out: ConflictCluster[] = [];
+  for (const group of byPlace.values()) {
+    const first = group[0];
+    let spread: number | null = null;
+    if (group.length > 1) {
+      spread = 0;
+      for (let i = 0; i < group.length; i += 1) {
+        for (let j = i + 1; j < group.length; j += 1) {
+          const d = distanceKm(group[i].routeLat, group[i].routeLng, group[j].routeLat, group[j].routeLng);
+          if (d > spread) spread = d;
+        }
+      }
+      spread = Math.round(spread * 10) / 10;
+    }
+
+    const agreement: ConflictAgreement = spread === null
+      ? 'single_witness'
+      : (spread <= CONFLICT_AGREEMENT_KM ? 'routes_agree' : 'routes_disagree');
+
+    out.push({
+      placeId: first.placeId, placeName: first.placeName,
+      placeLat: first.placeLat, placeLng: first.placeLng,
+      agreement,
+      routesSpreadKm: spread,
+      routes: group
+        .map(c => ({
+          routeId: c.routeId, routeTitle: c.routeTitle,
+          lat: c.routeLat, lng: c.routeLng,
+          nameScore: c.nameScore, distanceKm: c.distanceKm,
+        }))
+        .sort((a, b) => b.nameScore - a.nameScore),
+    });
+  }
+
+  // Кучные — первыми: по ним следующий шаг очевиден.
+  const rank: Record<ConflictAgreement, number> = {
+    routes_agree: 0, routes_disagree: 1, single_witness: 2,
+  };
+  return out.sort((a, b) => (rank[a.agreement] - rank[b.agreement])
+    || (b.routes.length - a.routes.length));
 }
 
 /**
@@ -264,7 +362,9 @@ export function conflictingPairs(
     if (classifyPair(nameScore, d, farKm) !== 'conflict') continue;
     out.push({
       placeId: place.id, placeName: place.name,
+      placeLat: place.lat, placeLng: place.lng,
       routeId: r.id, routeTitle: r.title,
+      routeLat: r.lat, routeLng: r.lng,
       nameScore, distanceKm: d,
     });
   }

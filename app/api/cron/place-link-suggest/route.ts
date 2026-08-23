@@ -18,7 +18,8 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import {
-  suggestRoutes, conflictingPairs, NAME_MATCH_MAX_KM,
+  suggestRoutes, conflictingPairs, clusterConflicts,
+  NAME_MATCH_MAX_KM, CONFLICT_AGREEMENT_KM,
   type RouteCandidateInput, type CoordinateConflict,
 } from '@/lib/routes/place-link';
 
@@ -113,13 +114,16 @@ export async function GET(request: NextRequest) {
     // список не идут, но и не пропадают: их число названо вслух — иначе
     // «улик стало меньше» не отличить от «мы перестали их считать».
     const STRONG_CONFLICT_SCORE = 0.5;
-    const strong = conflicts
-      .filter(c => c.nameScore >= STRONG_CONFLICT_SCORE)
-      .sort((a, b) => (b.nameScore - a.nameScore) || (b.distanceKm - a.distanceKm));
+    const strong = conflicts.filter(c => c.nameScore >= STRONG_CONFLICT_SCORE);
+    // Улики группируются по месту: чинить надо запись, а не строку списка,
+    // и вопрос «кто из двоих врёт» решается тем, сошлись ли одноимённые
+    // маршруты между собой. Обе координаты — в ответе: без них улика
+    // называет беду, но не даёт сделать следующий шаг.
+    const clusters = clusterConflicts(strong);
 
     return NextResponse.json({
       success: true,
-      probe: 'place_link_suggest_v3',
+      probe: 'place_link_suggest_v4',
       scope,
       orphans_total: orphans.length,
       with_candidates: withCandidates.length,
@@ -132,8 +136,10 @@ export async function GET(request: NextRequest) {
       coordinate_conflicts_total: conflicts.length,
       coordinate_conflicts_strong_total: strong.length,
       coordinate_conflicts_weak_total: conflicts.length - strong.length,
-      coordinate_conflicts: strong.slice(0, 15),
-      coordinate_conflicts_dropped: Math.max(0, strong.length - 15),
+      conflict_agreement_km: CONFLICT_AGREEMENT_KM,
+      conflict_places_total: clusters.length,
+      conflict_clusters: clusters.slice(0, 12),
+      conflict_clusters_dropped: Math.max(0, clusters.length - 12),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка подсказчика';
