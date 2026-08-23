@@ -82,9 +82,28 @@ jobs:
           # Именно if, а не `[ ... ] && ...`: шаг идёт под `bash -e`, и
           # неуспешная проверка как последняя команда строки убила бы прогон,
           # когда поля просто не заданы.
+          # Заголовки из конфига — для чужих API, которые без них не отвечают
+          # (песочница Точки требует Authorization с ОПУБЛИКОВАННЫМ тестовым
+          # токеном). Значения берутся ИЗ ФАЙЛА КОНФИГА, то есть из репозитория,
+          # и никогда из секретов GitHub: сюда физически нечему утечь. Правило
+          # CRON_SECRET этим не ослабляется — оно по-прежнему решает по адресу,
+          # отдельно и ниже. Класть в этот список настоящий ключ нельзя: файл
+          # публичный, и он останется в истории.
+          HEADERS=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('headers', [])))")
+
           EXTRA=()
           if [ -n "$RANGE" ];  then EXTRA+=(-r "$RANGE"); fi
           if [ -n "$ORIGIN" ]; then EXTRA+=(-H "Origin: $ORIGIN"); fi
+          # Отдельным списком, а не в EXTRA: range и origin осмысленны только
+          # для GET, а заголовок авторизации нужен обоим методам.
+          HDR=()
+          if [ -n "$HEADERS" ]; then
+            while IFS= read -r h; do
+              [ -z "$h" ] && continue
+              HDR+=(-H "$h")
+              echo "  заголовок из конфига: ${h%%:*}"
+            done <<< "$HEADERS"
+          fi
           echo "UA: $UA · timeout: ${TIMEOUT}s${RANGE:+ · range: $RANGE}${ORIGIN:+ · origin: $ORIGIN}"
 
           # Маркер свежести без повторов — конфигурация, бессмысленная по
@@ -128,11 +147,11 @@ jobs:
             esac
             if [ "$method" = POST ]; then
               CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
-                ${auth[@]+"${auth[@]}"} -H "Content-Type: application/json" \
+                ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} -H "Content-Type: application/json" \
                 -X POST --data-binary @/tmp/postbody.json "$url" || echo 000)
             else
               CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
-                ${EXTRA[@]+"${EXTRA[@]}"} ${auth[@]+"${auth[@]}"} "$url" || echo 000)
+                ${EXTRA[@]+"${EXTRA[@]}"} ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} "$url" || echo 000)
             fi
           }
 
