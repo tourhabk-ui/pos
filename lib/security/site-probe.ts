@@ -20,27 +20,61 @@ import {
 const TIMEOUT_MS = 12_000;
 const HTML_LIMIT = 200_000;
 
-/** Срок сертификата — через TLS-рукопожатие: в fetch этих данных нет. */
-export async function certDaysLeft(hostname: string, port = 443): Promise<number | null> {
+/** Что удалось узнать о сертификате: срок и доверие — РАЗНЫЕ вопросы. */
+export interface CertProbe {
+  /** Сколько суток осталось по полю valid_to. null — снять не удалось. */
+  daysLeft: number | null;
+  /** Прошёл ли сертификат проверку цепочки и имени. null — не выяснили. */
+  trusted: boolean | null;
+  /** Почему не прошёл: 'SELF_SIGNED_CERT_IN_CHAIN', 'ERR_TLS_CERT_ALTNAME_INVALID'. */
+  untrustedReason: string | null;
+}
+
+/**
+ * Сертификат — через TLS-рукопожатие: в fetch этих данных нет.
+ *
+ * `rejectUnauthorized: false` стоит НАМЕРЕННО и убрать его нельзя: аудит обязан
+ * рассказать про плохой сертификат, а с включённой проверкой рукопожатие с ним
+ * просто оборвётся, и мы получим то же «не смогли», что и от мёртвого сайта.
+ *
+ * Но до 23.08.2026 отсюда возвращался ТОЛЬКО срок, и этого было мало
+ * (js/disabling-certificate-validation). `getPeerCertificate()` отдаёт то, что
+ * прислали, независимо от проверки, а `auditSnapshot` превращал любое
+ * положительное число в `outcome: 'ok'`. Самоподписанный сертификат с дальней
+ * датой — или сертификат, выписанный на чужое имя, — получал зелёное
+ * «действует ещё N суток», хотя браузер туриста показал бы предупреждение.
+ *
+ * Поэтому вердикт берётся не из даты, а из `socket.authorized`: узла TLS,
+ * который знает результат проверки цепочки и сверки имени.
+ */
+export async function certDaysLeft(hostname: string, port = 443): Promise<CertProbe> {
+  const unknown: CertProbe = { daysLeft: null, trusted: null, untrustedReason: null };
   return new Promise((resolve) => {
     let done = false;
-    const finish = (v: number | null): void => { if (!done) { done = true; resolve(v); } };
+    const finish = (v: CertProbe): void => { if (!done) { done = true; resolve(v); } };
     try {
       const socket = tlsConnect(
         { host: hostname, port, servername: hostname, timeout: TIMEOUT_MS, rejectUnauthorized: false },
         () => {
           const cert = socket.getPeerCertificate();
+          // Проверка ВЫКЛЮЧЕНА, но её результат узел всё равно посчитал.
+          const trusted = socket.authorized;
+          const reason = trusted ? null : (socket.authorizationError?.message ?? String(socket.authorizationError ?? 'причина не названа'));
           socket.end();
-          if (!cert || !cert.valid_to) return finish(null);
+          if (!cert || !cert.valid_to) return finish({ daysLeft: null, trusted, untrustedReason: reason });
           const until = Date.parse(cert.valid_to);
-          if (Number.isNaN(until)) return finish(null);
-          finish(Math.floor((until - Date.now()) / 86_400_000));
+          if (Number.isNaN(until)) return finish({ daysLeft: null, trusted, untrustedReason: reason });
+          finish({
+            daysLeft: Math.floor((until - Date.now()) / 86_400_000),
+            trusted,
+            untrustedReason: reason,
+          });
         },
       );
-      socket.on('error', () => finish(null));
-      socket.on('timeout', () => { socket.destroy(); finish(null); });
+      socket.on('error', () => finish(unknown));
+      socket.on('timeout', () => { socket.destroy(); finish(unknown); });
     } catch {
-      finish(null);
+      finish(unknown);
     }
   });
 }
@@ -137,6 +171,7 @@ function finalUrlOf(res: Response, fallback: string): string {
 export async function probeSite(rawUrl: string): Promise<SiteSnapshot> {
   const empty: SiteSnapshot = {
     finalUrl: null, status: null, headers: {}, html: null, certDaysLeft: null,
+    certTrusted: null, certUntrustedReason: null,
     httpRedirectsToHttps: null, exposedPaths: [], pathsProbed: false, failure: null,
   };
 
@@ -166,7 +201,9 @@ export async function probeSite(rawUrl: string): Promise<SiteSnapshot> {
   const finalUrl = finalUrlOf(root, url.toString());
   const isHttps = finalUrl.startsWith('https://');
 
-  const days = isHttps ? await certDaysLeft(new URL(finalUrl).hostname) : null;
+  const cert = isHttps
+    ? await certDaysLeft(new URL(finalUrl).hostname)
+    : { daysLeft: null, trusted: null, untrustedReason: null };
 
   // Перенаправление с http:// — отдельный заход, но только если сайт на https.
   let httpRedirectsToHttps: boolean | null = null;
@@ -193,6 +230,8 @@ export async function probeSite(rawUrl: string): Promise<SiteSnapshot> {
 
   return {
     finalUrl, status: root.status, headers, html,
-    certDaysLeft: days, httpRedirectsToHttps, exposedPaths, pathsProbed, failure: null,
+    certDaysLeft: cert.daysLeft, certTrusted: cert.trusted,
+    certUntrustedReason: cert.untrustedReason,
+    httpRedirectsToHttps, exposedPaths, pathsProbed, failure: null,
   };
 }

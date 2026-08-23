@@ -32,6 +32,8 @@ const healthy: SiteSnapshot = {
   },
   html: '<html><img src="https://example-operator.ru/a.jpg"></html>',
   certDaysLeft: 200,
+  certTrusted: true,
+  certUntrustedReason: null,
   httpRedirectsToHttps: true,
   exposedPaths: [],
   pathsProbed: true,
@@ -41,6 +43,7 @@ const healthy: SiteSnapshot = {
 describe('недоступный сайт — не «безопасный»', () => {
   const dead: SiteSnapshot = {
     finalUrl: null, status: null, headers: {}, html: null, certDaysLeft: null,
+    certTrusted: null, certUntrustedReason: null,
     httpRedirectsToHttps: null, exposedPaths: [], pathsProbed: false,
     failure: 'нет ответа: имя не разрешилось',
   };
@@ -320,5 +323,39 @@ describe('отчёты видны владельцу, а не только ба�
 
   it('ссылка на чужой сайт не передаёт нас источником', () => {
     expect(UI).toMatch(/rel="noopener noreferrer nofollow"/);
+  });
+});
+
+describe('срок сертификата и доверие к нему — разные вопросы', () => {
+  it('самоподписанный с дальней датой НЕ «ok»', () => {
+    // Ровно этот случай проходил зелёным: rejectUnauthorized выключен,
+    // getPeerCertificate отдаёт присланное, дата дальняя — «действует ещё
+    // 200 сут». Браузер туриста при этом показал бы предупреждение.
+    const c = auditSnapshot({
+      ...healthy, certDaysLeft: 200, certTrusted: false,
+      certUntrustedReason: 'SELF_SIGNED_CERT_IN_CHAIN',
+    }).find((x) => x.id === 'cert');
+    expect(c?.outcome).toBe('bad');
+    expect(c?.detail).toContain('SELF_SIGNED_CERT_IN_CHAIN');
+  });
+
+  it('доверие не выяснено — это «не знаю», а не «ok»', () => {
+    const c = auditSnapshot({ ...healthy, certDaysLeft: 200, certTrusted: null })
+      .find((x) => x.id === 'cert');
+    expect(c?.outcome).toBe('unknown');
+  });
+
+  it('доверенный и свежий — по-прежнему «ok»', () => {
+    const c = auditSnapshot(healthy).find((x) => x.id === 'cert');
+    expect(c?.outcome).toBe('ok');
+  });
+
+  it('проверка доверия берётся у узла TLS, а не из даты', () => {
+    // socket.authorized знает результат сверки цепочки и имени; дата в
+    // valid_to про это не говорит ничего.
+    expect(PROBE).toMatch(/socket\.authorized/);
+    expect(PROBE).toMatch(/authorizationError/);
+    expect(PROBE, 'выключение проверки обязано остаться осознанным и объяснённым')
+      .toMatch(/rejectUnauthorized: false/);
   });
 });
