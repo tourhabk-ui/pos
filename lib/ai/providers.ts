@@ -2833,10 +2833,15 @@ export function isWaterfallErrorResponse(text: string): boolean {
  */
 export async function callAIQuality(
   messages: ChatMessage[],
-  opts: { maxTokens?: number; temperature?: number } = {},
+  opts: { maxTokens?: number; temperature?: number; json?: boolean } = {},
 ): Promise<string> {
-  const { maxTokens = 1600, temperature = 0.5 } = opts;
+  const { maxTokens = 1600, temperature = 0.5, json = false } = opts;
   const payload = messages.map(({ role, content }) => ({ role, content }));
+  // Формат просим у ПРОВАЙДЕРА, а не уговариваем словами в промпте. DeepSeek и
+  // Qwen — OpenAI-совместимые и response_format понимают; водопад-запасной путь
+  // ниже поле игнорирует, и это допустимо: разбор с повтором у вызывающего
+  // остаётся страховкой. Появилось 23.08 ради судьи фактгейта — см. ниже.
+  const format = json ? { response_format: { type: 'json_object' } } : {};
 
   // 1. DeepSeek — сильнейший прямо достижимый из РФ.
   const dsKey = getDeepSeekKey();
@@ -2846,7 +2851,7 @@ export async function callAIQuality(
       const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload }),
+        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload, ...format }),
       }, { timeoutMs: 45_000, label: 'deepseek:content' });
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
@@ -2867,7 +2872,7 @@ export async function callAIQuality(
       const res = await fetchWithRetry(`${qwen.base}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwen.apiKey}` },
-        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload }),
+        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload, ...format }),
       }, { timeoutMs: 45_000, label: 'qwen:content' });
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
@@ -2887,7 +2892,7 @@ export async function callAIQuality(
 /** Как callAIQuality, но отказ виден как null, а не строкой-заглушкой. */
 export async function callAIQualityOrNull(
   messages: ChatMessage[],
-  opts: { maxTokens?: number; temperature?: number } = {},
+  opts: { maxTokens?: number; temperature?: number; json?: boolean } = {},
 ): Promise<string | null> {
   const text = await callAIQuality(messages, opts);
   return isWaterfallErrorResponse(text) ? null : text;
