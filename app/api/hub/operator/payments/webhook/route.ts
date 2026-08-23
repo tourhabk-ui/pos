@@ -148,8 +148,14 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
   // tour_payments. Идемпотентно по invoice_id; сбой учёта не роняет платёж.
   await recordCommissionFromBooking(bookingId, webhook.InvoiceId);
 
-  // Notify operator + admin via Telegram
-  // LEFT JOIN both partners and users — operators can be in either table
+  // Уведомление оператора и админа.
+  //
+  // Оператор тура — это ПАРТНЁР: operator_tours.operator_id ссылается на
+  // partners.id внешним ключом (operator_tours_operator_id_fkey). Прежняя
+  // строка `LEFT JOIN users u ON t.operator_id = u.id` была основана на
+  // догадке «оператор может быть и там, и там» и не совпадала никогда:
+  // сравнивались id партнёра и id пользователя. Контакт человека берём
+  // через partners.user_id.
   const res = await query(
     `SELECT t.title,
             ob.tourist_name,
@@ -161,7 +167,7 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
      FROM operator_bookings ob
      JOIN operator_tours t ON ob.operator_tour_id = t.id
      LEFT JOIN partners p ON t.operator_id = p.id
-     LEFT JOIN users    u ON t.operator_id = u.id
+     LEFT JOIN users    u ON u.id = p.user_id
      WHERE ob.id = $1 LIMIT 1`,
     [bookingId]
   );

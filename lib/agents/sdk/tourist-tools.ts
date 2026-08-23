@@ -102,11 +102,11 @@ const searchTours: SDKTool = {
              t.difficulty, t.location_name,
              t.min_participants, t.max_participants,
              t.available_slots, t.next_available_date,
-             COALESCE(u.company_name, u.name) AS operator_name,
+             COALESCE(p.company_name, p.name) AS operator_name,
              (SELECT AVG(r.rating)::numeric(2,1) FROM reviews r WHERE r.tour_id = t.id) AS avg_rating,
              (SELECT COUNT(*) FROM reviews r WHERE r.tour_id = t.id) AS review_count
       FROM operator_tours t
-      JOIN users u ON u.id = t.operator_id
+      JOIN partners p ON p.id = t.operator_id
       WHERE ${conditions.join(' AND ')}
       ORDER BY t.base_price ASC
       LIMIT $${idx}
@@ -163,10 +163,10 @@ const getTourDetails: SDKTool = {
                t.available_slots, t.next_available_date,
                t.season_start, t.season_end,
                t.tour_image,
-               COALESCE(u.company_name, u.name) AS operator_name,
-               u.phone AS operator_phone
+               COALESCE(p.company_name, p.name) AS operator_name,
+               p.contacts->>'phone' AS operator_phone
         FROM operator_tours t
-        JOIN users u ON u.id = t.operator_id
+        JOIN partners p ON p.id = t.operator_id
         WHERE t.id = $1 AND t.is_published = true
       `, [Number(args.tour_id)]);
 
@@ -283,11 +283,11 @@ const compareTours: SDKTool = {
                ${DURATION_EXPR} AS duration_days,
                t.difficulty, t.activity_type, t.location_name,
                t.included, t.available_slots,
-               COALESCE(u.company_name, u.name) AS operator_name,
+               COALESCE(p.company_name, p.name) AS operator_name,
                (SELECT AVG(r.rating)::numeric(2,1) FROM reviews r WHERE r.tour_id = t.id) AS avg_rating,
                (SELECT COUNT(*) FROM reviews r WHERE r.tour_id = t.id) AS review_count
         FROM operator_tours t
-        JOIN users u ON u.id = t.operator_id
+        JOIN partners p ON p.id = t.operator_id
         WHERE t.id IN (${placeholders}) AND t.is_published = true
       `, ids);
 

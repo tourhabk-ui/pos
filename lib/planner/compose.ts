@@ -154,10 +154,10 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
     SELECT t.id, t.title, t.activity_type,
            ${durationExpr} AS duration_days,
            t.base_price,
-           COALESCE(u.company_name, u.name) AS operator_name,
+           COALESCE(p.company_name, p.name) AS operator_name,
            t.location_name AS location, t.difficulty, t.tour_image
     FROM operator_tours t
-    JOIN users u ON u.id = t.operator_id
+    JOIN partners p ON p.id = t.operator_id
     WHERE t.is_published = true
       AND t.is_active = true
       AND t.activity_type IN (${placeholders})
@@ -395,10 +395,10 @@ async function addWeatherPlanB(
         SELECT t.id, t.title, t.activity_type,
                COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1) AS duration_days,
                t.base_price,
-               COALESCE(u.company_name, u.name) AS operator_name,
+               COALESCE(p.company_name, p.name) AS operator_name,
                t.location_name AS location, t.difficulty, t.tour_image
         FROM operator_tours t
-        JOIN users u ON u.id = t.operator_id
+        JOIN partners p ON p.id = t.operator_id
         WHERE t.is_published = true AND t.is_active = true
           AND t.activity_type IN ('thermal', 'cultural')
           AND t.base_price <= $1

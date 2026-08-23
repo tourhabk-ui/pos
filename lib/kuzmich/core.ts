@@ -1214,11 +1214,17 @@ async function notifyOperatorNewBooking(
 ): Promise<void> {
   try {
     // Адреса оператора: MAX для ПД туриста, Telegram — только для заглушки.
+    //
+    // Оператор тура — ПАРТНЁР: operator_tours.operator_id ссылается на
+    // partners.id (operator_tours_operator_id_fkey). Прежний
+    // `JOIN users u ON u.id = ot.operator_id` сравнивал id партнёра с id
+    // пользователя и не совпадал никогда — оператор не получал уведомления
+    // о своей же броне. Контакт человека берём через partners.user_id.
     const { rows } = await pool.query<{ telegram_id: string | null; max_chat_id: string | null }>(
       `SELECT u.telegram_id, p.max_chat_id::text AS max_chat_id
        FROM operator_tours ot
-       JOIN users u ON u.id = ot.operator_id
-       LEFT JOIN partners p ON p.user_id = u.id
+       JOIN partners p ON p.id = ot.operator_id
+       LEFT JOIN users u ON u.id = p.user_id
        WHERE ot.id = $1 LIMIT 1`,
       [b.tour.id],
     );
