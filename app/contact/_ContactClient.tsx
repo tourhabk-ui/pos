@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Phone, User, MessageSquare, Calendar, Users, Send, CheckCircle } from 'lucide-react';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 const ACTIVITIES = [
   { value: 'volcano',    label: 'Вулканы' },
@@ -29,6 +30,7 @@ export default function ContactClient() {
   const [comment, setComment]   = useState('');
   const [formState, setFormState] = useState<FormState>('idle');
   const [error, setError]       = useState<string | null>(null);
+  const [pdConsent, setPdConsent] = useState(false);
 
   const toggleInterest = (val: string) => {
     setInterests(prev =>
@@ -38,7 +40,7 @@ export default function ContactClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) return;
+    if (!name.trim() || !phone.trim() || !pdConsent) return;
 
     setFormState('sending');
     setError(null);
@@ -58,6 +60,7 @@ export default function ContactClient() {
           comment: comment.trim() || undefined,
           source_url: typeof window !== 'undefined' ? window.location.href : undefined,
           source_data,
+          pd_consent: true,
         }),
       });
 
@@ -225,9 +228,11 @@ export default function ContactClient() {
             <p className="text-sm text-[var(--danger)]">{error}</p>
           )}
 
+          <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-contact" />
+
           <button
             type="submit"
-            disabled={formState === 'sending' || !name.trim() || !phone.trim()}
+            disabled={formState === 'sending' || !name.trim() || !phone.trim() || !pdConsent}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ background: 'var(--accent)' }}
           >
@@ -235,9 +240,6 @@ export default function ContactClient() {
             {formState === 'sending' ? 'Отправляем...' : 'Отправить заявку'}
           </button>
 
-          <p className="text-xs text-[var(--text-muted)] text-center">
-            Нажимая кнопку, вы соглашаетесь на обработку персональных данных
-          </p>
         </form>
       </div>
     </div>

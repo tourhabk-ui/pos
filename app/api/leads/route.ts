@@ -9,6 +9,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
+import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 
@@ -23,6 +24,11 @@ const LeadSchema = z.object({
   source_url:   z.string().max(500).optional(),
   source_data:  z.record(z.string(), z.unknown()).optional(),
   partner_slug: z.string().max(100).optional(), // widget embed: resolve to operator_id
+  // Согласие на обработку ПД. Обязательно и обязано быть именно true: форма
+  // собирает имя и телефон, и право их собирать доказывается здесь, а не
+  // галочкой, которая жила только в браузере (замер 23.08 — она приходила
+  // на сервер ровно ниоткуда).
+  pd_consent: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
 });
 
 const ListSchema = z.object({
@@ -141,6 +147,7 @@ export async function POST(req: NextRequest) {
   // Единый путь: скоринг → INSERT → уведомление админу
   const leadId = await createLead({
     name, phone, comment, route_id, route_title, source_url,
+    pd_consent: buildConsentRecord(true, getClientIp(req.headers), partner_slug ? 'widget' : 'web-form'),
     source_data: mcpHandoffId ? { ...(source_data ?? {}), mcp_handoff_id: mcpHandoffId } : source_data,
     operator_id: operatorId,
   });

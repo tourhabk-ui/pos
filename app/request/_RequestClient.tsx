@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Phone, User, Send, CheckCircle, MessageCircle, ArrowLeft, Bot, Sparkles } from 'lucide-react';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 const BOT_URL = 'https://t.me/kuzmichai_bot?start=lead';
 
@@ -19,10 +20,11 @@ export default function RequestClient() {
   const [phone, setPhone] = useState('');
   const [comment, setComment] = useState('');
   const [state, setState] = useState<State>('idle');
+  const [pdConsent, setPdConsent] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) return;
+    if (!name.trim() || !phone.trim() || !pdConsent) return;
     setState('sending');
     try {
       const res = await fetch('/api/leads', {
@@ -34,6 +36,7 @@ export default function RequestClient() {
           comment: comment.trim() || undefined,
           source_url: typeof window !== 'undefined' ? window.location.href : '/request',
           source_data: { source: 'request_page' },
+          pd_consent: true,
         }),
       });
       setState(res.ok ? 'done' : 'error');
@@ -146,15 +149,13 @@ export default function RequestClient() {
                 {state === 'error' && (
                   <p className="text-xs text-[var(--danger)]">Не удалось отправить. Попробуйте ещё раз.</p>
                 )}
-                <button type="submit" disabled={state === 'sending' || !name.trim() || !phone.trim()}
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-request" />
+                <button type="submit" disabled={state === 'sending' || !name.trim() || !phone.trim() || !pdConsent}
                   className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   style={{ background: 'var(--accent)' }}>
                   <Send className="w-4 h-4" />
                   {state === 'sending' ? 'Отправляю...' : 'Получить предложение'}
                 </button>
-                <p className="text-xs text-[var(--text-muted)] text-center">
-                  Нажимая кнопку, вы соглашаетесь на обработку персональных данных
-                </p>
               </form>
             )}
           </div>

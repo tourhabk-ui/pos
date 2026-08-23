@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { MessageSquarePlus, X, User, Phone, Sparkles, Send, CheckCircle, MessageCircle } from 'lucide-react';
 import { trackLeadEvent, LEAD_EVENTS } from '@/lib/analytics/lead-tracking';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 type State = 'idle' | 'form' | 'sending' | 'done' | 'error';
 
@@ -19,6 +20,7 @@ export default function StickyLeadButton() {
   const [phone, setPhone]     = useState('');
   const [comment, setComment] = useState('');
   const [state, setState]     = useState<State>('form');
+  const [pdConsent, setPdConsent] = useState(false);
 
   // Отслеживаем открытие формы
   useEffect(() => {
@@ -32,6 +34,7 @@ export default function StickyLeadButton() {
 
   async function submitLead(e: React.FormEvent) {
     e.preventDefault();
+    if (!pdConsent) return;
     setState('sending');
     trackLeadEvent({ ...LEAD_EVENTS.SUBMIT_LEAD, source: 'sticky_button' });
     try {
@@ -44,6 +47,7 @@ export default function StickyLeadButton() {
           comment: comment.trim() || undefined,
           source_url: typeof window !== 'undefined' ? window.location.href : '/',
           source_data: { source: 'sticky_cta' },
+          pd_consent: true,
         }),
       });
       if (res.ok) {
@@ -161,17 +165,15 @@ export default function StickyLeadButton() {
                 {state === 'error' && (
                   <p className="text-xs" style={{ color: 'var(--danger)' }}>Ошибка. Попробуйте ещё раз.</p>
                 )}
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-sticky" />
                 <button
                   type="submit"
-                  disabled={state === 'sending' || !phone.trim()}
+                  disabled={state === 'sending' || !phone.trim() || !pdConsent}
                   className="ds-btn ds-btn-primary w-full flex items-center justify-center gap-2 text-sm py-2.5 disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />
                   {state === 'sending' ? 'Отправляю...' : 'Оставить заявку'}
                 </button>
-                <p className="text-center text-xs" style={{ color: 'var(--text-muted)' }}>
-                  Обработка персональных данных
-                </p>
               </form>
               </>
             )}
