@@ -2656,6 +2656,48 @@ export async function preflightProviders(): Promise<{
    * который отвечает на голый запрос и падает на response_format, иначе
    * остался бы зелёным.
    */
+  /**
+   * Вторая строка по DeepSeek — ПУТЬ СУДЬИ, а не путь чата (23.08).
+   *
+   * Замер владельца на проде: `deepseek` зелёный, 381 мс, — и одновременно
+   * Разведчик сообщает «не ответил ни один провайдер». Противоречия здесь нет:
+   * проба и судья спрашивают РАЗНОЕ. Проба берёт модель назначения `chat`
+   * (resolveDeepSeekModel), просит 5 токенов и не просит формат. Судья идёт
+   * через callAIQuality: модель назначения `content` (другая переменная
+   * окружения, другой выбор из /v1/models), 1600 токенов, temperature 0 и
+   * обязательный response_format: json_object.
+   *
+   * Проверка, которая не ходит живым путём, зелёная ровно настолько, насколько
+   * бесполезная. Поэтому путь судьи проверяется отдельной строкой — тем же
+   * запросом, каким ходит он сам.
+   */
+  async function probeDeepSeekContent() {
+    const apiKey = getDeepSeekKey();
+    if (!apiKey) return { ok: false, error: 'DEEPSEEK_API_KEY not set' };
+    try {
+      const res = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: await resolveContentModel('deepseek'),
+          max_tokens: 16,
+          temperature: 0,
+          messages: [{ role: 'user', content: 'Верни JSON {"ok":true}' }],
+          response_format: { type: 'json_object' },
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text?.trim()) return { ok: false, error: 'пустой ответ на пути судьи' };
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
   async function probeQwen() {
     const { apiKey, base, model } = getQwenConfig();
     if (!apiKey) return { ok: false, error: 'DASHSCOPE_API_KEY not set' };
@@ -2719,6 +2761,7 @@ export async function preflightProviders(): Promise<{
       // и вечно красная строка про выключенное по решению — шум, а не диагноз.
       probeDetailed('openrouter', 'OpenRouter (GPT-4o-mini)',     probeOpenrouter),
       probeDetailed('deepseek',   'DeepSeek-V3 (DeepSeek)',       probeDeepSeek),
+      probeDetailed('deepseek:content', 'DeepSeek путь судьи (content + json)', probeDeepSeekContent),
       probeDetailed('qwen',       'Qwen (DashScope, json)',       probeQwen),
       probeDetailed('kimi',       'Kimi (Moonshot)',              probeKimi),
       probeDetailed('gemini',     'Gemini 2.0 Flash (прямой)',    probeGeminiDirect),
