@@ -186,6 +186,12 @@ describe('дайджест не отдаёт ПД зарубежной моде�
  * нашлась только повторным замером. Память — не метод: перечень считает
  * машина, и он может только СОКРАЩАТЬСЯ.
  *
+ * Сеть здесь грубее, чем у правила выше: она смотрит на файл целиком и не
+ * знает, куда именно ушла интерполяция. Лид-домен из неё поэтому исключён
+ * камелкейсом `leadName` — там действует точное правило по зонам, а файл
+ * app/api/leads/route.ts законно содержит и вызов Telegram (заглушка), и ПД
+ * (в тексте для MAX).
+ *
  * Список — не индульгенция. Часть строк здесь законна (сообщение самому
  * субъекту в его же чат, ПД оператора, который сам подал заявку), часть —
  * та же болезнь, что чинили в лидах, но в других доменах: бронирования,
@@ -196,6 +202,7 @@ const TELEGRAM_PD_CENSUS: readonly string[] = [
   'app/api/cron/abandoned-bookings/route.ts',
   'app/api/cron/route-escalation/route.ts',
   'app/api/cron/smart-notify/route.ts',
+  'app/api/hub/admin/support/tickets/[id]/route.ts',
   'app/api/payments/tochka/webhook/route.ts',
   'app/api/safety/sos/route.ts',
   'app/api/telegram/webhook/route.ts',
@@ -210,12 +217,13 @@ const TELEGRAM_PD_CENSUS: readonly string[] = [
   'lib/notifications/stay-booking.ts',
   'lib/notifications/telegram-channel.ts',
   'lib/notifications/telegram.ts',
+  'lib/telegram/admin-notify.ts',
 ];
 
 const TELEGRAM_SEND =
   /api\.telegram\.org|telegramService\s*\.|tgFetchWithRetry\s*\(|tgSend\s*\(|sendHTML\s*\(/;
 const PD_ANY =
-  /\$\{[^}]*(?:\.\s*(?:phone|email|phone_number|mobile)\b|\b(?:tourist|guest|customer|passenger|client|leader|driver|user|lead)_(?:name|phone|email)\b|\b(?:tourist|guest|customer|passenger|client|driver)Name\b|\b(?:tourist|guest|customer|passenger|client|driver)Phone\b|\b(?:lead|l|b|booking|user|u|guest)\s*\.\s*name\b)[^}]*\}/;
+  /\$\{[^}]*(?:\.\s*(?:phone|email|phone_number|mobile)\b|\b(?:tourist|guest|customer|passenger|client|leader|driver|user|lead)_(?:name|phone|email)\b|\b(?:tourist|guest|customer|passenger|client|driver|user)(?:Name|Phone|Email)\b|\b(?:lead|l|b|booking|user|u|guest)\s*\.\s*name\b)[^}]*\}/;
 
 const SKIP_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', 'coverage', 'tests']);
 
