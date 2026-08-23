@@ -102,6 +102,19 @@ async function readBody(req) {
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
+  // Проба живости — ДО проверки секрета и намеренно без него.
+  //
+  // Платформа (App Platform, k8s, балансировщик) дёргает какой-то адрес и
+  // ждёт 200. Наш корень отвечает 403, потому что секрета в проверке нет, —
+  // и приложение попало бы в цикл перезапусков, выглядящий как «релей не
+  // работает». Отвечаем фактом о себе и ничем больше: ни версии, ни
+  // окружения, ни апстримов. Знание, что по адресу живёт сервер, не тайна;
+  // всё остальное — тайна.
+  const path = req.url.split('?')[0];
+  if (path === '/healthz' || path === '/') {
+    return json(res, 200, { ok: true });
+  }
+
   if (!secretOk(req.headers['x-relay-secret'])) {
     return json(res, 403, { error: 'forbidden' });
   }
