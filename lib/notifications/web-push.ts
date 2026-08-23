@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { pool } from '@/lib/db-pool';
+import { checkNotificationAllowed, type NotificationKind } from '@/lib/notifications/preferences-gate';
 
 const { NEXT_PUBLIC_VAPID_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL } = process.env;
 
@@ -27,11 +28,36 @@ export interface PushBroadcastResult {
 }
 
 /**
- * Send a push notification to all subscriptions of a user (or all users if userId omitted).
- * Stale endpoints are automatically removed.
+ * Push всем подпискам человека. Истёкшие подписки удаляются по ходу.
+ *
+ * `kind` обязателен и умолчания не имеет намеренно: умолчание молча зачислило
+ * бы новое уведомление в самый безобидный род, и настройка получателя тихо
+ * перестала бы его касаться. Пусть автор нового вызова решает вслух.
+ *
+ * Настройки спрашиваются ЗДЕСЬ, а не на местах вызова: до 23.08.2026 их не
+ * спрашивал никто, и повторять это по одному разу в каждом роуте — тот же
+ * способ разъехаться, каким разъехались двенадцать копий публичного URL.
  */
-export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
+export async function sendPushToUser(
+  userId: string,
+  payload: PushPayload,
+  opts: { kind: NotificationKind; type?: string },
+): Promise<void> {
   if (!NEXT_PUBLIC_VAPID_KEY || !VAPID_PRIVATE_KEY) return;
+
+  const decision = await checkNotificationAllowed(userId, opts.kind, 'push', opts.type);
+  if (decision.verdict === 'suppress') {
+    // След обязателен: «почему не пришло» — вопрос, который зададут, и ответ
+    // на него не должен требовать чтения кода.
+    console.info(`[web-push] не отправлено (${opts.kind}): ${decision.reason}`);
+    return;
+  }
+  if (decision.verdict === 'unknown') {
+    // Третий исход решается ЗДЕСЬ и в пользу отправки: потерянное
+    // подтверждение брони дороже лишнего уведомления, а сам отказ уже
+    // записан в лог шлюзом — «не смогли» не выдаётся за «разрешено».
+    console.error(`[web-push] настройки не прочитаны, шлём (${opts.kind}): ${decision.reason}`);
+  }
 
   const { rows } = await pool.query<{ id: string; endpoint: string; p256dh: string; auth: string }>(
     `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`,
