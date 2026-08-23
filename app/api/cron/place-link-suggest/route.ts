@@ -105,21 +105,35 @@ export async function GET(request: NextRequest) {
       ),
     );
 
+    // Улика улике рознь. Счёт 1.0 — «Большие Тюшевские источники» и
+    // одноимённый маршрут за 329 км: спорить не о чем, одна координата
+    // врёт. Счёт 0.2 — совпало одно слово из пяти, чаще всего родовое
+    // («термальной» не попало в стоп-лист, а «термальные» попало), и
+    // расхождение объясняется тем, что это разные объекты. Слабые в
+    // список не идут, но и не пропадают: их число названо вслух — иначе
+    // «улик стало меньше» не отличить от «мы перестали их считать».
+    const STRONG_CONFLICT_SCORE = 0.5;
+    const strong = conflicts
+      .filter(c => c.nameScore >= STRONG_CONFLICT_SCORE)
+      .sort((a, b) => (b.nameScore - a.nameScore) || (b.distanceKm - a.distanceKm));
+
     return NextResponse.json({
       success: true,
-      probe: 'place_link_suggest_v2',
+      probe: 'place_link_suggest_v3',
       scope,
       orphans_total: orphans.length,
       with_candidates: withCandidates.length,
       without_candidates: orphans.length - withCandidates.length,
-      // Улики: имя совпало, объекты дальше потолка. Это НЕ кандидаты на
-      // связь — по ним чинят координаты. Отсев назван вслух, иначе «стало
-      // меньше кандидатов» неотличимо от «стало меньше работы» (§4.0).
+      // Материал для решения идёт ПЕРВЫМ: проба 156 показала, как список
+      // улик в сорок строк съел весь окно вывода, и семнадцать кандидатов
+      // — то, ради чего запрос и делался, — не поместились.
+      items: withCandidates,
       name_match_max_km: NAME_MATCH_MAX_KM,
       coordinate_conflicts_total: conflicts.length,
-      coordinate_conflicts: conflicts.slice(0, 40),
-      coordinate_conflicts_dropped: Math.max(0, conflicts.length - 40),
-      items: withCandidates,
+      coordinate_conflicts_strong_total: strong.length,
+      coordinate_conflicts_weak_total: conflicts.length - strong.length,
+      coordinate_conflicts: strong.slice(0, 15),
+      coordinate_conflicts_dropped: Math.max(0, strong.length - 15),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка подсказчика';
