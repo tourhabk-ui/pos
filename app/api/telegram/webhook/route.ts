@@ -490,7 +490,7 @@ async function createLeadFromBot(
         `SELECT p.name, p.slug, p.max_chat_id::text AS max_chat_id,
                 p.contacts->>'telegram_chat_id' AS telegram_chat_id
          FROM partners p
-         JOIN operator_tours ot ON ot.operator_id = p.user_id
+         JOIN operator_tours ot ON ot.operator_id = p.id
          JOIN agent_route_knowledge ark ON ark.id = ot.route_id
          WHERE ark.activity_type = ANY($1)
            AND p.is_public = TRUE

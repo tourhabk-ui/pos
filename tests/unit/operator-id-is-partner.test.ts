@@ -44,8 +44,18 @@ const codeOf = (abs: string) =>
     .join('\n');
 
 /** Соединение колонки оператора тура с таблицей пользователей. */
+/**
+ * Соединение колонки оператора тура с чем угодно, кроме partners.id.
+ *
+ * Первая редакция искала только `users.id = t.operator_id` — и пропустила два
+ * места, где ту же ошибку записали иначе: `ot.operator_id = p.user_id`. Нашёл
+ * их не этот сторож, а объектив схемы (lib/agents/evo/schema-lens.ts), потому
+ * что он сравнивает с внешним ключом, а не с моим списком написаний.
+ * Правило, перечисляющее формы записи, всегда отстаёт от изобретательности
+ * кода; здесь оно оставлено как быстрый барьер, а полноту даёт объектив.
+ */
 const WRONG_JOIN =
-  /\b(?:users?|u)\s*\.\s*id\s*=\s*(?:ot|t|tours?)\s*\.\s*operator_id|\b(?:ot|t)\s*\.\s*operator_id\s*=\s*(?:users?|u)\s*\.\s*id/i;
+  /\b(?:users?|u)\s*\.\s*id\s*=\s*(?:ot|t|tours?)\s*\.\s*operator_id|\b(?:ot|t)\s*\.\s*operator_id\s*=\s*(?:users?|u)\s*\.\s*id|\boperator_id\s*=\s*[a-z_]+\.user_id|\b[a-z_]+\.user_id\s*=\s*[a-z_]+\.operator_id/i;
 
 /** Обращение к company_name у алиаса пользователей — такой колонки нет. */
 const USERS_COMPANY_NAME = /\bu\s*\.\s*company_name\b/i;
