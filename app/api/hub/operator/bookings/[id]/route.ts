@@ -145,6 +145,12 @@ export async function PATCH(
             ? `${row.tour_title ?? 'Тур'} — оператор подтвердил. Проверьте детали.`
             : `${row.tour_title ?? 'Тур'} — бронирование отменено.`,
           url: '/hub/tourist/bookings',
+        }, {
+          // Следствие действия оператора, не рассылка. Даже если push
+          // подавлен настройкой, письмо выше уходит безусловно — человек
+          // узнает об отмене брони в любом случае.
+          kind: 'transactional',
+          type: isConfirmed ? 'booking_confirmed' : 'booking_cancelled',
         }).catch(() => {});
       }
     }

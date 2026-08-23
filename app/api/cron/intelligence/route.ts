@@ -42,8 +42,15 @@ export async function GET(request: NextRequest) {
       duration_ms: report.duration_ms,
       items_processed: report.raw_count,
       items_created: report.domains.length,
-      errors_count: 0,
+      // Прежде здесь стоял жёсткий 0: цикл, у которого упали все домены,
+      // отчитывался нулём ошибок.
+      errors_count: report.errors_count,
       metadata: {
+        // Общий ключ `skip_reason` — его читает Watchdog у ЛЮБОГО крона.
+        // 23.08 тревога говорила «причина пропуска не записана», и это была
+        // правда: причины не было ни здесь, ни в цикле.
+        skip_reason: report.skip_reason,
+        outcomes: report.outcomes,
         domains: report.domains.map(d => ({
           domain: d.domain,
           urgency: d.urgency,

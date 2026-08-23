@@ -981,9 +981,15 @@ async function checkFruitlessCrons(): Promise<WatchdogAlert | null> {
 
     // Причину пропуска крон кладёт в metadata; берём её вместе со статусом,
     // иначе тревога скажет «молчит» и не скажет, где чинить.
+    //
+    // Ключ ОБЩИЙ — `skip_reason`. Читать только `digest_skip_reason` значило
+    // спрашивать причину у одного разведчика: любой другой крон в эту графу
+    // не попадал по построению, и 23.08 тревога так и сказала про Intelligence
+    // Monitor — «причина пропуска не записана». Исторический ключ разведчика
+    // оставлен вторым: в уже записанных прогонах лежит он.
     const { rows } = await pool.query<CronOutcomeRow>(
       `SELECT agent_id, status, ended_at::text AS ended_at,
-              metadata->>'digest_skip_reason' AS skip_reason
+              COALESCE(metadata->>'skip_reason', metadata->>'digest_skip_reason') AS skip_reason
          FROM agent_run_history
         WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
         ORDER BY ended_at DESC
