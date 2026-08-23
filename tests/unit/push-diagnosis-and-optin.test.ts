@@ -38,12 +38,26 @@ describe('Watchdog: точный диагноз недоставки push', () =
 });
 
 describe('Опт-ин подписки на публичной /safety', () => {
-  it('кнопка подписки выведена на страницу безопасности', () => {
-    expect(safety).toMatch(/import \{ PushSubscribeButton \}/);
-    expect(safety).toMatch(/<PushSubscribeButton \/>/);
+  /**
+   * 23.08: предложение вынесено в общий компонент PushSafetyOffer и поставлено
+   * ЕЩЁ и на экран подготовки к маршруту — Watchdog сообщил, что подписчиков
+   * по-прежнему 0 и 18 предупреждений не ушло. Проверка от этого покраснела,
+   * хотя гарантия не ослабла, а усилилась: обещание и действие теперь в одном
+   * месте на всю платформу.
+   *
+   * Поэтому сторожим СВОЙСТВО — на публичной странице безопасности есть
+   * предложение подписаться, и оно в рамке, а не голая кнопка, — а не то, из
+   * каких строк оно собрано в этом конкретном файле.
+   */
+  const offer = readFileSync(join(process.cwd(), 'components/PWA/PushSafetyOffer.tsx'), 'utf-8');
+
+  it('предложение подписки выведено на страницу безопасности', () => {
+    expect(safety).toMatch(/import \{ PushSafetyOffer \}/);
+    expect(safety).toMatch(/<PushSafetyOffer/);
   });
   it('с safety-рамкой (не голая кнопка)', () => {
-    expect(safety).toMatch(/Предупреждения о безопасности/);
+    expect(offer).toMatch(/Предупреждения о безопасности/);
+    expect(offer).toMatch(/<PushSubscribeButton \/>/);
   });
 });
 

@@ -34,6 +34,7 @@ import { loadPreparationPlan, savePreparationPlan } from '@/lib/preparation/stor
 import { loadFieldPack, verifyFieldPack, type PackAssetState } from '@/lib/offline/field-pack';
 import { buildBriefingSnapshot } from '@/lib/preparation/briefing';
 import { passportGradeLabel, type RoutePassport } from '@/lib/routes/passport';
+import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 
 /** Тонкие изолинии подложки — рельеф кодом, без внешних картинок. */
 function TopoBackground() {
@@ -441,6 +442,19 @@ export default function PrepareClient({ routeId }: { routeId: string }) {
             </div>
           </>
         )}
+
+        {/* Предупреждения о безопасности — здесь, а не только на /safety.
+            Watchdog 23.08: подписчиков 0, 18 предупреждений не ушло. Механика
+            была цела, не работало расположение: предложение стояло там, куда
+            заходят УЖЕ решив позаботиться. Момент подписки — этот: человек
+            готовится к конкретному маршруту и ещё в сети.
+
+            Ниже блока не ставим ничего: предложение идёт ПОСЛЕ списка того,
+            что осталось сделать, и не спорит с ним за внимание. Компонент сам
+            исчезает, когда предлагать нечего. */}
+        <div className="mt-6">
+          <PushSafetyOffer />
+        </div>
       </div>
 
       {/* Нижние переходы: Обзор активен; Снаряжение и Пакет — существующие

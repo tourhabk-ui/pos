@@ -8,7 +8,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { zoneName } from '@/lib/safety/zone-names';
 import { plural } from '@/lib/home/data-freshness';
-import { PushSubscribeButton } from '@/components/PWA/PushSubscribeButton';
+import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -324,15 +324,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           02.08). /safety — публичная и ровно про безопасность: здесь опт-ин
           честен и уместен. Кнопка сама скрывается, если push не поддержан или
           уже включён/заблокирован. */}
-      <div className="ds-card" style={{ padding: '14px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ minWidth: 0 }}>
-          <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>Предупреждения о безопасности</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-            Цунами, сейсмо, вулканы, перекрытия дорог — сразу на телефон, даже когда сайт закрыт.
-          </p>
-        </div>
-        <PushSubscribeButton />
-      </div>
+      <PushSafetyOffer className="mb-6" />
 
       {/* Живая обстановка (P0-3b): радар + лента + пульс переехали с главной.
           id="radar" — цель плитки-ссылки /safety#radar. live=null (сбой
