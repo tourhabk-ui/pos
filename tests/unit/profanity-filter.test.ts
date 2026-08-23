@@ -44,6 +44,9 @@ describe('containsProfanity (PurgoMalum)', () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(new Response('false', { status: 200 }));
     await containsProfanity('текст');
     const url = fetchSpy.mock.calls[0]![0] as string;
-    expect(url).toMatch(/^http:\/\/www\.purgomalum\.com/);
+    // Косая черта в конце обязательна: без неё шаблон совпал бы и с
+    // `http://www.purgomalum.com.evil.example/`, то есть проверка пропустила
+    // бы подмену хоста на похожий (js/regex/missing-regexp-anchor).
+    expect(url).toMatch(/^http:\/\/www\.purgomalum\.com\//);
   });
 });

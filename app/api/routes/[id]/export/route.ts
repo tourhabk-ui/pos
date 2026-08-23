@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { extractTrackpoints } from '@/lib/routes/track';
+import { stripTags } from '@/lib/html/text';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,7 +82,7 @@ export async function GET(
     lines.push('<gpx version="1.1" creator="Ведар" xmlns="http://www.topografix.com/GPX/1/1">');
     lines.push('  <metadata>');
     lines.push(`    <name>${escapeXml(r.title as string)}</name>`);
-    const desc = (r.description as string || '').replace(/<[^>]+>/g, '').slice(0, 200);
+    const desc = stripTags((r.description as string) || '').slice(0, 200);
     if (desc) {
       lines.push(`    <desc>${escapeXml(desc)}</desc>`);
     }

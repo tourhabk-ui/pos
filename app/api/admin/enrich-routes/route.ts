@@ -17,6 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast, callAIQualityOrNull } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { z } from 'zod';
+import { stripTags } from '@/lib/html/text';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -334,7 +335,7 @@ JSON schema:
       content: `"${route.title}"
 Type: ${route.location_type ?? 'unknown'}, Activity: ${route.activity_type ?? 'unknown'}
 Coords: ${route.lat != null ? `${route.lat}, ${route.lng}` : 'unknown'}
-Desc: ${(route.description ?? '').replace(/<[^>]+>/g, '').slice(0, 300)}
+Desc: ${stripTags(route.description ?? '').slice(0, 300)}
 
 Generate JSON:`,
     },

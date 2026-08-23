@@ -10,6 +10,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { z } from 'zod';
+import { stripTags } from '@/lib/html/text';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -43,7 +44,7 @@ function buildPrompt(p: {
   const type    = TYPE_RU[p.location_type ?? 'other'] ?? 'природный объект';
   const ecoNote = p.eco_zone && ECO_NOTE[p.eco_zone] ? ECO_NOTE[p.eco_zone] : '';
   const altNote = p.altitude_m && p.altitude_m > 100 ? `Высота: ${p.altitude_m} м.` : '';
-  const rawDesc = (p.description ?? '').replace(/<[^>]+>/g, '').slice(0, 600);
+  const rawDesc = stripTags(p.description ?? '').slice(0, 600);
 
   return [
     {

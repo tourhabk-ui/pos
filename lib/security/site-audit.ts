@@ -45,6 +45,14 @@ export interface SiteSnapshot {
   html: string | null;
   /** Сколько суток осталось сертификату. null — снять не удалось. */
   certDaysLeft: number | null;
+  /**
+   * Прошёл ли сертификат проверку цепочки и сверку имени. null — не выяснили.
+   * Срок и доверие — разные вопросы: самоподписанный сертификат бывает свежим,
+   * а выписанный на чужое имя — действующим. Браузер туриста откажет обоим.
+   */
+  certTrusted: boolean | null;
+  /** Почему не прошёл проверку. null — прошёл или не выясняли. */
+  certUntrustedReason: string | null;
   /** Ответил ли http:// перенаправлением на https. null — не проверяли. */
   httpRedirectsToHttps: boolean | null;
   /** Служебные пути, ответившие 200: '/.env', '/.git/config', ... */
@@ -138,8 +146,21 @@ export function auditSnapshot(snap: SiteSnapshot): CheckResult[] {
   }
 
   // ── Сертификат ───────────────────────────────────────────────────────────
-  if (snap.certDaysLeft === null) {
+  //
+  // Доверие спрашивается ПЕРВЫМ и отдельно от срока. До 23.08.2026 здесь
+  // смотрели только на дату, и сертификат, который браузер отвергает —
+  // самоподписанный или выписанный на другое имя, — проходил как `ok`, если
+  // дата была дальняя (js/disabling-certificate-validation).
+  if (snap.certTrusted === false) {
+    out.push({
+      id: 'cert', outcome: 'bad', severity: 'high',
+      detail: `сертификат не проходит проверку: ${snap.certUntrustedReason ?? 'причина не названа'}`
+        + ' — браузер покажет предупреждение независимо от срока',
+    });
+  } else if (snap.certDaysLeft === null) {
     out.push(unknownIf('cert', 'high', 'срок сертификата снять не удалось'));
+  } else if (snap.certTrusted === null) {
+    out.push(unknownIf('cert', 'high', `срок есть (${snap.certDaysLeft} сут), но проверку доверия провести не удалось`));
   } else if (snap.certDaysLeft < 0) {
     out.push({
       id: 'cert', outcome: 'bad', severity: 'high',

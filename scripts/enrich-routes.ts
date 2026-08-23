@@ -14,6 +14,7 @@
 import { pool } from '../lib/db-pool';
 import { callAIFast } from '../lib/ai/providers';
 import type { ChatMessage } from '../lib/ai/prompts';
+import { stripTags } from '@/lib/html/text';
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const LIMIT_ARG = process.argv.find(a => a.startsWith('--limit='));
@@ -106,7 +107,7 @@ Type: ${route.location_type ?? 'unknown'}
 Activity: ${route.activity_type ?? 'unknown'}
 Category: ${route.category}
 Coordinates: ${route.lat != null ? `${route.lat}, ${route.lng}` : 'unknown'}
-Description (first 300 chars): ${route.description.replace(/<[^>]+>/g, '').slice(0, 300)}
+Description (first 300 chars): ${stripTags(route.description).slice(0, 300)}
 
 Generate tourist data JSON:`,
     },

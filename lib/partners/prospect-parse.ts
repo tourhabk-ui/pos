@@ -18,6 +18,8 @@
  */
 
 import { ACTIVITY_LABEL } from '@/lib/planner-constants';
+import { decodeHtmlEntities } from '@/lib/html/entities';
+import { htmlToText as sharedHtmlToText } from '@/lib/html/text';
 
 export interface ProspectContacts {
   phones: string[];
@@ -66,38 +68,15 @@ const ACTIVITY_HINTS: Record<string, string[]> = {
 };
 
 /**
- * Сущности разворачиваем ОДНИМ проходом по таблице, а не цепочкой replace.
- * Цепочка даёт двойное раскрытие: `&amp;lt;` после `&amp;`→`&` превращается
- * в `&lt;`, а следующий replace делает из него `<` — то, что автор написал
- * литеральным текстом, становится разметкой. Один проход разворачивает
- * каждую сущность ровно один раз (находка CodeQL на PR #1232).
+ * Вырезает скрипты, стили и теги; схлопывает пробелы.
+ *
+ * Реализация здесь была ПРАВИЛЬНОЙ — она пережила две итерации находок CodeQL
+ * на PR #1232 и единственная в репозитории читала `</script >` как браузер.
+ * Но осталась внутри файла, и потому в тридцати других местах разбор написали
+ * заново и неправильно (44 находки 23.08.2026). Вынесена в lib/html/text.
  */
-const ENTITIES: Record<string, string> = {
-  nbsp: ' ', amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'",
-};
-
-/** Вырезает скрипты, стили и теги; схлопывает пробелы. */
 export function htmlToText(html: string): string {
-  return html
-    // `[^>]*` в ЗАКРЫВАЮЩЕМ теге: браузер принимает `</script >`, `</script\n>`
-    // и даже `</script foo>` — атрибуты закрывающего тега он просто
-    // игнорирует. Пока регулярка требовала ровно `</script>`, тело скрипта
-    // утекало в «текст страницы», а оттуда могло уехать в промпт (две
-    // итерации находок CodeQL на PR #1232).
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
-    // Незакрытый script/style в обрезанном по потолку HTML: хвост до конца
-    // документа — тоже не текст страницы.
-    .replace(/<script\b[^>]*>[\s\S]*$/i, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*$/i, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h[1-6])\s*>/gi, '\n')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&(nbsp|amp|quot|apos|lt|gt|#39);/gi, (_m, name: string) =>
-      ENTITIES[name.toLowerCase()] ?? ' ')
-    .replace(/[ \t ]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return decodeHtmlEntities(sharedHtmlToText(html));
 }
 
 function metaContent(html: string, property: string): string | null {

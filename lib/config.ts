@@ -4,18 +4,57 @@
 // KamchatourHub — только техническое/юридическое имя, TourHab — legacy, публично не используется.
 export const SITE_NAME = 'Ведар';
 
+/** Канонический публичный домен платформы — последнее слово, когда выбирать не из чего. */
+export const CANONICAL_BASE_URL = 'https://vedarai.ru';
+
+/**
+ * Технический хост Timeweb, который наружу показывать нельзя: Telegram его не
+ * резолвит, в письме он выглядит подменой отправителя.
+ *
+ * Судим по ИМЕНИ ХОСТА, а не по вхождению подстроки. `url.includes('twc1.net')`
+ * говорит «да» на `https://example.com/?ref=twc1.net` и на
+ * `https://twc1.net.example.com` — в обоих случаях адрес чужой, а мы объявляем
+ * его своим техническим (js/incomplete-url-substring-sanitization, 15 находок
+ * 23.08.2026 на двенадцати копиях этого правила).
+ *
+ * Реальная форма хоста — поддомен: `pospkam-pospktry-c1f3.twc1.net`,
+ * `8ad609fcbfd2ad0bd069be47.twc1.net` (см. lib/db-pool.ts и
+ * tests/unit/lead-links.test.ts).
+ *
+ * Третий исход: адрес не разбирается вовсе. Тогда мы не знаем, наш он или
+ * чужой, — и «не знаю» здесь означает «наружу не пускаем».
+ */
+export function isTechnicalHost(url: string | undefined | null): boolean {
+  if (!url) return false;
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    // Не адрес — значит, публичным базовым URL он быть не может.
+    return true;
+  }
+  return host === 'twc1.net' || host.endsWith('.twc1.net');
+}
+
 /**
  * Публичный базовый URL платформы для ссылок, уходящих наружу
  * (письма, Telegram, PDF). На Timeweb NEXT_PUBLIC_APP_URL указывает на
  * технический twc1.net-домен — тогда берём NEXT_PUBLIC_SITE_URL или канон.
  * Не использовать захардкоженные домены в исходящих ссылках.
+ *
+ * ЕДИНСТВЕННОЕ место этого правила. 23.08.2026 его копий в рабочем коде было
+ * двенадцать, и они уже разъехались: в `app/api/bookings/payments/route.ts`
+ * хвостового фолбэка не было вовсе (returnUrl оплаты выходил строкой
+ * `undefined/bookings/<id>`), а в письме об одобрении оператора фолбэком была
+ * пустая строка — то есть относительная ссылка, которая в почтовом клиенте
+ * никуда не ведёт.
  */
 export function getPublicBaseUrl(): string {
-  return (
-    (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net')
-      ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru')
-      : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru'
-  );
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (isTechnicalHost(appUrl)) {
+    return process.env.NEXT_PUBLIC_SITE_URL || CANONICAL_BASE_URL;
+  }
+  return appUrl || CANONICAL_BASE_URL;
 }
 
 export const config = {
@@ -24,7 +63,8 @@ export const config = {
     name: 'Kamchatour Hub',
     version: '1.0.0',
     description: 'Современная туристическая платформа для Камчатского края',
-    url: (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || 'https://vedarai.ru',
+    // Вторая копия правила жила прямо здесь, в том же файле, что и функция.
+    url: getPublicBaseUrl(),
     environment: process.env.NODE_ENV || 'development',
     debug: process.env.NODE_ENV === 'development',
   },

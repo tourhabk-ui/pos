@@ -1,4 +1,4 @@
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth';
 import { query } from '@/lib/database';
@@ -41,13 +41,37 @@ function generateTOTP(secret: string, counter: number): string {
   return String(code % 1_000_000).padStart(6, '0');
 }
 
+/**
+ * Сверка кода TOTP.
+ *
+ * js/user-controlled-bypass, 23.08.2026: CodeQL пометил условие, которым
+ * управляет присланное значение. Обхода за этим не оказалось — воротами
+ * служит не проверка формы, а сама сверка ниже: код шестизначный, выводится
+ * из HMAC-SHA1 по секрету из БД, окно ±1 шаг, попыток 5 в минуту на адрес.
+ *
+ * Что здесь действительно поправлено: сравнение было `===` по строке, то есть
+ * НЕ постоянного времени — длина совпадения утекает по времени ответа. При
+ * пяти попытках в минуту это не эксплуатируется, но и держать так незачем.
+ *
+ * Требование ровно шести цифр поведение не меняет: generateTOTP всегда
+ * возвращает шесть знаков, и всё, что на них не похоже, совпасть не могло и
+ * раньше. Зато оно даёт timingSafeEqual равные длины, без которых он бросает.
+ */
+const TOTP_CODE = /^\d{6}$/;
+
 function verifyTOTP(secret: string, token: string): boolean {
+  if (!TOTP_CODE.test(token)) return false;
+  const supplied = Buffer.from(token, 'utf8');
   const counter = Math.floor(Date.now() / 1000 / 30);
-  // Проверяем текущий интервал и ±1 шаг (допуск на расхождение часов)
+  // Проверяем текущий интервал и ±1 шаг (допуск на расхождение часов).
+  // Цикл не прерывается досрочно: ранний выход возвращал бы разное время
+  // для «совпало на первом шаге» и «совпало на третьем».
+  let ok = false;
   for (let delta = -1; delta <= 1; delta++) {
-    if (generateTOTP(secret, counter + delta) === token) return true;
+    const expected = Buffer.from(generateTOTP(secret, counter + delta), 'utf8');
+    if (expected.length === supplied.length && timingSafeEqual(expected, supplied)) ok = true;
   }
-  return false;
+  return ok;
 }
 
 export async function POST(request: NextRequest) {

@@ -11,6 +11,7 @@ import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail } from '@/lib/notifications/post-validation';
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
+import { stripTags } from '@/lib/html/text';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1209,7 +1210,7 @@ function parseRssItems(xml: string, limit = 8): Array<{ title: string; text: str
     const fullM = block.match(/<yandex:full-text>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/yandex:full-text>/);
     const dateM = block.match(/<pubDate>(.*?)<\/pubDate>/);
     if (titleM?.[1]) {
-      const body = fullM?.[1]?.replace(/<[^>]+>/g, '').slice(0, 600) ?? descM?.[1] ?? '';
+      const body = (fullM?.[1] ? stripTags(fullM[1]).slice(0, 600) : undefined) ?? descM?.[1] ?? '';
       items.push({ title: titleM[1].trim(), text: body.trim(), date: dateM?.[1] ?? '' });
     }
   }

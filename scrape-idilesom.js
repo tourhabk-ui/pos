@@ -2,7 +2,22 @@
 // Запуск: node scrape-idilesom.js
 // Результат: idilesom-tours.json
 
-const API_TOKEN = "eaf70e24-b62f-4a8d-a0b2-9eb760f3f7ec";
+// Токен Bright Data — из переменной окружения, как в scripts/scrape-operator-tours.js.
+// Литерал стоял прямо здесь (владелец подтвердил 23.08.2026, что тот ключ давно
+// перевыпущен). Из истории git строка никуда не делась и деться не может —
+// поэтому важен не сам ключ, а правило: секрет в коде живёт до первого клона
+// репозитория, а живёт репозиторий долго (CLAUDE.md §4).
+const API_TOKEN = process.env.BRIGHTDATA_API_TOKEN;
+
+if (!API_TOKEN || !API_TOKEN.trim()) {
+  // Не «нет данных», а «не смог начать»: без токена Bright Data вернёт отказ,
+  // и скрейп молча запишет пустой результат как успешный прогон (§4.0).
+  console.error('BRIGHTDATA_API_TOKEN не задан — скрейп idilesom не запускается.');
+  console.error('Задать: BRIGHTDATA_API_TOKEN=... node scrape-idilesom.js');
+  process.exit(1);
+}
+
+const { stripTags } = require('./lib/html/text.js');
 
 const CATEGORIES = [
   { id: 133, slug: "volcanoes",  name: "Вулканы" },
@@ -38,7 +53,7 @@ function parseList(html) {
   const cardRegex = /href="\/kam\/places\/(\d+)"[^>]*>[\s\S]*?<div[^>]*class="[^"]*title[^"]*"[^>]*>([\s\S]*?)<\/div>/g;
   let m;
   while ((m = cardRegex.exec(html)) !== null) {
-    items.push({ id: m[1], title: m[2].replace(/<[^>]+>/g, "").trim() });
+    items.push({ id: m[1], title: stripTags(m[2]).trim() });
   }
   // Fallback: просто ищем все ссылки на маршруты
   if (items.length === 0) {
@@ -52,7 +67,7 @@ function parseList(html) {
 }
 
 function parseDetail(html, id) {
-  const get = (regex) => { const m = html.match(regex); return m ? m[1].replace(/<[^>]+>/g, "").trim() : null; };
+  const get = (regex) => { const m = html.match(regex); return m ? stripTags(m[1]).trim() : null; };
 
   const title = get(/<h1[^>]*>([\s\S]*?)<\/h1>/) ||
                 get(/class="[^"]*place-title[^"]*"[^>]*>([\s\S]*?)<\//) ;

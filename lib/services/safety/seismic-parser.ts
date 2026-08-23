@@ -11,6 +11,8 @@
 import { query } from '@/lib/database';
 import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
 import { zonesForEpicenter } from '@/lib/services/safety/seismic-zones';
+import { decodeHtmlEntities } from '@/lib/html/entities';
+import { stripTags } from '@/lib/html/text';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -116,15 +118,11 @@ function extractMessages(html: string): Array<{ id: string; text: string; dateti
     const rawHtml  = textMatch[1];
 
     // Стрипаем HTML теги
-    const text = rawHtml
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&#33;/g, '!')
-      .trim();
+    // Разворот — один проход (lib/html/entities). Текст сейсмосводки уходит
+    // туристу; цепочка разворачивала его дважды.
+    const text = decodeHtmlEntities(
+      stripTags(rawHtml.replace(/<br\s*\/?>/gi, '\n')),
+    ).trim();
 
     if (!text || text.length < 20) continue;
 

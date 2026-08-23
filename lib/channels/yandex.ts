@@ -14,6 +14,7 @@
  */
 
 import type { ChannelTour } from './types';
+import { stripTags } from '@/lib/html/text';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -72,7 +73,7 @@ function formatSeason(start: string | null, end: string | null): string {
 function buildDescription(tour: ChannelTour): string {
   const parts: string[] = [];
 
-  const base = (tour.short_description ?? tour.description ?? '').replace(/<[^>]+>/g, '').trim();
+  const base = stripTags(tour.short_description ?? tour.description ?? '').trim();
   if (base) parts.push(base);
 
   if (tour.duration_hours) {

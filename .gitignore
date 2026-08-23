@@ -189,3 +189,7 @@ data/route-passports/
 
 # Evo — рука действия: манифест прогона (артефакт, в коммит не идёт)
 evo-apply-manifest.json
+
+# Разбор CodeQL пишет SARIF в рабочий каталог прогона
+sarif-results/
+*.sarif

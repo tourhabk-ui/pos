@@ -28,6 +28,7 @@ import {
   type ScoutHealthMap, type ScoutSourceReport, type SourceHealthEntry, type SourceStatus,
 } from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { stripTags } from '@/lib/html/text';
 
 /**
  * Причина пропуска человеческим языком — для алерта, а не для лога.
@@ -508,10 +509,9 @@ async function fetchArticleText(url: string): Promise<string> {
     });
     if (!res.ok) return '';
     const html = await res.text();
-    return html
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
+    // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
+    // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
+    return stripTags(html, ' ')
       .replace(/&[a-z#0-9]+;/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim()

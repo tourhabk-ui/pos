@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { emailService } from '@/lib/notifications/email-service';
 import { OperatorVerifyRow, OperatorActionRow } from '@/lib/types/db-rows';
 import { z } from 'zod';
+import { getPublicBaseUrl } from '@/lib/config';
 
 const VerifyOperatorSchema = z.object({
   operatorId: z.string().min(1, 'ID оператора обязателен'),
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
               <p>Здравствуйте, <strong>${operator.name}</strong>!</p>
               <p>Компания <strong>${operator.company_name}</strong> успешно верифицирована на платформе KamchatourHub.</p>
               <p>Теперь вы можете войти в личный кабинет и начать размещать туры.</p>
-              <p><a href="${(process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || ''}/auth/login" style="color:#00D4FF">Войти в кабинет</a></p>
+              <p><a href="${getPublicBaseUrl()}/auth/login" style="color:#00D4FF">Войти в кабинет</a></p>
             `,
           });
         } catch {

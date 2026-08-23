@@ -13,6 +13,7 @@
 import { pool } from '../lib/db-pool';
 import { callAIFast } from '../lib/ai/providers';
 import type { ChatMessage } from '../lib/ai/prompts';
+import { stripTags } from '@/lib/html/text';
 
 const isDryRun = process.argv.includes('--dry-run');
 const limitArg = process.argv.find(a => a.startsWith('--limit'));
@@ -82,7 +83,7 @@ const TYPE_CONTEXT: Record<string, string> = {
 function buildPrompt(place: Place): ChatMessage[] {
   const typeLabel = TYPE_CONTEXT[place.location_type ?? 'other'] ?? 'Природный объект';
   const zoneNote = place.eco_zone && ZONE_CONTEXT[place.eco_zone] ? ZONE_CONTEXT[place.eco_zone] : '';
-  const rawDesc = (place.description ?? '').replace(/<[^>]+>/g, '').trim().slice(0, 400);
+  const rawDesc = stripTags(place.description ?? '').trim().slice(0, 400);
 
   return [
     {

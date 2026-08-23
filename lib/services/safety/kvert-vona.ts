@@ -10,6 +10,8 @@
  * и запись в volcano_status делает lib/agents/kvert-sync.ts.
  */
 
+import { decodeHtmlEntities } from '@/lib/html/entities';
+
 export type AccColor = 'green' | 'yellow' | 'orange' | 'red' | 'unassigned';
 
 /** Метаданные цвета: русская подпись, severity (0-3), CSS-токен фона. */
@@ -420,24 +422,11 @@ export function textFromEscapedHtml(escaped: string): string {
     .trim();
 }
 
-const ENTITIES: Record<string, string> = {
-  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'",
-};
-
 /**
- * Разворачивает HTML-сущности ЗА ОДИН проход.
+ * Разворот сущностей — общий (lib/html/entities), однопроходный.
  *
- * Цепочка из `.replace()` по одной сущности разворачивает текст дважды: сперва
- * `&amp;` превращается в `&`, а следующий шаг видит уже готовое `&lt;` и делает
- * из него `<`. То есть исходное `&amp;lt;` — экранированная запись строки
- * `&lt;` — незаметно становится символом `<`. На это указал CodeQL, и он прав:
- * двойное разворачивание тем и опасно, что выглядит как работающий код.
- *
- * Один проход снимает вопрос: то, что появилось при разворачивании, повторно
- * не читается.
+ * Реализация родилась здесь и была правильной, но осталась внутри файла — и
+ * потому её переписали цепочкой ещё в пяти местах (js/double-escaping,
+ * 23.08.2026). Вынесена наружу, чтобы копий больше не заводили.
  */
-function decodeEntities(s: string): string {
-  return s.replace(/&(nbsp|amp|lt|gt|quot|apos|#39);/gi, (whole, name: string) => {
-    return ENTITIES[name.toLowerCase()] ?? whole;
-  });
-}
+const decodeEntities = decodeHtmlEntities;

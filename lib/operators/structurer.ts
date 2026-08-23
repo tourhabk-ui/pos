@@ -11,6 +11,7 @@
 import { z } from 'zod';
 import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { stripTags } from '@/lib/html/text';
 
 // ── Схема одного тура ─────────────────────────────────────────────────────────
 
@@ -41,10 +42,9 @@ const ToursResponseSchema = z.object({
 // ── Промпт ────────────────────────────────────────────────────────────────────
 
 function buildPrompt(html: string, pageUrl: string): ChatMessage[] {
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
+  // Снятие тегов — общее (lib/html/text). Текст уходит в промпт извлечения
+  // туров: тело скрипта с чужого сайта там было бы не только мусором.
+  const text = stripTags(html, ' ')
     .replace(/\s{3,}/g, '\n')
     .trim()
     .slice(0, 8000);

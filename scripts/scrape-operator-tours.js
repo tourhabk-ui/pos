@@ -17,6 +17,7 @@
 const { Pool }  = require('pg');
 const fs        = require('fs');
 const path      = require('path');
+const { stripTags } = require('../lib/html/text.js');
 
 // ── Env ──────────────────────────────────────────────────────────────────────
 
@@ -98,10 +99,10 @@ async function smartFetch(url) {
 async function extractToursAI(html, pageUrl) {
   if (!AI_KEY) return [];
 
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
+  // Снятие тегов — общее (lib/html/text.js, потому и CommonJS: этот скрипт
+  // запускают голым node). Здесь закрывающий тег требовался ровно
+  // `</script>`, и тело скрипта уезжало в промпт извлечения туров.
+  const text = stripTags(html, ' ')
     .replace(/\s{3,}/g, '\n')
     .trim()
     .slice(0, 8000);

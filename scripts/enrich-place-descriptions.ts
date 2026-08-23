@@ -14,6 +14,7 @@
 import { pool } from '../lib/db-pool';
 import { callAIFast } from '../lib/ai/providers';
 import type { ChatMessage } from '../lib/ai/prompts';
+import { stripTags } from '@/lib/html/text';
 
 const isDryRun  = process.argv.includes('--dry-run');
 const isForce   = process.argv.includes('--force');
@@ -101,7 +102,7 @@ function buildPrompt(p: Place): ChatMessage[] {
   const type = TYPE_RU[p.location_type ?? 'other'] ?? 'природный объект';
   const ecoNote = p.eco_zone && ECO_NOTE[p.eco_zone] ? ECO_NOTE[p.eco_zone] : '';
   const altNote = p.altitude_m && p.altitude_m > 100 ? `Высота: ${p.altitude_m} м.` : '';
-  const rawDesc = (p.description ?? '').replace(/<[^>]+>/g, '').trim().slice(0, 600);
+  const rawDesc = stripTags(p.description ?? '').trim().slice(0, 600);
 
   return [
     {

@@ -16,6 +16,7 @@ import { pool } from '@/lib/db-pool';
 import { createHash } from 'crypto';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
+import { stripTags, stripScriptsAndStyles } from '@/lib/html/text';
 
 const BASE_URL = 'https://visitkamchatka.ru';
 const SOURCE_NAME = 'visitkamchatka.ru';
@@ -110,7 +111,7 @@ function parseRoutes(text: string, isMarkdown: boolean): ScrapedRoute[] {
     const filename = isMarkdown ? m[3] : m[2];
     const rawTitle = isMarkdown
       ? m[1].replace(/\s*\(PDF[^)]*\)/i, '').replace(/\s+/g, ' ').trim()
-      : m[3].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').replace(/PDF.*/i, '').trim();
+      : stripTags(m[3]).replace(/\s+/g, ' ').replace(/PDF.*/i, '').trim();
     const fullPathOrUrl = isMarkdown ? m[2] : `${BASE_URL}${m[1]}`;
 
     if (!rawTitle || seen.has(filename)) continue;
@@ -190,21 +191,21 @@ async function scrapeHtmlDescription(slug: string): Promise<string | null> {
     if (!html) return null;
 
     // Убираем скрипты и стили
-    const clean = html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    // Разметка сохраняется — дальше по ней ищут блоки; убираются только
+    // скрипты и стили, общей функцией (lib/html/text).
+    const clean = stripScriptsAndStyles(html, '');
 
     // Ищем блок «Краткое описание» или основной текст
     const descMatch = clean.match(/Краткое описание[\s\S]{0,50}<\/[^>]+>([\s\S]{200,2000}?)(?:<h[1-6]|Waypoint|Точки маршрута|Маршрут)/i);
     if (descMatch) {
-      return descMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1200);
+      return stripTags(descMatch[1], ' ').replace(/\s+/g, ' ').trim().slice(0, 1200);
     }
 
     // Fallback — берём весь основной текст страницы
     const bodyMatch = clean.match(/<main[^>]*>([\s\S]*?)<\/main>/i)
       ?? clean.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
     if (bodyMatch) {
-      const text = bodyMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const text = stripTags(bodyMatch[1], ' ').replace(/\s+/g, ' ').trim();
       // Ищем первый длинный абзац после заголовка маршрута
       const start = text.indexOf('Краткое описание');
       const excerpt = start >= 0 ? text.slice(start + 18) : text;

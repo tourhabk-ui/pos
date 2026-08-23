@@ -9,6 +9,8 @@
  * (чтобы не приклеить неверное фото), после чего оно скачивается и кладётся в
  * ai_route_images с атрибуцией. Требует сетевого доступа (работает на проде).
  */
+import { decodeHtmlEntities } from '@/lib/html/entities';
+import { stripTags } from '@/lib/html/text';
 
 const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 // Wikimedia требует осмысленный User-Agent с контактом.
@@ -57,14 +59,9 @@ export function isFreeLicense(machineCode: string | null, shortName: string | nu
 /** Снимает HTML-теги и схлопывает пробелы — extmetadata.Artist часто HTML. */
 export function stripHtml(raw: string | null | undefined): string {
   if (!raw) return '';
-  return raw
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;|&apos;/g, "'")
+  // Разворот сущностей — один проход (lib/html/entities): цепочка
+  // разворачивала имя автора дважды, и `&amp;lt;` становилось `<`.
+  return decodeHtmlEntities(stripTags(raw, ' '))
     .replace(/\s+/g, ' ')
     .trim();
 }

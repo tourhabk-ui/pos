@@ -21,6 +21,7 @@ import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
 import { getSetting } from '@/lib/platform-settings';
+import { stripTags } from '@/lib/html/text';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,7 +83,7 @@ async function tgReply(chatId: number, text: string, extra?: Record<string, unkn
     if (json.ok) return;
 
     // Attempt 2: plain text fallback (strip all HTML tags)
-    const plain = clean.replace(/<[^>]+>/g, '');
+    const plain = stripTags(clean);
     const res2 = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

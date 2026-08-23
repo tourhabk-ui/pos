@@ -8,6 +8,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export interface GearSearchArgs {
   query?: string;      // название/бренд/категория
@@ -24,11 +25,7 @@ interface GearRow {
   rating: string | null;
 }
 
-function appBase(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net')
-    ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru')
-    : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
-}
+const appBase = getPublicBaseUrl;
 
 export async function searchGearForKuzmich(args: GearSearchArgs): Promise<string> {
   const conds: string[] = ['is_active = true'];

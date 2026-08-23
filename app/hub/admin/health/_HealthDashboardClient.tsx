@@ -40,7 +40,34 @@ interface AirCoverage {
   zones_with_fresh_data: number;
   coverage_pct: number;
   stale_zones: string[];
+  zones?: Array<{
+    zone: string;
+    zoneName: string;
+    fresh: boolean;
+    ageMinutes: number | null;
+    station: { name: string; distanceKm: number | null; represents: string } | null;
+    failure: string | null;
+  }>;
 }
+
+/** Что цифра описывает — словами, а не кодом. */
+/** Почему цифры нет — словами. «Нет станции» и «предел запросов» чинятся по-разному. */
+const AIR_FAILURE_LABELS: Record<string, string> = {
+  no_key: 'ключ не задан',
+  no_station: 'станции рядом нет',
+  rate_limited: 'предел запросов плана IQAir',
+  unauthorized: 'ключ не принят провайдером',
+  http_error: 'провайдер ответил отказом',
+  network: 'не дозвонились',
+  malformed: 'ответ без числа AQI',
+};
+
+const PROXIMITY_LABELS: Record<string, string> = {
+  zone: 'воздух зоны',
+  nearby: 'окрестность, не сама зона',
+  distant: 'далеко — про зону не говорит',
+  unknown: 'расстояние неизвестно',
+};
 
 interface GroundingHealth {
   total_graded: number;
@@ -250,6 +277,33 @@ export default function HealthDashboardClient() {
                 value={air.data.zones_with_fresh_data} total={air.data.total_zones} />
               {air.data.reason && (
                 <p className="text-xs text-[var(--warning)] mt-2">{air.data.reason}</p>
+              )}
+
+              {/* Откуда цифра. Замер 23.08: отвечают две зоны из шести, обе
+                  рядом с Петропавловском, — то есть «данные есть» без имени
+                  станции вводит в заблуждение сильнее, чем помогает. */}
+              {air.data.zones !== undefined && (
+                <div className="mt-2 space-y-1">
+                  {air.data.zones.map(z => (
+                    <p key={z.zone} className="text-xs text-[var(--text-muted)] break-words">
+                      {z.zoneName}:{' '}
+                      {z.station === null ? (
+                        <span>
+                          {z.failure !== null
+                            ? (AIR_FAILURE_LABELS[z.failure] ?? z.failure)
+                            : z.fresh ? 'станцию источник не назвал' : 'данных нет'}
+                        </span>
+                      ) : (
+                        <>
+                          {z.station.name}
+                          {z.station.distanceKm !== null && `, ${z.station.distanceKm} км`}
+                          {' — '}
+                          {PROXIMITY_LABELS[z.station.represents] ?? z.station.represents}
+                        </>
+                      )}
+                    </p>
+                  ))}
+                </div>
               )}
             </>
           )}

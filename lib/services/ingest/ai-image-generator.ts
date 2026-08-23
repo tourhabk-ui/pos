@@ -7,6 +7,7 @@
 import { pool } from '@/lib/db-pool';
 import { dashScopeImageEnabled, generateQwenImageUrl } from '@/lib/notifications/cover-image';
 import { buildPollinationsUrl } from '@/lib/services/ingest/pollinations-url';
+import { stripTags } from '@/lib/html/text';
 
 export { buildPollinationsUrl };
 
@@ -62,8 +63,7 @@ export function buildImagePrompt(
   description: string,
 ): string {
   const typePrompt = TYPE_PROMPTS[locationType ?? 'other'] ?? TYPE_PROMPTS.other;
-  const descSnippet = description
-    .replace(/<[^>]+>/g, '')
+  const descSnippet = stripTags(description)
     .split(/[.!?]/)[0]
     .trim()
     .slice(0, 120);

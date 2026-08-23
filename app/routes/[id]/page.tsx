@@ -7,6 +7,7 @@ import { query } from '@/lib/database';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { stripTags } from '@/lib/html/text';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -138,7 +139,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const title = `${route.title} — маршрут на Камчатке`;
   const desc = route.description
-    ? route.description.replace(/<[^>]+>/g, '').slice(0, 180)
+    ? stripTags(route.description).slice(0, 180)
     : `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
 
   // SEO keywords: города + типы активностей + регион
@@ -242,7 +243,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
   }
 
   const cleanDesc = route.description
-    ? route.description.replace(/<[^>]+>/g, '').slice(0, 500)
+    ? stripTags(route.description).slice(0, 500)
     : undefined;
 
   // Enhanced JSON-LD для Алисы AI и поисковых систем

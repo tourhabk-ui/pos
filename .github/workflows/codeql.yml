@@ -1,11 +1,31 @@
 name: CodeQL — статический анализ (security-extended)
 
+# Сканируются ДВА языка (23.08.2026):
+#
+#   javascript-typescript — код платформы;
+#   actions               — сами workflow. CodeQL 2.26.3 принёс новые квери на
+#                           command injection в Actions, но они не запускались
+#                           бы: язык надо просить отдельно, а мы просили только
+#                           JS/TS. В репозитории 104 workflow, и в 100 из них
+#                           есть `${{ }}`. Непрошенная проверка выглядит как
+#                           проверка, ничего не нашедшая (CLAUDE.md §4.0).
+#
+# fail-fast: false — падение одного языка не должно скрывать находки другого.
+#
 # Сканирование JS/TS, включая новый квери js/system-prompt-injection
 # (CodeQL 2.26.0, июль 2026): непроверенный пользовательский ввод в
 # system-промпте AI-модели. У платформы большой AI-стек (Кузьмич, AI
 # Спасатель, lead-processor) — это наш профильный класс уязвимостей.
 #
-# Результаты: вкладка Security -> Code scanning alerts.
+# Результаты: вкладка Security -> Code scanning alerts И вкладка Summary
+# этого прогона (плюс тот же текст в логе джоба).
+#
+# Вторая половина заведена 23.08.2026, потому что первой было НЕДОСТАТОЧНО:
+# три алерта висели непрочитанными, а прочитать их не мог никто, кроме
+# владельца в браузере. Токену агента Security-таб отвечает
+# «403 Resource not accessible by integration», артефакт лежит на blob-хранилище
+# за сетевой политикой. Проверка, чей результат нельзя достать, отвечает
+# «не знаю», а выглядит зелёной галочкой (CLAUDE.md §4.0).
 
 on:
   push:
@@ -15,6 +35,9 @@ on:
       - '**/*.tsx'
       - '**/*.js'
       - '**/*.mjs'
+      # Сами workflow: без этой строки правка workflow не запускала бы их же
+      # анализ — язык actions добавлен 23.08.2026, а фильтр остался от JS/TS.
+      - '.github/workflows/**'
   # main автодеплоится на Timeweb — ловим уязвимость на диффе PR ДО мержа,
   # а не постфактум в Security-табе, когда она уже уехала в прод.
   pull_request:
@@ -24,6 +47,9 @@ on:
       - '**/*.tsx'
       - '**/*.js'
       - '**/*.mjs'
+      # Сами workflow: без этой строки правка workflow не запускала бы их же
+      # анализ — язык actions добавлен 23.08.2026, а фильтр остался от JS/TS.
+      - '.github/workflows/**'
   schedule:
     - cron: '0 4 * * 1'
   workflow_dispatch:
@@ -39,21 +65,36 @@ concurrency:
 
 jobs:
   analyze:
+    name: Анализ (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
     steps:
       - uses: actions/checkout@v7
 
       - name: Init CodeQL
         uses: github/codeql-action/init@v4
         with:
-          languages: javascript-typescript
+          languages: ${{ matrix.language }}
           queries: security-extended
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
         with:
-          category: '/language:javascript-typescript'
+          category: '/language:${{ matrix.language }}'
+          # SARIF остаётся на диске рядом с загрузкой в Security-таб: один и
+          # тот же результат, две двери. Загрузку не отключаем — вкладка
+          # Security нужна для истории и дедупликации алертов.
+          output: sarif-results
+
+      - name: Находки CodeQL — в сводку прогона и в лог
+        # `always()`: разбор нужен и тогда, когда анализ упал. Молчащий шаг
+        # неотличим от «находок нет».
+        if: always()
+        run: node scripts/codeql-report.js sarif-results
