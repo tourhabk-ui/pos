@@ -172,6 +172,51 @@ export function recentProviderFailures(maxAgeMs = 10 * 60_000): Record<string, s
  * максимум ~1.5с сверх timeoutMs, что укладывается в ~1.5x даже для самых
  * коротких таймаутов в waterfall-цепочке (12с у openai/gpt-4o-mini).
  */
+/**
+ * Секрет релея — ТОЛЬКО когда мы действительно идём через релей.
+ *
+ * Зачем отдельная точка прохода, а не заголовок по месту вызова: обращений
+ * к OPENROUTER_BASE и ANTHROPIC_BASE в этом файле два с лишним десятка, и
+ * добавлять секрет в каждое руками — это гарантированно забыть одно.
+ *
+ * Разрыв нашёлся 23.08 при подготовке VPS-релея: X-Relay-Secret слал
+ * только github-fetch, а вызовы OpenRouter и Anthropic — нет. У воркера
+ * проверка секрета опциональна, поэтому промаха не было видно; на VPS она
+ * обязательна (публичный адрес находят сканами), и релей ответил бы своим
+ * 403 `{"error":"forbidden"}` — до отвращения похожим на чужой 403
+ * `{"success":false,"error":"Access denied by security policy."}`, из-за
+ * которого весь этот разбор и затевался.
+ *
+ * На ПРЯМОЙ адрес апстрима секрет не уходит: он там не нужен и делиться им
+ * с посторонним хостом незачем.
+ */
+function withRelaySecret(url: string, headers: HeadersInit | undefined): HeadersInit | undefined {
+  let host: string | null = null;
+  try { host = new URL(url).host; } catch { return headers; }
+  if (host === 'openrouter.ai' || host === 'api.anthropic.com') return headers;
+
+  const secret = process.env.RELAY_SECRET?.trim();
+  if (!secret) return headers;
+
+  const h = new Headers(headers);
+  h.set('X-Relay-Secret', secret);
+  return h;
+}
+
+/** fetch к релею: тот же вызов плюс секрет, если идём не напрямую. */
+function relayFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, headers: withRelaySecret(url, init.headers) });
+}
+
+/** fetchWithRetry к релею: то же самое поверх повторов. */
+function relayFetchWithRetry(
+  url: string,
+  init: Omit<RequestInit, 'signal'>,
+  opts: { timeoutMs: number; maxRetries?: number; baseDelayMs?: number; label?: string },
+): Promise<Response> {
+  return fetchWithRetry(url, { ...init, headers: withRelaySecret(url, init.headers) }, opts);
+}
+
 export async function fetchWithRetry(
   url: string,
   init: Omit<RequestInit, 'signal'>,
@@ -299,7 +344,7 @@ export async function probeOpenRouterKeyStatus(): Promise<{
   if (!apiKey) return { key_source, both_env_set, route, route_host, http_status: null, detail: 'ключ не задан' };
 
   try {
-    const res = await fetch(`${OPENROUTER_BASE}/key`, {
+    const res = await relayFetch(`${OPENROUTER_BASE}/key`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(8_000),
     });
@@ -326,7 +371,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
 
   for (const { id, timeout } of OR_MODELS) {
     try {
-      const res = await fetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
+      const res = await relayFetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -408,7 +453,7 @@ export async function callOpenRouterModel(
       body.response_format = { type: 'json_object' };
     }
 
-    const res = await fetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
+    const res = await relayFetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -469,7 +514,7 @@ export async function callOpenRouterWithTools(
   if (!apiKey || isOpenRouterTemporarilyDisabled()) return null;
 
   try {
-    const res = await fetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
+    const res = await relayFetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -769,7 +814,7 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
       content: m.content,
     }));
 
-    const res = await fetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
+    const res = await relayFetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -790,7 +835,7 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
       const errText = await res.text().catch(() => '');
       // Fable 5 safety classifier blocks (400) — retry with Opus 5
       if (res.status === 400 && errText.includes('safety') && (process.env.ANTHROPIC_MODEL ?? 'claude-fable-5') === 'claude-fable-5') {
-        const fb = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
+        const fb = await relayFetch(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
@@ -895,7 +940,7 @@ export async function callGemini(messages: ChatMessage[]): Promise<string | null
       payload.unshift({ role: 'user', content: `[System]: ${systemMsg.content}` });
     }
 
-    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+    const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1109,7 +1154,10 @@ export async function resolveDeepSeekModel(): Promise<string> {
 
 async function fetchModelIds(url: string, apiKey: string): Promise<string[]> {
   try {
-    const res = await fetchWithRetry(url, {
+    // relayFetchWithRetry, а не голый: сюда приходит и ${OPENROUTER_BASE}/models,
+    // который при настроенном релее ведёт не на openrouter.ai. Секрет добавится
+    // сам, а на прямой адрес не уйдёт.
+    const res = await relayFetchWithRetry(url, {
       headers: { Authorization: `Bearer ${apiKey}` },
     }, { timeoutMs: 12_000, maxRetries: 1, baseDelayMs: 500, label: 'models-list' });
     if (!res.ok) return [];
@@ -1143,7 +1191,7 @@ export async function getAnthropicModelIds(): Promise<string[]> {
   const key = getAnthropicKey();
   if (!key) return [];
   try {
-    const res = await fetchWithRetry(`${ANTHROPIC_BASE}/v1/models?limit=100`, {
+    const res = await relayFetchWithRetry(`${ANTHROPIC_BASE}/v1/models?limit=100`, {
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
     }, { timeoutMs: 12_000, maxRetries: 1, baseDelayMs: 500, label: 'anthropic-models-list' });
     if (!res.ok) return [];
@@ -1176,7 +1224,7 @@ export async function probeProviderModels(
   if (!key) return { ok: false, http_status: null, detail: 'ключ не задан' };
 
   try {
-    const res = await fetch(url, {
+    const res = await relayFetch(url, {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(15_000),
     });
@@ -1288,7 +1336,7 @@ export async function probeFlagshipRelay(): Promise<{
   const openrouter: RelayProbeLeg = { base: OPENROUTER_BASE, key_set: !!orKey, http_status: null, text_found: false, body_sample: orKey ? '' : 'ключ не задан' };
   if (orKey) {
     try {
-      const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey}`, 'HTTP-Referer': 'https://vedarai.ru', 'X-Title': 'Vedarai Kamchatka' },
         body: JSON.stringify({ model: flagshipModel, max_tokens: 16, messages: probeMsg }),
@@ -1307,7 +1355,7 @@ export async function probeFlagshipRelay(): Promise<{
   const anthropic: RelayProbeLeg = { base: ANTHROPIC_BASE, key_set: !!antKey, http_status: null, text_found: false, body_sample: antKey ? '' : 'ключ не задан' };
   if (antKey) {
     try {
-      const res = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
+      const res = await relayFetch(`${ANTHROPIC_BASE}/v1/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': antKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model: antModel, max_tokens: 16, messages: probeMsg }),
@@ -1500,7 +1548,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
       const sys = payload.find(m => m.role === 'system');
       const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
       if (turns.length) {
-        const res = await fetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
+        const res = await relayFetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': antKey, 'anthropic-version': '2023-06-01' },
           // temperature НЕ шлём: Opus 4.8 и новее через прямой Anthropic API
@@ -2086,7 +2134,7 @@ export async function callGeminiVision(
   const apiKey = getOpenRouterKey();
   if (apiKey) {
     try {
-      const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -2175,7 +2223,7 @@ export async function callGeminiTranscribe(
   if (!apiKey) return null;
 
   try {
-    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+    const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -2246,7 +2294,7 @@ export async function callGeminiPDF(
   const apiKey = getOpenRouterKey();
   if (!apiKey) return null;
   try {
-    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+    const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -2313,7 +2361,7 @@ export async function checkOpenRouterBalance(): Promise<OpenRouterBalance | null
   // ── Вариант 1: management key → /api/v1/credits ──────────────
   if (mgmtKey) {
     try {
-      const res = await fetch(`${OPENROUTER_BASE}/credits`, {
+      const res = await relayFetch(`${OPENROUTER_BASE}/credits`, {
         headers: { Authorization: `Bearer ${mgmtKey}` },
         signal: AbortSignal.timeout(5000),
       });
@@ -2336,7 +2384,7 @@ export async function checkOpenRouterBalance(): Promise<OpenRouterBalance | null
   // ── Вариант 2: стандартный API key → /api/v1/auth/key ────────
   if (!apiKey) return null;
   try {
-    const res = await fetch(`${OPENROUTER_BASE}/auth/key`, {
+    const res = await relayFetch(`${OPENROUTER_BASE}/auth/key`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(5000),
     });
@@ -2414,7 +2462,7 @@ export async function preflightProviders(): Promise<{
     const apiKey = getOpenRouterKey();
     if (!apiKey) return { ok: false, error: 'OPENROUTER_API_KEY not set' };
     try {
-      const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2548,7 +2596,7 @@ export async function preflightProviders(): Promise<{
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return { ok: false, error: 'ANTHROPIC_API_KEY not set' };
     try {
-      const res = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
+      const res = await relayFetch(`${ANTHROPIC_BASE}/v1/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2900,7 +2948,7 @@ export async function callAIFast(
   if (apiKey && !isOpenRouterTemporarilyDisabled()) {
     const payload = messages.map(({ role, content }) => ({ role, content }));
     calls.push(
-      fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -3005,7 +3053,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
       for (const { id, timeout } of OR_MODELS) {
         const start = Date.now();
         try {
-          const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+          const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -3177,7 +3225,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         const clean = firstUserIdx >= 0 ? turns.slice(firstUserIdx) : turns;
         const anthropicMessages = clean.slice(-6).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-        const res = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
+        const res = await relayFetch(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL ?? 'claude-fable-5', max_tokens: 200, temperature: 0.4, ...(systemMsg ? { system: systemMsg.content } : {}), messages: anthropicMessages }),
