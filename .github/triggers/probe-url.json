@@ -1,45 +1,31 @@
 {
- "run": 118,
- "note": "Проба 118: тот же вопрос о выпуске QR, но POST-ом. Проба 117 показала, что GET по адресу POST-метода песочница отдаёт тем же 501 HTTPNotImplemented, что и по несуществующему пути, — значит GET тут не различает «метода нет» и «пути нет», и мой расчёт на 405 не оправдался. На проверку статуса это не влияет: там оба кандидата были GET-методами, и один ответил примером, другой 501. Здесь два POST по двум формам адреса: наша (со словом account) и по слогу имени страницы метода (без него). Ответы в песочнице заготовленные и от тела не зависят, поэтому тело — минимальное правдоподобное; ищем разницу между 200 и 501, а не содержание ответа. GET-адресов в пробе нет намеренно.",
- "bytes": 700,
+ "run": 119,
+ "note": "Проба 119: достать словарь статусов платежа СБП и форму тела запроса на выпуск QR. Это последнее «не знаю», мешающее переписать lib/payments/tochka.ts. Опытом уже установлено: путь выпуска — /sbp/v1.0/qr-code/merchant/{m}/{a} без слова account, путь статуса — /sbp/v1.0/qr-codes/{ids}/payment-status, ответы приходят в конверте Data. Чего НЕ знаю: какое значение status означает «оплачено». Песочница показала только NotStarted и InProgress; догадываться тут нельзя — от этого значения зависит, подтвердится бронь или нет, а неверная догадка молча превратит оплаченное в неоплаченное. Поэтому спрашиваю первоисточник: свагер боевого контура закрыт токеном (403 в пробе 109), но у песочницы токен есть — вдруг спецификация отдаётся. Плюс страница «Работа с API в Postman»: коллекция Postman содержит точные тела запросов. Повторов нет: 404 здесь и есть ответ.",
+ "bytes": 2500,
  "timeout": 30,
  "retries": 0,
  "headers": [
   "Authorization: Bearer sandbox.jwt.token"
  ],
- "urls": [],
- "post": [
-  {
-   "url": "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/account/12345123451234512345%2F044525104",
-   "body": {
-    "Data": {
-     "amount": 100,
-     "currency": "RUB",
-     "paymentPurpose": "проверка адреса",
-     "qrcType": "02",
-     "sourceName": "test",
-     "ttl": 60
-    }
-   }
-  },
-  {
-   "url": "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/12345123451234512345%2F044525104",
-   "body": {
-    "Data": {
-     "amount": 100,
-     "currency": "RUB",
-     "paymentPurpose": "проверка адреса",
-     "qrcType": "02",
-     "sourceName": "test",
-     "ttl": 60
-    }
-   }
-  }
+ "urls": [
+  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/swagger.json",
+  "https://enter.tochka.com/sandbox/v2/openapi.json",
+  "https://developers.tochka.com/docs/tochka-api/kollekciya-zaprosov"
  ],
  "grep": [
-  "HTTPNotImplemented",
-  "qrcId",
-  "payload",
-  "Not Found"
- ]
+  "Accepted",
+  "Confirmed",
+  "NotStarted",
+  "InProgress",
+  "paymentPurpose",
+  "postman",
+  ".json"
+ ],
+ "around": [
+  "status",
+  "postman",
+  "paymentPurpose"
+ ],
+ "aroundLines": 12,
+ "aroundHits": 3
 }
