@@ -177,6 +177,20 @@ function main() {
   const text = render(findings);
   console.log(text);
 
+  // Итог печатается ПОСЛЕДНИМ намеренно.
+  //
+  // Заголовок с общим числом стоит в начале отчёта, а лог джоба читают с
+  // хвоста (API отдаёт последние N строк). 23.08.2026 из-за этого пришлось
+  // считать находки по строкам `::warning`, а они выводятся только для
+  // опасных — среднего уровня в подсчёт не попадали. Строка ниже переживает
+  // любой tail.
+  const tally = findings.reduce((acc, f) => {
+    acc[f.severity] = (acc[f.severity] ?? 0) + 1;
+    return acc;
+  }, {});
+  const parts = Object.entries(tally).map(([k, v]) => `${k}: ${v}`);
+  console.log(`\n[codeql-report] ИТОГ — всего ${findings.length}${parts.length ? ` (${parts.join(', ')})` : ''}`);
+
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) fs.appendFileSync(summary, `${text}\n`);
 

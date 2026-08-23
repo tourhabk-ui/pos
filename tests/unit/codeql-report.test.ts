@@ -134,6 +134,27 @@ describe('три исхода разбора', () => {
   });
 });
 
+describe('итог переживает обрезку лога', () => {
+  it('строка итога печатается ПОСЛЕ подробностей', () => {
+    // Заголовок с общим числом стоит в начале отчёта, а лог джоба читают с
+    // хвоста. 23.08.2026 из-за этого пришлось считать находки по строкам
+    // ::warning — а они выводятся только для опасных, и средние в подсчёт не
+    // попадали вовсе.
+    const SRC = readFileSync(join(process.cwd(), 'scripts/codeql-report.js'), 'utf8');
+    const iRender = SRC.indexOf('console.log(text)');
+    const iTally = SRC.indexOf('[codeql-report] ИТОГ');
+    expect(iRender).toBeGreaterThan(0);
+    expect(iTally, 'итог обязан идти после отчёта, иначе его срежет вместе с заголовком')
+      .toBeGreaterThan(iRender);
+  });
+
+  it('в итоге есть разбивка по уровням, а не только общее число', () => {
+    const SRC = readFileSync(join(process.cwd(), 'scripts/codeql-report.js'), 'utf8');
+    expect(SRC).toMatch(/всего \$\{findings\.length\}/);
+    expect(SRC).toMatch(/acc\[f\.severity\]/);
+  });
+});
+
 describe('ссылки внутри текста находки разрешаются в адреса', () => {
   it('«[here](1)» превращается в файл и строку', () => {
     // Без этого сообщение нечитаемо ровно там, где важнее всего: «here» без
