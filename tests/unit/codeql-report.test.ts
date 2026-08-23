@@ -134,6 +134,40 @@ describe('три исхода разбора', () => {
   });
 });
 
+describe('ссылки внутри текста находки разрешаются в адреса', () => {
+  it('«[here](1)» превращается в файл и строку', () => {
+    // Без этого сообщение нечитаемо ровно там, где важнее всего: «here» без
+    // «где» не отвечает ни на что. Поймано 23.08.2026 на находках самого
+    // разбора — две штуки, и объяснить их было нечем.
+    const f = report.findingsOf({
+      runs: [{
+        tool: { driver: { rules: [] } },
+        results: [{
+          ruleId: 'js/x',
+          message: { text: 'used as a regular expression [here](1)' },
+          locations: [{ physicalLocation: { artifactLocation: { uri: 'tests/a.ts' }, region: { startLine: 75 } } }],
+          relatedLocations: [{ physicalLocation: { artifactLocation: { uri: 'lib/b.ts' }, region: { startLine: 12 } } }],
+        }],
+      }],
+    }) as Array<{ message: string }>;
+    expect(f[0].message).toBe('used as a regular expression here (lib/b.ts:12)');
+  });
+
+  it('ссылка без связанного места остаётся как была, а не теряется', () => {
+    const f = report.findingsOf({
+      runs: [{
+        tool: { driver: { rules: [] } },
+        results: [{
+          ruleId: 'js/x',
+          message: { text: 'смотри [сюда](3)' },
+          locations: [{ physicalLocation: { artifactLocation: { uri: 'a.ts' }, region: { startLine: 1 } } }],
+        }],
+      }],
+    }) as Array<{ message: string }>;
+    expect(f[0].message).toBe('смотри [сюда](3)');
+  });
+});
+
 describe('workflow действительно зовёт разбор', () => {
   it('SARIF остаётся на диске', () => {
     expect(WF).toMatch(/output:\s*sarif-results/);

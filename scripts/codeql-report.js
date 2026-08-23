@@ -50,12 +50,33 @@ function severityOf(result, rulesById) {
   return { label: 'уровень не указан', rank: 0, score: null };
 }
 
-function placeOf(result) {
-  const loc = result.locations?.[0]?.physicalLocation;
-  const uri = loc?.artifactLocation?.uri;
-  const line = loc?.region?.startLine;
+function placeAt(loc) {
+  const uri = loc?.physicalLocation?.artifactLocation?.uri;
+  const line = loc?.physicalLocation?.region?.startLine;
   if (!uri) return null;
   return line === undefined ? uri : `${uri}:${line}`;
+}
+
+function placeOf(result) {
+  return placeAt(result.locations?.[0]);
+}
+
+/**
+ * Текст находки со ССЫЛКАМИ, разрешёнными в адреса.
+ *
+ * CodeQL пишет «used as a regular expression [here](1)», где 1 — номер в
+ * relatedLocations. Первый разбор эти места выбрасывал, и сообщение
+ * становилось нечитаемым ровно там, где важнее всего: «here» без «где» не
+ * отвечает ни на что. Поймано 23.08.2026 на собственных находках разбора —
+ * две штуки в сторожe публичного URL, и объяснить их было нечем.
+ */
+function messageWithLinks(result) {
+  const text = result.message?.text ?? '';
+  const related = result.relatedLocations ?? [];
+  return text.replace(/\[([^\]]*)\]\((\d+)\)/g, (whole, label, num) => {
+    const at = placeAt(related[Number(num) - 1]);
+    return at ? `${label} (${at})` : whole;
+  });
 }
 
 /** Разбор одного SARIF. Возвращает находки; бросает, если файл не разобрать. */
@@ -72,7 +93,7 @@ function findingsOf(sarif) {
       out.push({
         ruleId: res.ruleId ?? 'правило не названо',
         title: rulesById.get(res.ruleId)?.shortDescription?.text ?? null,
-        message: res.message?.text ?? '',
+        message: messageWithLinks(res),
         place: placeOf(res),
         severity: sev.label,
         rank: sev.rank,
