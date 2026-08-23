@@ -103,9 +103,14 @@ export async function POST(request: NextRequest) {
 
     // ── Партнёр ───────────────────────────────────────────────────────────
     const { rows: partnerRows } = await client.query<{ id: string }>(
+      // Типы параметров заданы ЯВНО, а не оставлены выводу. Первый прогон
+      // упал на 42P08 «inconsistent types deduced for parameter $1»: один и
+      // тот же параметр попадает в `name` и в `company_name`, а объявлены они
+      // разными типами, и Postgres не смог свести их к одному. Приведение
+      // снимает вопрос вместо того, чтобы полагаться на догадку планировщика.
       `INSERT INTO partners (name, company_name, category, commission_current, is_public, is_verified, external_source)
-       SELECT $1, $1, 'operator', $2, false, false, 'service-payment-test'
-        WHERE NOT EXISTS (SELECT 1 FROM partners WHERE name = $1)
+       SELECT $1::text, $1::text, 'operator', $2::numeric, false, false, 'service-payment-test'
+        WHERE NOT EXISTS (SELECT 1 FROM partners WHERE name = $1::text)
        RETURNING id::text`,
       [PARTNER_NAME, COMMISSION_PERCENT],
     );
@@ -122,8 +127,8 @@ export async function POST(request: NextRequest) {
       // известных фантомов, то есть его вставка тура на проде упала бы на
       // 42703. Опознаётся служебный тур по title, и этого достаточно.
       `INSERT INTO operator_tours (operator_id, title, base_price, is_active, is_published)
-       SELECT $1::uuid, $2, $3, false, false
-        WHERE NOT EXISTS (SELECT 1 FROM operator_tours WHERE title = $2 AND deleted_at IS NULL)
+       SELECT $1::uuid, $2::text, $3::numeric, false, false
+        WHERE NOT EXISTS (SELECT 1 FROM operator_tours WHERE title = $2::text AND deleted_at IS NULL)
        RETURNING id::text`,
       [partnerId, TOUR_TITLE, PRICE_RUB],
     );
@@ -137,7 +142,7 @@ export async function POST(request: NextRequest) {
     const { rows: bookingRows } = await client.query<{ id: string }>(
       `INSERT INTO operator_bookings
          (operator_tour_id, booking_date, participants, base_total_price, final_price, booking_status, payment_status, created_via)
-       SELECT $1::bigint, CURRENT_DATE, 1, $2, $2, 'pending_payment', 'pending', 'service-payment-test'
+       SELECT $1::bigint, CURRENT_DATE, 1, $2::numeric, $2::numeric, 'pending_payment', 'pending', 'service-payment-test'
         WHERE NOT EXISTS (
               SELECT 1 FROM operator_bookings
                WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL)
