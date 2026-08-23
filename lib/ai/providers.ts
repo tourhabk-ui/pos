@@ -40,6 +40,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { recordAiLegFailure, httpFailureReason, errorFailureReason } from '@/lib/ai/failure-trace';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
@@ -989,7 +990,7 @@ export async function callDeepSeek(
   opts?: FastCallOptions,
 ): Promise<string | null> {
   const apiKey = getDeepSeekKey();
-  if (!apiKey) return null;
+  if (!apiKey) { recordAiLegFailure('deepseek', 'no_key'); return null; }
 
   try {
     const model = await resolveDeepSeekModel();
@@ -1008,7 +1009,10 @@ export async function callDeepSeek(
         ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
       }),
     }, { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'deepseek' });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      recordAiLegFailure('deepseek', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
     const data = await res.json() as {
       choices?: Array<{ message?: { content?: string } }>;
       usage?: ProviderUsage;
@@ -1018,8 +1022,9 @@ export async function callDeepSeek(
       logLLMUsage(model, data.usage);
       return text;
     }
+    recordAiLegFailure('deepseek', 'empty');
     return null;
-  } catch { return null; }
+  } catch (e) { recordAiLegFailure('deepseek', errorFailureReason(e)); return null; }
 }
 
 // ── Moonshot (Kimi) — OpenAI-совместимый, достижим из РФ ───────
@@ -1057,7 +1062,7 @@ export async function callKimi(
   opts?: FastCallOptions,
 ): Promise<string | null> {
   const apiKey = getMoonshotKey();
-  if (!apiKey) return null;
+  if (!apiKey) { recordAiLegFailure('kimi', 'no_key'); return null; }
   try {
     const model = await resolveKimiModel();
     const payload = messages.map(({ role, content }) => ({ role, content }));
@@ -1071,12 +1076,16 @@ export async function callKimi(
         ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
       }),
     }, { timeoutMs: opts?.timeoutMs ?? 20_000, label: `kimi:${model}` });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      recordAiLegFailure('kimi', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
     const text = data?.choices?.[0]?.message?.content;
     if (text?.trim()) { logLLMUsage(`kimi:${model}`, data.usage); return text; }
+    recordAiLegFailure('kimi', 'empty');
     return null;
-  } catch { return null; }
+  } catch (e) { recordAiLegFailure('kimi', errorFailureReason(e)); return null; }
 }
 
 // ── Qwen (Alibaba DashScope — OpenAI-совместимый) ─────────────
@@ -2078,7 +2087,7 @@ export async function callGeminiDirect(
   opts?: FastCallOptions,
 ): Promise<string | null> {
   const apiKey = getGeminiKey();
-  if (!apiKey) return null;
+  if (!apiKey) { recordAiLegFailure('gemini', 'no_key'); return null; }
 
   try {
     const systemMsg = messages.find(m => m.role === 'system');
@@ -2108,11 +2117,16 @@ export async function callGeminiDirect(
       },
       { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'gemini-direct' },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      recordAiLegFailure('gemini', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
     const data = await res.json();
     const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return text?.trim() || null;
-  } catch { return null; }
+    if (text?.trim()) return text;
+    recordAiLegFailure('gemini', 'empty');
+    return null;
+  } catch (e) { recordAiLegFailure('gemini', errorFailureReason(e)); return null; }
 }
 
 // ── Gemini Vision (image analysis): нативный Gemini → OpenRouter ─────────────
@@ -2632,12 +2646,82 @@ export async function preflightProviders(): Promise<{
     } catch (e) { return { ok: false, error: String(e) }; }
   }
 
+  /**
+   * Три ноги, которых в преполётной проверке НЕ БЫЛО до 23.08, — а именно они
+   * решают судьбу судьи фактгейта и Кузьмича. Проверка могла показывать
+   * «DeepSeek жив» при мёртвом Qwen/Gemini/Kimi, и владелец видел зелёный
+   * экран рядом с молчащим Разведчиком.
+   *
+   * Проба спрашивает ФОРМАТ json там, где его просит живой путь: провайдер,
+   * который отвечает на голый запрос и падает на response_format, иначе
+   * остался бы зелёным.
+   */
+  async function probeQwen() {
+    const { apiKey, base, model } = getQwenConfig();
+    if (!apiKey) return { ok: false, error: 'DASHSCOPE_API_KEY not set' };
+    try {
+      const res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: 5, messages: testMsg, response_format: { type: 'json_object' } }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
+  async function probeKimi() {
+    const apiKey = getMoonshotKey();
+    if (!apiKey) return { ok: false, error: 'MOONSHOT_API_KEY not set' };
+    try {
+      const res = await fetch(`${MOONSHOT_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: await resolveKimiModel(), max_tokens: 5, messages: testMsg }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
+  async function probeGeminiDirect() {
+    const apiKey = getGeminiKey();
+    if (!apiKey) return { ok: false, error: 'GEMINI_API_KEY not set' };
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ok' }] }] }),
+          signal: AbortSignal.timeout(5000),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
   const [providers, openrouter_balance] = await Promise.all([
     Promise.all([
       // MiMo в преполётной проверке нет: прямой эндпоинт Xiaomi отключён 04.07.2026,
       // и вечно красная строка про выключенное по решению — шум, а не диагноз.
       probeDetailed('openrouter', 'OpenRouter (GPT-4o-mini)',     probeOpenrouter),
       probeDetailed('deepseek',   'DeepSeek-V3 (DeepSeek)',       probeDeepSeek),
+      probeDetailed('qwen',       'Qwen (DashScope, json)',       probeQwen),
+      probeDetailed('kimi',       'Kimi (Moonshot)',              probeKimi),
+      probeDetailed('gemini',     'Gemini 2.0 Flash (прямой)',    probeGeminiDirect),
       probeDetailed('fugu',       'Sakana Fugu',                  probeFugu),
       probeDetailed('groq',       'Groq (Llama 3.3-70B)',         probeGroq),
       probeDetailed('cerebras',   'Cerebras (Llama 3.3-70B)',     probeCerebras),
@@ -2844,7 +2928,13 @@ export async function callAIQuality(
   const format = json ? { response_format: { type: 'json_object' } } : {};
 
   // 1. DeepSeek — сильнейший прямо достижимый из РФ.
+  //
+  // Отказ каждого шага называется вслух (23.08). До этого дня и «ключа нет», и
+  // «402 кончились деньги», и «таймаут» одинаково молча роняли путь на
+  // следующего провайдера — а когда молчали все, наверх приходило «не ответил
+  // ни один». Владелец при этом видел ключ на месте и упирался в тупик.
   const dsKey = getDeepSeekKey();
+  if (!dsKey) recordAiLegFailure('deepseek:content', 'no_key');
   if (dsKey) {
     try {
       const model = await resolveContentModel('deepseek');
@@ -2860,12 +2950,16 @@ export async function callAIQuality(
           logLLMUsage(model, data.usage);
           return text;
         }
+        recordAiLegFailure('deepseek:content', 'empty');
+      } else {
+        recordAiLegFailure('deepseek:content', httpFailureReason(res.status, await res.text().catch(() => '')));
       }
-    } catch { /* следующий провайдер */ }
+    } catch (e) { recordAiLegFailure('deepseek:content', errorFailureReason(e)); }
   }
 
   // 2. Qwen — второй сильный, тоже без гео-блока.
   const qwen = getQwenConfig();
+  if (!qwen.apiKey) recordAiLegFailure('qwen:content', 'no_key');
   if (qwen.apiKey) {
     try {
       const model = await resolveContentModel('qwen');
@@ -2881,8 +2975,11 @@ export async function callAIQuality(
           logLLMUsage(model, data.usage);
           return text;
         }
+        recordAiLegFailure('qwen:content', 'empty');
+      } else {
+        recordAiLegFailure('qwen:content', httpFailureReason(res.status, await res.text().catch(() => '')));
       }
-    } catch { /* следующий провайдер */ }
+    } catch (e) { recordAiLegFailure('qwen:content', errorFailureReason(e)); }
   }
 
   // 3. Общий waterfall — включая флагманы, если релей настроен.
@@ -2967,6 +3064,8 @@ export async function callAIFast(
   ];
 
   // DeepSeek via OpenRouter (inline to avoid extra function)
+  if (!apiKey) recordAiLegFailure('openrouter', 'no_key');
+  else if (isOpenRouterTemporarilyDisabled()) recordAiLegFailure('openrouter', 'выключен после 401');
   if (apiKey && !isOpenRouterTemporarilyDisabled()) {
     const payload = messages.map(({ role, content }) => ({ role, content }));
     calls.push(
@@ -2992,13 +3091,18 @@ export async function callAIFast(
             if (res.status === 401) {
               markOpenRouterAuthFailure();
             }
+            recordAiLegFailure('openrouter', httpFailureReason(res.status, await res.text().catch(() => '')));
             return null;
           }
           clearOpenRouterFailure();
           return res.json();
         })
-        .then(data => (data?.choices?.[0]?.message?.content as string) ?? null)
-        .catch(() => null)
+        .then(data => {
+          const text = (data?.choices?.[0]?.message?.content as string) ?? null;
+          if (data && !text) recordAiLegFailure('openrouter', 'empty');
+          return text;
+        })
+        .catch((e) => { recordAiLegFailure('openrouter', errorFailureReason(e)); return null; })
     );
   }
 
