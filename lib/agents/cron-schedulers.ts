@@ -76,6 +76,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
   'channel-readiness':         { kind: 'manual', writes: false, note: 'сколько туров годится к выкладке на чужую витрину и что мешает каждому' },
   'tour-pickup':               { kind: 'manual', writes: true,  note: 'записать, как турист попадает на тур: перевозка — свойство оператора, а не поездки' },
+  'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
