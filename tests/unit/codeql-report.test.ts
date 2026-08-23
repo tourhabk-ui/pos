@@ -179,6 +179,21 @@ describe('workflow действительно зовёт разбор', () => {
     expect(WF).toMatch(/node scripts\/codeql-report\.js sarif-results/);
   });
 
+  it('сканируются оба языка: код и сами workflow', () => {
+    // CodeQL 2.26.3 принёс квери на command injection в Actions, но язык надо
+    // просить отдельно. Пока просили только JS/TS, эти квери не запускались —
+    // и отчёт выглядел как «в workflow ничего не найдено».
+    expect(WF).toMatch(/language: \[javascript-typescript, actions\]/);
+    expect(WF, 'падение одного языка не должно скрывать находки другого')
+      .toMatch(/fail-fast: false/);
+  });
+
+  it('правка workflow запускает их же анализ', () => {
+    // Фильтр paths достался от времён, когда сканировали только JS/TS.
+    expect((WF.match(/'\.github\/workflows\/\*\*'/g) ?? []), 'push и pull_request — оба')
+      .toHaveLength(2);
+  });
+
   it('загрузка в Security-таб не отключена — двери две, а не одна', () => {
     // `upload: false` оставил бы историю алертов и дедупликацию без источника.
     expect(WF).not.toMatch(/upload:\s*false/);
