@@ -24,8 +24,18 @@ import {
 const SELECT_COLUMNS =
   'id, user_id, type, title, message, data, is_read, priority, action_url, read_at, created_at, updated_at';
 
-// In-memory store for notification preferences
-const notificationPreferencesStore = new Map<string, Record<string, unknown>>();
+/**
+ * Умолчания для того, кто настроек не задавал. Возвращаются вместе с
+ * признаком isDefault: «никогда не настраивал» и «настроил именно так» —
+ * разные состояния, и вызывающий должен их различать (§4.0).
+ */
+const DEFAULT_PREFERENCES = {
+  quietHours: null,
+  channelPreferences: {},
+  typePreferences: {},
+  frequencyLimit: null,
+  unsubscribeAll: false,
+} as const;
 
 export const notificationService = {
   normalize(row: Record<string, unknown> | null) {
@@ -194,26 +204,48 @@ export const notificationService = {
     return { success: result.rows.length > 0, id, muted: mutedValue };
   },
   async getPreferences(userId: string) {
-    const existing = notificationPreferencesStore.get(userId);
-    if (existing) {
-      return existing;
+    // Отказ базы наружу, а не в умолчания: молчаливая подмена «не смогли
+    // прочитать» на «пользователь ничего не настраивал» — та самая ложь,
+    // ради которой в шапке этого файла нет глушащих catch.
+    const result = await pool.query(
+      `SELECT prefs FROM notification_preferences WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+
+    const row = result.rows[0];
+    const stored = row && row.prefs && typeof row.prefs === 'object'
+      ? (row.prefs as Record<string, unknown>)
+      : null;
+
+    if (!stored || Object.keys(stored).length === 0) {
+      return { ...DEFAULT_PREFERENCES, isDefault: true };
     }
-    return {
-      quietHours: null,
-      channelPreferences: {},
-      typePreferences: {},
-      frequencyLimit: null,
-      unsubscribeAll: false,
-    };
+    return { ...DEFAULT_PREFERENCES, ...stored, isDefault: false };
   },
   async updatePreferences(userId: string, preferences: Record<string, unknown>) {
+    // Ключи со значением undefined выбрасываются ДО слияния. Эндпоинт
+    // передаёт все пять полей всегда, и неуказанные приходят как undefined:
+    // при обычном спреде правка одного поля стирала бы остальные четыре.
+    const patch = Object.fromEntries(
+      Object.entries(preferences).filter(([, v]) => v !== undefined),
+    );
+
     const current = await this.getPreferences(userId);
+    const { isDefault: _wasDefault, ...currentValues } = current;
     const merged = {
-      ...current,
-      ...preferences,
+      ...currentValues,
+      ...patch,
       updatedAt: new Date().toISOString(),
     };
-    notificationPreferencesStore.set(userId, merged);
+
+    await pool.query(
+      `INSERT INTO notification_preferences (user_id, prefs, created_at, updated_at)
+       VALUES ($1, $2::jsonb, NOW(), NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET prefs = EXCLUDED.prefs, updated_at = NOW()`,
+      [userId, JSON.stringify(merged)],
+    );
+
     return merged;
   },
   async markAllRead(userId: string) {
