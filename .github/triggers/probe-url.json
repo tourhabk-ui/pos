@@ -1,19 +1,27 @@
 {
- "run": 121,
- "note": "Проба 121: страница «Работа с API в Postman», одна и без соседей. В пробе 120 она снялась, но её вывод срезало началом лога: канал чтения отдаёт хвост, а хвостом были два адреса-догадки (501 и 404 — машинной спецификации у песочницы нет). Здесь она одна, поэтому её тело окажется в хвосте целиком. Ищу ссылку на коллекцию Postman: в коллекции лежат точные тела запросов и, возможно, словарь значений status. Если и здесь пусто — вопрос закрывается не пробой, а устройством клиента: неизвестный статус обязан возвращать «не выяснили», а не «не оплачено».",
- "bytes": 30000,
- "timeout": 30,
- "retries": 0,
+ "run": 122,
+ "note": "Проба 122: спросить ПРОД, что реально видят наши ключи. Владелец просит подключить разведчика к DeepSeek — в коде он уже к нему подключён: scout-digest зовёт callAIQualityOrNull, а тот первым идёт в DeepSeek (lib/ai/providers.ts, ветка «DeepSeek — сильнейший прямо достижимый из РФ»), Qwen вторым. Значит менять надо не код. Разведчик исполняется НА ПРОДЕ (workflow дёргает https://vedarai.ru/api/cron/*), поэтому ключи берутся из переменных Timeweb, а не из секретов GitHub — граница из CLAUDE.md §8. Ветка DeepSeek начинается с if (dsKey): не задан ключ — провайдер молча пропускается, и предупреждение «не ответил ни один провайдер» выглядит одинаково и при мёртвом ключе, и при отсутствующем. Роут ai-models различает: available (что отдаёт провайдер по нашему ключу), configured и resolved. Значения переменных он не печатает — только факт «задана или нет». CRON_SECRET уходит по правилу адреса: это наш крон-роут.",
+ "bytes": 6000,
+ "timeout": 60,
+ "retries": 2,
+ "retryDelay": 20,
  "allowStale": true,
  "urls": [
-  "https://developers.tochka.com/docs/tochka-api/kollekciya-zaprosov"
+  "https://vedarai.ru/api/cron/ai-models",
+  "https://vedarai.ru/api/cron/scout-diagnose"
  ],
  "grep": [
-  "postman",
-  ".json",
-  "getpostman",
-  "collection",
-  "NotStarted",
-  "Accepted"
- ]
+  "deepseek",
+  "\"key_set\"",
+  "available",
+  "resolved",
+  "DEEPSEEK_API_KEY"
+ ],
+ "around": [
+  "deepseek",
+  "key_set",
+  "reason"
+ ],
+ "aroundLines": 14,
+ "aroundHits": 3
 }
