@@ -18,6 +18,7 @@
  */
 
 import { ACTIVITY_LABEL } from '@/lib/planner-constants';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 export interface ProspectContacts {
   phones: string[];
@@ -65,20 +66,9 @@ const ACTIVITY_HINTS: Record<string, string[]> = {
   mountain:   ['горнолыж', 'ски-тур', 'фрирайд'],
 };
 
-/**
- * Сущности разворачиваем ОДНИМ проходом по таблице, а не цепочкой replace.
- * Цепочка даёт двойное раскрытие: `&amp;lt;` после `&amp;`→`&` превращается
- * в `&lt;`, а следующий replace делает из него `<` — то, что автор написал
- * литеральным текстом, становится разметкой. Один проход разворачивает
- * каждую сущность ровно один раз (находка CodeQL на PR #1232).
- */
-const ENTITIES: Record<string, string> = {
-  nbsp: ' ', amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'",
-};
-
 /** Вырезает скрипты, стили и теги; схлопывает пробелы. */
 export function htmlToText(html: string): string {
-  return html
+  const withoutTags = html
     // `[^>]*` в ЗАКРЫВАЮЩЕМ теге: браузер принимает `</script >`, `</script\n>`
     // и даже `</script foo>` — атрибуты закрывающего тега он просто
     // игнорирует. Пока регулярка требовала ровно `</script>`, тело скрипта
@@ -92,9 +82,12 @@ export function htmlToText(html: string): string {
     .replace(/<style\b[^>]*>[\s\S]*$/i, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6])\s*>/gi, '\n')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&(nbsp|amp|quot|apos|lt|gt|#39);/gi, (_m, name: string) =>
-      ENTITIES[name.toLowerCase()] ?? ' ')
+    .replace(/<[^>]*>/g, ' ');
+
+  // Здесь жила третья правильная копия однопроходного декодера. Сведена на
+  // общий (lib/html/entities); набор там шире, поэтому «ёлочки» и длинные
+  // тире теперь разворачиваются, а не остаются записью вида `&laquo;`.
+  return decodeHtmlEntities(withoutTags)
     .replace(/[ \t ]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

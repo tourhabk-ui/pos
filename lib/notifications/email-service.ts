@@ -4,6 +4,7 @@
  */
 
 import nodemailer from 'nodemailer';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 export interface EmailOptions {
   to: string;
@@ -383,13 +384,9 @@ class EmailService {
   }
 
   private htmlToText(html: string): string {
-    return html
-      .replace(/<[^>]*>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .trim();
+    // Разворот сущностей — один проход (lib/html/entities): цепочка
+    // разворачивала текст дважды, и `&amp;lt;` становилось символом `<`.
+    return decodeHtmlEntities(html.replace(/<[^>]*>/g, '')).trim();
   }
 }
 

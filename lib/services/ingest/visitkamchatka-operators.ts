@@ -12,6 +12,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 const OPERATORS_URL = 'https://visitkamchatka.ru/tour-operators/';
 const USER_AGENT = 'TourHab/1.0 (KamchatourHub operator importer)';
@@ -262,7 +263,9 @@ function parseHtmlOperators(html: string): OperatorRecord[] {
     const block = m[1];
     const nameMatch = block.match(/<(?:h[1-4]|strong|b)[^>]*>([^<]{3,100})<\/(?:h[1-4]|strong|b)>/i);
     if (!nameMatch) continue;
-    const name = nameMatch[1].replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').trim();
+    // Один проход: `&amp;` → `&` открывал второй, и `&amp;nbsp;` в названии
+    // фирмы («ООО &nbsp; Ко» как текст) схлопывалось в пробел.
+    const name = decodeHtmlEntities(nameMatch[1]).trim();
     if (!isValidOperatorName(name)) continue;
     const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
     const tgLinks = extractTgLinks(block);

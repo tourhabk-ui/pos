@@ -6,6 +6,7 @@
  * Правило НЕ ВРАТЬ: не нашлось/не распозналось — null или ambiguous,
  * никаких догадок и автопривязок при неуверенности.
  */
+import { decodeHtmlEntities, normalizePunctuation } from '@/lib/html/entities';
 
 export interface PassportLink {
   title: string;
@@ -55,12 +56,10 @@ function detectSeason(context: string): PassportLink['season'] {
 }
 
 function stripTags(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;|&laquo;|&raquo;|&#171;|&#187;/g, '"')
-    .replace(/&mdash;|&ndash;/g, '-')
+  // Разворот — один проход (lib/html/entities), нормализация знаков — шагом
+  // ПОСЛЕ. Прежде и то и другое жило в одной цепочке `.replace()`, из-за чего
+  // `&amp;lt;` в паспорте маршрута превращалось в символ `<`.
+  return normalizePunctuation(decodeHtmlEntities(html.replace(/<[^>]+>/g, ' ')))
     .replace(/\s+/g, ' ')
     .trim();
 }
