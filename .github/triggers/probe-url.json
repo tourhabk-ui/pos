@@ -1,28 +1,34 @@
 {
- "run": 109,
- "note": "Проба 109: снять документацию Точки с раннера — из контейнера разработки наружу хода нет. Проверяются три вещи, на которых стоит наша интеграция: (1) актуальна ли версия sbp/v1.0 в пути выпуска QR; (2) как получают client_id и client_secret — регистрацией приложения или иначе; (3) какой формат ожидает accountId (в коде это «счёт/БИК»). Ответ решает, чего именно не хватает на проде: только переменных или ещё и правки кода. CRON_SECRET сюда не уйдёт — правило секрета решает по адресу, а это чужой хост.",
- "bytes": 8000,
+ "run": 110,
+ "note": "Проба 110: дочитать документацию Точки по СБП. Проба 109 сняла оглавление и доказала три вещи: раздел «Сервис СБП: Работа с QR-кодами» существует, accountId берётся методом Get Accounts List (/open-banking/v1.0/accounts), а enter.tochka.com/uapi живой — swagger отдал 403 «The access token is missing», то есть адрес есть и закрыт токеном. Не выяснено главное: какой сейчас путь у выпуска QR (у нас в коде sbp/v1.0), где выдают client_id и client_secret, и есть ли песочница, на которой цепочку можно проверить без денег. Четыре страницы отвечают ровно на это. Байт с начала берём мало: у Docusaurus первые килобайты — боковое меню, содержание живёт в контексте вокруг маркеров. Чужой хост — CRON_SECRET сюда не уходит, правило секрета решает по адресу. Маркера свежести нет: ждать нечего, это не наша сборка.",
+ "bytes": 1200,
  "timeout": 60,
  "retries": 2,
  "retryDelay": 15,
  "urls": [
-  "https://developers.tochka.com/",
-  "https://developers.tochka.com/docs/tochka-api/",
-  "https://enter.tochka.com/uapi/sbp/v1.0/swagger.json"
+  "https://developers.tochka.com/docs/tochka-api/api/servis-sbp-rabota-s-qr-kodami",
+  "https://developers.tochka.com/docs/tochka-api/algoritm-raboty-po-oauth-2.0",
+  "https://developers.tochka.com/docs/tochka-api/pesochnica",
+  "https://developers.tochka.com/docs/tochka-api/changelog"
  ],
  "grep": [
   "sbp/v1.0",
-  "qr-code",
+  "sbp/v2.0",
+  "qr-code/merchant",
   "client_credentials",
+  "client_secret",
   "EditSBPData",
-  "accountId",
-  "merchantId"
+  "ReadSBPData",
+  "connect/token",
+  "/uapi/"
  ],
  "around": [
-  "sbp",
-  "client_id",
-  "accountId"
+  "sbp/v1.0",
+  "qr-code",
+  "client_secret",
+  "grant_type",
+  "песочниц"
  ],
- "aroundLines": 10,
- "aroundHits": 3
+ "aroundLines": 20,
+ "aroundHits": 4
 }
