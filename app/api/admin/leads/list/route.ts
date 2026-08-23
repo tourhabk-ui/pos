@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { z } from 'zod';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,11 @@ export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const headerSecret = req.headers.get('x-cron-secret');
 
-  const isValidCron = cronSecret && headerSecret === cronSecret && headerSecret.length > 8;
+  // Сравнение постоянного времени: обычное `===` завершается на первом
+  // различающемся байте и утекает секрет посимвольно по времени ответа.
+  // В остальных cron-роутах уже стоит timingSafeCompare — здесь была
+  // единственная копия, разошедшаяся с правилом.
+  const isValidCron = !!cronSecret && timingSafeCompare(headerSecret, cronSecret);
 
   if (!isValidCron) {
     const auth = await requireAdmin(req);

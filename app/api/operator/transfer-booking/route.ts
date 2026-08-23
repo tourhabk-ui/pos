@@ -551,10 +551,14 @@ export async function PATCH(request: NextRequest) {
         [payload.transferId, payload.targetTourId, commissionAmount]
       );
 
-      // 2) Переназначаем бронирование на тур оператора Б (владение сменится через tour.operator_id).
+      // 2) Переназначаем бронирование на тур оператора Б (владение сменится
+      // через tour.operator_id). Таблица — operator_bookings: тот же
+      // transfer.booking_id читается выше из неё, а в легаси-bookings ключ
+      // uuid против bigint здесь, и запрос падал ошибкой типа, откатывая всю
+      // транзакцию вместе с payouts.
       await client.query(
-        `UPDATE bookings
-         SET tour_id = $2, updated_at = NOW()
+        `UPDATE operator_bookings
+         SET operator_tour_id = $2, updated_at = NOW()
          WHERE id = $1`,
         [transfer.booking_id, payload.targetTourId]
       );
