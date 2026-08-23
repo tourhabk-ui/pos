@@ -16,6 +16,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { join, dirname, relative, resolve, sep } from 'node:path';
@@ -84,6 +85,43 @@ function getStagedFiles() {
  */
 const PATTERN_HOLDERS = /agents\/evo\/(static-checks|mock-detector|finding-guard|claim-signature)\.ts$/;
 
+/**
+ * Осознанные разрешения ЧИТАТЬ устаревшую таблицу — общий список с объективом
+ * эволюции (`lib/agents/evo/static-checks.ts`).
+ *
+ * Запрет §4 говорит: платформу не обслуживают из мёртвой таблицы. Он не
+ * говорит, что о мёртвой таблице нельзя узнать, — а узнать иногда необходимо
+ * именно потому, что она мертва (22.08: внешний ключ `tours` держал пятерых
+ * партнёров от удаления, и понять, что там лежит, можно было только прочитав).
+ *
+ * Список лежит в JSON, а не здесь, потому что это же правило реализовано
+ * дважды — регулярками тут и объективом там. Разрешение, заведённое в одном
+ * читателе, разошлось бы со вторым в тот же день: в этом репозитории так уже
+ * расходились две проверки имени оператора и начисление комиссии на двух
+ * вебхуках.
+ */
+const LEGACY_READ_ALLOW = (() => {
+  try {
+    const raw = readFileSync(join(ROOT, 'lib/agents/evo/legacy-read-allowlist.json'), 'utf8');
+    const paths = Object.keys(JSON.parse(raw).allow ?? {});
+    if (paths.length === 0) return null;
+    return new RegExp(paths.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
+  } catch (err) {
+    // Третий исход: список не прочитан — это НЕ «разрешений нет». Молчаливое
+    // «нет» здесь безопасно для правила, но опасно для доверия к аудиту:
+    // говорим вслух, что судим без списка.
+    console.error(`[audit] список разрешений на чтение устаревших таблиц не прочитан: ${err.message}`);
+    return null;
+  }
+})();
+
+/** Собрать exclude для проверки устаревшей таблицы: свои исключения + общий список. */
+function legacyExclude(own) {
+  return LEGACY_READ_ALLOW
+    ? new RegExp(`${own}|${LEGACY_READ_ALLOW.source}`)
+    : new RegExp(own);
+}
+
 // --- Checks definition ---
 const checks = [
   {
@@ -124,7 +162,7 @@ const checks = [
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /FROM\s+bookings\b/i,
-    exclude: new RegExp(`mcp\\/dev-tools\\/|${PATTERN_HOLDERS.source}`),
+    exclude: legacyExclude(`mcp\\/dev-tools\\/|${PATTERN_HOLDERS.source}`),
     severity: 'КРИТИЧНО',
   },
   {
@@ -132,7 +170,7 @@ const checks = [
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /FROM\s+tours\b/i,
-    exclude: new RegExp(`mcp\\/dev-tools\\/|${PATTERN_HOLDERS.source}`),
+    exclude: legacyExclude(`mcp\\/dev-tools\\/|${PATTERN_HOLDERS.source}`),
     severity: 'КРИТИЧНО',
   },
   {
