@@ -14,8 +14,8 @@ export async function GET(req: Request) {
   if (!process.env.CRON_SECRET) return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   if (!timingSafeCompare(secret, process.env.CRON_SECRET)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-  recordCronRun('channel-sync', Date.now(), 'success');
-
+  // Heartbeat — ПОСЛЕ работы, по её исходу (§4.0). Прежде 'success' уходил до
+  // синхронизации: упавший прогон отдавал 500 и оставался «живым» в журнале.
   const started = Date.now();
 
   try {
@@ -23,6 +23,7 @@ export async function GET(req: Request) {
     const totalNew = results.reduce((s, r) => s + r.new_orders, 0);
     const allErrors = results.flatMap(r => r.errors);
 
+    recordCronRun('channel-sync', started, 'success', { items: totalNew });
     return Response.json({
       success: true,
       duration_ms: Date.now() - started,
@@ -31,8 +32,11 @@ export async function GET(req: Request) {
       errors: allErrors.length ? allErrors : undefined,
     });
   } catch (e) {
+    const msg = (e as Error).message;
+    console.error('[channel-sync] прогон не удался:', msg);
+    recordCronRun('channel-sync', started, 'failed', { error: msg });
     return Response.json(
-      { success: false, error: (e as Error).message, duration_ms: Date.now() - started },
+      { success: false, error: msg, duration_ms: Date.now() - started },
       { status: 500 }
     );
   }

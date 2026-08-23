@@ -26,11 +26,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  recordCronRun('support-escalate', Date.now(), 'success');
+  // Heartbeat — ПОСЛЕ работы, по её исходу (§4.0).
+  const startedAt = Date.now();
 
   try {
     const overdue = await getOverdueTickets();
     if (overdue.length === 0) {
+      recordCronRun('support-escalate', startedAt, 'success', { items: 0 });
       return NextResponse.json({ ok: true, escalated: 0 });
     }
 
@@ -42,9 +44,12 @@ export async function GET(request: NextRequest) {
       escalated++;
     }
 
+    recordCronRun('support-escalate', startedAt, 'success', { items: escalated });
     return NextResponse.json({ ok: true, escalated });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
+    console.error('[support-escalate] прогон не удался:', message);
+    recordCronRun('support-escalate', startedAt, 'failed', { error: message });
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
