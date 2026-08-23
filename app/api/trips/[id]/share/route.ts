@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export async function POST(
   request: NextRequest,
@@ -33,7 +34,7 @@ export async function POST(
     );
 
     const shareToken = rows[0].share_token;
-    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || 'https://vedarai.ru';
+    const baseUrl = getPublicBaseUrl();
     return NextResponse.json({
       success: true,
       shareToken,

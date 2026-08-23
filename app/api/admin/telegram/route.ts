@@ -7,13 +7,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { getSetting, setSetting } from '@/lib/platform-settings';
 import { z } from 'zod';
+import { getPublicBaseUrl } from '@/lib/config';
 
 const TelegramSetupSchema = z.object({
   token: z.string().max(100).optional(),
   reregister: z.boolean().optional(),
 });
 
-const APP_URL      = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
+const APP_URL      = getPublicBaseUrl();
 const WEBHOOK_PATH = '/api/telegram/kuzmich';
 
 async function resolveToken(): Promise<string> {

@@ -9,6 +9,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export interface TransferSearchArgs {
   from?: string;   // откуда (например: аэропорт, Петропавловск)
@@ -26,11 +27,7 @@ interface TransferRouteRow {
   base_price: string | null;
 }
 
-function appBase(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net')
-    ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru')
-    : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
-}
+const appBase = getPublicBaseUrl;
 
 export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promise<string> {
   const conds: string[] = ['is_active = true'];

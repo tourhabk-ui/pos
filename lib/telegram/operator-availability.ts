@@ -13,6 +13,7 @@ import { getMTProtoClient, isMTProtoConfigured } from '@/lib/telegram/mtproto-cl
 import { callAIFast } from '@/lib/ai/providers';
 import { pool } from '@/lib/db-pool';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { isTechnicalHost } from '@/lib/config';
 
 // ── Уведомление владельцу ────────────────────────────────────────────────────
 
@@ -363,7 +364,11 @@ const PENDING_UPDATES_THRESHOLD = 100;
  * NEXT_PUBLIC_APP_URL (если он не внутренний) → дефолт. Внутренние *.twc1.net отбрасываем.
  */
 export function publicWebhookBase(): string {
-  const isInternal = (u?: string | null): boolean => !!u && /twc1\.net/i.test(u);
+  // Предикат общий с getPublicBaseUrl: третья реализация одного правила
+  // судила по регулярке БЕЗ якоря — `https://example.com/?x=twc1.net` для неё
+  // был внутренним хостом (js/regex/missing-regexp-anchor). Список кандидатов
+  // здесь свой намеренно: вебхуку нужен ещё и TELEGRAM_WEBHOOK_URL.
+  const isInternal = isTechnicalHost;
   const candidates = [
     process.env.TELEGRAM_WEBHOOK_URL,
     process.env.NEXT_PUBLIC_SITE_URL,

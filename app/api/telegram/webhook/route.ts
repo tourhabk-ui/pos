@@ -57,6 +57,7 @@ import { categorizeSupport, CATEGORY_LABELS, RESIDENT_INTRO } from '@/lib/suppor
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { createLead } from '@/lib/leads/create';
+import { isTechnicalHost } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -1106,7 +1107,10 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ ok: true });
         }
         const base = (process.env.NEXT_PUBLIC_SITE_URL
-          || (process.env.NEXT_PUBLIC_APP_URL && !/twc1\.net/i.test(process.env.NEXT_PUBLIC_APP_URL) ? process.env.NEXT_PUBLIC_APP_URL : null)
+          // Предикат общий (lib/config): регулярка без якоря считала внутренним
+          // любой адрес, где подстрока встретилась хоть в query-параметре.
+          // Порядок кандидатов оставлен свой: здесь SITE_URL старше APP_URL.
+          || (process.env.NEXT_PUBLIC_APP_URL && !isTechnicalHost(process.env.NEXT_PUBLIC_APP_URL) ? process.env.NEXT_PUBLIC_APP_URL : null)
           || 'https://vedarai.ru').replace(/\/$/, '');
         const photoUrl = `${base}/images/social/agent-orchestration.png`;
         const caption = [
