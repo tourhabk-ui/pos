@@ -132,6 +132,43 @@ export interface TochkaPaymentStatus {
 /** Конверт, в который Точка заворачивает ЛЮБОЙ успешный ответ. */
 interface Envelope<T> { Data?: T }
 
+/**
+ * Идентификаторы, попадающие в АДРЕС запроса, проверяются по форме.
+ *
+ * `qrcId` приходит в теле вебхука, то есть снаружи и от кого угодно: qrcId
+ * уезжает плательщику вместе с QR-ссылкой. `encodeURIComponent` уже не даёт
+ * сменить хост или выйти вверх по пути, но полагаться на экранирование там,
+ * где годится белый список, незачем — идентификаторы Точки буквенно-цифровые.
+ * Проверка стоит ДО подстановки: адрес запроса собирается только из значений,
+ * прошедших её.
+ *
+ * Счёт и merchantId приходят из наших переменных, но проверяются тем же
+ * правилом: опечатка в переменной окружения — та же подстановка чужого текста
+ * в адрес, только сделанная своими руками.
+ */
+const SAFE_QR_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** Счёт задаётся как «номер/БИК» — косая черта тут законна и единственная. */
+const SAFE_ACCOUNT = /^[A-Za-z0-9]{1,34}\/[0-9]{1,12}$/;
+const SAFE_MERCHANT = /^[A-Za-z0-9_-]{1,40}$/;
+
+/**
+ * Путь для ЛОГА: без счёта и без merchantId.
+ *
+ * В пути выпуска QR лежит номер банковского счёта с БИК. Логи читают люди и
+ * машины, попадают они и в чужие руки; писать туда реквизиты счёта незачем —
+ * для разбора отказа достаточно знать, какой метод не прошёл.
+ */
+function safePath(path: string): string {
+  // Маска — слово, а не звёздочки, и это не про вкус. Слэш, за которым идут
+  // звёздочки, — начало блочного комментария; попав в строковый литерал, он
+  // сбивает любой инструмент, снимающий комментарии регуляркой. На этом уже
+  // споткнулся сторож этого самого файла: он «съел» полфайла и заявил, что
+  // функции нет. В репозитории таких сканеров несколько.
+  return path
+    .replace(/\/merchant\/[^/]+/, '/merchant/[скрыто]')
+    .replace(/(\/merchant\/\[скрыто\])\/[^/]+/, '$1/[скрыто]');
+}
+
 // ── Общий запрос ───────────────────────────────────────────────────
 
 /**
@@ -161,7 +198,7 @@ async function call<T>(
 
     if (!res.ok) {
       const err = await res.text();
-      console.error(`[tochka] ${method} ${path} → ${res.status}: ${err}`);
+      console.error(`[tochka] ${method} ${safePath(path)} → ${res.status}: ${err}`);
       return null;
     }
 
@@ -169,12 +206,12 @@ async function call<T>(
     if (!json?.Data) {
       // Двухсотый без конверта — не успех, а неузнанный ответ. Молча вернуть
       // undefined значило бы выдать непонимание за отсутствие данных.
-      console.error(`[tochka] ${method} ${path}: ответ 200 без конверта Data`);
+      console.error(`[tochka] ${method} ${safePath(path)}: ответ 200 без конверта Data`);
       return null;
     }
     return json.Data;
   } catch (err) {
-    console.error(`[tochka] ${method} ${path} не выполнен:`,
+    console.error(`[tochka] ${method} ${safePath(path)} не выполнен:`,
       err instanceof Error ? err.message : err);
     return null;
   }
@@ -208,6 +245,13 @@ export async function createSBPQR(opts: {
   const account  = accountId();
   if (!merchant || !account) {
     console.error('[tochka] TOCHKA_MERCHANT_ID / TOCHKA_ACCOUNT_ID не заданы');
+    return null;
+  }
+
+  if (!SAFE_MERCHANT.test(merchant) || !SAFE_ACCOUNT.test(account)) {
+    // Не «пустое», а «не той формы» — отдельная беда с отдельным лечением:
+    // пустое чинится добавлением переменной, кривое — её исправлением.
+    console.error('[tochka] TOCHKA_MERCHANT_ID или TOCHKA_ACCOUNT_ID не той формы');
     return null;
   }
 
@@ -282,6 +326,13 @@ const NOT_FOUND_CODE = 'RQ05014';
  * одном из них нельзя сказать «не оплачено».
  */
 export async function getSBPPaymentStatus(qrId: string): Promise<TochkaPaymentStatus | null> {
+  if (!SAFE_QR_ID.test(qrId)) {
+    // qrcId пришёл из тела вебхука, то есть снаружи. Не «не оплачено» и не
+    // «банк не знает» — мы просто не станем спрашивать банк о таком.
+    console.error('[tochka] статус: qrcId не той формы, запрос не отправлен');
+    return null;
+  }
+
   // Метод спрашивает сразу НЕСКОЛЬКО QR и возвращает список — прежняя версия
   // читала его как один объект.
   const path = `/sbp/v1.0/qr-codes/${encodeURIComponent(qrId)}/payment-status`;

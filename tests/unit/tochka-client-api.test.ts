@@ -121,7 +121,7 @@ describe('отказы не глушатся', () => {
   it('тело ошибки печатается целиком', () => {
     // В нём лежит имя поля, на котором запрос не прошёл, — единственный
     // источник формы запроса, которой нет в открытой документации.
-    expect(CODE).toMatch(/console\.error\(`\[tochka\] \$\{method\} \$\{path\} → \$\{res\.status\}: \$\{err\}`\)/);
+    expect(CODE).toMatch(/console\.error\(`\[tochka\] \$\{method\} \$\{safePath\(path\)\} → \$\{res\.status\}: \$\{err\}`\)/);
   });
 
   it('пустого catch нет', () => {
@@ -152,5 +152,50 @@ describe('учётных данных в коде нет', () => {
     // не мешало: 503 мог сказать «не хватает», а перечень — «всё на месте».
     const fn = CODE.slice(CODE.indexOf('export function isTochkaConfigured'));
     expect(fn.slice(0, 200)).toMatch(/tochkaMissingEnv\(\)\.length === 0/);
+  });
+});
+
+describe('в адрес запроса не попадает непроверенное', () => {
+  it('qrcId из вебхука проверяется по форме до подстановки', () => {
+    // qrcId уезжает плательщику вместе с QR-ссылкой, то есть приходит снаружи
+    // и от кого угодно. encodeURIComponent уже не даёт сменить хост, но
+    // полагаться на экранирование там, где годится белый список, незачем.
+    expect(CODE).toMatch(/SAFE_QR_ID = \/\^\[A-Za-z0-9_-\]/);
+    const fn = CODE.slice(CODE.indexOf('export async function getSBPPaymentStatus'));
+    const check = fn.indexOf('SAFE_QR_ID.test(qrId)');
+    const build = fn.indexOf('const path =');
+    expect(check).toBeGreaterThan(-1);
+    expect(check, 'проверка стоит ПОСЛЕ сборки адреса').toBeLessThan(build);
+  });
+
+  it('счёт и merchantId тоже проверяются', () => {
+    // Опечатка в переменной окружения — та же подстановка чужого текста в
+    // адрес, только сделанная своими руками.
+    expect(CODE).toMatch(/SAFE_ACCOUNT/);
+    expect(CODE).toMatch(/SAFE_MERCHANT/);
+    const fn = CODE.slice(CODE.indexOf('export async function createSBPQR'));
+    const check = fn.indexOf('SAFE_MERCHANT.test(merchant)');
+    const build = fn.indexOf('const path =');
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(build);
+  });
+});
+
+describe('реквизиты не утекают в лог', () => {
+  it('путь в логе идёт через safePath', () => {
+    // В пути выпуска QR лежит номер банковского счёта с БИК. Логи читают люди
+    // и машины, попадают они и в чужие руки.
+    const logs = CODE.match(/console\.error\(`\[tochka\] \$\{method\}[^`]*`/g) ?? [];
+    expect(logs.length).toBeGreaterThan(0);
+    for (const line of logs) {
+      expect(line, `в логе голый путь: ${line}`).toMatch(/safePath\(path\)/);
+    }
+  });
+
+  it('safePath прячет и merchantId, и счёт', () => {
+    // Две замены: сначала merchantId, следом счёт, который идёт за ним.
+    const body = CODE.slice(CODE.indexOf('function safePath')).slice(0, 600);
+    // Ровно два скрытых значения на выходе: merchantId и счёт.
+    expect((body.match(/'[^']*\[скрыто\]'/g) ?? []).length).toBe(2);
   });
 });
