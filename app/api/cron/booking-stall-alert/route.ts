@@ -28,9 +28,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  recordCronRun('booking-stall', Date.now(), 'success');
+  // Heartbeat пишется ПОСЛЕ работы, по её исходу. Прежде 'success' уходил до
+  // первого запроса: упавший прогон выглядел живым, и liveness Watchdog'а
+  // (lib/agents/cron-registry) видел здоровье там, где крон не работал.
+  const startedAt = Date.now();
   const today = new Date().toISOString().slice(0, 10);
 
+  try {
   const [bookingsResult, operatorsResult, alertCheck] = await Promise.all([
     pool.query<BookingCountRow>(
       `SELECT COUNT(*)::text AS bookings_7d
@@ -56,10 +60,12 @@ export async function GET(request: NextRequest) {
   const lastSentDate    = alertCheck.rows[0]?.sent_date ?? null;
 
   if (bookings7d > 0) {
+    recordCronRun('booking-stall', startedAt, 'success', { items: 0 });
     return NextResponse.json({ bookings_7d: bookings7d, active_operators: activeOperators, alert_sent: false });
   }
 
   if (lastSentDate === today) {
+    recordCronRun('booking-stall', startedAt, 'success', { items: 0 });
     return NextResponse.json({ bookings_7d: 0, active_operators: activeOperators, alert_sent: false, note: 'already_sent_today' });
   }
 
@@ -79,5 +85,13 @@ export async function GET(request: NextRequest) {
     [JSON.stringify({ sent_date: today, bookings_7d: 0, active_operators: activeOperators })],
   );
 
+  recordCronRun('booking-stall', startedAt, 'success', { items: 1 });
   return NextResponse.json({ bookings_7d: 0, active_operators: activeOperators, alert_sent: true });
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Ошибка';
+    console.error('[booking-stall-alert] прогон не удался:', msg);
+    recordCronRun('booking-stall', startedAt, 'failed', { error: msg });
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }

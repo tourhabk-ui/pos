@@ -333,6 +333,13 @@ export async function GET(request: NextRequest) {
   const started = Date.now();
   const issues: HealthIssue[] = [];
 
+  // Тело обёрнуто в try целиком ради одного: у прогона должен быть исход
+  // «не смог» (§4.0). Без него падение оставляло в журнале пустоту, и
+  // liveness Watchdog'а не отличал «крон упал» от «крон не запускался» —
+  // разные беды с разными действиями. Отступы внутри намеренно не сдвинуты:
+  // правка ради одного исхода не должна переписывать сто строк проверок.
+  try {
+
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
@@ -451,4 +458,10 @@ export async function GET(request: NextRequest) {
     eco_ledger: eco,
     issues,
   });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Ошибка';
+    console.error('[cron/health] прогон не удался:', msg);
+    recordCronRun('health', started, 'failed', { error: msg });
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
 }

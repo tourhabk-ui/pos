@@ -33,7 +33,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  recordCronRun('route-escalation', Date.now(), 'success');
+  // Heartbeat пишется ПОСЛЕ работы, по её исходу. Прежде 'success' уходил до
+  // входа в try: любое падение внутри отдавало 500, а liveness Watchdog'а
+  // (lib/agents/cron-registry) продолжал видеть здоровый крон.
+  const startedAt = Date.now();
 
   try {
     const now = new Date();
@@ -54,6 +57,7 @@ export async function GET(request: NextRequest) {
     );
 
     if (activeRoutes.rows.length === 0) {
+      recordCronRun('route-escalation', startedAt, 'success', { items: 0 });
       return NextResponse.json({ success: true, message: 'No active overdue routes', count: 0 });
     }
 
@@ -289,6 +293,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    recordCronRun('route-escalation', startedAt, 'success', { items: results.length });
     return NextResponse.json({
       success: true,
       message: `Processed ${results.length} escalations`,
@@ -297,6 +302,8 @@ export async function GET(request: NextRequest) {
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    console.error('[route-escalation] прогон не удался:', msg);
+    recordCronRun('route-escalation', startedAt, 'failed', { error: msg });
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }
