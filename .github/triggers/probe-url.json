@@ -1,9 +1,22 @@
 {
-  "note": "Проба 168: КТО именно отдаёт «Access denied by security policy». Тело ответа не наше — релей на такие слова не способен, его отказы это forbidden/unknown_upstream/relay_upstream_unreachable. Значит 403 приходит от OpenRouter, и приходит ОДИНАКОВО обоими путями: и напрямую с РФ-адреса, и через воркер, который честно вырезает cf-connecting-ip и x-forwarded-for. Гипотеза: блокируется не клиент, а сам домен workers.dev — массовый инструмент открытых прокси за тем же Cloudflare, что и OpenRouter. Раннер GitHub — третий источник, ни РФ, ни workers.dev, и он разводит два случая. Адрес /api/v1/models публичный, ключ не нужен и НЕ отправляется: workflow шлёт Authorization только своим крон-роутам на vedarai.ru.",
-  "urls": [
-    "https://openrouter.ai/api/v1/models",
-    "https://vedar-ai-relay.tourhabk.workers.dev/or/api/v1/models"
-  ],
-  "timeout": 60,
-  "bytes": 400
+ "run": 105,
+ "note": "Проба 105: подготовка проверки оплаты. Два шага: (1) сухой разбор начисления на существующих бронях — сойдётся ли путь бронь → тур → партнёр, какая ставка и откуда, и сколько оплаченных броней уже БЕЗ комиссии; (2) создание служебной обвязки с confirm — партнёр со ставкой 10%, невидимый тур за 1 рубль (is_active=false, витрина его не покажет), бронь в pending_payment. Второй шаг вернёт booking_id, по которому дальше выпускается QR СБП. Маркер свежести — paid_without_commission: это поле есть только в новой сборке. Денег ни один шаг не трогает.",
+ "bytes": 6000,
+ "timeout": 120,
+ "retries": 12,
+ "retryDelay": 60,
+ "until": "paid_without_commission",
+ "urls": [
+  "https://vedarai.ru/api/cron/commission-dry-run"
+ ],
+ "post": [
+  { "url": "https://vedarai.ru/api/cron/payment-test-setup", "body": { "confirm": true } }
+ ],
+ "grep": [
+  "\"paid_without_commission\"",
+  "\"rate_source\":\"partners.commission_current\"",
+  "запасная константа",
+  "\"booking_id\"",
+  "\"tour_visible\":false"
+ ]
 }
