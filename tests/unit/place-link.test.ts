@@ -222,6 +222,22 @@ describe('улики о координатах: кто в одиночестве
       .not.toMatch(/suspect:\s*'place'/);
   });
 
+  it('половины выдачи разделимы, но счёт печатается всегда', () => {
+    const src = readFileSync(join(ROOT, 'app/api/cron/place-link-suggest/route.ts'), 'utf-8');
+    // Список можно не печатать; цифру — нельзя, иначе «не поместилось»
+    // неотличимо от «ничего нет» (§4.0).
+    expect(src).toMatch(/part === 'conflicts' \? undefined : withCandidates/);
+    expect(src).toMatch(/part === 'candidates' \? undefined : clusters\.slice/);
+    for (const counter of [
+      'orphans_total', 'with_candidates', 'coordinate_conflicts_total',
+      'coordinate_conflicts_strong_total', 'conflict_places_total',
+    ]) {
+      const line = src.split('\n').find(l => l.trim().startsWith(`${counter}:`));
+      expect(line, `счётчик ${counter} обязан печататься при любом part`).toBeDefined();
+      expect(line, `счётчик ${counter} не должен зависеть от part`).not.toContain('part ===');
+    }
+  });
+
   it('подсказчик отдаёт улики сгруппированными и с координатами', () => {
     const src = readFileSync(join(ROOT, 'app/api/cron/place-link-suggest/route.ts'), 'utf-8');
     expect(src).toContain('clusterConflicts');
