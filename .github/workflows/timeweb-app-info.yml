@@ -22,6 +22,10 @@ name: Настройки приложения Timeweb (вручную)
 on:
   workflow_dispatch:
 
+# Токен GitHub здесь не нужен ВООБЩЕ: один GET к API Timeweb своим токеном,
+# без checkout и без обращений к репозиторию.
+permissions: {}
+
 jobs:
   info:
     runs-on: ubuntu-latest

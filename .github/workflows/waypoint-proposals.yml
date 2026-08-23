@@ -28,6 +28,11 @@ on:
         required: false
         default: ''
 
+# Токен GitHub здесь не нужен ВООБЩЕ: ни checkout, ни gh, ни записи в
+# репозиторий. Шаг делает один curl на vedarai.ru с CRON_SECRET и пишет в
+# $GITHUB_STEP_SUMMARY — сводка прогона областей токена не требует.
+permissions: {}
+
 jobs:
   propose:
     runs-on: ubuntu-latest
