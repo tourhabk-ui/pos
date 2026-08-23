@@ -73,7 +73,10 @@ describe('четыре случая названы по-разному', () => {
       http_status: 403, detail: DENIED,
       direct_status: 401, direct_detail: '{"error":{"code":401}}',
     });
-    expect(why).toMatch(new RegExp(RELAY.replace(/\./g, '\\.')));
+    // Подстрокой, а не собранной регуляркой: экранировать точки и забыть про
+    // обратный слэш — классическая половинчатая замена, и CodeQL её ловит.
+    // Здесь регулярка и не нужна: ищется буквальное имя хоста.
+    expect(why).toContain(RELAY);
     expect(why).not.toMatch(/совпали/);
   });
 });
