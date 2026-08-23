@@ -1,21 +1,20 @@
 {
- "run": 116,
- "note": "Проба 116: доспросить песочницу Точки о втором адресе — выпуске QR. Проба 115 ответила на первый: наш путь статуса платежа /sbp/v1.0/qr-code/merchant/{merchantId}/payment-status/{qrId} песочница вернула 501 HTTPNotImplemented, а путь из changelog /sbp/v1.0/qr-codes/{qrcIds}/payment-status ответил примером и сам назвал боевой адрес в Links.self. Осталось выяснить то же про выпуск QR: у нас в коде .../qr-code/merchant/{merchantId}/account/{accountId}, а слог имени страницы метода Register Qr Code читается как .../qr-code/merchant/{merchantId}/{accountId} — без слова account. GET по адресу метода POST даст 405 «метод не тот», и это ответ «путь есть»; 501 или 404 — ответ «пути нет». Третьим запросом снова список счетов: в прошлой пробе его вывод срезало началом лога, а тестовый accountId нужен. Повторов нет намеренно: отказ здесь и есть искомый ответ.",
- "bytes": 1200,
+ "run": 117,
+ "note": "Проба 117: те же два адреса выпуска QR, но без третьего запроса. В пробе 116 канал чтения логов срезал начало и оставил только последний URL — список счетов; он дал тестовый accountId в виде «счёт/БИК» (12345123451234512345/044525104), а ответа про выпуск QR не осталось. Здесь ровно два запроса и оба нужны: наш путь с словом account и путь без него. GET по адресу POST-метода даст 405 — это «путь есть»; 501 HTTPNotImplemented или 404 — «пути нет». accountId взят настоящий тестовый, из ответа 116. Повторов нет: отказ здесь и есть искомый ответ.",
+ "bytes": 700,
  "timeout": 30,
  "retries": 0,
  "headers": [
   "Authorization: Bearer sandbox.jwt.token"
  ],
  "urls": [
-  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/account/40802810000000000001",
-  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/40802810000000000001",
-  "https://enter.tochka.com/sandbox/v2/open-banking/v1.0/accounts"
+  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/account/12345123451234512345%2F044525104",
+  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/12345123451234512345%2F044525104"
  ],
  "grep": [
   "HTTPNotImplemented",
   "MethodNotAllowed",
-  "accountId",
-  "Not Found"
+  "Not Found",
+  "qrcId"
  ]
 }
