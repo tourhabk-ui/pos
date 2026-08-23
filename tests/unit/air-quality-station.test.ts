@@ -19,8 +19,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
-  stationProximity, STATION_NEAR_KM, STATION_REGION_KM,
-  type StationProximity,
+  stationProximity, STATION_NEAR_KM, STATION_REGION_KM, FAILURE_LABELS,
+  type StationProximity, type AirFailure,
 } from '@/lib/services/safety/air-quality';
 
 const SRC = readFileSync(join(process.cwd(), 'lib/services/safety/air-quality.ts'), 'utf8')
@@ -78,5 +78,40 @@ describe('чтение станции из ответа IQAir', () => {
     expect(SRC, 'станция обязана уехать и в ответ зоны, и в стор свежести')
       // Не `[^)]*`: внутри вызова есть Date.now(), и скобка обрывает разбор.
       .toMatch(/lastSuccess\.set\([\s\S]{0,120}station/);
+  });
+});
+
+describe('род отказа: «нет станции» и «предел плана» — разные ответы', () => {
+  it('у каждого рода отказа есть человеческая подпись', () => {
+    const kinds: AirFailure[] = [
+      'no_key', 'no_station', 'rate_limited', 'unauthorized',
+      'http_error', 'network', 'malformed',
+    ];
+    for (const k of kinds) {
+      expect(FAILURE_LABELS[k], `род ${k} без подписи`).toBeTruthy();
+    }
+  });
+
+  it('429 разбирается отдельно от прочих отказов', () => {
+    // 23.08 из-за общего null был сделан вывод «IQAir не покрывает Толбачик»,
+    // а на деле это мог быть предел бесплатного плана: шесть параллельных
+    // запросов дважды подряд — двенадцать обращений в минуту при пределе ~10.
+    expect(SRC).toMatch(/res\.status === 429 \? 'rate_limited'/);
+    expect(SRC).toMatch(/401 \|\| res\.status === 403 \? 'unauthorized'/);
+  });
+
+  it('«станции нет» ставится только когда источник ОТВЕТИЛ', () => {
+    expect(SRC).toMatch(/data\?\.status === 'success' \? 'malformed'\s*:\s*'no_station'/);
+  });
+
+  it('кэш есть — иначе каждый показ панели бьёт шестью запросами', () => {
+    expect(SRC).toMatch(/CACHE_OK_MS/);
+    expect(SRC).toMatch(/CACHE_FAIL_MS/);
+    expect(SRC, 'отказ обязан кэшироваться КОРОЧЕ успеха: исправленный ключ должен ожить')
+      .toMatch(/const CACHE_FAIL_MS = 5 \* 60 \* 1000/);
+  });
+
+  it('отказ сети попадает в лог, а не глохнет', () => {
+    expect(SRC).toMatch(/console\.error\(`\[air-quality\]/);
   });
 });

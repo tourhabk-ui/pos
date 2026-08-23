@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getZoneAirQuality, getAllZonesAirQuality, categorizeAqi } from '@/lib/services/safety/air-quality';
+import {
+  getZoneAirQuality, getAllZonesAirQuality, categorizeAqi, clearAirQualityCache,
+} from '@/lib/services/safety/air-quality';
 
 describe('categorizeAqi', () => {
   it('categorizes AQI thresholds per US EPA breakpoints', () => {
@@ -22,6 +24,7 @@ describe('getZoneAirQuality (IQAir — volcanic ash signal)', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearAirQualityCache();
     process.env.IQAIR_API_KEY = 'test-key';
   });
 
@@ -30,13 +33,13 @@ describe('getZoneAirQuality (IQAir — volcanic ash signal)', () => {
     else process.env.IQAIR_API_KEY = ORIGINAL_ENV;
   });
 
-  it('returns null without throwing when IQAIR_API_KEY is not set', async () => {
+  it('без ключа — отказ с причиной no_key, и провайдера не беспокоим', async () => {
     delete process.env.IQAIR_API_KEY;
     const fetchSpy = vi.spyOn(global, 'fetch');
 
     const result = await getZoneAirQuality('avachinsky');
 
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'no_key' });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -51,6 +54,8 @@ describe('getZoneAirQuality (IQAir — volcanic ash signal)', () => {
     const result = await getZoneAirQuality('avachinsky');
 
     expect(result).toEqual({
+      ok: true,
+      data: {
       zone: 'avachinsky',
       zoneName: 'Авачинский вулкан',
       aqiUs: 42,
@@ -59,37 +64,61 @@ describe('getZoneAirQuality (IQAir — volcanic ash signal)', () => {
       // Источник в этой фикстуре города не назвал — станции нет, и это
       // честный null, а не «станция прямо в зоне» (23.08).
       station: null,
+      },
     });
   });
 
-  it('returns null when IQAir has no monitoring station near a remote zone', async () => {
+  it('источник ответил и станции у него нет — это no_station', async () => {
+    // Единственный случай, который вправе называться отсутствием покрытия.
     vi.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ status: 'fail' }), { status: 200 }),
     );
 
     const result = await getZoneAirQuality('mutnovsky_s');
 
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'no_station' });
   });
 
-  it('returns null (fail-open) on network error, does not throw', async () => {
+  it('сеть упала — network, а не «станции нет»', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network down'));
 
-    await expect(getZoneAirQuality('tolbachik')).resolves.toBeNull();
+    await expect(getZoneAirQuality('tolbachik')).resolves.toEqual({ ok: false, reason: 'network' });
   });
 
-  it('returns null on non-ok HTTP status', async () => {
+  it('429 — предел плана, и он назван так, а не «нет данных»', async () => {
+    // Именно эта подмена 23.08 привела к неверному выводу «IQAir не покрывает
+    // Толбачик»: шесть параллельных запросов дважды подряд упёрлись в предел
+    // бесплатного плана, а выглядело это как отсутствие станций.
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('', { status: 429 }));
 
-    const result = await getZoneAirQuality('klyuchi');
+    expect(await getZoneAirQuality('klyuchi')).toEqual({ ok: false, reason: 'rate_limited', status: 429 });
+  });
 
-    expect(result).toBeNull();
+  it('401 — ключ не принят, и это не путается с пределом', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('', { status: 401 }));
+
+    expect(await getZoneAirQuality('nalychevo')).toEqual({ ok: false, reason: 'unauthorized', status: 401 });
+  });
+
+  it('повторный запрос берётся из кэша — квота плана не жжётся зря', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        status: 'success',
+        data: { current: { pollution: { aqius: 42, mainus: 'p2' } } },
+      }), { status: 200 }),
+    );
+
+    await getZoneAirQuality('avachinsky');
+    await getZoneAirQuality('avachinsky');
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('getAllZonesAirQuality', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearAirQualityCache();
     process.env.IQAIR_API_KEY = 'test-key';
   });
 

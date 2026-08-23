@@ -15,23 +15,37 @@ const WF = readFileSync(join(ROOT, '.github/workflows/probe-url.yml'), 'utf-8');
 const EXPLAIN = readFileSync(join(ROOT, 'app/api/cron/explain-availability/route.ts'), 'utf-8');
 const PLANNER = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf-8');
 
-describe('probe-url: POST-пробы', () => {
-  it('секрет уходит ТОЛЬКО своим крон-роутам — то же case-правило, что у GET', () => {
-    const postBlock = WF.slice(WF.indexOf('POST-пробы'));
-    expect(postBlock).toMatch(/case "\$PURL" in/);
-    expect(postBlock).toMatch(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/);
-    // Bearer только в крон-ветке; чужая ветка — последний wildcard-arm
-    // (первый '*)' — это хвост паттерна с адресом крон-роутов).
-    const foreign = postBlock.slice(postBlock.lastIndexOf('*)'));
-    expect(foreign).not.toMatch(/Authorization: Bearer/);
+describe('probe-url: секрет уходит только своим крон-роутам', () => {
+  /**
+   * 23.08: workflow отрефакторили — GET и POST теперь ходят через ОДНУ
+   * функцию `do_request` с одним `case` по адресу. Прежние проверки искали
+   * `case` внутри отдельного POST-блока и требовали, чтобы адрес крон-роутов
+   * встречался дважды; после сведения в одно место они покраснели, хотя
+   * защита не ослабла, а усилилась: одно правило вместо двух не может
+   * разъехаться.
+   *
+   * Поэтому здесь проверяется СВОЙСТВО, а не расположение строк.
+   */
+  const request = WF.slice(WF.indexOf('do_request() {'), WF.indexOf('# Ожидание выката'));
+
+  it('решение об авторизации принимается по адресу, в одном месте', () => {
+    expect(request).toMatch(/case "\$url" in/);
+    expect(request).toMatch(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/);
+    // Ровно одна ветка выдаёт секрет: две разъезжаются, как разъехались
+    // GET и POST до сведения.
+    expect((request.match(/Authorization: Bearer/g) ?? []).length).toBe(1);
   });
 
-  it('адрес секрета сузился до крон-роутов: домен целиком больше не адресат', () => {
+  it('и GET, и POST проходят через ту же функцию — правило одно на оба', () => {
+    expect(request).toMatch(/if \[ "\$method" = POST \]/);
+    expect(request.slice(request.indexOf('if [ "$method" = POST ]')))
+      .not.toMatch(/Authorization: Bearer/);
+  });
+
+  it('домен целиком больше не адресат секрета', () => {
     // Публичные роуты нашего же домена от чужого Bearer получали 401 от
-    // Edge-middleware — проба публичного JSON была невозможна (09.08). Заодно
-    // это строго уже прежнего правила: мест, куда уходит секрет, стало меньше.
+    // Edge-middleware — проба публичного JSON была невозможна (09.08).
     expect(WF).not.toMatch(/https:\/\/vedarai\.ru\/\*\)/);
-    expect(WF.match(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/g) ?? []).toHaveLength(2);
   });
 
   it('тело — из файла триггера, без shell-интерполяции JSON', () => {

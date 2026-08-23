@@ -7,7 +7,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getCoverageStats, clearAirQualityFreshness } from '@/lib/services/safety/air-quality';
+import {
+  getCoverageStats, clearAirQualityFreshness, clearAirQualityCache,
+} from '@/lib/services/safety/air-quality';
 import { ZONES } from '@/lib/services/safety/zone-weather';
 
 const TOTAL = Object.keys(ZONES).length;
@@ -20,6 +22,10 @@ function iqairOk(aqi: number): Response {
 }
 
 beforeEach(() => {
+  // Кэш ответов появился 23.08 (бесплатный план IQAir выдерживал ~10 запросов
+  // в минуту, а страница била шестью). Между кейсами его надо забывать, иначе
+  // первый отказ отравляет все последующие проверки.
+  clearAirQualityCache();
   vi.restoreAllMocks();
   clearAirQualityFreshness();
   process.env.IQAIR_API_KEY = 'test-key';

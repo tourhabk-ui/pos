@@ -46,10 +46,22 @@ interface AirCoverage {
     fresh: boolean;
     ageMinutes: number | null;
     station: { name: string; distanceKm: number | null; represents: string } | null;
+    failure: string | null;
   }>;
 }
 
 /** Что цифра описывает — словами, а не кодом. */
+/** Почему цифры нет — словами. «Нет станции» и «предел запросов» чинятся по-разному. */
+const AIR_FAILURE_LABELS: Record<string, string> = {
+  no_key: 'ключ не задан',
+  no_station: 'станции рядом нет',
+  rate_limited: 'предел запросов плана IQAir',
+  unauthorized: 'ключ не принят провайдером',
+  http_error: 'провайдер ответил отказом',
+  network: 'не дозвонились',
+  malformed: 'ответ без числа AQI',
+};
+
 const PROXIMITY_LABELS: Record<string, string> = {
   zone: 'воздух зоны',
   nearby: 'окрестность, не сама зона',
@@ -276,7 +288,11 @@ export default function HealthDashboardClient() {
                     <p key={z.zone} className="text-xs text-[var(--text-muted)] break-words">
                       {z.zoneName}:{' '}
                       {z.station === null ? (
-                        <span>{z.fresh ? 'станцию источник не назвал' : 'данных нет'}</span>
+                        <span>
+                          {z.failure !== null
+                            ? (AIR_FAILURE_LABELS[z.failure] ?? z.failure)
+                            : z.fresh ? 'станцию источник не назвал' : 'данных нет'}
+                        </span>
                       ) : (
                         <>
                           {z.station.name}
