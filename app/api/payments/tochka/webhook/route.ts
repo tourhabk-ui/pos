@@ -101,15 +101,26 @@ export async function POST(req: NextRequest) {
     // Подтверждаем бронирование. Условие по статусу в WHERE — идемпотентность
     // при повторной доставке вебхука. Упадёт — уйдём в 503 общим catch: деньги
     // пришли, и потерять это тише, чем попросить повтор, нельзя.
-    await pool.query(
+    const confirmed = await pool.query(
       `UPDATE operator_bookings
        SET booking_status = 'confirmed',
+           payment_status = 'paid',
            paid_at = $1,
            paid_amount = $2,
            updated_at = NOW()
        WHERE id = $3 AND booking_status = 'pending_payment'`,
       [paidAt, paidAmount, booking.id],
     );
+
+    // Ноль строк здесь — не мелочь и не идемпотентность «сама собой». Между
+    // SELECT выше и этим UPDATE мы УХОДИЛИ СПРАШИВАТЬ БАНК, а это сетевой
+    // вызов; за это время бронь могла уйти из pending_payment. Раньше результат
+    // не проверялся вовсе, и дальше безусловно шёл afterConfirmed: комиссия
+    // начислялась, оператору уходило «оплата получена», а на самой броне не
+    // было ни paid_at, ни статуса. Деньги у банка — записи нет.
+    if (confirmed.rowCount === 0) {
+      return await handleLostRace(booking.id, paidAt, paidAmount, qrId);
+    }
 
     // Ниже — работа ПОСЛЕ подтверждения. Отсюда 503 возвращать уже нельзя:
     // повтор увидит бронь не в pending_payment и просто уйдёт в 200, ничего не
@@ -121,6 +132,63 @@ export async function POST(req: NextRequest) {
   } catch {
     return retryLater('processing_failed');
   }
+}
+
+/**
+ * Бронь ушла из `pending_payment`, пока мы спрашивали банк. Разбирается по
+ * тому, КУДА она ушла, потому что это два разных события:
+ *
+ *   confirmed — вебхук доставлен повторно, всё уже записано первым проходом.
+ *               Отвечаем 200: повторять нечего, второй раз начислять комиссию
+ *               нельзя.
+ *   прочее    — чаще всего `cancelled` от авто-отмены (крон abandoned-bookings)
+ *               или отказ оператора. Деньги при этом У БАНКА. Молчать нельзя, и
+ *               подтверждать самовольно тоже нельзя: отменённая бронь могла
+ *               быть отменена по делу, а решение о возврате принимает человек.
+ *               Поэтому записываем ФАКТ оплаты (payment_status, paid_at,
+ *               paid_amount), статус брони не трогаем, зовём владельца.
+ *               Комиссию не начисляем: она берётся с состоявшейся брони.
+ *
+ * После записи факта крон отмены эту строку больше не тронет — его условие
+ * отказывается от броней с `paid_at`.
+ */
+async function handleLostRace(bookingId: number, paidAt: Date, paidAmount: number, qrId: string) {
+  const { rows } = await pool.query<{ booking_status: string; paid_at: Date | null }>(
+    `SELECT booking_status, paid_at FROM operator_bookings WHERE id = $1`,
+    [bookingId],
+  );
+  const state = rows[0];
+
+  // Строки нет вовсе — это не «оплата не наша», это «мы не знаем, что с
+  // бронью». Просим повтор: за это время строка может вернуться из реплики.
+  if (!state) return retryLater('booking_vanished');
+
+  if (state.booking_status === 'confirmed') {
+    return NextResponse.json({ ok: true, confirmed: true, repeat: true });
+  }
+
+  await pool.query(
+    `UPDATE operator_bookings
+     SET payment_status = 'paid',
+         paid_at        = COALESCE(paid_at, $1),
+         paid_amount    = $2,
+         updated_at     = NOW()
+     WHERE id = $3`,
+    [paidAt, paidAmount, bookingId],
+  );
+
+  console.error(
+    '[tochka/webhook] оплата пришла на бронь вне pending_payment:',
+    `booking=${bookingId}`, `status=${state.booking_status}`, `qr=${qrId}`,
+  );
+  notifyOwnerPaidAfterExit(bookingId, state.booking_status, paidAmount).catch(() => {});
+
+  return NextResponse.json({
+    ok: true,
+    confirmed: false,
+    reason: 'booking_left_pending',
+    booking_status: state.booking_status,
+  });
 }
 
 /**
@@ -179,6 +247,19 @@ async function notifyOperator(bookingId: number, touristName: string, amount: nu
     `Сумма: ${amount.toLocaleString('ru-RU')} р.`,
     '',
     `tourhab.ru/hub/operator/bookings`,
+  ].join('\n'));
+}
+
+async function notifyOwnerPaidAfterExit(bookingId: number, status: string, amount: number) {
+  await sendTelegram([
+    'СБП: деньги пришли на бронь, которая уже не ждёт оплаты',
+    '',
+    `Бронирование: #${bookingId}`,
+    `Статус брони: ${status}`,
+    `Оплачено: ${amount.toLocaleString('ru-RU')} р.`,
+    '',
+    'Факт оплаты записан, статус брони не менялся.',
+    'Решение — подтвердить или вернуть деньги — за человеком.',
   ].join('\n'));
 }
 

@@ -38,6 +38,8 @@ export const MIN_DESCRIPTION_CHARS = 300;
 export interface ReadinessRow {
   id: number;
   title: string;
+  operator_id: string | null;
+  operator_name: string | null;
   description_chars: number;
   photo_count: number;
   base_price: number | null;
@@ -49,7 +51,20 @@ export interface ReadinessRow {
   program_steps: number;
 }
 
-/** Чего не хватает конкретному туру. Пустой список — тур годен. */
+/**
+ * Чего не хватает конкретному туру. Пустой список — тур годен.
+ *
+ * ПРО `pickup` — поправка владельца 23.08. Первая версия называла это
+ * «meeting_point» и считала пустое поле забывчивостью оператора. Это неверно:
+ * операторы ЗАБИРАЮТ туристов сами, фиксированной точки сбора у таких туров
+ * нет и быть не должно. Поэтому пустое поле здесь означает не «оператор не
+ * заполнил», а «у нас не записано, КАК турист попадает на тур».
+ *
+ * Блокировать это всё равно приходится: чужая витрина обязана сказать
+ * покупателю, ждать ли его у отеля или ехать самому, и «не знаю» тут не
+ * публикуется. Но чинится оно не восемью письмами про точки сбора, а одной
+ * фразой на оператора — где и в каких границах он забирает.
+ */
 export function missingFields(r: ReadinessRow): string[] {
   const missing: string[] = [];
   if (!r.title.trim()) missing.push('title');
@@ -57,7 +72,7 @@ export function missingFields(r: ReadinessRow): string[] {
   if (r.photo_count < 1) missing.push('photos');
   if (r.base_price === null || r.base_price <= 0) missing.push('base_price');
   if (r.duration_hours === null) missing.push('duration_hours');
-  if (!r.has_meeting_point) missing.push('meeting_point');
+  if (!r.has_meeting_point) missing.push('pickup');
   if (!r.has_coords) missing.push('coordinates');
   if (!r.has_operator_contact) missing.push('operator_contact');
   return missing;
@@ -86,6 +101,8 @@ export async function GET(req: NextRequest) {
       SELECT
         ot.id,
         COALESCE(ot.title, '')                              AS title,
+        ot.operator_id,
+        p.name                                              AS operator_name,
         COALESCE(LENGTH(ot.description), 0)                 AS description_chars,
         COALESCE(ARRAY_LENGTH(ot.photos, 1), 0)             AS photo_count,
         ot.base_price,
@@ -107,6 +124,10 @@ export async function GET(req: NextRequest) {
     const perTour = rows.map((r) => ({
       id: r.id,
       title: r.title,
+      // Оператор нужен потому, что часть пробелов чинится ОДНОЙ фразой на
+      // оператора, а не правкой каждого тура: как турист попадает на тур —
+      // свойство перевозки оператора, а не отдельной поездки.
+      operator: r.operator_name,
       missing: missingFields(r),
       photo_count: r.photo_count,
       description_chars: r.description_chars,
