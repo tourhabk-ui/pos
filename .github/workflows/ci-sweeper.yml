@@ -23,7 +23,23 @@ concurrency:
 
 jobs:
   sweep:
+    # Первое условие — про ИСТОЧНИК, и оно здесь не для порядка.
+    #
+    # actions/untrusted-checkout/high (CodeQL, язык actions, 23.08.2026):
+    # workflow_run — привилегированный триггер. Джоб получает секреты
+    # репозитория и права contents/pull-requests/actions/id-token: write, а
+    # затем делает checkout ветки, у которой упал CI, и запускает над ней
+    # агента. Выполнить чужой код с нашим токеном — ровно та фигура, ради
+    # которой правило заведено.
+    #
+    # Сейчас у actions/checkout ниже передан только `ref`, без `repository`, —
+    # значит ветка форка искалась бы в НАШЕМ репозитории и не нашлась бы. Но
+    # эта защита держится на отсутствии одной строки в другом месте файла:
+    # добавит кто-нибудь `repository`, и дыра откроется молча. Условие
+    # проверяет то, что надо проверять, — что ран пришёл из нашего же
+    # репозитория, а не из форка.
     if: |
+      github.event.workflow_run.head_repository.full_name == github.repository &&
       github.event.workflow_run.conclusion == 'failure' &&
       !contains(github.event.workflow_run.head_commit.message, '[ci-sweep]')
     runs-on: ubuntu-latest
