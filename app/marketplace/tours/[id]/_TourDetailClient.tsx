@@ -479,7 +479,14 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
           <button className="absolute inset-0 w-full h-full" onClick={() => setLightbox(0)} aria-label="Открыть фото">
             {/* 1280-вариант: оптимизатор Next выключен (unoptimized), и без
                 нарезки герой грузил оригинал — на полевом EDGE десятки секунд. */}
-            <Image src={photoSrc(heroImg, 1280)} alt={tour.title} fill priority sizes="100vw" className="object-cover" style={{ filter: 'saturate(1.1) contrast(1.03)' }} />
+            {/* objectPosition 50% 30%, а не умолчание «центр». Герой — широкая
+                полоса, а фото операторов сплошь портретные (960x1280): при
+                центровке видна вертикальная середина кадра, и человек на фото
+                остаётся без головы. Тридцать процентов держат лица и рыбу в
+                руках в кадре, а на горизонтальных снимках показывают верх, где
+                и находится предмет съёмки. Правило владельца 23.08: «чтоб
+                голову не обрезал». */}
+            <Image src={photoSrc(heroImg, 1280)} alt={tour.title} fill priority sizes="100vw" className="object-cover" style={{ objectPosition: '50% 30%', filter: 'saturate(1.1) contrast(1.03)' }} />
           </button>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center"><MapPin className="w-16 h-16 text-[var(--text-muted)]" /></div>
@@ -577,7 +584,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
           <div className="pt-5 grid grid-cols-4 sm:grid-cols-6 gap-2">
             {stripPhotos.slice(0, 6).map((src, i) => (
               <button key={i} onClick={() => setLightbox(i + 1)} className="relative aspect-square rounded-lg overflow-hidden bg-[var(--bg-hover)] group">
-                <Image src={photoSrc(src, 640)} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" loading="lazy" className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                {/* Та же причина, что у героя: центровка режет головы на
+                    портретных кадрах, а в филмстрипе плитка ещё уже. */}
+                <Image src={photoSrc(src, 640)} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" loading="lazy" style={{ objectPosition: '50% 30%' }} className="object-cover group-hover:scale-105 transition-transform duration-500" />
                 {i === 5 && stripPhotos.length > 6 && (
                   <span className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-sm font-semibold">+{stripPhotos.length - 6}</span>
                 )}
