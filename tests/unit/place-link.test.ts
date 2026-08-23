@@ -10,8 +10,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   significantTokens, nameMatchScore, distanceKm, suggestRoutes, suggestPlaces,
-  linkPairProblems,
-  type RouteCandidateInput, type PlaceCandidateInput,
+  linkPairProblems, clusterConflicts, CONFLICT_AGREEMENT_KM,
+  type RouteCandidateInput, type PlaceCandidateInput, type CoordinateConflict,
 } from '@/lib/routes/place-link';
 
 const ROOT = process.cwd();
@@ -164,5 +164,71 @@ describe('обещания подсказчика маршрутов (route-link
     expect(src).toContain('p.is_visible = true');
     expect(src).toContain('p.merged_into_id IS NULL');
     expect(src).not.toMatch(/INSERT|UPDATE|DELETE/);
+  });
+});
+
+
+describe('улики о координатах: кто в одиночестве', () => {
+  /** Улика с обеими координатами — иначе чинить нечего. */
+  function conflict(
+    placeName: string, placeLat: number, placeLng: number,
+    routeTitle: string, routeLat: number, routeLng: number,
+  ): CoordinateConflict {
+    return {
+      placeId: `place-${placeName}`, placeName, placeLat, placeLng,
+      routeId: `route-${routeTitle}`, routeTitle, routeLat, routeLng,
+      nameScore: 1,
+      distanceKm: Math.round(distanceKm(placeLat, placeLng, routeLat, routeLng) * 10) / 10,
+    };
+  }
+
+  it('кучные одноимённые маршруты — согласие свидетелей', () => {
+    // Два маршрута «Тюшевские» рядом друг с другом, место — за сотни км.
+    const clusters = clusterConflicts([
+      conflict('Большие Тюшевские источники', 52.9, 158.2, 'Большие Тюшевские источники', 54.66, 161.33),
+      conflict('Большие Тюшевские источники', 52.9, 158.2, 'Малые Тюшевские источники', 54.68, 161.36),
+    ]);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].agreement).toBe('routes_agree');
+    expect(clusters[0].routesSpreadKm).not.toBeNull();
+    expect(clusters[0].routesSpreadKm!).toBeLessThanOrEqual(CONFLICT_AGREEMENT_KM);
+    // Обе координаты доехали: без них следующего шага нет.
+    expect(clusters[0].placeLat).toBe(52.9);
+    expect(clusters[0].routes[0].lat).toBeGreaterThan(54);
+  });
+
+  it('один свидетель — исход отдельный, не «согласие»', () => {
+    const clusters = clusterConflicts([
+      conflict('Корякский заповедник', 60.0, 166.0, 'Вулкан Корякский', 53.32, 158.71),
+    ]);
+    expect(clusters[0].agreement).toBe('single_witness');
+    expect(clusters[0].routesSpreadKm).toBeNull();
+  });
+
+  it('разбросанные маршруты не выдаются за согласие', () => {
+    const clusters = clusterConflicts([
+      conflict('Ключи', 52.0, 158.0, 'Ключи северные', 56.3, 160.8),
+      conflict('Ключи', 52.0, 158.0, 'Ключи южные', 51.4, 156.5),
+    ]);
+    expect(clusters[0].agreement).toBe('routes_disagree');
+    expect(clusters[0].routesSpreadKm!).toBeGreaterThan(CONFLICT_AGREEMENT_KM);
+  });
+
+  it('вердикта «врёт место» функция не выносит — только факт согласия', () => {
+    const src = readFileSync(join(ROOT, 'lib/routes/place-link.ts'), 'utf-8');
+    // Три исхода объявлены и все достижимы; четвёртого — «виновен» — нет.
+    expect(src).toContain("'routes_agree' | 'routes_disagree' | 'single_witness'");
+    expect(src, 'кучность маршрутов — довод, а не приговор')
+      .not.toMatch(/suspect:\s*'place'/);
+  });
+
+  it('подсказчик отдаёт улики сгруппированными и с координатами', () => {
+    const src = readFileSync(join(ROOT, 'app/api/cron/place-link-suggest/route.ts'), 'utf-8');
+    expect(src).toContain('clusterConflicts');
+    expect(src).toContain('conflict_clusters');
+    // Слабые улики не исчезают молча — их число названо.
+    expect(src).toContain('coordinate_conflicts_weak_total');
+    // Материал для решения идёт раньше улик.
+    expect(src.indexOf('items: withCandidates')).toBeLessThan(src.indexOf('conflict_clusters'));
   });
 });
