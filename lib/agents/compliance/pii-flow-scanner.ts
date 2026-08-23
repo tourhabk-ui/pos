@@ -47,8 +47,44 @@ const PERSONAL_NAME_FIELD =
 const PERSONAL_OWNER_NAME =
   /\b(lead|leads|l|booking|bookings|b|user|users|u|member|members|m|guest|guests|g|client|customer|traveler|traveller|tourist|passenger|buyer|payer)\s*\.\s*name\b/i;
 
+/**
+ * ПД, положенные в локальную переменную, а оттуда в промпт.
+ *
+ * Дыра, найденная 23.08: дайджест платформы годами отдавал зарубежной модели
+ * «имя | телефон» каждого нового лида, и страж был зелёным. Строка выглядела
+ * так:
+ *
+ *     const name = l.name ?? 'Турист';
+ *     const phone = l.phone;
+ *     return `  - ${name} | ${phone} | ${interest} | ${time}`;
+ *
+ * Прямого `l.phone` в промпте нет — значит и находки нет. Правило, которое
+ * ловит одно написание из двух, даёт ложное «чисто»: хуже, чем отсутствие
+ * правила, потому что на него полагаются.
+ *
+ * Поэтому сначала собираем ПСЕВДОНИМЫ ПД в файле, а потом считаем
+ * интерполяцию псевдонима равной интерполяции самого поля.
+ *
+ * Цепочка бывает длиннее одного шага — в дайджесте она была двухзвенной:
+ * `l.phone` → `phone` → строка `leadsStr` → промпт. Поэтому псевдонимы
+ * собираются ДО НЕПОДВИЖНОЙ ТОЧКИ: правая часть объявления, в которой уже
+ * есть псевдоним ПД, делает псевдонимом и левую.
+ */
+const DECL_HEAD = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=/g;
+/** Деструктуризация: только однозначные контакты. `name` тут слишком част. */
+const DESTRUCT = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=/g;
+const DESTRUCT_CONTACT = /^\s*(phone|email|phone_number|phonenumber|mobile|tel|e_mail)\s*(?::\s*([A-Za-z_$][\w$]*))?\s*$/i;
+
+const IDENT_G = /[A-Za-z_$][\w$]*/g;
+
 /** Санкционированная чистка/псевдонимизация — интерполяция сквозь неё безопасна. */
-const SAFE_WRAP = /\bredactPII\s*\(|\bredact\s*\(|\{name\}/;
+/**
+ * Плейсхолдер `{name}` — безопасен, но ТОЛЬКО когда он именно плейсхолдер.
+ * Без проверки на `$` перед скобкой сюда попадала любая интерполяция
+ * `${name}` — то есть ровно тот случай, когда в промпт кладут имя из
+ * локальной переменной. Страж считал такую строку очищенной.
+ */
+const SAFE_WRAP = /\bredactPII\s*\(|\bredact\s*\(|(?<!\$)\{name\}/;
 
 export interface PIIFinding {
   file: string;
@@ -191,6 +227,81 @@ function interpolations(body: string): Array<{ expr: string; at: number }> {
   return res;
 }
 
+/**
+ * Псевдонимы ПД в файле: имя локальной переменной → род ПД.
+ * Псевдоним, присвоенный СКВОЗЬ redactPII, псевдонимом ПД не является.
+ */
+export function pdAliases(src: string): Map<string, 'contact' | 'name'> {
+  const out = new Map<string, 'contact' | 'name'>();
+
+  // Объявления с правой частью до конца выражения (может быть многострочной).
+  const decls: Array<{ alias: string; rhs: string }> = [];
+  DECL_HEAD.lastIndex = 0;
+  for (let m = DECL_HEAD.exec(src); m; m = DECL_HEAD.exec(src)) {
+    decls.push({ alias: m[1], rhs: rhsAfter(src, m.index + m[0].length) });
+  }
+
+  for (const { alias, rhs } of decls) {
+    if (SAFE_WRAP.test(rhs)) continue;
+    if (CONTACT_FIELD.test(rhs)) out.set(alias, 'contact');
+    else if (PERSONAL_NAME_FIELD.test(rhs) || PERSONAL_OWNER_NAME.test(rhs)) out.set(alias, 'name');
+  }
+
+  DESTRUCT.lastIndex = 0;
+  for (let m = DESTRUCT.exec(src); m; m = DESTRUCT.exec(src)) {
+    for (const part of m[1].split(',')) {
+      const d = DESTRUCT_CONTACT.exec(part);
+      if (d) out.set(d[2] ?? d[1], 'contact');
+    }
+  }
+
+  // Неподвижная точка: правая часть, содержащая уже известный псевдоним,
+  // делает псевдонимом и левую. Проходов немного — цепочки в реальном коде
+  // короткие, а предел защищает от патологии.
+  for (let pass = 0; pass < 5; pass++) {
+    let grew = false;
+    for (const { alias, rhs } of decls) {
+      if (out.has(alias) || SAFE_WRAP.test(rhs)) continue;
+      const kind = kindByAlias(rhs, out);
+      if (kind) { out.set(alias, kind); grew = true; }
+    }
+    if (!grew) break;
+  }
+
+  return out;
+}
+
+/** Правая часть объявления: от `=` до конца выражения, с учётом вложенности. */
+function rhsAfter(src: string, from: number): string {
+  let depth = 0;
+  let i = from;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') { if (depth === 0) break; depth--; }
+    else if (c === ';' && depth === 0) break;
+    else if (c === '\n' && depth === 0) {
+      // Перенос на нулевой вложенности заканчивает выражение, если следующая
+      // непустая строка не продолжает его точкой или оператором.
+      const rest = src.slice(i + 1, i + 200);
+      if (!/^\s*[.?:|&+]/.test(rest)) break;
+    }
+  }
+  return src.slice(from, i);
+}
+
+/** Есть ли в тексте интерполяция известного псевдонима ПД. */
+function kindByAlias(text: string, aliases: Map<string, 'contact' | 'name'>): 'contact' | 'name' | null {
+  for (const { expr } of interpolations(text)) {
+    IDENT_G.lastIndex = 0;
+    for (let id = IDENT_G.exec(expr); id; id = IDENT_G.exec(expr)) {
+      const k = aliases.get(id[0]);
+      if (k) return k;
+    }
+  }
+  return null;
+}
+
 function fileMentionsForeignCaller(src: string): boolean {
   return FOREIGN_LLM_CALLERS.some((fn) => src.includes(fn));
 }
@@ -213,6 +324,7 @@ export function scanSource(file: string, src: string): PIIFinding[] {
   const findings: PIIFinding[] = [];
   const hasForeign = fileMentionsForeignCaller(src);
   const literals = extractTemplateLiterals(src);
+  const aliases = pdAliases(src);
 
   for (const lit of literals) {
     if (!isPromptLiteral(lit.label, hasForeign)) continue;
@@ -222,6 +334,14 @@ export function scanSource(file: string, src: string): PIIFinding[] {
       let kind: 'contact' | 'name' | null = null;
       if (CONTACT_FIELD.test(expr)) kind = 'contact';
       else if (PERSONAL_NAME_FIELD.test(expr) || PERSONAL_OWNER_NAME.test(expr)) kind = 'name';
+      if (!kind) {
+        // Псевдоним: `${name}`, где выше `const name = l.name`.
+        IDENT_G.lastIndex = 0;
+        for (let id = IDENT_G.exec(expr); id; id = IDENT_G.exec(expr)) {
+          const viaAlias = aliases.get(id[0]);
+          if (viaAlias) { kind = viaAlias; break; }
+        }
+      }
       if (!kind) continue;
 
       // Номер строки: смещение открытия литерала + смещение интерполяции в теле.

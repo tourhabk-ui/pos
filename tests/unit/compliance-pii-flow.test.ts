@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
-import { scanSource } from '@/lib/agents/compliance/pii-flow-scanner';
+import { scanSource, pdAliases } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -179,5 +179,69 @@ describe('D2 — CI-гард: реестр LLM-провайдеров замор
     // YandexGPT — единственный домашний. Если появился ещё — это меняет модель
     // угрозы (можно слать ПД без чистки), guard заставляет это заметить.
     expect(domestic.every((e) => e.jurisdiction === 'Russia')).toBe(true);
+  });
+});
+
+describe('ПД через локальную переменную (дыра, найденная 23.08)', () => {
+  /**
+   * Дайджест платформы годами отдавал зарубежной модели «имя | телефон»
+   * каждого нового лида, и страж был зелёным. Причин было две, и обе
+   * настоящие:
+   *   1. правило искало только прямые `l.phone` — а ПД шли через локальные
+   *      переменные, да ещё в два шага: `l.phone` → `phone` → строка → промпт;
+   *   2. `${name}` считался безопасным плейсхолдером `{name}` — просто потому,
+   *      что подстрока совпадала. То есть самый частый вид утечки был
+   *      объявлен санкционированной чисткой.
+   */
+  const DIGEST = [
+    "import { callAIQuality } from '@/lib/ai/providers';",
+    'function buildPrompt(m: any) {',
+    '  const leadsStr = m.newLeads.map((l: any) => {',
+    "    const name = l.name ?? 'Турист';",
+    '    const phone = l.phone;',
+    '    return `  - ${name} | ${phone}`;',
+    "  }).join('\\n');",
+    '  const prompt = `Сводка:\\n${leadsStr}`;',
+    '  return prompt;',
+    '}',
+  ].join('\n');
+
+  it('двухзвенная цепочка до промпта видна', () => {
+    const found = scanSource('digest.ts', DIGEST);
+    expect(found.length, 'ПД через две локальные переменные снова не видны').toBeGreaterThan(0);
+    expect(found[0].context).toBe('prompt');
+  });
+
+  it('псевдонимы собираются до неподвижной точки', () => {
+    const aliases = pdAliases(DIGEST);
+    expect(aliases.get('phone')).toBe('contact');
+    expect(aliases.get('name')).toBe('name');
+    // Строка, собранная из псевдонимов, сама становится псевдонимом.
+    expect(aliases.get('leadsStr')).toBeDefined();
+  });
+
+  it('плейсхолдер {name} остался безопасным, а ${name} — нет', () => {
+    const safe = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const prompt = `Обратись к клиенту так: {name}. Запрос: ${lead.comment}`;',
+    ].join('\n');
+    expect(scanSource('safe.ts', safe)).toEqual([]);
+
+    const leaky = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const name = lead.name;',
+      'const prompt = `Обратись к клиенту так: ${name}`;',
+    ].join('\n');
+    expect(scanSource('leaky.ts', leaky).length).toBeGreaterThan(0);
+  });
+
+  it('чистка через redactPII псевдонимом ПД не делает', () => {
+    const clean = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      "import { redactPII } from '@/lib/security/pii-redact';",
+      'const safeComment = redactPII(lead.comment);',
+      'const prompt = `Запрос: ${safeComment}`;',
+    ].join('\n');
+    expect(scanSource('clean.ts', clean)).toEqual([]);
   });
 });
