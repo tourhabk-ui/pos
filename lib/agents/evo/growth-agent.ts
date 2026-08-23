@@ -829,13 +829,25 @@ async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> 
 /**
  * Стоп-лист: сигнатуры претензий, отвергнутых человеком или стражем.
  * Читаем из уже отвергнутых находок — отдельной таблицы не нужно.
+ *
+ * Берётся ТОЛЬКО 'rejected' — то есть вердикт «претензия ложна». Прежде
+ * сюда же входил 'ignored', и два разных решения складывались в одно:
+ * «это неправда» и «не берём в работу». Разница вскрылась 23.08, когда
+ * владелец сказал очистить список целиком (миграция 912). Сотня находок
+ * закрылась разом, и при старом условии каждая из них навсегда заглушила
+ * бы СВОЙ КЛАСС претензий на СВОЁМ файле — включая те, которых никто не
+ * читал. «Не разбирал» превратилось бы в «отверг», а невидимая слепота
+ * дороже лишнего повтора: повтор виден и стоит одной строки в трекере,
+ * заглушенный класс не виден вовсе.
+ *
+ * Отсюда правило: молчание класса покупается только явным «ложь».
  */
 async function loadRejectedSignatures(): Promise<Set<string>> {
   try {
     const { rows } = await pool.query<{ file_path: string | null; title: string; description: string | null; suggestion: string | null }>(
       `SELECT file_path, title, description, suggestion
          FROM evo_growth_issues
-        WHERE status IN ('rejected', 'ignored')
+        WHERE status = 'rejected'
         LIMIT 500`,
     );
     return new Set(rows.map((r) => claimSignature(r)));
