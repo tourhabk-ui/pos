@@ -1,23 +1,21 @@
 {
- "run": 115,
- "note": "Проба 115: спросить у песочницы Точки, существуют ли адреса, которыми пользуется наш код. Пробы 109-114 выяснили: страницы методов рисуются скриптом, адреса в HTML нет, и расхождение остаётся догадкой по слогу имени страницы. Песочница снимает догадку опытом: ответы там заготовленные, но НЕСУЩЕСТВУЮЩИЙ путь ответит отказом, а не примером. Три запроса. Первый — список счетов: он же проверяет, что токен принят, и даёт тестовый accountId. Второй — путь статуса платежа в том виде, в каком он зашит у нас (lib/payments/tochka.ts). Третий — путь, на который указывает changelog («новый метод запроса статуса, который работает быстрее»). Ровно один из них должен ответить примером. Оговорка: форму заголовка авторизации взять не удалось — в логе пробы 114 строка пришла замаскированной, поэтому «Bearer» здесь ДОПУЩЕНИЕ. Если откажут все три одинаково, это говорит о заголовке, а не об адресах. Повторов нет намеренно: здесь 404 и есть искомый ответ, а ожидание выката приняло бы его за несвежесть и оборвало остальные запросы. Токен песочницы — опубликованная постоянная из чужой документации; секретов в конфиге нет и быть не может.",
- "bytes": 2000,
+ "run": 116,
+ "note": "Проба 116: доспросить песочницу Точки о втором адресе — выпуске QR. Проба 115 ответила на первый: наш путь статуса платежа /sbp/v1.0/qr-code/merchant/{merchantId}/payment-status/{qrId} песочница вернула 501 HTTPNotImplemented, а путь из changelog /sbp/v1.0/qr-codes/{qrcIds}/payment-status ответил примером и сам назвал боевой адрес в Links.self. Осталось выяснить то же про выпуск QR: у нас в коде .../qr-code/merchant/{merchantId}/account/{accountId}, а слог имени страницы метода Register Qr Code читается как .../qr-code/merchant/{merchantId}/{accountId} — без слова account. GET по адресу метода POST даст 405 «метод не тот», и это ответ «путь есть»; 501 или 404 — ответ «пути нет». Третьим запросом снова список счетов: в прошлой пробе его вывод срезало началом лога, а тестовый accountId нужен. Повторов нет намеренно: отказ здесь и есть искомый ответ.",
+ "bytes": 1200,
  "timeout": 30,
  "retries": 0,
  "headers": [
   "Authorization: Bearer sandbox.jwt.token"
  ],
  "urls": [
-  "https://enter.tochka.com/sandbox/v2/open-banking/v1.0/accounts",
-  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/payment-status/AD100051SS8U2QI3PLQ83SLIO3M9RQ5V",
-  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-codes/AD100051SS8U2QI3PLQ83SLIO3M9RQ5V/payment-status"
+  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/account/40802810000000000001",
+  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/qr-code/merchant/200000000001097/40802810000000000001",
+  "https://enter.tochka.com/sandbox/v2/open-banking/v1.0/accounts"
  ],
  "grep": [
+  "HTTPNotImplemented",
+  "MethodNotAllowed",
   "accountId",
-  "qrcId",
-  "paymentStatus",
-  "Not Found",
-  "access token",
-  "Forbidden"
+  "Not Found"
  ]
 }
