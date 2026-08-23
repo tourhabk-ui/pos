@@ -1,22 +1,32 @@
 {
-  "note": "Проба 175: сколько туров годится к выкладке на чужую витрину. Ради этой цифры и писалась перепись: двадцать строк в таблице и двадцать пригодных строк — разные вещи, и вторая считается по нашей базе без переговоров с площадкой. Маркер свежести — channel_readiness_v1: строки с таким именем в прежней сборке нет, роут появился только что, значит проба дождётся выката, а не снимет вчерашний ответ. Счётчики печатаются отдельно от тела: «годных 3 из 20» и «тело не поместилось» в логе выглядят одинаково, если цифру унесло за край.",
-  "urls": [
-    "https://vedarai.ru/api/cron/channel-readiness"
-  ],
-  "until": "channel_readiness_v1",
-  "retries": 20,
-  "retryDelay": 45,
-  "timeout": 60,
-  "bytes": 14000,
-  "grep": [
-    "\"meaningful\":true",
-    "\"meaningful\":false"
-  ],
-  "count": [
-    "\"missing\""
-  ],
-  "around": [
-    "blocking_by_field"
-  ],
-  "aroundLines": 14
+ "run": 120,
+ "note": "Проба 120: повтор 119 с allowStale. Проба 119 упала не по делу: я поставил retries 0, считая, что 404 будет прочитан как ответ, но сторож несвежести всё равно счёл 404 отказом и оборвал прогон на первом адресе — до страницы с коллекцией Postman дело не дошло. Ошибка в конфиге, не в пробе: когда отказ И ЕСТЬ искомый ответ, это объявляется через allowStale, ровно как написано в шапке workflow. Цель прежняя и это последнее «не знаю» перед переписыванием lib/payments/tochka.ts: какое значение status означает «оплачено». Песочница показала NotStarted и InProgress; угадывать нельзя — от этого значения зависит, подтвердится бронь или нет, и неверная догадка молча превратит оплаченное в неоплаченное. Спрашиваю первоисточник: спецификация песочницы (вдруг отдаётся токеном) и страница «Работа с API в Postman» — коллекция содержит точные тела запросов и словари значений.",
+ "bytes": 2500,
+ "timeout": 30,
+ "retries": 0,
+ "allowStale": true,
+ "headers": [
+  "Authorization: Bearer sandbox.jwt.token"
+ ],
+ "urls": [
+  "https://developers.tochka.com/docs/tochka-api/kollekciya-zaprosov",
+  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/swagger.json",
+  "https://enter.tochka.com/sandbox/v2/openapi.json"
+ ],
+ "grep": [
+  "Accepted",
+  "Confirmed",
+  "NotStarted",
+  "InProgress",
+  "paymentPurpose",
+  "postman",
+  "collection"
+ ],
+ "around": [
+  "postman",
+  "коллекц",
+  "скачать"
+ ],
+ "aroundLines": 14,
+ "aroundHits": 3
 }
