@@ -17,6 +17,17 @@
  *
  * `?dry=1` — сухой прогон: те же выборки, ни одной записи. Нужен, чтобы
  * увидеть размер партии отмены ДО того, как она случится.
+ *
+ * ОТМЕНА НЕ ТРОГАЕТ БРОНЬ, НА КОТОРОЙ ЛЕЖАТ ДЕНЬГИ. Настоящее столкновение с
+ * оплатой идёт не здесь, а через приёмник Точки: тот читает бронь, УХОДИТ
+ * СПРАШИВАТЬ БАНК и только потом пишет подтверждение. В этом окне отмена
+ * успевает отменить, приёмник записывает ноль строк, а деньги у банка приняты.
+ * Чинится оно на своей стороне (см. вебхук), но и здесь условие отмены обязано
+ * отказываться от строки, несущей оплату: `paid_at` или `payment_status =
+ * 'paid'` означают деньги, и отменять такую бронь автомату нельзя ни при каком
+ * порядке событий. Любая будущая правка приёмника, разводящая отметку оплаты и
+ * смену статуса по разным запросам, без этого условия становится потерей денег
+ * туриста.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -151,7 +162,9 @@ export async function GET(req: NextRequest) {
     const cancelSql = `
       SELECT id FROM operator_bookings
       WHERE booking_status = 'pending_payment'
-        AND created_at < NOW() - INTERVAL '24 hours'`;
+        AND created_at < NOW() - INTERVAL '24 hours'
+        AND paid_at IS NULL
+        AND (payment_status IS NULL OR payment_status <> 'paid')`;
 
     let cancelled: number;
     if (dryRun) {
@@ -166,6 +179,8 @@ export async function GET(req: NextRequest) {
              updated_at           = NOW()
          WHERE booking_status = 'pending_payment'
            AND created_at < NOW() - INTERVAL '24 hours'
+           AND paid_at IS NULL
+           AND (payment_status IS NULL OR payment_status <> 'paid')
          RETURNING id`,
       );
       cancelled = rows.length;
