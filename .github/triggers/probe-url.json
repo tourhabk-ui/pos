@@ -1,18 +1,28 @@
 {
- "run": 108,
- "note": "Проба 108: выпустить QR СБП по служебной броне 3 (тур 32, 1 рубль). Роут /api/payments/tochka/qr публичный, под rate-limit, CRON_SECRET ему не нужен и не уйдёт — правило секрета решает по адресу. Ответ вернёт qrLink вида qr.nspk.ru/<id>, его я отдам владельцу для оплаты с телефона. Денег этот шаг не списывает: QR лишь выпускается. Маркер свежести не нужен — роут существует давно и не менялся, ждать нечего; поэтому until не задан, и повторы стоят только на случай 502 при перезапуске контейнера.",
- "bytes": 3000,
- "timeout": 120,
- "retries": 5,
- "retryDelay": 30,
- "urls": [],
- "post": [
-  { "url": "https://vedarai.ru/api/payments/tochka/qr", "body": { "bookingId": 3 } }
+ "run": 109,
+ "note": "Проба 109: снять документацию Точки с раннера — из контейнера разработки наружу хода нет. Проверяются три вещи, на которых стоит наша интеграция: (1) актуальна ли версия sbp/v1.0 в пути выпуска QR; (2) как получают client_id и client_secret — регистрацией приложения или иначе; (3) какой формат ожидает accountId (в коде это «счёт/БИК»). Ответ решает, чего именно не хватает на проде: только переменных или ещё и правки кода. CRON_SECRET сюда не уйдёт — правило секрета решает по адресу, а это чужой хост.",
+ "bytes": 8000,
+ "timeout": 60,
+ "retries": 2,
+ "retryDelay": 15,
+ "urls": [
+  "https://developers.tochka.com/",
+  "https://developers.tochka.com/docs/tochka-api/",
+  "https://enter.tochka.com/uapi/sbp/v1.0/swagger.json"
  ],
  "grep": [
-  "qr.nspk.ru",
-  "\"qrId\"",
-  "\"error\"",
-  "не настроен"
- ]
+  "sbp/v1.0",
+  "qr-code",
+  "client_credentials",
+  "EditSBPData",
+  "accountId",
+  "merchantId"
+ ],
+ "around": [
+  "sbp",
+  "client_id",
+  "accountId"
+ ],
+ "aroundLines": 10,
+ "aroundHits": 3
 }
