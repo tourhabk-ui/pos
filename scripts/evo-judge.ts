@@ -288,6 +288,33 @@ function isSevere(f: Finding): boolean {
  * голодала бы уже свежая часть списка, и мы получили бы ту же болезнь с
  * другого конца.
  */
+/**
+ * Два жанра под одной крышей.
+ *
+ * evo_growth_issues держит и находки сканера кода (утверждения о конкретных
+ * строках), и находки моста разведки — intel-bridge превращает дайджест Scout
+ * в «возможности» вроде «исследовать RAG» или «внедрить дашборд». Это
+ * законные записи, человек решает по ним отдельно, но УТВЕРЖДЕНИЯМИ О КОДЕ
+ * они не являются.
+ *
+ * Разбор 23.08 показал цену смешения: 34 «шума» из 45, и почти все —
+ * разведданные. Судья отвечал верно (его промпт прямо велит считать шумом
+ * предложения изучить и внедрить), но ответ был известен заранее, а платили
+ * за него токенами флагмана. Хуже другое: цифра «шум 34» читается как
+ * точность сканера кода, которой она не является.
+ *
+ * Поэтому разведданные не судятся, а называются числом и списком. Жанр
+ * берётся из КАТЕГОРИИ, то есть из данных, а не угадывается по тексту:
+ * находка сканера без файла останется в разборе и получит честный вердикт.
+ */
+export function splitGenres(
+  findings: Finding[],
+): { claims: Finding[]; intel: Finding[] } {
+  const intel = findings.filter((f) => f.category === 'intel');
+  const claims = findings.filter((f) => f.category !== 'intel');
+  return { claims, intel };
+}
+
 export function selectForJudging(
   findings: Finding[],
   limit: number,
@@ -368,7 +395,7 @@ export function balanceLine(b: Awaited<ReturnType<typeof checkOpenRouterBalance>
   return `Счёт OpenRouter: осталось $${b.remaining}${warn} (начислено $${b.total_credits}, потрачено $${b.total_usage}).`;
 }
 
-export function renderReport(judged: Judged[], balance?: string): string {
+export function renderReport(judged: Judged[], balance?: string, intel: Finding[] = []): string {
   const by = (v: Verdict) => judged.filter((j) => j.verdict === v);
   const real = by('real'), fixed = by('fixed'), noise = by('noise'),
     info = by('needs_info'), un = by('unjudged');
@@ -423,6 +450,14 @@ export function renderReport(judged: Judged[], balance?: string): string {
   lines.push(`| не разобрана | ${un.length} |`);
   lines.push('');
 
+  // Разведданные названы вслух и числом. Молчаливое исключение читалось бы
+  // как «их не было», а они были и стоят решения человека — просто не того,
+  // которое выносит судья кода.
+  if (intel.length > 0) {
+    lines.push(`Разведданных (не судятся): **${intel.length}**. Это заметки моста разведки, а не утверждения о коде: вопрос «это дефект?» им не задаётся, потому что ответ известен заранее и стоит токенов.`);
+    lines.push('');
+  }
+
   if (un.length > 0) {
     // Названо отдельно и до подробностей: неразобранное легко принять за
     // «ничего не нашли», а это разные вещи.
@@ -458,6 +493,15 @@ export function renderReport(judged: Judged[], balance?: string): string {
     }
     lines.push('');
   }
+  if (intel.length > 0) {
+    lines.push('## Разведданные (не судятся)');
+    lines.push('');
+    lines.push('Решение по ним — человека, и вопрос к ним другой: стоит ли этим заниматься, а не «сломано ли это».');
+    lines.push('');
+    for (const f of intel) lines.push(`- ${f.title}`);
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -482,9 +526,17 @@ async function main(): Promise<void> {
   console.log(balance);
 
   const raw = JSON.parse(readFileSync(inPath, 'utf-8')) as { issues?: Finding[] };
-  const findings = Array.isArray(raw.issues) ? raw.issues : [];
-  if (findings.length === 0) {
+  const all = Array.isArray(raw.issues) ? raw.issues : [];
+  if (all.length === 0) {
     writeFileSync(outPath, `Открытых находок нет.\n\n${balance}\n`);
+    return;
+  }
+
+  // Разведданные из разбора выведены: судить заметку вопросом «это дефект?»
+  // значит платить за заранее известный ответ. Они попадут в отчёт списком.
+  const { claims: findings, intel } = splitGenres(all);
+  if (findings.length === 0) {
+    writeFileSync(outPath, renderReport([], balance, intel));
     return;
   }
 
@@ -504,7 +556,7 @@ async function main(): Promise<void> {
     });
   }
 
-  writeFileSync(outPath, renderReport(judged, balance));
+  writeFileSync(outPath, renderReport(judged, balance, intel));
 }
 
 // Запуск только как скрипт: при импорте из теста main не вызывается.
