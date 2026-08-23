@@ -1,31 +1,22 @@
 {
- "run": 119,
- "note": "Проба 119: достать словарь статусов платежа СБП и форму тела запроса на выпуск QR. Это последнее «не знаю», мешающее переписать lib/payments/tochka.ts. Опытом уже установлено: путь выпуска — /sbp/v1.0/qr-code/merchant/{m}/{a} без слова account, путь статуса — /sbp/v1.0/qr-codes/{ids}/payment-status, ответы приходят в конверте Data. Чего НЕ знаю: какое значение status означает «оплачено». Песочница показала только NotStarted и InProgress; догадываться тут нельзя — от этого значения зависит, подтвердится бронь или нет, а неверная догадка молча превратит оплаченное в неоплаченное. Поэтому спрашиваю первоисточник: свагер боевого контура закрыт токеном (403 в пробе 109), но у песочницы токен есть — вдруг спецификация отдаётся. Плюс страница «Работа с API в Postman»: коллекция Postman содержит точные тела запросов. Повторов нет: 404 здесь и есть ответ.",
- "bytes": 2500,
- "timeout": 30,
- "retries": 0,
- "headers": [
-  "Authorization: Bearer sandbox.jwt.token"
- ],
- "urls": [
-  "https://enter.tochka.com/sandbox/v2/sbp/v1.0/swagger.json",
-  "https://enter.tochka.com/sandbox/v2/openapi.json",
-  "https://developers.tochka.com/docs/tochka-api/kollekciya-zaprosov"
- ],
- "grep": [
-  "Accepted",
-  "Confirmed",
-  "NotStarted",
-  "InProgress",
-  "paymentPurpose",
-  "postman",
-  ".json"
- ],
- "around": [
-  "status",
-  "postman",
-  "paymentPurpose"
- ],
- "aroundLines": 12,
- "aroundHits": 3
+  "note": "Проба 175: сколько туров годится к выкладке на чужую витрину. Ради этой цифры и писалась перепись: двадцать строк в таблице и двадцать пригодных строк — разные вещи, и вторая считается по нашей базе без переговоров с площадкой. Маркер свежести — channel_readiness_v1: строки с таким именем в прежней сборке нет, роут появился только что, значит проба дождётся выката, а не снимет вчерашний ответ. Счётчики печатаются отдельно от тела: «годных 3 из 20» и «тело не поместилось» в логе выглядят одинаково, если цифру унесло за край.",
+  "urls": [
+    "https://vedarai.ru/api/cron/channel-readiness"
+  ],
+  "until": "channel_readiness_v1",
+  "retries": 20,
+  "retryDelay": 45,
+  "timeout": 60,
+  "bytes": 14000,
+  "grep": [
+    "\"meaningful\":true",
+    "\"meaningful\":false"
+  ],
+  "count": [
+    "\"missing\""
+  ],
+  "around": [
+    "blocking_by_field"
+  ],
+  "aroundLines": 14
 }
