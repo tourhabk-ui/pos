@@ -152,7 +152,12 @@ export async function GET(request: NextRequest) {
       currency: row.currency,
       isActive: row.is_active,
       images: row.images || [],
-      includes: row.includes ?? [],
+      // `includes` объявлен двумя типами: TEXT[] в миграции 114 и TEXT в 690.
+      // Какой лежит на проде — вопрос к базе, а не к репозиторию (виден в
+      // `type_conflicts` переписи /api/cron/schema-drift). Пока ответ не
+      // получен, читаем оба вида: строка от текстовой колонки иначе уехала бы
+      // в поле, объявленное массивом, и отрисовалась бы посимвольно.
+      includes: Array.isArray(row.includes) ? row.includes : (row.includes ? [String(row.includes)] : []),
       excludes: row.excludes ?? [],
       itinerary: (row.itinerary ?? []) as OperatorTour['itinerary'],
       schedule: {
