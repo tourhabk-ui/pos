@@ -6,6 +6,21 @@
 import { query } from '@/lib/database';
 
 /**
+ * След неудавшейся проверки.
+ *
+ * Все проверки в этом файле fail-closed: сбой — отказ в доступе, а не выдача
+ * прав. Направление верное, но молчали они одинаково с «прав нет», и разобрать
+ * жалобу оператора «не вижу свою бронь» было не по чему. §4.0: ловить можно,
+ * молчать нельзя — имя проверки и SQLSTATE в лог.
+ */
+function logCheckFailure(check: string, error: unknown): void {
+  const code = (error as { code?: string } | null)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[operator-helpers] ${check}: отказ проверки${code ? ` SQLSTATE ${code}` : ''} — ${message}`);
+}
+
+
+/**
  * Get partner ID for an operator user
  * Returns partner.id linked to user.id
  */
@@ -47,6 +62,7 @@ export async function getOperatorPartnerId(userId: string): Promise<string | nul
     
     return (partnerResult.rows[0]?.id as string | undefined) ?? null;
   } catch (error) {
+    logCheckFailure('getOperatorPartnerId', error);
     return null;
   }
 }
@@ -114,6 +130,7 @@ export async function getPartnerByUserId(userId: string, category?: string): Pro
       updatedAt: partner.updated_at
     };
   } catch (error) {
+    logCheckFailure('getPartnerByUserId', error);
     return null;
   }
 }
@@ -190,6 +207,7 @@ export async function verifyTourOwnership(userId: string, tourId: string): Promi
     
     return result.rows.length > 0;
   } catch (error) {
+    logCheckFailure('verifyTourOwnership', error);
     return false;
   }
 }
@@ -210,6 +228,7 @@ export async function verifyBookingOwnership(userId: string, bookingId: string):
     
     return result.rows.length > 0;
   } catch (error) {
+    logCheckFailure('verifyBookingOwnership', error);
     return false;
   }
 }
