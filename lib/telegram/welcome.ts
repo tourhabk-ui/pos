@@ -36,7 +36,7 @@ async function getUserStats(userId: string, role: string): Promise<UserStats> {
     if (role === 'operator' || role === 'guide') {
       const res = await query<{ cnt: string }>(
         `SELECT COUNT(*)::text AS cnt FROM operator_tours ot
-         JOIN partners p ON p.user_id = $1 WHERE ot.operator_id = p.user_id AND ot.is_active = TRUE`,
+         JOIN partners p ON p.user_id = $1 WHERE ot.operator_id = p.id AND ot.is_active = TRUE`,
         [userId]
       );
       return { tours: parseInt(res.rows[0]?.cnt ?? '0') };

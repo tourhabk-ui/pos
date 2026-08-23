@@ -178,7 +178,7 @@ async function collectMetrics(): Promise<PlatformMetrics> {
       const r = await pool.query<TourNoSlot>(
         `SELECT ot.id::text, ot.title, p.name as operator_name
          FROM operator_tours ot
-         JOIN partners p ON p.user_id = ot.operator_id
+         JOIN partners p ON p.id = ot.operator_id
          WHERE ot.is_active = true
            AND NOT EXISTS (
              SELECT 1 FROM tour_availability ta

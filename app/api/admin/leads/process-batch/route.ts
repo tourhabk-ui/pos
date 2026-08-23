@@ -9,6 +9,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { processSingleLead } from '@/lib/services/operators/lead-processor.service';
 import { z } from 'zod';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -26,7 +27,9 @@ export async function POST(req: NextRequest) {
 
   // Либо admin user, либо valid CRON_SECRET
   const isAdmin = (await requireAdmin(req)) instanceof NextResponse === false;
-  const isValidCron = cronSecret && headerSecret === cronSecret && headerSecret.length > 8;
+  // Сравнение постоянного времени — как в остальных cron-роутах. Обычное
+  // `===` утекает секрет посимвольно по времени ответа.
+  const isValidCron = !!cronSecret && timingSafeCompare(headerSecret, cronSecret);
 
   if (!isAdmin && !isValidCron) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

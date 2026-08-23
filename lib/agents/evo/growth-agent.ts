@@ -16,6 +16,10 @@ import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
 import { loadLearnedLessons, lessonsPromptBlock } from '@/lib/agents/evo/learned-lessons';
 import { runStaticChecks } from '@/lib/agents/evo/static-checks';
 import { locateFailure } from '@/lib/agents/evo/failure-taxonomy';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { loadSchemaModel } from '@/lib/agents/evo/schema-model';
+import { scanSourceAgainstSchema, schemaMismatchToIssue } from '@/lib/agents/evo/schema-lens';
 import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
 
 export interface GrowthIssue {
@@ -799,6 +803,32 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
   return finding ? [finding] : [];
 }
 
+/**
+ * Объектив схемы: сверка запросов в коде с baseline и миграциями.
+ *
+ * Не эвристика и не модель — сравнение двух списков. Молчит везде, где
+ * таблица неизвестна (вьюха, CTE, подзапрос, таблица вне реестра): «не знаю»
+ * не выдаётся ни за «хорошо», ни за «плохо».
+ */
+async function scanSchemaMismatches(): Promise<GrowthIssue[]> {
+  const schema = loadSchemaModel(process.cwd());
+  if (schema.columns.size === 0) return []; // схемы нет — судить нечем
+
+  const files = await listRepoFiles();
+  const issues: GrowthIssue[] = [];
+  for (const file of files) {
+    if (!file.endsWith('.ts') && !file.endsWith('.tsx')) continue;
+    let src: string;
+    try {
+      src = await readFile(join(process.cwd(), file), 'utf-8');
+    } catch { continue; }
+    for (const m of scanSourceAgainstSchema(file, src, schema)) {
+      issues.push(schemaMismatchToIssue(m));
+    }
+  }
+  return issues;
+}
+
 async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> {
   const all = await listRepoFiles();
   const clients = clientComponentPaths(all);
@@ -985,6 +1015,11 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     issues.push(...(await scanKuzmichEval().catch(() => [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
     issues.push(...await scanStructural().catch(() => [] as GrowthIssue[]));
+    // Объектив схемы: запрос против baseline и миграций. Единственный, кто
+    // смотрит на то, чего модель не видит принципиально — она читает файл, а
+    // схема лежит в других файлах. Оба настоящих дефекта 23.08 были этого
+    // рода, и прочёс в тот же день объявил «по делу: 0».
+    issues.push(...await scanSchemaMismatches().catch(() => [] as GrowthIssue[]));
   }
 
   // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →

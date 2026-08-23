@@ -144,10 +144,18 @@ export async function PATCH(
         [transfer.id, commissionAmount, targetTourId]
       );
 
-      // 2) Переназначаем бронирование на тур оператора Б (если указан)
+      // 2) Переназначаем бронирование на тур оператора Б (если указан).
+      //
+      // Пишем в operator_bookings, а не в легаси-таблицу bookings. Прежняя
+      // строка не «молча ничего не обновляла»: тот же transfer.booking_id
+      // читается выше из operator_bookings, где id — bigint, а bookings.id —
+      // uuid. Постгрес отвечал на это ошибкой типа, и вся транзакция —
+      // вместе с двумя записями в payouts — откатывалась. То есть приём
+      // переброса С УКАЗАННЫМ целевым туром не работал никогда; без
+      // targetTourId ветка не выполнялась, и потому дефект не был виден.
       if (targetTourId) {
         await client.query(
-          `UPDATE bookings SET tour_id = $2, updated_at = NOW() WHERE id = $1`,
+          `UPDATE operator_bookings SET operator_tour_id = $2, updated_at = NOW() WHERE id = $1`,
           [transfer.booking_id, targetTourId]
         );
       }
