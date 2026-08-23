@@ -1,9 +1,19 @@
 {
-  "note": "Проба 174: цена токена у шлюза Timeweb. Каталог прочитан (проба 173): Anthropic Claude Opus 5 / Sonnet 5 / Fable 5, OpenAI GPT 5.6, Gemini, Qwen, GLM, YandexGPT — всё через токен доступа агента Timeweb, ключей провайдеров нигде. Осталась цена: страница каталога её не называет, только «pay-as-you-go, входящие и исходящие раздельно». Читаем модель тарификации и лимит токенов — от цифры зависит, чем шлюз становится: заменой релея или заменой всей нашей связки провайдеров.",
-  "urls": [
-    "https://timeweb.cloud/docs/ai-agents/pricing/billing-models.md",
-    "https://timeweb.cloud/docs/ai-agents/pricing/token-limit.md"
-  ],
-  "timeout": 60,
-  "bytes": 7000
+ "run": 106,
+ "note": "Проба 106: создать обвязку и выпустить QR СБП. Два шага: (1) payment-test-setup с confirm — служебный партнёр со ставкой 10%, невидимый тур за 1 рубль, бронь в pending_payment; вернёт booking_id; (2) QR по этой броне. Второй шаг НЕ может знать booking_id заранее, поэтому идёт по фиксированному id из первого прогона — если он не совпадёт, роут ответит отказом и это будет видно, а не молча пройдёт мимо. Маркер свежести — tour_visible: поле есть только после правки приведений типов (прошлый прогон упал на 42P08). Денег ни один шаг не списывает: QR лишь выпускается.",
+ "bytes": 4000,
+ "timeout": 120,
+ "retries": 12,
+ "retryDelay": 60,
+ "until": "tour_visible",
+ "urls": [],
+ "post": [
+  { "url": "https://vedarai.ru/api/cron/payment-test-setup", "body": { "confirm": true } }
+ ],
+ "grep": [
+  "\"tour_visible\":false",
+  "\"booking_id\"",
+  "\"ok\":false",
+  "42P08"
+ ]
 }
