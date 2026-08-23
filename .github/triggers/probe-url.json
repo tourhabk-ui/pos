@@ -1,18 +1,9 @@
 {
-  "note": "Проба 167: отвечает ли Qwen ПОСЛЕ смены модели резолвером. До починки выбирался qwen3-max-2025-09-23 и путь работал; теперь выбирается qwen3.8-max, а у свежего флагмана бесплатной квоты может не быть вовсе. Правка верна по существу, но могла перекрыть единственный живой путь — это надо знать фактом, а не предполагать. Смотрим ai.qwen (отвечает ли живой путь) и qwen_key_diag (что говорит шлюз про qwen-plus). Диагностика по-прежнему спрашивает конфиговую модель, поэтому её 403 сам по себе ничего не решает — решает ai.qwen.",
+  "note": "Проба 168: КТО именно отдаёт «Access denied by security policy». Тело ответа не наше — релей на такие слова не способен, его отказы это forbidden/unknown_upstream/relay_upstream_unreachable. Значит 403 приходит от OpenRouter, и приходит ОДИНАКОВО обоими путями: и напрямую с РФ-адреса, и через воркер, который честно вырезает cf-connecting-ip и x-forwarded-for. Гипотеза: блокируется не клиент, а сам домен workers.dev — массовый инструмент открытых прокси за тем же Cloudflare, что и OpenRouter. Раннер GitHub — третий источник, ни РФ, ни workers.dev, и он разводит два случая. Адрес /api/v1/models публичный, ключ не нужен и НЕ отправляется: workflow шлёт Authorization только своим крон-роутам на vedarai.ru.",
   "urls": [
-    "https://vedarai.ru/api/cron/health"
+    "https://openrouter.ai/api/v1/models",
+    "https://vedar-ai-relay.tourhabk.workers.dev/or/api/v1/models"
   ],
-  "timeout": 120,
-  "bytes": 1200,
-  "around": [
-    "\"ai\":",
-    "qwen_key_diag"
-  ],
-  "aroundLines": 8,
-  "aroundHits": 1,
-  "grep": [
-    "\"qwen\":true",
-    "\"qwen\":false"
-  ]
+  "timeout": 60,
+  "bytes": 400
 }
