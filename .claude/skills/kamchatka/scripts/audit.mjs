@@ -103,7 +103,9 @@ const PATTERN_HOLDERS = /agents\/evo\/(static-checks|mock-detector|finding-guard
 const LEGACY_READ_ALLOW = (() => {
   try {
     const raw = readFileSync(join(ROOT, 'lib/agents/evo/legacy-read-allowlist.json'), 'utf8');
-    const paths = Object.keys(JSON.parse(raw).allow ?? {});
+    const data = JSON.parse(raw);
+    // Оба списка: чтение и — с более высокой планкой — необратимая запись.
+    const paths = [...Object.keys(data.allow ?? {}), ...Object.keys(data.allow_write ?? {})];
     if (paths.length === 0) return null;
     return new RegExp(paths.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
   } catch (err) {

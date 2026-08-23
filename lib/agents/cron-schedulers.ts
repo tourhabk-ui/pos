@@ -80,6 +80,9 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // его человек по цифрам переписи. Сам роут без `confirm: true` не удаляет.
   'partner-cleanup':           { kind: 'manual', writes: true,  note: 'удаление бесхозных партнёров: ни туров, ни броней, ни входа, ни аттестаций' },
   'legacy-tours-census':       { kind: 'manual', writes: false, note: 'что лежит в мёртвой таблице tours: её ключ держит пятерых партнёров от удаления' },
+  // Расписания у сноса нет и быть не должно: удаление необратимо, список строк
+  // назван поимённо, запускает человек. Без `confirm: true` роут не удаляет.
+  'legacy-tours-cleanup':      { kind: 'manual', writes: true,  note: 'снос шести демо-строк из мёртвой tours по решению владельца 23.08: они держат пятерых бесхозных партнёров' },
   'safety-alert':              { kind: 'manual', writes: true,  note: 'приём предупреждения по зоне: публикация и снятие' },
   'field-check-photo':         { kind: 'manual', writes: false, note: 'снимок полевой проверки по id, только чтение' },
   'field-check-queue':         { kind: 'manual', writes: false, note: 'очередь полевых проверок с расхождениями, только чтение' },
@@ -94,6 +97,10 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'idilesom-scout':            { kind: 'manual', writes: false, note: 'разведка источника маршрутов' },
   'inspect-tour-card':         { kind: 'manual', writes: false, note: 'осмотр карточки тура' },
   'partner-candidates-census': { kind: 'manual', writes: false, note: 'перепись кандидатов в партнёры' },
+  // Объявлено по шапке самого роута (23.08): правка координаты места партиями
+  // до 10, поимённо, с обязательным источником и dry_run по умолчанию.
+  // Расписания быть не должно — координату правит человек по уликам.
+  'place-coords':              { kind: 'manual', writes: true,  note: 'исправление координаты места: поимённо, с источником правды и сухим прогоном' },
   'place-link':                { kind: 'manual', writes: true,  note: 'привязка места к маршруту' },
   'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },
   'place-unlink':              { kind: 'manual', writes: true,  note: 'отвязка места от маршрута' },
