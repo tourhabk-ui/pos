@@ -45,8 +45,11 @@ describe('чего не хватает туру', () => {
     expect(missingFields({ ...full, base_price: null })).toContain('base_price');
   });
 
-  it('точка сбора, координаты и контакт оператора обязательны', () => {
-    expect(missingFields({ ...full, has_meeting_point: false })).toContain('meeting_point');
+  it('как турист попадает на тур, координаты и контакт оператора обязательны', () => {
+    // Не «точка сбора»: операторы забирают туристов сами (поправка владельца
+    // 23.08). Пустое поле значит «не записано, как турист попадает на тур», а
+    // не «оператор забыл» — и чинится это одной фразой на оператора.
+    expect(missingFields({ ...full, has_meeting_point: false })).toContain('pickup');
     expect(missingFields({ ...full, has_coords: false })).toContain('coordinates');
     expect(missingFields({ ...full, has_operator_contact: false })).toContain('operator_contact');
   });
