@@ -49,31 +49,43 @@
  * же настоящая оплата назовёт его сама, и тогда оно вносится в PAID_STATUSES
  * как факт, а не как предположение.
  *
- * ПЕСОЧНИЦА. `TOCHKA_SANDBOX=1` переключает базовый адрес и токен на
- * опубликованные тестовые. Ответы там фиксированные и от параметров не
- * зависят: песочница доказывает ФОРМУ запроса и существование адреса, но
- * никогда — оплату. Ею проверяется интеграция, не деньги.
+ * ПЕСОЧНИЦА включается теми же переменными плюс адресом — отдельного режима
+ * в коде нет намеренно, см. `baseUrl()`. Ответы там фиксированные и от
+ * параметров не зависят: песочница доказывает ФОРМУ запроса и существование
+ * адреса, но никогда — оплату. Ею проверяется интеграция, не деньги.
  *
  * Переменные окружения (Timeweb):
  *   TOCHKA_JWT_TOKEN   — ключ из интернет-банка, раздел «Интеграции и API»
  *   TOCHKA_MERCHANT_ID — ID торговой точки в СБП
  *   TOCHKA_ACCOUNT_ID  — счёт и БИК одной строкой: "40702810XXXXXXXXXX/044525104"
- *   TOCHKA_SANDBOX     — «1» переключает на песочницу (тогда первые три не нужны)
+ *   TOCHKA_BASE_URL    — необязательный: адрес песочницы вместо боевого
  */
 
-const PROD_BASE = 'https://enter.tochka.com/uapi';
-/** Песочница: адрес и токен опубликованы в документации, общие для всех. */
-const SANDBOX_BASE = 'https://enter.tochka.com/sandbox/v2';
-const SANDBOX_TOKEN = 'sandbox.jwt.token';
-const SANDBOX_MERCHANT = '200000000001097';
-const SANDBOX_ACCOUNT = '12345123451234512345/044525104';
+const DEFAULT_BASE = 'https://enter.tochka.com/uapi';
 
-function isSandbox(): boolean {
-  return process.env.TOCHKA_SANDBOX === '1';
-}
-
+/**
+ * Базовый адрес. Переопределяется переменной — этим же и включается песочница.
+ *
+ * Сначала здесь стояли константы песочницы прямо в коде: адрес, токен,
+ * тестовые merchantId и accountId. Работало, но CodeQL справедливо назвал это
+ * учётными данными в исходнике, и глушить его было бы неправильно даже при
+ * опубликованном тестовом токене: правило «секретов в коде нет» перестаёт
+ * работать в тот день, когда у него появляется первое исключение.
+ *
+ * Поэтому песочница включается теми же тремя переменными, что и боевой
+ * контур, плюс адресом. Значения опубликованы в документации Точки и общие
+ * для всех — привожу их здесь как СПРАВКУ, а не как код:
+ *
+ *   TOCHKA_BASE_URL    = https://enter.tochka.com/sandbox/v2
+ *   TOCHKA_JWT_TOKEN   = sandbox.jwt.token
+ *   TOCHKA_MERCHANT_ID = 200000000001097
+ *   TOCHKA_ACCOUNT_ID  = 12345123451234512345/044525104
+ *
+ * Ответы песочницы заготовлены и от параметров не зависят: она доказывает
+ * форму запроса и существование адреса, но никогда — оплату.
+ */
 function baseUrl(): string {
-  return isSandbox() ? SANDBOX_BASE : PROD_BASE;
+  return process.env.TOCHKA_BASE_URL || DEFAULT_BASE;
 }
 
 /**
@@ -82,7 +94,6 @@ function baseUrl(): string {
  * обновляется человеком в интернет-банке.
  */
 function accessToken(): string | null {
-  if (isSandbox()) return SANDBOX_TOKEN;
   const token = process.env.TOCHKA_JWT_TOKEN;
   if (!token) {
     console.error('[tochka] TOCHKA_JWT_TOKEN не задан: ключ генерируется в интернет-банке');
@@ -92,11 +103,11 @@ function accessToken(): string | null {
 }
 
 function merchantId(): string | null {
-  return isSandbox() ? SANDBOX_MERCHANT : (process.env.TOCHKA_MERCHANT_ID ?? null);
+  return process.env.TOCHKA_MERCHANT_ID ?? null;
 }
 
 function accountId(): string | null {
-  return isSandbox() ? SANDBOX_ACCOUNT : (process.env.TOCHKA_ACCOUNT_ID ?? null);
+  return process.env.TOCHKA_ACCOUNT_ID ?? null;
 }
 
 // ── Типы ───────────────────────────────────────────────────────────
@@ -319,17 +330,11 @@ export async function getSBPPaymentStatus(qrId: string): Promise<TochkaPaymentSt
  * нашего случая.
  */
 export function isTochkaConfigured(): boolean {
-  if (isSandbox()) return true;
-  return Boolean(
-    process.env.TOCHKA_JWT_TOKEN &&
-    process.env.TOCHKA_MERCHANT_ID &&
-    process.env.TOCHKA_ACCOUNT_ID,
-  );
+  return tochkaMissingEnv().length === 0;
 }
 
 /** Чего именно не хватает — для страницы здоровья, чтобы не гадать по 503. */
 export function tochkaMissingEnv(): string[] {
-  if (isSandbox()) return [];
   return ['TOCHKA_JWT_TOKEN', 'TOCHKA_MERCHANT_ID', 'TOCHKA_ACCOUNT_ID']
     .filter((k) => !process.env[k]);
 }

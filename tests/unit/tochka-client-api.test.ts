@@ -61,12 +61,12 @@ describe('авторизация — статический JWT, а не пот�
   });
 
   it('готовность считает три переменные, а не четыре', () => {
-    const fn = CODE.slice(CODE.indexOf('export function isTochkaConfigured'));
-    const body = fn.slice(0, fn.indexOf('export function tochkaMissingEnv'));
-    expect(body).toMatch(/TOCHKA_JWT_TOKEN/);
-    expect(body).toMatch(/TOCHKA_MERCHANT_ID/);
-    expect(body).toMatch(/TOCHKA_ACCOUNT_ID/);
-    expect(body).not.toMatch(/TOCHKA_CLIENT_ID/);
+    // Список один — в tochkaMissingEnv; isTochkaConfigured спрашивает его.
+    const fn = CODE.slice(CODE.indexOf('export function tochkaMissingEnv'));
+    expect(fn).toMatch(/TOCHKA_JWT_TOKEN/);
+    expect(fn).toMatch(/TOCHKA_MERCHANT_ID/);
+    expect(fn).toMatch(/TOCHKA_ACCOUNT_ID/);
+    expect(fn).not.toMatch(/TOCHKA_CLIENT_ID/);
   });
 });
 
@@ -129,13 +129,28 @@ describe('отказы не глушатся', () => {
   });
 });
 
-describe('песочница отделена от боевого контура', () => {
-  it('переключается переменной, а не правкой кода', () => {
-    expect(CODE).toMatch(/TOCHKA_SANDBOX === '1'/);
-    expect(CODE).toMatch(/enter\.tochka\.com\/sandbox\/v2/);
+describe('учётных данных в коде нет', () => {
+  it('песочница включается переменными, а не константами в исходнике', () => {
+    // Сначала адрес, токен и тестовые идентификаторы песочницы стояли прямо в
+    // коде. Работало, но CodeQL справедливо назвал это учётными данными в
+    // исходнике. Глушить его было бы неправильно даже при опубликованном
+    // тестовом токене: правило «секретов в коде нет» перестаёт работать в тот
+    // день, когда у него появляется первое исключение.
+    expect(CODE).toMatch(/process\.env\.TOCHKA_BASE_URL/);
+    expect(CODE, 'адрес песочницы вернулся в код').not.toMatch(/sandbox\/v2/);
+    expect(CODE, 'токен песочницы вернулся в код').not.toMatch(/sandbox\.jwt\.token/);
+    // Тестовые идентификаторы — тоже данные для входа, пусть и общие.
+    expect(CODE, 'тестовый merchantId вернулся в код').not.toMatch(/200000000001097/);
   });
 
-  it('боевой адрес остался прежним', () => {
+  it('боевой адрес остался прежним и служит умолчанием', () => {
     expect(CODE).toMatch(/enter\.tochka\.com\/uapi/);
+  });
+
+  it('готовность и перечень нехватки — одна правда, а не две', () => {
+    // Раньше это были два независимых списка переменных, и разойтись им ничто
+    // не мешало: 503 мог сказать «не хватает», а перечень — «всё на месте».
+    const fn = CODE.slice(CODE.indexOf('export function isTochkaConfigured'));
+    expect(fn.slice(0, 200)).toMatch(/tochkaMissingEnv\(\)\.length === 0/);
   });
 });

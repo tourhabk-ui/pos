@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createSBPQR, isTochkaConfigured } from '@/lib/payments/tochka';
+import { createSBPQR, isTochkaConfigured, tochkaMissingEnv } from '@/lib/payments/tochka';
 import { pool } from '@/lib/db-pool';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
@@ -25,6 +25,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (!isTochkaConfigured()) {
+    // Туристу — прежняя фраза: чего именно не хватает у нас, его не касается.
+    // В ЛОГ — поимённо. Раньше этот 503 был молчаливым, и «СБП не работает»
+    // приходилось разбирать пробами прода: по одному ответу нельзя было
+    // отличить «переменных нет» от «банк отказал». Третье состояние здесь и
+    // есть «мы не настроены», и оно обязано называть себя вслух.
+    console.error('[tochka/qr] СБП не настроен, не заданы:', tochkaMissingEnv().join(', '));
     return NextResponse.json(
       { error: 'Оплата через СБП временно недоступна — обратитесь к оператору' },
       { status: 503 },
