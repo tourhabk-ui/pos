@@ -238,6 +238,16 @@ describe('улики о координатах: кто в одиночестве
     }
   });
 
+  it('хвост улик дочитывается смещением, и остаток считается от него', () => {
+    const src = readFileSync(join(ROOT, 'app/api/cron/place-link-suggest/route.ts'), 'utf-8');
+    expect(src).toMatch(/clusters\.slice\(offset, offset \+ 12\)/);
+    // Остаток обязан учитывать смещение: иначе вторая страница отчиталась
+    // бы тем же «осталось 12», что и первая, и хвост выглядел бы вечным.
+    expect(src).toMatch(/clusters\.length - \(offset \+ 12\)/);
+    // Само смещение печатается: страница без номера — это не страница.
+    expect(src).toContain('conflict_clusters_offset');
+  });
+
   it('подсказчик отдаёт улики сгруппированными и с координатами', () => {
     const src = readFileSync(join(ROOT, 'app/api/cron/place-link-suggest/route.ts'), 'utf-8');
     expect(src).toContain('clusterConflicts');

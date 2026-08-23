@@ -1,24 +1,79 @@
 {
- "bytes": 12000,
- "timeout": 120,
- "retries": 12,
- "retryDelay": 60,
- "until": "\"drift_total\":17",
- "note": "Проба 102: легла ли миграция 909. Проба 101 этого не показала — маркером свежести там стояло type_conflicts_total, поле от ПРЕДЫДУЩЕЙ правки (#1352), и проба честно дождалась той сборки, сняв ответ до выката #1354. Здесь маркер — сама предсказанная цифра. Было 24 расхождения. 909 убирает четыре таблицы (booking_logs, knowledge_base_articles, sales_campaigns, sales_outreach_log) и три колонки operator_signups = 24 - 7 = 17. Если \"drift_total\":17 появился — миграция легла и счёт верен. Если повторы кончились — либо выката ещё не было, либо предсказание неверно, и тело ответа ниже покажет, что именно. Остаться должны три таблицы: composite_bookings и reference_tours (не восстанавливались: их код сломан отдельно от схемы) и agent_core_memory (нет ни одного обращения из кода).",
- "run": 102,
- "urls": [
-  "https://vedarai.ru/api/cron/schema-drift"
- ],
- "grep": [
-  "\"drift_total\":17",
-  "\"drift_total\":24",
-  "\"booking_logs\"",
-  "\"knowledge_base_articles\""
- ],
- "around": [
-  "\"missing_tables\"",
-  "\"drift_total\""
- ],
- "aroundLines": 12,
- "aroundHits": 2
+  "note": "Проба 162: три дела. (1) Хвост улик — вторые двенадцать кластеров (offset=12, маркер place_link_suggest_v6): из первых двенадцати работой оказался ровно один случай, остальное тёзки, и судить о 24 по половине нельзя. (2) Сухой прогон второй партии связей — печатается в логе ВЫШЕ боевого. (3) Боевая запись той же партии. Точка пути одна: «Опала» и маршрут «Вулкан Опала» в 100 метрах с полным совпадением имени — это один и тот же вулкан. Четыре остальных — «рядом»: видовые площадки и соседняя вершина, про которые никто не подтверждал, что маршрут через них проходит.",
+  "urls": [
+    "https://vedarai.ru/api/cron/place-link-suggest?scope=never&part=conflicts&offset=12"
+  ],
+  "until": "place_link_suggest_v6",
+  "retries": 20,
+  "retryDelay": 45,
+  "timeout": 120,
+  "bytes": 12000,
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/place-link",
+      "body": {
+        "dry_run": true,
+        "pairs": [
+          {
+            "place": "910476b9-fa29-4678-964b-ee23fe5754d0",
+            "route": "1a8f51b4-7064-436d-8f60-9452b0cfd257",
+            "kind": "waypoint"
+          },
+          {
+            "place": "d0ea1f87-c7b5-45a7-b6d7-999d4e5462e3",
+            "route": "c1988085-e643-4442-b81f-5087b958429b",
+            "kind": "nearby"
+          },
+          {
+            "place": "af573b5a-3e9d-4832-aa3a-1137cd66a8f0",
+            "route": "785c7efc-1ca8-457b-aff2-fdf6780ec0df",
+            "kind": "nearby"
+          },
+          {
+            "place": "94220a7c-c4bb-4b16-8147-430b5e770617",
+            "route": "7a645b02-4574-4f99-b2c5-56f34dfd91e5",
+            "kind": "nearby"
+          },
+          {
+            "place": "9c5b9b5c-c989-4d1c-a8f4-50fbacdc4447",
+            "route": "b01ca19c-1c1d-497d-a147-cff8ca2234df",
+            "kind": "nearby"
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/cron/place-link",
+      "body": {
+        "dry_run": false,
+        "pairs": [
+          {
+            "place": "910476b9-fa29-4678-964b-ee23fe5754d0",
+            "route": "1a8f51b4-7064-436d-8f60-9452b0cfd257",
+            "kind": "waypoint"
+          },
+          {
+            "place": "d0ea1f87-c7b5-45a7-b6d7-999d4e5462e3",
+            "route": "c1988085-e643-4442-b81f-5087b958429b",
+            "kind": "nearby"
+          },
+          {
+            "place": "af573b5a-3e9d-4832-aa3a-1137cd66a8f0",
+            "route": "785c7efc-1ca8-457b-aff2-fdf6780ec0df",
+            "kind": "nearby"
+          },
+          {
+            "place": "94220a7c-c4bb-4b16-8147-430b5e770617",
+            "route": "7a645b02-4574-4f99-b2c5-56f34dfd91e5",
+            "kind": "nearby"
+          },
+          {
+            "place": "9c5b9b5c-c989-4d1c-a8f4-50fbacdc4447",
+            "route": "b01ca19c-1c1d-497d-a147-cff8ca2234df",
+            "kind": "nearby"
+          }
+        ]
+      }
+    }
+  ]
 }
