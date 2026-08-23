@@ -1,32 +1,28 @@
 {
- "run": 111,
- "note": "Проба 111: сверить нашу интеграцию Точки с описанием методов. Проба 110 сняла changelog, и оттуда видны имена методов и слоги адресов: register-qr-code-SBP-V-1-0-QR-CODE-MERCHANT-MERCHANT-ID-ACCOUNT-ID-POST и get-qr-codes-payment-status-SBP-V-1-0-QR-CODES-QRC-IDS-PAYMENT-STATUS-GET, а также вебхук incomingSbpPayment. У нас в lib/payments/tochka.ts статус платежа спрашивается по адресу /sbp/v1.0/qr-code/merchant/{merchantId}/payment-status/{qrId}, а вебхук ждёт события payment.completed. Похоже и на то, и на другое расхождение, но слог адреса — это ДОГАДКА по имени страницы, а не сам адрес, и записывать догадку как факт нельзя: проверять надо на самих страницах методов. Четвёртая страница — песочница: changelog обещает в ней все методы СБП, то есть цепочку можно отладить без боевого слоя и без денег. Чужой хост — CRON_SECRET не уходит. Маркера свежести нет: ждать нечего, это не наша сборка.",
- "bytes": 800,
+ "run": 112,
+ "note": "Проба 112: снять параметры песочницы Точки целиком. Проба 111 дала находку, которая меняет план: у Точки есть песочница по адресу https://enter.tochka.com/sandbox/v2 с ЕДИНЫМ тестовым токеном — «никаких ключей генерировать и никаких договоров», путь и тела запросов совпадают с боевыми. Значит цепочку выпуска QR и запроса статуса можно проверить БЕЗ переменных владельца и БЕЗ рубля. Нужны сам токен и тестовые идентификаторы (customerCode, merchantId, accountId). Заодно 111 показала, чего проверить НЕ вышло: страницы методов рисуются скриптом, адреса в HTML нет, поэтому расхождение нашего пути статуса платежа остаётся догадкой по слогу имени страницы, а не фактом. Песочница и есть способ выяснить это опытом. Один URL: канал чтения логов режет начало, а нужное лежит в середине страницы. Чужой хост — CRON_SECRET не уходит.",
+ "bytes": 300,
  "timeout": 60,
  "retries": 2,
  "retryDelay": 15,
  "urls": [
-  "https://developers.tochka.com/docs/tochka-api/api/get-qr-codes-payment-status-sbp-v-1-0-qr-codes-qrc-ids-payment-status-get",
-  "https://developers.tochka.com/docs/tochka-api/opisanie-metodov/vebhuki",
-  "https://developers.tochka.com/docs/tochka-api/api/register-qr-code-sbp-v-1-0-qr-code-merchant-merchant-id-account-id-post",
   "https://developers.tochka.com/docs/tochka-api/pesochnica"
  ],
  "grep": [
-  "/sbp/v1.0/qr-code/merchant/",
-  "/sbp/v1.0/qr-codes/",
-  "payment-status",
-  "incomingSbpPayment",
-  "payment.completed",
-  "webhooksUrl",
-  "sandbox"
+  "sandbox/v2",
+  "customerCode",
+  "merchantId",
+  "accountId",
+  "Authorization",
+  "Bearer"
  ],
  "around": [
-  "/sbp/v1.0/",
-  "incomingSbpPayment",
-  "qrcId",
-  "webhook",
-  "песочниц"
+  "Базовый адрес",
+  "токен",
+  "customerCode",
+  "merchantId",
+  "sbp"
  ],
- "aroundLines": 14,
+ "aroundLines": 30,
  "aroundHits": 3
 }
