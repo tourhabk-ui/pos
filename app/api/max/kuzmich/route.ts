@@ -17,6 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
+import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -65,6 +66,68 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
       attachments: [{ type: 'inline_keyboard', payload: { buttons } }],
     });
   } catch { /* не блокируем */ }
+}
+
+// ── Кнопки по лиду ────────────────────────────────────────────────────────────
+
+function escHtml(v: string): string {
+  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Уведомления о лидах содержат ПД туриста и потому живут в MAX (решение
+ * владельца 23.08). Кнопки под ними обязаны работать здесь же — иначе это
+ * обещание действия, которого не произойдёт.
+ *
+ * Ответ называет исход по имени: сменили, не нашли, не смогли. Имя туриста в
+ * подтверждении повторяется — оно и так уже в этом чате, в самом уведомлении.
+ */
+async function handleLeadCallback(payload: string, chatId: number): Promise<void> {
+  const [action, ...rest] = payload.split(':');
+  const leadId = rest.join(':');
+
+  if (action === 'lead_ai') {
+    try {
+      const { leadProcessor } = await import('@/lib/services/operators/lead-processor.service');
+      const { notifyOperatorProposal } = await import('@/lib/notifications/lead-notify');
+      const proposal = await leadProcessor.process(leadId);
+      await notifyOperatorProposal(proposal);
+      await maxReply(chatId, 'AI-обработка запущена, предложение придёт отдельным сообщением.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'неизвестная ошибка';
+      await maxReply(chatId, `AI-обработка не выполнена: ${msg.slice(0, 300)}`);
+    }
+    return;
+  }
+
+  if (action === 'lead_send') {
+    try {
+      const { sendProposalToClient } = await import('@/lib/leads/proposal-delivery');
+      const outcome = await sendProposalToClient(leadId);
+      await maxReply(chatId, outcome.ok
+        ? `Предложение ушло клиенту. ${outcome.message}`
+        : `Предложение не ушло: ${outcome.message}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'неизвестная ошибка';
+      await maxReply(chatId, `Предложение не ушло: ${msg.slice(0, 300)}`);
+    }
+    return;
+  }
+
+  const parsed = parseLeadStatusPayload(payload);
+  if (!parsed) {
+    await maxReply(chatId, `Действие ${action} не распознано.`);
+    return;
+  }
+
+  const res = await applyLeadStatus(parsed.prefix, parsed.leadId);
+  if (res.outcome === 'updated') {
+    await maxReply(chatId, `Лид <b>${escHtml(res.name)}</b> — статус: <b>${res.label}</b>\n<code>${escHtml(parsed.leadId)}</code>`);
+  } else if (res.outcome === 'not_found') {
+    await maxReply(chatId, 'Лид не найден — статус не изменён.');
+  } else {
+    await maxReply(chatId, `Статус не изменён: ${res.reason}`);
+  }
 }
 
 // ── Стартовое меню ────────────────────────────────────────────────────────────
@@ -423,6 +486,19 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     const userName = update.callback.user.name;
     const userId = update.callback.user.user_id;
+
+    // Кнопки по лиду. Право нажатия — принадлежность чата рабочему
+    // MAX_OPERATOR_CHAT_ID: user_id прислал бы кто угодно, а чат сообщения с
+    // кнопкой подделать нельзя. Тот же принцип, что в Telegram-вебхуке.
+    if (payload.startsWith('lead_')) {
+      const operatorChat = process.env.MAX_OPERATOR_CHAT_ID?.trim() ?? '';
+      if (!operatorChat || String(resolvedChatId) !== operatorChat) {
+        await maxReply(resolvedChatId, 'Действие по лиду доступно только в рабочем чате.');
+        return;
+      }
+      await handleLeadCallback(payload, resolvedChatId);
+      return;
+    }
 
     // Топик-кнопки → шлём как обычный запрос
     if (payload in TOPIC_TEXTS) {

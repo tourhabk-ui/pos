@@ -2,7 +2,9 @@
  * GET /api/cron/followups?secret=<CRON_SECRET>
  *
  * Обрабатывает очередь follow-up напоминаний.
- * Отправляет администратору в Telegram напоминание связаться с туристом.
+ * Отправляет администратору напоминание связаться с туристом.
+ * Имя и телефон туриста — ПД, поэтому уведомление идёт в MAX через sendPdAlert;
+ * в Telegram при недоступности MAX уходит заглушка без ПД.
  *
  * Запускать каждые 30 минут (GitHub Actions: cron-leads.yml).
  */
@@ -10,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -35,9 +39,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const token  = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-
   // Берём до 10 followup-ов срок которых наступил
   const { rows } = await pool.query<FollowupRow>(`
     SELECT
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
 
   let sent = 0;
   let skipped = 0;
+  let failed = 0;
 
   for (const row of rows) {
     // Уже конвертирован — пропускаем без уведомления
@@ -84,6 +86,8 @@ export async function GET(req: NextRequest) {
       ? '█'.repeat(Math.round(row.ai_score / 10)) + '░'.repeat(10 - Math.round(row.ai_score / 10))
       : '??????????';
 
+    const baseUrl = getPublicBaseUrl();
+
     const text = [
       `<b>${label}</b>`,
       ``,
@@ -93,27 +97,37 @@ export async function GET(req: NextRequest) {
       ``,
       row.message_text ? `<i>${escHtml(row.message_text)}</i>` : '',
       ``,
-      `<a href="https://vedarai.ru/hub/admin/leads">Открыть лиды →</a>`,
+      `<code>${escHtml(row.lead_id)}</code>`,
     ].filter(Boolean).join('\n');
 
-    if (token && chatId) {
-      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          disable_web_page_preview: true,
-          reply_markup: {
-            inline_keyboard: [[
-              { text: 'Связался', callback_data: `lead_contacted:${row.lead_id}` },
-              { text: 'Конвертирован', callback_data: `lead_converted:${row.lead_id}` },
-              { text: 'Отказ', callback_data: `lead_rejected:${row.lead_id}` },
-            ]],
-          },
-        }),
-      }).catch(() => {});
+    // Заглушка без ПД: message_text сюда не попадает — он собран с именем
+    // туриста (scheduleFollowups в POST /api/leads).
+    const stub = [
+      `<b>${label}</b>`,
+      ``,
+      `Заявка <code>${escHtml(row.lead_id)}</code> без ответа.`,
+      row.ai_score ? `Скор: ${scoreBar} ${row.ai_score}/100` : '',
+      'Имя и телефон — в MAX и в кабинете.',
+    ].filter(Boolean).join('\n');
+
+    const res = await sendPdAlert({
+      text,
+      stub,
+      buttons: [
+        { text: 'Связался', payload: `lead_contacted:${row.lead_id}` },
+        { text: 'Конвертирован', payload: `lead_converted:${row.lead_id}` },
+        { text: 'Отказ', payload: `lead_lost:${row.lead_id}` },
+        { text: 'Открыть лид', url: `${baseUrl}/hub/operator/leads/${row.lead_id}` },
+      ],
+    });
+
+    // Третье состояние: недоставленное напоминание не помечается отправленным,
+    // иначе оно исчезнет из очереди, не дойдя ни до кого. Прежний код ставил
+    // 'sent' даже когда токена не было и отправки не происходило вовсе.
+    if (!res.delivered) {
+      console.error(`[cron/followups] ${row.id}: не доставлено (${res.channel}) — ${res.reason}`);
+      failed++;
+      continue;
     }
 
     await pool.query(
@@ -123,5 +137,7 @@ export async function GET(req: NextRequest) {
     sent++;
   }
 
-  return NextResponse.json({ ok: true, processed: rows.length, sent, skipped });
+  // Прогон, который ничего не доставил при непустой очереди, — отказ, а не
+  // успех (§4.0): ok отражает исход, а не факт того, что цикл дошёл до конца.
+  return NextResponse.json({ ok: failed === 0, processed: rows.length, sent, skipped, failed });
 }

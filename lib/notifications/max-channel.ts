@@ -96,10 +96,22 @@ export async function maxPostPhotoToChannel(
 }
 
 /**
+ * Кнопка под сообщением: ссылка или действие (callback).
+ * Callback-кнопку ставить можно только на payload, который реально
+ * разбирается MAX-вебхуком (app/api/max/kuzmich/route.ts) — мёртвая кнопка
+ * хуже отсутствующей: она обещает действие, которого не произойдёт.
+ */
+export type MaxButton = { text: string; url: string } | { text: string; payload: string };
+
+/**
  * Отправить личное сообщение пользователю MAX по chat_id.
  * Используется для уведомлений операторам.
  */
-export async function maxSendDm(chatId: number | string, text: string): Promise<{ ok: boolean; error?: string }> {
+export async function maxSendDm(
+  chatId: number | string,
+  text: string,
+  opts?: { buttons?: MaxButton[] },
+): Promise<{ ok: boolean; error?: string }> {
   const api = getApi();
   if (!api) return { ok: false, error: 'MAX_BOT_TOKEN not set' };
 
@@ -107,7 +119,17 @@ export async function maxSendDm(chatId: number | string, text: string): Promise<
   if (isNaN(id)) return { ok: false, error: 'invalid chat_id' };
 
   try {
-    await api.sendMessageToChat(id, text, { format: 'html' });
+    if (opts?.buttons?.length) {
+      const { Keyboard } = await import('@maxhub/max-bot-api');
+      const keyboard = Keyboard.inlineKeyboard(
+        opts.buttons.map((b) => [
+          'url' in b ? Keyboard.button.link(b.text, b.url) : Keyboard.button.callback(b.text, b.payload),
+        ]),
+      );
+      await api.sendMessageToChat(id, text, { format: 'html', attachments: [keyboard] });
+    } else {
+      await api.sendMessageToChat(id, text, { format: 'html' });
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'MAX API error' };

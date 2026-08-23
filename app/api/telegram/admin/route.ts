@@ -128,17 +128,21 @@ async function getStats(): Promise<string> {
 
 async function getLeads(): Promise<string> {
   try {
+    // Имя и телефон не читаются: это Telegram, а ПД туриста идут только в MAX
+    // и в кабинет (решение владельца 23.08). Здесь — очередь и её состояние.
     const res = await pool.query<{
-      name: string; phone: string; status: string;
+      id: string; status: string;
       route_title: string | null; created_at: Date;
     }>(
-      `SELECT name, phone, status, route_title, created_at
+      `SELECT id::text, status, route_title, created_at
        FROM leads ORDER BY created_at DESC LIMIT 8`
     );
     if (!res.rows.length) return 'Лидов нет';
-    return res.rows.map(l =>
-      `${l.name} | ${l.phone} | ${l.status}${l.route_title ? ' | ' + l.route_title.slice(0, 25) : ''}`
-    ).join('\n');
+    const lines = res.rows.map(l =>
+      `${l.id.slice(0, 8)} | ${l.status}${l.route_title ? ' | ' + l.route_title.slice(0, 25) : ''}`
+    );
+    lines.push('', 'Имя и телефон — в MAX и в кабинете.');
+    return lines.join('\n');
   } catch { return 'Ошибка получения лидов'; }
 }
 

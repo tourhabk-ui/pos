@@ -8,6 +8,7 @@ import {
   Loader2, AlertTriangle, Phone, User,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,6 +156,7 @@ export default function TourPaymentModal({
           comment:     `Интерес к туру: ${tourName} (оператор: ${operatorName})`,
           route_title: tourName,
           source_data: { source: 'booking_modal_guest' },
+          pd_consent: true,
         }),
       });
       const json: { success: boolean; error?: string } = await res.json();
@@ -338,20 +340,7 @@ export default function TourPaymentModal({
                     </div>
                   </div>
 
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={guestConsent}
-                      onChange={e => setGuestConsent(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded border-[var(--border)] accent-[var(--accent)] shrink-0 cursor-pointer"
-                    />
-                    <span className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                      Согласен(на) на{' '}
-                      <a href="/legal/privacy" target="_blank" className="text-[var(--ocean)] hover:underline">
-                        обработку персональных данных
-                      </a>
-                    </span>
-                  </label>
+                  <PdConsentCheckbox checked={guestConsent} onChange={setGuestConsent} id="pd-consent-tour-guest" />
 
                   {guestError && (
                     <p className="text-xs text-[var(--danger)] bg-[var(--danger)]/10 px-3 py-2 rounded">{guestError}</p>

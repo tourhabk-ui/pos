@@ -1,5 +1,11 @@
 /**
- * Лид закрывается одной кнопкой из Telegram (#65).
+ * Лид закрывается одной кнопкой из мессенджера (#65).
+ *
+ * 23.08 канал сменился: уведомления с ПД туриста ушли в MAX (решение
+ * владельца), и проверка на `callback_data:` покраснела — хотя гарантия не
+ * ослабла, а расширилась на второй мессенджер. Поэтому здесь сторожится
+ * СВОЙСТВО — под уведомлением есть кнопка нужного действия и её нажатие
+ * доходит до общего модуля доставки, — а не синтаксис одного клиента.
  *
  * Раньше на самом горячем шаге воронки владельцу приходилось дважды выходить
  * из мессенджера в веб-кабинет: «обработать AI», потом «отправить». Теперь оба
@@ -22,6 +28,7 @@ const DELIVERY = read('lib/leads/proposal-delivery.ts');
 const SEND_ROUTE = read('app/api/leads/[id]/proposal/send/route.ts');
 const NOTIFY = read('lib/notifications/lead-notify.ts');
 const BOT = read('app/api/telegram/kuzmich/route.ts');
+const MAX_BOT = read('app/api/max/kuzmich/route.ts');
 
 describe('одна реализация доставки', () => {
   it('ручка кабинета не шлёт сама — зовёт общий модуль', () => {
@@ -33,6 +40,11 @@ describe('одна реализация доставки', () => {
   it('кнопка в Telegram зовёт тот же модуль', () => {
     expect(BOT).toMatch(/import\('@\/lib\/leads\/proposal-delivery'\)/);
     expect(BOT).toMatch(/sendProposalToClient\(leadId\)/);
+  });
+
+  it('кнопка в MAX зовёт тот же модуль', () => {
+    expect(MAX_BOT).toMatch(/import\('@\/lib\/leads\/proposal-delivery'\)/);
+    expect(MAX_BOT).toMatch(/sendProposalToClient\(leadId\)/);
   });
 
   it('авторизация осталась у вызывающих, в модуль доставки не переехала', () => {
@@ -54,15 +66,20 @@ describe('идемпотентность и деньги', () => {
 
 describe('кнопки под уведомлениями', () => {
   it('готовое предложение отправляется одним нажатием', () => {
-    expect(NOTIFY).toMatch(/callback_data: `lead_send:\$\{proposal\.lead_id\}`/);
+    expect(NOTIFY).toMatch(/lead_send:\$\{proposal\.lead_id\}/);
     expect(NOTIFY).toMatch(/Отправить клиенту/);
   });
 
   it('входящий лид обрабатывается AI одним нажатием', () => {
-    expect(NOTIFY).toMatch(/callback_data: `lead_ai:\$\{params\.leadId\}`/);
+    expect(NOTIFY).toMatch(/lead_ai:\$\{params\.leadId\}/);
   });
 
-  it('callback_data влезает в лимит Telegram (64 байта)', () => {
+  it('нажатие в MAX разбирается — кнопка не мёртвая', () => {
+    expect(MAX_BOT).toMatch(/action === 'lead_ai'/);
+    expect(MAX_BOT).toMatch(/action === 'lead_send'/);
+  });
+
+  it('payload влезает в лимит Telegram (64 байта)', () => {
     // Префикс + UUID: 'lead_send:' (10) + 36 = 46.
     expect('lead_send:'.length + 36).toBeLessThanOrEqual(64);
     expect('lead_ai:'.length + 36).toBeLessThanOrEqual(64);
@@ -70,6 +87,12 @@ describe('кнопки под уведомлениями', () => {
 });
 
 describe('право нажатия', () => {
+  it('в MAX гейт по рабочему чату, а не по user_id', () => {
+    const block = MAX_BOT.slice(MAX_BOT.indexOf("payload.startsWith('lead_')"));
+    expect(block).toMatch(/MAX_OPERATOR_CHAT_ID/);
+    expect(block).toMatch(/String\(resolvedChatId\) !== operatorChat/);
+  });
+
   it('гейт по чату сообщения, а не по from.id', () => {
     const block = BOT.slice(BOT.indexOf("cq.data.startsWith('lead_send:')"));
     expect(block).toMatch(/TELEGRAM_CHAT_ID/);

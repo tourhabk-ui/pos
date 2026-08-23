@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import dynamic from 'next/dynamic';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
@@ -933,6 +934,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [contactComment, setContactComment] = useState('');
+  const [pdConsent, setPdConsent] = useState(false);
   const [contactError, setContactError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -1403,6 +1405,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
     const phone = contactPhone.trim();
     if (name.length < 2)   { setContactError('Введите имя'); return; }
     if (phone.length < 10) { setContactError('Введите телефон'); return; }
+    if (!pdConsent)        { setContactError('Необходимо согласие на обработку персональных данных'); return; }
     setSubmitting(true);
     try {
       const res = await fetch('/api/leads', {
@@ -1427,6 +1430,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             transport_choices: transportByDay,
             day_plan: days.map((d, i) => ({ day: i + 1, title: d.title, zone: d.zone, activity: d.activityType })),
           },
+          pd_consent: true,
         }),
       });
       const data = await res.json();
@@ -2064,7 +2068,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                   <p className="text-xs text-[var(--danger)]">{contactError}</p>
                 </div>
               )}
-              <button onClick={submitLead} disabled={submitting}
+              <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-planner" />
+              <button onClick={submitLead} disabled={submitting || !pdConsent}
                 className="w-full ds-btn ds-btn-primary py-2.5 font-semibold disabled:opacity-50">
                 {submitting ? 'Отправляем...' : 'Отправить заявку'}
               </button>

@@ -156,7 +156,8 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
             ob.tourist_phone,
             ob.booking_date,
             ob.participants,
-            COALESCE(p.contacts->>'telegram_chat_id', u.telegram_id::text) AS telegram_chat_id
+            COALESCE(p.contacts->>'telegram_chat_id', u.telegram_id::text) AS telegram_chat_id,
+            p.max_chat_id::text AS max_chat_id
      FROM operator_bookings ob
      JOIN operator_tours t ON ob.operator_tour_id = t.id
      LEFT JOIN partners p ON t.operator_id = p.id
@@ -173,6 +174,8 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
       row.telegram_chat_id as string | undefined,
       row.tourist_name as string | undefined,
       row.tourist_phone as string | undefined,
+      // Имя и телефон туриста уходят в MAX; в Telegram — заглушка без них.
+      row.max_chat_id as string | null | undefined,
     ).catch(() => undefined);
   }
 }

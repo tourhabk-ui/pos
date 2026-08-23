@@ -1,10 +1,17 @@
 /**
- * Notifications for operator booking events.
- * Sends to: Telegram (admin + operator) AND MAX (operator, если подключён).
- * MAX — работает без VPN в РФ, приоритет для операторов.
+ * Уведомления о событиях брони оператора.
+ *
+ * Имя, телефон и почта туриста — ПД, и адресованы они не туристу, а нам и
+ * оператору. Значит идут в MAX через общую дверь sendPdAlert (решение
+ * владельца 23.08); в Telegram при недоступности MAX уходит заглушка без ПД.
+ * Раньше здесь было три отправки подряд — админу в Telegram, оператору в
+ * Telegram и оператору в MAX, — и первые две несли ПД полностью.
+ *
+ * notifyWeatherAlert ПД не содержит и остаётся в Telegram как было.
  */
 
-import { maxSendDm } from '@/lib/notifications/max-channel';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { getPublicBaseUrl } from '@/lib/config';
 
 async function tgSend(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -50,33 +57,54 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<v
     api: 'API',
   };
 
-  const text = [
+  // Общая часть — без ПД: её видно в обоих каналах.
+  const common = [
     `<b>Новая бронь #${payload.booking_id}</b>`,
     `Тур: ${esc(payload.tour_title)}`,
     `Оператор: ${esc(payload.operator_name)}`,
     `Дата: ${payload.booking_date}`,
     `Участников: ${payload.participants}`,
+    `Цена: ${priceStr}`,
+    payload.via ? `Источник: ${viaLabel[payload.via] ?? payload.via}` : null,
+  ].filter(Boolean) as string[];
+
+  const contacts = [
     payload.tourist_name ? `Турист: ${esc(payload.tourist_name)}` : null,
     payload.tourist_phone ? `Телефон: ${esc(payload.tourist_phone)}` : null,
     payload.tourist_email ? `Email: ${esc(payload.tourist_email)}` : null,
-    `Цена: ${priceStr}`,
-    payload.via ? `Источник: ${viaLabel[payload.via] ?? payload.via}` : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].filter(Boolean) as string[];
 
-  // Всегда уведомляем админа в Telegram
-  const adminChatId = process.env.TELEGRAM_CHAT_ID;
-  if (adminChatId) await tgSend(adminChatId, text);
+  const text = [...common, ...contacts].join('\n');
+  const stub = [
+    ...common,
+    contacts.length > 0 ? 'Контакты туриста — в MAX и в кабинете.' : 'Контактов туриста в брони нет.',
+  ].join('\n');
 
-  // Оператор: Telegram (если настроен)
-  if (payload.operator_telegram_chat_id) {
-    await tgSend(payload.operator_telegram_chat_id, text);
+  const link = {
+    text: 'Открыть бронь',
+    url: `${getPublicBaseUrl()}/hub/operator/bookings/${payload.booking_id}`,
+  };
+
+  // Админ платформы.
+  const adminRes = await sendPdAlert({ text, stub, buttons: [link] });
+  if (!adminRes.delivered) {
+    console.error(`[notifyNewBooking] админу ПД не доставлены (${adminRes.channel}) — ${adminRes.reason}`);
   }
 
-  // Оператор: MAX (работает без VPN — приоритетный канал)
-  if (payload.operator_max_chat_id) {
-    await maxSendDm(payload.operator_max_chat_id, text).catch(() => {});
+  // Оператор — только если у него есть хоть один адрес.
+  if (payload.operator_max_chat_id || payload.operator_telegram_chat_id) {
+    const opRes = await sendPdAlert({
+      text,
+      stub,
+      buttons: [link],
+      to: {
+        maxChatId: payload.operator_max_chat_id,
+        telegramChatId: payload.operator_telegram_chat_id,
+      },
+    });
+    if (!opRes.delivered) {
+      console.error(`[notifyNewBooking] оператору ПД не доставлены (${opRes.channel}) — ${opRes.reason}`);
+    }
   }
 }
 
@@ -87,21 +115,46 @@ export async function notifyBookingPaid(
   operatorTelegramChatId?: string,
   touristName?: string,
   touristPhone?: string,
+  operatorMaxChatId?: string | number | null,
 ): Promise<void> {
-  const lines = [
+  const common = [
     `<b>Оплата получена — бронь #${bookingId}</b>`,
     `Тур: ${esc(tourTitle)}`,
     `Сумма: ${amount.toLocaleString('ru-RU')} ₽`,
   ];
-  if (touristName)  lines.push(`Турист: ${esc(touristName)}`);
-  if (touristPhone) lines.push(`Телефон: ${esc(touristPhone)}`);
-  lines.push(`<a href="https://vedarai.ru/hub/operator/bookings/${bookingId}">Открыть бронь</a>`);
+  const contacts = [
+    touristName ? `Турист: ${esc(touristName)}` : null,
+    touristPhone ? `Телефон: ${esc(touristPhone)}` : null,
+  ].filter(Boolean) as string[];
 
-  const text = lines.join('\n');
+  const text = [...common, ...contacts].join('\n');
+  const stub = [
+    ...common,
+    contacts.length > 0 ? 'Контакты туриста — в MAX и в кабинете.' : 'Контактов туриста в брони нет.',
+  ].join('\n');
 
-  const adminChatId = process.env.TELEGRAM_OWNER_ID ?? process.env.TELEGRAM_CHAT_ID;
-  if (adminChatId) await tgSend(adminChatId, text);
-  if (operatorTelegramChatId) await tgSend(operatorTelegramChatId, text);
+  const link = {
+    text: 'Открыть бронь',
+    url: `${getPublicBaseUrl()}/hub/operator/bookings/${bookingId}`,
+  };
+
+  // Владелец платформы. Адрес в MAX у него один — общий рабочий чат.
+  const ownerRes = await sendPdAlert({ text, stub, buttons: [link] });
+  if (!ownerRes.delivered) {
+    console.error(`[notifyBookingPaid] владельцу ПД не доставлены (${ownerRes.channel}) — ${ownerRes.reason}`);
+  }
+
+  if (operatorMaxChatId || operatorTelegramChatId) {
+    const opRes = await sendPdAlert({
+      text,
+      stub,
+      buttons: [link],
+      to: { maxChatId: operatorMaxChatId, telegramChatId: operatorTelegramChatId },
+    });
+    if (!opRes.delivered) {
+      console.error(`[notifyBookingPaid] оператору ПД не доставлены (${opRes.channel}) — ${opRes.reason}`);
+    }
+  }
 }
 
 export async function notifyWeatherAlert(

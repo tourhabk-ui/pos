@@ -9,6 +9,9 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
+import { buildConsentRecord } from '@/lib/legal/pd-consent';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { getPublicBaseUrl } from '@/lib/config';
 
 const leadLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5 заявок/мин с одного IP
 
@@ -21,6 +24,11 @@ const LeadSchema = z.object({
   source_url:   z.string().max(500).optional(),
   source_data:  z.record(z.string(), z.unknown()).optional(),
   partner_slug: z.string().max(100).optional(), // widget embed: resolve to operator_id
+  // Согласие на обработку ПД. Обязательно и обязано быть именно true: форма
+  // собирает имя и телефон, и право их собирать доказывается здесь, а не
+  // галочкой, которая жила только в браузере (замер 23.08 — она приходила
+  // на сервер ровно ниоткуда).
+  pd_consent: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
 });
 
 const ListSchema = z.object({
@@ -139,6 +147,7 @@ export async function POST(req: NextRequest) {
   // Единый путь: скоринг → INSERT → уведомление админу
   const leadId = await createLead({
     name, phone, comment, route_id, route_title, source_url,
+    pd_consent: buildConsentRecord(true, getClientIp(req.headers), partner_slug ? 'widget' : 'web-form'),
     source_data: mcpHandoffId ? { ...(source_data ?? {}), mcp_handoff_id: mcpHandoffId } : source_data,
     operator_id: operatorId,
   });
@@ -147,16 +156,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Ошибка сервера. Попробуйте позже.' }, { status: 500 });
   }
 
-  // Telegram — LEADS_CHAT_ID (старый канал, параллельно с admin-чатом)
+  // Telegram — LEADS_CHAT_ID (старый канал, параллельно с admin-чатом).
+  // ПД сюда больше не уходят (решение владельца 23.08): имя, телефон и
+  // комментарий идут в MAX через sendPdAlert, а этот канал остаётся сигналом
+  // «заявка пришла». Это ТРЕТЬЯ копия уведомления об одном лиде — две другие
+  // идут через createLead → notifyAdminNewLead и notifyOperatorNewLead; канал
+  // можно выключить, убрав TELEGRAM_LEADS_CHAT_ID.
   const chatId = process.env.TELEGRAM_LEADS_CHAT_ID;
   if (chatId) {
     const lines = [
       '<b>Новая заявка с сайта</b>',
       '',
-      `<b>Имя:</b> ${escHtml(name)}`,
-      `<b>Телефон:</b> <a href="tel:${escHtml(phone)}">${escHtml(phone)}</a>`,
+      `Заявка <code>${leadId}</code> принята.`,
     ];
-    if (comment) lines.push(`<b>Комментарий:</b> ${escHtml(comment)}`);
     if (route_title) lines.push(`<b>Маршрут:</b> ${escHtml(route_title)}`);
     if (source_url) lines.push(`<b>Страница:</b> <a href="${escHtml(source_url)}">${escHtml(source_url)}</a>`);
     if (source_data) {
@@ -164,7 +176,7 @@ export async function POST(req: NextRequest) {
       if (sd.utm_source) lines.push(`<b>UTM:</b> ${escHtml(sd.utm_source)}${sd.utm_medium ? ` / ${escHtml(sd.utm_medium)}` : ''}${sd.utm_campaign ? ` / ${escHtml(sd.utm_campaign)}` : ''}`);
       if (sd.referrer) lines.push(`<b>Referrer:</b> ${escHtml(sd.referrer)}`);
     }
-    lines.push('', `<code>${leadId}</code>`);
+    lines.push('', 'Имя и телефон — в MAX и в кабинете.');
 
     telegramService.sendMessage({ chatId, text: lines.join('\n'), parseMode: 'HTML' })
       .catch(() => null);
@@ -194,19 +206,14 @@ async function autoProcessLead(leadId: string, leadName: string): Promise<void> 
   try {
     const proposal = await leadProcessor.process(leadId);
 
-    // Уведомить admin в TG с AI-результатом
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!token || !chatId) return;
-
+    // Уведомление о результате AI содержит ПД: имя туриста стоит в самом
+    // тексте и, кроме того, подставляется локально в proposal.headline
+    // (lead-processor.service, withName). Значит — в MAX, не в Telegram.
     const scoreBar = '█'.repeat(Math.round(proposal.ai_score / 10)) + '░'.repeat(10 - Math.round(proposal.ai_score / 10));
     const urgencyLabel: Record<string, string> = { high: 'СРОЧНО', medium: 'Стандарт', low: 'Низкий приоритет' };
+    const baseUrl = getPublicBaseUrl();
 
-    const lines = [
-      `AI обработал лид: <b>${escHtml(leadName)}</b>`,
-      ``,
-      `<b>${escHtml(proposal.headline)}</b>`,
-      ``,
+    const common = [
       `Скор: <code>${scoreBar}</code> ${proposal.ai_score}/100`,
       `Приоритет: ${urgencyLabel[proposal.intent.urgency] ?? proposal.intent.urgency}`,
       proposal.intent.activity_types.length > 0
@@ -219,29 +226,41 @@ async function autoProcessLead(leadId: string, leadName: string): Promise<void> 
       proposal.primary_tour
         ? `Рекомендован тур: <b>${escHtml(proposal.primary_tour.title)}</b> — ${proposal.primary_tour.price.toLocaleString('ru-RU')} руб/чел`
         : 'Подходящих туров не найдено',
+    ].filter(Boolean);
+
+    const text = [
+      `AI обработал лид: <b>${escHtml(leadName)}</b>`,
+      ``,
+      `<b>${escHtml(proposal.headline)}</b>`,
+      ``,
+      ...common,
       ``,
       `<i>${escHtml(proposal.intent.qualification_notes)}</i>`,
       ``,
-      `<a href="https://vedarai.ru/hub/admin/leads">Открыть лиды →</a>  <code>${leadId}</code>`,
-    ].filter(Boolean);
+      `<code>${leadId}</code>`,
+    ].join('\n');
 
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: lines.join('\n'),
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-        reply_markup: {
-          inline_keyboard: [[
-            { text: 'Связался', callback_data: `lead_contacted:${leadId}` },
-            { text: 'Квалифицирован', callback_data: `lead_qualified:${leadId}` },
-            { text: 'Конвертирован', callback_data: `lead_converted:${leadId}` },
-          ]],
-        },
-      }),
-    }).catch(() => {});
+    const stub = [
+      `AI обработал заявку <code>${leadId}</code>`,
+      ``,
+      ...common,
+      ``,
+      'Имя и заголовок предложения — в MAX и в кабинете.',
+    ].join('\n');
+
+    const res = await sendPdAlert({
+      text,
+      stub,
+      buttons: [
+        { text: 'Связался', payload: `lead_contacted:${leadId}` },
+        { text: 'Квалифицирован', payload: `lead_qualified:${leadId}` },
+        { text: 'Конвертирован', payload: `lead_converted:${leadId}` },
+        { text: 'Открыть лид', url: `${baseUrl}/hub/operator/leads/${leadId}` },
+      ],
+    });
+    if (!res.delivered) {
+      console.error(`[autoProcessLead] уведомление с ПД не доставлено: ${res.channel} — ${res.reason}`);
+    }
 
     // Планируем follow-up напоминания (fire-and-forget)
     void scheduleFollowups(leadId, leadName, proposal.ai_score);

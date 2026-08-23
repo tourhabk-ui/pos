@@ -118,5 +118,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       link: process.env.MAX_CHANNEL_LINK ?? null,
       recent_failures: maxFailures,
     },
+    // Рабочий чат в MAX — единственный адрес, куда уходят имя и телефон
+    // туриста. Не задан — ПД не уходят никому, оператор видит только заглушку.
+    max_operator_chat: {
+      configured: !!(process.env.MAX_BOT_TOKEN && process.env.MAX_OPERATOR_CHAT_ID),
+      chat_id_set: !!process.env.MAX_OPERATOR_CHAT_ID,
+      collides_with_public_channel:
+        !!process.env.MAX_OPERATOR_CHAT_ID &&
+        process.env.MAX_OPERATOR_CHAT_ID.trim() === (process.env.MAX_CHANNEL_ID ?? '').trim(),
+      note: process.env.MAX_OPERATOR_CHAT_ID
+        ? null
+        : 'MAX_OPERATOR_CHAT_ID не задан: ПД лидов не доставляются, в Telegram уходит заглушка без имени и телефона.',
+    },
   });
 }

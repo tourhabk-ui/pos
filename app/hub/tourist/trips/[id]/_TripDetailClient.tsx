@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import {
   ArrowLeft, Calendar, MapPin, Loader, AlertTriangle,
   Footprints, Truck, Anchor, Plane, ChevronDown, ChevronUp,
@@ -88,6 +89,7 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [formError, setFormError] = useState('');
+  const [pdConsent, setPdConsent] = useState(false);
   const [showDays, setShowDays] = useState(true);
 
   useEffect(() => {
@@ -104,6 +106,10 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
   async function submitLead() {
     if (!name.trim() || !phone.trim()) {
       setFormError('Введите имя и телефон');
+      return;
+    }
+    if (!pdConsent) {
+      setFormError('Необходимо согласие на обработку персональных данных');
       return;
     }
     setFormError('');
@@ -127,6 +133,7 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
             places: trip?.places,
             activities: trip?.activities,
           },
+          pd_consent: true,
         }),
       });
       const data = await res.json();
@@ -313,7 +320,8 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                 <p className="text-xs text-[var(--danger)]">{formError}</p>
               </div>
             )}
-            <button onClick={submitLead} disabled={submitting}
+            <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-trip" />
+            <button onClick={submitLead} disabled={submitting || !pdConsent}
               className="w-full ds-btn ds-btn-primary py-2.5 font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
               {submitting ? <><Loader className="w-4 h-4 animate-spin" />Отправляем...</> : <>
                 <Phone className="w-4 h-4" />Отправить заявку

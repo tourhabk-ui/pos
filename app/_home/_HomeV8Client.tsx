@@ -35,6 +35,7 @@ import { dataFreshness, freshnessDot } from '@/lib/home/data-freshness';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -84,6 +85,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [sending, setSending] = useState(false);
+  const [pdConsent, setPdConsent] = useState(false);
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [plateIdx, setPlateIdx] = useState(0);
@@ -202,6 +204,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     setErr(null);
     if (name.trim().length < 2) { setErr('Укажите имя'); return; }
     if (phone.trim().length < 7) { setErr('Укажите телефон или Telegram'); return; }
+    if (!pdConsent) { setErr('Необходимо согласие на обработку персональных данных'); return; }
     setSending(true);
     try {
       const interests = CHIPS.filter((c) => chips[c]);
@@ -213,6 +216,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           phone: phone.trim(),
           comment: interests.length ? `Интересы: ${interests.join(', ')}` : undefined,
           source_url: typeof window !== 'undefined' ? window.location.pathname : undefined,
+          pd_consent: true,
         }),
       });
       if (!res.ok) throw new Error('fail');
@@ -660,8 +664,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Как вас зовут" aria-label="Имя" />
               <div className="field">
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Телефон или Telegram" aria-label="Контакт" />
-                <button onClick={submitLead} disabled={sending}>{sending ? '…' : 'Отправить'}</button>
+                <button onClick={submitLead} disabled={sending || !pdConsent}>{sending ? '…' : 'Отправить'}</button>
               </div>
+            </div>
+            <div className="fine">
+              <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-home" />
             </div>
             {err && <div className="err">{err}</div>}
             <div className="fine">Данные уходят только операторам по вашему запросу. Без спама.</div>

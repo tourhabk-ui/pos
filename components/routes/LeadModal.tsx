@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Phone, User, MessageSquare, CheckCircle, Loader2 } from 'lucide-react';
 import { getSourceData } from '@/hooks/useSourceTracker';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 interface LeadModalProps {
   open: boolean;
@@ -62,6 +63,7 @@ export default function LeadModal({ open, onClose, routeId, routeTitle, sourceUr
           route_title: routeTitle,
           source_url:  sourceUrl ?? (typeof window !== 'undefined' ? window.location.href : undefined),
           source_data: getSourceData() ?? undefined,
+          pd_consent: true,
         }),
       });
       const json: { success: boolean; error?: string } = await res.json();
@@ -208,25 +210,11 @@ export default function LeadModal({ open, onClose, routeId, routeTitle, sourceUr
                   </p>
                 )}
 
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={pdConsent}
-                    onChange={e => setPdConsent(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded border-[var(--border)] accent-[var(--accent)] shrink-0 cursor-pointer"
-                  />
-                  <span className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                    Согласен(на) на{' '}
-                    <a href="/legal/privacy" target="_blank" className="text-[var(--ocean)] hover:underline">
-                      обработку персональных данных
-                    </a>{' '}
-                    (152-ФЗ)
-                  </span>
-                </label>
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-lead-modal" />
 
                 <button
                   type="submit"
-                  disabled={loading || !name.trim() || !phone.trim()}
+                  disabled={loading || !name.trim() || !phone.trim() || !pdConsent}
                   className="ds-btn ds-btn-primary w-full flex items-center justify-center gap-2"
                 >
                   {loading && <Loader2 className="w-4 h-4 animate-spin" />}

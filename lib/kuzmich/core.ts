@@ -27,6 +27,7 @@ import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 import { getPublicBaseUrl } from '@/lib/config';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -1212,25 +1213,17 @@ async function notifyOperatorNewBooking(
   total: number,
 ): Promise<void> {
   try {
-    // Получаем telegram_id оператора
-    const { rows } = await pool.query<{ telegram_id: string | null }>(
-      `SELECT u.telegram_id
+    // Адреса оператора: MAX для ПД туриста, Telegram — только для заглушки.
+    const { rows } = await pool.query<{ telegram_id: string | null; max_chat_id: string | null }>(
+      `SELECT u.telegram_id, p.max_chat_id::text AS max_chat_id
        FROM operator_tours ot
        JOIN users u ON u.id = ot.operator_id
+       LEFT JOIN partners p ON p.user_id = u.id
        WHERE ot.id = $1 LIMIT 1`,
       [b.tour.id],
     );
-    const operatorTgId = rows[0]?.telegram_id;
-
-    // Всегда уведомляем владельца платформы
-    const ownerTgId = process.env.TELEGRAM_OWNER_ID;
-    const targets = new Set<string>();
-    if (operatorTgId) targets.add(operatorTgId);
-    if (ownerTgId)    targets.add(ownerTgId);
-    if (targets.size === 0) return;
-
-    const botToken = process.env.TELEGRAM_KUZMICH_BOT_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN ?? '';
-    if (!botToken) return;
+    const operatorTgId = rows[0]?.telegram_id ?? null;
+    const operatorMaxId = rows[0]?.max_chat_id ?? null;
 
     const dateStr = b.date
       ? new Date(b.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -1238,7 +1231,7 @@ async function notifyOperatorNewBooking(
     const priceStr = total.toLocaleString('ru-RU') + ' ₽';
     const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}`;
 
-    const text = [
+    const common = [
       `<b>Новое бронирование #${bookingId}</b>`,
       '',
       `Тур: ${b.tour.title}`,
@@ -1246,29 +1239,27 @@ async function notifyOperatorNewBooking(
       `Человек: ${b.participants}`,
       `Сумма: ${priceStr}`,
       '',
-      `Турист: ${b.name}`,
-      `Телефон: ${b.phone}`,
-      '',
-      `<a href="${payLink}">Открыть бронирование</a>`,
-    ].join('\n');
+    ];
 
-    const body = JSON.stringify({
-      text,
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-      reply_markup: {
-        inline_keyboard: [[
-          { text: 'Связаться с туристом', url: `tel:${b.phone}` },
-        ]],
-      },
-    });
+    const text = [...common, `Турист: ${b.name}`, `Телефон: ${b.phone}`].join('\n');
+    const stub = [...common, 'Имя и телефон туриста — в MAX и в кабинете.'].join('\n');
+    const buttons = [{ text: 'Открыть бронирование', url: payLink }];
 
-    for (const chatId of targets) {
-      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, ...JSON.parse(body) }),
-      }).catch(() => {});
+    // Владелец платформы. Кнопки «связаться с туристом» через tel: больше нет:
+    // она несла телефон в самой ссылке, то есть в теле сообщения Telegram.
+    const ownerRes = await sendPdAlert({ text, stub, buttons });
+    if (!ownerRes.delivered) {
+      console.error(`[notifyOperatorNewBooking] владельцу ПД не доставлены (${ownerRes.channel}) — ${ownerRes.reason}`);
+    }
+
+    if (operatorMaxId || operatorTgId) {
+      const opRes = await sendPdAlert({
+        text, stub, buttons,
+        to: { maxChatId: operatorMaxId, telegramChatId: operatorTgId },
+      });
+      if (!opRes.delivered) {
+        console.error(`[notifyOperatorNewBooking] оператору ПД не доставлены (${opRes.channel}) — ${opRes.reason}`);
+      }
     }
   } catch { /* не блокируем */ }
 }

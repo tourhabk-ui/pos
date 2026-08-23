@@ -127,9 +127,11 @@ async function executeArchiveSOS(task: ExecutionTask): Promise<ExecutionResult> 
       [reason, ids]
     );
 
+    // Имена в отчёт не идут: отчёт уходит владельцу в Telegram, а событие
+    // опознаётся по id и дате. Имя тут ничего не решает, а это ПД.
     changes.push(`Архивировано ${ids.length} SOS-событий:`);
     for (const r of stale.rows) {
-      changes.push(`  • ${r.tourist_name ?? 'Аноним'} (от ${r.created_at.slice(0, 10)})`);
+      changes.push(`  • ${String(r.id).slice(0, 8)} (от ${r.created_at.slice(0, 10)})`);
     }
 
     // Уведомляем владельца в Telegram
@@ -887,7 +889,9 @@ async function executeSecurityBlock(task: ExecutionTask): Promise<ExecutionResul
         [JSON.stringify({ block_type: 'user', user_id: userId, email: user.rows[0].email, reason })]
       );
 
-      changes.push(`Пользователь ${user.rows[0].email} заблокирован`);
+      // Почта в отчёт не идёт: отчёт уходит в Telegram, а пользователь
+      // опознаётся по id — он же лежит в ai_actions_log рядом с почтой.
+      changes.push(`Пользователь ${userId} заблокирован`);
       changes.push(`Причина: ${reason}`);
     } else {
       errors.push('context.block_type должен быть "ip" или "user"');
@@ -1021,11 +1025,11 @@ async function executeFlagPayment(task: ExecutionTask): Promise<ExecutionResult>
     await pool.query(
       `INSERT INTO ai_actions_log (action_type, agent_id, details, created_at)
        VALUES ('flag_payment', 'finance', $1, NOW())`,
-      [JSON.stringify({ booking_id: bookingId, tourist: b.tourist_name, amount: b.final_price, flag_type: flagType, reason })]
+      [JSON.stringify({ booking_id: bookingId, amount: b.final_price, flag_type: flagType, reason })]
     );
 
     changes.push(`Бронирование ${bookingId} помечено: ${flagType}`);
-    changes.push(`Турист: ${b.tourist_name ?? 'N/A'}, сумма: ${b.final_price}`);
+    changes.push(`Сумма: ${b.final_price}`);
     changes.push(`Причина: ${reason}`);
 
     // Telegram
@@ -1037,7 +1041,7 @@ async function executeFlagPayment(task: ExecutionTask): Promise<ExecutionResult>
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text: `Finance Agent [${flagType}]: бронирование ${bookingId}\n${b.tourist_name ?? 'Аноним'} — ${b.final_price} руб.\n${reason}`,
+          text: `Finance Agent [${flagType}]: бронирование ${bookingId}\n${b.final_price} руб.\n${reason}`,
           parse_mode: 'HTML',
         }),
       }).catch(() => null);

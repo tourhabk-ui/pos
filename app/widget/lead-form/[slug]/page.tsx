@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 interface PartnerConfig {
   name: string;
@@ -21,6 +22,7 @@ export default function LeadFormPage() {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError]     = useState('');
+  const [pdConsent, setPdConsent] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -35,6 +37,7 @@ export default function LeadFormPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
+    if (!pdConsent) { setError('Необходимо согласие на обработку персональных данных'); return; }
     setError('');
     setSubmitting(true);
     try {
@@ -49,6 +52,7 @@ export default function LeadFormPage() {
             source:       'partner_widget',
             partner_slug: slug,
           },
+          pd_consent: true,
         }),
       });
       const data: unknown = await res.json();
@@ -206,14 +210,18 @@ export default function LeadFormPage() {
           <p style={{ fontSize: 12, color: 'var(--danger)', marginTop: 10 }}>{error}</p>
         )}
 
+        <div style={{ marginTop: 12 }}>
+          <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-widget" />
+        </div>
+
         <button
           type="submit"
-          disabled={submitting || !name.trim() || !phone.trim()}
+          disabled={submitting || !name.trim() || !phone.trim() || !pdConsent}
           style={{
             marginTop: 'auto',
             paddingTop: 16,
             padding: '12px 20px',
-            background: submitting || !name.trim() || !phone.trim() ? 'var(--bg-hover)' : accent,
+            background: submitting || !name.trim() || !phone.trim() || !pdConsent ? 'var(--bg-hover)' : accent,
             color: 'white',
             border: 'none',
             borderRadius: 10,

@@ -38,10 +38,9 @@ async function tgSend(text: string, replyMarkup?: object): Promise<void> {
 
 // ── Метрики платформы ─────────────────────────────────────────────────────────
 
+/** ПД сюда не читаются вовсе: дайджест их не показывает, значит и брать нечего. */
 interface LeadDetail {
   id: string;
-  name: string;
-  phone: string;
   route_title: string | null;
   comment: string | null;
   created_at: string;
@@ -168,7 +167,7 @@ async function collectMetrics(): Promise<PlatformMetrics> {
     // Последние новые лиды с деталями
     safe(async () => {
       const r = await pool.query<LeadDetail>(
-        `SELECT id::text, name, phone, route_title, LEFT(comment, 80) as comment, created_at::text
+        `SELECT id::text, route_title, LEFT(comment, 80) as comment, created_at::text
          FROM leads WHERE status = 'new' ORDER BY created_at DESC LIMIT 8`
       );
       return r.rows;
@@ -213,12 +212,15 @@ async function collectMetrics(): Promise<PlatformMetrics> {
 // ── AI-анализ ─────────────────────────────────────────────────────────────────
 
 function buildPrompt(m: PlatformMetrics, date: string): ChatMessage[] {
+  // Имя и телефон в промпт НЕ идут: дайджест пишет зарубежная модель, а это
+  // была бы трансграничная передача ПД (152-ФЗ). Для сводки они и не нужны —
+  // модель считает воронку, а не звонит туристу. Прежняя строка отдавала
+  // «имя | телефон | интерес | время» и сканер D1 её не видел: ПД шли в промпт
+  // через локальные переменные, а он ловит только прямые `l.phone`/`l.name`.
   const leadsStr = m.newLeads.slice(0, 5).map(l => {
-    const name = l.name ?? 'Турист';
-    const phone = l.phone;
     const interest = l.route_title ?? l.comment ?? '—';
     const time = new Date(l.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
-    return `  - ${name} | ${phone} | ${interest} | ${time}`;
+    return `  - заявка ${String(l.id).slice(0, 8)} | ${interest} | ${time}`;
   }).join('\n') || '  нет новых лидов';
 
   const noSlotsStr = m.toursNoSlots.length > 0
@@ -334,7 +336,9 @@ export async function GET(request: NextRequest) {
         timeZone: 'Asia/Kamchatka',
       });
       const interest = l.route_title ?? (l.comment ? l.comment.slice(0, 50) : '—');
-      lines.push(`${i + 1}. <b>${l.name}</b>  <code>${l.phone}</code>  <i>${interest}</i>  ${time}`);
+      // Имя и телефон в Telegram не уходят (решение владельца 23.08) — дайджест
+      // здесь сводка, а работа с лидом идёт в MAX и в кабинете.
+      lines.push(`${i + 1}. <code>${String(l.id).slice(0, 8)}</code>  <i>${interest}</i>  ${time}`);
     });
   }
 

@@ -5,6 +5,8 @@
  */
 
 import type { SupportTicket } from '@/lib/support/ticket.service';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { getPublicBaseUrl } from '@/lib/config';
 
 const CATEGORY_LABELS: Record<string, string> = {
   billing:  'Оплата',
@@ -40,25 +42,41 @@ async function sendAdminMessage(text: string): Promise<void> {
 export function notifyAdminNewTicket(ticket: SupportTicket): void {
   void (async () => {
     try {
-      const site     = 'https://vedarai.ru';
+      const site     = getPublicBaseUrl();
       const category = CATEGORY_LABELS[ticket.category] ?? ticket.category;
       const user     = ticket.userName
         ? `${ticket.userName}${ticket.userEmail ? ` (${ticket.userEmail})` : ''}`
         : (ticket.userEmail ?? ticket.userId.slice(0, 8));
 
-      await sendAdminMessage([
+      // Имя и почта обратившегося — ПД: идут в MAX. В Telegram остаётся тикет
+      // без них: тема, категория, канал и первый абзац обращения.
+      const common = [
         '<b>Новый тикет поддержки</b>',
         '',
         `<b>Тема:</b> ${ticket.subject}`,
         `<b>Категория:</b> ${category}`,
         `<b>Резидент:</b> ${ticket.assignedAgent ?? 'не назначен'}`,
-        `<b>Пользователь:</b> ${user}`,
+      ];
+      const tail = [
         `<b>Канал:</b> ${ticket.channel}`,
         '',
         ticket.messages[0] ? `<i>${ticket.messages[0].text.slice(0, 200)}</i>` : '',
-        '',
-        `<a href="${site}/hub/admin/support">Открыть в панели →</a>`,
-      ].filter(s => s !== '').join('\n'));
+      ].filter(s => s !== '');
+
+      const res = await sendPdAlert({
+        text: [...common, `<b>Пользователь:</b> ${user}`, ...tail].join('\n'),
+        stub: [
+          ...common,
+          `<b>Пользователь:</b> <code>${ticket.userId.slice(0, 8)}</code>`,
+          ...tail,
+          '',
+          'Имя и почта обратившегося — в MAX и в панели.',
+        ].join('\n'),
+        buttons: [{ text: 'Открыть в панели', url: `${site}/hub/admin/support` }],
+      });
+      if (!res.delivered) {
+        console.error(`[notifyAdminNewTicket] ПД не доставлены (${res.channel}) — ${res.reason}`);
+      }
     } catch { /* silent */ }
   })();
 }
