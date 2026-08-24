@@ -5,11 +5,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { z } from 'zod';
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { emailService } from '@/lib/notifications/email-service';
 import { sendPushToUser } from '@/lib/notifications/web-push';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,11 +20,6 @@ const PatchSchema = z.object({
   notes: z.string().max(1000).optional(),
 });
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const r = await query(`SELECT id FROM partners WHERE user_id = $1 LIMIT 1`, [userId]);
-  return (r.rows[0]?.id as string) || null;
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -32,7 +28,7 @@ export async function GET(
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-    const operator_id = await getOperatorId(authOrResponse.userId);
+    const operator_id = await getOperatorPartnerId(authOrResponse.userId);
     if (!operator_id) return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
 
     const result = await query(
@@ -52,6 +48,8 @@ export async function GET(
 
     return NextResponse.json({ success: true, data: result.rows[0] });
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[hub/operator/bookings/[id]] GET отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({ error: 'Failed to fetch booking' }, { status: 500 });
   }
 }
@@ -64,60 +62,75 @@ export async function PATCH(
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-    const operator_id = await getOperatorId(authOrResponse.userId);
+    const operator_id = await getOperatorPartnerId(authOrResponse.userId);
     if (!operator_id) return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
-
-    // Verify ownership
-    const ownership = await query(
-      `SELECT b.id, b.booking_status FROM operator_bookings b
-       JOIN operator_tours t ON b.operator_tour_id = t.id
-       WHERE b.id = $1 AND t.operator_id = $2 AND b.deleted_at IS NULL LIMIT 1`,
-      [BigInt(params.id), operator_id]
-    );
-    if (ownership.rows.length === 0) {
-      return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
-    }
 
     const body = await request.json();
     const input = PatchSchema.parse(body);
 
-    const sets: string[] = ['updated_at = NOW()'];
-    const values: unknown[] = [];
-    let idx = 1;
-
-    if (input.booking_status) {
-      sets.push(`booking_status = $${idx++}`);
-      values.push(input.booking_status);
-      if (input.booking_status === 'cancelled') {
-        sets.push(`cancelled_at = NOW()`);
+    // Владение, чтение прежнего статуса и запись — в ОДНОЙ транзакции под
+    // блокировкой строки (FOR UPDATE). Раньше владение проверялось отдельным
+    // запросом ДО записи: два параллельных PATCH (двойной клик «Завершить»)
+    // оба читали «ещё не завершено» и оба начисляли лояльность/total_spent —
+    // тот же класс гонки, что уже закрыт для оплаты в payments/webhook.
+    // Здесь закрывается ровно эта дыра для перехода в 'completed'.
+    const txResult = await transaction(async (client) => {
+      const locked = await client.query(
+        `SELECT b.id, b.booking_status FROM operator_bookings b
+         JOIN operator_tours t ON b.operator_tour_id = t.id
+         WHERE b.id = $1 AND t.operator_id = $2 AND b.deleted_at IS NULL
+         FOR UPDATE OF b`,
+        [BigInt(params.id), operator_id]
+      );
+      if (locked.rows.length === 0) {
+        return { row: undefined, alreadyWasCompleted: false };
       }
-    }
-    if (input.cancellation_reason !== undefined) {
-      sets.push(`cancellation_reason = $${idx++}`);
-      values.push(input.cancellation_reason);
-    }
-    if (input.notes !== undefined) {
-      sets.push(`notes = $${idx++}`);
-      values.push(input.notes);
+      const prevStatus = (locked.rows[0] as { booking_status: string }).booking_status;
+
+      const sets: string[] = ['updated_at = NOW()'];
+      const values: unknown[] = [];
+      let idx = 1;
+
+      if (input.booking_status) {
+        sets.push(`booking_status = $${idx++}`);
+        values.push(input.booking_status);
+        if (input.booking_status === 'cancelled') {
+          sets.push(`cancelled_at = NOW()`);
+        }
+      }
+      if (input.cancellation_reason !== undefined) {
+        sets.push(`cancellation_reason = $${idx++}`);
+        values.push(input.cancellation_reason);
+      }
+      if (input.notes !== undefined) {
+        sets.push(`notes = $${idx++}`);
+        values.push(input.notes);
+      }
+
+      values.push(BigInt(params.id));
+
+      const result = await client.query(
+        `UPDATE operator_bookings SET ${sets.join(', ')}
+         WHERE id = $${idx}
+         RETURNING id, booking_status, updated_at, tourist_email, tourist_name, final_price,
+                   (SELECT title FROM operator_tours WHERE id = operator_tour_id) AS tour_title`,
+        values
+      );
+
+      return { row: result.rows[0], alreadyWasCompleted: prevStatus === 'completed' };
+    });
+
+    if (!txResult.row) {
+      return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }
 
-    values.push(BigInt(params.id));
-
-    const result = await query(
-      `UPDATE operator_bookings SET ${sets.join(', ')}
-       WHERE id = $${idx}
-       RETURNING id, booking_status, updated_at, tourist_email, tourist_name, final_price,
-                 (SELECT title FROM operator_tours WHERE id = operator_tour_id) AS tour_title`,
-      values
-    );
-
-    const row = result.rows[0] as {
+    const row = txResult.row as {
       tourist_email?: string; tourist_name?: string;
       final_price?: string; tour_title?: string; booking_status?: string;
-    } | undefined;
+    };
 
     // Notify tourist by email when status changes to confirmed or cancelled
-    if (row?.tourist_email && input.booking_status && ['confirmed', 'cancelled'].includes(input.booking_status)) {
+    if (row.tourist_email && input.booking_status && ['confirmed', 'cancelled'].includes(input.booking_status)) {
       const isConfirmed = input.booking_status === 'confirmed';
       const subject = isConfirmed
         ? `Бронирование подтверждено: ${row.tour_title ?? 'тур'}`
@@ -155,8 +168,15 @@ export async function PATCH(
       }
     }
 
-    // Earn loyalty points when booking is completed
-    if (input.booking_status === 'completed' && row?.tourist_email && row.final_price) {
+    // Earn loyalty points when booking is completed — но только один раз:
+    // если строка уже была 'completed' до этого PATCH (гонка/повторный
+    // запрос), начисление пропускается.
+    if (
+      input.booking_status === 'completed' &&
+      !txResult.alreadyWasCompleted &&
+      row.tourist_email &&
+      row.final_price
+    ) {
       const userResult = await query<{ id: string }>(
         'SELECT id FROM users WHERE email = $1',
         [row.tourist_email]
@@ -171,11 +191,13 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json({ success: true, data: result.rows[0] });
+    return NextResponse.json({ success: true, data: txResult.row });
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
+    const e = error as { code?: string; message?: string };
+    console.error('[hub/operator/bookings/[id]] PATCH отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({ error: 'Failed to update booking' }, { status: 500 });
   }
 }

@@ -12,6 +12,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { sendProposalToClient } from '@/lib/leads/proposal-delivery';
+import { canAccessLead } from '@/lib/leads/ownership';
+import type { JWTPayload } from '@/lib/auth/jwt';
 import { z } from 'zod';
 
 const Schema = z.object({
@@ -34,8 +36,17 @@ export async function POST(
 ) {
   const authResult = await requireOperator(req);
   if (authResult instanceof NextResponse) return authResult;
+  const user = authResult as JWTPayload;
 
   const { id } = await params;
+
+  // sendProposalToClient САМА не проверяет владение (её контракт это прямо
+  // документирует) — вызывающий обязан проверить право до вызова. Раньше
+  // это не делалось: оператор мог отправить чужому клиенту предложение по
+  // чужому лиду, зная только UUID (аудит кабинета оператора).
+  if (!(await canAccessLead(user, id))) {
+    return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { body = {}; }

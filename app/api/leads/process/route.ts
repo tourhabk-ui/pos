@@ -13,6 +13,8 @@ import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { notifyOperatorProposal } from '@/lib/notifications/lead-notify';
+import { canAccessLead } from '@/lib/leads/ownership';
+import type { JWTPayload } from '@/lib/auth/jwt';
 
 const Schema = z.object({
   lead_id: z.string().uuid('Неверный формат ID лида'),
@@ -21,6 +23,7 @@ const Schema = z.object({
 export async function POST(req: NextRequest) {
   const authResult = await requireOperator(req);
   if (authResult instanceof NextResponse) return authResult;
+  const user = authResult as JWTPayload;
 
   let body: unknown;
   try {
@@ -38,6 +41,13 @@ export async function POST(req: NextRequest) {
   }
 
   const { lead_id } = parse.data;
+
+  // Владение: lead_id приходит из тела запроса, не из авторизованного
+  // контекста — без проверки оператор мог запустить обработку чужого лида,
+  // зная только его UUID (аудит кабинета оператора).
+  if (!(await canAccessLead(user, lead_id))) {
+    return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+  }
 
   try {
     const proposal = await leadProcessor.process(lead_id);

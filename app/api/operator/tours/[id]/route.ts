@@ -6,22 +6,25 @@ import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { OpTourDetailRow, OpTourOwnerRow, CountRow } from '@/lib/types/db-rows';
 import { z } from 'zod';
 
+// season/requirements/coordinates убраны: operator_tours не держит таких
+// колонок (есть season_start/season_end раздельно, latitude/longitude
+// раздельно, requirements не существует вовсе) — записывать их значило бы
+// выдумывать несуществующее поле (аудит кабинета оператора нашёл здесь
+// UPDATE легаси-таблицы tours, у которой такие колонки БЫЛИ, но она не та
+// таблица, где живут настоящие туры).
 const UpdateTourSchema = z.object({
   name: z.string().min(1, 'Название не может быть пустым').optional(),
   description: z.string().min(1, 'Описание не может быть пустым').optional(),
   shortDescription: z.string().optional(),
   category: z.string().optional(),
   difficulty: z.string().optional(),
-  duration: z.number().int().min(1).max(30).optional(),
+  duration: z.number().min(0.5).max(720).optional(),
   price: z.number().min(0, 'Цена не может быть отрицательной').optional(),
   currency: z.string().optional(),
-  season: z.union([z.string(), z.array(z.string())]).optional(),
   maxGroupSize: z.number().int().min(1).max(100).optional(),
   minGroupSize: z.number().int().min(1).optional(),
-  requirements: z.array(z.string()).optional(),
   includes: z.array(z.string()).optional(),
   excludes: z.array(z.string()).optional(),
-  coordinates: z.array(z.number()).optional(),
   isActive: z.boolean().optional(),
 }).refine(
   (data) => Object.values(data).some((v) => v !== undefined),
@@ -78,10 +81,25 @@ export async function GET(
 
     const { id } = await params;
 
-    // Get tour with full details
+    // Get tour with full details — явные алиасы под реальные колонки
+    // operator_tours (title/duration_hours/base_price/max_participants/
+    // min_participants/activity_type/included/not_included/latitude/
+    // longitude). Раньше здесь стоял `t.*`, а маппинг читал `row.name`,
+    // `row.duration`, `row.price`, `row.max_group_size`, `row.season`,
+    // `row.requirements`, `row.coordinates` — колонок с такими именами на
+    // operator_tours нет вовсе, и ответ 200 нёс NaN/undefined на каждом
+    // поле, кроме includes/excludes (тем случайно повезло с именами
+    // included/not_included) — аудит кабинета оператора.
       const result = await query<OpTourDetailRow>(
-        `SELECT 
-          t.*,
+        `SELECT
+          t.id, t.title, t.description, t.short_description,
+          t.activity_type, t.difficulty, t.duration_hours,
+          t.base_price, t.currency,
+          t.max_participants, t.min_participants,
+          t.included, t.not_included,
+          t.latitude, t.longitude,
+          t.is_active, t.rating, t.review_count,
+          t.created_at, t.updated_at,
           COALESCE(array_agg(DISTINCT a.url) FILTER (WHERE a.url IS NOT NULL), '{}') as images,
           COALESCE(array_agg(DISTINCT jsonb_build_object(
             'id', a.id,
@@ -106,21 +124,21 @@ export async function GET(
       const row = result.rows[0];
       const tour = {
         id: row.id,
-        name: row.name,
+        name: row.title,
         description: row.description,
         shortDescription: row.short_description,
-        category: row.category || 'adventure',
+        category: row.activity_type || 'adventure',
         difficulty: row.difficulty,
-        duration: row.duration,
-        price: parseFloat(row.price),
+        duration: row.duration_hours != null ? parseFloat(String(row.duration_hours)) : null,
+        price: row.base_price != null ? parseFloat(String(row.base_price)) : null,
         currency: row.currency,
-        season: row.season || [],
-        requirements: row.requirements || [],
         includes: row.included || [],
         excludes: row.not_included || [],
-        coordinates: row.coordinates || [],
-        maxGroupSize: row.max_group_size,
-        minGroupSize: row.min_group_size,
+        coordinates: row.latitude != null && row.longitude != null
+          ? [parseFloat(String(row.latitude)), parseFloat(String(row.longitude))]
+          : [],
+        maxGroupSize: row.max_participants,
+        minGroupSize: row.min_participants,
         isActive: row.is_active,
         rating: row.rating,
         reviewCount: row.review_count,
@@ -136,6 +154,8 @@ export async function GET(
       } as ApiResponse<unknown>);
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[operator/tours/[id]] GET отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({
       success: false,
       error: 'Ошибка при получении тура'
@@ -166,37 +186,51 @@ export async function PUT(
       return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
     }
 
-    // Build dynamic update query
+    // Build dynamic update query — целится в operator_tours (единственная
+    // таблица, где живут настоящие туры, CLAUDE.md §4.1). Раньше это было
+    // `UPDATE tours` — легаси-таблица, случайно имеющая совпадающие по
+    // имени колонки (included/not_included/max_group_size/...), поэтому
+    // запрос не падал, а тихо писал в записи, которых для настоящего тура
+    // там никогда не было: реальный id+operator_id в tours не находился, и
+    // PUT всегда отвечал 404 «Тур не найден» — не крэш, но 100% нерабочий
+    // путь (аудит кабинета оператора).
       const allowedFields = [
-        'name', 'description', 'shortDescription', 'category', 'difficulty', 
-        'duration', 'price', 'currency', 'season', 'maxGroupSize', 'minGroupSize', 
-        'requirements', 'includes', 'excludes', 'coordinates', 'isActive'
+        'name', 'description', 'shortDescription', 'category', 'difficulty',
+        'duration', 'price', 'currency', 'maxGroupSize', 'minGroupSize',
+        'includes', 'excludes', 'isActive'
       ];
-      
+
       const fieldMap: Record<string, string> = {
+        name: 'title',
+        category: 'activity_type',
+        duration: 'duration_hours',
+        price: 'base_price',
         shortDescription: 'short_description',
-        maxGroupSize: 'max_group_size',
-        minGroupSize: 'min_group_size',
+        maxGroupSize: 'max_participants',
+        minGroupSize: 'min_participants',
         includes: 'included',
         excludes: 'not_included',
         isActive: 'is_active',
       };
-      
-      const jsonFields = new Set(['season', 'requirements', 'includes', 'excludes', 'coordinates']);
+
+      // included/not_included — TEXT[] (не jsonb): узел pg сериализует JS-
+      // массив в SQL-массив сам, JSON.stringify() дал бы строку там, где
+      // колонка ждёт text[] — ещё одна ошибка, унаследованная от прежней
+      // (неверной) целевой таблицы, где это тоже было не так.
 
     const updateFields: string[] = [];
-    const updateValues: (string | number | boolean | null | object)[] = [];
+    const updateValues: (string | number | boolean | null | string[])[] = [];
     let paramIndex = 1;
 
       for (const [key, value] of Object.entries(parsed.data)) {
         if (typeof value === 'undefined') {
           continue;
         }
-        
+
         if (!allowedFields.includes(key)) {
           continue;
         }
-        
+
         const mappedKey = fieldMap[key] || key;
         const dbKey = mappedKey.replace(/([A-Z])/g, '_$1').toLowerCase();
         if (!SAFE_DB_COLUMN_REGEX.test(dbKey)) {
@@ -205,14 +239,9 @@ export async function PUT(
             error: 'Некорректное поле обновления'
           } as ApiResponse<null>, { status: 400 });
         }
-        
+
         updateFields.push(`${dbKey} = $${paramIndex++}`);
-        
-        if (jsonFields.has(key)) {
-          updateValues.push(JSON.stringify(value));
-        } else {
-          updateValues.push(value);
-        }
+        updateValues.push(value as string | number | boolean | null | string[]);
       }
 
     if (updateFields.length === 0) {
@@ -228,10 +257,11 @@ export async function PUT(
     updateValues.push(operatorId);
 
     const result = await query(
-      `UPDATE tours 
-       SET ${updateFields.join(', ')}
+      `UPDATE operator_tours
+       SET ${updateFields.join(', ')}, updated_at = NOW()
        WHERE id = $${idParamIndex}
          AND operator_id = $${operatorIdParamIndex}
+         AND deleted_at IS NULL
        RETURNING *`,
       updateValues
     );
@@ -250,6 +280,8 @@ export async function PUT(
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[operator/tours/[id]] PUT отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({
       success: false,
       error: 'Ошибка при обновлении тура'
@@ -320,6 +352,8 @@ export async function DELETE(
     } as ApiResponse<null>);
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[operator/tours/[id]] DELETE отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({
       success: false,
       error: 'Ошибка при удалении тура'

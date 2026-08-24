@@ -3,26 +3,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAdmin, requireOperator } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
-
-/**
- * Скоуп владения лидом — та же формула, что в списке GET /api/leads:
- * админ видит всё; оператор — только свои лиды и ничейные (operator_id IS NULL).
- * Оператор без записи в partners не владеет ничем — ему доступны только ничейные.
- * Возвращает SQL-хвост условия (нумерация параметров продолжается с nextIdx).
- */
-async function leadOwnershipCond(
-  user: JWTPayload,
-  nextIdx: number
-): Promise<{ cond: string; vals: unknown[] }> {
-  if (user.role === 'admin') return { cond: '', vals: [] };
-  const opRes = await pool.query<{ id: string }>(
-    'SELECT id FROM partners WHERE user_id = $1 LIMIT 1',
-    [user.userId]
-  );
-  const operatorId = opRes.rows[0]?.id;
-  if (!operatorId) return { cond: ' AND operator_id IS NULL', vals: [] };
-  return { cond: ` AND (operator_id = $${nextIdx} OR operator_id IS NULL)`, vals: [operatorId] };
-}
+import { leadOwnershipCond } from '@/lib/leads/ownership';
 
 const PatchSchema = z.object({
   status: z.enum([

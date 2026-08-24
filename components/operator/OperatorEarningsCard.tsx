@@ -15,7 +15,9 @@ interface EarningsData {
     confirmedBookings: number;
     pendingBookings: number;
     affiliateClicks: number;
-    estimatedAffiliateCommission: number;
+    // Ставки партнёрской программы нет — сервер честно отдаёт null вместо
+    // выдуманного числа (аудит кабинета оператора, §4.0).
+    estimatedAffiliateCommission: number | null;
   };
   bookingsByDay: Array<{ date: string; total_bookings: number; total_revenue: string }>;
   affiliatePartners: Array<{ partner: string; clicks: number; unique_visitors: number }>;
@@ -89,7 +91,7 @@ export function OperatorEarningsCard() {
           <div className="border-t border-[var(--border)] pt-2 mt-2">
             <div className="flex justify-between font-semibold">
               <span>Прямых продаж:</span>
-              <span className="text-[var(--ocean)]">${summary.totalRevenue.toLocaleString()}</span>
+              <span className="text-[var(--ocean)]">{summary.totalRevenue.toLocaleString('ru-RU')} ₽</span>
             </div>
           </div>
         </div>
@@ -115,7 +117,13 @@ export function OperatorEarningsCard() {
           <div className="border-t border-[var(--border)] pt-2 mt-2">
             <div className="flex justify-between font-semibold">
               <span>Предполагаемый доход:</span>
-              <span className="text-[var(--success)]">${summary.estimatedAffiliateCommission}</span>
+              {summary.estimatedAffiliateCommission === null ? (
+                <span className="text-[var(--text-muted)] font-normal">нет ставки</span>
+              ) : (
+                <span className="text-[var(--success)]">
+                  {summary.estimatedAffiliateCommission.toLocaleString('ru-RU')} ₽
+                </span>
+              )}
             </div>
           </div>
         </div>

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,16 +14,10 @@ export async function GET(request: NextRequest) {
   const userOrResponse = await requireOperator(request);
   if (userOrResponse instanceof NextResponse) return userOrResponse;
 
-  const opResult = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userOrResponse.userId]
-  );
-
-  if (!opResult.rows.length) {
+  const operatorId = await getOperatorPartnerId(userOrResponse.userId);
+  if (!operatorId) {
     return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
   }
-
-  const operatorId = opResult.rows[0].id as string;
 
   // Revenue from operator_bookings in last 30 days grouped by day
   const bookingsResult = await pool.query(
@@ -80,7 +75,12 @@ export async function GET(request: NextRequest) {
       confirmedBookings,
       pendingBookings,
       affiliateClicks: totalAffiliateClicks,
-      estimatedAffiliateCommission: totalAffiliateClicks * 50,
+      // Раньше здесь был totalAffiliateClicks * 50 — ставка «50 ₽ за клик»
+      // не существует нигде: не в конфиге, не в договоре, не в БД. Оператор
+      // видел это как реальную цифру дохода (аудит кабинета оператора,
+      // §4.0: обязательное число не выдумывается при отсутствии источника).
+      // Честно null — ставки партнёрских программ нет, значит и оценки нет.
+      estimatedAffiliateCommission: null,
     },
     bookingsByDay: bookingsResult.rows,
     affiliatePartners: affiliateResult.rows,

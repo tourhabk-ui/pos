@@ -43,7 +43,20 @@ export async function POST(request: NextRequest) {
     // CloudPayments requires code: 0 on success
     return NextResponse.json({ code: 0 });
   } catch (error) {
-    // Log but return 200 — CloudPayments retries on any non-200, flooding logs for 24h
+    // code: 0 умышленно, а не отказ: CloudPayments повторяет любой не-200
+    // до суток, заваливая логи дублями одного и того же сбоя. Но раньше это
+    // был пустой catch — реальный сбой (amount mismatch, не найдена бронь,
+    // отказ БД под FOR UPDATE) уходил вместе с 200 без единой строки в лог,
+    // и деньги терялись бесследно (аудит кабинета оператора, находка №1).
+    // Здесь код тот же, но причина теперь видна.
+    const e = error as { code?: string; message?: string };
+    console.error(
+      '[operator-payments-webhook] отказ обработки:',
+      `invoice=${webhookData?.InvoiceId ?? 'нет'}`,
+      `status=${webhookData?.Status ?? 'нет'}`,
+      `sqlstate=${e?.code ?? 'нет'}`,
+      e?.message ?? String(error),
+    );
     return NextResponse.json({ code: 0 });
   }
 }

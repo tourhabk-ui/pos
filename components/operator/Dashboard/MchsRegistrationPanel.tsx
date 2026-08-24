@@ -380,13 +380,34 @@ export function MchsRegistrationPanel() {
         <div>
           <h2 className="text-2xl font-bold text-[var(--text-primary)]">Регистрация групп в МЧС</h2>
           <p className="text-[var(--text-muted)] mt-1">
-            Подача данных о группе и маршруте в МЧС перед стартом тура.
+            Учёт групп и маршрутов в кабинете — до старта тура.
           </p>
         </div>
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--danger)]/20 border border-[var(--danger)]/40 text-[var(--danger)] text-sm">
           <AlertTriangle className="w-4 h-4" />
           Safety First
         </div>
+      </div>
+
+      {/* Честное предупреждение: эта форма НЕ отправляет данные в МЧС —
+          автоматической интеграции нет (§10 CLAUDE.md — раздел «заготовка»).
+          Запись здесь помогает не забыть про группу, но саму регистрацию
+          оператор обязан сделать сам. */}
+      <div className="mb-6 flex items-start gap-3 rounded-xl border border-[var(--warning)]/40 bg-[var(--warning)]/10 p-4 text-sm text-[var(--text-primary)]">
+        <AlertTriangle className="w-5 h-5 flex-shrink-0 text-[var(--warning)]" />
+        <p>
+          Эта форма сохраняет запись только в кабинете — автоматической отправки в МЧС нет.
+          Зарегистрируйте группу самостоятельно на{' '}
+          <a
+            href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline text-[var(--ocean)] hover:no-underline"
+          >
+            forms.mchs.gov.ru
+          </a>{' '}
+          или по телефону МЧС Камчатки.
+        </p>
       </div>
 
       {loading ? (

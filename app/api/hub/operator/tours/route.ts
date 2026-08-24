@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
 import {
   CreateTourSchema,
@@ -12,24 +13,14 @@ import {
   createTour,
   getToursByOperator,
 } from '@/lib/api/operator-tours';
-import { query } from '@/lib/database';
-
-export const dynamic = 'force-dynamic';
-
-async function getOperatorId(userId: string): Promise<string | null> {
-  const result = await query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return (result.rows[0]?.id as string) || null;
-}
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 
 export async function GET(request: NextRequest) {
   try {
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-    const operator_id = await getOperatorId(authOrResponse.userId);
+    const operator_id = await getOperatorPartnerId(authOrResponse.userId);
     if (!operator_id) {
       return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
     }
@@ -53,6 +44,8 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[hub/operator/tours] GET отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({ error: 'Failed to fetch tours' }, { status: 500 });
   }
 }
@@ -62,7 +55,7 @@ export async function POST(request: NextRequest) {
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-    const operator_id = await getOperatorId(authOrResponse.userId);
+    const operator_id = await getOperatorPartnerId(authOrResponse.userId);
     if (!operator_id) {
       return NextResponse.json({ error: 'You are not registered as an operator' }, { status: 403 });
     }
@@ -84,9 +77,15 @@ export async function POST(request: NextRequest) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
-    if (error instanceof Error && error.message.includes('validation')) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    // Мёртвая ветка: ZodError.message — JSON-массив issue-объектов и НИКОГДА
+    // не содержит подстроку "validation", поэтому эта проверка не срабатывала
+    // ни разу, и любая ошибка валидации (пустой title, отрицательная цена)
+    // падала в generic 500 без объяснения (аудит кабинета оператора).
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues[0]?.message ?? 'Некорректные данные' }, { status: 400 });
     }
+    const e = error as { code?: string; message?: string };
+    console.error('[hub/operator/tours] POST отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({ error: 'Failed to create tour' }, { status: 500 });
   }
 }

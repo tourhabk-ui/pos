@@ -9,6 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
+import { canAccessLead } from '@/lib/leads/ownership';
+import type { JWTPayload } from '@/lib/auth/jwt';
 
 export async function POST(
   req: NextRequest,
@@ -16,8 +18,15 @@ export async function POST(
 ) {
   const authError = await requireOperator(req);
   if (authError instanceof NextResponse) return authError;
+  const user = authError as JWTPayload;
 
   const { id } = await params;
+
+  // Владение: без проверки оператор мог перезапустить AI-обработку чужого
+  // лида по угаданному/увиденному UUID (аудит кабинета оператора).
+  if (!(await canAccessLead(user, id))) {
+    return NextResponse.json({ success: false, error: 'Лид не найден' }, { status: 404 });
+  }
 
   try {
     const result = await leadProcessor.process(id);
