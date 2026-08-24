@@ -83,6 +83,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'booking-attempts':          { kind: 'manual', writes: false, note: 'сколько броней создано, сколько не дошло до денег, сколько сорвалось пятисоткой; попытки-касания — только с починки маяка' },
   'locked-out-partners':       { kind: 'manual', writes: false, note: 'аккаунт есть, партнёрского профиля нет: точный счёт потерь на запертой двери регистрации' },
   'backfill-partner-profile':  { kind: 'manual', writes: true,  note: 'создаёт недостающий партнёрский профиль через ensurePartnerForRole — возврат тех, кого заперла регистрация' },
+  'route-core':                { kind: 'manual', writes: false, note: 'Ф5 плана порядка маршрутов: ядро из 20 по цене ошибки (lib/routes/error-cost.ts), не по спросу — правило владельца 21.08' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'evo-log-cleanup':           { kind: 'manual', writes: true,  note: 'пометить неисполнимые записи очереди эволюции: 21 «ожидает» с апреля, которые рука пропускает каждый прогон' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
