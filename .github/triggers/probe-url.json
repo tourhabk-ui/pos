@@ -1,21 +1,17 @@
 {
-  "note": "Проба 185: числа воронки с прода. Перепись /api/cron/funnel-census появилась в коммите cc8fc31b, поэтому маркер свежести — probe funnel_census_v1: пока Timeweb не выкатил, роут отвечает 404, и ждать его надо, а не читать прежнюю сборку. Окно 30 суток, не 7: при малом трафике недельное окно даёт нули там, где месяц покажет тонкую струйку, а отличить «мало» от «ноль» — весь смысл. Маркеры разделяют три исхода: перепись сосчиталась (meaningful), сосчиталась частично (failed_measures), не сосчиталась вовсе (unknown_inputs).",
+  "note": "Проба 186: способен ли приёмник маяка записать событие. Перепись 185 показала funnel_events пустой за всё время при 153 просмотрах карточек тура и одной созданной брони — а бронь без касания формы не отправляется, значит либо она пришла не из формы, либо приёмник теряет события молча. /api/cron/beacon-check гоняет тот же INSERT в транзакции с гарантированным откатом: строка не остаётся, проверяется настоящий путь записи. Маркер свежести — beacon_check_v1, роут выкатывается тем же пушем.",
   "urls": [
-    "https://vedarai.ru/api/cron/funnel-census?days=30"
+    "https://vedarai.ru/api/cron/beacon-check"
   ],
-  "until": "funnel_census_v1",
+  "until": "beacon_check_v1",
   "retries": 10,
   "retryDelay": 60,
   "timeout": 60,
-  "bytes": 7000,
+  "bytes": 3000,
   "grep": [
-    "\"probe\":\"funnel_census_v1\"",
-    "\"verdict_state\"",
-    "\"meaningful\":true",
-    "\"meaningful\":false",
-    "\"failed_measures\":[]",
-    "\"unknown_inputs\":[]",
-    "\"beacon_rows_total\"",
+    "\"write_path\":\"ok\"",
+    "\"write_path\":\"failed\"",
+    "\"sqlstate\"",
     "Unauthorized"
   ]
 }
