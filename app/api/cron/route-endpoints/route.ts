@@ -1,0 +1,61 @@
+/**
+ * POST /api/cron/route-endpoints — извлечь точки начала/конца маршрута из
+ * OCR-паспорта и записать в route_waypoints (Ф5-хвост, план в
+ * .claude/ROUTES_ORDER_PLAN.md).
+ *
+ * Логика в lib/import/route-endpoints-runner.ts. Дисциплина та же, что у
+ * tour-pickup / place-coords: source и why обязательны без умолчаний, сухой
+ * прогон по умолчанию, партия не больше десяти.
+ *
+ * Пишет ТОЛЬКО точки (places + route_waypoints), не geometry: прямая линия
+ * между началом и концом выглядела бы как путь, по которому идут, а это
+ * не так (CLAUDE.md §12).
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { getCronSecret } from '@/lib/auth/cron';
+import { runRouteEndpoints } from '@/lib/import/route-endpoints-runner';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
+
+export const LIVE_BATCH_MAX = 10;
+
+const BodySchema = z.object({
+  source: z.string().trim().min(3, 'Назовите источник').max(200),
+  why: z.string().trim().min(3, 'Назовите причину').max(300),
+  dry_run: z.boolean().default(true),
+  route_ids: z.array(z.string().uuid()).min(1).max(LIVE_BATCH_MAX),
+});
+
+export async function POST(req: NextRequest) {
+  const secret = getCronSecret(req);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  let parsed: z.infer<typeof BodySchema>;
+  try {
+    parsed = BodySchema.parse(await req.json());
+  } catch (err) {
+    const msg = err instanceof z.ZodError ? err.issues[0]?.message ?? 'Некорректные данные' : 'Некорректные данные';
+    return NextResponse.json({ probe: 'route_endpoints_v1', error: msg }, { status: 400 });
+  }
+
+  try {
+    const result = await runRouteEndpoints({
+      routeIds: parsed.route_ids,
+      source: parsed.source,
+      why: parsed.why,
+      dryRun: parsed.dry_run,
+    });
+    return NextResponse.json({ ok: true, probe: 'route_endpoints_v1', ...result });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, probe: 'route_endpoints_v1', error: err instanceof Error ? err.message : 'Не выполнено' },
+      { status: 500 },
+    );
+  }
+}

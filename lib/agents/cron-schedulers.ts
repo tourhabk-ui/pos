@@ -87,6 +87,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'route-core':                { kind: 'manual', writes: false, note: 'Ф5 плана порядка маршрутов: ядро из 20 по цене ошибки (lib/routes/error-cost.ts), не по спросу — правило владельца 21.08' },
   'route-core-sources':        { kind: 'manual', writes: false, note: 'диагностика по конкретным id ядра Ф5: есть ли source_url/pdf_url/park_approval_url — прежде чем звать это «нужны полевые треки»' },
   'route-core-ocr-peek':       { kind: 'manual', writes: false, note: 'заглянуть в OCR-markdown паспорта: есть ли в тексте что-то похожее на координаты/путь, прежде чем строить парсер трека' },
+  'route-endpoints':           { kind: 'manual', writes: true,  note: 'извлекает точки начала/конца из паспорта, пишет places+route_waypoints (Ф5-хвост); координату переводит код, не модель' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
