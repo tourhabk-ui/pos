@@ -168,3 +168,57 @@ export function getMistralKey(): string | null {
 export function getFuguKey(): string | null {
   return process.env.FUGU_API_KEY || null;
 }
+
+export interface TimewebAgent {
+  agentId: string;
+  token: string;
+}
+
+/**
+ * Шлюз Timeweb к флагманам (Claude/GPT/Gemini/…) БЕЗ хопа за границей —
+ * замер владельца 23.08 (CLAUDE.md §8). Наружу ходит инфраструктура
+ * Timeweb, поэтому гео-блок Cloudflare (403 из РФ на прямой api.anthropic.com
+ * и на некоторые OpenRouter-релеи) к этому пути не относится — это ДРУГОЙ
+ * сетевой путь, не альтернативный ключ к тому же самому.
+ *
+ * У шлюза Timeweb модель — свойство АГЕНТА, не параметр запроса:
+ * `POST https://agent.timeweb.cloud/api/v1/cloud-ai/agents/{agent_id}/v1/chat/completions`,
+ * один агент = одна модель, `/v1/models` у шлюза нет. Поэтому вместо
+ * авто-резолва (как у DeepSeek/Qwen, §8) — явная карта «имя модели → агент»,
+ * которую владелец наполняет сам, создавая агентов в панели Timeweb.
+ *
+ * `TIMEWEB_AI_AGENTS` — JSON-объект:
+ *   {"claude-opus-5": {"agentId": "...", "token": "..."}, "gpt-5.6": {...}}
+ * Имя модели используется ТОЛЬКО для ранжирования (pickBestFlagship) — какой
+ * из настроенных агентов сильнее; сам по себе шлюз имени не проверяет и не
+ * использует. Не задан/не парсится → пустая карта, ступень решателя молча
+ * пропускается (тот же fail-soft, что у остальных провайдеров без ключа).
+ *
+ * Формат заголовка авторизации у шлюза документацией Timeweb НЕ
+ * зафиксирован дословно (только «токен доступа агента» без примера) — здесь
+ * предположен `Authorization: Bearer <токен>` по конвенции OpenAI-совместимых
+ * API, которой шлюз следует по пути `/v1/chat/completions`. Не проверено
+ * вызовом: у песочницы нет сети до agent.timeweb.cloud. Проверяется
+ * probeTimewebAgentStatus() на живом окружении — если формат неверен, ответ
+ * будет 401, а не таймаут, и это будет видно сразу, а не через день гадания.
+ */
+export function getTimewebAgents(): Record<string, TimewebAgent> {
+  const raw = process.env.TIMEWEB_AI_AGENTS;
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, TimewebAgent> = {};
+    for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const v = value as { agentId?: unknown; token?: unknown };
+      if (typeof v?.agentId === 'string' && v.agentId.trim() && typeof v?.token === 'string' && v.token.trim()) {
+        out[name] = { agentId: v.agentId.trim(), token: v.token.trim() };
+      }
+    }
+    return out;
+  } catch {
+    // Битый JSON в env — не повод падать сервису; ступень решателя просто
+    // не активируется, как и при отсутствующей переменной.
+    return {};
+  }
+}

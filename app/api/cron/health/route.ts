@@ -10,7 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -343,7 +344,7 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag] = await Promise.all([
+  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag, timewebDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
@@ -359,6 +360,11 @@ export async function GET(request: NextRequest) {
     // Диагностика DeepSeek: первичный решатель эволюции, а алерт про него был
     // единственным без причины («недоступен» — и всё).
     probeDeepSeekKeyStatus().catch(() => null),
+    // Диагностика шлюза Timeweb (§8, замер 23.08): опционален, владелец
+    // подключает сам через TIMEWEB_AI_AGENTS — не настроено, значит нечего
+    // проверять, не сбой. Не заводит алертов: это диагностика, а не критичный
+    // путь (решатель падает на OpenRouter/Anthropic/DeepSeek без него).
+    Object.keys(getTimewebAgents()).length > 0 ? probeTimewebAgentStatus().catch(() => null) : Promise.resolve(null),
   ]);
 
   const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || qwenOk;
@@ -460,6 +466,7 @@ export async function GET(request: NextRequest) {
     operator_registration: regSpike,
     qwen_key_diag: qwenKeyDiag,
     deepseek_key_diag: dsKeyDiag,
+    timeweb_agent_diag: timewebDiag,
     safety_ingest_age_min: seismic.ageMin,
     eco_ledger: eco,
     issues,
