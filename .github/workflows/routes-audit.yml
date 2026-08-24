@@ -1,8 +1,21 @@
 name: Data — Аудит качества маршрутов (печать в лог)
 
-# Дёргает GET /api/cron/routes-audit (Bearer CRON_SECRET) на проде и печатает
-# JSON-диагностику качества kamchatka_routes в лог Actions. Так агент видит
+# Дёргает GET /api/cron/route-data-audit (Bearer CRON_SECRET) на проде и
+# печатает JSON-переписи kamchatka_routes в лог Actions. Так агент видит
 # реальные цифры прода, не имея прямого доступа к БД (файрвол managed-PostgreSQL).
+#
+# НЕ ПУТАТЬ с /api/cron/routes-audit — тот отдаёт другую форму (total/visible/
+# hidden/merged/categories, lib/routes/audit.ts) и судье census-verdict.ts не
+# подходит: у него нет routes_counted и прочих полей Ф6-переписи.
+#
+# Обнаружено 24.08. Судью (census-verdict.ts) пристроили 19.08 к этому же
+# workflow, который уже существовал с июля и печатал JSON старого аудита —
+# адрес трогать не стали. Расписание у workflow недельное (понедельник), и
+# 24.08 стал первым прогоном ПОСЛЕ появления судьи: тот немедленно вынес
+# верный вердикт «посчитала ноль маршрутов» — routes_counted в чужой форме
+# ответа не бывает, только не по той причине, которую вердикт называл.
+# /api/cron/route-data-audit — единственный источник формы GeometryAudit
+# (lib/routes/geometry-audit.ts), которую судья и разбирает.
 #
 # Запуск: workflow_dispatch ИЛИ push в main, меняющий
 # .github/triggers/routes-audit.json (нет actions:write у интеграции).
@@ -39,14 +52,19 @@ jobs:
 
           # Ждём деплой: без ключа новый билд отвечает 401.
           for i in $(seq 1 20); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/cron/routes-audit" || echo 000)
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/cron/route-data-audit" || echo 000)
             if [ "$CODE" = "401" ]; then echo "endpoint deployed"; break; fi
             echo "endpoint not ready (HTTP $CODE), жду 60с ($i/20)"; sleep 60
           done
 
+          # 60с (прежнее значение) было рассчитано под /api/cron/routes-audit —
+          # лёгкий подсчёт категорий. route-data-audit — полная перепись всех
+          # маршрутов, у самого роута maxDuration 120с
+          # (app/api/cron/route-data-audit/route.ts); соседний ручной workflow
+          # (route-data-audit.yml) ждёт этот же ответ 300с. Берём тот же запас.
           echo "=== routes audit ==="
-          curl -s --max-time 60 -H "Authorization: Bearer $CRON_SECRET" \
-            "$BASE/api/cron/routes-audit" -o /tmp/census.json
+          curl -s --max-time 300 -H "Authorization: Bearer $CRON_SECRET" \
+            "$BASE/api/cron/route-data-audit" -o /tmp/census.json
           python3 -m json.tool --no-ensure-ascii /tmp/census.json 2>/dev/null || cat /tmp/census.json
 
       - uses: actions/checkout@v7
