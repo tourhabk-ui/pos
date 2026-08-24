@@ -1,12 +1,12 @@
 {
-  "note": "Проба 200: СУХОЙ прогон POST /api/cron/tour-photos — привязка 11 новых фото сплава по Быстрой (второй боевой заезд оператора kamchatka-rafting, tour_id 27) к галерее тура. dry_run:true — ничего не пишет, только показывает added/already_present/changed.",
+  "note": "Проба 201: БОЕВАЯ запись POST /api/cron/tour-photos — сухой прогон (проба 200) подтвердил added:11, already_present:0 на туре 27 «Сплав по реке Быстрая». dry_run:false — по образцу коммита 9fb756a9.",
   "post": [
     {
       "url": "https://vedarai.ru/api/cron/tour-photos",
       "body": {
         "source": "Владелец платформы, 24.08.2026: ещё фото сплава по Быстрой от «Камчатка Семейный Рафтинг»",
         "why": "продолжение серии 794/795, второй боевой заезд оператора",
-        "dry_run": true,
+        "dry_run": false,
         "tour_id": 27,
         "add": [
           "/images/tours/bystraya-rafting/10-camp-lunch-1.jpg",
@@ -30,7 +30,7 @@
   "timeout": 60,
   "bytes": 8000,
   "grep": [
-    "\"dry_run\":true",
+    "\"dry_run\":false",
     "\"changed\"",
     "\"added\"",
     "\"already_present\"",
