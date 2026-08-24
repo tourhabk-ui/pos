@@ -38,12 +38,12 @@ export const maxDuration = 30;
 /** Тот же INSERT, что у приёмника. Расходиться им нельзя — иначе проба врёт. */
 const RECEIVER_INSERT = `
   INSERT INTO funnel_events (step, entity_id, visitor_hash)
-  SELECT $1, $2, $3
+  SELECT $1::varchar, $2::text, $3::varchar
    WHERE NOT EXISTS (
      SELECT 1 FROM funnel_events
-      WHERE step = $1
-        AND entity_id IS NOT DISTINCT FROM $2
-        AND visitor_hash = $3
+      WHERE step = $1::varchar
+        AND entity_id IS NOT DISTINCT FROM $2::text
+        AND visitor_hash = $3::varchar
         AND created_at > NOW() - INTERVAL '60 minutes'
    )`;
 
