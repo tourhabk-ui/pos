@@ -58,13 +58,21 @@ export async function POST(request: NextRequest) {
   try {
     const hash = visitorHash(ip, userAgent, currentDay(), process.env.CRON_SECRET ?? 'vedar');
     await pool.query(
+      // Приведение типов у КАЖДОГО употребления параметра — не украшение.
+      // Без него PostgreSQL выводит для $1 два разных типа: в списке SELECT
+      // контекста нет и получается text, а в `step = $1` — varchar колонки.
+      // Ответ — 42P08 «inconsistent types deduced for parameter $1», то есть
+      // запрос не выполнялся НИ РАЗУ с момента заведения таблицы (миграция
+      // 839). Пустой catch делал этот отказ невидимым: витрине уходило 204,
+      // таблица оставалась пустой, и «никто не трогал форму» звучало как
+      // факт о туристах. Проба /api/cron/beacon-check 24.08 назвала SQLSTATE.
       `INSERT INTO funnel_events (step, entity_id, visitor_hash)
-       SELECT $1, $2, $3
+       SELECT $1::varchar, $2::text, $3::varchar
         WHERE NOT EXISTS (
           SELECT 1 FROM funnel_events
-           WHERE step = $1
-             AND entity_id IS NOT DISTINCT FROM $2
-             AND visitor_hash = $3
+           WHERE step = $1::varchar
+             AND entity_id IS NOT DISTINCT FROM $2::text
+             AND visitor_hash = $3::varchar
              AND created_at > NOW() - INTERVAL '60 minutes'
         )`,
       [parsed.step, parsed.entity_id ?? null, hash],
