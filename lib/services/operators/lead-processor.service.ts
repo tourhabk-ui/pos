@@ -90,7 +90,17 @@ interface TourRow {
 
 // ── Утилиты ───────────────────────────────────────────────────────────────────
 
-function safeJSON<T>(text: string, fallback: T): T {
+/**
+ * Разбор JSON-ответа ИИ. При неудаче отдаёт `fallback` — заглушку, от
+ * настоящего ответа неотличимую снаружи (score/вердикт/текст предложения
+ * выглядят как обычные, посчитанные). Поэтому падение обязано быть видно
+ * хоть где-то: `callAIFast` при отказе ВСЕХ провайдеров не бросает, а
+ * возвращает `AI_FAST_UNAVAILABLE` строкой — она не парсится как JSON и
+ * молча падает сюда же. Без лога «лид слабый» и «ИИ был недоступен, когда
+ * лид обрабатывался» неразличимы: score занижен, но причина потеряна, и
+ * никто не узнает, что нужно перепроверить лидов за окно простоя.
+ */
+export function safeJSON<T>(text: string, fallback: T, label: string): T {
   const match = text.match(/```json\s*([\s\S]*?)```/) ??
                 text.match(/\{[\s\S]*\}/) ??
                 text.match(/\[[\s\S]*\]/);
@@ -98,6 +108,7 @@ function safeJSON<T>(text: string, fallback: T): T {
   try {
     return JSON.parse(raw) as T;
   } catch {
+    console.error(`[lead-processor] ${label}: ответ ИИ не распарсился, взята заглушка:`, text.slice(0, 200));
     return fallback;
   }
 }
@@ -282,7 +293,7 @@ export class LeadProcessorService {
       interests: [],
       urgency: 'medium',
       qualification_notes: lead.comment ?? 'Нет данных',
-    });
+    }, 'qualify_intent');
   }
 
   private async matchTours(intent: LeadIntent, routeTitle: string | null): Promise<MatchedTour[]> {
@@ -421,8 +432,8 @@ ${context}
       ]).catch(() => '{"risks":[]}'),
     ]);
 
-    const bull = safeJSON<{ signals: string[] }>(bullRaw, { signals: [] });
-    const bear = safeJSON<{ risks: string[] }>(bearRaw, { risks: [] });
+    const bull = safeJSON<{ signals: string[] }>(bullRaw, { signals: [] }, 'bull');
+    const bear = safeJSON<{ risks: string[] }>(bearRaw, { risks: [] }, 'bear');
 
     const arbiterPrompt = `Ты — Arbiter в adversarial-анализе лида. Bull привёл сигналы покупки, Bear — риски. Вынеси трезвый вердикт по их силе и фактам лида. Не подыгрывай ни одной стороне.
 
@@ -471,7 +482,7 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
       recommended_action: 'send_proposal',
       call_strategy: 'Уточните детали поездки и предложите лучший тур.',
       urgency: 'warm',
-    });
+    }, 'arbiter');
 
     return {
       bullSignals:        bull.signals.slice(0, 5),
@@ -550,7 +561,7 @@ ${toursText}
         'Сопровождение от заявки до выезда',
         'Помощь с регистрацией в МЧС',
       ],
-    });
+    }, 'proposal');
 
     // Имя подставляем ЛОКАЛЬНО (в модель оно не уходило) — плейсхолдер {name}.
     const withName = (s: string): string => (s ?? '').split('{name}').join(lead.name);
