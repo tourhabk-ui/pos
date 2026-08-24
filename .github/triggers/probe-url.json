@@ -1,12 +1,18 @@
 {
-  "note": "Проба 183: условия партнёрской программы Tripster. Владелец прислал страницу их вики; из контейнера разработки хост закрыт прокси, раннер ходит свободно. Confluence Cloud рисует страницы скриптом, поэтому HTML отдаст оболочку без текста — первым идёт анонимный REST API content с expand=body.storage: если пространство публичное, он вернёт тело страницей JSON. Вторым тот же контент в формате view, третьим сама страница HTML — на случай, если REST закрыт, а страница отдаётся статикой. allowStale: отказ здесь и есть ответ (значит нужна авторизация), а сторож несвежести оборвал бы прогон на первом же адресе.",
+  "note": "Проба 184: тот же документ Tripster, но через API. Проба 183 показала: HTML отдаёт оболочку Confluence (скрипты atl-paas.net), текста в разметке нет. Здесь два машинных пути к телу страницы — v2 (body-format=storage) и старый REST (expand=body.storage), оба анонимно. Маркеры различают три исхода: тело пришло, доступ закрыт, страницы нет. Без маркеров «пусто» и «закрыто» в логе неотличимы. allowStale, потому что отказ и есть ответ.",
   "urls": [
-    "https://tripster.atlassian.net/wiki/rest/api/content/3688235009?expand=body.storage,title,space",
-    "https://tripster.atlassian.net/wiki/rest/api/content/3688235009?expand=body.view",
-    "https://tripster.atlassian.net/wiki/spaces/affiliates/pages/3688235009"
+    "https://tripster.atlassian.net/wiki/api/v2/pages/3688235009?body-format=storage",
+    "https://tripster.atlassian.net/wiki/rest/api/content/3688235009?expand=body.storage"
   ],
   "timeout": 40,
-  "bytes": 12000,
+  "bytes": 6000,
   "retries": 0,
-  "allowStale": true
+  "allowStale": true,
+  "grep": [
+    "\"storage\"",
+    "Unauthorized",
+    "not permitted",
+    "\"statusCode\"",
+    "\"title\""
+  ]
 }
