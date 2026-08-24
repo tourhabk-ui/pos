@@ -1,11 +1,11 @@
 {
-  "note": "Проба 202: боевой прогон route-endpoints (Ф5-хвост) — dry_run:false, те же 18 route_id с OCR, что сухой прогон 201 (16 точек, 4 новых места, 8 маршрутов с полной парой координат). Код не менялся с пробы 201 — until \"version\":2 уже верен в текущей сборке, ожидания не будет.",
+  "note": "Проба 203: повтор боевого прогона route-endpoints после фикса 42P08 (проба 202 — 4 из 18 маршрутов, которым нужно новое место, упали с 'inconsistent types deduced for parameter $1'). dry_run:false, те же 18 route_id. until \"version\":3 — новая версия ответа, поведение изменилось.",
   "post": [
     {
       "url": "https://vedarai.ru/api/cron/route-endpoints",
       "body": {
         "source": "паспорта visitkamchatka.ru, поле «Пункт начала/окончания»",
-        "why": "Ф5-хвост: боевой прогон после сухого прогона 201, владелец подтвердил (\"го\")",
+        "why": "Ф5-хвост: повтор боевого прогона после фикса 42P08 (проба 202) в создании новых мест",
         "dry_run": false,
         "route_ids": [
           "67fba4be-ac61-46c8-bdf5-225f25b09baa",
@@ -25,7 +25,7 @@
       "url": "https://vedarai.ru/api/cron/route-endpoints",
       "body": {
         "source": "паспорта visitkamchatka.ru, поле «Пункт начала/окончания»",
-        "why": "Ф5-хвост: боевой прогон после сухого прогона 201, владелец подтвердил (\"го\")",
+        "why": "Ф5-хвост: повтор боевого прогона после фикса 42P08 (проба 202) в создании новых мест",
         "dry_run": false,
         "route_ids": [
           "f447bbe2-37ef-4858-b5eb-d8014fbf50d2",
@@ -40,17 +40,18 @@
       }
     }
   ],
-  "until": "\"version\":2",
+  "until": "\"version\":3",
   "retries": 15,
   "retryDelay": 60,
   "timeout": 90,
   "bytes": 24000,
   "grep": [
     "\"dry_run\":false",
-    "\"version\":2",
+    "\"version\":3",
     "\"points_linked\"",
     "\"places_created\"",
     "no_coord",
+    "inconsistent types",
     "Unauthorized",
     "\"error\""
   ]
