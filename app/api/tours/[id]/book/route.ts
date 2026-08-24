@@ -71,7 +71,7 @@ export async function POST(
         t.title AS name,
         t.base_price AS price,
         t.max_participants AS max_group_size,
-        t.min_group_size,
+        t.min_participants AS min_group_size,
         t.is_active,
         p.name as operator_name,
         p.email as operator_email
