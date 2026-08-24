@@ -67,6 +67,44 @@ const JOIN_EQ =
 /** Обращение к колонке через алиас. */
 const ALIAS_COL = /\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b/gi;
 
+/**
+ * Обращение к колонке БЕЗ алиаса: `WHERE transfer_operator_id = $1`.
+ *
+ * Одностолбовые запросы алиасов не ставят, и объектив их не видел вовсе:
+ * агентство трансферов спрашивало несуществующий `transfer_operator_id`
+ * тремя запросами, а в улов попал только один — тот, где случился JOIN.
+ *
+ * Берём лишь позиции, где имя заведомо колонка, а не функция и не ключевое
+ * слово: после `WHERE`/`AND`/`OR`/`SET`/`ON` и перед сравнением, `IS`, `IN`.
+ * Судим ТОЛЬКО когда в запросе ровно одна таблица — иначе непонятно, чья
+ * колонка, и «не знаю» молчит (§4.0).
+ */
+const BARE_COL =
+  /\b(?:WHERE|AND|OR|SET|ON)\s+"?([a-z_][a-z0-9_]*)"?\s*(?:=|<>|!=|>=|<=|>|<|\bIS\b|\bIN\b|\bNOT\s+IN\b|\bLIKE\b|\bILIKE\b)/gi;
+
+/** Слова, которые синтаксически стоят там же, но колонками не являются. */
+const NOT_A_COLUMN = new Set([
+  'not', 'exists', 'true', 'false', 'null', 'case', 'when', 'then', 'else',
+  'select', 'date', 'lower', 'upper', 'coalesce', 'count', 'sum', 'max', 'min',
+  'current_date', 'current_timestamp', 'now', 'any', 'all', 'conflict', 'do',
+]);
+
+/**
+ * Комментарии SQL — прозой, а не кодом.
+ *
+ * Запрос объясняет сам себя: `-- ta.operator_tour_id, а НЕ ta.tour_id` — это
+ * предупреждение о колонке, которой нет, и объектив клеймил его как её
+ * употребление. Судить надо по коду, а не по тексту рядом с ним.
+ *
+ * Затираем пробелами, длину и переводы строк сохраняем: номер строки в находке
+ * считается по смещению.
+ */
+function stripSqlComments(sql: string): string {
+  return sql
+    .replace(/--[^\n]*/g, (m) => ' '.repeat(m.length))
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+}
+
 interface Literal { body: string; start: number }
 
 /** Шаблонные литералы файла с вырезанными `${…}`. */
@@ -80,7 +118,7 @@ function sqlLiterals(src: string): Literal[] {
     if (SQL_WORD.test(raw)) {
       // Интерполяции заменяем пробелами: их содержимое к схеме отношения не
       // имеет, а скобки внутри сбивают разбор.
-      out.push({ body: raw.replace(/\$\{[^}]*\}/g, ' '), start: i + 1 });
+      out.push({ body: stripSqlComments(raw).replace(/\$\{[^}]*\}/g, ' '), start: i + 1 });
     }
     i = end;
   }
@@ -137,9 +175,13 @@ export function scanSourceAgainstSchema(
         const fk = schema.foreignKeys.get(`${near}.${nearCol}`);
         if (!fk) continue;
         if (fk.refTable === far && fk.refColumn === farCol) continue;
-        // Ключ ведёт в заменённую таблицу, а код соединяет с её преемником —
-        // это не дефект кода, а отставшая схема.
-        if ((REPLACED[fk.refTable] ?? []).includes(far)) continue;
+        // Ключ ведёт в ЗАМЕНЁННУЮ таблицу — значит он сам устарел и судить им
+        // нельзя ничего. Перечислять «законных преемников» мы пробовали, и
+        // список сразу оказался неполон: отзывы о МАРШРУТАХ соединяют
+        // reviews.tour_id с kamchatka_routes.ark_id (осознанно, это записано в
+        // шапке запроса), а ключ всё ещё показывает на мёртвую `tours`.
+        // Мёртвый ключ — это «не знаю», а не «плохо» (§4.0).
+        if (REPLACED[fk.refTable]) continue;
         // Вторая сторона тоже может быть ключом в ту же цель — тогда это
         // законное соединение двух ссылок на одну таблицу, а не ошибка.
         const farFk = schema.foreignKeys.get(`${far}.${farCol}`);
@@ -171,6 +213,26 @@ export function scanSourceAgainstSchema(
         kind: 'unknown_column',
         message: `в таблице ${table} нет колонки ${col} — запрос упадёт`,
       });
+    }
+
+    // 3. Колонка без алиаса — только когда таблица в запросе одна.
+    const tables = new Set([...aliases.values()]);
+    if (tables.size === 1) {
+      const table = [...tables][0];
+      const cols = schema.columns.get(table);
+      if (cols) {
+        BARE_COL.lastIndex = 0;
+        for (let m = BARE_COL.exec(lit.body); m; m = BARE_COL.exec(lit.body)) {
+          const col = m[1].toLowerCase();
+          if (NOT_A_COLUMN.has(col) || cols.has(col)) continue;
+          out.push({
+            file,
+            line: lineOf(src, lit.start + m.index),
+            kind: 'unknown_column',
+            message: `в таблице ${table} нет колонки ${col} — запрос упадёт`,
+          });
+        }
+      }
     }
   }
 

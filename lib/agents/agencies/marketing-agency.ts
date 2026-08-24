@@ -119,7 +119,7 @@ export class MarketingAgency {
       `),
       pool.query<{ names: string }>(`
         SELECT STRING_AGG(name, ', ' ORDER BY name) AS names
-        FROM partners WHERE is_active = true
+        FROM partners WHERE is_public = true
         LIMIT 5
       `),
     ]);

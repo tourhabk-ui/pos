@@ -150,11 +150,10 @@ async function collectProjectDocuments(): Promise<KnowledgeDocument[]> {
         id,
         name,
         description,
-        contact_info,
-        specialization,
+        category,
         rating
       FROM partners
-      WHERE role = 'operator'
+      WHERE category = 'operator'
       LIMIT 20
     `)
 
@@ -165,8 +164,7 @@ async function collectProjectDocuments(): Promise<KnowledgeDocument[]> {
         content: `
 Название: ${operator.name}
 Описание: ${operator.description || 'Нет описания'}
-Специализация: ${operator.specialization || 'Туры'}
-Контакты: ${operator.contact_info || 'Не указаны'}
+Направление: ${operator.category || 'не указано'}
 Рейтинг: ${operator.rating || 'Не оценен'}
         `,
         category: 'operators',
@@ -176,6 +174,12 @@ async function collectProjectDocuments(): Promise<KnowledgeDocument[]> {
     })
 
   } catch (error) {
+    // Запрос годами шёл по призрачной модели (role, contact_info,
+    // specialization — таких колонок в partners нет) и падал целиком: в базе
+    // знаний не было НИ ОДНОГО оператора, а пустой catch выдавал это за
+    // «операторов нет».
+    console.error('[knowledge-base] операторы не попали в базу знаний:',
+      error instanceof Error ? error.message : error);
   }
 
   const externalUrls = parseSourceUrls(process.env.KNOWLEDGE_BASE_SOURCE_URLS)

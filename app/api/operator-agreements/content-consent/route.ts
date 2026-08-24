@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   try {
     // Найти партнёра по user_id
     const { rows: partners } = await pool.query(
-      `SELECT id FROM partners WHERE admin_user_id = $1 LIMIT 1`,
+      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
       [userId]
     );
 
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     // Найти партнёра
     const { rows: partners } = await pool.query(
-      `SELECT id FROM partners WHERE admin_user_id = $1 LIMIT 1`,
+      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
       [userId]
     );
 

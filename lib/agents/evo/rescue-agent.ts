@@ -167,7 +167,7 @@ async function checkOperatorResponse(): Promise<RescueAlert[]> {
       LEFT JOIN operator_bookings ob ON ob.operator_tour_id IN (
         SELECT id FROM operator_tours WHERE operator_id = p.id
       )
-      WHERE p.is_active = true
+      WHERE p.is_public = true
       GROUP BY p.id, p.name
       HAVING MAX(ob.created_at) IS NOT NULL
       ORDER BY days_since DESC

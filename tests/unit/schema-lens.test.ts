@@ -92,3 +92,59 @@ describe('колонка, которой нет', () => {
     expect(scanSourceAgainstSchema('x.ts', src, empty)).toEqual([]);
   });
 });
+
+describe('объектив судит код, а не прозу вокруг него', () => {
+  it('колонка из комментария SQL не считается употреблением', () => {
+    // Запрос оператора объясняет сам себя: `-- ta.operator_tour_id, а НЕ
+    // ta.tour_id`. Объектив клеймил это предупреждение как обращение к
+    // несуществующей колонке — тот же промах, что уже случался у сторожей
+    // трижды: суди по коду, не по тексту рядом с ним.
+    const src = [
+      'const q = `SELECT ta.date FROM tour_availability ta',
+      '  -- ta.operator_tour_id, а НЕ ta.tour_id',
+      '  WHERE ta.operator_tour_id = $1`;',
+    ].join('\n');
+    expect(scanSourceAgainstSchema('x.ts', src, schema)).toEqual([]);
+  });
+
+  it('блочный комментарий тоже не судится', () => {
+    const src = 'const q = `SELECT p.name /* p.email тут нет */ FROM partners p`;';
+    expect(scanSourceAgainstSchema('x.ts', src, schema)).toEqual([]);
+  });
+});
+
+describe('колонка без алиаса', () => {
+  it('ловит односоставный запрос — алиасов там не ставят', () => {
+    // Агентство трансферов спрашивало несуществующий transfer_operator_id
+    // тремя запросами, а в улов попадал только тот, где случился JOIN:
+    // остальные два были без алиасов и объективу не видны вовсе.
+    const src = 'const q = `SELECT id FROM vehicles WHERE transfer_operator_id = $1`;';
+    const found = scanSourceAgainstSchema('x.ts', src, schema);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain('transfer_operator_id');
+  });
+
+  it('существующая колонка без алиаса молчит', () => {
+    const src = 'const q = `SELECT id FROM vehicles WHERE operator_id = $1`;';
+    expect(scanSourceAgainstSchema('x.ts', src, schema)).toEqual([]);
+  });
+
+  it('при двух таблицах голая колонка не судится: чья она — неизвестно', () => {
+    const src = 'const q = `SELECT v.id FROM vehicles v JOIN partners p ON p.id = v.operator_id WHERE transfer_operator_id = $1`;';
+    const bare = scanSourceAgainstSchema('x.ts', src, schema)
+      .filter((m) => /transfer_operator_id/.test(m.message));
+    expect(bare).toEqual([]);
+  });
+});
+
+describe('мёртвый внешний ключ не судит ничего', () => {
+  it('reviews.tour_id → tours не спорит с соединением по маршрутам', () => {
+    // Отзывы о МАРШРУТАХ соединяют reviews.tour_id с kamchatka_routes.ark_id
+    // осознанно — это записано в шапке запроса модерации. Ключ при этом всё
+    // ещё показывает на мёртвую tours. Перечень «законных преемников» тут
+    // сразу оказался неполон, поэтому мёртвый ключ молчит целиком.
+    const src = 'const q = `SELECT r.id FROM reviews r LEFT JOIN kamchatka_routes kr ON kr.ark_id = r.tour_id`;';
+    const fk = scanSourceAgainstSchema('x.ts', src, schema).filter((m) => m.kind === 'fk_join_mismatch');
+    expect(fk).toEqual([]);
+  });
+});

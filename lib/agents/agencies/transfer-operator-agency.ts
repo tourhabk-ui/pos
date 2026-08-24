@@ -8,6 +8,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { getTransferPartnerId } from '@/lib/auth/transfer-helpers';
 import type { AgentContext } from '../context-hub';
 
 export interface AgencyResult {
@@ -30,8 +31,8 @@ interface DriverRow {
 
 interface TransferBookingRow {
   id: string;
-  from_location: string;
-  to_location: string;
+  pickup_location: string;
+  dropoff_location: string;
   price: number;
   status: string;
 }
@@ -65,13 +66,18 @@ export class TransferOperatorAgency {
     }
 
     try {
+      const partnerId = await getTransferPartnerId(String(context.user.userId));
+      if (!partnerId) {
+        return { response: 'У вашей учётной записи нет профиля трансфер-оператора.' };
+      }
+
       const { rows } = await pool.query<VehicleRow>(
         `SELECT id::text, type, capacity, status
          FROM vehicles
-         WHERE transfer_operator_id = $1
+         WHERE operator_id = $1
          ORDER BY type, capacity
          LIMIT 20`,
-        [context.user.userId]
+        [partnerId]
       );
 
       if (rows.length === 0) {
@@ -96,15 +102,18 @@ export class TransferOperatorAgency {
     }
 
     try {
+      const partnerId = await getTransferPartnerId(String(context.user.userId));
+      if (!partnerId) {
+        return { response: 'У вашей учётной записи нет профиля трансфер-оператора.' };
+      }
+
       const { rows } = await pool.query<DriverRow>(
-        `SELECT d.id::text, d.license_number, u.status
-         FROM drivers d
-         JOIN users u ON u.id = d.user_id
-         WHERE d.transfer_operator_id = $1
-           AND u.deleted_at IS NULL
-         ORDER BY d.license_number
+        `SELECT id::text, license_number, status
+         FROM drivers
+         WHERE operator_id = $1
+         ORDER BY license_number
          LIMIT 20`,
-        [context.user.userId]
+        [partnerId]
       );
 
       if (rows.length === 0) {
@@ -129,14 +138,19 @@ export class TransferOperatorAgency {
     }
 
     try {
+      const partnerId = await getTransferPartnerId(String(context.user.userId));
+      if (!partnerId) {
+        return { response: 'У вашей учётной записи нет профиля трансфер-оператора.' };
+      }
+
       const { rows } = await pool.query<TransferBookingRow>(
-        `SELECT id::text, from_location, to_location, price, status
+        `SELECT id::text, pickup_location, dropoff_location, price, status
          FROM transfers
-         WHERE transfer_operator_id = $1
+         WHERE operator_id = $1
            AND status NOT IN ('cancelled', 'completed')
-         ORDER BY id DESC
+         ORDER BY pickup_datetime DESC NULLS LAST
          LIMIT 10`,
-        [context.user.userId]
+        [partnerId]
       );
 
       if (rows.length === 0) {
@@ -146,7 +160,7 @@ export class TransferOperatorAgency {
       const lines = [`<b>Бронирования трансферов (${rows.length}):</b>`, ''];
       for (const b of rows) {
         const price = Number(b.price).toLocaleString('ru-RU');
-        lines.push(`${b.from_location} → ${b.to_location} | ${price} руб | ${b.status}`);
+        lines.push(`${b.pickup_location} → ${b.dropoff_location} | ${price} руб | ${b.status}`);
       }
 
       return { response: lines.join('\n'), data: { bookings: rows } };

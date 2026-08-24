@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
 
     const result = await query(
       `SELECT
-        r.id, r.tour_id, r.rating, r.comment, r.images,
+        -- Колонки images у reviews нет: фото к отзыву хранить негде, и
+        -- запрос падал целиком — «мои отзывы» не открывались ни разу.
+        -- Поле ответа остаётся пустым списком: это честное «нечего показать»,
+        -- а не выдумка. Появится хранилище — вернётся сюда одной строкой.
+        r.id, r.tour_id, r.rating, r.comment,
         r.created_at, r.updated_at,
         t.title as tour_name
       FROM reviews r
@@ -42,7 +46,7 @@ export async function GET(request: NextRequest) {
       tourName: row.tour_name,
       rating: row.rating,
       comment: row.comment,
-      images: row.images ?? [],
+      images: [] as string[],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
