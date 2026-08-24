@@ -86,6 +86,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'routes-audit':              { kind: 'manual', writes: false, note: 'категории пробелов kamchatka_routes (no_geometry/no_distance/...); с 24.08 не дёргается workflow — тот теперь ходит на route-data-audit (issue #1378), эндпоинт остался для ad hoc чтения (та же логика, что у /api/admin/routes/audit)' },
   'route-core':                { kind: 'manual', writes: false, note: 'Ф5 плана порядка маршрутов: ядро из 20 по цене ошибки (lib/routes/error-cost.ts), не по спросу — правило владельца 21.08' },
   'route-core-sources':        { kind: 'manual', writes: false, note: 'диагностика по конкретным id ядра Ф5: есть ли source_url/pdf_url/park_approval_url — прежде чем звать это «нужны полевые треки»' },
+  'route-core-ocr-peek':       { kind: 'manual', writes: false, note: 'заглянуть в OCR-markdown паспорта: есть ли в тексте что-то похожее на координаты/путь, прежде чем строить парсер трека' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
