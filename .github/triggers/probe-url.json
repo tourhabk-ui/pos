@@ -1,16 +1,18 @@
 {
-  "note": "Проба 194: подтверждение — locked-out-partners должна показать lost_total:0 после боевого возврата профилей (проба 193 создала 4 записи в partners для двух людей).",
+  "note": "Проба 195: Ф5 — список ядра из 20 маршрутов по цене ошибки (не по спросу). Маркер свежести — route_core_v1, роут выкатывается тем же пушем.",
   "urls": [
-    "https://vedarai.ru/api/cron/locked-out-partners"
+    "https://vedarai.ru/api/cron/route-core"
   ],
-  "until": "\"lost_total\":0",
+  "until": "route_core_v1",
   "retries": 10,
   "retryDelay": 60,
   "timeout": 60,
-  "bytes": 3000,
+  "bytes": 9000,
   "grep": [
-    "\"lost_total\":0",
-    "\"without_profile\":0",
-    "Unauthorized"
+    "\"probe\":\"route_core_v1\"",
+    "\"routes_considered\"",
+    "\"core\"",
+    "Unauthorized",
+    "\"error\""
   ]
 }
