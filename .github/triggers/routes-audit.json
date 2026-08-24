@@ -1,4 +1,4 @@
 {
-  "note": "Маркер запуска routes-audit.yml: правка этого файла в main дёргает GET /api/cron/routes-audit на проде и печатает JSON-диагностику качества маршрутов в лог Actions (агент читает лог, чтобы видеть цифры прода без доступа к БД).",
-  "run": 1
+  "note": "Маркер запуска routes-audit.yml: правка этого файла в main дёргает GET /api/cron/route-data-audit на проде (исправлено 24.08, было /api/cron/routes-audit — не тот эндпоинт, issue #1378) и судит перепись порогами census-verdict.ts.",
+  "run": 2
 }

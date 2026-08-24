@@ -1,8 +1,19 @@
 name: Data — Аудит качества маршрутов (печать в лог)
 
-# Дёргает GET /api/cron/routes-audit (Bearer CRON_SECRET) на проде и печатает
-# JSON-диагностику качества kamchatka_routes в лог Actions. Так агент видит
+# Дёргает GET /api/cron/route-data-audit (Bearer CRON_SECRET) на проде и
+# печатает JSON геометрической переписи (routes_counted, navigability,
+# link_kinds, track_evidence, cleanup_queues) в лог Actions. Так агент видит
 # реальные цифры прода, не имея прямого доступа к БД (файрвол managed-PostgreSQL).
+#
+# ИСПРАВЛЕНО 24.08: этот workflow до сих пор дёргал /api/cron/routes-audit —
+# ДРУГОЙ, более старый эндпоинт (lib/routes/audit.ts, computeRoutesAudit:
+# категории no_geometry/no_distance/…). У его ответа нет полей routes_counted
+# / navigability / link_kinds, которые ждёт судья (lib/routes/census-verdict.ts,
+# написан под lib/routes/geometry-audit.ts). Поэтому судья видел
+# `routes_counted: undefined` и КАЖДЫЙ прогон объявлял «перепись посчитала
+# ноль маршрутов» — не потому, что маршруты пропали, а потому, что вопрос
+# задавался не тому эндпоинту. Issue #1378 — эта путаница, а не регрессия
+# данных. Сторож разводки: tests/unit/routes-audit-workflow-wiring.test.ts.
 #
 # Запуск: workflow_dispatch ИЛИ push в main, меняющий
 # .github/triggers/routes-audit.json (нет actions:write у интеграции).
@@ -39,14 +50,19 @@ jobs:
 
           # Ждём деплой: без ключа новый билд отвечает 401.
           for i in $(seq 1 20); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/cron/routes-audit" || echo 000)
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/cron/route-data-audit" || echo 000)
             if [ "$CODE" = "401" ]; then echo "endpoint deployed"; break; fi
             echo "endpoint not ready (HTTP $CODE), жду 60с ($i/20)"; sleep 60
           done
 
+          # 300с, не 60: route-data-audit проходит все ~420 маршрутов
+          # (лимит не передаётся нарочно — судья должен видеть ПОЛНУЮ
+          # перепись, а не срез), тот же таймаут держит и ручной workflow
+          # route-data-audit.yml. Серверный maxDuration роута — 120с, так
+          # что запас с обеих сторон.
           echo "=== routes audit ==="
-          curl -s --max-time 60 -H "Authorization: Bearer $CRON_SECRET" \
-            "$BASE/api/cron/routes-audit" -o /tmp/census.json
+          curl -s --max-time 300 -H "Authorization: Bearer $CRON_SECRET" \
+            "$BASE/api/cron/route-data-audit" -o /tmp/census.json
           python3 -m json.tool --no-ensure-ascii /tmp/census.json 2>/dev/null || cat /tmp/census.json
 
       - uses: actions/checkout@v7
