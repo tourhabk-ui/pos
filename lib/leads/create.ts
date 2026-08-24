@@ -106,8 +106,11 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
       if (dupCheck.rows.length > 0) {
         return dupCheck.rows[0].id;
       }
-    } catch {
-      // Не блокируем — дедуп опционален
+    } catch (err) {
+      // Не блокируем — дедуп опционален, но отказ проверки не «дубля нет»,
+      // это «не смогли проверить» (§4.0). Продолжаем создавать лид как обычно.
+      const e = err as { code?: string; message?: string };
+      console.error('[leads] проверка дубля не выполнилась:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     }
   }
 
@@ -130,7 +133,11 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
         [route_id],
       );
       if (owners.rows.length === 1) resolvedOperatorId = owners.rows[0].operator_id;
-    } catch { /* атрибуция опциональна — лид важнее */ }
+    } catch (err) {
+      // Атрибуция опциональна — лид важнее, но отказ называется, не молчит.
+      const e = err as { code?: string; message?: string };
+      console.error('[leads] атрибуция оператора не выполнилась:', `route_id=${route_id}`, `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    }
   }
 
   // ── 4. INSERT ───────────────────────────────────────────────────────────
@@ -162,7 +169,13 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
       ],
     );
     leadId = res.rows[0]?.id ?? null;
-  } catch {
+  } catch (err) {
+    // Вход в ВСЮ воронку — единственная точка, где создаётся lead. Молчащий
+    // catch здесь означает не «лида нет», а «не узнаем никогда, почему».
+    // Тот же класс дефекта уже стоил funnel_events и operator_commissions
+    // всех записей — там тоже был пустой catch на месте, где нельзя молчать.
+    const e = err as { code?: string; message?: string };
+    console.error('[leads] INSERT не выполнился:', `channel=${sourceChannel}`, `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     return null;
   }
 
