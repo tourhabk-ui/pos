@@ -84,6 +84,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'locked-out-partners':       { kind: 'manual', writes: false, note: 'аккаунт есть, партнёрского профиля нет: точный счёт потерь на запертой двери регистрации' },
   'backfill-partner-profile':  { kind: 'manual', writes: true,  note: 'создаёт недостающий партнёрский профиль через ensurePartnerForRole — возврат тех, кого заперла регистрация' },
   'routes-audit':              { kind: 'manual', writes: false, note: 'категории пробелов kamchatka_routes (no_geometry/no_distance/...); с 24.08 не дёргается workflow — тот теперь ходит на route-data-audit (issue #1378), эндпоинт остался для ad hoc чтения (та же логика, что у /api/admin/routes/audit)' },
+  'route-core':                { kind: 'manual', writes: false, note: 'Ф5 плана порядка маршрутов: ядро из 20 по цене ошибки (lib/routes/error-cost.ts), не по спросу — правило владельца 21.08' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
