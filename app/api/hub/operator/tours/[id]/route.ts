@@ -5,39 +5,49 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
 import {
   UpdateTourSchema,
   getTourById,
   softDeleteTour,
 } from '@/lib/api/operator-tours';
-import { query } from '@/lib/database';
+import { transaction } from '@/lib/database';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { pingTourChanged } from '@/lib/seo/indexnow';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 
 export const dynamic = 'force-dynamic';
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const result = await query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return (result.rows[0]?.id as string) || null;
+/** BigInt(params.id) на нечисловом id кидает SyntaxError — тот же тип
+ * исключения, что и у request.json() на битом теле. Раньше обе ошибки
+ * ловились одним catch и путались: DELETE /tours/not-a-number отвечал
+ * общим 500 "Failed to delete tour" вместо честного 400 на клиентскую
+ * ошибку ввода (аудит кабинета оператора). */
+function parseTourId(raw: string): bigint | null {
+  try {
+    return BigInt(raw);
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  try {
-    const tourId = BigInt(params.id);
+  const tourId = parseTourId(params.id);
+  if (tourId === null) {
+    return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
+  }
 
+  try {
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
     const isAdmin = authOrResponse.role === 'admin';
 
-    const operator_id = isAdmin ? null : await getOperatorId(authOrResponse.userId);
+    const operator_id = isAdmin ? null : await getOperatorPartnerId(authOrResponse.userId);
     if (!isAdmin && !operator_id) {
       return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
     }
@@ -49,6 +59,8 @@ export async function GET(
 
     return NextResponse.json({ success: true, data: tour });
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[hub/operator/tours/[id]] GET отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({ error: 'Failed to fetch tour' }, { status: 500 });
   }
 }
@@ -57,15 +69,18 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  try {
-    const tourId = BigInt(params.id);
+  const tourId = parseTourId(params.id);
+  if (tourId === null) {
+    return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
+  }
 
+  try {
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
     const isAdmin = authOrResponse.role === 'admin';
 
-    const operator_id = isAdmin ? null : await getOperatorId(authOrResponse.userId);
+    const operator_id = isAdmin ? null : await getOperatorPartnerId(authOrResponse.userId);
     if (!isAdmin && !operator_id) {
       return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
     }
@@ -116,31 +131,49 @@ export async function PATCH(
     }
 
     values.push(tourId);
-    const result = await query(
-      `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
-       WHERE id = $${idx} AND deleted_at IS NULL
-       RETURNING id, title, updated_at`,
-      values
-    );
 
-    // Update tags if provided
-    if (input.tags !== undefined) {
-      await query(`DELETE FROM operator_tour_tags WHERE tour_id = $1`, [tourId]);
-      for (const tag of input.tags) {
-        await query(
-          `INSERT INTO operator_tour_tags (tour_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [tourId, tag.trim().toLowerCase()]
-        );
+    // UPDATE и перезапись тегов — в ОДНОЙ транзакции. Раньше это были два
+    // независимых запроса: обрыв соединения между DELETE и циклом INSERT
+    // оставлял теги частично потерянными, а клиенту уходил 500 — оператор
+    // считал, что не сохранилось НИЧЕГО, хотя цена/название уже применились
+    // (аудит кабинета оператора).
+    const updatedRow = await transaction(async (client) => {
+      const result = await client.query(
+        `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
+         WHERE id = $${idx} AND deleted_at IS NULL
+         RETURNING id, title, updated_at`,
+        values
+      );
+
+      if (input.tags !== undefined) {
+        await client.query(`DELETE FROM operator_tour_tags WHERE tour_id = $1`, [tourId]);
+        for (const tag of input.tags) {
+          await client.query(
+            `INSERT INTO operator_tour_tags (tour_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [tourId, tag.trim().toLowerCase()]
+          );
+        }
       }
-    }
+
+      return result.rows[0];
+    });
 
     pingTourChanged(tourId);
 
-    return NextResponse.json({ success: true, data: result.rows[0] });
+    return NextResponse.json({ success: true, data: updatedRow });
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
+    // ZodError раньше не разбирался отдельно — любая ошибка валидации
+    // (пустая строка в title, отрицательная цена, non-nullable base_price
+    // при очистке поля) падала в generic 500 "Failed to update tour" без
+    // объяснения причины (аудит кабинета оператора).
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues[0]?.message ?? 'Некорректные данные' }, { status: 400 });
+    }
+    const e = error as { code?: string; message?: string };
+    console.error('[hub/operator/tours/[id]] PATCH отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({ error: 'Failed to update tour' }, { status: 500 });
   }
 }
@@ -149,15 +182,18 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  try {
-    const tourId = BigInt(params.id);
+  const tourId = parseTourId(params.id);
+  if (tourId === null) {
+    return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
+  }
 
+  try {
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
     const isAdmin = authOrResponse.role === 'admin';
 
-    const operator_id = isAdmin ? null : await getOperatorId(authOrResponse.userId);
+    const operator_id = isAdmin ? null : await getOperatorPartnerId(authOrResponse.userId);
     if (!isAdmin && !operator_id) {
       return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
     }
@@ -169,6 +205,8 @@ export async function DELETE(
 
     return NextResponse.json({ success: true, message: 'Tour deleted' });
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[hub/operator/tours/[id]] DELETE отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({ error: 'Failed to delete tour' }, { status: 500 });
   }
 }

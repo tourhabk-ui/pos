@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { encryptPayoutDetails } from '@/lib/operators/payout-details';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { z } from 'zod';
 
 const PayoutDetailsSchema = z.discriminatedUnion('method', [
@@ -30,16 +31,11 @@ const PayoutDetailsSchema = z.discriminatedUnion('method', [
 
 export const dynamic = 'force-dynamic';
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const r = await query(`SELECT id FROM partners WHERE user_id = $1 LIMIT 1`, [userId]);
-  return (r.rows[0]?.id as string) || null;
-}
-
 export async function GET(request: NextRequest) {
   const authOrResponse = await requireOperator(request);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-  const operatorId = await getOperatorId(authOrResponse.userId);
+  const operatorId = await getOperatorPartnerId(authOrResponse.userId);
   if (!operatorId) {
     return NextResponse.json({ error: 'Оператор не найден' }, { status: 403 });
   }
@@ -119,7 +115,7 @@ export async function PATCH(request: NextRequest) {
   const authOrResponse = await requireOperator(request);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-  const operatorId = await getOperatorId(authOrResponse.userId);
+  const operatorId = await getOperatorPartnerId(authOrResponse.userId);
   if (!operatorId) return NextResponse.json({ error: 'Оператор не найден' }, { status: 403 });
 
   const body: unknown = await request.json().catch(() => null);

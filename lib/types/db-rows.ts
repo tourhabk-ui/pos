@@ -785,8 +785,8 @@ export interface OpTourListRow {
 
 export interface OpTourCreateRow {
   id: string;
-  name: string;
-  slug: string;
+  title: string;
+  slug: string | null;
   is_active: boolean;
   created_at: Date;
 }
@@ -1019,23 +1019,29 @@ export interface OpTourPublishRow {
   operator_id: string;
 }
 
+/**
+ * Поля названы по РЕАЛЬНЫМ колонкам operator_tours (миграция 040 + позже),
+ * не по придуманным (name/duration/price/season/requirements/coordinates/
+ * max_group_size/min_group_size на этой таблице не существуют вовсе —
+ * аудит кабинета оператора нашёл здесь тип, согласованный с ошибкой в коде,
+ * а не со схемой; `tsc` такое не ловит).
+ */
 export interface OpTourDetailRow {
   id: string;
-  name: string;
+  title: string;
   description: string;
   short_description: string | null;
-  category: string | null;
+  activity_type: string | null;
   difficulty: string;
-  duration: number;
-  price: string;
+  duration_hours: string | number | null;
+  base_price: string | number | null;
   currency: string;
-  season: string[] | null;
-  requirements: string[] | null;
   included: string[] | null;
   not_included: string[] | null;
-  coordinates: number[][] | null;
-  max_group_size: number;
-  min_group_size: number;
+  latitude: string | number | null;
+  longitude: string | number | null;
+  max_participants: number;
+  min_participants: number;
   is_active: boolean;
   rating: string;
   review_count: string;

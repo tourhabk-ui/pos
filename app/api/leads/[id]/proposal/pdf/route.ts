@@ -10,6 +10,8 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { generateProposalPDF } from '@/lib/pdf/proposal-generator';
+import { leadOwnershipCond } from '@/lib/leads/ownership';
+import type { JWTPayload } from '@/lib/auth/jwt';
 
 export async function GET(
   req: NextRequest,
@@ -17,12 +19,17 @@ export async function GET(
 ) {
   const authResult = await requireOperator(req);
   if (authResult instanceof NextResponse) return authResult;
+  const user = authResult as JWTPayload;
 
   const { id } = await params;
 
+  // Владение: PDF с именем/контактами туриста не должен скачиваться по
+  // чужому UUID лида (аудит кабинета оператора) — 404, не 403, чтобы не
+  // подтверждать существование чужого лида.
+  const scope = await leadOwnershipCond(user, 2);
   const { rows } = await pool.query<{ proposal_id: string | null; name: string }>(
-    `SELECT proposal_id, name FROM leads WHERE id = $1`,
-    [id]
+    `SELECT proposal_id, name FROM leads WHERE id = $1${scope.cond}`,
+    [id, ...scope.vals]
   );
 
   if (!rows[0]) {

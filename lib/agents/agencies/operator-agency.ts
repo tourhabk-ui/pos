@@ -13,8 +13,8 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { getPublicBaseUrl } from '@/lib/config';
 import { approvalRequired } from '../safeguards/approval-required';
+import { runAutoFillAI } from '@/app/api/operator/tours/auto-fill-ai/route';
 import type { AgentContext } from '../context-hub';
 
 export interface KbFreshnessStats {
@@ -108,8 +108,11 @@ export class OperatorAgency {
 
   private async getPartnerId(userId: number | undefined): Promise<number | null> {
     if (!userId) return null;
+    // category='operator': один user_id может держать несколько записей
+    // partners (гид+оператор — обычный случай), LIMIT 1 без фильтра и
+    // ORDER BY возвращал бы произвольную из них (аудит кабинета оператора).
     const { rows } = await pool.query<PartnerRow>(
-      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
+      `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' ORDER BY created_at ASC LIMIT 1`,
       [userId]
     );
     return rows[0]?.id ?? null;
@@ -248,27 +251,27 @@ export class OperatorAgency {
 
   // ── Write: AI-заполнение тура ──────────────────────────────────────────────
 
-  async fillAI(_context: AgentContext, message: string): Promise<AgencyResult> {
+  async fillAI(context: AgentContext, message: string): Promise<AgencyResult> {
+    const partnerId = await this.getPartnerId(context.user.userId);
+    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+
     const idMatch = message.match(/\b(\d{1,8})\b/);
     if (!idMatch) {
       return { response: 'Укажи ID тура. Пример: "заполни тур 42"' };
     }
     const tourId = idMatch[1];
 
-    // Вызываем существующий AI-fill endpoint как внутренний fetch
-    // (мы в Node.js runtime, вне Edge — прямой pool-вызов недоступен для auto-fill логики)
+    // Раньше здесь был внутренний fetch на /api/operator/tours/auto-fill-ai
+    // без cookie/JWT — requireOperator того роута всегда отвечал 401, и
+    // команда «заполни тур N» не работала НИКОГДА (аудит кабинета
+    // оператора). Владение здесь уже проверено (partnerId), поэтому логика
+    // зовётся напрямую, в процессе — HTTP-прыжок был чистым риском без пользы.
     try {
-      // NEXTAUTH_URL на Timeweb указывает на мёртвый twc1-домен — не использовать
-      const baseUrl = process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : getPublicBaseUrl();
-      const res = await fetch(`${baseUrl}/api/operator/tours/auto-fill-ai`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tourId: parseInt(tourId, 10) }),
-      });
-      const json = await res.json() as { success?: boolean; error?: string };
+      const outcome = await runAutoFillAI(String(partnerId), tourId);
+      const body = outcome.body as { success?: boolean; error?: string };
 
-      if (!res.ok || !json.success) {
-        return { response: `Ошибка AI-заполнения: ${json.error ?? res.status}` };
+      if (outcome.status >= 400 || !body.success) {
+        return { response: `Ошибка AI-заполнения: ${body.error ?? outcome.status}` };
       }
 
       return {
@@ -283,7 +286,10 @@ export class OperatorAgency {
 
   // ── Write: добавить слоты доступности ─────────────────────────────────────────────
 
-  async addSlots(_context: AgentContext, message: string): Promise<AgencyResult> {
+  async addSlots(context: AgentContext, message: string): Promise<AgencyResult> {
+    const partnerId = await this.getPartnerId(context.user.userId);
+    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+
     // Парсим: tour ID, дата начала, дата конца, кол-во мест
     const idMatch    = message.match(/тур(?:у|ам?)\s+(\d+)/i);
     const datesMatch = message.match(/(\d{4}-\d{2}-\d{2}).*?(\d{4}-\d{2}-\d{2})/);
@@ -314,10 +320,13 @@ export class OperatorAgency {
     if (dates.length === 0) return { response: 'Некорректный диапазон дат.' };
     if (dates.length > 366)  return { response: 'Диапазон дат слишком большой (макс. 366 дней).' };
 
-    // Проверяем тур
+    // Проверяем тур — ОБЯЗАТЕЛЬНО свой: без operator_id любой авторизованный
+    // оператор мог подобрать чужой tourId и писать слоты в чужой тур (аудит
+    // кабинета оператора, IDOR). getToursSummary/createTour в этом же классе
+    // уже проверяют владение — здесь оно было пропущено.
     const { rows: tourCheck } = await pool.query<{ id: number }>(
-      `SELECT id FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
-      [tourId]
+      `SELECT id FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
+      [tourId, partnerId]
     );
     if (tourCheck.length === 0) return { response: `Тур ${tourId} не найден.` };
 

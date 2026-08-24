@@ -25,16 +25,20 @@ const ROOT = process.cwd();
 const COMPAT_VIEWS = ['bookings', 'tours'];
 
 /**
- * Известный долг: три legacy-маршрута создания тура, которые пишут поля без
+ * Известный долг: два legacy-маршрута создания тура, которые пишут поля без
  * прямого дома в operator_tours — `season` и `coordinates` (JSON против
- * season_start/season_end и latitude/longitude), `requirements`, `route_id`.
- * Перенос требует продуктовых решений, а не переименования колонок, и на
- * платформе, которая обещает не выдумывать данные, угадывать сопоставление
- * нельзя. Живой путь оператора идёт мимо них — /api/hub/operator/tours пишет
- * в operator_tours напрямую. Список закрыт: он может только сокращаться.
+ * season_start/season_end и latitude/longitude), `requirements`. Перенос
+ * требует продуктовых решений, а не переименования колонок, и на платформе,
+ * которая обещает не выдумывать данные, угадывать сопоставление нельзя.
+ * Список закрыт: он может только сокращаться.
+ *
+ * `app/api/operator/tours/route.ts` вычеркнут (аудит кабинета оператора,
+ * 24.08): INSERT переписан на operator_tours напрямую, поля без прямого
+ * дома (season/coordinates/requirements) не угаданы, а честно убраны из
+ * схемы запроса — эндпоинт писал в VIEW и падал на КАЖДОМ вызове, теперь
+ * пишет в мастер-таблицу и работает.
  */
 const KNOWN_DEBT = [
-  'app/api/operator/tours/route.ts',
   'app/api/tours/route.ts',
   'app/api/tours/create/route.ts',
 ];
@@ -81,7 +85,7 @@ describe('запись в совместимые view', () => {
     // список превращается в кладбище, где новое нарушение спрячется незаметно.
     const stale = KNOWN_DEBT.filter((f) => !offenders.some((o) => o.file === f));
     expect(stale, 'долг починен — убрать строку из списка').toEqual([]);
-    expect(KNOWN_DEBT).toHaveLength(3);
+    expect(KNOWN_DEBT).toHaveLength(2);
   });
 
   it('бронирование тура пишет в мастер-таблицу', () => {

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,13 +42,21 @@ export async function GET(request: NextRequest) {
   const userId = userOrResponse.userId;
 
   try {
-    const partnerRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
-    const partnerId = partnerRes.rows[0]?.id;
+    const partnerId = await getOperatorPartnerId(userId);
     if (!partnerId) {
-      return NextResponse.json({ success: true, data: [] });
+      // Форма ответа ОБЯЗАНА совпадать с обычным случаем ниже (data — объект
+      // {stats, tours}, не массив): клиент (_CompletenessClient.tsx)
+      // деструктурирует `const { stats, tours } = data`, а пустой массив —
+      // truthy, `!data` его не ловит. Расхождение формы валило страницу
+      // белым экраном для любого оператора без записи в partners (аудит
+      // кабинета оператора).
+      return NextResponse.json({
+        success: true,
+        data: {
+          stats: { totalTours: 0, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0, publishedTours: 0 },
+          tours: [],
+        },
+      });
     }
 
     const { rows: tours } = await pool.query<TourCompletenessRow>(
@@ -142,6 +151,8 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[operator/completeness] отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json(
       { error: 'Failed to fetch completeness data' },
       { status: 500 }

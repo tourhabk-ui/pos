@@ -198,6 +198,8 @@ export async function GET(request: NextRequest) {
     } as ApiResponse<PaginatedResponse<OperatorTour>>);
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[operator/tours] GET отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({
       success: false,
       error: 'Failed to fetch tours',
@@ -294,30 +296,35 @@ export async function POST(request: NextRequest) {
       .replace(/^-|-$/g, '');
 
     // === СОЗДАНИЕ ТУРА ===
+    // Целится в operator_tours — единственную таблицу настоящих туров
+    // (CLAUDE.md §4.1). Раньше здесь стоял `INSERT INTO tours` — легаси-
+    // таблица с несовпадающими колонками (`slug`/`includes`/`excludes`/
+    // `images` там либо не существуют вовсе, либо другого типа), и запрос
+    // падал на КАЖДОМ вызове ошибкой Postgres "column does not exist"
+    // (аудит кабинета оператора — эндпоинт не работал НИ РАЗУ).
     const insertQuery = `
-      INSERT INTO tours (
+      INSERT INTO operator_tours (
         operator_id,
-        name,
+        title,
         slug,
         description,
-        category,
+        activity_type,
         difficulty,
-        duration,
-        max_group_size,
-        min_group_size,
-        price,
+        duration_hours,
+        max_participants,
+        min_participants,
+        base_price,
         currency,
-        season,
         route_id,
         is_active,
-        includes,
-        excludes,
-        images,
+        included,
+        not_included,
+        photos,
         tour_image,
         created_at,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
-      RETURNING id, name, slug, is_active, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
+      RETURNING id, title, slug, is_active, created_at
     `;
 
     const defaultIncludes = bodyIncludes || [
@@ -332,6 +339,10 @@ export async function POST(request: NextRequest) {
       'Питание (по договоренности)'
     ];
 
+    // included/not_included/photos — TEXT[] в operator_tours: узел pg сам
+    // сериализует JS-массив в SQL-массив, JSON.stringify() дал бы строку
+    // там, где колонка ждёт text[] (ещё одна ошибка, унаследованная от
+    // прежней неверной целевой таблицы).
     const values = [
       operatorId,
       name.trim(),
@@ -344,12 +355,11 @@ export async function POST(request: NextRequest) {
       minGroupSize,
       price,
       currency || 'RUB',
-      season || 'year-round',
       routeId || null,
       false,
-      JSON.stringify(defaultIncludes),
-      JSON.stringify(defaultExcludes),
-      JSON.stringify(bodyImages || []),
+      defaultIncludes,
+      defaultExcludes,
+      bodyImages || [],
       tourImage || null,
     ];
 
@@ -359,7 +369,7 @@ export async function POST(request: NextRequest) {
     // Emit tour creation event to agent bus (fire-and-forget)
     emitEvent(AGENT_EVENTS.TOUR_UPDATED, 'system', 'info', {
       tourId: newTour.id,
-      tourName: newTour.name,
+      tourName: newTour.title,
       operatorId,
       category: category || 'fishing',
       price,
@@ -370,7 +380,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         id: newTour.id,
-        name: newTour.name,
+        name: newTour.title,
         slug: newTour.slug,
         status: 'draft',
         operator_id: operatorId,
@@ -381,6 +391,8 @@ export async function POST(request: NextRequest) {
     }, { status: 201 });
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[operator/tours] POST отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json({
       success: false,
       error: 'Failed to create tour',

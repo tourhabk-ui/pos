@@ -10,14 +10,27 @@ import { callAIWaterfall } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
 
+/** Реальный enum сложности приложения (lib/api/operator-tours.ts, _EditTourClient.tsx) — не "moderate". */
+const VALID_DIFFICULTY = new Set(['easy', 'medium', 'hard', 'expert']);
+
 interface TourData {
   id: string;
   title: string;
   description: string;
   activity_type: string;
   location_type: string;
-  latitude?: number;
-  longitude?: number;
+  // Текущие значения — нужны, чтобы промпт не выдумывал то, что уже
+  // заполнено вручную оператором, и чтобы UPDATE ниже мог безопасно
+  // отфильтровать поля, которые заполнять не требовалось (аудит кабинета
+  // оператора: авто-заполнение гарантированно затирало верные ручные данные,
+  // включая координаты, потому что не читало текущее состояние вовсе).
+  difficulty: string | null;
+  duration_hours: string | null;
+  duration_type: string | null;
+  location_name: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  short_description: string | null;
 }
 
 interface AIFillResult {
@@ -47,6 +60,16 @@ Known Kamchatka fishing spots:
 - Geysers of Kamchatka (54.0°N, 160.0°E) — geothermal fields, hiking
 - Nalychevo Valley (53.8000°N, 159.0000°E) — hot springs, salmon fishing`;
 
+  // Поля, УЖЕ заполненные вручную, промпту не отдаются как «пусто» — модель
+  // не должна ни подтверждать их, ни заменять: заполняет только дыры.
+  const already: string[] = [];
+  if (tour.difficulty) already.push(`difficulty: ${tour.difficulty}`);
+  if (tour.duration_hours) already.push(`duration_hours: ${tour.duration_hours}`);
+  if (tour.duration_type) already.push(`duration_type: ${tour.duration_type}`);
+  if (tour.location_name) already.push(`location_name: ${tour.location_name}`);
+  if (tour.latitude && tour.longitude) already.push(`coordinates: ${tour.latitude}, ${tour.longitude}`);
+  if (tour.short_description) already.push(`short_description: ${tour.short_description}`);
+
   const prompt = `You are an expert travel guide assistant for Kamchatka tours. Analyze this tour and generate realistic field values in JSON format.
 
 Tour Information:
@@ -57,10 +80,13 @@ Tour Information:
 
 ${kamchatkaLocations}
 
+${already.length > 0
+  ? `Already filled by the operator (do NOT invent a replacement for these — the caller will discard any value you return for them, so leave them null/omitted):\n${already.map((s) => `- ${s}`).join('\n')}\n`
+  : ''}
 Generate the following JSON object with realistic values (respond ONLY with valid JSON, no markdown):
 {
   "short_description": "One sentence summary (max 100 chars)",
-  "difficulty": "easy|moderate|hard",
+  "difficulty": "easy|medium|hard|expert",
   "included": ["item1", "item2", "item3"],
   "not_included": ["item1", "item2"],
   "what_to_bring": ["item1", "item2", "item3", "item4"],
@@ -73,7 +99,7 @@ Generate the following JSON object with realistic values (respond ONLY with vali
 }
 
 Rules:
-- difficulty: must be one of easy, moderate, hard
+- difficulty: must be exactly one of easy, medium, hard, expert
 - duration_type: day (full day), half_day (2-4h), multi_day (3+ days)
 - Generate realistic, specific items not generic ones
 - Focus on what would be needed for this type of activity
@@ -95,9 +121,15 @@ Rules:
   // Parse JSON response
   const parsed = JSON.parse(responseText || '{}');
 
+  // difficulty не из реального enum приложения (easy|medium|hard|expert) —
+  // «не знаю» лучше значения, которое молча ломает <select> редактора.
+  const difficulty = typeof parsed.difficulty === 'string' && VALID_DIFFICULTY.has(parsed.difficulty)
+    ? parsed.difficulty
+    : undefined;
+
   return {
     short_description: parsed.short_description || undefined,
-    difficulty: parsed.difficulty || undefined,
+    difficulty,
     included: parsed.included || undefined,
     not_included: parsed.not_included || undefined,
     what_to_bring: parsed.what_to_bring || undefined,
@@ -110,133 +142,119 @@ Rules:
   };
 }
 
-export async function POST(request: NextRequest) {
-  const userOrResponse = await requireOperator(request);
-  if (userOrResponse instanceof NextResponse) {
-    return userOrResponse;
+export interface AutoFillOutcome {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Логика без HTTP — вызывается и самим роутом, и OperatorAgency
+ * (lib/agents/agencies/operator-agency.ts, команда «заполни тур N»)
+ * напрямую, в процессе. Раньше агентство дёргало этот роут внутренним
+ * fetch без cookie/JWT — requireOperator неизбежно отвечал 401, и команда
+ * «AI заполнить тур» не работала НИКОГДА (аудит кабинета оператора).
+ * Владение туром здесь уже проверено вызывающим (operatorId — партнёр,
+ * прошедший свою проверку), поэтому лишний HTTP-прыжок был чистым риском,
+ * а не защитой.
+ */
+export async function runAutoFillAI(operatorId: string, tourId: string | number): Promise<AutoFillOutcome> {
+  // Get tour data — включая уже заполненные поля, чтобы не затирать их.
+  const { rows: tours } = await pool.query<TourData>(
+    `SELECT id, title, description, activity_type, location_type,
+            difficulty, duration_hours::text, duration_type,
+            location_name, latitude::text, longitude::text, short_description
+     FROM operator_tours
+     WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
+    [tourId, operatorId]
+  );
+
+  if (tours.length === 0) {
+    return { status: 404, body: { error: 'Tour not found' } };
   }
 
-  const userId = userOrResponse.userId;
+  const tour = tours[0];
 
-  try {
-    const partnerRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
-    const operatorId = partnerRes.rows[0]?.id;
-    if (!operatorId) {
-      return NextResponse.json({ error: 'Operator not found' }, { status: 403 });
-    }
+  // Validate required fields exist
+  if (!tour.title || !tour.description) {
+    return { status: 400, body: { error: 'Tour must have title and description before AI fill' } };
+  }
 
-    const body = await request.json();
-    const { tourId } = body;
+  // Generate fills with AI
+  const fills = await generateTourFills(tour);
 
-    if (!tourId) {
-      return NextResponse.json({ error: 'Missing tourId' }, { status: 400 });
-    }
+  // Update tour with AI-generated data — ТОЛЬКО поля, которые были пусты
+  // ДО вызова. AI мог проигнорировать инструкцию не трогать заполненное
+  // (модели это делают) — второй барьер здесь, а не только в промпте.
+  const updates: Record<string, string> = {};
+  const values: (string | number | boolean | null | string[])[] = [];
+  let paramIndex = 1;
 
-    // Get tour data
-    const { rows: tours } = await pool.query<TourData>(
-      `SELECT id, title, description, activity_type, location_type
-       FROM operator_tours
-       WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
-      [tourId, operatorId]
-    );
+  if (fills.short_description && !tour.short_description) {
+    updates.short_description = `$${paramIndex++}`;
+    values.push(fills.short_description);
+  }
+  if (fills.difficulty && !tour.difficulty) {
+    updates.difficulty = `$${paramIndex++}`;
+    values.push(fills.difficulty);
+  }
+  if (fills.included) {
+    updates.included = `$${paramIndex++}`;
+    values.push(fills.included);
+  }
+  if (fills.not_included) {
+    updates.not_included = `$${paramIndex++}`;
+    values.push(fills.not_included);
+  }
+  if (fills.what_to_bring) {
+    updates.what_to_bring = `$${paramIndex++}`;
+    values.push(fills.what_to_bring);
+  }
+  if (fills.duration_hours && !tour.duration_hours) {
+    updates.duration_hours = `$${paramIndex++}`;
+    values.push(fills.duration_hours);
+  }
+  if (fills.duration_type && !tour.duration_type) {
+    updates.duration_type = `$${paramIndex++}`;
+    values.push(fills.duration_type);
+  }
+  if (fills.location_name && !tour.location_name) {
+    updates.location_name = `$${paramIndex++}`;
+    values.push(fills.location_name);
+  }
+  // Координаты — парой: обновляем, только если ОБЕ отсутствовали, иначе
+  // модель могла бы переписать ручную широту выдуманной долготой.
+  if (fills.latitude && fills.longitude && !tour.latitude && !tour.longitude) {
+    updates.latitude = `$${paramIndex++}`;
+    values.push(fills.latitude);
+    updates.longitude = `$${paramIndex++}`;
+    values.push(fills.longitude);
+  }
+  if (fills.notes) {
+    updates.notes = `$${paramIndex++}`;
+    values.push(fills.notes);
+  }
 
-    if (tours.length === 0) {
-      return NextResponse.json(
-        { error: 'Tour not found' },
-        { status: 404 }
-      );
-    }
+  if (Object.keys(updates).length === 0) {
+    return { status: 200, body: { success: true, data: { filled: 0, fills: {} } } };
+  }
 
-    const tour = tours[0];
+  const setClause = Object.entries(updates)
+    .map(([key, val]) => `${key} = ${val}`)
+    .join(', ');
 
-    // Validate required fields exist
-    if (!tour.title || !tour.description) {
-      return NextResponse.json(
-        {
-          error: 'Tour must have title and description before AI fill',
-        },
-        { status: 400 }
-      );
-    }
+  values.push(tourId);
+  const updateQuery = `
+    UPDATE operator_tours
+    SET ${setClause}, updated_at = NOW()
+    WHERE id = $${paramIndex}
+    RETURNING short_description, difficulty, included, not_included, what_to_bring, duration_hours, duration_type, location_name, latitude, longitude, notes
+  `;
 
-    // Generate fills with AI
-    const fills = await generateTourFills(tour);
+  await pool.query(updateQuery, values);
 
-    // Update tour with AI-generated data
-    const updates: Record<string, string | number | boolean | null> = {};
-    const values: (string | number | boolean | null | string[])[] = [];
-    let paramIndex = 1;
-
-    if (fills.short_description) {
-      updates[`short_description`] = `$${paramIndex++}`;
-      values.push(fills.short_description);
-    }
-    if (fills.difficulty) {
-      updates[`difficulty`] = `$${paramIndex++}`;
-      values.push(fills.difficulty);
-    }
-    if (fills.included) {
-      updates[`included`] = `$${paramIndex++}`;
-      values.push(fills.included);
-    }
-    if (fills.not_included) {
-      updates[`not_included`] = `$${paramIndex++}`;
-      values.push(fills.not_included);
-    }
-    if (fills.what_to_bring) {
-      updates[`what_to_bring`] = `$${paramIndex++}`;
-      values.push(fills.what_to_bring);
-    }
-    if (fills.duration_hours) {
-      updates[`duration_hours`] = `$${paramIndex++}`;
-      values.push(fills.duration_hours);
-    }
-    if (fills.duration_type) {
-      updates[`duration_type`] = `$${paramIndex++}`;
-      values.push(fills.duration_type);
-    }
-    if (fills.location_name) {
-      updates[`location_name`] = `$${paramIndex++}`;
-      values.push(fills.location_name);
-    }
-    if (fills.latitude) {
-      updates[`latitude`] = `$${paramIndex++}`;
-      values.push(fills.latitude);
-    }
-    if (fills.longitude) {
-      updates[`longitude`] = `$${paramIndex++}`;
-      values.push(fills.longitude);
-    }
-    if (fills.notes) {
-      updates[`notes`] = `$${paramIndex++}`;
-      values.push(fills.notes);
-    }
-
-    if (Object.keys(updates).length === 0) {
-      return NextResponse.json({
-        success: true,
-        data: { filled: 0, fills: {} },
-      });
-    }
-
-    const setClause = Object.entries(updates)
-      .map(([key, val]) => `${key} = ${val}`)
-      .join(', ');
-
-    values.push(tourId);
-    const updateQuery = `
-      UPDATE operator_tours
-      SET ${setClause}, updated_at = NOW()
-      WHERE id = $${paramIndex}
-      RETURNING short_description, difficulty, included, not_included, what_to_bring, duration_hours, duration_type, location_name, latitude, longitude, notes
-    `;
-
-    const { rows: updated } = await pool.query(updateQuery, values);
-
-    return NextResponse.json({
+  return {
+    status: 200,
+    body: {
       success: true,
       data: {
         filled: Object.keys(updates).length,
@@ -254,16 +272,49 @@ export async function POST(request: NextRequest) {
           notes: fills.notes,
         },
       },
-    });
-  } catch (error) {
+    },
+  };
+}
 
+export async function POST(request: NextRequest) {
+  const userOrResponse = await requireOperator(request);
+  if (userOrResponse instanceof NextResponse) {
+    return userOrResponse;
+  }
+
+  const userId = userOrResponse.userId;
+
+  try {
+    // category='operator': один user_id может держать несколько записей
+    // partners (гид+оператор — обычный случай), LIMIT 1 без фильтра и
+    // ORDER BY возвращал бы произвольную из них (аудит кабинета оператора).
+    const partnerRes = await pool.query<{ id: string }>(
+      `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' ORDER BY created_at ASC LIMIT 1`,
+      [userId]
+    );
+    const operatorId = partnerRes.rows[0]?.id;
+    if (!operatorId) {
+      return NextResponse.json({ error: 'Operator not found' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { tourId } = body;
+
+    if (!tourId) {
+      return NextResponse.json({ error: 'Missing tourId' }, { status: 400 });
+    }
+
+    const outcome = await runAutoFillAI(operatorId, tourId);
+    return NextResponse.json(outcome.body, { status: outcome.status });
+  } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         { error: 'AI generated invalid response, please try again' },
         { status: 500 }
       );
     }
-
+    const e = error as { code?: string; message?: string };
+    console.error('[auto-fill-ai] отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
     return NextResponse.json(
       { error: 'Failed to auto-fill tour' },
       { status: 500 }

@@ -208,7 +208,12 @@ export default function CompletenessClient() {
     );
   }
 
-  if (!data) return null;
+  // Защита второго слоя: сервер теперь всегда отдаёт объект {stats, tours},
+  // но проверка формы здесь дешева, а цена ошибки — белый экран (аудит
+  // кабинета оператора: !data не ловил массив, деструктуризация падала).
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !data.stats || !Array.isArray(data.tours)) {
+    return null;
+  }
 
   const { stats, tours } = data;
 
