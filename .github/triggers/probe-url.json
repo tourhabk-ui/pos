@@ -1,44 +1,16 @@
 {
-  "note": "Проба 193: БОЕВОЙ прогон возврата профилей двум людям с запертой двери (locked-out-partners). Сухой прогон 192 подтвердил чистоту: 4/4 would_create:true, ошибок нет. dry_run:false — эта проба ПИШЕТ.",
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/backfill-partner-profile",
-      "body": {
-        "source": "перепись locked-out-partners 24.08, id из ответа прода",
-        "why": "42P08 в INSERT профиля не выполнялся никогда до правки того же дня; аккаунт создан, профиля нет — потеря обратима",
-        "items": [
-          {
-            "user_id": "7f3621a6-cdcd-4638-bdb3-a8a67e7cb4b8",
-            "role": "agent"
-          },
-          {
-            "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb",
-            "role": "agent"
-          },
-          {
-            "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb",
-            "role": "guide"
-          },
-          {
-            "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb",
-            "role": "transfer"
-          }
-        ],
-        "dry_run": false
-      }
-    }
+  "note": "Проба 194: подтверждение — locked-out-partners должна показать lost_total:0 после боевого возврата профилей (проба 193 создала 4 записи в partners для двух людей).",
+  "urls": [
+    "https://vedarai.ru/api/cron/locked-out-partners"
   ],
-  "until": "backfill_partner_profile_v1",
+  "until": "\"lost_total\":0",
   "retries": 10,
   "retryDelay": 60,
   "timeout": 60,
   "bytes": 3000,
   "grep": [
-    "\"dry_run\":false",
-    "\"already_had_profile\":true",
-    "\"already_had_profile\":false",
-    "\"checked\":4",
-    "Unauthorized",
-    "\"error\""
+    "\"lost_total\":0",
+    "\"without_profile\":0",
+    "Unauthorized"
   ]
 }
