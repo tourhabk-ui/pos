@@ -154,8 +154,8 @@ export const SHAPES: ShapeEntry[] = [
   {
     name: 'новое место конечной точки маршрута (route-endpoints)',
     source: 'lib/import/route-endpoints-runner.ts',
-    sql: `INSERT INTO places (id, ark_id, name, lat, lng, source_url, source_name, is_visible)
-         VALUES ($1::text, $1::uuid, $2, $3::numeric, $4::numeric, $5, 'visitkamchatka.ru', true)
+    sql: `INSERT INTO places (id, ark_id, name, lat, lng, location_type, source_url, source_name, is_visible)
+         VALUES ($1::text, $1::uuid, $2, $3::numeric, $4::numeric, 'other', $5, 'visitkamchatka.ru', true)
          ON CONFLICT (id) DO NOTHING`,
   },
   {

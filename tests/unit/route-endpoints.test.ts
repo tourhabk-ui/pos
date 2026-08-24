@@ -56,6 +56,18 @@ describe('регрессия 42P08: $1 приведён явно на ОБОИХ
   });
 });
 
+describe('регрессия places_shape_check: location_type обязателен', () => {
+  // Проба 203 (после фикса 42P08): та же тройка маршрутов ушла в
+  // status:'error' с "violates check constraint places_shape_check" —
+  // (activity_type IS NULL AND location_type IS NOT NULL), migration 650.
+  // 'other' — та же честная заглушка «тип неизвестен», что у
+  // kamchatkaland-importer.ts и ELSE-ветки 650_cleanup_places_phase1.sql.
+  it('INSERT INTO places задаёт location_type', () => {
+    expect(RUNNER_SRC).toMatch(/location_type/);
+    expect(RUNNER_SRC).toMatch(/VALUES \(\$1::text, \$1::uuid, \$2, \$3::numeric, \$4::numeric, 'other',/);
+  });
+});
+
 const poolQueryMock = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => poolQueryMock(...a) } }));
 

@@ -132,8 +132,15 @@ async function resolveEndpoint(
         // text) и $1::uuid — 42P08 «inconsistent types deduced for
         // parameter $1», проверено пробой 202 (CLAUDE.md §4.0, случай
         // 24.08: тот же класс дефекта, другая форма запроса).
-        `INSERT INTO places (id, ark_id, name, lat, lng, source_url, source_name, is_visible)
-         VALUES ($1::text, $1::uuid, $2, $3::numeric, $4::numeric, $5, 'visitkamchatka.ru', true)
+        //
+        // location_type NOT NULL — places_shape_check (migration 650).
+        // Тип точки паспорт не называет (это развилка/кордон/стоянка, не
+        // геообъект вроде вулкана или озера) — 'other', та же честная
+        // заглушка «тип неизвестен», что у kamchatkaland-importer.ts и
+        // ELSE-ветки инференса в 650_cleanup_places_phase1.sql. Проверено
+        // пробой 203: без него вставка падает на CHECK.
+        `INSERT INTO places (id, ark_id, name, lat, lng, location_type, source_url, source_name, is_visible)
+         VALUES ($1::text, $1::uuid, $2, $3::numeric, $4::numeric, 'other', $5, 'visitkamchatka.ru', true)
          ON CONFLICT (id) DO NOTHING`,
         [id, point.name ?? `Точка маршрута (${which === 'start' ? 'начало' : 'конец'})`, coord.lat, coord.lng, pdfUrl],
       );
