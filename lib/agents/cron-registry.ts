@@ -246,6 +246,16 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: DAY, tier: 'quality', agentId: null, triggerable: false,
   },
   {
+    // AI-ревью кода Growth Scan идёт НА РАННЕРЕ той же причиной, что у
+    // evo-judge: гео-блок Cloudflare касается только прода в РФ. Прод отдаёт
+    // список файлов (evo-review-job) и принимает готовые находки
+    // (evo-findings) — сам модель не зовёт, telemetry по agentId не пишет.
+    key: 'evo-review', label: 'Evo Review',
+    description: 'AI-ревью кода Growth Scan на раннере (без гео-блока) + запись находок.',
+    workflow: 'evo-review.yml', cron: '50 5 * * *', schedule: 'ежедневно · 05:50 UTC',
+    everyMin: DAY, tier: 'growth', agentId: null, triggerable: false,
+  },
+  {
     key: 'kb-gap', label: 'KB Gap',
     description: 'Анализ пробелов в знаниях Кузьмича.',
     workflow: 'cron-kb-gap.yml', cron: '0 4 * * *', schedule: 'ежедневно · 04:00 UTC',
@@ -443,6 +453,10 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // это штатно и желательно. Отказ самого разбора нулём не выглядит: скрипт
   // падает без ключа и помечает неотвеченное «не разобрано», а не «шум».
   'evo-judge': 'normal',
+  // Та же логика: ноль находок AI-ревью — чистый код в этом окне, а не
+  // отказ. Отказ решателя (нет ключа/никто не ответил) виден отдельно —
+  // workflow сам краснеет на пустом model (см. evo-review.yml).
+  'evo-review': 'normal',
   'kb-gap': 'unknown',
 
   // ── Рост ────────────────────────────────────────────────────────────────
