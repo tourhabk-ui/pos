@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, explainDeepSeekFailure, explainQwenFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -389,7 +389,13 @@ export async function GET(request: NextRequest) {
       const why = dsKeyDiag ? `: ${explainDeepSeekFailure(dsKeyDiag)}` : '';
       issues.push({ level: 'warn', text: `DeepSeek недоступен${why}` });
     }
-    if (!openrouterOk) issues.push({ level: 'warn', text: 'OpenRouter недоступен' });
+    // Причина, а не одно слово. Прежде предупреждение было безусловным и
+    // покрывало три случая разом: ключа нет, ключ отвергнут, сеть упала. Из-за
+    // этого задача в бэклоге называлась «ключ пропал с прода» при живом ключе.
+    if (!openrouterOk) {
+      const why = orKeyDiag ? ` — ${explainOpenRouterFailure(orKeyDiag)}` : ' (диагностика не собралась)';
+      issues.push({ level: 'warn', text: `OpenRouter недоступен${why}` });
+    }
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
       issues.push({ level: 'warn', text: 'Anthropic недоступен напрямую и через OpenRouter' });
     }

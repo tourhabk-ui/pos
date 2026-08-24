@@ -1847,6 +1847,66 @@ export function explainDeepSeekFailure(probe: {
 }
 
 /**
+ * Человекочитаемая причина отказа OpenRouter для алерта.
+ *
+ * До 24.08 предупреждение было безусловным и однословным: «OpenRouter
+ * недоступен». Соседи так не делают — у DeepSeek и Anthropic оно молчит, если
+ * ключ просто не задан («не настроен» не равно «сбой»). Одно слово покрывало
+ * три разных случая, и цена этого была не теоретической: задача в бэклоге
+ * называлась «ключ OpenRouter пропал с прода», хотя ключ был на месте — 73
+ * символа, верный префикс, без пробелов. Правили бы ключ, а чинить надо
+ * другое.
+ *
+ * Разделение направлений ремонта берётся из уже собираемой диагностики:
+ *   ключа нет            → завести переменную на Timeweb;
+ *   форма ключа битая    → вставили не то или с переводом строки;
+ *   релей и прямой путь
+ *   ответили ОДИНАКОВО   → режет край сети по нашему адресу, и релей его не
+ *                          прячет — лечится сменой площадки релея, не ключом;
+ *   ответы разные        → режет на выходе именно к релею;
+ *   прочее               → код и начало тела, без домыслов.
+ */
+export function explainOpenRouterFailure(probe: {
+  key_source: 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null;
+  route: 'relay' | 'direct';
+  route_host: string;
+  http_status: number | null;
+  detail: string;
+  direct_status: number | null;
+  direct_detail: string | null;
+  /** null — форму не измерили. Это «не знаю», а не «форма в порядке». */
+  key_shape: { key_len: number; key_prefix_ok: boolean; key_had_outer_space: boolean; key_has_inner_space: boolean } | null;
+}): string {
+  if (!probe.key_source) return 'ключ не задан на Timeweb (OPENROUTER_API_KEY)';
+  const sh = probe.key_shape;
+  // Форму не измерили — говорим об этом, а не молчим. Молчание здесь читалось
+  // бы как «с ключом всё хорошо», то есть как ответ, которого у нас нет.
+  if (!sh) return 'ключ задан, но форму проверить не удалось — судить о нём нечем';
+  if (!sh.key_prefix_ok || sh.key_had_outer_space || sh.key_has_inner_space) {
+    return `ключ задан, но форма подозрительна (длина ${sh.key_len}` +
+      `${sh.key_prefix_ok ? '' : ', префикс не тот'}` +
+      `${sh.key_had_outer_space ? ', пробелы по краям' : ''}` +
+      `${sh.key_has_inner_space ? ', пробел внутри' : ''})`;
+  }
+  const sameAsDirect =
+    probe.route === 'relay' &&
+    probe.direct_status !== null &&
+    probe.direct_status === probe.http_status &&
+    (probe.direct_detail ?? '') === probe.detail;
+  if (sameAsDirect) {
+    return `ключ на месте и цел; ${probe.http_status} и через релей (${probe.route_host}), ` +
+      'и напрямую — ответы совпали дословно. Значит режет край сети по нашему адресу, ' +
+      'релей его не прячет: менять надо площадку релея, а не ключ';
+  }
+  if (probe.http_status === 401 || probe.http_status === 403) {
+    return `ключ на месте и цел, но путь через ${probe.route_host} отвергнут (${probe.http_status}): ` +
+      `${probe.detail.slice(0, 120)}`;
+  }
+  if (probe.http_status === null) return probe.detail;
+  return `HTTP ${probe.http_status} через ${probe.route_host}: ${probe.detail.slice(0, 120)}`;
+}
+
+/**
  * Причина падения Qwen — человеком, в текст алерта.
  *
  * Диагностика qwen_key_diag лежала в JSON health с самого начала, но в
