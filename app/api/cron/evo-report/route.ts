@@ -131,10 +131,23 @@ export async function GET(req: NextRequest) {
   //
   // fault_side IS NULL — записи до 820: прежнее правило по категории, чтобы
   // смысл накопленных данных не менялся задним числом.
+  //
+  // ТОЛЬКО status = 'rejected', НЕ 'ignored'. Находка 24.08: миграция 912
+  // закрыла массовую уборку списка (владелец: «удали всё оттуда») именно
+  // статусом 'ignored' — и её собственный тест (evo-findings-closure.test.ts)
+  // формулирует почему: 'rejected' стоит дороже 'ignored' ровно потому, что
+  // идёт в счёт точности как промах МОДЕЛИ, а «не разбирали» промахом не
+  // является. Здесь же — в знаменателе точности — 'ignored' по-прежнему
+  // читался наравне с 'rejected', и одна бессудная уборка (~80 записей,
+  // ни одна не прочитана) обрушила точность ниже PRECISION_FLOOR. Итог —
+  // decidePublish() держал allowGuesses=false с 24.08: ни одна догадка
+  // модели (growth-agent, intel) не публиковалась, кроме одного пробника
+  // в сутки, хотя реальных промахов было ровно 6. Тот же баг, что уже
+  // почистили в loadRejectedSignatures() — просто в другом месте.
   const { rows: pr } = await pool.query<{ accepted: string; rejected: string }>(`
     SELECT
       COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text    AS accepted,
-      COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text  AS rejected
+      COUNT(*) FILTER (WHERE status = 'rejected')::text                AS rejected
     FROM evo_growth_issues
     WHERE github_issue_url IS NOT NULL
       AND (
@@ -152,7 +165,7 @@ export async function GET(req: NextRequest) {
     SELECT edge,
            fault_side,
            COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text   AS accepted,
-           COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text AS rejected,
+           COUNT(*) FILTER (WHERE status = 'rejected')::text               AS rejected,
            COUNT(*)::text                                                  AS total
       FROM evo_growth_issues
      WHERE github_issue_url IS NOT NULL
@@ -184,7 +197,7 @@ export async function GET(req: NextRequest) {
   const { rows: byModel } = await pool.query<{ model: string | null; accepted: string; rejected: string }>(`
     SELECT model,
            COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text   AS accepted,
-           COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text AS rejected
+           COUNT(*) FILTER (WHERE status = 'rejected')::text               AS rejected
       FROM evo_growth_issues
      WHERE model IS NOT NULL
        AND github_issue_url IS NOT NULL
