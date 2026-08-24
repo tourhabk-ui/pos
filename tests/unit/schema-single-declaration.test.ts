@@ -56,7 +56,11 @@ function declaredTables(): string[] {
 /** Все файлы схемы: bootstrap и миграции — с именем файла у каждого объявления. */
 function declarationsAcrossRepo(): Map<string, string[]> {
   const byTable = new Map<string, string[]>();
-  const files: Array<[string, string]> = [['lib/database/schema.sql', SCHEMA]];
+  const files: Array<[string, string]> = [];
+  const bootstrap = path.join(ROOT, 'lib/database');
+  for (const f of fs.readdirSync(bootstrap).filter(n => n.endsWith('.sql')).sort()) {
+    files.push([`lib/database/${f}`, fs.readFileSync(path.join(bootstrap, f), 'utf8')]);
+  }
   const dir = path.join(ROOT, 'migrations');
   for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.sql')).sort()) {
     files.push([`migrations/${f}`, fs.readFileSync(path.join(dir, f), 'utf8')]);
@@ -72,12 +76,114 @@ function declarationsAcrossRepo(): Map<string, string[]> {
 }
 
 /**
- * Таблицы, которые объявлены в нескольких файлах ОСОЗНАННО.
+ * ПЕРЕПИСЬ таблиц, объявленных больше чем в одном файле. Замер 24.08.
  *
- * Список закрыт и может только сокращаться. Пустой он и должен быть: если
- * повторное объявление понадобилось, у него есть причина, и она пишется здесь.
+ * Список ЗАМОРОЖЕН и может только сокращаться. Это не разрешение, а долг:
+ * каждая строка здесь — место, где схему можно прочитать двумя способами, и
+ * читатель не знает, какой из них применяется.
+ *
+ * Почему перепись, а не ноль. Сама проверка была написана 22.08 и НЕ
+ * ПОДКЛЮЧЕНА: `declarationsAcrossRepo` и этот список стояли в файле без
+ * единого вызова, а шапка обещала «проверка идёт по ВСЕМУ репозиторию». То
+ * есть сторож существовал прозой. За два дня цена набежала: 24.08 объектив
+ * схемы нашёл, что кабинет оператора спрашивает у partners колонки `email`,
+ * `phone`, `photo_url`, `admin_user_id`, `role`, `contact_info` — ни одной из
+ * них в живой таблице нет. Все шесть есть в `lib/database/partners_schema.sql`,
+ * где partners объявлена с `id SERIAL`. Этот файл не применяет НИКТО: ни
+ * `npm run migrate`, ни `start.js`. Код был написан по призраку.
+ *
+ * Обнулять список разом нельзя — 45 записей это работа на недели, и сторож,
+ * который валит сборку сегодня, будет отключён завтра. Поэтому фиксируем
+ * состояние и запрещаем ухудшение.
+ *
+ * Два рода записей, и они разной тяжести:
+ *
+ *   * bootstrap-файлы `lib/database/*.sql` — деплой их не применяет вовсе, и
+ *     любое расхождение с `migrations/` это готовый призрак (partners, drivers,
+ *     transfers, guide_*, accommodation_*, gear_*, loyalty_*, agent_*);
+ *   * пара миграций — обычно поздний ремонт (`907_repair_lost_objects`,
+ *     `909_restore_lost_tables`): применяется первая, вторая идемпотентна.
+ *     Опаснее, когда колонки расходятся, — тогда это тот же призрак.
  */
-const KNOWN_MULTI_FILE: string[] = [];
+const KNOWN_MULTI_FILE: string[] = [
+  'accommodation_bookings',
+  'accommodation_reviews',
+  'accommodation_rooms',
+  'accommodations',
+  'agent_bookings',
+  'agent_clients',
+  'agent_commissions',
+  'agent_experiments',
+  'agent_memory_edits',
+  'booking_logs',
+  'chat_sessions',
+  'commission_payouts',
+  'crowd_log',
+  'driver_schedules',
+  'drivers',
+  'email_templates',
+  'emergency_contacts',
+  'external_alerts',
+  'faqs',
+  'gear_availability',
+  'gear_items',
+  'gear_rentals',
+  'guide_earnings',
+  'guide_groups',
+  'guide_schedule',
+  'intelligence_sources',
+  'knowledge_base_articles',
+  'kuzmich_engagement_signals',
+  'location_real_time_status',
+  'location_safety_profile',
+  'loyalty_transactions',
+  'operator_commissions',
+  'partners',
+  'promo_codes',
+  'referrals',
+  'route_description_cache',
+  'sales_campaigns',
+  'sales_outreach_log',
+  'security_blocks',
+  'smart_notifications_log',
+  'system_settings',
+  'transfer_reviews',
+  'transfer_routes',
+  'transfers',
+  'zone_capacity_limits',
+];
+
+describe('одно объявление на таблицу — по всему репозиторию', () => {
+  it('перепись не растёт: новых таблиц в двух файлах не заводится', () => {
+    const multi = [...declarationsAcrossRepo()]
+      .filter(([, files]) => new Set(files).size > 1)
+      .map(([table]) => table)
+      .sort();
+    const fresh = multi.filter((t) => !KNOWN_MULTI_FILE.includes(t));
+    expect(
+      fresh,
+      'таблица объявлена в двух файлах: читатель не знает, какое объявление применяется — ' +
+        'ровно так был написан код против partners.email, которого нет',
+    ).toEqual([]);
+  });
+
+  it('перепись не держит того, что уже починено', () => {
+    // Список может только сокращаться. Запись, переставшая быть правдой, —
+    // это долг, который отдали и забыли вычеркнуть: следующий читатель решит,
+    // что двойное объявление тут в порядке вещей.
+    const multi = new Set(
+      [...declarationsAcrossRepo()]
+        .filter(([, files]) => new Set(files).size > 1)
+        .map(([table]) => table),
+    );
+    const stale = KNOWN_MULTI_FILE.filter((t) => !multi.has(t));
+    expect(stale, 'таблица объявлена один раз — вычеркнуть из переписи').toEqual([]);
+  });
+
+  it('перепись честно называет размер долга', () => {
+    expect(KNOWN_MULTI_FILE.length).toBe(45);
+  });
+});
 
 describe('bootstrap-схема', () => {
   it('таблиц объявлено много — иначе разбор ниже бессмысленен', () => {
