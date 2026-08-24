@@ -31,7 +31,7 @@ export const LIVE_BATCH_MAX = 10;
  * поведенческом изменении раннера/парсера — тот же приём, что
  * ROUTE_CORE_VERSION / AUDIT_SHAPE_VERSION.
  */
-export const ROUTE_ENDPOINTS_VERSION = 2;
+export const ROUTE_ENDPOINTS_VERSION = 3;
 
 const BodySchema = z.object({
   source: z.string().trim().min(3, 'Назовите источник').max(200),

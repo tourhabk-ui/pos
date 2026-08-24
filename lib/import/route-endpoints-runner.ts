@@ -125,8 +125,15 @@ async function resolveEndpoint(
       await pool.query(
         // places.id — TEXT NOT NULL без DEFAULT (тот же урок, что в
         // idilesom-importer.ts): без явного id вставка падает на not-null.
+        //
+        // $1 использован дважды с РАЗНЫМ приведением (id — text, ark_id —
+        // uuid). Без явного ::text на первом употреблении PostgreSQL не
+        // может согласовать вывод типа параметра между «голым» $1 (столбец
+        // text) и $1::uuid — 42P08 «inconsistent types deduced for
+        // parameter $1», проверено пробой 202 (CLAUDE.md §4.0, случай
+        // 24.08: тот же класс дефекта, другая форма запроса).
         `INSERT INTO places (id, ark_id, name, lat, lng, source_url, source_name, is_visible)
-         VALUES ($1, $1::uuid, $2, $3::numeric, $4::numeric, $5, 'visitkamchatka.ru', true)
+         VALUES ($1::text, $1::uuid, $2, $3::numeric, $4::numeric, $5, 'visitkamchatka.ru', true)
          ON CONFLICT (id) DO NOTHING`,
         [id, point.name ?? `Точка маршрута (${which === 'start' ? 'начало' : 'конец'})`, coord.lat, coord.lng, pdfUrl],
       );
