@@ -1,18 +1,21 @@
 {
-  "note": "Проба 184: тот же документ Tripster, но через API. Проба 183 показала: HTML отдаёт оболочку Confluence (скрипты atl-paas.net), текста в разметке нет. Здесь два машинных пути к телу страницы — v2 (body-format=storage) и старый REST (expand=body.storage), оба анонимно. Маркеры различают три исхода: тело пришло, доступ закрыт, страницы нет. Без маркеров «пусто» и «закрыто» в логе неотличимы. allowStale, потому что отказ и есть ответ.",
+  "note": "Проба 185: числа воронки с прода. Перепись /api/cron/funnel-census появилась в коммите cc8fc31b, поэтому маркер свежести — probe funnel_census_v1: пока Timeweb не выкатил, роут отвечает 404, и ждать его надо, а не читать прежнюю сборку. Окно 30 суток, не 7: при малом трафике недельное окно даёт нули там, где месяц покажет тонкую струйку, а отличить «мало» от «ноль» — весь смысл. Маркеры разделяют три исхода: перепись сосчиталась (meaningful), сосчиталась частично (failed_measures), не сосчиталась вовсе (unknown_inputs).",
   "urls": [
-    "https://tripster.atlassian.net/wiki/api/v2/pages/3688235009?body-format=storage",
-    "https://tripster.atlassian.net/wiki/rest/api/content/3688235009?expand=body.storage"
+    "https://vedarai.ru/api/cron/funnel-census?days=30"
   ],
-  "timeout": 40,
-  "bytes": 6000,
-  "retries": 0,
-  "allowStale": true,
+  "until": "funnel_census_v1",
+  "retries": 10,
+  "retryDelay": 60,
+  "timeout": 60,
+  "bytes": 7000,
   "grep": [
-    "\"storage\"",
-    "Unauthorized",
-    "not permitted",
-    "\"statusCode\"",
-    "\"title\""
+    "\"probe\":\"funnel_census_v1\"",
+    "\"verdict_state\"",
+    "\"meaningful\":true",
+    "\"meaningful\":false",
+    "\"failed_measures\":[]",
+    "\"unknown_inputs\":[]",
+    "\"beacon_rows_total\"",
+    "Unauthorized"
   ]
 }
