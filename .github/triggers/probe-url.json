@@ -1,34 +1,14 @@
 {
-  "note": "Проба 204: повтор боевого прогона route-endpoints для 3 маршрутов, упавших на places_shape_check в пробе 203 (location_type не задавался). dry_run:false. until \"version\":4 — новая сборка.",
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/route-endpoints",
-      "body": {
-        "source": "паспорта visitkamchatka.ru, поле «Пункт начала/окончания»",
-        "why": "Ф5-хвост: повтор боевого прогона после фикса places_shape_check (проба 203) — 3 маршрута",
-        "dry_run": false,
-        "route_ids": [
-          "3836f603-aa18-47ba-81a4-ff840c5920ea",
-          "780648de-9a3f-4c78-bca0-288dd0ca04c4",
-          "3b4e74dd-81e4-4525-944e-8c960e1964e7",
-          "1c69409d-b685-41db-8bcd-e7fdfffd6492"
-        ]
-      }
-    }
+  "note": "Проба 205: повторный расчёт ядра Ф5 после Ф5-хвоста (route-endpoints пробы 202-204) — честный подсчёт, сколько записей перешло из not_a_route в orientation_only. navigable этим шагом не достигается по коду черты (нет линии).",
+  "urls": [
+    "https://vedarai.ru/api/cron/route-core"
   ],
-  "until": "\"version\":4",
-  "retries": 15,
-  "retryDelay": 60,
-  "timeout": 90,
-  "bytes": 24000,
+  "bytes": 20000,
+  "timeout": 60,
   "grep": [
-    "\"dry_run\":false",
-    "\"version\":4",
-    "\"points_linked\"",
-    "\"places_created\"",
-    "places_shape_check",
-    "inconsistent types",
-    "Unauthorized",
-    "\"error\""
+    "not_a_route",
+    "orientation_only",
+    "navigable",
+    "\"verdict\""
   ]
 }
