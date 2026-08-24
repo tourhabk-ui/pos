@@ -1,57 +1,40 @@
 {
-  "note": "Проба 199: СУХОЙ прогон извлечения точек начала/конца (Ф5-хвост) на 18 route_id с OCR, двумя партиями по батчу ≤10. dry_run:true — ничего не пишет, только показывает, что бы связалось.",
+  "note": "Проба 200: СУХОЙ прогон POST /api/cron/tour-photos — привязка 11 новых фото сплава по Быстрой (второй боевой заезд оператора kamchatka-rafting, tour_id 27) к галерее тура. dry_run:true — ничего не пишет, только показывает added/already_present/changed.",
   "post": [
     {
-      "url": "https://vedarai.ru/api/cron/route-endpoints",
+      "url": "https://vedarai.ru/api/cron/tour-photos",
       "body": {
-        "source": "паспорта visitkamchatka.ru, поле «Пункт начала/окончания»",
-        "why": "Ф5-хвост: 15/20 ядра not_a_route без единой точки; паспорт даёт start/end с провенансом дирекции парка",
+        "source": "Владелец платформы, 24.08.2026: ещё фото сплава по Быстрой от «Камчатка Семейный Рафтинг»",
+        "why": "продолжение серии 794/795, второй боевой заезд оператора",
         "dry_run": true,
-        "route_ids": [
-          "67fba4be-ac61-46c8-bdf5-225f25b09baa",
-          "1c69409d-b685-41db-8bcd-e7fdfffd6492",
-          "3795cfa5-4c77-4088-a349-0884f5c07a0e",
-          "5a83e7ce-2ad9-4873-ae21-590c555b255c",
-          "780648de-9a3f-4c78-bca0-288dd0ca04c4",
-          "03b2a69c-2799-418b-9ed5-de17018ba066",
-          "e1382fa6-6141-4fb7-8136-a40275a01e22",
-          "120d3427-d8b9-42ed-b0ac-582449a9c202",
-          "3836f603-aa18-47ba-81a4-ff840c5920ea",
-          "3b4e74dd-81e4-4525-944e-8c960e1964e7"
-        ]
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/cron/route-endpoints",
-      "body": {
-        "source": "паспорта visitkamchatka.ru, поле «Пункт начала/окончания»",
-        "why": "Ф5-хвост: 15/20 ядра not_a_route без единой точки; паспорт даёт start/end с провенансом дирекции парка",
-        "dry_run": true,
-        "route_ids": [
-          "f447bbe2-37ef-4858-b5eb-d8014fbf50d2",
-          "842563f5-c32f-4c5c-9bc1-6248a8f4a8c4",
-          "dfc91177-7e38-479c-a517-290983d0dd1f",
-          "22a38d9c-a509-48c9-9bd9-7312fbad4a12",
-          "7f3a859a-d000-4097-8a6b-cadeabadfd6f",
-          "73b59f4a-7970-46b3-88c7-c9ac563e6e09",
-          "ce6b03b0-6b11-45bb-9e68-3704322eae8f",
-          "21af69de-82d0-4a78-85de-fa0ff59cc569"
+        "tour_id": 27,
+        "add": [
+          "/images/tours/bystraya-rafting/10-camp-lunch-1.jpg",
+          "/images/tours/bystraya-rafting/11-camp-lunch-2.jpg",
+          "/images/tours/bystraya-rafting/12-rafting-crew-1.jpg",
+          "/images/tours/bystraya-rafting/13-rafting-crew-2.jpg",
+          "/images/tours/bystraya-rafting/14-rafting-crew-3.jpg",
+          "/images/tours/bystraya-rafting/15-camp-lunch-3.jpg",
+          "/images/tours/bystraya-rafting/16-yurt-camp-wide.jpg",
+          "/images/tours/bystraya-rafting/17-shore-landing.jpg",
+          "/images/tours/bystraya-rafting/18-group-finish-1.jpg",
+          "/images/tours/bystraya-rafting/19-group-finish-2.jpg",
+          "/images/tours/bystraya-rafting/20-group-finish-3.jpg"
         ]
       }
     }
   ],
-  "until": "route_endpoints_v1",
-  "retries": 10,
-  "retryDelay": 60,
-  "timeout": 90,
-  "bytes": 24000,
+  "until": "tour_photos_v1",
+  "retries": 3,
+  "retryDelay": 20,
+  "timeout": 60,
+  "bytes": 8000,
   "grep": [
     "\"dry_run\":true",
-    "\"points_linked\"",
-    "\"places_created\"",
-    "coord_out_of_range",
-    "coord_unparsable",
-    "no_coord",
+    "\"changed\"",
+    "\"added\"",
+    "\"already_present\"",
+    "\"photos\"",
     "Unauthorized",
     "\"error\""
   ]
