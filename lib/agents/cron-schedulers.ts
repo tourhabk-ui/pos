@@ -81,6 +81,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'beacon-check':              { kind: 'manual', writes: false, note: 'способен ли приёмник маяка записать событие: тот же INSERT в транзакции с гарантированным откатом' },
   'sql-shape-check':           { kind: 'manual', writes: false, note: 'разбираются ли запросы формы INSERT ... SELECT $n ... WHERE NOT EXISTS: PREPARE без выполнения' },
   'booking-attempts':          { kind: 'manual', writes: false, note: 'сколько броней создано, сколько не дошло до денег, сколько сорвалось пятисоткой; попытки-касания — только с починки маяка' },
+  'locked-out-partners':       { kind: 'manual', writes: false, note: 'аккаунт есть, партнёрского профиля нет: точный счёт потерь на запертой двери регистрации' },
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'evo-log-cleanup':           { kind: 'manual', writes: true,  note: 'пометить неисполнимые записи очереди эволюции: 21 «ожидает» с апреля, которые рука пропускает каждый прогон' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
