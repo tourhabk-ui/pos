@@ -365,8 +365,8 @@ async function selectTransfers(
         tr.name as route_name,
         tr.from_location,
         tr.to_location,
-        tr.distance_km,
-        tr.estimated_duration_minutes as duration_minutes,
+        tr.distance AS distance_km,
+        tr.estimated_duration as duration_minutes,
         ts.price_per_person,
         tv.vehicle_type
       FROM transfer_routes tr
@@ -376,7 +376,7 @@ async function selectTransfers(
         tr.is_active = true
         AND ts.is_active = true
       ORDER BY 
-        tr.distance_km ASC
+        tr.distance ASC
       LIMIT 20
     `;
     

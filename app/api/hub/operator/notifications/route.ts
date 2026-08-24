@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
   const reviews = await pool.query<ReviewRow>(
     `SELECT r.id::text, r.rating::text, r.created_at::text,
             ot.title AS tour_title,
-            COALESCE(u.full_name, 'Турист') AS reviewer_name
+            COALESCE(u.name, 'Турист') AS reviewer_name
      FROM operator_reviews r
      JOIN operator_tours ot ON ot.id = r.tour_id
      LEFT JOIN users u ON u.id = r.user_id
