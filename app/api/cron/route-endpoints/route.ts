@@ -23,6 +23,16 @@ export const maxDuration = 120;
 
 export const LIVE_BATCH_MAX = 10;
 
+/**
+ * Версия ответа, не имя роута: `probe` ниже — статичная строка, одинаковая
+ * в любой сборке, и потому непригодна как маркер свежести для пробы
+ * (проба 200, 24.08 — приняла закэшированный ответ за свежий, потому что
+ * "route_endpoints_v1" был в обеих сборках байт в байт). Бампать при любом
+ * поведенческом изменении раннера/парсера — тот же приём, что
+ * ROUTE_CORE_VERSION / AUDIT_SHAPE_VERSION.
+ */
+export const ROUTE_ENDPOINTS_VERSION = 2;
+
 const BodySchema = z.object({
   source: z.string().trim().min(3, 'Назовите источник').max(200),
   why: z.string().trim().min(3, 'Назовите причину').max(300),
@@ -41,7 +51,7 @@ export async function POST(req: NextRequest) {
     parsed = BodySchema.parse(await req.json());
   } catch (err) {
     const msg = err instanceof z.ZodError ? err.issues[0]?.message ?? 'Некорректные данные' : 'Некорректные данные';
-    return NextResponse.json({ probe: 'route_endpoints_v1', error: msg }, { status: 400 });
+    return NextResponse.json({ probe: 'route_endpoints_v1', version: ROUTE_ENDPOINTS_VERSION, error: msg }, { status: 400 });
   }
 
   try {
@@ -51,10 +61,10 @@ export async function POST(req: NextRequest) {
       why: parsed.why,
       dryRun: parsed.dry_run,
     });
-    return NextResponse.json({ ok: true, probe: 'route_endpoints_v1', ...result });
+    return NextResponse.json({ ok: true, probe: 'route_endpoints_v1', version: ROUTE_ENDPOINTS_VERSION, ...result });
   } catch (err) {
     return NextResponse.json(
-      { ok: false, probe: 'route_endpoints_v1', error: err instanceof Error ? err.message : 'Не выполнено' },
+      { ok: false, probe: 'route_endpoints_v1', version: ROUTE_ENDPOINTS_VERSION, error: err instanceof Error ? err.message : 'Не выполнено' },
       { status: 500 },
     );
   }
