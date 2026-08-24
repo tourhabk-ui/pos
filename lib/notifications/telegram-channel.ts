@@ -470,16 +470,34 @@ export async function postOperatorToChannel(slug: string, photoUrl?: string): Pr
  * (CLAUDE.md §8); хэштег-простыни и эмодзи-обвес дополнительно режет
  * детерминированный guard в post-validation (blockingTextIssue) — промпт
  * не гвард, модель его нарушает.
+ *
+ * Второй перекос — 24.08, владелец показал посты «сейчас»: маятник от SMM
+ * качнулся в сухую пустоту. Запреты выше свою работу сделали, но одних
+ * запретов мало — без позитивного ориентира модель, которой нельзя ни
+ * хэштегов, ни буллитов, ни «мы с Кузьмичом», заполняет пост общими словами
+ * настроения («не для тех, кто в кроссовках», «красоту не принесут на
+ * тарелке») вместо содержания. Голос ниже добавляет ЧТО писать, не только
+ * что нельзя — и отдельно снимает панибратство («братва») и подколы над
+ * туристами, которые были в более старых постах ДО этой правки.
  */
 export const KUZMICH_CHANNEL_VOICE = `Голос (обязательно):
 - Ты сам Кузьмич и сам автор текста: пиши от первого лица. Никогда не пиши о
   Кузьмиче как о другом человеке («мы с Кузьмичом», «Кузьмич одобряет»);
   назвать себя в третьем лице можно только в шутку и редко
+- Тон — тёплый и с достоинством, БЕЗ панибратства: никаких «братва», «народ»,
+  разговорной фамильярности. Ты местный, который уважает читателя, а не
+  свой в доску кореш
+- Не подшучивай и не иронизируй над туристами и их незнанием — это не повод
+  для смеха, это тот, для кого ты пишешь
+- Дай читателю увидеть и почувствовать: конкретный образ — рельеф, звук, свет,
+  запах, ощущение от места. Оценочное слово без картинки за ним («красиво»,
+  «впечатляет») — не текст, а его отсутствие; лучше одна точная деталь, чем
+  три эпитета
 - Без хэштегов. Эмодзи — максимум один-два, только если правда к месту
 - Без рекламных конструкций и буллет-списков «почему это круто»: ты местный,
   который знает, а не канал, который продаёт
-- Числа (координаты, температуры, расстояния, время) — только из переданных
-  данных; чего в данных нет, о том числом не пиши`;
+- Числа (координаты, температуры, расстояния, время, цены) — только из
+  переданных данных; чего в данных нет, о том числом не пиши`;
 
 /**
  * AI генерирует сезонный пост в голосе Кузьмича и публикует в канал.
@@ -750,18 +768,20 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
 Описание: ${r.description?.slice(0, 300) ?? 'нет данных'}${reviewCtx}
 
 Требования:
-- 70-100 слов, живой голос местного, без рекламы и пафоса
+- 60-100 слов; если фактуры в данных мало — пиши короче (от 40 слов) и не
+  разбавляй общими словами настроения ("красиво", "впечатляет", "тест на
+  выносливость") — это не содержание, а его отсутствие
 - Конкретная деталь ИЗ ДАННЫХ ВЫШЕ: из описания или моих заметок. Не выдумывай
   фактов, которых в них нет: ни находок, ни тайников, ни историй, ни цифр
 - Если детали в данных нет — пиши о том, что есть, короче. Пустая строка лучше
   придуманной
 - НИКОГДА не советуй уходить с тропы, идти в сторону или искать что-либо вне
   тропы
-- Лёгкая ирония над городскими туристами которые едут и не знают куда
 - В конце обязательно ссылка: ${appUrl}/routes/${r.id}
-${r.has_track
-  ? '- Подпись к ссылке: про маршрут/трек (на странице есть GPS-трек)'
-  : '- Подпись к ссылке: «Подробнее о месте» — НЕ обещай маршрут или трек, на странице их нет, только описание и карта точки'}
+- Ссылку сопроводи ОДНОЙ СВОЕЙ фразой (не копируй формулировку из этой строки
+  инструкции дословно — придумай свою): ${r.has_track
+    ? 'дай понять, что на странице есть GPS-трек для похода'
+    : 'дай понять, что это карточка места — маршрута или трека там нет, только описание и карта'}
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - Не начинай с "Привет" или своего имени
 ${KUZMICH_CHANNEL_VOICE}`;
@@ -911,6 +931,124 @@ ${KUZMICH_CHANNEL_VOICE}`;
   }
 
   return result;
+}
+
+// ── А3. Кузьмич — AI-пост о конкретном туре (автономный cron, 24.08) ────────
+//
+// Три автопоста в сутки (route/tip/sezon) ни разу не упоминали operator_tours —
+// канал двигал трафик на бесплатные точки/маршруты и ни разу на то, что реально
+// бронируется. Владелец 24.08: «почему нет туров?» — дыра в дизайне, не баг
+// одной строчки: пайплайн писали для точек, тур как сущность в него не завели.
+
+interface TourProgramStep { title?: string; text?: string }
+
+interface KuzmichTourRow {
+  id: number;
+  title: string;
+  short_description: string | null;
+  description: string | null;
+  base_price: string | null;
+  duration_hours: number | null;
+  program: TourProgramStep[] | null;
+  included: string[] | null;
+  photos: string[] | null;
+  operator_name: string | null;
+}
+
+/**
+ * Не повторяем тур раньше N дней. 30, как у маршрутов, здесь не годится —
+ * живых туров единицы (замер 23.08: 8), и такая пауза быстро оставила бы
+ * пул пустым при посте через день. 7 дней даёт каждому туру пройти круг
+ * примерно дважды в месяц при текущем размере пула.
+ */
+const TOUR_REPEAT_COOLDOWN_DAYS = 7;
+
+/**
+ * Выбирает опубликованный тур, не постившийся последние
+ * TOUR_REPEAT_COOLDOWN_DAYS дней, пишет пост голосом Кузьмича по РЕАЛЬНЫМ
+ * полям тура (описание, программа дня, что включено, цена) и публикует.
+ * Логирует в ai_actions_log — тем же способом, что и посты о маршрутах.
+ */
+export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string }> {
+  const channelId = process.env.TELEGRAM_CHANNEL_ID;
+  if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
+
+  const pickResult = await query<KuzmichTourRow>(`
+    SELECT ot.id, ot.title, ot.short_description, ot.description,
+           ot.base_price::text AS base_price, ot.duration_hours,
+           ot.program, ot.included, ot.photos,
+           p.name AS operator_name
+      FROM operator_tours ot
+      LEFT JOIN partners p ON p.id = ot.operator_id
+     WHERE ot.is_published = TRUE AND ot.is_active = TRUE AND ot.deleted_at IS NULL
+       AND ot.id::text NOT IN (
+         SELECT metadata->>'tour_id' FROM ai_actions_log
+          WHERE action_type = 'kuzmich_tour_post'
+            AND created_at > NOW() - INTERVAL '7 days'
+            AND metadata->>'tour_id' IS NOT NULL
+       )
+     ORDER BY COALESCE(array_length(ot.photos, 1), 0) DESC, RANDOM()
+     LIMIT 1
+  `);
+
+  const t = pickResult.rows[0];
+  if (!t) {
+    return {
+      ok: false,
+      error: `Нет туров для поста (все опубликованы в последние ${TOUR_REPEAT_COOLDOWN_DAYS} дней либо активных туров нет)`,
+    };
+  }
+
+  const appUrl = getPublicBaseUrl();
+
+  const programCtx = (t.program ?? []).slice(0, 3)
+    .map((step) => [step.title, step.text?.slice(0, 150)].filter(Boolean).join(': '))
+    .filter(Boolean)
+    .join('\n');
+  const includedCtx = (t.included ?? []).slice(0, 5).join(', ');
+  const priceCtx = t.base_price && parseFloat(t.base_price) > 0
+    ? `от ${Math.round(parseFloat(t.base_price)).toLocaleString('ru-RU')} ₽`
+    : '';
+
+  const prompt = `Ты — Кузьмич, местный житель Камчатки. Напиши короткий пост для Telegram-канала о конкретном туре — реальном предложении, которое можно забронировать у оператора.
+
+Тур: ${t.title}
+Оператор: ${t.operator_name ?? 'неизвестен'}
+Описание: ${(t.short_description || t.description || '').slice(0, 300) || 'нет данных'}
+${programCtx ? `Программа дня:\n${programCtx}` : ''}
+${includedCtx ? `Включено: ${includedCtx}` : ''}
+${t.duration_hours ? `Длительность: ${t.duration_hours} ч` : ''}
+${priceCtx ? `Цена: ${priceCtx}` : ''}
+
+Требования:
+- 60-100 слов; если фактуры мало — короче, не разбавляй общими словами
+- Конкретная деталь ИЗ ДАННЫХ ВЫШЕ — из описания или программы дня. Не выдумывай
+  подробностей, которых там нет: ни маршрута, ни ощущений, которых нет в тексте
+- Дай почувствовать сам тур — что реально происходит в этот день, а не рекламный ярлык
+- Упомяни оператора по имени: это его тур, не наш
+- Цену указывай, только если она есть в данных выше, и ровно ту цифру
+- В конце — ссылка: ${appUrl}/marketplace/tours/${t.id}
+- HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
+- Не начинай с "Привет" или своего имени
+${KUZMICH_CHANNEL_VOICE}`;
+
+  const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
+
+  const photoRel = (t.photos ?? [])[0] ?? null;
+  const photoUrl = photoRel ? `${appUrl}${photoRel}` : null;
+
+  const result = await postToAllChannels({ channelId, postType: 'kuzmich_tour', text, photoUrl });
+
+  if (result.ok) {
+    try {
+      await query(
+        `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title })]
+      );
+    } catch { /* таблица ещё не создана — не блокируем пост */ }
+  }
+
+  return { ...result, tourId: t.id };
 }
 
 // ── AI News channel post ─────────────────────────────────────────────────────
