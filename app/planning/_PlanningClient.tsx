@@ -1145,9 +1145,17 @@ function OnTrailTab() {
      * Расхождение уже посчитано в approach (dataConflict): точки маршрута и
      * линия описывают разные места. Тогда линии нет — остаются точки, компас
      * и SOS, о чём карточка и говорит словами.
+     *
+     * Регресс 24.08: dataConflict раньше просто выключал ТРЕК, и код падал
+     * на `fallback` — прямую между путевыми точками. На маршруте, где цель
+     * стоит в стороне от геометрии, это именно тот полный экран уверенной
+     * линии, от которого чинили 17.08, только в исполнении из точек, а не
+     * из geometry. dataConflict значит «не знаем, как это связано между
+     * собой» — фолбэк здесь не честнее самого трека, поэтому при нём линии
+     * нет вовсе, не только трека.
      */
-    const trackTrusted = track && track.length >= 2 && approach?.dataConflict !== true;
-    const line = trackTrusted ? track : fallback;
+    const trackTrusted = track && track.length >= 2;
+    const line = approach?.dataConflict === true ? null : (trackTrusted ? track : fallback);
     if (!line && waypoints.length === 0) return [];
     return [
       // Линия рисуется по своему происхождению. Часть маршрутов имеет
