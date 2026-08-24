@@ -34,7 +34,7 @@ export async function getSuppliers(operatorId?: string | null) {
            AND ot.title IS NOT NULL AND ot.description IS NOT NULL
            AND ot.base_price > 0 AND ot.location_type IS NOT NULL
            AND ot.activity_type IS NOT NULL AND ot.max_participants > 0
-           AND (ot.hero_image IS NOT NULL OR ot.gallery IS NOT NULL)
+           AND (ot.tour_image IS NOT NULL OR ot.photos IS NOT NULL)
            AND EXISTS (
              SELECT 1 FROM tour_availability ta
              WHERE ta.operator_tour_id = ot.id
@@ -82,7 +82,7 @@ export async function getProducts(operatorId?: string | null) {
        AND ot.title IS NOT NULL AND ot.description IS NOT NULL
        AND ot.base_price > 0 AND ot.location_type IS NOT NULL
        AND ot.activity_type IS NOT NULL AND ot.max_participants > 0
-       AND (ot.hero_image IS NOT NULL OR ot.gallery IS NOT NULL)
+       AND (ot.tour_image IS NOT NULL OR ot.photos IS NOT NULL)
        AND EXISTS (
          SELECT 1 FROM tour_availability ta
          WHERE ta.operator_tour_id = ot.id
@@ -110,7 +110,7 @@ export async function getProductById(productId: string) {
        AND ot.title IS NOT NULL AND ot.description IS NOT NULL
        AND ot.base_price > 0 AND ot.location_type IS NOT NULL
        AND ot.activity_type IS NOT NULL AND ot.max_participants > 0
-       AND (ot.hero_image IS NOT NULL OR ot.gallery IS NOT NULL)
+       AND (ot.tour_image IS NOT NULL OR ot.photos IS NOT NULL)
        AND EXISTS (
          SELECT 1 FROM tour_availability ta
          WHERE ta.operator_tour_id = ot.id

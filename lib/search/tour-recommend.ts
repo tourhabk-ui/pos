@@ -59,7 +59,7 @@ async function getSimilarUsersRecommendations(
          t.activity_type               AS category,
          t.location_name               AS location,
          t.rating,
-         t.images, t.eco_points_reward
+         t.photos AS images
        FROM operator_bookings b1
        JOIN operator_bookings b2 ON b2.operator_tour_id = b1.operator_tour_id
                                 AND b2.user_id != $1
@@ -78,7 +78,7 @@ async function getSimilarUsersRecommendations(
          AND b1.deleted_at IS NULL
        GROUP BY t.id, t.title, t.description, t.base_price, t.difficulty,
                 t.duration_hours, t.activity_type, t.location_name, t.rating,
-                t.images, t.eco_points_reward
+                t.photos
        HAVING COUNT(DISTINCT b2.user_id) >= 1
        ORDER BY COUNT(DISTINCT b2.user_id) DESC, t.rating DESC NULLS LAST
        LIMIT $3`,
@@ -147,7 +147,7 @@ async function getContentBasedRecommendations(
          activity_type   AS category,
          location_name   AS location,
          rating,
-         images, eco_points_reward
+         photos AS images
        FROM operator_tours
        WHERE id != ALL($1::text[])
          AND is_active = true
@@ -214,7 +214,7 @@ async function getEcoOptimizedRecommendations(
          activity_type   AS category,
          location_name   AS location,
          rating,
-         images, eco_points_reward
+         photos AS images, eco_points_reward
        FROM operator_tours
        WHERE id != ALL($1::text[])
          AND is_active = true
@@ -234,6 +234,13 @@ async function getEcoOptimizedRecommendations(
       strategyLabel: STRATEGY_LABELS.ECO_OPTIMIZED,
     }));
   } catch (err) {
+    // Колонки operator_tours.eco_points_reward нет в схеме ВООБЩЕ — ни в
+    // baseline, ни в миграциях. Стратегия падала на каждом вызове, а пустой
+    // catch выдавал это за «эко-туров нет». Пустой список остаётся (остальные
+    // стратегии работать должны), но отказ обязан называться: чинится
+    // миграцией, а не здесь.
+    console.error('[tour-recommend] эко-стратегия не выполнилась:',
+      err instanceof Error ? err.message : err);
     return [];
   }
 }
@@ -285,7 +292,7 @@ export async function getRecommendations(
               duration_hours AS duration,
               activity_type  AS category,
               location_name  AS location,
-              rating, images, eco_points_reward
+              rating, photos AS images
        FROM operator_tours
        WHERE is_active = true AND deleted_at IS NULL
          AND ($2::text IS NULL OR activity_type = $2)

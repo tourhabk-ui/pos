@@ -59,8 +59,8 @@ export async function POST(request: NextRequest) {
         t.title as tour_name,
         t.duration_hours AS duration,
         p.name as operator_name,
-        p.phone as operator_phone,
-        p.email as operator_email,
+        COALESCE(p.contacts->>'phone', p.contact->>'phone') as operator_phone,
+        COALESCE(p.contact->>'email', p.contacts->>'email') as operator_email,
         u.email as user_email,
         COALESCE(u.name, u.email) as user_name
       FROM operator_bookings b

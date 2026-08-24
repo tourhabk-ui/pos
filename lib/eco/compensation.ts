@@ -62,7 +62,7 @@ export async function countActiveOperators(): Promise<number> {
       AND b.created_at >= NOW() - make_interval(days => $1)
       AND b.booking_status <> 'cancelled'
       AND b.deleted_at IS NULL
-     WHERE p.category = 'operator' AND p.is_active = TRUE`,
+     WHERE p.category = 'operator' AND p.is_public = TRUE`,
     [ACTIVE_WINDOW_DAYS],
   );
   return Number(rows[0]?.cnt ?? 0);

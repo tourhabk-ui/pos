@@ -145,7 +145,7 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
             ot.max_participants,
             ot.difficulty,
             ot.activity_type,
-            ot.location,
+            ot.location_name AS location,
             ot.photos,
             COALESCE(p.company_name, p.name) AS operator_name
        FROM operator_tours ot

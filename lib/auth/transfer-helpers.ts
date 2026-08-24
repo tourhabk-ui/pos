@@ -378,8 +378,11 @@ export async function findAvailableVehicle(
   vehicleType?: string
 ): Promise<string | null> {
   try {
+    // Рейтинга у транспортного средства в схеме нет (он есть у ВОДИТЕЛЯ,
+    // drivers.rating) — запрос падал целиком, и подбор машины всегда молча
+    // возвращал null. Порядок — по вместимости: берём наименьшую достаточную.
     let queryStr = `
-      SELECT v.id, v.capacity, v.rating
+      SELECT v.id, v.capacity
       FROM vehicles v
       WHERE v.operator_id = $1
       AND v.status = 'active'
@@ -395,7 +398,7 @@ export async function findAvailableVehicle(
       paramIndex++;
     }
     
-    queryStr += ` ORDER BY v.capacity ASC, v.rating DESC`;
+    queryStr += ` ORDER BY v.capacity ASC`;
     
     const vehicles = await query(queryStr, params);
     
@@ -409,6 +412,10 @@ export async function findAvailableVehicle(
     
     return null;
   } catch (error) {
+    // `null` читается вызывающими как «свободной машины нет». Отказ базы
+    // выглядит так же — поэтому он хотя бы называется (§4.0).
+    console.error('[transfers] findAvailableVehicle: подбор машины не выполнился:',
+      error instanceof Error ? error.message : error);
     return null;
   }
 }

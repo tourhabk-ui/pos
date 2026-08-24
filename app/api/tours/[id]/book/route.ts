@@ -74,7 +74,10 @@ export async function POST(
         t.min_participants AS min_group_size,
         t.is_active,
         p.name as operator_name,
-        p.email as operator_email
+        -- у partners нет колонок email/phone: контакты лежат в jsonb
+        -- (contact из baseline и contacts из миграции 784). Запрос падал
+        -- целиком — бронирование тура не проходило вовсе.
+        COALESCE(p.contact->>'email', p.contacts->>'email') as operator_email
       FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
       WHERE t.id = $1 AND t.is_active = true AND t.deleted_at IS NULL`,

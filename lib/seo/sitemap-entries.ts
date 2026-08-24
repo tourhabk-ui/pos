@@ -228,7 +228,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   try {
     const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
       `SELECT slug, updated_at FROM collections
-       WHERE is_published = true
+       WHERE is_public = true
        ORDER BY updated_at DESC LIMIT 200`
     );
     collectionPages = rows.map(row => ({
@@ -237,8 +237,11 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: 0.7,
     }));
-  } catch {
-    // Таблица может отсутствовать
+  } catch (e) {
+    // Молчал годами: колонка называлась is_published, а в таблице is_public —
+    // подборки не попадали в sitemap ни разу, и отличить это от «таблицы нет»
+    // было нечем.
+    console.error('[sitemap] подборки не попали в sitemap:', e instanceof Error ? e.message : e);
   }
 
   // Профили операторов /operators/[slug]
@@ -246,7 +249,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   try {
     const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
       `SELECT slug, updated_at FROM partners
-       WHERE partner_type = 'operator' AND slug IS NOT NULL
+       WHERE category = 'operator' AND slug IS NOT NULL
        ORDER BY updated_at DESC LIMIT 200`
     );
     operatorPages = rows.map(row => ({
@@ -255,8 +258,10 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: 0.65,
     }));
-  } catch {
-    // fallback
+  } catch (e) {
+    // То же самое: фильтр стоял по partner_type, которого в partners нет —
+    // профили операторов в sitemap не попадали, и отказ был не виден.
+    console.error('[sitemap] профили операторов не попали в sitemap:', e instanceof Error ? e.message : e);
   }
 
   return [
