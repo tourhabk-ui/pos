@@ -1,17 +1,29 @@
 {
-  "note": "Проба 197: у 20 записей ядра Ф5 есть ли source_url/pdf_url/park_approval_url — прежде чем звать дыру «нужны полевые GPS-треки», исключаем более дешёвый случай (источник записан, геометрия не забрана).",
-  "urls": [
-    "https://vedarai.ru/api/cron/route-core-sources?ids=67fba4be-ac61-46c8-bdf5-225f25b09baa,1c69409d-b685-41db-8bcd-e7fdfffd6492,3795cfa5-4c77-4088-a349-0884f5c07a0e,5a83e7ce-2ad9-4873-ae21-590c555b255c,780648de-9a3f-4c78-bca0-288dd0ca04c4,1edaefb4-d294-441f-84ee-48fe995c0779,03b2a69c-2799-418b-9ed5-de17018ba066,e1382fa6-6141-4fb7-8136-a40275a01e22,120d3427-d8b9-42ed-b0ac-582449a9c202,3836f603-aa18-47ba-81a4-ff840c5920ea,3b4e74dd-81e4-4525-944e-8c960e1964e7,50be875e-da68-43ba-95d6-05d30da6f8f8,f447bbe2-37ef-4858-b5eb-d8014fbf50d2,842563f5-c32f-4c5c-9bc1-6248a8f4a8c4,dfc91177-7e38-479c-a517-290983d0dd1f,22a38d9c-a509-48c9-9bd9-7312fbad4a12,7f3a859a-d000-4097-8a6b-cadeabadfd6f,73b59f4a-7970-46b3-88c7-c9ac563e6e09,ce6b03b0-6b11-45bb-9e68-3704322eae8f,21af69de-82d0-4a78-85de-fa0ff59cc569"
-  ],
-  "until": "route_core_sources_v1",
-  "retries": 10,
-  "retryDelay": 60,
-  "timeout": 60,
-  "bytes": 12000,
-  "grep": [
-    "\"probe\":\"route_core_sources_v1\"",
-    "\"with_any_lead\"",
-    "\"without_any_lead\"",
-    "Unauthorized"
-  ]
+ "run": 188,
+ "note": "Проба 188: сняли ли знакомые трек. /api/cron/track-import-queue выкатился только что (PR #1382, смержен) — ждём именно ответ с полем probe, чтобы не прочитать прежнюю сборку (404) как ответ. status=all, чтобы не потерять уже разобранные записи.",
+ "bytes": 6000,
+ "timeout": 60,
+ "retries": 15,
+ "retryDelay": 60,
+ "until": "\"probe\":\"track_import_queue_v1\"",
+ "urls": [
+  "https://vedarai.ru/api/cron/track-import-queue?status=all"
+ ],
+ "count": [
+  "\"id\":",
+  "\"status\":\"pending\"",
+  "\"status\":\"applied\"",
+  "\"status\":\"rejected\""
+ ],
+ "grep": [
+  "\"total\":",
+  "\"matched\":",
+  "\"unmatched\":",
+  "\"with_problems\":",
+  "matched_route",
+  "off_by_km",
+  "s3_url",
+  "trip_tag",
+  "note"
+ ]
 }
