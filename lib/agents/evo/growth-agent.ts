@@ -759,6 +759,28 @@ async function scanKuzmichEval(): Promise<GrowthIssue[]> {
   return finding ? [finding] : [];
 }
 
+/**
+ * Отказ объектива — не «нарушений нет» (§4.0).
+ *
+ * Пять объективов петли ловили свой отказ в `.catch(() => [])`: упавший
+ * запрос отдавал пустой список находок, и прогон заканчивался зелёным. Это
+ * та же подмена, что и зелёный smoke при мёртвой карточке 19.08 — место,
+ * где нельзя сказать «не смог», заполняется словом «хорошо».
+ *
+ * Ловить по-прежнему можно: один упавший объектив не должен ронять весь
+ * прогон. Молчать нельзя — имя объектива и текст ошибки уходят в лог, и по
+ * ним видно, что находок нет не потому, что всё в порядке.
+ */
+async function lens<T>(name: string, run: () => Promise<T>, onFailure: T): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'неизвестная ошибка';
+    console.error(`[growth-scan] объектив «${name}» не смог проверить:`, msg);
+    return onFailure;
+  }
+}
+
 async function scanFunnel(): Promise<GrowthIssue[]> {
   // Ретенция журнала маяка — той же рукой, что его читает.
   await pool.query(`DELETE FROM funnel_events WHERE created_at < NOW() - INTERVAL '90 days'`).catch(() => {});
@@ -1004,22 +1026,22 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     decisionError = review.decisionError ?? null;
     decisionProvenance = review.provenance ?? null;
     // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
-    const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
+    const mocks = await lens('фейк-витрины', scanMocks, { issues: [] as GrowthIssue[], scanned: 0 });
     issues.push(...mocks.issues);
     coverage.mock_files_scanned = mocks.scanned;
     // Прод-ошибки из журнала onRequestError (Эволюция 3.0, п.1): правда с
     // прода, которой нет в коде — мёртвый роут слотов (#1008) и вечный degraded
     // /api/tours жили годами, потому что 500-ки не попадали в петлю.
-    issues.push(...(await scanProdErrors().catch(() => [] as GrowthIssue[])));
-    issues.push(...(await scanFunnel().catch(() => [] as GrowthIssue[])));
-    issues.push(...(await scanKuzmichEval().catch(() => [] as GrowthIssue[])));
+    issues.push(...(await lens('прод-ошибки', scanProdErrors, [] as GrowthIssue[])));
+    issues.push(...(await lens('воронка', scanFunnel, [] as GrowthIssue[])));
+    issues.push(...(await lens('Кузьмич-евал', scanKuzmichEval, [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
-    issues.push(...await scanStructural().catch(() => [] as GrowthIssue[]));
+    issues.push(...(await lens('структура', scanStructural, [] as GrowthIssue[])));
     // Объектив схемы: запрос против baseline и миграций. Единственный, кто
     // смотрит на то, чего модель не видит принципиально — она читает файл, а
     // схема лежит в других файлах. Оба настоящих дефекта 23.08 были этого
     // рода, и прочёс в тот же день объявил «по делу: 0».
-    issues.push(...await scanSchemaMismatches().catch(() => [] as GrowthIssue[]));
+    issues.push(...(await lens('схема', scanSchemaMismatches, [] as GrowthIssue[])));
   }
 
   // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →
