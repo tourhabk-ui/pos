@@ -3525,14 +3525,14 @@ ALTER TABLE gear_items ADD CONSTRAINT gear_items_partner_id_fkey FOREIGN KEY (pa
 ALTER TABLE gear_rentals ADD CONSTRAINT gear_rentals_gear_id_fkey FOREIGN KEY (gear_id) REFERENCES gear_items(id) ON DELETE CASCADE;
 ALTER TABLE guide_availability ADD CONSTRAINT guide_availability_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES partners(id) ON DELETE CASCADE;
 ALTER TABLE guide_certifications ADD CONSTRAINT guide_certifications_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES partners(id) ON DELETE CASCADE;
-ALTER TABLE guide_earnings ADD CONSTRAINT guide_earnings_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE guide_earnings ADD CONSTRAINT guide_earnings_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES partners(id) ON DELETE CASCADE;
 ALTER TABLE guide_earnings ADD CONSTRAINT guide_earnings_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES guide_schedule(id) ON DELETE SET NULL;
 ALTER TABLE guide_earnings ADD CONSTRAINT guide_earnings_tour_id_fkey FOREIGN KEY (tour_id) REFERENCES tours(id);
 ALTER TABLE guide_groups ADD CONSTRAINT guide_groups_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES guide_schedule(id) ON DELETE CASCADE;
 ALTER TABLE guide_reviews ADD CONSTRAINT guide_reviews_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL;
 ALTER TABLE guide_reviews ADD CONSTRAINT guide_reviews_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES partners(id) ON DELETE CASCADE;
 ALTER TABLE guide_reviews ADD CONSTRAINT guide_reviews_tourist_id_fkey FOREIGN KEY (tourist_id) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE guide_schedule ADD CONSTRAINT guide_schedule_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE guide_schedule ADD CONSTRAINT guide_schedule_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES partners(id) ON DELETE CASCADE;
 ALTER TABLE guide_schedule ADD CONSTRAINT guide_schedule_tour_id_fkey FOREIGN KEY (tour_id) REFERENCES tours(id);
 ALTER TABLE kuzmich_engagement_signals ADD CONSTRAINT kuzmich_engagement_signals_tour_id_fkey FOREIGN KEY (tour_id) REFERENCES operator_tours(id) ON DELETE CASCADE;
 ALTER TABLE kuzmich_engagement_signals ADD CONSTRAINT kuzmich_engagement_signals_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
