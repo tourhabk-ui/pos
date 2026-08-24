@@ -1,5 +1,5 @@
 {
-  "note": "Проба 192: сухой прогон возврата профилей двум людям с запертой двери (locked-out-partners: agent 7f3621a6-cdcd-4638-bdb3-a8a67e7cb4b8; agent+guide+transfer a759e4fe-be57-402d-b2fb-8f44fc2066cb). dry_run по умолчанию — эта проба ничего не пишет, только показывает, что бы создалось.",
+  "note": "Проба 193: БОЕВОЙ прогон возврата профилей двум людям с запертой двери (locked-out-partners). Сухой прогон 192 подтвердил чистоту: 4/4 would_create:true, ошибок нет. dry_run:false — эта проба ПИШЕТ.",
   "post": [
     {
       "url": "https://vedarai.ru/api/cron/backfill-partner-profile",
@@ -7,11 +7,24 @@
         "source": "перепись locked-out-partners 24.08, id из ответа прода",
         "why": "42P08 в INSERT профиля не выполнялся никогда до правки того же дня; аккаунт создан, профиля нет — потеря обратима",
         "items": [
-          { "user_id": "7f3621a6-cdcd-4638-bdb3-a8a67e7cb4b8", "role": "agent" },
-          { "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb", "role": "agent" },
-          { "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb", "role": "guide" },
-          { "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb", "role": "transfer" }
-        ]
+          {
+            "user_id": "7f3621a6-cdcd-4638-bdb3-a8a67e7cb4b8",
+            "role": "agent"
+          },
+          {
+            "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb",
+            "role": "agent"
+          },
+          {
+            "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb",
+            "role": "guide"
+          },
+          {
+            "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb",
+            "role": "transfer"
+          }
+        ],
+        "dry_run": false
       }
     }
   ],
@@ -21,8 +34,9 @@
   "timeout": 60,
   "bytes": 3000,
   "grep": [
-    "\"dry_run\":true",
-    "\"would_create\":true",
+    "\"dry_run\":false",
+    "\"already_had_profile\":true",
+    "\"already_had_profile\":false",
     "\"checked\":4",
     "Unauthorized",
     "\"error\""

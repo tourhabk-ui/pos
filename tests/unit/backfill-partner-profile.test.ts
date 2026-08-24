@@ -25,7 +25,7 @@ describe('дисциплина source/why/dry-run/партия', () => {
 });
 
 describe('не заводит второй способ создания профиля', () => {
-  it('вызывает ensurePartnerForRole, а не пишет свой SQL', () => {
+  it('запись создаёт только ensurePartnerForRole, а не свой SQL', () => {
     expect(SRC).toMatch(/import \{ ensurePartnerForRole \} from '@\/lib\/auth\/partner-profile'/);
     expect(SRC).toContain('await ensurePartnerForRole(item.user_id, item.role)');
     expect(SRC).not.toMatch(/INSERT INTO partners/);
@@ -33,6 +33,20 @@ describe('не заводит второй способ создания про�
 
   it('сухой прогон не вызывает ensurePartnerForRole вовсе', () => {
     expect(SRC).toMatch(/if \(dry_run\) \{[\s\S]*?continue;\s*\}/);
+  });
+
+  it('already_had_profile проверяется до вызова, а не подставляется', () => {
+    // Первая версия жёстко ставила already_had_profile: false — «создали
+    // сейчас» и «уже было» были неразличимы в ответе на боевой прогон.
+    expect(SRC).toMatch(/const alreadyHadProfile = existing\.rows\.length > 0;/);
+    expect(SRC).not.toMatch(/already_had_profile: false,\s*\}\);\s*continue;/);
+  });
+
+  it('SELECT существования приводит типы параметров явно', () => {
+    // Та же форма, что убила маяк воронки и профиль партнёра при регистрации
+    // (CLAUDE.md §4.0) — здесь это SELECT, не INSERT ... WHERE NOT EXISTS,
+    // но приведение по обеим сторонам сравнения остаётся дисциплиной.
+    expect(SRC).toMatch(/WHERE user_id = \$1::uuid AND category = \$2::varchar/);
   });
 });
 

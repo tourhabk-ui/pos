@@ -28,6 +28,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
@@ -71,17 +72,29 @@ export async function POST(req: NextRequest) {
   }> = [];
 
   for (const item of items) {
+    // Существовал ли профиль ДО вызова — иначе «создали сейчас» и «уже был»
+    // неразличимы в ответе, а это ровно та разница, которую спрашивают
+    // после боевого прогона: правда ли мы кого-то вернули, а не просто
+    // подтвердили, что там и так всё было.
+    const existing = await pool.query<{ id: string }>(
+      `SELECT id FROM partners WHERE user_id = $1::uuid AND category = $2::varchar LIMIT 1`,
+      [item.user_id, item.role],
+    );
+    const alreadyHadProfile = existing.rows.length > 0;
+
     if (dry_run) {
       results.push({
         user_id: item.user_id, role: item.role,
-        would_create: true, profile_id: null, already_had_profile: false,
+        would_create: !alreadyHadProfile,
+        profile_id: existing.rows[0]?.id ?? null,
+        already_had_profile: alreadyHadProfile,
       });
       continue;
     }
     const profileId = await ensurePartnerForRole(item.user_id, item.role);
     results.push({
       user_id: item.user_id, role: item.role,
-      would_create: false, profile_id: profileId, already_had_profile: false,
+      would_create: false, profile_id: profileId, already_had_profile: alreadyHadProfile,
     });
   }
 
