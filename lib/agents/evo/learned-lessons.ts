@@ -43,9 +43,9 @@ export const MAX_REJECTED_LINES = 10;
 export const MAX_BLOCK_CHARS = 1800;
 
 /**
- * Сводка отказов из строк rejected/ignored находок. Чистая функция:
- * группирует по сигнатуре претензии (класс, не формулировка) и отдаёт
- * строки «file :: класс ×N» по убыванию частоты.
+ * Сводка отказов из строк rejected находок. Чистая функция: группирует по
+ * сигнатуре претензии (класс, не формулировка) и отдаёт строки
+ * «file :: класс ×N» по убыванию частоты.
  */
 export function buildRejectedDigest(
   rows: Array<SignatureInput>,
@@ -107,7 +107,7 @@ export async function loadLearnedLessons(): Promise<LearnedLessons> {
     pool.query<{ file_path: string | null; title: string | null; description: string | null; suggestion: string | null }>(
       `SELECT file_path, title, description, suggestion
          FROM evo_growth_issues
-        WHERE status IN ('rejected', 'ignored')
+        WHERE status = 'rejected'
         ORDER BY resolved_at DESC NULLS LAST
         LIMIT 100`,
     ).then((r) => r.rows).catch(() => []),
