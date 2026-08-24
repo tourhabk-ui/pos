@@ -174,7 +174,7 @@ const JUDGE_MAX_TOKENS = 1600;
  * Предел ожидания судьи больше не задаётся здесь — и это не потеря.
  *
  * Он появился 22.08, когда судья ходил быстрой веткой: у её ног 20 секунд, а
- * судья получает до 9000 знаков источников плюс сам выпуск и не укладывался.
+ * судья получает до 16000 знаков источников плюс сам выпуск и не укладывался.
  * Прогон того дня показал это в паре: синтез на ТЕХ ЖЕ провайдерах прошёл, а
  * судья вернул «не ответил никто» — вся разница была в пределе ожидания.
  *
@@ -251,7 +251,11 @@ async function judgeOnce(messages: ChatMessage[]): Promise<JudgeOutcome> {
 export async function judgeClaims(post: string, sources: string): Promise<JudgeOutcome> {
   const messages: ChatMessage[] = [
     { role: 'system', content: JUDGE_SYSTEM },
-    { role: 'user', content: `ИСТОЧНИКИ:\n${sources.slice(0, 9000)}\n\nПОСТ:\n${post}` },
+    // 9000 → 16000 (24.08): основной дайджест теперь подмешивает в источники
+    // текст статей на часть сигналов (см. ARTICLE_TEXT_PER_CATEGORY в
+    // scout-digest.ts), а не только заголовки — старый потолок обрезал бы
+    // ровно тот текст, ради которого его добавили.
+    { role: 'user', content: `ИСТОЧНИКИ:\n${sources.slice(0, 16000)}\n\nПОСТ:\n${post}` },
   ];
   const first = await judgeOnce(messages);
   // Проза вместо JSON лечится прямым указанием, а не ожиданием. Повтор ТОЛЬКО

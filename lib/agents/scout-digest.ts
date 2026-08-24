@@ -238,6 +238,13 @@ const AI_LABELS = new Set(RSS_SOURCES.filter(s => s.category === 'ai').map(s => 
 // Все источники разведки для метаданных выпуска: RSS плюс safety-слой.
 const ALL_SOURCE_LABELS = [...RSS_SOURCES.map(s => s.label), SAFETY_LAYER_SOURCE.label];
 
+// Метка источника → категория. Нужна, чтобы тянуть текст статей по разделам
+// (см. комментарий у ARTICLE_TEXT_PER_CATEGORY) — у самого RssItem категории нет.
+const CATEGORY_BY_LABEL = new Map<string, SourceCategory>([
+  ...RSS_SOURCES.map(s => [s.label, s.category] as const),
+  [SAFETY_LAYER_SOURCE.label, SAFETY_LAYER_SOURCE.category],
+]);
+
 // Общий ретрай-хелпер с backoff+jitter (Roitman §18.7.1) — переиспользуем
 // вместо локальной реализации без jitter, которая ретраила ЛЮБую ошибку
 // (включая собственный таймаут); теперь таймаут фида не ретраится (это
@@ -625,9 +632,47 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // Дедупликация: одна история из нескольких источников → одна запись
   const dedupedItems = deduplicateBySimilarity(freshItems, i => i.title, 0.5);
 
+  /**
+   * Текст статьи для ограниченного числа сигналов на раздел (24.08, причина
+   * молчания с 01.08). Раньше и писателю, и фактчек-судье доставался ОДИН
+   * голый заголовок на сигнал. AI-канал ниже давно тянет текст статьи именно
+   * потому, что «у модели только заголовки» — прямая цитата из его же
+   * комментария. Основной дайджест этого не делал: писателя просили выделить
+   * 3-5 инсайтов (синтез по определению), а судья (JUDGE_SYSTEM в fact-check.ts)
+   * помечает как «неподтверждённое» любую связку и следствие, которых нет
+   * ДОСЛОВНО в источнике. На одних заголовках синтез почти всегда такую
+   * связку добавляет — отсюда unsupported_claims каждый прогон подряд.
+   *
+   * По 2 сигнала на раздел (а не по всем) — бюджет символов у судьи не
+   * бесконечный (см. sources.slice в fact-check.ts, поднят вместе с этой
+   * правкой). Safety-слой Камчатки без url — fetchArticleText вернёт '' и
+   * останется голым заголовком; это верно и раньше: факт уже наш собственный,
+   * подтверждать его статьёй не у чего.
+   */
+  const ARTICLE_TEXT_PER_CATEGORY = 2;
+  const perCategoryPicks = new Map<SourceCategory, RssItem[]>();
+  for (const item of dedupedItems) {
+    const cat = CATEGORY_BY_LABEL.get(item.source);
+    if (!cat) continue;
+    const picks = perCategoryPicks.get(cat) ?? [];
+    if (picks.length < ARTICLE_TEXT_PER_CATEGORY) {
+      picks.push(item);
+      perCategoryPicks.set(cat, picks);
+    }
+  }
+  const toEnrich = [...perCategoryPicks.values()].flat();
+  const textByItem = new Map<RssItem, string>();
+  await Promise.all(toEnrich.map(async item => {
+    const text = await fetchArticleText(item.url);
+    if (text) textByItem.set(item, text);
+  }));
+
   // AI synthesis
   const signalsList = dedupedItems
-    .map(i => `[${i.source}] ${i.title}`)
+    .map(i => {
+      const text = textByItem.get(i);
+      return text ? `[${i.source}] ${i.title}\nТЕКСТ: ${text.slice(0, 700)}` : `[${i.source}] ${i.title}`;
+    })
     .join('\n');
 
   // Build context section from briefing so AI knows current state and prior runs.
