@@ -69,7 +69,19 @@ export async function POST(request: NextRequest) {
         )`,
       [parsed.step, parsed.entity_id ?? null, hash],
     );
-  } catch { /* маяк не должен отдавать 500 витрине — событие просто теряется */ }
+  } catch (err) {
+    // Витрине по-прежнему 204: маяк не должен ронять страницу. Но МОЛЧАТЬ
+    // нельзя (§4.0). Пустой catch здесь превращал поломку записи в «событий
+    // нет»: приёмник отвечал успехом, таблица оставалась пустой, и ноль в
+    // счётчике booking_start был неотличим от «никто не трогал форму». Ровно
+    // на этом различии стоит решение, что чинить — продукт или код.
+    const e = err as { message?: string; code?: string };
+    console.error(
+      `[funnel] событие «${parsed.step}» не записано:`,
+      e?.message ?? 'неизвестная ошибка',
+      `SQLSTATE=${e?.code ?? 'нет'}`,
+    );
+  }
 
   return new NextResponse(null, { status: 204 });
 }
