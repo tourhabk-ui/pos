@@ -1,18 +1,16 @@
 {
-  "note": "Проба 195: Ф5 — список ядра из 20 маршрутов по цене ошибки (не по спросу). Маркер свежести — route_core_v1, роут выкатывается тем же пушем.",
+  "note": "Проба 196: повтор 195 с полным телом ответа — 195 обрезала 13663-байтный ответ лимитом bytes:9000, видны были только 14 из 20 записей ядра и не видна хвостовая статистика. Роут уже выкачен, allowStale — свежесть не проверяем повторно.",
   "urls": [
     "https://vedarai.ru/api/cron/route-core"
   ],
-  "until": "route_core_v1",
-  "retries": 10,
-  "retryDelay": 60,
+  "allowStale": true,
+  "retries": 0,
   "timeout": 60,
-  "bytes": 9000,
+  "bytes": 20000,
   "grep": [
     "\"probe\":\"route_core_v1\"",
     "\"routes_considered\"",
-    "\"core\"",
-    "Unauthorized",
-    "\"error\""
+    "\"review_note\"",
+    "\"duration_ms\""
   ]
 }
