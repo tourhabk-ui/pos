@@ -38,7 +38,10 @@ export async function POST(request: NextRequest) {
   }
 
   let client;
-  
+  // Открыта ли транзакция: ранний выход по 409 случается ДО BEGIN, и
+  // откатывать там нечего. Флаг отличает «не начинали» от «начали».
+  let transactionOpen = false;
+
   try {
     const body = await request.json();
 
@@ -71,6 +74,19 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
+
+    // Транзакция. До 24.08 её здесь не было, и это превращало сбой на любом
+    // шаге ПОСЛЕ создания пользователя в запертую дверь: строка в users уже
+    // зафиксирована автокоммитом, ответ — 500 «попробуйте позже», а повторная
+    // попытка получает 409 «пользователь уже существует». Выйти из этого
+    // состояния человек не может ничем.
+    //
+    // Что это было не теорией, показала перепись 24.08: INSERT партнёрского
+    // профиля отвечал 42P08 и не выполнялся НИКОГДА — то есть регистрация
+    // гида, перевозчика, агента, жилья и снаряжения (все партнёрские роли,
+    // кроме оператора) заканчивалась ровно этой запертой дверью.
+    await client.query('BEGIN');
+    transactionOpen = true;
 
     // Хешируем пароль единым методом
     const hashedPassword = await hashPassword(password);
@@ -108,11 +124,17 @@ export async function POST(request: NextRequest) {
         );
       } else {
         await client.query(
+          // Тип задан явно у каждого употребления параметра. Без этого
+          // PostgreSQL выводит для $3 два разных типа — в списке SELECT
+          // контекста нет, а в `category = $3` есть тип колонки — и отвечает
+          // 42P08, то есть профиль партнёра НЕ СОЗДАЁТСЯ вовсе. Тот же дефект
+          // формы, что убил маяк воронки; найден переписью PREPARE-ом 24.08
+          // (/api/cron/sql-shape-check), а не глазами.
           `INSERT INTO partners
              (user_id, name, category, contact, is_verified, rating, review_count, created_at, updated_at)
-           SELECT $1, $2, $3, $4::jsonb, false, 0, 0, NOW(), NOW()
+           SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, 0, 0, NOW(), NOW()
            WHERE NOT EXISTS (
-             SELECT 1 FROM partners WHERE user_id = $1 AND category = $3
+             SELECT 1 FROM partners WHERE user_id = $1::uuid AND category = $3::varchar
            )`,
           [user.id, name, partnerRole, JSON.stringify({ email: email.toLowerCase() })]
         );
@@ -140,6 +162,9 @@ export async function POST(request: NextRequest) {
       }
     }
     
+    await client.query('COMMIT');
+    transactionOpen = false;
+
     // Генерируем JWT токен
     const token = await new SignJWT({
       userId: user.id,
@@ -181,12 +206,30 @@ export async function POST(request: NextRequest) {
     return response;
     
   } catch (error: unknown) {
+    if (client && transactionOpen) {
+      await client.query('ROLLBACK').catch((e) => {
+        console.error('[register] откат не удался:', e instanceof Error ? e.message : e);
+      });
+      transactionOpen = false;
+    }
+    // Человеку — прежнее общее сообщение (подробности отказа наружу не
+    // выдаём). В лог — причина и SQLSTATE: молчащий catch и был тем, из-за
+    // чего сломанная регистрация партнёров не всплыла ни разу (§4.0).
+    const e = error as { message?: string; code?: string };
+    console.error(
+      '[register] регистрация не завершена:',
+      e?.message ?? 'неизвестная ошибка',
+      `SQLSTATE=${e?.code ?? 'нет'}`,
+    );
     return NextResponse.json(
       { success: false, error: 'Ошибка регистрации. Попробуйте позже.' },
       { status: 500 }
     );
   } finally {
     if (client) {
+      if (transactionOpen) {
+        await client.query('ROLLBACK').catch(() => { /* соединение уже мертво */ });
+      }
       client.release();
     }
   }

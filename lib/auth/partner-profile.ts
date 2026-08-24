@@ -38,10 +38,12 @@ export async function ensurePartnerForRole(userId: string, role: string): Promis
   // нет уникального индекса user_id+category — два конкурентных INSERT
   // могли задвоить профиль)
   const inserted = await query(
+    // Тип задан явно у каждого употребления параметра — см. 42P08 в
+    // app/api/auth/register/route.ts: без приведения профиль не создаётся.
     `INSERT INTO partners (user_id, name, category, contact, is_verified, rating, review_count, created_at, updated_at)
-     SELECT $1, $2, $3, $4::jsonb, false, 0, 0, NOW(), NOW()
+     SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, 0, 0, NOW(), NOW()
      WHERE NOT EXISTS (
-       SELECT 1 FROM partners WHERE user_id = $1 AND category = $3
+       SELECT 1 FROM partners WHERE user_id = $1::uuid AND category = $3::varchar
      )
      RETURNING id`,
     [userId, name, role, JSON.stringify({ email })]
