@@ -82,3 +82,27 @@ describe('секреты прода не утекают в лог', () => {
     expect(step).not.toMatch(/cat \/tmp\/deploy-ask\.json/);
   });
 });
+
+describe('тело запроса содержит commit_sha — 24.08', () => {
+  // API Timeweb отвечал 400 на КАЖДОМ прогоне с самого создания шага:
+  // "commit_sha should not be null or undefined", "commit_sha must match
+  // ^[0-9a-f]{40}$ regular expression". Пустое тело `{}` не работало ни разу —
+  // просьба о сборке не срабатывала никогда, деплой держался целиком на
+  // вебхуке Timeweb. Ответ самого API назвал недостающее поле дословно.
+  const step = DEPLOY.slice(
+    DEPLOY.indexOf('Ask Timeweb to build this commit'),
+    DEPLOY.indexOf('Verify deploy reached production'),
+  );
+
+  it('POST-тело больше не пустой объект', () => {
+    expect(step).not.toMatch(/-d '\{\}'/);
+  });
+
+  it('commit_sha есть в теле запроса', () => {
+    expect(step).toMatch(/commit_sha/);
+  });
+
+  it('EXPECTED_SHA — 40-символьный SHA коммита, тот же источник, что в сверке ниже', () => {
+    expect(step).toMatch(/EXPECTED_SHA:\s*\$\{\{\s*github\.event\.workflow_run\.head_sha\s*\|\|\s*github\.sha\s*\}\}/);
+  });
+});
