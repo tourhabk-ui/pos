@@ -1,26 +1,18 @@
 {
- "run": 187,
- "note": "Проба 187: что пришло от знакомых в /field-check. Владелец 21.08 просил экран для знакомой, едущей на Вилючинский перевал; сегодня спросил «что у них получилось» и прислал ссылку на саму форму. Ответ лежит не на форме (она только пишет), а в очереди чтения /api/cron/field-check-queue — READ-ONLY, статус по умолчанию pending. Смотрю, что реально пришло: расхождения, фото, заметки.",
- "bytes": 6000,
- "timeout": 60,
- "retries": 1,
- "retryDelay": 20,
- "allowStale": true,
- "urls": [
-  "https://vedarai.ru/api/cron/field-check-queue?status=all"
- ],
- "count": [
-  "\"id\":",
-  "\"verdict\":\"matches\"",
-  "\"verdict\":\"mismatch\"",
-  "\"verdict\":\"new\"",
-  "\"status\":\"pending\"",
-  "\"status\":\"applied\"",
-  "\"status\":\"rejected\""
- ],
- "grep": [
-  "\"total\":",
-  "\"trip_tag\"",
-  "\"note\""
- ]
+  "note": "Проба 195: Ф5 — список ядра из 20 маршрутов по цене ошибки (не по спросу). Маркер свежести — route_core_v1, роут выкатывается тем же пушем.",
+  "urls": [
+    "https://vedarai.ru/api/cron/route-core"
+  ],
+  "until": "route_core_v1",
+  "retries": 10,
+  "retryDelay": 60,
+  "timeout": 60,
+  "bytes": 9000,
+  "grep": [
+    "\"probe\":\"route_core_v1\"",
+    "\"routes_considered\"",
+    "\"core\"",
+    "Unauthorized",
+    "\"error\""
+  ]
 }
