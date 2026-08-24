@@ -106,7 +106,10 @@ describe('чтение Яндекс.Метрики через API убрано (
 
 describe('контур подключён', () => {
   it('объектив в прочёсе и читает все источники', () => {
-    expect(GROWTH).toMatch(/scanFunnel\(\)\.catch/);
+    // Раньше здесь стояло `scanFunnel().catch(` — проверка «подключён и не
+    // роняет прогон» заодно закрепляла ГЛУШИТЕЛЬ отказа. Требование то же,
+    // но исполняется через lens, который отказ ещё и называет вслух.
+    expect(GROWTH).toMatch(/lens\('воронка', scanFunnel/);
     expect(GROWTH).toMatch(/FROM page_views/);
     expect(GROWTH).toMatch(/FROM funnel_events/);
     expect(GROWTH).toMatch(/FROM leads WHERE created_at/);
@@ -162,5 +165,32 @@ describe('маяк: API и клиенты', () => {
     expect(BOOKING).toMatch(/onFocusCapture=\{markFunnelStart\}/);
     expect(TOUR).not.toMatch(/funnelBeacon/);
     expect(CATALOG).not.toMatch(/funnelBeacon/);
+  });
+});
+
+/**
+ * Отказ объектива не выдаётся за «нарушений нет» (§4.0).
+ *
+ * До 24.08 пять объективов ловили свой отказ в `.catch(() => [])`: упавший
+ * запрос отдавал ноль находок, прогон заканчивался зелёным, и «мы не смогли
+ * посмотреть» было неотличимо от «мы посмотрели, всё чисто».
+ */
+describe('объективы прогона: отказ слышен', () => {
+  const SRC = readFileSync(join(process.cwd(), 'lib/agents/evo/growth-agent.ts'), 'utf-8');
+
+  it('ни один объектив не глушится пустым catch', () => {
+    expect(SRC).not.toMatch(/scan\w+\(\)\.catch\(\(\) =>/);
+  });
+
+  it('объективы обёрнуты в lens, который пишет отказ в лог', () => {
+    for (const name of ['scanMocks', 'scanProdErrors', 'scanFunnel', 'scanKuzmichEval', 'scanStructural']) {
+      expect(SRC).toMatch(new RegExp(`lens\\('[^']+', ${name}`));
+    }
+    expect(SRC).toMatch(/console\.error\(`\[growth-scan\] объектив/);
+  });
+
+  it('lens возвращает исход отказа, а не бросает: один объектив не роняет прогон', () => {
+    expect(SRC).toMatch(/async function lens<T>\(name: string, run: \(\) => Promise<T>, onFailure: T\)/);
+    expect(SRC).toMatch(/return onFailure;/);
   });
 });
