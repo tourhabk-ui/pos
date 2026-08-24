@@ -41,7 +41,7 @@
 
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason } from '@/lib/ai/failure-trace';
-import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
+import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
@@ -1485,6 +1485,64 @@ export async function resolveFlagshipModel(): Promise<string> {
   return resolved;
 }
 
+/**
+ * Шлюз Timeweb к флагманам — БЕЗ хопа за границей (CLAUDE.md §8, замер 23.08).
+ * У него модель — свойство агента: URL несёт agent_id, `model` в теле
+ * запроса игнорируется. Формат `Authorization` не задокументирован дословно —
+ * см. коммент к getTimewebAgents(); если он неверен, ответ будет 401, не
+ * таймаут, и это отличимо через probeTimewebAgentStatus().
+ */
+export const TIMEWEB_AGENT_BASE = 'https://agent.timeweb.cloud/api/v1/cloud-ai/agents';
+
+export async function callTimewebAgent(
+  agent: TimewebAgent,
+  messages: ChatMessage[],
+): Promise<{ text: string | null; httpStatus: number | null; detail: string }> {
+  try {
+    const res = await relayFetchWithRetry(`${TIMEWEB_AGENT_BASE}/${agent.agentId}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${agent.token}` },
+      // `model` шлюз игнорирует (модель — настройка агента), но поле шлём —
+      // OpenAI-совместимые серверы обычно требуют его в теле.
+      body: JSON.stringify({ model: 'agent', temperature: 0.2, max_tokens: 2000, messages }),
+    }, { timeoutMs: 45_000, label: `timeweb-agent:${agent.agentId}` });
+
+    const bodyText = await res.text().catch(() => '');
+    if (!res.ok) return { text: null, httpStatus: res.status, detail: bodyText.slice(0, 200) };
+
+    const data = JSON.parse(bodyText) as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+    const text = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) {
+      logLLMUsage(`timeweb:${agent.agentId}`, data.usage);
+      return { text, httpStatus: res.status, detail: '' };
+    }
+    return { text: null, httpStatus: res.status, detail: 'пустой ответ' };
+  } catch (e) {
+    return { text: null, httpStatus: null, detail: e instanceof Error ? e.message.slice(0, 150) : 'error' };
+  }
+}
+
+/**
+ * Живая диагностика шлюза — health-эндпоинт зовёт это, а не гадает по логам
+ * решателя. Пусто/не настроено → пустой массив (не ошибка: шлюз опционален,
+ * владелец подключает его сам, создавая агентов в панели Timeweb).
+ */
+export async function probeTimewebAgentStatus(): Promise<Array<{
+  name: string;
+  agent_id: string;
+  http_status: number | null;
+  detail: string;
+}>> {
+  const agents = getTimewebAgents();
+  const entries = Object.entries(agents);
+  if (entries.length === 0) return [];
+
+  return Promise.all(entries.map(async ([name, agent]) => {
+    const r = await callTimewebAgent(agent, [{ role: 'user', content: 'ping' }]);
+    return { name, agent_id: agent.agentId, http_status: r.httpStatus, detail: r.text ? 'ok' : r.detail };
+  }));
+}
+
 /** Ответ решателя вместе с моделью, которая его дала. */
 export interface DecisionResult {
   text: string | null;
@@ -1527,6 +1585,28 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
 
   // Сильнейший флагман без привязки к id (авто-резолв из /v1/models, §8).
   const flagshipModel = await resolveFlagshipModel();
+
+  // -1) Флагман через шлюз Timeweb (agent.timeweb.cloud) — пробуем ПЕРВЫМ,
+  //     раньше OpenRouter/Anthropic-релея. Причина порядка: у этого пути нет
+  //     хопа за границу через сторонний релей, поэтому нет и его гео-блока
+  //     (Cloudflare 403) — тот самый отказ, из-за которого ступени ниже
+  //     регулярно падают на «ключ есть, ответа нет». Не настроено
+  //     (TIMEWEB_AI_AGENTS пуст) → пропускаем молча, как и остальные ступени
+  //     без ключа. Среди настроенных агентов берём сильнейшего по имени
+  //     (pickBestFlagship — та же логика, что у OpenRouter/Anthropic-каталогов).
+  const timewebAgents = getTimewebAgents();
+  const timewebNames = Object.keys(timewebAgents);
+  if (timewebNames.length === 0) {
+    why.push('timeweb: TIMEWEB_AI_AGENTS не задан');
+  } else {
+    const bestName = pickBestFlagship(timewebNames) ?? timewebNames[0];
+    const agent = timewebAgents[bestName];
+    const r = await callTimewebAgent(agent, payload);
+    if (r.text) {
+      return { text: r.text, model: `timeweb:${bestName}`, provenance: why.slice() };
+    }
+    why.push(`timeweb(${bestName}): ${r.httpStatus !== null ? `HTTP ${r.httpStatus} ` : ''}${r.detail || 'ответа нет'}`);
+  }
 
   // 0) Флагман (Claude/GPT) через relay-aware OpenRouter — приоритет качества.
   //    Нет OPENROUTER_API_KEY / релея → callOpenRouterModel вернёт null, и мы

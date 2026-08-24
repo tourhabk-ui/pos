@@ -55,6 +55,12 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // DeepSeek/Qwen, поэтому domestic:false — ПД в промпт по-прежнему только
   // через redactPII.
   { host: 'api.moonshot.ai', jurisdiction: 'China', domestic: false, provider: 'Moonshot (Kimi)' },
+  // Шлюз Timeweb к флагманам (CLAUDE.md §8, замер 23.08) — хост российский,
+  // но трафик уходит ДАЛЬШЕ, в Anthropic/OpenAI/etc за границей: юрисдикция
+  // хоста и юрисдикция получателя ПД — РАЗНЫЕ вопросы, и второй не решается
+  // первым. domestic:false намеренно: это по-прежнему трансграничная
+  // передача, просто без гео-блока Cloudflare на сетевом пути к ней.
+  { host: 'agent.timeweb.cloud', jurisdiction: 'Russia (host) → зависит от модели агента (получатель)', domestic: false, provider: 'Timeweb AI Agents (шлюз к Claude/GPT/…)' },
 ] as const;
 
 const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));
@@ -113,7 +119,7 @@ export function extractLLMHosts(providersSource: string): string[] {
     const host = m[1].toLowerCase().replace(/[.-]+$/, '');
     // LLM-эндпоинты — по известным доменам моделей. Прочее (доки в коментах,
     // github и т.п.) не считаем приёмником ПД.
-    if (/deepseek|openrouter|googleapis|groq|cerebras|mistral|openai|anthropic|together\.xyz|yandex|gigachat|sberbank|gigachat\.devices|dashscope|aliyuncs|moonshot/.test(host)) {
+    if (/deepseek|openrouter|googleapis|groq|cerebras|mistral|openai|anthropic|together\.xyz|yandex|gigachat|sberbank|gigachat\.devices|dashscope|aliyuncs|moonshot|timeweb/.test(host)) {
       hosts.add(host);
     }
   }

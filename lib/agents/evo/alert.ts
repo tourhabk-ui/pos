@@ -57,14 +57,17 @@ interface RescueShape {
 /**
  * Флагманская ли модель считала аудит.
  *
- * Решатель ходит флагман → OpenRouter-релей → Anthropic напрямую → DeepSeek/Qwen.
- * Строка модели приходит в трёх видах: 'anthropic/claude-…' (через OpenRouter),
- * 'anthropic:claude-…' (напрямую) и голое имя фоллбэка ('deepseek-chat').
- * Флагманом считаем только явно антропиковский путь — всё прочее это съезд.
+ * Решатель ходит Timeweb-шлюз → флагман (OpenRouter-релей) → Anthropic
+ * напрямую → DeepSeek/Qwen. Строка модели приходит в четырёх видах:
+ * 'timeweb:claude-…' (шлюз Timeweb, §8), 'anthropic/claude-…' (через
+ * OpenRouter), 'anthropic:claude-…' (напрямую) и голое имя фоллбэка
+ * ('deepseek-chat'). Флагманом считаем явно антропиковский путь и
+ * Timeweb-шлюз (модель там — тоже флагман, просто другой сетевой путь до
+ * неё) — всё прочее это съезд.
  */
 export function isFlagshipDecision(model: string | null | undefined): boolean {
   if (!model) return false;
-  return /^anthropic[/:]/.test(model);
+  return /^anthropic[/:]|^timeweb:/.test(model);
 }
 
 /**
@@ -105,7 +108,7 @@ export function buildEvoAlert(
   //    ПРИЧИНОЙ из провенанса вместо гадания «ключ или релей».
   // Прогоны без провенанса (до пакета D) считаем понижением, как раньше.
   const prov = s?.decision_provenance ?? null;
-  const flagshipSteps = (prov ?? []).filter((p) => /^(flagship|anthropic):/.test(p));
+  const flagshipSteps = (prov ?? []).filter((p) => /^(flagship|anthropic|timeweb):/.test(p));
   const relayNotConfigured =
     flagshipSteps.length > 0 &&
     flagshipSteps.every((p) => /ключа нет|нет ключа|нет ключа\/релея/.test(p));
