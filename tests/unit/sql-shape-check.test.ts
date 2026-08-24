@@ -55,8 +55,13 @@ describe('перепись ничего не выполняет', () => {
 });
 
 describe('перепись называет границы своего знания', () => {
-  it('неполнота реестра объявлена, а не подразумевается', () => {
-    expect(SRC).toContain('registry_is_not_exhaustive');
+  it('полнота реестра держится правилом, а слепота названа', () => {
+    // Прежде здесь стояло registry_is_not_exhaustive — честное, но безграничное
+    // «не знаю». Теперь полноту сторожит CI (sql-param-cast-shape), и остаток
+    // незнания сузился до одного названного случая.
+    expect(SRC).toContain('registry_completeness_guarded_by');
+    expect(SRC).toContain('tests/unit/sql-param-cast-shape.test.ts');
+    expect(SRC).toContain('registry_blind_to');
   });
 
   it('отказ соединения — не «все запросы целы»', () => {

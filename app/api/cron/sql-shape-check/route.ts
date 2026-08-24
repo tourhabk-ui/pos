@@ -28,10 +28,19 @@
  * тест `sql-shape-check.test.ts`: он ищет каждый запрос в его файле по
  * скелету (без пробелов) и краснеет, если оригинал изменили, а копию нет.
  *
- * ЧЕГО ПЕРЕПИСЬ НЕ ЗНАЕТ. Всех мест с этой формой в репозитории — реестр
- * ниже собран поиском по `WHERE NOT EXISTS` и ручным разбором. Новое место,
- * написанное завтра, сюда само не попадёт. Это «не знаю», и оно названо в
- * ответе полем `registry_is_not_exhaustive`.
+ * ПОЛНОТА РЕЕСТРА ДЕРЖИТСЯ ПРАВИЛОМ, А НЕ ВНИМАТЕЛЬНОСТЬЮ. Первая версия
+ * реестра была собрана руками и честно объявляла себя неполной: запрос,
+ * написанный завтра, в неё бы не попал. Теперь полноту сторожит
+ * `tests/unit/sql-param-cast-shape.test.ts` — он вычитывает из исходников
+ * ВСЕ запросы этой формы и краснеет, если хоть один не внесён сюда.
+ *
+ * Почему сторож не судит сам, а лишь требует внести в реестр: статикой тип
+ * параметра не выводится. В `lib/places/aliases.ts` один и тот же параметр
+ * сравнивается с `p.id::text`, а вставляется в `place_id` — правильное
+ * приведение у двух его употреблений РАЗНОЕ, и требование «одинаковый тип
+ * везде» пометило бы рабочий запрос как сломанный. Судить о выводе типов
+ * может только сервер, поэтому приговор выносит PREPARE, а сторож лишь не
+ * даёт запросу пройти мимо суда.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -109,6 +118,49 @@ export const SHAPES: ShapeEntry[] = [
       )
      ON CONFLICT DO NOTHING`,
   },
+  {
+    name: 'служебный партнёр (проверка оплаты)',
+    source: 'app/api/cron/payment-test-setup/route.ts',
+    sql: `INSERT INTO partners (name, company_name, category, contact, contacts, commission_current, is_public, is_verified, external_source)
+       SELECT $1::text, $1::text, 'operator', '{}'::jsonb, '{}'::jsonb, $2::numeric, false, false, 'service-payment-test'
+        WHERE NOT EXISTS (SELECT 1 FROM partners WHERE name = $1::text)
+       RETURNING id::text`,
+  },
+  {
+    name: 'служебный тур (проверка оплаты)',
+    source: 'app/api/cron/payment-test-setup/route.ts',
+    sql: `INSERT INTO operator_tours (operator_id, title, base_price, is_active, is_published)
+       SELECT $1::uuid, $2::text, $3::numeric, false, false
+        WHERE NOT EXISTS (SELECT 1 FROM operator_tours WHERE title = $2::text AND deleted_at IS NULL)
+       RETURNING id::text`,
+  },
+  {
+    name: 'служебная бронь (проверка оплаты)',
+    source: 'app/api/cron/payment-test-setup/route.ts',
+    sql: `INSERT INTO operator_bookings
+         (operator_tour_id, booking_date, participants, base_total_price, final_price, booking_status, payment_status, created_via)
+       SELECT $1::bigint, CURRENT_DATE, 1, $2::numeric, $2::numeric, 'pending_payment', 'pending', 'service-payment-test'
+        WHERE NOT EXISTS (
+              SELECT 1 FROM operator_bookings
+               WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL)
+       RETURNING id::text`,
+  },
+  {
+    name: 'перенос путевых точек при слиянии маршрутов',
+    source: 'app/api/cron/route-family-merge/route.ts',
+    sql: `INSERT INTO route_waypoints (route_id, place_id, position, link_kind, link_kind_at)
+           SELECT l.id, rw.place_id,
+                  COALESCE((SELECT MAX(x.position) FROM route_waypoints x WHERE x.route_id = l.id), 0)
+                    + ROW_NUMBER() OVER (ORDER BY rw.position),
+                  rw.link_kind, rw.link_kind_at
+           FROM route_waypoints rw
+           JOIN kamchatka_routes h ON h.id = rw.route_id AND h.id::text = $2
+           JOIN kamchatka_routes l ON l.id::text = $1
+           WHERE NOT EXISTS (
+             SELECT 1 FROM route_waypoints x WHERE x.route_id = l.id AND x.place_id = rw.place_id
+           )
+           ON CONFLICT (route_id, place_id) DO NOTHING`,
+  },
 ];
 
 export interface ShapeResult {
@@ -171,8 +223,12 @@ export async function GET(req: NextRequest) {
     broken_count: broken.length,
     broken,
     results,
-    // Реестр собран руками — новое место сюда само не попадёт. Это «не знаю».
-    registry_is_not_exhaustive: true,
+    // Полноту реестра держит CI-правило (sql-param-cast-shape): запрос этой
+    // формы, не внесённый сюда, не проходит сборку. Поэтому «не знаю» здесь
+    // сузилось до одного: правило читает шаблонные строки, и SQL, собранный
+    // конкатенацией во время работы, мимо него пройдёт.
+    registry_completeness_guarded_by: 'tests/unit/sql-param-cast-shape.test.ts',
+    registry_blind_to: 'SQL, собранный конкатенацией во время работы, а не записанный шаблонной строкой',
     proves: 'Разбирается ли запрос сервером: вывод типов параметров, имена колонок, синтаксис.',
     does_not_prove: 'Что запрос делает то, что задумано, и что таких мест в репозитории больше нет.',
     duration_ms: Date.now() - startedAt,
