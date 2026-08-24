@@ -84,9 +84,34 @@ describe('мусор не доезжает до карты через extractTra
 });
 
 describe('линия, которой не верим, не рисуется', () => {
-  it('трек берётся на карту только без расхождения с точками', () => {
-    expect(PLANNING).toMatch(/approach\?\.dataConflict !== true/);
-    expect(PLANNING).toMatch(/const line = trackTrusted \? track : fallback/);
+  /**
+   * Регресс 24.08: прежняя версия этого сторожа проверяла буквальный текст
+   * `const line = trackTrusted ? track : fallback` — то есть требовала
+   * ИМЕННО ТУ строку, в которой и была ошибка. dataConflict отключал трек,
+   * но код падал на fallback (прямую между путевыми точками), и получался
+   * тот же полный экран уверенной линии, от которого чинили 17.08— просто
+   * из точек, а не из geometry. Полевой отчёт 24.08 (владелец, тестовый
+   * прогон вне маршрута): в схеме «вид сверху» трек рисуется как надо, на
+   * настоящей карте — прямая линия через весь экран.
+   *
+   * Сторож проверяет ПОВЕДЕНИЕ: при расхождении линия гасится целиком, а не
+   * то, какими словами это написано в исходнике.
+   */
+  it('при расхождении гасится ЛЮБАЯ линия — трек и фолбэк по точкам тоже', () => {
+    const body = PLANNING.slice(
+      PLANNING.indexOf('const mapMarkers: MapMarker[] = useMemo'),
+      PLANNING.indexOf('}, [track, waypoints, currentWpIdx'),
+    );
+    // `line` присваивается один раз — и это присваивание обязано начинаться
+    // с проверки dataConflict, а не с выбора между track и fallback.
+    const assigns = [...body.matchAll(/\bconst line = /g)];
+    expect(assigns).toHaveLength(1);
+    const line = body.slice(assigns[0].index, assigns[0].index + 200);
+    expect(line).toMatch(/^const line = approach\?\.dataConflict === true\s*\n?\s*\?\s*null/);
+  });
+
+  it('без расхождения трек по-прежнему предпочтён фолбэку по точкам', () => {
+    expect(PLANNING).toMatch(/const trackTrusted = track && track\.length >= 2;/);
   });
 
   it('расхождение входит в зависимости карты — иначе линия застынет', () => {
