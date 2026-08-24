@@ -1,18 +1,30 @@
 {
-  "note": "Проба 191: кого мы потеряли на запертой двери регистрации. Аккаунт есть, партнёрского профиля нет — точный след дефекта 42P08 (профиль партнёра не создавался никогда, кроме оператора с отдельной веткой VALUES). Оператор в ответе как контроль: ноль пропусков у него при ненулевых у остальных подтверждает, что дело именно в сломанном запросе. Маркер свежести — locked_out_partners_v1.",
-  "urls": [
-    "https://vedarai.ru/api/cron/locked-out-partners"
+  "note": "Проба 192: сухой прогон возврата профилей двум людям с запертой двери (locked-out-partners: agent 7f3621a6-cdcd-4638-bdb3-a8a67e7cb4b8; agent+guide+transfer a759e4fe-be57-402d-b2fb-8f44fc2066cb). dry_run по умолчанию — эта проба ничего не пишет, только показывает, что бы создалось.",
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/backfill-partner-profile",
+      "body": {
+        "source": "перепись locked-out-partners 24.08, id из ответа прода",
+        "why": "42P08 в INSERT профиля не выполнялся никогда до правки того же дня; аккаунт создан, профиля нет — потеря обратима",
+        "items": [
+          { "user_id": "7f3621a6-cdcd-4638-bdb3-a8a67e7cb4b8", "role": "agent" },
+          { "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb", "role": "agent" },
+          { "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb", "role": "guide" },
+          { "user_id": "a759e4fe-be57-402d-b2fb-8f44fc2066cb", "role": "transfer" }
+        ]
+      }
+    }
   ],
-  "until": "locked_out_partners_v1",
+  "until": "backfill_partner_profile_v1",
   "retries": 10,
   "retryDelay": 60,
   "timeout": 60,
-  "bytes": 6000,
+  "bytes": 3000,
   "grep": [
-    "\"probe\":\"locked_out_partners_v1\"",
-    "\"lost_total\"",
-    "\"control_reads_as\"",
-    "\"by_role\"",
-    "Unauthorized"
+    "\"dry_run\":true",
+    "\"would_create\":true",
+    "\"checked\":4",
+    "Unauthorized",
+    "\"error\""
   ]
 }
