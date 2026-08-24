@@ -108,6 +108,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'safety-alert':              { kind: 'manual', writes: true,  note: 'приём предупреждения по зоне: публикация и снятие' },
   'field-check-photo':         { kind: 'manual', writes: false, note: 'снимок полевой проверки по id, только чтение' },
   'field-check-queue':         { kind: 'manual', writes: false, note: 'очередь полевых проверок с расхождениями, только чтение' },
+  'track-import-queue':        { kind: 'manual', writes: false, note: 'очередь загруженных треков (route_track_imports) — писала, не читал никто' },
   'route-kind-classify':       { kind: 'manual', writes: true,  note: 'разметка рода записи: путь или «как добраться»' },
   'schema-drift':              { kind: 'manual', writes: false, note: 'объявленные колонки против information_schema живой базы' },
   'scout-diagnose':            { kind: 'manual', writes: false, note: 'почему разведчик молчит: причины за все прогоны' },
