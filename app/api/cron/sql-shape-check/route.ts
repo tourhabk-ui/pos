@@ -17,6 +17,12 @@
  * шести местах — это не шесть случайностей, а признак того, что искать надо
  * правилом, а не глазами (тот же вывод, что 19.08 по сердцебиениям кронов).
  *
+ * Проба 202 (Ф5-хвост, route-endpoints) нашла ТОТ ЖЕ КОРЕНЬ в другой форме:
+ * не WHERE NOT EXISTS, а обычный VALUES с ON CONFLICT, где один параметр
+ * употреблён дважды — один раз «голым» (тип из колонки), один раз с явным
+ * приведением (`$1::uuid`). Реестр держит и этот случай — критерий для
+ * попадания сюда не форма запроса, а «один параметр, разное приведение».
+ *
  * КАК ПРОВЕРЯЕТСЯ. `PREPARE` — и всё. Вывод типов параметров происходит на
  * разборе, ДО выполнения: запрос с расходящимся выводом не подготовится.
  * Ни одной строки не вставляется, транзакция не нужна, чужие данные не
@@ -144,6 +150,13 @@ export const SHAPES: ShapeEntry[] = [
               SELECT 1 FROM operator_bookings
                WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL)
        RETURNING id::text`,
+  },
+  {
+    name: 'новое место конечной точки маршрута (route-endpoints)',
+    source: 'lib/import/route-endpoints-runner.ts',
+    sql: `INSERT INTO places (id, ark_id, name, lat, lng, source_url, source_name, is_visible)
+         VALUES ($1::text, $1::uuid, $2, $3::numeric, $4::numeric, $5, 'visitkamchatka.ru', true)
+         ON CONFLICT (id) DO NOTHING`,
   },
   {
     name: 'перенос путевых точек при слиянии маршрутов',

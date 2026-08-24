@@ -45,6 +45,17 @@ describe('не пишет geometry — только точки', () => {
   });
 });
 
+describe('регрессия 42P08: $1 приведён явно на ОБОИХ употреблениях', () => {
+  // Проба 202 (боевой прогон): "$1" голым для id (text) и "$1::uuid" для
+  // ark_id в одном VALUES — PostgreSQL не смог согласовать вывод типа,
+  // 4 из 18 маршрутов, которым нужно было новое место, ушли в status:'error'
+  // с 42P08. Тот же класс дефекта, что и в CLAUDE.md §4.0 (случай 24.08),
+  // другая форма запроса (VALUES/ON CONFLICT, не SELECT/WHERE NOT EXISTS).
+  it('id вставляется как $1::text, а не голым $1', () => {
+    expect(RUNNER_SRC).toMatch(/VALUES \(\$1::text, \$1::uuid,/);
+  });
+});
+
 const poolQueryMock = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => poolQueryMock(...a) } }));
 
