@@ -77,9 +77,17 @@ jobs:
       # уже идёт, и вторая просьба лишь вернёт ошибку. Судит по-прежнему сверка
       # ниже — по факту того, что отдаёт САЙТ. Здесь только попытка и запись
       # ответа, чтобы в следующий раз не гадать.
+      #
+      # 24.08: пустое тело `{}` API не принимал НИКОГДА — 400 на каждом
+      # прогоне, с самого создания шага. Причина в собственном ответе API:
+      #   "commit_sha should not be null or undefined",
+      #   "commit_sha must match ^[0-9a-f]{40}$ regular expression".
+      # То есть просьба о сборке не работала ни разу; всё это время
+      # деплой держался ЦЕЛИКОМ на вебхуке Timeweb. commit_sha теперь в теле.
       - name: Ask Timeweb to build this commit
         env:
           TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           APP_ID="198048"
 
@@ -93,7 +101,8 @@ jobs:
           ask() {
             CODE=$(curl -sS -o /tmp/deploy-ask.json -w "%{http_code}" --max-time 60 \
               -X POST -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-              -H "Content-Type: application/json" -d '{}' "$1") || CODE="000"
+              -H "Content-Type: application/json" \
+              -d "{\"commit_sha\":\"$EXPECTED_SHA\"}" "$1") || CODE="000"
             echo "POST $1 -> $CODE"
             head -c 200 /tmp/deploy-ask.json 2>/dev/null || true
             echo ""
