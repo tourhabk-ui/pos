@@ -80,6 +80,13 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'commission-dry-run':        { kind: 'manual', writes: false, note: 'что записалось бы в комиссию по броне и почему не записалось бы: разбор по звеньям, без вставки' },
   'evo-log-cleanup':           { kind: 'manual', writes: true,  note: 'пометить неисполнимые записи очереди эволюции: 21 «ожидает» с апреля, которые рука пропускает каждый прогон' },
   'duplicate-routes-audit':    { kind: 'manual', writes: false, note: 'перепись дублей маршрутов' },
+  // До 24.08 этот адрес дёргал routes-audit.yml — но не под расписанием
+  // (только push в триггер-файл/workflow_dispatch), а сам workflow с 19.08
+  // указывал на /api/cron/route-data-audit по ошибке (issue #1378): судья
+  // ждал форму GeometryAudit, этот роут отдаёт другую (computeRoutesAudit).
+  // Расписание переехало на верный адрес, а этот остался без единого
+  // caller'а в репозитории — ручной, как и был по факту.
+  'routes-audit':              { kind: 'manual', writes: false, note: 'категории пробелов в карточках маршрутов: нет геометрии/точек/дистанции/сложности' },
   'intel-note':                { kind: 'manual', writes: true,  note: 'разведка от человека → находка категории intel' },
   // Служебная обвязка проверки оплаты: заводит невидимый тур и бронь под
   // реальный рубль, teardown прячет их мягко. Расписания быть не должно.

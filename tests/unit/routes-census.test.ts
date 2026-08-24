@@ -115,6 +115,26 @@ describe('инварианты имеют адрес проверки', () => {
   });
 });
 
+describe('судья спрашивает тот эндпоинт, чью форму разбирает', () => {
+  /**
+   * Регресс 19.08→24.08: судья пристроен к workflow, который уже дёргал
+   * /api/cron/routes-audit — другой аудит (total/visible/hidden/merged/
+   * categories, lib/routes/audit.ts), без routes_counted и прочих полей
+   * GeometryAudit. Каждый прогон честно краснел «посчитала ноль маршрутов»
+   * — судья был прав, спрашивали не то. Первый же прогон по расписанию,
+   * 24.08, это и показал (issue #1378).
+   *
+   * /api/cron/route-data-audit — единственный роут, зовущий runGeometryAudit
+   * (lib/routes/geometry-audit.ts) и отдающий routes_counted, который судья
+   * и читает первым делом.
+   */
+  it('workflow curl-ит /api/cron/route-data-audit, а не /api/cron/routes-audit', () => {
+    const calls = [...WF.matchAll(/\/api\/cron\/([a-z-]+)"/g)].map((m) => m[1]);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c).toBe('route-data-audit');
+  });
+});
+
 describe('перепись идёт по расписанию и умеет краснеть', () => {
   it('еженедельно, а не только по кнопке', () => {
     // Перепись, которую запускают руками, меряет ровно то, о чём и так
