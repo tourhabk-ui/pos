@@ -206,9 +206,15 @@ const AI_REVIEW_GARBAGE = /не предоставлен|невозможно п
 // На один файл не копим парафразы одной и той же претензии
 const MAX_OPEN_ISSUES_PER_FILE = 2;
 
-const MAX_FILE_CHARS = 24_000;
+export const MAX_FILE_CHARS = 24_000;
 
-function clampForReview(text: string): string {
+/**
+ * Экспортирована для scripts/evo-review.ts (Эволюция: AI-вызов с раннера
+ * GitHub, §8) — раннер читает файлы из СВОЕГО checkout напрямую, но клэмп
+ * обязан быть тем же самым, что у прод-фоллбэка: иначе промпт с раннера и
+ * промпт, который построил бы прод, разойдутся по длине контента файла.
+ */
+export function clampForReview(text: string): string {
   return text.length > MAX_FILE_CHARS
     ? text.slice(0, MAX_FILE_CHARS) + '\n// ... (обрезано для ревью)'
     : text;
@@ -362,11 +368,18 @@ interface CodeReviewResult {
   provenance?: string[] | null;
 }
 
-async function aiCodeReview(): Promise<CodeReviewResult> {
-  // Леджер покрытия: систематический прочёс всей платформы, а не 2 ядровых
-  // файла. candidates = все ревьюибельные .ts; selectReviewTargets берёт churn +
-  // невиданные/давно-невиданные (по риску). Fallback на скользящее окно, если
-  // список файлов не достали (GitHub недоступен).
+/**
+ * Список файлов на ревью + откуда взят перечень кода (леджер покрытия —
+ * систематический прочёс всей платформы, а не 2 ядровых файла).
+ *
+ * Экспортирована отдельно от построения промпта и от самого AI-вызова:
+ * выбор файлов читает `pool` (леджер покрытия), а `pool` недостижим с
+ * раннера GitHub (`lib/db-pool.ts` резолвит хост во внутренний IP Timeweb) —
+ * поэтому выбор ОБЯЗАН остаться на проде (`GET /api/cron/evo-review-job`),
+ * а сам AI-вызов теперь уезжает на раннер (scripts/evo-review.ts, §8:
+ * гео-блок Cloudflare раннера не касается, он не в РФ).
+ */
+export async function computeReviewFileList(): Promise<{ reviewFiles: string[]; source: RepoFilesSource; listed: number }> {
   const recent = await recentlyChangedSourceFiles();
   const allFiles = await listRepoFiles();
   const source = getLastListSource();
@@ -384,11 +397,11 @@ async function aiCodeReview(): Promise<CodeReviewResult> {
   } else {
     reviewFiles = pickReviewFiles(CORE_REVIEW_FILES, recent, MAX_REVIEW_FILES);
   }
+  return { reviewFiles, source, listed: candidates.length };
+}
 
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: `Ты ведущий аудитор безопасности и качества кода платформы TourHab — туризм Камчатки, главная цель — безопасность туристов (карта, SOS, маршруты работают офлайн).
+/** Системный промпт ревью — один текст для прод-фоллбэка и раннера, без расхождений. */
+export const REVIEW_SYSTEM_PROMPT = `Ты ведущий аудитор безопасности и качества кода платформы TourHab — туризм Камчатки, главная цель — безопасность туристов (карта, SOS, маршруты работают офлайн).
 Стек: Next.js 15 App Router, TypeScript strict, PostgreSQL (прямой параметризованный SQL через pg), свой JWT.
 
 ЖЁСТКИЕ ПРАВИЛА (нарушение = находка будет отброшена детерминированным стражем):
@@ -414,9 +427,101 @@ severity: critical = утечка данных/обход auth/инъекция/
 Исключённые файлы (проверены вручную, НЕ репорти):
 - lib/payments/tochka.ts — все секреты через process.env
 - lib/bookings/booking.service.ts — все SQL параметризованы ($1, $2)
-- app/api/webhook/route.ts — exec() защищён HMAC, команда захардкожена`,
-    },
-  ];
+- app/api/webhook/route.ts — exec() защищён HMAC, команда захардкожена`;
+
+/** Пользовательское сообщение ревью — та же функция для прод-фоллбэка и раннера. */
+export function buildReviewUserMessage(fileBlocks: string[], learnedBlock: string): string {
+  return `Проверь файлы на проблемы из системного промпта (инъекции, auth, утечки ресурсов, race conditions, отсутствие try/catch, нарушения конвенций проекта). Содержимое файлов ниже — ссылайся только на код, который реально видишь, с точными строками.${learnedBlock}\n\n${fileBlocks.join('\n\n')}`;
+}
+
+/** Собирает детерминированные объективы (не гадают) по уже прочитанным телам файлов. */
+export function buildStaticIssuesForFiles(fileContents: Map<string, string>): GrowthIssue[] {
+  const staticIssues: GrowthIssue[] = [];
+  for (const [p, body] of fileContents) {
+    for (const it of runStaticChecks(p, body)) staticIssues.push({ ...it, model: 'deterministic' });
+  }
+  return staticIssues;
+}
+
+export interface RawReviewFinding {
+  file: string;
+  title: string;
+  description: string;
+  severity: string;
+  suggestion: string;
+}
+
+/** Снимает markdown-ограждение и парсит JSON-ответ решателя. Бросает при кривом ответе. */
+export function parseAiReviewJson(result: string): RawReviewFinding[] {
+  const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  return JSON.parse(jsonStr) as RawReviewFinding[];
+}
+
+/**
+ * Фильтр + маппинг сырых претензий модели в GrowthIssue. Общая для
+ * прод-фоллбэка (aiCodeReview) и раннера (scripts/evo-review.ts) — страж
+ * должен применяться ОДИНАКОВО независимо от того, кто позвал модель.
+ */
+export function filterAndMapReviewFindings(
+  parsed: RawReviewFinding[],
+  fileContents: Map<string, string>,
+  decisionModel: string | null,
+): GrowthIssue[] {
+  // Filter out excluded files (AI may still mention them) + мусор-ответы +
+  // недостоверные находки (страж: клеймят санкционированный callAIFast/
+  // console.error нарушением, или «X вместо X» — см. finding-guard).
+  const filtered = parsed.filter(p =>
+    // Находка обязана указывать на файл, ТЕЛО которого модель реально видела.
+    //
+    // Раньше этой строки не было, и цепочка выглядела так: тело не
+    // прочиталось → файла нет в fileContents → verifyAgainstSource получал
+    // undefined и ПРОПУСКАЛ находку (if (!source) return null). Страж
+    // отключался ровно тогда, когда модель галлюцинирует сильнее всего — по
+    // одному имени файла. Итог 25.07.2026: десять critical-issues (#767-776)
+    // с четырьмя РАЗНЫМИ выдуманными «кодами» на одной строке и инъекцией,
+    // «найденной» в корректном параметризованном запросе. Все закрыты
+    // вручную после сверки с реальным кодом.
+    fileContents.has(p.file) &&
+    !AI_EXCLUDED_FILES.has(p.file) &&
+    !ACCEPTED_RISKS.has(p.file) &&
+    !AI_REVIEW_GARBAGE.test(`${p.title} ${p.description}`) &&
+    isCredibleFinding({ title: p.title, description: p.description, suggestion: p.suggestion }) &&
+    // Верификационный проход: «отсутствует try/catch/auth/блокировка», когда
+    // в теле файла они ЕСТЬ — ложь (кейс booking-роута). Сверяем с исходником.
+    verifyAgainstSource(
+      { title: p.title, description: p.description, suggestion: p.suggestion },
+      fileContents.get(p.file),
+    ) === null,
+  );
+
+  return filtered.map(p => ({
+    category: 'bug' as const,
+    severity: (p.severity as GrowthIssue['severity']) || 'medium',
+    file_path: p.file,
+    title: p.title,
+    description: p.description,
+    suggestion: p.suggestion,
+    // Кто это сказал — флагман или фоллбэк. Без штампа гипотезу о слабых
+    // моделях проверить нечем.
+    model: decisionModel ?? undefined,
+  }));
+}
+
+/**
+ * Прод-фоллбэк: полный цикл ревью (выбор файлов → диск/GitHub-фоллбэк →
+ * AI-вызов → фильтр) НА ЭТОМ сервере. С §8 (эволюция AI-вызова на раннер
+ * GitHub) плановый скан (`runGrowthScan('full')`) эту функцию БОЛЬШЕ НЕ
+ * зовёт — AI-вызов уезжает на раннер (scripts/evo-review.ts, гео-блока там
+ * нет), а прод только отдаёт список файлов (`computeReviewFileList`,
+ * `GET /api/cron/evo-review-job`) и принимает готовые находки
+ * (`POST /api/cron/evo-findings`). Функция остаётся: ручной триггер
+ * (`type=review`) и smoke-проверка, что прод-путь по-прежнему живой сам по
+ * себе, без раннера.
+ */
+async function aiCodeReview(): Promise<CodeReviewResult> {
+  const { reviewFiles, source, listed } = await computeReviewFileList();
+
+  const messages: ChatMessage[] = [{ role: 'system', content: REVIEW_SYSTEM_PROMPT }];
 
   // Содержимое файлов ОБЯЗАТЕЛЬНО: до 12.07 модель получала только имена
   // и выдумывала «проблемы» («import pool from '@/lib/db' строка 60»,
@@ -432,16 +537,10 @@ severity: critical = утечка данных/обход auth/инъекция/
       fileContents.set(f, content);
     }
   }
-  // Детерминированные объективы по УЖЕ прочитанным телам — ни одного лишнего
-  // запроса. Они не гадают (ищут конкретный синтаксис), поэтому идут в общий
-  // пул независимо от того, что скажет модель.
-  const staticIssues: GrowthIssue[] = [];
-  for (const [p, body] of fileContents) {
-    for (const it of runStaticChecks(p, body)) staticIssues.push({ ...it, model: 'deterministic' });
-  }
+  const staticIssues = buildStaticIssuesForFiles(fileContents);
 
   if (fileBlocks.length === 0) {
-    return { issues: [], staticIssues, listed: candidates.length, reviewed: 0, source };
+    return { issues: [], staticIssues, listed, reviewed: 0, source };
   }
 
   // Петля знаний: выученное на прошлых вердиктах приезжает В КАЖДЫЙ прогон.
@@ -452,86 +551,45 @@ severity: critical = утечка данных/обход auth/инъекция/
     await loadLearnedLessons().catch(() => ({ strategy: null, lessons: [], rejectedDigest: [] })),
   );
 
-  messages.push({
-    role: 'user',
-    content: `Проверь файлы на проблемы из системного промпта (инъекции, auth, утечки ресурсов, race conditions, отсутствие try/catch, нарушения конвенций проекта). Содержимое файлов ниже — ссылайся только на код, который реально видишь, с точными строками.${learned}\n\n${fileBlocks.join('\n\n')}`,
-  });
+  messages.push({ role: 'user', content: buildReviewUserMessage(fileBlocks, learned) });
 
   try {
-    // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
+    // Сильный решатель: Timeweb-шлюз/флагман-релей → Anthropic напрямую →
+    // DeepSeek → Qwen (§8). На проде это по-прежнему может съехать на
+    // фоллбэк из-за гео-блока — именно поэтому плановый скан вызов сюда
+    // больше не делает, см. докстринг функции.
     const { text: result, model: decisionModel, error: decisionError, provenance } = await callAIDecisionDetailed(messages);
     if (!result) {
       // Немота решателя — с причиной по ступеням waterfall (01.08: баланс
       // DeepSeek был жив, а прогоны молчали — без причины это не чинится).
-      return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, decisionError: decisionError ?? null, provenance: provenance ?? null };
+      return { issues: [], staticIssues, listed, reviewed: fileBlocks.length, source, decisionError: decisionError ?? null, provenance: provenance ?? null };
     }
 
-    const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    let parsed: Array<{
-      file: string; title: string; description: string;
-      severity: string; suggestion: string;
-    }>;
+    let parsed: RawReviewFinding[];
     try {
-      parsed = JSON.parse(jsonStr) as typeof parsed;
+      parsed = parseAiReviewJson(result);
     } catch (e) {
       // Ответ пришёл, но не парсится: раньше это глоталось общим catch и
       // терялась даже атрибуция модели — немота и кривой ответ выглядели
       // одинаково. Модель называем, причину фиксируем.
       return {
-        issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source,
+        issues: [], staticIssues, listed, reviewed: fileBlocks.length, source,
         model: decisionModel ?? null,
         decisionError: `ответ ${decisionModel ?? '?'} не распарсился: ${(e as Error).message.slice(0, 120)}`,
         provenance: provenance ?? null,
       };
     }
 
-    // Filter out excluded files (AI may still mention them) + мусор-ответы +
-    // недостоверные находки (страж: клеймят санкционированный callAIFast/
-    // console.error нарушением, или «X вместо X» — см. finding-guard).
-    const filtered = parsed.filter(p =>
-      // Находка обязана указывать на файл, ТЕЛО которого модель реально видела.
-      //
-      // Раньше этой строки не было, и цепочка выглядела так: тело не
-      // прочиталось → файла нет в fileContents → verifyAgainstSource получал
-      // undefined и ПРОПУСКАЛ находку (if (!source) return null). Страж
-      // отключался ровно тогда, когда модель галлюцинирует сильнее всего — по
-      // одному имени файла. Итог 25.07.2026: десять critical-issues (#767-776)
-      // с четырьмя РАЗНЫМИ выдуманными «кодами» на одной строке и инъекцией,
-      // «найденной» в корректном параметризованном запросе. Все закрыты
-      // вручную после сверки с реальным кодом.
-      fileContents.has(p.file) &&
-      !AI_EXCLUDED_FILES.has(p.file) &&
-      !ACCEPTED_RISKS.has(p.file) &&
-      !AI_REVIEW_GARBAGE.test(`${p.title} ${p.description}`) &&
-      isCredibleFinding({ title: p.title, description: p.description, suggestion: p.suggestion }) &&
-      // Верификационный проход: «отсутствует try/catch/auth/блокировка», когда
-      // в теле файла они ЕСТЬ — ложь (кейс booking-роута). Сверяем с исходником.
-      verifyAgainstSource(
-        { title: p.title, description: p.description, suggestion: p.suggestion },
-        fileContents.get(p.file),
-      ) === null,
-    );
-
-    const mapped: GrowthIssue[] = filtered.map(p => ({
-      category: 'bug' as const,
-      severity: (p.severity as GrowthIssue['severity']) || 'medium',
-      file_path: p.file,
-      title: p.title,
-      description: p.description,
-      suggestion: p.suggestion,
-      // Кто это сказал — флагман или фоллбэк. Без штампа гипотезу о слабых
-      // моделях проверить нечем.
-      model: decisionModel ?? undefined,
-    }));
+    const mapped = filterAndMapReviewFindings(parsed, fileContents, decisionModel ?? null);
 
     // Фиксируем покрытие: какие файлы посмотрели и сколько находок каждый дал.
     const findingsByFile: Record<string, number> = {};
     for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
     await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
 
-    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, model: decisionModel ?? null, decisionError: null, provenance: provenance ?? null };
+    return { issues: mapped, staticIssues, listed, reviewed: fileBlocks.length, source, model: decisionModel ?? null, decisionError: null, provenance: provenance ?? null };
   } catch {
-    return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
+    return { issues: [], staticIssues, listed, reviewed: fileBlocks.length, source };
   }
 }
 
@@ -894,7 +952,7 @@ async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> 
  *
  * Отсюда правило: молчание класса покупается только явным «ложь».
  */
-async function loadRejectedSignatures(): Promise<Set<string>> {
+export async function loadRejectedSignatures(): Promise<Set<string>> {
   try {
     const { rows } = await pool.query<{ file_path: string | null; title: string; description: string | null; suggestion: string | null }>(
       `SELECT file_path, title, description, suggestion
@@ -988,83 +1046,17 @@ async function scanStructural(): Promise<GrowthIssue[]> {
   return issues.map((it) => ({ ...it, model: 'deterministic' }));
 }
 
-// ── Main scan orchestrator ────────────────────────────────────────────────
-
-export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthScanResult> {
-  const start = Date.now();
-  const issues: GrowthIssue[] = [];
-  const coverage: ScanCoverage = {
-    source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0,
-  };
-  // Кто думал в этом прогоне. null — ревью не запускалось или никто не ответил.
-  let decisionModel: string | null = null;
-  let decisionError: string | null = null;
-  let decisionProvenance: string[] | null = null;
-
-  if (scanType === 'full' || scanType === 'code') {
-    const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
-    issues.push(...dead, ...debt);
-  }
-
-  if (scanType === 'full' || scanType === 'security') {
-    issues.push(...await scanSecurity());
-  }
-
-  if (scanType === 'full' || scanType === 'performance') {
-    issues.push(...await scanPerformance());
-  }
-
-  if (scanType === 'full') {
-    const review = await aiCodeReview();
-    issues.push(...review.issues);
-    // Детерминированные объективы — по тем же телам файлов, без лишних запросов.
-    issues.push(...review.staticIssues);
-    coverage.source = review.source;
-    coverage.files_listed = review.listed;
-    coverage.files_reviewed = review.reviewed;
-    decisionModel = review.model ?? null;
-    decisionError = review.decisionError ?? null;
-    decisionProvenance = review.provenance ?? null;
-    // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
-    const mocks = await lens('фейк-витрины', scanMocks, { issues: [] as GrowthIssue[], scanned: 0 });
-    issues.push(...mocks.issues);
-    coverage.mock_files_scanned = mocks.scanned;
-    // Прод-ошибки из журнала onRequestError (Эволюция 3.0, п.1): правда с
-    // прода, которой нет в коде — мёртвый роут слотов (#1008) и вечный degraded
-    // /api/tours жили годами, потому что 500-ки не попадали в петлю.
-    issues.push(...(await lens('прод-ошибки', scanProdErrors, [] as GrowthIssue[])));
-    issues.push(...(await lens('воронка', scanFunnel, [] as GrowthIssue[])));
-    issues.push(...(await lens('Кузьмич-евал', scanKuzmichEval, [] as GrowthIssue[])));
-    // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
-    issues.push(...(await lens('структура', scanStructural, [] as GrowthIssue[])));
-    // Объектив схемы: запрос против baseline и миграций. Единственный, кто
-    // смотрит на то, чего модель не видит принципиально — она читает файл, а
-    // схема лежит в других файлах. Оба настоящих дефекта 23.08 были этого
-    // рода, и прочёс в тот же день объявил «по делу: 0».
-    issues.push(...(await lens('схема', scanSchemaMismatches, [] as GrowthIssue[])));
-  }
-
-  // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →
-  // status='rejected'), больше не предлагаем. Ключ — КЛАСС претензии на файле,
-  // а не заголовок: инцидент 24.07 показал, что модель порождает десять
-  // перефразировок одной претензии, и дедуп по title бессилен.
-  const rejectedSignatures = await loadRejectedSignatures();
-  const beforeStopList = issues.length;
-  const kept = dropRejected(issues, rejectedSignatures);
-  issues.length = 0;
-  issues.push(...kept);
-  const suppressed = beforeStopList - issues.length;
-  void suppressed;
-
-  // Save scan result
-  const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO evo_growth_scans (scan_type, status, issues_found, duration_ms, summary)
-     VALUES ($1, 'complete', $2, $3, $4) RETURNING id`,
-    [scanType, issues.length, Date.now() - start, `Найдено ${issues.length} проблем`],
-  );
-  const scanId = rows[0]?.id ?? '';
-
-  // Save individual issues — deduplicate by file_path+title
+/**
+ * Пишет находки в `evo_growth_issues` под уже существующий `scan_id` —
+ * дедуп (file_path+title, любой активный статус), кап парафразов на файл
+ * (MAX_OPEN_ISSUES_PER_FILE), детерминированная разметка edge/fault_side.
+ *
+ * Экспортирована для `POST /api/cron/evo-findings` (§8, evo-review.yml):
+ * находки AI-ревью теперь приходят не только из `runGrowthScan` самого
+ * прода, но и с раннера GitHub — вставка обязана быть ОДНОЙ и той же
+ * функцией, иначе дедуп/кап/разметка разойдутся между двумя источниками.
+ */
+export async function persistGrowthIssues(scanId: string, issues: GrowthIssue[]): Promise<number> {
   let newIssues = 0;
   for (const issue of issues) {
     // Check if this exact issue already exists (any active status — not just 'open').
@@ -1116,6 +1108,94 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     );
     newIssues++;
   }
+  return newIssues;
+}
+
+// ── Main scan orchestrator ────────────────────────────────────────────────
+
+export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthScanResult> {
+  const start = Date.now();
+  const issues: GrowthIssue[] = [];
+  const coverage: ScanCoverage = {
+    source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0,
+  };
+  // Кто думал в этом прогоне. null — ревью не запускалось или никто не ответил.
+  let decisionModel: string | null = null;
+  let decisionError: string | null = null;
+  let decisionProvenance: string[] | null = null;
+
+  if (scanType === 'full' || scanType === 'code') {
+    const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
+    issues.push(...dead, ...debt);
+  }
+
+  if (scanType === 'full' || scanType === 'security') {
+    issues.push(...await scanSecurity());
+  }
+
+  if (scanType === 'full' || scanType === 'performance') {
+    issues.push(...await scanPerformance());
+  }
+
+  if (scanType === 'full') {
+    // AI-ревью кода БОЛЬШЕ НЕ ЗОВЁТСЯ здесь (§8, эволюция AI-вызова на раннер
+    // GitHub — evo-review.yml). Прод в РФ упирался в гео-блок Cloudflare на
+    // пути к флагману и либо съезжал на DeepSeek/Qwen, либо ждал релей;
+    // раннер GitHub не в РФ и достигает OpenRouter/Anthropic напрямую — тот
+    // же приём, что уже год работает у evo-judge.yml для разбора находок.
+    // Раннер сам решает AI-вызов и постит готовые находки в
+    // `POST /api/cron/evo-findings` — они попадут в `evo_growth_issues` тем
+    // же путём, только с другим scan_id и в другое время, не в этом прогоне.
+    //
+    // coverage.source/files_listed при этом НЕ бросаем в дефолт: coverageBlind
+    // (lib/agents/evo/alert.ts) читает source==='none' как «прочёс ослеп» —
+    // это по-прежнему честный вопрос «видим ли мы кодовую базу вообще»,
+    // независимый от того, кто зовёт модель. files_reviewed остаётся 0 —
+    // прод сам файлов для AI не читал, и это тоже правда, а не отказ.
+    const fileList = await computeReviewFileList().catch(() => ({ reviewFiles: [] as string[], source: 'none' as RepoFilesSource, listed: 0 }));
+    coverage.source = fileList.source;
+    coverage.files_listed = fileList.listed;
+    // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
+    const mocks = await lens('фейк-витрины', scanMocks, { issues: [] as GrowthIssue[], scanned: 0 });
+    issues.push(...mocks.issues);
+    coverage.mock_files_scanned = mocks.scanned;
+    // Прод-ошибки из журнала onRequestError (Эволюция 3.0, п.1): правда с
+    // прода, которой нет в коде — мёртвый роут слотов (#1008) и вечный degraded
+    // /api/tours жили годами, потому что 500-ки не попадали в петлю.
+    issues.push(...(await lens('прод-ошибки', scanProdErrors, [] as GrowthIssue[])));
+    issues.push(...(await lens('воронка', scanFunnel, [] as GrowthIssue[])));
+    issues.push(...(await lens('Кузьмич-евал', scanKuzmichEval, [] as GrowthIssue[])));
+    // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
+    issues.push(...(await lens('структура', scanStructural, [] as GrowthIssue[])));
+    // Объектив схемы: запрос против baseline и миграций. Единственный, кто
+    // смотрит на то, чего модель не видит принципиально — она читает файл, а
+    // схема лежит в других файлах. Оба настоящих дефекта 23.08 были этого
+    // рода, и прочёс в тот же день объявил «по делу: 0».
+    issues.push(...(await lens('схема', scanSchemaMismatches, [] as GrowthIssue[])));
+  }
+
+  // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →
+  // status='rejected'), больше не предлагаем. Ключ — КЛАСС претензии на файле,
+  // а не заголовок: инцидент 24.07 показал, что модель порождает десять
+  // перефразировок одной претензии, и дедуп по title бессилен.
+  const rejectedSignatures = await loadRejectedSignatures();
+  const beforeStopList = issues.length;
+  const kept = dropRejected(issues, rejectedSignatures);
+  issues.length = 0;
+  issues.push(...kept);
+  const suppressed = beforeStopList - issues.length;
+  void suppressed;
+
+  // Save scan result
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO evo_growth_scans (scan_type, status, issues_found, duration_ms, summary)
+     VALUES ($1, 'complete', $2, $3, $4) RETURNING id`,
+    [scanType, issues.length, Date.now() - start, `Найдено ${issues.length} проблем`],
+  );
+  const scanId = rows[0]?.id ?? '';
+
+  // Save individual issues — deduplicate by file_path+title
+  const newIssues = await persistGrowthIssues(scanId, issues);
 
   // Atomic increment — safe under parallel execution with evolution-loop.
   // value — JSONB (migration 151): извлекаем скаляр как текст (#>>'{}'),

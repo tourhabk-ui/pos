@@ -63,7 +63,15 @@ describe('модель доезжает до тикета и до ответа �
 
   it('ответ скана называет модель прогона', () => {
     expect(GROWTH).toContain('decision_model');
-    expect(GROWTH).toContain('decisionModel = review.model ?? null');
+    // §8 (эволюция AI-вызова на раннер GitHub, evo-review.yml): плановый скан
+    // ('full') AI-ревью больше не зовёт сам — decisionModel в нём честно
+    // остаётся null (объявлен, не подменяется угадыванием), а атрибуция
+    // модели теперь приходит с находками через POST /api/cron/evo-findings.
+    // Прод-фоллбэк (aiCodeReview, ручной триггер) атрибуцию по-прежнему
+    // проставляет.
+    expect(GROWTH).toContain("let decisionModel: string | null = null;");
+    const findingsRoute = readFileSync(join(process.cwd(), 'app/api/cron/evo-findings/route.ts'), 'utf-8');
+    expect(findingsRoute).toMatch(/model:\s*model\s*\?\?\s*null/);
   });
 });
 

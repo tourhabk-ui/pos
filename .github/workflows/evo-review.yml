@@ -1,0 +1,104 @@
+name: Evo Review — AI-ревью кода с раннера (без гео-блока)
+
+# Прод стоит на Timeweb в РФ и на пути к флагману (Claude/GPT) либо ждёт
+# сторонний релей вне РФ (гео-блок Cloudflare), либо идёт через шлюз Timeweb
+# (§8), либо съезжает на DeepSeek/Qwen. Раннер GitHub — не в РФ, достигает
+# openrouter.ai/api.anthropic.com напрямую. Тот же приём, что evo-judge.yml
+# уже год использует для разбора находок — здесь применён к самому ревью.
+#
+# Список файлов на ревью выбирает ПРОД (леджер покрытия живёт в БД, недостижим
+# с раннера) — GET /api/cron/evo-review-job. Раннер читает тела файлов из
+# своего же checkout, зовёт модель, фильтрует ответ теми же функциями, что
+# прод-фоллбэк, и публикует готовые находки — POST /api/cron/evo-findings.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 05:50 UTC — до Evo Judge (06:20 UTC, evo-judge.yml): находки этого
+    # прогона успевают попасть в evo_growth_issues раньше, чем судья читает
+    # окно за сутки.
+    - cron: '50 5 * * *'
+  # Файл-маркер: правка .github/triggers/evo-review.json в main запускает
+  # ревью сейчас — тот же приём, что у судьи и переписи (у агента в репозитории
+  # нет actions:write, ждать расписания сутки ради проверки починки нельзя).
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/evo-review.json'
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Fetch review job (список файлов от прода)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          CODE=$(curl -sS -o /tmp/review-job.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/evo-review-job")
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Прод не отдал список файлов (HTTP $CODE) — ревьюить нечего, и это не «чисто»."
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/review-job.json'));print('файлов на ревью:',len(d.get('files',[])))"
+
+      - name: AI-ревью с раннера
+        env:
+          # Ключи модели — прямой путь, без релея (раннер не в РФ, гео-блока
+          # нет). OPENROUTER_API_KEY первым в водопаде — как у evo-judge.yml.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MANAGEMENT_KEY: ${{ secrets.OPENROUTER_MANAGEMENT_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: npx tsx scripts/evo-review.ts /tmp/review-job.json /tmp/review-result.json
+
+      - name: Publish findings (запись в БД прода)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          python3 -c "
+import json
+job = json.load(open('/tmp/review-job.json'))
+result = json.load(open('/tmp/review-result.json'))
+result['review_files'] = job.get('files', [])
+json.dump(result, open('/tmp/publish-body.json', 'w'))
+"
+          CODE=$(curl -sS -o /tmp/publish-resp.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/publish-body.json \
+            "https://vedarai.ru/api/cron/evo-findings")
+          echo "HTTP: $CODE"
+          cat /tmp/publish-resp.json
+          if [ "$CODE" != "200" ]; then
+            echo "Прод не принял находки (HTTP $CODE) — ревью посчитано, но не записано."
+            exit 1
+          fi
+
+      # Тишина не считается ответом (§4.0): модель не ответила — прогон
+      # обязан покраснеть, а не выглядеть «0 находок, всё чисто».
+      - name: Красный, если решатель не ответил
+        run: |
+          set -uo pipefail
+          MODEL=$(python3 -c "import json;print(json.load(open('/tmp/review-result.json')).get('model') or '')")
+          ERROR=$(python3 -c "import json;print(json.load(open('/tmp/review-result.json')).get('decision_error') or '')")
+          if [ -z "$MODEL" ]; then
+            echo "Решатель не ответил ни по одному файлу."
+            echo "Причина: ${ERROR:-не записана}"
+            exit 1
+          fi
+          echo "Ревью посчитала модель: $MODEL"
