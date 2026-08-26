@@ -1,13 +1,34 @@
 /**
  * ApprovalRequired — очередь действий, требующих одобрения администратора.
  *
- * Safety categories (plan.md):
- *   SAFE (авто):    prompt_optimize, schedule_suggest, ui_copy_change
- *   NEED_REVIEW:    booking_rule_change, price_change, bulk_notify, commission_change
- *   FORBIDDEN:      data_delete, auth_bypass, schema_change, payment_exec
- *
  * Forbidden actions никогда не выполняются — возвращают ошибку.
  * Review actions создают pending запись в agent_approvals + Telegram уведомление.
+ * Неизвестный `action.type` (в т.ч. любой тип из старого реестра ниже, если
+ * его когда-нибудь позовут снова) идёт в 'review' по умолчанию — см. `request()`.
+ *
+ * ── Находка 26.08 (сверка внешнего аудита с кодом) ────────────────────────
+ *
+ * До этой правки `ACTION_CATEGORIES`/`EXECUTOR_MAP` перечисляли 20+ типов
+ * действий, унаследованных из совета директоров 13 AI-агентов, удалённого в
+ * апреле 2026 как «неэффективный театр» (AGENTS.md, коммиты `9da9e8d2`,
+ * `5d4d83f9`). Реестр исполнителей ссылался на `admin`/`eco`/`quality`/
+ * `content`/`hacker`/`vibe_coder`/`security`/`finance` — агентства, которых
+ * в `lib/agents/agencies/` больше нет ни одного файла. Опаснее самих мёртвых
+ * ссылок было то, ЧТО именно объявлялось `'safe'` (автоодобрение без
+ * человека): `archive_sos`, `tour_suspend`, `security_block`, `flag_payment`,
+ * `code_change`, `send_notification` — притом что ни один вызывающий код во
+ * всём репозитории не зовёт `request()` ни с одним из этих типов (grep по
+ * `approvalRequired.request(` — единственный живой вызов ниже). То есть
+ * заряженное, но фактически не нажимаемое ружьё: рискованно не сегодня, а в
+ * день, когда кто-то свяжет новый код с одним из этих имён, унаследует
+ * категорию «safe» и исполнителя, которого не существует.
+ *
+ * Реестр урезан до того, что РЕАЛЬНО вызывается (`schedule_suggest` из
+ * `operator-agency.ts`, единственный executor — `rescue`, который
+ * действительно существует). Расширять — только вместе с настоящим
+ * вызывающим кодом и намеренным выбором категории, не «на будущее».
+ * Сторож: `tests/unit/approval-required.test.ts` (executor'ы — реальные
+ * файлы агентств, а не имена из удалённого совета).
  */
 
 import { pool } from '@/lib/db-pool';
@@ -19,70 +40,33 @@ import { auditLog } from './audit-log';
 type ActionCategory = 'safe' | 'review' | 'forbidden';
 
 const ACTION_CATEGORIES: Record<string, ActionCategory> = {
-  // Safe — применяется автоматически
-  prompt_optimize:     'safe',
-  schedule_suggest:    'safe',
-  ui_copy_change:      'safe',
-  pattern_report:      'safe',
-  code_change:         'safe',
-  ab_scale_winner:     'safe',
-  operator_outreach:   'safe',
-  new_page_create:     'safe',
-  sql_query_fix:       'safe',
-  send_notification:   'safe',
-  archive_sos:         'safe',
-  tour_suspend:        'safe',
-  operator_warning:    'safe',
-  security_block:      'safe',
-  zone_capacity:       'safe',
-  flag_payment:        'safe',
+  // Safe — применяется автоматически. Единственный тип, который реально
+  // зовётся (operator-agency.ts, чат оператора — черновик тура, низкий риск).
+  schedule_suggest: 'safe',
 
-  // Need review — требует одобрения admin
-  booking_rule_change: 'review',
-  price_change:        'review',
-  bulk_notify:         'review',
-  api_scope_expand:    'review',
-  commission_change:   'review',
-  tour_auto_cancel:    'review',
-  ecosystem_proposal:  'review',
-
-  // Forbidden — никогда не выполняется агентом
-  data_delete:         'forbidden',
-  auth_bypass:         'forbidden',
-  schema_change:       'forbidden',
-  payment_exec:        'forbidden',
-  safeguard_modify:    'forbidden',
+  // Forbidden — никогда не выполняется агентом.
+  data_delete:      'forbidden',
+  auth_bypass:       'forbidden',
+  schema_change:     'forbidden',
+  payment_exec:      'forbidden',
+  safeguard_modify:  'forbidden',
 };
 
-// ── Матрица исполнителей (из AGENTS.md) ───────────────────────────────────────
-// Какой агент исполняет какой тип инициативы
+// ── Матрица исполнителей ────────────────────────────────────────────────────
+// Какой агент исполняет какой тип инициативы. Держать в СИНХРОНЕ с реальными
+// файлами lib/agents/agencies/*.ts — сторож проверяет это через existsSync.
 
 const EXECUTOR_MAP: Record<string, { agent_id: string; agent_name: string }> = {
-  booking_rule_change: { agent_id: 'admin',     agent_name: 'AI Администратор' },
-  commission_change:   { agent_id: 'admin',     agent_name: 'AI Администратор' },
-  bulk_notify:         { agent_id: 'admin',     agent_name: 'AI Администратор' },
-  archive_sos:         { agent_id: 'rescue',    agent_name: 'AI Спасатель' },
-  schedule_suggest:    { agent_id: 'rescue',    agent_name: 'AI Спасатель' },
-  zone_capacity:       { agent_id: 'eco',       agent_name: 'AI Эколог' },
-  tour_suspend:        { agent_id: 'quality',   agent_name: 'AI Качество' },
-  operator_warning:    { agent_id: 'quality',   agent_name: 'AI Качество' },
-  ui_copy_change:      { agent_id: 'content',   agent_name: 'AI Аудитор' },
-  price_change:        { agent_id: 'hacker',    agent_name: 'AI Хакер' },
-  ab_scale_winner:     { agent_id: 'hacker',    agent_name: 'AI Хакер' },
-  operator_outreach:   { agent_id: 'hacker',    agent_name: 'AI Хакер' },
-  sql_query_fix:       { agent_id: 'evo',       agent_name: 'AI Эволюция' },
-  prompt_optimize:     { agent_id: 'evo',       agent_name: 'AI Эволюция' },
-  code_change:         { agent_id: 'vibe_coder',agent_name: 'AI Разработчик' },
-  new_page_create:     { agent_id: 'vibe_coder',agent_name: 'AI Разработчик' },
-  security_block:      { agent_id: 'security',  agent_name: 'AI Безопасность' },
-  api_scope_expand:    { agent_id: 'security',  agent_name: 'AI Безопасность' },
-  flag_payment:        { agent_id: 'finance',   agent_name: 'AI Финдиректор' },
-  send_notification:   { agent_id: 'admin',     agent_name: 'AI Администратор' },
-  pattern_report:      { agent_id: 'evo',       agent_name: 'AI Эволюция' },
+  schedule_suggest: { agent_id: 'rescue', agent_name: 'AI Спасатель' },
 };
 
+/**
+ * Неизвестный/неназначенный тип — исполнитель НЕ выдумывается (было
+ * `admin`, а такого агентства уже нет). 'unassigned' — третье состояние: не
+ * «безопасно исполнит кто-то», а «пока некому, разбирает человек».
+ */
 function getExecutor(actionType: string): { agent_id: string; agent_name: string } {
-  return EXECUTOR_MAP[actionType] ?? { agent_id: 'admin', agent_name: 'AI Администратор' };
+  return EXECUTOR_MAP[actionType] ?? { agent_id: 'unassigned', agent_name: 'Не назначено' };
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
