@@ -1,20 +1,11 @@
 {
-  "note": "Проба 206: настоящий (не упрощённый) вердикт навигируемости для 4 маршрутов из ядра Ф5, которым route-endpoints дописал реальные точки. route-core.ts считает УПРОЩЁННО (waypoints:[] всегда — намеренно, по докстрингу), настоящую навигируемость с координатами точек даёт /api/routes/[id] (app/api/routes/[id]/route.ts:476, wpRowsWithCoords). Публичный, без CRON_SECRET.",
+  "note": "Проверка фикса id-пространства (коммит bf5197ec): /api/routes/search уже отдавал COALESCE(ark_id,id) для этих 4 маршрутов ядра Ф5 — берём их id оттуда и пробуем /api/routes/{id}. Если вердикт появится (а не 404) — проба 206 наконец закрыта, и видно, помогли ли точки из Ф5-хвоста.",
   "urls": [
-    "https://vedarai.ru/api/routes/67fba4be-ac61-46c8-bdf5-225f25b09baa",
-    "https://vedarai.ru/api/routes/3795cfa5-4c77-4088-a349-0884f5c07a0e",
-    "https://vedarai.ru/api/routes/780648de-9a3f-4c78-bca0-288dd0ca04c4",
-    "https://vedarai.ru/api/routes/1c69409d-b685-41db-8bcd-e7fdfffd6492"
+    "https://vedarai.ru/api/routes/search?q=5+стройка",
+    "https://vedarai.ru/api/routes/search?q=Бабий+камень",
+    "https://vedarai.ru/api/routes/search?q=Вокруг+Толбачиков",
+    "https://vedarai.ru/api/routes/search?q=Авачинский-Центральный"
   ],
-  "bytes": 4000,
-  "timeout": 30,
-  "around": ["\"verdict\"", "\"navigability\""],
-  "aroundLines": 6,
-  "aroundHits": 2,
-  "grep": [
-    "not_a_route",
-    "orientation_only",
-    "\"navigable\"",
-    "\"canLead\""
-  ]
+  "bytes": 3000,
+  "timeout": 30
 }
