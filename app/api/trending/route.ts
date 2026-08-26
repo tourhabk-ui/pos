@@ -24,10 +24,15 @@ export async function GET(request: Request) {
   }
 
   if (type === 'all' || type === 'routes') {
+    // id — в пространстве VIEW agent_route_knowledge (COALESCE(ark_id, id)):
+    // _TrendingClient строит из него href на /routes/[id], который ищет по
+    // VIEW. Голый kamchatka_routes.id у записи с заполненным ark_id там не
+    // находился — 404 из «популярного» на /trending (тот же разбор, что
+    // уже стоит в /api/routes/search/route.ts).
     const { rows } = await pool.query(
-      `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, view_count
+      `SELECT COALESCE(ark_id, id) AS id, title, difficulty, distance_km, duration_hours, activity_type, view_count
        FROM kamchatka_routes
-       WHERE (is_visible = TRUE OR is_visible IS NULL)
+       WHERE (is_visible = TRUE OR is_visible IS NULL) AND merged_into_id IS NULL
        ORDER BY view_count DESC, created_at DESC
        LIMIT $1`,
       [limit]

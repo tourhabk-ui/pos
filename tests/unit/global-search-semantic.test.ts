@@ -130,6 +130,25 @@ describe('GET /api/search — семантика для маршрутов', () 
     await GET(req('ав'));
     expect(semanticSearchMock).not.toHaveBeenCalled();
   });
+
+  it('ILIKE-фоллбэк отдаёт id в пространстве VIEW — COALESCE(ark_id, id), не голый id', async () => {
+    // Регрессия: маршрут с заполненным ark_id находился ILIKE-поиском, но
+    // href строился из голого kamchatka_routes.id — клик по результату
+    // поиска вёл на /routes/[id], который ищет по agent_route_knowledge
+    // (id = COALESCE(ark_id, id)) и отвечал 404. /api/routes/search уже
+    // был исправлен этой же формулой (COALESCE(r.ark_id, r.id) AS id),
+    // здесь исправление не было применено.
+    semanticSearchMock.mockRejectedValue(new Error('semantic down'));
+    mockSql({ 'FROM kamchatka_routes': [], 'FROM places': [], 'FROM parks': [] });
+
+    await GET(req('авачинский'));
+
+    const routesSql = String(
+      queryMock.mock.calls.map(([sql]) => sql).find((sql: string) => sql.includes('FROM kamchatka_routes'))
+    );
+    expect(routesSql).toContain('COALESCE(ark_id, id) AS id');
+    expect(routesSql).toContain('merged_into_id IS NULL');
+  });
 });
 
 describe('GET /api/search — парки в результатах', () => {
