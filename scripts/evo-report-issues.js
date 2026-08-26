@@ -51,8 +51,15 @@ async function fetchReportable() {
     rejectedByGuard: data.rejected_by_guard ?? 0,
     guessesHeld: data.guesses_held ?? 0,
     probeSlots: data.probe_slots ?? 0,
+    publishGateBlockedStreak: data.publish_gate_blocked_streak ?? 0,
   };
 }
+
+// Тот же порог, что у IDLE_RUNS_THRESHOLD (lib/agents/cron-idle.ts): один
+// просевший прогон — шум, три подряд — обрыв, который надо увидеть, а не
+// вычитывать из лога джобы вручную (см. миграция 912, 24.08 — тормоз стоял
+// незамеченным несколько прогонов подряд именно так).
+const PUBLISH_GATE_STREAK_THRESHOLD = 3;
 
 function gh(args, opts = {}) {
   return execFileSync('gh', args, { encoding: 'utf8', ...opts }).trim();
@@ -137,6 +144,7 @@ async function main() {
     rejected_by_guard: report.rejectedByGuard,
     guesses_held: report.guessesHeld,
     probe_slots: report.probeSlots,
+    publish_gate_blocked_streak: report.publishGateBlockedStreak,
   });
   if (report.guessesAllowed === false) {
     // Догадки модели придержаны тормозом точности. Само по себе это защита, но
@@ -146,7 +154,19 @@ async function main() {
       precision_note: report.precisionNote,
       held: report.guessesHeld,
       probe: report.probeSlots,
+      streak: report.publishGateBlockedStreak,
     });
+  }
+  // Сторож самого тормоза (24.08): три прогона подряд без ни одной догадки
+  // модели — это уже не защита, а слепое пятно, и раньше об этом узнавали,
+  // только листая логи джобы вручную. Job краснеет — тот же сигнал, который
+  // уже мониторят на remaining workflow'ах эволюции (evo-judge/evo-review).
+  if (report.publishGateBlockedStreak >= PUBLISH_GATE_STREAK_THRESHOLD) {
+    log('ERROR', `тормоз точности держит запрет ${report.publishGateBlockedStreak} прогонов подряд`, {
+      precision: report.precision,
+      precision_note: report.precisionNote,
+    });
+    process.exitCode = 1;
   }
   if (findings.length === 0) return;
 
