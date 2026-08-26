@@ -79,10 +79,16 @@ export async function GET(request: NextRequest) {
         // семантика недоступна (нет эмбеддингов/модели) → честный ILIKE ниже
       }
     }
+    // id — в пространстве VIEW agent_route_knowledge (COALESCE(ark_id, id)),
+    // не голый kamchatka_routes.id: href строится из этого id и ведёт на
+    // /routes/[id], который ищет по VIEW. Голый id у маршрута с заполненным
+    // ark_id там не находился — 404 из глобального поиска (Ctrl+K). Тот же
+    // разбор и та же формула уже стоят в /api/routes/search/route.ts —
+    // здесь просто не были применены.
     const { rows } = await query(
-      `SELECT id, title, category, location_type, route_dedupe_key AS slug
+      `SELECT COALESCE(ark_id, id) AS id, title, category, location_type
        FROM kamchatka_routes
-       WHERE is_visible = TRUE AND title ILIKE $1
+       WHERE is_visible = TRUE AND merged_into_id IS NULL AND title ILIKE $1
        ORDER BY
          CASE WHEN title ILIKE $2 THEN 0 ELSE 1 END,
          LENGTH(title) ASC
