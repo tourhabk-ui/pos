@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Clock, Info, MapPin, Phone, Users } from 'lucide-react';
 import { overdueGuidance, type BriefingSnapshot } from '@/lib/preparation/briefing';
+import { EmergencyAction } from '@/components/shared/EmergencyAction';
 
 const DURATION_LABEL: Record<string, string> = {
   under_4h: 'до 4 часов', day: 'один день', overnight: 'с ночёвкой', multi_day: 'несколько дней',
@@ -174,10 +175,9 @@ export default function BriefingClient({ token }: { token: string }) {
         </p>
       </div>
 
-      <a href="tel:112"
-        className="ds-btn ds-btn-danger w-full flex items-center justify-center gap-2">
+      <EmergencyAction className="ds-btn ds-btn-danger w-full flex items-center justify-center gap-2">
         <Phone className="w-4 h-4" /> 112 — экстренный вызов
-      </a>
+      </EmergencyAction>
       <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
         Сообщите диспетчеру название маршрута, дату выхода и планового возврата с этой страницы.
       </p>

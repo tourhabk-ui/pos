@@ -3,6 +3,7 @@ import { AlertTriangle, Backpack, Radio, Phone, Users, ShieldAlert, Flame, Wind,
 import { HAZARD_LABELS } from './types';
 import type { PlaceSafety as SafetyData } from './types';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import { EmergencyAction } from '@/components/shared/EmergencyAction';
 
 interface Props {
   safety: SafetyData;
@@ -169,12 +170,11 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
             <p className="w-full text-[11px] text-[var(--text-muted)] uppercase tracking-wide mb-1 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5" /> Экстренная помощь
             </p>
-            <a
-              href="tel:112"
+            <EmergencyAction
               className="inline-flex items-center gap-2 text-sm font-bold text-white bg-[var(--danger)] px-4 py-2 rounded-xl hover:opacity-90 transition-opacity"
             >
               <Phone className="w-3.5 h-3.5" /> 112
-            </a>
+            </EmergencyAction>
             {/* Региональный номер МЧС показываем ТОЛЬКО если он реально задан для
                 точки в БД. Никаких выдуманных fallback — неверный номер в ЧП
                 опаснее его отсутствия. Единый источник — 112 выше. */}

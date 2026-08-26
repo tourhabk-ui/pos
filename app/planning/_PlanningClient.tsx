@@ -2285,11 +2285,11 @@ function OnTrailTab() {
                 <ChevronRight className="w-4 h-4 shrink-0" />
               </Link>
             )}
-            <a href="tel:112"
+            <EmergencyAction
               className="flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-sm font-bold"
               style={{ background: 'var(--danger)', color: '#fff' }}>
               <Phone className="w-4 h-4" /> 112 — экстренный вызов
-            </a>
+            </EmergencyAction>
             <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
               Диспетчеру нужны: название маршрута, ваше положение и время выхода.
             </p>
@@ -2847,12 +2847,13 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
         <AlertCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--danger)' }} />
         <div className="flex-1">
           <p className="text-sm font-medium text-[var(--text-primary)]">Экстренная связь</p>
-          <p className="text-xs text-[var(--text-secondary)]">МЧС Камчатка · Горно-спасательная</p>
+          <p className="text-xs text-[var(--text-secondary)]">Единый номер экстренных служб</p>
         </div>
-        <a href="tel:112" className="text-sm font-bold px-3 py-1.5 rounded-lg text-white"
-          style={{ background: 'var(--danger)' }}>
-          112
-        </a>
+        <EmergencyAction
+          className="text-sm font-bold px-3 py-1.5 rounded-lg text-white"
+          style={{ background: 'var(--danger)' }}
+          label="112"
+        />
       </div>
     </div>
   );

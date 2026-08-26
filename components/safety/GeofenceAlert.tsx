@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, X, ShieldAlert, Flame, Waves } from 'lucide-react';
 import type { GeofenceBreach } from '@/lib/safety/geofence';
+import { EmergencyAction } from '@/components/shared/EmergencyAction';
 
 interface Props {
   breach: GeofenceBreach;
@@ -71,7 +72,7 @@ export function GeofenceAlert({ breach, cacheAgeHours }: Props) {
         <div className="px-4 pb-3 flex items-center gap-3">
           <AlertTriangle size={13} className="flex-shrink-0 opacity-70" aria-hidden="true" />
           <p className="text-[11px] opacity-80">Угроза цунами — звоните 112</p>
-          <a href="tel:112" className="ml-auto text-sm font-bold underline underline-offset-2">112</a>
+          <EmergencyAction className="ml-auto text-sm font-bold underline underline-offset-2" label="112" />
         </div>
       </div>
     );
@@ -123,12 +124,10 @@ export function GeofenceAlert({ breach, cacheAgeHours }: Props) {
         <p className="text-[11px] opacity-80">
           Звоните 112 при угрозе жизни
         </p>
-        <a
-          href="tel:112"
+        <EmergencyAction
           className="ml-auto text-xs font-bold underline underline-offset-2"
-        >
-          112
-        </a>
+          label="112"
+        />
       </div>
     </div>
   );
