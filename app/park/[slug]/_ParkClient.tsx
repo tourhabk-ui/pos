@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone } from 'lucide-react';
+import { EmergencyAction } from '@/components/shared/EmergencyAction';
 
 interface Route {
   id: string;
@@ -114,13 +115,13 @@ export default function ParkClient({ slug }: { slug: string }) {
         </Link>
 
         {/* Экстренный звонок */}
-        <a href={`tel:112`} className="ds-card" style={{ padding: '18px 16px', textDecoration: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <EmergencyAction className="ds-card" style={{ padding: '18px 16px', textDecoration: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Phone size={18} color="var(--danger)" />
             <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>112 — Спасение</span>
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>МЧС: {park.mchs_phone}</p>
-        </a>
+        </EmergencyAction>
       </div>
 
       {/* Разрешение на посещение */}

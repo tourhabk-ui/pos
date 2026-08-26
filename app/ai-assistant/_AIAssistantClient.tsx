@@ -402,7 +402,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                   {msg.content}
                   {msg.emergency && (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <a href="tel:112" className="ds-btn ds-btn-danger text-xs">Позвонить 112</a>
+                      <EmergencyAction className="ds-btn ds-btn-danger text-xs" label="Позвонить 112" />
                       <Link href="/sos" className="ds-btn ds-btn-secondary text-xs">Открыть SOS</Link>
                     </div>
                   )}

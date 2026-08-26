@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Navigation, Download, Phone, Video } from 'lucide-react';
+import { Navigation, Download, Video } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
@@ -51,12 +51,24 @@ function Skeleton() {
   );
 }
 
+/**
+ * SOS живёт ТОЛЬКО в `PlaceSOS` (page.tsx) — не здесь. До 24.08 у этого бара
+ * был свой `<a href="tel:112">СОС</a>` (кириллица — мимо латинского regex
+ * сторожа sos-always-reachable.test.ts), и он рисовался ОДНОВРЕМЕННО с
+ * `PlaceSOS`: два fixed bottom-0 бара поверх друг друга, верхний по z-index
+ * прятал «Навигация»/«Оффлайн». Раз SOS всегда есть снизу, здесь остаётся
+ * только то, что PlaceSOS не делает — offset подобран под высоту PlaceSOS без
+ * safe-area (см. её собственный комментарий), чтобы бары не перекрывались.
+ */
 function MobileBottomBar({ place }: { place: PlaceData }) {
   const orgMapsUrl = `om://map?v=1&ll=${place.lat},${place.lng}&n=${encodeURIComponent(place.name)}`;
   const geoUrl = `geo:${place.lat},${place.lng}?q=${encodeURIComponent(place.name)}`;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden safe-area-bottom">
+    <div
+      className="fixed left-0 right-0 z-50 md:hidden"
+      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 52px)' }}
+    >
       <div className="flex items-center gap-2 px-3 py-3 bg-[var(--bg-card)] border-t border-[var(--border)]">
         <a
           href={geoUrl}
@@ -71,13 +83,6 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
         >
           <Download className="w-4 h-4" />
           Оффлайн
-        </a>
-        <a
-          href="tel:112"
-          className="flex items-center justify-center gap-1.5 text-sm font-bold text-white bg-[var(--danger)] rounded-xl py-3 px-4 hover:opacity-90 transition-opacity"
-        >
-          <Phone className="w-4 h-4" />
-          СОС
         </a>
       </div>
     </div>

@@ -1,5 +1,13 @@
 import { Phone } from 'lucide-react';
+import { EmergencyAction } from '@/components/shared/EmergencyAction';
 
+/**
+ * ЕДИНСТВЕННЫЙ SOS-бар на карточке места (24.08). Раньше рядом жил ещё и
+ * `MobileBottomBar`'s свой `tel:112` — два fixed bottom-0 бара, верхний по
+ * z-index прятал «Навигация»/«Оффлайн». Теперь SOS — только тут; высота этого
+ * бара БЕЗ safe-area (~52px) зашита в offset `MobileBottomBar`, чтобы бары не
+ * перекрывались — поменяли отступы здесь, поменяйте и там.
+ */
 export default function PlaceSOS() {
   return (
     <div
@@ -20,15 +28,13 @@ export default function PlaceSOS() {
         SOS
       </span>
 
-      <a
-        href="tel:112"
-        aria-label="Экстренный вызов 112"
+      <EmergencyAction
         className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition-opacity active:opacity-70 shrink-0"
         style={{ background: 'var(--danger)', color: 'var(--text-primary)' }}
       >
         <Phone className="w-3.5 h-3.5" aria-hidden="true" />
         112
-      </a>
+      </EmergencyAction>
 
       <a
         href="tel:101"

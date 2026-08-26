@@ -44,9 +44,24 @@ interface Props {
    * `/emergency`. Задавайте там, где на экране есть своя инлайн-панель.
    */
   onOfflineFallback?: () => void;
+  /**
+   * Свой вид вместо трёх встроенных (24.08: аудит роли туриста нашёл ЕЩЁ
+   * семь мест с сырым `<a href="tel:112">` — карточка в сетке парка,
+   * баннер геозоны цунами, блок безопасности точки, брифинг для группы,
+   * подсказка чата, шторка «Группа» на полевом экране; ни одно не
+   * укладывалось в header/tab/field). `className`/`style`/`children`
+   * дают месту своё оформление, а href, офлайн-фолбэк и aria-label
+   * остаются централизованными — поведение одно, вид какой нужен.
+   */
+  className?: string;
+  style?: React.CSSProperties;
+  /** Содержимое кнопки при className — своя иконка/текст вместо Siren+SOS. */
+  children?: React.ReactNode;
+  /** Видимый текст при className без children (по умолчанию «SOS»). */
+  label?: string;
 }
 
-export function EmergencyAction({ variant = 'header', onOfflineFallback }: Props) {
+export function EmergencyAction({ variant = 'header', onOfflineFallback, className, style, children, label }: Props) {
   const router = useRouter();
 
   const handleClick = useCallback(
@@ -59,6 +74,21 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback }: Props
     },
     [router, onOfflineFallback],
   );
+
+  if (className || style || children) {
+    return (
+      <Link
+        href="/sos"
+        aria-label={label ? `${label} — экстренный вызов` : 'SOS — экстренная помощь'}
+        onClick={handleClick}
+        data-emergency-action
+        className={className}
+        style={style}
+      >
+        {children ?? (label ?? 'SOS')}
+      </Link>
+    );
+  }
 
   // Тач-цель не меньше 44px в обоих начертаниях: кнопку ищут пальцем, не глядя,
   // в перчатке и на морозе.
@@ -75,7 +105,7 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback }: Props
     textTransform: 'uppercase',
   };
 
-  const style: React.CSSProperties =
+  const builtInStyle: React.CSSProperties =
     variant === 'header'
       ? {
           ...base,
@@ -113,7 +143,7 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback }: Props
       aria-label="SOS — экстренная помощь"
       onClick={handleClick}
       data-emergency-action
-      style={style}
+      style={builtInStyle}
     >
       <Siren size={variant === 'header' ? 15 : 18} strokeWidth={2.2} aria-hidden />
       <span>SOS</span>
