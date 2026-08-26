@@ -280,3 +280,25 @@ describe('реестр синтетики не разъезжается по м�
     expect(twins).not.toMatch(/const SYNTHETIC_SOURCES = new Set/);
   });
 });
+
+/**
+ * Цвет от trackLine()/connectorLine() обязан доехать до Leaflet как есть.
+ *
+ * 26.08: стиль и подпись стандарт считал верно, но экран рисовал не то.
+ * `trackFidelityStyle()` отдаёт цвет уже хексом (`#4ade80` снятый, `#9A9590`
+ * набросок/построение) — так его писали изначально. `LeafletMap.tsx` же
+ * искал этот хекс в `COLOR_MAP` КАК КЛЮЧ (`COLOR_MAP['#4ade80']`), не находил
+ * и молча откатывался на дефолт `teal`. Стандарт был мёртв на каждом экране,
+ * который рисует линию через `LeafletMap`, — снятый трек и набросок сливались
+ * в один и тот же цвет, различаясь только толщиной и пунктиром.
+ */
+describe('цвет линии не тонет при переходе к Leaflet', () => {
+  it('LeafletMap проверяет цвет на хекс до похода в COLOR_MAP', () => {
+    const src = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf-8');
+    expect(src).toMatch(/color\.startsWith\(['"]#['"]\)/);
+    // Прежний небезопасный lookup — хекс из trackLine() как ключ COLOR_MAP —
+    // не должен вернуться ни для геометрии, ни для цвета самого маркера.
+    expect(src).not.toMatch(/COLOR_MAP\[marker\.geometry\.color/);
+    expect(src).not.toMatch(/COLOR_MAP\[marker\.color/);
+  });
+});
