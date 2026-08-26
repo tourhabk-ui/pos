@@ -19,7 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { buildIssueTitle, buildIssueBody, selectReportable, isAutoRunnable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
 import { verifyAgainstSource, isCredibleFinding } from '@/lib/agents/evo/finding-guard';
-import { decidePublish, applyPublishDecision, issueVerdict } from '@/lib/agents/evo/precision';
+import { decidePublish, applyPublishDecision, issueVerdict, nextPublishGateStreak } from '@/lib/agents/evo/precision';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { z } from 'zod';
 
@@ -191,6 +191,29 @@ export async function GET(req: NextRequest) {
     rejected: Number(pr[0]?.rejected ?? 0),
   });
 
+  // Сторож самого тормоза: сколько прогонов ПОДРЯД точность держит
+  // allowGuesses=false. До 24.08 это поле уже уходило наружу (precision,
+  // guesses_allowed), но НИКТО его не читал систематически — раннер только
+  // печатал строку в лог джобы. Крен знаменателя от массовой уборки очереди
+  // (миграция 912) держал тормоз замороженным незаметно: сам механизм не
+  // мониторит собственное здоровье, только его следствие (0 находок).
+  //
+  // Тот же порог, что у IDLE_RUNS_THRESHOLD (lib/agents/cron-idle.ts) — три
+  // подряд, не один: единичный просевший прогон — шум, три подряд — обрыв.
+  // allowGuesses=false бывает ТОЛЬКО при измеренной и просевшей точности
+  // (decidePublish возвращает true при precision===null — мало данных), так
+  // что стрик не путает «рано судить» с «тормоз держит».
+  const { rows: streakRows } = await pool.query<{ value: number }>(
+    `SELECT (value#>>'{}')::int AS value FROM evo_agent_state WHERE key = 'publish_gate_blocked_streak'`,
+  ).catch(() => ({ rows: [] as Array<{ value: number }> }));
+  const publishGateBlockedStreak = nextPublishGateStreak(decision.allowGuesses, streakRows[0]?.value ?? 0);
+  await pool.query(
+    `INSERT INTO evo_agent_state (key, value, updated_at)
+     VALUES ('publish_gate_blocked_streak', to_jsonb($1::int), NOW())
+     ON CONFLICT (key) DO UPDATE SET value = to_jsonb($1::int), updated_at = NOW()`,
+    [publishGateBlockedStreak],
+  ).catch(() => { /* телеметрия некритична для самого отчёта */ });
+
   // Разрез по моделям: проверяемо ли «врут слабые фоллбэк-модели». Waterfall
   // молча съезжает с флагмана на DeepSeek/Qwen, и без этой таблицы гипотеза
   // остаётся спором. Пусто, пока не накопятся находки с атрибуцией.
@@ -322,6 +345,10 @@ export async function GET(req: NextRequest) {
     synced_rejected: synced.rejected,
     precision: decision.precision,
     guesses_allowed: decision.allowGuesses,
+    // Сколько прогонов ПОДРЯД тормоз держит запрет — раннер краснеет, когда
+    // это число переваливает порог, вместо того чтобы печатать в лог, который
+    // никто не читает (см. комментарий у вычисления выше).
+    publish_gate_blocked_streak: publishGateBlockedStreak,
     // Сколько догадок придержано тормозом и сколько пропущено пробником —
     // иначе «0 находок» и «догадки заглушены» снаружи неразличимы.
     guesses_held: guessesHeld,
