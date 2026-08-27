@@ -472,7 +472,10 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   }
 
   return (
-    <div className="pb-24" style={{ background: 'var(--bg-primary)' }}>
+    // Мобайл-отступ снизу больше обычного: под контентом стоят контекстная
+    // панель цены (~60px) и нижняя навигация (~60px + safe-area) — при
+    // прежних 96px последняя секция скрывалась под ними.
+    <div className="pb-40 lg:pb-24" style={{ background: 'var(--bg-primary)' }}>
       {/* ═══ Кино-герой ═══ */}
       <header className="relative overflow-hidden" style={{ height: 'min(64vh, 560px)', minHeight: 380, background: 'var(--bg-hover)' }}>
         {heroImg ? (
@@ -594,6 +597,28 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
             ))}
           </div>
         )}
+
+        {/* ═══ Карточка решения — только мобайл (аудит мобильной компоновки,
+            этап 1). До неё цена и путь к заявке жили в aside, который при
+            grid-cols-1 оказывался ПОСЛЕДНИМ блоком: чтобы узнать стоимость,
+            человек листал описание, программу, снаряжение, безопасность,
+            оператора и отзывы. Это НЕ вторая форма — только цена и переход к
+            единственной существующей форме (#booking): полная форма выше
+            рассказа о туре дала бы обратную проблему — раннюю нагрузку полями.
+            Сплошной фон → сплошная карточка, без стекла (§5). */}
+        <div className="lg:hidden mt-5 ds-card p-5">
+          <div className="flex items-baseline gap-2">
+            {priceOld && priceOld > price && <span className="text-sm text-[var(--text-muted)] line-through">{formatPrice(priceOld)}</span>}
+            <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 26, letterSpacing: '-0.02em' }}>{formatPrice(price)}</span>
+            <span className="text-sm text-[var(--text-muted)]">{priceLabel}</span>
+          </div>
+          <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+            Дату и детали подтверждает оператор — оплата только после подтверждения.
+          </p>
+          <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
+            Выбрать дату и оставить заявку
+          </a>
+        </div>
 
         {/* ═══ Колонки: контент 8/12 · липкая бронь 4/12 ═══ */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 pt-10">
@@ -932,7 +957,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 </div>
                 <p className="text-sm text-[var(--text-muted)] mb-5">{priceLabel}</p>
 
-                <div id="booking">
+                {/* scroll-mt: на якорь ведут карточка решения и нижняя панель —
+                    без отступа форма прилипает к самому верху вьюпорта. */}
+                <div id="booking" className="scroll-mt-24">
                   <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title} />
                 </div>
 
@@ -965,6 +992,35 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
             посторонних юрлиц — на странице тура НАШЕГО проверенного оператора
             это выглядит как подмена продавца и бьёт по доверию. Карточка тура
             продаёт тур оператора, а не чужие сервисы. */}
+      </div>
+
+      {/* ═══ Контекстная нижняя панель — только мобайл (аудит мобильной
+          компоновки, этап 2). Заменяет на карточке тура глобальную кнопку
+          «Хочу тур» (StickyLeadButton здесь скрыт): безадресная заявка рядом
+          с заявкой на конкретный тур — два контура бронирования, и на ширине
+          меньше sm кнопка теряла подпись, оставляя одну иконку без цены и
+          следующего шага. Панель — ДЕЙСТВИЕ, поэтому непрозрачная (§5), стоит
+          над нижней навигацией (до md) и учитывает safe-area. */}
+      <div
+        className="lg:hidden fixed inset-x-0 z-40 border-t"
+        style={{
+          bottom: 0,
+          background: 'var(--bg-card)',
+          borderColor: 'var(--border)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
+        <div className="flex items-center gap-3 px-4 py-2.5 mb-[60px] md:mb-0">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[var(--accent)] whitespace-nowrap" style={{ fontFamily: FD, fontWeight: 700, fontSize: 19, letterSpacing: '-0.02em' }}>{formatPrice(price)}</span>
+              <span className="text-xs text-[var(--text-muted)] truncate">{priceLabel}</span>
+            </div>
+          </div>
+          <a href="#booking" className="ds-btn ds-btn-primary text-sm shrink-0" style={{ minHeight: 44 }}>
+            Выбрать дату
+          </a>
+        </div>
       </div>
 
       {lightbox !== null && allPhotos.length > 0 && (
