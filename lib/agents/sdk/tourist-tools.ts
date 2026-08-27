@@ -103,8 +103,13 @@ const searchTours: SDKTool = {
              t.min_participants, t.max_participants,
              t.available_slots, t.next_available_date,
              COALESCE(p.company_name, p.name) AS operator_name,
-             (SELECT AVG(r.rating)::numeric(2,1) FROM reviews r WHERE r.tour_id = t.id) AS avg_rating,
-             (SELECT COUNT(*) FROM reviews r WHERE r.tour_id = t.id) AS review_count
+             -- Рейтинг — денормализованные колонки тура: их пересчитывает
+             -- запись отзыва (POST /api/reviews/tour/[tourId]) по видимым
+             -- отзывам operator_tour_reviews. Прежний подзапрос к старой
+             -- reviews сравнивал uuid с bigint (42883) и ронял ВЕСЬ запрос:
+             -- поиск туров у Кузьмича не работал никогда.
+             t.rating AS avg_rating,
+             t.review_count AS review_count
       FROM operator_tours t
       JOIN partners p ON p.id = t.operator_id
       WHERE ${conditions.join(' AND ')}
@@ -284,8 +289,10 @@ const compareTours: SDKTool = {
                t.difficulty, t.activity_type, t.location_name,
                t.included, t.available_slots,
                COALESCE(p.company_name, p.name) AS operator_name,
-               (SELECT AVG(r.rating)::numeric(2,1) FROM reviews r WHERE r.tour_id = t.id) AS avg_rating,
-               (SELECT COUNT(*) FROM reviews r WHERE r.tour_id = t.id) AS review_count
+               -- Та же замена, что в search_tours выше: подзапрос к старой
+               -- reviews (uuid против bigint, 42883) ронял всё сравнение.
+               t.rating AS avg_rating,
+               t.review_count AS review_count
         FROM operator_tours t
         JOIN partners p ON p.id = t.operator_id
         WHERE t.id IN (${placeholders}) AND t.is_published = true

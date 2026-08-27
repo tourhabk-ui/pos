@@ -1,40 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiResponse, Review } from '@/types';
+import { ApiResponse } from '@/types';
 import { query } from '@/lib/database';
-import { verifyAuth } from '@/lib/auth';
 import { z } from 'zod';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { emitEvent, AGENT_EVENTS } from '@/lib/events/emit';
-import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
-import { containsProfanity } from '@/lib/services/profanity-filter';
 
-const reviewLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
+/**
+ * GET /api/reviews — публичный список отзывов о турах (фильтры: тур, оператор).
+ *
+ * Читает operator_tour_reviews — единственную живую таблицу отзывов о турах
+ * (миграция 087; запись — POST /api/reviews/tour/[tourId]).
+ *
+ * До 27.08 здесь читалась старая `reviews` с JOIN'ом
+ * `r.tour_id (uuid) = operator_tours.id (bigint)` — ошибка 42883 на каждом
+ * запросе, которую catch превращал в вечный пустой degraded-список. Список
+ * был не пустым, а НЕИЗМЕРЯЕМЫМ (§4.0).
+ *
+ * POST здесь удалён: он писал в ту же мёртвую `reviews` (вставка числового id
+ * тура в UUID-колонку падает всегда) — отзыв не создался ни разу. Запись
+ * отзыва — только канонический POST /api/reviews/tour/[tourId] с гейтом
+ * завершённой брони; кабинет туриста переведён на него.
+ */
 
 const reviewListQuerySchema = z.object({
-  tourId: z.string().trim().min(1).optional(),
+  tourId: z.coerce.number().int().positive().optional(),
   operatorId: z.string().trim().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(10),
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-const createReviewSchema = z.object({
-  tourId: z.string().trim().min(1),
-  rating: z.coerce.number().int().min(1).max(5),
-  comment: z.string().trim().max(5000).optional().default(''),
-  images: z.array(z.string().trim().min(1)).max(20).optional().default([]),
-});
-
 function queryParamOrUndefined(searchParams: URLSearchParams, key: string): string | undefined {
   const value = searchParams.get(key);
-  if (!value) {
-    return undefined;
-  }
-
+  if (!value) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-// GET /api/reviews - Получение отзывов (для тура, оператора и т.д.)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -58,216 +57,64 @@ export async function GET(request: NextRequest) {
 
     const { tourId, operatorId, limit, offset } = parsedQuery.data;
 
-    let queryText = `
-      SELECT
-        r.id,
-        r.user_id as "userId",
-        r.tour_id as "tourId",
-        r.rating,
-        r.comment,
-        r.is_verified as "isVerified",
-        r.created_at as "createdAt",
-        r.updated_at as "updatedAt",
-        u.name as "userName",
-        t.title as "tourName",
-        COALESCE(ARRAY_AGG(DISTINCT a.url) FILTER (WHERE a.url IS NOT NULL), '{}') as images
-      FROM reviews r
-      LEFT JOIN users u ON r.user_id = u.id
-      LEFT JOIN operator_tours t ON r.tour_id = t.id
-      LEFT JOIN review_assets ra ON r.id = ra.review_id
-      LEFT JOIN assets a ON ra.asset_id = a.id
-    `;
-
-    const conditions: string[] = [];
+    const conditions: string[] = [
+      // Скрытые модерацией — не показываем; is_hidden может отставать
+      // (миграция 878), поэтому через to_jsonb — как в каноническом роуте.
+      `COALESCE((to_jsonb(r)->>'is_hidden')::boolean, FALSE) = FALSE`,
+    ];
     const params: unknown[] = [];
 
-    if (tourId) {
-      conditions.push(`r.tour_id = $${conditions.length + 1}`);
+    if (tourId !== undefined) {
       params.push(tourId);
+      conditions.push(`r.tour_id = $${params.length}`);
     }
-
     if (operatorId) {
-      // Отзывы для оператора - через туры этого оператора
-      conditions.push(`t.operator_id = $${conditions.length + 1}`);
       params.push(operatorId);
+      conditions.push(`t.operator_id = $${params.length}`);
     }
-
-    if (conditions.length > 0) {
-      queryText += ` WHERE ${conditions.join(' AND ')}`;
-    }
-
-    queryText += `
-      GROUP BY r.id, r.user_id, r.tour_id, r.rating, r.comment, r.is_verified, r.created_at, r.updated_at, u.name, t.title
-      ORDER BY r.created_at DESC
-      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-    `;
 
     params.push(limit, offset);
+    const result = await query<{
+      id: number;
+      tour_id: number;
+      author_name: string;
+      rating: number;
+      comment: string;
+      photos: string[] | null;
+      created_at: string;
+      tour_name: string | null;
+    }>(
+      `SELECT r.id, r.tour_id, r.author_name, r.rating, r.comment,
+              (to_jsonb(r)->'photos') AS photos,
+              r.created_at,
+              t.title AS tour_name
+         FROM operator_tour_reviews r
+         LEFT JOIN operator_tours t ON r.tour_id = t.id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY r.created_at DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
 
-    const result = await query<Review & { userName: string; tourName: string; images: string[] }>(queryText, params);
-
-    const reviews: Review[] = result.rows.map(row => ({
+    const reviews = result.rows.map(row => ({
       id: row.id,
-      userId: row.userId,
-      tourId: row.tourId,
+      tourId: row.tour_id,
+      tourName: row.tour_name,
+      authorName: row.author_name,
       rating: row.rating,
       comment: row.comment,
-      images: row.images || [],
-      isVerified: row.isVerified,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      images: Array.isArray(row.photos) ? row.photos : [],
+      createdAt: row.created_at,
     }));
 
     return NextResponse.json({
       success: true,
       data: reviews,
-    } as ApiResponse<Review[]>);
-  } catch (error) {
+    } as ApiResponse<typeof reviews>);
+  } catch {
     return NextResponse.json(
-      {
-        success: true,
-        data: [],
-        degraded: true,
-      } as ApiResponse<Review[]>,
-      { status: 200 }
-    );
-  }
-}
-
-// POST /api/reviews - Создание отзыва
-export async function POST(request: NextRequest) {
-  const ip = getClientIp(request.headers);
-  if (!reviewLimiter.check(ip)) {
-    return NextResponse.json(
-      { success: false, error: 'Слишком много отзывов. Попробуйте позже.' } as ApiResponse<null>,
-      { status: 429 }
-    );
-  }
-
-  try {
-    const auth = await verifyAuth(request);
-    if (!auth.userId) {
-      return NextResponse.json(
-        { success: false, error: 'Пользователь не авторизован' } as ApiResponse<null>,
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-    const parsedBody = createReviewSchema.safeParse(body);
-    if (!parsedBody.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Неверные данные отзыва',
-          details: parsedBody.error.flatten(),
-        } as ApiResponse<null>,
-        { status: 400 }
-      );
-    }
-
-    const { tourId, rating: parsedRating, comment, images } = parsedBody.data;
-    const normalizedImages = [...new Set(images)];
-
-    const userId = auth.userId;
-
-    // Отзыв публикуется сразу (is_verified не фильтрует показ в GET-эндпоинтах
-    // отзывов) — проверка на мат единственная реальная защита на входе.
-    // Fail-open: недоступность PurgoMalum не блокирует легитимный отзыв.
-    if (comment) {
-      const profane = await containsProfanity(comment);
-      if (profane === true) {
-        return NextResponse.json(
-          { success: false, error: 'Отзыв содержит недопустимую лексику. Пожалуйста, перефразируйте.' } as ApiResponse<null>,
-          { status: 422 }
-        );
-      }
-    }
-
-    // Проверяем, что пользователь прошел тур (есть завершенная бронь)
-    const bookingCheck = await query(`
-      SELECT 1
-      FROM operator_bookings
-      WHERE user_id = $1 AND operator_tour_id = $2 AND booking_status = 'completed' AND deleted_at IS NULL
-      LIMIT 1
-    `, [userId, tourId]);
-
-    if (bookingCheck.rows.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Вы не можете оставить отзыв о туре, который не завершили' } as ApiResponse<null>,
-        { status: 403 }
-      );
-    }
-
-    // Проверяем, не оставлял ли уже пользователь отзыв об этом туре
-    const existingReview = await query(`
-      SELECT id FROM reviews WHERE user_id = $1 AND tour_id = $2
-    `, [userId, tourId]);
-
-    if (existingReview.rows.length > 0) {
-      return NextResponse.json(
-        { success: false, error: 'Вы уже оставляли отзыв об этом туре' } as ApiResponse<null>,
-        { status: 409 }
-      );
-    }
-
-    // Создаем отзыв в транзакции
-    const result = await query(`
-      INSERT INTO reviews (user_id, tour_id, rating, comment, is_verified)
-      VALUES ($1, $2, $3, $4, false)
-      RETURNING id, created_at, updated_at
-    `, [userId, tourId, parsedRating, comment]);
-
-    const newReview = result.rows[0];
-
-    // Начислить баллы лояльности за отзыв (fire-and-forget)
-    loyaltySystem.earnActivityPoints(userId, 'review', String(newReview.id)).catch(() => {});
-
-    // Emit negative feedback event for low ratings (fire-and-forget)
-    if (parsedRating <= 2) {
-      emitEvent(AGENT_EVENTS.NEGATIVE_FEEDBACK, 'system', 'warning', {
-        reviewId: newReview.id,
-        tourId,
-        rating: parsedRating,
-        userId,
-        comment: comment?.slice(0, 200) ?? '',
-      });
-    }
-
-    // Сохраняем изображения, если они есть
-    if (normalizedImages.length > 0) {
-      for (const imageId of normalizedImages) {
-        await query(`
-          INSERT INTO review_assets (review_id, asset_id)
-          VALUES ($1, $2)
-        `, [newReview.id, imageId]);
-      }
-    }
-
-    // Рейтинг тура обновится автоматически через триггер update_tour_rating()
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        id: newReview.id,
-        userId,
-        tourId,
-        rating: parsedRating,
-        comment,
-        images: normalizedImages,
-        isVerified: false,
-        createdAt: newReview.created_at,
-        updatedAt: newReview.updated_at,
-      },
-      message: 'Спасибо за отзыв! Он будет опубликован после модерации.',
-    } as ApiResponse<unknown>);
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, error: 'Ошибка при создании отзыва' } as ApiResponse<null>,
+      { success: false, error: 'Ошибка при получении отзывов' } as ApiResponse<null>,
       { status: 500 }
     );
   }
 }
-
-
-
