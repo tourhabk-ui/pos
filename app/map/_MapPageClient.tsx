@@ -39,6 +39,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
+import { trackLine } from '@/lib/map/line-standard';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { useMesh } from '@/hooks/use-mesh';
@@ -151,6 +152,24 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 function formatDistance(meters: number): string {
   if (meters < 1000) return `${Math.round(meters)} м`;
   return `${(meters / 1000).toFixed(1)} км`;
+}
+
+/**
+ * Вид линии — по стандарту §12 (lib/map/line-standard), а не из данных.
+ *
+ * До 27.08 геометрия из payload рисовалась как пришла: линия, скачанная
+ * скрейпером, сама назначала себе вид, и на карте выглядела так же
+ * уверенно, как снятый трек. Источник у payload-геометрии не записан —
+ * передаём null («спросили, записи нет»): род решает плотностная эвристика,
+ * и редкая ломаная честно станет пунктиром. Полигоны — не пути, их стандарт
+ * линий не судит.
+ */
+function styleGeometry(g: MapMarkerGeometry | null | undefined): MapMarkerGeometry | undefined {
+  if (!g) return undefined;
+  if (g.type !== 'polyline') return g;
+  const line = trackLine(g.coordinates, null);
+  if (!line) return undefined;
+  return { type: 'polyline', coordinates: g.coordinates, ...line.style };
 }
 
 export default function MapPageClient() {
@@ -382,7 +401,7 @@ export default function MapPageClient() {
       href:        `/routes/${r.id}`,
       type:        MarkerType.TOUR,
       category:    r.locationType ?? 'other',
-      geometry:    r.geometry ?? undefined,
+      geometry:    styleGeometry(r.geometry),
       // В офлайне: показываем балун (без suppressBalloon) — человек должен видеть описание точки без клика на маршрут-страницу (нет интернета)
       suppressBalloon: false,
     };

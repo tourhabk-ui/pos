@@ -152,7 +152,13 @@ export interface CatalogItem {
   difficulty: string | null;
   durationDays: number | null;
   bestMonths: number[] | null;
-  geometry: { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null;
+  /**
+   * Линия/полигон из payload — только ФОРМА (type + coordinates). Стиль
+   * (color/weight) из данных не пробрасывается: вид линии назначает стандарт
+   * §12 (lib/map/line-standard) на экране — данные не выбирают, каким
+   * выглядеть импортированному пути.
+   */
+  geometry: { type: string; coordinates: [number, number][] } | null;
   volcanoStatus: string | null;
   /** Есть РЕАЛЬНОЕ фото (wikimedia) в хранилище изображений. AI-генерации
       больше не показываются — вместо них честный градиент по типу места. */
@@ -171,6 +177,21 @@ export interface CatalogItem {
 export interface CatalogResult {
   items: CatalogItem[];
   meta: { total: number; page: number; limit: number; pages: number };
+}
+
+/**
+ * Геометрия из payload — только форма, без стиля.
+ *
+ * В payload скрейпов встречались color/weight прямо в объекте геометрии, и
+ * карта рисовала их как есть — импортированная линия сама назначала себе вид
+ * снятого трека, в обход §12. Форму пропускаем, стиль назначает экран через
+ * lib/map/line-standard.
+ */
+function stripGeometryStyle(v: unknown): CatalogItem['geometry'] {
+  if (!v || typeof v !== 'object') return null;
+  const g = v as { type?: unknown; coordinates?: unknown };
+  if (typeof g.type !== 'string' || !Array.isArray(g.coordinates)) return null;
+  return { type: g.type, coordinates: g.coordinates as [number, number][] };
 }
 
 export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResult> {
@@ -400,7 +421,11 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       difficulty:   (r.difficulty as string | null) ?? null,
       durationDays: r.duration_days != null ? Number(r.duration_days) : null,
       bestMonths:   (r.best_months as number[] | null) ?? null,
-      geometry:      (r.geometry as { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null) ?? null,
+      // Стиль (color/weight) из payload намеренно НЕ пробрасывается: вид линии
+      // назначает стандарт §12 (lib/map/line-standard) на экране, а не данные.
+      // Пробрасывать стиль из скрейпнутого payload — значит дать импорту
+      // нарисовать себя снятым треком.
+      geometry:      stripGeometryStyle(r.geometry),
       volcanoStatus: (r.volcano_status as string | null) ?? null,
       hasRealImage,
       hazards:      resolveHazards(r),

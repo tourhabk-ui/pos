@@ -88,6 +88,9 @@ describe('правило доехало до всех поверхностей, 
     ['карточка маршрута', 'app/routes/[id]/_RouteDetailClient.tsx'],
     ['на маршруте', 'app/planning/_PlanningClient.tsx'],
     ['планер', 'app/planner/_PlannerClient.tsx'],
+    // 27.08: /map рисовал payload-геометрию как пришла — линия из скрейпа
+    // сама назначала себе вид. Теперь стиль только через trackLine().
+    ['карта мест', 'app/map/_MapPageClient.tsx'],
   ] as const;
 
   it('каждая берёт вид линии из общего стандарта, а не собирает свой', () => {
