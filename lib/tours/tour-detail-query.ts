@@ -137,6 +137,10 @@ function buildSql(withOptional: boolean): string {
     JOIN partners p ON ot.operator_id = p.id
     WHERE ot.id = $1
       AND ot.is_active = true
+      -- Снятие с витрины делается ИМЕННО этим флагом (миграции 807/808/837:
+      -- демо-туры, чужие партнёры, несезонные окна), is_active при этом часто
+      -- остаётся true. Без проверки карточка открывалась по прямой ссылке.
+      AND ot.is_published = true
       AND ot.deleted_at IS NULL
   `;
 }

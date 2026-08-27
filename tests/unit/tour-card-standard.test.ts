@@ -61,6 +61,18 @@ describe('стандарт карточки тура — безопасност�
     expect(query).toContain('42703');
     expect(query).toContain('buildSql(false)');
   });
+
+  it('снятый с витрины тур не открывается и не бронируется по прямой ссылке', () => {
+    // Снятие с витрины делается флагом is_published=FALSE (миграции 807/808/
+    // 837: демо-туры, чужие партнёры, несезонные окна), is_active при этом
+    // часто остаётся true. До 27.08 карточка и бронь проверяли только
+    // is_active — спрятанный тур жил по прямому URL и принимал брони.
+    expect(query).toMatch(/ot\.is_published = true/);
+    const booking = readFileSync(
+      join(process.cwd(), 'app/api/bookings/tour/route.ts'), 'utf-8');
+    expect(booking).toMatch(/!tour\.is_published/);
+    expect(booking).toMatch(/tour\.deleted_at !== null/);
+  });
 });
 
 describe('стандарт карточки тура — честность данных', () => {
