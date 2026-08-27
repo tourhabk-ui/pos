@@ -82,6 +82,29 @@ describe('панель полевых действий в trail', () => {
   it('трек уходит тем же приёмником, что у /field-check', () => {
     expect(TRAIL).toContain("'/api/field-check/track'");
   });
+
+  it('панель доступна и без выбранного маршрута — регрессия 27.08', () => {
+    // Ссылка с главной обещает наблюдение «с экрана маршрута», не «после
+    // выбора маршрута». До фикса FieldActionBar рендерился только в ветке
+    // hasRoute, и переход с главной упирался в экран «Выбрать маршрут» —
+    // до формы наблюдения без активного маршрута нельзя было добраться.
+    const emptyState = TRAIL.slice(
+      TRAIL.indexOf('!hasRoute && !isLoadingRoute'),
+      TRAIL.indexOf(') : (', TRAIL.indexOf('!hasRoute && !isLoadingRoute')),
+    );
+    expect(emptyState).toContain('<FieldActionBar actions={fieldActions} error={fieldBarError} />');
+  });
+
+  it('ObservationSheet смонтирован вне обеих веток hasRoute', () => {
+    const sheetAt = TRAIL.lastIndexOf('<ObservationSheet');
+    const elseBranchEnd = TRAIL.indexOf('// ─── Планирование tab');
+    expect(sheetAt).toBeGreaterThan(0);
+    // Монтирование — после конца обеих JSX-веток компонента OnTrailTab,
+    // не внутри одной из них.
+    expect(sheetAt).toBeLessThan(elseBranchEnd);
+    const between = TRAIL.slice(sheetAt, elseBranchEnd);
+    expect(between).not.toContain('function PlanningTab');
+  });
 });
 
 describe('главная: ссылка вместо кнопки создания', () => {
