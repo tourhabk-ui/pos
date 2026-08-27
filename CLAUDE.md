@@ -520,9 +520,19 @@ GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-
 - **Решатель эволюции — `callAIDecision()` (`lib/ai/providers.ts`).** Его зовут
   `aiCodeReview` (Growth Scan), `generateSuggestion` (Evolution Loop) и
   `intel-bridge`. Раньше был слабый `gemini-2.0-flash` — **больше не
-  используется для решений**. Теперь: DeepSeek (последний) первичный → Qwen
-  (последний) на подхвате; обе достижимы из РФ напрямую (OpenRouter/Anthropic
-  гео-блок).
+  используется для решений**. Порядок ступеней (решение владельца 04.08
+  «решатель дипсик либо опус»; сверено с `callAIDecisionDetailed` 27.08):
+  **Timeweb-шлюз → флагман через OpenRouter → Anthropic напрямую → DeepSeek
+  (все пригодные модели из `/models`, сильнейшая первой)**. Qwen и Kimi из
+  решателя УБРАНЫ (остаются в `callAIWaterfall`/`callAIFast` для других
+  задач): слабое звено в хвосте опаснее его отсутствия — молчание честнее
+  тихой подмены качества. Прежняя строка этого файла «DeepSeek первичный →
+  Qwen на подхвате» описывала код до 04.08 и три недели вводила в
+  заблуждение: судья #1372 реально считал на `anthropic/claude-opus-5`, а
+  разбор немоты решателя строился на неверной посылке о первичности
+  DeepSeek. AI-ревью Growth Scan с 25.08 вообще идёт с раннера GitHub
+  (`evo-review.yml`, PR #1390) — там гео-блока нет и флагман достижим
+  напрямую; на проде путь к флагману — Timeweb-шлюз (§8 ниже) или релей.
 - **БЕЗ привязки к id.** Модель выбирается автоматически из `/v1/models`
   провайдера — `lib/ai/model-resolver.ts` (`pickBestModel`: сильнейшая ОБЩАЯ,
   отсекает reasoner/vl/audio/embed). НЕ хардкодить model-id в коде решателя.

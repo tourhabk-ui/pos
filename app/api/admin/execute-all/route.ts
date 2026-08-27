@@ -2,17 +2,34 @@
  * app/api/admin/execute-all/route.ts
  *
  * ONE-SHOT BATCH EXECUTOR
- * Запускает ВСЕ одобренные инициативы немедленно.
+ * Запускает все ОДОБРЕННЫЕ ЧЕЛОВЕКОМ инициативы немедленно.
  *
- * GET /api/admin/execute-all?secret=CRON_SECRET&hours=12
+ * GET /api/admin/execute-all?hours=12 (admin-JWT)
  *
  * 1. Auto-migrates DB (adds missing columns) — идемпотентно (IF NOT EXISTS)
  * 2. Backfill: все старые approved → execution_status='assigned'
  * 3. Выполняет все assigned инициативы (без лимита 5)
+ *
+ * ── Сужение доступа 27.08 (сверка внешнего аудита с кодом) ────────────────
+ *
+ * До этого дня ручка принимала CRON_SECRET и имела режим ?force=1, который
+ * одним запросом одобрял ВСЕ pending-заявки и тут же их исполнял — а
+ * initiative-executor умеет настоящие мутации: блокировку пользователей и
+ * IP, архив SOS-событий, приостановку туров, смену комиссий операторов.
+ * CRON_SECRET — секрет ДЛЯ КРОНОВ, он лежит в GitHub Secrets и настройках
+ * внешних расписаний, то есть расшарен куда шире, чем право «исполнить всё».
+ * Ни один workflow/скрипт ручку не звал (grep по репо — ноль ссылок) —
+ * заряженное, но не нажимаемое ружьё, того же рода, что ACTION_CATEGORIES
+ * до PR #1399.
+ *
+ * Теперь: только admin-JWT (владелец в браузере/панели), а force-режима нет
+ * вовсе — одобрение поштучное, через Telegram (/approve_*) или админку, как
+ * и задумано очередью agent_approvals. Батч-исполнение УЖЕ одобренного
+ * остаётся: оно не расширяет ничьих прав, человек каждое действие видел.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyCronSecret } from '@/lib/auth/cron';
+import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { executeInitiative } from '@/lib/agents/execution/initiative-executor';
 
@@ -35,16 +52,12 @@ async function notifyOwner(text: string): Promise<void> {
 }
 
 export async function GET(req: NextRequest) {
-  // Сравнение секрета — постоянное по времени и в одном месте на платформу
-  // (lib/auth/cron). Наивное `!==` выходит из цикла на первом различии, и по
-  // времени ответа секрет подбирается посимвольно. Проверка тут не «на всякий
-  // случай»: ручка запускает ВСЕ одобренные инициативы разом.
-  if (!verifyCronSecret(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Admin-JWT, не CRON_SECRET: ручка исполняет реальные мутации, и право на
+  // неё — у владельца, а не у всякого, кто знает секрет кронов (см. шапку).
+  const auth = await requireAdmin(req);
+  if (auth instanceof NextResponse) return auth;
 
   const hours = parseInt(req.nextUrl.searchParams.get('hours') ?? '12', 10);
-  const force = req.nextUrl.searchParams.get('force') === '1';
   const statsOnly = req.nextUrl.searchParams.get('stats') === '1';
   const log: string[] = [];
 
@@ -127,28 +140,11 @@ export async function GET(req: NextRequest) {
     log.push(`backfill error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // ── STEP 2b: FORCE MODE — одобрить ВСЕ pending (owner command) ───────────
-  if (force) {
-    try {
-      const forceResult = await pool.query(`
-        UPDATE agent_approvals
-        SET status = 'approved',
-            execution_status = 'assigned',
-            reviewed_at = NOW(),
-            review_notes = 'Force-approved by owner via execute-all'
-        WHERE status = 'pending'
-          AND (expires_at IS NULL OR expires_at > NOW())
-        RETURNING id, action_type
-      `);
-      log.push(`force-approve: ${forceResult.rowCount ?? 0} pending → approved+assigned`);
-      if ((forceResult.rowCount ?? 0) > 0) {
-        const list = forceResult.rows.map((r: { id: string; action_type: string }) => r.action_type).join(', ');
-        log.push(`force-approved types: ${list}`);
-      }
-    } catch (err) {
-      log.push(`force-approve error: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
+  // FORCE-режима больше нет (27.08). Прежний ?force=1 одобрял ВСЕ pending
+  // одним запросом — обход поштучного ревью, ради которого очередь
+  // agent_approvals и существует. Одобрение — только поштучно: Telegram
+  // (/approve_*) или админка. Батч здесь исполняет исключительно то, что
+  // человек уже одобрил.
 
   // ── STEP 3: LOAD INITIATIVES ──────────────────────────────────────────────
   let initiatives: Array<{
@@ -193,7 +189,7 @@ export async function GET(req: NextRequest) {
     } catch { /* ignore */ }
 
     await notifyOwner(
-      `Batch executor: за ${hours}ч нет инициатив для исполнения.\nСостояние БД: ${JSON.stringify(stats)}\nHint: добавь ?force=1 чтобы одобрить все pending`
+      `Batch executor: за ${hours}ч нет одобренных инициатив для исполнения.\nСостояние БД: ${JSON.stringify(stats)}\nPending одобряются поштучно: /approve_* в Telegram или админка.`
     );
     return NextResponse.json({ success: true, executed: 0, log, db_stats: stats });
   }
