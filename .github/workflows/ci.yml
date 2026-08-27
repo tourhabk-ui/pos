@@ -140,3 +140,45 @@ jobs:
 
       - name: Run tests
         run: npx vitest run
+
+  # ── Volcano OS: интеграционные тесты ядра на НАСТОЯЩЕМ PostgreSQL ─────────
+  # Требование владельца 27.08: конкурентные сценарии ядра (идемпотентность
+  # под гонкой, claim по id, SKIP LOCKED двух worker'ов, append-only триггер)
+  # выполняются на реальном PostgreSQL, не только моками. Замер в тот же
+  # день доказал необходимость: 42P08 в transition() юнит-тесты с моками
+  # пропустили, живая БД поймала первым же прогоном.
+  kernel-pg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kernel_test
+          POSTGRES_PASSWORD: kernel_test
+          POSTGRES_DB: kernel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kernel_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JWT_SECRET: test-jwt-secret-for-ci-only-not-used-in-production
+      KERNEL_PG_TEST_URL: postgresql://kernel_test:kernel_test@localhost:5432/kernel_test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Kernel integration tests (real PostgreSQL)
+        run: npx vitest run tests/integration/agent-kernel.pg.test.ts

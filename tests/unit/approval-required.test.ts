@@ -145,7 +145,10 @@ describe('EXECUTOR_MAP: исполнители — реальные агентс
     const agency = await import('node:fs').then((fs) =>
       fs.readFileSync(join(process.cwd(), 'lib/agents/agencies/operator-agency.ts'), 'utf-8'),
     );
-    expect(agency).toContain("'tour_create_draft'");
+    // С 27.08 агентство идёт через ядро Volcano OS (capability
+    // tour.create_draft), ApprovalRequired не зовёт вовсе.
+    expect(agency).toContain("'tour.create_draft'");
+    expect(agency).not.toContain('approvalRequired');
     expect(agency).not.toContain("'schedule_suggest'");
   });
 });

@@ -45,11 +45,14 @@ describe('execute-all: статика исходника', () => {
     expect(SRC).toMatch(/Исполнение — только POST/);
   });
 
-  it('выбор и захват инициатив — один атомарный запрос', () => {
-    // Раздельные SELECT и UPDATE позволяли двум параллельным вызовам взять
-    // одну инициативу; SKIP LOCKED в подзапросе UPDATE это закрывает.
-    expect(SRC).toMatch(/FOR UPDATE SKIP LOCKED/);
-    expect(SRC).toMatch(/SET execution_status = 'in_progress'[\s\S]{0,400}FOR UPDATE SKIP LOCKED/);
+  it('модель автономии 27.08: execute-all ставит в очередь ядра, не исполняет', () => {
+    // Inline-исполнение снято: дедуп держит идемпотентность ядра (ключ
+    // initiative:<id>), атомарный захват — kernel worker (claimNextTask,
+    // FOR UPDATE SKIP LOCKED в lib/agents/kernel/kernel.ts).
+    expect(SRC).toMatch(/sweepApprovedInitiatives/);
+    expect(SRC).not.toMatch(/executeInitiative[^E]/);
+    const kernel = readFileSync(join(process.cwd(), 'lib/agents/kernel/kernel.ts'), 'utf-8');
+    expect(kernel).toMatch(/FOR UPDATE SKIP LOCKED/);
   });
 
   it('POST сверяет Origin с хостом запроса', () => {
