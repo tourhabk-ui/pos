@@ -41,6 +41,26 @@ const COLOR_MAP: Record<string, string> = {
   cyan:      '#06B6D4',
 };
 
+/**
+ * Цвет маркера/линии — из COLOR_MAP по имени либо хекс как есть.
+ *
+ * `lib/map/line-standard.ts` (`trackLine()`/`connectorLine()`) отдаёт цвет
+ * УЖЕ хексом (`#4ade80`, `#9A9590` — §12 «линия называет своё
+ * происхождение»). Прежний код искал этот хекс в COLOR_MAP как ключ, не
+ * находил и всегда откатывался на дефолт: набросок и снятый трек, зелёный и
+ * серый по стандарту, рисовались одинаковым teal — стандарт был мёртв на
+ * каждом экране, который через LeafletMap его применял (карточка маршрута,
+ * планер, паспорт маршрута).
+ */
+function resolveColor(color: string | undefined | null, fallback: string): string {
+  if (color) {
+    if (color.startsWith('#')) return color;
+    const named = COLOR_MAP[color];
+    if (named) return named;
+  }
+  return COLOR_MAP[fallback] ?? fallback;
+}
+
 /** Попап собирается строкой — любой текст из БД обязан быть экранирован. */
 function escapeHtml(s: string): string {
   return s
@@ -59,7 +79,7 @@ function ageLabel(ts: number): string {
 }
 
 function buildPopupHtml(marker: MapMarker): string {
-  const hex = COLOR_MAP[marker.color ?? 'blue'] ?? '#2568B0';
+  const hex = resolveColor(marker.color, 'blue');
   let html = `<div style="font-family:sans-serif;max-width:220px">`;
   html += `<strong style="font-size:13px;color:#111;display:block;margin-bottom:4px">${escapeHtml(marker.title)}</strong>`;
   // Ограничения — ПЕРЕД описанием: в поле «дорога закрыта» важнее рассказа
@@ -278,13 +298,13 @@ export default function LeafletMap({
       const allCoords: [number, number][] = [];
 
       markers.forEach((marker, idx) => {
-        const hex = COLOR_MAP[marker.color ?? 'blue'] ?? '#2568B0';
+        const hex = resolveColor(marker.color, 'blue');
         const markerId = marker.id ?? `mk_${idx}`;
         allCoords.push(marker.coords);
 
         // Геометрия маршрута (линии/полигоны) — добавляем НА карту, не в кластер
         if (marker.geometry && marker.geometry.coordinates.length >= 2) {
-          const geomHex = COLOR_MAP[marker.geometry.color ?? marker.color ?? 'teal'] ?? '#0D9488';
+          const geomHex = resolveColor(marker.geometry.color ?? marker.color, 'teal');
           const coords = marker.geometry.coordinates as [number, number][];
           // Трек участвует в fitBounds — иначе линия длиннее вьюпорта обрезается
           allCoords.push(...coords);
