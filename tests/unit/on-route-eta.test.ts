@@ -161,9 +161,9 @@ describe('формат времени', () => {
   });
 
   it('короткое плечо — минуты, длинное — без ложной точности до минуты', () => {
-    expect(formatEta(0.5)).toBe('30 м');
-    expect(formatEta(1.5)).toBe('1 ч 30 м');
-    expect(formatEta(4.36)).toBe('4 ч 20 м');
+    expect(formatEta(0.5)).toBe('30 мин');
+    expect(formatEta(1.5)).toBe('1 ч 30 мин');
+    expect(formatEta(4.36)).toBe('4 ч 20 мин');
     expect(formatEta(3)).toBe('3 ч');
   });
 });

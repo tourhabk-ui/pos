@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair,
   Camera, X, Search, ChevronLeft, Route as RouteIcon, Send, Download,
-  Activity, Square, Share2, MapPinPlus,
+  Square, Share2, MapPinPlus,
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
@@ -602,7 +602,7 @@ export function FieldCheckClient() {
         label: recorder.recording ? 'Остановить' : 'Запись трека',
         icon: recorder.recording
           ? <Square className="w-6 h-6" fill="currentColor" />
-          : <Activity className="w-6 h-6" />,
+          : <RouteIcon className="w-6 h-6" />,
         active: recorder.recording,
         busy: sendingTrack,
         onPress: () => {
