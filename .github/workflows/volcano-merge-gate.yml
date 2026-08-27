@@ -47,6 +47,17 @@ jobs:
             -d "$BODY")
 
           echo "Gate HTTP: $HTTP"
+
+          # Bootstrap: endpoint приезжает тем же PR, что и этот workflow, —
+          # до деплоя прод отвечает 404. Это не отказ gate, а «ещё не
+          # выкачен»: пропускаем ГРОМКО, не тихо. Мёртвый endpoint ПОСЛЕ
+          # деплоя молча зелёным не останется: liveness merge_gate держит
+          # Watchdog по agent_run_history (cron-registry).
+          if [ "$HTTP" = "404" ]; then
+            echo "::warning::merge-gate endpoint ещё не задеплоен (404) — прогон пропущен"
+            exit 0
+          fi
+
           cat /tmp/gate_resp.json 2>/dev/null || true
 
           if [ "$HTTP" != "200" ]; then
