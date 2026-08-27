@@ -10,6 +10,14 @@ on:
     - cron: '13 17,20,23 * * *'
   workflow_dispatch:        # manual trigger
 
+# Два прогона Evo не должны идти одновременно: оркестратор пишет в
+# evo_growth_scans/evo_agent_state без advisory-лока, и параллельный запуск
+# (расписание догнало ручной dispatch) удваивал бы находки и сбивал тормоз
+# точности. Не отменяем идущий — второй ждёт своей очереди.
+concurrency:
+  group: cron-evo
+  cancel-in-progress: false
+
 jobs:
   evo:
     runs-on: ubuntu-latest
@@ -46,6 +54,13 @@ jobs:
             STATUS=$(jq -r '.status // "invalid-response"' /tmp/evo_resp.json 2>/dev/null || echo "invalid-response")
             ERRORS=$(jq -c '.errors // []' /tmp/evo_resp.json 2>/dev/null || echo '[]')
             echo "Evo Scan incomplete: status=$STATUS errors=$ERRORS"
+            exit 1
+          fi
+
+          # Терминальная запись прогона в agent_run_history — часть контракта:
+          # прогон без записанного итога не восстановить и не посчитать.
+          if jq -e '.run_logged == false' /tmp/evo_resp.json >/dev/null 2>&1; then
+            echo "Evo run NOT recorded in agent_run_history — терминальная запись обязательна"
             exit 1
           fi
 

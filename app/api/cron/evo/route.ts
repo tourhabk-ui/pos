@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
     const success = result.errors.length === 0;
     const status = success ? 'completed' : 'partial';
 
-    void logAgentRun({
+    // Терминальная запись — часть контракта, не fire-and-forget телеметрия:
+    // отказ записи виден вызывающему в поле run_logged (P0 аудита 27.08).
+    const runLogged = await logAgentRun({
       agent_id: 'evo',
       status: success ? 'success' : 'partial',
       started_at: startedAt,
@@ -54,9 +56,9 @@ export async function GET(request: NextRequest) {
 
     // Partial — полезный прогон, поэтому HTTP 200 сохраняем. Но контракт не
     // врёт: workflow обязан увидеть success=false/status=partial и покраснеть.
-    return NextResponse.json({ success, status, ...result });
+    return NextResponse.json({ success, status, run_logged: runLogged, ...result });
   } catch (err) {
-    void logAgentRun({
+    const runLogged = await logAgentRun({
       agent_id: 'evo',
       status: 'failed',
       started_at: startedAt,
@@ -69,6 +71,7 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         status: 'failed',
+        run_logged: runLogged,
         error: err instanceof Error ? err.message : 'Unknown error',
       },
       { status: 500 },

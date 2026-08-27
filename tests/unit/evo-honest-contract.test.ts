@@ -45,14 +45,14 @@ describe('GET /api/cron/evo: честный контракт результат�
 
   it('возвращает completed/success=true, когда все стадии завершились без ошибок', async () => {
     mockRunEvoOrchestrator.mockResolvedValueOnce(completedResult);
-    mockLogAgentRun.mockResolvedValueOnce(undefined);
+    mockLogAgentRun.mockResolvedValueOnce(true);
 
     const { GET } = await import('@/app/api/cron/evo/route');
     const response = await GET(request());
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ success: true, status: 'completed', errors: [] });
+    expect(body).toMatchObject({ success: true, status: 'completed', errors: [], run_logged: true });
     expect(mockLogAgentRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'success' }),
     );
@@ -63,7 +63,7 @@ describe('GET /api/cron/evo: честный контракт результат�
       ...completedResult,
       errors: ['GrowthScan: timeout'],
     });
-    mockLogAgentRun.mockResolvedValueOnce(undefined);
+    mockLogAgentRun.mockResolvedValueOnce(true);
 
     const { GET } = await import('@/app/api/cron/evo/route');
     const response = await GET(request());
@@ -82,16 +82,19 @@ describe('GET /api/cron/evo: честный контракт результат�
 
   it('возвращает failed/success=false и HTTP 500, когда результата нет', async () => {
     mockRunEvoOrchestrator.mockRejectedValueOnce(new Error('orchestrator crashed'));
-    mockLogAgentRun.mockResolvedValueOnce(undefined);
+    mockLogAgentRun.mockResolvedValueOnce(false);
 
     const { GET } = await import('@/app/api/cron/evo/route');
     const response = await GET(request());
     const body = await response.json();
 
     expect(response.status).toBe(500);
+    // run_logged: false — терминальная запись не удалась, и контракт этого
+    // не скрывает (P0 27.08: терминальный итог — часть контракта).
     expect(body).toEqual({
       success: false,
       status: 'failed',
+      run_logged: false,
       error: 'orchestrator crashed',
     });
     expect(mockLogAgentRun).toHaveBeenCalledWith(

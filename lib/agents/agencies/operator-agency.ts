@@ -225,7 +225,7 @@ export class OperatorAgency {
     const title = rawTitle || 'Новый тур';
 
     const checkResult = await approvalRequired.request({
-      type:         'schedule_suggest',
+      type:         'tour_create_draft',
       description:  `Создать черновик тура: "${title}"${price ? `, цена ${price} руб` : ''}`,
       context:      { partnerId, title, price, originalMessage: message },
       requested_by: `operator:${context.user.userId ?? 'unknown'}`,

@@ -37,6 +37,24 @@ describe('execute-all: статика исходника', () => {
   it('исполняется только одобренное человеком', () => {
     expect(SRC).toMatch(/WHERE status = 'approved'/);
   });
+
+  // ── P0 аудита 27.08: метод-барьер и атомарный захват ──────────────────────
+
+  it('исполнение — POST; GET без stats отвечает 405', () => {
+    expect(SRC).toMatch(/export async function POST/);
+    expect(SRC).toMatch(/Исполнение — только POST/);
+  });
+
+  it('выбор и захват инициатив — один атомарный запрос', () => {
+    // Раздельные SELECT и UPDATE позволяли двум параллельным вызовам взять
+    // одну инициативу; SKIP LOCKED в подзапросе UPDATE это закрывает.
+    expect(SRC).toMatch(/FOR UPDATE SKIP LOCKED/);
+    expect(SRC).toMatch(/SET execution_status = 'in_progress'[\s\S]{0,400}FOR UPDATE SKIP LOCKED/);
+  });
+
+  it('POST сверяет Origin с хостом запроса', () => {
+    expect(SRC).toMatch(/crossOrigin\(req\)/);
+  });
 });
 
 // ── Поведение: без admin-JWT — отказ до единого запроса к БД ────────────────
@@ -86,5 +104,29 @@ describe('execute-all: поведение авторизации', () => {
 
     expect(res.status).toBe(200);
     expect(body).toHaveProperty('approvals');
+  });
+
+  it('GET без stats не исполняет: 405 и ни одного запроса к БД', async () => {
+    requireAdminMock.mockResolvedValueOnce({ userId: 1, role: 'admin' });
+    const { GET } = await import('@/app/api/admin/execute-all/route');
+
+    const res = await GET(req('http://l/api/admin/execute-all?hours=12'));
+
+    expect(res.status).toBe(405);
+    expect(poolQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('POST с чужим Origin — 403 до единого запроса к БД', async () => {
+    requireAdminMock.mockResolvedValueOnce({ userId: 1, role: 'admin' });
+    const { POST } = await import('@/app/api/admin/execute-all/route');
+
+    const forged = new NextRequest('http://l/api/admin/execute-all', {
+      method: 'POST',
+      headers: { origin: 'https://evil.example' },
+    });
+    const res = await POST(forged);
+
+    expect(res.status).toBe(403);
+    expect(poolQueryMock).not.toHaveBeenCalled();
   });
 });
