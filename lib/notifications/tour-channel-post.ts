@@ -24,6 +24,10 @@ import { query } from '@/lib/database';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tgPostMediaGroup } from '@/lib/notifications/telegram-channel';
 import { activityLabel, difficultyLabel, priceUnitLabel } from '@/lib/tours/labels';
+// Правило абсолютизации вынесено в photo-urls (одно на этот модуль и на
+// kuzmich_tour-постер) — реэкспорт сохраняет прежний публичный контракт.
+export { absolutePhotoUrls, MAX_PHOTOS } from '@/lib/notifications/photo-urls';
+import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
 export interface TourPostRow {
   id: string;
@@ -44,19 +48,8 @@ export interface TourPostRow {
 /** Telegram обрезает подпись альбома после 1024 символов. */
 export const CAPTION_LIMIT = 1024;
 
-/** Сколько снимков влезает в один альбом Telegram. */
-export const MAX_PHOTOS = 10;
-
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/** Абсолютные URL: Telegram скачивает картинку сам и относительный путь не поймёт. */
-export function absolutePhotoUrls(photos: string[] | null, baseUrl: string): string[] {
-  return (photos ?? [])
-    .filter((p) => typeof p === 'string' && p.trim().length > 0)
-    .map((p) => (/^https?:\/\//i.test(p) ? p : `${baseUrl.replace(/\/$/, '')}${p.startsWith('/') ? '' : '/'}${p}`))
-    .slice(0, MAX_PHOTOS);
 }
 
 /** Длительность словами из тех полей, что реально заполнены. */
