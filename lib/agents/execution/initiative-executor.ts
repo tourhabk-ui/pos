@@ -55,7 +55,10 @@ export const AUTO_EXECUTE_TYPES = new Set([
   'operator_outreach',   // intelligence: найти операторов и отправить приглашения
   'new_page_create',     // vibe_coder/intelligence: создать новую страницу через GitHub PR
   'bulk_notify',         // admin: массовые уведомления туристам по лидам
-  'schedule_suggest',    // rescue: проверить расписание туров, алерт о проблемах
+  'schedule_suggest',    // LEGACY: до 27.08 так назывался tour_create_draft из
+                         // чата оператора; новые записи под этим именем не
+                         // создаются (approval-required), executor оставлен
+                         // только для старых assigned-строк в БД
   'prompt_optimize',     // evo: AI-анализ и оптимизация промптов агентов
   // ── New action types (июнь 2026) ──
   'tour_suspend',        // quality: приостановить тур с плохими отзывами

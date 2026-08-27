@@ -4,11 +4,26 @@
  * ONE-SHOT BATCH EXECUTOR
  * Запускает все ОДОБРЕННЫЕ ЧЕЛОВЕКОМ инициативы немедленно.
  *
- * GET /api/admin/execute-all?hours=12 (admin-JWT)
+ * POST /api/admin/execute-all?hours=12 (admin-JWT) — исполнение
+ * GET  /api/admin/execute-all?stats=1   (admin-JWT) — только чтение статистики
  *
  * 1. Auto-migrates DB (adds missing columns) — идемпотентно (IF NOT EXISTS)
  * 2. Backfill: все старые approved → execution_status='assigned'
  * 3. Выполняет все assigned инициативы (без лимита 5)
+ *
+ * ── POST и атомарный claim 27.08 (P0 внешнего аудита) ─────────────────────
+ *
+ * Исполнение переведено с GET на POST: мутация по GET исполнялась бы любым
+ * префетчем/переходом по ссылке, а cookie-аутентификация без метода-барьера
+ * оставляла CSRF-поверхность. POST дополнительно сверяет Origin с хостом
+ * запроса, когда браузер его прислал. GET остался только у stats-режима —
+ * он ничего не меняет, и владельцу удобно смотреть его из адресной строки.
+ *
+ * Выборка и захват инициатив слиты в ОДИН запрос
+ * (UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED) RETURNING):
+ * раньше SELECT и последующий UPDATE in_progress шли раздельно, и два
+ * параллельных вызова могли взять одну инициативу и исполнить её дважды —
+ * а исполнители умеют настоящие мутации (блокировки, комиссии, туры).
  *
  * ── Сужение доступа 27.08 (сверка внешнего аудита с кодом) ────────────────
  *
@@ -51,18 +66,37 @@ async function notifyOwner(text: string): Promise<void> {
   }
 }
 
+/**
+ * Браузер прислал Origin, и он не совпадает с хостом запроса — чужая
+ * страница пытается нажать ручку cookie-сессией владельца. Отсутствующий
+ * Origin не блокируем: его нет у curl и части same-origin запросов.
+ */
+function crossOrigin(req: NextRequest): boolean {
+  const origin = req.headers.get('origin');
+  if (!origin) return false;
+  try {
+    return new URL(origin).host !== req.nextUrl.host;
+  } catch {
+    return true;
+  }
+}
+
+// GET ничего не меняет: только статистика (?stats=1). Исполнение — POST ниже.
 export async function GET(req: NextRequest) {
-  // Admin-JWT, не CRON_SECRET: ручка исполняет реальные мутации, и право на
-  // неё — у владельца, а не у всякого, кто знает секрет кронов (см. шапку).
   const auth = await requireAdmin(req);
   if (auth instanceof NextResponse) return auth;
 
   const hours = parseInt(req.nextUrl.searchParams.get('hours') ?? '12', 10);
   const statsOnly = req.nextUrl.searchParams.get('stats') === '1';
-  const log: string[] = [];
 
-  // ── STATS-ONLY MODE ───────────────────────────────────────────────────────
-  if (statsOnly) {
+  if (!statsOnly) {
+    return NextResponse.json(
+      { error: 'Исполнение — только POST. GET отвечает статистикой: ?stats=1' },
+      { status: 405 },
+    );
+  }
+
+  {
     try {
       const [meetingsRes, approvalsRes] = await Promise.all([
         pool.query(
@@ -102,6 +136,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
     }
   }
+}
+
+export async function POST(req: NextRequest) {
+  // Admin-JWT, не CRON_SECRET: ручка исполняет реальные мутации, и право на
+  // неё — у владельца, а не у всякого, кто знает секрет кронов (см. шапку).
+  const auth = await requireAdmin(req);
+  if (auth instanceof NextResponse) return auth;
+
+  if (crossOrigin(req)) {
+    return NextResponse.json({ error: 'Origin не совпадает с хостом — запрос отклонён' }, { status: 403 });
+  }
+
+  const hours = parseInt(req.nextUrl.searchParams.get('hours') ?? '12', 10);
+  const log: string[] = [];
 
   // ── STEP 1: AUTO-MIGRATE ──────────────────────────────────────────────────
   try {
@@ -146,7 +194,10 @@ export async function GET(req: NextRequest) {
   // (/approve_*) или админка. Батч здесь исполняет исключительно то, что
   // человек уже одобрил.
 
-  // ── STEP 3: LOAD INITIATIVES ──────────────────────────────────────────────
+  // ── STEP 3: ATOMIC CLAIM ──────────────────────────────────────────────────
+  // Выбор и захват — одним запросом: FOR UPDATE SKIP LOCKED не даёт двум
+  // параллельным вызовам взять одну инициативу, а перевод в in_progress
+  // фиксируется тем же UPDATE, что её выбрал.
   let initiatives: Array<{
     id: string;
     action_type: string;
@@ -160,19 +211,26 @@ export async function GET(req: NextRequest) {
 
   try {
     const result = await pool.query(
-      `SELECT
-         id, action_type, description, context,
-         executor_agent_id, executor_name, due_date, created_at
-       FROM agent_approvals
-       WHERE status = 'approved'
-         AND execution_status = 'assigned'
-         AND executor_agent_id IS NOT NULL
-         AND created_at >= NOW() - ($1 || ' hours')::interval
-       ORDER BY created_at ASC`,
+      `UPDATE agent_approvals a
+       SET execution_status = 'in_progress'
+       WHERE a.id IN (
+         SELECT id FROM agent_approvals
+         WHERE status = 'approved'
+           AND execution_status = 'assigned'
+           AND executor_agent_id IS NOT NULL
+           AND created_at >= NOW() - ($1 || ' hours')::interval
+         ORDER BY created_at ASC
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING a.id, a.action_type, a.description, a.context,
+                 a.executor_agent_id, a.executor_name, a.due_date, a.created_at`,
       [hours]
     );
-    initiatives = result.rows;
-    log.push(`found: ${initiatives.length} initiatives (last ${hours}h)`);
+    // RETURNING не обязан сохранять порядок подзапроса — сортируем сами.
+    initiatives = result.rows
+      .slice()
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    log.push(`claimed: ${initiatives.length} initiatives (last ${hours}h, atomic)`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: msg, log }, { status: 500 });

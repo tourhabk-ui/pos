@@ -2,7 +2,10 @@
  * lib/agents/run-logger.ts
  *
  * Logs each agent cron run to agent_run_history.
- * Fire-and-forget — never throws, never blocks the main flow.
+ * Never throws — но и не молчит: возвращает, записан ли терминальный итог.
+ * Для критичных кронов терминальная запись — часть контракта, а не
+ * необязательная телеметрия: вызывающий обязан видеть отказ записи
+ * (см. /api/cron/evo — поле run_logged в ответе).
  */
 
 import { pool } from '@/lib/db-pool';
@@ -24,7 +27,8 @@ export interface RunLogParams {
   estimated_cost_usd?: number;
 }
 
-export async function logAgentRun(params: RunLogParams): Promise<void> {
+/** true — итог записан в agent_run_history; false — запись не удалась (в логе есть причина). */
+export async function logAgentRun(params: RunLogParams): Promise<boolean> {
   const ended_at = new Date(params.started_at.getTime() + params.duration_ms);
   try {
     await pool.query(
@@ -50,7 +54,9 @@ export async function logAgentRun(params: RunLogParams): Promise<void> {
         params.estimated_cost_usd ?? null,
       ]
     );
+    return true;
   } catch (err) {
     console.error('[run-logger] Failed to log run for', params.agent_id, err instanceof Error ? err.message : err);
+    return false;
   }
 }

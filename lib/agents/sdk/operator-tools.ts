@@ -195,17 +195,22 @@ const updatePrice: SDKTool = {
   },
 };
 
-// ── Toggle Publish ────────────────────────────────────────────
+// ── Set Published ─────────────────────────────────────────────
+// До 27.08 инструмент назывался toggle_tour_publish и делал
+// `SET is_published = NOT is_published` — неидемпотентно: повтор вызова
+// (retry модели, сетевой ретрай, двойной клик) ОТМЕНЯЛ уже достигнутый
+// результат. Агентский инструмент обязан называть целевое состояние.
 
-const togglePublish: SDKTool = {
-  name: 'toggle_tour_publish',
-  description: 'Опубликовать или снять с публикации тур. Если тур опубликован — снимет, если нет — опубликует.',
+const setPublished: SDKTool = {
+  name: 'set_tour_published',
+  description: 'Установить статус публикации тура: published=true — опубликовать, published=false — снять с публикации. Повторный вызов с тем же значением безопасен.',
   parameters: {
     type: 'object',
     properties: {
       tour_id: { type: 'string', description: 'ID тура (число)' },
+      published: { type: 'boolean', description: 'Целевое состояние публикации' },
     },
-    required: ['tour_id'],
+    required: ['tour_id', 'published'],
   },
   execute: async (args) => {
     const operatorId = args._operatorId as string;
@@ -213,16 +218,33 @@ const togglePublish: SDKTool = {
 
     const tourId = parseInt(args.tour_id as string, 10);
     if (isNaN(tourId)) return JSON.stringify({ error: 'Некорректный ID тура' });
+    if (typeof args.published !== 'boolean') {
+      return JSON.stringify({ error: 'Параметр published обязан быть true или false' });
+    }
+    const published = args.published;
 
     const res = await pool.query(
       `UPDATE operator_tours
-       SET is_published = NOT is_published, updated_at = NOW()
+       SET is_published = $3, updated_at = NOW()
        WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL
        RETURNING id, title, is_published`,
-      [tourId, operatorId],
+      [tourId, operatorId, published],
     );
     if (res.rowCount === 0) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
     const row = res.rows[0];
+
+    // Аудит эффекта: кто, что, во что перевёл. Отказ записи не роняет
+    // действие, но и не молчит (§4.0). Колонки по миграции 059: у
+    // ai_actions_log есть action_type и metadata JSONB — agent_id/details
+    // там НЕТ (их пишет только код из ALLOWLIST фантомного сторожа).
+    await pool.query(
+      `INSERT INTO ai_actions_log (action_type, metadata)
+       VALUES ('set_tour_published', $1)`,
+      [JSON.stringify({ agent: 'operator_sdk', tour_id: tourId, operator_id: operatorId, published })],
+    ).catch((err) => {
+      console.error('[operator-tools] audit set_tour_published не записан:', err instanceof Error ? err.message : err);
+    });
+
     return JSON.stringify({
       success: true,
       tour: row.title,
@@ -273,7 +295,7 @@ const tourStats: SDKTool = {
 // ── Export ─────────────────────────────────────────────────────
 
 export function getOperatorTools(operatorId: string): SDKTool[] {
-  const tools = [myTours, tourBookings, revenue, updatePrice, togglePublish, tourStats];
+  const tools = [myTours, tourBookings, revenue, updatePrice, setPublished, tourStats];
   // Inject operatorId into each tool call
   return tools.map(t => ({
     ...t,

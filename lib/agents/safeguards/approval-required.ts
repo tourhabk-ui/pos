@@ -42,7 +42,13 @@ type ActionCategory = 'safe' | 'review' | 'forbidden';
 const ACTION_CATEGORIES: Record<string, ActionCategory> = {
   // Safe — применяется автоматически. Единственный тип, который реально
   // зовётся (operator-agency.ts, чат оператора — черновик тура, низкий риск).
-  schedule_suggest: 'safe',
+  // До 27.08 он назывался `schedule_suggest` — имя не совпадало с действием, и
+  // из этого вырастало фиктивное второе исполнение: запись клалась с
+  // execution_status='assigned' и исполнителем rescue, INSERT черновика делал
+  // сам вызывающий, а батч-исполнитель потом «исполнял» запись как
+  // Rescue-анализ расписания — действие, никак не связанное с черновиком.
+  // Теперь имя называет действие, а запись — аудит уже принятого решения.
+  tour_create_draft: 'safe',
 
   // Forbidden — никогда не выполняется агентом.
   data_delete:      'forbidden',
@@ -56,9 +62,11 @@ const ACTION_CATEGORIES: Record<string, ActionCategory> = {
 // Какой агент исполняет какой тип инициативы. Держать в СИНХРОНЕ с реальными
 // файлами lib/agents/agencies/*.ts — сторож проверяет это через existsSync.
 
-const EXECUTOR_MAP: Record<string, { agent_id: string; agent_name: string }> = {
-  schedule_suggest: { agent_id: 'rescue', agent_name: 'AI Спасатель' },
-};
+// Пусто намеренно: единственный живой тип (`tour_create_draft`) исполняется
+// вызывающим кодом сразу после auto-approve, отложенного исполнителя у него
+// нет и быть не должно. Прежняя запись `schedule_suggest → rescue` назначала
+// Rescue исполнителем действия, которое Rescue не делал (см. ACTION_CATEGORIES).
+const EXECUTOR_MAP: Record<string, { agent_id: string; agent_name: string }> = {};
 
 /**
  * Неизвестный/неназначенный тип — исполнитель НЕ выдумывается (было
@@ -117,7 +125,11 @@ export class ApprovalRequired {
     }
 
     if (category === 'safe') {
-      // Safe actions are auto-approved and immediately assigned to executor
+      // Safe-действие исполняет ВЫЗЫВАЮЩИЙ код сразу после этого ответа —
+      // запись здесь аудит решения, а не задача на потом. Поэтому
+      // execution_status = 'done', НЕ 'assigned': 'assigned' означал бы
+      // «ждёт исполнителя», и батч-исполнитель честно исполнил бы её второй
+      // раз — уже случалось (schedule_suggest → Rescue-анализ расписания).
       const expiresHours = action.expires_hours ?? 24;
       const executor = getExecutor(action.type);
       const { rows } = await pool.query<{ id: string }>(`
@@ -126,7 +138,7 @@ export class ApprovalRequired {
           reviewed_at, review_notes, expires_at,
           executor_agent_id, executor_name, execution_status
         )
-        VALUES ($1, $2, $3, 'approved', $4, NOW(), $5, NOW() + ($6 || ' hours')::interval, $7, $8, 'assigned')
+        VALUES ($1, $2, $3, 'approved', $4, NOW(), $5, NOW() + ($6 || ' hours')::interval, $7, $8, 'done')
         RETURNING id
       `, [
         action.type,

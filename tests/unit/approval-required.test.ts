@@ -36,7 +36,7 @@ describe('ApprovalRequired', () => {
     const service = new ApprovalRequired();
 
     const result = await service.request({
-      type: 'schedule_suggest',
+      type: 'tour_create_draft',
       description: 'Создать черновик тура',
       context: { partnerId: 'p1' },
       requested_by: 'operator:1',
@@ -48,6 +48,11 @@ describe('ApprovalRequired', () => {
     const sql = String(mockPoolQuery.mock.calls[0][0]);
     expect(sql).toContain('INSERT INTO agent_approvals');
     expect(sql).toContain("'approved'");
+    // Safe-действие исполняет вызывающий код сразу — запись это аудит, не
+    // задача на потом. 'assigned' здесь означал бы фиктивное второе
+    // исполнение батч-исполнителем (случай schedule_suggest → Rescue).
+    expect(sql).toContain("'done'");
+    expect(sql).not.toContain("'assigned'");
 
     expect(mockAuditWrite).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -119,8 +124,28 @@ describe('EXECUTOR_MAP: исполнители — реальные агентс
     );
     const block = src.slice(src.indexOf('const EXECUTOR_MAP'), src.indexOf('function getExecutor'));
     const ids = [...block.matchAll(/agent_id:\s*'([a-z_]+)'/g)].map((m) => m[1]);
-    expect(ids.length).toBeGreaterThan(0);
+    // Пустой реестр допустим (27.08: единственный живой тип исполняется
+    // вызывающим кодом сразу, отложенного исполнителя нет). Недопустим —
+    // исполнитель, ссылающийся на несуществующее агентство.
     const missing = ids.filter((id) => !existsSync(join(AGENCIES_DIR, `${id}-agency.ts`)));
     expect(missing, `исполнитель без файла агентства: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('семантика 27.08: schedule_suggest не значится ни в категориях, ни в исполнителях', async () => {
+    // Имя не совпадало с действием: под ним operator-agency создавал черновик
+    // тура, а батч-исполнитель «исполнял» запись как Rescue-анализ расписания.
+    // Живой тип теперь tour_create_draft; schedule_suggest остался только
+    // как legacy-handler в initiative-executor для старых строк БД.
+    const src = await import('node:fs').then((fs) =>
+      fs.readFileSync(join(process.cwd(), 'lib/agents/safeguards/approval-required.ts'), 'utf-8'),
+    );
+    expect(src).toMatch(/tour_create_draft:\s*'safe'/);
+    expect(src).not.toMatch(/schedule_suggest:\s*'/);
+
+    const agency = await import('node:fs').then((fs) =>
+      fs.readFileSync(join(process.cwd(), 'lib/agents/agencies/operator-agency.ts'), 'utf-8'),
+    );
+    expect(agency).toContain("'tour_create_draft'");
+    expect(agency).not.toContain("'schedule_suggest'");
   });
 });
