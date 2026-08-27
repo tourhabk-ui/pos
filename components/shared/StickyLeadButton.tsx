@@ -29,7 +29,13 @@ export default function StickyLeadButton() {
     }
   }, [open]);
 
-  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline'];
+  // Детальная карточка тура — свой контекстный CTA с ценой (нижняя панель в
+  // TourDetailClient, аудит мобильной компоновки, этап 2). Безадресная заявка
+  // «Хочу тур» рядом с заявкой на КОНКРЕТНЫЙ тур — два контура бронирования;
+  // к тому же на ширине меньше sm у кнопки скрыта подпись, и она стояла одной
+  // иконкой поверх начала «О туре». Списки (/marketplace, /catalog) не
+  // задеты: скрываем только /tours/ подпути.
+  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/'];
   if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/') return null;
 
   async function submitLead(e: React.FormEvent) {
