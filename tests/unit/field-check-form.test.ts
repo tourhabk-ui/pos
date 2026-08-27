@@ -124,7 +124,26 @@ describe('PWA и фотографии', () => {
   });
 
   it('запись удаляется из очереди только после успеха', () => {
-    expect(client).toMatch(/if \(!res\.ok\) break;[\s\S]{0,900}deleteFieldCheck\(item\.id\)/);
+    // 27.08 инвариант стал строже: между отказом сервера и удалением теперь
+    // стоит блок доставки фото (окно расширено под него). Удаление — только
+    // после того, как довезены ВСЕ снимки.
+    expect(client).toMatch(/if \(!res\.ok\) break;[\s\S]{0,1600}deleteFieldCheck\(item\.id\)/);
+  });
+
+  it('упавшее фото не теряется: элемент живёт в очереди до полной доставки', () => {
+    // До 27.08 элемент удалялся после ПЕРВОЙ попытки загрузки фото — упавший
+    // снимок пропадал навсегда, хотя комментарий обещал «довезём в следующий
+    // заход». Теперь вердикт шлётся один раз (sentCheckId), недовезённые
+    // снимки остаются в очереди, и удаление стоит ПОСЛЕ ветки повтора.
+    expect(client).toMatch(/item\.sentCheckId \?\? null/);
+    expect(client).toMatch(/if \(!pr\.ok\) remaining\.push\(data\)/);
+    expect(client).toMatch(
+      /queueFieldCheck\(\{ \.\.\.item, sentCheckId: checkId, photos: remaining \}\);\s*\n\s*continue;/);
+    // continue (фото не все) идёт РАНЬШЕ deleteFieldCheck — не наоборот.
+    const cont = client.indexOf('continue;');
+    const del = client.indexOf('deleteFieldCheck(item.id)');
+    expect(cont).toBeGreaterThan(-1);
+    expect(del).toBeGreaterThan(cont);
   });
 });
 
