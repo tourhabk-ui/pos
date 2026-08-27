@@ -1433,12 +1433,19 @@ function OnTrailTab() {
     fetchRouteWaypoints(r.id);
   }
 
+  // Видим ли инструмент выбора цели — модалкой («Сменить маршрут» поверх
+  // навигации) или как ОСНОВНОЙ экран (UX-коррекция владельца 27.08:
+  // destination-first — «куда хотите пойти», не «маршрут не выбран»).
+  // Поиск и рекомендации живут в ОДНОМ состоянии независимо от того, в
+  // каком виде инструмент показан — двух копий логики заводить нельзя.
+  const pickerVisible = showRouteModal || (!hasRoute && !isLoadingRoute);
+
   // Поиск маршрутов по названию места: /api/routes/search знает waypoints
   // (семантика + route_waypoints), «Авачинский» находит все маршруты через него
   useEffect(() => {
     const q = modalQuery.trim();
     clearTimeout(modalSearchRef.current);
-    if (!showRouteModal || q.length < 2) { setSearchRoutes([]); setSearching(false); return; }
+    if (!pickerVisible || q.length < 2) { setSearchRoutes([]); setSearching(false); return; }
     setSearching(true);
     modalSearchRef.current = setTimeout(() => {
       fetch(`/api/routes/search?q=${encodeURIComponent(q)}`)
@@ -1467,7 +1474,7 @@ function OnTrailTab() {
         .finally(() => setSearching(false));
     }, 350);
     return () => clearTimeout(modalSearchRef.current);
-  }, [modalQuery, showRouteModal]);
+  }, [modalQuery, pickerVisible]);
 
   // Строка пути в выборе: род линии, длина, сложность. Одна на обе секции —
   // группы мест и плоский список рекомендуемых.
@@ -1572,8 +1579,10 @@ function OnTrailTab() {
       .finally(() => setPreviewLoadingId(null));
   }
 
-  function openRouteModal() {
-    setShowRouteModal(true);
+  // Общая загрузка «Рекомендуемых» — нужна и модалке («Сменить маршрут»),
+  // и destination-first экрану (UX-коррекция 27.08): один запрос, не два
+  // независимых пути, которые могут разойтись.
+  function loadRecommendedRoutes() {
     if (modalRoutes.length > 0) return;
     setModalError(null);
     // has_waypoints: в поле рекомендуем только маршруты с реальными точками —
@@ -1603,6 +1612,184 @@ function OnTrailTab() {
       })
       .catch(() => { setModalError('Ошибка сети — проверьте соединение'); });
   }
+
+  function renderDestinationPicker(): React.ReactNode {
+    return (
+      preview && previewMap ? (
+                    /* ── Превью варианта на карте (фиксация только кнопкой) ── */
+                    <div>
+                      <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
+                        {/* height обязателен: без него LeafletMap берёт дефолт 400px в
+                            220px overflow-hidden контейнере — fitBounds центрирует
+                            маркеры в обрезанную нижнюю половину, и превью выглядит
+                            пустым (скрин владельца «Авачинский перевал»). */}
+                        {/* «Где точка моего местонахождения?» — вопрос владельца на
+                            превью «Куда идём?» 17.08. Решение «идти или нет»
+                            принимают именно здесь, и принять его, не видя себя,
+                            нельзя: три зелёных кружка на карте края ничего не
+                            говорят о том, рядом это или за перевалом.
+                            Синяя точка рождается только по настоящему фиксу
+                            (см. LeafletMap) и в fitBounds не участвует — превью
+                            маршрута от неё не разъедется. */}
+                        <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" showUserLocation />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                        <GradeChip grade={preview.grade} />
+                      </div>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
+                        {preview.wps.length} {plural(preview.wps.length, 'точка', 'точки', 'точек')}
+                        {preview.wps.length > 1 && ` · ${preview.wps[0].name} → ${preview.wps[preview.wps.length - 1].name}`}
+                      </p>
+                      {/* Оговорка паспорта: что этот род данных значит для ног.
+                          Бейдж прочитает не каждый — слова прочитают все. */}
+                      {preview.grade && passportGradeNote(preview.grade) && (
+                        <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                          style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                          {passportGradeNote(preview.grade)}
+                        </p>
+                      )}
+                      {/* ── Черта: одна причина отказа, названная словами ──────────
+                          Раньше экран судил сам — отдельно про разброс, отдельно
+                          про одиночную точку, — и не видел третьего случая:
+                          расхождения точек с линией. «Вулкан Козельский» проходил
+                          оба здешних теста и оказывался непригодным только в поле.
+                          Теперь вердикт приходит с сервера, где есть и линия, и
+                          точки, а экран его показывает. */}
+                      {preview.navigability && preview.navigability.reasons.length > 0 && (
+                        <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+                          <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+                            {preview.navigability.verdict === 'not_on_foot'
+                              // Не отказ, а другой род записи: у облёта линию не
+                              // проходят по земле, и мерки тропы к ней не относятся.
+                              ? 'Это не пеший маршрут'
+                              : preview.navigability.verdict === 'not_a_route'
+                                ? 'Вести по этой записи нельзя'
+                                : 'Ведение по линии не обещаем'}
+                          </p>
+                          {preview.navigability.reasons.map((why, i) => (
+                            <p key={i} className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{why}</p>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button onClick={() => setPreview(null)}
+                          className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-lg"
+                          style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                          К вариантам
+                        </button>
+                        {/* Кнопки нет вовсе, когда записью нельзя пользоваться как
+                            маршрутом: предлагать старт по подборке мест значило бы
+                            обещать путь, которого нет. */}
+                        {(() => {
+                          const verdict = preview.navigability?.verdict
+                            // Вердикт не пришёл (старый кэш ответа) — судим по тому,
+                            // что видно здесь: одна точка или разброс. Отсутствие
+                            // ответа не превращается в «пригодно».
+                            ?? (previewMap.scattered || previewMap.singlePoint ? 'not_a_route' : 'orientation_only');
+                          const label = navigabilityCtaLabel(verdict);
+                          if (!label) return null;
+                          return (
+                            <button onClick={() => selectRoute(preview)}
+                              className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
+                              style={verdict === 'navigable'
+                                ? { background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }
+                                : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                              {label}
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Поиск по названию места */}
+                      <input
+                        type="text"
+                        value={modalQuery}
+                        onChange={e => setModalQuery(e.target.value)}
+                        placeholder="Название места: Авачинский, Толбачик…"
+                        className="w-full px-3 py-2.5 rounded-xl text-sm mb-3"
+                        style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                      />
+      
+                      {modalError && modalQuery.trim().length < 2 ? (
+                        <div className="flex flex-col items-center gap-3 py-6">
+                          <p className="text-[var(--danger)] text-sm text-center">{modalError}</p>
+                          <button
+                            onClick={() => { setModalError(null); openRouteModal(); }}
+                            className="text-xs font-semibold px-4 py-2 rounded-lg"
+                            style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                            Попробовать снова
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          {modalQuery.trim().length >= 2 ? (
+                            /* ── Выбор от МЕСТА (владелец 20.08): сначала место,
+                                под ним — пути к нему, отсортированные по роду
+                                линии и длине. Совпавшие только названием — своей
+                                секцией в конце, честно подписанной. ── */
+                            searchRoutes.length === 0 ? (
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                                  {searching ? 'Ищем пути…' : `Пути к «${modalQuery.trim()}»`}
+                                </p>
+                                <div className="text-[var(--text-muted)] text-sm text-center py-6">
+                                  {searching ? 'Секунду…' : 'Ничего не нашлось — попробуйте другое место'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                {groupRoutesByPlace(searchRoutes, modalQuery.trim()).map(g => (
+                                  <div key={g.place ?? '__title__'}>
+                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                                      {g.place
+                                        ? `${g.place} · ${g.routes.length} ${plural(g.routes.length, 'путь', 'пути', 'путей')}`
+                                        : 'Совпали названием маршрута'}
+                                    </p>
+                                    <div className="space-y-2">
+                                      {g.routes.map(r => renderPathRow(r))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          ) : (
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                                Рекомендуемые
+                              </p>
+                              {modalRoutes.length === 0 ? (
+                                <div className="text-[var(--text-muted)] text-sm text-center py-6">
+                                  Загрузка маршрутов…
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {modalRoutes.map(r => renderPathRow(r))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+      )
+    );
+  }
+
+  function openRouteModal() {
+    setShowRouteModal(true);
+    loadRecommendedRoutes();
+  }
+
+  // Destination-first (UX-коррекция владельца 27.08): без активного маршрута
+  // экран сам по себе — инструмент выбора цели, рекомендации грузятся сразу,
+  // без клика «Выбрать маршрут». Загрузка — один раз на появление состояния.
+  useEffect(() => {
+    if (!hasRoute && !isLoadingRoute) loadRecommendedRoutes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRoute, isLoadingRoute]);
 
   // ─── Полевые действия: место · трек · наблюдение (владелец 27.08) ─────────
   // Панель — та же, что на /field-check (FieldActionBar, образец MAPS.ME):
@@ -1661,7 +1848,10 @@ function OnTrailTab() {
     if (canGeo) {
       list.push({
         id: 'place',
-        label: 'Добавить место',
+        // «Добавить место» конфликтовало по смыслу с destination-first
+        // экраном (UX-коррекция владельца 27.08): там «место» — цель
+        // маршрута, здесь — полевая находка. Разные вещи, разные слова.
+        label: 'Сообщить о месте',
         icon: <MapPinPlus className="w-6 h-6" />,
         // Жёсткий переход, не Link: полевой контур живёт без гидрации.
         // Форма находки на /field-check открывается сразу (?place=1).
@@ -1756,40 +1946,39 @@ function OnTrailTab() {
       <div className="flex-1 px-4 py-6 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
 
         {!hasRoute && !isLoadingRoute ? (
-          /* Идти некуда — значит и приборов быть не должно: одно понятное
-             действие вместо компаса без сигнала и нулей в карточках. */
-          <div className="flex flex-col items-center text-center gap-5 py-10">
-            <div className="w-14 h-14 rounded-full flex items-center justify-center"
-              style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)' }}>
-              <MapPin className="w-7 h-7" style={{ color: 'var(--success)' }} />
-            </div>
-            <div>
+          /* Destination-first (UX-коррекция владельца 27.08): цель, не
+             готовый трек, — первый объект выбора. Прежде здесь стояла
+             приборная заглушка с кнопкой, открывающей тот же поиск местом
+             ВНУТРИ модалки; теперь это один и тот же инструмент
+             (renderDestinationPicker), показанный сразу как основной экран,
+             без клика и без чёрной подложки поверх карты. */
+          <div className="w-full flex flex-col gap-5 py-6">
+            <div className="text-center">
               <p className="text-lg font-semibold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
-                Маршрут не выбран
+                Куда хотите пойти?
               </p>
-              <p className="text-sm text-[var(--text-secondary)] mt-1.5 max-w-[280px]">
-                Выберите маршрут — и экран станет навигатором: направление,
-                расстояние до точки и время в пути.
+              <p className="text-sm text-[var(--text-secondary)] mt-1.5">
+                Название места, вулкана или перевала — ниже появятся пути к нему.
               </p>
             </div>
-            <button onClick={openRouteModal}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-lg"
-              style={{ background: 'var(--success)', color: '#08210f' }}>
-              Выбрать маршрут <ChevronRight className="w-4 h-4" />
-            </button>
-            <div className="text-xs text-[var(--text-muted)] space-y-1.5 pt-1">
+
+            <div className="w-full">
+              {renderDestinationPicker()}
+            </div>
+
+            <div className="text-xs text-[var(--text-muted)] space-y-1.5 text-center">
               <p>Карты можно скачать заранее — в поле они работают без сети.</p>
               <p>Компас появится, если у телефона есть датчик.</p>
             </div>
 
-            {/* Наблюдение/место/трек не требуют выбранного маршрута — эти
+            {/* Наблюдение/место/трек не требуют выбранной цели — эти
                 действия route-независимы (координаты берёт GPS телефона).
                 Раньше панель жила только в ветке «маршрут выбран», и ссылка
                 с главной «Сообщить о наблюдении с экрана маршрута» приводила
                 на пустой экран выбора маршрута вместо формы (владелец 27.08:
                 «стала открывать маршрут вместо своей формы»). */}
-            <div className="w-full pt-2">
-              <p className="text-xs text-[var(--text-muted)] mb-2">Маршрут не нужен, чтобы сообщить о находке:</p>
+            <div className="w-full pt-2 border-t border-[var(--border)]">
+              <p className="text-xs text-[var(--text-muted)] mb-2 pt-3">Цель не нужна, чтобы сообщить о находке:</p>
               <FieldActionBar actions={fieldActions} error={fieldBarError} />
             </div>
           </div>
@@ -2461,173 +2650,14 @@ function OnTrailTab() {
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-[var(--text-primary)] text-base">Куда идём?</h3>
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Куда хотите пойти?</h3>
               <button onClick={() => { setShowRouteModal(false); setPreview(null); }}
                 className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }}>
                 <X className="w-4 h-4 text-[var(--text-muted)]" />
               </button>
             </div>
 
-            {preview && previewMap ? (
-              /* ── Превью варианта на карте (фиксация только кнопкой) ── */
-              <div>
-                <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
-                  {/* height обязателен: без него LeafletMap берёт дефолт 400px в
-                      220px overflow-hidden контейнере — fitBounds центрирует
-                      маркеры в обрезанную нижнюю половину, и превью выглядит
-                      пустым (скрин владельца «Авачинский перевал»). */}
-                  {/* «Где точка моего местонахождения?» — вопрос владельца на
-                      превью «Куда идём?» 17.08. Решение «идти или нет»
-                      принимают именно здесь, и принять его, не видя себя,
-                      нельзя: три зелёных кружка на карте края ничего не
-                      говорят о том, рядом это или за перевалом.
-                      Синяя точка рождается только по настоящему фиксу
-                      (см. LeafletMap) и в fitBounds не участвует — превью
-                      маршрута от неё не разъедется. */}
-                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" showUserLocation />
-                </div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
-                  <GradeChip grade={preview.grade} />
-                </div>
-                <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
-                  {preview.wps.length} {plural(preview.wps.length, 'точка', 'точки', 'точек')}
-                  {preview.wps.length > 1 && ` · ${preview.wps[0].name} → ${preview.wps[preview.wps.length - 1].name}`}
-                </p>
-                {/* Оговорка паспорта: что этот род данных значит для ног.
-                    Бейдж прочитает не каждый — слова прочитают все. */}
-                {preview.grade && passportGradeNote(preview.grade) && (
-                  <p className="text-xs mb-3 px-3 py-2 rounded-lg"
-                    style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
-                    {passportGradeNote(preview.grade)}
-                  </p>
-                )}
-                {/* ── Черта: одна причина отказа, названная словами ──────────
-                    Раньше экран судил сам — отдельно про разброс, отдельно
-                    про одиночную точку, — и не видел третьего случая:
-                    расхождения точек с линией. «Вулкан Козельский» проходил
-                    оба здешних теста и оказывался непригодным только в поле.
-                    Теперь вердикт приходит с сервера, где есть и линия, и
-                    точки, а экран его показывает. */}
-                {preview.navigability && preview.navigability.reasons.length > 0 && (
-                  <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
-                    <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
-                      {preview.navigability.verdict === 'not_on_foot'
-                        // Не отказ, а другой род записи: у облёта линию не
-                        // проходят по земле, и мерки тропы к ней не относятся.
-                        ? 'Это не пеший маршрут'
-                        : preview.navigability.verdict === 'not_a_route'
-                          ? 'Вести по этой записи нельзя'
-                          : 'Ведение по линии не обещаем'}
-                    </p>
-                    {preview.navigability.reasons.map((why, i) => (
-                      <p key={i} className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{why}</p>
-                    ))}
-                  </div>
-                )}
-                <div className="flex gap-2">
-                  <button onClick={() => setPreview(null)}
-                    className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-lg"
-                    style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
-                    К вариантам
-                  </button>
-                  {/* Кнопки нет вовсе, когда записью нельзя пользоваться как
-                      маршрутом: предлагать старт по подборке мест значило бы
-                      обещать путь, которого нет. */}
-                  {(() => {
-                    const verdict = preview.navigability?.verdict
-                      // Вердикт не пришёл (старый кэш ответа) — судим по тому,
-                      // что видно здесь: одна точка или разброс. Отсутствие
-                      // ответа не превращается в «пригодно».
-                      ?? (previewMap.scattered || previewMap.singlePoint ? 'not_a_route' : 'orientation_only');
-                    const label = navigabilityCtaLabel(verdict);
-                    if (!label) return null;
-                    return (
-                      <button onClick={() => selectRoute(preview)}
-                        className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
-                        style={verdict === 'navigable'
-                          ? { background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }
-                          : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-                        {label}
-                      </button>
-                    );
-                  })()}
-                </div>
-              </div>
-            ) : (
-              <div>
-                {/* Поиск по названию места */}
-                <input
-                  type="text"
-                  value={modalQuery}
-                  onChange={e => setModalQuery(e.target.value)}
-                  placeholder="Название места: Авачинский, Толбачик…"
-                  className="w-full px-3 py-2.5 rounded-xl text-sm mb-3"
-                  style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                />
-
-                {modalError && modalQuery.trim().length < 2 ? (
-                  <div className="flex flex-col items-center gap-3 py-6">
-                    <p className="text-[var(--danger)] text-sm text-center">{modalError}</p>
-                    <button
-                      onClick={() => { setModalError(null); openRouteModal(); }}
-                      className="text-xs font-semibold px-4 py-2 rounded-lg"
-                      style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
-                      Попробовать снова
-                    </button>
-                  </div>
-                ) : (
-                  <div>
-                    {modalQuery.trim().length >= 2 ? (
-                      /* ── Выбор от МЕСТА (владелец 20.08): сначала место,
-                          под ним — пути к нему, отсортированные по роду
-                          линии и длине. Совпавшие только названием — своей
-                          секцией в конце, честно подписанной. ── */
-                      searchRoutes.length === 0 ? (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                            {searching ? 'Ищем пути…' : `Пути к «${modalQuery.trim()}»`}
-                          </p>
-                          <div className="text-[var(--text-muted)] text-sm text-center py-6">
-                            {searching ? 'Секунду…' : 'Ничего не нашлось — попробуйте другое место'}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {groupRoutesByPlace(searchRoutes, modalQuery.trim()).map(g => (
-                            <div key={g.place ?? '__title__'}>
-                              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                                {g.place
-                                  ? `${g.place} · ${g.routes.length} ${plural(g.routes.length, 'путь', 'пути', 'путей')}`
-                                  : 'Совпали названием маршрута'}
-                              </p>
-                              <div className="space-y-2">
-                                {g.routes.map(r => renderPathRow(r))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    ) : (
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                          Рекомендуемые
-                        </p>
-                        {modalRoutes.length === 0 ? (
-                          <div className="text-[var(--text-muted)] text-sm text-center py-6">
-                            Загрузка маршрутов…
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {modalRoutes.map(r => renderPathRow(r))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {renderDestinationPicker()}
           </div>
         </div>
       )}
