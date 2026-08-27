@@ -186,11 +186,14 @@ function ReviewsContent() {
       setSubmitError('');
 
       try {
-        const res = await fetch('/api/reviews', {
+        // Канонический путь записи отзыва о туре — с гейтом завершённой брони
+        // и честными ошибками. Прежний POST /api/reviews писал в мёртвую
+        // таблицу reviews (tour_id UUID против BIGINT id тура) и не сработал
+        // ни разу — форма всегда отвечала «Ошибка при создании отзыва».
+        const res = await fetch(`/api/reviews/tour/${encodeURIComponent(form.tourId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tourId: form.tourId,
             rating: form.rating,
             comment: form.comment.trim(),
           }),

@@ -109,3 +109,44 @@ describe('выдуманные отзывы 087 убраны (решение в�
     expect(read('migrations/832_tour_reviews_write_path.sql')).toMatch(/user_id/);
   });
 });
+
+/**
+ * Кабинет туриста «Мои отзывы» — тот же дефект, той же датой класса, что
+ * форма 06.08, но найден только аудитом 24.08: три ручки ездили по старой
+ * `reviews` (tour_id UUID) с JOIN'ом на operator_tours (id BIGINT) — ошибка
+ * 42883 на каждом запросе. GET /api/reviews/my отвечал 500 всегда,
+ * POST /api/reviews не создал ни одного отзыва, GET /api/reviews прятал
+ * ошибку за вечным пустым degraded-списком. Тот же uuid-против-bigint жил и
+ * в SDK-инструментах Кузьмича — подзапрос рейтинга ронял ВЕСЬ поиск туров.
+ */
+describe('кабинет туриста и SDK — та же таблица, что у карточки', () => {
+  it('«Мои отзывы» читает operator_tour_reviews, старой reviews в файле нет', () => {
+    const src = read('app/api/reviews/my/route.ts');
+    expect(src).toMatch(/FROM operator_tour_reviews/);
+    expect(src).not.toMatch(/FROM reviews\b/);
+  });
+
+  it('публичный GET /api/reviews читает operator_tour_reviews', () => {
+    const src = read('app/api/reviews/route.ts');
+    expect(src).toMatch(/FROM operator_tour_reviews/);
+    expect(src).not.toMatch(/FROM reviews\b/);
+    // Мёртвый POST (INSERT в reviews с uuid tour_id) удалён — запись только
+    // через канонический /api/reviews/tour/[tourId].
+    expect(src).not.toMatch(/export async function POST/);
+    expect(src).not.toMatch(/INSERT INTO reviews\b/);
+  });
+
+  it('форма кабинета пишет через канонический эндпоинт', () => {
+    const src = read('app/hub/tourist/reviews/_ReviewsClient.tsx');
+    expect(src).toMatch(/\/api\/reviews\/tour\/\$\{/);
+    expect(src).not.toMatch(/fetch\('\/api\/reviews',/);
+  });
+
+  it('SDK-инструменты Кузьмича не считают рейтинг по мёртвой таблице', () => {
+    const src = read('lib/agents/sdk/tourist-tools.ts');
+    expect(src).not.toMatch(/FROM reviews\b/);
+    // Рейтинг — денормализованные t.rating/t.review_count, которые
+    // пересчитывает запись отзыва по видимым строкам operator_tour_reviews.
+    expect(src).toMatch(/t\.rating AS avg_rating/);
+  });
+});
