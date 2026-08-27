@@ -140,7 +140,11 @@ export class MarketingAgency {
     try {
       const { text: aiResult } = await callAIWithModel([{ role: 'user', content: prompt }], this.preferredModel);
       if (aiResult) plan = aiResult.trim();
-    } catch { /* silent */ }
+    } catch (err) {
+      // Отказ не глушится (§4.0) — пустой catch превращал сбой AI в
+      // неотличимое от «текст пуст» состояние, диагностировать было нечем.
+      console.error('[MarketingAgency] контент-план: AI не ответил —', err instanceof Error ? err.message : String(err));
+    }
 
     return {
       response: `<b>Контент-план на 7 дней</b>\n\n${plan}`,
