@@ -49,6 +49,9 @@ function routeBookingSql(withLink: boolean) {
     if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [{
       id: '5', title: 'Тур', base_price: '1000', currency: 'RUB', operator_id: 'op1',
       min_participants: 1, max_participants: 10, is_active: true,
+      // Гейт брони с 27.08 проверяет и витрину: снятый (is_published=false)
+      // или мягко удалённый тур не бронируем даже по прямой ссылке.
+      is_published: true, deleted_at: null,
       multi_day_count: null, duration_hours: null, duration_type: null,
       operator_name: 'Оп', commission_current: '15',
     }] });
