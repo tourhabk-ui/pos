@@ -51,7 +51,18 @@ export async function POST(request: NextRequest) {
         runEvolutionLoop(),
         runRescueScan(),
       ]);
-      result = { scan_issues: scan.issues.length, evo_processed: evo.processed, evo_auto_fixes: evo.auto_fixes, rescue_alerts: rescue.alerts.length } as unknown as Record<string, unknown>;
+      const errors = evo.errors > 0
+        ? [`EvolutionLoop: ${evo.errors} issue(s) failed`]
+        : [];
+      result = {
+        success: errors.length === 0,
+        status: errors.length === 0 ? 'completed' : 'partial',
+        errors,
+        scan_issues: scan.issues.length,
+        evo_processed: evo.processed,
+        evo_auto_fixes: evo.auto_fixes,
+        rescue_alerts: rescue.alerts.length,
+      };
     } else if (agent_id === 'rescue') {
       const { runRescueScan } = await import('@/lib/agents/evo/rescue-agent');
       result = (await runRescueScan()) as unknown as Record<string, unknown>;

@@ -35,9 +35,18 @@ jobs:
           echo "Evo HTTP: $HTTP"
           cat /tmp/evo_resp.json 2>/dev/null || true
 
-          if [ "$HTTP" = "200" ]; then
-            echo "Evo Scan OK"
-          else
+          if [ "$HTTP" != "200" ]; then
             echo "Evo Scan failed: HTTP $HTTP"
             exit 1
           fi
+
+          # HTTP 200 означает, что частичные результаты доступны, а не что все
+          # стадии успешны. Истину берём из JSON-контракта route.ts.
+          if ! jq -e '.success == true and .status == "completed"' /tmp/evo_resp.json >/dev/null 2>&1; then
+            STATUS=$(jq -r '.status // "invalid-response"' /tmp/evo_resp.json 2>/dev/null || echo "invalid-response")
+            ERRORS=$(jq -c '.errors // []' /tmp/evo_resp.json 2>/dev/null || echo '[]')
+            echo "Evo Scan incomplete: status=$STATUS errors=$ERRORS"
+            exit 1
+          fi
+
+          echo "Evo Scan OK"

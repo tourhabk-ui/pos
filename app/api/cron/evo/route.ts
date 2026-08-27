@@ -36,12 +36,15 @@ export async function GET(request: NextRequest) {
   try {
     const result = await runEvoOrchestrator(scanType);
 
+    const success = result.errors.length === 0;
+    const status = success ? 'completed' : 'partial';
+
     void logAgentRun({
       agent_id: 'evo',
-      status: result.errors.length === 0 ? 'success' : 'partial',
+      status: success ? 'success' : 'partial',
       started_at: startedAt,
       duration_ms: result.duration_ms,
-      metadata: result as unknown as Record<string, unknown>,
+      metadata: { status, ...result } as unknown as Record<string, unknown>,
     });
 
     const alertText = buildEvoAlert(result);
@@ -49,7 +52,9 @@ export async function GET(request: NextRequest) {
       void tgNotify(alertText);
     }
 
-    return NextResponse.json({ success: true, ...result });
+    // Partial — полезный прогон, поэтому HTTP 200 сохраняем. Но контракт не
+    // врёт: workflow обязан увидеть success=false/status=partial и покраснеть.
+    return NextResponse.json({ success, status, ...result });
   } catch (err) {
     void logAgentRun({
       agent_id: 'evo',
@@ -61,7 +66,11 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
+      {
+        success: false,
+        status: 'failed',
+        error: err instanceof Error ? err.message : 'Unknown error',
+      },
       { status: 500 },
     );
   }
