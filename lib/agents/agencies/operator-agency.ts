@@ -6,14 +6,13 @@
  *   op_bookings_today — бронирования за сегодня
  *   op_revenue        — выручка за 7/30 дней
  *
- * WRITE (ApprovalRequired — категория 'safe'):
+ * WRITE (через ядро Volcano OS: policy allow/deny + задача + события):
  *   op_create_tour    — создать черновик тура из текста
  *   op_fill_ai        — запустить AI-заполнение тура
  *   op_add_slots      — добавить слоты доступности
  */
 
 import { pool } from '@/lib/db-pool';
-import { approvalRequired } from '../safeguards/approval-required';
 import { runAutoFillAI } from '@/app/api/operator/tours/auto-fill-ai/route';
 import type { AgentContext } from '../context-hub';
 
@@ -224,25 +223,31 @@ export class OperatorAgency {
     const rawTitle = message.replace(/создай|новый тур|тур|за \d+/gi, '').trim().slice(0, 120);
     const title = rawTitle || 'Новый тур';
 
-    const checkResult = await approvalRequired.request({
-      type:         'tour_create_draft',
-      description:  `Создать черновик тура: "${title}"${price ? `, цена ${price} руб` : ''}`,
-      context:      { partnerId, title, price, originalMessage: message },
-      requested_by: `operator:${context.user.userId ?? 'unknown'}`,
+    // Черновик — через ядро Volcano OS: policy allow/deny + задача + события.
+    // Прежний путь через ApprovalRequired (auto-approve с аудит-строкой)
+    // снят 27.08: аудит и полномочия теперь держит kernel, agent_approvals
+    // осталась legacy-хранилищем старых одобрений.
+    const { executeGovernedAction, hashInput } = await import('@/lib/agents/kernel');
+    const gov = await executeGovernedAction<{ id: number; title: string }>({
+      principal: { type: 'operator', id: String(partnerId) },
+      capability: 'tour.create_draft',
+      inputHash: hashInput({ partnerId, title, price }),
+      execute: async () => {
+        const { rows } = await pool.query<{ id: number; title: string }>(
+          `INSERT INTO operator_tours (operator_id, title, base_price, is_published, created_via)
+           VALUES ($1, $2, $3, false, 'agent')
+           RETURNING id, title`,
+          [partnerId, title, price ?? 0]
+        );
+        return rows[0];
+      },
+      summarize: (t) => `черновик тура ${t.id}: "${t.title}"`,
     });
 
-    if (checkResult.needs_approval) {
-      return { response: `Запрос заблокирован: ${checkResult.reason}` };
-    }
+    if (!gov.ok) return { response: `Запрос отклонён: ${gov.reason}` };
+    if (gov.duplicate) return { response: 'Этот черновик уже создан ранее — повтор не выполнялся.' };
 
-    const { rows } = await pool.query<{ id: number; title: string }>(
-      `INSERT INTO operator_tours (operator_id, title, base_price, is_published, created_via)
-       VALUES ($1, $2, $3, false, 'agent')
-       RETURNING id, title`,
-      [partnerId, title, price ?? 0]
-    );
-
-    const tour = rows[0];
+    const tour = gov.result;
     return {
       response: `Черновик тура создан.\nНазвание: ${tour.title}\nID: ${tour.id}\nЗапусти AI-заполнение командой: "заполни тур ${tour.id}"`,
       data: { tourId: tour.id, title: tour.title },

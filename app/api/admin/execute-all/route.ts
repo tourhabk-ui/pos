@@ -46,7 +46,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { executeInitiative } from '@/lib/agents/execution/initiative-executor';
+import { sweepApprovedInitiatives } from '@/lib/agents/kernel/adapters/initiative-tasks';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 минут — может быть много инициатив
@@ -194,140 +194,41 @@ export async function POST(req: NextRequest) {
   // (/approve_*) или админка. Батч здесь исполняет исключительно то, что
   // человек уже одобрил.
 
-  // ── STEP 3: ATOMIC CLAIM ──────────────────────────────────────────────────
-  // Выбор и захват — одним запросом: FOR UPDATE SKIP LOCKED не даёт двум
-  // параллельным вызовам взять одну инициативу, а перевод в in_progress
-  // фиксируется тем же UPDATE, что её выбрал.
-  let initiatives: Array<{
-    id: string;
-    action_type: string;
-    description: string;
-    context: Record<string, unknown>;
-    executor_agent_id: string;
-    executor_name: string;
-    due_date: string;
-    created_at: string;
-  }> = [];
-
+  // ── STEP 3: ENQUEUE В ЯДРО (модель автономии 27.08) ──────────────────────
+  // execute-all больше НЕ исполняет инициативы inline: он ставит одобренные
+  // человеком (status='approved') в очередь Volcano OS. Policy ядра решает
+  // allow/deny поимённо (initiative.<action_type>), эффект исполняет
+  // kernel worker (/api/cron/kernel-worker) с pre_commit-проверкой.
+  // Дедуп держит идемпотентность ядра (ключ initiative:<id>) — повторный
+  // вызов ничего не задваивает по построению.
   try {
-    const result = await pool.query(
-      `UPDATE agent_approvals a
-       SET execution_status = 'in_progress'
-       WHERE a.id IN (
-         SELECT id FROM agent_approvals
-         WHERE status = 'approved'
-           AND execution_status = 'assigned'
-           AND executor_agent_id IS NOT NULL
-           AND created_at >= NOW() - ($1 || ' hours')::interval
-         ORDER BY created_at ASC
-         FOR UPDATE SKIP LOCKED
-       )
-       RETURNING a.id, a.action_type, a.description, a.context,
-                 a.executor_agent_id, a.executor_name, a.due_date, a.created_at`,
-      [hours]
+    const sweep = await sweepApprovedInitiatives({ type: 'admin', id: String(auth.userId ?? 'panel') }, hours);
+    const counts = { enqueued: 0, already_active: 0, already_done: 0, rejected: 0 };
+    for (const o of sweep.outcomes) counts[o.outcome] += 1;
+    log.push(`sweep: ${sweep.scanned} approved → enqueued ${counts.enqueued}, active ${counts.already_active}, done ${counts.already_done}, rejected ${counts.rejected}`);
+
+    const rejectedDetails = sweep.outcomes
+      .filter((o): o is Extract<typeof o, { outcome: 'rejected' }> => o.outcome === 'rejected')
+      .map(o => `• ${o.taskId.slice(0, 8)}: ${o.reason}`);
+
+    await notifyOwner(
+      `<b>Volcano OS: инициативы поставлены в очередь</b>\n` +
+      `Просмотрено: ${sweep.scanned} | В очередь: ${counts.enqueued} | Уже в работе: ${counts.already_active}\n` +
+      `Уже исполнено: ${counts.already_done} | Отклонено policy: ${counts.rejected}` +
+      (rejectedDetails.length ? `\n${rejectedDetails.join('\n')}` : '') +
+      `\nИсполнит kernel worker; итоги — в панели Volcano OS.`
     );
-    // RETURNING не обязан сохранять порядок подзапроса — сортируем сами.
-    initiatives = result.rows
-      .slice()
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    log.push(`claimed: ${initiatives.length} initiatives (last ${hours}h, atomic)`);
+
+    return NextResponse.json({
+      success: true,
+      scanned: sweep.scanned,
+      ...counts,
+      outcomes: sweep.outcomes,
+      hours_window: hours,
+      log,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: msg, log }, { status: 500 });
   }
-
-  if (initiatives.length === 0) {
-    // Диагностика: покажем что вообще есть в таблице
-    let stats: Record<string, number> = {};
-    try {
-      const statsResult = await pool.query(
-        `SELECT status, COUNT(*) as cnt FROM agent_approvals GROUP BY status`
-      );
-      stats = Object.fromEntries(statsResult.rows.map((r: { status: string; cnt: string }) => [r.status, parseInt(r.cnt)]));
-    } catch { /* ignore */ }
-
-    await notifyOwner(
-      `Batch executor: за ${hours}ч нет одобренных инициатив для исполнения.\nСостояние БД: ${JSON.stringify(stats)}\nPending одобряются поштучно: /approve_* в Telegram или админка.`
-    );
-    return NextResponse.json({ success: true, executed: 0, log, db_stats: stats });
-  }
-
-  // ── STEP 4: EXECUTE ALL ───────────────────────────────────────────────────
-  const results: Array<{
-    id: string;
-    action_type: string;
-    executor: string;
-    success: boolean;
-    changes: number;
-    errors: number;
-    ms: number;
-    error?: string;
-  }> = [];
-
-  for (const initiative of initiatives) {
-    const t0 = Date.now();
-    try {
-      const result = await executeInitiative({
-        approval_id: initiative.id,
-        executor_agent_id: initiative.executor_agent_id,
-        action_type: initiative.action_type,
-        description: initiative.description,
-        context: initiative.context ?? {},
-        due_date: initiative.due_date,
-      });
-
-      results.push({
-        id: initiative.id,
-        action_type: initiative.action_type,
-        executor: initiative.executor_name,
-        success: result.success,
-        changes: result.changes_made.length,
-        errors: result.errors.length,
-        ms: Date.now() - t0,
-      });
-
-      // Уведомление о каждом результате
-      const icon = result.success ? '✅' : '❌';
-      await notifyOwner(
-        `${icon} <b>${initiative.action_type}</b>\n` +
-        `Исполнитель: ${initiative.executor_name}\n` +
-        `Изменений: ${result.changes_made.length}, Ошибок: ${result.errors.length}\n` +
-        (result.changes_made[0] ? `• ${result.changes_made[0]}` : '')
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      results.push({
-        id: initiative.id,
-        action_type: initiative.action_type,
-        executor: initiative.executor_name ?? initiative.executor_agent_id,
-        success: false,
-        changes: 0,
-        errors: 1,
-        ms: Date.now() - t0,
-        error: msg,
-      });
-      await notifyOwner(
-        `❌ <b>ОШИБКА</b> ${initiative.action_type}\n${msg.slice(0, 300)}`
-      );
-    }
-  }
-
-  const successCount = results.filter(r => r.success).length;
-
-  // Сводка в Telegram
-  await notifyOwner(
-    `<b>Batch executor завершён</b>\n` +
-    `Всего: ${results.length} | Успешно: ${successCount} | Ошибок: ${results.length - successCount}\n` +
-    results.map(r => `${r.success ? '✅' : '❌'} ${r.action_type} [${r.executor}]`).join('\n')
-  );
-
-  return NextResponse.json({
-    success: true,
-    total: results.length,
-    succeeded: successCount,
-    failed: results.length - successCount,
-    hours_window: hours,
-    log,
-    results,
-  });
 }

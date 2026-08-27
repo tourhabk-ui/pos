@@ -15,7 +15,7 @@
  * kernel_task_id: null в HTTP-ответе (§4.0 — «не смог записать» видно).
  */
 
-import { claimTask, createTask, appendEvent, transition } from '../kernel';
+import { claimTaskById, createTask, appendEvent, transition } from '../kernel';
 import type { OrchestratorResult } from '@/lib/agents/orchestrator';
 
 export interface EvoRunHandle {
@@ -25,16 +25,18 @@ export interface EvoRunHandle {
 
 export async function startEvoRunTask(scanType: string): Promise<EvoRunHandle | null> {
   try {
-    await createTask({
+    const outcome = await createTask({
       principal: 'cron:evo',
       capability: 'evo.run',
       risk: 'safe',
       state: 'queued',
       details: { scan_type: scanType },
     });
-    // Захват фиксирует lease до исполнения стадий. Берётся старейшая queued
-    // задача evo.run — при конкуренции прогонов каждый получает свою.
-    const claimed = await claimTask('evo.run', 'cron:evo', 600);
+    if (!outcome.created) return null; // ключей у evo.run нет — ветка недостижима
+    // Захват СВОЕЙ задачи по id (исправление 27.08: захват «старейшей той же
+    // capability» под конкуренцией прогонов исполнялся бы под чужим task_id);
+    // lease фиксируется до исполнения стадий.
+    const claimed = await claimTaskById(outcome.task.id, 'cron:evo', 600);
     if (!claimed) return null;
     return { taskId: claimed.id, traceId: claimed.trace_id };
   } catch (err) {

@@ -14,6 +14,22 @@ import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
 import { executeGovernedAction, hashInput } from '@/lib/agents/kernel';
 
+/**
+ * Ключ идемпотентности мутации на ИНВОКАЦИЮ: seed приходит от запроса
+ * пользователя (сессия + номер сообщения, см. getOperatorTools), а не
+ * генерируется случайно внутри retry. Один пользовательский запрос — один
+ * эффект: повтор модели в том же agentic-цикле с теми же аргументами даёт
+ * тот же ключ и отбивается ядром; новый запрос — новый seed, действие
+ * законно исполняется снова. Без seed ключа нет — и это честнее ключа,
+ * выдуманного на месте.
+ */
+function invocationKey(args: Record<string, unknown>, tool: string): string | undefined {
+  const seed = typeof args._invocationSeed === 'string' ? args._invocationSeed : null;
+  if (!seed) return undefined;
+  const publicArgs = Object.fromEntries(Object.entries(args).filter(([k]) => !k.startsWith('_')));
+  return `op:${tool}:${hashInput({ seed, publicArgs })}`;
+}
+
 // ── My Tours ─────────────────────────────────────────────────
 
 const myTours: SDKTool = {
@@ -176,30 +192,44 @@ const updatePrice: SDKTool = {
       return JSON.stringify({ error: 'Некорректный ID тура или цена' });
     }
 
-    const check = await pool.query(
-      `SELECT id, title, base_price FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
+    // Текущая версия строки (updated_at) — для optimistic concurrency:
+    // эффект обновляет ровно ту версию, которую видел, параллельное
+    // изменение — честный конфликт, не тихая перезапись.
+    const check = await pool.query<{ id: number; title: string; base_price: string; updated_at: Date }>(
+      `SELECT id, title, base_price, updated_at FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
       [tourId, operatorId],
     );
     if (check.rowCount === 0) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
     const oldPrice = check.rows[0].base_price;
+    const expectedVersion = check.rows[0].updated_at;
 
-    // Мутация — через ядро: задача, policy, события эффекта, trace.
-    // Ключа идемпотентности нет намеренно: команда целевого состояния сама
-    // идемпотентна, а статичный ключ навсегда запретил бы вернуть цену назад.
-    const gov = await executeGovernedAction({
-      principal: `operator:${operatorId}`,
+    // Мутация — через ядро: policy (ownership на pre_commit), задача,
+    // события эффекта, trace. Ключ идемпотентности стабилен на ИНВОКАЦИЮ
+    // (seed от сообщения пользователя): один запрос — один эффект, повтор
+    // модели внутри той же инвокации эффект не удвоит.
+    const gov = await executeGovernedAction<{ conflict: boolean }>({
+      principal: { type: 'operator', id: operatorId },
       capability: 'tour.update_price',
       resource: { type: 'tour', id: String(tourId) },
+      idempotencyKey: invocationKey(args, 'update_tour_price'),
       inputHash: hashInput({ tourId, newPrice }),
       execute: async () => {
-        await pool.query(
-          `UPDATE operator_tours SET base_price = $1, updated_at = NOW() WHERE id = $2 AND operator_id = $3`,
-          [newPrice, tourId, operatorId],
+        const upd = await pool.query(
+          `UPDATE operator_tours SET base_price = $1, updated_at = NOW()
+           WHERE id = $2 AND operator_id = $3 AND updated_at = $4`,
+          [newPrice, tourId, operatorId, expectedVersion],
         );
+        return { conflict: upd.rowCount === 0 };
       },
-      summarize: () => `цена тура ${tourId}: ${oldPrice} → ${newPrice}`,
+      summarize: (r) => (r.conflict
+        ? `цена тура ${tourId}: конфликт версий, не применено`
+        : `цена тура ${tourId}: ${oldPrice} → ${newPrice}`),
     });
     if (!gov.ok) return JSON.stringify({ error: `Изменение не выполнено: ${gov.reason}` });
+    if (gov.duplicate) return JSON.stringify({ error: 'Повтор запроса: цена уже менялась этим же запросом' });
+    if (gov.result.conflict) {
+      return JSON.stringify({ error: 'Тур изменён параллельно — обнови данные и повтори' });
+    }
 
     return JSON.stringify({
       success: true,
@@ -239,22 +269,32 @@ const setPublished: SDKTool = {
     }
     const published = args.published;
 
-    // Мутация — через ядро (задача, policy, события эффекта, trace).
-    // Ключа идемпотентности нет намеренно: команда целевого состояния сама
-    // идемпотентна, а статичный ключ «tour:id:published» навсегда запретил
-    // бы опубликовать тур повторно после снятия.
+    // Текущая версия строки — для optimistic concurrency (см. update_price).
+    const cur = await pool.query<{ updated_at: Date }>(
+      `SELECT updated_at FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
+      [tourId, operatorId],
+    );
+    if (cur.rowCount === 0) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
+    const expectedVersion = cur.rows[0].updated_at;
+
+    // Мутация — через ядро (policy c ownership на pre_commit, задача,
+    // события эффекта, trace). Ключ идемпотентности стабилен на ИНВОКАЦИЮ
+    // (seed от сообщения пользователя): статичный ключ «tour:id:published»
+    // навсегда запретил бы опубликовать тур повторно после снятия, а
+    // инвокационный не даёт одному запросу исполниться дважды.
     const gov = await executeGovernedAction<{ title: string; is_published: boolean } | null>({
-      principal: `operator:${operatorId}`,
+      principal: { type: 'operator', id: operatorId },
       capability: 'tour.set_published',
       resource: { type: 'tour', id: String(tourId) },
+      idempotencyKey: invocationKey(args, 'set_tour_published'),
       inputHash: hashInput({ tourId, published }),
       execute: async () => {
         const res = await pool.query(
           `UPDATE operator_tours
            SET is_published = $3, updated_at = NOW()
-           WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL
+           WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL AND updated_at = $4
            RETURNING id, title, is_published`,
-          [tourId, operatorId, published],
+          [tourId, operatorId, published, expectedVersion],
         );
         if (res.rowCount === 0) return null;
         const row = res.rows[0];
@@ -277,7 +317,10 @@ const setPublished: SDKTool = {
 
     if (!gov.ok) return JSON.stringify({ error: `Изменение не выполнено: ${gov.reason}` });
     if (gov.duplicate) return JSON.stringify({ error: 'Повтор запроса: действие уже исполнено ранее' });
-    if (!gov.result) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
+    if (!gov.result) {
+      // Версия ушла между чтением и эффектом — конфликт, не тихий success.
+      return JSON.stringify({ error: 'Тур изменён параллельно — обнови данные и повтори' });
+    }
 
     return JSON.stringify({
       success: true,
@@ -329,11 +372,13 @@ const tourStats: SDKTool = {
 
 // ── Export ─────────────────────────────────────────────────────
 
-export function getOperatorTools(operatorId: string): SDKTool[] {
+export function getOperatorTools(operatorId: string, invocationSeed?: string): SDKTool[] {
   const tools = [myTours, tourBookings, revenue, updatePrice, setPublished, tourStats];
-  // Inject operatorId into each tool call
+  // operatorId и seed инвокации инжектируются ЗДЕСЬ, из доверенного
+  // контекста вызывающего роута — модель их не задаёт и не подделает.
   return tools.map(t => ({
     ...t,
-    execute: (args: Record<string, unknown>) => t.execute({ ...args, _operatorId: operatorId }),
+    execute: (args: Record<string, unknown>) =>
+      t.execute({ ...args, _operatorId: operatorId, ...(invocationSeed ? { _invocationSeed: invocationSeed } : {}) }),
   }));
 }

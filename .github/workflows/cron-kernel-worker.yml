@@ -1,0 +1,57 @@
+name: Cron — Volcano OS Kernel Worker
+
+# Worker очереди ядра: одобренные инициативы → policy allow/deny → эффект.
+# GitHub Actions здесь только будильник — состояние и конкуренцию держит
+# PostgreSQL Kernel (claim через FOR UPDATE SKIP LOCKED, идемпотентность
+# по ключу initiative:<id>), поэтому пропущенный/повторный прогон безопасен.
+on:
+  schedule:
+    - cron: '9,39 * * * *'   # каждые 30 мин, нечётные минуты — GitHub дропает :00
+  workflow_dispatch:
+
+concurrency:
+  group: cron-kernel-worker
+  cancel-in-progress: false
+
+jobs:
+  work:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Volcano OS kernel worker
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set — skipping"
+            exit 0
+          fi
+
+          HTTP=$(curl -s -o /tmp/worker_resp.json -w "%{http_code}" \
+            --max-time 180 \
+            "https://vedarai.ru/api/cron/kernel-worker" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "Worker HTTP: $HTTP"
+          cat /tmp/worker_resp.json 2>/dev/null || true
+
+          if [ "$HTTP" != "200" ]; then
+            echo "Kernel worker failed: HTTP $HTTP"
+            exit 1
+          fi
+
+          # HTTP 200 — частичные результаты доступны; истина в JSON-контракте.
+          if ! jq -e '.success == true and .status == "completed"' /tmp/worker_resp.json >/dev/null 2>&1; then
+            STATUS=$(jq -r '.status // "invalid-response"' /tmp/worker_resp.json 2>/dev/null || echo "invalid-response")
+            FAILED=$(jq -r '.failed // "?"' /tmp/worker_resp.json 2>/dev/null || echo "?")
+            echo "Kernel worker incomplete: status=$STATUS failed_items=$FAILED"
+            exit 1
+          fi
+
+          # Терминальная запись прогона — часть контракта (P0 27.08).
+          if jq -e '.run_logged == false' /tmp/worker_resp.json >/dev/null 2>&1; then
+            echo "Worker run NOT recorded in agent_run_history — терминальная запись обязательна"
+            exit 1
+          fi
+
+          echo "Kernel worker OK"

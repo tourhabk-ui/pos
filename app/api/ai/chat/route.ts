@@ -281,7 +281,11 @@ export async function POST(request: NextRequest) {
         );
         const partnerId = partnerRes.rows[0]?.id;
         if (partnerId) {
-          const opTools = getOperatorTools(partnerId);
+          // Seed инвокации — из доверенного контекста запроса (сессия +
+          // само сообщение): один пользовательский запрос — один эффект
+          // мутации, повтор модели внутри agentic-цикла отбивается ядром.
+          const invocationSeed = `${sessionId ?? 'nosession'}:${message.trim()}`;
+          const opTools = getOperatorTools(partnerId, invocationSeed);
           const sdkResult = await runSDKAgent({
             agentId: 'operator',
             intent: 'operator_management',

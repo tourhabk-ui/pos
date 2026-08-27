@@ -106,6 +106,12 @@ export const CRON_REGISTRY: CronEntry[] = [
 
   // ── Операции ─────────────────────────────────────────────────────────────
   {
+    key: 'kernel-worker', label: 'Volcano OS Worker',
+    description: 'Worker очереди ядра: одобренные инициативы → policy allow/deny → эффект с pre_commit-проверкой.',
+    workflow: 'cron-kernel-worker.yml', cron: '9,39 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'ops', agentId: 'kernel_worker', triggerable: false,
+  },
+  {
     key: 'leads', label: 'Lead Processing',
     description: 'AI-обработка лидов + follow-up напоминания.',
     workflow: 'cron-leads.yml', cron: '*/30 * * * *', schedule: 'каждые 30 мин',
@@ -416,6 +422,8 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'safety-check': 'unknown',
 
   // ── Операции ────────────────────────────────────────────────────────────
+  // Пустая очередь ядра — норма: инициативы появляются нерегулярно.
+  'kernel-worker': 'normal',
   // Ноль проблем со здоровьем системы и ноль сгоревших эко — норма.
   'health': 'normal',
   'eco-expire': 'normal',

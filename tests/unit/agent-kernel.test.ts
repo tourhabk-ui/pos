@@ -7,7 +7,7 @@
  *    журналу во всём репо), и в БД (триггер в миграции), seq уникален;
  *  - захват атомарен и фиксирует lease ДО эффекта;
  *  - DB-транзакций вокруг эффекта нет;
- *  - policy fail-closed: незнакомая capability — ask, запрещённая — deny;
+ *  - policy fail-closed: незнакомое и запрещённое — deny, очереди к человеку нет;
  *  - идемпотентность: повтор ключа — duplicate без эффекта, тот же ключ с
  *    другим входом — конфликт, не старый результат.
  */
@@ -20,7 +20,7 @@ import {
   TERMINAL_STATES,
   isTransitionAllowed,
 } from '@/lib/agents/kernel/types';
-import { decideCapability, CAPABILITY_REGISTRY } from '@/lib/agents/kernel/policy';
+import { decidePolicy, CAPABILITY_REGISTRY, FORBIDDEN_CAPABILITIES } from '@/lib/agents/kernel/policy';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -61,8 +61,24 @@ describe('миграция 917: журнал защищён на уровне Б
     expect(sql).toMatch(/RAISE EXCEPTION/);
   });
 
-  it('идемпотентность: частичный UNIQUE по succeeded', () => {
-    expect(sql).toMatch(/UNIQUE INDEX[\s\S]{0,120}idempotency_key[\s\S]{0,120}state = 'succeeded'/);
+  it('918: у ключа идемпотентности один АКТИВНЫЙ владелец, awaiting_merge в CHECK', () => {
+    const m918 = read('migrations/918_kernel_autonomy.sql');
+    expect(m918).toMatch(/idx_agent_tasks_idempotency_active/);
+    expect(m918).toMatch(/'queued','running','awaiting_merge','succeeded'/);
+    expect(m918).toMatch(/DROP INDEX IF EXISTS idx_agent_tasks_idempotency_succeeded/);
+    expect(m918).toMatch(/awaiting_merge/);
+  });
+
+  it('awaiting_merge — только у контура кода: операционные адаптеры его не используют', () => {
+    for (const f of [
+      'lib/agents/kernel/governed-action.ts',
+      'lib/agents/kernel/adapters/initiative-tasks.ts',
+      'lib/agents/kernel/adapters/evo-run-task.ts',
+      'lib/agents/sdk/operator-tools.ts',
+    ]) {
+      expect(read(f), `${f} трогает awaiting_merge — это состояние только для code/policy задач (PR B)`)
+        .not.toContain('awaiting_merge');
+    }
   });
 });
 
@@ -107,10 +123,17 @@ describe('три контура подключены к ядру', () => {
     expect(src).toMatch(/capability: 'tour\.update_price'/);
   });
 
-  it('approval executor исполняет через ядро с ключом по approval_id', () => {
-    const src = read('lib/agents/execution/initiative-executor.ts');
-    expect(src).toMatch(/capability: 'initiative\.execute'/);
-    expect(src).toMatch(/idempotencyKey: `initiative:\$\{task\.approval_id\}`/);
+  it('инициативы: enqueue идемпотентен по approval_id, generic initiative.execute удалён', () => {
+    const adapter = read('lib/agents/kernel/adapters/initiative-tasks.ts');
+    expect(adapter).toMatch(/idempotencyKey: `initiative:\$\{approval\.id\}`/);
+    expect(adapter).toMatch(/initiative\.\$\{actionType\}/);
+    const policy = read('lib/agents/kernel/policy.ts');
+    expect(policy, 'generic-safe initiative.execute вернулся — за одним именем разные классы риска')
+      .not.toMatch(/'initiative\.execute'/);
+    const route = read('app/api/admin/execute-all/route.ts');
+    expect(route).toMatch(/sweepApprovedInitiatives/);
+    expect(route, 'execute-all снова исполняет inline — модель автономии требует worker')
+      .not.toMatch(/executeInitiative[^E]/);
   });
 
   it('прогон Evo — kernel-задача со стадиями, отказ ядра виден в ответе', () => {
@@ -121,102 +144,141 @@ describe('три контура подключены к ядру', () => {
     expect(route).toMatch(/kernel_task_id: kernelHandle\?\.taskId \?\? null/);
   });
 
-  it('каждая подключённая capability объявлена в реестре policy', () => {
-    for (const cap of ['tour.set_published', 'tour.update_price', 'initiative.execute', 'evo.run']) {
-      expect(decideCapability(cap).decision, `${cap} не в реестре — ушла бы в ask`).toBe('allow');
+  it('каждая подключённая capability объявлена в реестре policy', async () => {
+    const cases: Array<[string, 'operator' | 'cron' | 'admin']> = [
+      ['tour.set_published', 'operator'],
+      ['tour.update_price', 'operator'],
+      ['tour.create_draft', 'operator'],
+      ['evo.run', 'cron'],
+      ['initiative.send_notification', 'cron'],
+      ['initiative.tour_suspend', 'admin'],
+    ];
+    for (const [cap, ptype] of cases) {
+      const v = await decidePolicy({ principal: { type: ptype, id: '1' }, capability: cap, phase: 'admission' });
+      expect(v.decision, `${cap} не в реестре — была бы отклонена`).toBe('allow');
     }
   });
 });
 
-describe('policy: fail-closed', () => {
-  it('незнакомая capability — ask, запрещённая — deny', () => {
-    expect(decideCapability('something.new').decision).toBe('ask');
-    expect(decideCapability('payment.execute').decision).toBe('deny');
+describe('policy: fail-closed, без очереди к человеку (модель автономии 27.08)', () => {
+  it('незнакомая и запрещённая capability — deny, НЕ ask', async () => {
+    const unknown = await decidePolicy({ principal: { type: 'cron', id: 'x' }, capability: 'something.new', phase: 'admission' });
+    expect(unknown.decision).toBe('deny');
+    expect(unknown.reason).toContain('не в реестре');
+    const forbidden = await decidePolicy({ principal: { type: 'admin', id: 'x' }, capability: 'payment.execute', phase: 'admission' });
+    expect(forbidden.decision).toBe('deny');
   });
 
-  it('каждая запись реестра несёт причину категории', () => {
+  it('чужой тип principal — deny', async () => {
+    const v = await decidePolicy({ principal: { type: 'cron', id: 'x' }, capability: 'tour.set_published', phase: 'admission' });
+    expect(v.decision).toBe('deny');
+    expect(v.reason).toContain('не вправе');
+  });
+
+  it('опасные инициативы запрещены поимённо, с причинами', () => {
+    for (const cap of ['initiative.archive_sos', 'initiative.security_block', 'initiative.flag_payment',
+                       'initiative.commission_change', 'initiative.sql_query_fix']) {
+      expect(FORBIDDEN_CAPABILITIES[cap], `${cap} обязан быть в запрещённых с причиной`).toBeTruthy();
+    }
+  });
+
+  it('каждая запись реестра несёт причину и типы principal', () => {
     for (const [cap, entry] of Object.entries(CAPABILITY_REGISTRY)) {
       expect(entry.reason.length, `${cap} без причины`).toBeGreaterThan(10);
+      expect(entry.principalTypes.length, `${cap} без типов principal`).toBeGreaterThan(0);
     }
+  });
+
+  it('операционный gateway не знает ApprovalRequired', () => {
+    // Судим по коду, не по прозе: шапка файла вправе НАЗЫВАТЬ снятую
+    // зависимость, объясняя, почему её нет.
+    const governed = read('lib/agents/kernel/governed-action.ts')
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n');
+    expect(governed).not.toMatch(/ApprovalRequired|approval-required/i);
+    expect(governed).not.toMatch(/awaiting_approval/);
   });
 });
 
-// ── Поведение executeGovernedAction (kernel и approvals замоканы) ──────────
+// ── Поведение executeGovernedAction (kernel замокан; policy настоящая) ─────
 
-const { kernelMock, approvalMock } = vi.hoisted(() => ({
+const { kernelMock } = vi.hoisted(() => ({
   kernelMock: {
     createTask: vi.fn(),
     transition: vi.fn(),
-    claimTask: vi.fn(),
+    claimTaskById: vi.fn(),
+    claimNextTask: vi.fn(),
     appendEvent: vi.fn(),
     findByIdempotencyKey: vi.fn(),
+    findActiveByIdempotencyKey: vi.fn(),
   },
-  approvalMock: { request: vi.fn() },
 }));
 
 vi.mock('@/lib/agents/kernel/kernel', () => kernelMock);
-vi.mock('@/lib/agents/safeguards/approval-required', () => ({ approvalRequired: approvalMock }));
 
 const baseTask = {
-  id: 't1', parent_task_id: null, trace_id: 'tr1', principal: 'p', capability: 'tour.set_published',
+  id: 't1', parent_task_id: null, trace_id: 'tr1', principal: 'cron:x', capability: 'evo.run',
   resource_type: null, resource_id: null, risk: 'safe' as const, state: 'queued' as const,
   idempotency_key: null, input_hash: null, attempt: 0, summary: null,
 };
+const cronPrincipal = { type: 'cron', id: 'x' } as const;
 
 describe('executeGovernedAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     kernelMock.appendEvent.mockResolvedValue({ ok: true });
     kernelMock.transition.mockResolvedValue({ ok: true });
-    kernelMock.findByIdempotencyKey.mockResolvedValue(null);
   });
 
-  it('успех: policy → создание → захват → эффект → succeeded', async () => {
-    kernelMock.createTask.mockResolvedValueOnce({ ...baseTask });
-    kernelMock.claimTask.mockResolvedValueOnce({ ...baseTask, state: 'running' });
+  it('успех: policy → создание → захват СВОЕЙ задачи по id → эффект → succeeded', async () => {
+    kernelMock.createTask.mockResolvedValueOnce({ created: true, task: { ...baseTask } });
+    kernelMock.claimTaskById.mockResolvedValueOnce({ ...baseTask, state: 'running' });
     const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
 
     const res = await executeGovernedAction({
-      principal: 'operator:1',
-      capability: 'tour.set_published',
+      principal: cronPrincipal,
+      capability: 'evo.run',
       execute: async () => 'done',
     });
 
     expect(res.ok).toBe(true);
-    expect(kernelMock.claimTask).toHaveBeenCalled();
-    expect(kernelMock.transition).toHaveBeenCalledWith('t1', 'running', 'succeeded', 'operator:1', expect.anything());
-    // Эффект обёрнут событиями started/committed.
+    // Захват — строго по id собственной задачи, не «старейшей той же capability».
+    expect(kernelMock.claimTaskById).toHaveBeenCalledWith('t1', 'cron:x');
+    expect(kernelMock.claimNextTask).not.toHaveBeenCalled();
+    expect(kernelMock.transition).toHaveBeenCalledWith('t1', 'running', 'succeeded', 'cron:x', expect.anything());
     const types = kernelMock.appendEvent.mock.calls.map((c) => c[2]);
     expect(types).toContain('effect_started');
     expect(types).toContain('effect_committed');
   });
 
   it('провал эффекта → failed_terminal, ошибка не глотается', async () => {
-    kernelMock.createTask.mockResolvedValueOnce({ ...baseTask });
-    kernelMock.claimTask.mockResolvedValueOnce({ ...baseTask, state: 'running' });
+    kernelMock.createTask.mockResolvedValueOnce({ created: true, task: { ...baseTask } });
+    kernelMock.claimTaskById.mockResolvedValueOnce({ ...baseTask, state: 'running' });
     const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
 
     const res = await executeGovernedAction({
-      principal: 'operator:1',
-      capability: 'tour.set_published',
+      principal: cronPrincipal,
+      capability: 'evo.run',
       execute: async () => { throw new Error('boom'); },
     });
 
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toContain('boom');
-    expect(kernelMock.transition).toHaveBeenCalledWith('t1', 'running', 'failed_terminal', 'operator:1', expect.anything());
+    expect(kernelMock.transition).toHaveBeenCalledWith('t1', 'running', 'failed_terminal', 'cron:x', expect.anything());
   });
 
-  it('повтор ключа после успеха → duplicate, эффект не исполняется', async () => {
-    kernelMock.findByIdempotencyKey.mockResolvedValueOnce({
-      ...baseTask, state: 'succeeded', idempotency_key: 'k1', input_hash: 'h1',
+  it('ключ занят успешной задачей с тем же входом → duplicate, эффект не исполняется', async () => {
+    kernelMock.createTask.mockResolvedValueOnce({
+      created: false,
+      existing: { ...baseTask, state: 'succeeded', idempotency_key: 'k1', input_hash: 'h1' },
     });
     const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
     const execute = vi.fn();
 
     const res = await executeGovernedAction({
-      principal: 'operator:1',
-      capability: 'tour.set_published',
+      principal: cronPrincipal,
+      capability: 'evo.run',
       idempotencyKey: 'k1',
       inputHash: 'h1',
       execute,
@@ -225,21 +287,43 @@ describe('executeGovernedAction', () => {
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.duplicate).toBe(true);
     expect(execute).not.toHaveBeenCalled();
-    expect(kernelMock.createTask).not.toHaveBeenCalled();
+    expect(kernelMock.claimTaskById).not.toHaveBeenCalled();
   });
 
-  it('тот же ключ с другим входом → конфликт, не старый результат', async () => {
-    kernelMock.findByIdempotencyKey.mockResolvedValueOnce({
-      ...baseTask, state: 'succeeded', idempotency_key: 'k1', input_hash: 'h1',
+  it('ключ занят АКТИВНОЙ задачей с тем же входом → existing/in-progress, эффект не стартует', async () => {
+    kernelMock.createTask.mockResolvedValueOnce({
+      created: false,
+      existing: { ...baseTask, state: 'running', idempotency_key: 'k1', input_hash: 'h1' },
     });
     const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
     const execute = vi.fn();
 
     const res = await executeGovernedAction({
-      principal: 'operator:1',
-      capability: 'tour.set_published',
+      principal: cronPrincipal,
+      capability: 'evo.run',
       idempotencyKey: 'k1',
-      inputHash: 'h2-другой-вход',
+      inputHash: 'h1',
+      execute,
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toContain('уже исполняется');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('тот же ключ с другим входом → детерминированный конфликт', async () => {
+    kernelMock.createTask.mockResolvedValueOnce({
+      created: false,
+      existing: { ...baseTask, state: 'succeeded', idempotency_key: 'k1', input_hash: 'h1' },
+    });
+    const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
+    const execute = vi.fn();
+
+    const res = await executeGovernedAction({
+      principal: cronPrincipal,
+      capability: 'evo.run',
+      idempotencyKey: 'k1',
+      inputHash: 'h2-другой',
       execute,
     });
 
@@ -248,32 +332,14 @@ describe('executeGovernedAction', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('незнакомая capability → awaiting_approval через адаптер ApprovalRequired', async () => {
-    approvalMock.request.mockResolvedValueOnce({ needs_approval: true, id: 'appr-1' });
-    kernelMock.createTask.mockResolvedValueOnce({ ...baseTask, state: 'awaiting_approval' });
+  it('незнакомая capability → rejected автоматически, очередь approval НЕ создаётся', async () => {
+    kernelMock.createTask.mockResolvedValueOnce({ created: true, task: { ...baseTask, state: 'rejected' } });
     const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
     const execute = vi.fn();
 
     const res = await executeGovernedAction({
-      principal: 'agent:x',
+      principal: cronPrincipal,
       capability: 'unknown.capability',
-      execute,
-    });
-
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.state).toBe('awaiting_approval');
-    expect(approvalMock.request).toHaveBeenCalled();
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it('запрещённая capability → rejected + policy_denied, эффект не исполняется', async () => {
-    kernelMock.createTask.mockResolvedValueOnce({ ...baseTask, state: 'rejected' });
-    const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
-    const execute = vi.fn();
-
-    const res = await executeGovernedAction({
-      principal: 'agent:x',
-      capability: 'payment.execute',
       execute,
     });
 
@@ -282,5 +348,21 @@ describe('executeGovernedAction', () => {
     expect(execute).not.toHaveBeenCalled();
     const types = kernelMock.appendEvent.mock.calls.map((c) => c[2]);
     expect(types).toContain('policy_denied');
+  });
+
+  it('запрещённая capability → rejected + policy_denied', async () => {
+    kernelMock.createTask.mockResolvedValueOnce({ created: true, task: { ...baseTask, state: 'rejected' } });
+    const { executeGovernedAction } = await import('@/lib/agents/kernel/governed-action');
+    const execute = vi.fn();
+
+    const res = await executeGovernedAction({
+      principal: cronPrincipal,
+      capability: 'payment.execute',
+      execute,
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.state).toBe('rejected');
+    expect(execute).not.toHaveBeenCalled();
   });
 });
