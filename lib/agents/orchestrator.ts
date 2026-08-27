@@ -41,7 +41,11 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   // Phase 2: Evolution Loop — последовательно (применяет фиксы, пишет в БД)
   let evoResult: unknown = null;
   try {
-    evoResult = await runEvolutionLoop();
+    const evolution = await runEvolutionLoop();
+    evoResult = evolution;
+    if (evolution.errors > 0) {
+      errors.push(`EvolutionLoop: ${evolution.errors} issue(s) failed`);
+    }
   } catch (err) {
     errors.push(`Evolution: ${err instanceof Error ? err.message : String(err)}`);
   }
