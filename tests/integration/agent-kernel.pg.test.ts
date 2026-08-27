@@ -223,6 +223,49 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
       .rejects.toThrow(/append-only/);
   });
 
+  it('code.merge: ready → merged идемпотентно; новый commit снимает readiness', async () => {
+    const cm = await import('@/lib/agents/kernel/adapters/code-merge-task');
+    const repo = 'tourhabk-ui/pos';
+
+    const task = await cm.ensureCodeMergeTask(repo, 4242, 'тестовый agent-PR');
+    expect(task.state).toBe('running');
+
+    // Повторный ensure не плодит задач.
+    const again = await cm.ensureCodeMergeTask(repo, 4242, 'тестовый agent-PR');
+    expect(again.id).toBe(task.id);
+
+    // readiness → awaiting_merge; повтор — no-op.
+    const ready1 = await cm.markReady({ ...task, state: 'running' }, 'sha-1', {});
+    expect(ready1.changed).toBe(true);
+    const ready2 = await cm.markReady({ ...task, state: 'awaiting_merge' }, 'sha-1', {});
+    expect(ready2.changed).toBe(false);
+
+    // Новый commit снимает readiness.
+    const un = await cm.markUnready({ ...task, state: 'awaiting_merge' }, 'новый commit');
+    expect(un.changed).toBe(true);
+    expect(un.state).toBe('running');
+
+    // Снова готов, человек мержит; повтор callback'а — no-op и одно событие.
+    await cm.markReady({ ...task, state: 'running' }, 'sha-2', {});
+    const fp = { repo, pr: 4242, head_sha: 'sha-2' };
+    const m1 = await cm.completePr({ ...task, state: 'awaiting_merge' }, 'merged', fp);
+    expect(m1.changed).toBe(true);
+    expect(m1.state).toBe('succeeded');
+    const m2 = await cm.completePr({ ...task, state: 'succeeded' }, 'merged', fp);
+    expect(m2.changed).toBe(false);
+
+    const events = await pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM agent_events
+       WHERE task_id = $1 AND event_type = 'pr_merged'`,
+      [task.id],
+    );
+    expect(events.rows[0].cnt).toBe(1);
+
+    // Задача терминальна; reopened-PR получил бы НОВУЮ задачу.
+    const fresh = await cm.ensureCodeMergeTask(repo, 4242, 'reopened');
+    expect(fresh.id).not.toBe(task.id);
+  });
+
   it('успешный путь: события идут started→committed, seq без дыр, терминал succeeded', async () => {
     const res = await kernel.executeGovernedAction({
       principal,

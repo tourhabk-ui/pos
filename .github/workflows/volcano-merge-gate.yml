@@ -1,0 +1,79 @@
+name: Volcano OS — Merge Gate
+
+# Будильник merge-gate: события PR и получасовой sweep уходят на прод,
+# который сам оценивает readiness, ведёт label/карточку/kernel-задачу и
+# шлёт Telegram владельцу. У этого workflow НЕТ contents: write и нет
+# возможности merge — единственный merge делает человек в GitHub.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed, labeled]
+  schedule:
+    - cron: '23,53 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: volcano-merge-gate
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Notify Volcano OS merge-gate
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set — skipping"
+            exit 0
+          fi
+
+          if [ -n "$PR_NUMBER" ]; then
+            BODY="{\"pr_number\": $PR_NUMBER}"
+          else
+            BODY="{}"
+          fi
+
+          HTTP=$(curl -s -o /tmp/gate_resp.json -w "%{http_code}" \
+            --max-time 150 -X POST \
+            "https://vedarai.ru/api/cron/volcano-merge-gate" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "$BODY")
+
+          echo "Gate HTTP: $HTTP"
+
+          # Bootstrap: endpoint приезжает тем же PR, что и этот workflow, —
+          # до деплоя прод отвечает 404. Это не отказ gate, а «ещё не
+          # выкачен»: пропускаем ГРОМКО, не тихо. Мёртвый endpoint ПОСЛЕ
+          # деплоя молча зелёным не останется: liveness merge_gate держит
+          # Watchdog по agent_run_history (cron-registry).
+          if [ "$HTTP" = "404" ]; then
+            echo "::warning::merge-gate endpoint ещё не задеплоен (404) — прогон пропущен"
+            exit 0
+          fi
+
+          cat /tmp/gate_resp.json 2>/dev/null || true
+
+          if [ "$HTTP" != "200" ]; then
+            echo "Merge gate failed: HTTP $HTTP"
+            exit 1
+          fi
+
+          if ! jq -e '.success == true and .status == "completed"' /tmp/gate_resp.json >/dev/null 2>&1; then
+            STATUS=$(jq -r '.status // "invalid-response"' /tmp/gate_resp.json 2>/dev/null || echo "invalid-response")
+            echo "Merge gate incomplete: status=$STATUS"
+            exit 1
+          fi
+
+          if jq -e '.run_logged == false' /tmp/gate_resp.json >/dev/null 2>&1; then
+            echo "Gate run NOT recorded — терминальная запись обязательна"
+            exit 1
+          fi
+
+          echo "Merge gate OK"

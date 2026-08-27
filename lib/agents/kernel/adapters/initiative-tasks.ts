@@ -221,6 +221,18 @@ export async function drainInitiativeQueue(limit = 10): Promise<WorkerItemResult
           errors: result.errors.length,
         });
         if (result.success) {
+          // Инициатива породила PR → child-задача code.merge с общим trace:
+          // жизненный цикл PR ведёт merge-gate, связь видна в панели.
+          const prLine = result.changes_made.find((c) => /^PR #\d+ создан/.test(c));
+          const prNum = prLine ? parseInt(prLine.match(/^PR #(\d+)/)?.[1] ?? '', 10) : NaN;
+          if (!Number.isNaN(prNum)) {
+            const { ensureCodeMergeTask } = await import('./code-merge-task');
+            const repo = `${process.env.GITHUB_OWNER ?? 'tourhabk-ui'}/${process.env.GITHUB_REPO ?? 'pos'}`;
+            await ensureCodeMergeTask(repo, prNum, payload.description.slice(0, 120), {
+              parentTaskId: task.id,
+              traceId: task.trace_id,
+            }).catch((err) => console.error('[kernel-worker] child code.merge не заведён:', err instanceof Error ? err.message : err));
+          }
           await finish(true, `${payload.action_type}: изменений ${result.changes_made.length}`, 'succeeded');
         } else {
           await finish(false, result.errors[0] ?? 'инициатива провалена без описания', 'failed_terminal');

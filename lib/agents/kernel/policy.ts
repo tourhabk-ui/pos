@@ -74,6 +74,10 @@ export const CAPABILITY_REGISTRY: Readonly<Record<string, CapabilityEntry>> = {
     principalTypes: ['cron'],
     reason: 'оркестратор читает и предлагает; мутации кода идут через draft PR + merge человека',
   },
+  'code.merge': {
+    principalTypes: ['cron', 'system'],
+    reason: 'координация merge-gate: задача отражает жизненный цикл agent-PR; сам merge делает ТОЛЬКО человек в GitHub — эффекта слияния у этой capability нет по построению',
+  },
 
   // ── Инициативы: capability = initiative.<action_type>, поимённо ────────
   // Допущено только обратимое и информирующее. Опасные типы перечислены в
