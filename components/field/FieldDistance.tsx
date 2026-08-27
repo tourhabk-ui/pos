@@ -43,18 +43,18 @@ export function FieldDistance(p: FieldDistanceProps) {
           style={{
             fontSize: 'clamp(56px, 22vw, 92px)',
             letterSpacing: '-2px',
-            color: p.live ? '#F0F6FC' : 'var(--text-muted)',
+            color: p.live ? 'var(--text-primary)' : 'var(--text-muted)',
           }}>
           {value}
         </span>
         {unit && (
           <span className="font-bold pb-2"
-            style={{ fontSize: 'clamp(18px, 6vw, 26px)', color: p.live ? '#F0F6FC' : 'var(--text-muted)' }}>
+            style={{ fontSize: 'clamp(18px, 6vw, 26px)', color: p.live ? 'var(--text-primary)' : 'var(--text-muted)' }}>
             {unit}
           </span>
         )}
       </div>
-      <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.6)' }}>{p.caption}</p>
+      <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{p.caption}</p>
 
       {/* Чипы контекста: куда, сколько идти, сколько набирать. Показываем
           только то, что есть в данных — пустой чип хуже отсутствующего. */}

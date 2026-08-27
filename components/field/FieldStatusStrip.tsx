@@ -28,7 +28,7 @@ export interface FieldStatusStripProps {
 
 export function FieldStatusStrip(p: FieldStatusStripProps) {
   return (
-    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+    <div style={{ borderBottom: '1px solid var(--border)' }}>
       <div className="flex items-center gap-2 px-4 py-2.5 text-xs">
         <span className="w-2 h-2 rounded-full shrink-0"
           style={{ background: p.fixLive ? 'var(--success)' : 'var(--warning)' }} />
@@ -37,12 +37,12 @@ export function FieldStatusStrip(p: FieldStatusStripProps) {
         </span>
         {p.routeTitle && (
           <span className="flex-1 text-center truncate font-semibold px-1"
-            style={{ color: '#F0F6FC' }}>
+            style={{ color: 'var(--text-primary)' }}>
             {p.routeTitle}
           </span>
         )}
         {p.checkpoint && (
-          <span className="shrink-0 tabular-nums" style={{ color: 'rgba(255,255,255,0.65)' }}>
+          <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-secondary)' }}>
             {p.checkpoint.current} из {p.checkpoint.total}
           </span>
         )}

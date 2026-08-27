@@ -8,7 +8,7 @@ import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
-  Trash2, Binoculars, MapPinPlus, Square, Activity,
+  Trash2, Binoculars, MapPinPlus, Square, Route,
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
@@ -1670,9 +1670,11 @@ function OnTrailTab() {
       list.push({
         id: 'track',
         label: recorder.recording ? 'Остановить' : 'Записать трек',
+        // Глиф — из пака владельца (vedara_field_icons_v2, lucide route):
+        // цвет не зашивается, красится токенами панели.
         icon: recorder.recording
           ? <Square className="w-6 h-6" fill="currentColor" />
-          : <Activity className="w-6 h-6" />,
+          : <Route className="w-6 h-6" />,
         active: recorder.recording,
         busy: sendingTrack,
         onPress: () => {
@@ -1894,7 +1896,7 @@ function OnTrailTab() {
                     остаётся только оговорка о том, ОТКУДА оно взялось —
                     без неё «~32 мин» выглядит измерением, а не оценкой. */}
                 {distLabel !== null && etaNote && (
-                  <p className="text-[11px] mt-1.5" style={{ color: 'rgba(255,255,255,0.45)' }}>{etaNote}</p>
+                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-muted)' }}>{etaNote}</p>
                 )}
 
                 {/* Режим движения: пеший ETA на 30-километровом плече-переезде

@@ -97,10 +97,10 @@ export function formatEta(hours: number | null): string {
   const totalMin = Math.round(hours * 60);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  if (h === 0) return `${m} м`;
+  if (h === 0) return `${m} мин`;
   // На плечах длиннее двух часов минуты — вымысел: округляем до пяти.
   const mm = h >= 2 ? Math.round(m / 5) * 5 : m;
-  return mm === 60 ? `${h + 1} ч` : mm === 0 ? `${h} ч` : `${h} ч ${mm} м`;
+  return mm === 60 ? `${h + 1} ч` : mm === 0 ? `${h} ч` : `${h} ч ${mm} мин`;
 }
 
 /* ─── Погода: ограниченный множитель, а не второй прогноз ─────────────────── */

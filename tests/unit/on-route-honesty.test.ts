@@ -165,7 +165,10 @@ describe('экран пользуется этим, а не рисует уве�
     // выдаёт его за живое — цвет уходит в приглушённый.
     expect(SCREEN).toMatch(/live=\{figuresLive\}/);
     const DIST = readFileSync(join(process.cwd(), 'components/field/FieldDistance.tsx'), 'utf-8');
-    expect(DIST).toMatch(/p\.live \? '#F0F6FC' : 'var\(--text-muted\)'/);
+    // Цвета — токенами (скрин владельца 27.08: зашитый #F0F6FC на светлой
+    // теме делал цифру невидимой), но правило гашения то же: живой фикс и
+    // мёртвый обязаны различаться цветом.
+    expect(DIST).toMatch(/p\.live \? 'var\(--text-primary\)' : 'var\(--text-muted\)'/);
   });
 });
 

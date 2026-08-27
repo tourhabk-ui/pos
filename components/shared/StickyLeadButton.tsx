@@ -35,7 +35,9 @@ export default function StickyLeadButton() {
   // к тому же на ширине меньше sm у кнопки скрыта подпись, и она стояла одной
   // иконкой поверх начала «О туре». Списки (/marketplace, /catalog) не
   // задеты: скрываем только /tours/ подпути.
-  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/'];
+  // /planning — полевой контур (скрин владельца 27.08): коммерческая кнопка
+  // висела поверх навигатора рядом с компасом. В поле не продают.
+  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/planning', '/field-check'];
   if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/') return null;
 
   async function submitLead(e: React.FormEvent) {
