@@ -97,7 +97,10 @@ rounded-2xl        → rounded-lg (кроме glass-элементов и bento-
 - Футер: только desktop
 - Homepage: `components/homepage/` (HeroStatus, BentoSection, EditorialSection, StoriesRail,
   FeaturedTour, KuzmichBriefing, LiveOnTrails, StatsBand, MoodEntry, OperatorPromo,
-  AgentModelSection, MessengerAgentsSection, HomeMapPreview, TrailReportSheet).
+  AgentModelSection, MessengerAgentsSection, HomeMapPreview).
+  TrailReportSheet удалён 27.08: создание наблюдения переехало на экран
+  маршрута (components/field/ObservationSheet.tsx, офлайн-очередь + фото);
+  на главной осталась только ссылка.
   Прежний перечень (Hero, BentoGrid, LiveFeed, ActivityCircles, CTASection, Marquee,
   Reveal) не совпадал ни с одним файлом на диске — сверено 22.08
 

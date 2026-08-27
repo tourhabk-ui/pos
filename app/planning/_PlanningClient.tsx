@@ -8,8 +8,11 @@ import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
-  Trash2,
+  Trash2, Binoculars, MapPinPlus, Square, Activity,
 } from 'lucide-react';
+import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
+import { useTrackRecorder } from '@/hooks/useTrackRecorder';
+import { ObservationSheet, useTrailObservationQueue } from '@/components/field/ObservationSheet';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
@@ -1601,6 +1604,100 @@ function OnTrailTab() {
       .catch(() => { setModalError('Ошибка сети — проверьте соединение'); });
   }
 
+  // ─── Полевые действия: место · трек · наблюдение (владелец 27.08) ─────────
+  // Панель — та же, что на /field-check (FieldActionBar, образец MAPS.ME):
+  // одно касание — одно действие. «Наблюдение» переехало сюда с главной:
+  // здесь у него есть контекст — координаты и офлайн-статус система знает
+  // сама. Запись трека уходит ТЕМ ЖЕ приёмником, что у /field-check.
+
+  const recorder = useTrackRecorder();
+  const [obsOpen, setObsOpen] = useState(false);
+  const obsQueueLen = useTrailObservationQueue();
+  const [fieldBarError, setFieldBarError] = useState<string | null>(null);
+  const [sendingTrack, setSendingTrack] = useState(false);
+
+  const stopAndSendTrack = useCallback(async () => {
+    setFieldBarError(null);
+    const done = await recorder.stop();
+    if (done === null) {
+      setFieldBarError(recorder.error ?? 'Записывать было нечего');
+      return;
+    }
+    if (done.summary.quality === 'poor') {
+      setFieldBarError(done.summary.reasons[0] ?? 'Запись вышла рваной');
+    }
+    setSendingTrack(true);
+    try {
+      const b64 = typeof window === 'undefined'
+        ? '' : btoa(unescape(encodeURIComponent(done.gpx)));
+      const res = await fetch('/api/field-check/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: b64,
+          filename: `${activeRouteTitle || 'na-marshrute'}.gpx`,
+        }),
+      });
+      const data = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      if (!res.ok || !data?.success) {
+        setFieldBarError(data?.error ?? 'Трек не ушёл — он сохранён на телефоне, отправьте при связи');
+        return;
+      }
+      await recorder.discard();
+      setFieldBarError(null);
+    } catch {
+      setFieldBarError('Связи нет — трек сохранён на телефоне, отправится при связи');
+    } finally {
+      setSendingTrack(false);
+    }
+  }, [recorder, activeRouteTitle]);
+
+  // Порядок — по плану владельца: «Добавить место · Записать трек · Наблюдение».
+  // Кнопка, которую нажать нельзя, не показывается (правило FieldActionBar).
+  const fieldActions = useMemo<FieldAction[]>(() => {
+    const list: FieldAction[] = [];
+    const canGeo = typeof navigator !== 'undefined' && !!navigator.geolocation;
+
+    if (canGeo) {
+      list.push({
+        id: 'place',
+        label: 'Добавить место',
+        icon: <MapPinPlus className="w-6 h-6" />,
+        // Жёсткий переход, не Link: полевой контур живёт без гидрации.
+        // Форма находки на /field-check открывается сразу (?place=1).
+        onPress: () => { window.location.assign('/field-check?place=1'); },
+      });
+      list.push({
+        id: 'track',
+        label: recorder.recording ? 'Остановить' : 'Записать трек',
+        icon: recorder.recording
+          ? <Square className="w-6 h-6" fill="currentColor" />
+          : <Activity className="w-6 h-6" />,
+        active: recorder.recording,
+        busy: sendingTrack,
+        onPress: () => {
+          if (recorder.recording) { void stopAndSendTrack(); return; }
+          recorder.start(activeRouteTitle || 'На маршруте');
+        },
+        hint: recorder.recording
+          ? (recorder.silent
+              ? 'сигнала нет'
+              : `${recorder.summary.points} тчк · ${recorder.summary.lengthKm.toFixed(1)} км`)
+          : (recorder.restored ? 'есть недописанная' : null),
+      });
+    }
+
+    list.push({
+      id: 'observation',
+      label: 'Наблюдение',
+      icon: <Binoculars className="w-6 h-6" />,
+      badge: obsQueueLen > 0 ? obsQueueLen : null,
+      onPress: () => setObsOpen(true),
+    });
+
+    return list;
+  }, [recorder, sendingTrack, stopAndSendTrack, activeRouteTitle, obsQueueLen]);
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -1841,6 +1938,14 @@ function OnTrailTab() {
               </>
             )}
           </div>
+        </div>
+
+        {/* Панель полевых действий (владелец 27.08): место · трек ·
+            наблюдение — при карточке следующей точки, одно касание — одно
+            действие. SOS сюда не входит: он отдельным красным действием в
+            сетке ниже, красный цвет — только тревога (§7). */}
+        <div className="w-full">
+          <FieldActionBar actions={fieldActions} error={fieldBarError} />
         </div>
 
         {/* Восстановление: когда реальность разошлась с планом, главной
@@ -2501,6 +2606,16 @@ function OnTrailTab() {
           </div>
         </div>
       )}
+
+      {/* Наблюдение: форма поверх экрана, никуда не уводит. Координаты —
+          текущий фикс навигатора; нет фикса — уйдёт без привязки, и это
+          говорится словами. */}
+      <ObservationSheet
+        open={obsOpen}
+        onClose={() => setObsOpen(false)}
+        lat={coords?.lat ?? null}
+        lng={coords?.lng ?? null}
+      />
     </div>
   );
 }

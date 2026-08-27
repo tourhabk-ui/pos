@@ -35,12 +35,12 @@ import {
   saveFieldCheckArea, getFieldCheckArea,
   type FieldCheckQueueItem,
 } from '@/lib/offline/db';
+// Сжатие снимка — общее с наблюдениями с экрана маршрута (lib/images/shrink-photo):
+// два полевых контура шлют фото одним способом, иначе разойдутся с лимитами приёмников.
+import { shrinkPhoto } from '@/lib/images/shrink-photo';
 
 const TAG_KEY = 'field_check_trip_tag';
 const DONE_KEY = 'field_check_done_v1';
-/** Снимок сжимается на телефоне: в поле связь узкая, а улика нужна целая. */
-const PHOTO_MAX_SIDE = 1280;
-const PHOTO_QUALITY = 0.72;
 const PHOTO_LIMIT = 3;
 /** Полевая цель под палец в перчатке — не меньше 56 px. */
 const TAP = 56;
@@ -143,27 +143,6 @@ const VERDICT_LABEL: Record<string, string> = {
   confirmed: 'всё сходится',
   ...Object.fromEntries(PROBLEMS.map(p => [p.value, p.label.toLowerCase()])),
 };
-
-async function shrinkPhoto(file: File): Promise<string | null> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    bitmap.close?.();
-    const url = canvas.toDataURL('image/jpeg', PHOTO_QUALITY);
-    const comma = url.indexOf(',');
-    return comma < 0 ? null : url.slice(comma + 1);
-  } catch {
-    // Старый браузер или битый файл — снимка не будет, но проверка уйдёт.
-    return null;
-  }
-}
 
 function readDone(): Record<string, string> {
   try {
@@ -573,6 +552,23 @@ export function FieldCheckClient() {
       { enableHighAccuracy: true, timeout: 30_000, maximumAge: 0 },
     );
   }, []);
+
+  /**
+   * Ссылка сразу на находку: /field-check?place=1.
+   *
+   * «Добавить место» с экрана «На маршруте» (владелец 27.08) ведёт сюда:
+   * форма находки открывается сразу, фикс берётся сам — человеку в поле
+   * не нужно знать устройство этой страницы, чтобы отметить место.
+   */
+  const placeParamUsed = useRef(false);
+  useEffect(() => {
+    if (placeParamUsed.current) return;
+    if (new URLSearchParams(window.location.search).get('place') !== '1') return;
+    placeParamUsed.current = true;
+    locate();
+    takeMyFix();
+    setFindingOpen(true);
+  }, [locate, takeMyFix]);
 
   /**
    * Состав панели. Кнопка, которую нажать нельзя, НЕ показывается: серая
