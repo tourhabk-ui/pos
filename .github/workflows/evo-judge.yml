@@ -8,26 +8,18 @@ name: Evo Judge — разбор находок эволюции сильной 
 # Здесь наоборот: находки скачиваются с прода, а модель зовётся С РАННЕРА —
 # он вне РФ, гео-блока нет, релей не нужен.
 #
-# ── Почему разбор молчал 16-19.08 ──────────────────────────────────────────
+# ── Идемпотентность отчёта (задание владельца 27.08) ────────────────────────
 #
-# Три выпуска подряд вышли «все находки не разобраны», а джоб был зелёным.
-# Лог прогона 19.08 назвал причину блоком переменных:
-#
-#   ANTHROPIC_API_KEY: ***
-#   DEEPSEEK_API_KEY:
-#   DASHSCOPE_API_KEY:
-#
-# Секретов DeepSeek и Qwen в репозитории нет — запасной путь водопада,
-# заведённый после такой же немоты 12-14.08, был написан и не подключён.
-# OPENROUTER_API_KEY — первая ступень водопада — сюда не передавалась вовсе,
-# так что завести её в секретах и не получить ничего было легче всего.
-# Теперь передаётся; хватает любого одного ключа.
-#
-# Остался Anthropic, и он отвечает отказом за доли секунды. Кредиты у ключа
-# ЕСТЬ (проверено владельцем 19.08), то есть дело не в балансе: 41 вызов за
-# семь секунд — это 4xx, а не таймаут и не сеть. Точный код придёт в
-# следующем отчёте: водопад кладёт его в DecisionResult.error, а разбор
-# находок это поле теперь печатает.
+# `schedule`, marker `push` и ручной запуск разбирают ОДИН И ТОТ ЖЕ прод-
+# снимок, доставленный по-разному: планировщик GitHub деградирует и
+# доставляет очередь с многочасовым опозданием (27.08 — marker в 09:07,
+# запоздавший scheduled той же очереди в 17:38 — вход не изменился ни в чём).
+# Раньше это давало ДВА выпуска на один и тот же анализ. Теперь: concurrency
+# сериализует публикации, «Prepare & check duplicate» считает отпечаток входа
+# ДО модели и останавливается без вызова LLM, если он совпал с каноническим
+# Issue (и тот не degraded), а «Publish report» пишет в ОДИН канонический
+# Issue на report_key вместо нового выпуска на каждую доставку. Подробности —
+# scripts/evo-judge-publish.ts.
 #
 # Скрипт ничего не чинит и ничего не пишет в базу: он судит и объясняет.
 # Финальное решение по находке остаётся за человеком и за Claude Code в репо.
@@ -39,17 +31,34 @@ on:
         description: 'За сколько дней брать находки'
         required: false
         default: '7'
+      force_refresh:
+        description: 'Разобрать заново, даже если вход не изменился с прошлого канонического выпуска'
+        required: false
+        type: boolean
+        default: false
   schedule:
     # 06:20 UTC — после ночного Growth Scan, до рабочего дня владельца.
     - cron: '20 6 * * *'
   # Файл-маркер: правка .github/triggers/evo-judge.json в main запускает разбор
   # сейчас. Тот же приём, что у переписи и смоука, и по той же причине: у
   # агента в репозитории нет права actions:write, а ждать расписания сутки,
-  # проверяя починку решателя, — значит проверять её вслепую.
+  # проверяя починку решателя, — значит проверять её вслепую. force_refresh
+  # маркера читается из самого файла (поле force_refresh) — факт push сам по
+  # себе не означает force, иначе каждый маркер-прогон заново тратил бы токены
+  # даже без изменений во входе.
   push:
     branches: [main]
     paths:
       - '.github/triggers/evo-judge.json'
+
+# Один канонический Issue на report_key — значит и публикация должна идти по
+# очереди, а не гонкой: schedule, marker push и workflow_dispatch одного дня
+# сериализуются здесь, а не в publish-логике. Группа НЕ содержит run_id, event
+# или branch — иначе marker и запоздавший schedule снова смогли бы публиковать
+# параллельно, что и было исходным отказом.
+concurrency:
+  group: evo-judge-report-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   judge:
@@ -57,6 +66,8 @@ jobs:
     timeout-minutes: 25
     permissions:
       issues: write
+    env:
+      DAYS: ${{ github.event.inputs.days || '7' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -74,7 +85,6 @@ jobs:
           # зашит здесь, а не приходит параметром: правило, зависящее от
           # дисциплины заполняющего конфиг, — не защита (урок 08.08).
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          DAYS: ${{ github.event.inputs.days || '7' }}
         run: |
           CODE=$(curl -sS -o /tmp/findings.json -w '%{http_code}' --max-time 60 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
@@ -87,100 +97,101 @@ jobs:
           fi
           python3 -c "import json;d=json.load(open('/tmp/findings.json'));print('находок:',len(d.get('issues',[])))"
 
+      # Считает input_hash ДО модели и спрашивает GitHub: есть ли уже
+      # канонический Issue этого report_key с тем же входом. Ключа модели тут
+      # не нужно вовсе — только GITHUB_TOKEN на чтение.
+      - name: Prepare & check duplicate
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISPATCH_FORCE: ${{ github.event.inputs.force_refresh || '' }}
+        run: |
+          if [ -n "$DISPATCH_FORCE" ]; then
+            FORCE="$DISPATCH_FORCE"
+          else
+            FORCE=$(jq -r '.force_refresh // false' .github/triggers/evo-judge.json 2>/dev/null || echo false)
+          fi
+          echo "force_refresh=$FORCE"
+          FORCE_REFRESH="$FORCE" npx tsx scripts/evo-judge-publish.ts check "$DAYS" /tmp/findings.json /tmp/dedup.json
+
+      # Пропускается, если «Prepare & check duplicate» нашёл тот же вход в
+      # НЕ-degraded каноническом Issue: тратить токены не на что.
       - name: Judge with strong model
+        if: steps.prepare.outputs.skip_llm != 'true'
         env:
           # Ключи уходят только своим провайдерам — вызов идёт через
           # sanctioned-путь lib/ai/providers (водопад callAIDecisionDetailed),
           # а не сырым fetch: провайдеры остаются в замороженном реестре
-          # compliance. Три дня подряд (12-14.08) Anthropic отдавал пустой
-          # ответ, и разбор кончался «не разобрано: 30+» — теперь водопад
-          # падает на DeepSeek/Qwen, как решатель на проде.
+          # compliance.
           #
-          # OPENROUTER_API_KEY — ПЕРВАЯ ступень водопада, и до 19.08 она сюда
-          # не передавалась вовсе. То есть ключ можно было завести в секретах и
-          # не получить ничего: раннер его не видел. Гео-блок, из-за которого
-          # на проде нужен релей, к раннеру не относится — он вне РФ, и
-          # openrouter.ai достижим напрямую. Поэтому OPENROUTER_BASE_URL здесь
-          # НЕ задаётся: релей тут только добавил бы точку отказа.
+          # OPENROUTER_API_KEY — ПЕРВАЯ ступень водопада. Гео-блок, из-за
+          # которого на проде нужен релей, к раннеру не относится — он вне РФ,
+          # и openrouter.ai достижим напрямую. Поэтому OPENROUTER_BASE_URL
+          # здесь НЕ задаётся: релей тут только добавил бы точку отказа.
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # Ключ УПРАВЛЕНИЯ — только чтобы спросить счёт (/api/v1/credits).
-          # Модели он не зовёт. Без него отчёт честно пишет «не спросили»:
-          # четверо суток причину немоты читали из тела чужой ошибки, хотя
-          # спросить баланс напрямую было можно всё это время.
           OPENROUTER_MANAGEMENT_KEY: ${{ secrets.OPENROUTER_MANAGEMENT_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-          # Номер прогона сдвигает окно добора по хвосту находок. Без него
-          # окно стояло бы на месте, и «не разобранные» оставались бы теми же
-          # самыми — ровно то, что случилось 18 и 19 августа.
-          EVO_JUDGE_OFFSET: ${{ github.run_number }}
-        run: npx tsx scripts/evo-judge.ts /tmp/findings.json /tmp/report.md
+          # Сдвиг окна добора теперь берёт scripts/evo-judge.ts сам — УТС-сутки,
+          # а не номер прогона. github.run_number раньше сдвигал окно на
+          # пустом месте: marker и запоздавший schedule ОДНОГО дня получали
+          # разные номера при одном и том же входе, и их input_hash расходился
+          # без единого смыслового отличия во входе. EVO_JUDGE_OFFSET здесь
+          # намеренно НЕ передаётся — дефолт скрипта самодостаточен.
+          EVO_JUDGE_DAYS: ${{ env.DAYS }}
+        run: npx tsx scripts/evo-judge.ts /tmp/findings.json /tmp/report.md /tmp/report-meta.json
+
+      # Публикует-или-переиспользует канонический Issue. Если предыдущий шаг
+      # был пропущен (тот же вход), report.md/report-meta.json не существуют —
+      # publish читает /tmp/dedup.json и завершается без единой мутации
+      # GitHub. GITHUB_TOKEN тут даёт ТОЛЬКО issues:write (permissions job'а) —
+      # merge и запись кода эта задача не может по построению.
+      - name: Publish report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          REPORT=""
+          META=""
+          [ -f /tmp/report.md ] && REPORT=/tmp/report.md
+          [ -f /tmp/report-meta.json ] && META=/tmp/report-meta.json
+          npx tsx scripts/evo-judge-publish.ts publish /tmp/dedup.json "$REPORT" "$META" /tmp/publish-result.json
+
+      # Artifacts — история диагностики каждого фактического запуска; Issue —
+      # текущая проекция решений. Разные вещи, оба нужны.
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evo-judge-run-${{ github.run_id }}
+          path: |
+            /tmp/report.md
+            /tmp/report-meta.json
+            /tmp/dedup.json
+            /tmp/publish-result.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       # Прогон, разобравший НОЛЬ находок, — это отказ, а не работа.
       #
       # 16, 18 и 19 августа отчёт выходил «41 из 41 не разобрана», а прогон
-      # при этом числился успешным: скрипт отработал, issue завелась, джоб
-      # зелёный. Четверо суток решатель молчал, и никто не узнал — среди
-      # неразобранного лежала critical-инъекция.
+      # при этом числился успешным. Проверка стоит ПОСЛЕ публикации намеренно:
+      # отчёт должен выйти в любом случае, иначе, чиня немоту, мы потеряем и
+      # список находок.
       #
-      # Проверка стоит ПОСЛЕ публикации намеренно: отчёт должен выйти в любом
-      # случае, иначе, чиня немоту, мы потеряем и список находок.
-      - name: Publish report
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          DATE=$(date -u +%d.%m.%Y)
-          TITLE="Разбор находок эволюции — $DATE"
-          {
-            echo "$(cat /tmp/report.md)"
-            echo ""
-            echo "---"
-            echo "_Generated by [Claude Code](https://claude.ai/code)_"
-          } > /tmp/body.md
-          # Одна задача на прогон, а не комментарий к каждой находке: лента из
-          # сорока комментариев читается хуже, чем один отчёт.
-          NEW_URL=$(gh issue create --repo "${{ github.repository }}" \
-            --title "$TITLE" --body-file /tmp/body.md --label evo)
-          echo "заведено: $NEW_URL"
-
-          # Прошлые выпуски закрываются здесь же.
-          #
-          # Каждый прогон заводил новую задачу, а старую не закрывал никто:
-          # к 19.08 висело пять отчётов, четыре из них — про уже разобранное
-          # или про немоту, устранённую в тот же день. Очередь, где половина
-          # задач мертва, перестаёт быть очередью: живое в ней не отличить.
-          #
-          # Закрываются ТОЛЬКО выпуски разбора — по точному началу заголовка.
-          # Метки `evo` мало: под ней же живут находки другого рода (#1155 —
-          # расхождение каналов), и закрыть их автоматом значило бы потерять
-          # настоящее вместе с отработавшим.
-          NEW_NUM="${NEW_URL##*/}"
-          {
-            echo "Заменено более свежим разбором: #${NEW_NUM}."
-            echo ""
-            echo "Находки живут в базе, а не в этой задаче: неразобранное и неисправленное"
-            echo "придёт в следующий выпуск само. Выпуск закрывается, чтобы в очереди"
-            echo "оставалось только то, что ещё требует решения."
-            echo ""
-            echo "---"
-            echo "_Generated by [Claude Code](https://claude.ai/code)_"
-          } > /tmp/superseded.md
-
-          gh issue list --repo "${{ github.repository }}" \
-            --label evo --state open --limit 50 --json number,title \
-            --jq '.[] | select(.title | startswith("Разбор находок эволюции")) | .number' \
-          | while read -r N; do
-              [ -z "$N" ] && continue
-              [ "$N" = "$NEW_NUM" ] && continue
-              gh issue comment "$N" --repo "${{ github.repository }}" --body-file /tmp/superseded.md
-              gh issue close "$N" --repo "${{ github.repository }}" --reason completed
-              echo "закрыт прошлый выпуск: #$N"
-            done
-
+      # Пропущенный Judge (тот же вход, канонический Issue уже complete) не
+      # обязан проходить эту проверку заново — «Prepare & check duplicate»
+      # пропускает LLM ТОЛЬКО когда analysis_status прошлого выпуска НЕ
+      # degraded (см. checkDuplicate в scripts/evo-judge-publish.ts): немота
+      # никогда не застревает пропуском, она всегда перезапускает разбор.
       - name: Красный, если не разобрано ничего
         run: |
           set -uo pipefail
+          if [ ! -f /tmp/report.md ]; then
+            echo "Вход не изменился с прошлого КОМПЛЕТНОГО разбора — LLM не вызывался, существующий канонический выпуск уже полон."
+            exit 0
+          fi
           # Числа берутся из самого отчёта — из того, что прочитает человек,
           # а не из отдельного счётчика, который может с ним разойтись.
           TOTAL=$(grep -oP 'Разобрано находок: \*\*\K[0-9]+' /tmp/report.md || echo 0)
@@ -188,7 +199,7 @@ jobs:
           echo "разобрано: $TOTAL, из них не разобрано: $UNJUDGED"
           if [ "$TOTAL" -gt 0 ] && [ "$TOTAL" = "$UNJUDGED" ]; then
             echo "Решатель не ответил НИ ПО ОДНОЙ находке из $TOTAL."
-            echo "Причина — в отчёте: https://github.com/tourhabk-ui/pos/issues?q=is:issue+label:evo"
+            echo "Причина — в отчёте: https://github.com/tourhabk-ui/pos/issues?q=is:issue+label:evo-judge-report"
             echo "Чаще всего это отсутствующий ключ: водопад зовёт Anthropic, затем DeepSeek, затем Qwen."
             exit 1
           fi

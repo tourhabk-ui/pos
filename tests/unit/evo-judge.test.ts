@@ -13,7 +13,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderReport, balanceLine, selectForJudging, splitGenres, readSnippet, type Judged } from '@/scripts/evo-judge';
+import {
+  renderReport, balanceLine, selectForJudging, splitGenres, readSnippet,
+  prepareJudgeInput, hashJudgeInput, hashJudgeOutput, hashOwnerDecisions,
+  countActionable, isDegraded, canonicalJSON, reportKey, reportTitle,
+  JUDGE_CONTRACT_VERSION,
+  type Judged, type Finding, type PreparedJudgeInput,
+} from '@/scripts/evo-judge';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/evo-judge.ts'), 'utf-8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/evo-judge.yml'), 'utf-8');
@@ -61,7 +67,7 @@ describe('провал разбора не выдаётся за вердикт'
   });
 
   it('потолок прогона назван вслух', () => {
-    expect(SRC).toMatch(/за потолком в \$\{limit\}/);
+    expect(SRC).toMatch(/за потолком в \$\{judgeLimit\(\)\}/);
   });
 });
 
@@ -247,9 +253,18 @@ describe('очередь разбора начинается с хвоста', (
     expect(judgeDefault).toBeGreaterThanOrEqual(apiLimit);
   });
 
-  it('сдвиг окна берётся из прогона, а не из константы', () => {
-    // Без номера прогона окно стоит на месте, и «ротация» — только на словах.
-    expect(WF).toMatch(/EVO_JUDGE_OFFSET:\s*\$\{\{\s*github\.run_number\s*\}\}/);
+  it('сдвиг окна берётся из УТС-суток, а не из номера прогона', () => {
+    // github.run_number ломал идемпотентность отчёта: marker-push и
+    // запоздавший scheduled прогон ОДНОГО дня получали разные номера при
+    // одном и том же входе, и их input_hash расходился без единого
+    // смыслового отличия во входе (задание владельца 27.08). Workflow больше
+    // не передаёт EVO_JUDGE_OFFSET вовсе — скрипт сам берёт УТС-сутки.
+    expect(WF).not.toMatch(/EVO_JUDGE_OFFSET:\s*\$\{\{/);
+    expect(SRC).toMatch(/Math\.floor\(Date\.now\(\)\s*\/\s*86_400_000\)/);
+  });
+
+  it('EVO_JUDGE_OFFSET остаётся явным оверрайдом поверх УТС-суток', () => {
+    expect(SRC).toMatch(/parseInt\(process\.env\.EVO_JUDGE_OFFSET/);
   });
 
   it('падение на одной находке не уносит остальные', () => {
@@ -349,6 +364,18 @@ describe('152-ФЗ и путь провайдера', () => {
     // иначе новый хост минует замороженный реестр compliance.
     expect(SRC).toMatch(/from '@\/lib\/ai\/providers'/);
     expect(SRC).not.toMatch(/fetch\(['"`]https:\/\/api\.anthropic/);
+  });
+});
+
+describe('публикации одного дня сериализованы', () => {
+  it('concurrency-группа не содержит run_id/event/branch — иначе marker и delayed schedule снова гонятся', () => {
+    const m = /concurrency:\s*\n\s*group:\s*([^\n]+)\n/.exec(WF);
+    expect(m).toBeTruthy();
+    const group = m?.[1] ?? '';
+    expect(group).not.toMatch(/run_id/);
+    expect(group).not.toMatch(/github\.event_name/);
+    expect(group).not.toMatch(/github\.ref/);
+    expect(WF).toMatch(/cancel-in-progress:\s*false/);
   });
 });
 
@@ -453,26 +480,37 @@ describe('полная немота решателя названа причин
  * К 19.08 висело пять выпусков, четыре из них — про уже разобранное или про
  * немоту, устранённую в тот же день. Живое в такой очереди не отличить.
  */
-describe('прошлые выпуски разбора закрываются сами', () => {
-  it('новый выпуск закрывает предыдущие', () => {
-    expect(WF).toMatch(/gh issue close .* --reason completed/);
-    expect(WF).toMatch(/Заменено более свежим разбором/);
+/**
+ * Канонический выпуск обновляется на месте — не плодится.
+ *
+ * До задания владельца 27.08 каждый успешный прогон безусловно заводил
+ * новый Issue, а предыдущий закрывал грубым «Заменено более свежим»: marker
+ * в 09:07 и запоздавший scheduled прогон той же очереди в 17:38 разбирали
+ * ОДИН и тот же вход и всё равно давали два выпуска. Теперь публикация идёт
+ * через scripts/evo-judge-publish.ts (findCanonical + publishJudgeReport) —
+ * подробная матрица публикации проверяется в tests/unit/evo-judge-publish.test.ts.
+ */
+describe('канонический выпуск обновляется на месте, а не плодится', () => {
+  const PUBLISH_SRC = readFileSync(join(process.cwd(), 'scripts/evo-judge-publish.ts'), 'utf-8');
+
+  it('workflow публикует через evo-judge-publish.ts, а не сырым gh issue create', () => {
+    expect(WF).toMatch(/evo-judge-publish\.ts publish/);
+    expect(WF).not.toMatch(/gh issue create/);
+    expect(WF).not.toMatch(/gh issue close/);
   });
 
-  it('закрываются только выпуски разбора, а не всё с меткой evo', () => {
-    // Под меткой evo живут находки другого рода — например #1155 про
-    // расхождение каналов. Закрыть их автоматом значило бы потерять
-    // настоящее вместе с отработавшим.
-    expect(WF).toMatch(/startswith\("Разбор находок эволюции"\)/);
+  it('дедуп считается ДО модели: check-шаг стоит перед Judge и не требует ключей моделей', () => {
+    expect(WF).toMatch(/evo-judge-publish\.ts check/);
+    expect(WF.indexOf('Prepare & check duplicate')).toBeLessThan(WF.indexOf('Judge with strong model'));
   });
 
-  it('свежий выпуск себя не закрывает', () => {
-    expect(WF).toMatch(/\[ "\$N" = "\$NEW_NUM" \] && continue/);
+  it('Judge пропускается, если вход не изменился', () => {
+    expect(WF).toMatch(/if:\s*steps\.prepare\.outputs\.skip_llm\s*!=\s*'true'/);
   });
 
-  it('перед закрытием сказано, куда смотреть дальше', () => {
-    // Закрытие без объяснения читается как «замяли».
-    expect(WF).toMatch(/Находки живут в базе, а не в этой задаче/);
+  it('publish-модуль сначала ищет канонический Issue, а не создаёт безусловно', () => {
+    expect(PUBLISH_SRC).toMatch(/findCanonical/);
+    expect(PUBLISH_SRC).toMatch(/if \(!lookup\.canonical\)/);
   });
 });
 
@@ -534,7 +572,7 @@ describe('состояние счёта названо числом', () => {
     // Если денег нет, это должно быть написано в отчёте, а не выведено
     // человеком из сорока шести одинаковых отказов.
     const src = SRC;
-    expect(src.indexOf('checkOpenRouterBalance()')).toBeLessThan(src.indexOf('judgeAll(picked)'));
+    expect(src.indexOf('checkOpenRouterBalance()')).toBeLessThan(src.indexOf('judgeAll(prepared.picked)'));
   });
 });
 
@@ -581,6 +619,156 @@ describe('ключи доходят до решателя', () => {
     for (const k of ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'DASHSCOPE_API_KEY']) {
       expect(SRC, `проверка ключей не знает про ${k}`).toContain(k);
     }
+  });
+});
+
+/**
+ * Три отпечатка идемпотентности (задание владельца 27.08).
+ *
+ * marker `push` в 09:07 и запоздавший scheduled прогон той же очереди в
+ * 17:38 разбирали ОДИН и тот же вход — но `github.run_id`/время/баланс/
+ * модель у них разные. Если бы эти поля попадали в отпечаток, ОДИН вход
+ * издавал бы ДВА разных input_hash, и вся идемпотентность была бы фикцией.
+ */
+describe('идемпотентность отчёта: три отпечатка', () => {
+  const f = (over: Partial<Finding> = {}): Finding => ({
+    id: 'a1', category: 'bug', severity: 'high', file_path: null,
+    line_number: null, title: 'Находка', description: 'описание', suggestion: null,
+    ...over,
+  });
+
+  it('canonicalJSON не зависит от порядка ключей объекта', () => {
+    expect(canonicalJSON({ b: 1, a: 2 })).toBe(canonicalJSON({ a: 2, b: 1 }));
+  });
+
+  it('input_hash повторяем на одном и том же входе', () => {
+    const p1 = prepareJudgeInput([f()], { days: 7, offset: 5 });
+    const p2 = prepareJudgeInput([f()], { days: 7, offset: 5 });
+    expect(hashJudgeInput(p1)).toBe(hashJudgeInput(p2));
+  });
+
+  it('input_hash меняется при смене состава находок', () => {
+    const p1 = prepareJudgeInput([f({ id: 'a1' })], { days: 7, offset: 0 });
+    const p2 = prepareJudgeInput([f({ id: 'a2' })], { days: 7, offset: 0 });
+    expect(hashJudgeInput(p1)).not.toBe(hashJudgeInput(p2));
+  });
+
+  it('изменился реальный кусок кода указанного файла — input_hash другой', () => {
+    // Файл реальный и больше окна (16000 симв.) — разные строки дают разные
+    // окна снимка, а значит разный redacted_snippet_sha256.
+    const near = f({ file_path: 'scripts/evo-judge.ts', line_number: 5 });
+    const far = f({ file_path: 'scripts/evo-judge.ts', line_number: 400 });
+    const p1 = prepareJudgeInput([near], { days: 7, offset: 0 });
+    const p2 = prepareJudgeInput([far], { days: 7, offset: 0 });
+    expect(hashJudgeInput(p1)).not.toBe(hashJudgeInput(p2));
+  });
+
+  it('judge_contract_version — часть входа: поднимать её при смене контракта, не входа', () => {
+    const p = prepareJudgeInput([f()], { days: 7, offset: 0 });
+    expect(p.judge_contract_version).toBe(JUDGE_CONTRACT_VERSION);
+  });
+
+  it('output_hash: разный reason при том же вердикте — разный отпечаток', () => {
+    const j1: Judged[] = [{ finding: f(), verdict: 'real', reason: 'причина A' }];
+    const j2: Judged[] = [{ finding: f(), verdict: 'real', reason: 'причина B' }];
+    expect(hashJudgeOutput(j1, [])).not.toBe(hashJudgeOutput(j2, []));
+  });
+
+  it('decision_hash: разный ТОЛЬКО reason — отпечаток решений не меняется', () => {
+    // Иначе стилистически иной текст модели читался бы как новое решение.
+    const j1: Judged[] = [{ finding: f(), verdict: 'real', reason: 'причина A' }];
+    const j2: Judged[] = [{ finding: f(), verdict: 'real', reason: 'причина B' }];
+    expect(hashOwnerDecisions(j1, [])).toBe(hashOwnerDecisions(j2, []));
+  });
+
+  it('decision_hash: real → fixed меняет отпечаток — actionable ушло', () => {
+    const real: Judged[] = [{ finding: f(), verdict: 'real', reason: 'x' }];
+    const fixed: Judged[] = [{ finding: f(), verdict: 'fixed', reason: 'x' }];
+    expect(hashOwnerDecisions(real, [])).not.toBe(hashOwnerDecisions(fixed, []));
+  });
+
+  it('decision_hash: noise ⇄ fixed — оба не actionable, отпечаток один', () => {
+    const noise: Judged[] = [{ finding: f(), verdict: 'noise', reason: 'x' }];
+    const fixed: Judged[] = [{ finding: f(), verdict: 'fixed', reason: 'x' }];
+    expect(hashOwnerDecisions(noise, [])).toBe(hashOwnerDecisions(fixed, []));
+  });
+
+  it('actionable: real/needs_info/unjudged и intel считаются, noise/fixed — нет', () => {
+    const judged: Judged[] = [
+      { finding: f({ id: '1' }), verdict: 'real', reason: 'x' },
+      { finding: f({ id: '2' }), verdict: 'needs_info', reason: 'x' },
+      { finding: f({ id: '3' }), verdict: 'unjudged', reason: 'x' },
+      { finding: f({ id: '4' }), verdict: 'noise', reason: 'x' },
+      { finding: f({ id: '5' }), verdict: 'fixed', reason: 'x' },
+    ];
+    expect(countActionable(judged, [{ id: 'i1', title: 'intel' }])).toBe(4);
+  });
+
+  it('запись-заглушка «ещё N не разбирались» (пустой id) не считается находкой ни в одном отпечатке', () => {
+    const synthetic: Judged = {
+      finding: { id: '', category: '', severity: '', file_path: null, line_number: null, title: 'Ещё 3', description: null, suggestion: null },
+      verdict: 'unjudged', reason: 'за потолком',
+    };
+    const real: Judged = { finding: f(), verdict: 'real', reason: 'x' };
+    expect(hashOwnerDecisions([real, synthetic], [])).toBe(hashOwnerDecisions([real], []));
+    expect(hashJudgeOutput([real, synthetic], [])).toBe(hashJudgeOutput([real], []));
+    expect(countActionable([real, synthetic], [])).toBe(1);
+  });
+
+  it('isDegraded: вся выборка не разобрана — degraded; частичный разбор и пустая выборка — нет', () => {
+    expect(isDegraded([{ finding: f(), verdict: 'unjudged', reason: 'x' }])).toBe(true);
+    expect(isDegraded([
+      { finding: f({ id: '1' }), verdict: 'unjudged', reason: 'x' },
+      { finding: f({ id: '2' }), verdict: 'noise', reason: 'x' },
+    ])).toBe(false);
+    expect(isDegraded([])).toBe(false);
+  });
+
+  it('offset по умолчанию — УТС-сутки; явный оверрайд использует его без пересчёта', () => {
+    const p = prepareJudgeInput([f()], { days: 7 });
+    expect(p.offset).toBe(Math.floor(Date.now() / 86_400_000));
+    const overridden = prepareJudgeInput([f()], { days: 7, offset: 42 });
+    expect(overridden.offset).toBe(42);
+  });
+
+  it('report_key и title зависят от days — окна разной длины не смешиваются в один Issue', () => {
+    expect(reportKey(7)).not.toBe(reportKey(30));
+    expect(reportKey(7)).toBe('evo-judge:window:7d:v1');
+    expect(reportTitle(7)).toContain('7');
+  });
+
+  it('picked/skipped из prepareJudgeInput не задваиваются и дают исходный список claims', () => {
+    const findings = Array.from({ length: 5 }, (_, i) => f({ id: `n${i}`, category: 'bug' }));
+    const prepared: PreparedJudgeInput = prepareJudgeInput(findings, { days: 7, limit: 3, offset: 0 });
+    expect(prepared.picked.length + prepared.skipped_ids.length).toBe(5);
+    const ids = new Set([...prepared.picked.map((p) => p.id), ...prepared.skipped_ids]);
+    expect(ids.size).toBe(5);
+  });
+
+  it('разведданные не попадают в picked/skipped — только в intel', () => {
+    const mixed = [f({ id: 'bug1', category: 'bug' }), f({ id: 'intel1', category: 'intel' })];
+    const prepared = prepareJudgeInput(mixed, { days: 7, offset: 0 });
+    expect(prepared.picked.map((p) => p.id)).toEqual(['bug1']);
+    expect(prepared.intel.map((i) => i.id)).toEqual(['intel1']);
+  });
+});
+
+describe('force_refresh — явный оверрайд, не побочный эффект push', () => {
+  it('workflow_dispatch несёт вход force_refresh с дефолтом false', () => {
+    expect(WF).toMatch(/force_refresh:/);
+    expect(WF).toMatch(/type:\s*boolean/);
+    expect(WF).toMatch(/default:\s*false/);
+  });
+
+  it('маркер push несёт явное поле force_refresh — сам факт push force не значит', () => {
+    const trigger = JSON.parse(readFileSync(join(process.cwd(), '.github/triggers/evo-judge.json'), 'utf-8'));
+    expect(trigger).toHaveProperty('force_refresh');
+    expect(typeof trigger.force_refresh).toBe('boolean');
+  });
+
+  it('workflow читает force_refresh маркера, а не считает push форсом сам по себе', () => {
+    expect(WF).toMatch(/force_refresh/);
+    expect(WF).not.toMatch(/FORCE_REFRESH="true"\s*$/m);
   });
 });
 
