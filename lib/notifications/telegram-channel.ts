@@ -12,6 +12,7 @@ import { getModelForAgent } from '@/lib/ai/agent-models';
 import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail } from '@/lib/notifications/post-validation';
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 import { stripTags } from '@/lib/html/text';
+import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -275,10 +276,17 @@ interface ChannelPost {
   photoUrl?: string | null;
   /** Куратор-фото: уходит, если Telegram не смог скачать основное */
   fallbackPhotoUrl?: string | null;
+  /**
+   * Альбом НАСТОЯЩИХ фотографий (2–10): sendMediaGroup, подпись на первой.
+   * Для постов о турах — у тура снимки оператора, и показывать один — значит
+   * продавать хуже, чем есть (та же логика, что у tgPostMediaGroup). Когда
+   * задан, photoUrl игнорируется; в MAX уходит первый кадр альбома.
+   */
+  photoUrls?: string[] | null;
 }
 
 async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; error?: string }> {
-  const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl } = post;
+  const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl, photoUrls } = post;
   const issue = blockingTextIssue(text);
   if (issue) {
     const error = `Публикация отменена: ${issue}`;
@@ -313,13 +321,17 @@ async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; erro
     ? text + `\n\n<a href="${tgLink}">Мы в Telegram</a>`
     : text;
 
-  // 1. Основной TG-канал (фото → куратор-фото → текст, каждый откат логируется)
-  const mainResult = photoUrl
-    ? await tgPostPhoto(mainChannelId, photoUrl, tgText, undefined, fallbackPhotoUrl)
-    : await tgPost(mainChannelId, tgText);
+  // 1. Основной TG-канал. Альбом настоящих фото (photoUrls) — приоритетный
+  // путь: sendMediaGroup со своей честной деградацией (альбом → одно фото →
+  // текст, каждый шаг логируется). Иначе прежнее: фото → куратор-фото → текст.
+  const mainResult = photoUrls && photoUrls.length > 0
+    ? await tgPostMediaGroup(mainChannelId, photoUrls, tgText)
+    : photoUrl
+      ? await tgPostPhoto(mainChannelId, photoUrl, tgText, undefined, fallbackPhotoUrl)
+      : await tgPost(mainChannelId, tgText);
 
-  // 2. MAX канал (fire-and-forget)
-  maxChannelPost(maxText, photoUrl).then(r => {
+  // 2. MAX канал (fire-and-forget); альбом MAX не умеет — уходит первый кадр
+  maxChannelPost(maxText, photoUrls?.[0] ?? photoUrl).then(r => {
     if (!r.ok) console.error('[postToAllChannels] MAX channel error:', r.error);
   }).catch(() => {});
 
@@ -981,6 +993,11 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
       FROM operator_tours ot
       LEFT JOIN partners p ON p.id = ot.operator_id
      WHERE ot.is_published = TRUE AND ot.is_active = TRUE AND ot.deleted_at IS NULL
+       -- Тур без фотографий в канал не идёт ВООБЩЕ (правило владельца 05.08,
+       -- как у tour-channel-post): рисованной обложки у тура быть не может, а
+       -- голый текст продаёт хуже, чем не продаёт. Фильтр здесь, а не после
+       -- выбора: иначе бесфотный тур занял бы слот прогона и пост не вышел бы.
+       AND COALESCE(array_length(ot.photos, 1), 0) > 0
        AND ot.id::text NOT IN (
          SELECT metadata->>'tour_id' FROM ai_actions_log
           WHERE action_type = 'kuzmich_tour_post'
@@ -995,7 +1012,7 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
   if (!t) {
     return {
       ok: false,
-      error: `Нет туров для поста (все опубликованы в последние ${TOUR_REPEAT_COOLDOWN_DAYS} дней либо активных туров нет)`,
+      error: `Нет туров для поста (все с фото опубликованы в последние ${TOUR_REPEAT_COOLDOWN_DAYS} дней, либо активных туров с фотографиями нет)`,
     };
   }
 
@@ -1034,10 +1051,18 @@ ${KUZMICH_CHANNEL_VOICE}`;
 
   const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
 
-  const photoRel = (t.photos ?? [])[0] ?? null;
-  const photoUrl = photoRel ? `${appUrl}${photoRel}` : null;
+  // Настоящие снимки оператора, АЛЬБОМОМ (до 10) — тот же путь и та же
+  // абсолютизация URL, что у tour-channel-post: прежняя склейка
+  // `${appUrl}${photoRel}` ломала уже-абсолютные ссылки, и Telegram, не
+  // скачав битый URL, молча ронял пост тура в голый текст.
+  const photoUrls = absolutePhotoUrls(t.photos, appUrl);
+  if (photoUrls.length === 0) {
+    // SQL выше такого не отдаёт; ветка — страховка от рассинхрона (§4.0):
+    // тур без фото в канал не публикуется никогда, ни текстом, ни обложкой.
+    return { ok: false, tourId: t.id, error: `У тура ${t.id} нет пригодных фотографий — пост не публикуется` };
+  }
 
-  const result = await postToAllChannels({ channelId, postType: 'kuzmich_tour', text, photoUrl });
+  const result = await postToAllChannels({ channelId, postType: 'kuzmich_tour', text, photoUrls });
 
   if (result.ok) {
     try {
