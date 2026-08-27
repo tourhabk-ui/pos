@@ -88,10 +88,11 @@ describe('панель полевых действий в trail', () => {
     // выбора маршрута». До фикса FieldActionBar рендерился только в ветке
     // hasRoute, и переход с главной упирался в экран «Выбрать маршрут» —
     // до формы наблюдения без активного маршрута нельзя было добраться.
-    const emptyState = TRAIL.slice(
-      TRAIL.indexOf('!hasRoute && !isLoadingRoute'),
-      TRAIL.indexOf(') : (', TRAIL.indexOf('!hasRoute && !isLoadingRoute')),
-    );
+    // Ищем именно JSX-условие (с ведущей `{`), а не любое вхождение этой
+    // фразы: она встречается ещё и в useEffect авто-загрузки рекомендаций
+    // (destination-first, 27.08).
+    const condAt = TRAIL.indexOf('{!hasRoute && !isLoadingRoute ? (');
+    const emptyState = TRAIL.slice(condAt, TRAIL.indexOf(') : (', condAt));
     expect(emptyState).toContain('<FieldActionBar actions={fieldActions} error={fieldBarError} />');
   });
 
