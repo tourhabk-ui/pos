@@ -80,7 +80,10 @@ export async function POST(
         COALESCE(p.contact->>'email', p.contacts->>'email') as operator_email
       FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
-      WHERE t.id = $1 AND t.is_active = true AND t.deleted_at IS NULL`,
+      -- is_published: снятие с витрины (миграции 807/808/837) обязано
+      -- закрывать И этот путь брони — реестр BOOKING_ROUTES называет четыре,
+      -- гейт у всех один.
+      WHERE t.id = $1 AND t.is_active = true AND t.is_published = true AND t.deleted_at IS NULL`,
       [tourId]
     );
 

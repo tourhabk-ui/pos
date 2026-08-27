@@ -284,38 +284,55 @@ export function FieldCheckClient() {
     try { queue = await listFieldChecks(); } catch { return; }
     for (const item of queue) {
       try {
-        const res = await fetch('/api/field-check/report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target_kind: item.targetKind,
-            target_id: item.targetKind === 'new' ? null : item.targetId,
-            proposed_name: item.proposedName ?? null,
-            verdict: item.verdict,
-            reported_lat: item.reportedLat,
-            reported_lng: item.reportedLng,
-            accuracy_m: item.accuracyM,
-            note: item.note,
-            trip_tag: item.tripTag,
-            object_lat: item.objectLat,
-            object_lng: item.objectLng,
-            object_source: item.objectSource,
-          }),
-        });
-        if (!res.ok) break;
-        const j = await res.json();
-        const checkId: string | null = j?.id ?? null;
-        // Снимки идут по одному и НЕ держат проверку: не ушедшая
-        // фотография не повод отправлять вердикт заново.
-        if (checkId) {
+        // Вердикт шлём один раз: если он уже принят в прошлый заход
+        // (sentCheckId), элемент живёт только ради недовезённых фото.
+        let checkId: string | null = item.sentCheckId ?? null;
+        if (!checkId) {
+          const res = await fetch('/api/field-check/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              target_kind: item.targetKind,
+              target_id: item.targetKind === 'new' ? null : item.targetId,
+              proposed_name: item.proposedName ?? null,
+              verdict: item.verdict,
+              reported_lat: item.reportedLat,
+              reported_lng: item.reportedLng,
+              accuracy_m: item.accuracyM,
+              note: item.note,
+              trip_tag: item.tripTag,
+              object_lat: item.objectLat,
+              object_lng: item.objectLng,
+              object_source: item.objectSource,
+            }),
+          });
+          if (!res.ok) break;
+          const j = await res.json();
+          checkId = j?.id ?? null;
+        }
+        // Снимки идут по одному и НЕ держат проверку: не ушедшая фотография
+        // не повод отправлять вердикт заново. Но и терять её нельзя: раньше
+        // элемент удалялся после ПЕРВОЙ попытки, и упавший снимок пропадал
+        // навсегда — «довезём в следующий заход» было обещанием без механизма.
+        if (checkId && item.photos.length > 0) {
+          const remaining: string[] = [];
           for (const data of item.photos) {
             try {
-              await fetch('/api/field-check/photo', {
+              const pr = await fetch('/api/field-check/photo', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ check_id: checkId, mime: 'image/jpeg', data }),
               });
-            } catch { /* довезём в следующий заход */ }
+              if (!pr.ok) remaining.push(data);
+            } catch {
+              remaining.push(data);
+            }
+          }
+          if (remaining.length > 0) {
+            // Вердикт ушёл, фото — не все: запоминаем id проверки и держим
+            // элемент в очереди с одними недовезёнными снимками.
+            await queueFieldCheck({ ...item, sentCheckId: checkId, photos: remaining });
+            continue;
           }
         }
         await deleteFieldCheck(item.id);

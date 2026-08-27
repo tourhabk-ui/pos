@@ -36,11 +36,16 @@ export async function GET(
       } as ApiResponse<null>, { status: 400 });
     }
 
-    // Проверяем существование тура
+    // Проверяем существование тура.
+    // min_participants: колонки min_group_size в operator_tours НЕТ (алиас с
+    // таким именем живёт только во VIEW миграции 056) — запрос падал 42703 на
+    // КАЖДОМ вызове, роут не отработал ни разу. is_published: снятый с
+    // витрины тур не должен отдавать календарь доступности (миграции 807/808/837).
     const tourQuery = `
-      SELECT id, title AS name, max_participants AS max_group_size, min_group_size, base_price AS price, is_active
+      SELECT id, title AS name, max_participants AS max_group_size,
+             min_participants AS min_group_size, base_price AS price, is_active
       FROM operator_tours
-      WHERE id = $1 AND deleted_at IS NULL
+      WHERE id = $1 AND is_published = true AND deleted_at IS NULL
     `;
     const tourResult = await query<TourCheckRow>(tourQuery, [id]);
 

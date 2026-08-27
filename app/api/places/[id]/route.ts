@@ -148,8 +148,11 @@ export async function GET(
 
     // Reviews for this place
     const reviewsResult = await query(
+      // rv.author_name первым: форма отзыва места пишет имя в эту колонку
+      // (миграция 165) БЕЗ user_id — прежний COALESCE только по users.name
+      // показывал «Турист» у каждого отзыва, живое имя не выводилось никогда.
       `SELECT rv.id, rv.rating, rv.comment, rv.created_at,
-         COALESCE(u.name, 'Турист') AS author_name
+         COALESCE(NULLIF(rv.author_name, ''), u.name, 'Турист') AS author_name
        FROM reviews rv
        LEFT JOIN users u ON u.id = rv.user_id
        WHERE rv.place_id = $1
