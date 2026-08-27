@@ -106,6 +106,12 @@ export const CRON_REGISTRY: CronEntry[] = [
 
   // ── Операции ─────────────────────────────────────────────────────────────
   {
+    key: 'volcano-merge-gate', label: 'Volcano OS Merge Gate',
+    description: 'Единственный human gate: readiness agent-PR, карточка решения, label needs-owner-merge, Telegram владельцу.',
+    workflow: 'volcano-merge-gate.yml', cron: '23,53 * * * *', schedule: 'каждые 30 мин + события PR',
+    everyMin: 30, tier: 'ops', agentId: 'merge_gate', triggerable: false,
+  },
+  {
     key: 'kernel-worker', label: 'Volcano OS Worker',
     description: 'Worker очереди ядра: одобренные инициативы → policy allow/deny → эффект с pre_commit-проверкой.',
     workflow: 'cron-kernel-worker.yml', cron: '9,39 * * * *', schedule: 'каждые 30 мин',
@@ -424,6 +430,8 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // ── Операции ────────────────────────────────────────────────────────────
   // Пустая очередь ядра — норма: инициативы появляются нерегулярно.
   'kernel-worker': 'normal',
+  // Нет открытых agent-PR — норма: merge-gate работает по мере появления.
+  'volcano-merge-gate': 'normal',
   // Ноль проблем со здоровьем системы и ноль сгоревших эко — норма.
   'health': 'normal',
   'eco-expire': 'normal',

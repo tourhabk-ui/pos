@@ -59,7 +59,9 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<string, readonly TaskState[]>>
   awaiting_approval: ['queued', 'rejected', 'cancelled'], // legacy-строки, новые не создаются
   queued:            ['running', 'cancelled'],
   running:           ['succeeded', 'awaiting_merge', 'failed_retryable', 'failed_terminal', 'cancelled'],
-  awaiting_merge:    ['succeeded', 'rejected', 'cancelled'],
+  // awaiting_merge → running: новый commit в готовый PR снимает readiness —
+  // агент снова дорабатывает; label и уведомление вернутся после зелёного CI.
+  awaiting_merge:    ['running', 'succeeded', 'rejected', 'cancelled'],
   failed_retryable:  ['queued', 'failed_terminal', 'cancelled'],
 };
 

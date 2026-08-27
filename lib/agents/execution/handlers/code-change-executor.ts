@@ -280,6 +280,12 @@ export async function executeCodeChange(task: ExecutionTask): Promise<ExecutionR
         '## Задание',
         fullDescription,
         '',
+        '## Риск',
+        'medium: правка одного файла агентом; поведение меняется только после merge человека.',
+        '',
+        '## Откат',
+        'git revert squash-коммита этого PR; миграций нет.',
+        '',
         '---',
         '*Создано автоматически. Проверь diff и нажми Merge если всё корректно.*',
         '*После мержа → автодеплой на Timeweb.*',
@@ -289,6 +295,12 @@ export async function executeCodeChange(task: ExecutionTask): Promise<ExecutionR
     });
 
     changes.push(`PR #${pr.number} создан → ${pr.html_url}`);
+
+    // Метка volcano-agent — по ней merge-gate ведёт readiness, карточку и
+    // kernel-задачу code.merge. Отказ метки не роняет создание PR (§4.0:
+    // не молчим — merge-gate доберёт PR sweep'ом по задаче ядра).
+    await ghPost(`/issues/${pr.number}/labels`, { labels: ['volcano-agent'] })
+      .catch((err) => console.error('[code-change] метка volcano-agent не поставлена:', err instanceof Error ? err.message : err));
 
     // ── Step 7: Telegram notification ─────────────────────────────────────────
     const tgToken  = process.env.TELEGRAM_BOT_TOKEN;
@@ -491,6 +503,12 @@ export async function executeNewPageCreate(task: ExecutionTask): Promise<Executi
         '## Описание',
         fullDescription,
         '',
+        '## Риск',
+        'low: новый файл, существующее поведение не меняется до merge человека.',
+        '',
+        '## Откат',
+        'git revert squash-коммита этого PR; миграций нет.',
+        '',
         '---',
         '*Создано автоматически. Проверь компонент и нажми Merge если всё корректно.*',
         '*После мержа → автодеплой на Timeweb.*',
@@ -500,6 +518,9 @@ export async function executeNewPageCreate(task: ExecutionTask): Promise<Executi
     });
 
     changes.push(`PR #${pr.number} создан → ${pr.html_url}`);
+
+    await ghPost(`/issues/${pr.number}/labels`, { labels: ['volcano-agent'] })
+      .catch((err) => console.error('[code-change] метка volcano-agent не поставлена:', err instanceof Error ? err.message : err));
 
     // ── Step 6: Telegram notification ─────────────────────────────────────
     const tgToken  = process.env.TELEGRAM_BOT_TOKEN;
