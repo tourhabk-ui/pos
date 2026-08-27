@@ -32,7 +32,6 @@ import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
 import { dataFreshness, freshnessDot } from '@/lib/home/data-freshness';
-import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
@@ -89,7 +88,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [plateIdx, setPlateIdx] = useState(0);
-  const [reportOpen, setReportOpen] = useState(false);
   const [sosOpen, setSosOpen] = useState(false);
   const [intent, setIntent] = useState('');
   const leadRef = useRef<HTMLDivElement | null>(null);
@@ -534,9 +532,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <b>работает без сети →</b>
           </a>
 
-          <button type="button" className="reportbtn" onClick={() => setReportOpen(true)}>
-            Сообщить о наблюдении <span>медведь · лавина · состояние тропы →</span>
-          </button>
+          {/* Кнопки создания наблюдения на главной больше НЕТ (владелец
+              27.08): наблюдение создаётся с экрана маршрута, где координаты
+              и офлайн-очередь система даёт сама — прежняя форма отсюда без
+              сети теряла текст. Жёсткая ссылка по той же причине, что у
+              навигатора выше. */}
+          <a href="/planning?mode=trail" className="reportbtn">
+            Сообщить о наблюдении <span>с экрана маршрута: фото · координаты · без сети →</span>
+          </a>
 
         </section>
 
@@ -687,9 +690,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
       </div>
 
-      {/* Сообщить о наблюдении (trail_reports) — восстановлено на v8 после свапа
-          мобильной Главной; шторка сама рендерит оверлей. */}
-      <TrailReportSheet open={reportOpen} onClose={() => setReportOpen(false)} />
+      {/* Шторки наблюдения здесь больше нет: создание переехало на экран
+          маршрута (ObservationSheet в полевом контуре, владелец 27.08). */}
 
       {/* Нижняя навигация — ЕДИНЫЙ BottomNav платформы (решение владельца
           2026-07-18). Собственный инлайновый таб-бар главной удалён редизайном

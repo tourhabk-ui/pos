@@ -24,10 +24,16 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
   rockfall: 'Камнепад',
   weather: 'Опасная погода',
   other: 'Другое',
+  // Категории полевой формы с экрана маршрута (владелец 27.08, миграция 917).
+  // Старые значения остаются: их используют радар и существующие записи.
+  animal: 'Животное',
+  plant: 'Растение',
+  hazard: 'Опасность',
+  trail: 'Состояние тропы',
 };
 
 const PostSchema = z.object({
-  report_type: z.enum(['bear', 'rockfall', 'weather', 'other']),
+  report_type: z.enum(['bear', 'rockfall', 'weather', 'other', 'animal', 'plant', 'hazard', 'trail']),
   text: z.string().trim().min(3, 'Опишите наблюдение (минимум 3 символа)').max(500),
   // Границы проверяются отдельно (withinKamchatka) — общий с гео-гейтом
   // маршрутов (migration 709) источник правды, не дублируем bbox здесь.

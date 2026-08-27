@@ -103,8 +103,12 @@ describe('PWA и фотографии', () => {
   });
 
   it('снимок сжимается на телефоне, а не отправляется оригиналом', () => {
-    expect(client).toContain('PHOTO_MAX_SIDE');
-    expect(client).toMatch(/toDataURL\('image\/jpeg', PHOTO_QUALITY\)/);
+    // Сжатие извлечено в общий модуль (перенос «Наблюдения» на экран
+    // маршрута, 27.08): оба полевых контура жмут фото ОДНИМ способом.
+    expect(client).toContain("from '@/lib/images/shrink-photo'");
+    const shared = readFileSync(join(process.cwd(), 'lib/images/shrink-photo.ts'), 'utf-8');
+    expect(shared).toContain('PHOTO_MAX_SIDE');
+    expect(shared).toMatch(/toDataURL\('image\/jpeg', PHOTO_QUALITY\)/);
   });
 
   it('очередь с фотографиями живёт в IndexedDB, не в localStorage', () => {

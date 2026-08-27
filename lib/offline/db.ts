@@ -93,6 +93,31 @@ interface KamchatourDB extends DBSchema {
     key: string;
     value: FieldPackRecord;
   };
+  trailObservations: {
+    key: string;
+    value: TrailObservationDraft;
+  };
+}
+
+/**
+ * Наблюдение с экрана маршрута, ожидающее отправки (владелец 27.08:
+ * «Наблюдение» переезжает с главной на карту маршрута).
+ *
+ * Тот же принцип, что у fieldChecks: СНАЧАЛА на диск, потом попытка
+ * отправить. Прежняя форма на главной при отсутствии сети просто теряла
+ * текст — в поле, где наблюдения и рождаются, это гарантированная потеря.
+ */
+export interface TrailObservationDraft {
+  /** Локальный ключ: время постановки + случайный хвост. */
+  id: string;
+  /** animal | plant | hazard | trail | other (+legacy bear/rockfall/weather). */
+  reportType: string;
+  text: string;
+  lat: number | null;
+  lng: number | null;
+  /** Снимки как base64 без префикса, уже сжатые (shrink-photo). */
+  photos: string[];
+  queuedAt: number;
 }
 
 /**
@@ -196,7 +221,10 @@ const DB_NAME = 'kamchatour-offline';
 // v6 — store fieldTracks: идущая запись трека. На диске, а не в памяти
 // вкладки: система выгружает вкладку без спроса, и полдня ходьбы не должны
 // пропасть от переключения на камеру.
-const DB_VERSION = 6;
+// v7 — store trailObservations: очередь наблюдений с экрана маршрута
+// (владелец 27.08). Прежняя форма на главной без сети теряла текст —
+// наблюдение рождается в поле, где сети чаще всего и нет.
+const DB_VERSION = 7;
 
 let _db: IDBPDatabase<KamchatourDB> | null = null;
 
@@ -228,6 +256,9 @@ export async function getDB(): Promise<IDBPDatabase<KamchatourDB>> {
       }
       if (!db.objectStoreNames.contains('fieldTracks')) {
         db.createObjectStore('fieldTracks', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('trailObservations')) {
+        db.createObjectStore('trailObservations', { keyPath: 'id' });
       }
     },
   });
@@ -281,6 +312,24 @@ export async function listFieldChecks(): Promise<FieldCheckQueueItem[]> {
 export async function deleteFieldCheck(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('fieldChecks', id);
+}
+
+// ─── Очередь наблюдений с экрана маршрута ────────────────────────────────────
+
+export async function queueTrailObservation(item: TrailObservationDraft): Promise<void> {
+  const db = await getDB();
+  await db.put('trailObservations', item);
+}
+
+export async function listTrailObservations(): Promise<TrailObservationDraft[]> {
+  const db = await getDB();
+  const all = await db.getAll('trailObservations');
+  return all.sort((a, b) => a.queuedAt - b.queuedAt);
+}
+
+export async function deleteTrailObservation(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('trailObservations', id);
 }
 
 // ─── Заготовка выхода ────────────────────────────────────────────────────────
