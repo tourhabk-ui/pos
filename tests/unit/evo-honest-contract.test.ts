@@ -18,6 +18,15 @@ vi.mock('@/lib/agents/run-logger', () => ({
   logAgentRun: (...args: unknown[]) => mockLogAgentRun(...args),
 }));
 
+// Kernel-адаптер здесь не под тестом (у него свой сторож agent-kernel.test.ts);
+// null-handle — легальный fail-soft путь, и контракт обязан отдавать
+// kernel_task_id: null честно, а не прятать поле.
+vi.mock('@/lib/agents/kernel/adapters/evo-run-task', () => ({
+  startEvoRunTask: vi.fn().mockResolvedValue(null),
+  finishEvoRunTask: vi.fn(),
+  failEvoRunTask: vi.fn(),
+}));
+
 const completedResult = {
   scan: {},
   evolution: {},
@@ -95,6 +104,8 @@ describe('GET /api/cron/evo: честный контракт результат�
       success: false,
       status: 'failed',
       run_logged: false,
+      kernel_task_id: null,
+      trace_id: null,
       error: 'orchestrator crashed',
     });
     expect(mockLogAgentRun).toHaveBeenCalledWith(

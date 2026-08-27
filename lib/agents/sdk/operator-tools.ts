@@ -12,6 +12,7 @@
 
 import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
+import { executeGovernedAction, hashInput } from '@/lib/agents/kernel';
 
 // ── My Tours ─────────────────────────────────────────────────
 
@@ -180,17 +181,32 @@ const updatePrice: SDKTool = {
       [tourId, operatorId],
     );
     if (check.rowCount === 0) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
-
     const oldPrice = check.rows[0].base_price;
-    await pool.query(
-      `UPDATE operator_tours SET base_price = $1, updated_at = NOW() WHERE id = $2 AND operator_id = $3`,
-      [newPrice, tourId, operatorId],
-    );
+
+    // Мутация — через ядро: задача, policy, события эффекта, trace.
+    // Ключа идемпотентности нет намеренно: команда целевого состояния сама
+    // идемпотентна, а статичный ключ навсегда запретил бы вернуть цену назад.
+    const gov = await executeGovernedAction({
+      principal: `operator:${operatorId}`,
+      capability: 'tour.update_price',
+      resource: { type: 'tour', id: String(tourId) },
+      inputHash: hashInput({ tourId, newPrice }),
+      execute: async () => {
+        await pool.query(
+          `UPDATE operator_tours SET base_price = $1, updated_at = NOW() WHERE id = $2 AND operator_id = $3`,
+          [newPrice, tourId, operatorId],
+        );
+      },
+      summarize: () => `цена тура ${tourId}: ${oldPrice} → ${newPrice}`,
+    });
+    if (!gov.ok) return JSON.stringify({ error: `Изменение не выполнено: ${gov.reason}` });
+
     return JSON.stringify({
       success: true,
       tour: check.rows[0].title,
       old_price: oldPrice,
       new_price: newPrice,
+      task_id: gov.taskId,
     });
   },
 };
@@ -223,33 +239,52 @@ const setPublished: SDKTool = {
     }
     const published = args.published;
 
-    const res = await pool.query(
-      `UPDATE operator_tours
-       SET is_published = $3, updated_at = NOW()
-       WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL
-       RETURNING id, title, is_published`,
-      [tourId, operatorId, published],
-    );
-    if (res.rowCount === 0) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
-    const row = res.rows[0];
+    // Мутация — через ядро (задача, policy, события эффекта, trace).
+    // Ключа идемпотентности нет намеренно: команда целевого состояния сама
+    // идемпотентна, а статичный ключ «tour:id:published» навсегда запретил
+    // бы опубликовать тур повторно после снятия.
+    const gov = await executeGovernedAction<{ title: string; is_published: boolean } | null>({
+      principal: `operator:${operatorId}`,
+      capability: 'tour.set_published',
+      resource: { type: 'tour', id: String(tourId) },
+      inputHash: hashInput({ tourId, published }),
+      execute: async () => {
+        const res = await pool.query(
+          `UPDATE operator_tours
+           SET is_published = $3, updated_at = NOW()
+           WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL
+           RETURNING id, title, is_published`,
+          [tourId, operatorId, published],
+        );
+        if (res.rowCount === 0) return null;
+        const row = res.rows[0];
 
-    // Аудит эффекта: кто, что, во что перевёл. Отказ записи не роняет
-    // действие, но и не молчит (§4.0). Колонки по миграции 059: у
-    // ai_actions_log есть action_type и metadata JSONB — agent_id/details
-    // там НЕТ (их пишет только код из ALLOWLIST фантомного сторожа).
-    await pool.query(
-      `INSERT INTO ai_actions_log (action_type, metadata)
-       VALUES ('set_tour_published', $1)`,
-      [JSON.stringify({ agent: 'operator_sdk', tour_id: tourId, operator_id: operatorId, published })],
-    ).catch((err) => {
-      console.error('[operator-tools] audit set_tour_published не записан:', err instanceof Error ? err.message : err);
+        // Аудит эффекта: кто, что, во что перевёл. Отказ записи не роняет
+        // действие, но и не молчит (§4.0). Колонки по миграции 059: у
+        // ai_actions_log есть action_type и metadata JSONB — agent_id/details
+        // там НЕТ (их пишет только код из ALLOWLIST фантомного сторожа).
+        await pool.query(
+          `INSERT INTO ai_actions_log (action_type, metadata)
+           VALUES ('set_tour_published', $1)`,
+          [JSON.stringify({ agent: 'operator_sdk', tour_id: tourId, operator_id: operatorId, published })],
+        ).catch((err) => {
+          console.error('[operator-tools] audit set_tour_published не записан:', err instanceof Error ? err.message : err);
+        });
+        return { title: row.title, is_published: row.is_published };
+      },
+      summarize: (row) => (row ? `тур ${tourId}: is_published=${row.is_published}` : `тур ${tourId} не найден`),
     });
+
+    if (!gov.ok) return JSON.stringify({ error: `Изменение не выполнено: ${gov.reason}` });
+    if (gov.duplicate) return JSON.stringify({ error: 'Повтор запроса: действие уже исполнено ранее' });
+    if (!gov.result) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
 
     return JSON.stringify({
       success: true,
-      tour: row.title,
-      is_published: row.is_published,
-      message: row.is_published ? 'Тур опубликован' : 'Тур снят с публикации',
+      tour: gov.result.title,
+      is_published: gov.result.is_published,
+      message: gov.result.is_published ? 'Тур опубликован' : 'Тур снят с публикации',
+      task_id: gov.taskId,
     });
   },
 };
