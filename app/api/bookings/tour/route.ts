@@ -72,6 +72,8 @@ export async function POST(request: NextRequest) {
       currency: string; operator_id: string;
       min_participants: number; max_participants: number;
       is_active: boolean;
+      is_published: boolean;
+      deleted_at: string | null;
       multi_day_count: number | null;
       duration_hours: number | null;
       duration_type: string | null;
@@ -79,6 +81,7 @@ export async function POST(request: NextRequest) {
     }>(
       `SELECT ot.id, ot.title, ot.base_price, ot.currency, ot.operator_id,
               ot.min_participants, ot.max_participants, ot.is_active,
+              ot.is_published, ot.deleted_at,
               ot.multi_day_count, ot.duration_hours, ot.duration_type,
               p.name AS operator_name,
               -- Запасное значение — единая ставка платформы (10%, решение
@@ -96,7 +99,10 @@ export async function POST(request: NextRequest) {
     }
     const tour = tourResult.rows[0];
 
-    if (!tour.is_active) {
+    // Снятый с витрины тур (is_published=false — миграции 807/808/837: демо,
+    // несезонные окна) и мягко удалённый (deleted_at) бронировать нельзя,
+    // даже по прямой ссылке: is_active при снятии часто остаётся true.
+    if (!tour.is_active || !tour.is_published || tour.deleted_at !== null) {
       await client.query('ROLLBACK');
       return NextResponse.json({ success: false, error: 'Тур недоступен для бронирования' }, { status: 400 });
     }
