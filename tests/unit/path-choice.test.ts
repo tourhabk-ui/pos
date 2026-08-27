@@ -95,9 +95,18 @@ describe('группировка по месту', () => {
 });
 
 describe('пикер поля выбирает от места', () => {
-  it('«Куда идём?» группирует выдачу правилом из lib, а не плоским списком', () => {
+  it('«Куда хотите пойти?» группирует выдачу по цели (Destination), не плоским списком', () => {
+    // Владелец 27.08: экран группирует через домен Destination
+    // (lib/on-route/destination.ts), который сам оборачивает эту функцию —
+    // прямого вызова groupRoutesByPlace в экране больше нет.
     const src = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
-    expect(src).toContain("from '@/lib/routes/path-choice'");
-    expect(src).toContain('groupRoutesByPlace(searchRoutes');
+    expect(src).toContain("from '@/lib/on-route/destination'");
+    expect(src).toContain('groupRoutesByDestination(searchRoutes');
+  });
+
+  it('домен Destination переиспользует эту группировку, не копирует правило', () => {
+    const dest = readFileSync(join(process.cwd(), 'lib/on-route/destination.ts'), 'utf-8');
+    expect(dest).toContain("from '@/lib/routes/path-choice'");
+    expect(dest).toContain('groupRoutesByPlace(routes');
   });
 });

@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
-  Check, ChevronRight, Navigation, MapPin,
+  Check, ChevronRight, ChevronLeft, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
   Trash2, Binoculars, MapPinPlus, Square, Route,
@@ -45,7 +45,7 @@ import {
   passportGradeLabel, passportGradeNote, type PassportGrade,
 } from '@/lib/routes/passport';
 import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
-import { groupRoutesByPlace } from '@/lib/routes/path-choice';
+import { groupRoutesByDestination, type Destination, type DestinationOption, type RouteOption } from '@/lib/on-route/destination';
 
 /** Вердикт черты в том виде, в каком он приходит с сервера. */
 interface PreviewNavigability {
@@ -118,6 +118,14 @@ interface RoutePreview {
   waypointNames?: string[];
   /** Набор высоты — участвует в сравнении путей (владелец 21.08). */
   elevationGainM?: number | null;
+  /**
+   * Личность путевых точек параллельно waypointNames — id/координаты
+   * places, не только имя (владелец 27.08: домен `Destination` требует
+   * `id/lat/lon` настоящего места). См. lib/on-route/destination.ts.
+   */
+  waypointIds?: (string | null)[];
+  waypointLats?: (number | null)[];
+  waypointLngs?: (number | null)[];
 }
 
 
@@ -361,6 +369,9 @@ function OnTrailTab() {
   // варианты смотрим на карте и только потом фиксируем маршрут.
   const [modalQuery, setModalQuery] = useState('');
   const [searchRoutes, setSearchRoutes] = useState<RoutePreview[]>([]);
+  // Destination-first (владелец 27.08): фиксированная карточка места, пока
+  // не выбран конкретный путь к ней. null — список карточек мест, не путей.
+  const [selectedDestination, setSelectedDestination] = useState<DestinationOption | null>(null);
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{
     id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
@@ -1425,6 +1436,7 @@ function OnTrailTab() {
     setShowRouteModal(false);
     setPreview(null);
     setModalQuery('');
+    setSelectedDestination(null);
     setWaypoints([]);
     setCurrentWpIdx(0);
     // Reset timer via ref — no effect restart, no sensor disruption
@@ -1456,6 +1468,15 @@ function OnTrailTab() {
           setSearchRoutes(rows.slice(0, 8).map((r) => {
             const row = r as Record<string, unknown>;
             const names = Array.isArray(row.waypoint_names) ? (row.waypoint_names as string[]) : [];
+            // Параллельно именам — их личность (владелец 27.08). Массив может
+            // отсутствовать (старый кэш ответа/семантическая ветка без
+            // обогащения) — тогда Destination.place для этого маршрута не
+            // разрешится, и путь честно уйдёт в «только названием».
+            const ids = Array.isArray(row.waypoint_ids) ? (row.waypoint_ids as (string | null)[]) : undefined;
+            const lats = Array.isArray(row.waypoint_lats)
+              ? (row.waypoint_lats as (string | null)[]).map(v => v == null ? null : Number(v)) : undefined;
+            const lngs = Array.isArray(row.waypoint_lngs)
+              ? (row.waypoint_lngs as (string | null)[]).map(v => v == null ? null : Number(v)) : undefined;
             return {
               id: String(row.id),
               title: String(row.title),
@@ -1467,6 +1488,9 @@ function OnTrailTab() {
               lineGrade: (row.line_grade as PassportGrade | null) ?? null,
               waypointNames: names,
               elevationGainM: row.elevation_gain_m != null ? Number(row.elevation_gain_m) : null,
+              waypointIds: ids,
+              waypointLats: lats,
+              waypointLngs: lngs,
             } satisfies RoutePreview;
           }));
         })
@@ -1475,6 +1499,28 @@ function OnTrailTab() {
     }, 350);
     return () => clearTimeout(modalSearchRef.current);
   }, [modalQuery, pickerVisible]);
+
+  // Адаптер домена Destination к существующей строке пути (владелец 27.08):
+  // RouteOption ещё не несёт фото/длительности в днях — честно null, не
+  // выдумка; их появление в паспорте маршрута — отдельный вопрос.
+  function routeOptionToPreview(o: RouteOption): RoutePreview {
+    return {
+      id: o.id,
+      title: o.title,
+      difficulty: o.difficulty,
+      durationDays: null,
+      distanceKm: o.distanceKm,
+      imageUrl: null,
+      via: null,
+      lineGrade: (o.lineGrade as PassportGrade | null) ?? null,
+      waypointNames: o.waypointNames,
+      elevationGainM: o.elevationGainM,
+    };
+  }
+
+  function destinationTitle(d: Destination): string {
+    return d.kind === 'place' ? d.title : (d.title ?? 'Точка на карте');
+  }
 
   // Строка пути в выборе: род линии, длина, сложность. Одна на обе секции —
   // группы мест и плоский список рекомендуемых.
@@ -1707,7 +1753,7 @@ function OnTrailTab() {
                       <input
                         type="text"
                         value={modalQuery}
-                        onChange={e => setModalQuery(e.target.value)}
+                        onChange={e => { setModalQuery(e.target.value); setSelectedDestination(null); }}
                         placeholder="Название места: Авачинский, Толбачик…"
                         className="w-full px-3 py-2.5 rounded-xl text-sm mb-3"
                         style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
@@ -1726,10 +1772,12 @@ function OnTrailTab() {
                       ) : (
                         <div>
                           {modalQuery.trim().length >= 2 ? (
-                            /* ── Выбор от МЕСТА (владелец 20.08): сначала место,
-                                под ним — пути к нему, отсортированные по роду
-                                линии и длине. Совпавшие только названием — своей
-                                секцией в конце, честно подписанной. ── */
+                            /* ── Сначала цель, потом путь (владелец 27.08):
+                                совпавшее место — отдельная карточка ЦЕЛИ, а
+                                непроверенная линия — вариант пути ВНУТРИ неё,
+                                не сама цель. Совпавшие только названием
+                                маршрута — своей секцией, честно подписанной:
+                                настоящей цели за ними нет. ── */
                             searchRoutes.length === 0 ? (
                               <div>
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
@@ -1739,22 +1787,75 @@ function OnTrailTab() {
                                   {searching ? 'Секунду…' : 'Ничего не нашлось — попробуйте другое место'}
                                 </div>
                               </div>
-                            ) : (
-                              <div className="space-y-4">
-                                {groupRoutesByPlace(searchRoutes, modalQuery.trim()).map(g => (
-                                  <div key={g.place ?? '__title__'}>
+                            ) : (() => {
+                              const { destinations, titleOnly } = groupRoutesByDestination(searchRoutes, modalQuery.trim());
+
+                              if (selectedDestination) {
+                                return (
+                                  <div>
+                                    <button onClick={() => setSelectedDestination(null)}
+                                      className="flex items-center gap-1 text-xs font-semibold mb-3"
+                                      style={{ color: 'var(--ocean)' }}>
+                                      <ChevronLeft className="w-3.5 h-3.5" /> К местам
+                                    </button>
+                                    <p className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
+                                      {destinationTitle(selectedDestination.destination)}
+                                    </p>
                                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                                      {g.place
-                                        ? `${g.place} · ${g.routes.length} ${plural(g.routes.length, 'путь', 'пути', 'путей')}`
-                                        : 'Совпали названием маршрута'}
+                                      {selectedDestination.routeOptions.length} {plural(selectedDestination.routeOptions.length, 'путь', 'пути', 'путей')}
                                     </p>
                                     <div className="space-y-2">
-                                      {g.routes.map(r => renderPathRow(r))}
+                                      {selectedDestination.routeOptions.map(o => renderPathRow(routeOptionToPreview(o)))}
                                     </div>
                                   </div>
-                                ))}
-                              </div>
-                            )
+                                );
+                              }
+
+                              return (
+                                <div className="space-y-4">
+                                  {destinations.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                                        Места
+                                      </p>
+                                      <div className="space-y-2">
+                                        {destinations.map(d => (
+                                          <button key={d.destination.kind === 'place' ? d.destination.id : `${d.destination.lat},${d.destination.lon}`}
+                                            onClick={() => setSelectedDestination(d)}
+                                            className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
+                                            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                                                {destinationTitle(d.destination)}
+                                              </p>
+                                              <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                                {d.routeOptions.length} {plural(d.routeOptions.length, 'путь', 'пути', 'путей')}
+                                              </p>
+                                            </div>
+                                            <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {titleOnly.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                                        Совпали названием маршрута
+                                      </p>
+                                      <div className="space-y-2">
+                                        {titleOnly.map(o => renderPathRow(routeOptionToPreview(o)))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {destinations.length === 0 && titleOnly.length === 0 && (
+                                    <div className="text-[var(--text-muted)] text-sm text-center py-6">
+                                      Ничего не нашлось — попробуйте другое место
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()
                           ) : (
                             <div>
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
@@ -2645,13 +2746,13 @@ function OnTrailTab() {
       {/* Навигаторный выбор маршрута: место → варианты → превью на карте → фиксация */}
       {showRouteModal && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
-          onClick={() => { setShowRouteModal(false); setPreview(null); }}>
+          onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); }}>
           <div className="rounded-t-2xl p-4 max-h-[85vh] overflow-y-auto"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-[var(--text-primary)] text-base">Куда хотите пойти?</h3>
-              <button onClick={() => { setShowRouteModal(false); setPreview(null); }}
+              <button onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); }}
                 className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }}>
                 <X className="w-4 h-4 text-[var(--text-muted)]" />
               </button>
