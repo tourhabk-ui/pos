@@ -70,13 +70,12 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          python3 -c "
-import json
-job = json.load(open('/tmp/review-job.json'))
-result = json.load(open('/tmp/review-result.json'))
-result['review_files'] = job.get('files', [])
-json.dump(result, open('/tmp/publish-body.json', 'w'))
-"
+          # jq одной строкой, а не python-heredoc: многострочный python внутри
+          # `run: |` с кодом от нулевой колонки РАЗРЫВАЛ YAML-блок — файл не
+          # парсился, workflow не запускался вовсе (ни разписание, ни маркер),
+          # а каждый push в ЛЮБУЮ ветку двое суток рождал красный прогон-огрызок
+          # с нулём джобов. Сторож: tests/unit/workflow-yaml-valid.test.ts.
+          jq -s '.[1] + {review_files: (.[0].files // [])}' /tmp/review-job.json /tmp/review-result.json > /tmp/publish-body.json
           CODE=$(curl -sS -o /tmp/publish-resp.json -w '%{http_code}' --max-time 60 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json" \
