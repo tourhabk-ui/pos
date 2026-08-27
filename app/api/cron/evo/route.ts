@@ -14,6 +14,7 @@ import { runEvoOrchestrator } from '@/lib/agents/orchestrator';
 import { buildEvoAlert } from '@/lib/agents/evo/alert';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
+import { startEvoRunTask, finishEvoRunTask, failEvoRunTask } from '@/lib/agents/kernel/adapters/evo-run-task';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -33,8 +34,14 @@ export async function GET(request: NextRequest) {
   const scanType = request.nextUrl.searchParams.get('type') ?? 'full';
   const startedAt = new Date();
 
+  // Kernel-задача прогона: durable identity + стадии событиями. Fail-soft —
+  // отказ kernel не роняет крон, но виден: kernel_task_id: null в ответе.
+  const kernelHandle = await startEvoRunTask(scanType);
+
   try {
     const result = await runEvoOrchestrator(scanType);
+
+    if (kernelHandle) await finishEvoRunTask(kernelHandle, result);
 
     const success = result.errors.length === 0;
     const status = success ? 'completed' : 'partial';
@@ -56,8 +63,16 @@ export async function GET(request: NextRequest) {
 
     // Partial — полезный прогон, поэтому HTTP 200 сохраняем. Но контракт не
     // врёт: workflow обязан увидеть success=false/status=partial и покраснеть.
-    return NextResponse.json({ success, status, run_logged: runLogged, ...result });
+    return NextResponse.json({
+      success,
+      status,
+      run_logged: runLogged,
+      kernel_task_id: kernelHandle?.taskId ?? null,
+      trace_id: kernelHandle?.traceId ?? null,
+      ...result,
+    });
   } catch (err) {
+    if (kernelHandle) await failEvoRunTask(kernelHandle, err instanceof Error ? err.message : String(err));
     const runLogged = await logAgentRun({
       agent_id: 'evo',
       status: 'failed',
@@ -72,6 +87,8 @@ export async function GET(request: NextRequest) {
         success: false,
         status: 'failed',
         run_logged: runLogged,
+        kernel_task_id: kernelHandle?.taskId ?? null,
+        trace_id: kernelHandle?.traceId ?? null,
         error: err instanceof Error ? err.message : 'Unknown error',
       },
       { status: 500 },

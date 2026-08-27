@@ -1079,7 +1079,55 @@ export async function executeInitiative(task: ExecutionTask): Promise<ExecutionR
     // Не прерываем фактическое выполнение, но финальная запись результата обязательна.
   }
 
-  const result = await executor(task);
+  // Исполнение — через ядро (Kernel v1, контур approval executor):
+  // approve НЕ исполняет — исполнитель заводит задачу, ядро повторно
+  // проверяет policy перед эффектом, а ключ идемпотентности по approval_id
+  // запрещает второе исполнение УЖЕ УСПЕШНОЙ инициативы (после провала ключ
+  // не блокирует — ретрай заводит новую задачу с тем же ключом).
+  const { executeGovernedAction, hashInput } = await import('@/lib/agents/kernel');
+  let executorResult: ExecutionResult | null = null;
+  const gov = await executeGovernedAction<ExecutionResult>({
+    principal: 'admin:batch-executor',
+    capability: 'initiative.execute',
+    resource: { type: 'agent_approval', id: task.approval_id },
+    idempotencyKey: `initiative:${task.approval_id}`,
+    inputHash: hashInput({ action_type: task.action_type, context: task.context }),
+    execute: async () => {
+      const r = await executor(task);
+      executorResult = r;
+      if (!r.success) {
+        // Провал инициативы = провал задачи ядра: kernel-задача не имеет
+        // права значиться succeeded, когда исполнитель вернул ошибки.
+        throw new Error(r.errors[0] ?? 'инициатива провалена без описания');
+      }
+      return r;
+    },
+    summarize: (r) => `${task.action_type}: изменений ${r.changes_made.length}, ошибок ${r.errors.length}`,
+  });
+
+  let result: ExecutionResult;
+  if (executorResult) {
+    // Исполнитель отработал (успех или содержательный провал) — его отчёт
+    // и есть результат; ядро зафиксировало исход своей задачей.
+    result = executorResult;
+  } else if (gov.ok && gov.duplicate) {
+    result = {
+      success: true,
+      changes_made: ['Инициатива уже исполнена ранее — повтор не выполнялся (kernel idempotency)'],
+      errors: [],
+      rollback_available: false,
+      verification_passed: true,
+    };
+  } else {
+    // До исполнителя не дошло: policy/захват/конфликт идемпотентности.
+    result = {
+      success: false,
+      changes_made: [],
+      errors: [gov.ok ? 'ядро не вернуло результат' : gov.reason],
+      rollback_available: false,
+      verification_passed: false,
+    };
+  }
 
   // AUTO-RETRY: при провале сбрасываем в assigned если retry_count < 2 (Wishlist #3)
   try {
