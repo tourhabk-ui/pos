@@ -175,7 +175,7 @@ export function ObservationSheet({ open, onClose, lat, lng }: ObservationSheetPr
   const online = typeof navigator === 'undefined' || navigator.onLine;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" role="dialog" aria-label="Новое наблюдение">
+    <div className="fixed inset-0 z-[1100] flex items-end" role="dialog" aria-label="Новое наблюдение">
       <button className="absolute inset-0 bg-black/50" onClick={onClose} aria-label="Закрыть" />
       <div
         className="relative w-full max-h-[85vh] overflow-y-auto rounded-t-2xl border-t p-5"

@@ -614,7 +614,11 @@ export function FieldCheckClient() {
         hint: recorder.recording
           ? (recorder.silent
               ? 'сигнала нет'
-              : `${recorder.summary.points} точек · ${recorder.summary.lengthKm} км`)
+              : [
+                  recorder.summary.durationMin != null ? `${recorder.summary.durationMin} мин` : null,
+                  `${recorder.summary.points} точек`,
+                  `${recorder.summary.lengthKm} км`,
+                ].filter(Boolean).join(' · '))
           : (recorder.restored ? 'есть незаконченная' : null),
       });
     }
