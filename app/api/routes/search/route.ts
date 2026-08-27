@@ -19,6 +19,16 @@ interface RouteRow {
   elevation_gain_m: number | null;
   zone: string | null;
   waypoint_names: string[] | null;
+  /**
+   * Настоящая личность путевых точек — id/координаты places, не только
+   * имя (владелец 27.08: домен `Destination = place | coordinate` требует
+   * `id/lat/lon` места, а не строку текста). Параллельны waypoint_names
+   * (тот же FILTER/ORDER BY в SQL) — элемент i одного массива относится
+   * к элементу i остальных.
+   */
+  waypoint_ids: string[] | null;
+  waypoint_lats: string[] | null;
+  waypoint_lngs: string[] | null;
   has_line: boolean;
   geometry_source: string | null;
   similarity?: number;
@@ -51,7 +61,10 @@ const ENRICH_SQL = `
     r.zone,
     (r.geometry IS NOT NULL) AS has_line,
     r.geometry->>'source' AS geometry_source,
-    ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names
+    ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names,
+    ARRAY_AGG(p.id ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_ids,
+    ARRAY_AGG(p.lat ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lats,
+    ARRAY_AGG(p.lng ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lngs
   FROM kamchatka_routes r
   LEFT JOIN route_waypoints rw ON rw.route_id = r.id
   LEFT JOIN places p ON p.id = rw.place_id
@@ -117,7 +130,10 @@ export async function GET(req: NextRequest) {
          r.zone,
          (r.geometry IS NOT NULL) AS has_line,
          r.geometry->>'source' AS geometry_source,
-         ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names
+         ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names,
+         ARRAY_AGG(p.id ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_ids,
+         ARRAY_AGG(p.lat ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lats,
+         ARRAY_AGG(p.lng ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lngs
        FROM kamchatka_routes r
        LEFT JOIN route_waypoints rw ON rw.route_id = r.id
        LEFT JOIN places p ON p.id = rw.place_id

@@ -55,6 +55,26 @@ describe('пустое состояние — инструмент выбора 
   });
 });
 
+describe('сначала цель, потом путь (домен Destination, владелец 27.08)', () => {
+  it('результат поиска группируется через groupRoutesByDestination, не плоским списком', () => {
+    expect(TRAIL).toContain("from '@/lib/on-route/destination'");
+    expect(TRAIL).toContain('groupRoutesByDestination(searchRoutes, modalQuery.trim())');
+  });
+
+  it('выбор цели фиксирует карточку места — состояние сбрасывается при новом поиске/закрытии', () => {
+    expect(TRAIL).toContain('const [selectedDestination, setSelectedDestination] = useState<DestinationOption | null>(null)');
+    // Смена запроса, выбор маршрута и закрытие пикера не должны оставлять
+    // старую цель зафиксированной поверх нового контекста поиска.
+    expect(TRAIL.match(/setSelectedDestination\(null\)/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('внутри зафиксированной цели путь рендерится тем же renderPathRow — не отдельной копией', () => {
+    const at = TRAIL.indexOf('if (selectedDestination) {');
+    expect(at).toBeGreaterThan(0);
+    expect(TRAIL.slice(at, at + 1500)).toContain('renderPathRow(routeOptionToPreview(o))');
+  });
+});
+
 describe('семантика «места» разведена: цель маршрута vs полевая находка', () => {
   it('полевое действие переименовано в «Сообщить о месте»', () => {
     expect(TRAIL).toContain("label: 'Сообщить о месте'");
