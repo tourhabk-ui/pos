@@ -36,8 +36,12 @@ describe('полоса действий', () => {
     expect(client).toMatch(/if \(fix !== null\) \{\s*list\.push/);
   });
 
-  it('идущая запись показывает точки и километры', () => {
-    expect(client).toContain('${recorder.summary.points} точек · ${recorder.summary.lengthKm} км');
+  it('идущая запись показывает таймер, точки и километры', () => {
+    // Таймер добавлен по доке владельца 27.08 (запись с таймером и
+    // дистанцией); правило прежнее — идущая запись видна числами.
+    expect(client).toContain('${recorder.summary.durationMin} мин');
+    expect(client).toContain('${recorder.summary.points} точек');
+    expect(client).toContain('${recorder.summary.lengthKm} км');
   });
 
   it('молчание прибора говорится словом, а не скрывается', () => {

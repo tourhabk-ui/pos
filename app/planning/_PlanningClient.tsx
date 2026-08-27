@@ -1681,10 +1681,15 @@ function OnTrailTab() {
           if (recorder.recording) { void stopAndSendTrack(); return; }
           recorder.start(activeRouteTitle || 'На маршруте');
         },
+        // Таймер + дистанция (док владельца): идущая запись видна числами.
         hint: recorder.recording
           ? (recorder.silent
               ? 'сигнала нет'
-              : `${recorder.summary.points} тчк · ${recorder.summary.lengthKm.toFixed(1)} км`)
+              : [
+                  recorder.summary.durationMin != null ? `${recorder.summary.durationMin} мин` : null,
+                  `${recorder.summary.points} тчк`,
+                  `${recorder.summary.lengthKm.toFixed(1)} км`,
+                ].filter(Boolean).join(' · '))
           : (recorder.restored ? 'есть недописанная' : null),
       });
     }
@@ -2422,11 +2427,18 @@ function OnTrailTab() {
             <X className="w-5 h-5" />
           </button>
           {mapMarkers.length === 0 && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm whitespace-nowrap"
+            <div className="absolute bottom-32 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm whitespace-nowrap"
               style={{ background: 'rgba(13,17,23,0.9)', color: 'var(--text-muted)', border: '1px solid #30363d' }}>
               Маршрут не выбран — карта без трека
             </div>
           )}
+          {/* Карта — рабочая поверхность (мокап владельца): та же панель
+              полевых действий, что на приборном экране, — не копия, тот же
+              fieldActions. Наблюдение с карты открывает ту же шторку. */}
+          <div className="absolute inset-x-0 bottom-0 z-[1001] px-4"
+            style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
+            <FieldActionBar actions={fieldActions} error={fieldBarError} />
+          </div>
         </div>
       )}
 
