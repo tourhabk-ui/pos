@@ -7,7 +7,7 @@ import {
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, MapPin, Cpu,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
-  Trash2, Webhook, Eye,
+  Trash2, Webhook, Eye, Gauge,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
@@ -58,6 +58,9 @@ const SIDEBAR_ITEMS = [
 
   // AI
   { href: '/hub/admin/agents', label: 'AI и автоматизации', icon: Zap, section: 'AI' },
+  // Кокпит ядра (P3): задачи/события kernel и «Ждут моего решения». Только
+  // просмотр — решения по agent-PR принимаются в GitHub, не здесь.
+  { href: '/hub/admin/volcano', label: 'Работа Volcano OS', icon: Gauge, section: 'AI' },
   { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
   { href: '/hub/admin/evo/models', label: 'Модели эволюции', icon: Cpu, section: 'AI' },
   { href: '/hub/admin/brain', label: 'Volcano Brain', icon: Brain, section: 'AI' },
