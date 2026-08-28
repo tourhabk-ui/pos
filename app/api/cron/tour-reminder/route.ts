@@ -7,7 +7,11 @@
  *   - Совет по одежде (по погоде Камчатки)
  *   - Предупреждения МЧС / вулканическая активность
  *
- * Только для бронирований через бот (metadata.tg_chat_id заполнен).
+ * Для бронирований через бот (metadata.tg_chat_id) и, с 28.08 (issue #1422,
+ * «гостевой опыт в брони»), для броней с сайта под аккаунтом с привязанным
+ * users.telegram_chat_id — раньше напоминание получали только гости бота,
+ * хотя у брони с сайта тот же Telegram есть, просто известен через другую
+ * колонку. У кого нет ни того, ни другого — честно нет канала, не шлём.
  * После отправки ставит reminder_sent_24h = true.
  */
 
@@ -118,20 +122,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Туры на завтра с chat_id
+  // Туры на завтра с chat_id — из бота (metadata) либо из привязанного
+  // аккаунта (users.telegram_chat_id, если брони с сайта). Бот в приоритете:
+  // если бронь пришла из бота, там тот же чат, что и в metadata.
   const { rows: bookings } = await pool.query<BookingRow>(`
     SELECT ob.id, ob.tourist_name, ob.booking_date::text, ob.participants,
            ot.title AS tour_title, ot.activity_type, ot.location_name,
            ot.difficulty,
-           (ob.metadata->>'tg_chat_id')::bigint AS tg_chat_id,
-           ob.metadata->>'platform' AS platform
+           COALESCE((ob.metadata->>'tg_chat_id')::bigint, u.telegram_chat_id) AS tg_chat_id,
+           COALESCE(ob.metadata->>'platform', 'telegram') AS platform
     FROM operator_bookings ob
     JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+    LEFT JOIN users u ON u.id = ob.user_id
     WHERE ob.booking_date = CURRENT_DATE + INTERVAL '1 day'
       AND ob.booking_status IN ('confirmed', 'pending_payment')
       AND ob.reminder_sent_24h = false
       AND ob.deleted_at IS NULL
-      AND ob.metadata->>'tg_chat_id' IS NOT NULL
+      AND (ob.metadata->>'tg_chat_id' IS NOT NULL OR u.telegram_chat_id IS NOT NULL)
   `);
 
   if (bookings.length === 0) {
