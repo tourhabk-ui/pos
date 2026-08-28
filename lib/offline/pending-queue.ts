@@ -13,6 +13,20 @@ export interface PendingSOS {
   accuracy: number | null;
   tourist_name: string | null;
   tourist_phone: string | null;
+  /** Текст пострадавшего — QR-эстафета и меш переносят его целиком. */
+  message?: string | null;
+  /**
+   * Чужой SOS, принятый на хранение (QR-эстафета или офлайн-ретранслятор
+   * меша). Несёт sos_id пострадавшего — флаш такого элемента идёт через
+   * /api/mesh/sos-relay: там дедуп по sos_id (несколько человек могли
+   * отсканировать один QR) и синтетический IP жертвы, чтобы rate-limit
+   * канонического роута не спутал ретранслятора с пострадавшим.
+   */
+  relay?: {
+    sos_id: string;
+    relayed_by: string;
+    origin_device?: string;
+  };
 }
 
 async function getDB() {
@@ -81,6 +95,43 @@ export async function flushPendingItems(
   return { sent, kept };
 }
 
+/**
+ * Тело и адрес отправки элемента очереди. Чужой SOS (relay) идёт через
+ * /api/mesh/sos-relay — дедуп по sos_id; свой — в канонический роут.
+ * Чистая функция: её видом занимается тест, сетью — flushPendingSOS.
+ */
+export function requestFor(item: PendingSOS): { url: string; body: string } {
+  if (item.relay) {
+    return {
+      url: '/api/mesh/sos-relay',
+      body: JSON.stringify({
+        sos_id: item.relay.sos_id,
+        relayed_by: item.relay.relayed_by,
+        origin_device: item.relay.origin_device,
+        sos: {
+          lat: item.lat,
+          lng: item.lng,
+          accuracy: item.accuracy,
+          message: item.message ?? null,
+          tourist_name: item.tourist_name,
+          tourist_phone: item.tourist_phone,
+        },
+      }),
+    };
+  }
+  return {
+    url: '/api/safety/sos',
+    body: JSON.stringify({
+      lat: item.lat,
+      lng: item.lng,
+      accuracy: item.accuracy,
+      message: item.message ?? undefined,
+      tourist_name: item.tourist_name,
+      tourist_phone: item.tourist_phone,
+    }),
+  };
+}
+
 export async function flushPendingSOS(): Promise<{ sent: number; kept: number }> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return { sent: 0, kept: 0 };
@@ -91,16 +142,11 @@ export async function flushPendingSOS(): Promise<{ sent: number; kept: number }>
   return flushPendingItems(
     items,
     async (item) => {
-      const res = await fetch('/api/safety/sos', {
+      const { url, body } = requestFor(item);
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lat: item.lat,
-          lng: item.lng,
-          accuracy: item.accuracy,
-          tourist_name: item.tourist_name,
-          tourist_phone: item.tourist_phone,
-        }),
+        body,
       });
       return { ok: res.ok, status: res.status };
     },

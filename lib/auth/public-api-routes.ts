@@ -32,6 +32,12 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/ai/health': ['GET'],
   '/api/agents/health': ['GET'],       // agent system health (lightly protected via HEALTH_SECRET)
   '/api/safety/sos': 'ALL',         // SOS distress signal — must remain public
+  // Меш и QR-эстафета SOS — анонимные by design: попутчик, доставляющий
+  // чужой сигнал, аккаунта может не иметь, а пострадавший — не быть
+  // залогиненным. До 28.08 префикса тут не было ВООБЩЕ: Edge отдавал 401
+  // на SSE-сигналинг и ретрансляцию всем гостям — меш для анонимов был
+  // мёртв молча. Внутри роутов rate-limit и дедуп по sos_id.
+  '/api/mesh': ['GET', 'POST'],
   '/api/safety/register': ['POST'], // Route registration before hike — must remain public (safety feature)
   '/api/safety/rescue-chat': ['POST'], // AI Спасатель (requires auth inside handler)
   '/api/safety/seismic':    ['GET'],  // публичные сейсмические данные (КБГС РАН / USGS)
