@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen } from 'lucide-react';
+import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
@@ -200,6 +200,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<RescueMsg[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [checkinState, setCheckinState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -226,6 +227,33 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   // собственной лентой предупреждений (полевой скриншот 10.08).
   const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level), live?.safety.alerts ?? []);
   const volcanicActive = volcanic.filter(ev => ev.active !== false).length;
+
+  const handleCheckin = useCallback(() => {
+    if (checkinState === 'sending') return;
+    setCheckinState('sending');
+
+    const submit = (lat: number | null, lng: number | null) => {
+      fetch('/api/safety/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng }),
+      })
+        .then(res => setCheckinState(res.ok ? 'sent' : 'error'))
+        .catch(() => setCheckinState('error'));
+    };
+
+    // Геолокация необязательна: отказ или её отсутствие — законное
+    // состояние (§4.0), чек-ин всё равно уходит, просто без координат.
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => submit(pos.coords.latitude, pos.coords.longitude),
+        () => submit(null, null),
+        { timeout: 4000 },
+      );
+    } else {
+      submit(null, null);
+    }
+  }, [checkinState]);
 
   const sendRescueMessage = useCallback(async () => {
     const text = chatInput.trim();
@@ -410,6 +438,26 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           })}
         </div>
       ) : null}
+
+      {/* Чек-ин — мягкий сигнал, НЕ SOS. SOS — только EmergencyAction в шапке. */}
+      <button
+        onClick={handleCheckin}
+        disabled={checkinState === 'sending' || checkinState === 'sent'}
+        className="ds-card"
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 20,
+          border: 'none', textAlign: 'left', cursor: checkinState === 'sent' ? 'default' : 'pointer',
+          opacity: checkinState === 'sending' ? 0.7 : 1,
+        }}
+      >
+        <CheckCircle2 className="w-5 h-5" style={{ color: checkinState === 'sent' ? 'var(--success)' : 'var(--ocean)', flexShrink: 0 }} />
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+          {checkinState === 'sent' ? 'Отметка отправлена' : checkinState === 'sending' ? 'Отправляем...' : 'Отметить: я в порядке'}
+        </span>
+        {checkinState === 'error' && (
+          <span style={{ fontSize: 11, color: 'var(--danger)' }}>Не отправилось, попробуйте ещё раз</span>
+        )}
+      </button>
 
       {/* Сейсмика */}
       <div className="ds-card" style={{ marginBottom: 12, overflow: 'hidden' }}>

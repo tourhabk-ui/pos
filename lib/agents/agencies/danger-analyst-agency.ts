@@ -17,6 +17,8 @@ import { query } from '@/lib/database';
 import { callAIWithModel } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getModelForAgent } from '@/lib/ai/agent-models';
+import { sendPushBroadcast } from '@/lib/notifications/web-push';
+import { standDownCopy } from '@/lib/services/safety/push-copy';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -148,6 +150,33 @@ async function loadZoneData(zone: Zone): Promise<ZoneRawData> {
     active_tours: parseInt(tourist_row?.tours ?? '0'),
     high_risk_routes: parseInt(tourist_row?.high_risk ?? '0'),
   };
+}
+
+const ELEVATED: ReadonlyArray<ZoneAssessment['risk_level']> = ['high', 'critical'];
+
+/**
+ * true — ровно на границе high/critical → ниже. Чистая функция: судьба
+ * прогона, отправлять ли stand-down push, не зависит ни от чего, кроме двух
+ * соседних значений risk_level (issue #1420).
+ */
+export function isStandDownTransition(
+  previous: ZoneAssessment['risk_level'] | null,
+  current: ZoneAssessment['risk_level'],
+): boolean {
+  if (previous === null) return false;
+  return ELEVATED.includes(previous) && !ELEVATED.includes(current);
+}
+
+/**
+ * risk_level зоны из ПРЕДЫДУЩЕГО прогона (до вставки текущей оценки). `null`
+ * — оценок ещё не было, это не «спокойно», переход посчитать не из чего.
+ */
+async function getPreviousRiskLevel(zone: Zone): Promise<ZoneAssessment['risk_level'] | null> {
+  const result = await query<{ risk_level: ZoneAssessment['risk_level'] }>(
+    `SELECT risk_level FROM danger_assessments WHERE zone = $1 ORDER BY assessed_at DESC LIMIT 1`,
+    [zone],
+  );
+  return result.rows[0]?.risk_level ?? null;
 }
 
 function extractMagnitude(title: string): number | undefined {
@@ -296,15 +325,20 @@ export async function runDangerAnalysis(): Promise<{
   high_risk_zones: Zone[];
   total_tourists_at_risk: number;
   errors: string[];
+  stand_down_zones: Zone[];
 }> {
   const assessments: ZoneAssessment[] = [];
   const errors: string[] = [];
+  const standDownZones: Zone[] = [];
 
   for (const zone of ZONES) {
     try {
       const data = await loadZoneData(zone);
       const quickScore = quickRiskScore(data);
       const level = riskLevel(quickScore);
+      // Перед вставкой новой оценки — снимок предыдущей: она уедет со
+      // второго места, как только появится текущая строка.
+      const previousLevel = await getPreviousRiskLevel(zone);
 
       // AI-анализ для зон с ненулевым риском
       let analysisText: string;
@@ -343,6 +377,35 @@ export async function runDangerAnalysis(): Promise<{
 
       await saveAssessment(assessment);
       assessments.push(assessment);
+
+      // Слой ПОСЛЕ тревоги (issue #1420): зона была high/critical и
+      // перестала ею быть — сообщаем об этом, а не оставляем крайним
+      // известием туристу тревогу с командой «уходите». Ровно один раз на
+      // переход: со следующего прогона previousLevel уже не элевейтед.
+      if (isStandDownTransition(previousLevel, level)) {
+        try {
+          const copy = standDownCopy(ZONE_NAMES[zone]);
+          const result = await sendPushBroadcast({
+            title: copy.title,
+            body: copy.body,
+            url: '/safety',
+            tag: `stand-down-${zone}`,
+          });
+          // Ноль подписок — некому доставлять, но это не ошибка отправки:
+          // переход уже зафиксирован строкой assessment, повторно эта же
+          // граница не сработает. Отказ доставки при живых подписках — уже
+          // повод в лог: тихая недоставка «всё чисто» безопаснее прячется,
+          // чем недоставка тревоги, но не должна проходить незамеченной.
+          if (result.total > 0 && result.sent === 0) {
+            console.error('[danger-analyst] stand-down push: подписок', result.total, 'доставлено 0, зона', zone);
+          } else if (result.sent > 0) {
+            standDownZones.push(zone);
+          }
+        } catch (err) {
+          console.error('[danger-analyst] stand-down push не отправлен:', zone,
+            err instanceof Error ? err.message : err);
+        }
+      }
     } catch (e) {
       errors.push(`Zone ${zone}: ${(e as Error).message}`);
     }
@@ -354,7 +417,10 @@ export async function runDangerAnalysis(): Promise<{
 
   const totalAtRisk = assessments.reduce((s, a) => s + a.tourists_at_risk, 0);
 
-  return { assessments, high_risk_zones: highRiskZones, total_tourists_at_risk: totalAtRisk, errors };
+  return {
+    assessments, high_risk_zones: highRiskZones, total_tourists_at_risk: totalAtRisk, errors,
+    stand_down_zones: standDownZones,
+  };
 }
 
 // ── Получить актуальную оценку для конкретной зоны ───────────────────────

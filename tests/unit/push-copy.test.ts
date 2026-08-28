@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pushCopy, PUSH_TYPES_WITH_INSTRUCTION } from '@/lib/services/safety/push-copy';
+import { pushCopy, PUSH_TYPES_WITH_INSTRUCTION, standDownCopy } from '@/lib/services/safety/push-copy';
 
 /** Команды, ошибиться в которых опаснее всего: они уводят в конкретную сторону. */
 const DIRECTIONAL = /вверх|от воды|берег|склон|вброд/i;
@@ -108,5 +108,23 @@ describe('типы классификатора не теряются по до�
     for (const t of neutral) {
       expect(pushCopy({ alertType: t, title: 'Т' }).body).not.toMatch(DIRECTIONAL);
     }
+  });
+});
+
+describe('standDownCopy — слой ПОСЛЕ тревоги (issue #1420)', () => {
+  it('называет зону по имени', () => {
+    const c = standDownCopy('Авачинско-Петропавловский район');
+    expect(c.title).toContain('Авачинско-Петропавловский район');
+  });
+
+  it('не даёт направленной команды — риск снизился, а не «идите туда-то»', () => {
+    const c = standDownCopy('Северная Камчатка');
+    expect(c.body).not.toMatch(DIRECTIONAL);
+  });
+
+  it('не выглядит как вход в тревогу — разные заголовки от pushCopy', () => {
+    const standDown = standDownCopy('Восточное побережье');
+    const alert = pushCopy({ alertType: 'earthquake', title: 'Толчки', magnitude: 6 });
+    expect(standDown.title).not.toBe(alert.title);
   });
 });
