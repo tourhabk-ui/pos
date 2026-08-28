@@ -1,14 +1,16 @@
 /**
  * lib/on-route/route-provider.ts — контракт автомобильного маршрутизатора
- * (владелец 28.08, PR 5B-1: инфраструктура + нормализованный found/not_found).
+ * (владелец 28.08, PR 5B-1: инфраструктура + нормализованный found/not_found;
+ * 28.08 «собираем свой» — подключение roadGraphCarProvider вместо ожидания
+ * bake-off Yandex/2ГИС).
  *
- * Источник маршрутизации по-прежнему НЕ выбран (bake-off Yandex/2ГИС
- * предстоит) — `notWiredCarRouteProvider` остаётся единственной реализацией,
- * подключённой к /api/routes/build. found/not_found теперь в контракте:
- * форма зафиксирована региональным тестом владельца (реальный ответ
- * публичного демо-OSRM по координатам Камчатки), не выдумана вслепую.
- * Сторож держит: заглушка честно отвечает `not_wired`; snap-guard понижает
- * ненадёжно привязанный путь в `not_found`, а не рисует его как есть.
+ * found/not_found форма зафиксирована региональным тестом владельца
+ * (реальный ответ публичного демо-OSRM по координатам Камчатки), не
+ * выдумана вслепую. Сторож держит: заглушка `notWiredCarRouteProvider`
+ * честно отвечает `not_wired` (используется как фолбэк, не в проде);
+ * snap-guard понижает ненадёжно привязанный путь в `not_found`, а не
+ * рисует его как есть — эта политика центральная и одинаковая для ЛЮБОГО
+ * подключённого провайдера, включая настоящий (см. road-graph-car-provider.test.ts).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -58,9 +60,9 @@ describe('applySnapGuard — центральная политика, одна �
 });
 
 describe('тестовые адаптеры — не подключены к продовому эндпоинту', () => {
-  it('app/api/routes/build/route.ts зовёт notWiredCarRouteProvider, не fake*', () => {
+  it('app/api/routes/build/route.ts зовёт roadGraphCarProvider, не notWired/fake*', () => {
     const src = readFileSync(join(process.cwd(), 'app/api/routes/build/route.ts'), 'utf-8');
-    expect(src).toContain('notWiredCarRouteProvider.route(');
-    expect(src).not.toMatch(/fakeCarRouteProvider|fakeFarSnapCarRouteProvider/);
+    expect(src).toContain('roadGraphCarProvider.route(');
+    expect(src).not.toMatch(/notWiredCarRouteProvider|fakeCarRouteProvider|fakeFarSnapCarRouteProvider/);
   });
 });

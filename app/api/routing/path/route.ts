@@ -3,7 +3,9 @@
  *
  * Свой роутер (Этап 2): путь по дорожному графу Камчатки от точки А
  * к точке Б. Используется планированием маршрута — сегмент «от меня
- * до старта тропы».
+ * до старта тропы», и (с 28.08) тем же ядром пользуется
+ * `roadGraphCarProvider` — CarRouteProvider для произвольного
+ * Origin → Destination в режиме 'car'.
  *
  * ?from_lat&from_lng&to_lat&to_lng&mode=car|foot
  *
@@ -27,12 +29,16 @@
  * дорог тут нет в графе вовсе, до дороги слишком далеко, граф рассыпан,
  * или дорога есть, но не для этого способа передвижения, — и прикладывает
  * размеры, которыми это проверяется без доступа к БД.
+ *
+ * Сама логика решений (bbox → узлы → привязка → A* → честная причина
+ * отказа) вынесена в lib/routing/road-graph-route.ts (28.08) — этот файл
+ * теперь только парсит запрос и мапит результат в JSON-контракт ниже,
+ * который НЕ изменился при переносе.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { findPath, nearestNode, diagnoseFailure, routableNodes } from '@/lib/routing/astar';
-import { loadSubgraph } from '@/lib/routing/subgraph';
+import { roadGraphRoute } from '@/lib/routing/road-graph-route';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -46,9 +52,6 @@ const QuerySchema = z.object({
   mode: z.enum(['car', 'foot']).default('car'),
 });
 
-// Дальше этого от дороги — сегмент подъезда честно не строим
-const MAX_SNAP_M = 5_000;
-
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const parsed = QuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
   if (!parsed.success) {
@@ -60,67 +63,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const q = parsed.data;
 
   try {
-    const { nodes, edges } = await loadSubgraph(q.from_lat, q.from_lng, q.to_lat, q.to_lng);
-    const graph = { nodes: nodes.size, edges: edges.length };
-
-    if (nodes.size === 0 || edges.length === 0) {
-      return NextResponse.json({
-        ok: false, reason: 'empty_graph', graph,
-        message: 'Дорог в этом районе у нас в данных нет',
-      });
-    }
-
-    // Привязка — только к узлам, из которых в этом режиме есть куда выйти.
-    // Иначе точка садится на висячий узел (рёбра ушли за bbox), путь не
-    // находится, и это выглядит как «дороги нет».
-    const routable = routableNodes(edges, q.mode);
-    const start = nearestNode(nodes.values(), q.from_lat, q.from_lng, routable);
-    const goal = nearestNode(nodes.values(), q.to_lat, q.to_lng, routable);
-    if (!start || !goal) {
-      return NextResponse.json({
-        ok: false, reason: 'empty_graph', graph: { ...graph, routable: routable.size },
-        message: q.mode === 'car'
-          ? 'Проезжих дорог в этом районе у нас в данных нет'
-          : 'Дорог в этом районе у нас в данных нет',
-      });
-    }
-    if (start.distance_m > MAX_SNAP_M || goal.distance_m > MAX_SNAP_M) {
+    const result = await roadGraphRoute(q.from_lat, q.from_lng, q.to_lat, q.to_lng, q.mode);
+    if (!result.ok) {
       return NextResponse.json({
         ok: false,
-        reason: 'too_far_from_road',
-        graph,
-        start_snap_m: start.distance_m,
-        end_snap_m: goal.distance_m,
-        message: 'До ближайшей дороги слишком далеко — подъезд не строим',
-      });
-    }
-
-    const route = findPath(nodes, edges, start.node.id, goal.node.id, q.mode);
-    if (!route) {
-      const d = diagnoseFailure(edges, start.node.id, goal.node.id, q.mode);
-      return NextResponse.json({
-        ok: false,
-        reason: d.reason,
+        reason: result.reason,
         mode: q.mode,
-        graph: { ...graph, routable: routable.size, reachable_any: d.reachable_any, reachable_mode: d.reachable_mode },
-        start_snap_m: start.distance_m,
-        end_snap_m: goal.distance_m,
-        message: d.reason === 'mode_blocked'
-          ? (q.mode === 'car'
-            ? 'Дорога есть, но проехать по ней нельзя — только пешком'
-            : 'Дорога есть, но пройти по ней нельзя')
-          : 'Связного пути по нашим данным нет',
+        graph: result.graph,
+        ...(result.start ? { start_snap_m: result.start.snapM } : {}),
+        ...(result.goal ? { end_snap_m: result.goal.snapM } : {}),
+        message: result.message,
       });
     }
 
     return NextResponse.json({
       ok: true,
-      mode: q.mode,
-      distance_m: route.meters,
-      duration_s: route.seconds,
-      geometry: route.geometry,
-      start_snap_m: start.distance_m,
-      end_snap_m: goal.distance_m,
+      mode: result.mode,
+      distance_m: result.distanceM,
+      duration_s: result.durationS,
+      geometry: result.geometry,
+      start_snap_m: result.start.snapM,
+      end_snap_m: result.goal.snapM,
     });
   } catch (e) {
     // Ошибка БД/перегруз подграфа → честный ok:false, не 500 в полевом UI

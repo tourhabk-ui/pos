@@ -11,16 +11,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 const routeMock = vi.fn();
-vi.mock('@/lib/on-route/route-provider', async (importOriginal) => {
-  // Подменяем только notWiredCarRouteProvider — applySnapGuard (и его
-  // фиксация not_found при ненадёжной привязке) остаётся настоящей: этот
-  // файл тестирует нормализацию ЭНДПОИНТОМ, а не переизобретает guard.
-  const actual = await importOriginal<typeof import('@/lib/on-route/route-provider')>();
-  return {
-    ...actual,
-    notWiredCarRouteProvider: { route: (...a: unknown[]) => routeMock(...a) },
-  };
-});
+// Подменяем провайдера целиком (28.08: эндпоинт зовёт roadGraphCarProvider,
+// не notWiredCarRouteProvider) — applySnapGuard (и его фиксация not_found
+// при ненадёжной привязке) остаётся настоящей, импортируется отдельно и не
+// мокается: этот файл тестирует нормализацию ЭНДПОИНТОМ, а не переизобретает
+// guard или свой дорожный граф (тот покрыт road-graph-route.test.ts и
+// road-graph-car-provider.test.ts).
+vi.mock('@/lib/on-route/road-graph-car-provider', () => ({
+  roadGraphCarProvider: { route: (...a: unknown[]) => routeMock(...a) },
+}));
 
 const rateCheckMock = vi.fn(() => true);
 vi.mock('@/lib/rate-limit', () => ({
