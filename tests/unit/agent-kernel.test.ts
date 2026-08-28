@@ -123,6 +123,17 @@ describe('три контура подключены к ядру', () => {
     expect(src).toMatch(/capability: 'tour\.update_price'/);
   });
 
+  it('op_add_slots (operator-agency.ts) — тоже через ядро, не инлайн-SQL (P2, 28.08)', () => {
+    const src = read('lib/agents/agencies/operator-agency.ts');
+    // Динамический import — тот же, что уже использует createTour в этом файле.
+    expect(src).toMatch(/await import\('@\/lib\/agents\/kernel'\)/);
+    expect(src).toMatch(/capability: 'tour\.add_slots'/);
+    // Владение туром теперь проверяет policy, не собственный SELECT.
+    expect(src).not.toMatch(/SELECT id FROM operator_tours WHERE id = \$1 AND operator_id = \$2/);
+    // resource передан — иначе operatorOwnsTour не найдёт, что проверять.
+    expect(src).toMatch(/resource: \{ type: 'tour', id: String\(tourId\) \}/);
+  });
+
   it('инициативы: enqueue идемпотентен по approval_id, generic initiative.execute удалён', () => {
     const adapter = read('lib/agents/kernel/adapters/initiative-tasks.ts');
     expect(adapter).toMatch(/idempotencyKey: `initiative:\$\{approval\.id\}`/);
@@ -191,6 +202,7 @@ describe('три контура подключены к ядру', () => {
       ['tour.set_published', 'operator'],
       ['tour.update_price', 'operator'],
       ['tour.create_draft', 'operator'],
+      ['tour.add_slots', 'operator'],
       ['evo.run', 'cron'],
       ['initiative.send_notification', 'cron'],
       ['initiative.tour_suspend', 'admin'],

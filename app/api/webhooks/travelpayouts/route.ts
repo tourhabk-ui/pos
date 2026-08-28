@@ -39,14 +39,21 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
 
-    // Store all events, not just approved (for reconciliation)
-    await pool.query(
+    // Store all events, not just approved (for reconciliation).
+    //
+    // Идемпотентность (миграция 921): дедуп по (tp_click_id, status) —
+    // только когда click_id есть в payload. TravelPayouts не гарантирует
+    // click_id и не даёт отдельный event-id, поэтому событие без click_id
+    // дедуплицировать из самого payload нечем (§4.0 — ограничение
+    // источника, названо явно, не скрыто).
+    const { rowCount } = await pool.query(
       `INSERT INTO affiliate_payouts (partner, amount, currency, status, tp_click_id, received_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (tp_click_id, status) WHERE tp_click_id IS NOT NULL DO NOTHING`,
       [data.partner || 'unknown', data.commission, data.currency, data.status, data.click_id || null]
     );
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, stored: (rowCount ?? 0) > 0 });
   } catch {
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
