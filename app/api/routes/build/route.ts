@@ -9,10 +9,13 @@
  * Отвечает RouteBuildResult (lib/on-route/route-build.ts) — тем же типом,
  * что уже понимает экран (PR 5A). Режимы: foot — не построен (5B-2,
  * нужна сеть троп, здесь её нет — честный unsupported, а не тихая линия
- * напрямую); car — зовёт CarRouteProvider (lib/on-route/route-provider.ts).
- * Сегодня единственная реализация провайдера — notWiredCarRouteProvider:
- * источник маршрутизации владелец сознательно не выбрал (28.08), и это
- * честно доходит до пользователя как «недоступно», а не выдумывается.
+ * напрямую); car — зовёт CarRouteProvider (lib/on-route/route-provider.ts),
+ * пропускает ответ через applySnapGuard (ненадёжная привязка к дороге →
+ * not_found, не рисованный путь) и нормализует found/not_found/error в
+ * RouteBuildResult. Сегодня единственная реализация провайдера —
+ * notWiredCarRouteProvider: источник маршрутизации владелец сознательно не
+ * выбрал (28.08, bake-off предстоит), и это честно доходит до пользователя
+ * как «недоступно», а не выдумывается.
  *
  * Публичный: строить путь может кто угодно, планирующий поездку — как и
  * поиск маршрутов (/api/routes/search). Rate-limit — не от злоупотребления
@@ -24,8 +27,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { notWiredCarRouteProvider } from '@/lib/on-route/route-provider';
+import { applySnapGuard, notWiredCarRouteProvider } from '@/lib/on-route/route-provider';
 import type { RouteBuildResult } from '@/lib/on-route/route-build';
+import type { RouteOption } from '@/lib/on-route/destination';
 import {
   KRAI_LAT_MIN, KRAI_LAT_MAX, KRAI_LNG_MIN, KRAI_LNG_MAX,
 } from '@/app/api/cron/place-coords/route';
@@ -84,15 +88,43 @@ export async function POST(request: NextRequest) {
   }
 
   // mode === 'car'
-  const providerResult = await notWiredCarRouteProvider.route({
+  const raw = await notWiredCarRouteProvider.route({
     originLat: origin.lat, originLon: origin.lon,
     destLat: destination.lat, destLon: destination.lon,
   });
+  // Единая политика на все будущие адаптеры — см. lib/on-route/route-provider.ts:
+  // найденный путь с ненадёжной привязкой к дороге понижается в not_found
+  // ЗДЕСЬ, один раз, а не в каждой реализации CarRouteProvider отдельно.
+  const providerResult = applySnapGuard(raw);
 
-  const result: RouteBuildResult =
-    providerResult.status === 'not_wired'
-      ? { status: 'unsupported', reason: providerResult.message }
-      : { status: 'failed', retryable: providerResult.retryable, message: providerResult.message };
+  let result: RouteBuildResult;
+  switch (providerResult.status) {
+    case 'not_wired':
+      result = { status: 'unsupported', reason: providerResult.message };
+      break;
+    case 'error':
+      result = { status: 'failed', retryable: providerResult.retryable, message: providerResult.message };
+      break;
+    case 'not_found':
+      result = { status: 'not_found', reason: providerResult.reason };
+      break;
+    case 'found': {
+      const option: RouteOption = {
+        id: 'calculated-car',
+        title: 'Путь на автомобиле',
+        distanceKm: providerResult.route.distanceM / 1000,
+        // Намеренно null — см. lib/on-route/destination.ts: посчитанный
+        // путь не снятый трек, приписывать ему грейд нельзя (§12).
+        lineGrade: null,
+        difficulty: null,
+        elevationGainM: null,
+        waypointNames: [],
+        calculated: providerResult.route,
+      };
+      result = { status: 'found', options: [option] };
+      break;
+    }
+  }
 
   return NextResponse.json({ success: true, result });
 }

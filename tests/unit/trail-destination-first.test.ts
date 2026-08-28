@@ -129,8 +129,16 @@ describe('Origin независим от Destination (PR 4 роадмапа вл
   it('selectedOrigin — СВОЁ состояние, не поле внутри DestinationOption', () => {
     expect(TRAIL).toContain('const [selectedOrigin, setSelectedOrigin] = useState<Origin | null>(null)');
     // Не примешано в тип цели — иначе смена старта была бы сменой цели.
+    // Упоминания слова «Origin» в комментариях (продолжение PR 5B-1 —
+    // calculated-route считается МЕЖДУ Origin и Destination) законны;
+    // проверяем именно сами объявления типов, а не текст файла целиком.
     const destSrc = readFileSync(join(ROOT, 'lib/on-route/destination.ts'), 'utf-8');
-    expect(destSrc).not.toMatch(/origin/i);
+    const destTypeAt = destSrc.indexOf('export type Destination =');
+    const destTypeBody = destSrc.slice(destTypeAt, destSrc.indexOf(';', destTypeAt));
+    expect(destTypeBody.toLowerCase()).not.toContain('origin');
+    const optAt = destSrc.indexOf('export interface DestinationOption {');
+    const optBody = destSrc.slice(optAt, destSrc.indexOf('}', optAt));
+    expect(optBody.toLowerCase()).not.toContain('origin');
   });
 
   it('изменение старта не сбрасывает зафиксированную цель', () => {
