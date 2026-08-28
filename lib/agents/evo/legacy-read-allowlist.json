@@ -27,7 +27,8 @@
     "tests/unit/legacy-tours-cleanup.test.ts (запись)."
   ],
   "allow": {
-    "app/api/cron/legacy-tours-census/route.ts": "перепись содержимого мёртвой tours: пять партнёров держит её внешний ключ (уборка 22.08), read-only"
+    "app/api/cron/legacy-tours-census/route.ts": "перепись содержимого мёртвой tours: пять партнёров держит её внешний ключ (уборка 22.08), read-only",
+    "lib/mcp/dev-tools/server.ts": "справочник правил sqlRules() для MCP dev-tools: строка 'FROM bookings' — ТЕКСТ запрета с исправлением рядом, не запрос; к таблице файл не обращается вовсе (ложная находка #1431, 28.08)"
   },
   "allow_write": {
     "app/api/cron/legacy-tours-cleanup/route.ts": "снос шести демо-строк из мёртвой tours по решению владельца 23.08.2026; удаление по явному списку id, снятому переписью, транзакция на строку"
