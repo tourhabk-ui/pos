@@ -37,8 +37,7 @@ vi.mock('@/lib/integrations/uon', () => ({
   createUonRequest: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('@/lib/auth/jwt', () => ({
-  verifyToken: vi.fn().mockResolvedValue(null),
-  extractToken: () => null,
+  getUserFromRequest: vi.fn().mockResolvedValue(null),
 }));
 
 import { POST } from '@/app/api/hub/bookings/create/route';

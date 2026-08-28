@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
-import { verifyToken, extractToken } from '@/lib/auth/jwt';
+import { getUserFromRequest } from '@/lib/auth/jwt';
 import type { ReferenceTour } from '@/lib/types/db-rows';
 
 const RefTourSchema = z.object({
@@ -49,18 +49,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Check authorization
-    const authHeader = request.headers.get('Authorization');
-    const token = extractToken(authHeader);
-    if (!token) {
+    // Check authorization (getUserFromRequest — не голый verifyToken, чтобы
+    // отозванная сессия не проходила по ещё не истёкшей подписи JWT)
+    const payload = await getUserFromRequest(request);
+    if (!payload) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const payload = await verifyToken(token);
-    if (!payload || payload.role !== 'operator') {
+    if (payload.role !== 'operator') {
       return NextResponse.json(
         { error: 'Forbidden: operator only' },
         { status: 403 }

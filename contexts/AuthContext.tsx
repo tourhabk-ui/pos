@@ -33,6 +33,21 @@ interface AuthContextType {
   updatePreferences: (preferences: Partial<UserPreferences>) => Promise<void>;
   /** Переключить активную роль. Возвращает путь кабинета новой роли для перехода. */
   switchRole: (role: string) => Promise<string>;
+  /** Второй шаг входа для аккаунтов с MFA — код TOTP + pending-токен из MfaRequiredError. */
+  completeMfaSignIn: (mfaPendingToken: string, code: string) => Promise<void>;
+}
+
+/**
+ * Пароль верный, но у аккаунта включён MFA — сессия ещё не выдана.
+ * signIn бросает это вместо обычной Error, чтобы вызывающий экран мог
+ * отличить «неверный пароль» от «нужен код» и показать шаг ввода кода
+ * вместо текста ошибки.
+ */
+export class MfaRequiredError extends Error {
+  constructor(public readonly mfaPendingToken: string) {
+    super('Требуется код подтверждения');
+    this.name = 'MfaRequiredError';
+  }
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -187,6 +202,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  /** Общий хвост успешного входа — signIn и completeMfaSignIn собирают user одинаково. */
+  const applySignedInUser = async (rawUserData: unknown) => {
+    const userData = rawUserData as User;
+    userData.preferences = { ...defaultPreferences, ...userData.preferences };
+    userData.createdAt = new Date(userData.createdAt);
+    userData.updatedAt = new Date(userData.updatedAt);
+
+    setUser(userData);
+    await saveUserToStorage(userData);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user_roles', JSON.stringify(userData.roles));
+    }
+  };
+
   const signIn = async (email: string, password: string) => {
     try {
       setIsLoading(true);
@@ -197,23 +227,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       const result = await response.json();
-      
+
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Invalid credentials');
       }
 
-      const userData = result.data;
-      userData.preferences = { ...defaultPreferences, ...userData.preferences };
-      userData.createdAt = new Date(userData.createdAt);
-      userData.updatedAt = new Date(userData.updatedAt);
-      
-      setUser(userData);
-      await saveUserToStorage(userData);
-      
-      // Also update roles in RoleContext
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('user_roles', JSON.stringify(userData.roles));
+      // Пароль верный, но у аккаунта включён MFA — сессии ещё нет, только
+      // короткоживущий pending-токен. Полноценный вход завершает
+      // completeMfaSignIn после кода из приложения-аутентификатора.
+      if (result.data?.mfaRequired) {
+        throw new MfaRequiredError(result.data.mfaPendingToken);
       }
+
+      await applySignedInUser(result.data);
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const completeMfaSignIn = async (mfaPendingToken: string, code: string) => {
+    try {
+      setIsLoading(true);
+      const response = await fetch('/api/auth/mfa/login-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfaPendingToken, code }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Неверный код');
+      }
+
+      await applySignedInUser(result.data);
     } catch (error) {
       throw error;
     } finally {
@@ -361,6 +410,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateUser,
     updatePreferences,
     switchRole,
+    completeMfaSignIn,
   };
 
   return (

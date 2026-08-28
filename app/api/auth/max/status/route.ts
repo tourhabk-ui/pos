@@ -78,12 +78,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const token = await createToken({ userId: user.id, email: user.email, role: user.role });
 
+  // Строка user_sessions — условие входа, не аудит (см. auth/telegram): без
+  // неё verifyAuth отвергнет только что выданный токен (P1, аудит 28.08).
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
-  await query(
-    `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-    [user.id, token, expiresAt],
-  ).catch(() => null);
+  try {
+    await query(
+      `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+      [user.id, token, expiresAt],
+    );
+  } catch (err) {
+    console.error('[auth/max/status] запись сессии не удалась:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ success: false, status: 'error', error: 'Не удалось создать сессию. Попробуйте войти ещё раз.' }, { status: 502 });
+  }
 
   const response = NextResponse.json({
     success: true,

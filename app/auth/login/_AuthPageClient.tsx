@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, User, Briefcase, Check } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, MfaRequiredError } from '@/contexts/AuthContext';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
 import TelegramLoginButton, { type TelegramUser } from './_TelegramLoginButton';
 import MaxLoginButton from './_MaxLoginButton';
@@ -28,13 +28,17 @@ const LABEL = 'block text-[10px] uppercase tracking-widest text-[var(--text-mute
 
 export default function AuthPageClient() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, completeMfaSignIn } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
   const [userType, setUserType] = useState<UserType>('tourist');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Второй шаг входа при включённом MFA — код TOTP вместо пароля.
+  const [mfaPendingToken, setMfaPendingToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
 
   // Форма
   const [email, setEmail] = useState('');
@@ -72,10 +76,39 @@ export default function AuthPageClient() {
       const role = storedUser.role ?? 'tourist';
       router.push(ROLE_HUB[role] ?? '/hub/tourist');
     } catch (err) {
+      if (err instanceof MfaRequiredError) {
+        setMfaPendingToken(err.mfaPendingToken);
+        setError('');
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Неверный email или пароль');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleMfaVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaPendingToken) return;
+    setLoading(true);
+    setError('');
+
+    try {
+      await completeMfaSignIn(mfaPendingToken, mfaCode);
+      const storedUser = JSON.parse(localStorage.getItem('user') ?? '{}') as { role?: string };
+      const role = storedUser.role ?? 'tourist';
+      router.push(ROLE_HUB[role] ?? '/hub/tourist');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Неверный код');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelMfa = () => {
+    setMfaPendingToken(null);
+    setMfaCode('');
+    setError('');
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -243,7 +276,7 @@ export default function AuthPageClient() {
         )}
 
         {/* LOGIN FORM */}
-        {mode === 'login' && (
+        {mode === 'login' && !mfaPendingToken && (
           <form onSubmit={handleLogin} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">
             <div>
               <label htmlFor="login-email" className={LABEL}>Email</label>
@@ -286,6 +319,49 @@ export default function AuthPageClient() {
               className="w-full py-2.5 bg-[var(--accent)] text-white text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               {loading ? 'Вход...' : 'Войти'}
+            </button>
+          </form>
+        )}
+
+        {/* MFA CODE STEP */}
+        {mode === 'login' && mfaPendingToken && (
+          <form onSubmit={handleMfaVerify} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">
+            <div>
+              <p className="text-sm text-[var(--text-primary)] mb-1">Код подтверждения</p>
+              <p className="text-xs text-[var(--text-muted)]">Введите 6-значный код из приложения-аутентификатора</p>
+            </div>
+
+            <div>
+              <label htmlFor="mfa-code" className={LABEL}>Код</label>
+              <input
+                id="mfa-code"
+                type="text"
+                inputMode="numeric"
+                pattern="\d{6}"
+                maxLength={6}
+                required
+                autoFocus
+                value={mfaCode}
+                onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className={`${INPUT} text-center tracking-[0.5em] text-lg`}
+                placeholder="000000"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || mfaCode.length !== 6}
+              className="w-full py-2.5 bg-[var(--accent)] text-white text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {loading ? 'Проверка...' : 'Подтвердить'}
+            </button>
+
+            <button
+              type="button"
+              onClick={cancelMfa}
+              className="w-full text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              Назад ко входу
             </button>
           </form>
         )}

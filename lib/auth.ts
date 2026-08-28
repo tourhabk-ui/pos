@@ -4,7 +4,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { extractToken, verifyToken } from '@/lib/auth/jwt';
+import { extractToken, verifyToken, isSessionActive } from '@/lib/auth/jwt';
 import { query } from '@/lib/database';
 
 export type AuthRole =
@@ -94,6 +94,18 @@ export async function verifyAuth(request: NextRequest): Promise<VerifiedAuth> {
 
   const payload = await verifyToken(token);
   if (!payload || typeof payload.userId !== 'string') {
+    return {
+      userId: null,
+      role: null,
+      email: null,
+      isAuthenticated: false,
+    };
+  }
+
+  // Отзыв сессии (logout) должен реально работать, не только удалять cookie:
+  // подпись JWT остаётся годной ещё до 7 дней после signout, если её не
+  // сверить со строкой в user_sessions. P1, аудит 28.08.
+  if (!(await isSessionActive(token))) {
     return {
       userId: null,
       role: null,
