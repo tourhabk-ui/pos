@@ -289,4 +289,38 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
     const st = await pool.query(`SELECT state FROM agent_tasks WHERE id = $1`, [res.taskId]);
     expect(st.rows[0].state).toBe('succeeded');
   });
+
+  /**
+   * Concurrency-guard /api/cron/evo (задание владельца 28.08): защита от
+   * двойного прогона — не по idempotency-ключу (его у evo.run нет и не
+   * будет: каждый плановый прогон законно новый), а по факту «живая задача
+   * этой capability уже есть». Проверяется здесь, а не моком: именно
+   * `lease_until > NOW()` в WHERE решает, блокирует задача или нет, и это
+   * ровно то поведение, которое SQL, а не TypeScript, оставляет истинным.
+   */
+  it('findActiveByCapability: живая задача блокирует, задача с истёкшим lease — нет', async () => {
+    const t = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
+    if (!t.created) throw new Error('задача не создана');
+    const claimed = await kernel.claimTaskById(t.task.id, 'cron:pg-test', 600);
+    if (!claimed) throw new Error('задача не захвачена');
+
+    const activeWhileFresh = await kernel.findActiveByCapability('evo.run');
+    expect(activeWhileFresh?.id).toBe(t.task.id);
+
+    // Lease в прошлом — как после аварийно оборвавшегося процесса: transition()
+    // некому вызвать, но guard обязан отпустить очередь, а не замуровать её.
+    await pool.query(`UPDATE agent_tasks SET lease_until = NOW() - interval '1 second' WHERE id = $1`, [t.task.id]);
+    const activeAfterExpiry = await kernel.findActiveByCapability('evo.run');
+    expect(activeAfterExpiry).toBeNull();
+  });
+
+  it('findActiveByCapability: succeeded/failed_terminal не блокируют — только queued/running', async () => {
+    const t = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
+    if (!t.created) throw new Error('задача не создана');
+    const claimed = await kernel.claimTaskById(t.task.id, 'cron:pg-test', 600);
+    if (!claimed) throw new Error('задача не захвачена');
+    await kernel.transition(t.task.id, 'running', 'succeeded', 'cron:pg-test', {});
+
+    expect(await kernel.findActiveByCapability('evo.run')).toBeNull();
+  });
 });

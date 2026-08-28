@@ -15,6 +15,7 @@ export {
   appendEvent,
   findByIdempotencyKey,
   findActiveByIdempotencyKey,
+  findActiveByCapability,
   POLICY_VERSION,
   DEFAULT_LEASE_SECONDS,
 } from './kernel';

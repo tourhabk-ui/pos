@@ -36,7 +36,23 @@ export async function GET(request: NextRequest) {
 
   // Kernel-задача прогона: durable identity + стадии событиями. Fail-soft —
   // отказ kernel не роняет крон, но виден: kernel_task_id: null в ответе.
-  const kernelHandle = await startEvoRunTask(scanType);
+  // already_running — второй живой прогон этой capability уже есть: НЕ зовём
+  // оркестратор второй раз (Evolution Loop пишет фиксы в БД и открывает PR —
+  // гонка там опаснее задержки будильника). Это НЕ ошибка вызывающего:
+  // GitHub Actions concurrency больше не единственная защита с приходом
+  // внешнего триггера (задание владельца 28.08).
+  const started = await startEvoRunTask(scanType);
+  if (started.kind === 'already_running') {
+    return NextResponse.json({
+      success: true,
+      status: 'skipped_already_running',
+      active_task_id: started.activeTaskId,
+      run_logged: false,
+      kernel_task_id: null,
+      trace_id: null,
+    });
+  }
+  const kernelHandle = started.kind === 'started' ? started.handle : null;
 
   try {
     const result = await runEvoOrchestrator(scanType);

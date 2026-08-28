@@ -349,6 +349,34 @@ export async function findActiveByIdempotencyKey(key: string): Promise<AgentTask
   return rows[0] ?? null;
 }
 
+/**
+ * Единственная незавершённая задача этой capability, чей lease ещё не истёк —
+ * concurrency-guard там, где у действия НЕТ логического idempotency-ключа
+ * (задание владельца 28.08, P0: защита /api/cron/evo от двойного прогона).
+ *
+ * evo.run — не retry одного и того же входа: каждый плановый прогон законно
+ * новый, а не повтор. Значит блокировать нужно не по ключу (это заблокировало
+ * бы ВСЕ будущие прогоны после первого succeeded — IDEMPOTENCY_ACTIVE_STATES
+ * включает succeeded навсегда), а по факту «эта capability уже выполняется
+ * ПРЯМО СЕЙЧАС». `lease_until > NOW()` — обязательное условие: аварийно
+ * оборвавшийся процесс не переводит свою задачу в терминал (это делает только
+ * `transition()`, а его некому вызвать после краха), и без проверки lease
+ * очередь замуровалась бы навсегда первым же зависшим прогоном.
+ */
+export async function findActiveByCapability(capability: string): Promise<AgentTask | null> {
+  const { rows } = await pool.query<TaskRow>(
+    `SELECT ${TASK_COLUMNS}
+     FROM agent_tasks
+     WHERE capability = $1
+       AND state IN ('queued','running')
+       AND (lease_until IS NULL OR lease_until > NOW())
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [capability],
+  );
+  return rows[0] ?? null;
+}
+
 /** Задача с этим ключом (успешная — приоритетно); для истории и разбора. */
 export async function findByIdempotencyKey(key: string): Promise<AgentTask | null> {
   const { rows } = await pool.query<TaskRow>(

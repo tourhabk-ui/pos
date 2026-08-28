@@ -19,10 +19,11 @@ vi.mock('@/lib/agents/run-logger', () => ({
 }));
 
 // Kernel-адаптер здесь не под тестом (у него свой сторож agent-kernel.test.ts);
-// null-handle — легальный fail-soft путь, и контракт обязан отдавать
+// kernel_unavailable — легальный fail-soft путь, и контракт обязан отдавать
 // kernel_task_id: null честно, а не прятать поле.
+const mockStartEvoRunTask = vi.fn();
 vi.mock('@/lib/agents/kernel/adapters/evo-run-task', () => ({
-  startEvoRunTask: vi.fn().mockResolvedValue(null),
+  startEvoRunTask: (...args: unknown[]) => mockStartEvoRunTask(...args),
   finishEvoRunTask: vi.fn(),
   failEvoRunTask: vi.fn(),
 }));
@@ -47,6 +48,7 @@ function request(): NextRequest {
 describe('GET /api/cron/evo: честный контракт результата', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStartEvoRunTask.mockResolvedValue({ kind: 'kernel_unavailable' });
     process.env.CRON_SECRET = 'test-cron-secret';
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_CHAT_ID;
@@ -111,6 +113,29 @@ describe('GET /api/cron/evo: честный контракт результат�
     expect(mockLogAgentRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'failed', errors_count: 1 }),
     );
+  });
+
+  it('already_running: НЕ зовёт оркестратор и НЕ пишет agent_run_history — второй живой прогон не задваивается', async () => {
+    // Concurrency-guard (задание владельца 28.08): другой прогон evo.run уже
+    // активен (lease живой) — orchestrator звать нельзя, Evolution Loop пишет
+    // фиксы в БД и открывает PR, гонка там опаснее задержки будильника.
+    mockStartEvoRunTask.mockResolvedValueOnce({ kind: 'already_running', activeTaskId: 'task-active-1' });
+
+    const { GET } = await import('@/app/api/cron/evo/route');
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      status: 'skipped_already_running',
+      active_task_id: 'task-active-1',
+      run_logged: false,
+      kernel_task_id: null,
+      trace_id: null,
+    });
+    expect(mockRunEvoOrchestrator).not.toHaveBeenCalled();
+    expect(mockLogAgentRun).not.toHaveBeenCalled();
   });
 });
 

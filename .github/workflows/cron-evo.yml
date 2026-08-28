@@ -48,6 +48,18 @@ jobs:
             exit 1
           fi
 
+          # skipped_already_running — concurrency-guard прода отказал НЕ из-за
+          # ошибки, а потому что другой живой прогон evo.run уже шёл (задание
+          # владельца 28.08, готовит почву под внешний cron поверх нативного
+          # расписания). Оркестратор в этом случае НЕ звался — run_logged
+          # честно false, и это не «терминальная запись потеряна», а «записи
+          # не было и не должно быть».
+          if jq -e '.status == "skipped_already_running"' /tmp/evo_resp.json >/dev/null 2>&1; then
+            ACTIVE=$(jq -r '.active_task_id // "?"' /tmp/evo_resp.json)
+            echo "Evo Scan skipped: другой прогон уже активен (kernel task $ACTIVE) — это не отказ"
+            exit 0
+          fi
+
           # HTTP 200 означает, что частичные результаты доступны, а не что все
           # стадии успешны. Истину берём из JSON-контракта route.ts.
           if ! jq -e '.success == true and .status == "completed"' /tmp/evo_resp.json >/dev/null 2>&1; then

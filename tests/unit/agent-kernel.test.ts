@@ -144,6 +144,45 @@ describe('три контура подключены к ядру', () => {
     expect(route).toMatch(/kernel_task_id: kernelHandle\?\.taskId \?\? null/);
   });
 
+  /**
+   * Concurrency-guard (задание владельца 28.08): /api/cron/evo до этой
+   * правки не был защищён от параллельного прогона ничем, кроме GitHub
+   * Actions `concurrency: cron-evo` — а это сериализует только запуски
+   * друг с другом внутри GH Actions, не запрос откуда-то ещё (внешний
+   * cron-job.org, ручной dispatch, запоздавший нативный прогон).
+   */
+  it('evo.run: guard проверяет живую задачу ДО createTask, а не idempotency-ключом', () => {
+    const adapter = read('lib/agents/kernel/adapters/evo-run-task.ts');
+    expect(adapter).toMatch(/findActiveByCapability\('evo\.run'\)/);
+    // Порядок важен: если бы guard стоял ПОСЛЕ createTask, вторая задача уже
+    // была бы заведена до отказа.
+    const guardAt = adapter.indexOf("findActiveByCapability('evo.run')");
+    const createAt = adapter.indexOf('await createTask(');
+    expect(guardAt).toBeGreaterThan(0);
+    expect(guardAt).toBeLessThan(createAt);
+    // evo.run по-прежнему БЕЗ idempotency-ключа — каждый плановый прогон
+    // законно новый, а не retry одного и того же входа.
+    expect(adapter).not.toMatch(/idempotencyKey:/);
+  });
+
+  it('/api/cron/evo: already_running не зовёт оркестратор — ранний return до try/runEvoOrchestrator', () => {
+    const route = read('app/api/cron/evo/route.ts');
+    expect(route).toMatch(/started\.kind === 'already_running'/);
+    expect(route).toMatch(/status: 'skipped_already_running'/);
+    const guardAt = route.indexOf("started.kind === 'already_running'");
+    const runAt = route.indexOf('runEvoOrchestrator(scanType)');
+    expect(guardAt).toBeGreaterThan(0);
+    expect(guardAt).toBeLessThan(runAt);
+  });
+
+  it('cron-evo.yml: skip — это не отказ, exit 0 без покраски прогона', () => {
+    const wf = read('.github/workflows/cron-evo.yml');
+    expect(wf).toMatch(/status == "skipped_already_running"/);
+    const skipAt = wf.indexOf('skipped_already_running');
+    const exitAt = wf.indexOf('exit 0', skipAt);
+    expect(exitAt).toBeGreaterThan(skipAt);
+  });
+
   it('каждая подключённая capability объявлена в реестре policy', async () => {
     const cases: Array<[string, 'operator' | 'cron' | 'admin']> = [
       ['tour.set_published', 'operator'],
