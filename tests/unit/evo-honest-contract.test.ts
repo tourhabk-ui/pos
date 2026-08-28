@@ -21,10 +21,21 @@ vi.mock('@/lib/agents/run-logger', () => ({
 // Kernel-адаптер здесь не под тестом (у него свой сторож agent-kernel.test.ts);
 // null-handle — легальный fail-soft путь, и контракт обязан отдавать
 // kernel_task_id: null честно, а не прятать поле.
+const mockStartEvoRunTask = vi.fn();
 vi.mock('@/lib/agents/kernel/adapters/evo-run-task', () => ({
-  startEvoRunTask: vi.fn().mockResolvedValue(null),
+  startEvoRunTask: (...args: unknown[]) => mockStartEvoRunTask(...args),
   finishEvoRunTask: vi.fn(),
   failEvoRunTask: vi.fn(),
+}));
+
+// Concurrency-guard роута — pg_try_advisory_lock напрямую через pool.connect()
+// (ревью 28.08: замена check-then-act проверки на атомарный лок Postgres).
+// Мокаем на уровне клиента, а не всего пула, чтобы проверять именно
+// последовательность query/release, как делает сам роут.
+const mockClient = { query: vi.fn(), release: vi.fn() };
+const mockConnect = vi.fn(async () => mockClient);
+vi.mock('@/lib/db-pool', () => ({
+  pool: { connect: () => mockConnect() },
 }));
 
 const completedResult = {
@@ -47,6 +58,11 @@ function request(): NextRequest {
 describe('GET /api/cron/evo: честный контракт результата', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStartEvoRunTask.mockResolvedValue(null);
+    mockConnect.mockImplementation(async () => mockClient);
+    // По умолчанию лок захватывается сразу — большинство тестов проверяют
+    // не сам лок, а поведение после него.
+    mockClient.query.mockImplementation(async () => ({ rows: [{ locked: true }] }));
     process.env.CRON_SECRET = 'test-cron-secret';
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_CHAT_ID;
@@ -111,6 +127,50 @@ describe('GET /api/cron/evo: честный контракт результат�
     expect(mockLogAgentRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'failed', errors_count: 1 }),
     );
+  });
+
+  it('lock не захвачен: НЕ зовёт оркестратор, НЕ заводит kernel-задачу и НЕ пишет agent_run_history', async () => {
+    // Concurrency-guard (ревью 28.08): pg_try_advisory_lock атомарно на уровне
+    // Postgres — другой прогон evo.run уже держит лок. orchestrator звать
+    // нельзя, Evolution Loop пишет фиксы в БД и открывает PR, гонка там
+    // опаснее задержки будильника.
+    mockClient.query.mockImplementationOnce(async () => ({ rows: [{ locked: false }] }));
+
+    const { GET } = await import('@/app/api/cron/evo/route');
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      status: 'skipped_already_running',
+      run_logged: false,
+      kernel_task_id: null,
+      trace_id: null,
+    });
+    expect(mockStartEvoRunTask).not.toHaveBeenCalled();
+    expect(mockRunEvoOrchestrator).not.toHaveBeenCalled();
+    expect(mockLogAgentRun).not.toHaveBeenCalled();
+    // Проигравший клиент не остаётся висеть в пуле.
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('lock захвачен и освобождён ровно один раз — независимо от исхода прогона', async () => {
+    mockRunEvoOrchestrator.mockRejectedValueOnce(new Error('boom'));
+    mockLogAgentRun.mockResolvedValueOnce(true);
+
+    const { GET } = await import('@/app/api/cron/evo/route');
+    await GET(request());
+
+    expect(mockClient.query).toHaveBeenCalledWith(
+      expect.stringContaining('pg_try_advisory_lock'),
+      expect.any(Array),
+    );
+    expect(mockClient.query).toHaveBeenCalledWith(
+      expect.stringContaining('pg_advisory_unlock'),
+      expect.any(Array),
+    );
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -144,6 +144,48 @@ describe('три контура подключены к ядру', () => {
     expect(route).toMatch(/kernel_task_id: kernelHandle\?\.taskId \?\? null/);
   });
 
+  /**
+   * Concurrency-guard (ревью 28.08): /api/cron/evo до этой правки не был
+   * защищён от параллельного прогона ничем, кроме GitHub Actions
+   * `concurrency: cron-evo` — а это сериализует только запуски друг с другом
+   * внутри GH Actions, не запрос откуда-то ещё (внешний cron-job.org, ручной
+   * dispatch, запоздавший нативный прогон). Первая версия (check-then-act по
+   * kernel-задаче) заменена на `pg_try_advisory_lock` — та же техника, что
+   * уже закрывает гонку овербукинга в app/api/accommodations/[id]/book
+   * (см. README): проверка и захват — одна атомарная операция Postgres, а
+   * не два отдельных запроса с окном гонки между ними.
+   */
+  it('evo: concurrency-guard — pg_try_advisory_lock атомарно, ДО kernel-задачи', () => {
+    const route = read('app/api/cron/evo/route.ts');
+    expect(route).toMatch(/pg_try_advisory_lock/);
+    expect(route).toMatch(/pg_advisory_unlock/);
+    // Порядок важен: лок захватывается ДО startEvoRunTask — проигравший не
+    // заводит задачу, которую тут же пришлось бы отбрасывать.
+    const lockAt = route.indexOf('tryAcquireEvoRunLock()');
+    const startAt = route.indexOf('startEvoRunTask(scanType)');
+    expect(lockAt).toBeGreaterThan(0);
+    expect(lockAt).toBeLessThan(startAt);
+    expect(route).toMatch(/status: 'skipped_already_running'/);
+    // Освобождение — в finally, независимо от исхода прогона.
+    expect(route).toMatch(/\} finally \{\s*\n\s*await releaseEvoRunLock\(lock\);/);
+  });
+
+  it('evo.run по-прежнему БЕЗ idempotency-ключа — каждый плановый прогон законно новый, а не retry старого', () => {
+    const adapter = read('lib/agents/kernel/adapters/evo-run-task.ts');
+    expect(adapter).not.toMatch(/idempotencyKey:/);
+    // Guard теперь не его забота — kernel остаётся наблюдателем прогона, а
+    // не местом для мьютекса поверх него.
+    expect(adapter).not.toMatch(/findActiveByCapability/);
+  });
+
+  it('cron-evo.yml: skip — это не отказ, exit 0 без покраски прогона', () => {
+    const wf = read('.github/workflows/cron-evo.yml');
+    expect(wf).toMatch(/status == "skipped_already_running"/);
+    const skipAt = wf.indexOf('skipped_already_running');
+    const exitAt = wf.indexOf('exit 0', skipAt);
+    expect(exitAt).toBeGreaterThan(skipAt);
+  });
+
   it('каждая подключённая capability объявлена в реестре policy', async () => {
     const cases: Array<[string, 'operator' | 'cron' | 'admin']> = [
       ['tour.set_published', 'operator'],

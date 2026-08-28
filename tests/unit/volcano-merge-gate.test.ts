@@ -11,12 +11,14 @@
  *    «не привязан», отсутствующий риск — «не описан», не «low»;
  *  - agent-PR рождается с меткой volcano-agent и секциями Риск/Откат.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildDecisionCard,
   extractSection,
+  fetchPr,
+  GitHubUnavailableError,
   VOLCANO_CARD_MARKER,
 } from '@/lib/agents/volcano/merge-gate';
 import { isTransitionAllowed } from '@/lib/agents/kernel/types';
@@ -151,5 +153,128 @@ describe('Telegram: только готовый PR, dedup по head_sha', () => 
 
   it('draft и красный CI не уведомляют: readiness требует не-draft и зелёные проверки', () => {
     expect(src).toMatch(/!pr\.draft && checks\.green/);
+  });
+});
+
+/**
+ * unavailable ≠ rejected (P0, ревью 28.08).
+ *
+ * 27.08 прод отдал HTTP 500 "fetch failed" на вызове GitHub API — сетевой
+ * сбой, а не решение GitHub о PR. Раньше это красило прогон ТОЧНО ТАК ЖЕ,
+ * как настоящий баг merge-gate: единственная попытка, generic Error, route
+ * отвечал status:'failed' независимо от причины. `gh()` теперь повторяет
+ * транзиентные сбои (сеть, 5xx) с задержкой и, если бюджет исчерпан, кидает
+ * `GitHubUnavailableError` отдельным классом — вместо строки в сообщении,
+ * которую легко перепутать с чем угодно ещё.
+ */
+describe('gh(): retry/backoff — сеть и 5xx повторяются, 4xx нет', () => {
+  const rawPr = {
+    number: 1, state: 'open' as const, merged: false, draft: false,
+    title: 't', body: null as string | null, labels: [] as Array<{ name: string }>,
+    head: { sha: 'sha1' }, html_url: 'https://github.com/x/y/pull/1',
+    changed_files: 1, additions: 1, deletions: 0,
+  };
+  const okResponse = { ok: true, json: async () => rawPr } as Response;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('сетевой сбой (fetch бросает) — повтор, третья попытка успешна', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(okResponse);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = fetchPr('owner/repo', 1);
+    await vi.runAllTimersAsync();
+    const pr = await promise;
+
+    expect(pr.number).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('5xx GitHub — тоже транзиентный, повторяется как сетевой сбой', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'Service Unavailable' } as Response)
+      .mockResolvedValueOnce(okResponse);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = fetchPr('owner/repo', 1);
+    await vi.runAllTimersAsync();
+    const pr = await promise;
+
+    expect(pr.number).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('бюджет retry исчерпан — GitHubUnavailableError, не generic Error', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = fetchPr('owner/repo', 1);
+    const assertion = expect(promise).rejects.toBeInstanceOf(GitHubUnavailableError);
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    // Ровно 3 попытки — бюджет задан константой, не бесконечный retry.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('4xx — решение GitHub (не найден/не авторизован), НИ ОДНОГО повтора', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => 'Not Found' } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchPr('owner/repo', 1)).rejects.toThrow(/HTTP 404/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('4xx не оборачивается в GitHubUnavailableError — это разные классы отказа', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => 'Bad credentials' } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchPr('owner/repo', 1)).rejects.not.toBeInstanceOf(GitHubUnavailableError);
+  });
+});
+
+describe('unavailable не путается с rejected выше по стеку', () => {
+  const mergeGate = read('lib/agents/volcano/merge-gate.ts');
+  const route = read('app/api/cron/volcano-merge-gate/route.ts');
+  const wf = read('.github/workflows/volcano-merge-gate.yml');
+
+  it('sweepAgentPrs ловит GitHubUnavailableError отдельно от «ошибка оценки»', () => {
+    expect(mergeGate).toMatch(/if \(err instanceof GitHubUnavailableError\)/);
+    expect(mergeGate).toMatch(/action: 'github_unavailable'/);
+  });
+
+  it('route: unavailable — HTTP 200 с success:false, а не 500 как настоящий сбой', () => {
+    expect(route).toMatch(/err instanceof GitHubUnavailableError/);
+    expect(route).toMatch(/status: 'unavailable'/);
+    // 500 остаётся ТОЛЬКО для непредвиденных ошибок — unavailable-ветка его не задаёт.
+    const unavailableBlock = route.slice(
+      route.indexOf('if (err instanceof GitHubUnavailableError)'),
+      route.indexOf('const msg = err instanceof Error'),
+    );
+    expect(unavailableBlock).not.toMatch(/status:\s*500/);
+  });
+
+  it('route: errors (реальная ошибка оценки) и unavailable считаются раздельно', () => {
+    expect(route).toMatch(/o\.action !== 'github_unavailable'/);
+    expect(route).toMatch(/unavailable\.length > 0 \? 'unavailable'/);
+  });
+
+  it('workflow: unavailable — exit 0, не красит прогон', () => {
+    expect(wf).toMatch(/STATUS" = "unavailable"/);
+    const skipAt = wf.indexOf('STATUS" = "unavailable"');
+    const exitAt = wf.indexOf('exit 0', skipAt);
+    const nextFailAt = wf.indexOf('exit 1', skipAt);
+    expect(exitAt).toBeGreaterThan(skipAt);
+    expect(exitAt).toBeLessThan(nextFailAt);
   });
 });

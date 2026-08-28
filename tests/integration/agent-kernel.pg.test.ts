@@ -289,4 +289,59 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
     const st = await pool.query(`SELECT state FROM agent_tasks WHERE id = $1`, [res.taskId]);
     expect(st.rows[0].state).toBe('succeeded');
   });
+
+  /**
+   * Concurrency-guard /api/cron/evo (ревью 28.08): pg_try_advisory_lock —
+   * та же техника, что закрывает гонку овербукинга в
+   * app/api/accommodations/[id]/book/route.ts (см. README), только session-
+   * level (`_xact_`-вариант держал бы транзакцию открытой все 120с прогона
+   * оркестратора — риск для БД). Проверяется здесь той же SQL-конструкцией,
+   * что использует роут (`hashtext($1)` на одном ключе), двумя РЕАЛЬНЫМИ
+   * соединениями — ровно то поведение, которое check-then-act не гарантирует
+   * никогда: атомарность даёт сам Postgres, а не порядок наших запросов.
+   */
+  it('pg_try_advisory_lock: конкурентный захват атомарен — ровно один получает true', async () => {
+    const clientA = await pool.connect();
+    const clientB = await pool.connect();
+    try {
+      const [a, b] = await Promise.all([
+        clientA.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test']),
+        clientB.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test']),
+      ]);
+      const locked = [a.rows[0].locked, b.rows[0].locked];
+      expect(locked.filter(Boolean)).toHaveLength(1);
+    } finally {
+      await clientA.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test']).catch(() => undefined);
+      await clientB.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test']).catch(() => undefined);
+      clientA.release();
+      clientB.release();
+    }
+  });
+
+  it('pg_try_advisory_lock: после unlock следующий захват снова успешен', async () => {
+    const clientA = await pool.connect();
+    try {
+      const first = await clientA.query<{ locked: boolean }>(
+        `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test-2'],
+      );
+      expect(first.rows[0].locked).toBe(true);
+      await clientA.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test-2']);
+
+      const clientB = await pool.connect();
+      try {
+        // Освободившийся ключ — не «навсегда занят». Аварийный процесс,
+        // державший lock, тоже освобождает его сам собой при закрытии
+        // соединения (session-level), поэтому очередь не замуровывается.
+        const second = await clientB.query<{ locked: boolean }>(
+          `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test-2'],
+        );
+        expect(second.rows[0].locked).toBe(true);
+        await clientB.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test-2']);
+      } finally {
+        clientB.release();
+      }
+    } finally {
+      clientA.release();
+    }
+  });
 });

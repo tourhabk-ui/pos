@@ -13,6 +13,11 @@
  * Отказ записи kernel не роняет cron (safety-требование), но не молчит:
  * причина в console.error, а вызывающий видит null вместо handle и отдаёт
  * kernel_task_id: null в HTTP-ответе (§4.0 — «не смог записать» видно).
+ *
+ * Concurrency-guard живёт НЕ здесь, а в app/api/cron/evo/route.ts —
+ * `pg_try_advisory_lock` вокруг всего вызова, до того как эта функция вообще
+ * позовётся. Здесь его не было и не будет намеренно: kernel — наблюдатель
+ * прогона (см. выше), а не место для мьютекса поверх него.
  */
 
 import { claimTaskById, createTask, appendEvent, transition } from '../kernel';

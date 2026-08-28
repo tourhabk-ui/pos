@@ -29,11 +29,12 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { callAIDecisionDetailed, checkOpenRouterBalance } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
-interface Finding {
+export interface Finding {
   id: string;
   category: string;
   severity: string;
@@ -250,10 +251,29 @@ function judgeLimit(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 100;
 }
 
-/** Номер прогона — им сдвигается окно добора. Нет номера — сдвига нет. */
+/**
+ * Сдвиг окна добора. Раньше им был номер прогона (`github.run_number`) — и
+ * это ломало идемпотентность отчёта: marker-push в 09:07 и запоздавший
+ * scheduled прогон того же дня в 17:38 получали РАЗНЫЕ номера при ОДНОМ и том
+ * же входе, окно добора сдвигалось на пустом месте, и `input_hash` расходился
+ * без единого смыслового отличия во входе (задание владельца 27.08 —
+ * идемпотентный Judge-report).
+ *
+ * Сдвиг теперь — УТС-сутки: `floor(now / 86400000)`. Marker и запоздавший
+ * scheduled прогон одного календарного дня выбирают одно и то же окно; на
+ * следующие сутки окно едет само, без внешнего счётчика. `EVO_JUDGE_OFFSET`
+ * остаётся явным оверрайдом — для тестов и на случай ручного разбора.
+ */
 function judgeOffset(): number {
   const raw = parseInt(process.env.EVO_JUDGE_OFFSET ?? '', 10);
-  return Number.isFinite(raw) ? raw : 0;
+  if (Number.isFinite(raw)) return raw;
+  return Math.floor(Date.now() / 86_400_000);
+}
+
+/** За сколько дней окно отчёта — часть его identity (report_key), не только фильтр входа. */
+function judgeDays(): number {
+  const raw = parseInt(process.env.EVO_JUDGE_DAYS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 7;
 }
 
 /** Доля мест, которая ВСЕГДА достаётся началу очереди — то есть хвосту списка. */
@@ -351,6 +371,163 @@ export function selectForJudging(
 }
 
 /**
+ * ── Идемпотентность отчёта ──────────────────────────────────────────────────
+ *
+ * `schedule`, marker `push` и ручной запуск разбирают ОДИН И ТОТ ЖЕ прод-
+ * снимок, доставленный по-разному: планировщик GitHub деградирует и
+ * доставляет очередь с многочасовым опозданием (27.08 — marker в 09:07,
+ * запоздавший scheduled той же очереди в 17:38). Раньше каждый успешный
+ * прогон безусловно заводил новый GitHub Issue — то есть один и тот же
+ * анализ издавался дважды, а `github.run_id`/`github.run_number`/тип события/
+ * время старта не годятся в ключ идентичности: у двух ДОСТАВОК одной работы
+ * они разные.
+ *
+ * Отсюда три разных отпечатка (задание владельца 27.08):
+ *  - `input_hash`  — что именно судили (canonical JSON отобранных находок +
+ *    хеш очищенного куска кода на файл); не входят run_id, время, баланс,
+ *    модель — они метаданные ЗАПУСКА, а не входа;
+ *  - `output_hash` — что ответила модель (id + вердикт + причина + модель по
+ *    каждой находке), без баланса и timestamp;
+ *  - `decision_hash` — то, что реально требует внимания владельца: только
+ *    `real`/`needs_info`/`unjudged` (плюс intel) — «шум» и «починено» не
+ *    меняют этот отпечаток, иначе стилистически иной текст читался бы как
+ *    новое решение.
+ *
+ * Публикует (`scripts/evo-judge-publish.ts`) один канонический Issue на
+ * `report_key` и обновляет его на месте, когда отпечаток не изменился —
+ * вместо нового выпуска на каждую доставку одного и того же снимка.
+ */
+
+/** Ревизия контракта судьи. Поднимать при смене SYSTEM-промпта, формы ответа
+ *  или правил отбора — правки комментариев и форматирования её не трогают. */
+export const JUDGE_CONTRACT_VERSION = 'judge-v1';
+
+/** Проекция для человека: один канонический Issue на окно анализа. */
+export function reportKey(days: number): string {
+  return `evo-judge:window:${days}d:v1`;
+}
+
+export function reportTitle(days: number): string {
+  return `Evo Judge — актуальный разбор (${days} дней)`;
+}
+
+function sha256(text: string): string {
+  return `sha256:${createHash('sha256').update(text, 'utf-8').digest('hex')}`;
+}
+
+/** Стабильный порядок ключей объекта — иначе один и тот же смысл сериализуется по-разному. */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(obj).sort()) sorted[key] = canonicalize(obj[key]);
+    return sorted;
+  }
+  return value;
+}
+
+export function canonicalJSON(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+/** Кусок кода находки, очищенный от ПД и свёрнутый в хеш — сравнивать входы, не хранить снимки кода в отпечатке. */
+function hashSnippet(f: Finding): string | null {
+  const snippet = readSnippet(f.file_path, f.line_number, identifiersFrom(f));
+  return snippet ? sha256(redactPII(snippet)) : null;
+}
+
+export interface PreparedFinding extends Finding {
+  redacted_snippet_sha256: string | null;
+}
+
+export interface PreparedJudgeInput {
+  schema: 1;
+  judge_contract_version: string;
+  days: number;
+  offset: number;
+  picked: PreparedFinding[];
+  skipped_ids: string[];
+  intel: Array<{ id: string; title: string }>;
+}
+
+/**
+ * Вход судьи ДО вызова модели: отбор (selectForJudging), очистка ПД и хеш
+ * куска кода. Определяет, нужно ли снова тратить токены — считается
+ * ДО обращения к модели, а не после.
+ */
+export function prepareJudgeInput(
+  all: Finding[],
+  options: { days: number; limit?: number; offset?: number },
+): PreparedJudgeInput {
+  const { claims, intel } = splitGenres(all);
+  const limit = options.limit ?? judgeLimit();
+  const offset = options.offset ?? judgeOffset();
+  const { picked, skipped } = selectForJudging(claims, limit, offset);
+  return {
+    schema: 1,
+    judge_contract_version: JUDGE_CONTRACT_VERSION,
+    days: options.days,
+    offset,
+    picked: picked.map((f) => ({ ...f, redacted_snippet_sha256: hashSnippet(f) })),
+    skipped_ids: skipped.map((f) => f.id),
+    intel: intel.map((f) => ({ id: f.id, title: f.title })),
+  };
+}
+
+export function hashJudgeInput(prepared: PreparedJudgeInput): string {
+  return sha256(canonicalJSON(prepared));
+}
+
+/** Записи-заглушки (например «ещё N не разбирались») не находки — у них пустой id, в отпечаток не входят. */
+function isRealFinding(j: Judged): boolean {
+  return j.finding.id !== '';
+}
+
+export function hashJudgeOutput(judged: Judged[], intel: Array<{ id: string; title: string }>): string {
+  const results = judged
+    .filter(isRealFinding)
+    .map((j) => ({ id: j.finding.id, verdict: j.verdict, reason: j.reason, model: j.model ?? null }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return sha256(canonicalJSON({ results, intel: [...intel].map((f) => f.id).sort() }));
+}
+
+/** Владельцу требует внимания: real/needs_info/unjudged и intel — «шум»/«починено» этот отпечаток не меняют. */
+const ACTIONABLE_VERDICTS = new Set<Verdict>(['real', 'needs_info', 'unjudged']);
+
+/** Разбор молчал по ВСЕЙ выборке — отдельный факт отпечатка: смена reason не создаёт новое решение, смена этого — создаёт. */
+export function isDegraded(judged: Judged[]): boolean {
+  return judged.length > 0 && judged.every((j) => j.verdict === 'unjudged');
+}
+
+export function hashOwnerDecisions(judged: Judged[], intel: Array<{ id: string; title: string }>): string {
+  const actionable = judged
+    .filter((j) => isRealFinding(j) && ACTIONABLE_VERDICTS.has(j.verdict))
+    .map((j) => ({ id: j.finding.id, verdict: j.verdict }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return sha256(canonicalJSON({
+    actionable,
+    intel: [...intel].map((f) => f.id).sort(),
+    system_failure: isDegraded(judged),
+  }));
+}
+
+export function countActionable(judged: Judged[], intel: Array<{ id: string; title: string }>): number {
+  return judged.filter((j) => isRealFinding(j) && ACTIONABLE_VERDICTS.has(j.verdict)).length + intel.length;
+}
+
+export interface ReportMeta {
+  schema: 1;
+  report_key: string;
+  title: string;
+  input_hash: string;
+  output_hash: string;
+  decision_hash: string;
+  actionable: number;
+  analysis_status: 'complete' | 'degraded';
+}
+
+/**
  * Разбор пачками. Последовательный цикл упирался во время джоба задолго до
  * того, как упёрся бы в деньги, — и именно он держал потолок в сорок находок.
  * Пачка небольшая намеренно: провайдеры водопада отвечают 429 на всплеск,
@@ -395,7 +572,7 @@ export function balanceLine(b: Awaited<ReturnType<typeof checkOpenRouterBalance>
   return `Счёт OpenRouter: осталось $${b.remaining}${warn} (начислено $${b.total_credits}, потрачено $${b.total_usage}).`;
 }
 
-export function renderReport(judged: Judged[], balance?: string, intel: Finding[] = []): string {
+export function renderReport(judged: Judged[], balance?: string, intel: Array<{ title: string }> = []): string {
   const by = (v: Verdict) => judged.filter((j) => j.verdict === v);
   const real = by('real'), fixed = by('fixed'), noise = by('noise'),
     info = by('needs_info'), un = by('unjudged');
@@ -506,9 +683,9 @@ export function renderReport(judged: Judged[], balance?: string, intel: Finding[
 }
 
 async function main(): Promise<void> {
-  const [inPath, outPath] = process.argv.slice(2);
+  const [inPath, outPath, metaPath] = process.argv.slice(2);
   if (!inPath || !outPath) {
-    throw new Error('Использование: evo-judge.ts <находки.json> <отчёт.md>');
+    throw new Error('Использование: evo-judge.ts <находки.json> <отчёт.md> [meta.json]');
   }
   // Отсутствие ВСЕХ ключей — это отказ, а не пустой разбор. Водопаду решателя
   // хватает ЛЮБОГО из путей, и OpenRouter в этом списке первый по порядку
@@ -527,36 +704,42 @@ async function main(): Promise<void> {
 
   const raw = JSON.parse(readFileSync(inPath, 'utf-8')) as { issues?: Finding[] };
   const all = Array.isArray(raw.issues) ? raw.issues : [];
-  if (all.length === 0) {
-    writeFileSync(outPath, `Открытых находок нет.\n\n${balance}\n`);
-    return;
-  }
+  const days = judgeDays();
 
-  // Разведданные из разбора выведены: судить заметку вопросом «это дефект?»
-  // значит платить за заранее известный ответ. Они попадут в отчёт списком.
-  const { claims: findings, intel } = splitGenres(all);
-  if (findings.length === 0) {
-    writeFileSync(outPath, renderReport([], balance, intel));
-    return;
-  }
+  // Один и тот же prepareJudgeInput кормит и разбор, и три отпечатка ниже:
+  // «что судили» гарантированно совпадает с тем, что попало в input_hash.
+  const prepared = prepareJudgeInput(all, { days });
+  const judged: Judged[] = prepared.picked.length > 0 ? await judgeAll(prepared.picked) : [];
 
-  const limit = judgeLimit();
-  const { picked, skipped } = selectForJudging(findings, limit, judgeOffset());
-
-  const judged = await judgeAll(picked);
-
-  if (skipped.length > 0) {
+  if (prepared.skipped_ids.length > 0) {
     // Потолок назван вслух: молчаливая обрезка читается как «разобрали всё».
     judged.push({
       finding: { id: '', category: '', severity: '', file_path: null, line_number: null,
-        title: `Ещё ${skipped.length} находок не разбирались (потолок прогона в ${limit})`,
+        title: `Ещё ${prepared.skipped_ids.length} находок не разбирались (потолок прогона в ${judgeLimit()})`,
         description: null, suggestion: null },
       verdict: 'unjudged',
-      reason: `за потолком в ${limit}; окно сдвигается каждый прогон, эти попадут в следующий`,
+      reason: `за потолком в ${judgeLimit()}; окно сдвигается каждый прогон, эти попадут в следующий`,
     });
   }
 
-  writeFileSync(outPath, renderReport(judged, balance, intel));
+  writeFileSync(
+    outPath,
+    all.length === 0 ? `Открытых находок нет.\n\n${balance}\n` : renderReport(judged, balance, prepared.intel),
+  );
+
+  if (metaPath) {
+    const meta: ReportMeta = {
+      schema: 1,
+      report_key: reportKey(days),
+      title: reportTitle(days),
+      input_hash: hashJudgeInput(prepared),
+      output_hash: hashJudgeOutput(judged, prepared.intel),
+      decision_hash: hashOwnerDecisions(judged, prepared.intel),
+      actionable: countActionable(judged, prepared.intel),
+      analysis_status: isDegraded(judged) ? 'degraded' : 'complete',
+    };
+    writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  }
 }
 
 // Запуск только как скрипт: при импорте из теста main не вызывается.
