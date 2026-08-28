@@ -465,6 +465,9 @@ export default function RouteDetailClient({ id }: { id: string }) {
         if (e.data?.regionId !== id) return;
         if (e.data.type === 'TILE_PROGRESS') setDlProgress({ done: e.data.done, total: e.data.total });
         if (e.data.type === 'TILES_DONE') { setDlState('done'); navigator.serviceWorker.removeEventListener('message', onMsg); }
+        // Массовая закачка тайлов отключена (M0, владелец 28.08) — SW
+        // отвечает этим честно, вместо тихого «готово» без единого тайла.
+        if (e.data.type === 'TILES_UNAVAILABLE') { setDlState('error'); navigator.serviceWorker.removeEventListener('message', onMsg); }
       };
       navigator.serviceWorker.addEventListener('message', onMsg);
       sw.postMessage({ type: 'CACHE_TILES', tiles: data.tile_urls, regionId: id });

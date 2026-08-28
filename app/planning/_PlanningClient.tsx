@@ -408,6 +408,8 @@ function OnTrailTab() {
     wps: SavedWaypoint[]; grade: PassportGrade | null; navigability: PreviewNavigability | null;
   }>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
+  /** Массовая закачка карты отключена (M0, владелец 28.08) — причина словами. */
+  const [saveMapError, setSaveMapError] = useState<string | null>(null);
   /** План скачивания: сколько это будет весить, пока не скачано. */
   const [mapPlan, setMapPlan] = useState<{
     tiles: number; mb: number; zooms: number[]; dropped: number[];
@@ -593,11 +595,19 @@ function OnTrailTab() {
       const reg = await navigator.serviceWorker.ready;
       const sw = reg.active;
       if (!sw) return;
+      setSaveMapError(null);
       setTileDl({ done: 0, total: mapPlan.tiles });
       const onMsg = (e: MessageEvent) => {
         if ((e.data as { regionId?: string })?.regionId !== routeId) return;
-        const m = e.data as { type: string; done: number; failed?: number; total: number };
+        const m = e.data as { type: string; done: number; failed?: number; total: number; reason?: string };
         if (m.type === 'TILE_PROGRESS') setTileDl({ done: m.done, total: m.total });
+        // Массовая закачка отключена (M0, владелец 28.08): SW отвечает этим
+        // ВМЕСТО TILES_DONE — честно, без попытки скачать хоть один тайл.
+        if (m.type === 'TILES_UNAVAILABLE') {
+          setTileDl(null);
+          setSaveMapError(m.reason || 'Скачивание карты для офлайна временно недоступно');
+          navigator.serviceWorker.removeEventListener('message', onMsg);
+        }
         if (m.type === 'TILES_DONE') {
           setTileDl(null);
           const rec: SavedMapRecord = {
@@ -2775,6 +2785,9 @@ function OnTrailTab() {
                   ? `полоса ${mapPlan.bufferKm} км вдоль маршрута`
                   : 'квадрат вокруг места'}
               </span>
+              {saveMapError && (
+                <span className="w-full" style={{ color: 'var(--warning)' }}>{saveMapError}</span>
+              )}
             </div>
           ) : null}
         </div>

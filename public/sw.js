@@ -1,7 +1,8 @@
 // Kamchatour Hub Service Worker -- cache-first для офлайн-доступа
 // Кэш: статика + карточки мест /places/[id] + туры + API /api/places/[id]
-// + тайлы OpenStreetMap для офлайн-карты (управляются через postMessage)
-// + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
+// + тайлы OpenStreetMap — ТОЛЬКО те, что реально просмотрены онлайн
+// (массовая предзакачка региона/зумов отключена 28.08 — политика OSM
+// запрещает bulk download, см. комментарий у TILE_HOST ниже).
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
 const CACHE_NAME = 'kamchatour-v28'; // bumped: /field-check закэширован с повторами и внесён в офлайн-белый список
@@ -15,26 +16,23 @@ const TILE_CACHE_PREFIX = 'kh-tiles-';
 const TILE_CACHE_VERSION = 6; // bumped: .cz → OSM, старый кеш kh-tiles-5 будет удалён
 const TILE_HOST = 'tile.openstreetmap.org';
 
-// Базовые тайлы для всей Камчатки — кэшируются при установке SW.
-// Зум 7 (обзор) + 8 (средний) + 9 (детальный) = ~525 тайлов, ~8-10 МБ.
-// Этого достаточно для пешего туризма: видны тропы, рельеф, водоёмы.
-// + тайлы кэшируются автоматически при просмотре онлайн (дополнительные зумы).
-const BASE_TILE_URLS = (() => {
-  const urls = [];
-  // Зум 7 — обзор всей Камчатки (5×5 = 25 тайлов)
-  for (let x = 70; x <= 74; x++)
-    for (let y = 24; y <= 28; y++)
-      urls.push(`https://${TILE_HOST}/7/${x}/${y}.png`);
-  // Зум 8 — средняя детализация (10×10 = 100 тайлов)
-  for (let x = 140; x <= 149; x++)
-    for (let y = 48; y <= 57; y++)
-      urls.push(`https://${TILE_HOST}/8/${x}/${y}.png`);
-  // Зум 9 — детальная карта (20×20 = 400 тайлов)
-  for (let x = 280; x <= 299; x++)
-    for (let y = 96; y <= 115; y++)
-      urls.push(`https://${TILE_HOST}/9/${x}/${y}.png`);
-  return urls; // ~525 тайлов, ~8-10 МБ — приемлемо для установки (~15 сек на 3G)
-})();
+// Массовая закачка тайлов с tile.openstreetmap.org — УБРАНА (владелец 28.08,
+// M0-безопасность по итогам аудита).
+//
+// Публичная политика OSM прямо запрещает bulk download/prefetch/«скачать
+// область офлайн» с tile.openstreetmap.org — сервис работает без SLA именно
+// для обычного просмотра, не для построения собственного офлайн-архива.
+// Здесь стояли ДВЕ такие закачки разом:
+//   1. этот файл — ~525 тайлов (зум 7-9) при установке SW, БЕЗ спроса;
+//   2. CACHE_ZOOM10 (было ниже) — ~1600 тайлов при первом заходе на /map.
+// Обе — не просто нарушение политики, а нарушение с неверными координатами:
+// диапазоны x/y здесь были для Ямала/Карского моря (69.7-74.0°N, 16.9-30.9°E),
+// не для Камчатки (51-61°N, 158-165°E) — «офлайн-карта Камчатки» на деле
+// качала Арктику за тысячи километров от неё.
+//
+// Обычное кэширование тайлов ПРИ ПРОСМОТРЕ (handleTileRequest ниже, по
+// событию fetch) — не bulk-скачивание и остаётся: это ровно то использование,
+// для которого сервис существует.
 
 // Прозрачный 1×1 PNG как fallback при отсутствии тайла офлайн
 const TRANSPARENT_PNG_B64 =
@@ -124,14 +122,6 @@ self.addEventListener('install', (event) => {
     await Promise.allSettled(OPTIONAL_URLS.map((u) => cacheOne(cache, u, 0)));
     await self.skipWaiting();
   })());
-
-  // Тайлы зум 7-9 — фоном, НЕ блокируют установку (allSettled: один битый
-  // тайл не рушит остальные).
-  event.waitUntil(
-    caches.open(`${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`).then((tileCache) =>
-      Promise.allSettled(BASE_TILE_URLS.map((u) => cacheOne(tileCache, u, 0)))
-    ).catch(() => {})
-  );
 });
 
 // Активация: удаляем старые кэши кроме тайлового и API кэшей
@@ -223,9 +213,8 @@ async function handleTileRequest(request) {
   const cached = await cache.match(request);
   if (cached) return cached;
 
-  // Онлайн — загружаем и сохраняем в кэш для офлайн-доступа.
-  // Если fetch упал (CORS, сеть) — пробрасываем ошибку, чтобы
-  // cacheTilesForRegion мог посчитать failed и показать ошибку юзеру.
+  // Онлайн — загружаем и сохраняем в кэш ДЛЯ ТЕКУЩЕГО ПРОСМОТРА (не bulk-
+  // закачка — обычное использование, которое политика OSM разрешает).
   try {
     const response = await fetch(request);
     if (response.ok) {
@@ -235,8 +224,8 @@ async function handleTileRequest(request) {
     }
     return response;
   } catch {
-    // Офлайн и тайла нет в кэше — прозрачный PNG fallback.
-    // При зум 7+ базовые тайлы Камчатки уже должны быть в кэше.
+    // Офлайн и тайла нет в кэше (массовая предзакачка отключена, M0) —
+    // прозрачный PNG fallback честнее, чем пустой прямоугольник.
     return makeTransparentPngResponse();
   }
 }
@@ -257,20 +246,23 @@ self.addEventListener('message', (event) => {
   // считаем чужим, иначе сломаем офлайн-карту там, где всё в порядке.
   if (event.origin && event.origin !== self.location.origin) return;
 
+  // Массовая закачка региона/коридора маршрута по списку адресов — ОТКЛЮЧЕНА
+  // (владелец 28.08, M0-безопасность). Публичная политика OSM запрещает
+  // bulk download с tile.openstreetmap.org — а именно им был каждый вызов
+  // этого типа (regionId — «сохранить регион офлайн», «скачать для похода»,
+  // «сохранить полевой пакет»). Честный отказ, а не тихая пустота или
+  // отчёт «готово» без единого скачанного тайла: клиент (useOfflineRegion,
+  // route/[id] и planning) слушает TILES_UNAVAILABLE и показывает причину
+  // словами. Вернётся, когда появится собственный источник (PMTiles).
   if (event.data.type === 'CACHE_TILES') {
-    const { tiles, regionId } = event.data;
-    cacheTilesForRegion(tiles, regionId, event.source);
-    return;
-  }
-
-  // Подгрузка зум 10 при первом посещении /map онлайн
-  // ~1600 тайлов (~25 МБ) — детальная карта для пеших маршрутов
-  if (event.data.type === 'CACHE_ZOOM10') {
-    const zoom10Urls = [];
-    for (let x = 560; x <= 599; x++)
-      for (let y = 192; y <= 231; y++)
-        zoom10Urls.push(`https://${TILE_HOST}/10/${x}/${y}.png`);
-    cacheTilesForRegion(zoom10Urls, 'zoom10-kamchatka', event.source);
+    const { regionId } = event.data;
+    if (event.source) {
+      event.source.postMessage({
+        type: 'TILES_UNAVAILABLE',
+        regionId,
+        reason: 'Массовая закачка карты временно недоступна — источник тайлов меняется.',
+      });
+    }
     return;
   }
 
@@ -324,65 +316,8 @@ async function deleteTiles(urls, reason, client) {
   }
 }
 
-async function cacheTilesForRegion(tileUrls, regionId, client) {
-  const cacheName = `${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`;
-  const cache = await caches.open(cacheName);
-  const total = tileUrls.length;
-  let done = 0;
-  let failed = 0;
-
-  for (const url of tileUrls) {
-    // Не скачиваем тайл повторно если уже есть в кэше.
-    // Проверяем что кэшированный ответ — настоящий тайл, а не transparent PNG fallback.
-    const existing = await cache.match(url);
-    if (existing) {
-      // Transparent PNG fallback = ~68 байт. Настоящий тайл = 5-20KB.
-      const buf = await existing.arrayBuffer();
-      if (buf.byteLength > 500) {
-        done++;
-      } else {
-        // Кэширован transparent PNG — считаем как failed и пробуем скачать
-        failed++;
-      }
-    } else {
-      try {
-        const response = await fetch(url);
-        // Проверяем что это действительно изображение (PNG), а не error page / CORS block.
-        // Тайл-серверы иногда возвращают HTML error вместо картинки.
-        const ct = response.headers.get('content-type') || '';
-        if (response.ok && (ct.includes('image/png') || ct.includes('image/jpeg'))) {
-          await cache.put(url, response);
-          done++;
-        } else {
-          failed++;
-        }
-      } catch {
-        failed++;
-      }
-    }
-
-    // Прогресс каждые 10 тайлов
-    if ((done + failed) % 10 === 0 && client) {
-      client.postMessage({
-        type: 'TILE_PROGRESS',
-        regionId,
-        done,
-        failed,
-        total,
-      });
-    }
-  }
-
-  if (client) {
-    client.postMessage({
-      type: 'TILES_DONE',
-      regionId,
-      done,
-      failed,
-      total,
-    });
-  }
-}
+// cacheTilesForRegion (массовая закачка списка тайлов) удалена вместе с
+// CACHE_TILES-обработчиком выше — не вызывается больше ниоткуда.
 
 // ─── Whitelist: страницы которые умеют работать офлайн (IndexedDB / клиентское состояние) ───
 // Пути, которым офлайн отдаётся КЭШ, а не страница «нет соединения».

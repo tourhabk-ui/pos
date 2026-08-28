@@ -95,7 +95,13 @@ export default function LeafletMap({
   zoom = 8,
   height = '400px',
   className = '',
-  attribution = false,
+  // OSM требует видимую атрибуцию НА КАЖДОЙ карте, использующей их тайлы —
+  // это не опция удобства (владелец 28.08, M0-безопасность). `false` был
+  // дефолтом — три реальных экрана полагались на него молча и показывали
+  // карту без атрибуции. Теперь по умолчанию атрибуция ВКЛЮЧЕНА; `false`
+  // остаётся явным, осознанным выключением для мест, где атрибуция даётся
+  // иначе (не через это проп).
+  attribution = true,
   onMarkerClick,
   onMapClick,
   showUserLocation = false,
@@ -114,6 +120,16 @@ export default function LeafletMap({
    * «приложение умерло», и проверить нечего.
    */
   const [initFailed, setInitFailed] = useState(false);
+  /**
+   * Какая именно стадия не завелась — владелец 28.08 (M0-безопасность):
+   * «карта не загрузилась» раньше был один текст на четыре разные причины
+   * (не загрузился модуль leaflet, не загрузился markercluster, упала сама
+   * инициализация карты, не отдались тайлы) — падение шло в console.error
+   * по коду, БЕЗ сырых координат человека, только стадия.
+   */
+  const [mapErrorCode, setMapErrorCode] = useState<
+    'leaflet_import' | 'cluster_import' | 'map_init' | null
+  >(null);
   const [retry, setRetry] = useState(0);
   /**
    * Своего положения нет, и это сказано вслух.
@@ -135,13 +151,35 @@ export default function LeafletMap({
     // ResizeObserver — вынесен наверх, чтобы cleanup его отключил
     let resizeObserver: ResizeObserver | null = null;
 
-    // Dynamic import — leaflet + markercluster
-    Promise.all([
-      import('leaflet'),
-      import('leaflet.markercluster'),
-    ]).then(([L]) => {
-      if (!containerRef.current) return;
+    // Dynamic import — leaflet + markercluster, СТАДИИ РАЗДЕЛЬНО (M0-4,
+    // владелец 28.08): один общий .catch() на Promise.all не различал,
+    // какая из трёх вещей не завелась — импорт leaflet, импорт плагина
+    // кластеров или сама инициализация карты (map = L.map(...), тайлы,
+    // маркеры). Раздельные try/catch дают код стадии в mapErrorCode.
+    let cancelled = false;
+    (async () => {
+      let L: typeof import('leaflet');
+      try {
+        L = await import('leaflet');
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[LeafletMap] init failed', { code: 'leaflet_import' }, err);
+        setMapErrorCode('leaflet_import');
+        setInitFailed(true);
+        return;
+      }
+      try {
+        await import('leaflet.markercluster');
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[LeafletMap] init failed', { code: 'cluster_import' }, err);
+        setMapErrorCode('cluster_import');
+        setInitFailed(true);
+        return;
+      }
+      if (cancelled || !containerRef.current) return;
 
+      try {
       // Уничтожаем предыдущую карту
       if (mapRef.current) {
         mapRef.current.remove();
@@ -218,7 +256,11 @@ export default function LeafletMap({
           tileLayer.setUrl(TILE_URLS[sourceIdx]);
           return;
         }
-        // Все источники исчерпаны — оверлей (GPS всё равно работает)
+        // Все источники исчерпаны — оверлей (GPS всё равно работает).
+        // Код стадии — тот же язык диагностики, что у leaflet_import/
+        // cluster_import/map_init (M0-4): это четвёртая, отдельная причина
+        // «карта не загрузилась», не смешанная с остальными тремя.
+        console.error('[LeafletMap] init failed', { code: 'tile_unavailable' });
         if (!errorOverlay && containerRef.current) {
           errorOverlay = document.createElement('div');
           errorOverlay.style.cssText =
@@ -489,15 +531,21 @@ export default function LeafletMap({
           }
         );
       }
-
-    }).catch(() => {
-      // Чаще всего это несостоявшаяся загрузка куска карты: слабая связь,
-      // холодный кэш, оборванный запрос. Сеть на маршруте именно такая, и
-      // молчать здесь нельзя.
-      setInitFailed(true);
-    });
+      } catch (err) {
+        if (cancelled) return;
+        // Синхронный сбой САМОЙ инициализации (не импорта модулей) — L.map()
+        // на уже занятом контейнере, ошибка построения тайлового слоя и
+        // т.п. Чаще всего это несостоявшаяся загрузка куска карты: слабая
+        // связь, холодный кэш, оборванный запрос — но код стадии теперь
+        // виден в логе, а не смешан с ошибками импорта.
+        console.error('[LeafletMap] init failed', { code: 'map_init' }, err);
+        setMapErrorCode('map_init');
+        setInitFailed(true);
+      }
+    })();
 
     return () => {
+      cancelled = true;
       // Останавливаем GPS-трекинг при размонтировании (экономит батарею)
       if (userLocationWatchId !== null && typeof navigator !== 'undefined') {
         navigator.geolocation.clearWatch(userLocationWatchId);
@@ -554,7 +602,7 @@ export default function LeafletMap({
           </span>
           <button
             type="button"
-            onClick={() => { setInitFailed(false); setRetry(n => n + 1); }}
+            onClick={() => { setInitFailed(false); setMapErrorCode(null); setRetry(n => n + 1); }}
             style={{
               marginTop: 4, padding: '9px 16px', borderRadius: 999, cursor: 'pointer',
               background: 'none', color: 'var(--ocean)', fontSize: 13, fontWeight: 600,
@@ -563,6 +611,15 @@ export default function LeafletMap({
           >
             Повторить
           </button>
+          {/* Стадия отказа — не для туриста (та же фраза выше уже сказала
+              достаточно), а для того, кто разбирает жалобу: leaflet_import/
+              cluster_import/map_init — три разные причины под одним текстом
+              «карта не загрузилась» (M0-4, владелец 28.08). */}
+          {mapErrorCode && (
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', opacity: 0.6 }}>
+              {mapErrorCode}
+            </span>
+          )}
         </div>
       )}
     </div>
