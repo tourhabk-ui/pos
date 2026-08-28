@@ -1,33 +1,38 @@
 /**
  * POST /api/routes/build — построение пути Origin → Destination (владелец
- * 28.08, PR 5A/5B-1). Единственная дверь наружу: браузер сюда шлёт
- * координаты, а провайдера — если/когда он появится — зовёт СЕРВЕР.
- * Ключи, лимиты, ошибки провайдера наружу не выходят (решение владельца:
- * «разрешить через серверный адаптер, не вызывать провайдера напрямую из
- * браузера»).
+ * 28.08, PR 5A/5B-1/«свой роутер»). Единственная дверь наружу: браузер сюда
+ * шлёт координаты, а провайдера зовёт СЕРВЕР. Ключи, лимиты, ошибки
+ * провайдера наружу не выходят (решение владельца: «разрешить через
+ * серверный адаптер, не вызывать провайдера напрямую из браузера»).
  *
  * Отвечает RouteBuildResult (lib/on-route/route-build.ts) — тем же типом,
  * что уже понимает экран (PR 5A). Режимы: foot — не построен (5B-2,
- * нужна сеть троп, здесь её нет — честный unsupported, а не тихая линия
- * напрямую); car — зовёт CarRouteProvider (lib/on-route/route-provider.ts),
- * пропускает ответ через applySnapGuard (ненадёжная привязка к дороге →
- * not_found, не рисованный путь) и нормализует found/not_found/error в
- * RouteBuildResult. Сегодня единственная реализация провайдера —
- * notWiredCarRouteProvider: источник маршрутизации владелец сознательно не
- * выбрал (28.08, bake-off предстоит), и это честно доходит до пользователя
- * как «недоступно», а не выдумывается.
+ * нужна сеть троп для произвольной точки, здесь этого шага нет — честный
+ * unsupported, а не тихая линия напрямую); car — зовёт CarRouteProvider
+ * (lib/on-route/route-provider.ts), пропускает ответ через applySnapGuard
+ * (ненадёжная привязка к дороге → not_found, не рисованный путь) и
+ * нормализует found/not_found/error в RouteBuildResult.
+ *
+ * Провайдер для car — `roadGraphCarProvider`
+ * (lib/on-route/road-graph-car-provider.ts): свой дорожный граф Камчатки
+ * (миграция 760, решение владельца 2026-07-20 «без внешних роутинг-API,
+ * офлайн-first»), не внешний Yandex/2ГИС и не bake-off — от них решено
+ * отказаться 28.08 в пользу уже существующей инфраструктуры. Качество и
+ * охват графа — отдельный, не блокирующий эту правку вопрос ДАННЫХ, не
+ * архитектуры: там, где дорог в графе нет, провайдер честно отвечает
+ * not_found, а не рисует то, чего нет.
  *
  * Публичный: строить путь может кто угодно, планирующий поездку — как и
- * поиск маршрутов (/api/routes/search). Rate-limit — не от злоупотребления
- * деньгами (провайдер ещё не подключён и денег не стоит), а чтобы этот
- * эндпоинт с самого начала жил по тем же правилам, что будет обязан
- * соблюдать после подключения платного источника.
+ * поиск маршрутов (/api/routes/search). Rate-limit — свой роутер не стоит
+ * денег за вызов, но эндпоинт живёт по тем же правилам, что и любой другой
+ * публичный API платформы.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { applySnapGuard, notWiredCarRouteProvider } from '@/lib/on-route/route-provider';
+import { applySnapGuard } from '@/lib/on-route/route-provider';
+import { roadGraphCarProvider } from '@/lib/on-route/road-graph-car-provider';
 import type { RouteBuildResult } from '@/lib/on-route/route-build';
 import type { RouteOption } from '@/lib/on-route/destination';
 import {
@@ -35,6 +40,9 @@ import {
 } from '@/app/api/cron/place-coords/route';
 
 export const dynamic = 'force-dynamic';
+// Настоящая работа с БД и A* теперь идёт здесь (не мгновенный ответ
+// заглушки) — тот же запас, что у /api/routing/path.
+export const maxDuration = 30;
 
 const limiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
@@ -88,7 +96,7 @@ export async function POST(request: NextRequest) {
   }
 
   // mode === 'car'
-  const raw = await notWiredCarRouteProvider.route({
+  const raw = await roadGraphCarProvider.route({
     originLat: origin.lat, originLon: origin.lon,
     destLat: destination.lat, destLon: destination.lon,
   });
