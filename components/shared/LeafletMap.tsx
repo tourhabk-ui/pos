@@ -18,6 +18,14 @@ interface LeafletMapProps {
   className?: string;
   attribution?: boolean;
   onMarkerClick?: (id: string) => void;
+  /**
+   * Тап по свободной точке карты — сырые координаты под пальцем, не
+   * привязанные к маркеру (владелец 27.08: клик создаёт `coordinate`
+   * цель — lib/on-route/destination.ts). Leaflet зовёт это на КАЖДЫЙ
+   * клик по карте, включая клик по маркеру/попапу — потребитель решает,
+   * что с этим делать.
+   */
+  onMapClick?: (lat: number, lng: number) => void;
   /** Показать позицию пользователя (синяя точка) — работает через GPS без интернета */
   showUserLocation?: boolean;
   /** Высота приоритета: «battery» (экономит батарею) или «highAccuracy» (максимум точности) */
@@ -109,6 +117,7 @@ export default function LeafletMap({
   className = '',
   attribution = false,
   onMarkerClick,
+  onMapClick,
   showUserLocation = false,
   locationPriority = 'highAccuracy',
 }: LeafletMapProps) {
@@ -198,6 +207,10 @@ export default function LeafletMap({
 
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
       L.control.zoom({ position: 'topright' }).addTo(map);
+
+      if (onMapClick) {
+        map.on('click', (e) => onMapClick(e.latlng.lat, e.latlng.lng));
+      }
 
       // Базовый слой тайлов с авто-фолбэком. Раньше был единственный хост
       // (.cz-зеркало OpenTopoMap) — когда он лёг, карта превращалась в пустой
@@ -524,7 +537,7 @@ export default function LeafletMap({
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markers, center, zoom, onMarkerClick, attribution, showUserLocation, locationPriority, retry]);
+  }, [markers, center, zoom, onMarkerClick, onMapClick, attribution, showUserLocation, locationPriority, retry]);
 
   return (
     <div style={{ height, position: 'relative' }} className={`overflow-hidden ${className}`}>

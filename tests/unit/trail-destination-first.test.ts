@@ -11,11 +11,16 @@
  *
  * Явно НЕ сделано в этой правке (полноценный переход к состояниям
  * destination_selected/origin_required/route_options как отдельным экранам
- * с построением маршрута от произвольной точки, «указать точку на карте»,
- * «путь не найден → безопасные альтернативы») — эта инфраструктура
- * (поиск МЕСТ отдельно от маршрутов, построение пути от точки, клик по
- * карте для установки цели) в кодовой базе не существует, и симулировать
- * её нерабочими кнопками нельзя (§4.0).
+ * с построением маршрута от произвольной точки, «путь не найден →
+ * безопасные альтернативы») — эта инфраструктура (поиск МЕСТ отдельно от
+ * маршрутов, построение пути от точки) в кодовой базе не существует, и
+ * симулировать её нерабочими кнопками нельзя (§4.0).
+ *
+ * PR 3 роадмапа владельца (27.08) добавил СЮДА клик по карте: он создаёт
+ * `coordinate`-цель (lib/on-route/destination.ts), но путей к ней не
+ * строит — OriginPicker и построение маршрута от произвольной точки
+ * (шаги 4-5 роадмапа) ещё не существуют. Честный отказ вместо тишины —
+ * см. «клик по карте создаёт coordinate-цель» ниже.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -69,9 +74,42 @@ describe('сначала цель, потом путь (домен Destination, 
   });
 
   it('внутри зафиксированной цели путь рендерится тем же renderPathRow — не отдельной копией', () => {
-    const at = TRAIL.indexOf('if (selectedDestination) {');
+    const at = TRAIL.indexOf('function renderFixedDestination');
     expect(at).toBeGreaterThan(0);
     expect(TRAIL.slice(at, at + 1500)).toContain('renderPathRow(routeOptionToPreview(o))');
+  });
+});
+
+describe('клик по карте создаёт coordinate-цель (PR 3 роадмапа владельца, 27.08)', () => {
+  it('LeafletMap получает onMapClick только в режиме pickingOnMap — не рисуется сама по себе', () => {
+    expect(TRAIL).toContain('const [pickingOnMap, setPickingOnMap] = useState(false)');
+    expect(TRAIL).toContain('{pickingOnMap && (');
+    const at = TRAIL.indexOf('{pickingOnMap && (');
+    const block = TRAIL.slice(at, at + 600);
+    expect(block).toContain('onMapClick={(lat, lon) => {');
+    expect(block).toContain("kind: 'coordinate'");
+    expect(block).toContain('routeOptions: []');
+  });
+
+  it('тап по карте гасит режим выбора и не запускает маршрут автоматически', () => {
+    const at = TRAIL.indexOf('onMapClick={(lat, lon) => {');
+    const cb = TRAIL.slice(at, TRAIL.indexOf('}} />', at));
+    expect(cb).toContain('setPickingOnMap(false)');
+    expect(cb).not.toContain('selectRoute(');
+  });
+
+  it('coordinate-цель без путей честно отказывается — не молчит и не рисует «0 путей»', () => {
+    const at = TRAIL.indexOf('function renderFixedDestination');
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).toContain('routeOptions.length > 0 ?');
+    expect(body).toContain('Путь не найден');
+  });
+
+  it('LeafletMap.onMapClick — отдельный проп, отличный от onMarkerClick', () => {
+    const MAP = readFileSync(join(ROOT, 'components/shared/LeafletMap.tsx'), 'utf-8');
+    expect(MAP).toContain('onMapClick?: (lat: number, lng: number) => void');
+    expect(MAP).toContain("map.on('click'");
   });
 });
 

@@ -8,7 +8,7 @@ import {
   Check, ChevronRight, ChevronLeft, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
-  Trash2, Binoculars, MapPinPlus, Square, Route,
+  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair,
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
@@ -372,6 +372,10 @@ function OnTrailTab() {
   // Destination-first (владелец 27.08): фиксированная карточка места, пока
   // не выбран конкретный путь к ней. null — список карточек мест, не путей.
   const [selectedDestination, setSelectedDestination] = useState<DestinationOption | null>(null);
+  // Клик по карте создаёт coordinate-цель (владелец 27.08, PR 3 роадмапа):
+  // отдельный режим, не автозапуск — карта появляется, только когда человек
+  // сам её открыл, и гаснет сразу после тапа.
+  const [pickingOnMap, setPickingOnMap] = useState(false);
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{
     id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
@@ -1437,6 +1441,7 @@ function OnTrailTab() {
     setPreview(null);
     setModalQuery('');
     setSelectedDestination(null);
+    setPickingOnMap(false);
     setWaypoints([]);
     setCurrentWpIdx(0);
     // Reset timer via ref — no effect restart, no sensor disruption
@@ -1520,6 +1525,49 @@ function OnTrailTab() {
 
   function destinationTitle(d: Destination): string {
     return d.kind === 'place' ? d.title : (d.title ?? 'Точка на карте');
+  }
+
+  // Карточка зафиксированной цели — общая для места (из поиска) и координаты
+  // (из клика по карте, владелец 27.08, PR 3 роадмапа). Путей к координате
+  // сегодня НЕ строится (см. lib/on-route/destination.ts — coordinate-цель
+  // не участвует в резолве, routeOptions у неё всегда пуст) — честный отказ,
+  // а не тихая пустота: третье состояние правила §4.0, не «нашли 0».
+  function renderFixedDestination() {
+    if (!selectedDestination) return null;
+    const d = selectedDestination.destination;
+    return (
+      <div>
+        <button onClick={() => setSelectedDestination(null)}
+          className="flex items-center gap-1 text-xs font-semibold mb-3"
+          style={{ color: 'var(--ocean)' }}>
+          <ChevronLeft className="w-3.5 h-3.5" /> {d.kind === 'coordinate' ? 'К поиску' : 'К местам'}
+        </button>
+        <p className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
+          {destinationTitle(d)}
+        </p>
+        {d.kind === 'coordinate' && (
+          <p className="text-xs text-[var(--text-muted)] mb-2">{d.lat.toFixed(5)}, {d.lon.toFixed(5)}</p>
+        )}
+        {selectedDestination.routeOptions.length > 0 ? (
+          <>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+              {selectedDestination.routeOptions.length} {plural(selectedDestination.routeOptions.length, 'путь', 'пути', 'путей')}
+            </p>
+            <div className="space-y-2">
+              {selectedDestination.routeOptions.map(o => renderPathRow(routeOptionToPreview(o)))}
+            </div>
+          </>
+        ) : (
+          <div className="px-3 py-3 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>Путь не найден</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+              В данных платформы нет маршрута к этой точке — ни трека, ни путевых точек рядом.
+              Координата сохранена как цель; ведение по ней платформа пока не предлагает.
+            </p>
+          </div>
+        )}
+      </div>
+    );
   }
 
   // Строка пути в выборе: род линии, длина, сложность. Одна на обе секции —
@@ -1753,13 +1801,40 @@ function OnTrailTab() {
                       <input
                         type="text"
                         value={modalQuery}
-                        onChange={e => { setModalQuery(e.target.value); setSelectedDestination(null); }}
+                        onChange={e => { setModalQuery(e.target.value); setSelectedDestination(null); setPickingOnMap(false); }}
                         placeholder="Название места: Авачинский, Толбачик…"
                         className="w-full px-3 py-2.5 rounded-xl text-sm mb-3"
                         style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
                       />
-      
-                      {modalError && modalQuery.trim().length < 2 ? (
+
+                      {/* Клик по карте — вторая цель, не только текстом
+                          (владелец 27.08, PR 3 роадмапа). Режим — по кнопке,
+                          не сам по себе: карта не рисуется, пока человек её
+                          явно не открыл, и гаснет сразу после тапа — без
+                          автозапуска ориентирования. */}
+                      <button
+                        type="button"
+                        onClick={() => { setPickingOnMap(v => !v); setSelectedDestination(null); }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium mb-3"
+                        style={{
+                          background: pickingOnMap ? 'color-mix(in srgb, var(--ocean) 12%, transparent)' : 'var(--bg-primary)',
+                          border: `1px solid ${pickingOnMap ? 'var(--ocean)' : 'var(--border)'}`,
+                          color: pickingOnMap ? 'var(--ocean)' : 'var(--text-secondary)',
+                        }}>
+                        <Crosshair className="w-4 h-4 shrink-0" />
+                        {pickingOnMap ? 'Коснитесь карты, чтобы поставить точку' : 'Указать точку на карте'}
+                      </button>
+                      {pickingOnMap && (
+                        <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
+                          <LeafletMap center={[53.0444, 158.6483]} zoom={8} height="220px" showUserLocation
+                            onMapClick={(lat, lon) => {
+                              setSelectedDestination({ destination: { kind: 'coordinate', lat, lon }, routeOptions: [] });
+                              setPickingOnMap(false);
+                            }} />
+                        </div>
+                      )}
+
+                      {selectedDestination ? renderFixedDestination() : modalError && modalQuery.trim().length < 2 ? (
                         <div className="flex flex-col items-center gap-3 py-6">
                           <p className="text-[var(--danger)] text-sm text-center">{modalError}</p>
                           <button
@@ -1789,27 +1864,6 @@ function OnTrailTab() {
                               </div>
                             ) : (() => {
                               const { destinations, titleOnly } = groupRoutesByDestination(searchRoutes, modalQuery.trim());
-
-                              if (selectedDestination) {
-                                return (
-                                  <div>
-                                    <button onClick={() => setSelectedDestination(null)}
-                                      className="flex items-center gap-1 text-xs font-semibold mb-3"
-                                      style={{ color: 'var(--ocean)' }}>
-                                      <ChevronLeft className="w-3.5 h-3.5" /> К местам
-                                    </button>
-                                    <p className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
-                                      {destinationTitle(selectedDestination.destination)}
-                                    </p>
-                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                                      {selectedDestination.routeOptions.length} {plural(selectedDestination.routeOptions.length, 'путь', 'пути', 'путей')}
-                                    </p>
-                                    <div className="space-y-2">
-                                      {selectedDestination.routeOptions.map(o => renderPathRow(routeOptionToPreview(o)))}
-                                    </div>
-                                  </div>
-                                );
-                              }
 
                               return (
                                 <div className="space-y-4">
@@ -2746,13 +2800,13 @@ function OnTrailTab() {
       {/* Навигаторный выбор маршрута: место → варианты → превью на карте → фиксация */}
       {showRouteModal && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
-          onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); }}>
+          onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); setPickingOnMap(false); }}>
           <div className="rounded-t-2xl p-4 max-h-[85vh] overflow-y-auto"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-[var(--text-primary)] text-base">Куда хотите пойти?</h3>
-              <button onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); }}
+              <button onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); setPickingOnMap(false); }}
                 className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }}>
                 <X className="w-4 h-4 text-[var(--text-muted)]" />
               </button>
