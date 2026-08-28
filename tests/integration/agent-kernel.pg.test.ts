@@ -291,36 +291,57 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
   });
 
   /**
-   * Concurrency-guard /api/cron/evo (задание владельца 28.08): защита от
-   * двойного прогона — не по idempotency-ключу (его у evo.run нет и не
-   * будет: каждый плановый прогон законно новый), а по факту «живая задача
-   * этой capability уже есть». Проверяется здесь, а не моком: именно
-   * `lease_until > NOW()` в WHERE решает, блокирует задача или нет, и это
-   * ровно то поведение, которое SQL, а не TypeScript, оставляет истинным.
+   * Concurrency-guard /api/cron/evo (ревью 28.08): pg_try_advisory_lock —
+   * та же техника, что закрывает гонку овербукинга в
+   * app/api/accommodations/[id]/book/route.ts (см. README), только session-
+   * level (`_xact_`-вариант держал бы транзакцию открытой все 120с прогона
+   * оркестратора — риск для БД). Проверяется здесь той же SQL-конструкцией,
+   * что использует роут (`hashtext($1)` на одном ключе), двумя РЕАЛЬНЫМИ
+   * соединениями — ровно то поведение, которое check-then-act не гарантирует
+   * никогда: атомарность даёт сам Postgres, а не порядок наших запросов.
    */
-  it('findActiveByCapability: живая задача блокирует, задача с истёкшим lease — нет', async () => {
-    const t = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
-    if (!t.created) throw new Error('задача не создана');
-    const claimed = await kernel.claimTaskById(t.task.id, 'cron:pg-test', 600);
-    if (!claimed) throw new Error('задача не захвачена');
-
-    const activeWhileFresh = await kernel.findActiveByCapability('evo.run');
-    expect(activeWhileFresh?.id).toBe(t.task.id);
-
-    // Lease в прошлом — как после аварийно оборвавшегося процесса: transition()
-    // некому вызвать, но guard обязан отпустить очередь, а не замуровать её.
-    await pool.query(`UPDATE agent_tasks SET lease_until = NOW() - interval '1 second' WHERE id = $1`, [t.task.id]);
-    const activeAfterExpiry = await kernel.findActiveByCapability('evo.run');
-    expect(activeAfterExpiry).toBeNull();
+  it('pg_try_advisory_lock: конкурентный захват атомарен — ровно один получает true', async () => {
+    const clientA = await pool.connect();
+    const clientB = await pool.connect();
+    try {
+      const [a, b] = await Promise.all([
+        clientA.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test']),
+        clientB.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test']),
+      ]);
+      const locked = [a.rows[0].locked, b.rows[0].locked];
+      expect(locked.filter(Boolean)).toHaveLength(1);
+    } finally {
+      await clientA.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test']).catch(() => undefined);
+      await clientB.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test']).catch(() => undefined);
+      clientA.release();
+      clientB.release();
+    }
   });
 
-  it('findActiveByCapability: succeeded/failed_terminal не блокируют — только queued/running', async () => {
-    const t = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
-    if (!t.created) throw new Error('задача не создана');
-    const claimed = await kernel.claimTaskById(t.task.id, 'cron:pg-test', 600);
-    if (!claimed) throw new Error('задача не захвачена');
-    await kernel.transition(t.task.id, 'running', 'succeeded', 'cron:pg-test', {});
+  it('pg_try_advisory_lock: после unlock следующий захват снова успешен', async () => {
+    const clientA = await pool.connect();
+    try {
+      const first = await clientA.query<{ locked: boolean }>(
+        `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test-2'],
+      );
+      expect(first.rows[0].locked).toBe(true);
+      await clientA.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test-2']);
 
-    expect(await kernel.findActiveByCapability('evo.run')).toBeNull();
+      const clientB = await pool.connect();
+      try {
+        // Освободившийся ключ — не «навсегда занят». Аварийный процесс,
+        // державший lock, тоже освобождает его сам собой при закрытии
+        // соединения (session-level), поэтому очередь не замуровывается.
+        const second = await clientB.query<{ locked: boolean }>(
+          `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, ['evo.run.pg-test-2'],
+        );
+        expect(second.rows[0].locked).toBe(true);
+        await clientB.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['evo.run.pg-test-2']);
+      } finally {
+        clientB.release();
+      }
+    } finally {
+      clientA.release();
+    }
   });
 });
