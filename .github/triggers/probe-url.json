@@ -1,5 +1,5 @@
 {
-  "note": "Проверка обновлённого GITHUB_TOKEN на Timeweb: POST /api/cron/volcano-merge-gate без pr_number (sweep) — раньше отвечал 500 с 'GitHub GET /pulls/1423: HTTP 401 Bad credentials'. Ждём success:true.",
+  "note": "Повтор проверки GITHUB_TOKEN на Timeweb для volcano-merge-gate после деплоя (28.08). Предыдущий прогон (job 98752096816) ещё падал 401 Bad credentials на GET /issues?labels=volcano-agent — владелец подтвердил, что деплой прошёл ПОСЛЕ этого. Ждём success:true.",
   "urls": [],
   "post": [
     { "url": "https://vedarai.ru/api/cron/volcano-merge-gate", "body": {} }
