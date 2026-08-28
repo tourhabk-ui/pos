@@ -33,6 +33,7 @@ export async function GET(req: Request) {
       zones_analyzed: result.assessments.length,
       high_risk_zones: result.high_risk_zones,
       total_tourists_at_risk: result.total_tourists_at_risk,
+      stand_down_zones: result.stand_down_zones,
       assessments: result.assessments.map(a => ({
         zone: a.zone,
         risk_score: a.risk_score,
