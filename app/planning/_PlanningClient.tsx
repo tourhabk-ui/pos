@@ -47,6 +47,7 @@ import {
 import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
 import { groupRoutesByDestination, type Destination, type DestinationOption, type RouteOption } from '@/lib/on-route/destination';
 import { originLabel, type Origin } from '@/lib/on-route/origin';
+import { notWiredBuilder, type RouteBuildResult } from '@/lib/on-route/route-build';
 
 /** Вердикт черты в том виде, в каком он приходит с сервера. */
 interface PreviewNavigability {
@@ -382,6 +383,16 @@ function OnTrailTab() {
   // только когда человек сам её открыл, и гаснет сразу после тапа —
   // ни ту, ни другую сущность клик не запускает автоматически.
   const [mapPickMode, setMapPickMode] = useState<'destination' | 'origin' | null>(null);
+  // Машина состояний построения пути (владелец 27.08, PR 5A роадмапа):
+  // idle — старт ещё не выбран; building — запрос идёт; done — есть ответ.
+  // Пока build() отвечает только notWiredBuilder (PR 5B подключит реальный
+  // источник, не трогая эту машину состояний).
+  const [buildPhase, setBuildPhase] = useState<
+    { phase: 'idle' } | { phase: 'building' } | { phase: 'done'; result: RouteBuildResult }
+  >({ phase: 'idle' });
+  // Повторный запрос без смены origin/destination — например, кнопка
+  // «Повторить» после failed. Смена этого числа перезапускает эффект ниже.
+  const [buildRetryTick, setBuildRetryTick] = useState(0);
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{
     id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
@@ -1650,19 +1661,11 @@ function OnTrailTab() {
 
         {renderOriginPicker()}
 
-        {/* Построение пути (Origin → Destination) — шаг 5 роадмапа, здесь
-            его нет: инфраструктуры для этого в кодовой базе не существует,
-            и молчать об этом после того, как человек выбрал старт, нельзя
-            (§4.0) — старт выбран, а вести по нему пока некуда. */}
-        {selectedOrigin && (
-          <div className="px-3 py-3 rounded-lg mb-3" style={{ background: 'var(--bg-hover)' }}>
-            <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>Построение пути пока недоступно</p>
-            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-              Платформа ещё не считает путь от выбранного старта до цели. Ниже — уже
-              существующие треки рядом с целью, а не маршрут отсюда.
-            </p>
-          </div>
-        )}
+        {/* Построение пути (Origin → Destination) — машина состояний PR 5A:
+            idle/building/found/not_found/unsupported/failed. Сегодня отвечает
+            только notWiredBuilder («unsupported» честно, не тихая пустота) —
+            PR 5B подключит реальный источник, не трогая эту разметку. */}
+        {renderBuildStatus()}
 
         {hasOptions ? (
           <>
@@ -2047,6 +2050,80 @@ function OnTrailTab() {
     if (!hasRoute && !isLoadingRoute) loadRecommendedRoutes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasRoute, isLoadingRoute]);
+
+  // Построение пути Origin → Destination (владелец 27.08, PR 5A роадмапа).
+  // Запускается, только когда ОБЕ независимые сущности выбраны — origin сам
+  // по себе путь не строит (см. renderOriginPicker). cancelled — стандартная
+  // отмена устаревшего запроса: смена origin/destination перезапускает
+  // эффект, и cleanup гасит результат предыдущего до его прихода, так что
+  // экран никогда не покажет ответ для уже оставленной пары.
+  useEffect(() => {
+    if (!selectedOrigin || !selectedDestination) {
+      setBuildPhase({ phase: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setBuildPhase({ phase: 'building' });
+    notWiredBuilder
+      .build({ origin: selectedOrigin, destination: selectedDestination.destination, mode: 'foot' })
+      .then(result => { if (!cancelled) setBuildPhase({ phase: 'done', result }); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setBuildPhase({
+          phase: 'done',
+          result: { status: 'failed', retryable: true, message: err instanceof Error ? err.message : 'Не удалось построить путь' },
+        });
+      });
+    return () => { cancelled = true; };
+  }, [selectedOrigin, selectedDestination, buildRetryTick]);
+
+  // Карточка ответа машины состояний — единственное место, где текст
+  // «путь не найден»/«недоступно»/«не удалось» решается по РЕАЛЬНОМУ
+  // результату build(), а не пишется заранее в JSX (§4.0: третье
+  // состояние — «не смогли построить» не то же самое, что «нашли 0»).
+  function renderBuildStatus() {
+    if (buildPhase.phase === 'idle') return null;
+    if (buildPhase.phase === 'building') {
+      return (
+        <div className="px-3 py-3 rounded-lg mb-3" style={{ background: 'var(--bg-hover)' }}>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Ищем путь от старта до цели…</p>
+        </div>
+      );
+    }
+    const { result } = buildPhase;
+    if (result.status === 'found') {
+      // Реального источника у 5A нет — эта ветка не срабатывает сегодня,
+      // но остаётся честной: НАСТОЯЩИЙ путь от выбранного старта, не
+      // готовые треки рядом с целью (та секция — другая, ниже).
+      return (
+        <div className="mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+            Путь от вашего старта
+          </p>
+          <div className="space-y-2">
+            {result.options.map(o => renderPathRow(routeOptionToPreview(o)))}
+          </div>
+        </div>
+      );
+    }
+    const label =
+      result.status === 'not_found' ? 'Путь не найден'
+      : result.status === 'unsupported' ? 'Построение пути пока недоступно'
+      : 'Не удалось построить путь';
+    const detail = result.status === 'failed' ? result.message : result.reason;
+    return (
+      <div className="px-3 py-3 rounded-lg mb-3" style={{ background: 'var(--bg-hover)' }}>
+        <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>{label}</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{detail}</p>
+        {result.status === 'failed' && result.retryable && (
+          <button onClick={() => setBuildRetryTick(t => t + 1)}
+            className="text-xs font-semibold mt-2" style={{ color: 'var(--ocean)' }}>
+            Повторить
+          </button>
+        )}
+      </div>
+    );
+  }
 
   // ─── Полевые действия: место · трек · наблюдение (владелец 27.08) ─────────
   // Панель — та же, что на /field-check (FieldActionBar, образец MAPS.ME):
