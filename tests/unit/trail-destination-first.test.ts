@@ -146,11 +146,10 @@ describe('Origin независим от Destination (PR 4 роадмапа вл
     expect(originPickerBody).not.toContain('setSelectedDestination(');
   });
 
-  it('после выбора старта путь честно назван «пока недоступен», а не запущен', () => {
-    expect(TRAIL).toContain('Построение пути пока недоступно');
+  it('после выбора старта карточка зовёт машину состояний, а не запускает путь сама', () => {
     const at = TRAIL.indexOf('function renderFixedDestination');
     const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
-    expect(body).toContain('{selectedOrigin && (');
+    expect(body).toContain('{renderBuildStatus()}');
     expect(body).not.toContain('selectRoute(');
   });
 
@@ -174,6 +173,58 @@ describe('Origin независим от Destination (PR 4 роадмапа вл
     expect(body).toContain('Доступ к геопозиции запрещён');
     // Ручной выбор (карта) остаётся доступным независимо от отказа GPS.
     expect(body).toContain("renderMapPickButton('origin'");
+  });
+});
+
+describe('машина состояний построения пути (PR 5A роадмапа владельца, 27.08)', () => {
+  it('запускается только когда ОБЕ сущности выбраны — origin сам по себе путь не строит', () => {
+    const at = TRAIL.indexOf('.build({ origin: selectedOrigin');
+    expect(at).toBeGreaterThan(0);
+    const effectAt = TRAIL.lastIndexOf('useEffect(', at);
+    const effect = TRAIL.slice(effectAt, at);
+    expect(effect).toContain('if (!selectedOrigin || !selectedDestination)');
+    expect(effect).toContain("setBuildPhase({ phase: 'idle' })");
+  });
+
+  it('смена origin/destination отменяет устаревший ответ (React cleanup, не тихая гонка)', () => {
+    const at = TRAIL.indexOf('.build({ origin: selectedOrigin');
+    const effectAt = TRAIL.lastIndexOf('useEffect(', at);
+    const effectEnd = TRAIL.indexOf('[selectedOrigin, selectedDestination, buildRetryTick]', at);
+    const effect = TRAIL.slice(effectAt, effectEnd);
+    expect(effect).toContain('let cancelled = false');
+    expect(effect).toContain('if (!cancelled) setBuildPhase(');
+    expect(effect).toContain('return () => { cancelled = true; };');
+  });
+
+  it('ни один статус ответа не запускает ориентирование напрямую', () => {
+    const at = TRAIL.indexOf('function renderBuildStatus');
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).not.toContain('selectRoute(');
+    // found — единственный статус, где ЕСТЬ путь; он рендерится тем же
+    // renderPathRow (открывает превью, фиксация — отдельным явным тапом),
+    // не автозапуском.
+    expect(body).toContain('renderPathRow(routeOptionToPreview(o))');
+  });
+
+  it('прямая линия origin→destination нигде не рисуется как маршрут', () => {
+    const at = TRAIL.indexOf('function renderBuildStatus');
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).not.toContain('polyline');
+    expect(body).not.toContain('geometry');
+  });
+
+  it('карточка использует контракт lib/on-route/route-build.ts, не свою логику', () => {
+    expect(TRAIL).toContain("from '@/lib/on-route/route-build'");
+    expect(TRAIL).toContain('notWiredBuilder');
+  });
+
+  it('failed с retryable даёт кнопку «Повторить», остальные статусы — нет', () => {
+    const at = TRAIL.indexOf('function renderBuildStatus');
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).toContain("result.status === 'failed' && result.retryable");
+    expect(body).toContain('Повторить');
+    expect(body).toContain('setBuildRetryTick(t => t + 1)');
   });
 });
 
