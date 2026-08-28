@@ -2,10 +2,22 @@
 
 import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus, SosBroadcastPayload } from './types';
 import { roomOf } from './rooms';
+import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 
+// STUN пробивает обычные NAT; за CGNAT мобильных операторов (типичный
+// случай в поле) соединение без TURN не собирается вовсе — обе стороны
+// онлайн, а канала нет. TURN подключается переменными окружения, когда
+// владелец поднимет relay-сервер; без них поведение прежнее (только STUN).
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  ...(process.env.NEXT_PUBLIC_TURN_URL
+    ? [{
+        urls: process.env.NEXT_PUBLIC_TURN_URL,
+        username: process.env.NEXT_PUBLIC_TURN_USERNAME ?? '',
+        credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL ?? '',
+      }]
+    : []),
 ];
 
 function genDeviceId(): string {
@@ -284,9 +296,7 @@ export class VolcanoMesh {
         payload: null,
         timestamp: Date.now(),
       });
-    } else if (msg.type === 'sos' && typeof navigator !== 'undefined' && navigator.onLine) {
-      // Я онлайн — ретранслирую SOS соседа на сервер. Дедуп копий от
-      // нескольких ретрансляторов — на /api/mesh/sos-relay (по sos_id).
+    } else if (msg.type === 'sos') {
       const p = (typeof msg.payload === 'object' && msg.payload !== null
         ? msg.payload
         : {}) as Partial<SosBroadcastPayload> & { position?: PeerPosition };
@@ -300,25 +310,49 @@ export class VolcanoMesh {
       // копии одного сообщения; без timestamp — случайный (дубль лучше потери)
       const sosId = p.sos_id
         ?? (typeof msg.timestamp === 'number' ? `${msg.from}-${msg.timestamp}` : crypto.randomUUID());
-      const relayDirect = () => fetch('/api/safety/sos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...sos, relayed_by: this.deviceId, source: 'mesh_relay' }),
-      }).catch(() => {});
-      void fetch('/api/mesh/sos-relay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sos_id: sosId,
-          relayed_by: this.deviceId,
-          origin_device: msg.from,
-          sos,
-        }),
-      }).then((res) => {
-        // Релей-эндпоинт недоступен (откат деплоя, 5xx) — доставляем
-        // напрямую в канонический роут: дубль лучше потерянного SOS
-        if (res.status === 404 || res.status >= 500) void relayDirect();
-      }).catch(() => { void relayDirect(); });
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        // Я сам офлайн. Раньше сигнал соседа здесь МОЛЧА выбрасывался —
+        // ретранслятор без сети был дырой в эстафете. Теперь store-and-forward:
+        // чужой SOS ложится в мою офлайн-очередь и уходит через
+        // /api/mesh/sos-relay (дедуп по sos_id), когда Я доберусь до связи.
+        // Типовой сценарий: сосед по лагерю ловил край соты, у меня пусто,
+        // но вниз к покрытию иду я.
+        void queueSOS({
+          lat: (sos.lat as number | null) ?? null,
+          lng: (sos.lng as number | null) ?? null,
+          accuracy: (sos.accuracy as number | null) ?? null,
+          tourist_name: (('tourist_name' in sos ? sos.tourist_name : null) as string | null) ?? null,
+          tourist_phone: (('tourist_phone' in sos ? sos.tourist_phone : null) as string | null) ?? null,
+          message: (('message' in sos ? sos.message : null) as string | null) ?? null,
+          relay: { sos_id: sosId, relayed_by: this.deviceId, origin_device: msg.from },
+        }).then(() => registerSOSSync()).catch(() => {
+          // Очередь недоступна (приватный режим, квота) — сигнал хотя бы
+          // виден в UI через onMessage ниже; молча его уже не теряем.
+        });
+      } else {
+        // Я онлайн — ретранслирую SOS соседа на сервер. Дедуп копий от
+        // нескольких ретрансляторов — на /api/mesh/sos-relay (по sos_id).
+        const relayDirect = () => fetch('/api/safety/sos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...sos, relayed_by: this.deviceId, source: 'mesh_relay' }),
+        }).catch(() => {});
+        void fetch('/api/mesh/sos-relay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sos_id: sosId,
+            relayed_by: this.deviceId,
+            origin_device: msg.from,
+            sos,
+          }),
+        }).then((res) => {
+          // Релей-эндпоинт недоступен (откат деплоя, 5xx) — доставляем
+          // напрямую в канонический роут: дубль лучше потерянного SOS
+          if (res.status === 404 || res.status >= 500) void relayDirect();
+        }).catch(() => { void relayDirect(); });
+      }
     }
 
     this.onMessage?.(msg);

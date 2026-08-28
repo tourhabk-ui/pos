@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff, RotateCw } from 'lucide-react';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
+import { buildRelayUrl } from '@/lib/mesh/qr-relay';
 import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
 import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
 import { useMesh } from '@/hooks/use-mesh';
@@ -181,13 +182,47 @@ export default function SosPage() {
     locatorRef.current?.retry();
   };
 
-  // QR с geo:-точкой — ТОЛЬКО при реальных координатах (никакого QR на
-  // last-known или при ошибке: сканирующий получил бы не то место, где
-  // человек стоит). Энкодер не загрузился → QR нет, координаты текстом есть.
-  // Свежесть через ключ координат: SVG от прежней точки никогда не рендерится
-  // с новой — ключи не совпадут (и никакого setState синхронно в эффекте).
+  // QR — ТОЛЬКО при реальных координатах (никакого QR на last-known или при
+  // ошибке: сканирующий получил бы не то место, где человек стоит). Энкодер
+  // не загрузился → QR нет, координаты текстом есть. Свежесть через ключ:
+  // SVG от прежней точки никогда не рендерится с новой — ключи не совпадут.
+  //
+  // Два режима кода:
+  // - «Эстафета» (по умолчанию) — URL /sos/relay со ВСЕМ сигналом (координаты,
+  //   имя, телефон) в hash. Попутчик сканирует ОФЛАЙН; когда его телефон
+  //   доберётся до связи, открытие ссылки доставит SOS на сервер (а с
+  //   закэшированной PWA — положит в его офлайн-очередь сразу). Это
+  //   единственный браузерный транспорт «между двумя офлайн телефонами»:
+  //   камера. См. lib/mesh/qr-relay.ts.
+  // - «Точка (geo:)» — как раньше: любой телефон откроет точку в картах.
+  // sos_id стабилен на сессию экрана: сколько бы людей ни отсканировали QR,
+  // сервер дедуплицирует их доставки в один сигнал.
   const [qrState, setQrState] = useState<{ key: string; svg: string } | null>(null);
-  const qrKey = coords ? `geo:${coords.lat.toFixed(5)},${coords.lng.toFixed(5)}` : null;
+  const [qrMode, setQrMode] = useState<'relay' | 'geo'>('relay');
+  const qrSosIdRef = useRef<string>('');
+  if (!qrSosIdRef.current && typeof crypto !== 'undefined') {
+    qrSosIdRef.current = crypto.randomUUID();
+  }
+  const relayUrl = useMemo(() => {
+    if (!coords) return null;
+    return buildRelayUrl(
+      typeof window !== 'undefined' ? window.location.origin : 'https://vedarai.ru',
+      {
+        sos_id: qrSosIdRef.current,
+        lat: coords.lat,
+        lng: coords.lng,
+        accuracy: null,
+        tourist_name: name.trim() || null,
+        tourist_phone: phone.trim() || null,
+        message: null,
+        shown_at: Date.now(),
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coords?.lat, coords?.lng, name, phone]);
+  const qrKey = coords
+    ? (qrMode === 'relay' && relayUrl ? relayUrl : `geo:${coords.lat.toFixed(5)},${coords.lng.toFixed(5)}`)
+    : null;
   useEffect(() => {
     if (!qrKey) return;
     let cancelled = false;
@@ -244,8 +279,13 @@ export default function SosPage() {
       } catch { /* меш не должен ломать офлайн-очередь */ }
       try {
         await queueSOS(sosPayload);
-        const synced = await registerSOSSync();
-        setSendStatus(synced ? 'queued' : 'error');
+        // Background Sync может быть недоступен (весь iOS/WebKit) — это НЕ
+        // ошибка: очередь дошлёт глобальный installSOSFlush (ставится в
+        // ServiceWorkerRegistrar) при возврате сети или следующей загрузке.
+        // Раньше здесь стоял 'error', и человеку с успешно сохранённым SOS
+        // говорили «не удалось» — ложный отказ на iOS в 100% случаев.
+        await registerSOSSync();
+        setSendStatus('queued');
       } catch {
         setSendStatus('error');
       }
@@ -369,10 +409,11 @@ export default function SosPage() {
           )}
         </div>
 
-        {/* QR с текущей точкой: показать спасателю/попутчику с рабочим
-            телефоном — при сканировании откроется geo:-точка на карте.
-            Белая подложка обязательна (экран тёмный, сканеры не читают
-            инверсный код). Рендерится только при реальных координатах. */}
+        {/* QR: показать спасателю/попутчику. Режим «эстафета» — попутчик
+            сканирует ДАЖЕ БЕЗ СЕТИ у обоих; его телефон доставит сигнал,
+            когда доберётся до связи. Режим «точка» — geo:-ссылка для любых
+            карт. Белая подложка обязательна (экран тёмный, сканеры не
+            читают инверсный код). Рендерится только при реальных координатах. */}
         {qrSvg && coords && (
           <div style={{ textAlign: 'center' }}>
             <div
@@ -386,8 +427,25 @@ export default function SosPage() {
               dangerouslySetInnerHTML={{ __html: qrSvg }}
             />
             <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', margin: '6px 0 0', lineHeight: 1.4 }}>
-              Покажи этот код спасателю или попутчику — на его телефоне откроется твоя точка на карте
+              {qrMode === 'relay'
+                ? 'Дай отсканировать попутчику — работает даже без сети у обоих. Его телефон передаст твой SOS спасателям, как только поймает связь'
+                : 'Покажи этот код спасателю — на его телефоне откроется твоя точка на карте'}
             </p>
+            <button
+              type="button"
+              onClick={() => setQrMode(qrMode === 'relay' ? 'geo' : 'relay')}
+              style={{
+                marginTop: '6px',
+                fontSize: '11px',
+                color: 'rgba(255,255,255,0.65)',
+                background: 'transparent',
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: '8px',
+                padding: '4px 10px',
+              }}
+            >
+              {qrMode === 'relay' ? 'Показать код-точку для карт' : 'Показать код-эстафету SOS'}
+            </button>
           </div>
         )}
 

@@ -60,6 +60,7 @@ function makeTransparentPngResponse() {
 const CRITICAL_URLS = [
   '/emergency',        // нулевые зависимости: GPS + звонок 112 + протоколы
   '/sos',              // экстренная помощь
+  '/sos/relay',        // приём QR-эстафеты: попутчик открывает офлайн, SOS ложится в его очередь
   '/safety/offline',   // инструкции выживания
   '/safety/geo-degradation.js', // общая семантика деградации GPS — от неё офлайн зависят оба экрана (#897)
   '/safety/qrcode.js', // офлайн-QR с координатами на SOS-экранах — показать спасателю с рабочим телефоном
@@ -657,16 +658,37 @@ async function sendPendingSOS() {
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
     try {
-      var res = await fetch('/api/safety/sos', {
+      // Чужой SOS (QR-эстафета / офлайн-ретранслятор меша) идёт через
+      // /api/mesh/sos-relay: там дедуп по sos_id — несколько попутчиков
+      // могли отсканировать один и тот же QR. Свой — в канонический роут.
+      // Зеркало requestFor() из lib/offline/pending-queue.ts.
+      var url = item.relay ? '/api/mesh/sos-relay' : '/api/safety/sos';
+      var body = item.relay
+        ? JSON.stringify({
+            sos_id: item.relay.sos_id,
+            relayed_by: item.relay.relayed_by,
+            origin_device: item.relay.origin_device,
+            sos: {
+              lat: item.lat,
+              lng: item.lng,
+              accuracy: item.accuracy,
+              message: item.message || null,
+              tourist_name: item.tourist_name,
+              tourist_phone: item.tourist_phone,
+            },
+          })
+        : JSON.stringify({
+            lat: item.lat,
+            lng: item.lng,
+            accuracy: item.accuracy,
+            message: item.message || undefined,
+            tourist_name: item.tourist_name,
+            tourist_phone: item.tourist_phone,
+          });
+      var res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lat: item.lat,
-          lng: item.lng,
-          accuracy: item.accuracy,
-          tourist_name: item.tourist_name,
-          tourist_phone: item.tourist_phone,
-        }),
+        body: body,
       });
       if (res.ok || res.status === 429) {
         // 429 = rate-limited = already received, delete anyway
