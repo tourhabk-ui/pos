@@ -72,6 +72,23 @@ describe('public/sw.js — массовая закачка с tile.openstreetmap
     expect(SW).not.toMatch(/async function cacheTilesForRegion/);
   });
 
+  it('весь message-обработчик — не только ветка CACHE_TILES — не делает fetch к тайл-хосту', () => {
+    // Более широкий гвоздь (владелец 28.08, закрытие M0): запрещённый
+    // fetch мог бы вернуться под ЛЮБЫМ новым именем message-типа внутри
+    // этого же слушателя, не обязательно назвавшись снова CACHE_TILES.
+    // Проверяем весь self.addEventListener('message', ...), а не одну ветку.
+    const at = SW.indexOf("self.addEventListener('message', (event)");
+    expect(at).toBeGreaterThan(0);
+    // Граница — начало следующей функции ПОСЛЕ слушателя (deleteTiles),
+    // не соседний addEventListener('fetch', ...): та ветка — легитимная
+    // потайловая маршрутизация обычных страниц/API и полна законных
+    // fetch(...) вызовов, захватывать её сюда было бы ложной тревогой.
+    const end = SW.indexOf('async function deleteTiles', at);
+    const body = SW.slice(at, end);
+    expect(body.length).toBeGreaterThan(100); // сторож нашёл настоящий блок, не пустоту
+    expect(body).not.toContain('fetch(');
+  });
+
   it('обычное кэширование тайлов ПРИ ПРОСМОТРЕ — осталось (это не bulk, это разрешено)', () => {
     expect(SW).toContain('async function handleTileRequest');
     expect(SW).toContain("url.hostname === TILE_HOST");
@@ -185,5 +202,17 @@ describe('CACHE_TILES-отправители честно обрабатываю
     const at = ROUTE_DETAIL.indexOf("e.data.type === 'TILES_UNAVAILABLE'");
     const body = ROUTE_DETAIL.slice(at, at + 200);
     expect(body).toContain("setDlState('error')");
+  });
+});
+
+describe('LeafletMap.tsx — карта не запрещает приближение, которое умеет отдавать её же тайловый слой', () => {
+  it('maxZoom карты совпадает с maxZoom тайлового слоя (17), не 12', () => {
+    // Регрессия, найденная аудитом 28.08: карта была ограничена zoom 12,
+    // хотя L.tileLayer(...) тут же ниже отдаёт вплоть до 17 — полевая карта
+    // не могла показать то, что уже умел показать её собственный источник.
+    expect(LEAFLET_MAP).not.toMatch(/L\.map\([^}]*maxZoom:\s*12/s);
+    const mapAt = LEAFLET_MAP.indexOf('const map = L.map(');
+    const mapOptsEnd = LEAFLET_MAP.indexOf('});', mapAt);
+    expect(LEAFLET_MAP.slice(mapAt, mapOptsEnd)).toMatch(/maxZoom:\s*17/);
   });
 });
