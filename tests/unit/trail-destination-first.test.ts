@@ -16,11 +16,13 @@
  * маршрутов, построение пути от точки) в кодовой базе не существует, и
  * симулировать её нерабочими кнопками нельзя (§4.0).
  *
- * PR 3 роадмапа владельца (27.08) добавил СЮДА клик по карте: он создаёт
+ * PR 3 роадмапа владельца (27.08) добавил клик по карте: он создаёт
  * `coordinate`-цель (lib/on-route/destination.ts), но путей к ней не
- * строит — OriginPicker и построение маршрута от произвольной точки
- * (шаги 4-5 роадмапа) ещё не существуют. Честный отказ вместо тишины —
- * см. «клик по карте создаёт coordinate-цель» ниже.
+ * строит. PR 4 добавил СЮДА независимый Origin («откуда начинаем?»,
+ * lib/on-route/origin.ts) — построение маршрута от произвольной точки
+ * (шаг 5 роадмапа) по-прежнему не существует. Честный отказ вместо
+ * тишины — см. «клик по карте создаёт coordinate-цель» и «Origin
+ * независим от Destination» ниже.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -76,16 +78,19 @@ describe('сначала цель, потом путь (домен Destination, 
   it('внутри зафиксированной цели путь рендерится тем же renderPathRow — не отдельной копией', () => {
     const at = TRAIL.indexOf('function renderFixedDestination');
     expect(at).toBeGreaterThan(0);
-    expect(TRAIL.slice(at, at + 1500)).toContain('renderPathRow(routeOptionToPreview(o))');
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).toContain('renderPathRow(routeOptionToPreview(o))');
   });
 });
 
 describe('клик по карте создаёт coordinate-цель (PR 3 роадмапа владельца, 27.08)', () => {
-  it('LeafletMap получает onMapClick только в режиме pickingOnMap — не рисуется сама по себе', () => {
-    expect(TRAIL).toContain('const [pickingOnMap, setPickingOnMap] = useState(false)');
-    expect(TRAIL).toContain('{pickingOnMap && (');
-    const at = TRAIL.indexOf('{pickingOnMap && (');
-    const block = TRAIL.slice(at, at + 600);
+  it('режим выбора точки — общая функция на цель И старт, карта не рисуется сама по себе', () => {
+    expect(TRAIL).toContain("const [mapPickMode, setMapPickMode] = useState<'destination' | 'origin' | null>(null)");
+    expect(TRAIL).toContain('function renderMapPickButton(');
+    const at = TRAIL.indexOf('function renderMapPickButton');
+    const block = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(block).toContain('const active = mapPickMode === target');
+    expect(block).toContain('{active && (');
     expect(block).toContain('onMapClick={(lat, lon) => {');
     expect(block).toContain("kind: 'coordinate'");
     expect(block).toContain('routeOptions: []');
@@ -94,7 +99,7 @@ describe('клик по карте создаёт coordinate-цель (PR 3 ро
   it('тап по карте гасит режим выбора и не запускает маршрут автоматически', () => {
     const at = TRAIL.indexOf('onMapClick={(lat, lon) => {');
     const cb = TRAIL.slice(at, TRAIL.indexOf('}} />', at));
-    expect(cb).toContain('setPickingOnMap(false)');
+    expect(cb).toContain('setMapPickMode(null)');
     expect(cb).not.toContain('selectRoute(');
   });
 
@@ -102,7 +107,7 @@ describe('клик по карте создаёт coordinate-цель (PR 3 ро
     const at = TRAIL.indexOf('function renderFixedDestination');
     expect(at).toBeGreaterThan(0);
     const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
-    expect(body).toContain('routeOptions.length > 0 ?');
+    expect(body).toContain('hasOptions ?');
     expect(body).toContain('Путь не найден');
   });
 
@@ -110,6 +115,65 @@ describe('клик по карте создаёт coordinate-цель (PR 3 ро
     const MAP = readFileSync(join(ROOT, 'components/shared/LeafletMap.tsx'), 'utf-8');
     expect(MAP).toContain('onMapClick?: (lat: number, lng: number) => void');
     expect(MAP).toContain("map.on('click'");
+  });
+});
+
+describe('Origin независим от Destination (PR 4 роадмапа владельца, 27.08)', () => {
+  it('lib/on-route/origin.ts — тип Origin ровно из спецификации владельца', () => {
+    const ORIGIN = readFileSync(join(ROOT, 'lib/on-route/origin.ts'), 'utf-8');
+    expect(ORIGIN).toContain("{ kind: 'current'; lat: number; lon: number; accuracyM?: number }");
+    expect(ORIGIN).toContain("{ kind: 'coordinate'; lat: number; lon: number; title?: string }");
+    expect(ORIGIN).toContain("{ kind: 'place'; id: string; title: string; lat: number; lon: number }");
+  });
+
+  it('selectedOrigin — СВОЁ состояние, не поле внутри DestinationOption', () => {
+    expect(TRAIL).toContain('const [selectedOrigin, setSelectedOrigin] = useState<Origin | null>(null)');
+    // Не примешано в тип цели — иначе смена старта была бы сменой цели.
+    const destSrc = readFileSync(join(ROOT, 'lib/on-route/destination.ts'), 'utf-8');
+    expect(destSrc).not.toMatch(/origin/i);
+  });
+
+  it('изменение старта не сбрасывает зафиксированную цель', () => {
+    // Единственные вызовы, которые чистят selectedOrigin, живут РЯДОМ с
+    // setSelectedDestination(...) (смена/выход из цели) — обратного нет:
+    // нигде в файле выбор Origin не вызывает setSelectedDestination.
+    const setOriginCalls = [...TRAIL.matchAll(/setSelectedOrigin\(([^)]*)\)/g)];
+    expect(setOriginCalls.length).toBeGreaterThanOrEqual(3);
+    // Обработчик «Текущая позиция» и «Указать на карте» (renderOriginPicker,
+    // renderMapPickButton при target==='origin') не трогают selectedDestination.
+    const originPickerAt = TRAIL.indexOf('function renderOriginPicker');
+    const originPickerBody = TRAIL.slice(originPickerAt, TRAIL.indexOf('\n  }\n', originPickerAt));
+    expect(originPickerBody).not.toContain('setSelectedDestination(');
+  });
+
+  it('после выбора старта путь честно назван «пока недоступен», а не запущен', () => {
+    expect(TRAIL).toContain('Построение пути пока недоступно');
+    const at = TRAIL.indexOf('function renderFixedDestination');
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).toContain('{selectedOrigin && (');
+    expect(body).not.toContain('selectRoute(');
+  });
+
+  it('готовые треки у цели не выдаются за маршрут от выбранного старта', () => {
+    expect(TRAIL).toContain('Готовые треки рядом с целью');
+  });
+
+  it('текущая позиция берётся из уже идущего GPS экрана, вторая подписка не заводится', () => {
+    const at = TRAIL.indexOf('function renderOriginPicker');
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).not.toContain('getCurrentPosition');
+    expect(body).not.toContain('watchPosition');
+    expect(body).toContain('coords.lat');
+    expect(body).toContain('coords.lng');
+  });
+
+  it('отказ геолокации назван словами, а не тихой недоступной кнопкой', () => {
+    const at = TRAIL.indexOf('function renderOriginPicker');
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(body).toContain('gpsError');
+    expect(body).toContain('Доступ к геопозиции запрещён');
+    // Ручной выбор (карта) остаётся доступным независимо от отказа GPS.
+    expect(body).toContain("renderMapPickButton('origin'");
   });
 });
 
