@@ -65,3 +65,42 @@ export function withinSnapTolerance(
   return route.originSnapped.snapDistanceM <= MAX_CAR_SNAP_M
     && route.destinationSnapped.snapDistanceM <= MAX_CAR_SNAP_M;
 }
+
+/**
+ * Единственная граница, где `[lng, lat]` (GeoJSON, RFC 7946) становится
+ * `[lat, lng]` (Leaflet). Порядок осей ФИКСИРОВАН по контракту типа —
+ * функция не угадывает его по диапазону значений: угадывание по диапазону
+ * подменило бы честную ошибку неверной интерпретации в тех редких случаях,
+ * где обе оси лежат в пределах друг друга (§4.0 CLAUDE.md — третье
+ * состояние). При любой некорректной форме — `null`: линия не рисуется,
+ * вызывающий код обязан показать честное сообщение и завести диагностику,
+ * а не молча промолчать или нарисовать что попало.
+ */
+export function calculatedCarToLeafletCoordinates(
+  route: Pick<CalculatedCarRoute, 'geometry'>,
+): [number, number][] | null {
+  const coordinates = route?.geometry?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) {
+    return null;
+  }
+
+  const leafletCoords: [number, number][] = [];
+  for (const pair of coordinates) {
+    if (!Array.isArray(pair) || pair.length < 2) {
+      return null;
+    }
+    const [lng, lat] = pair;
+    if (
+      typeof lng !== 'number' || typeof lat !== 'number'
+      || !Number.isFinite(lng) || !Number.isFinite(lat)
+    ) {
+      return null;
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return null;
+    }
+    leafletCoords.push([lat, lng]);
+  }
+
+  return leafletCoords;
+}
