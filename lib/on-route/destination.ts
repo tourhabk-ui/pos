@@ -16,6 +16,7 @@
  */
 
 import { groupRoutesByPlace, type PathCandidate } from '@/lib/routes/path-choice';
+import type { CalculatedCarRoute } from '@/lib/on-route/calculated-route';
 
 /**
  * `place` — реальная запись `places` (id, координаты известны).
@@ -35,6 +36,17 @@ export interface RouteOption {
   difficulty: string | null;
   elevationGainM: number | null;
   waypointNames: string[];
+  /**
+   * Путь, посчитанный автомобильным маршрутизатором между конкретными
+   * Origin/Destination (владелец 28.08, продолжение PR 5B-1) — НЕ
+   * каталожная запись kamchatka_routes. Заполнен только у синтетического
+   * варианта из RouteBuildResult.found; у путей из поиска по месту его нет.
+   * `lineGrade` у такого варианта НАМЕРЕННО не проставляется (см.
+   * lib/on-route/calculated-route.ts) — третий род линии без места в
+   * существующей таксономии, приписать грейд значило бы соврать о
+   * происхождении.
+   */
+  calculated?: CalculatedCarRoute;
 }
 
 export interface DestinationOption {
