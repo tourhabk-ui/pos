@@ -34,7 +34,10 @@ import {
   trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
-import { connectorLine, CONNECTOR_TITLES, trackLine } from '@/lib/map/line-standard';
+import { connectorLine, CONNECTOR_TITLES, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
+import {
+  calculatedCarToLeafletCoordinates, type CalculatedCarRoute,
+} from '@/lib/on-route/calculated-route';
 import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
   type SavedMapRecord,
@@ -47,7 +50,7 @@ import {
 import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
 import { groupRoutesByDestination, type Destination, type DestinationOption, type RouteOption } from '@/lib/on-route/destination';
 import { originLabel, type Origin } from '@/lib/on-route/origin';
-import { httpRouteBuilder, type RouteBuildResult } from '@/lib/on-route/route-build';
+import { httpRouteBuilder, type RouteBuildResult, type RouteBuildMode } from '@/lib/on-route/route-build';
 
 /** Вердикт черты в том виде, в каком он приходит с сервера. */
 interface PreviewNavigability {
@@ -128,6 +131,14 @@ interface RoutePreview {
   waypointIds?: (string | null)[];
   waypointLats?: (number | null)[];
   waypointLngs?: (number | null)[];
+  /**
+   * Посчитанный автомобильный путь (владелец 28.08, PR рендеринга поверх
+   * 5B-1) — заполнен только у синтетического варианта из RouteBuildResult
+   * `found` с mode: 'car'. Не путать с каталожным маршрутом: у него нет
+   * lineGrade и нет id, по которому можно спросить /api/routes/[id] — вся
+   * геометрия и метрики уже здесь, локально.
+   */
+  calculated?: CalculatedCarRoute;
 }
 
 
@@ -403,6 +414,29 @@ function OnTrailTab() {
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   /** Отказ по конкретному варианту: показывается у его строки, а не вместо списка. */
   const [previewError, setPreviewError] = useState<{ id: string; text: string } | null>(null);
+  /**
+   * Предпросмотр РАССЧИТАННОГО автопути — намеренно ОТДЕЛЬНОЕ состояние от
+   * `preview` выше (владелец 28.08, план рендеринга calculated_car). `preview`
+   * собирается из waypoints каталожного маршрута (`wps`) и открывается через
+   * запрос к /api/routes/[id]; у calculated_car нет ни каталожной записи, ни
+   * набора точек — вся геометрия уже лежит в RouteOption.calculated. Смешать
+   * их в одном состоянии значило бы либо собирать линию из wps (запрещено
+   * планом), либо посылать синтетический id на сервер.
+   */
+  const [calculatedPreview, setCalculatedPreview] = useState<{
+    title: string; route: CalculatedCarRoute;
+  } | null>(null);
+  /** Ошибка геометрии рассчитанного пути — провайдер вернул непригодный GeoJSON. */
+  const [calculatedPreviewError, setCalculatedPreviewError] = useState<string | null>(null);
+  /**
+   * Способ передвижения для ПОСТРОЕНИЯ ПУТИ Origin → Destination (владелец
+   * 28.08) — НЕ то же самое, что `travelMode` выше (тот выбирает пеший/
+   * авто темп для уже идущей навигации по активному маршруту). Сервер 5B-1
+   * подключает провайдера ТОЛЬКО для mode: 'car' — режим 'foot' остаётся
+   * честным unsupported до PR 5B-2. Дефолт 'foot' сохраняет прежнее
+   * поведение экрана для тех, кто ещё не тронул переключатель.
+   */
+  const [buildTravelMode, setBuildTravelMode] = useState<RouteBuildMode>('foot');
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
   const previewCacheRef = useRef<Map<string, {
     wps: SavedWaypoint[]; grade: PassportGrade | null; navigability: PreviewNavigability | null;
@@ -1300,6 +1334,54 @@ function OnTrailTab() {
     return { center, markers, scattered, singlePoint };
   }, [preview]);
 
+  /**
+   * Карта предпросмотра РАССЧИТАННОГО автопути (владелец 28.08). Линия
+   * строится ИСКЛЮЧИТЕЛЬНО через calculatedCarLine() + явный конвертер
+   * координат — план запрещает собирать её из wps или звать trackLine():
+   * это не снятый трек и не набросок по путевым точкам, а результат расчёта
+   * маршрутизатора для конкретной пары «откуда → куда».
+   *
+   * `null` конвертера — провайдер вернул непригодную геометрию: карта не
+   * строится вовсе, вызывающий код показывает честное сообщение отдельно
+   * (см. openPreview) вместо того, чтобы угадывать форму линии.
+   */
+  const calculatedPreviewMap = useMemo(() => {
+    if (!calculatedPreview) return null;
+    const { route } = calculatedPreview;
+    const leafletLine = calculatedCarToLeafletCoordinates(route);
+    if (!leafletLine) return null;
+    const line = calculatedCarLine();
+    const center: [number, number] = leafletLine[Math.floor(leafletLine.length / 2)];
+    const markers: MapMarker[] = [
+      {
+        coords: center,
+        title: line.title,
+        color: 'teal',
+        type: MarkerType.POI,
+        geometry: {
+          type: 'polyline',
+          coordinates: leafletLine,
+          ...line.style,
+        } as MapMarkerGeometry,
+      },
+      {
+        coords: [route.originSnapped.lat, route.originSnapped.lon],
+        title: 'Старт на дороге',
+        description: `Старт привязан к дороге в ${Math.round(route.originSnapped.snapDistanceM)} м`,
+        color: 'orange',
+        type: MarkerType.POI,
+      },
+      {
+        coords: [route.destinationSnapped.lat, route.destinationSnapped.lon],
+        title: 'Цель на дороге',
+        description: `Цель привязана к дороге в ${Math.round(route.destinationSnapped.snapDistanceM)} м`,
+        color: 'green',
+        type: MarkerType.POI,
+      },
+    ];
+    return { center, markers, caption: line.caption };
+  }, [calculatedPreview]);
+
   // Без трека считать вдоль нечего — тогда прямая и остаётся, но подписана
   // прямой. С треком главным числом становится путь, которым идут.
   //
@@ -1549,6 +1631,10 @@ function OnTrailTab() {
       lineGrade: (o.lineGrade as PassportGrade | null) ?? null,
       waypointNames: o.waypointNames,
       elevationGainM: o.elevationGainM,
+      // Расчётный автопуть переживает адаптацию к старой форме RoutePreview
+      // (владелец 28.08) — терять его здесь означало бы, что renderPathRow и
+      // openPreview не смогут отличить calculated_car от каталожного пути.
+      calculated: o.calculated,
     };
   }
 
@@ -1672,11 +1758,29 @@ function OnTrailTab() {
 
         {renderOriginPicker()}
 
+        {/* Выбор способа передвижения (владелец 28.08) — сервер 5B-1
+            подключает провайдера только для mode: 'car'; 'foot' остаётся
+            честным unsupported до 5B-2. Без явного выбора экран посылал бы
+            'foot' всегда, и ветка calculated_car была бы недостижима. */}
+        {selectedOrigin && (
+          <div className="flex gap-2 mb-3">
+            {(['car', 'foot'] as const).map(m => (
+              <button key={m} type="button" onClick={() => setBuildTravelMode(m)}
+                className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg"
+                style={buildTravelMode === m
+                  ? { background: 'color-mix(in srgb, var(--ocean) 12%, transparent)', color: 'var(--ocean)', border: '1px solid var(--ocean)' }
+                  : { background: 'var(--bg-primary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                {m === 'car' ? 'На автомобиле' : 'Пешком'}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Построение пути (Origin → Destination) — машина состояний PR 5A,
             транспорт до сервера — PR 5B-1 (httpRouteBuilder, /api/routes/build):
             idle/building/found/not_found/unsupported/failed. Провайдер за
-            сервером не выбран — сегодня ответ всегда unsupported, но уже
-            настоящим сетевым запросом, а не тихой локальной заглушкой. */}
+            сервером не выбран для 'foot' — сегодня этот режим всегда
+            unsupported, но уже настоящим сетевым запросом, а не заглушкой. */}
         {renderBuildStatus()}
 
         {hasOptions ? (
@@ -1705,7 +1809,43 @@ function OnTrailTab() {
 
   // Строка пути в выборе: род линии, длина, сложность. Одна на обе секции —
   // группы мест и плоский список рекомендуемых.
+  //
+  // Расчётный автопуть (r.calculated) — отдельная ветка вывода (владелец
+  // 28.08): без GradeChip и без lineGrade, вместо них «Путь на автомобиле»,
+  // приблизительные км/мин и бейдж «Рассчитан сейчас» — план запрещает
+  // показывать расчёт так, будто это проверенная запись каталога.
   function renderPathRow(r: RoutePreview) {
+    if (r.calculated) {
+      const km = (r.calculated.distanceM / 1000).toFixed(1);
+      const min = Math.round(r.calculated.durationS / 60);
+      return (
+        <div key={r.id}>
+          <button onClick={() => openPreview(r)}
+            className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
+            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <p className="text-sm font-medium text-[var(--text-primary)] truncate">Путь на автомобиле</p>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+                  style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)' }}>
+                  Рассчитан сейчас
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                ≈ {km} км · ≈ {min} мин
+              </p>
+            </div>
+            <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>На карте</span>
+          </button>
+          {calculatedPreviewError && (
+            <p className="text-xs mt-1 px-3 py-2 rounded-lg"
+              style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+              {calculatedPreviewError}
+            </p>
+          )}
+        </div>
+      );
+    }
     return (
       <div key={r.id}>
         <button onClick={() => openPreview(r)}
@@ -1745,6 +1885,25 @@ function OnTrailTab() {
 
   // Тап по варианту — ПРЕВЬЮ на карте, не фиксация (как в навигаторе)
   function openPreview(r: RoutePreview) {
+    // Расчётный автопуть открывается ЛОКАЛЬНО (владелец 28.08, план
+    // рендеринга calculated_car): вся геометрия и метрики уже лежат в
+    // r.calculated, запроса к /api/routes/[id] тут нет и быть не должно —
+    // синтетический id варианта не идентифицирует запись в базе, и запрос
+    // по нему возвращал бы нынешнее честное, но бесполезное «Маршрут не
+    // открылся». Геометрия проверяется здесь же: провайдер мог вернуть
+    // непригодный GeoJSON, и в этом случае карта не рисуется вовсе.
+    if (r.calculated) {
+      setCalculatedPreviewError(null);
+      if (!calculatedCarToLeafletCoordinates(r.calculated)) {
+        setCalculatedPreviewError('Провайдер вернул непригодную геометрию пути — карту показать нельзя.');
+        // eslint-disable-next-line no-console
+        console.error('calculated_car: непригодная геометрия', r.calculated.provider, r.calculated.geometry);
+        return;
+      }
+      setPreview(null);
+      setCalculatedPreview({ title: r.title, route: r.calculated });
+      return;
+    }
     const cached = previewCacheRef.current.get(r.id);
     if (cached) {
       setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade, navigability: cached.navigability });
@@ -1842,7 +2001,63 @@ function OnTrailTab() {
 
   function renderDestinationPicker(): React.ReactNode {
     return (
-      preview && previewMap ? (
+      calculatedPreview && calculatedPreviewMap ? (
+                    /* ── Превью РАССЧИТАННОГО автопути (владелец 28.08) ──
+                       Отдельная ветка от превью каталожного варианта ниже:
+                       своя карта (calculatedPreviewMap, не previewMap), свои
+                       факты под картой, и НАМЕРЕННО нет кнопки старта — это
+                       первый релиз, mayNavigate/mayPersist у первого
+                       провайдера решены false: только информационный
+                       автоподъезд, не инструмент полевой навигации. ── */
+                    <div>
+                      <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
+                        <LeafletMap markers={calculatedPreviewMap.markers} center={calculatedPreviewMap.center} zoom={11} height="220px" showUserLocation />
+                      </div>
+                      <p className="text-sm font-medium text-[var(--text-primary)] mb-0.5">{calculatedPreview.title}</p>
+                      {/* Подпись линии — НЕИЗМЕННА по контракту calculatedCarLine():
+                          экран может дополнить фактами ниже, но не укоротить её. */}
+                      <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                        {calculatedPreviewMap.caption}
+                      </p>
+                      {/* Три факта под картой — план §4: дата расчёта, трафик,
+                          провайдер. Длительность с трафиком читается как
+                          ориентировочная на момент расчёта, не как обещание. */}
+                      <div className="space-y-1 mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Рассчитан {new Date(calculatedPreview.route.builtAt).toLocaleString('ru-RU')}
+                        </p>
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Пробки {calculatedPreview.route.traffic ? 'учтены' : 'не учитывались'}
+                        </p>
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Построил {calculatedPreview.route.provider}
+                        </p>
+                      </div>
+                      {/* Разрешение mayDisplay уже проверено сервером (applySnapGuard
+                          понижает дальний snap в not_found раньше, чем этот вариант
+                          вообще появится в списке) — здесь достаточно честно
+                          показать отказ, если он всё же пришёл false. */}
+                      {!calculatedPreview.route.mayDisplay && (
+                        <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                          style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                          Провайдер не разрешил показать геометрию этого пути.
+                        </p>
+                      )}
+                      <button onClick={() => setCalculatedPreview(null)}
+                        className="w-full text-xs font-semibold px-4 py-2.5 rounded-lg"
+                        style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                        К вариантам
+                      </button>
+                      {/* Кнопки «Начать маршрут» здесь нет НАМЕРЕННО — не временный
+                          пропуск, а mayNavigate: false первого релиза (план §3):
+                          передавать эту линию в полевой навигатор или считать по
+                          ней прогресс нельзя, пока лицензия и офлайн-поведение
+                          провайдера не проверены отдельно. mayPersist: false —
+                          по той же причине путь не сохраняется ни в офлайн-пакет,
+                          ни в историю: он существует только в этом состоянии
+                          экрана и исчезает вместе с ним. */}
+                    </div>
+      ) : preview && previewMap ? (
                     /* ── Превью варианта на карте (фиксация только кнопкой) ── */
                     <div>
                       <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
@@ -2077,7 +2292,7 @@ function OnTrailTab() {
     let cancelled = false;
     setBuildPhase({ phase: 'building' });
     httpRouteBuilder
-      .build({ origin: selectedOrigin, destination: selectedDestination.destination, mode: 'foot' })
+      .build({ origin: selectedOrigin, destination: selectedDestination.destination, mode: buildTravelMode })
       .then(result => { if (!cancelled) setBuildPhase({ phase: 'done', result }); })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -2087,7 +2302,7 @@ function OnTrailTab() {
         });
       });
     return () => { cancelled = true; };
-  }, [selectedOrigin, selectedDestination, buildRetryTick]);
+  }, [selectedOrigin, selectedDestination, buildRetryTick, buildTravelMode]);
 
   // Карточка ответа машины состояний — единственное место, где текст
   // «путь не найден»/«недоступно»/«не удалось» решается по РЕАЛЬНОМУ
@@ -2104,13 +2319,17 @@ function OnTrailTab() {
     }
     const { result } = buildPhase;
     if (result.status === 'found') {
-      // Реального источника у 5A нет — эта ветка не срабатывает сегодня,
-      // но остаётся честной: НАСТОЯЩИЙ путь от выбранного старта, не
-      // готовые треки рядом с целью (та секция — другая, ниже).
+      // Заголовок называет способ явно (владелец 28.08, план рендеринга
+      // calculated_car): «Автомобильный путь…», не «Маршрут» и не «Трек
+      // рядом с целью» — иначе только что рассчитанный подъезд читается как
+      // запись из каталога готовых туристических путей, а это не так.
+      const heading = buildTravelMode === 'car'
+        ? 'Автомобильный путь от вашего старта'
+        : 'Путь от вашего старта';
       return (
         <div className="mb-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-            Путь от вашего старта
+            {heading}
           </p>
           <div className="space-y-2">
             {result.options.map(o => renderPathRow(routeOptionToPreview(o)))}

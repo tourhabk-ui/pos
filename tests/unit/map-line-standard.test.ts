@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   trackLine, connectorLine, CONNECTOR_TITLES, gradeFromSource,
-  UNVERIFIED_SOURCES, SYNTHETIC_SOURCES,
+  UNVERIFIED_SOURCES, SYNTHETIC_SOURCES, calculatedCarLine,
 } from '@/lib/map/line-standard';
 import type { LatLng } from '@/lib/routes/track-fidelity';
 
@@ -278,5 +278,47 @@ describe('реестр синтетики не разъезжается по м�
     const twins = readFileSync(join(process.cwd(), 'lib/routes/twins.ts'), 'utf-8');
     expect(twins).toMatch(/import \{ SYNTHETIC_SOURCES \} from '@\/lib\/map\/line-standard'/);
     expect(twins).not.toMatch(/const SYNTHETIC_SOURCES = new Set/);
+  });
+});
+
+/**
+ * Четвёртый род линии — рассчитанный автопуть (владелец 28.08, план
+ * рендеринга calculated_car). Сознательно ВНЕ TrackFidelity: это не снятый
+ * трек, не набросок и не связка, а результат расчёта маршрутизатора.
+ * Синяя сплошная не должна путаться ни с зелёным (трек), ни с серым
+ * пунктиром (набросок/связка), а подпись обязана называть это словами.
+ */
+describe('calculatedCarLine — четвёртый род, вне TrackFidelity', () => {
+  it('сплошная и толстая, но синяя — не пересекается ни с треком, ни с наброском', () => {
+    const l = calculatedCarLine();
+    expect(l.style.dashArray).toBeUndefined();
+    expect(l.style.weight).toBeGreaterThanOrEqual(4);
+    expect(l.style.color).toBe('#2563EB');
+    expect(l.style.color).not.toBe(trackLine(SURVEYED)!.style.color);
+    expect(l.style.color).not.toBe(connectorLine().color);
+  });
+
+  it('подпись обязательна и называет, что это не снятый трек и не пеший маршрут', () => {
+    const l = calculatedCarLine();
+    expect(l.caption).toBeTruthy();
+    expect(l.caption).toMatch(/не снятый трек/);
+    expect(l.caption).toMatch(/не пеший маршрут/);
+  });
+
+  it('kind — свой, не значение TrackFidelity (surveyed/sketch/unknown)', () => {
+    const l = calculatedCarLine();
+    expect(l.kind).toBe('calculated_car');
+    expect(['surveyed', 'sketch', 'unknown']).not.toContain(l.kind);
+  });
+
+  it('не собирается из TrackFidelity — gradeFromSource о нём не знает', () => {
+    // Ни один записанный источник геометрии маршрута не должен возвращать
+    // 'calculated_car': это НЕ происхождение геометрии в базе, а факт о
+    // только что выполненном расчёте для конкретной пары точек.
+    expect(gradeFromSource('calculated_car')).toBeNull();
+  });
+
+  it('детерминирована — вызов без аргументов, стиль и подпись не меняются между вызовами', () => {
+    expect(calculatedCarLine()).toEqual(calculatedCarLine());
   });
 });
