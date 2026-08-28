@@ -21,6 +21,25 @@
  * Judge здесь не выдумывается: разбор судьи в проекте repo-wide (evo-judge,
  * ежедневный выпуск), пер-PR вердикта у большинства PR нет — карточка
  * честно пишет «не привязан», а не сочиняет оценку (§4.0).
+ *
+ * ── unavailable ≠ rejected (P0, ревью 28.08) ─────────────────────────────────
+ *
+ * 27.08 прод отдал HTTP 500 "fetch failed" при вызове GitHub API — сетевой
+ * сбой самого запроса, не решение GitHub о PR. Раньше это ничем не
+ * отличалось от «наш код упал»: `gh()` бросал Error немедленно, без единой
+ * попытки повтора, а вызывающий (route.ts) ловил это как `status: 'failed'`
+ * — то же самое HTTP-тело получил бы владелец, если бы merge-gate реально
+ * сломался. Разница важна: «не смогли спросить GitHub» не должно красить
+ * прогон так же, как «спросили и получили отказ» — get-запрос без ответа не
+ * значит «PR не готов», это «не знаю» (§4.0).
+ *
+ * `gh()` теперь различает СЕТЕВОЙ сбой (fetch() бросает раньше, чем пришёл
+ * ответ — DNS, обрыв соединения) и 5xx GitHub (сервер ответил, но не смог) —
+ * оба транзиентны и достойны короткого повтора с задержкой — от 4xx (401 не
+ * авторизован, 404 не найден): это РЕШЕНИЕ, которое секунда ожидания не
+ * изменит, повторять нечего. Если транзиентные попытки исчерпаны,
+ * `GitHubUnavailableError` уходит наверх отдельным классом — route.ts и
+ * sweepAgentPrs читают его явно, не строкой сообщения.
  */
 
 import {
@@ -39,6 +58,14 @@ export const VOLCANO_CARD_MARKER = '<!-- volcano-decision-card -->';
 export const AGENT_PR_LABEL = 'volcano-agent';
 export const DECISION_LABEL = 'needs-owner-merge';
 
+/** GitHub недостижим после исчерпанных попыток — НЕ решение против PR. */
+export class GitHubUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GitHubUnavailableError';
+  }
+}
+
 function ghHeaders(): Record<string, string> {
   return {
     'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -52,13 +79,40 @@ function repoBase(repo: string): string {
   return `https://api.github.com/repos/${repo}`;
 }
 
-async function gh<T>(repo: string, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${repoBase(repo)}${path}`, { ...init, headers: ghHeaders() });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`GitHub ${init?.method ?? 'GET'} ${path}: HTTP ${res.status} ${body.slice(0, 200)}`);
+/** Задержки между попытками — 3 попытки всего, короткий бюджет внутри HTTP-запроса. */
+const RETRY_DELAYS_MS = [300, 900];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface GhAttemptOk<T> { ok: true; data: T }
+interface GhAttemptFail { ok: false; transient: boolean; error: string }
+
+/** Одна попытка. Сетевой throw и 5xx — transient (стоит повторить); 4xx — решение (не повторяем). */
+async function ghAttempt<T>(repo: string, path: string, init?: RequestInit): Promise<GhAttemptOk<T> | GhAttemptFail> {
+  let res: Response;
+  try {
+    res = await fetch(`${repoBase(repo)}${path}`, { ...init, headers: ghHeaders() });
+  } catch (err) {
+    return { ok: false, transient: true, error: err instanceof Error ? err.message : String(err) };
   }
-  return res.json() as Promise<T>;
+  if (res.ok) return { ok: true, data: (await res.json()) as T };
+  const body = await res.text().catch(() => '');
+  const error = `GitHub ${init?.method ?? 'GET'} ${path}: HTTP ${res.status} ${body.slice(0, 200)}`;
+  return { ok: false, transient: res.status >= 500, error };
+}
+
+async function gh<T>(repo: string, path: string, init?: RequestInit): Promise<T> {
+  let lastError = '';
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
+    const result = await ghAttempt<T>(repo, path, init);
+    if (result.ok) return result.data;
+    lastError = result.error;
+    if (!result.transient) throw new Error(result.error); // решение GitHub — повторять нечего
+  }
+  throw new GitHubUnavailableError(`${lastError} (после ${RETRY_DELAYS_MS.length + 1} попыток)`);
 }
 
 interface PrInfo {
@@ -252,7 +306,9 @@ export interface GateOutcome {
     | 'ready_notified'
     | 'ready_already'
     | 'unready'
-    | 'waiting_ci';
+    | 'waiting_ci'
+    /** GitHub был недостижим после retry — НЕ решение против PR (P0, ревью 28.08). */
+    | 'github_unavailable';
   detail?: string;
   taskId?: string;
 }
@@ -345,6 +401,12 @@ export async function sweepAgentPrs(repo: string): Promise<GateOutcome[]> {
     try {
       outcomes.push(await evaluatePr(repo, n));
     } catch (err) {
+      if (err instanceof GitHubUnavailableError) {
+        // Транзиентная недоступность GitHub — не «ошибка оценки»: этот PR
+        // просто не проверен сейчас, следующий sweep через 30 мин подхватит.
+        outcomes.push({ pr: n, action: 'github_unavailable', detail: err.message });
+        continue;
+      }
       outcomes.push({ pr: n, action: 'waiting_ci', detail: `ошибка оценки: ${err instanceof Error ? err.message : String(err)}` });
     }
   }

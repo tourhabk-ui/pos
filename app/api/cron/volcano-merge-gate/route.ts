@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { logAgentRun } from '@/lib/agents/run-logger';
-import { evaluatePr, sweepAgentPrs } from '@/lib/agents/volcano/merge-gate';
+import { evaluatePr, sweepAgentPrs, GitHubUnavailableError } from '@/lib/agents/volcano/merge-gate';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -54,8 +54,13 @@ export async function POST(request: NextRequest) {
       ? [await evaluatePr(repo, parsed.data.pr_number)]
       : await sweepAgentPrs(repo);
 
-    const errors = outcomes.filter((o) => o.detail?.startsWith('ошибка оценки'));
-    const status = errors.length === 0 ? 'completed' : 'partial';
+    // github_unavailable — GitHub не ответил после retry, это НЕ решение
+    // против PR и не наша ошибка (P0, ревью 28.08): не смешивать с реальными
+    // сбоями оценки (errors), иначе транзиентная сеть красит прогон точно
+    // так же, как настоящий баг в коде gate.
+    const errors = outcomes.filter((o) => o.action !== 'github_unavailable' && o.detail?.startsWith('ошибка оценки'));
+    const unavailable = outcomes.filter((o) => o.action === 'github_unavailable');
+    const status = errors.length > 0 ? 'partial' : unavailable.length > 0 ? 'unavailable' : 'completed';
 
     const runLogged = await logAgentRun({
       agent_id: 'merge_gate',
@@ -63,7 +68,7 @@ export async function POST(request: NextRequest) {
       started_at: startedAt,
       duration_ms: Date.now() - startedAt.getTime(),
       items_processed: outcomes.length,
-      errors_count: errors.length,
+      errors_count: errors.length + unavailable.length,
       metadata: { outcomes },
     });
 
@@ -75,6 +80,26 @@ export async function POST(request: NextRequest) {
       outcomes,
     });
   } catch (err) {
+    // GitHubUnavailableError — retry в gh() исчерпан, GitHub не ответил.
+    // HTTP 200 (не 500): это не отказ merge-gate, а честное «не смогли
+    // спросить в этот раз» — sweep через 30 мин попробует снова.
+    if (err instanceof GitHubUnavailableError) {
+      const runLogged = await logAgentRun({
+        agent_id: 'merge_gate',
+        status: 'partial',
+        started_at: startedAt,
+        duration_ms: Date.now() - startedAt.getTime(),
+        errors_count: 1,
+        error_msg: err.message,
+      });
+      return NextResponse.json({
+        success: false,
+        status: 'unavailable',
+        run_logged: runLogged,
+        error: err.message,
+      });
+    }
+
     const msg = err instanceof Error ? err.message : String(err);
     const runLogged = await logAgentRun({
       agent_id: 'merge_gate',

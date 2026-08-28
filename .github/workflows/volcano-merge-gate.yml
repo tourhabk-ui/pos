@@ -67,6 +67,16 @@ jobs:
 
           if ! jq -e '.success == true and .status == "completed"' /tmp/gate_resp.json >/dev/null 2>&1; then
             STATUS=$(jq -r '.status // "invalid-response"' /tmp/gate_resp.json 2>/dev/null || echo "invalid-response")
+
+            # unavailable — GitHub не ответил ПОСЛЕ retry внутри прода (P0,
+            # ревью 28.08): это не решение против PR и не наш баг, а честная
+            # временная недоступность. Красить прогон нечего чинить самим —
+            # sweep этот же workflow повторит через 30 минут по расписанию.
+            if [ "$STATUS" = "unavailable" ]; then
+              echo "::warning::GitHub недоступен для merge-gate после retry — прогон пропущен, sweep повторит через 30 мин"
+              exit 0
+            fi
+
             echo "Merge gate incomplete: status=$STATUS"
             exit 1
           fi
