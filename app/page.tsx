@@ -17,6 +17,7 @@ import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import { MoodEntry } from '@/components/homepage/MoodEntry'
+import { SeasonNow } from '@/components/homepage/SeasonNow'
 import HomeV8Client from './_home/_HomeV8Client'
 import { getHomeV8Data } from './_home/data'
 import { getPlatformCounts } from '@/lib/stats/platform-counts'
@@ -163,6 +164,9 @@ export default async function Page() {
 
         {/* Mood/vibe entry — emotional starting point */}
         <MoodEntry />
+
+        {/* Event-driven travel, пилот на рыбе (issue #1421) — не рендерится в межсезонье */}
+        <SeasonNow />
 
         {/* Explore by element — 6 categories */}
         <BentoSection />
