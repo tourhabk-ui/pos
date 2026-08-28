@@ -87,6 +87,7 @@ function buildMessage(reg: RegRow, step: EscalationStep, hoursOverdue: number): 
       emergencyContactPhone: reg.emergency_contact_phone,
       positionText: formatPositionText(reg.last_position_lat, reg.last_position_lng),
       returnUrl: `https://vedarai.ru/return?id=${reg.id}`,
+      checkinUrl: `https://vedarai.ru/checkin-ok?id=${reg.id}`,
     },
     step,
     hoursOverdue,

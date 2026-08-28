@@ -1,3 +1,18 @@
+/**
+ * POST /api/safety/route-checkin — «мы ещё на маршруте, всё в порядке».
+ *
+ * Отдельно от /api/safety/return: там человек подтверждает полный возврат,
+ * здесь — что группа жива и на связи, но ещё не дошла. Это единственная
+ * ступень лестницы эскалации (soft, lib/safety/checkin-escalation.ts), где
+ * decideEscalation умеет гасить тревогу подтверждением без completed_at —
+ * но до этого роута `checkin_confirmed_at` (миграция 680) не писал никто, и
+ * ступень фактически не работала: единственным способом остановить эскалацию
+ * было соврать «я вернулся».
+ *
+ * Гасит тревогу, только если подтверждение пришло ПОСЛЕ контрольного
+ * времени — это логика decideEscalation, здесь мы просто пишем факт.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
@@ -5,10 +20,8 @@ import { verifyAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-const ReturnSchema = z.object({
+const CheckinSchema = z.object({
   registration_id: z.string().uuid(),
-  // Требуется для неавторизованных туристов — совпадение с leader_phone в регистрации.
-  // Авторизованные пользователи верифицируются через JWT (user_id matching).
   leader_phone: z.string().max(30).optional(),
 });
 
@@ -20,7 +33,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const parsed = ReturnSchema.safeParse(rawBody);
+  const parsed = CheckinSchema.safeParse(rawBody);
   if (!parsed.success) {
     return NextResponse.json(
       { success: false, error: parsed.error.issues[0]?.message || 'Ошибка валидации' },
@@ -33,7 +46,7 @@ export async function POST(request: NextRequest) {
   const auth = await verifyAuth(request).catch(() => ({ isAuthenticated: false, userId: null }));
 
   const existing = await query(
-    `SELECT id, route_name, leader_name, leader_phone, user_id, end_date, completed_at
+    `SELECT id, route_name, leader_phone, user_id, completed_at
      FROM route_registrations WHERE id = $1`,
     [registration_id],
   );
@@ -43,40 +56,37 @@ export async function POST(request: NextRequest) {
   }
 
   const reg = existing.rows[0] as {
-    id: string; route_name: string; leader_name: string;
-    leader_phone: string; user_id: string | null;
-    end_date: string; completed_at: string | null;
+    id: string; route_name: string; leader_phone: string;
+    user_id: string | null; completed_at: string | null;
   };
 
-  // Проверка владельца: JWT-пользователь ИЛИ совпадение номера телефона руководителя.
-  // Если ни того ни другого — запрещаем (иначе любой, кто знает UUID, может закрыть чужую регистрацию).
   const authedOwner = auth.isAuthenticated && auth.userId && reg.user_id && auth.userId === reg.user_id;
   const phoneMatch = leader_phone && reg.leader_phone &&
     leader_phone.replace(/\D/g, '') === reg.leader_phone.replace(/\D/g, '');
 
   if (!authedOwner && !phoneMatch) {
     return NextResponse.json(
-      { success: false, error: 'Для подтверждения возврата укажите номер телефона руководителя группы' },
+      { success: false, error: 'Для отметки укажите номер телефона руководителя группы' },
       { status: 403 },
     );
   }
 
   if (reg.completed_at) {
-    return NextResponse.json({ success: true, message: 'Возврат уже отмечен', already_completed: true });
+    return NextResponse.json({
+      success: true,
+      message: 'Возврат уже отмечен — дальше отмечать нечего',
+      already_completed: true,
+    });
   }
 
   await query(
-    `UPDATE route_registrations SET completed_at = now() WHERE id = $1`,
+    `UPDATE route_registrations SET checkin_confirmed_at = now() WHERE id = $1`,
     [registration_id],
   );
 
-  // «Вернулись» и «сообщили в МЧС о завершении» — разные факты (миграция
-  // 920, разбор реального журнала МЧС). Раньше этот ответ говорил «маршрут
-  // закрыт» на одном лишь возврате — платформа не знает, звонил ли кто-то в
-  // МЧС, и не вправе это утверждать.
   return NextResponse.json({
     success: true,
-    message: `С возвращением! Отметка о возврате принята для маршрута "${reg.route_name}". Если регистрировали маршрут в МЧС — не забудьте сообщить им о завершении.`,
+    message: `Отметка принята: группа «${reg.route_name}» на связи. Не забудьте отметить возврат, когда дойдёте.`,
     route_name: reg.route_name,
   });
 }
@@ -88,7 +98,7 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await query(
-    `SELECT id, route_name, leader_name, start_date, end_date, completed_at, mchs_status, mchs_informed_at
+    `SELECT id, route_name, leader_name, start_date, end_date, completed_at, checkin_confirmed_at
      FROM route_registrations WHERE id = $1`,
     [registrationId],
   );
@@ -107,9 +117,8 @@ export async function GET(request: NextRequest) {
       start_date: route.start_date,
       end_date: route.end_date,
       completed: !!route.completed_at,
-      completed_at: route.completed_at,
-      mchs_status: route.mchs_status,
-      mchs_informed: !!route.mchs_informed_at,
+      checked_in: !!route.checkin_confirmed_at,
+      checkin_confirmed_at: route.checkin_confirmed_at,
     },
   });
 }

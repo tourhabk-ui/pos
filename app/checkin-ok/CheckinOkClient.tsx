@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Loader2, ArrowLeft } from 'lucide-react';
 
-export default function ReturnClient() {
+/**
+ * «Мы ещё на маршруте, всё в порядке» — soft-ступень лестницы эскалации
+ * (lib/safety/checkin-escalation.ts). Отдельная от /return страница:
+ * подтверждение здесь НЕ означает возврат, только что группа на связи.
+ * До этой страницы decideEscalation умел гасить soft-тревогу подтверждением
+ * (checkin_confirmed_at), но ставить эту отметку было неоткуда — единственная
+ * ссылка в сообщении вела на полный возврат, то есть соврать «я вернулся».
+ */
+export default function CheckinOkClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registrationId = searchParams.get('id');
@@ -18,55 +26,31 @@ export default function ReturnClient() {
     start_date: string;
     end_date: string;
     completed: boolean;
-    mchs_informed: boolean;
+    checked_in: boolean;
   } | null>(null);
 
   const [result, setResult] = useState<'success' | 'error' | null>(null);
   const [resultMessage, setResultMessage] = useState('');
-  const [mchsInformed, setMchsInformed] = useState(false);
-  const [mchsSubmitting, setMchsSubmitting] = useState(false);
-
-  const handleMchsInformed = async () => {
-    if (!registrationId || mchsSubmitting) return;
-    setMchsSubmitting(true);
-    try {
-      const res = await fetch('/api/safety/mchs-informed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ registration_id: registrationId }),
-      });
-      const data = await res.json();
-      if (data.success) setMchsInformed(true);
-    } catch {
-      // Тихий отказ здесь не молчание о безопасности: это вторичная отметка
-      // поверх уже принятого возврата, кнопка остаётся доступной для повтора.
-    } finally {
-      setMchsSubmitting(false);
-    }
-  };
 
   useEffect(() => {
     if (!registrationId) {
       setLoading(false);
       return;
     }
-    fetch(`/api/safety/return?registration_id=${registrationId}`)
+    fetch(`/api/safety/route-checkin?registration_id=${registrationId}`)
       .then(r => r.json())
       .then(data => {
-        if (data.success) {
-          setRoute(data.route);
-          setMchsInformed(!!data.route.mchs_informed);
-        }
+        if (data.success) setRoute(data.route);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [registrationId]);
 
-  const handleReturn = async () => {
+  const handleCheckin = async () => {
     if (!registrationId) return;
     setSubmitting(true);
     try {
-      const res = await fetch('/api/safety/return', {
+      const res = await fetch('/api/safety/route-checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ registration_id: registrationId }),
@@ -100,24 +84,13 @@ export default function ReturnClient() {
       <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
           <CheckCircle className="w-16 h-16 text-[var(--success)] mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">С возвращением!</h1>
+          <h1 className="text-2xl font-bold mb-2">Принято</h1>
           <p className="text-[var(--text-secondary)] mb-6">{resultMessage}</p>
-          {mchsInformed ? (
-            <p className="text-sm text-[var(--success)] mb-4">МЧС проинформирован — отмечено</p>
-          ) : (
-            <button
-              onClick={handleMchsInformed}
-              disabled={mchsSubmitting}
-              className="w-full py-3 rounded-xl mb-3 border border-[var(--border)] text-[var(--text-primary)] font-semibold text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50"
-            >
-              {mchsSubmitting ? 'Отправляю...' : 'Отметить: сообщил(а) в МЧС о завершении'}
-            </button>
-          )}
           <button
             onClick={() => router.push('/map')}
             className="w-full py-3 rounded-xl bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
           >
-            Вернуться к карте
+            К карте
           </button>
         </div>
       </div>
@@ -169,19 +142,8 @@ export default function ReturnClient() {
           <CheckCircle className="w-16 h-16 text-[var(--success)] mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Возврат уже отмечен</h1>
           <p className="text-[var(--text-secondary)] mb-6">
-            Маршрут «{route.name}» — возврат группы подтверждён.
+            Маршрут «{route.name}» — возврат группы уже подтверждён, отмечать «на связи» больше не нужно.
           </p>
-          {mchsInformed ? (
-            <p className="text-sm text-[var(--success)] mb-4">МЧС проинформирован — отмечено</p>
-          ) : (
-            <button
-              onClick={handleMchsInformed}
-              disabled={mchsSubmitting}
-              className="w-full py-3 rounded-xl mb-3 border border-[var(--border)] text-[var(--text-primary)] font-semibold text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50"
-            >
-              {mchsSubmitting ? 'Отправляю...' : 'Отметить: сообщил(а) в МЧС о завершении'}
-            </button>
-          )}
           <button
             onClick={() => router.push('/map')}
             className="w-full py-3 rounded-xl bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
@@ -203,7 +165,7 @@ export default function ReturnClient() {
           <ArrowLeft className="w-4 h-4" /> Назад
         </button>
 
-        <h1 className="text-2xl font-bold mb-6">Отметить возврат</h1>
+        <h1 className="text-2xl font-bold mb-6">Мы на связи</h1>
 
         <div className="p-4 rounded-xl bg-[var(--bg-hover)] border border-[var(--border)] space-y-3 mb-6">
           <p><span className="text-[var(--text-muted)]">Маршрут:</span> {route.name}</p>
@@ -211,17 +173,18 @@ export default function ReturnClient() {
           <p><span className="text-[var(--text-muted)]">Даты:</span> {route.start_date} — {route.end_date}</p>
         </div>
 
-        <div className="p-4 rounded-xl mb-6" style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--success) 30%, transparent)' }}>
-          <p className="text-sm text-[var(--success)]">
-            Нажимая кнопку, вы подтверждаете что <strong>вернулись с маршрута</strong> и
-            все участники группы в безопасности.
+        <div className="p-4 rounded-xl mb-6" style={{ background: 'color-mix(in srgb, var(--ocean) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}>
+          <p className="text-sm" style={{ color: 'var(--ocean)' }}>
+            Эта отметка означает, что группа <strong>жива и на связи</strong>, но ещё
+            не вернулась. Это не отменяет обязанность отметить возврат отдельно,
+            когда дойдёте.
           </p>
         </div>
 
         <button
-          onClick={handleReturn}
+          onClick={handleCheckin}
           disabled={submitting}
-          className="w-full py-4 rounded-xl bg-[var(--success)] text-white font-bold text-lg
+          className="w-full py-4 rounded-xl bg-[var(--ocean)] text-white font-bold text-lg
             disabled:opacity-50 hover:opacity-90 transition-opacity
             flex items-center justify-center gap-3"
         >
@@ -230,11 +193,11 @@ export default function ReturnClient() {
           ) : (
             <CheckCircle className="w-6 h-6" />
           )}
-          {submitting ? 'Отправляю...' : 'Я вернулся'}
+          {submitting ? 'Отправляю...' : 'Мы на связи, всё в порядке'}
         </button>
 
-        <p className="text-xs text-white/30 mt-4 text-center">
-          После подтверждения уведомления об эскалации будут остановлены
+        <p className="text-xs text-[var(--text-muted)] mt-4 text-center">
+          Эскалация приостановится, дальнейшие уведомления не пойдут — до следующей просрочки
         </p>
       </div>
     </div>
