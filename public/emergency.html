@@ -413,10 +413,15 @@ function openFullscreenMap(){
   if(lat===null){document.getElementById('map-fs-dir').textContent='Ожидаем GPS…';return;}
 
   if(!_leafletMapFS){
-    _leafletMapFS=L.map('map-fs',{zoomControl:false,attributionControl:false}).setView([lat,lng],13);
+    // attributionControl:true и явная строка ниже — OSM требует видимую
+    // атрибуцию на каждой карте (владелец 28.08, M0-безопасность). Хост —
+    // тот же tile.openstreetmap.org, что у LeafletMap.tsx и service worker:
+    // раньше здесь стоял отдельный .cz-зеркало OpenTopoMap, три разных
+    // источника на трёх экранах молча разошлись между собой.
+    _leafletMapFS=L.map('map-fs',{zoomControl:false,attributionControl:true}).setView([lat,lng],13);
     L.control.zoom({position:'topright'}).addTo(_leafletMapFS);
-    L.tileLayer('https://{s}.tile.opentopomap.cz/{z}/{x}/{y}.png',
-      {maxZoom:17,subdomains:['a','b','c']}).addTo(_leafletMapFS);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:17,attribution:'© OpenStreetMap contributors'}).addTo(_leafletMapFS);
   }
 
   _fsLayers.forEach(function(l){try{l.remove();}catch(e){}});
@@ -486,10 +491,12 @@ function initLeafletMap(clat,clng){
     var lastPos=window.VedarGeo.readLastKnown();
 
     if(!_leafletMap){
-      _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:false}).setView([clat,clng],13);
+      // Тот же хост и та же атрибуция, что у полноэкранной карты выше —
+      // см. её комментарий (M0-безопасность, владелец 28.08).
+      _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:true}).setView([clat,clng],13);
       L.control.zoom({position:'topright'}).addTo(_leafletMap);
-      L.tileLayer('https://{s}.tile.opentopomap.cz/{z}/{x}/{y}.png',
-        {maxZoom:17,subdomains:['a','b','c']}).addTo(_leafletMap);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {maxZoom:17,attribution:'© OpenStreetMap contributors'}).addTo(_leafletMap);
     } else {
       _leafletMap.setView([clat,clng],13);
     }

@@ -182,7 +182,6 @@ export function HomeMapPreview() {
         zoom={7}
         markers={markers}
         height="100%"
-        attribution={false}
       />
 
       {/* Kind tabs — overlay top-left — inline zIndex чтобы перебить Leaflet tile pane (z-400 !important) */}

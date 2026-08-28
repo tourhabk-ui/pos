@@ -248,18 +248,12 @@ export default function MapPageClient() {
   // SOS-контакты захардкожены — НЕ зависят от IndexedDB, работают ВСЕГДА.
   // tel: ссылки работают через сотовую сеть, интернет НЕ нужен.
 
-  // Фоновая подгрузка зум 10 при первом посещении /map онлайн
-  // ~1600 тайлов (~25 МБ) — загрузится один раз, потом карта детальная офлайн
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.onLine) return;
-    if (typeof window === 'undefined') return;
-    const key = 'kh-zoom10-cached';
-    if (localStorage.getItem(key)) return;
-    localStorage.setItem(key, '1');
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: 'CACHE_ZOOM10' });
-    }
-  }, []);
+  // Фоновая массовая подгрузка зум 10 (~1600 тайлов, ~25 МБ) с
+  // tile.openstreetmap.org — УБРАНА (владелец 28.08, M0-безопасность):
+  // это ровно bulk prefetch, который политика OSM запрещает, и без спроса
+  // человека. Тайлы зум 10 по-прежнему кэшируются — но только те, что
+  // реально попали в видимую область при обычном просмотре карты
+  // (см. public/sw.js, handleTileRequest).
 
   useEffect(() => {
     const load = async () => {
@@ -459,7 +453,6 @@ export default function MapPageClient() {
           zoom={MAP_ZOOM_ONLINE}
           markers={allMarkers}
           height="100dvh"
-          attribution={false}
           onMarkerClick={handleMarkerClick}
           showUserLocation={showMyLocation}
           locationPriority="highAccuracy"
@@ -753,7 +746,6 @@ export default function MapPageClient() {
             zoom={MAP_ZOOM_OFFLINE}
             markers={allMarkers}
             height="calc(100vh - 180px)"
-            attribution={false}
             onMarkerClick={handleMarkerClick}
             showUserLocation={showMyLocation}
             locationPriority="highAccuracy"

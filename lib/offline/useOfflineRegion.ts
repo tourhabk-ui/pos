@@ -203,6 +203,18 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       // Промис отдаёт число НЕскачанных тайлов: ноль — пакет целый,
       // больше нуля — частичный, и это различие обязано доехать до статуса.
       const failedTiles = await new Promise<number>((resolve, reject) => {
+        // Таймаут 15 минут (большой регион) — очищается ТОЛЬКО настоящим
+        // завершением (resolve/reject ниже), не сразу после postMessage.
+        // `Promise.resolve().then(() => clearTimeout(timeout))` раньше
+        // гасил таймер на следующий микротаск ПОСЛЕ postMessage — то есть
+        // почти сразу, независимо от того, ответил SW хоть что-то или нет.
+        // Обещанные 15 минут ожидания были мёртвым кодом (аудит 28.08).
+        const timeout = setTimeout(() => {
+          navigator.serviceWorker.removeEventListener('message', handler);
+          swMessageHandlerRef.current = null;
+          reject(new Error('Таймаут скачивания тайлов (15 мин)'));
+        }, 15 * 60 * 1000);
+
         const handler = (event: MessageEvent) => {
           const data = event.data;
           if (!data || data.regionId !== regionId) return;
@@ -214,7 +226,19 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
             setProgress({ done: data.done, failed: data.failed, total: data.total, percent });
           }
 
+          // Массовая закачка отключена (M0, владелец 28.08): SW отвечает
+          // этим ВМЕСТО TILES_DONE, честно, без единой попытки скачать
+          // тайл. Причина — словами в error, не тихая пустота.
+          if (data.type === 'TILES_UNAVAILABLE') {
+            clearTimeout(timeout);
+            navigator.serviceWorker.removeEventListener('message', handler);
+            swMessageHandlerRef.current = null;
+            reject(new Error(data.reason || 'Скачивание карты для офлайна временно недоступно'));
+            return;
+          }
+
           if (data.type === 'TILES_DONE') {
+            clearTimeout(timeout);
             navigator.serviceWorker.removeEventListener('message', handler);
             swMessageHandlerRef.current = null;
             setProgress({
@@ -235,21 +259,11 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
         swMessageHandlerRef.current = handler;
         navigator.serviceWorker.addEventListener('message', handler);
 
-        // Таймаут 15 минут (большой регион)
-        const timeout = setTimeout(() => {
-          navigator.serviceWorker.removeEventListener('message', handler);
-          swMessageHandlerRef.current = null;
-          reject(new Error('Таймаут скачивания тайлов (15 мин)'));
-        }, 15 * 60 * 1000);
-
         sw.active!.postMessage({
           type: 'CACHE_TILES',
           tiles: tileUrls,
           regionId,
         });
-
-        // Отменяем таймаут в случае resolve
-        void Promise.resolve().then(() => clearTimeout(timeout));
       });
 
       // ── Шаг 6: Сохраняем метаданные региона ───────────────────────────
