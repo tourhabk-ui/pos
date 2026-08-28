@@ -47,7 +47,7 @@ import {
 import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
 import { groupRoutesByDestination, type Destination, type DestinationOption, type RouteOption } from '@/lib/on-route/destination';
 import { originLabel, type Origin } from '@/lib/on-route/origin';
-import { notWiredBuilder, type RouteBuildResult } from '@/lib/on-route/route-build';
+import { httpRouteBuilder, type RouteBuildResult } from '@/lib/on-route/route-build';
 
 /** Вердикт черты в том виде, в каком он приходит с сервера. */
 interface PreviewNavigability {
@@ -383,10 +383,11 @@ function OnTrailTab() {
   // только когда человек сам её открыл, и гаснет сразу после тапа —
   // ни ту, ни другую сущность клик не запускает автоматически.
   const [mapPickMode, setMapPickMode] = useState<'destination' | 'origin' | null>(null);
-  // Машина состояний построения пути (владелец 27.08, PR 5A роадмапа):
-  // idle — старт ещё не выбран; building — запрос идёт; done — есть ответ.
-  // Пока build() отвечает только notWiredBuilder (PR 5B подключит реальный
-  // источник, не трогая эту машину состояний).
+  // Машина состояний построения пути (владелец 27.08, PR 5A; транспорт —
+  // 28.08, PR 5B-1): idle — старт ещё не выбран; building — запрос идёт;
+  // done — есть ответ. build() ходит на сервер (httpRouteBuilder), но
+  // провайдер за ним не выбран — сегодня ответ всегда unsupported, честно
+  // сформированный сервером, не локальной заглушкой.
   const [buildPhase, setBuildPhase] = useState<
     { phase: 'idle' } | { phase: 'building' } | { phase: 'done'; result: RouteBuildResult }
   >({ phase: 'idle' });
@@ -1661,10 +1662,11 @@ function OnTrailTab() {
 
         {renderOriginPicker()}
 
-        {/* Построение пути (Origin → Destination) — машина состояний PR 5A:
-            idle/building/found/not_found/unsupported/failed. Сегодня отвечает
-            только notWiredBuilder («unsupported» честно, не тихая пустота) —
-            PR 5B подключит реальный источник, не трогая эту разметку. */}
+        {/* Построение пути (Origin → Destination) — машина состояний PR 5A,
+            транспорт до сервера — PR 5B-1 (httpRouteBuilder, /api/routes/build):
+            idle/building/found/not_found/unsupported/failed. Провайдер за
+            сервером не выбран — сегодня ответ всегда unsupported, но уже
+            настоящим сетевым запросом, а не тихой локальной заглушкой. */}
         {renderBuildStatus()}
 
         {hasOptions ? (
@@ -2064,7 +2066,7 @@ function OnTrailTab() {
     }
     let cancelled = false;
     setBuildPhase({ phase: 'building' });
-    notWiredBuilder
+    httpRouteBuilder
       .build({ origin: selectedOrigin, destination: selectedDestination.destination, mode: 'foot' })
       .then(result => { if (!cancelled) setBuildPhase({ phase: 'done', result }); })
       .catch((err: unknown) => {

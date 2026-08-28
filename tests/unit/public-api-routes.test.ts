@@ -41,6 +41,13 @@ describe('isPublicApiPath — кого Edge пускает без токена',
     expect(isPublicApiPath('/api/payments/tochka/webhook', 'POST')).toBe(true);
   });
 
+  it('построение пути (POST) — публично, хотя /api/routes открыт только на GET', () => {
+    // Тот же класс дыры, что у safety-report: '/api/routes': ['GET'] не
+    // покрывает POST /api/routes/build — нужна отдельная запись (28.08).
+    expect(isPublicApiPath('/api/routes/build', 'POST')).toBe(true);
+    expect(isPublicApiPath('/api/routes/build', 'DELETE')).toBe(false);
+  });
+
   it('метод вне списка не проходит: карточка места только на чтение', () => {
     expect(isPublicApiPath('/api/places/abc-123', 'GET')).toBe(true);
     expect(isPublicApiPath('/api/places/abc-123', 'DELETE')).toBe(false);
