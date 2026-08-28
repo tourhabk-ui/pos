@@ -100,19 +100,26 @@ export async function POST(request: NextRequest) {
 
     // Пере-выпуск JWT под новую активную роль.
     token = await createToken({ userId: user.id, email: user.email, role: target });
-  } catch {
+
+    // Строка user_sessions — не аудит, а условие входа: с P1-фиксом
+    // отзыва сессии (аудит 28.08) verifyAuth требует её присутствия для
+    // ЛЮБОГО токена, включая этот. Раньше сбой INSERT глотался
+    // (`.catch(() => {})`) — токен уходил клиенту рабочим на вид и
+    // нерабочим на деле: каждый следующий запрос отвечал бы 401 без
+    // единой подсказки, откуда взялся «выход из системы».
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    await pool.query(
+      `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+      [user.id, token, expiresAt],
+    );
+  } catch (err) {
+    console.error('[auth/switch-role] сбой:', err instanceof Error ? err.message : err);
     return NextResponse.json(
       { success: false, error: 'Не удалось переключить роль. Попробуйте ещё раз.' } as ApiResponse<null>,
       { status: 500 },
     );
   }
-
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-  await pool.query(
-    `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-    [user.id, token, expiresAt],
-  ).catch(() => {});
 
   await pool.query(
     `INSERT INTO audit_log (entity_type, entity_id, action, data, ip_address, created_at)

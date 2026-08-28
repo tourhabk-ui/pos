@@ -11,7 +11,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
 import { emailService } from '@/lib/notifications/email-service';
 import { createUonRequest } from '@/lib/integrations/uon';
-import { verifyToken, extractToken } from '@/lib/auth/jwt';
+import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
 
@@ -69,10 +69,9 @@ export async function POST(req: NextRequest) {
   // Гостевой чек-аут остаётся рабочим — авторизация опциональна (fail-open).
   // Если юзер залогинен, линкуем бронь к его аккаунту: без этого
   // lib/recommendations/engine.ts не может найти историю броней ни для кого.
-  const cookieToken = req.cookies.get('auth_token')?.value;
-  const headerToken = extractToken(req.headers.get('Authorization'));
-  const token = cookieToken || headerToken;
-  const authedUser = token ? await verifyToken(token) : null;
+  // getUserFromRequest (не голый verifyToken) — чтобы отозванная сессия
+  // (signout) не привязывала бронь чужому аккаунту по мёртвому токену.
+  const authedUser = await getUserFromRequest(req);
   const userId = authedUser?.userId ?? null;
 
   try {

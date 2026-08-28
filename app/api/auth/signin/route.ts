@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { verifyPassword } from '@/lib/auth/password';
-import { createToken } from '@/lib/auth/jwt';
+import { createToken, createMfaPendingToken } from '@/lib/auth/jwt';
 import { sanitizeError } from '@/lib/errors/sanitize';
 import { ApiResponse } from '@/types';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
@@ -46,7 +46,8 @@ export async function POST(request: NextRequest) {
 
     // Find user by email
     const userResult = await pool.query<UsersRow>(
-      `SELECT id, email, name, role, password_hash, preferences, created_at, updated_at
+      `SELECT id, email, name, role, password_hash, preferences, created_at, updated_at,
+              mfa_enabled
        FROM users
        WHERE email = $1`,
       [email.toLowerCase()]
@@ -68,6 +69,19 @@ export async function POST(request: NextRequest) {
         success: false,
         error: 'Неверный email или пароль'
       } as ApiResponse<null>, { status: 401 });
+    }
+
+    // MFA включён — пароль подтверждён, но полную сессию не выдаём. До этой
+    // правки роут выдавал auth_token cookie сразу после пароля, и mfa_enabled
+    // нигде не проверялся: TOTP существовал в БД, но входа не гейтил ничем
+    // (P1, аудит 28.08). Дальше — короткоживущий pending-токен, довершает
+    // вход POST /api/auth/mfa/login-verify с шестизначным кодом.
+    if (user.mfa_enabled) {
+      const mfaPendingToken = await createMfaPendingToken(user.id);
+      return NextResponse.json({
+        success: true,
+        data: { mfaRequired: true, mfaPendingToken },
+      } as ApiResponse<unknown>);
     }
 
     // Create JWT token

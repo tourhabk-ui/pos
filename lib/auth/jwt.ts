@@ -4,9 +4,11 @@
  */
 
 import { SignJWT, jwtVerify } from 'jose';
+import { query } from '@/lib/database';
 
 const JWT_ALGORITHM = 'HS256';
 const JWT_EXPIRATION = '7d'; // 7 days
+const MFA_PENDING_EXPIRATION = '5m';
 
 // Получаем секрет в runtime, а не при загрузке модуля (во время сборки)
 function getJWTSecret(): Uint8Array {
@@ -140,20 +142,71 @@ function getCookieValue(request: RequestLike, name: string): string | null {
   return null;
 }
 
+/**
+ * Проверяет, что сессия токена ещё жива в user_sessions (не отозвана через
+ * /api/auth/signout и не истекла по expires_at). verifyToken выше проверяет
+ * ТОЛЬКО подпись и exp самого JWT — без этой проверки logout был
+ * косметическим: подпись оставалась годной ещё до 7 дней после удаления
+ * строки сессии, и токен, утёкший например из localStorage, продолжал
+ * работать. Внешний security-аудит владельца 28.08 (P1) поймал это.
+ *
+ * Fail-closed: сбой запроса к БД тоже трактуется как «сессия недействительна» —
+ * это путь авторизации, отвечать «доступ есть» на «не смог проверить» нельзя (§4.0).
+ */
+export async function isSessionActive(token: string): Promise<boolean> {
+  try {
+    const { rows } = await query<{ id: string }>(
+      'SELECT id FROM user_sessions WHERE token = $1 AND expires_at > now() LIMIT 1',
+      [token],
+    );
+    return rows.length > 0;
+  } catch (err) {
+    console.error('[auth/jwt] проверка сессии упала:', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 export async function getUserFromRequest(request: RequestLike): Promise<JWTPayload | null> {
   const authHeader = getHeader(request, 'authorization');
   let token = extractToken(authHeader);
-  
+
   if (!token) {
     token = getCookieValue(request, 'auth_token');
   }
-  
+
   if (token) {
     const payload = await verifyToken(token);
-    if (payload) {
+    if (payload && await isSessionActive(token)) {
       return payload;
     }
   }
 
   return null;
+}
+
+/**
+ * Короткоживущий (5 минут) токен «пароль подтверждён, жду код MFA».
+ * Отдельная форма от createToken: НЕ несёт email/role, поэтому verifyToken
+ * отвергнет его как обычный auth-токен по строгой проверке формы payload —
+ * пере-использовать pending-токен вместо полной сессии нельзя даже случайно.
+ */
+export async function createMfaPendingToken(userId: string): Promise<string> {
+  return new SignJWT({ userId, purpose: 'mfa_pending' })
+    .setProtectedHeader({ alg: JWT_ALGORITHM })
+    .setIssuedAt()
+    .setExpirationTime(MFA_PENDING_EXPIRATION)
+    .sign(getJWTSecret());
+}
+
+/** Возвращает userId, если pending-токен MFA валиден, иначе null. */
+export async function verifyMfaPendingToken(token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, getJWTSecret(), { algorithms: [JWT_ALGORITHM] });
+    if (payload.purpose !== 'mfa_pending' || typeof payload.userId !== 'string') {
+      return null;
+    }
+    return payload.userId;
+  } catch {
+    return null;
+  }
 }

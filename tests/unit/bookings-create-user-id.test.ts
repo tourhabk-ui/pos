@@ -38,11 +38,12 @@ vi.mock('@/lib/integrations/uon', () => ({
   createUonRequest: vi.fn().mockResolvedValue(null),
 }));
 
-const verifyTokenMock = vi.fn();
+// getUserFromRequest (не голый verifyToken) — с P1-фиксом отзыва сессии
+// (аудит 28.08) роут сверяет ещё и user_sessions, поэтому мокается сама
+// точка входа, а не низкоуровневая verifyToken.
+const getUserFromRequestMock = vi.fn();
 vi.mock('@/lib/auth/jwt', () => ({
-  verifyToken: (token: string) => verifyTokenMock(token),
-  extractToken: (header: string | null) =>
-    header?.toLowerCase().startsWith('bearer ') ? header.slice(7) : null,
+  getUserFromRequest: (req: unknown) => getUserFromRequestMock(req),
 }));
 
 import { POST } from '@/app/api/hub/bookings/create/route';
@@ -93,7 +94,7 @@ beforeEach(() => {
 
 describe('POST /api/hub/bookings/create — user_id linkage', () => {
   it('авторизованный юзер → user_id пишется в INSERT', async () => {
-    verifyTokenMock.mockResolvedValue({ userId: 'user-123', email: 'a@b.com', role: 'tourist' });
+    getUserFromRequestMock.mockResolvedValue({ userId: 'user-123', email: 'a@b.com', role: 'tourist' });
 
     const res = await POST(postReq(VALID_BODY, { Authorization: 'Bearer faketoken' }));
     expect(res.status).toBe(200);
@@ -106,9 +107,10 @@ describe('POST /api/hub/bookings/create — user_id linkage', () => {
   });
 
   it('гость без токена → user_id = null, бронь всё равно создаётся', async () => {
+    getUserFromRequestMock.mockResolvedValue(null);
+
     const res = await POST(postReq(VALID_BODY));
     expect(res.status).toBe(200);
-    expect(verifyTokenMock).not.toHaveBeenCalled();
 
     const insertCall = clientQueryMock.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO operator_bookings'));
@@ -117,8 +119,11 @@ describe('POST /api/hub/bookings/create — user_id linkage', () => {
     expect(params[params.length - 1]).toBeNull();
   });
 
-  it('невалидный/просроченный токен → user_id = null (fail-open, не 401)', async () => {
-    verifyTokenMock.mockResolvedValue(null);
+  it('невалидный/просроченный/отозванный токен → user_id = null (fail-open, не 401)', async () => {
+    // getUserFromRequest сам решает «нет» и для битой подписи, и для
+    // валидной подписи с отозванной (signout) сессией — оба случая роуту
+    // видны одинаково: null.
+    getUserFromRequestMock.mockResolvedValue(null);
 
     const res = await POST(postReq(VALID_BODY, { Authorization: 'Bearer expired' }));
     expect(res.status).toBe(200);

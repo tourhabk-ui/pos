@@ -169,12 +169,20 @@ export async function POST(request: NextRequest) {
   // Issue JWT
   const token = await createToken({ userId: user.id, email: user.email, role: user.role });
 
+  // Строка user_sessions — условие входа, не аудит: verifyAuth требует её
+  // присутствия для любого токена (P1, отзыв сессии, аудит 28.08). Раньше
+  // сбой INSERT глотался — токен уходил рабочим на вид и мёртвым на деле.
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
-  await query(
-    `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-    [user.id, token, expiresAt],
-  ).catch(() => null);
+  try {
+    await query(
+      `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+      [user.id, token, expiresAt],
+    );
+  } catch (err) {
+    console.error('[auth/telegram] запись сессии не удалась:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ success: false, error: 'Не удалось создать сессию. Попробуйте войти ещё раз.' }, { status: 502 });
+  }
 
   const response = NextResponse.json({
     success: true,

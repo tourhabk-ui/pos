@@ -25,31 +25,44 @@ import { join } from 'path';
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
+// Сверка TOTP вынесена в lib/auth/totp.ts (P1, аудит 28.08) — второй шаг
+// входа при MFA (app/api/auth/mfa/login-verify) переиспользует ту же
+// функцию вместо второй копии алгоритма. Алгоритмические проверки смотрят
+// в новый файл; лимит попыток остаётся заботой роута — смотрим оба.
+const TOTP = strip(read('lib/auth/totp.ts'));
 const MFA = strip(read('app/api/auth/mfa/verify/route.ts'));
+const MFA_LOGIN = strip(read('app/api/auth/mfa/login-verify/route.ts'));
 const HELPERS = strip(read('lib/auth/operator-helpers.ts'));
 const MAX = strip(read('app/api/max/kuzmich/route.ts'));
 const WEBHOOK = strip(read('lib/max/webhook-url.ts'));
 
 describe('сверка кода TOTP', () => {
   it('сравнение постоянного времени, а не === по строке', () => {
-    expect(MFA).toMatch(/timingSafeEqual/);
-    expect(MFA, 'вернулось строковое сравнение кода')
+    expect(TOTP).toMatch(/timingSafeEqual/);
+    expect(TOTP, 'вернулось строковое сравнение кода')
       .not.toMatch(/generateTOTP\([^)]*\)\s*===/);
   });
 
   it('цикл по окну не прерывается досрочно', () => {
     // Ранний return вернул бы разное время для совпадения на первом и на
     // третьем шаге — то есть сам стал бы каналом утечки.
-    const body = MFA.slice(MFA.indexOf('function verifyTOTP'));
+    const body = TOTP.slice(TOTP.indexOf('function verifyTOTP'));
     expect(body.slice(0, body.indexOf('\n}'))).not.toMatch(/return true;/);
   });
 
   it('код обязан быть шестизначным — иначе timingSafeEqual бросит', () => {
-    expect(MFA).toMatch(/\^\\d\{6\}\$/);
+    expect(TOTP).toMatch(/\^\\d\{6\}\$/);
   });
 
   it('лимит попыток на месте', () => {
     expect(MFA).toMatch(/createRateLimiter/);
+  });
+
+  it('второй вход (MFA при логине) — тот же лимит и та же сверка, не копия', () => {
+    expect(MFA_LOGIN).toMatch(/createRateLimiter/);
+    expect(MFA_LOGIN).toMatch(/verifyTOTP/);
+    expect(MFA_LOGIN, 'завёл вторую копию алгоритма вместо lib/auth/totp')
+      .not.toMatch(/function generateTOTP/);
   });
 });
 

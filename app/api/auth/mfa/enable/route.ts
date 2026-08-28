@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { verifyAuth } from '@/lib/auth';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { encryptMfaSecret } from '@/lib/auth/mfa-crypto';
 
 const mfaEnableLimiter = createRateLimiter({ windowMs: 60_000, max: 3 });
 
@@ -33,14 +34,14 @@ export async function POST(request: NextRequest) {
 
     const { secret } = parsed.data;
 
-    // Сохраняем MFA secret в БД (в production — шифровать перед сохранением)
     await query(
       'UPDATE users SET mfa_secret = $1, mfa_enabled = false WHERE id = $2',
-      [secret, auth.userId]
+      [encryptMfaSecret(secret), auth.userId]
     );
 
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    console.error('[mfa/enable] сбой:', err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'Internal Error' }, { status: 500 });
   }
 }

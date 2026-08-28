@@ -37,6 +37,8 @@ export interface UsersRow {
   preferences: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date | null;
+  mfa_enabled?: boolean;
+  mfa_secret?: string | null;
 }
 
 export interface UsersAdminRow extends Omit<UsersRow, 'password_hash'> {

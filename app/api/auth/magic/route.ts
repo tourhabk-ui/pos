@@ -48,6 +48,22 @@ export async function GET(req: NextRequest) {
       role:   user.role,
     });
 
+    // Строка user_sessions — условие входа, не аудит: без неё verifyAuth
+    // отвергнет этот же токен на первом же запросе (P1, отзыв сессии, аудит
+    // 28.08). До этой правки magic-link вообще не писал в user_sessions —
+    // единственный путь входа, где её не было совсем.
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    try {
+      await pool.query(
+        `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+        [user.id, authToken, expiresAt],
+      );
+    } catch (err) {
+      console.error('[auth/magic] запись сессии не удалась:', err instanceof Error ? err.message : err);
+      return NextResponse.redirect(new URL('/auth/login?error=session_failed', req.url));
+    }
+
     // Редирект в зависимости от роли и email
     const redirect = user.role === 'admin'
       ? (user.email === 'artem@mchs-kamchatka.ru' ? '/hub/admin/artem' : '/hub/admin')

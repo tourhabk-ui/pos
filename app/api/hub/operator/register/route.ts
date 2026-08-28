@@ -113,8 +113,31 @@ export async function POST(req: NextRequest) {
 
     await client.query('COMMIT');
 
-    // 4. Создаём JWT — оператор сразу залогинен
+    // 4. Создаём JWT — оператор сразу залогинен.
+    // Аккаунт и партнёрский профиль уже зафиксированы (COMMIT выше), так что
+    // сбой ниже не должен ронять регистрацию как таковую — только автовход.
     const token = await createToken({ userId, email: data.email, role: 'operator' });
+
+    // Строка user_sessions — условие входа: verifyAuth требует её для любого
+    // токена (P1, отзыв сессии, аудит 28.08). Этот роут раньше не писал в
+    // user_sessions вовсе — выданный токен был мёртвым на первом же запросе.
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    try {
+      await pool.query(
+        `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+        [userId, token, expiresAt],
+      );
+    } catch (err) {
+      console.error('[hub/operator/register] автовход не удался:', err instanceof Error ? err.message : err);
+      return NextResponse.json({
+        success:        true,
+        operator_id:    partnerId,
+        user_id:        userId,
+        message:        'Регистрация успешна! Войдите, используя email и пароль.',
+        autologin_failed: true,
+      });
+    }
 
     return NextResponse.json({
       success:     true,
