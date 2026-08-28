@@ -42,7 +42,7 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
 
     // Миграции ядра — из тех же файлов, что накатывает прод; повторный
     // прогон обязан быть no-op (идемпотентность проверяется здесь же).
-    for (const f of ['917_agent_kernel.sql', '918_kernel_autonomy.sql', '918_kernel_autonomy.sql']) {
+    for (const f of ['917_agent_kernel.sql', '918_kernel_autonomy.sql', '918_kernel_autonomy.sql', '920_agent_tasks_active_resource_index.sql']) {
       await pool.query(readFileSync(join(process.cwd(), 'migrations', f), 'utf-8'));
     }
     // Минимальная operator_tours — для policy-проверки ownership.
@@ -264,6 +264,49 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
     // Задача терминальна; reopened-PR получил бы НОВУЮ задачу.
     const fresh = await cm.ensureCodeMergeTask(repo, 4242, 'reopened');
     expect(fresh.id).not.toBe(task.id);
+  });
+
+  it('code.merge: два почти одновременных ensureCodeMergeTask по одному PR — ровно одна живая задача (без check-then-act)', async () => {
+    // Аудит 28.08: раньше дедуп держал ТОЛЬКО SELECT ДО INSERT — окно гонки
+    // ровно там, где opened+synchronize одного PR приходят почти
+    // одновременно. Проверяем атомарность индекса 920 двумя параллельными
+    // вызовами, не одной последовательной парой (та гонку не покажет).
+    const cm = await import('@/lib/agents/kernel/adapters/code-merge-task');
+    const repo = 'tourhabk-ui/pos';
+
+    const [a, b] = await Promise.all([
+      cm.ensureCodeMergeTask(repo, 5151, 'race a'),
+      cm.ensureCodeMergeTask(repo, 5151, 'race b'),
+    ]);
+    expect(a.id).toBe(b.id);
+
+    const { rows } = await pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM agent_tasks
+       WHERE capability = 'code.merge' AND resource_type = 'github_pr' AND resource_id = $1`,
+      [`${repo}#5151`],
+    );
+    expect(rows[0].cnt).toBe('1');
+  });
+
+  it('recordPrEventOnce: два почти одновременных вызова того же события — ровно одна строка (без check-then-act)', async () => {
+    const cm = await import('@/lib/agents/kernel/adapters/code-merge-task');
+    const repo = 'tourhabk-ui/pos';
+    const task = await cm.ensureCodeMergeTask(repo, 6161, 'дубль события');
+    const fp = { repo, pr: 6161, head_sha: 'sha-race' };
+
+    const results = await Promise.all([
+      cm.recordPrEventOnce(task.id, 'pr_opened', fp),
+      cm.recordPrEventOnce(task.id, 'pr_opened', fp),
+    ]);
+    // Ровно один вызов реально вставил строку, второй увидел конфликт.
+    expect(results.filter(Boolean).length).toBe(1);
+
+    const { rows } = await pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM agent_events
+       WHERE task_id = $1 AND event_type = 'pr_opened' AND details->>'head_sha' = 'sha-race'`,
+      [task.id],
+    );
+    expect(rows[0].cnt).toBe('1');
   });
 
   it('успешный путь: события идут started→committed, seq без дыр, терминал succeeded', async () => {

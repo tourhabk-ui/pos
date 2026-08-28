@@ -16,10 +16,14 @@
  * Идемпотентность callback'ов — по (event, head_sha): повтор webhook'а или
  * re-run workflow не пишет второе событие и не двигает состояние (переход
  * сторожится WHERE state=from — проигравший получает честный no-op).
+ * Дедуп задачи по PR — атомарный уникальный индекс 920, не check-then-act
+ * (см. `ensureCodeMergeTask`); дедуп событий — атомарный уникальный индекс
+ * по выражению, тоже 920 (см. `recordPrEventOnce`).
  */
 
+import { randomUUID } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
-import { appendEvent, claimTaskById, createTask, transition } from '../kernel';
+import { appendEvent, claimTaskById, POLICY_VERSION, transition } from '../kernel';
 import type { AgentTask, TaskState } from '../types';
 
 const CAPABILITY = 'code.merge';
@@ -59,10 +63,25 @@ export async function findAnyCodeMergeTask(repo: string, prNumber: number): Prom
 }
 
 /**
- * Задача для PR существует и находится в running. Ключа идемпотентности нет
- * намеренно: reopened-PR после rejected законно получает НОВУЮ задачу, а
- * дедуп живых держит findActiveCodeMergeTask (гонка двух sweep'ов закрыта
- * concurrency workflow).
+ * Задача для PR существует и находится в running.
+ *
+ * Раньше дедуп держал ТОЛЬКО `findActiveCodeMergeTask` (SELECT ДО INSERT) —
+ * check-then-act с окном гонки ровно там, где `opened` и `synchronize`
+ * одного PR могут прийти почти одновременно (два webhook-события GitHub,
+ * повторная доставка). Аудит 28.08 нашёл это окно открытым.
+ *
+ * Общий `idempotency_key` ядра (индекс 918) сюда НЕ подходит: тот держит
+ * ключ занятым и после `succeeded` (правильно для одноразового внешнего
+ * эффекта — второй такой же вызов не должен повториться), а у `code.merge`
+ * `succeeded` = «PR смержен», и reopened-PR после этого обязан получить
+ * НОВУЮ задачу (`agent-kernel.pg.test.ts`: «Задача терминальна; reopened-PR
+ * получил бы НОВУЮ задачу» — уже проверено интеграционным тестом). Нужен
+ * СВОЙ предикат: занято, только пока задача НЕ терминальна — ровно то же
+ * условие, что у `findActiveCodeMergeTask`, но как атомарный `UNIQUE INDEX`
+ * (миграция 920), а не SELECT. INSERT ниже целится в этот индекс через
+ * `ON CONFLICT ... DO NOTHING` — гонка закрывается на уровне БД, не
+ * check-then-act. `findActiveCodeMergeTask` остаётся быстрым read-путём:
+ * не нужно открывать транзакцию, когда и так видно, что задача уже есть.
  */
 export async function ensureCodeMergeTask(
   repo: string,
@@ -73,38 +92,98 @@ export async function ensureCodeMergeTask(
   const existing = await findActiveCodeMergeTask(repo, prNumber);
   if (existing) return existing;
 
-  const created = await createTask({
-    principal: ACTOR,
-    capability: CAPABILITY,
-    risk: 'safe',
-    state: 'queued',
-    resource: { type: 'github_pr', id: prResourceId(repo, prNumber) },
-    parentTaskId: link?.parentTaskId,
-    traceId: link?.traceId,
-    details: { pr: prNumber, repo, title },
-  });
-  if (!created.created) return created.existing;
-  const claimed = await claimTaskById(created.task.id, ACTOR);
-  return claimed ?? created.task;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const traceId = link?.traceId ?? randomUUID();
+    const { rows } = await client.query<TaskRow>(
+      `INSERT INTO agent_tasks (
+         parent_task_id, trace_id, principal, capability,
+         resource_type, resource_id, risk, state, policy_version, last_seq
+       ) VALUES ($1, $2, $3, $4, 'github_pr', $5, 'safe', 'queued', $6, 1)
+       ON CONFLICT (capability, resource_type, resource_id)
+         WHERE resource_type IS NOT NULL AND resource_id IS NOT NULL
+           AND state NOT IN ('succeeded','failed_terminal','cancelled','rejected')
+         DO NOTHING
+       RETURNING ${TASK_COLUMNS}`,
+      [link?.parentTaskId ?? null, traceId, ACTOR, CAPABILITY, prResourceId(repo, prNumber), POLICY_VERSION],
+    );
+    const task = rows[0];
+    if (!task) {
+      // Конкурент уже завёл живую задачу этого PR — отдаём её.
+      await client.query('ROLLBACK');
+      const found = await findActiveCodeMergeTask(repo, prNumber);
+      if (found) return found;
+      throw new Error(`конфликт задачи code.merge по PR ${prResourceId(repo, prNumber)}, но активный владелец не найден — повторите`);
+    }
+    await client.query(
+      `INSERT INTO agent_events (task_id, trace_id, seq, event_type, from_state, to_state, actor, details)
+       VALUES ($1, $2, 1, 'transition', NULL, $3, $4, $5)`,
+      [task.id, traceId, task.state, ACTOR, JSON.stringify({ created: true, pr: prNumber, repo, title })],
+    );
+    await client.query('COMMIT');
+    const claimed = await claimTaskById(task.id, ACTOR);
+    return claimed ?? task;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-/** Событие pr_* ровно один раз на (event, head_sha). */
+/**
+ * Событие pr_* ровно один раз на (event, head_sha, kind).
+ *
+ * Раньше дедуп шёл SELECT ДО INSERT (check-then-act, окно гонки между двумя
+ * почти одновременными webhook-доставками того же события). Теперь —
+ * атомарный `INSERT ... ON CONFLICT DO NOTHING` по индексу 920
+ * (`idx_agent_events_pr_dedup`), внутри своей короткой транзакции: тот же
+ * паттерн bump-`last_seq`+INSERT, что у `kernel.ts`'s `appendEvent`, только с
+ * явным `ON CONFLICT`. `rowCount` решает, было событие уже или нет — не
+ * отдельный SELECT.
+ */
 export async function recordPrEventOnce(
   taskId: string,
   eventType: 'pr_opened' | 'pr_merged' | 'pr_rejected' | 'note',
   fingerprint: { repo: string; pr: number; head_sha: string; kind?: string },
 ): Promise<boolean> {
-  const { rows } = await pool.query(
-    `SELECT 1 FROM agent_events
-     WHERE task_id = $1 AND event_type = $2
-       AND details->>'head_sha' = $3
-       AND COALESCE(details->>'kind', '') = COALESCE($4, '')
-     LIMIT 1`,
-    [taskId, eventType, fingerprint.head_sha, fingerprint.kind ?? null],
-  );
-  if (rows.length > 0) return false;
-  await appendEvent(taskId, ACTOR, eventType, { ...fingerprint });
-  return true;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const upd = await client.query<{ trace_id: string; last_seq: number }>(
+      `UPDATE agent_tasks SET last_seq = last_seq + 1, updated_at = NOW()
+       WHERE id = $1
+       RETURNING trace_id, last_seq`,
+      [taskId],
+    );
+    if (upd.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+    const ins = await client.query(
+      `INSERT INTO agent_events (task_id, trace_id, seq, event_type, from_state, to_state, actor, details)
+       VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6)
+       ON CONFLICT (task_id, event_type, (details->>'head_sha'), (COALESCE(details->>'kind', '')))
+         WHERE details ? 'head_sha'
+         DO NOTHING
+       RETURNING id`,
+      [taskId, upd.rows[0].trace_id, upd.rows[0].last_seq, eventType, ACTOR, JSON.stringify({ ...fingerprint })],
+    );
+    if ((ins.rowCount ?? 0) === 0) {
+      // Уже записано конкурентом/раньше — last_seq не должен был двигаться
+      // ради дубликата.
+      await client.query('ROLLBACK');
+      return false;
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export interface GateTransitionResult {
