@@ -232,20 +232,13 @@ export default function SosPage() {
       tourist_phone: phone.trim() || null,
     };
 
-    try {
-      const res = await fetch('/api/safety/sos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sosPayload),
-      });
-      if (res.status === 429) { setSendStatus('error'); return; }
-      setSendStatus('sent');
-    } catch {
-      // Прямой путь мёртв (офлайн/обрыв). Две страховки параллельно:
-      // 1) меш — сосед с живой сетью ретранслирует немедленно;
-      // 2) офлайн-очередь — отправка при появлении своей сети.
-      // Меш НЕ зовём при успехе прямого пути — иначе каждый онлайн-SOS
-      // приходил бы спасателям дважды (прямой + через соседа).
+    // Прямой путь не подтвердил приём (сеть оборвалась ИЛИ сервер честно
+    // ответил, что не смог записать сигнал — 502, см. правку роута 28.08).
+    // Две страховки параллельно: 1) меш — сосед с живой сетью ретранслирует
+    // немедленно; 2) офлайн-очередь — отправка при появлении своей сети.
+    // Меш НЕ зовём при подтверждённом успехе прямого пути — иначе каждый
+    // онлайн-SOS приходил бы спасателям дважды (прямой + через соседа).
+    const fallbackToMeshAndQueue = async () => {
       try {
         meshSendSOS(sosPayload);
       } catch { /* меш не должен ломать офлайн-очередь */ }
@@ -256,6 +249,19 @@ export default function SosPage() {
       } catch {
         setSendStatus('error');
       }
+    };
+
+    try {
+      const res = await fetch('/api/safety/sos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sosPayload),
+      });
+      if (res.status === 429) { setSendStatus('error'); return; }
+      if (!res.ok) { await fallbackToMeshAndQueue(); return; }
+      setSendStatus('sent');
+    } catch {
+      await fallbackToMeshAndQueue();
     }
   };
 

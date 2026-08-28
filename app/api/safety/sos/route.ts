@@ -95,27 +95,46 @@ export async function POST(request: NextRequest) {
   const finalLng = longitude ?? lng;
   const finalSource = source ?? 'direct';
 
-  // Логируем в БД (source/relayed_by — добавлены миграцией 678)
+  // Логируем в БД (source/relayed_by — добавлены миграцией 678).
+  //
+  // Отказ записи раньше глотался молча, и rate-limit всё равно ставился —
+  // то есть неудачная попытка блокировала повтор человеку в беде на 10
+  // минут, а ответ ниже всё равно говорил «сигнал получен». Внешний
+  // security-аудит владельца 28.08 поймал это как P0: «SOS может сообщить
+  // об успехе, когда сигнал не сохранён и не доставлен». Durable-запись —
+  // единственный факт, на основании которого Watchdog видит SOS вообще
+  // (таймаут >15 мин по sos_events); без строки в таблице сигнал невидим
+  // для эскалации, что бы ни ответил этот роут.
+  let eventId: string | null = null;
   try {
-    await query(
+    const inserted = await query<{ id: string }>(
       `INSERT INTO sos_events
          (user_id, session_id, lat, lng, accuracy, ip_address, user_agent,
           message, emergency_type, tourist_name, tourist_phone, source, relayed_by)
-       VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9,$10,$11,$12,$13)`,
+       VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9,$10,$11,$12,$13)
+       RETURNING id::text AS id`,
       [userId, sessionId, finalLat, finalLng, accuracy, ip, userAgent,
        message ?? null, emergency_type ?? null,
        tourist_name ?? null, tourist_phone ?? null,
        finalSource, relayed_by ?? null]
     );
-    setRateLimit(rateLimitKey);
-  } catch {
-    setRateLimit(rateLimitKey);
+    eventId = inserted.rows[0]?.id ?? null;
+    if (eventId) setRateLimit(rateLimitKey);
+  } catch (err) {
+    // «Не смог записать» — третий исход, не «отказ». Rate-limit НЕ ставим:
+    // раз сигнал не лёг в базу, ничто не должно мешать человеку повторить
+    // попытку немедленно. Молчание здесь опаснее лишнего повтора (§4.0).
+    console.error('[safety/sos] запись сигнала не удалась:', err instanceof Error ? err.message : err);
   }
 
-  // Telegram-уведомление (fire-and-forget) — приоритет: ADMIN, фоллбэк на основной бот-чатид админа.
-  // Если админ-токен не задан, шлём через основной бот.
+  // Telegram-уведомление — приоритет: ADMIN, фоллбэк на основной бот-чатид
+  // админа. Отправляем НЕЗАВИСИМО от того, легла ли запись: если БД
+  // отказала, это единственный оставшийся канал, и молчать тут нельзя.
+  // Раньше вызов был fire-and-forget с проглоченной ошибкой — ответ
+  // человеку не знал, ушло ли уведомление вообще.
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+  let notified = false;
   if (botToken && chatId) {
     const loc = finalLat && finalLng
       ? `${finalLat.toFixed(5)}, ${finalLng.toFixed(5)}`
@@ -126,6 +145,7 @@ export async function POST(request: NextRequest) {
     const text = [
       '<b>🆘 SOS! ЭКСТРЕННЫЙ СИГНАЛ</b>',
       finalSource === 'mesh_relay' ? `<i>(ретрансляция через меш, узел: ${relayed_by ?? '?'})</i>` : '',
+      eventId ? '' : '<b>ВНИМАНИЕ: запись в БД не удалась — сигнал НЕ виден Watchdog</b>',
       '',
       tourist_name  ? `👤 Имя: ${tourist_name}`   : '👤 Имя: не указано',
       tourist_phone ? `📞 Тел: ${tourist_phone}`   : '📞 Тел: не указан',
@@ -137,20 +157,43 @@ export async function POST(request: NextRequest) {
       `🌐 IP: ${ip}`,
     ].filter(Boolean).join('\n');
 
-    fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: false,
-      }),
-    }).catch(() => { /* fire-and-forget */ });
+    try {
+      const tgRes = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: false,
+        }),
+      });
+      notified = tgRes.ok;
+      if (!tgRes.ok) console.error('[safety/sos] Telegram отказал:', tgRes.status);
+    } catch (err) {
+      console.error('[safety/sos] Telegram недоступен:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Честный ответ: «получен» — только если сигнал реально лёг в базу.
+  // Доставка в Telegram — отдельный, вторичный факт (Watchdog видит SOS и
+  // без неё), но человек имеет право знать оба.
+  if (!eventId) {
+    return NextResponse.json({
+      success: false,
+      notified,
+      message: 'Не удалось подтвердить приём SOS-сигнала. Звоните 112 (МЧС) напрямую — не полагайтесь на это уведомление.',
+      emergency: {
+        mchs: '112',
+        ambulance: '103',
+      },
+    }, { status: 502 });
   }
 
   return NextResponse.json({
     success: true,
+    event_id: eventId,
+    notified,
     message: 'SOS-сигнал получен. Звоните 112 (МЧС) для немедленной помощи.',
     emergency: {
       mchs: '112',
