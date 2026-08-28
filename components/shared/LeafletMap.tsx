@@ -200,7 +200,11 @@ export default function LeafletMap({
         zoomControl: false,
         attributionControl: attribution !== false,
         minZoom: 5,
-        maxZoom: 12,
+        // Совпадает с maxZoom тайлового слоя ниже (17) — владелец 28.08,
+        // закрытие M0. Было 12: карта искусственно запрещала приближение,
+        // хотя источник тайлов отдаёт вплоть до 17-го зума — полевая карта
+        // не могла показать то, что уже умел показать её собственный слой.
+        maxZoom: 17,
         maxBounds: L.latLngBounds(
           L.latLng(48.0, 153.0),
           L.latLng(64.0, 178.0)
