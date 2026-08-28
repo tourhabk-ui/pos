@@ -110,6 +110,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/warnings': ['GET'],      // предупреждения: официальные телефоны, не ПД
   '/api/safety/geofence-zones': ['GET'],// геозоны безопасности
   '/api/safety/return': ['GET', 'POST'],// отметка о возвращении — проверка внутри хендлера
+  '/api/safety/checkin': ['POST'],      // «я в порядке» — анонимно, как safety/reports (issue #1420)
   '/api/analytics/dwell': ['POST'],     // маяк времени на странице (Zod + rate-limit)
   '/api/analytics/affiliate-clicks': ['POST'], // маяк партнёрских кликов (Zod + rate-limit)
   '/api/pwa/install': ['POST'],         // учёт установок PWA (client_id, не ПД, rate-limit)

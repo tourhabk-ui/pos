@@ -184,6 +184,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
   },
   {
+    key: 'tour-review-request', label: 'Tour Review Request',
+    description: 'Просьба оставить отзыв по завершённым (completed) броням.',
+    workflow: 'cron-tour-review-request.yml', cron: '0 8 * * *', schedule: 'ежедневно · 08:00 UTC',
+    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+  },
+  {
     key: 'trip-reminders', label: 'Trip Reminders',
     description: 'Напоминание туристам за 2 дня.',
     workflow: 'cron-trip-reminders.yml', cron: '0 5 * * *', schedule: 'ежедневно · 05:00 UTC',
@@ -450,6 +456,7 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'support-escalate': 'unknown',
   'route-escalation': 'unknown',
   'tour-reminder': 'unknown',
+  'tour-review-request': 'unknown',
   'trip-reminders': 'unknown',
   'booking-stall': 'unknown',
   'ssr-sentinel': 'unknown',
