@@ -6,6 +6,8 @@
  * worker'а и кокпита.
  */
 export { executeGovernedAction, hashInput } from './governed-action';
+export { beginEffect, commitEffect, failEffect, findStuckEffects } from './effects';
+export type { AgentEffect, EffectStatus, BeginEffectResult } from './effects';
 export { decidePolicy, CAPABILITY_REGISTRY, FORBIDDEN_CAPABILITIES } from './policy';
 export {
   createTask,

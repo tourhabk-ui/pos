@@ -42,7 +42,7 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
 
     // Миграции ядра — из тех же файлов, что накатывает прод; повторный
     // прогон обязан быть no-op (идемпотентность проверяется здесь же).
-    for (const f of ['917_agent_kernel.sql', '918_kernel_autonomy.sql', '918_kernel_autonomy.sql', '920_agent_tasks_active_resource_index.sql']) {
+    for (const f of ['917_agent_kernel.sql', '918_kernel_autonomy.sql', '918_kernel_autonomy.sql', '920_agent_tasks_active_resource_index.sql', '922_agent_effects.sql']) {
       await pool.query(readFileSync(join(process.cwd(), 'migrations', f), 'utf-8'));
     }
     // Минимальная operator_tours — для policy-проверки ownership.
@@ -70,7 +70,7 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
   beforeEach(async () => {
     // TRUNCATE не вызывает row-триггеры — обслуживание возможно, построчная
     // правка истории по-прежнему запрещена (проверяется тестом ниже).
-    await pool.query('TRUNCATE agent_events, agent_tasks CASCADE');
+    await pool.query('TRUNCATE agent_effects, agent_events, agent_tasks CASCADE');
     await pool.query('TRUNCATE operator_tours RESTART IDENTITY');
   });
 
@@ -386,5 +386,75 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
     } finally {
       clientA.release();
     }
+  });
+
+  it('beginEffect: два почти одновременных вызова с тем же ключом — ровно один started, второй видит pending', async () => {
+    const effects = await import('@/lib/agents/kernel/effects');
+    const created = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
+    if (!created.created) throw new Error('задача не создана');
+
+    const [a, b] = await Promise.all([
+      effects.beginEffect(created.task.id, 'effect-race', { n: 1 }),
+      effects.beginEffect(created.task.id, 'effect-race', { n: 2 }),
+    ]);
+    const outcomes = [a.outcome, b.outcome].sort();
+    expect(outcomes).toEqual(['pending_unknown', 'started']);
+
+    const { rows } = await pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM agent_effects WHERE task_id = $1 AND effect_key = 'effect-race'`,
+      [created.task.id],
+    );
+    expect(rows[0].cnt).toBe('1');
+  });
+
+  it('beginEffect после commitEffect отдаёт already_committed, а не вторую попытку', async () => {
+    const effects = await import('@/lib/agents/kernel/effects');
+    const created = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
+    if (!created.created) throw new Error('задача не создана');
+
+    const started = await effects.beginEffect(created.task.id, 'effect-once', {});
+    if (started.outcome !== 'started') throw new Error('ожидался started');
+    const committed = await effects.commitEffect(started.effect.id, 'https://example.com/pr/1');
+    expect(committed.ok).toBe(true);
+
+    const again = await effects.beginEffect(created.task.id, 'effect-once', {});
+    expect(again.outcome).toBe('already_committed');
+    if (again.outcome === 'already_committed') {
+      expect(again.effect.external_ref).toBe('https://example.com/pr/1');
+    }
+  });
+
+  it('commitEffect/failEffect: guard WHERE status=pending — повторный переход не проходит', async () => {
+    const effects = await import('@/lib/agents/kernel/effects');
+    const created = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
+    if (!created.created) throw new Error('задача не создана');
+
+    const started = await effects.beginEffect(created.task.id, 'effect-guard', {});
+    if (started.outcome !== 'started') throw new Error('ожидался started');
+    const first = await effects.commitEffect(started.effect.id, 'ref');
+    expect(first.ok).toBe(true);
+    const second = await effects.commitEffect(started.effect.id, 'ref-2');
+    expect(second.ok).toBe(false);
+    const asFailed = await effects.failEffect(started.effect.id, 'поздний провал');
+    expect(asFailed.ok).toBe(false);
+  });
+
+  it('findStuckEffects: pending дольше окна — виден; committed — не виден', async () => {
+    const effects = await import('@/lib/agents/kernel/effects');
+    const created = await kernel.createTask({ principal: 'cron:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued' });
+    if (!created.created) throw new Error('задача не создана');
+
+    const stuck = await effects.beginEffect(created.task.id, 'effect-stuck', {});
+    if (stuck.outcome !== 'started') throw new Error('ожидался started');
+    await pool.query(`UPDATE agent_effects SET created_at = NOW() - interval '30 minutes' WHERE id = $1`, [stuck.effect.id]);
+
+    const fresh = await effects.beginEffect(created.task.id, 'effect-fresh', {});
+    if (fresh.outcome !== 'started') throw new Error('ожидался started');
+    await effects.commitEffect(fresh.effect.id, 'ref');
+
+    const found = await effects.findStuckEffects(15);
+    const ids = found.map((e) => e.id);
+    expect(ids).toContain(stuck.effect.id);
+    expect(ids).not.toContain(fresh.effect.id);
   });
 });

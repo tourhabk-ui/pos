@@ -44,10 +44,37 @@ function ghHeaders(): Record<string, string> {
   };
 }
 
+function ghOwner(): string {
+  return process.env.GITHUB_OWNER ?? 'tourhabk-ui';
+}
+
 function ghBase(): string {
-  const owner = process.env.GITHUB_OWNER ?? 'tourhabk-ui';
-  const repo  = process.env.GITHUB_REPO  ?? 'pos';
-  return `https://api.github.com/repos/${owner}/${repo}`;
+  const repo = process.env.GITHUB_REPO ?? 'pos';
+  return `https://api.github.com/repos/${ghOwner()}/${repo}`;
+}
+
+/**
+ * Эффект «создать PR» разрешим на GitHub-специфичном факте: ветка
+ * агента детерминирована по approval_id (agent/code-<id8>,
+ * agent/new-page-<id8>), а GitHub допускает выборку открытых PR по имени
+ * ветки. Крах между успешным созданием PR и записью этого факта в
+ * agent_effects (P3, 922) больше не значит «начинай с чистого листа»:
+ * повтор находит уже открытый PR и использует его вместо второй попытки
+ * (которая всё равно упала бы на создании уже существующей ветки).
+ *
+ * Fail-open: ошибка самого запроса — сеть, транзиентный сбой GitHub — не
+ * должна блокировать создание PR совсем; лог есть, попытка идёт как раньше.
+ */
+async function findOpenPrByBranch(branchName: string): Promise<{ number: number; html_url: string } | null> {
+  try {
+    const prs = await ghGet<Array<{ number: number; html_url: string }>>(
+      `/pulls?head=${encodeURIComponent(`${ghOwner()}:${branchName}`)}&state=open`,
+    );
+    return prs[0] ?? null;
+  } catch (err) {
+    console.error('[code-change] проверка существующего PR по ветке не выполнена:', err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 async function ghGet<T>(path: string): Promise<T> {
@@ -243,32 +270,38 @@ export async function executeCodeChange(task: ExecutionTask): Promise<ExecutionR
 
     changes.push(`Новый контент сгенерирован (${Math.round(newContent.length / 1024)}KB)`);
 
-    // ── Step 4: Create branch ──────────────────────────────────────────────────
+    // ── Step 4: Create branch (или найти уже открытый PR по ней) ────────────────
     const branchName = `agent/code-${task.approval_id.substring(0, 8)}`;
+    const existingPr = await findOpenPrByBranch(branchName);
 
-    const mainRef = await ghGet<{ object: { sha: string } }>('/git/refs/heads/main');
-    await ghPost('/git/refs', {
-      ref: `refs/heads/${branchName}`,
-      sha: mainRef.object.sha,
-    });
+    let pr: { number: number; html_url: string };
+    if (existingPr) {
+      pr = existingPr;
+      changes.push(`Ветка ${branchName} уже вела открытый PR — использован #${pr.number} вместо повторного создания`);
+    } else {
+      const mainRef = await ghGet<{ object: { sha: string } }>('/git/refs/heads/main');
+      await ghPost('/git/refs', {
+        ref: `refs/heads/${branchName}`,
+        sha: mainRef.object.sha,
+      });
 
-    changes.push(`Ветка: ${branchName}`);
+      changes.push(`Ветка: ${branchName}`);
 
-    // ── Step 5: Commit updated file to branch ──────────────────────────────────
-    const newContentB64 = Buffer.from(newContent).toString('base64');
-    const commitMsg = `feat(agent): ${fullDescription.substring(0, 60)}`;
+      // ── Step 5: Commit updated file to branch ──────────────────────────────────
+      const newContentB64 = Buffer.from(newContent).toString('base64');
+      const commitMsg = `feat(agent): ${fullDescription.substring(0, 60)}`;
 
-    await ghPut(`/contents/${filePath}`, {
-      message: commitMsg,
-      content: newContentB64,
-      sha:     fileData.sha,
-      branch:  branchName,
-    });
+      await ghPut(`/contents/${filePath}`, {
+        message: commitMsg,
+        content: newContentB64,
+        sha:     fileData.sha,
+        branch:  branchName,
+      });
 
-    changes.push(`Коммит: "${commitMsg}"`);
+      changes.push(`Коммит: "${commitMsg}"`);
 
-    // ── Step 6: Create Pull Request ────────────────────────────────────────────
-    const pr = await ghPost<{ number: number; html_url: string }>('/pulls', {
+      // ── Step 6: Create Pull Request ────────────────────────────────────────────
+      pr = await ghPost<{ number: number; html_url: string }>('/pulls', {
       title: `[AI vibe_coder] ${fullDescription.substring(0, 72)}`,
       body:  [
         '## AI-инициатива от совета директоров',
@@ -292,9 +325,10 @@ export async function executeCodeChange(task: ExecutionTask): Promise<ExecutionR
       ].join('\n'),
       head: branchName,
       base: 'main',
-    });
+      });
 
-    changes.push(`PR #${pr.number} создан → ${pr.html_url}`);
+      changes.push(`PR #${pr.number} создан → ${pr.html_url}`);
+    }
 
     // Метка volcano-agent — по ней merge-gate ведёт readiness, карточку и
     // kernel-задачу code.merge. Отказ метки не роняет создание PR (§4.0:
@@ -466,58 +500,65 @@ export async function executeNewPageCreate(task: ExecutionTask): Promise<Executi
 
     changes.push(`Контент сгенерирован (${Math.round(newContent.length / 1024)}KB)`);
 
-    // ── Step 3: Create branch ─────────────────────────────────────────────
+    // ── Step 3: Create branch (или найти уже открытый PR по ней) ──────────
     const branchName = `agent/new-page-${task.approval_id.substring(0, 8)}`;
+    const existingPr = await findOpenPrByBranch(branchName);
 
-    const mainRef = await ghGet<{ object: { sha: string } }>('/git/refs/heads/main');
-    await ghPost('/git/refs', {
-      ref: `refs/heads/${branchName}`,
-      sha: mainRef.object.sha,
-    });
+    let pr: { number: number; html_url: string };
+    if (existingPr) {
+      pr = existingPr;
+      changes.push(`Ветка ${branchName} уже вела открытый PR — использован #${pr.number} вместо повторного создания`);
+    } else {
+      const mainRef = await ghGet<{ object: { sha: string } }>('/git/refs/heads/main');
+      await ghPost('/git/refs', {
+        ref: `refs/heads/${branchName}`,
+        sha: mainRef.object.sha,
+      });
 
-    changes.push(`Ветка: ${branchName}`);
+      changes.push(`Ветка: ${branchName}`);
 
-    // ── Step 4: Create new file on branch (no sha field) ─────────────────
-    const newContentB64 = Buffer.from(newContent).toString('base64');
-    const commitMsg = `feat(new-page): ${fullDescription.substring(0, 60)}`;
+      // ── Step 4: Create new file on branch (no sha field) ─────────────────
+      const newContentB64 = Buffer.from(newContent).toString('base64');
+      const commitMsg = `feat(new-page): ${fullDescription.substring(0, 60)}`;
 
-    await ghPut(`/contents/${filePath}`, {
-      message: commitMsg,
-      content: newContentB64,
-      branch:  branchName,
-      // No sha field — this is a CREATE, not an UPDATE
-    });
+      await ghPut(`/contents/${filePath}`, {
+        message: commitMsg,
+        content: newContentB64,
+        branch:  branchName,
+        // No sha field — this is a CREATE, not an UPDATE
+      });
 
-    changes.push(`Коммит: "${commitMsg}"`);
+      changes.push(`Коммит: "${commitMsg}"`);
 
-    // ── Step 5: Create Pull Request ───────────────────────────────────────
-    const pr = await ghPost<{ number: number; html_url: string }>('/pulls', {
-      title: `[AI new-page] ${fullDescription.substring(0, 72)}`,
-      body:  [
-        '## AI-инициатива — новая страница',
-        '',
-        `**Агент:** AI Разработчик (vibe_coder)`,
-        `**Approval ID:** \`${task.approval_id}\``,
-        `**Новый файл:** \`${filePath}\``,
-        '',
-        '## Описание',
-        fullDescription,
-        '',
-        '## Риск',
-        'low: новый файл, существующее поведение не меняется до merge человека.',
-        '',
-        '## Откат',
-        'git revert squash-коммита этого PR; миграций нет.',
-        '',
-        '---',
-        '*Создано автоматически. Проверь компонент и нажми Merge если всё корректно.*',
-        '*После мержа → автодеплой на Timeweb.*',
-      ].join('\n'),
-      head: branchName,
-      base: 'main',
-    });
+      // ── Step 5: Create Pull Request ───────────────────────────────────────
+      pr = await ghPost<{ number: number; html_url: string }>('/pulls', {
+        title: `[AI new-page] ${fullDescription.substring(0, 72)}`,
+        body:  [
+          '## AI-инициатива — новая страница',
+          '',
+          `**Агент:** AI Разработчик (vibe_coder)`,
+          `**Approval ID:** \`${task.approval_id}\``,
+          `**Новый файл:** \`${filePath}\``,
+          '',
+          '## Описание',
+          fullDescription,
+          '',
+          '## Риск',
+          'low: новый файл, существующее поведение не меняется до merge человека.',
+          '',
+          '## Откат',
+          'git revert squash-коммита этого PR; миграций нет.',
+          '',
+          '---',
+          '*Создано автоматически. Проверь компонент и нажми Merge если всё корректно.*',
+          '*После мержа → автодеплой на Timeweb.*',
+        ].join('\n'),
+        head: branchName,
+        base: 'main',
+      });
 
-    changes.push(`PR #${pr.number} создан → ${pr.html_url}`);
+      changes.push(`PR #${pr.number} создан → ${pr.html_url}`);
+    }
 
     await ghPost(`/issues/${pr.number}/labels`, { labels: ['volcano-agent'] })
       .catch((err) => console.error('[code-change] метка volcano-agent не поставлена:', err instanceof Error ? err.message : err));
