@@ -237,6 +237,17 @@ export function formatSeasonMonths(months: number[]): string {
 }
 
 /**
+ * Виды, у которых сейчас (по месяцу 1-12) идёт ход — «event-driven travel»,
+ * пилот на реальных данных (issue #1421). Источник дат — seasonMonths самого
+ * справочника, тот же, что кормит /fish и карточку тура; второго календаря
+ * не заводим. Пустой месяц — законный результат, не ошибка: не у каждого
+ * месяца есть активный ход (январь-март — межсезонье).
+ */
+export function getActiveSpecies(month: number): FishSpecies[] {
+  return FISH_SPECIES.filter(sp => sp.seasonMonths.includes(month));
+}
+
+/**
  * Какие виды рыб упомянуты в тексте (заголовок + описание + программа тура).
  *
  * Та же связка «тур → рыба», что у ссылок в описании
