@@ -115,6 +115,10 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/pwa/install': ['POST'],         // учёт установок PWA (client_id, не ПД, rate-limit)
   '/api/payments/tochka/qr': ['GET', 'POST'],  // QR СБП из чата Кузьмича — гостевая оплата by design
   '/api/hub/bookings/create': ['POST'], // гостевая бронь by design (auth опционален, rate-limit)
+  // Построение пути Origin → Destination (владелец 28.08, PR 5B-1) — тот же
+  // класс, что /api/routes/search выше: планирует поездку кто угодно, без
+  // входа. '/api/routes': ['GET'] сюда не дотягивается — метод другой.
+  '/api/routes/build': ['POST'],
 };
 
 /**

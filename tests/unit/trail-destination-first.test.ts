@@ -216,7 +216,11 @@ describe('машина состояний построения пути (PR 5A �
 
   it('карточка использует контракт lib/on-route/route-build.ts, не свою логику', () => {
     expect(TRAIL).toContain("from '@/lib/on-route/route-build'");
-    expect(TRAIL).toContain('notWiredBuilder');
+    // PR 5B-1: экран ходит на сервер (httpRouteBuilder), не держит
+    // локальную заглушку внутри себя — notWiredBuilder этому файлу больше
+    // не нужен, он остался в самом lib/on-route/route-build.ts для тестов.
+    expect(TRAIL).toContain('httpRouteBuilder');
+    expect(TRAIL).not.toContain('notWiredBuilder');
   });
 
   it('failed с retryable даёт кнопку «Повторить», остальные статусы — нет', () => {
