@@ -13,7 +13,13 @@
  *  - лента: последние задачи и события ядра;
  *  - «Зависшие эффекты» (P3, 922): agent_effects в pending дольше 15 минут —
  *    окно между внешним commit (PR, сообщение) и его записью, которое 917
- *    назвала вслух, но не показывала нигде; теперь видно здесь.
+ *    назвала вслух, но не показывала нигде; теперь видно здесь;
+ *  - «Состав эволюции» (29.08, консолидация агентов): владелец спросил
+ *    «кто включён» — evo_stages читает stage-события ('note', details.stage)
+ *    ПОСЛЕДНЕЙ задачи evo.run и отдаёт ok:true/false по каждой. Список стадий
+ *    сам по себе — статика на клиенте (orchestrator.ts меняется реже, чем
+ *    сюда стоит ходить в БД за списком); живой ok — только из настоящего
+ *    прогона, не выдуман.
  *
  * ?task_id=<uuid> — карточка одной задачи: строка + ПОЛНАЯ цепочка её событий
  * по seq (кто, что, какие стадии, сколько шло) + задачи того же trace.
@@ -149,6 +155,24 @@ export async function GET(request: NextRequest) {
       (states.queued ?? 0) + (states.running ?? 0) + (states.awaiting_merge ?? 0) +
       (states.proposed ?? 0) + (states.awaiting_approval ?? 0);
 
+    // Статус каждой стадии ПОСЛЕДНЕГО прогона evo.run — по note-событиям
+    // {stage, ok}, которые пишет finishEvoRunTask (evo-run-task.ts). Задачи
+    // может не быть вовсе (см. last_evo_run: null выше) — тогда пустой массив,
+    // а не выдуманные статусы.
+    let evoStages: Array<{ key: string; ok: boolean }> = [];
+    const lastEvoTask = lastEvo.rows[0];
+    if (lastEvoTask) {
+      const { rows: stageEvents } = await pool.query<{ details: Record<string, unknown> }>(
+        `SELECT details FROM agent_events
+         WHERE task_id = $1 AND event_type = 'note' AND details ? 'stage'
+         ORDER BY seq ASC`,
+        [lastEvoTask.id],
+      );
+      evoStages = stageEvents
+        .filter((r) => typeof r.details.stage === 'string' && typeof r.details.ok === 'boolean')
+        .map((r) => ({ key: r.details.stage as string, ok: r.details.ok as boolean }));
+    }
+
     return NextResponse.json({
       summary: {
         states,
@@ -158,13 +182,14 @@ export async function GET(request: NextRequest) {
         awaiting_merge: awaiting.rows.length,
         // null — прогонов Evo через ядро ещё не было; панель обязана
         // показать это как «не было», а не как пустую рамку (§4.0).
-        last_evo_run: lastEvo.rows[0] ?? null,
+        last_evo_run: lastEvoTask ?? null,
         stuck_effects: stuckEffects.length,
       },
       awaiting_merge: awaiting.rows,
       tasks: tasks.rows,
       events: events.rows,
       stuck_effects: stuckEffects,
+      evo_stages: evoStages,
       generated_at: new Date().toISOString(),
     });
   } catch (err) {

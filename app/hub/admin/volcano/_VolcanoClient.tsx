@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, GitPullRequest, Activity, ShieldX, Zap, Clock,
   CheckCircle2, XCircle, AlertTriangle, CircleDashed, ChevronDown, ChevronUp,
-  ExternalLink, HelpCircle, type LucideIcon,
+  ExternalLink, HelpCircle, Search, Wrench, LifeBuoy, LineChart, Radar, Cpu,
+  Newspaper, Lightbulb, MessageCircle, BrainCircuit, type LucideIcon,
 } from 'lucide-react';
 
 // Кокпит Volcano OS (P3) — ТОЛЬКО ПРОСМОТР. Ни одной кнопки действия здесь
@@ -53,6 +54,11 @@ interface AgentEffectRow {
   committed_at: string | null;
 }
 
+interface EvoStageStatus {
+  key: string;
+  ok: boolean;
+}
+
 interface Overview {
   summary: {
     states: Record<string, number>;
@@ -67,8 +73,26 @@ interface Overview {
   tasks: TaskRow[];
   events: EventRow[];
   stuck_effects: AgentEffectRow[];
+  evo_stages: EvoStageStatus[];
   generated_at: string;
 }
+
+// ── Состав эволюции: кто подключён к evo.run (29.08, консолидация) ─────────
+// Список стадий — структурный факт кода (lib/agents/orchestrator.ts), не из
+// БД: меняется вместе с кодом, не с каждым прогоном. Живой ok/статус —
+// ИЗ данных (evo_stages в ответе API), не выдуман.
+const EVO_STAGES: ReadonlyArray<{ key: string; label: string; description: string; icon: LucideIcon }> = [
+  { key: 'scan', label: 'Growth Scan', description: 'Ищет находки в коде и данных платформы', icon: Search },
+  { key: 'evolution', label: 'Evolution Loop', description: 'Применяет детерминированные фиксы, пишет в БД', icon: Wrench },
+  { key: 'rescue', label: 'Rescue', description: 'Погодные угрозы турам и отток операторов', icon: LifeBuoy },
+  { key: 'evolver', label: 'Evolver Analysis', description: 'Анализ логов и паттернов отказов', icon: LineChart },
+  { key: 'intel', label: 'Intel Bridge', description: 'Дайджест разведки → находки категории intel', icon: Radar },
+  { key: 'models', label: 'Model Watcher', description: 'Следит за моделями сильнее текущей', icon: Cpu },
+  { key: 'scoutDigest', label: 'Scout Digest', description: 'RSS → AI-синтез → дайджест в Telegram', icon: Newspaper },
+  { key: 'scoutInnovator', label: 'Scout Innovator', description: 'Тренды → предложения → GitHub Issues', icon: Lightbulb },
+  { key: 'industryIntel', label: 'Industry Intel', description: 'Отраслевые TG-каналы → market intelligence', icon: MessageCircle },
+  { key: 'memoryReflector', label: 'Memory Reflector', description: 'Эпизодические сигналы → устойчивые инсайты', icon: BrainCircuit },
+];
 
 interface TaskDetail {
   task: TaskRow;
@@ -241,6 +265,49 @@ export default function VolcanoClient() {
                 Прогонов Evo через ядро ещё не было — это «не было», а не сбой панели.
               </p>
             )}
+          </section>
+
+          {/* ── Состав эволюции (29.08) ── */}
+          <section className="fx-dark-panel rounded-2xl p-5">
+            <div className="flex items-baseline justify-between flex-wrap gap-x-4 gap-y-1 mb-1">
+              <h2 className="ds-h2 fx-dark-panel">Состав эволюции</h2>
+              <span className="text-xs fx-dark-muted">
+                {data.summary.last_evo_run
+                  ? `по последнему прогону · ${fmtTime(data.summary.last_evo_run.created_at)}`
+                  : 'прогонов ещё не было'}
+              </span>
+            </div>
+            <p className="text-sm mb-4 fx-dark-muted">
+              10 агентов на одном пульсе — расписание владельца на cron-job.org (4×/сутки),
+              не свои отдельные кроны.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {EVO_STAGES.map((stage) => {
+                const status = data.evo_stages.find((s) => s.key === stage.key);
+                const Icon = stage.icon;
+                return (
+                  <div key={stage.key} className="fx-glass rounded-2xl p-3.5 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <Icon className="w-4 h-4 fx-dark-ocean" />
+                      {status === undefined ? (
+                        <CircleDashed className="w-3.5 h-3.5 fx-dark-dim" />
+                      ) : status.ok ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[var(--success)]" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5 fx-dark-danger" />
+                      )}
+                    </div>
+                    <div className="text-sm font-medium fx-dark-panel">{stage.label}</div>
+                    <div className="text-xs leading-snug fx-dark-muted">{stage.description}</div>
+                    <div className="text-[11px] mt-auto pt-1 fx-dark-dim">
+                      {status === undefined
+                        ? 'нет данных с последнего прогона'
+                        : status.ok ? 'стадия прошла' : 'стадия упала'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </section>
 
           {/* ── Ждут моего решения ── */}
