@@ -22,6 +22,11 @@ name: Логи сборки Timeweb по deploy_id (вручную)
 # последних деплоев (GET .../deploys) и читает логи двух самых свежих —
 # ввода не требуется вовсе, нечему и путаться.
 #
+# 29.08, третья правка: run 3/4 упали с IndentationError — второй `python3
+# -c "..."` внутри bash-цикла унаследовал отступы блока `while`, и первая
+# строка Python-кода оказалась с ведущим пробелом. Вынесен в отдельный файл
+# скрипта (пишется один раз, до цикла, без отступов) вместо инлайна.
+#
 # Только workflow_dispatch: инструмент разбора, не наблюдение.
 
 on:
@@ -45,6 +50,41 @@ jobs:
             exit 1
           fi
 
+          cat > /tmp/print_deploy_logs.py <<'PY'
+          import json
+          import sys
+
+          with open('/tmp/deploy_logs.json') as f:
+              data = json.load(f) or {}
+
+          logs = data.get('deploy_logs', data.get('logs', []))
+          if not logs:
+              print('Логов нет. Верхнеуровневые ключи:', sorted(data.keys()))
+          else:
+              for entry in logs:
+                  ts = entry.get('created_at', '')[:19]
+                  msg = entry.get('log', entry.get('message', ''))
+                  print(f'[{ts}] {msg}')
+          PY
+
+          cat > /tmp/print_deploy_ids.py <<'PY'
+          import json
+          import sys
+
+          with open('/tmp/deploys.json') as f:
+              data = json.load(f) or {}
+
+          deploys = data.get('deploys', data.get('app_deploys', []))
+          for d in deploys[:2]:
+              did = d.get('id', '')
+              status = d.get('status', '?')
+              commit = (d.get('commit_sha') or d.get('commit', {}).get('sha') or '')[:8]
+              created = d.get('created_at', '?')[:19]
+              print(f'{did}|{status}|{commit}|{created}', file=sys.stderr)
+              if did:
+                  print(did)
+          PY
+
           HTTP=$(curl -sS -o /tmp/deploys.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $TIMEWEB_TOKEN" \
             "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploys?limit=3&offset=0") || HTTP="000"
@@ -56,19 +96,7 @@ jobs:
             exit 1
           fi
 
-          IDS=$(python3 -c "
-          import json
-          data = json.load(open('/tmp/deploys.json')) or {}
-          deploys = data.get('deploys', data.get('app_deploys', []))
-          for d in deploys[:2]:
-              did = d.get('id', '')
-              status = d.get('status', '?')
-              commit = (d.get('commit_sha') or d.get('commit', {}).get('sha') or '')[:8]
-              created = d.get('created_at', '?')[:19]
-              print(f'{did}|{status}|{commit}|{created}', file=__import__('sys').stderr)
-              if did:
-                  print(did)
-          " 2>&1 1>/tmp/ids.txt)
+          IDS=$(python3 /tmp/print_deploy_ids.py 2>&1 1>/tmp/ids.txt)
           echo "$IDS"
           echo "---"
 
@@ -89,17 +117,6 @@ jobs:
               echo "::warning::Лог сборки $DID недоступен ($HTTP2)."
               continue
             fi
-            python3 -c "
-            import json
-            data = json.load(open('/tmp/deploy_logs.json')) or {}
-            logs = data.get('deploy_logs', data.get('logs', []))
-            if not logs:
-                print('Логов нет. Верхнеуровневые ключи:', sorted(data.keys()))
-            else:
-                for entry in logs:
-                    ts = entry.get('created_at', '')[:19]
-                    msg = entry.get('log', entry.get('message', ''))
-                    print(f'[{ts}] {msg}')
-            "
+            python3 /tmp/print_deploy_logs.py
             echo ""
           done < /tmp/ids.txt
