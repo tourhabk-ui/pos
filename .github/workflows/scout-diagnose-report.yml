@@ -99,7 +99,7 @@ jobs:
                         'Разбирать по самой частой из таблицы ниже.')
           print()
 
-          print('## Сколько раз какая причина')
+          print('## Сколько раз какая причина (основной дайджест)')
           print()
           print('| Причина | Раз |')
           print('|---|---|')
@@ -107,15 +107,39 @@ jobs:
               print(f'| {k} | {v} |')
           print()
 
+          # Второй канал считается ОТДЕЛЬНО: «дайджест ушёл» и «пост в канал
+          # ушёл» — разные события, и слитый счёт прячет ровно тот вопрос,
+          # ради которого разбор открывают.
+          ai_by = d.get('ai_channel_by_reason') or {}
+          print('## Канал @ai_hub_money — отдельно')
+          print()
+          print(f"- последний пост в канал: `{d.get('ai_channel_last_sent_at') or 'не найден в прочитанном окне'}`")
+          print()
+          print('| Исход | Раз |')
+          print('|---|---|')
+          for k, v in sorted(ai_by.items(), key=lambda kv: -kv[1]):
+              print(f'| {k} | {v} |')
+          print()
+          if ai_by.get('(исход канала не записан)', 0) == len(runs) and runs:
+              print('> Исход канала не записан НИ РАЗУ в прочитанном окне: прогоны старше '
+                    'правки от 29.08. Судить о канале по ним нельзя — нужен свежий прогон.')
+          elif ai_by.get('ai_channel_not_configured'):
+              print('> **`TELEGRAM_AI_CHANNEL_ID` не задан на проде.** Даже при успешном '
+                    'дайджесте публиковать в канал некуда — это отдельная от ворот беда, '
+                    'и чинится она переменной окружения, а не кодом.')
+          print()
+
           print('## Прогоны')
           print()
-          print('| Когда | Статус | Сигналов | LLM | Причина | Деталь |')
-          print('|---|---|---|---|---|---|')
+          print('| Когда | Статус | Сигналов | LLM | Причина | Канал | Деталь |')
+          print('|---|---|---|---|---|---|---|')
           for r in runs[:40]:
               detail = (r.get('skip_detail') or '')[:120].replace('|', '\\|').replace('\n', ' ')
               label = r.get('skip_label') or r.get('skip_reason') or ''
+              sent = r.get('ai_channel_sent')
+              ch = 'ушёл' if sent is True else (r.get('ai_channel_skip_label') or r.get('ai_channel_skip_reason') or '(не записано)')
               print(f"| {r.get('at','')} | {r.get('status','')} | {r.get('signals') if r.get('signals') is not None else ''} "
-                    f"| {r.get('llm_calls') if r.get('llm_calls') is not None else ''} | {label} | {detail} |")
+                    f"| {r.get('llm_calls') if r.get('llm_calls') is not None else ''} | {label} | {ch} | {detail} |")
           print()
           print('---')
           print()
