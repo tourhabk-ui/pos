@@ -389,3 +389,39 @@ export function tochkaMissingEnv(): string[] {
   return ['TOCHKA_JWT_TOKEN', 'TOCHKA_MERCHANT_ID', 'TOCHKA_ACCOUNT_ID']
     .filter((k) => !process.env[k]);
 }
+
+/**
+ * Разбор готовности — БЕЗ единого запроса в банк.
+ *
+ * Заведена 30.08.2026 для диагностики после того, как владелец добавил
+ * переменные в Timeweb: нужен был ответ на «дошло ли» без риска для
+ * платежей — а `createSBPQR()` даже в песочнице выпускает настоящий QR на
+ * стороне банка, и делать это только ради проверки не нужно.
+ *
+ * Три исхода, а не два (§4.0):
+ *   missing_env  — переменных нет вовсе (что именно — поимённо);
+ *   bad_shape    — переменные заданы, но не той формы (те же правила,
+ *                  что применяет `createSBPQR()` перед запросом — SAFE_MERCHANT
+ *                  и SAFE_ACCOUNT);
+ *   ready        — форма верна. Это НЕ значит «банк примет запрос»: живую
+ *                  связь с API проверяет только настоящий вызов, а тут —
+ *                  только то, что можно узнать локально.
+ */
+export type TochkaReadiness =
+  | { ok: false; reason: 'missing_env'; missing: string[] }
+  | { ok: false; reason: 'bad_shape'; bad: string[] }
+  | { ok: true; sandbox: boolean };
+
+export function tochkaReadiness(): TochkaReadiness {
+  const missing = tochkaMissingEnv();
+  if (missing.length > 0) return { ok: false, reason: 'missing_env', missing };
+
+  const merchant = merchantId();
+  const account = accountId();
+  const bad: string[] = [];
+  if (!merchant || !SAFE_MERCHANT.test(merchant)) bad.push('TOCHKA_MERCHANT_ID');
+  if (!account || !SAFE_ACCOUNT.test(account)) bad.push('TOCHKA_ACCOUNT_ID');
+  if (bad.length > 0) return { ok: false, reason: 'bad_shape', bad };
+
+  return { ok: true, sandbox: baseUrl().includes('sandbox') };
+}
