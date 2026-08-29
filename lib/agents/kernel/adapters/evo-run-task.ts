@@ -50,8 +50,11 @@ export async function startEvoRunTask(scanType: string): Promise<EvoRunHandle | 
   }
 }
 
-const STAGES: ReadonlyArray<keyof Pick<OrchestratorResult, 'scan' | 'evolution' | 'rescue' | 'evolver' | 'intel' | 'models'>> =
-  ['scan', 'evolution', 'rescue', 'evolver', 'intel', 'models'];
+const STAGES: ReadonlyArray<keyof Pick<OrchestratorResult,
+  'scan' | 'evolution' | 'rescue' | 'evolver' | 'intel' | 'models' |
+  'scoutDigest' | 'scoutInnovator' | 'industryIntel' | 'memoryReflector'>> =
+  ['scan', 'evolution', 'rescue', 'evolver', 'intel', 'models',
+   'scoutDigest', 'scoutInnovator', 'industryIntel', 'memoryReflector'];
 
 export async function finishEvoRunTask(handle: EvoRunHandle, result: OrchestratorResult): Promise<void> {
   try {

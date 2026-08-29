@@ -7,6 +7,10 @@ const mockRunRescueScan = vi.fn();
 const mockRunEvolverAnalysis = vi.fn();
 const mockBridgeScoutIntel = vi.fn();
 const mockRunModelWatcher = vi.fn();
+const mockRunScoutDigest = vi.fn();
+const mockRunScoutInnovator = vi.fn();
+const mockScanIndustryChannels = vi.fn();
+const mockRunMemoryReflector = vi.fn();
 
 vi.mock('@/lib/agents/evo/growth-agent', () => ({
   runGrowthScan: (...args: unknown[]) => mockRunGrowthScan(...args),
@@ -25,6 +29,18 @@ vi.mock('@/lib/agents/evo/intel-bridge', () => ({
 }));
 vi.mock('@/lib/agents/evo/model-watcher', () => ({
   runModelWatcher: (...args: unknown[]) => mockRunModelWatcher(...args),
+}));
+vi.mock('@/lib/agents/scout-digest', () => ({
+  runScoutDigest: (...args: unknown[]) => mockRunScoutDigest(...args),
+}));
+vi.mock('@/lib/agents/scout-innovator', () => ({
+  runScoutInnovator: (...args: unknown[]) => mockRunScoutInnovator(...args),
+}));
+vi.mock('@/lib/telegram/industry-channels', () => ({
+  scanIndustryChannels: (...args: unknown[]) => mockScanIndustryChannels(...args),
+}));
+vi.mock('@/lib/agents/memory-reflector', () => ({
+  runMemoryReflector: (...args: unknown[]) => mockRunMemoryReflector(...args),
 }));
 vi.mock('@/lib/auth/middleware', () => ({
   requireAdmin: vi.fn().mockResolvedValue({ userId: 1, role: 'admin' }),
@@ -48,6 +64,10 @@ beforeEach(() => {
   mockRunEvolverAnalysis.mockResolvedValue({});
   mockBridgeScoutIntel.mockResolvedValue({});
   mockRunModelWatcher.mockResolvedValue({});
+  mockRunScoutDigest.mockResolvedValue({ signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty' });
+  mockRunScoutInnovator.mockResolvedValue({ proposals_count: 0, issues_created: [], intel_entries: 0, duration_ms: 1 });
+  mockScanIndustryChannels.mockResolvedValue({ signals_found: 0 });
+  mockRunMemoryReflector.mockResolvedValue({});
 });
 
 describe('runEvoOrchestrator: внутренние ошибки не становятся зелёными', () => {

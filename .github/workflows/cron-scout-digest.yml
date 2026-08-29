@@ -1,8 +1,11 @@
 name: Cron — Scout Digest
 
+# Расписание снято 29.08 (решение владельца): Scout Digest теперь стадия
+# runEvoOrchestrator (lib/agents/orchestrator.ts) — вызывается ИЗ evo.run,
+# 4×/сутки через внешний cron-job.org. Отдельный суточный крон здесь дал бы
+# второй, несинхронизированный вызов того же агента — двойная трата токенов
+# на тот же дайджест. workflow_dispatch остаётся для ручной отладки.
 on:
-  schedule:
-    - cron: '0 7 * * *'  # каждый день в 07:00 UTC
   workflow_dispatch:
 
 jobs:
