@@ -61,7 +61,10 @@ describe('основной дайджест защищён так же, как �
 
   it('оба гейта стоят на пути основного дайджеста', () => {
     expect(body).toMatch(/unsourcedPercents\(digest/);
-    expect(body).toMatch(/unsupportedClaims\(digest/);
+    // judgeClaims, а не unsupportedClaims (29.08): тонкая обёртка схлопывала
+    // шесть причин отказа судьи в один null, и повторная сверка теряла
+    // диагноз. Гейт тот же, изменилось имя вызова — проверяем по нему.
+    expect(body).toMatch(/judgeClaims\(digest/);
   });
 
   it('непройденный фактчек означает отказ от публикации, а не публикацию как есть', () => {
