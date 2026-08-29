@@ -25,6 +25,13 @@ export async function parseTourismObjects(searchQuery: string): Promise<unknown[
       const parsed = parseWikipediaPage(response.data, url);
       objects.push(...parsed);
     } catch (error) {
+      // §4.0: отказ источника не глушится. Пустой catch выдавал сетевую
+      // поломку за «объектов не нашлось», и разобраться, почему каталог
+      // пуст, было нечем.
+      console.error(
+        `[tourism-db] источник ${url} недоступен:`,
+        error instanceof Error ? error.message : error,
+      );
     }
   }
 
