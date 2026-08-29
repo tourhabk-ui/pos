@@ -17,15 +17,15 @@ on:
       label:
         description: 'Название точки (для заголовка в логе)'
         required: false
-        default: 'Октябрьский (Усть-Большерецкий район, коса у устья р. Большой)'
+        default: 'Мильково (трасса Р474, 300 км) — перепроверка после фикса *_link'
       to_lat:
         description: 'Широта цели'
         required: true
-        default: '52.663353'
+        default: '54.695'
       to_lng:
         description: 'Долгота цели'
         required: true
-        default: '156.241899'
+        default: '158.62'
       from_lat:
         description: 'Широта старта (по умолчанию — Петропавловск)'
         required: false
