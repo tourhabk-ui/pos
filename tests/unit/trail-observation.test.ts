@@ -118,7 +118,23 @@ describe('главная: ссылка вместо кнопки создани�
     const at = HOME.indexOf('Сообщить о наблюдении');
     expect(at).toBeGreaterThan(0);
     const around = HOME.slice(Math.max(0, at - 400), at);
-    expect(around).toContain('href="/planning?mode=trail"');
+    // obs=1 (владелец 29.08): без флага ссылка приземляла на общий экран
+    // «Куда хотите пойти?» вместо формы наблюдения, которую обещал заголовок.
+    expect(around).toContain('href="/planning?mode=trail&obs=1"');
+  });
+});
+
+describe('deep-link obs=1 открывает форму сразу, а не общий экран (владелец 29.08)', () => {
+  it('OnTrailTab читает obs=1 из URL и открывает ObservationSheet на монтировании', () => {
+    const stateAt = TRAIL.indexOf("const [obsOpen, setObsOpen] = useState(false)");
+    expect(stateAt).toBeGreaterThan(0);
+    const after = TRAIL.slice(stateAt, stateAt + 800);
+    expect(after).toMatch(/get\(['"]obs['"]\)\s*===\s*['"]1['"]/);
+    expect(after).toContain('setObsOpen(true)');
+  });
+
+  it('деплинк с главной несёт тот же флаг, что читает OnTrailTab', () => {
+    expect(HOME).toContain('mode=trail&obs=1');
   });
 });
 
