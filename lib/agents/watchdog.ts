@@ -27,6 +27,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
+import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame } from '@/lib/agents/cron-blame';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
 import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
@@ -655,6 +656,35 @@ async function checkIgnoredSOS(): Promise<WatchdogAlert | null> {
   }
 }
 
+/**
+ * Самый свежий прогон ЛЮБОГО крона — свидетель того, что CRON_SECRET и
+ * эндпоинт живы (секрет один на весь префикс `/api/cron/*`). Нужен, чтобы
+ * советы про молчание не называли виноватым доказанно исправное — разбор в
+ * lib/agents/cron-blame.ts.
+ *
+ * Отказ запроса возвращает null, и вердикт становится «не смог установить»:
+ * §4.0 — непроверенное не равно исправному.
+ */
+async function readCronWitness(): Promise<CronWitness | null> {
+  try {
+    const { rows } = await pool.query<{ agent_id: string; min_ago: string }>(`
+      SELECT agent_id,
+             EXTRACT(EPOCH FROM (NOW() - MAX(ended_at))) / 60 AS min_ago
+        FROM agent_run_history
+       WHERE ended_at IS NOT NULL
+       GROUP BY agent_id
+       ORDER BY MAX(ended_at) DESC
+       LIMIT 1
+    `);
+    const r = rows[0];
+    if (!r) return null;
+    return { agentId: r.agent_id, minutesAgo: Math.max(0, Math.round(Number(r.min_ago))) };
+  } catch (err) {
+    console.error('[watchdog] readCronWitness failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
   // safety-ingest cron — самый критичный. Молчание >15 мин = система слепа к землетрясениям.
   try {
@@ -666,23 +696,24 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
     `);
     const lastSeen = rows[0]?.last_seen;
     if (!lastSeen) {
+      const blame = blameSilentCrons(await readCronWitness(), 120);
       return {
         type: 'seismic_cron_dead',
         count: 1,
-        details: 'КРИТИЧНО: Сейсмо-мониторинг не запускался >2ч. Система слепа к землетрясениям и цунами.',
+        details: `КРИТИЧНО: Сейсмо-мониторинг не запускался >2ч. Система слепа к землетрясениям и цунами. ${describeBlame(blame)}`,
       };
     }
     const silenceMin = Math.round((Date.now() - new Date(lastSeen).getTime()) / 60000);
     if (silenceMin > 15) {
-      // Запуски успешны, но GitHub Actions задерживает scheduled-cron (*/5) до 60-95 мин под нагрузкой —
-      // это не биллинг. Durable-фикс: внешний планировщик cron-job.org дёргает endpoint точно по расписанию.
-      const cause = silenceMin > 120
-        ? 'cron не запускался >2ч — проверь GitHub Actions/CRON_SECRET'
-        : 'GitHub Actions задерживает scheduled-cron; durable-фикс — cron-job.org каждые 5 мин на /api/cron/safety-ingest';
+      // Причина берётся у СВИДЕТЕЛЯ, а не у часов. Прежде она выводилась из
+      // числа минут («>2ч — проверь CRON_SECRET»), и 29.08 этот совет отправил
+      // проверять секрет, которым в ту же минуту успешно ходили другие кроны,
+      // и вкладку Actions, где все прогоны были зелёные. Разбор — cron-blame.ts.
+      const blame = blameSilentCrons(await readCronWitness(), silenceMin);
       return {
         type: 'seismic_cron_dead',
         count: silenceMin,
-        details: `КРИТИЧНО: Сейсмо-мониторинг молчит ${silenceMin} мин (норма ≤5 мин). ${cause}.`,
+        details: `КРИТИЧНО: Сейсмо-мониторинг молчит ${silenceMin} мин (норма ≤5 мин). ${describeBlame(blame)}`,
       };
     }
     return null;
@@ -718,10 +749,16 @@ export const SEISMIC_WORKFLOW_CRIT_MIN = 360;
 /**
  * @param ageMin     минут с последней доставки от воркфлоу; null — доставок нет
  * @param observedMin сколько минут мы вообще наблюдаем приём (по журналу)
+ * @param blame      вердикт о виноватом (lib/agents/cron-blame.ts). Необязателен:
+ *   без него КРИТ говорит только измеренное и никого не обвиняет. Появился
+ *   29.08, когда текст «Это уже не задержка расписания» оказался ложью —
+ *   доставка шла раз в 6.5 часов ИМЕННО из-за расписания, а порог в 360 минут
+ *   стоял на посылке «столько задержка не длится», к тому дню устаревшей.
  */
 export function seismicWorkflowDelayIssue(
   ageMin: number | null,
   observedMin: number,
+  blame?: CronBlame,
 ): WatchdogAlert | null {
   if (ageMin === null) {
     // Ни одной доставки. Судить можно только если наблюдаем дольше, чем
@@ -736,19 +773,23 @@ export function seismicWorkflowDelayIssue(
       details:
         `Сейсмо-канал Telegram (КБГС, EQKam) не доставлялся НИ РАЗУ за ` +
         `${Math.round(observedMin)} мин наблюдения. Воркфлоу cron-safety-ingest ` +
-        `не доходит до сервера — проверь его прогоны и CRON_SECRET. ` +
+        `не доходит до сервера. ${blame ? describeBlame(blame) : 'Проверь его прогоны.'} ` +
         `USGS и МЧС идут напрямую и не затронуты.`,
     };
   }
   if (ageMin > SEISMIC_WORKFLOW_CRIT_MIN) {
+    // Прежде здесь стояло «Это уже не задержка расписания». Утверждение
+    // опиралось на порог, а не на улику, и 29.08 оказалось ложным: доставка
+    // шла раз в 6.5 часов именно из-за расписания GitHub. Теперь говорим
+    // измеренное, а виноватого называет свидетель — или не называет никто.
     return {
       type: 'safety_cron_dead',
       count: Math.round(ageMin),
       critical: true,
       details:
         `Сейсмо-канал Telegram молчит ${Math.round(ageMin)} мин ` +
-        `(порог ${SEISMIC_WORKFLOW_CRIT_MIN}). Это уже не задержка расписания — ` +
-        `проверь воркфлоу cron-safety-ingest. USGS и МЧС идут напрямую.`,
+        `(порог ${SEISMIC_WORKFLOW_CRIT_MIN}), воркфлоу cron-safety-ingest. ` +
+        `${blame ? describeBlame(blame) : 'Проверь его прогоны.'} USGS и МЧС идут напрямую.`,
     };
   }
   if (ageMin > SEISMIC_WORKFLOW_WARN_MIN) {
@@ -781,7 +822,7 @@ async function checkSeismicWorkflowDelay(): Promise<WatchdogAlert | null> {
     if (!firstAny) return null; // приёма нет вовсе — это забота checkSeismicCronDead
     const observedMin = (now - new Date(firstAny).getTime()) / 60_000;
     const ageMin = lastPost === null ? null : (now - new Date(lastPost).getTime()) / 60_000;
-    return seismicWorkflowDelayIssue(ageMin, observedMin);
+    return seismicWorkflowDelayIssue(ageMin, observedMin, blameSilentCrons(await readCronWitness(), observedMin));
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
@@ -855,12 +896,13 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
     if (silent.length === 0) return null;
 
     const critical = worstMinutes >= SAFETY_CRON_CRITICAL_MIN;
-    // Ниже верхнего порога причиной чаще оказывается расписание GitHub, а не
-    // агент, — так и пишем, чтобы проверяли вкладку Actions, а не искали отказ
-    // там, где его нет.
-    const hint = critical
-      ? 'Проверь GitHub Actions и CRON_SECRET.'
-      : 'Обычно это задержка scheduled-cron в GitHub Actions (наблюдались разрывы до 3ч47м), но проверить вкладку Actions стоит.';
+    // Совет выводится из СВИДЕТЕЛЯ, а не из порога минут. Прежняя развилка
+    // («сверх 6ч — проверь CRON_SECRET») опиралась на посылку «столько
+    // штатная задержка не длится»: в июле верную, к концу августа — нет.
+    // 29.08 она выдала КРИТ с советом проверить секрет и Actions, где всё
+    // было исправно: прогоны зелёные, секрет живой. Длительность молчания о
+    // причине молчания не говорит ничего — разбор в lib/agents/cron-blame.ts.
+    const hint = describeBlame(blameSilentCrons(await readCronWitness(), worstMinutes));
 
     return {
       type: 'safety_cron_dead',
