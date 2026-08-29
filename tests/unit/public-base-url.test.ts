@@ -99,7 +99,12 @@ describe('getPublicBaseUrl: у ссылки наружу всегда есть �
 });
 
 describe('правило одно на весь репозиторий', () => {
-  const SKIP = new Set(['node_modules', '.next', '.git', 'public', 'migrations', 'docs']);
+  // .claude — не исключение ради тишины, а факт устройства репозитория:
+  // под ним живут .claude/worktrees/*, полные копии дерева от параллельных
+  // сессий агентов на СВОИХ ветках. Без исключения обход от process.cwd()
+  // читал их исходники наравне со своими — сторож ловил чужой незакоммиченный
+  // код и красил прогон на состоянии, которого в HEAD нет вовсе.
+  const SKIP = new Set(['node_modules', '.next', '.git', '.claude', 'public', 'migrations', 'docs']);
   const walk = (dir: string, acc: string[] = []): string[] => {
     for (const e of readdirSync(dir)) {
       if (SKIP.has(e)) continue;
@@ -122,5 +127,15 @@ describe('правило одно на весь репозиторий', () => {
       if (/\/[^/\n]*twc1\\?\.net[^/\n]*\/[gimsuy]*\.test\(/.test(src)) offenders.push(`${f}: регулярка`);
     }
     expect(offenders, `правило снова размножилось: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('обход не заходит в .claude/worktrees — чужие ветки не читаются', () => {
+    // Регрессия 30.08: SKIP не знал про .claude, и обход от process.cwd()
+    // спускался в .claude/worktrees/* — полные копии дерева параллельных
+    // сессий на своих ветках. Прогон красился на код, которого в HEAD нет.
+    expect(SKIP.has('.claude')).toBe(true);
+    for (const f of walk(process.cwd())) {
+      expect(f, 'обход зашёл под .claude вопреки SKIP').not.toMatch(/\/\.claude\//);
+    }
   });
 });
