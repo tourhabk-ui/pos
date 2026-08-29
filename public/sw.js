@@ -64,6 +64,7 @@ const CRITICAL_URLS = [
   '/safety/offline',   // инструкции выживания
   '/safety/geo-degradation.js', // общая семантика деградации GPS — от неё офлайн зависят оба экрана (#897)
   '/safety/qrcode.js', // офлайн-QR с координатами на SOS-экранах — показать спасателю с рабочим телефоном
+  '/safety/jsqr.js',   // офлайн-ДЕКОДЕР: попутчик сканирует чужой SOS там, где нет BarcodeDetector (весь iOS)
   '/leaflet/leaflet.min.js',   // Leaflet для офлайн-карты на /emergency
   '/leaflet/leaflet.min.css',
   '/icons/kamchatka-silhouette.jpg',

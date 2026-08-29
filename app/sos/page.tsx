@@ -6,6 +6,7 @@ import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { buildRelayUrl } from '@/lib/mesh/qr-relay';
 import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
 import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
+import { SosQrScanner } from '@/components/safety/SosQrScanner';
 import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
@@ -473,6 +474,12 @@ export default function SosPage() {
 
         {/* Меш-статус: сколько устройств группы рядом, ретрансляции SOS */}
         <MeshStatusWidget status={meshStatus} peers={meshPeers} relayedCount={meshRelayedCount} />
+
+        {/* Обратная сторона эстафеты: этот же экран открывает тот, кто НАШЁЛ
+            пострадавшего. Без кнопки сканирования попутчику оставалось выйти
+            из приложения в штатную камеру — а она ведёт в браузер, где нашей
+            PWA может не быть, и офлайн страница эстафеты не откроется. */}
+        <SosQrScanner />
 
         {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
         <div style={{
