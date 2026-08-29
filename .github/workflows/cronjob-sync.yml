@@ -1,0 +1,167 @@
+name: Cron-job.org — сверка и заведение джобов
+
+# ── Зачем воркфлоу, а не руки ─────────────────────────────────────────────
+#
+# Заведённые руками джобы разъехались: два из них 29.08 указывали на СТАРЫЙ
+# домен tourhab.ru и несли два РАЗНЫХ секрета. Оба падали с переезда домена,
+# и один из них — payouts — отпускает удержанные платежи оператору. Деньги
+# стояли, а панель показывала это одной оранжевой точкой.
+#
+# Набор джобов, лежащий в репозитории (.github/cronjob-jobs.json), читается,
+# сверяется и правится; набор, живущий только в чужой панели, — нет.
+#
+# ── Почему это делает раннер ──────────────────────────────────────────────
+#
+# api.cron-job.org закрыт egress-политикой среды разработчика (403 на
+# CONNECT). Раннер GitHub туда доходит. Тот же мост, что и у
+# scout-diagnose-report.yml, и по той же причине.
+#
+# ── Откуда берётся заголовок авторизации ──────────────────────────────────
+#
+# Не из секретов и не набором руками, а КОПИРОВАНИЕМ рабочего джоба. На
+# 29.08 джоб Evo отдавал 200 OK четыре прогона подряд — значит его заголовок
+# верен, и это единственное значение, про которое известно, что оно
+# работает. Набор руками уже дал два разных секрета в двух джобах; копия
+# такой ошибки допустить не может.
+#
+# Поэтому CRON_SECRET этому воркфлоу не нужен вовсе.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'inspect — только показать, что есть; apply — завести недостающее'
+        required: true
+        default: inspect
+        type: choice
+        options: [inspect, apply]
+
+# Только чтение репозитория: воркфлоу ходит наружу, в репозиторий не пишет.
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Сверка с cron-job.org
+        env:
+          API_KEY: ${{ secrets.CRONJOB_API_KEY }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${API_KEY:-}" ]; then
+            echo "::error::Секрет CRONJOB_API_KEY не задан в репозитории."
+            echo "Завести: cron-job.org → Settings → API → создать ключ;"
+            echo "затем GitHub → Settings → Secrets and variables → Actions → New secret,"
+            echo "имя CRONJOB_API_KEY. В переписку ключ класть не нужно."
+            exit 1
+          fi
+
+          API=https://api.cron-job.org
+          AUTH="Authorization: Bearer $API_KEY"
+
+          # ── Что уже есть ────────────────────────────────────────────────
+          HTTP=$(curl -sS -o /tmp/jobs.json -w '%{http_code}' --max-time 30 -H "$AUTH" "$API/jobs")
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::GET /jobs вернул $HTTP. Тело ниже (ключ в нём не печатается)."
+            head -c 400 /tmp/jobs.json; echo
+            exit 1
+          fi
+
+          # Печатаем БЕЗ extendedData: там живут заголовки, а в них секрет.
+          echo "── Джобы в аккаунте ─────────────────────────────────────────"
+          jq -r '.jobs[] | "\(.jobId)\t\(if .enabled then "вкл" else "выкл" end)\t\(.title // "—")\t\(.url)"' /tmp/jobs.json
+
+          echo
+          echo "── Часовой пояс расписаний (нужен для суточных джобов) ──────"
+          jq -r '[.jobs[].schedule.timezone] | unique | join(", ")' /tmp/jobs.json
+
+          # ── Шаблон: джоб, про который известно, что он работает ─────────
+          TEMPLATE_ID=$(jq -r '[.jobs[] | select(.url | test("vedarai\\.ru/api/cron/")) | select(.enabled)] | (.[0].jobId // empty)' /tmp/jobs.json)
+          if [ -z "$TEMPLATE_ID" ]; then
+            echo "::error::Не нашёл ни одного включённого джоба на vedarai.ru — копировать нечего."
+            echo "Заведите руками ОДИН рабочий джоб с заголовком Authorization, и этот воркфлоу размножит остальные с него."
+            exit 1
+          fi
+          echo
+          echo "Шаблон для копирования: джоб $TEMPLATE_ID"
+
+          HTTP=$(curl -sS -o /tmp/tpl.json -w '%{http_code}' --max-time 30 -H "$AUTH" "$API/jobs/$TEMPLATE_ID")
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::GET /jobs/$TEMPLATE_ID вернул $HTTP"; exit 1
+          fi
+          # Проверяем, что в шаблоне вообще есть заголовок авторизации —
+          # копия без него получит 401, и мы узнаем об этом только из панели.
+          if ! jq -e '.jobDetails.extendedData.headers | with_entries(.key |= ascii_downcase) | has("authorization")' /tmp/tpl.json >/dev/null; then
+            echo "::warning::В шаблоне нет заголовка Authorization — копии получат 401."
+            echo "Похоже, рабочий джоб передаёт секрет параметром ?secret= в URL. Тогда сначала переведите его на заголовок."
+          fi
+
+          # ── Чего не хватает ─────────────────────────────────────────────
+          MISSING=0
+          : > /tmp/plan.txt
+          while read -r row; do
+            PATH_=$(echo "$row" | jq -r '.path')
+            TITLE=$(echo "$row" | jq -r '.title')
+            URL="https://vedarai.ru$PATH_"
+            if jq -e --arg u "$URL" '.jobs[] | select(.url == $u)' /tmp/jobs.json >/dev/null; then
+              echo "есть:      $TITLE — $URL"
+            else
+              echo "НЕ ХВАТАЕТ: $TITLE — $URL"
+              echo "$row" >> /tmp/plan.txt
+              MISSING=$((MISSING+1))
+            fi
+          done < <(jq -c '.jobs[]' .github/cronjob-jobs.json)
+
+          echo
+          if [ "$MISSING" = "0" ]; then
+            echo "Всё на месте, заводить нечего."
+            exit 0
+          fi
+
+          if [ "$MODE" != "apply" ]; then
+            echo "Режим inspect: не хватает $MISSING джоб(ов), ничего не менял."
+            echo "Перезапустить с mode=apply, чтобы завести."
+            exit 0
+          fi
+
+          # ── Заводим копированием шаблона ────────────────────────────────
+          # Меняем только url, title и расписание. Всё прочее — включая
+          # рабочий заголовок авторизации — переезжает как есть.
+          while read -r row; do
+            PATH_=$(echo "$row" | jq -r '.path')
+            TITLE=$(echo "$row" | jq -r '.title')
+            URL="https://vedarai.ru$PATH_"
+            BODY=$(jq -n \
+              --slurpfile tpl /tmp/tpl.json \
+              --argjson row "$row" \
+              --arg url "$URL" \
+              --arg title "$TITLE" \
+              '{job: ($tpl[0].jobDetails
+                       | .url = $url
+                       | .title = $title
+                       | .enabled = true
+                       | .schedule.minutes = $row.minutes
+                       | .schedule.hours = $row.hours
+                       | del(.jobId, .lastStatus, .lastDuration, .lastExecution, .nextExecution))}')
+            HTTP=$(curl -sS -o /tmp/created.json -w '%{http_code}' --max-time 30 \
+              -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
+              -d "$BODY" "$API/jobs")
+            if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+              echo "заведён:   $TITLE — $URL (jobId $(jq -r '.jobId // "?"' /tmp/created.json))"
+            else
+              # Красим прогон: молчаливый пропуск здесь означал бы, что
+              # платежи по-прежнему стоят, а панель Actions показывает галочку.
+              echo "::error::Не удалось завести $TITLE — HTTP $HTTP"
+              head -c 400 /tmp/created.json; echo
+              exit 1
+            fi
+          done < /tmp/plan.txt
+
+          echo
+          echo "Готово. Проверьте первые прогоны в панели: 200 OK — значит заголовок скопировался верно."
