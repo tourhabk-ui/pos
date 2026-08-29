@@ -12,16 +12,25 @@ name: Бисекция разрыва по реальной геометрии �
 # Здесь вместо геометрической прямой берётся ФАКТИЧЕСКАЯ геометрия дорог:
 # Overpass отдаёт все ways класса motorway/trunk/primary/secondary в
 # коридоре, все их точки сортируются по широте, и берутся точки на
-# нескольких процентилях этого списка — они гарантированно лежат НА
-# какой-то реальной дороге такого класса (просто взяты из её же полилинии),
-# а не придуманы. Дальше каждая проверяется через наш /api/routing/path от
-# Петропавловска: где ok сменится на disconnected/too_far, там и граница.
+# процентилях этого списка (параметр — можно сужать интервал по мере
+# бисекции) — они гарантированно лежат НА какой-то реальной дороге такого
+# класса, не придуманы. Дальше каждая проверяется через наш /api/routing/path
+# от Петропавловска: где ok сменится на disconnected/too_far, там и граница.
+#
+# Run 1 (percentiles по умолчанию 10..90): ok до 80% (53.232°, трасса
+# "Петропавловск-Камчатский - Мильково", 37 км), disconnected на 90%
+# (54.657°) — разрыв где-то в этом отрезке. Дефолт сужен под следующий шаг.
 #
 # READ-ONLY: запросы к Overpass (публичный, только чтение) и к нашему же
 # публичному /api/routing/path. Секрет не нужен.
 
 on:
   workflow_dispatch:
+    inputs:
+      percentiles:
+        description: 'Процентили широты через запятую (0-100)'
+        required: true
+        default: '81,82,83,84,85,86,87,88,89'
 
 permissions: {}
 
@@ -31,6 +40,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Собрать точки из реальной геометрии дорог
+        env:
+          PERCENTILES: ${{ inputs.percentiles }}
         run: |
           Q='[out:json][timeout:60];way["highway"~"^(motorway|trunk|primary|secondary)$"](53.0,157.8,55.3,159.3);out geom;'
           HTTP=$(curl -sS -o /tmp/geo.json -w '%{http_code}' --max-time 90 \
@@ -54,8 +65,8 @@ jobs:
             exit 1
           fi
 
-          python3 - <<'PY'
-          import json
+          python3 - <<PY
+          import json, os
           with open('/tmp/geo.json') as f:
               data = json.load(f)
           els = data.get('elements', [])
@@ -73,7 +84,7 @@ jobs:
               raise SystemExit('нет точек — коридор пуст, бисекция невозможна')
 
           n = len(pts)
-          percentiles = [10, 25, 40, 50, 60, 70, 80, 90]
+          percentiles = [float(x) for x in os.environ['PERCENTILES'].split(',')]
           picks = []
           for p in percentiles:
               idx = min(n - 1, max(0, int(n * p / 100)))
@@ -83,7 +94,7 @@ jobs:
               for p, (lat, lon, hw, name) in picks:
                   label = f'{p}pct_lat{lat:.3f}'
                   f.write(f'{label}|{lat}|{lon}|{hw}|{name}\n')
-                  print(f'  {p:3d}% широты: {lat:.5f},{lon:.5f}  ({hw}, {name!r})')
+                  print(f'  {p:5.1f}% широты: {lat:.5f},{lon:.5f}  ({hw}, {name!r})')
           PY
 
       - name: Проверить связность от Петропавловска до каждой точки
