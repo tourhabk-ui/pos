@@ -116,6 +116,9 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'route-kind-classify':       { kind: 'manual', writes: true,  note: 'разметка рода записи: путь или «как добраться»' },
   'schema-drift':              { kind: 'manual', writes: false, note: 'объявленные колонки против information_schema живой базы' },
   'scout-diagnose':            { kind: 'manual', writes: false, note: 'почему разведчик молчит: причины за все прогоны' },
+  // Расписания нет намеренно: источник и вопрос называет человек. Пишет
+  // только по явному save=1, и только когда ответ найден с цитатами.
+  'scout-study':               { kind: 'manual', writes: true,  note: 'прочитать названный источник и ответить из него с цитатами: прод достаёт то, что закрыто egress-политикой у разработчика' },
   'elevation-backfill':        { kind: 'manual', writes: false, note: 'добор высот по точкам' },
   'explain-availability':      { kind: 'manual', writes: false, note: 'разбор занятости тура' },
   'hidden-tracks-census':      { kind: 'manual', writes: false, note: 'перепись скрытых треков' },
