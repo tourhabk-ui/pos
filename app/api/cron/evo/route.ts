@@ -114,6 +114,59 @@ export async function GET(request: NextRequest) {
   // Заводится ПОСЛЕ захвата lock — проигравший (см. выше) её не создаёт.
   const kernelHandle = await startEvoRunTask(scanType);
 
+  // ── ack=1: подтвердить приём сразу, работу довести до конца ──────────────
+  //
+  // Полный прогон идёт до 300 секунд (maxDuration выше), и вызывающий обязан
+  // столько ждать. Воркфлоу GitHub умеет (--max-time 300), а внешний
+  // планировщик cron-job.org — нет: 29.08 прогон в 18:00 отметился как
+  // «Провалено (тайм-аут)», при том что сервер работу ДОДЕЛАЛ. Это уже
+  // знакомая беда — та же запись есть в шапке cron-scout-digest.yml: красный
+  // прогон при выполненной работе хуже бесполезного, он учит не верить
+  // красному.
+  //
+  // Ответ 202 говорит «ПРИНЯТО», а не «сделано», и успеха не обещает: исход
+  // ищется по kernel_task_id и в agent_run_history. Обещать успех здесь было
+  // бы ровно тем враньём, ради борьбы с которым всё это и делается.
+  //
+  // Режим ВКЛЮЧАЕТСЯ ЯВНО. Молча сменить смысл ответа нельзя: воркфлоу
+  // GitHub читает success/status из тела и краснеет на partial — для него
+  // 202 без результата стало бы вечнозелёным прогоном.
+  //
+  // Чего этот режим не переживает: гибели контейнера посреди прогона.
+  // Advisory-lock умрёт вместе с сессией (это верно и хорошо), но
+  // kernel-задача останется в 'running' — некому позвать failEvoRunTask.
+  // Записано прямо, а не обойдено молчанием.
+  if (request.nextUrl.searchParams.get('ack') === '1') {
+    void runAndRecord(scanType, startedAt, kernelHandle, lock).catch(err => {
+      console.error('[cron/evo] фоновый прогон упал:', err instanceof Error ? err.message : err);
+    });
+    return NextResponse.json({
+      accepted: true,
+      status: 'running',
+      note: 'прогон запущен; это подтверждение приёма, а не результат — исход смотреть по kernel_task_id',
+      kernel_task_id: kernelHandle?.taskId ?? null,
+      trace_id: kernelHandle?.traceId ?? null,
+    }, { status: 202 });
+  }
+
+  const { body, status } = await runAndRecord(scanType, startedAt, kernelHandle, lock);
+  return NextResponse.json(body, { status });
+}
+
+/**
+ * Прогон вместе со всеми терминальными записями и снятием замка.
+ *
+ * Вынесено из GET 30.08, чтобы у ожидающего и у фонового вызывающего был
+ * ОДИН путь: иначе фоновый режим неизбежно отстал бы в записи истории или в
+ * снятии замка, а такие расхождения между двумя копиями уже стоили нам
+ * карточки тура и SOS-кнопки.
+ */
+async function runAndRecord(
+  scanType: string,
+  startedAt: Date,
+  kernelHandle: Awaited<ReturnType<typeof startEvoRunTask>>,
+  lock: PoolClient,
+): Promise<{ body: Record<string, unknown>; status: number }> {
   try {
     const result = await runEvoOrchestrator(scanType);
 
@@ -139,14 +192,17 @@ export async function GET(request: NextRequest) {
 
     // Partial — полезный прогон, поэтому HTTP 200 сохраняем. Но контракт не
     // врёт: workflow обязан увидеть success=false/status=partial и покраснеть.
-    return NextResponse.json({
-      success,
-      status,
-      run_logged: runLogged,
-      kernel_task_id: kernelHandle?.taskId ?? null,
-      trace_id: kernelHandle?.traceId ?? null,
-      ...result,
-    });
+    return {
+      status: 200,
+      body: {
+        success,
+        status,
+        run_logged: runLogged,
+        kernel_task_id: kernelHandle?.taskId ?? null,
+        trace_id: kernelHandle?.traceId ?? null,
+        ...result,
+      },
+    };
   } catch (err) {
     if (kernelHandle) await failEvoRunTask(kernelHandle, err instanceof Error ? err.message : String(err));
     const runLogged = await logAgentRun({
@@ -158,8 +214,9 @@ export async function GET(request: NextRequest) {
       error_msg: err instanceof Error ? err.message : String(err),
     });
 
-    return NextResponse.json(
-      {
+    return {
+      status: 500,
+      body: {
         success: false,
         status: 'failed',
         run_logged: runLogged,
@@ -167,8 +224,7 @@ export async function GET(request: NextRequest) {
         trace_id: kernelHandle?.traceId ?? null,
         error: err instanceof Error ? err.message : 'Unknown error',
       },
-      { status: 500 },
-    );
+    };
   } finally {
     await releaseEvoRunLock(lock);
   }
