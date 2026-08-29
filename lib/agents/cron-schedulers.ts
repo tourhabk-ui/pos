@@ -115,7 +115,11 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'track-import-queue':        { kind: 'manual', writes: false, note: 'очередь загруженных треков (route_track_imports) — писала, не читал никто' },
   'route-kind-classify':       { kind: 'manual', writes: true,  note: 'разметка рода записи: путь или «как добраться»' },
   'schema-drift':              { kind: 'manual', writes: false, note: 'объявленные колонки против information_schema живой базы' },
-  'scout-diagnose':            { kind: 'manual', writes: false, note: 'почему разведчик молчит: причины за все прогоны' },
+  // 'scout-diagnose' убран из ручных 29.08: его дёргает
+  // .github/workflows/scout-diagnose-report.yml (по кнопке, без расписания —
+  // диагностике не место в liveness-панели). Объявление рядом с workflow —
+  // это два разных ответа на один вопрос, и сторож cron-scheduler-declared
+  // правильно на них ругается.
   // Расписания нет намеренно: источник и вопрос называет человек. Пишет
   // только по явному save=1, и только когда ответ найден с цитатами.
   'scout-study':               { kind: 'manual', writes: true,  note: 'прочитать названный источник и ответить из него с цитатами: прод достаёт то, что закрыто egress-политикой у разработчика' },

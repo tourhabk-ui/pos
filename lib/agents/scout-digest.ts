@@ -75,6 +75,24 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   ai_digest_aborted: 'прогон оборвался до AI-поста',
 };
 
+/**
+ * Что записывается про AI-канал, когда прогон вышел РАНЬШЕ публикации в него.
+ *
+ * Метка `ai_digest_aborted` была заведена вместе с комментарием выше — а в
+ * ранние выходы её так и не проставили. Из-за этого прогон, остановленный
+ * воротами, не говорил про @ai_hub_money НИЧЕГО: ни «ушло», ни «не ушло»,
+ * ни почему. Молчание канала не попадало в запись вовсе, и разбирать его
+ * приходилось догадками (владелец 29.08: «из-за него нет и новостей в тг
+ * канале»).
+ *
+ * Пустое место в отчёте — это не «сведений нет», это «мы не сказали». §4.0
+ * требует третьего исхода, и вот он, названный.
+ */
+const AI_CHANNEL_ABORTED = {
+  ai_channel_sent: false,
+  ai_channel_skip_reason: 'ai_digest_aborted',
+} as const;
+
 export interface DigestResult {
   signals_found: number;
   digest_sent: boolean;
@@ -608,7 +626,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const health = await recordSourceHealthAndAlert(fetched);
 
   if (allItems.length === 0) {
-    return { signals_found: 0, digest_sent: false, digest_skip_reason: 'no_rss_items', duration_ms: Date.now() - start, ...health };
+    return { signals_found: 0, digest_sent: false, digest_skip_reason: 'no_rss_items', duration_ms: Date.now() - start, ...health , ...AI_CHANNEL_ABORTED };
   }
 
   // Cross-run dedup: URL за 30 суток + заголовок за 7 (см. filterUnseen)
@@ -626,7 +644,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
     const sent = await tgSend(
       `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
     );
-    return { signals_found: 0, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    return { signals_found: 0, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
 
   // Дедупликация: одна история из нескольких источников → одна запись
@@ -768,7 +786,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   }
 
   if (!digest) {
-    return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'synthesis_null', duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'synthesis_null', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
 
   // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
@@ -780,7 +798,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // четвёртом (напр. «Референсы») есть настоящий сигнал.
   const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 4;
   if (allEmpty) {
-    return { signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty', duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    return { signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
 
   // ── Фактчек основного дайджеста ────────────────────────────────────────────
@@ -800,7 +818,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       if (retry) { digest = retry; bad = unsourcedPercents(digest, signalsList); }
     }
     if (bad.length > 0) {
-      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'unsourced_percents', duration_ms: Date.now() - start, ...health, repeats_suppressed };
+      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'unsourced_percents', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
     }
 
     // Судья отвечает ПРИЧИНОЙ отказа, а не просто отказом: «молчит провайдер»
@@ -812,7 +830,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         signals_found: freshItems.length, digest_sent: false,
         digest_skip_reason: judgeSkipReason(verdict.why),
         ...(verdict.sample ? { digest_skip_detail: verdict.sample } : {}),
-        duration_ms: Date.now() - start, ...health, repeats_suppressed,
+        duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
       };
     }
     let claims: string[] | null = verdict.unsupported;
@@ -834,7 +852,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
     }
     if (claims === null || claims.length > 0) {
       // Лучше не выпустить дайджест, чем выпустить с выдумкой (или непроверенным).
-      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: claims === null ? 'factcheck_judge_mute' : 'unsupported_claims', duration_ms: Date.now() - start, ...health, repeats_suppressed };
+      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: claims === null ? 'factcheck_judge_mute' : 'unsupported_claims', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
     }
   }
 
@@ -844,7 +862,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   if (isNearRepeatOfPrevious(digest, publishedDigests)) {
     return {
       signals_found: freshItems.length, digest_sent: false, repeat_blocked: true, digest_skip_reason: 'near_repeat',
-      duration_ms: Date.now() - start, ...health, repeats_suppressed,
+      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
     };
   }
 

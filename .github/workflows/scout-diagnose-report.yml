@@ -1,0 +1,135 @@
+name: Scout — диагноз молчания в Issue
+
+# Зачем этот workflow существует.
+#
+# Разведчик молчит с 01.08, и причина сидит на проде: в журнале прогонов
+# (agent_run_history) и в воротах публикации. Прочитать её умеет
+# GET /api/cron/scout-diagnose — но он под CRON_SECRET, а среда, где
+# разбирают причину (рабочее место разработчика / агент в репозитории),
+# закрыта egress-политикой организации и до vedarai.ru не дотягивается.
+#
+# Раннер GitHub дотягивается. Он и становится мостом: сходил на прод,
+# положил ответ в Issue. Issue читается из репозитория кем угодно — и
+# человеком, и агентом, который будет чинить. Данные перестают ходить
+# через пересказ в переписке.
+#
+# READ-ONLY на стороне прода: scout-diagnose ничего не запускает и не
+# публикует. Этот workflow тоже ничего не чинит — только приносит факты.
+
+# Расписания нет намеренно. Это ДИАГНОСТИКА, а не платформенный крон: в
+# реестре liveness она стала бы источником ложной тревоги («диагностика не
+# запускалась» — беда, которой нет), а после починки #68 суточный отчёт в
+# Issue превратился бы в шум. Запускает человек, когда нужны данные:
+# Actions → «Scout — диагноз молчания в Issue» → Run workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Снять диагноз с прода
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          # exit 1, а не 0: без секрета диагноза НЕТ. Зелёный прогон при
+          # отсутствии данных — ровно та ложь, из-за которой разведчика
+          # семнадцать дней считали работающим.
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан — диагноз не снят."
+            exit 1
+          fi
+          HTTP=$(curl -s -o /tmp/diag.json -w "%{http_code}" --max-time 60 \
+            "https://vedarai.ru/api/cron/scout-diagnose?limit=40" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP"
+          [ "$HTTP" = "200" ] || { echo "::error::scout-diagnose ответил $HTTP"; cat /tmp/diag.json || true; exit 1; }
+          cat /tmp/diag.json
+
+      - name: Собрать отчёт и обновить Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY' > /tmp/body.md
+          import json, datetime
+
+          d = json.load(open('/tmp/diag.json'))
+          runs = d.get('runs') or []
+          by = d.get('by_reason') or {}
+
+          print('# Разведчик: почему молчит')
+          print()
+          print(f"Снято: {datetime.datetime.now(datetime.timezone.utc):%Y-%m-%d %H:%M} UTC · "
+                f"прогонов прочитано: {d.get('runs_read', 0)}")
+          print()
+          print('Отчёт собирает `.github/workflows/scout-diagnose-report.yml` — '
+                'раннер GitHub ходит на прод, потому что среда разбора закрыта egress-политикой. '
+                'Источник: `GET /api/cron/scout-diagnose` (read-only).')
+          print()
+
+          print('## Главное')
+          print()
+          last_ok = d.get('last_success_at')
+          last_pub = d.get('last_published_at')
+          print(f"- последний УСПЕШНЫЙ прогон: `{last_ok or 'не найден в прочитанном окне'}`")
+          print(f"- последняя ПУБЛИКАЦИЯ: `{last_pub or 'не найдена'}` "
+                f"(`{d.get('last_published_slug') or '-'}`)")
+          print()
+
+          # Различение, ради которого всё и затевалось: не запускался вовсе —
+          # это НЕ то же самое, что запускался и не публиковал.
+          if not runs:
+              print('> **Прогонов в журнале нет.** Значит держат не ворота публикации, '
+                    'а запуск: агент не вызывался вовсе. Смотреть надо внешнее расписание '
+                    '(cron-job.org → `evo.run`), а не логику дайджеста.')
+          else:
+              codes = [r for r in runs if r.get('status') != 'success']
+              if codes and len(set(r.get('skip_reason') for r in codes)) == 1:
+                  only = codes[0].get('skip_label') or codes[0].get('skip_reason')
+                  print(f'> **Одна и та же причина на всех молчаливых прогонах: {only}.** '
+                        'Это стена, а не череда случайностей — чинить надо именно её.')
+              elif codes:
+                  print('> Причины РАЗНЫЕ — значит молчат разные вещи, и общей стены нет. '
+                        'Разбирать по самой частой из таблицы ниже.')
+          print()
+
+          print('## Сколько раз какая причина')
+          print()
+          print('| Причина | Раз |')
+          print('|---|---|')
+          for k, v in sorted(by.items(), key=lambda kv: -kv[1]):
+              print(f'| {k} | {v} |')
+          print()
+
+          print('## Прогоны')
+          print()
+          print('| Когда | Статус | Сигналов | LLM | Причина | Деталь |')
+          print('|---|---|---|---|---|---|')
+          for r in runs[:40]:
+              detail = (r.get('skip_detail') or '')[:120].replace('|', '\\|').replace('\n', ' ')
+              label = r.get('skip_label') or r.get('skip_reason') or ''
+              print(f"| {r.get('at','')} | {r.get('status','')} | {r.get('signals') if r.get('signals') is not None else ''} "
+                    f"| {r.get('llm_calls') if r.get('llm_calls') is not None else ''} | {label} | {detail} |")
+          print()
+          print('---')
+          print()
+          print('Канал `@ai_hub_money` публикуется ПОСЛЕ основного дайджеста, то есть после '
+                'всех ворот: сработали ворота — в канал не уходит ничего. Отдельной причины '
+                'у молчания канала может не быть вовсе.')
+          PY
+
+          TITLE="Разведчик: диагноз молчания"
+          NUM=$(gh issue list --repo "$REPO" --state open --search "$TITLE in:title" --json number --jq '.[0].number' || true)
+          if [ -n "$NUM" ] && [ "$NUM" != "null" ]; then
+            gh issue comment "$NUM" --repo "$REPO" --body-file /tmp/body.md
+            echo "Дополнена issue #$NUM"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --body-file /tmp/body.md --label evo
+            echo "Заведена новая issue"
+          fi
