@@ -42,7 +42,14 @@ describe('API кокпита: только чтение, только админ
   });
 
   it('отсутствие прогонов Evo — «не было», а не пустая рамка (§4.0)', () => {
-    expect(API).toMatch(/last_evo_run: lastEvo\.rows\[0\] \?\? null/);
+    expect(API).toMatch(/last_evo_run: lastEvoTask \?\? null/);
+  });
+
+  it('состав эволюции (29.08): статус стадий читается из note-событий последнего прогона, не выдуман при отсутствии задачи', () => {
+    expect(API).toMatch(/evo_stages/);
+    expect(API).toMatch(/if \(lastEvoTask\)/);
+    // Без задачи — пустой массив, а не выдуманные ok:true/false.
+    expect(API).toMatch(/let evoStages: Array<\{ key: string; ok: boolean \}> = \[\];/);
   });
 
   it('зависшие эффекты (P3) читаются тем же read-only путём, что и остальное', () => {
@@ -81,8 +88,30 @@ describe('клиент кокпита: наблюдение без кнопок 
     expect(CLIENT).toMatch(/ds-card/);
     expect(CLIENT).toMatch(/var\(--text-primary\)/);
     // Хардкод-цвет в className запрещён (§2); допускается только в токенах.
+    // Всегда-тёмная подложка «Состав эволюции» — тоже без хардкода, через
+    // fx-dark-* классы в globals.css (тот же приём, что у fx-glass).
     expect(CLIENT).not.toMatch(/#[0-9a-fA-F]{6}/);
     expect(CLIENT).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u);
+  });
+
+  it('«Состав эволюции» (29.08): ровно те стадии, что реально есть в orchestrator.ts, статус — из данных', () => {
+    const orchestrator = readFileSync(join(process.cwd(), 'lib/agents/orchestrator.ts'), 'utf-8');
+    // OrchestratorResult — источник правды по именам стадий; сверяем, что
+    // клиент не выдумал и не забыл ни одну.
+    const resultBlock = orchestrator.slice(
+      orchestrator.indexOf('export interface OrchestratorResult'),
+      orchestrator.indexOf('duration_ms: number'),
+    );
+    const orchestratorStages = [...resultBlock.matchAll(/^\s*(\w+): unknown;/gm)].map((m) => m[1]);
+    expect(orchestratorStages.length).toBeGreaterThanOrEqual(10);
+
+    const clientStages = [...CLIENT.matchAll(/key: '(\w+)', label:/g)].map((m) => m[1]);
+    expect(clientStages.sort()).toEqual(orchestratorStages.sort());
+
+    // Статус тайла — реальный тернарник по данным (data.evo_stages), не
+    // захардкоженное «всегда прошла».
+    expect(CLIENT).toMatch(/data\.evo_stages\.find/);
+    expect(CLIENT).toMatch(/status\.ok\s*\?\s*'стадия прошла'\s*:\s*'стадия упала'/);
   });
 });
 
