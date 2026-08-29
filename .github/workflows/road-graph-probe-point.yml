@@ -13,7 +13,10 @@ name: Связность до точки (вручную, с параметра�
 # (Мильково) без формы — inputs.* на push-событии пустые, поэтому дефолты
 # продублированы в bash через ${VAR:-...}.
 #
-# READ-ONLY: один GET к нашему публичному /api/routing/path. Секрет не нужен.
+# version.json печатается первым — иначе disconnected после мержа фикса
+# нельзя отличить от «фикс не помог» и «Timeweb ещё не доехал» (владелец 29.08).
+#
+# READ-ONLY: два GET к нашим публичным эндпоинтам. Секрет не нужен.
 
 on:
   workflow_dispatch:
@@ -69,6 +72,9 @@ jobs:
           FROM_LAT="${FROM_LAT:-53.0195}"
           FROM_LNG="${FROM_LNG:-158.6494}"
           MODE="${MODE:-car}"
+          echo "── деплой (public/version.json) ──"
+          curl -sS --max-time 15 "https://vedarai.ru/version.json" || echo "(нет version.json)"
+          echo
           echo "── ${LABEL} (${FROM_LAT},${FROM_LNG} → ${TO_LAT},${TO_LNG}, mode=${MODE}) ──"
           curl -sS -w '\nHTTP %{http_code} · %{time_total}s\n' --max-time 30 \
             "https://vedarai.ru/api/routing/path?from_lat=${FROM_LAT}&from_lng=${FROM_LNG}&to_lat=${TO_LAT}&to_lng=${TO_LNG}&mode=${MODE}"
