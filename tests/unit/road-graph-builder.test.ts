@@ -61,6 +61,18 @@ describe('buildGraph', () => {
     expect(g.edges.length).toBe(0);
   });
 
+  it('*_link (развязочные сегменты) НЕ отфильтрованы — находка 29.08, Петропавловск→Мильково', () => {
+    // Прямой запрос к Overpass по коридору трассы нашёл primary_link/
+    // secondary_link/tertiary_link на самой дороге: без них цепочка ways
+    // рвётся ровно на стыке, хотя дорога по обе стороны размечена нормально.
+    for (const linkClass of ['motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link']) {
+      const g = buildGraph([
+        way(1, [1, 2], [[53.0, 158.0], [53.001, 158.0]], { highway: linkClass }),
+      ]);
+      expect(g.edges.length, linkClass).toBe(1);
+    }
+  });
+
   it('микросегмент (<5 см, округляется в 0.0) пропускается — Zod positive() не падает', () => {
     const g = buildGraph([
       way(1, [1, 2], [[53.0, 158.0], [53.0000003, 158.0]]), // ~3 см

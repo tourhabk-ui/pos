@@ -36,7 +36,10 @@ const TILES = [
   [58.0, 155.0, 62.5, 167.0],
 ];
 
-const HIGHWAY_RE = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|living_street|track|road|path|footway|bridleway|cycleway';
+// *_link (владелец 29.08) — держать синхронно с HIGHWAY_WHITELIST в
+// road-graph-builder.js: без них Overpass не отдаст развязочные сегменты
+// вовсе, и фильтр билдера окажется нечем фильтровать.
+const HIGHWAY_RE = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|living_street|track|road|path|footway|bridleway|cycleway|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
 
 // Замер владельца 28-29.08 (run 5, run 6): все три зеркала отдают HTTP-ошибку
 // (406/500/502/504) за секунды-десятки секунд, не за полный AbortSignal —

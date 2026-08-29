@@ -32,6 +32,18 @@ describe('edgeCostSeconds', () => {
     expect(s).toBeGreaterThan(700);
     expect(s).toBeLessThan(900);
   });
+
+  it('*_link проезжаем машиной (владелец 29.08) — иначе граф связан, а A* всё равно не проедет', () => {
+    // Находка при разборе disconnected Петропавловск→Мильково: развязочные
+    // сегменты (primary_link и т.п.) добавлены в HIGHWAY_WHITELIST билдера,
+    // но без записи здесь edgeCostSeconds вернул бы Infinity как для
+    // незнакомого класса — то же самое разрыв, только на шаг дальше.
+    for (const linkClass of ['motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link']) {
+      const cost = edgeCostSeconds({ length_m: 1000, highway: linkClass, surface: null }, 'car');
+      expect(cost, linkClass).not.toBe(Infinity);
+      expect(cost, linkClass).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('findPath', () => {
