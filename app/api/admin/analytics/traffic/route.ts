@@ -13,6 +13,12 @@
  *      visitor_days (человеко-дни), а не одно число под двумя смыслами.
  *   3. Свои домены не считаются источником перехода. Прежний фильтр знал только
  *      vedarai.ru, и переходы со старого tourhab.ru выглядели притоком извне.
+ *   4. «Где чаще всего уходят» (top_exit_pages) ранжирует ПО ДОЛЕ ухода
+ *      (exits/views), не по числу просмотров — иначе список неотличим от
+ *      топа посещаемых страниц. Это ГДЕ и КАК БЫСТРО уходят (медиана времени
+ *      рядом), не ПОЧЕМУ: причину без опроса или записи сессий (Метрика/
+ *      Clarity стоят на сайте, но их данные в эту БД не попадают) из
+ *      page_views не вывести — придумывать её нельзя (§4.0).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
@@ -32,7 +38,7 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const [totals, daily, topPaths, topReferrers, coverage, edges, pages, sessions, notFound, funnel] = await Promise.all([
+    const [totals, daily, topPaths, topReferrers, coverage, edges, pages, topExitPages, sessions, notFound, funnel] = await Promise.all([
       pool.query<{
         today_hits: string; today_uniques: string;
         week_hits: string; week_visitor_days: string;
@@ -121,6 +127,32 @@ export async function GET(request: NextRequest) {
          ORDER BY views DESC
          LIMIT 15
       `),
+      // Топ по ДОЛЕ ухода, не по числу просмотров — иначе список выше (самые
+      // посещаемые) и «проблемные» страницы неотличимы: страница с 5 из 6
+      // визитов, кончающихся на ней, не попадёт в топ-15 по views, но это и
+      // есть кандидат «где чаще всего уходят». Порог поднят до 8 просмотров
+      // (не 3, как выше) — при малой базе один случайный visitor даёt 100%.
+      // Это ГДЕ и КАК БЫСТРО уходят, не ПОЧЕМУ — причину без опроса или
+      // записи сессий из page_views не вывести, придумывать её нельзя (§4.0).
+      pool.query<{ path: string; views: string; median_ms: string | null; exits: string }>(`
+        WITH v AS (
+          SELECT id, path, session_id, dwell_ms, created_at,
+                 LEAD(id) OVER (PARTITION BY session_id ORDER BY created_at) AS next_id
+            FROM page_views
+           WHERE created_at >= NOW() - INTERVAL '30 days' AND ${HUMAN}
+        )
+        SELECT path,
+               COUNT(*) AS views,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY dwell_ms)
+                 FILTER (WHERE dwell_ms IS NOT NULL)::bigint AS median_ms,
+               COUNT(*) FILTER (WHERE session_id IS NOT NULL AND next_id IS NULL) AS exits
+          FROM v
+         GROUP BY path
+        HAVING COUNT(*) >= 8
+         ORDER BY (COUNT(*) FILTER (WHERE session_id IS NOT NULL AND next_id IS NULL))::numeric / COUNT(*) DESC,
+                  views DESC
+         LIMIT 10
+      `),
       // Глубина визита: сколько страниц человек успевает посмотреть.
       pool.query<{ sessions: string; one_page: string; avg_depth: string | null }>(`
         WITH s AS (
@@ -207,6 +239,12 @@ export async function GET(request: NextRequest) {
         top_referrers: topReferrers.rows.map(r => ({ referrer: r.referrer, hits: Number(r.hits) })),
         edges: edges.rows.map(r => ({ from: r.from_path, to: r.to_path, hits: Number(r.hits) })),
         pages: pages.rows.map(r => ({
+          path: r.path,
+          views: Number(r.views),
+          medianMs: r.median_ms == null ? null : Number(r.median_ms),
+          exits: Number(r.exits),
+        })),
+        top_exit_pages: topExitPages.rows.map(r => ({
           path: r.path,
           views: Number(r.views),
           medianMs: r.median_ms == null ? null : Number(r.median_ms),

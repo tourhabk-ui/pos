@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter } from 'lucide-react';
+import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut } from 'lucide-react';
 
 interface TrafficData {
   totals: {
@@ -15,6 +15,7 @@ interface TrafficData {
   top_referrers: Array<{ referrer: string; hits: number }>;
   edges: Array<{ from: string; to: string; hits: number }>;
   pages: Array<{ path: string; views: number; medianMs: number | null; exits: number }>;
+  top_exit_pages: Array<{ path: string; views: number; medianMs: number | null; exits: number }>;
   sessions: { total: number; onePage: number; avgDepth: number | null };
   not_found: Array<{ path: string; hits: number }>;
   funnel: Array<{ tourId: number; title: string; isPublished: boolean; views: number; viewerDays: number; bookings: number }>;
@@ -273,6 +274,49 @@ export default function AdminTrafficPage() {
                         <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{p.views}</td>
                         <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{fmtDwell(p.medianMs)}</td>
                         <td className="py-1.5 text-right font-mono tabular-nums" style={{ color: pct(p.exits, p.views) >= 70 ? 'var(--warning)' : 'var(--text-primary)' }}>
+                          {pct(p.exits, p.views)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Где чаще всего уходят — ранжировано по ДОЛЕ ухода, не по просмотрам */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <LogOut className="w-3.5 h-3.5 text-[var(--warning)]" />
+              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Где чаще всего уходят · 30 дней</p>
+            </div>
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              Топ по доле ухода (уходы / просмотры), не по числу просмотров — иначе
+              список совпал бы с топом посещаемых страниц. Показывает ГДЕ и КАК БЫСТРО
+              уходят, не ПОЧЕМУ: причину (не то искал, не понравилось, дорого) без
+              опроса или записи сессий из этих данных не вывести. Меньше 8 просмотров
+              страница не учитывается — на малой базе один визит даёт 100%.
+            </p>
+            {data.top_exit_pages.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">Данных пока мало — нужно хотя бы восемь просмотров страницы.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="text-left font-medium pb-2">Страница</th>
+                      <th className="text-right font-medium pb-2">Просмотры</th>
+                      <th className="text-right font-medium pb-2">Время</th>
+                      <th className="text-right font-medium pb-2">Уход</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.top_exit_pages.map(p => (
+                      <tr key={p.path} className="border-t border-[var(--border)]">
+                        <td className="py-1.5 pr-3 font-mono text-[var(--text-secondary)] max-w-0 truncate" title={p.path}>{p.path}</td>
+                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{p.views}</td>
+                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{fmtDwell(p.medianMs)}</td>
+                        <td className="py-1.5 text-right font-mono tabular-nums" style={{ color: 'var(--warning)' }}>
                           {pct(p.exits, p.views)}%
                         </td>
                       </tr>
