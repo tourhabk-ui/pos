@@ -32,8 +32,8 @@ const REPORT_LIMIT = 10; // не заваливаем трекер за один
  *
  * Раньше засчитывался ТОЛЬКО отказ (`not_planned` → `rejected`), а принятие —
  * никак: человек реализовывал находку, закрывал задачу обычным «Close» (это
- * `completed`), и система об этом не узнавала. В `accepted`/`fixed` попадали
- * лишь автофиксы движка и ручная правка через админку.
+ * `completed`), и система об этом не узнавала. В `accepted` попадали лишь
+ * автофиксы движка и ручная правка через админку.
  *
  * Асимметрия была систематической и ломала сам тормоз качества: точность
  * считается как accepted/(accepted+rejected), отказы копились, принятия — нет,
@@ -44,9 +44,20 @@ const REPORT_LIMIT = 10; // не заваливаем трекер за один
  * заглушенный код → остаётся intel.
  *
  * Теперь оба вердикта человека доезжают:
- *   · `completed`   — сделано, находка была полезной  → `fixed`;
+ *   · `completed`   — сделано, находка была полезной  → `accepted`;
  *   · `not_planned` — не будем делать                 → `rejected`;
  *   · `duplicate`   — уже есть                        → `rejected` (не победа).
+ *
+ * Статус пишем ровно `accepted` — тот же, что ставит `evolution-loop` для
+ * автофиксов (§ `EVO_ISSUE_STATUSES`, `lib/agents/evo/feedback-loop.ts`).
+ * Раньше здесь стоял отдельный `fixed`: словарь дашборда (`getEvoStats`)
+ * его не знал, и находки, закрытые человеком через GitHub, пропадали из
+ * счётчика «Исправлено» — та же болезнь мёртвых цифр, которую уже чинили
+ * для *другого* писателя того же статуса (`evo-stats-honesty.test.ts`).
+ * Разных смыслов у «двигатель сам применил» и «человек подтвердил на
+ * GitHub» для счёта точности нет: оба означают «находка была верной и по
+ * ней что-то сделано» — ту же формулировку уже даёт комментарий в
+ * `precision.ts` («находки, принятые человеком»).
  *
  * Закрытие без `state_reason` (старые задачи, закрытые до появления причины)
  * НЕ трактуем никак: догадка о вердикте здесь дороже пропуска — она бы
@@ -56,7 +67,7 @@ async function syncClosedIssues(): Promise<{ accepted: number; rejected: number 
   const { rows } = await pool.query<{ id: string; github_issue_url: string }>(`
     SELECT id, github_issue_url FROM evo_growth_issues
      WHERE github_issue_url IS NOT NULL
-       AND status NOT IN ('rejected', 'ignored', 'fixed')
+       AND status NOT IN ('rejected', 'ignored', 'accepted')
      LIMIT 30
   `);
   if (rows.length === 0) return { accepted: 0, rejected: 0 };
@@ -76,11 +87,11 @@ async function syncClosedIssues(): Promise<{ accepted: number; rejected: number 
       if (issue.state !== 'closed') continue;
       const verdict = issueVerdict(issue.state_reason);
       if (verdict === 'rejected') rejected.push(r.id);
-      else if (verdict === 'fixed') accepted.push(r.id);
+      else if (verdict === 'accepted') accepted.push(r.id);
     } catch { /* сеть — пропускаем, попробуем в следующий прогон */ }
   }
 
-  for (const [status, ids] of [['rejected', rejected], ['fixed', accepted]] as const) {
+  for (const [status, ids] of [['rejected', rejected], ['accepted', accepted]] as const) {
     if (ids.length === 0) continue;
     await pool.query(
       `UPDATE evo_growth_issues SET status = $2, resolved_at = NOW() WHERE id = ANY($1::uuid[])`,
@@ -146,7 +157,7 @@ export async function GET(req: NextRequest) {
   // почистили в loadRejectedSignatures() — просто в другом месте.
   const { rows: pr } = await pool.query<{ accepted: string; rejected: string }>(`
     SELECT
-      COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text    AS accepted,
+      COUNT(*) FILTER (WHERE status = 'accepted')::text                AS accepted,
       COUNT(*) FILTER (WHERE status = 'rejected')::text                AS rejected
     FROM evo_growth_issues
     WHERE github_issue_url IS NOT NULL
@@ -164,7 +175,7 @@ export async function GET(req: NextRequest) {
   }>(`
     SELECT edge,
            fault_side,
-           COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text   AS accepted,
+           COUNT(*) FILTER (WHERE status = 'accepted')::text                AS accepted,
            COUNT(*) FILTER (WHERE status = 'rejected')::text               AS rejected,
            COUNT(*)::text                                                  AS total
       FROM evo_growth_issues
@@ -219,7 +230,7 @@ export async function GET(req: NextRequest) {
   // остаётся спором. Пусто, пока не накопятся находки с атрибуцией.
   const { rows: byModel } = await pool.query<{ model: string | null; accepted: string; rejected: string }>(`
     SELECT model,
-           COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text   AS accepted,
+           COUNT(*) FILTER (WHERE status = 'accepted')::text                AS accepted,
            COUNT(*) FILTER (WHERE status = 'rejected')::text               AS rejected
       FROM evo_growth_issues
      WHERE model IS NOT NULL
@@ -312,11 +323,11 @@ export async function GET(req: NextRequest) {
   // Плавающая бронь разведки: пока человек не разобрал висящие intel-задачи,
   // новые слоты ей не бронируются (см. outwardReserve). «Висит» = вынесена в
   // трекер и ещё не получила вердикта; sync выше уже перевёл закрытые в
-  // fixed/rejected, так что счётчик не завышен вчерашними закрытиями.
+  // accepted/rejected, так что счётчик не завышен вчерашними закрытиями.
   const { rows: openIntel } = await pool.query<{ n: string }>(`
     SELECT COUNT(*)::text AS n FROM evo_growth_issues
      WHERE category = 'intel' AND github_issue_url IS NOT NULL
-       AND status NOT IN ('rejected', 'ignored', 'fixed')
+       AND status NOT IN ('rejected', 'ignored', 'accepted')
   `).catch(() => ({ rows: [{ n: '0' }] }));
   const openIntelCount = Number(openIntel[0]?.n ?? 0);
 

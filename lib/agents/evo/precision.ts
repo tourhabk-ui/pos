@@ -76,8 +76,19 @@ export function isModelGuessLocated(f: { category: string; fault_side?: string |
   return f.fault_side === 'model';
 }
 
-/** Вердикт человека, снятый с закрытой задачи GitHub. */
-export type IssueVerdict = 'fixed' | 'rejected' | null;
+/**
+ * Вердикт человека, снятый с закрытой задачи GitHub.
+ *
+ * Значение — ровно тот статус, который `evo-report` ставит находке в
+ * `evo_growth_issues` (`accepted`/`rejected`, § `EVO_ISSUE_STATUSES` в
+ * `feedback-loop.ts`), а не отдельное слово вроде `fixed`. Раньше здесь
+ * стоял свой словарь, дашборд (`getEvoStats`) знал другой — и находки,
+ * закрытые человеком через GitHub, пропадали из счётчика «Исправлено»,
+ * хотя писались исправно. Тот же класс бага, что уже чинили для другого
+ * писателя того же поля (`evo-stats-honesty.test.ts`): статус, который
+ * пишет один код и не знает другой, — мёртвая цифра по построению.
+ */
+export type IssueVerdict = 'accepted' | 'rejected' | null;
 
 /**
  * Как закрытие задачи человеком превращается в статус находки.
@@ -92,13 +103,13 @@ export type IssueVerdict = 'fixed' | 'rejected' | null;
  * на которой держится глушение, а пропуск всего лишь оставляет находку в работе.
  */
 export function issueVerdict(stateReason: string | null | undefined): IssueVerdict {
-  if (stateReason === 'completed') return 'fixed';
+  if (stateReason === 'completed') return 'accepted';
   if (stateReason === 'not_planned' || stateReason === 'duplicate') return 'rejected';
   return null;
 }
 
 export interface PrecisionStats {
-  /** Опубликованные находки, принятые человеком (accepted/fixed). */
+  /** Опубликованные находки, принятые человеком (status = 'accepted'). */
   accepted: number;
   /**
    * Опубликованные находки, отвергнутые человеком — ТОЛЬКО `rejected`.
