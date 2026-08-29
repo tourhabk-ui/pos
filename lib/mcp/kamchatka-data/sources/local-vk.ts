@@ -53,6 +53,13 @@ export async function parseLocalIncidents(limit: number = 20): Promise<unknown[]
 
       if (incidents.length >= limit) break;
     } catch (error) {
+      // §4.0: отказ источника не глушится. Пустой catch превращал таймаут и
+      // сетевую ошибку в «происшествий нет» — на слое безопасности это
+      // худший вид тишины: он выглядит как спокойствие.
+      console.error(
+        `[local-vk] источник ${source.id} недоступен:`,
+        error instanceof Error ? error.message : error,
+      );
     }
   }
 
