@@ -60,9 +60,24 @@ export async function GET(request: NextRequest) {
       const meta = r.metadata as {
         digest_skip_reason?: string | null;
         digest_skip_detail?: string | null;
+        ai_channel_sent?: boolean | null;
+        ai_channel_skip_reason?: string | null;
       } | null;
       const code = meta?.digest_skip_reason ?? null;
+      // Судьба ВТОРОГО канала (@ai_hub_money) — отдельный вопрос, и до
+      // 29.08 этот разбор на него не отвечал вовсе: читались только поля
+      // основного дайджеста. Из-за этого по успешному прогону нельзя было
+      // сказать, ушёл ли пост в канал, — а владелец спрашивал именно про
+      // канал («из-за него нет и новостей в тг канале»).
+      //
+      // Три состояния, и они разные: true — ушёл; false с причиной — не
+      // ушёл, вот почему; null — прогон старше того дня, когда исход стали
+      // записывать, и сказать нечего. Последнее НЕ равно «не ушёл».
+      const aiCode = meta?.ai_channel_skip_reason ?? null;
       return {
+        ai_channel_sent: meta?.ai_channel_sent ?? null,
+        ai_channel_skip_reason: aiCode,
+        ai_channel_skip_label: aiCode ? (SKIP_REASON_LABELS[aiCode] ?? aiCode) : null,
         at: r.started_at instanceof Date ? r.started_at.toISOString() : String(r.started_at),
         status: r.status,
         signals: r.items_processed,
@@ -85,6 +100,18 @@ export async function GET(request: NextRequest) {
       byReason[key] = (byReason[key] ?? 0) + 1;
     }
 
+    // Сводка по ВТОРОМУ каналу отдельной таблицей: «дайджест ушёл» и «пост в
+    // канал ушёл» — разные события, и сливать их в один счёт значит потерять
+    // ровно тот вопрос, ради которого разбор и открывают.
+    const aiByReason: Record<string, number> = {};
+    for (const r of runs) {
+      const key = r.ai_channel_sent === true
+        ? '(пост в канал ушёл)'
+        : (r.ai_channel_skip_reason ?? '(исход канала не записан)');
+      aiByReason[key] = (aiByReason[key] ?? 0) + 1;
+    }
+    const lastAiSent = runs.find(r => r.ai_channel_sent === true) ?? null;
+
     const lastSent = runs.find(r => r.status === 'success') ?? null;
 
     // Последний ОПУБЛИКОВАННЫЙ выпуск: журнал прогонов и знание агента —
@@ -100,6 +127,8 @@ export async function GET(request: NextRequest) {
       probe: 'scout_diagnose_v1',
       runs_read: runs.length,
       by_reason: byReason,
+      ai_channel_by_reason: aiByReason,
+      ai_channel_last_sent_at: lastAiSent?.at ?? null,
       last_success_at: lastSent?.at ?? null,
       last_published_slug: digest.rows[0]?.slug ?? null,
       last_published_at: digest.rows[0]?.created_at ?? null,
