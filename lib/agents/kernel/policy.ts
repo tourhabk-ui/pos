@@ -66,6 +66,11 @@ export const CAPABILITY_REGISTRY: Readonly<Record<string, CapabilityEntry>> = {
     reason: 'оператор меняет цену СВОЕГО тура; ownership проверяет policy, действие обратимо',
     precommit: operatorOwnsTour,
   },
+  'tour.add_slots': {
+    principalTypes: ['operator'],
+    reason: 'оператор добавляет даты доступности СВОЕГО тура; ownership проверяет policy, эффект сам по себе идемпотентен (ON CONFLICT DO NOTHING на уровне строк)',
+    precommit: operatorOwnsTour,
+  },
   'tour.create_draft': {
     principalTypes: ['operator'],
     reason: 'черновик тура (is_published=false) из чата оператора; наружу не виден, обратим',

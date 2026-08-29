@@ -293,18 +293,17 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-intelligence.yml', cron: '0 3,9,15,21 * * *', schedule: 'каждые 6 ч · 3/9/15/21 UTC',
     everyMin: 360, tier: 'growth', agentId: 'intelligence', triggerable: true,
   },
-  {
-    key: 'scout', label: 'Scout-Innovator',
-    description: 'Brain → платформа → 2-3 предложения → Telegram.',
-    workflow: 'cron-scout.yml', cron: '0 8 * * *', schedule: 'ежедневно · 08:00 UTC',
-    everyMin: DAY, tier: 'growth', agentId: 'scout', triggerable: true,
-  },
-  {
-    key: 'scout-digest', label: 'Scout Digest',
-    description: 'RSS (Habr, RATA, Tourprom, Kamgov) → AI-синтез → дайджест в Telegram.',
-    workflow: 'cron-scout-digest.yml', cron: '0 7 * * *', schedule: 'ежедневно · 07:00 UTC',
-    everyMin: DAY, tier: 'growth', agentId: 'scout-digest', triggerable: true,
-  },
+  // Scout-Innovator и Scout Digest сняты отсюда 29.08 (решение владельца):
+  // обе стадии переехали внутрь runEvoOrchestrator (см. cron-evo.yml/'evo'
+  // ниже) — у cron-scout.yml/cron-scout-digest.yml больше нет schedule:,
+  // только workflow_dispatch для ручной отладки. Собственных agent_run_history
+  // записей у них тоже больше нет: agentId 'scout'/'scout-digest' писали
+  // только их standalone route-обёртки (runWithContext в
+  // app/api/cron/scout/route.ts, аналогично у scout-digest), а orchestrator
+  // вызывает функции напрямую, без этого слоя. Оставленная запись в реестре
+  // показывала бы панели «AI и автоматизации» вечно стареющий last-run —
+  // ложное «сломано» по факту работающего агента. Живая телеметрия обеих
+  // стадий — под agentId 'evo' (см. запись ниже) и в /hub/admin/volcano.
   {
     key: 'group-scout', label: 'Group Scout',
     description: 'Разведка TG-групп по туризму.',
@@ -485,12 +484,11 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // ── Рост ────────────────────────────────────────────────────────────────
   // items = сырые сигналы из RSS: ноль означает, что фиды не достались.
   'intelligence': 'broken',
-  // items = найденные сигналы. Сутки без новостей бывают, трое подряд по
-  // двенадцати фидам — это обрыв, а не спокойная неделя.
-  'scout-digest': 'broken',
   // У Growth Scan ноль находок — желаемый исход, тревожить по нему нельзя.
+  // Тот же ключ 'evo' теперь покрывает и бывшие scout/scout-digest — они
+  // переехали внутрь оркестратора 29.08 (см. комментарий у CRON_REGISTRY),
+  // своих отдельных записей здесь больше нет намеренно.
   'evo': 'normal',
-  'scout': 'unknown',
   'group-scout': 'unknown',
   'memory-bridge': 'unknown',
   'engagement': 'unknown',

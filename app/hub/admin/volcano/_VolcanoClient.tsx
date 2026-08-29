@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, GitPullRequest, Activity, ShieldX, Zap, Clock,
   CheckCircle2, XCircle, AlertTriangle, CircleDashed, ChevronDown, ChevronUp,
-  ExternalLink, type LucideIcon,
+  ExternalLink, HelpCircle, type LucideIcon,
 } from 'lucide-react';
 
 // Кокпит Volcano OS (P3) — ТОЛЬКО ПРОСМОТР. Ни одной кнопки действия здесь
@@ -42,6 +42,17 @@ interface EventRow {
   created_at: string;
 }
 
+interface AgentEffectRow {
+  id: string;
+  task_id: string;
+  effect_key: string;
+  status: string;
+  external_ref: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+  committed_at: string | null;
+}
+
 interface Overview {
   summary: {
     states: Record<string, number>;
@@ -50,10 +61,12 @@ interface Overview {
     policy_denied_24h: number;
     awaiting_merge: number;
     last_evo_run: TaskRow | null;
+    stuck_effects: number;
   };
   awaiting_merge: TaskRow[];
   tasks: TaskRow[];
   events: EventRow[];
+  stuck_effects: AgentEffectRow[];
   generated_at: string;
 }
 
@@ -184,7 +197,7 @@ export default function VolcanoClient() {
       {data && (
         <>
           {/* ── Сводка ── */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <SummaryCard icon={Activity} label="Активно сейчас" value={String(data.summary.active)} />
             <SummaryCard icon={Zap} label="Задач за 24 часа" value={String(data.summary.created_24h)} />
             <SummaryCard
@@ -198,6 +211,12 @@ export default function VolcanoClient() {
               label="Отказов policy за 24ч"
               value={String(data.summary.policy_denied_24h)}
               highlight={data.summary.policy_denied_24h > 0}
+            />
+            <SummaryCard
+              icon={HelpCircle}
+              label="Зависших эффектов"
+              value={String(data.summary.stuck_effects)}
+              highlight={data.summary.stuck_effects > 0}
             />
           </div>
 
@@ -250,6 +269,36 @@ export default function VolcanoClient() {
                     </li>
                   );
                 })}
+              </ul>
+            )}
+          </section>
+
+          {/* ── Зависшие эффекты (P3) ── */}
+          <section className="ds-card p-4">
+            <h2 className="ds-h2 mb-3">Зависшие эффекты</h2>
+            {data.stuck_effects.length === 0 ? (
+              <p className="text-sm text-[var(--text-secondary)]">
+                Нет эффектов в состоянии pending дольше 15 минут.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {data.stuck_effects.map((ef) => (
+                  <li key={ef.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm border-b border-[var(--border)] last:border-0 pb-2 last:pb-0">
+                    <HelpCircle className="w-4 h-4 text-[var(--warning)]" />
+                    <span className="text-[var(--text-primary)]">{ef.effect_key}</span>
+                    <span className="text-[var(--text-muted)] text-xs">заведён {fmtTime(ef.created_at)}</span>
+                    <button
+                      type="button"
+                      onClick={() => void openDetail(ef.task_id)}
+                      className="text-[var(--ocean)] hover:underline text-xs"
+                    >
+                      задача {shortId(ef.task_id)}
+                    </button>
+                    <span className="text-[var(--text-muted)] text-xs">
+                      не знаем, дошёл ли внешний вызов — попытка либо ещё идёт, либо упала между вызовом и записью
+                    </span>
+                  </li>
+                ))}
               </ul>
             )}
           </section>

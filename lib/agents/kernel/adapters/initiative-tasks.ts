@@ -22,6 +22,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { hashInput } from '../governed-action';
+import { beginEffect, commitEffect, failEffect } from '../effects';
 import {
   appendEvent,
   claimNextTask,
@@ -206,6 +207,10 @@ export async function drainInitiativeQueue(limit = 10): Promise<WorkerItemResult
       }
 
       await appendEvent(task.id, 'cron:kernel-worker', 'effect_started', { approval_id: approvalId });
+      // Durable intent ДО вызова эффекта (P3, 922): один эффект на задачу —
+      // claimNextTask (SKIP LOCKED) уже гарантирует, что задачу забирает
+      // ровно один worker, поэтому effectKey = id задачи.
+      const beginResult = await beginEffect(task.id, task.id, { approval_id: approvalId, action_type: payload.action_type });
       try {
         const result = await executeInitiativeEffect({
           approval_id: payload.id,
@@ -233,12 +238,21 @@ export async function drainInitiativeQueue(limit = 10): Promise<WorkerItemResult
               traceId: task.trace_id,
             }).catch((err) => console.error('[kernel-worker] child code.merge не заведён:', err instanceof Error ? err.message : err));
           }
+          if (beginResult.outcome === 'started') {
+            await commitEffect(beginResult.effect.id, Number.isNaN(prNum) ? null : `PR #${prNum}`, { changes: result.changes_made.length });
+          }
           await finish(true, `${payload.action_type}: изменений ${result.changes_made.length}`, 'succeeded');
         } else {
+          if (beginResult.outcome === 'started') {
+            await failEffect(beginResult.effect.id, result.errors[0] ?? 'инициатива провалена без описания');
+          }
           await finish(false, result.errors[0] ?? 'инициатива провалена без описания', 'failed_terminal');
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        if (beginResult.outcome === 'started') {
+          await failEffect(beginResult.effect.id, msg);
+        }
         await finish(false, `эффект упал: ${msg}`, 'failed_terminal');
       }
     }

@@ -123,6 +123,56 @@ describe('три контура подключены к ядру', () => {
     expect(src).toMatch(/capability: 'tour\.update_price'/);
   });
 
+  it('op_add_slots (operator-agency.ts) — тоже через ядро, не инлайн-SQL (P2, 28.08)', () => {
+    const src = read('lib/agents/agencies/operator-agency.ts');
+    // Динамический import — тот же, что уже использует createTour в этом файле.
+    expect(src).toMatch(/await import\('@\/lib\/agents\/kernel'\)/);
+    expect(src).toMatch(/capability: 'tour\.add_slots'/);
+    // Владение туром теперь проверяет policy, не собственный SELECT.
+    expect(src).not.toMatch(/SELECT id FROM operator_tours WHERE id = \$1 AND operator_id = \$2/);
+    // resource передан — иначе operatorOwnsTour не найдёт, что проверять.
+    expect(src).toMatch(/resource: \{ type: 'tour', id: String\(tourId\) \}/);
+  });
+
+  it('agent_effects (P3, 922): governed-action и инициативы заводят durable intent ДО эффекта', () => {
+    const gov = read('lib/agents/kernel/governed-action.ts');
+    expect(gov).toMatch(/beginEffect\(claimed\.id, claimed\.id/);
+    // beginEffect ДО input.execute() — иначе intent появится уже после эффекта.
+    expect(gov.indexOf('beginEffect(claimed.id')).toBeLessThan(gov.indexOf('await input.execute()'));
+    expect(gov).toMatch(/commitEffect\(beginResult\.effect\.id/);
+    expect(gov).toMatch(/failEffect\(beginResult\.effect\.id/);
+
+    const adapter = read('lib/agents/kernel/adapters/initiative-tasks.ts');
+    expect(adapter).toMatch(/beginEffect\(task\.id, task\.id/);
+    expect(adapter).toMatch(/commitEffect\(beginResult\.effect\.id/);
+    expect(adapter).toMatch(/failEffect\(beginResult\.effect\.id/);
+  });
+
+  it('кокпит показывает зависшие эффекты (P3), не только состояния задач', () => {
+    const route = read('app/api/admin/volcano/route.ts');
+    expect(route).toMatch(/findStuckEffects/);
+    expect(route).toMatch(/stuck_effects/);
+    const client = read('app/hub/admin/volcano/_VolcanoClient.tsx');
+    expect(client).toMatch(/Зависших эффектов/);
+    expect(client).toMatch(/data\.stuck_effects/);
+  });
+
+  it('code-change-executor: перед созданием PR ищет уже открытый по ветке, fail-open при сбое проверки', () => {
+    const src = read('lib/agents/execution/handlers/code-change-executor.ts');
+    expect(src).toMatch(/function findOpenPrByBranch/);
+    // Обе ветки (code-change и new-page) зовут проверку до создания git-ref.
+    const bodyBeforeGuard = src.split('async function findOpenPrByBranch')[0];
+    expect((src.match(/findOpenPrByBranch\(branchName\)/g) ?? []).length).toBe(2);
+    expect(bodyBeforeGuard).not.toMatch(/findOpenPrByBranch\(branchName\)/);
+    // Ошибка самой проверки — не блокирует создание PR (лог + null, не throw наружу).
+    const guardBody = src.slice(
+      src.indexOf('async function findOpenPrByBranch'),
+      src.indexOf('\nasync function ', src.indexOf('async function findOpenPrByBranch') + 1),
+    );
+    expect(guardBody).toMatch(/catch \(err\)/);
+    expect(guardBody).toMatch(/return null;/);
+  });
+
   it('инициативы: enqueue идемпотентен по approval_id, generic initiative.execute удалён', () => {
     const adapter = read('lib/agents/kernel/adapters/initiative-tasks.ts');
     expect(adapter).toMatch(/idempotencyKey: `initiative:\$\{approval\.id\}`/);
@@ -191,6 +241,7 @@ describe('три контура подключены к ядру', () => {
       ['tour.set_published', 'operator'],
       ['tour.update_price', 'operator'],
       ['tour.create_draft', 'operator'],
+      ['tour.add_slots', 'operator'],
       ['evo.run', 'cron'],
       ['initiative.send_notification', 'cron'],
       ['initiative.tour_suspend', 'admin'],
@@ -245,7 +296,7 @@ describe('policy: fail-closed, без очереди к человеку (мод
 
 // ── Поведение executeGovernedAction (kernel замокан; policy настоящая) ─────
 
-const { kernelMock } = vi.hoisted(() => ({
+const { kernelMock, effectsMock } = vi.hoisted(() => ({
   kernelMock: {
     createTask: vi.fn(),
     transition: vi.fn(),
@@ -255,9 +306,15 @@ const { kernelMock } = vi.hoisted(() => ({
     findByIdempotencyKey: vi.fn(),
     findActiveByIdempotencyKey: vi.fn(),
   },
+  effectsMock: {
+    beginEffect: vi.fn(),
+    commitEffect: vi.fn(),
+    failEffect: vi.fn(),
+  },
 }));
 
 vi.mock('@/lib/agents/kernel/kernel', () => kernelMock);
+vi.mock('@/lib/agents/kernel/effects', () => effectsMock);
 
 const baseTask = {
   id: 't1', parent_task_id: null, trace_id: 'tr1', principal: 'cron:x', capability: 'evo.run',
@@ -271,6 +328,9 @@ describe('executeGovernedAction', () => {
     vi.clearAllMocks();
     kernelMock.appendEvent.mockResolvedValue({ ok: true });
     kernelMock.transition.mockResolvedValue({ ok: true });
+    effectsMock.beginEffect.mockResolvedValue({ outcome: 'started', effect: { id: 'ef1' } });
+    effectsMock.commitEffect.mockResolvedValue({ ok: true });
+    effectsMock.failEffect.mockResolvedValue({ ok: true });
   });
 
   it('успех: policy → создание → захват СВОЕЙ задачи по id → эффект → succeeded', async () => {

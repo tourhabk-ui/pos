@@ -46,7 +46,13 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { startEvoRunTask, finishEvoRunTask, failEvoRunTask } from '@/lib/agents/kernel/adapters/evo-run-task';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+// 120 → 300 (29.08): консолидация агентов подняла оркестратор до 10 стадий,
+// две из бывших отдельных crona уже объявляли maxDuration=300 у себя
+// (industry-intel, memory-reflect), а Scout Digest в реальном прогоне
+// занимал ~293с — под старым лимитом весь запрос убивался платформой раньше,
+// чем самая медленная параллельная стадия успевала закончиться. Вызывающий
+// workflow (cron-evo.yml) уже терпит 300с (--max-time 300, timeout-minutes: 8).
+export const maxDuration = 300;
 
 const LOCK_KEY = 'evo.run';
 

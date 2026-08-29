@@ -27,6 +27,7 @@ import {
   createTask,
   transition,
 } from './kernel';
+import { beginEffect, commitEffect, failEffect } from './effects';
 import { decidePolicy } from './policy';
 import {
   principalToString,
@@ -154,10 +155,20 @@ export async function executeGovernedAction<T>(
     capability: claimed.capability,
     resource: input.resource ?? null,
   });
+  // Durable intent ДО вызова эффекта (P3, 922): один governed-эффект на
+  // задачу в этом общем пути — claimTaskById уже гарантирует, что задача
+  // захватывается ровно один раз, поэтому effectKey = id задачи.
+  const beginResult = await beginEffect(claimed.id, claimed.id, {
+    capability: claimed.capability,
+    resource: input.resource ?? null,
+  });
 
   // Эффект — вне любых DB-транзакций ядра.
   try {
     const result = await input.execute();
+    if (beginResult.outcome === 'started') {
+      await commitEffect(beginResult.effect.id, input.idempotencyKey ?? null);
+    }
     await appendEvent(claimed.id, actor, 'effect_committed', {
       delivery_key: input.idempotencyKey ?? null,
     });
@@ -179,6 +190,9 @@ export async function executeGovernedAction<T>(
     return { ok: true, taskId: claimed.id, traceId: claimed.trace_id, result };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (beginResult.outcome === 'started') {
+      await failEffect(beginResult.effect.id, msg);
+    }
     await transition(claimed.id, 'running', 'failed_terminal', actor, {
       summary: `эффект провален: ${msg}`,
     });

@@ -10,7 +10,10 @@
  *  - «Ждут моего решения»: awaiting_merge задачи с прямой ссылкой на PR —
  *    единственное место, где от человека требуется действие (merge/reject
  *    в GitHub, не здесь);
- *  - лента: последние задачи и события ядра.
+ *  - лента: последние задачи и события ядра;
+ *  - «Зависшие эффекты» (P3, 922): agent_effects в pending дольше 15 минут —
+ *    окно между внешним commit (PR, сообщение) и его записью, которое 917
+ *    назвала вслух, но не показывала нигде; теперь видно здесь.
  *
  * ?task_id=<uuid> — карточка одной задачи: строка + ПОЛНАЯ цепочка её событий
  * по seq (кто, что, какие стадии, сколько шло) + задачи того же trace.
@@ -23,6 +26,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { findStuckEffects } from '@/lib/agents/kernel';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,7 +103,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Обзор ────────────────────────────────────────────────────────────
-    const [byState, last24, denied24, awaiting, lastEvo, tasks, events] = await Promise.all([
+    const [byState, last24, denied24, awaiting, lastEvo, tasks, events, stuckEffects] = await Promise.all([
       pool.query<{ state: string; count: string }>(
         `SELECT state, COUNT(*)::text AS count FROM agent_tasks GROUP BY state`,
       ),
@@ -134,6 +138,9 @@ export async function GET(request: NextRequest) {
          ORDER BY id DESC
          LIMIT 50`,
       ),
+      // Зависшие эффекты (P3, 922): pending дольше DEFAULT_LEASE_SECONDS —
+      // владелец видит окно «не знаем, дошло ли» здесь, а не нигде (§4.0).
+      findStuckEffects(15),
     ]);
 
     const states: Record<string, number> = {};
@@ -152,10 +159,12 @@ export async function GET(request: NextRequest) {
         // null — прогонов Evo через ядро ещё не было; панель обязана
         // показать это как «не было», а не как пустую рамку (§4.0).
         last_evo_run: lastEvo.rows[0] ?? null,
+        stuck_effects: stuckEffects.length,
       },
       awaiting_merge: awaiting.rows,
       tasks: tasks.rows,
       events: events.rows,
+      stuck_effects: stuckEffects,
       generated_at: new Date().toISOString(),
     });
   } catch (err) {

@@ -44,6 +44,11 @@ describe('API кокпита: только чтение, только админ
   it('отсутствие прогонов Evo — «не было», а не пустая рамка (§4.0)', () => {
     expect(API).toMatch(/last_evo_run: lastEvo\.rows\[0\] \?\? null/);
   });
+
+  it('зависшие эффекты (P3) читаются тем же read-only путём, что и остальное', () => {
+    expect(API).toMatch(/findStuckEffects/);
+    expect(API.indexOf('requireAdmin')).toBeLessThan(API.indexOf('findStuckEffects'));
+  });
 });
 
 describe('клиент кокпита: наблюдение без кнопок действия', () => {

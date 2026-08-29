@@ -325,28 +325,39 @@ export class OperatorAgency {
     if (dates.length === 0) return { response: 'Некорректный диапазон дат.' };
     if (dates.length > 366)  return { response: 'Диапазон дат слишком большой (макс. 366 дней).' };
 
-    // Проверяем тур — ОБЯЗАТЕЛЬНО свой: без operator_id любой авторизованный
-    // оператор мог подобрать чужой tourId и писать слоты в чужой тур (аудит
-    // кабинета оператора, IDOR). getToursSummary/createTour в этом же классе
-    // уже проверяют владение — здесь оно было пропущено.
-    const { rows: tourCheck } = await pool.query<{ id: number }>(
-      `SELECT id FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
-      [tourId, partnerId]
-    );
-    if (tourCheck.length === 0) return { response: `Тур ${tourId} не найден.` };
+    // Через ядро Volcano OS (P2, 28.08): владение туром теперь проверяет
+    // policy (operatorOwnsTour, capability tour.add_slots) вместо инлайн-SQL
+    // здесь — тот же путь, что у createTour/set_tour_published/update_price.
+    // Ключа идемпотентности нет намеренно (тот же выбор, что у createTour):
+    // сам эффект уже безопасен к повтору (ON CONFLICT DO NOTHING на уровне
+    // строк ниже) — governed-action здесь даёт не защиту от дублирования
+    // (она уже есть), а единый аудит-след и policy вместо инлайн-владения.
+    const { executeGovernedAction, hashInput } = await import('@/lib/agents/kernel');
+    const gov = await executeGovernedAction<{ inserted: number }>({
+      principal: { type: 'operator', id: String(partnerId) },
+      capability: 'tour.add_slots',
+      resource: { type: 'tour', id: String(tourId) },
+      inputHash: hashInput({ partnerId, tourId, dateFrom, dateTo, slots }),
+      execute: async () => {
+        let inserted = 0;
+        for (const date of dates) {
+          const { rowCount } = await pool.query(
+            `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots, is_cancelled)
+             VALUES ($1, $2, $3, 0, false)
+             ON CONFLICT (operator_tour_id, date) DO NOTHING`,
+            [tourId, date, slots]
+          );
+          inserted += rowCount ?? 0;
+        }
+        return { inserted };
+      },
+      summarize: (r) => `слоты тура ${tourId}: +${r.inserted} (${dateFrom} — ${dateTo}, ${slots}/день)`,
+    });
 
-    // Batch INSERT с ON CONFLICT IGNORE
-    let inserted = 0;
-    for (const date of dates) {
-      const { rowCount } = await pool.query(
-        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots, is_cancelled)
-         VALUES ($1, $2, $3, 0, false)
-         ON CONFLICT (operator_tour_id, date) DO NOTHING`,
-        [tourId, date, slots]
-      );
-      inserted += rowCount ?? 0;
-    }
+    if (!gov.ok) return { response: `Запрос отклонён: ${gov.reason}` };
+    if (gov.duplicate) return { response: 'Этот запрос уже выполнялся — повтор не выполнялся.' };
 
+    const { inserted } = gov.result;
     return {
       response:
         `Добавлено ${inserted} слотов для тура ${tourId}.\n` +

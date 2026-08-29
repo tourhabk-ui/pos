@@ -1,12 +1,13 @@
 name: Cron — Scout-Innovator (daily)
 
-# Runs once per day at 06:00 UTC:
-# 1. /api/cron/intelligence — собирает AI/travel сигналы
-# 2. /api/cron/scout       — синтезирует → эволюционные предложения
-
+# Расписание снято 29.08 (решение владельца): Scout-Innovator теперь стадия
+# runEvoOrchestrator — вызывается ИЗ evo.run, 4×/сутки. Repo Scan и
+# Intelligence-шаги ниже избыточны сами по себе: repo-scan уже вызывается
+# изнутри runScoutInnovator через writeDailyBriefing() (lib/agents/warmup.ts),
+# а /api/cron/intelligence живёт своим отдельным внешним кроном на 6ч
+# (AGENTS.md, «CRON-ЗАДАЧИ») — второй ежедневный вызов того же эндпоинта был
+# просто дублем. workflow_dispatch остаётся для ручной отладки всей цепочки.
 on:
-  schedule:
-    - cron: '0 8 * * *'    # каждый день в 08:00 UTC: после Scout Digest (07:00)
   workflow_dispatch:        # ручной запуск из GitHub Actions UI
 
 jobs:
