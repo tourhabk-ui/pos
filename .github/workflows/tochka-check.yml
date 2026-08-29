@@ -1,0 +1,58 @@
+name: СБП — проверить, дошли ли переменные (без банка)
+
+# Одноразовая проверка после PR #1462. У токена агента нет права на
+# workflow_dispatch (403) — запускается push'ем в ветку tochka-check, тот
+# же приём, что cronjob-sync.yml и safety-relay-deploy.yml.
+#
+# Ждёт деплоя: PR #1462 только что смержен, Timeweb ещё может собирать
+# новый образ. Опрос с паузами вместо одного выстрела — иначе первый же
+# 404 ложно прочитался бы как «переменные не заданы».
+
+on:
+  push:
+    branches: [tochka-check]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Дождаться деплоя и снять диагноз
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET не задан — диагноз не снят."
+            exit 1
+          fi
+
+          URL="https://vedarai.ru/api/cron/tochka-check"
+          for i in $(seq 1 15); do
+            HTTP=$(curl -s -o /tmp/out.json -w '%{http_code}' --max-time 30 \
+              -H "Authorization: Bearer $CRON_SECRET" "$URL")
+            echo "попытка $i: HTTP $HTTP"
+            if [ "$HTTP" = "200" ]; then break; fi
+            if [ "$HTTP" != "404" ]; then
+              echo "::error::неожиданный ответ $HTTP"; cat /tmp/out.json 2>/dev/null || true; exit 1
+            fi
+            sleep 20
+          done
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::роут так и не появился за отведённое время — деплой либо не завершился, либо упал."
+            exit 1
+          fi
+
+          echo "── Ответ ──────────────────────────────────────────"
+          cat /tmp/out.json
+          echo
+          OK=$(jq -r '.ok' /tmp/out.json)
+          SUMMARY=$(jq -r '.summary' /tmp/out.json)
+          echo "$SUMMARY"
+          if [ "$OK" != "true" ]; then
+            echo "::warning::$SUMMARY"
+          fi

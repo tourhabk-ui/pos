@@ -74,7 +74,9 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
 /** Ручные переписи, разборы и починки — расписания у них быть и не должно. */
 export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
-  'tochka-check':              { kind: 'manual', writes: false, note: 'дошли ли TOCHKA_* до сервера и той ли формы — без единого запроса в банк, даже в песочницу' },
+  // 'tochka-check' объявления здесь не несёт: его зовёт tochka-check.yml —
+  // объявление тут было бы вторым ответом на тот же вопрос (см. тот же довод
+  // у 'ai-channel-check' ниже).
   'channel-readiness':         { kind: 'manual', writes: false, note: 'сколько туров годится к выкладке на чужую витрину и что мешает каждому' },
   'tour-pickup':               { kind: 'manual', writes: true,  note: 'записать, как турист попадает на тур: перевозка — свойство оператора, а не поездки' },
   'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
