@@ -1,0 +1,100 @@
+name: Бисекция разрыва по реальной геометрии дорог (вручную)
+
+# Разовая диагностика (владелец 29.08). Мильково disconnected от
+# Петропавловска даже после фикса *_link (run 8 импорта графа) — снап
+# по-прежнему 65 м, числа компонент почти не изменились. Значит разрыв не
+# (только) в фильтре highway-классов.
+#
+# Прямая линия между двумя точками для бисекции провалилась (предыдущая
+# попытка): она не идёт по настоящей дороге, и каждая проверочная точка
+# получала too_far_from_road — это ничего не говорило о МЕСТЕ разрыва.
+#
+# Здесь вместо геометрической прямой берётся ФАКТИЧЕСКАЯ геометрия дорог:
+# Overpass отдаёт все ways класса motorway/trunk/primary/secondary в
+# коридоре, все их точки сортируются по широте, и берутся точки на
+# нескольких процентилях этого списка — они гарантированно лежат НА
+# какой-то реальной дороге такого класса (просто взяты из её же полилинии),
+# а не придуманы. Дальше каждая проверяется через наш /api/routing/path от
+# Петропавловска: где ok сменится на disconnected/too_far, там и граница.
+#
+# READ-ONLY: запросы к Overpass (публичный, только чтение) и к нашему же
+# публичному /api/routing/path. Секрет не нужен.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bisect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Собрать точки из реальной геометрии дорог
+        run: |
+          Q='[out:json][timeout:60];way["highway"~"^(motorway|trunk|primary|secondary)$"](53.0,157.8,55.3,159.3);out geom;'
+          HTTP=$(curl -sS -o /tmp/geo.json -w '%{http_code}' --max-time 90 \
+            -X POST --data-urlencode "data=${Q}" \
+            https://overpass-api.de/api/interpreter) || HTTP="000"
+          echo "HTTP overpass-api.de: ${HTTP}"
+          if [ "$HTTP" != "200" ]; then
+            HTTP=$(curl -sS -o /tmp/geo.json -w '%{http_code}' --max-time 90 \
+              -X POST --data-urlencode "data=${Q}" \
+              https://overpass.kumi.systems/api/interpreter) || HTTP="000"
+            echo "HTTP kumi.systems: ${HTTP}"
+          fi
+          if [ "$HTTP" != "200" ]; then
+            HTTP=$(curl -sS -o /tmp/geo.json -w '%{http_code}' --max-time 90 \
+              -X POST --data-urlencode "data=${Q}" \
+              https://maps.mail.ru/osm/tools/overpass/api/interpreter) || HTTP="000"
+            echo "HTTP mail.ru: ${HTTP}"
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Все зеркала Overpass недоступны"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          with open('/tmp/geo.json') as f:
+              data = json.load(f)
+          els = data.get('elements', [])
+          pts = []
+          for e in els:
+              tags = e.get('tags') or {}
+              hw = tags.get('highway')
+              name = tags.get('name') or tags.get('ref') or ''
+              for g in e.get('geometry') or []:
+                  if g:
+                      pts.append((g['lat'], g['lon'], hw, name))
+          pts.sort(key=lambda p: p[0])
+          print(f'Всего точек геометрии в коридоре: {len(pts)}')
+          if not pts:
+              raise SystemExit('нет точек — коридор пуст, бисекция невозможна')
+
+          n = len(pts)
+          percentiles = [10, 25, 40, 50, 60, 70, 80, 90]
+          picks = []
+          for p in percentiles:
+              idx = min(n - 1, max(0, int(n * p / 100)))
+              picks.append((p, pts[idx]))
+
+          with open('/tmp/picks.txt', 'w') as f:
+              for p, (lat, lon, hw, name) in picks:
+                  label = f'{p}pct_lat{lat:.3f}'
+                  f.write(f'{label}|{lat}|{lon}|{hw}|{name}\n')
+                  print(f'  {p:3d}% широты: {lat:.5f},{lon:.5f}  ({hw}, {name!r})')
+          PY
+
+      - name: Проверить связность от Петропавловска до каждой точки
+        run: |
+          BASE="https://vedarai.ru/api/routing/path"
+          FROM_LAT="53.0195"
+          FROM_LNG="158.6494"
+          while IFS='|' read -r label lat lon hw name; do
+            echo "── ${label} (highway=${hw}, ${name}) ──"
+            curl -sS -w '\nHTTP %{http_code} · %{time_total}s\n' --max-time 30 \
+              "${BASE}?from_lat=${FROM_LAT}&from_lng=${FROM_LNG}&to_lat=${lat}&to_lng=${lon}&mode=car"
+            echo
+            echo
+          done < /tmp/picks.txt
