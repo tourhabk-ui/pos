@@ -87,6 +87,60 @@ export function buildRelayUrl(origin: string, payload: QrSosPayload): string {
 }
 
 /**
+ * Что попало в камеру. Сканер обязан различать три исхода, а не два:
+ * наш сигнал бедствия, чужая точка geo: (старый формат кода — тоже польза,
+ * координаты есть) и «это вообще не то» — последнее НЕ выдаётся за сигнал
+ * (§4.0: место, где нельзя сказать «не знаю», заполняется враньём).
+ */
+export type ScannedCode =
+  | { kind: 'sos_relay'; url: string; sos: QrSosPayload }
+  | { kind: 'geo'; lat: number; lng: number }
+  | { kind: 'unknown'; text: string };
+
+/**
+ * Разбирает текст из QR. `selfOrigin` — origin нашего приложения: ссылку
+ * эстафеты принимаем и с чужого хоста (турист мог сохранить PWA с другого
+ * адреса), но полезная нагрузка всё равно разбирается локально из hash,
+ * никуда не ходя — сканирование обязано работать офлайн.
+ */
+export function classifyScannedCode(text: string, selfOrigin?: string): ScannedCode {
+  const raw = text.trim();
+
+  // geo:53.26359,158.41644 (в т.ч. с ?q= и высотой) — старый формат нашего
+  // кода и стандарт RFC 5870, которым делятся другие приложения.
+  const geo = /^geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i.exec(raw);
+  if (geo) {
+    const lat = Number(geo[1]);
+    const lng = Number(geo[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)
+      && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { kind: 'geo', lat, lng };
+    }
+    return { kind: 'unknown', text: raw };
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      return { kind: 'unknown', text: raw };
+    }
+    if (parsed.pathname.replace(/\/+$/, '') === '/sos/relay') {
+      const sos = parseRelayHash(parsed.hash);
+      if (sos) {
+        // Ведём на СВОЙ origin: чужой хост офлайн не откроется, а наша
+        // страница лежит в precache. Payload при этом полностью из кода.
+        const origin = selfOrigin || parsed.origin;
+        return { kind: 'sos_relay', url: `${origin}${parsed.pathname}${parsed.search}${parsed.hash}`, sos };
+      }
+    }
+  }
+
+  return { kind: 'unknown', text: raw };
+}
+
+/**
  * Разбор hash-фрагмента страницы эстафеты. Возвращает null на любом мусоре —
  * страница обязана отличать «нет данных» от «данные есть» и не показывать
  * пустую точку как сигнал (§4.0: не выдумывать то, чего нет).

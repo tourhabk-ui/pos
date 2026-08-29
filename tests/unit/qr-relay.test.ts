@@ -6,7 +6,7 @@
  * его чистая часть закреплена сторожем.
  */
 import { describe, it, expect } from 'vitest';
-import { buildRelayUrl, parseRelayHash, type QrSosPayload } from '@/lib/mesh/qr-relay';
+import { buildRelayUrl, parseRelayHash, classifyScannedCode, type QrSosPayload } from '@/lib/mesh/qr-relay';
 import { requestFor, flushPendingItems, type PendingSOS } from '@/lib/offline/pending-queue';
 
 const FULL: QrSosPayload = {
@@ -77,6 +77,44 @@ describe('QR-эстафета: URL туда и обратно', () => {
 
   it('URL помещается в разумную ёмкость QR (< 600 символов на полном payload)', () => {
     expect(buildRelayUrl('https://vedarai.ru', FULL).length).toBeLessThan(600);
+  });
+});
+
+describe('сканер: что именно попало в камеру', () => {
+  it('наш код эстафеты опознаётся и несёт разобранный сигнал', () => {
+    const url = buildRelayUrl('https://vedarai.ru', FULL);
+    const code = classifyScannedCode(url, 'https://vedarai.ru');
+    expect(code.kind).toBe('sos_relay');
+    if (code.kind !== 'sos_relay') throw new Error('unreachable');
+    expect(code.sos.sos_id).toBe(FULL.sos_id);
+    expect(code.sos.tourist_name).toBe(FULL.tourist_name);
+  });
+
+  it('код с чужого хоста ведёт на СВОЙ origin — чужой офлайн не откроется', () => {
+    const url = buildRelayUrl('https://old-host.example', FULL);
+    const code = classifyScannedCode(url, 'https://vedarai.ru');
+    expect(code.kind).toBe('sos_relay');
+    if (code.kind !== 'sos_relay') throw new Error('unreachable');
+    expect(code.url.startsWith('https://vedarai.ru/sos/relay')).toBe(true);
+    // payload при этом взят из самого кода, а не запрошен по сети
+    expect(code.sos.lat).toBeCloseTo(FULL.lat!, 5);
+  });
+
+  it('geo: — это координаты, но НЕ сигнал бедствия (третий исход)', () => {
+    const code = classifyScannedCode('geo:53.26359,158.41644');
+    expect(code.kind).toBe('geo');
+    if (code.kind !== 'geo') throw new Error('unreachable');
+    expect(code.lat).toBeCloseTo(53.26359, 5);
+    expect(code.lng).toBeCloseTo(158.41644, 5);
+  });
+
+  it('посторонний QR не выдаётся за SOS', () => {
+    expect(classifyScannedCode('https://example.com/promo').kind).toBe('unknown');
+    expect(classifyScannedCode('просто текст').kind).toBe('unknown');
+    expect(classifyScannedCode('geo:999,999').kind).toBe('unknown');
+    // наш путь, но с пустым/битым payload — тоже не сигнал
+    expect(classifyScannedCode('https://vedarai.ru/sos/relay').kind).toBe('unknown');
+    expect(classifyScannedCode('https://vedarai.ru/sos/relay#p=%%%').kind).toBe('unknown');
   });
 });
 
