@@ -73,6 +73,17 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   ai_factcheck_failed: 'утверждения AI-поста не подтверждены статьями',
   ai_send_failed: 'AI-пост готов, но Telegram не принял отправку',
   ai_digest_aborted: 'прогон оборвался до AI-поста',
+  // ── Канал: отказ судьи назван так же точно, как у дайджеста (29.08) ──────
+  // До этого дня и отказ судьи, и оставшаяся выдумка давали один код
+  // `ai_factcheck_failed`. По нему нельзя было понять, чинить провайдеров
+  // или содержание поста — а для канала это была единственная подсказка.
+  ai_unsupported_claims: 'выдумки в AI-посте остались и после переписывания',
+  ai_judge_silent: 'судья AI-поста вернул пустоту — молчит провайдер',
+  ai_judge_unavailable: 'судью AI-поста не ответил ни один провайдер — чинить у провайдера',
+  ai_judge_unparseable: 'судья AI-поста ответил прозой вместо JSON — сбой в промпте',
+  ai_judge_truncated: 'ответ судьи AI-поста оборвался — не хватило потолка токенов',
+  ai_judge_bad_shape: 'в ответе судьи AI-поста нет поля unsupported — сбой в промпте',
+  ai_judge_threw: 'запрос к судье AI-поста упал — сеть, ключ или таймаут',
 };
 
 /**
@@ -92,6 +103,27 @@ const AI_CHANNEL_ABORTED = {
   ai_channel_sent: false,
   ai_channel_skip_reason: 'ai_digest_aborted',
 } as const;
+
+/**
+ * Отказ судьи → код причины для AI-канала.
+ *
+ * Литералы, а не сборка строкой `ai_${...}`: составленное имя не видно ни
+ * читателю, ни сторожу (ai-channel-observable требует, чтобы каждая причина
+ * присваивалась в исходнике явно, и это верное требование — иначе код,
+ * который агент способен выдать, нигде не написан).
+ *
+ * `Record<JudgeFailure, string>` заодно поручает компилятору полноту:
+ * появится седьмая причина отказа судьи — сборка встанет, пока для канала
+ * не назовут её имя.
+ */
+const AI_JUDGE_SKIP: Record<JudgeFailure, string> = {
+  silent: 'ai_judge_silent',
+  unavailable: 'ai_judge_unavailable',
+  unparseable: 'ai_judge_unparseable',
+  truncated: 'ai_judge_truncated',
+  bad_shape: 'ai_judge_bad_shape',
+  threw: 'ai_judge_threw',
+};
 
 export interface DigestResult {
   signals_found: number;
@@ -513,7 +545,11 @@ export function isNearRepeatOfPrevious(
 // перенесёнными числами ушёл в AI-канал мимо гейтов, живших только здесь).
 // Re-export — обратная совместимость импортов и сторожей.
 export { unsourcedPercents } from '@/lib/agents/fact-check';
-import { unsourcedPercents, unsupportedClaims, judgeClaims, type JudgeFailure } from '@/lib/agents/fact-check';
+// unsupportedClaims больше не зовётся отсюда (29.08): тонкая обёртка теряет
+// причину отказа судьи, а причина — это то, ради чего разбор и открывают.
+// Везде judgeClaims, у которого исход именной.
+import { unsourcedPercents, judgeClaims, type JudgeFailure } from '@/lib/agents/fact-check';
+import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 
 /**
  * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
@@ -786,7 +822,17 @@ export async function runScoutDigest(): Promise<DigestResult> {
   }
 
   if (!digest) {
-    return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'synthesis_null', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
+    // К коду прикладывается СЛЕД отказов провайдеров (29.08) — тот же приём,
+    // что у судьи с 23.08. Без него `synthesis_null` называет исход («текста
+    // нет»), но не причину, а причин две с разным лечением: модель ответила
+    // пустотой или не ответил никто. Прогон 27.08 встал именно здесь с
+    // `llm_calls: 0` — по одному коду отличить одно от другого было нельзя.
+    const trace = describeRecentAiFailures();
+    return {
+      signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'synthesis_null',
+      ...(trace ? { digest_skip_detail: trace } : {}),
+      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+    };
   }
 
   // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
@@ -848,10 +894,31 @@ export async function runScoutDigest(): Promise<DigestResult> {
       const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
       if (!retry) break;
       digest = retry;
-      claims = await unsupportedClaims(digest, signalsList);
+      // judgeClaims, а НЕ unsupportedClaims (29.08). Тонкая обёртка
+      // схлопывает все шесть причин отказа судьи в один `null`, и до этой
+      // правки повторная сверка, упавшая из-за молчащих провайдеров,
+      // доезжала до отчёта как `factcheck_judge_mute` — «проверяющая модель
+      // не ответила». Первая сверка при этом причину называла точно.
+      // Владельца отправляли чинить промпт при мёртвой инфраструктуре —
+      // ровно тот дефект, что чинили 22.08 в самом судье и 23.08 в алерте.
+      const recheck = await judgeClaims(digest, signalsList);
+      if (!recheck.ok) {
+        return {
+          signals_found: freshItems.length, digest_sent: false,
+          digest_skip_reason: judgeSkipReason(recheck.why),
+          ...(recheck.sample ? { digest_skip_detail: recheck.sample } : {}),
+          duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+        };
+      }
+      claims = recheck.unsupported;
     }
     if (claims === null || claims.length > 0) {
       // Лучше не выпустить дайджест, чем выпустить с выдумкой (или непроверенным).
+      //
+      // `claims === null` здесь остаётся достижимым только одним путём: первая
+      // сверка вернула список, переписывание не удалось (`break` выше), и
+      // список остался прежним. Отказ ПОВТОРНОЙ сверки теперь уходит выше
+      // со своей точной причиной и сюда не доходит.
       return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: claims === null ? 'factcheck_judge_mute' : 'unsupported_claims', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
     }
   }
@@ -980,21 +1047,33 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
       // ── Семантический фактчек: сверяем факты поста с текстом статей ──
       if (aiDigest) {
-        let claims = await unsupportedClaims(aiDigest, aiSignals);
-        // null — судья не ответил: не публикуем (сбой гейта = отмена).
-        if (claims === null) {
+        // judgeClaims вместо unsupportedClaims (29.08): до этой правки отказ
+        // судьи и оставшаяся выдумка давали ОДИН код `ai_factcheck_failed`,
+        // и по нему нельзя было понять, чинить провайдеров или содержание.
+        // Для канала это стоило дороже, чем для дайджеста: владелец видел
+        // молчащий канал и не имел ни одной подсказки, куда смотреть.
+        const firstVerdict = await judgeClaims(aiDigest, aiSignals);
+        let claims: string[] | null = firstVerdict.ok ? firstVerdict.unsupported : null;
+        if (!firstVerdict.ok) {
           aiDigest = null;
-          aiSkip = 'ai_factcheck_failed';
-        } else if (claims.length > 0) {
+          aiSkip = AI_JUDGE_SKIP[firstVerdict.why];
+        } else if (claims && claims.length > 0) {
           const fix: ChatMessage[] = [
             ...aiMessages,
             { role: 'assistant', content: aiDigest },
             { role: 'user', content: `Эти утверждения НЕ подтверждаются текстом статей (выдумка или искажение): ${claims.join(' | ')}. Перепиши пост, убрав или исправив их строго по источникам. Не добавляй новых непроверенных фактов. Верни только исправленный пост.` },
           ];
           const retry = await callAIQualityOrNull(fix, { maxTokens: 1600 }).catch(() => null);
-          if (retry) { aiDigest = retry; claims = await unsupportedClaims(aiDigest, aiSignals); }
-          // После переписи: остаток выдумок ИЛИ повторный сбой судьи — не публикуем.
-          if (claims === null || claims.length > 0) { aiDigest = null; aiSkip = 'ai_factcheck_failed'; }
+          if (retry) {
+            aiDigest = retry;
+            const recheck = await judgeClaims(aiDigest, aiSignals);
+            claims = recheck.ok ? recheck.unsupported : null;
+            // Отказ ПОВТОРНОЙ сверки тоже называется точно, а не сливается
+            // с «остались выдумки»: это разные беды и разное лечение.
+            if (!recheck.ok) { aiDigest = null; aiSkip = AI_JUDGE_SKIP[recheck.why]; }
+          }
+          // Остаток выдумок после переписи — уже про содержание, не про судью.
+          if (aiDigest && claims !== null && claims.length > 0) { aiDigest = null; aiSkip = 'ai_unsupported_claims'; }
         }
       }
 
