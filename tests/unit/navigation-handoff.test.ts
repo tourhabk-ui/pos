@@ -32,6 +32,13 @@ describe('порядок координат у каждого провайдер
     expect(u).toContain('dll=52.885700,158.704000');
   });
 
+  it('MAPS.ME ждёт lat,lng — та же форма, что у Organic Maps, разный хост', () => {
+    const u = routeUrl('maps_me', ME, CAPE, 'car')!;
+    expect(u.startsWith('https://dlink.maps.me/route?')).toBe(true);
+    expect(u).toContain('sll=53.019500,158.648300');
+    expect(u).toContain('dll=52.885700,158.704000');
+  });
+
   it('Яндекс ждёт lat,lng в rtext', () => {
     const u = routeUrl('yandex', ME, CAPE, 'car')!;
     // rtext закодирован целиком: запятая и тильда экранированы
@@ -53,14 +60,16 @@ describe('порядок координат у каждого провайдер
 });
 
 describe('режим передвижения доезжает до ссылки', () => {
-  it('пешком — пешеходный профиль у всех трёх', () => {
+  it('пешком — пешеходный профиль у всех четырёх', () => {
     expect(routeUrl('organic', ME, CAPE, 'foot')).toContain('type=pedestrian');
+    expect(routeUrl('maps_me', ME, CAPE, 'foot')).toContain('type=pedestrian');
     expect(routeUrl('yandex', ME, CAPE, 'foot')).toContain('rtt=pd');
     expect(routeUrl('dgis', ME, CAPE, 'foot')).toContain('/tab/pedestrian/');
   });
 
   it('на машине — автомобильный', () => {
     expect(routeUrl('organic', ME, CAPE, 'car')).toContain('type=vehicle');
+    expect(routeUrl('maps_me', ME, CAPE, 'car')).toContain('type=vehicle');
     expect(routeUrl('yandex', ME, CAPE, 'car')).toContain('rtt=auto');
     expect(routeUrl('dgis', ME, CAPE, 'car')).toContain('/tab/car/');
   });
@@ -70,14 +79,14 @@ describe('без старта маршрут не выдумывается', () 
   it('нет точки старта — маршрутной ссылки нет', () => {
     // Формы «origin пустой, возьми моё местоположение» у провайдеров разные
     // и недодокументированы. Собрать такую наугад значит иногда открыть не то.
-    for (const app of ['organic', 'yandex', 'dgis'] as const) {
+    for (const app of ['organic', 'maps_me', 'yandex', 'dgis'] as const) {
       expect(routeUrl(app, null, CAPE, 'car')).toBeNull();
     }
   });
 
   it('вместо маршрута отдаётся честная ссылка на точку', () => {
     const links = navLinks(null, CAPE, 'car');
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
     expect(links.every((l) => l.isRoute === false)).toBe(true);
     expect(links.every((l) => l.url.length > 0)).toBe(true);
   });
@@ -88,9 +97,13 @@ describe('без старта маршрут не выдумывается', () 
   });
 
   it('офлайновый Organic Maps идёт первым', () => {
-    // На Камчатке связь кончается раньше дороги: единственный из трёх, кто
+    // На Камчатке связь кончается раньше дороги: единственный из четырёх, кто
     // построит маршрут без сети, должен быть под большим пальцем.
     expect(navLinks(ME, CAPE).map((l) => l.app)[0]).toBe('organic');
+  });
+
+  it('MAPS.ME идёт вторым', () => {
+    expect(navLinks(ME, CAPE).map((l) => l.app)[1]).toBe('maps_me');
   });
 });
 
@@ -110,7 +123,7 @@ describe('негодные координаты не превращаются в
 
   it('негодный СТАРТ роняет маршрут до точки, а не до пустоты', () => {
     const links = navLinks({ lat: 0, lng: 0 }, CAPE, 'car');
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
     expect(links.every((l) => l.isRoute === false)).toBe(true);
   });
 });
