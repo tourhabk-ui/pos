@@ -49,7 +49,15 @@ describe('API кокпита: только чтение, только админ
     expect(API).toMatch(/evo_stages/);
     expect(API).toMatch(/if \(lastEvoTask\)/);
     // Без задачи — пустой массив, а не выдуманные ok:true/false.
-    expect(API).toMatch(/let evoStages: Array<\{ key: string; ok: boolean \}> = \[\];/);
+    expect(API).toMatch(/let evoStages: Array<\{ key: string; ok: boolean; diag\?: string \}> = \[\];/);
+  });
+
+  it('диагноз стадии (29.08): API прокидывает diag из note-события, кокпит его показывает', () => {
+    // Находка: scoutInnovator мог быть ok:true, пока GITHUB_ISSUES_TOKEN
+    // отсутствовал на проде — сам агент это знал (phase1_diag), но строка
+    // терялась на границе результат-стадии → событие ядра (§4.0).
+    expect(API).toMatch(/diag: typeof r\.details\.diag === 'string' \? r\.details\.diag : undefined/);
+    expect(CLIENT).toMatch(/status\?\.diag/);
   });
 
   it('зависшие эффекты (P3) читаются тем же read-only путём, что и остальное', () => {

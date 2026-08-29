@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
     // {stage, ok}, которые пишет finishEvoRunTask (evo-run-task.ts). Задачи
     // может не быть вовсе (см. last_evo_run: null выше) — тогда пустой массив,
     // а не выдуманные статусы.
-    let evoStages: Array<{ key: string; ok: boolean }> = [];
+    let evoStages: Array<{ key: string; ok: boolean; diag?: string }> = [];
     const lastEvoTask = lastEvo.rows[0];
     if (lastEvoTask) {
       const { rows: stageEvents } = await pool.query<{ details: Record<string, unknown> }>(
@@ -170,7 +170,11 @@ export async function GET(request: NextRequest) {
       );
       evoStages = stageEvents
         .filter((r) => typeof r.details.stage === 'string' && typeof r.details.ok === 'boolean')
-        .map((r) => ({ key: r.details.stage as string, ok: r.details.ok as boolean }));
+        .map((r) => ({
+          key: r.details.stage as string,
+          ok: r.details.ok as boolean,
+          diag: typeof r.details.diag === 'string' ? r.details.diag : undefined,
+        }));
     }
 
     return NextResponse.json({

@@ -57,6 +57,10 @@ interface AgentEffectRow {
 interface EvoStageStatus {
   key: string;
   ok: boolean;
+  // 29.08: диагноз стадии («почему не вышло», не «упала ли») — раньше
+  // терялся на границе результат-стадии → событие ядра, и зелёная плитка
+  // не отличалась от «отработала, но токена для issue нет» (§4.0).
+  diag?: string;
 }
 
 interface Overview {
@@ -304,6 +308,18 @@ export default function VolcanoClient() {
                         ? 'нет данных с последнего прогона'
                         : status.ok ? 'стадия прошла' : 'стадия упала'}
                     </div>
+                    {status?.diag && (
+                      // Диагноз стадии — «сделала ли то, ради чего звали», не
+                      // «упала ли» (§4.0). Зелёная «прошла» и diag рядом —
+                      // законное сочетание: агент не упал, но цели не достиг
+                      // (например нет токена для issue) — оба факта видны.
+                      <div
+                        className="text-[11px] leading-snug pt-1 border-t border-white/10"
+                        style={{ color: 'var(--warning)' }}
+                      >
+                        {status.diag}
+                      </div>
+                    )}
                   </div>
                 );
               })}
