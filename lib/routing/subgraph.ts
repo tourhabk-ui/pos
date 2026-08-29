@@ -27,8 +27,25 @@ interface EdgeRow {
 }
 
 /**
- * bbox вокруг двух точек с запасом: 25% диагонали, минимум ~7 км.
+ * bbox вокруг двух точек с запасом.
  * На пустом графе вернёт пустой подграф — решает вызывающий.
+ *
+ * Запас — от БОЛЬШЕГО из двух спанов, не от своего (владелец 29.08, находка
+ * при разборе disconnected Петропавловск→Мильково). Прежний запас 25% ОТ
+ * СВОЕГО спана ломался именно на маршрутах вроде этого: почти строго на
+ * север (lngSpan ~0.03°), а реальная трасса уходит на ~100 км западнее по
+ * долине реки, прежде чем повернуть обратно. При запасе по долготе в
+ * четверть от 0.03° (то есть у пола 0.12°) этот крюк целиком выпадал из
+ * bbox — узлы трассы там формально грузились (SQL по lat/lng их находил),
+ * а рёбра между ними и Петропавловском — нет: JOIN требует ОБА конца ребра
+ * внутри bbox, так что цепочка рвалась ровно на границе. Честный
+ * disconnected при полностью связном графе в БД.
+ *
+ * Запас общий по обеим осям — детур на камчатских дорогах (долины,
+ * единственный перевал/мост) не привязан к тому, в какой из двух координат
+ * лежит основной спан между точками. Больший запас не опасен: весь граф
+ * края — ~50k рёбер при потолке MAX_EDGES=120k, так что даже щедрый bbox
+ * не рискует его пробить.
  */
 export async function loadSubgraph(
   fromLat: number, fromLng: number,
@@ -36,8 +53,9 @@ export async function loadSubgraph(
 ): Promise<Subgraph> {
   const latSpan = Math.abs(fromLat - toLat);
   const lngSpan = Math.abs(fromLng - toLng);
-  const latPad = Math.max(latSpan * 0.25, 0.07);
-  const lngPad = Math.max(lngSpan * 0.25, 0.12);
+  const span = Math.max(latSpan, lngSpan);
+  const latPad = Math.max(span, 0.3);
+  const lngPad = Math.max(span, 0.3);
 
   const minLat = Math.min(fromLat, toLat) - latPad;
   const maxLat = Math.max(fromLat, toLat) + latPad;
