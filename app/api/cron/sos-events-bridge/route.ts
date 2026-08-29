@@ -18,7 +18,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { emitEvent, AGENT_EVENTS } from '@/lib/events/emit';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
@@ -36,8 +37,13 @@ export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
 
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
-    return NextResponse.json({ error: 'Неавторизованный доступ' }, { status: 401 });
+    return NextResponse.json({ error: 'Неавторизованный доступ', ...diagnoseCronAuth(request) }, { status: 401 });
   }
+
+  // Без аренды два планировщика в одном окне выпустили бы ОДНО SOS-событие
+  // в шину дважды — а на том конце это второй наряд по одному сигналу.
+  const lease = await claimCronWindow('sos-events-bridge', 30, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('sos-events-bridge', 30));
 
   const startedAt = Date.now();
 
