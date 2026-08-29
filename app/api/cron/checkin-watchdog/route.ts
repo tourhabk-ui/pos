@@ -6,7 +6,8 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import {
   decideEscalation,
@@ -97,8 +98,11 @@ export async function GET(req: Request) {
   const secret = getCronSecret(req);
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret || !timingSafeCompare(secret ?? '', cronSecret)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('checkin-watchdog', 60, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('checkin-watchdog', 60));
 
   const now = new Date();
   const startedAt = Date.now();

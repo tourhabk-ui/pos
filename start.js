@@ -44,35 +44,59 @@ spawn('node', ['server.js'], { env: { ...process.env, PORT: '3001', HOSTNAME: '1
 // хостинг не блокирует), поэтому землетрясения и цунами свежие ≤5 мин
 // независимо от GitHub. Telegram КБГС по-прежнему добирает GitHub-воркфлоу
 // (t.me для хостинга гео-заблокирован). Секрет из коробки не уходит.
-const SAFETY_INGEST_INTERVAL_MS = 5 * 60 * 1000;
+// Расширено 29.08 с одного ингеста на весь safety-разряд. Повод — замер:
+// планировщик GitHub доставлял 1-4% запрошенного (safety-ingest просит 288
+// прогонов в сутки, получал 2-4), и четыре safety-крона молчали по 4-6 часов
+// при зелёных прогонах, живом секрете и работающем проде. Сломана была
+// доставка расписания, а не что-либо чинимое с нашей стороны.
+//
+// Дубля не будет: каждый из этих роутов сперва берёт аренду окна
+// (lib/agents/cron-lease.ts), и второй планировщик в том же окне уходит с
+// названной причиной. Именно аренда делает безопасным то, что источников
+// запуска теперь трое — GitHub, cron-job.org и вот этот супервизор.
+//
+// Слабое место названо прямо: если прод лежит, не идёт ни один из них И
+// не идёт Watchdog, который об этом сообщил бы. Независимая конечность —
+// по-прежнему GitHub с cron-job.org; здесь мы чиним частоту, а не надзор.
+const SAFETY_JOBS = [
+  { path: '/api/cron/safety-ingest',     everyMin: 5,  timeoutMs: 90000,  startAfterMs: 45000 },
+  { path: '/api/cron/sos-events-bridge', everyMin: 30, timeoutMs: 60000,  startAfterMs: 60000 },
+  { path: '/api/cron/danger-analysis',   everyMin: 30, timeoutMs: 180000, startAfterMs: 90000 },
+  { path: '/api/cron/rescue',            everyMin: 30, timeoutMs: 180000, startAfterMs: 120000 },
+  { path: '/api/cron/watchdog',          everyMin: 30, timeoutMs: 120000, startAfterMs: 150000 },
+  { path: '/api/cron/checkin-watchdog',  everyMin: 60, timeoutMs: 60000,  startAfterMs: 180000 },
+];
 
-function triggerSafetyIngest() {
+function triggerCron(job) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return;
   const r = http.request({
     hostname: '127.0.0.1',
     port: 3001,
-    path: '/api/cron/safety-ingest',
+    path: job.path,
     method: 'GET',
     // server.js (Next 15) сверяет Host с HOSTNAME=127.0.0.1 (DNS-rebinding guard)
     headers: { 'host': '127.0.0.1:3001', 'authorization': `Bearer ${secret}` },
-    timeout: 90000,
+    timeout: job.timeoutMs,
   }, res => {
     res.resume(); // сливаем тело, не копим в памяти
-    if (res.statusCode !== 200) console.error(`[safety-heartbeat] HTTP ${res.statusCode}`);
+    if (res.statusCode !== 200) console.error(`[safety-heartbeat] ${job.path} HTTP ${res.statusCode}`);
   });
-  r.on('timeout', () => { console.error('[safety-heartbeat] timeout'); r.destroy(); });
-  r.on('error', e => console.error('[safety-heartbeat] error:', e.message));
+  r.on('timeout', () => { console.error(`[safety-heartbeat] ${job.path} timeout`); r.destroy(); });
+  r.on('error', e => console.error(`[safety-heartbeat] ${job.path} error:`, e.message));
   r.end();
 }
 
 if (process.env.CRON_SECRET) {
-  // Пауза на прогрев server.js, затем сразу прогон и далее каждые 5 минут.
-  setTimeout(() => {
-    triggerSafetyIngest();
-    setInterval(triggerSafetyIngest, SAFETY_INGEST_INTERVAL_MS);
-  }, 45000);
-  console.log('[safety-heartbeat] scheduled every 5 min');
+  // Разнесённые старты: два ядра на контейнер, и одновременный залп шести
+  // задач конкурировал бы с обслуживанием живых запросов.
+  for (const job of SAFETY_JOBS) {
+    setTimeout(() => {
+      triggerCron(job);
+      setInterval(() => triggerCron(job), job.everyMin * 60 * 1000);
+    }, job.startAfterMs);
+  }
+  console.log(`[safety-heartbeat] scheduled ${SAFETY_JOBS.length} safety crons in-process`);
 } else {
   console.error('[safety-heartbeat] CRON_SECRET not set — in-process heartbeat disabled');
 }

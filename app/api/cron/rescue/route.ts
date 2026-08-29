@@ -11,7 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
 import { logAgentRun } from '@/lib/agents/run-logger';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -25,8 +26,11 @@ export async function GET(request: NextRequest) {
   }
 
   if (!timingSafeCompare(secret, cronSecret)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('rescue', 30, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('rescue', 30));
 
   const startedAt = new Date();
 

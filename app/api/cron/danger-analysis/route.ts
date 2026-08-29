@@ -1,6 +1,7 @@
 import { runDangerAnalysis } from '@/lib/agents/agencies/danger-analyst-agency';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 /**
@@ -18,8 +19,11 @@ export async function GET(req: Request) {
     return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
   if (!timingSafeCompare(secret, cronSecret)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('danger-analysis', 30, 'external');
+  if (!shouldRun(lease)) return Response.json(leaseSkipBody('danger-analysis', 30));
 
   const startedAt = Date.now();
 

@@ -1,7 +1,8 @@
 import { runWatchdog } from '@/lib/agents/watchdog';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 /**
  * GET /api/cron/watchdog
@@ -17,8 +18,14 @@ export async function GET(req: Request) {
     return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
   if (!timingSafeCompare(secret, cronSecret)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
+
+  // Планировщиков у этого крона может быть трое (GitHub, cron-job.org,
+  // супервизор контейнера). Без аренды владелец получал бы один и тот же
+  // алерт в Telegram дважды.
+  const lease = await claimCronWindow('watchdog', 30, 'external');
+  if (!shouldRun(lease)) return Response.json(leaseSkipBody('watchdog', 30));
 
   const started_at = new Date();
   try {
