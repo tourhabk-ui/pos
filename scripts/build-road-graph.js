@@ -38,27 +38,47 @@ const TILES = [
 
 const HIGHWAY_RE = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|living_street|track|road|path|footway|bridleway|cycleway';
 
+// Замер владельца 28-29.08 (run 5, run 6): все три зеркала отдают HTTP-ошибку
+// (406/500/502/504) за секунды-десятки секунд, не за полный AbortSignal —
+// значит дело не в мёртвом зеркале, а в перегрузке/лимите, которая гуляет по
+// плиткам: run 6 плитка 1 прошла через maps.mail.ru после двух отказов,
+// плитка 2 отказала на всех трёх, включая тот же mail.ru минуту спустя. Один
+// проход по трём зеркалам без паузы этого не переживает — второй проход после
+// небольшой паузы часто застаёт зеркало отошедшим.
+//
+// Бюджет: 2 прохода, пауза 30с — по факту НАБЛЮДАВШИХСЯ задержек (худшая от
+// начала запроса до ошибки — около 45с) это плитка укладывается в ~5 минут
+// даже в плохом случае, а 4 плитки — в четверть таймаута воркфлоу (45 мин).
+const TILE_MAX_PASSES = 2;
+const TILE_RETRY_BACKOFF_MS = 30_000;
+
 async function fetchTile([s, w, n, e]) {
   const q = `[out:json][timeout:180];way[highway~"^(${HIGHWAY_RE})$"](${s},${w},${n},${e});out geom;`;
-  for (const mirror of OVERPASS_MIRRORS) {
-    try {
-      const res = await fetch(mirror, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(q),
-        signal: AbortSignal.timeout(220_000),
-      });
-      if (!res.ok) {
-        console.log(`  ${mirror}: HTTP ${res.status}, пробую следующее зеркало`);
-        continue;
+  for (let pass = 1; pass <= TILE_MAX_PASSES; pass++) {
+    for (const mirror of OVERPASS_MIRRORS) {
+      try {
+        const res = await fetch(mirror, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'data=' + encodeURIComponent(q),
+          signal: AbortSignal.timeout(220_000),
+        });
+        if (!res.ok) {
+          console.log(`  [проход ${pass}/${TILE_MAX_PASSES}] ${mirror}: HTTP ${res.status}, пробую следующее зеркало`);
+          continue;
+        }
+        const json = await res.json();
+        return json.elements || [];
+      } catch (e2) {
+        console.log(`  [проход ${pass}/${TILE_MAX_PASSES}] ${mirror}: ${e2.message}, пробую следующее зеркало`);
       }
-      const json = await res.json();
-      return json.elements || [];
-    } catch (e2) {
-      console.log(`  ${mirror}: ${e2.message}, пробую следующее зеркало`);
+    }
+    if (pass < TILE_MAX_PASSES) {
+      console.log(`  все зеркала отказали на проходе ${pass}/${TILE_MAX_PASSES} — жду ${TILE_RETRY_BACKOFF_MS / 1000}с перед повтором`);
+      await new Promise((r) => setTimeout(r, TILE_RETRY_BACKOFF_MS));
     }
   }
-  throw new Error(`Все зеркала Overpass недоступны для плитки ${s},${w},${n},${e}`);
+  throw new Error(`Все зеркала Overpass недоступны для плитки ${s},${w},${n},${e} после ${TILE_MAX_PASSES} проходов`);
 }
 
 async function post(body) {
