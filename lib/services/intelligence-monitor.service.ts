@@ -28,6 +28,7 @@ import { postAINewsToChannel, postTravelNewsToChannel } from '@/lib/notification
 import { bridgeMonitorFindings } from '@/lib/agents/evo/intel-bridge';
 import { triageActionItems } from '@/lib/agents/intel/action-quality';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
+import { judgeEmptyGather, type GatherCensus } from '@/lib/agents/intel-gather-census';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { stripTags } from '@/lib/html/text';
 
@@ -85,6 +86,14 @@ export interface IntelligenceReport {
   errors_count: number;
   /** Разбор по доменам: сколько каких исходов. Для панели и разбора. */
   outcomes: Record<IntelligenceOutcome, number>;
+  /**
+   * Почему у домена вышло пусто — словами, поимённо.
+   *
+   * Код называет КЛАСС беды, а чинят конкретную ленту. Тот же довод, по
+   * которому 29.08 к отказу судьи разведчика приложили сами утверждения:
+   * без содержания причину выбирают гаданием.
+   */
+  empty_reasons: string[];
 }
 
 /**
@@ -463,7 +472,19 @@ async function scrapeCompetitorPages(): Promise<RawSignal[]> {
 
 // ── Core Intelligence Gathering ──────────────────────────────────────────────
 
-async function gatherDomain(domainKey: string, config: DomainSource): Promise<RawSignal[]> {
+/**
+ * Улов домена вместе с ПЕРЕПИСЬЮ опроса.
+ *
+ * Перепись появилась 30.08: без неё пустой улов объявлялся как «источники
+ * ответили, но пусто» — утверждение о живости источников, которого код не
+ * мог подтвердить. Разбор — в lib/agents/intel-gather-census.ts.
+ */
+interface DomainHarvest {
+  signals: RawSignal[];
+  census: GatherCensus;
+}
+
+async function gatherDomain(domainKey: string, config: DomainSource): Promise<DomainHarvest> {
   const signals: RawSignal[] = [];
 
   // 1. Try premium search APIs first
@@ -482,24 +503,44 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Ra
   }
 
   // 3. Always fetch RSS (free, complementary data)
-  const rssPromises = config.rss.map(url =>
-    fetchFeed(url).then(items => {
-      updateSourceStatus(url, null);
-      return items.map(item => ({ ...item, source: new URL(url).hostname }));
-    }).catch((err) => {
-      updateSourceStatus(url, err instanceof Error ? err.message : String(err));
-      return [] as RawSignal[];
+  //
+  // Отказ ленты по-прежнему не роняет домен — но теперь и не исчезает:
+  // раньше он превращался в пустой список, неотличимый от живой, но пустой
+  // ленты, и наверху объявлялся как «источники ответили».
+  type FeedResult = { ok: true; items: RawSignal[] } | { ok: false; error: string };
+  const rssPromises: Array<Promise<FeedResult>> = config.rss.map(url =>
+    fetchFeed(url).then((items): FeedResult => {
+      void updateSourceStatus(url, null);
+      return { ok: true, items: items.map(item => ({ ...item, source: new URL(url).hostname })) };
+    }).catch((err): FeedResult => {
+      const message = err instanceof Error ? err.message : String(err);
+      void updateSourceStatus(url, message);
+      let host = url;
+      try { host = new URL(url).hostname; } catch { /* адрес битый — покажем как есть */ }
+      return { ok: false, error: `${host}: ${message}` };
     })
   );
   const rssResults = await Promise.allSettled(rssPromises);
 
+  const census: GatherCensus = { attempted: config.rss.length, answered: 0, failed: 0, failures: [] };
   for (const result of rssResults) {
-    if (result.status === 'fulfilled') {
-      signals.push(...result.value);
+    if (result.status !== 'fulfilled') {
+      // Сюда попасть нельзя — оба исхода выше уже пойманы, — но считать
+      // такой случай ответом было бы неправдой.
+      census.failed++;
+      census.failures.push('опрос ленты не состоялся');
+      continue;
+    }
+    if (result.value.ok) {
+      census.answered++;
+      signals.push(...result.value.items);
+    } else {
+      census.failed++;
+      census.failures.push(result.value.error);
     }
   }
 
-  return signals;
+  return { signals, census };
 }
 
 // ── AI Analysis ──────────────────────────────────────────────────────────────
@@ -507,14 +548,27 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Ra
 /** Итог разбора одного домена: находка либо ИМЕНОВАННАЯ причина её отсутствия. */
 type AnalyzeResult =
   | { outcome: 'finding'; finding: IntelligenceFinding }
-  | { outcome: Exclude<IntelligenceOutcome, 'finding' | 'gather_failed'> };
+  // `gather_failed` больше не исключён: с 30.08 сюда доходит отказ лент,
+  // который прежде тонул в пустом списке и объявлялся как `no_signals`.
+  | { outcome: Exclude<IntelligenceOutcome, 'finding'>; emptyReason?: string };
 
 async function analyzeSignals(
   domainKey: string,
   config: DomainSource,
   signals: RawSignal[],
+  census: GatherCensus,
 ): Promise<AnalyzeResult> {
-  if (signals.length === 0) return { outcome: 'no_signals' };
+  if (signals.length === 0) {
+    // Пусто — но почему? До 30.08 здесь всегда стояло `no_signals`, чей
+    // словарь обещает «источники ответили»; подтвердить это код не мог.
+    // Теперь судит перепись, и отказ сети больше не выдаётся за отсутствие
+    // новостей (§4.0).
+    const verdict = judgeEmptyGather(census);
+    if (verdict.outcome === 'gather_failed') {
+      console.error(`[intelligence] домен ${domainKey}: ${verdict.reason}`);
+    }
+    return { outcome: verdict.outcome, emptyReason: verdict.reason };
+  }
 
   const snippets = signals
     .slice(0, 12)
@@ -720,6 +774,7 @@ async function sendTelegramAlert(findings: IntelligenceFinding[]): Promise<void>
 export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
   const start = Date.now();
   const findings: IntelligenceFinding[] = [];
+  const emptyReasons: string[] = [];
   let rawCount = 0;
 
   // Load domains from DB (falls back to hardcoded if table doesn't exist)
@@ -738,7 +793,7 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
 
   const gatherResults = await Promise.allSettled(
     domainEntries.map(async ([key, config]) => {
-      const signals = await gatherDomain(key, config);
+      const { signals, census } = await gatherDomain(key, config);
 
       // ── travel_ai enrichment: add HN + Firecrawl sources ──
       if (key === 'travel_ai') {
@@ -748,7 +803,7 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
       }
 
       rawCount += signals.length;
-      return analyzeSignals(key, config, signals);
+      return analyzeSignals(key, config, signals, census);
     })
   );
 
@@ -763,6 +818,11 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
     }
     outcomes[result.value.outcome]++;
     if (result.value.outcome === 'finding') findings.push(result.value.finding);
+    // Причина пустоты словами — чтобы владелец чинил конкретную ленту, а не
+    // «разведку вообще». Код называет класс беды, чинят конкретное.
+    else if (result.value.emptyReason) {
+      emptyReasons.push(`${domainEntries[i]?.[0] ?? '?'}: ${result.value.emptyReason}`);
+    }
   }
 
   /**
@@ -855,6 +915,7 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
     skip_reason: skipReason,
     errors_count: outcomes.gather_failed + outcomes.model_mute + outcomes.model_malformed,
     outcomes,
+    empty_reasons: emptyReasons,
   };
 }
 
