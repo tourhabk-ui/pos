@@ -1,0 +1,74 @@
+name: Логи сборки Timeweb по deploy_id (вручную)
+
+# Разбор 29.08: «Verify deploy reached production» падает на КАЖДОМ мерже
+# уже несколько дней подряд — сайт всегда отдаёт /version.json c commit:
+# "unknown", хотя Timeweb доводит саму сборку до status=active. Фикс
+# .dockerignore (см. историю файла) не изменил результат: тот же "unknown"
+# после мержа фикса. Значит гипотеза («негация !.git/HEAD глушится
+# родительским исключением .git») либо неверна, либо верна не полностью —
+# а локальный `docker build` в сессии её не опровергает и не подтверждает
+# для СБОРКИ ИМЕННО НА TIMEWEB: их пайплайн собирает контекст не факт что
+# тем же движком/версией dockerignore-матчера, что ванильный Docker CLI.
+#
+# Единственный источник правды — лог САМОЙ сборки на Timeweb: `node
+# scripts/write-version.js` печатает `[version] commit=...` в стандартный
+# вывод сборки. Этот workflow читает этот лог по deploy_id (Timeweb API),
+# ничего не собирает и не меняет.
+#
+# Только workflow_dispatch: инструмент разбора, не наблюдение.
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_id:
+        description: 'ID сборки Timeweb (из ответа POST /apps/{id}/deploy или списка деплоев)'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Прочитать лог сборки
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+          DEPLOY_ID: ${{ inputs.deploy_id }}
+        run: |
+          APP_ID="198048"
+
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "::error::TIMEWEB_TOKEN не задан в секретах репозитория."
+            exit 1
+          fi
+
+          HTTP=$(curl -sS -o /tmp/deploy_logs.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploy/$DEPLOY_ID/logs") || HTTP="000"
+
+          echo "HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::API Timeweb ответил $HTTP."
+            cat /tmp/deploy_logs.json 2>/dev/null || true
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/deploy_logs.json') as f:
+              data = json.load(f) or {}
+
+          logs = data.get('deploy_logs', data.get('logs', []))
+          if not logs:
+              print('Логов нет — либо сборка ещё не началась, либо формат ответа другой.')
+              print('Верхнеуровневые ключи ответа:', sorted(data.keys()))
+          else:
+              for entry in logs:
+                  ts = entry.get('created_at', '')[:19]
+                  msg = entry.get('log', entry.get('message', ''))
+                  print(f'[{ts}] {msg}')
+          PY
