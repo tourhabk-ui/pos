@@ -1,0 +1,31 @@
+# Ведар — сейсмо-реле (Cloudflare Worker).
+#
+# Деплой:
+#   cd infra/safety-relay
+#   npx wrangler secret put CRON_SECRET     # то же значение, что в переменных Timeweb
+#   npx wrangler deploy
+#
+# Проверка ДО того, как поверить (см. шапку worker.js — с OpenRouter такой же
+# замысел не сработал, и урок стоил времени):
+#   curl -H "Authorization: Bearer <CRON_SECRET>" \
+#        https://vedar-safety-relay.<account>.workers.dev/selftest
+#
+# Ответ покажет размеры страниц t.me. Байты есть — блокировка обойдена;
+# отказ — путь не работает, и воркфлоу GitHub остаётся единственным.
+
+name = "vedar-safety-relay"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Каждые 5 минут — та же норма, что у воркфлоу: цунами от 185 км идёт ~15 мин.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+# Приёмник. Вынесен в переменную, чтобы адрес прода не был зашит в код:
+# на tourhab.ru два джоба cron-job.org падали ровно потому, что домен
+# переехал, а адрес остался.
+INGEST_BASE = "https://vedarai.ru"
+
+# CRON_SECRET задаётся секретом (wrangler secret put), а НЕ здесь:
+# содержимое [vars] видно в панели и уезжает в конфиг.
