@@ -125,6 +125,38 @@ const AI_JUDGE_SKIP: Record<JudgeFailure, string> = {
   threw: 'ai_judge_threw',
 };
 
+/**
+ * Отклонённые утверждения → строка для отчёта.
+ *
+ * Потолок тот же, что у `digest_skip_detail` вообще (200 знаков): поле идёт
+ * в журнал и алерт владельцу, а не в публикацию. Список режется ПО ЦЕЛЫМ
+ * утверждениям, а не по символам: обрубок фразы на середине не даёт понять,
+ * к чему судья придрался, и вопрос «почему молчит» остаётся открытым.
+ *
+ * Сколько было всего — говорится числом, даже если поместилось не всё:
+ * «показано 2 из 7» и «их было 2» — разные факты (§4.0).
+ */
+export function describeClaims(claims: string[], limit = 200): string {
+  const clean = claims.map(c => c.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (clean.length === 0) return 'судья вернул пустой список — придраться не к чему, но выпуск задержан';
+
+  const shown: string[] = [];
+  let used = 0;
+  for (const c of clean) {
+    const cost = c.length + (shown.length ? 3 : 0); // ' | ' между утверждениями
+    if (used + cost > limit) break;
+    shown.push(c);
+    used += cost;
+  }
+
+  // Не поместилось ни одно целиком — режем первое, но говорим об этом прямо.
+  if (shown.length === 0) {
+    return `${clean[0].slice(0, limit - 20)}… (обрезано, всего ${clean.length})`;
+  }
+  const tail = shown.length < clean.length ? ` (показано ${shown.length} из ${clean.length})` : '';
+  return shown.join(' | ') + tail;
+}
+
 export interface DigestResult {
   signals_found: number;
   digest_sent: boolean;
@@ -707,8 +739,14 @@ export async function runScoutDigest(): Promise<DigestResult> {
    * (17-26.08 подряд): двух текстов на раздел мало, когда сигналов в разделе
    * больше — оставшиеся голые заголовки писатель всё равно тянет в общий
    * инсайт раздела, и судья снова видит связку без текстового подтверждения.
-   * 4×700 символов на раздел из 4 разделов — 11200 символов худшего случая,
-   * запас до лимита судьи (16000) остаётся.
+   * Расчёт запаса, стоявший здесь до 29.08, был НЕВЕРЕН: «4×700 на раздел из
+   * 4 разделов — 11200 худшего случая, запас до 16000 остаётся» считал только
+   * обогащённые статьи и забывал, что список строится по ВСЕМ сигналам. При
+   * 53 (максимум из журнала прогонов) голых заголовков остаётся тридцать семь
+   * — ещё около 3900 знаков, и итог порядка 16900 уходил за потолок судьи.
+   * Писатель видел источники целиком, судья — усечённые, и утверждение,
+   * опиравшееся на хвост, честно не находило подтверждения. Потолок поднят
+   * (JUDGE_SOURCES_LIMIT), а сам обрез теперь называется вслух в промпте.
    */
   const ARTICLE_TEXT_PER_CATEGORY = 4;
   const perCategoryPicks = new Map<SourceCategory, RssItem[]>();
@@ -919,7 +957,23 @@ export async function runScoutDigest(): Promise<DigestResult> {
       // сверка вернула список, переписывание не удалось (`break` выше), и
       // список остался прежним. Отказ ПОВТОРНОЙ сверки теперь уходит выше
       // со своей точной причиной и сюда не доходит.
-      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: claims === null ? 'factcheck_judge_mute' : 'unsupported_claims', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
+      //
+      // САМИ УТВЕРЖДЕНИЯ уезжают в отчёт (29.08). До этой правки при
+      // `unsupported_claims` записывался только код: ЧТО именно судья
+      // забраковал, не видел никто. Три дня разбора молчания канала свелись
+      // к выбору между тремя правдоподобными механизмами — выдумка писателя,
+      // усечение источников на входе судьи, разная видимость контекста у
+      // писателя и судьи — при нулевых данных, чтобы этот выбор сделать.
+      //
+      // Код называет КЛАСС беды, а чинят конкретное. Ровно тот же довод, по
+      // которому 22.08 к отказу судьи приложили `sample`: без него чинили
+      // вслепую три недели.
+      return {
+        signals_found: freshItems.length, digest_sent: false,
+        digest_skip_reason: claims === null ? 'factcheck_judge_mute' : 'unsupported_claims',
+        ...(claims && claims.length > 0 ? { digest_skip_detail: describeClaims(claims) } : {}),
+        duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+      };
     }
   }
 
