@@ -24,11 +24,23 @@ function haversineM(lat1, lng1, lat2, lng2) {
   return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-/** Классы highway, пригодные для подъезда к тропам (авто + пешком). */
+/**
+ * Классы highway, пригодные для подъезда к тропам (авто + пешком).
+ *
+ * `*_link` (владелец 29.08, находка при разборе disconnected Петропавловск→
+ * Мильково) — короткие развязочные сегменты того же класса дороги (съезд,
+ * примыкание). Прямой запрос к Overpass по коридору ПК-Мильково нашёл
+ * `primary_link`/`secondary_link`/`tertiary_link` на трассе: один такой
+ * сегмент ровно на стыке — и цепочка ways рвётся именно там, хотя дорога
+ * по обе стороны размечена нормально. Без них граф технически ПРАВ (узлы
+ * действительно не делят общий OSM node id), но врёт о непроходимости
+ * дороги, которая физически существует.
+ */
 const HIGHWAY_WHITELIST = new Set([
   'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
   'unclassified', 'residential', 'service', 'living_street',
   'track', 'road', 'path', 'footway', 'bridleway', 'cycleway',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
 ]);
 
 /**

@@ -28,10 +28,20 @@ export interface RoadEdge {
 export type TravelMode = 'car' | 'foot';
 
 // км/ч по классам highway для авто; null = непроезжаемо машиной
+//
+// *_link (владелец 29.08, находка при разборе disconnected Петропавловск→
+// Мильково) — короткие развязочные сегменты того же класса дороги (съезд,
+// примыкание на трассе). Без записи здесь HIGHWAY_WHITELIST билдера
+// (scripts/road-graph-builder.js) собрал бы ребро, но edgeCostSeconds
+// вернул бы Infinity как для незнакомого класса — граф технически связан,
+// а A* всё равно не проехал бы. Скорость — чуть ниже родительского класса
+// (короткая связка, не разгонишься), не выдумана: соответствует практике
+// OSRM/большинства роутеров для _link-классов.
 const CAR_SPEED_KMH: Record<string, number | null> = {
   motorway: 90, trunk: 80, primary: 70, secondary: 60, tertiary: 50,
   unclassified: 40, residential: 30, living_street: 15, service: 20,
   road: 40, track: 25,
+  motorway_link: 60, trunk_link: 50, primary_link: 40, secondary_link: 35, tertiary_link: 30,
   path: null, footway: null, bridleway: null, cycleway: null,
 };
 
