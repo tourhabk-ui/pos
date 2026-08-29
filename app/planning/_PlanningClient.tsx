@@ -2366,6 +2366,18 @@ function OnTrailTab() {
   const [obsOpen, setObsOpen] = useState(false);
   const obsQueueLen = useTrailObservationQueue();
   const [fieldBarError, setFieldBarError] = useState<string | null>(null);
+
+  // Deep-link с главной («Сообщить о наблюдении… →») обязан открывать САМУ
+  // форму, а не приземлять на общий полевой экран (владелец 29.08: ссылка
+  // ведёт на /planning?mode=trail&obs=1, а без этого флага человек видел
+  // «Куда хотите пойти?» вместо формы, которую ему обещали заголовком —
+  // тот же класс дефекта, что чинили 27.08 для самой кнопки «Наблюдение»,
+  // только теперь про то, что показывается ПЕРВЫМ).
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get('obs') === '1') setObsOpen(true);
+    } catch { /* ignore */ }
+  }, []);
   const [sendingTrack, setSendingTrack] = useState(false);
 
   const stopAndSendTrack = useCallback(async () => {
