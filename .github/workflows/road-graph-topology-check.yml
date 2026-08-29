@@ -1,0 +1,92 @@
+name: Проверка связности графа напрямую из Overpass (без нашей БД)
+
+on:
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Скачать корридор с Overpass и построить граф билдером прод-импорта
+        run: |
+          Q='[out:json][timeout:120];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|living_street|track|road|path|footway|bridleway|cycleway|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](53.0,157.3,55.3,159.5);out geom;'
+          HTTP=$(curl -sS -o /tmp/geo.json -w '%{http_code}' --max-time 100 \
+            -X POST --data-urlencode "data=${Q}" \
+            https://overpass-api.de/api/interpreter) || HTTP="000"
+          echo "HTTP overpass-api.de: ${HTTP}"
+          if [ "$HTTP" != "200" ]; then
+            HTTP=$(curl -sS -o /tmp/geo.json -w '%{http_code}' --max-time 100 \
+              -X POST --data-urlencode "data=${Q}" \
+              https://overpass.kumi.systems/api/interpreter) || HTTP="000"
+            echo "HTTP kumi.systems: ${HTTP}"
+          fi
+          if [ "$HTTP" != "200" ]; then
+            HTTP=$(curl -sS -o /tmp/geo.json -w '%{http_code}' --max-time 100 \
+              -X POST --data-urlencode "data=${Q}" \
+              https://maps.mail.ru/osm/tools/overpass/api/interpreter) || HTTP="000"
+            echo "HTTP mail.ru: ${HTTP}"
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Все зеркала Overpass недоступны"
+            exit 1
+          fi
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const { buildGraph } = require('./scripts/road-graph-builder.js');
+          const data = JSON.parse(fs.readFileSync('/tmp/geo.json', 'utf8'));
+          const elements = data.elements || [];
+          console.log('Всего элементов от Overpass:', elements.length);
+          const { nodes, edges } = buildGraph(elements);
+          console.log('Граф (свежий, из Overpass): узлов', nodes.size, 'рёбер', edges.length);
+
+          const adj = new Map();
+          for (const e of edges) {
+            if (!adj.has(e.from)) adj.set(e.from, []);
+            if (!adj.has(e.to)) adj.set(e.to, []);
+            adj.get(e.from).push(e.to);
+            adj.get(e.to).push(e.from);
+          }
+
+          function nearest(lat, lng) {
+            let best = null, bestD = Infinity;
+            for (const [id, p] of nodes) {
+              const dLat = p.lat - lat, dLng = (p.lng - lng) * Math.cos(lat * Math.PI / 180);
+              const d = Math.sqrt(dLat * dLat + dLng * dLng);
+              if (d < bestD) { bestD = d; best = id; }
+            }
+            return { id: best, distDeg: bestD };
+          }
+
+          const targets = [
+            { label: 'Петропавловск (старт)', lat: 53.0195, lng: 158.6494 },
+            { label: '82pct ok (53.273,158.187)', lat: 53.27344, lng: 158.18740 },
+            { label: '83pct disconnected (54.019,157.838)', lat: 54.01903, lng: 157.83780 },
+            { label: '84pct too_far (54.128,157.916)', lat: 54.12768, lng: 157.91604 },
+            { label: 'Мильково (54.695,158.62)', lat: 54.695, lng: 158.62 },
+          ];
+
+          const starts = targets.map((t) => ({ ...t, ...nearest(t.lat, t.lng) }));
+          for (const s of starts) {
+            console.log(`${s.label}: ближайший узел ${s.id}, дистанция ~${(s.distDeg * 111000).toFixed(0)} м`);
+          }
+
+          const src = starts[0].id;
+          const seen = new Set([src]);
+          const queue = [src];
+          while (queue.length) {
+            const u = queue.shift();
+            for (const v of (adj.get(u) || [])) {
+              if (!seen.has(v)) { seen.add(v); queue.push(v); }
+            }
+          }
+          console.log('Компонента Петропавловска (BFS): узлов', seen.size, 'из', nodes.size);
+          for (const s of starts) {
+            console.log(`  ${s.label}: ${seen.has(s.id) ? 'СВЯЗАН с Петропавловском' : 'НЕ связан с Петропавловском'}`);
+          }
+          NODE
