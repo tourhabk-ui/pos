@@ -115,6 +115,9 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'track-import-queue':        { kind: 'manual', writes: false, note: 'очередь загруженных треков (route_track_imports) — писала, не читал никто' },
   'route-kind-classify':       { kind: 'manual', writes: true,  note: 'разметка рода записи: путь или «как добраться»' },
   'schema-drift':              { kind: 'manual', writes: false, note: 'объявленные колонки против information_schema живой базы' },
+  // 'ai-channel-check' тоже дёргает scout-diagnose-report.yml — объявления
+  // здесь быть не должно по той же причине (два ответа на один вопрос).
+  //
   // 'scout-diagnose' убран из ручных 29.08: его дёргает
   // .github/workflows/scout-diagnose-report.yml (по кнопке, без расписания —
   // диагностике не место в liveness-панели). Объявление рядом с workflow —
