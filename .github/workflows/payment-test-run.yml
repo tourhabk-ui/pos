@@ -1,0 +1,77 @@
+name: СБП — одноразовый прогон денежного пути (только эта ветка)
+
+# Живёт ТОЛЬКО на ветке payment-test-run и никогда не сливается в main.
+# payment-test-setup объявлен manual/writes:true в cron-schedulers.ts —
+# постоянный workflow, называющий его адрес, дал бы сторожу два ответа на
+# вопрос «кто запускает» (та же причина, по которой tochka-check.yml
+# заставил снять ручную запись). Здесь ветка одноразовая, слияния не будет,
+# и main этого файла не увидит.
+#
+# Порядок: сухой прогон setup (только показывает, что будет создано) →
+# подтверждённый setup (заводит служебного партнёра/тур/бронь, реальных
+# туристов не касается) → выпуск QR по нынешнему TOCHKA_BASE_URL (сейчас
+# песочница — подтверждено tochka-check.yml) → commission-dry-run, чтобы
+# увидеть решение приёмника комиссии БЕЗ настоящей оплаты.
+#
+# Оплаты по QR здесь НЕТ и не может быть: раннер не банк и не телефон.
+# Песочница Точки, по её собственной документации, никогда не подтверждает
+# оплату — только форму запроса. Teardown НЕ вызывается: решение, убирать
+# ли служебные записи сейчас, оставлено человеку.
+
+on:
+  push:
+    branches: [payment-test-run]
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Прогон
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET не задан."
+            exit 1
+          fi
+
+          echo "── 1. Сухой прогон setup (ничего не создаёт) ─────────"
+          curl -sS --max-time 30 -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
+            -d '{}' "https://vedarai.ru/api/cron/payment-test-setup" | tee /tmp/dry.json
+          echo
+
+          echo "── 2. Подтверждённый setup ────────────────────────────"
+          HTTP=$(curl -sS -o /tmp/setup.json -w '%{http_code}' --max-time 30 -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
+            -d '{"confirm":true}' "https://vedarai.ru/api/cron/payment-test-setup")
+          cat /tmp/setup.json; echo
+          if [ "$HTTP" != "200" ]; then echo "::error::setup ответил $HTTP"; exit 1; fi
+          OK=$(jq -r '.ok' /tmp/setup.json)
+          if [ "$OK" != "true" ]; then echo "::error::setup: ok=false — $(jq -r '.reason' /tmp/setup.json)"; exit 1; fi
+          BOOKING_ID=$(jq -r '.booking_id' /tmp/setup.json)
+          echo "booking_id=$BOOKING_ID"
+
+          echo "── 3. Выпуск QR (проверка формы, сейчас — песочница) ──"
+          HTTP=$(curl -sS -o /tmp/qr.json -w '%{http_code}' --max-time 30 -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"bookingId\": $BOOKING_ID}" "https://vedarai.ru/api/payments/tochka/qr")
+          echo "HTTP: $HTTP"
+          cat /tmp/qr.json; echo
+
+          echo "── 4. Что записал бы приёмник комиссии (без оплаты) ──"
+          curl -sS --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/commission-dry-run?booking=$BOOKING_ID" | tee /tmp/comm.json
+          echo
+
+          echo "── Итог ────────────────────────────────────────────"
+          echo "booking_id=$BOOKING_ID"
+          echo "QR HTTP=$HTTP"
+          echo "Оплата НЕ проведена: раннер не банк, песочница оплату не подтверждает никогда."
+          echo "Уборка не выполнена. Убрать: POST /api/cron/payment-test-setup {\"action\":\"teardown\",\"confirm\":true}"
