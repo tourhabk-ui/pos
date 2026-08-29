@@ -12,18 +12,20 @@ name: Логи сборки Timeweb по deploy_id (вручную)
 #
 # Единственный источник правды — лог САМОЙ сборки на Timeweb: `node
 # scripts/write-version.js` печатает `[version] commit=...` в стандартный
-# вывод сборки. Этот workflow читает этот лог по deploy_id (Timeweb API),
-# ничего не собирает и не меняет.
+# вывод сборки. Этот workflow читает этот лог, ничего не собирает и не
+# меняет.
+#
+# 29.08, вторая правка: поле ввода deploy_id убрано вовсе — две ручные
+# попытки подряд прислали в это поле не UUID, а служебный текст (`@`,
+# `deploy_id`), похоже на баг рендера формы workflow_dispatch на part of
+# клиентов GitHub. Вместо ручного ввода workflow сам спрашивает список
+# последних деплоев (GET .../deploys) и читает логи двух самых свежих —
+# ввода не требуется вовсе, нечему и путаться.
 #
 # Только workflow_dispatch: инструмент разбора, не наблюдение.
 
 on:
   workflow_dispatch:
-    inputs:
-      deploy_id:
-        description: 'ID сборки Timeweb (из ответа POST /apps/{id}/deploy или списка деплоев)'
-        required: true
-        type: string
 
 permissions: {}
 
@@ -32,10 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Прочитать лог сборки
+      - name: Прочитать логи последних сборок
         env:
           TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
-          DEPLOY_ID: ${{ inputs.deploy_id }}
         run: |
           APP_ID="198048"
 
@@ -44,31 +45,61 @@ jobs:
             exit 1
           fi
 
-          HTTP=$(curl -sS -o /tmp/deploy_logs.json -w "%{http_code}" --max-time 60 \
+          HTTP=$(curl -sS -o /tmp/deploys.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploy/$DEPLOY_ID/logs") || HTTP="000"
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploys?limit=3&offset=0") || HTTP="000"
 
-          echo "HTTP $HTTP"
-
+          echo "HTTP список деплоев: $HTTP"
           if [ "$HTTP" != "200" ]; then
-            echo "::error::API Timeweb ответил $HTTP."
-            cat /tmp/deploy_logs.json 2>/dev/null || true
+            echo "::error::API Timeweb (список деплоев) ответил $HTTP."
+            cat /tmp/deploys.json 2>/dev/null || true
             exit 1
           fi
 
-          python3 - <<'PY'
+          IDS=$(python3 -c "
           import json
+          data = json.load(open('/tmp/deploys.json')) or {}
+          deploys = data.get('deploys', data.get('app_deploys', []))
+          for d in deploys[:2]:
+              did = d.get('id', '')
+              status = d.get('status', '?')
+              commit = (d.get('commit_sha') or d.get('commit', {}).get('sha') or '')[:8]
+              created = d.get('created_at', '?')[:19]
+              print(f'{did}|{status}|{commit}|{created}', file=__import__('sys').stderr)
+              if did:
+                  print(did)
+          " 2>&1 1>/tmp/ids.txt)
+          echo "$IDS"
+          echo "---"
 
-          with open('/tmp/deploy_logs.json') as f:
-              data = json.load(f) or {}
+          if [ ! -s /tmp/ids.txt ]; then
+            echo "::error::Не удалось вынуть id деплоев из ответа."
+            cat /tmp/deploys.json
+            exit 1
+          fi
 
-          logs = data.get('deploy_logs', data.get('logs', []))
-          if not logs:
-              print('Логов нет — либо сборка ещё не началась, либо формат ответа другой.')
-              print('Верхнеуровневые ключи ответа:', sorted(data.keys()))
-          else:
-              for entry in logs:
-                  ts = entry.get('created_at', '')[:19]
-                  msg = entry.get('log', entry.get('message', ''))
-                  print(f'[{ts}] {msg}')
-          PY
+          while read -r DID; do
+            [ -z "$DID" ] && continue
+            echo "=== Лог сборки $DID ==="
+            HTTP2=$(curl -sS -o /tmp/deploy_logs.json -w "%{http_code}" --max-time 60 \
+              -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+              "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploy/$DID/logs") || HTTP2="000"
+            echo "HTTP $HTTP2"
+            if [ "$HTTP2" != "200" ]; then
+              echo "::warning::Лог сборки $DID недоступен ($HTTP2)."
+              continue
+            fi
+            python3 -c "
+            import json
+            data = json.load(open('/tmp/deploy_logs.json')) or {}
+            logs = data.get('deploy_logs', data.get('logs', []))
+            if not logs:
+                print('Логов нет. Верхнеуровневые ключи:', sorted(data.keys()))
+            else:
+                for entry in logs:
+                    ts = entry.get('created_at', '')[:19]
+                    msg = entry.get('log', entry.get('message', ''))
+                    print(f'[{ts}] {msg}')
+            "
+            echo ""
+          done < /tmp/ids.txt
