@@ -56,12 +56,51 @@ const STAGES: ReadonlyArray<keyof Pick<OrchestratorResult,
   ['scan', 'evolution', 'rescue', 'evolver', 'intel', 'models',
    'scoutDigest', 'scoutInnovator', 'industryIntel', 'memoryReflector'];
 
+/**
+ * У каждой стадии свой диагноз «сделал ли то, ради чего звался» — и это НЕ
+ * то же самое, что `ok` (== «не упал»). 29.08: scoutInnovator годами мог
+ * отвечать ok:true, пока GITHUB_ISSUES_TOKEN отсутствовал на проде — сам
+ * агент это знал (`phase1_diag: '...НЕ задан на проде...'`), но строка
+ * терялась здесь же, до записи события. Владелец видел зелёную плитку и не
+ * мог понять, почему issue не появляются (§4.0 — выброшенный диагноз это
+ * та же беда, что и молчащий catch).
+ *
+ * Разные стадии — разные поля результата, общего интерфейса у них нет
+ * (унаследовано от того, что каждая писалась отдельным агентом до
+ * консолидации 29.08). Вместо выдумывания общего контракта — по имени.
+ */
+export function stageDiag(stage: string, value: unknown): string | undefined {
+  if (value == null || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  switch (stage) {
+    case 'scoutDigest': {
+      const reason = v.digest_skip_reason;
+      const detail = v.digest_skip_detail;
+      if (typeof reason !== 'string') return undefined;
+      return typeof detail === 'string' && detail ? `${reason}: ${detail}` : reason;
+    }
+    case 'scoutInnovator':
+      return typeof v.phase1_diag === 'string' ? v.phase1_diag : undefined;
+    case 'industryIntel': {
+      const errors = v.errors;
+      return Array.isArray(errors) && errors.length > 0 ? errors.join('; ') : undefined;
+    }
+    case 'memoryReflector':
+      return typeof v.reason === 'string' ? v.reason : undefined;
+    default:
+      return undefined;
+  }
+}
+
 export async function finishEvoRunTask(handle: EvoRunHandle, result: OrchestratorResult): Promise<void> {
   try {
     for (const stage of STAGES) {
+      const value = result[stage];
+      const diag = stageDiag(stage, value);
       await appendEvent(handle.taskId, 'cron:evo', 'note', {
         stage,
-        ok: result[stage] !== null,
+        ok: value !== null,
+        ...(diag ? { diag } : {}),
       });
     }
     const partial = result.errors.length > 0;

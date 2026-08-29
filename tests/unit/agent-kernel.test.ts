@@ -21,6 +21,7 @@ import {
   isTransitionAllowed,
 } from '@/lib/agents/kernel/types';
 import { decidePolicy, CAPABILITY_REGISTRY, FORBIDDEN_CAPABILITIES } from '@/lib/agents/kernel/policy';
+import { stageDiag } from '@/lib/agents/kernel/adapters/evo-run-task';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -184,6 +185,49 @@ describe('три контура подключены к ядру', () => {
     expect(route).toMatch(/sweepApprovedInitiatives/);
     expect(route, 'execute-all снова исполняет inline — модель автономии требует worker')
       .not.toMatch(/executeInitiative[^E]/);
+  });
+
+  /**
+   * 29.08: scoutInnovator годами мог показывать в кокпите «ok: true», пока
+   * GITHUB_ISSUES_TOKEN отсутствовал на проде и ни один issue не создавался
+   * — сам агент это знал (`phase1_diag`), но строка терялась на границе
+   * результат-стадии → событие ядра. `ok` (== «не упал») и «сделал ли то,
+   * ради чего звали» — РАЗНЫЕ факты, и оба обязаны быть видны (§4.0).
+   */
+  describe('диагноз стадии evo.run — не то же самое, что ok', () => {
+    it('scoutInnovator: phase1_diag доходит как есть', () => {
+      expect(stageDiag('scoutInnovator', { phase1_diag: 'GITHUB_ISSUES_TOKEN НЕ задан на проде' }))
+        .toBe('GITHUB_ISSUES_TOKEN НЕ задан на проде');
+    });
+
+    it('scoutDigest: причина + деталь, деталь необязательна', () => {
+      expect(stageDiag('scoutDigest', { digest_skip_reason: 'unsupported_claims', digest_skip_detail: 'абзац 2' }))
+        .toBe('unsupported_claims: абзац 2');
+      expect(stageDiag('scoutDigest', { digest_skip_reason: 'unsupported_claims' }))
+        .toBe('unsupported_claims');
+      // Выпуск ушёл — reason нет вовсе, diag не выдумывается.
+      expect(stageDiag('scoutDigest', { digest_sent: true })).toBeUndefined();
+    });
+
+    it('industryIntel: массив errors схлопывается в строку, пустой — не diag', () => {
+      expect(stageDiag('industryIntel', { errors: ['канал A: timeout', 'канал B: 403'] }))
+        .toBe('канал A: timeout; канал B: 403');
+      expect(stageDiag('industryIntel', { errors: [] })).toBeUndefined();
+    });
+
+    it('memoryReflector: reason как есть, отсутствует — undefined', () => {
+      expect(stageDiag('memoryReflector', { reason: 'insufficient_episodes' })).toBe('insufficient_episodes');
+      expect(stageDiag('memoryReflector', { consolidated: 3 })).toBeUndefined();
+    });
+
+    it('стадии без диагностического поля (scan/evolution/...) — всегда undefined, не выдумывает', () => {
+      expect(stageDiag('scan', { issues: [], scan_id: 'x' })).toBeUndefined();
+    });
+
+    it('null/не-объект — undefined, а не бросок исключения', () => {
+      expect(stageDiag('scoutInnovator', null)).toBeUndefined();
+      expect(stageDiag('scoutInnovator', 'строка')).toBeUndefined();
+    });
   });
 
   it('прогон Evo — kernel-задача со стадиями, отказ ядра виден в ответе', () => {
