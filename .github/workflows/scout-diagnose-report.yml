@@ -51,6 +51,20 @@ jobs:
           [ "$HTTP" = "200" ] || { echo "::error::scout-diagnose ответил $HTTP"; cat /tmp/diag.json || true; exit 1; }
           cat /tmp/diag.json
 
+          # Доступ бота в AI-канал — отдельный вопрос от ворот дайджеста, и
+          # ответ на него не ждёт следующего прогона. Только чтение, без
+          # пробного поста: в канале сорок тысяч подписчиков.
+          #
+          # Отказ этой проверки не роняет отчёт: диагноз по дайджесту уже
+          # снят и он ценен сам по себе. Пустой файл разбор поймёт как
+          # «проверка не состоялась» и так и напишет.
+          CH=$(curl -s -o /tmp/channel.json -w "%{http_code}" --max-time 30 \
+            "https://vedarai.ru/api/cron/ai-channel-check" \
+            -H "Authorization: Bearer $CRON_SECRET" || echo "000")
+          echo "channel-check HTTP: $CH"
+          [ "$CH" = "200" ] || echo '{}' > /tmp/channel.json
+          cat /tmp/channel.json
+
       - name: Собрать отчёт и обновить Issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -62,6 +76,10 @@ jobs:
           d = json.load(open('/tmp/diag.json'))
           runs = d.get('runs') or []
           by = d.get('by_reason') or {}
+          try:
+              ch = json.load(open('/tmp/channel.json')) or {}
+          except Exception:
+              ch = {}
 
           print('# Разведчик: почему молчит')
           print()
@@ -114,6 +132,19 @@ jobs:
           print('## Канал @ai_hub_money — отдельно')
           print()
           print(f"- последний пост в канал: `{d.get('ai_channel_last_sent_at') or 'не найден в прочитанном окне'}`")
+          # Доступ бота — вопрос, не зависящий от ворот дайджеста: заданный ID
+          # без прав админа означает молчание канала при любом дайджесте.
+          # Проверка только чтением, пробного поста в канал на 40К нет.
+          if ch.get('summary'):
+              print(f"- доступ бота: **{ch['summary']}**"
+                    + (f" (бот @{ch['bot']})" if ch.get('bot') else ''))
+              if ch.get('outcome') == 'cannot_post':
+                  print()
+                  print('> **Публиковать в канал бот НЕ МОЖЕТ.** Это причина, не зависящая от '
+                        'ворот фактчека: даже успешный дайджест в канал не уйдёт. Чинится в '
+                        'Telegram — бота добавить в канал администратором с правом публикации.')
+          else:
+              print('- доступ бота: проверка не состоялась (см. лог шага channel-check)')
           print()
           print('| Исход | Раз |')
           print('|---|---|')
