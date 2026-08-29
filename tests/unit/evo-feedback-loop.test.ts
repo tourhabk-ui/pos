@@ -183,7 +183,10 @@ describe('precision: цена ошибки', () => {
     // обязаны смотреть только на опубликованное.
     const src = readFileSync(join(process.cwd(), 'app/api/cron/evo-report/route.ts'), 'utf-8');
     const statements = src.split(';').filter((s) => /FROM evo_growth_issues/.test(s));
-    const metrics = statements.filter((s) => /FILTER \(WHERE status IN \('accepted'/.test(s));
+    // status = 'accepted' — с 30.08 один статус, а не IN ('accepted','fixed'):
+    // 'fixed' был отдельной находкой, которую дашборд не считал вовсе
+    // (evo-stats-honesty.test.ts).
+    const metrics = statements.filter((s) => /FILTER \(WHERE status = 'accepted'/.test(s));
     // Число метрик росло и будет расти (общая, по моделям, по стороне отказа).
     // Проверяем свойство, а не количество: жёсткое «ровно 2» падало на добавлении
     // третьего разреза, хотя ничего не сломалось.
@@ -263,7 +266,11 @@ describe('issueVerdict: оба вердикта человека доезжаю�
   // систематически ползла вниз: отказы копились, принятия — нет. Ниже порога
   // гасли код-находки, и в трекере оставался только intel.
   it('completed — сделано, находка была полезной', () => {
-    expect(issueVerdict('completed')).toBe('fixed');
+    // Значение вердикта — ровно тот статус, который evo_growth_issues
+    // реально принимает (§ EVO_ISSUE_STATUSES). До 30.08 здесь стоял
+    // отдельный 'fixed' — словарь дашборда его не знал, и находки,
+    // закрытые человеком, пропадали из счётчика «Исправлено».
+    expect(issueVerdict('completed')).toBe('accepted');
   });
 
   it('not_planned и duplicate — отказ', () => {
