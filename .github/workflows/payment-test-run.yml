@@ -40,13 +40,10 @@ jobs:
             exit 1
           fi
 
-          echo "── 1. Сухой прогон setup (ничего не создаёт) ─────────"
-          curl -sS --max-time 30 -X POST \
-            -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
-            -d '{}' "https://vedarai.ru/api/cron/payment-test-setup" | tee /tmp/dry.json
-          echo
-
-          echo "── 2. Подтверждённый setup ────────────────────────────"
+          # Первый прогон (23:55 UTC) уже завёл служебного партнёра/тур/бронь —
+          # setup идемпотентен (ищет по имени/названию, находит существующую
+          # незакрытую бронь), поэтому просто повторяем его вместо угадывания id.
+          echo "── 1. Setup (идемпотентно — найдёт прошлую бронь) ────"
           HTTP=$(curl -sS -o /tmp/setup.json -w '%{http_code}' --max-time 30 -X POST \
             -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
             -d '{"confirm":true}' "https://vedarai.ru/api/cron/payment-test-setup")
@@ -56,6 +53,15 @@ jobs:
           if [ "$OK" != "true" ]; then echo "::error::setup: ok=false — $(jq -r '.reason' /tmp/setup.json)"; exit 1; fi
           BOOKING_ID=$(jq -r '.booking_id' /tmp/setup.json)
           echo "booking_id=$BOOKING_ID"
+
+          # Первый прогон дал по этой же брони 404 «Бронирование не найдено»
+          # на POST выпуска QR, хотя setup только что отчитался успехом, а
+          # commission-dry-run секундой позже видел строку целиком (final_price,
+          # тур, партнёр). GET ниже читает booking_status БЕЗ фильтра по
+          # значению — покажет, чем именно он оказался, вместо гадания.
+          echo "── 2. Что реально хранится в строке (без фильтра статуса) ─"
+          curl -sS --max-time 30 "https://vedarai.ru/api/payments/tochka/qr?bookingId=$BOOKING_ID"
+          echo
 
           echo "── 3. Выпуск QR (проверка формы, сейчас — песочница) ──"
           HTTP=$(curl -sS -o /tmp/qr.json -w '%{http_code}' --max-time 30 -X POST \
