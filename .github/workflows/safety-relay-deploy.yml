@@ -1,0 +1,113 @@
+name: Сейсмо-реле — выкатка и проверка достижимости
+
+# ── Зачем воркфлоу, а не команда в терминале ─────────────────────────────
+#
+# `wrangler deploy` из README требует локальной машины и залогиненного
+# аккаунта. Здесь — тот же деплой, но воспроизводимый: из репозитория, с
+# записью в журнале прогонов и с проверкой сразу после выкатки.
+#
+# Ровно это и было главным уроком 29.08: два джоба cron-job.org, заведённые
+# руками, указывали на старый домен и несли два РАЗНЫХ секрета. Заведённое
+# руками расходится молча; заведённое из репозитория — видно.
+#
+# ── Почему деплой и проверка в одном прогоне ─────────────────────────────
+#
+# Потому что «выкатил» не равно «работает». В infra/ai-relay записан урок:
+# рассуждение «воркер вне РФ, значит блокировка обойдена» оказалось ЛОЖНЫМ
+# для OpenRouter. Здесь случай другой (Telegram за Cloudflare не стоит), но
+# это рассуждение, а не замер — и прогон, который выкатывает и не проверяет,
+# оставил бы рассуждение непроверенным ещё на сутки.
+#
+# Поэтому шаг проверки ОБЯЗАТЕЛЕН и красит прогон: зелёная выкатка при
+# недостижимом Telegram — ровно тот вечнозелёный прогон, от которого мы
+# лечимся весь этот день.
+
+on:
+  workflow_dispatch:
+  push:
+    # Отдельная ветка — у токена агента нет права на workflow_dispatch (403).
+    # Приём в репозитории принят (road-graph-probe-point, cronjob-sync).
+    branches: [safety-relay-deploy]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Выкатить воркер
+        id: deploy
+        working-directory: infra/safety-relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::Секрет CLOUDFLARE_API_TOKEN не задан."
+            echo "Завести: Cloudflare → My Profile → API Tokens → Create Token →"
+            echo "шаблон «Edit Cloudflare Workers»; затем GitHub → Settings →"
+            echo "Secrets and variables → Actions → New secret, имя CLOUDFLARE_API_TOKEN."
+            echo "Если аккаунтов несколько, добавь ещё CLOUDFLARE_ACCOUNT_ID."
+            exit 1
+          fi
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — воркеру нечем авторизоваться на приёмнике."
+            exit 1
+          fi
+
+          # Секрет воркера кладём ДО выкатки: иначе первый же cron-триггер
+          # уйдёт без авторизации и получит 401.
+          printf '%s' "$CRON_SECRET" | npx --yes wrangler@3 secret put CRON_SECRET
+
+          npx --yes wrangler@3 deploy 2>&1 | tee /tmp/deploy.log
+
+          # Адрес воркера не угадываем — берём из вывода. Поддомен аккаунта
+          # нам неизвестен, а зашитый адрес — это ровно та беда, из-за
+          # которой джобы висели на tourhab.ru.
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Не смог прочитать адрес воркера из вывода wrangler."
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Воркер: $URL"
+
+      - name: Проверить достижимость Telegram (без отправки на прод)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          # /selftest ходит за теми же адресами и отдаёт РАЗМЕРЫ ответов,
+          # ничего не отправляя на приёмник. Это превращает рассуждение
+          # «воркер вне РФ» в измерение.
+          HTTP=$(curl -s -o /tmp/selftest.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" "$URL/selftest")
+          echo "HTTP: $HTTP"
+          cat /tmp/selftest.json || true
+          echo
+
+          [ "$HTTP" = "200" ] || { echo "::error::/selftest вернул $HTTP"; exit 1; }
+
+          # Зелёная выкатка при недостижимом Telegram — вечнозелёный прогон,
+          # то есть тот же дефект, от которого лечимся. Красим.
+          if [ "$(jq -r '.would_post' /tmp/selftest.json)" != "true" ]; then
+            echo "::error::Воркер выкачен, но обязательные каналы Telegram недостижимы."
+            echo "Значит блокировка воркером НЕ обходится — как это уже было с OpenRouter."
+            echo "Единственным путём остаётся воркфлоу cron-safety-ingest."
+            exit 1
+          fi
+
+          echo "Каналы достижимы: реле будет доставлять КБГС и EQKam каждые 5 минут."
