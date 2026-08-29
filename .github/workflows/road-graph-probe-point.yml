@@ -9,6 +9,10 @@ name: Связность до точки (вручную, с параметра�
 # на каждое село. to_lat/to_lng редактируются прямо в форме запуска на
 # GitHub — новый коммит для каждого села не нужен.
 #
+# Пуш .github/triggers/road-graph-probe-point.json запускает с дефолтами
+# (Мильково) без формы — inputs.* на push-событии пустые, поэтому дефолты
+# продублированы в bash через ${VAR:-...}.
+#
 # READ-ONLY: один GET к нашему публичному /api/routing/path. Секрет не нужен.
 
 on:
@@ -17,7 +21,7 @@ on:
       label:
         description: 'Название точки (для заголовка в логе)'
         required: false
-        default: 'Мильково (трасса Р474, 300 км) — перепроверка после фикса *_link'
+        default: 'Мильково (трасса Р474, 300 км) — после фикса bbox подграфа'
       to_lat:
         description: 'Широта цели'
         required: true
@@ -38,6 +42,10 @@ on:
         description: 'Режим (car|foot)'
         required: false
         default: 'car'
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/road-graph-probe-point.json'
 
 permissions: {}
 
@@ -55,6 +63,12 @@ jobs:
           FROM_LNG: ${{ inputs.from_lng }}
           MODE: ${{ inputs.mode }}
         run: |
+          LABEL="${LABEL:-Мильково (трасса Р474, 300 км) — после фикса bbox подграфа}"
+          TO_LAT="${TO_LAT:-54.695}"
+          TO_LNG="${TO_LNG:-158.62}"
+          FROM_LAT="${FROM_LAT:-53.0195}"
+          FROM_LNG="${FROM_LNG:-158.6494}"
+          MODE="${MODE:-car}"
           echo "── ${LABEL} (${FROM_LAT},${FROM_LNG} → ${TO_LAT},${TO_LNG}, mode=${MODE}) ──"
           curl -sS -w '\nHTTP %{http_code} · %{time_total}s\n' --max-time 30 \
             "https://vedarai.ru/api/routing/path?from_lat=${FROM_LAT}&from_lng=${FROM_LNG}&to_lat=${TO_LAT}&to_lng=${TO_LNG}&mode=${MODE}"
