@@ -2518,47 +2518,106 @@ function OnTrailTab() {
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      {/* Приборная строка: качество фикса · маршрут · счёт точек, а под ней
-          состояние данных (карта в телефоне, свежесть условий). Это первое,
-          что читают, подняв телефон (макеты FCN). */}
-      {hasRoute && (
-        <FieldStatusStrip
-          fixLabel={fix.state === 'live' && fix.accuracyM != null ? `GPS ±${Math.round(fix.accuracyM)} м` : fixLabel(fix)}
-          fixLive={figuresLive}
-          routeTitle={activeRouteTitle}
-          checkpoint={waypoints.length > 1
-            ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
-            : null}
-          dataLine={savedMap
-            ? `Карта сохранена${packStates?.find(s => s.kind === 'safety_snapshot')?.note
-                ? ` · ${packStates.find(s => s.kind === 'safety_snapshot')!.note.toLowerCase()}`
-                : ''}`
-            : 'Карта не сохранена — в поле не откроется'}
-          dataOk={Boolean(savedMap)}
+    <div className="relative min-h-[calc(100vh-56px)]" style={{ color: 'var(--text-primary)' }}>
+      {/* Карта — постоянный базовый слой экрана (редизайн 29.08, по мокапу
+          владельца), а не то, что открывается по кнопке. Центр не следует за
+          живыми coords (см. комментарий у mapCenter выше) — идентичность
+          center/markers меняется только по явному действию (кнопка «Карта»,
+          выбор маршрута), не на каждом GPS-тике. */}
+      <div className="fixed inset-0 z-0">
+        <LeafletMap
+          markers={mapMarkers}
+          center={mapCenter}
+          zoom={12}
+          height="100dvh"
+          showUserLocation
         />
+      </div>
+
+      {/* Весь приборный столбец — поверх карты. В режиме «Карта» (showMap)
+          прячется целиком: карта та же самая (не второй экземпляр), просто
+          ничто не закрывает её и не ловит тапы поверх нужного места. */}
+      <div className={`relative z-10 flex flex-col ${showMap ? 'hidden' : ''}`}>
+      {/* Единый слот статуса под шапкой (редизайн 29.08, Шаг 2) — приборная
+          строка и строка состояния сидят в одной стеклянной плашке
+          (.fx-glass, контекстный слой §2 CLAUDE.md), а не двумя разными
+          цветными полосами на всю ширину. Это НЕ RecoveryCard: та карточка —
+          предупреждение/действие, ей по контракту положена непрозрачность
+          («критичные приборы и действия... offline/предупреждения...
+          всегда непрозрачные») и своё место НИЖЕ компаса и дистанции
+          (recovery.ts, правило 3) — не трогаем её позицию и фон. */}
+      {(hasRoute || status) && (
+        <div className="fx-glass mx-3 mt-3 rounded-2xl overflow-hidden">
+          {hasRoute && (
+            <FieldStatusStrip
+              fixLabel={fix.state === 'live' && fix.accuracyM != null ? `GPS ±${Math.round(fix.accuracyM)} м` : fixLabel(fix)}
+              fixLive={figuresLive}
+              routeTitle={activeRouteTitle}
+              checkpoint={waypoints.length > 1
+                ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
+                : null}
+              dataLine={savedMap
+                ? `Карта сохранена${packStates?.find(s => s.kind === 'safety_snapshot')?.note
+                    ? ` · ${packStates.find(s => s.kind === 'safety_snapshot')!.note.toLowerCase()}`
+                    : ''}`
+                : 'Карта не сохранена — в поле не откроется'}
+              dataOk={Boolean(savedMap)}
+            />
+          )}
+
+          {/* Одна строка состояния вместо стека отчётов о датчиках. Тишина —
+              это тоже сообщение: всё в порядке, идите.
+              Подавляется, только когда RecoveryCard РЕАЛЬНО отрендерится и
+              скажет о том же факте подробнее и с действием (нужен hasRoute —
+              карточка рисуется только при активном маршруте, иначе некому
+              подхватить сообщение и оно просто исчезло бы). stale_fix ⊇
+              «сигнал потерян»/«ищем спутники» из status — иначе тот же факт
+              звучит дважды подряд на одном экране (friction #1 аудита
+              29.08). Остальные ветки status (разрешение геолокации,
+              офлайн-ступень, компас) recovery
+              не знает вовсе — их подавлять нечем и незачем. */}
+          {status && !(hasRoute && recovery.kind === 'stale_fix') && (
+            <div
+              className="flex items-center gap-2 px-4 py-2.5 text-xs"
+              style={{
+                color: status.tone === 'warn' ? 'var(--warning)' : 'var(--text-secondary)',
+              }}
+            >
+              {status.tone === 'warn'
+                ? <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                : isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
+              <span className="flex-1">{status.text}</span>
+              {/* Кнопки «Включить» здесь больше нет: лекарство живёт на самом
+                  приборе (две кнопки одного действия расходятся поведением —
+                  урок SOS #887). Строка только называет состояние. */}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Одна строка состояния вместо стека отчётов о датчиках. Тишина —
-          это тоже сообщение: всё в порядке, идите. */}
-      {status && (
-        <div
-          className="flex items-center gap-2 px-4 py-2.5 text-xs"
-          style={{
-            background: status.tone === 'warn'
-              ? 'color-mix(in srgb, var(--warning) 12%, transparent)'
-              : 'color-mix(in srgb, var(--ocean) 10%, transparent)',
-            borderBottom: '1px solid var(--border)',
-            color: status.tone === 'warn' ? 'var(--warning)' : 'var(--text-secondary)',
-          }}
-        >
-          {status.tone === 'warn'
-            ? <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            : isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
-          <span className="flex-1">{status.text}</span>
-          {/* Кнопки «Включить» здесь больше нет: лекарство живёт на самом
-              приборе (две кнопки одного действия расходятся поведением —
-              урок SOS #887). Строка только называет состояние. */}
+      {/* Компас — плавающий инструмент над картой (редизайн 29.08, Шаг 3,
+          по мокапу владельца), не строка в приборном столбце. fixed —
+          независим от прокрутки контента, виден всегда, пока экран вообще
+          показывает приборы (тот же hasRoute-эквивалент, что раньше решал
+          вход в эту ветку JSX). Сам компас остаётся полностью непрозрачным
+          (FieldCompass не тронут) — «критичные приборы... всегда
+          непрозрачные» (§2 CLAUDE.md), это не глянцевая плашка. */}
+      {(hasRoute || isLoadingRoute) && !showMap && (
+        <div className="fixed top-28 right-3 z-30 flex flex-col items-center gap-2">
+          {/* size=300 — дефолт компонента, рассчитанный на центр колонки
+              (прежнее место). Плавающий инструмент — бейдж, не герой экрана:
+              130 примерно соответствует масштабу компаса на мокапе владельца. */}
+          <FieldCompass heading={effHeading} state={effCompassState}
+            targetBearing={targetBearing} headingSource={headingSource} size={130} />
+          {/* Лекарство — на самом приборе: кнопка в строке статуса от
+              мёртвого компаса жила в другом углу экрана, и их не связывали. */}
+          {compassState === 'blocked' && (
+            <button onClick={enableCompass}
+              className="text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)' }}>
+              Включить компас
+            </button>
+          )}
         </div>
       )}
 
@@ -2573,7 +2632,11 @@ function OnTrailTab() {
              (renderDestinationPicker), показанный сразу как основной экран,
              без клика и без чёрной подложки поверх карты. */
           <div className="w-full flex flex-col gap-5 py-6">
-            <div className="text-center">
+            {/* Текст лежит прямо на карте (редизайн 29.08) — своей карточки у
+                заголовка нет и не будет (вложенные карточки запрещены §2), а
+                text-shadow держит его читаемым на любой подложке тайлов, не
+                пряча карту под сплошной плашкой. */}
+            <div className="text-center" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>
               <p className="text-lg font-semibold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
                 Куда хотите пойти?
               </p>
@@ -2586,7 +2649,7 @@ function OnTrailTab() {
               {renderDestinationPicker()}
             </div>
 
-            <div className="text-xs text-[var(--text-muted)] space-y-1.5 text-center">
+            <div className="text-xs text-[var(--text-muted)] space-y-1.5 text-center" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>
               <p>Карты можно скачать заранее — в поле они работают без сети.</p>
               <p>Компас появится, если у телефона есть датчик.</p>
             </div>
@@ -2605,27 +2668,26 @@ function OnTrailTab() {
         ) : (
         <>
 
-        {/* Приборы: главная цифра первой, компас — вторым (решение владельца
-            21.08: герой экрана — то, что нужно каждому шагу, а компас чаще
-            всего молчит). Порядок живёт в CSS order: при мёртвом фиксе цифра
-            глушится, и компас — лучший из оставшихся приборов — поднимается
-            наверх сам, как в ступени III деградации. */}
-        <div className="flex flex-col items-center gap-4 w-full">
-          <div className="w-full flex flex-col items-center gap-2"
-            style={{ order: figuresLive ? 2 : 1 }}>
-            <FieldCompass heading={effHeading} state={effCompassState}
-              targetBearing={targetBearing} headingSource={headingSource} />
-            {/* Лекарство — на самом приборе: кнопка в строке статуса от
-                мёртвого компаса жила в другом углу экрана, и их не связывали. */}
-            {compassState === 'blocked' && (
-              <button onClick={enableCompass}
-                className="text-sm font-semibold px-5 py-2.5 rounded-lg"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)' }}>
-                Включить компас
-              </button>
-            )}
-          </div>
-          <div className="text-center w-full" style={{ order: figuresLive ? 1 : 2 }}>
+        {/* Компас переехал в плавающий инструмент над картой (редизайн
+            29.08, Шаг 3) — см. рендер сразу после плашки статуса выше.
+            CSS order-хак («при мёртвом фиксе компас поднимается наверх»,
+            решение владельца 21.08) снят: он был нужен, только пока компас
+            и геройская цифра делили одно место в столбце. Теперь у компаса
+            своё постоянное место, всегда на виду — деградация ступени III
+            больше не требует его СМЕЩЕНИЯ, только собственная честность
+            прибора (гаснущее кольцо, нет стрелки) осталась в FieldCompass
+            без изменений. */}
+        {/* Геройская цифра — НЕПРОЗРАЧНАЯ карточка, не текст на карте
+            (правка 29.08 по живому скрину владельца: text-shadow поверх
+            реального трека читался плохо, линия шла прямо сквозь цифры —
+            «кринж»). Это не отступление от контракта §2, а прямое
+            следование ему: «критичные приборы и действия — ...главная
+            цифра навигации... — всегда непрозрачные». Не вложенная
+            карточка — это первая и единственная видимая граница в этом
+            блоке контента. */}
+        <div className="flex flex-col items-center gap-4 w-full rounded-2xl p-4"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          <div className="text-center w-full">
             {isLoadingRoute ? (
               <div className="flex flex-col gap-2.5">
                 <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: 'var(--bg-card)' }} />
@@ -3103,19 +3165,20 @@ function OnTrailTab() {
         </div>
       )}
 
-      {/* Bottom action grid */}
-      <div className="grid grid-cols-2 gap-2 p-4" style={{ borderTop: '1px solid #21262d' }}>
+      {/* Bottom action grid — .fx-glass-dense поверх карты (редизайн 29.08),
+          кроме SOS: критичное действие остаётся непрозрачным по контракту §2
+          CLAUDE.md («стекло — для контекста, непрозрачность — для действия»)
+          и по своей же охране внутри EmergencyAction («критичное действие
+          стеклом не делаем»). Три остальные — контекстные переходы, им
+          стекло положено; fx-glass-dense уже несёт фолбэк на
+          prefers-reduced-transparency и @supports (globals.css). */}
+      <div className="grid grid-cols-2 gap-2 p-4">
         <button onClick={() => {
             setMapCenter(coords ? [coords.lat, coords.lng] : (waypoints[0] ? [waypoints[0].lat, waypoints[0].lng] : undefined));
             setShowMap(true);
           }}
-          className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{
-            background: 'var(--bg-card)',
-            color: 'var(--success)',
-            border: '1px solid color-mix(in srgb, var(--success) 22%, transparent)',
-            minHeight: 60,
-          }}>
+          className="fx-glass-dense flex items-center justify-center gap-2 rounded-2xl font-bold text-sm"
+          style={{ color: 'var(--success)', minHeight: 60 }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </button>
         {/* Условия — внутренний снимок из пакета, не внешняя ссылка:
@@ -3123,16 +3186,16 @@ function OnTrailTab() {
             «идти или нет» принимается по нашему safety-слою (план FCN:
             в active mode нет внешних переходов). */}
         <button onClick={openConditions}
-          className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 25%, transparent)', minHeight: 60 }}>
+          className="fx-glass-dense flex items-center justify-center gap-2 rounded-2xl font-bold text-sm"
+          style={{ color: 'var(--ocean)', minHeight: 60 }}>
           <CloudSun className="w-5 h-5" /> УСЛОВИЯ
         </button>
         {/* «Группа» вместо AI-чата: в активном режиме нет длинного разговора,
             есть план и контакт вне маршрута (макеты FCN, решение владельца).
             Кузьмич остаётся в шапке и на других экранах. */}
         <button onClick={() => setShowGroup(true)}
-          className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', minHeight: 60 }}>
+          className="fx-glass-dense flex items-center justify-center gap-2 rounded-2xl font-bold text-sm"
+          style={{ color: 'var(--accent)', minHeight: 60 }}>
           <Users className="w-5 h-5" /> ГРУППА
         </button>
         {/* SOS — общий компонент, не своя кнопка: здесь жил сырой tel:112
@@ -3232,19 +3295,19 @@ function OnTrailTab() {
         </div>
       )}
 
-      {/* Карта с треком — офлайн-стойкая (тайлы из кэша SW). Точки берём из
-          localStorage-кэша, позиция — с GPS. Как Maps.me: трек + твоя стрелка. */}
+      </div>
+      {/* Конец приборного столбца (см. открывающий div с z-10 у карты выше). */}
+
+      {/* Режим «Карта» (кнопка «Карта» / RecoveryCard.open_map) — та же
+          постоянная карта выше, без второго инстанса LeafletMap: он не
+          дешёвый (тайлы + кластер), два одновременно — реальная просадка на
+          телефоне в поле. Здесь только фокус-режим: приборный столбец скрыт
+          (класс hidden у z-10-обёртки), остаются только кнопка закрытия,
+          пустая-карта подсказка и панель действий — поверх той же карты. */}
       {showMap && (
-        <div className="fixed inset-0 z-[1000]" style={{ background: '#0d1117' }}>
-          <LeafletMap
-            markers={mapMarkers}
-            center={mapCenter}
-            zoom={12}
-            height="100dvh"
-            showUserLocation
-          />
+        <div className="fixed inset-0 z-20 pointer-events-none">
           <button onClick={() => setShowMap(false)}
-            className="absolute top-4 left-4 z-[1001] w-11 h-11 rounded-full flex items-center justify-center"
+            className="pointer-events-auto absolute top-4 left-4 w-11 h-11 rounded-full flex items-center justify-center"
             style={{ background: 'rgba(13,17,23,0.85)', color: '#fff', border: '1px solid #30363d' }}
             aria-label="Закрыть карту">
             <X className="w-5 h-5" />
@@ -3258,7 +3321,7 @@ function OnTrailTab() {
           {/* Карта — рабочая поверхность (мокап владельца): та же панель
               полевых действий, что на приборном экране, — не копия, тот же
               fieldActions. Наблюдение с карты открывает ту же шторку. */}
-          <div className="absolute inset-x-0 bottom-0 z-[1001] px-4"
+          <div className="pointer-events-auto absolute inset-x-0 bottom-0 px-4"
             style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
             <FieldActionBar actions={fieldActions} error={fieldBarError} />
           </div>
