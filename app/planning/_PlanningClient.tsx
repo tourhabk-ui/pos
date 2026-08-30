@@ -200,6 +200,17 @@ const GEAR_LIST: GearItem[] = [
   { id: 'powerbank', label: 'Пауэрбэнк',              category: 'Связь' },
 ];
 
+/**
+ * Модульная константа: инлайн-литерал `center={[53.0444, 158.6483]}` в JSX
+ * пересоздавал массив на КАЖДЫЙ рендер — новая identity на каждый чих
+ * состояния модалки. LeafletMap пересоздаёт весь инстанс карты при смене
+ * identity center/markers (см. её же комментарии), поэтому пикер точки на
+ * карте «перебирал» карту непрерывно и не давал тапнуть (живой скрин
+ * владельца 30.08: «невозможно что-либо сделать»). Тот же урок уже применён
+ * в HomeMapPreview.tsx (HOME_MAP_CENTER) — здесь пропущен.
+ */
+const MAP_PICK_DEFAULT_CENTER: [number, number] = [53.0444, 158.6483];
+
 // ─── Progress Ring ─────────────────────────────────────────────────────────────
 
 function ProgressRing({ done, total }: { done: number; total: number }) {
@@ -1699,7 +1710,7 @@ function OnTrailTab() {
         </button>
         {active && (
           <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
-            <LeafletMap center={[53.0444, 158.6483]} zoom={8} height="220px" showUserLocation
+            <LeafletMap center={MAP_PICK_DEFAULT_CENTER} zoom={8} height="220px" showUserLocation
               onMapClick={(lat, lon) => {
                 if (target === 'origin') {
                   setSelectedOrigin({ kind: 'coordinate', lat, lon });
@@ -2643,7 +2654,13 @@ function OnTrailTab() {
           знают об этой обёртке) видимой ВСЕГДА, сколько бы блоков ни
           решило отрендериться внизу — они прокручиваются сами, в своей
           собственной области. */}
-      <div className="fixed inset-x-0 bottom-0 z-10 max-h-[60vh] overflow-y-auto overscroll-contain">
+      {/* Правка 30.08 №2: 60vh на живом устройстве владельца по-прежнему
+          читалось как «панель закрывает карту» — сетка компаса и статуса
+          выше не резервирует много места сама, и лист всё равно съедал
+          больше половины экрана. 45vh — тот же принцип (лист не растёт
+          выше своего потолка, что бы ни решило отрендериться внутри),
+          цифра меньше. */}
+      <div className="fixed inset-x-0 bottom-0 z-10 max-h-[45vh] overflow-y-auto overscroll-contain">
       <div className="flex justify-center pt-1.5 pb-1">
         <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border)' }} />
       </div>
