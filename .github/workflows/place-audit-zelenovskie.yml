@@ -1,0 +1,43 @@
+name: Аудит — Зеленовские озерки (что реально в базе)
+
+# Одноразовый пульт. Владелец сообщил: у Зеленовских озерков на деле ДВЕ
+# базы — старая (в народе) и новая, ~200м друг от друга (старая справа,
+# новая левее). Проверяем через постоянный /api/cron/place-audit, есть ли
+# у нас вообще запись/записи и в каком они состоянии (видимость, слияние,
+# координаты) — до похода в интерфейс, чтобы понимать объём правки.
+#
+# Ветка не мержится в main — только push-триггер для вызова уже
+# задеплоенного роута (у токена агента нет workflow_dispatch, 403).
+
+on:
+  push:
+    branches: [place-audit-zelenovskie]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Найти все places по «зеленовск»
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET не задан"; exit 1
+          fi
+
+          HTTP=$(curl -s -o /tmp/out.json -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/place-audit?q=%D0%B7%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B2%D1%81%D0%BA")
+
+          echo "HTTP $HTTP"
+          cat /tmp/out.json
+          echo
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::аудит не прошёл"; exit 1
+          fi
