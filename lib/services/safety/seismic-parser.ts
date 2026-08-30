@@ -13,6 +13,7 @@ import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
 import { zonesForEpicenter } from '@/lib/services/safety/seismic-zones';
 import { decodeHtmlEntities } from '@/lib/html/entities';
 import { stripTags } from '@/lib/html/text';
+import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -355,7 +356,59 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
 
 // export — переиспользует wildfire-firms.ts (пожарный слой пишет в те же
 // external_alerts тем же путём, а не дублирует INSERT со своими нюансами).
+//
+// Safety Decision Ledger (925): единственный choke-point записи в
+// external_alerts (8 вызовов саму saveEvent из этого файла + wildfire-firms.ts)
+// — поэтому события ledger эмитятся здесь, а не внутри classifyMchsItem/
+// mchs_zones/zonesForEpicenter. Те — чистые синхронные функции с множеством
+// вызывающих; делать их async ради инструментирования сломало бы больше, чем
+// дало бы точности. Цена: signal_normalized/risk_classified/geo_matched
+// пишутся ТРЕМЯ строками из ОДНОЙ точки времени (классификация уже прошла до
+// вызова saveEvent) — не три момента, а три ФАКТА об одном вычислении,
+// разделённые ради queryability (искать «все risk_classified severity>=2»
+// проще по своей строке, чем по JSON внутри signal_normalized.details).
+//
+// geo_unmatched НЕ эмитится в фазе 1: mchs_zones() при пустом совпадении
+// молча возвращает fallback ['avachinsky'] (seismic-parser.ts:586) — отсюда,
+// снаружи, «настоящий Авачинский» и «fallback по умолчанию» неразличимы.
+// Выдумывать различие, которого нет в данных, запрещает §4.0 — emit только
+// geo_matched, честно не претендуя на «unmatched».
 export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
+  const payloadHash = hashPayload({
+    alert_type: event.alert_type,
+    title: event.title,
+    description: event.description,
+    source_id: event.source_id,
+  });
+  const normalized = await appendSafetyEvent({
+    entityId: null,
+    eventType: 'signal_normalized',
+    actorType: 'source',
+    actorId: event.source_id,
+    sourceUrl: event.source_url,
+    sourcePublishedAt: event.published_at,
+    payloadHash,
+    details: { title: event.title },
+  });
+  await appendSafetyEvent({
+    entityId: null,
+    eventType: 'risk_classified',
+    actorType: 'system',
+    actorId: 'seismic-parser.saveEvent',
+    payloadHash,
+    priorEventId: normalized.id,
+    details: { alert_type: event.alert_type, severity: event.severity, expires_hours: event.expires_hours },
+  });
+  await appendSafetyEvent({
+    entityId: null,
+    eventType: 'geo_matched',
+    actorType: 'system',
+    actorId: 'seismic-parser.saveEvent',
+    payloadHash,
+    priorEventId: normalized.id,
+    details: { affected_zones: event.affected_zones },
+  });
+
   try {
     const expiresAt = new Date(event.published_at);
     expiresAt.setHours(expiresAt.getHours() + event.expires_hours);
@@ -377,7 +430,19 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
        RETURNING id`,
       [event.alert_type, event.title, event.description, expiresAt]
     );
-    if ((dup.rowCount ?? 0) > 0) return 'skipped';
+    if ((dup.rowCount ?? 0) > 0) {
+      await appendSafetyEvent({
+        entityId: dup.rows[0]?.id != null ? String(dup.rows[0].id) : null,
+        eventType: 'dedup_skipped',
+        actorType: 'system',
+        actorId: 'seismic-parser.saveEvent',
+        payloadHash,
+        priorEventId: normalized.id,
+        decisionReason: 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
+        details: { extended_expires_at: expiresAt.toISOString() },
+      });
+      return 'skipped';
+    }
 
     const result = await query(
       `INSERT INTO external_alerts (
@@ -404,7 +469,19 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
       ]
     );
 
-    return (result.rowCount ?? 0) > 0 ? 'inserted' : 'skipped';
+    const inserted = (result.rowCount ?? 0) > 0;
+    await appendSafetyEvent({
+      entityId: inserted && result.rows[0]?.id != null ? String(result.rows[0].id) : null,
+      eventType: inserted ? 'published' : 'dedup_skipped',
+      actorType: 'system',
+      actorId: 'seismic-parser.saveEvent',
+      payloadHash,
+      priorEventId: normalized.id,
+      decisionReason: inserted ? undefined : 'external_id уже существует (ON CONFLICT DO NOTHING)',
+      details: {},
+    });
+
+    return inserted ? 'inserted' : 'skipped';
   } catch (e) {
     throw new Error(`DB save failed for ${event.source_id}: ${(e as Error).message}`);
   }

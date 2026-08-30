@@ -41,7 +41,10 @@ describe('saveEvent не плодит строки с одинаковым со�
     const insertAt = body.indexOf('INSERT INTO external_alerts');
     expect(dedupAt).toBeGreaterThan(-1);
     expect(insertAt).toBeGreaterThan(dedupAt);
-    expect(body).toMatch(/rowCount \?\? 0\) > 0\) return 'skipped'/);
+    // Ветка дедупа (925: между условием и return теперь стоит запись в
+    // Safety Decision Ledger — appendSafetyEvent) обязана заканчиваться
+    // тем же исходом, return 'skipped', не только когда-то раньше в коде.
+    expect(body).toMatch(/\(dup\.rowCount \?\? 0\) > 0\)\s*\{[\s\S]{0,700}?return 'skipped';/);
   });
 });
 
