@@ -2552,29 +2552,36 @@ function OnTrailTab() {
         </div>
       )}
 
-      {/* Компас — плавающий инструмент над картой (редизайн 29.08, Шаг 3,
-          по мокапу владельца), не строка в приборном столбце. fixed —
-          независим от прокрутки контента, виден всегда, пока экран вообще
-          показывает приборы (тот же hasRoute-эквивалент, что раньше решал
-          вход в эту ветку JSX). Сам компас остаётся полностью непрозрачным
-          (FieldCompass не тронут) — «критичные приборы... всегда
-          непрозрачные» (§2 CLAUDE.md), это не глянцевая плашка. */}
+      {/* Компас — над картой, справа, НЕ fixed (правка 29.08 №2, по живому
+          скрину владельца: fixed top-28 угадывал отступ пиксельно и наехал
+          на геройскую цифру, как только плашка статуса оказалась выше
+          предположенного — тот же класс ошибки, что с text-shadow в Шаге 1,
+          только в вёрстке, а не в контрасте). Обычный поток вместо
+          fixed-угадайки — высота соседей сама раздвигает компас, коллизия
+          физически невозможна независимо от длины текста наверху или
+          цифры (7921 км/±64642 м с реального скрина — ровно тот случай
+          переполнения, которого угадывание не предвидело).
+          Сам компас остаётся полностью непрозрачным (FieldCompass не
+          тронут) — «критичные приборы... всегда непрозрачные» (§2
+          CLAUDE.md), это не глянцевая плашка. */}
       {(hasRoute || isLoadingRoute) && !showMap && (
-        <div className="fixed top-28 right-3 z-30 flex flex-col items-center gap-2">
-          {/* size=300 — дефолт компонента, рассчитанный на центр колонки
-              (прежнее место). Плавающий инструмент — бейдж, не герой экрана:
-              130 примерно соответствует масштабу компаса на мокапе владельца. */}
-          <FieldCompass heading={effHeading} state={effCompassState}
-            targetBearing={targetBearing} headingSource={headingSource} size={130} />
-          {/* Лекарство — на самом приборе: кнопка в строке статуса от
-              мёртвого компаса жила в другом углу экрана, и их не связывали. */}
-          {compassState === 'blocked' && (
-            <button onClick={enableCompass}
-              className="text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)' }}>
-              Включить компас
-            </button>
-          )}
+        <div className="relative z-20 flex justify-end px-3 pt-2">
+          <div className="flex flex-col items-center gap-2">
+            {/* size=300 — дефолт компонента, рассчитанный на центр колонки
+                (прежнее место). Плавающий инструмент — бейдж, не герой
+                экрана: 110 примерно соответствует масштабу на мокапе. */}
+            <FieldCompass heading={effHeading} state={effCompassState}
+              targetBearing={targetBearing} headingSource={headingSource} size={110} />
+            {/* Лекарство — на самом приборе: кнопка в строке статуса от
+                мёртвого компаса жила в другом углу экрана, и их не связывали. */}
+            {compassState === 'blocked' && (
+              <button onClick={enableCompass}
+                className="text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap"
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)' }}>
+                Включить компас
+              </button>
+            )}
+          </div>
         </div>
       )}
 
