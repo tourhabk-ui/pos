@@ -1,11 +1,14 @@
-# Разовая проба: дождаться, когда записанный трек доедет до очереди.
+# Разовая перепись: где на самом деле лежит то, что владелец записал 29.08.
 #
-# Починка (дожим черновика при открытии экрана «На маршруте») уже на проде —
-# это проверено по самому бандлу, а не по времени: строка «отправим при связи»
-# нашлась в /_next/static/chunks/app/planning/page-*.js.
+# Два месяца назад заведены ДВА разных полевых пути, и по словам «форма» и
+# «трек» они неотличимы:
+#   route_track_imports  — кнопка «Записать трек» на /planning?mode=trail;
+#   route_field_checks   — форма полевой проверки /field-check.
+# В первой таблице ноль; вторую я не смотрел ни разу. Прежде чем чинить
+# дальше, надо знать, куда попала работа человека.
 #
-# Здесь ждём СЛЕД в данных: строку в route_track_imports. Ноль и «не смог
-# спросить» — разные исходы, поэтому HTTP-код печатается всегда (§4.0).
+# Только чтение. Каждый ответ печатается сырым: «пусто» и «спросить не смог»
+# должны быть различимы (§4.0).
 #
 # Не мержится в main — это разбор, а не расписание.
 name: Track deploy probe
@@ -18,35 +21,35 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Ждём трек в очереди
+      - name: Очередь треков (route_track_imports)
+        if: always()
         run: |
-          set -u
-          for i in $(seq 1 50); do
-            code=$(curl -sS --max-time 60 \
-              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-              'https://vedarai.ru/api/cron/track-import-queue?status=all' \
-              -o queue.json -w '%{http_code}' || echo '000')
-            if [ "$code" != "200" ]; then
-              echo "[$i] спросить не смог: HTTP $code"
-              sleep 20; continue
-            fi
-            total=$(grep -o '"total":[0-9]*' queue.json | head -1 | cut -d: -f2)
-            if [ -z "$total" ]; then
-              echo "[$i] в ответе нет поля total — это не «ноль», а «не понял ответ»:"
-              cat queue.json; echo
-              sleep 20; continue
-            fi
-            echo "[$i] в очереди: $total"
-            if [ "$total" != "0" ]; then
-              echo '=== ТРЕК ДОЕХАЛ ==='
-              cat queue.json
-              echo
-              exit 0
-            fi
-            sleep 20
-          done
-          echo '=== ЗА 17 МИНУТ ТРЕК НЕ ПОЯВИЛСЯ ==='
-          echo 'последний ответ:'
-          cat queue.json || true
+          code=$(curl -sS --max-time 60 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            'https://vedarai.ru/api/cron/track-import-queue?status=all' \
+            -o out.json -w '%{http_code}' || echo '000')
+          echo "HTTP $code"
+          cat out.json || echo '(тело пустое)'
           echo
-          exit 1
+
+      - name: Очередь полевых проверок (route_field_checks)
+        if: always()
+        run: |
+          code=$(curl -sS --max-time 60 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            'https://vedarai.ru/api/cron/field-check-queue?status=all' \
+            -o out.json -w '%{http_code}' || echo '000')
+          echo "HTTP $code"
+          cat out.json || echo '(тело пустое)'
+          echo
+
+      - name: Снимки полевых проверок (route_field_check_photos)
+        if: always()
+        run: |
+          code=$(curl -sS --max-time 60 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            'https://vedarai.ru/api/cron/field-check-photo' \
+            -o out.json -w '%{http_code}' || echo '000')
+          echo "HTTP $code"
+          head -c 4000 out.json || echo '(тело пустое)'
+          echo
