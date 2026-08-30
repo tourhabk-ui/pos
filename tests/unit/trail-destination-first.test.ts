@@ -83,7 +83,7 @@ describe('сначала цель, потом путь (домен Destination, 
   });
 });
 
-describe('клик по карте создаёт coordinate-цель (PR 3 роадмапа владельца, 27.08)', () => {
+describe('клик по карте создаёт coordinate-цель (PR 3 роадмапа владельца, 27.08; правка 30.08 — пина с подтверждением)', () => {
   it('режим выбора точки — общая функция на цель И старт, карта не рисуется сама по себе', () => {
     expect(TRAIL).toContain("const [mapPickMode, setMapPickMode] = useState<'destination' | 'origin' | null>(null)");
     expect(TRAIL).toContain('function renderMapPickButton(');
@@ -91,16 +91,32 @@ describe('клик по карте создаёт coordinate-цель (PR 3 ро
     const block = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
     expect(block).toContain('const active = mapPickMode === target');
     expect(block).toContain('{active && (');
-    expect(block).toContain('onMapClick={(lat, lon) => {');
+    expect(block).toContain('function confirmPick()');
     expect(block).toContain("kind: 'coordinate'");
     expect(block).toContain('routeOptions: []');
   });
 
-  it('тап по карте гасит режим выбора и не запускает маршрут автоматически', () => {
-    const at = TRAIL.indexOf('onMapClick={(lat, lon) => {');
-    const cb = TRAIL.slice(at, TRAIL.indexOf('}} />', at));
-    expect(cb).toContain('setMapPickMode(null)');
-    expect(cb).not.toContain('selectRoute(');
+  it('тап по карте роняет пину (pickedCoord), а не фиксирует цель мгновенно', () => {
+    // 30.08: владелец («выбрал место, поставил точку, точка прилипла к
+    // карте») — тап без подтверждения раньше сразу закрывал карту, не
+    // показав, куда попал палец. Теперь тап только кладёт координату в
+    // pickedCoord; коммит цели/старта — отдельная кнопка confirmPick.
+    const at = TRAIL.indexOf('function renderMapPickButton');
+    const block = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
+    expect(block).toContain('onMapClick={(lat, lon) => setPickedCoord({ lat, lon })}');
+    expect(block).not.toContain('selectRoute(');
+  });
+
+  it('подтверждение точки — явная кнопка, гасящая режим выбора', () => {
+    const at = TRAIL.indexOf('function confirmPick()');
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n    }\n', at));
+    expect(body).toContain('closePicker()');
+  });
+
+  it('пина на мини-карте пикера — своим useMemo, не инлайн-массивом (identity не должна пересобираться на каждый рендер)', () => {
+    expect(TRAIL).toContain('const pickMarkers: MapMarker[] = useMemo(() => (');
+    expect(TRAIL).toContain('markers={pickMarkers}');
   });
 
   it('coordinate-цель без путей честно отказывается — не молчит и не рисует «0 путей»', () => {

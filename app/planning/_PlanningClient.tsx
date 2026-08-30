@@ -481,9 +481,29 @@ function OnTrailTab() {
   }, [coords]);
   // Клик по карте создаёт coordinate-цель ИЛИ coordinate-старт (владелец
   // 27.08, PR 3+4 роадмапа) — какую из двух, решает режим. Карта появляется,
-  // только когда человек сам её открыл, и гаснет сразу после тапа —
-  // ни ту, ни другую сущность клик не запускает автоматически.
+  // только когда человек сам её открыл.
   const [mapPickMode, setMapPickMode] = useState<'destination' | 'origin' | null>(null);
+  /**
+   * Правка 30.08 (живая жалоба владельца: «весь путь выбора конечной точки
+   * ломаный... как у всех нормальных навигаторов: выбрал место, поставил
+   * точку, точка прилипла к карте»).
+   *
+   * Раньше тап по карте СРАЗУ фиксировал координату и закрывал карту —
+   * без единого кадра, где видно, куда именно попал палец. Человек не мог
+   * ни проверить точку, ни поправить промах, ни увидеть подтверждение —
+   * тап срабатывал как выстрел, не как разговор. Обычные навигаторы (Яндекс,
+   * 2ГИС, Google) ведут иначе: тап роняет пину, пина остаётся на карте
+   * («прилипает»), и только явное «Поставить точку здесь» фиксирует выбор.
+   *
+   * pickedCoord — куда упала пина, ДО подтверждения. mapPickCenter/Zoom —
+   * стартовый вид мини-карты, вычисляется ОДИН РАЗ при открытии режима (не
+   * из живых coords на каждый рендер — так уже дважды ловили ремонт карты
+   * на каждый GPS-тик, см. MAP_PICK_DEFAULT_CENTER выше и комментарий у
+   * panTo в LeafletMap.tsx).
+   */
+  const [pickedCoord, setPickedCoord] = useState<{ lat: number; lon: number } | null>(null);
+  const [mapPickCenter, setMapPickCenter] = useState<[number, number]>(MAP_PICK_DEFAULT_CENTER);
+  const [mapPickZoom, setMapPickZoom] = useState(8);
   // Машина состояний построения пути (владелец 27.08, PR 5A; транспорт —
   // 28.08, PR 5B-1): idle — старт ещё не выбран; building — запрос идёт;
   // done — есть ответ. build() ходит на сервер (httpRouteBuilder), но
@@ -1384,6 +1404,47 @@ function OnTrailTab() {
     );
     return routeLine ? [routeLine] : [];
   }, [track, waypoints, activeRouteTitle, approach?.dataConflict, lineFidelity]);
+  /**
+   * Пина на мини-карте пикера точки (правка 30.08, «точка прилипла к
+   * карте») — своим useMemo, а не инлайн-массивом в JSX: инлайн-литерал
+   * пересоздавал бы identity на КАЖДЫЙ рендер (тот же класс бага, что уже
+   * ловили у MAP_PICK_DEFAULT_CENTER), и мини-карта пикера моргала бы, даже
+   * не дожидаясь тапа. Меняется только вместе с pickedCoord — то есть один
+   * раз на тап, не на каждый чих состояния экрана.
+   */
+  const pickMarkers: MapMarker[] = useMemo(() => (
+    pickedCoord
+      ? [{
+          coords: [pickedCoord.lat, pickedCoord.lon] as [number, number],
+          title: 'Точка',
+          color: 'orange',
+          type: MarkerType.POI,
+          suppressBalloon: true,
+        }]
+      : []
+  ), [pickedCoord]);
+  /**
+   * Та же пина — на карточке уже ЗАФИКСИРОВАННОЙ координатной цели
+   * (правка 30.08). Без неё после подтверждения человек видел только два
+   * числа (широта/долгота), а «прилипла к карте» — про то, что точку
+   * видно, а не про то, что она посчитана. identity держится на
+   * selectedDestination целиком: он новый объект только при СМЕНЕ выбора,
+   * не на каждый рендер экрана.
+   */
+  const destinationPinMap = useMemo(() => {
+    if (!selectedDestination || selectedDestination.destination.kind !== 'coordinate') return null;
+    const { lat, lon } = selectedDestination.destination;
+    return {
+      center: [lat, lon] as [number, number],
+      markers: [{
+        coords: [lat, lon] as [number, number],
+        title: 'Точка',
+        color: 'orange',
+        type: MarkerType.POI,
+        suppressBalloon: true,
+      }] as MapMarker[],
+    };
+  }, [selectedDestination]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
@@ -1643,6 +1704,7 @@ function OnTrailTab() {
     setSelectedDestination(null);
     setSelectedOrigin(null);
     setMapPickMode(null);
+    setPickedCoord(null);
     setWaypoints([]);
     setCurrentWpIdx(0);
     // Reset timer via ref — no effect restart, no sensor disruption
@@ -1735,13 +1797,47 @@ function OnTrailTab() {
   // Кнопка «указать на карте» — общая для цели И старта (владелец 27.08,
   // PR 3+4 роадмапа): один режим на двоих, target решает, какую сущность
   // создаёт тап. Карта не рисуется, пока человек её явно не открыл.
+  //
+  // Правка 30.08: тап больше не фиксирует координату мгновенно — он роняет
+  // пину (pickMarkers), пина остаётся видна на карте, и только явная кнопка
+  // «Поставить точку здесь» превращает её в цель/старт. «Заново» сбрасывает
+  // пину, не закрывая карту — поправить промах можно, не открывая режим
+  // повторно. Ровно тот путь, который в других навигаторах не нужно
+  // объяснять словами.
   function renderMapPickButton(target: 'destination' | 'origin', label: string) {
     const active = mapPickMode === target;
+    function openPicker() {
+      // Центр — от живой позиции, но зафиксированный ОДИН РАЗ на открытие,
+      // не на каждый рендер: иначе всякий GPS-тик менял бы identity center
+      // и пересобирал карту (тот же класс бага, что и с panTo в LeafletMap).
+      setMapPickCenter(coords ? [coords.lat, coords.lng] : MAP_PICK_DEFAULT_CENTER);
+      setMapPickZoom(coords ? 13 : 8);
+      setPickedCoord(null);
+      setMapPickMode(target);
+    }
+    function closePicker() {
+      setMapPickMode(null);
+      setPickedCoord(null);
+    }
+    function confirmPick() {
+      if (!pickedCoord) return;
+      const { lat, lon } = pickedCoord;
+      if (target === 'origin') {
+        setSelectedOrigin({ kind: 'coordinate', lat, lon });
+      } else {
+        setSelectedDestination({ destination: { kind: 'coordinate', lat, lon }, routeOptions: [] });
+        // Новая цель — старый старт мог относиться к прежней карточке;
+        // тянуть его за собой значило бы приписать ему смысл, которого
+        // никто не выбирал.
+        setSelectedOrigin(null);
+      }
+      closePicker();
+    }
     return (
       <>
         <button
           type="button"
-          onClick={() => setMapPickMode(active ? null : target)}
+          onClick={() => (active ? closePicker() : openPicker())}
           className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium mb-3"
           style={{
             background: active ? 'color-mix(in srgb, var(--ocean) 12%, transparent)' : 'var(--bg-primary)',
@@ -1749,23 +1845,36 @@ function OnTrailTab() {
             color: active ? 'var(--ocean)' : 'var(--text-secondary)',
           }}>
           <Crosshair className="w-4 h-4 shrink-0" />
-          {active ? 'Коснитесь карты, чтобы поставить точку' : label}
+          {active ? 'Свернуть карту' : label}
         </button>
         {active && (
-          <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
-            <LeafletMap center={MAP_PICK_DEFAULT_CENTER} zoom={8} height="220px" showUserLocation
-              onMapClick={(lat, lon) => {
-                if (target === 'origin') {
-                  setSelectedOrigin({ kind: 'coordinate', lat, lon });
-                } else {
-                  setSelectedDestination({ destination: { kind: 'coordinate', lat, lon }, routeOptions: [] });
-                  // Новая цель — старый старт мог относиться к прежней
-                  // карточке; тянуть его за собой значило бы приписать ему
-                  // смысл, которого никто не выбирал.
-                  setSelectedOrigin(null);
-                }
-                setMapPickMode(null);
-              }} />
+          <div className="mb-3">
+            <div className="rounded-xl overflow-hidden" style={{ height: 320, border: '1px solid var(--border)' }}>
+              <LeafletMap center={mapPickCenter} zoom={mapPickZoom} height="320px" showUserLocation
+                markers={pickMarkers}
+                onMapClick={(lat, lon) => setPickedCoord({ lat, lon })} />
+            </div>
+            {pickedCoord ? (
+              <div className="flex items-center gap-2 mt-2">
+                <p className="flex-1 text-xs text-[var(--text-secondary)]">
+                  Точка: {pickedCoord.lat.toFixed(5)}, {pickedCoord.lon.toFixed(5)}
+                </p>
+                <button type="button" onClick={() => setPickedCoord(null)}
+                  className="text-xs font-semibold px-3 py-2 rounded-lg shrink-0"
+                  style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                  Заново
+                </button>
+                <button type="button" onClick={confirmPick}
+                  className="text-xs font-bold px-3 py-2 rounded-lg shrink-0"
+                  style={{ background: 'var(--accent)', color: '#fff' }}>
+                  Поставить точку здесь
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs mt-2 text-center" style={{ color: 'var(--text-muted)' }}>
+                Коснитесь карты, чтобы поставить точку
+              </p>
+            )}
           </div>
         )}
       </>
@@ -1842,8 +1951,14 @@ function OnTrailTab() {
         <p className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
           {destinationTitle(d)}
         </p>
-        {d.kind === 'coordinate' && (
-          <p className="text-xs text-[var(--text-muted)] mb-3">{d.lat.toFixed(5)}, {d.lon.toFixed(5)}</p>
+        {d.kind === 'coordinate' && destinationPinMap && (
+          <div className="mb-3">
+            <div className="rounded-xl overflow-hidden" style={{ height: 160, border: '1px solid var(--border)' }}>
+              <LeafletMap center={destinationPinMap.center} zoom={13} height="160px"
+                markers={destinationPinMap.markers} />
+            </div>
+            <p className="text-xs text-[var(--text-muted)] mt-1">{d.lat.toFixed(5)}, {d.lon.toFixed(5)}</p>
+          </div>
         )}
 
         {renderOriginPicker()}
@@ -2241,7 +2356,7 @@ function OnTrailTab() {
                       <input
                         type="text"
                         value={modalQuery}
-                        onChange={e => { setModalQuery(e.target.value); setSelectedDestination(null); setSelectedOrigin(null); setMapPickMode(null); }}
+                        onChange={e => { setModalQuery(e.target.value); setSelectedDestination(null); setSelectedOrigin(null); setMapPickMode(null); setPickedCoord(null); }}
                         placeholder="Название места: Авачинский, Толбачик…"
                         className="w-full px-3 py-2.5 rounded-xl text-sm mb-3"
                         style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
@@ -3452,13 +3567,13 @@ function OnTrailTab() {
       {/* Навигаторный выбор маршрута: место → варианты → превью на карте → фиксация */}
       {showRouteModal && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
-          onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); setSelectedOrigin(null); setMapPickMode(null); }}>
+          onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); setSelectedOrigin(null); setMapPickMode(null); setPickedCoord(null); }}>
           <div className="rounded-t-2xl p-4 max-h-[85vh] overflow-y-auto"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-[var(--text-primary)] text-base">Куда хотите пойти?</h3>
-              <button onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); setSelectedOrigin(null); setMapPickMode(null); }}
+              <button onClick={() => { setShowRouteModal(false); setPreview(null); setSelectedDestination(null); setSelectedOrigin(null); setMapPickMode(null); setPickedCoord(null); }}
                 className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }}>
                 <X className="w-4 h-4 text-[var(--text-muted)]" />
               </button>
