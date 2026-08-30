@@ -74,3 +74,25 @@ describe('отказ геолокации назван, а не проглоче
     expect(MAP).toMatch(/showUserLocation\s*&&\s*geoDenied/);
   });
 });
+
+describe('карта не гоняется за шумным фиксом', () => {
+  /**
+   * Живой скрин владельца 30.08: GPS ±1000 м, «карта с точкой скачут,
+   * невозможно что-либо сделать». `panTo` срабатывал на КАЖДЫЙ фикс при
+   * zoom >= 12 — при плохом небе соседние фиксы разбросаны в пределах
+   * заявленной точности, и вид карты дёргался вслед за ними. Центрирование
+   * законно один раз, при появлении точки («вот вы») — дальше камерой
+   * распоряжается тот, кто её держит.
+   */
+  it('panTo вызывается только на первом фиксе, не на каждом', () => {
+    expect(geoBlock).toMatch(/isFirstFix\s*&&\s*map\.getZoom\(\)\s*>=\s*12/);
+    expect(geoBlock).not.toMatch(/if\s*\(\s*map\.getZoom\(\)\s*>=\s*12\s*\)\s*\{\s*\n\s*map\.panTo/);
+  });
+
+  it('isFirstFix вычисляется ДО создания маркера — иначе он всегда false', () => {
+    const at = geoBlock.indexOf('const isFirstFix');
+    const markerAt = geoBlock.indexOf('userMarker = L.marker(');
+    expect(at).toBeGreaterThan(0);
+    expect(markerAt).toBeGreaterThan(at);
+  });
+});

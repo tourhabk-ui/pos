@@ -525,6 +525,7 @@ export default function LeafletMap({
             const lng = pos.coords.longitude;
             const acc = pos.coords.accuracy; // метры точности (обычно 5-50м)
             setGeoDenied(false);
+            const isFirstFix = !userMarker;
             if (!userMarker) {
               userMarker = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
               accuracyCircle = L.circle([lat, lng], {
@@ -540,8 +541,18 @@ export default function LeafletMap({
               accuracyCircle?.setLatLng([lat, lng]);
               accuracyCircle?.setRadius(acc);
             }
-            // Центрируем карту на пользователе при первом фиксе или если зум > 12
-            if (map.getZoom() >= 12) {
+            /**
+             * Центрируем карту на пользователе ТОЛЬКО на первом фиксе (владелец
+             * 30.08, живой скрин: «карта с точкой скачут, невозможно
+             * что-либо сделать» при GPS ±1000 м). Раньше `panTo` срабатывал
+             * на КАЖДЫЙ фикс при zoom >= 12 — при плохом небе соседние фиксы
+             * разбросаны в пределах точности, и карта гонялась за ними,
+             * дёргая вид под рукой человека. Один раз при появлении точки —
+             * законное «вот где вы» (та же причина, по которой этот маркер
+             * вообще существует, см. комментарий выше); дальше камерой
+             * распоряжается тот, кто её держит, а не шумный датчик.
+             */
+            if (isFirstFix && map.getZoom() >= 12) {
               map.panTo([lat, lng], { animate: true, duration: 0.5 });
             }
           },
