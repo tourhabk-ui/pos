@@ -101,14 +101,14 @@ WHERE NOT EXISTS (SELECT 1 FROM places WHERE name ILIKE '%раздолье ка�
 -- маршрут с похожим именем в каталоге уже есть, и слаг мог достаться ему.
 UPDATE places
    SET slug = 'zelenovskie-ozerki'
- WHERE ark_id = 'a1e5c7d3-9f42-4b18-8e07-3c95d2b6a410'::uuid
+ WHERE ark_id::text = 'a1e5c7d3-9f42-4b18-8e07-3c95d2b6a410'
    AND slug IS NULL
    AND NOT EXISTS (SELECT 1 FROM places WHERE slug = 'zelenovskie-ozerki')
    AND NOT EXISTS (SELECT 1 FROM kamchatka_routes WHERE slug = 'zelenovskie-ozerki');
 
 UPDATE places
    SET slug = 'razdolie-kamchatki'
- WHERE ark_id = 'b2f6d8e4-0a53-4c29-9f18-4da6e3c7b521'::uuid
+ WHERE ark_id::text = 'b2f6d8e4-0a53-4c29-9f18-4da6e3c7b521'
    AND slug IS NULL
    AND NOT EXISTS (SELECT 1 FROM places WHERE slug = 'razdolie-kamchatki')
    AND NOT EXISTS (SELECT 1 FROM kamchatka_routes WHERE slug = 'razdolie-kamchatki');
@@ -136,7 +136,7 @@ SELECT
   'Сероводородные ванны. Вода из скважины К-01 на выходе 70 °C — доливать в ванну осторожно. Рекомендуемая температура ванны 35–38 °C, продолжительность от 5 до 12 минут (максимум 15), начинать с 5–7 минут; курс 12–15 ванн, через день. Детям — с трёх лет, 4–10 минут при 36–37 °C, курс 8–10 ванн; не купать сразу после еды и натощак. Противопоказания: болезни почек и печени, туберкулёз лёгких в активной форме, острые воспалительные процессы (включая ОРЗ), выраженный атеросклероз, гипертоническая болезнь III степени, инфаркт миокарда, сердечная астма, склонность к кровотечениям, тяжёлая форма сахарного диабета, эпилепсия, вторая половина беременности, грибковые заболевания, тяжёлая форма стенокардии. Озеро за ваннами около +6 °C круглый год — контрастное погружение противопоказано тем же группам.'
 WHERE NOT EXISTS (
   SELECT 1 FROM location_safety_profile
-   WHERE agent_route_id = 'a1e5c7d3-9f42-4b18-8e07-3c95d2b6a410'::uuid
+   WHERE agent_route_id::text = 'a1e5c7d3-9f42-4b18-8e07-3c95d2b6a410'
 );
 
 INSERT INTO location_safety_profile
@@ -149,7 +149,7 @@ SELECT
   'Сероводородные ванны, вода скважины № 23 на выходе +49,2…+58,5 °C. Рекомендуемая температура ванны 35–38 °C, продолжительность от 5 до 12 минут (максимум 15), начинать с 5–7 минут; курс 12–15 ванн, через день. Детям — с трёх лет, 4–10 минут при 36–37 °C, курс 8–10 ванн; не купать сразу после еды и натощак. Противопоказания: болезни почек и печени, туберкулёз лёгких в активной форме, острые воспалительные процессы (включая ОРЗ), выраженный атеросклероз, гипертоническая болезнь III степени, инфаркт миокарда, сердечная астма, склонность к кровотечениям, тяжёлая форма сахарного диабета, эпилепсия, вторая половина беременности, грибковые заболевания, тяжёлая форма стенокардии.'
 WHERE NOT EXISTS (
   SELECT 1 FROM location_safety_profile
-   WHERE agent_route_id = 'b2f6d8e4-0a53-4c29-9f18-4da6e3c7b521'::uuid
+   WHERE agent_route_id::text = 'b2f6d8e4-0a53-4c29-9f18-4da6e3c7b521'
 );
 
 COMMIT;
