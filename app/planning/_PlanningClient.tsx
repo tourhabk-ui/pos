@@ -2470,6 +2470,31 @@ function OnTrailTab() {
   }, []);
   const [sendingTrack, setSendingTrack] = useState(false);
 
+  // Общий шаг отправки — вызывается и явным «Остановить», и тихим автодожимом
+  // по online (ниже). Возвращает текст отказа сервера/сети или null (успех):
+  // тот же снаряд, что раньше собирался только внутри stopAndSendTrack.
+  const sendTrackGpx = useCallback(async (gpx: string): Promise<string | null> => {
+    try {
+      const b64 = typeof window === 'undefined'
+        ? '' : btoa(unescape(encodeURIComponent(gpx)));
+      const res = await fetch('/api/field-check/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: b64,
+          filename: `${activeRouteTitle || 'na-marshrute'}.gpx`,
+        }),
+      });
+      const data = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      if (!res.ok || !data?.success) {
+        return data?.error ?? 'Трек не ушёл — он сохранён на телефоне, отправьте при связи';
+      }
+      return null;
+    } catch {
+      return 'Связи нет — трек сохранён на телефоне, отправится при связи';
+    }
+  }, [activeRouteTitle]);
+
   const stopAndSendTrack = useCallback(async () => {
     setFieldBarError(null);
     const done = await recorder.stop();
@@ -2481,30 +2506,40 @@ function OnTrailTab() {
       setFieldBarError(done.summary.reasons[0] ?? 'Запись вышла рваной');
     }
     setSendingTrack(true);
-    try {
-      const b64 = typeof window === 'undefined'
-        ? '' : btoa(unescape(encodeURIComponent(done.gpx)));
-      const res = await fetch('/api/field-check/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: b64,
-          filename: `${activeRouteTitle || 'na-marshrute'}.gpx`,
-        }),
+    const failReason = await sendTrackGpx(done.gpx);
+    setSendingTrack(false);
+    if (failReason) { setFieldBarError(failReason); return; }
+    await recorder.discard();
+    setFieldBarError(null);
+  }, [recorder, sendTrackGpx]);
+
+  /**
+   * Автодожим недописанного трека при возврате связи (владелец 30.08: трек
+   * записан в поле, «Остановить» нажато без сети, кнопка честно обещала
+   * «отправится при связи» — а фактически ждала, что человек сам ЕЩЁ РАЗ
+   * зайдёт в запись и остановит её. У наблюдений (useTrailObservationQueue,
+   * ObservationSheet.tsx) такой автодожим по событию `online` уже есть —
+   * трек был единственным полевым действием без него.
+   *
+   * Не мешает активной записи (recording=true) — там отправкой распоряжается
+   * stopAndSendTrack по явному нажатию. Молчит на повторном отказе: это
+   * фоновая попытка, которую никто не нажимал, крутить баннер ошибки не о
+   * чем — черновик остаётся на диске и получит ещё одну попытку на
+   * следующее online.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onOnline = () => {
+      if (recorder.recording) return;
+      const pkg = recorder.packageDraft();
+      if (!pkg) return;
+      void sendTrackGpx(pkg.gpx).then(failReason => {
+        if (!failReason) void recorder.discard();
       });
-      const data = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
-      if (!res.ok || !data?.success) {
-        setFieldBarError(data?.error ?? 'Трек не ушёл — он сохранён на телефоне, отправьте при связи');
-        return;
-      }
-      await recorder.discard();
-      setFieldBarError(null);
-    } catch {
-      setFieldBarError('Связи нет — трек сохранён на телефоне, отправится при связи');
-    } finally {
-      setSendingTrack(false);
-    }
-  }, [recorder, activeRouteTitle]);
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [recorder, sendTrackGpx]);
 
   // Порядок — по плану владельца: «Добавить место · Записать трек · Наблюдение».
   // Кнопка, которую нажать нельзя, не показывается (правило FieldActionBar).
