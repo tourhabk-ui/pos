@@ -55,6 +55,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // places.id — TEXT (не UUID; UUID у места в отдельной колонке ark_id),
+    // merged_into_id — UUID. Первая живая проба (30.08) упала на 502
+    // «operator does not exist: text = uuid» — тот же урок, что уже стоит
+    // комментарием в places-dedup: сравнивать нужно явным приведением, а не
+    // голым равенством разнотипных колонок.
     const { rows } = await pool.query<PlaceAuditRow>(
       `SELECT p.id::text AS id, p.name, p.location_type, p.lat, p.lng,
               p.is_visible, p.merged_into_id::text AS merged_into_id, keep.name AS merged_into_name,
@@ -63,7 +68,7 @@ export async function GET(request: NextRequest) {
               sp.hazard_types, sp.nearest_medical_km, sp.sat_communicator_required,
               sp.phone_ranger_mches, sp.medical_info
          FROM places p
-         LEFT JOIN places keep ON keep.id = p.merged_into_id
+         LEFT JOIN places keep ON keep.id = p.merged_into_id::text
          LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
         WHERE p.name ILIKE $1
         ORDER BY p.name

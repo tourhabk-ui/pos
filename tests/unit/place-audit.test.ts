@@ -36,3 +36,13 @@ describe('видит то, что публичный поиск прячет', (
     expect(CODE).toMatch(/location_safety_profile/);
   });
 });
+
+describe('places.id (TEXT) не сравнивается голым с merged_into_id (UUID)', () => {
+  // Живая проба 30.08 упала на 502 «operator does not exist: text = uuid» —
+  // JOIN keep.id = p.merged_into_id без приведения. Статикой тип вывести
+  // нельзя (§4.0 CLAUDE.md), но здесь конкретно известны оба типа из схемы,
+  // и приведение — не догадка, а факт про places/merged_into_id.
+  it('JOIN keep приводит merged_into_id к text явно', () => {
+    expect(CODE).toMatch(/keep\.id\s*=\s*p\.merged_into_id::text/);
+  });
+});
