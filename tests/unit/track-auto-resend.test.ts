@@ -44,25 +44,40 @@ describe('useTrackRecorder: черновик можно упаковать бе�
   });
 });
 
+/**
+ * Границы блока автодожима: от разбора причины до конца эффектов, которые
+ * его запускают. Внутренняя раскладка блока с тех пор поменялась (см.
+ * track-draft-flush.test.ts: 30.08 добавили вторую точку входа — черновик,
+ * найденный на диске, — и общую функцию `flushTrackDraft`), поэтому сторож
+ * судит область целиком, а не конкретный список зависимостей useCallback:
+ * иначе он ломается на каждой перестановке, ничего не говоря о поведении.
+ */
+const flushRegion = () => {
+  const at = TRAIL.indexOf('Автодожим недописанного трека');
+  expect(at, 'блок автодожима трека не найден').toBeGreaterThan(0);
+  const end = TRAIL.indexOf('const fieldActions', at);
+  expect(end, 'не найден конец блока автодожима').toBeGreaterThan(at);
+  return TRAIL.slice(at, end);
+};
+
 describe('экран маршрута: трек досылается сам при возврате связи', () => {
   it('слушает online, как и очередь наблюдений', () => {
-    const at = TRAIL.indexOf('Автодожим недописанного трека');
-    expect(at).toBeGreaterThan(0);
-    const body = TRAIL.slice(at, TRAIL.indexOf('}, [recorder, sendTrackGpx]);', at));
+    const body = flushRegion();
     expect(body).toMatch(/addEventListener\('online'/);
     expect(body).toMatch(/recorder\.packageDraft\(\)/);
   });
 
   it('не мешает активной записи — там распоряжается явное «Остановить»', () => {
-    const at = TRAIL.indexOf('const onOnline = () => {');
-    const body = TRAIL.slice(at, at + 400);
-    expect(body).toMatch(/if \(recorder\.recording\) return;/);
+    // Проверка переехала из обработчика `online` в общую `flushTrackDraft`:
+    // теперь она прикрывает ОБА входа, а не только событие связи.
+    const at = TRAIL.indexOf('const flushTrackDraft');
+    expect(at, 'нет общей функции дожима').toBeGreaterThan(0);
+    const body = TRAIL.slice(at, at + 700);
+    expect(body).toMatch(/recorder\.recording\) return;/);
   });
 
   it('успешная фоновая отправка снимает черновик — recorder.discard()', () => {
-    const at = TRAIL.indexOf('Автодожим недописанного трека');
-    const body = TRAIL.slice(at, TRAIL.indexOf('}, [recorder, sendTrackGpx]);', at));
-    expect(body).toMatch(/if \(!failReason\) void recorder\.discard\(\);/);
+    expect(flushRegion()).toMatch(/if \(!failReason\) void recorder\.discard\(\);/);
   });
 
   it('явная отправка (stopAndSendTrack) и тихий автодожим шлют ОДНИМ и тем же путём', () => {
