@@ -38,7 +38,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/guide-certifications', label: 'Сертификаты гидов', icon: Award, section: 'Контент' },
   { href: '/hub/admin/content/places-import', label: 'Импорт мест', icon: MapPin, section: 'Контент' },
   { href: '/hub/admin/enrich-places', label: 'Обогащение мест', icon: Sprout, section: 'Контент' },
-  { href: '/hub/admin/places-photos', label: 'Фото мест', icon: ImageIcon, section: 'Контент' },
+  { href: '/hub/admin/places-photos', label: 'Редактор мест', icon: ImageIcon, section: 'Контент' },
   // Экран существовал без единой ссылки — найти его можно было, только помня
   // URL наизусть (перепись достижимости 22.08). То же ниже: Transparency Hub
   // и Webhook Telegram.

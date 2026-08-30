@@ -24,6 +24,23 @@ interface PlaceEdit {
   locationType: string | null;
   isVisible: boolean | null;
   mergedIntoId: string | null;
+  category: string | null;
+  district: string | null;
+  difficulty: string | null;
+  duration: string | null;
+  lengthKm: number | string | null;
+  activityType: string | null;
+  zone: string | null;
+  essence: string | null;
+  bestSeason: string | null;
+  accessInfo: string | null;
+  ecoZone: string | null;
+  ecoPermitRequired: boolean | null;
+  ecoRules: string | null;
+  ecoPermitUrl: string | null;
+  photoUrl: string | null;
+  sourceName: string | null;
+  sourceUrl: string | null;
 }
 
 const LOCATION_TYPE_OPTIONS = [
@@ -176,6 +193,16 @@ export default function PlacesPhotosClient() {
     }
   }, []);
 
+  // Deep-link ?edit=<id> (например, ссылка «Редактировать» из «Чистка мест») —
+  // читаем URL только на клиенте, без useSearchParams: страница не участвует
+  // в статической генерации, а window.location.search не тянет за собой
+  // требование Suspense-границы.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('edit');
+    if (id) void openEditor(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const closeEditor = () => { setEditId(null); setEditData(null); setEditError(null); };
 
   // Координата может оказаться строкой (NUMERIC из pg до фикса API; ввод с
@@ -201,6 +228,23 @@ export default function PlacesPhotosClient() {
           lng: toCoord(editData.lng),
           locationType: editData.locationType,
           isVisible: editData.isVisible ?? undefined,
+          category: editData.category,
+          district: editData.district,
+          difficulty: editData.difficulty,
+          duration: editData.duration,
+          lengthKm: toCoord(editData.lengthKm),
+          activityType: editData.activityType,
+          zone: editData.zone,
+          essence: editData.essence,
+          bestSeason: editData.bestSeason,
+          accessInfo: editData.accessInfo,
+          ecoZone: editData.ecoZone,
+          ecoPermitRequired: editData.ecoPermitRequired ?? undefined,
+          ecoRules: editData.ecoRules,
+          ecoPermitUrl: editData.ecoPermitUrl,
+          photoUrl: editData.photoUrl,
+          sourceName: editData.sourceName,
+          sourceUrl: editData.sourceUrl,
         }),
       });
       const data = await res.json() as { ok?: boolean; error?: string };
@@ -495,10 +539,12 @@ export default function PlacesPhotosClient() {
     <main className="max-w-5xl mx-auto px-4 py-8">
       <header className="mb-6">
         <h1 className="font-playfair text-3xl font-bold text-[var(--text-primary)] mb-2">
-          Загрузка фото мест
+          Редактор мест
         </h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          Загрузи фото — оно будет автоматически обрезано до 1280×720 (16:9) и сохранено для карточки места.
+          Найди место ниже и нажми «Редактировать» — откроется полная форма (название, тип,
+          координаты, описание, сезон, эко-правила, источник, видимость). Здесь же — загрузка
+          фото, поиск дублей и аудит качества данных.
         </p>
       </header>
 
@@ -1009,19 +1055,29 @@ export default function PlacesPhotosClient() {
                   />
                 </label>
 
-                <label className="block">
-                  <span className="ds-label">Тип</span>
-                  <select
-                    className="ds-input w-full"
-                    value={editData.locationType ?? ''}
-                    onChange={(e) => setEditData({ ...editData, locationType: e.target.value || null })}
-                  >
-                    <option value="">—</option>
-                    {LOCATION_TYPE_OPTIONS.map((t) => (
-                      <option key={t} value={t}>{LOCATION_LABELS[t] ?? t}</option>
-                    ))}
-                  </select>
-                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="ds-label">Тип</span>
+                    <select
+                      className="ds-input w-full"
+                      value={editData.locationType ?? ''}
+                      onChange={(e) => setEditData({ ...editData, locationType: e.target.value || null })}
+                    >
+                      <option value="">—</option>
+                      {LOCATION_TYPE_OPTIONS.map((t) => (
+                        <option key={t} value={t}>{LOCATION_LABELS[t] ?? t}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="ds-label">Категория</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.category ?? ''}
+                      onChange={(e) => setEditData({ ...editData, category: e.target.value || null })}
+                    />
+                  </label>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">
@@ -1045,6 +1101,15 @@ export default function PlacesPhotosClient() {
                 </div>
 
                 <label className="block">
+                  <span className="ds-label">Район</span>
+                  <input
+                    className="ds-input w-full"
+                    value={editData.district ?? ''}
+                    onChange={(e) => setEditData({ ...editData, district: e.target.value || null })}
+                  />
+                </label>
+
+                <label className="block">
                   <span className="ds-label">Описание</span>
                   <textarea
                     className="ds-input w-full min-h-[120px]"
@@ -1053,7 +1118,151 @@ export default function PlacesPhotosClient() {
                   />
                 </label>
 
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="block">
+                  <span className="ds-label">Суть места (essence, коротко)</span>
+                  <textarea
+                    className="ds-input w-full min-h-[60px]"
+                    value={editData.essence ?? ''}
+                    onChange={(e) => setEditData({ ...editData, essence: e.target.value || null })}
+                  />
+                </label>
+
+                <p className="text-xs font-semibold text-[var(--text-secondary)] pt-2">Классификация похода</p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="ds-label">Активность (activity_type)</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.activityType ?? ''}
+                      onChange={(e) => setEditData({ ...editData, activityType: e.target.value || null })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="ds-label">Зона (zone)</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.zone ?? ''}
+                      onChange={(e) => setEditData({ ...editData, zone: e.target.value || null })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="ds-label">Сложность</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.difficulty ?? ''}
+                      onChange={(e) => setEditData({ ...editData, difficulty: e.target.value || null })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="ds-label">Длительность</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.duration ?? ''}
+                      onChange={(e) => setEditData({ ...editData, duration: e.target.value || null })}
+                    />
+                  </label>
+                  <label className="block col-span-2">
+                    <span className="ds-label">Протяжённость, км</span>
+                    <input
+                      type="number" step="0.1"
+                      className="ds-input w-full"
+                      value={editData.lengthKm ?? ''}
+                      onChange={(e) => setEditData({ ...editData, lengthKm: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                    />
+                  </label>
+                </div>
+
+                <p className="text-xs font-semibold text-[var(--text-secondary)] pt-2">Сезон и доступ</p>
+
+                <label className="block">
+                  <span className="ds-label">Лучший сезон</span>
+                  <input
+                    className="ds-input w-full"
+                    value={editData.bestSeason ?? ''}
+                    onChange={(e) => setEditData({ ...editData, bestSeason: e.target.value || null })}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="ds-label">Как добраться / доступ</span>
+                  <textarea
+                    className="ds-input w-full min-h-[80px]"
+                    value={editData.accessInfo ?? ''}
+                    onChange={(e) => setEditData({ ...editData, accessInfo: e.target.value || null })}
+                  />
+                </label>
+
+                <p className="text-xs font-semibold text-[var(--text-secondary)] pt-2">Особо охраняемая территория</p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="ds-label">Эко-зона</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.ecoZone ?? ''}
+                      onChange={(e) => setEditData({ ...editData, ecoZone: e.target.value || null })}
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer self-end pb-2">
+                    <input
+                      type="checkbox"
+                      checked={editData.ecoPermitRequired ?? false}
+                      onChange={(e) => setEditData({ ...editData, ecoPermitRequired: e.target.checked })}
+                    />
+                    <span className="text-sm text-[var(--text-primary)]">Нужен пропуск</span>
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="ds-label">Правила посещения</span>
+                  <textarea
+                    className="ds-input w-full min-h-[60px]"
+                    value={editData.ecoRules ?? ''}
+                    onChange={(e) => setEditData({ ...editData, ecoRules: e.target.value || null })}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="ds-label">Ссылка на согласование пропуска</span>
+                  <input
+                    className="ds-input w-full"
+                    value={editData.ecoPermitUrl ?? ''}
+                    onChange={(e) => setEditData({ ...editData, ecoPermitUrl: e.target.value || null })}
+                  />
+                </label>
+
+                <p className="text-xs font-semibold text-[var(--text-secondary)] pt-2">Фото и источник</p>
+
+                <label className="block">
+                  <span className="ds-label">Ссылка на главное фото (photo_url)</span>
+                  <input
+                    className="ds-input w-full"
+                    value={editData.photoUrl ?? ''}
+                    onChange={(e) => setEditData({ ...editData, photoUrl: e.target.value || null })}
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="ds-label">Источник (имя)</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.sourceName ?? ''}
+                      onChange={(e) => setEditData({ ...editData, sourceName: e.target.value || null })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="ds-label">Источник (ссылка)</span>
+                    <input
+                      className="ds-input w-full"
+                      value={editData.sourceUrl ?? ''}
+                      onChange={(e) => setEditData({ ...editData, sourceUrl: e.target.value || null })}
+                    />
+                  </label>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer pt-2">
                   <input
                     type="checkbox"
                     checked={editData.isVisible ?? false}

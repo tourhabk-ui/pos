@@ -28,6 +28,11 @@ interface PlaceRow {
   lat: number | null; lng: number | null; location_type: string | null;
   is_visible: boolean | null; source_name: string | null; source_url: string | null;
   merged_into_id: string | null; has_photo: boolean;
+  category: string | null; district: string | null; difficulty: string | null;
+  duration: string | null; length_km: number | null; activity_type: string | null;
+  zone: string | null; essence: string | null; best_season: string | null;
+  access_info: string | null; eco_zone: string | null; eco_permit_required: boolean | null;
+  eco_rules: string | null; eco_permit_url: string | null; photo_url: string | null;
 }
 
 export async function GET(request: NextRequest, { params }: Props) {
@@ -40,6 +45,9 @@ export async function GET(request: NextRequest, { params }: Props) {
   const { rows } = await pool.query<PlaceRow>(
     `SELECT p.id, p.ark_id, p.name, p.description, p.lat, p.lng, p.location_type,
             p.is_visible, p.source_name, p.source_url, p.merged_into_id,
+            p.category, p.district, p.difficulty, p.duration, p.length_km,
+            p.activity_type, p.zone, p.essence, p.best_season, p.access_info,
+            p.eco_zone, p.eco_permit_required, p.eco_rules, p.eco_permit_url, p.photo_url,
             (ari.route_id IS NOT NULL) AS has_photo
      FROM places p
      LEFT JOIN ai_route_images ari ON ari.route_id = p.ark_id
@@ -57,6 +65,13 @@ export async function GET(request: NextRequest, { params }: Props) {
     locationType: p.location_type, isVisible: p.is_visible,
     sourceName: p.source_name, sourceUrl: p.source_url, mergedIntoId: p.merged_into_id,
     hasPhoto: p.has_photo,
+    category: p.category, district: p.district, difficulty: p.difficulty,
+    duration: p.duration,
+    lengthKm: p.length_km === null ? null : Number(p.length_km),
+    activityType: p.activity_type, zone: p.zone, essence: p.essence,
+    bestSeason: p.best_season, accessInfo: p.access_info,
+    ecoZone: p.eco_zone, ecoPermitRequired: p.eco_permit_required,
+    ecoRules: p.eco_rules, ecoPermitUrl: p.eco_permit_url, photoUrl: p.photo_url,
   });
 }
 
@@ -67,11 +82,34 @@ const PatchSchema = z.object({
   lng: z.number().min(-180).max(180).nullish(),
   locationType: z.string().trim().max(50).nullish(),
   isVisible: z.boolean().optional(),
+  category: z.string().trim().max(100).nullish(),
+  district: z.string().trim().max(100).nullish(),
+  difficulty: z.string().trim().max(50).nullish(),
+  duration: z.string().trim().max(50).nullish(),
+  lengthKm: z.number().min(0).max(10000).nullish(),
+  activityType: z.string().trim().max(50).nullish(),
+  zone: z.string().trim().max(50).nullish(),
+  essence: z.string().trim().max(2000).nullish(),
+  bestSeason: z.string().trim().max(200).nullish(),
+  accessInfo: z.string().max(5000).nullish(),
+  ecoZone: z.string().trim().max(50).nullish(),
+  ecoPermitRequired: z.boolean().optional(),
+  ecoRules: z.string().max(5000).nullish(),
+  ecoPermitUrl: z.string().trim().max(500).nullish(),
+  photoUrl: z.string().trim().max(1000).nullish(),
+  sourceName: z.string().trim().max(100).nullish(),
+  sourceUrl: z.string().trim().max(1000).nullish(),
 }).refine((v) => Object.keys(v).length > 0, { message: 'Нет полей для обновления' });
 
 const FIELD_COLUMN: Record<string, string> = {
   name: 'name', description: 'description', lat: 'lat', lng: 'lng',
   locationType: 'location_type', isVisible: 'is_visible',
+  category: 'category', district: 'district', difficulty: 'difficulty',
+  duration: 'duration', lengthKm: 'length_km', activityType: 'activity_type',
+  zone: 'zone', essence: 'essence', bestSeason: 'best_season',
+  accessInfo: 'access_info', ecoZone: 'eco_zone', ecoPermitRequired: 'eco_permit_required',
+  ecoRules: 'eco_rules', ecoPermitUrl: 'eco_permit_url', photoUrl: 'photo_url',
+  sourceName: 'source_name', sourceUrl: 'source_url',
 };
 
 export async function PATCH(request: NextRequest, { params }: Props) {
