@@ -25,7 +25,7 @@ import {
 } from '@/lib/on-route/eta';
 import {
   fixInfo, fixLabel, figuresAreLive, canAdvanceWaypoint,
-  readHeading, compassLabel, compassNeedsPermission,
+  readHeading, compassLabel, compassNeedsPermission, fixAccuracyPlausible,
   type CompassState,
 } from '@/lib/on-route/fix-quality';
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
@@ -950,6 +950,18 @@ function OnTrailTab() {
     if ('geolocation' in navigator) {
       watchRef.current = navigator.geolocation.watchPosition(
         pos => {
+          // Свежий timestamp с точностью в десятки километров — не GPS, а
+          // сетевой/IP-фолбэк геолокации браузера (живой скрин владельца
+          // 29.08: ±64642 м → «7921 км до точки»). Отбрасываем ТУТ, у
+          // источника: если принять его в coords, та же ложь разъедется по
+          // approach/distToNext/RecoveryCard/точке на карте — точечные
+          // проверки на каждом месте потребления гонялись бы за одной и той
+          // же причиной по всему экрану. Не обновляя coords, ничего не
+          // портим: пробел просто состарит текущий фикс честно, тем же
+          // fixInfo, что уже отличает stale/dead от live.
+          if (typeof pos.coords.accuracy === 'number' && !fixAccuracyPlausible(pos.coords.accuracy)) {
+            return;
+          }
           setGpsMessage(null);
           setCoords({
             lat: pos.coords.latitude,
@@ -1337,6 +1349,20 @@ function OnTrailTab() {
       })),
     ];
   }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approachLine, approach?.dataConflict]);
+  /**
+   * Постоянная карта-фон (Шаг 1) видна ВСЕГДА, в т.ч. под приборной
+   * колонкой — а numbered POI-пины путевых точек рассчитаны на полноэкранный
+   * режим «Карта», где им есть куда встать. Тут они торчали в узких
+   * промежутках между карточками не пойми где (живой скрин владельца 29.08:
+   * кружок «3» между геройской карточкой и панелью действий) — на фоновом
+   * слое остаётся только ЛИНИЯ (трек/набросок/подход/след), она даёт контекст
+   * «где я иду», не нуждаясь в месте под пин. Полный набор маркеров —
+   * по-прежнему в фокус-режиме «Карта» (mapMarkers без фильтра, ниже).
+   */
+  const backgroundMapMarkers = useMemo(
+    () => mapMarkers.filter(m => 'geometry' in m && m.geometry != null),
+    [mapMarkers],
+  );
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
@@ -2523,10 +2549,17 @@ function OnTrailTab() {
           владельца), а не то, что открывается по кнопке. Центр не следует за
           живыми coords (см. комментарий у mapCenter выше) — идентичность
           center/markers меняется только по явному действию (кнопка «Карта»,
-          выбор маршрута), не на каждом GPS-тике. */}
+          выбор маршрута), не на каждом GPS-тике.
+          Маркеры — по режиму: в фоне (showMap=false) только линия
+          (backgroundMapMarkers, правка 29.08 — numbered-пины путевых точек
+          иначе торчат в промежутках между карточками), в фокус-режиме
+          «Карта» — полный набор точек, как и был. Смена набора при
+          переключении showMap — законный, разовый, пользователем
+          инициированный ремонт карты, того же рода, что уже есть у смены
+          mapCenter по кнопке «Карта». */}
       <div className="fixed inset-0 z-0">
         <LeafletMap
-          markers={mapMarkers}
+          markers={showMap ? mapMarkers : backgroundMapMarkers}
           center={mapCenter}
           zoom={12}
           height="100dvh"

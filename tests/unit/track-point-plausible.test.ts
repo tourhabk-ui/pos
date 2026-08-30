@@ -120,3 +120,24 @@ describe('линия, которой не верим, не рисуется', ()
     expect(deps.slice(0, 160)).toMatch(/approach\?\.dataConflict/);
   });
 });
+
+describe('фоновый слой карты — только линия, без numbered-пинов (владелец 29.08)', () => {
+  /**
+   * Живой скрин: постоянная карта-фон (Шаг 1 редизайна) видна ВСЕГДА, в т.ч.
+   * под приборной колонкой — и кружок-пин путевой точки «3» торчал в узком
+   * промежутке между геройской карточкой и панелью действий. Пины рассчитаны
+   * на полноэкранный режим «Карта», где им есть место; на фоне остаётся
+   * только линия (трек/набросок/подход/след) — она даёт контекст «где я
+   * иду», не нуждаясь в свободном месте под пин.
+   */
+  it('backgroundMapMarkers фильтрует mapMarkers по наличию geometry (линии, не точки)', () => {
+    const at = PLANNING.indexOf('const backgroundMapMarkers = useMemo');
+    expect(at).toBeGreaterThan(0);
+    const body = PLANNING.slice(at, at + 300);
+    expect(body).toMatch(/mapMarkers\.filter\(m => 'geometry' in m && m\.geometry != null\)/);
+  });
+
+  it('постоянная карта-фон использует отфильтрованный набор, полноэкранная — полный', () => {
+    expect(PLANNING).toMatch(/markers=\{showMap \? mapMarkers : backgroundMapMarkers\}/);
+  });
+});

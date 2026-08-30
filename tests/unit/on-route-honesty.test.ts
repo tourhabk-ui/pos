@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import {
   fixInfo, fixLabel, figuresAreLive, canAdvanceWaypoint, readHeading,
   compassLabel, formatAge, FIX_STALE_MS, FIX_DEAD_MS, ARRIVAL_MAX_ACCURACY_M,
+  fixAccuracyPlausible, GPS_ACCURACY_IMPLAUSIBLE_M,
 } from '@/lib/on-route/fix-quality';
 
 const SCREEN = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
@@ -84,6 +85,38 @@ describe('«мы дошли» — решение только по надёжн�
 
   it('далеко — не переходим', () => {
     expect(canAdvanceWaypoint(fixInfo(NOW, 5, NOW), 1.2)).toBe(false);
+  });
+});
+
+describe('точность в десятки километров — не GPS, а сетевой фолбэк (владелец 29.08)', () => {
+  it('обычная точность GPS (даже плохая, сотни метров) — правдоподобна', () => {
+    expect(fixAccuracyPlausible(15)).toBe(true);
+    expect(fixAccuracyPlausible(300)).toBe(true);
+    expect(fixAccuracyPlausible(GPS_ACCURACY_IMPLAUSIBLE_M)).toBe(true);
+  });
+
+  it('точность в километрах (IP/сетевая геолокация) — неправдоподобна', () => {
+    // Живой скрин владельца: ±64642 м → «7921 км до точки».
+    expect(fixAccuracyPlausible(64642)).toBe(false);
+    expect(fixAccuracyPlausible(GPS_ACCURACY_IMPLAUSIBLE_M + 1)).toBe(false);
+  });
+
+  it('точность неизвестна — не блокируем по ней (это другой вопрос, не про точность)', () => {
+    expect(fixAccuracyPlausible(null)).toBe(true);
+  });
+
+  it('экран отбрасывает неправдоподобный фикс у источника (watchPosition), не пускает его в coords', () => {
+    // Единственное место, где coords вообще устанавливается — если бы
+    // проверка стояла в каком-то из потребителей (approach, distToNext,
+    // RecoveryCard), та же ложь могла бы всплыть в другом месте экрана.
+    const setCoordsCalls = SCREEN.match(/setCoords\(/g) ?? [];
+    expect(setCoordsCalls).toHaveLength(1);
+    const watchAt = SCREEN.indexOf('navigator.geolocation.watchPosition(');
+    const setCoordsAt = SCREEN.indexOf('setCoords(', watchAt);
+    const guardAt = SCREEN.indexOf('fixAccuracyPlausible(pos.coords.accuracy)', watchAt);
+    expect(watchAt).toBeGreaterThan(0);
+    expect(guardAt).toBeGreaterThan(watchAt);
+    expect(guardAt).toBeLessThan(setCoordsAt);
   });
 });
 
