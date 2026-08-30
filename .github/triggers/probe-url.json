@@ -1,11 +1,13 @@
 {
-  "note": "Повтор проверки GITHUB_TOKEN на Timeweb для volcano-merge-gate после деплоя (28.08). Предыдущий прогон (job 98752096816) ещё падал 401 Bad credentials на GET /issues?labels=volcano-agent — владелец подтвердил, что деплой прошёл ПОСЛЕ этого. Ждём success:true.",
-  "urls": [],
-  "post": [
-    { "url": "https://vedarai.ru/api/cron/volcano-merge-gate", "body": {} }
+  "note": "Проверка двух правок 30.08: место «Зеленовские озерки» (миграция 918) и переименование бассейна в «Раздолье Камчатки» (миграция 919). Владелец на месте искал «Раздолье Камчатки» в /hub/admin/content/places и не находил — проверяем публичным /api/field-check/nearby по координатам, которые он же назвал, чтобы отличить «миграция не доехала» от «искали не там». until — маркер новой сборки: раз его раньше не было в ответе (места не существовало), он не может быть эхом старого кеша.",
+  "urls": [
+    "https://vedarai.ru/api/field-check/nearby?lat=53.280367&lng=158.317736&radius_km=1",
+    "https://vedarai.ru/api/field-check/nearby?lat=53.28768&lng=158.34904&radius_km=1"
   ],
+  "grep": ["Зеленовские озерки", "Раздолье Камчатки", "Большой плавательный бассейн"],
+  "until": "Зеленовские озерки",
   "bytes": 4000,
-  "timeout": 60,
-  "retries": 1,
-  "retryDelay": 5
+  "timeout": 30,
+  "retries": 10,
+  "retryDelay": 30
 }
