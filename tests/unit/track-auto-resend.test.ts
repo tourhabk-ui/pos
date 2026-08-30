@@ -77,7 +77,9 @@ describe('экран маршрута: трек досылается сам пр
   });
 
   it('успешная фоновая отправка снимает черновик — recorder.discard()', () => {
-    expect(flushRegion()).toMatch(/if \(!failReason\) void recorder\.discard\(\);/);
+    const body = flushRegion();
+    expect(body).toMatch(/if \(!fail\) \{/);
+    expect(body).toMatch(/void recorder\.discard\(\);/);
   });
 
   it('явная отправка (stopAndSendTrack) и тихий автодожим шлют ОДНИМ и тем же путём', () => {

@@ -90,6 +90,59 @@ describe('замки против повторной и одновременно
   });
 });
 
+describe('«связи нет» и «сервер отказал» — разные исходы', () => {
+  /**
+   * Приём трека упирается в файловое хранилище и отвечает 503, если оно не
+   * настроено. В этом состоянии подпись «отправим при связи» — обещание,
+   * которое не сбудется НИКОГДА: связь есть, а класть некуда. Это то же
+   * молчание, из-за которого трек пропал, только вежливее.
+   */
+  it('отправка возвращает род отказа, а не только текст', () => {
+    expect(CODE).toMatch(/Promise<\{ reason: string; refused: boolean \} \| null>/);
+  });
+
+  it('отказом считается только ответ, который ДОШЁЛ до сервера', () => {
+    const at = CODE.indexOf('const sendTrackGpx = useCallback');
+    expect(at, 'нет функции отправки').toBeGreaterThan(0);
+    const body = CODE.slice(at, at + 1600);
+    // Ветка «сервер ответил не тем» — refused: true.
+    const bad = body.indexOf('!res.ok');
+    expect(bad, 'нет ветки отказа сервера').toBeGreaterThan(0);
+    expect(body.slice(bad, bad + 400)).toMatch(/refused: true/);
+    // Ветка catch (запрос не доехал) — refused: false.
+    const thrown = body.indexOf('} catch {');
+    expect(thrown, 'нет ветки «не доехало»').toBeGreaterThan(0);
+    expect(body.slice(thrown)).toMatch(/refused: false/);
+  });
+
+  it('код ответа попадает в текст, когда сервер не объяснился', () => {
+    // Без кода «отказал» неотличимо от «промолчал», и разбирать потом
+    // приходится вслепую.
+    expect(CODE).toMatch(/код \$\{res\.status\}/);
+  });
+
+  it('фоновый отказ сервера виден, фоновое отсутствие связи — молчит', () => {
+    const at = CODE.indexOf('const flushTrackDraft');
+    const block = CODE.slice(at, at + 1200);
+    expect(block).toMatch(/if \(fail\.refused\)/);
+    expect(block).toMatch(/setTrackRefusal\(fail\.reason\)/);
+  });
+
+  it('отказ вытесняет обещание «отправим при связи» в подписи кнопки', () => {
+    const at = CODE.indexOf('trackRefusal');
+    expect(at, 'нет состояния отказа').toBeGreaterThan(0);
+    const hint = CODE.indexOf('отправим при связи');
+    expect(hint).toBeGreaterThan(0);
+    expect(CODE.slice(Math.max(0, hint - 200), hint)).toMatch(/trackRefusal/);
+  });
+
+  it('успех снимает отказ — иначе он застынет навсегда', () => {
+    const at = CODE.indexOf('const flushTrackDraft');
+    const block = CODE.slice(at, at + 1200);
+    expect(block).toMatch(/setTrackRefusal\(null\)/);
+  });
+});
+
 describe('застрявшая запись названа словами, а не шёпотом', () => {
   it('подпись говорит, что запись цела и ждёт отправки', () => {
     // Прежнее «есть недописанная» читалось как «что-то недоделано», и человек

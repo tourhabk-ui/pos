@@ -2585,10 +2585,24 @@ function OnTrailTab() {
   }, []);
   const [sendingTrack, setSendingTrack] = useState(false);
 
+  /**
+   * Отказ СЕРВЕРА, показанный человеку. Не то же самое, что «связи нет».
+   *
+   * «Отправим при связи» — правда, когда запрос не доехал, и ЛОЖЬ, когда он
+   * доехал и сервер ответил «класть некуда» (например, файловое хранилище не
+   * настроено — тогда трек не уедет ни завтра, ни через месяц). Обещание,
+   * которое не сбудется никогда, — это то же самое молчание, из-за которого
+   * трек владельца пропал 29.08, только вежливее (§4.0 CLAUDE.md).
+   */
+  const [trackRefusal, setTrackRefusal] = useState<string | null>(null);
+
   // Общий шаг отправки — вызывается и явным «Остановить», и тихим автодожимом
-  // по online (ниже). Возвращает текст отказа сервера/сети или null (успех):
-  // тот же снаряд, что раньше собирался только внутри stopAndSendTrack.
-  const sendTrackGpx = useCallback(async (gpx: string): Promise<string | null> => {
+  // (ниже). Возвращает null при успехе, иначе — причину И ЕЁ РОД: `refused`
+  // значит, что запрос дошёл до сервера и получил отказ, а не потерялся в
+  // дороге. Эти два исхода лечатся по-разному, поэтому и различаются.
+  const sendTrackGpx = useCallback(async (
+    gpx: string,
+  ): Promise<{ reason: string; refused: boolean } | null> => {
     try {
       const b64 = typeof window === 'undefined'
         ? '' : btoa(unescape(encodeURIComponent(gpx)));
@@ -2602,11 +2616,19 @@ function OnTrailTab() {
       });
       const data = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
       if (!res.ok || !data?.success) {
-        return data?.error ?? 'Трек не ушёл — он сохранён на телефоне, отправьте при связи';
+        return {
+          // Код ответа — в текст: без него «сервер отказал» неотличимо от
+          // «сервер промолчал», а разбирать потом придётся вслепую.
+          reason: data?.error ?? `Сервер не принял трек (код ${res.status}). Запись цела на телефоне`,
+          refused: true,
+        };
       }
       return null;
     } catch {
-      return 'Связи нет — трек сохранён на телефоне, отправится при связи';
+      return {
+        reason: 'Связи нет — трек сохранён на телефоне, отправится при связи',
+        refused: false,
+      };
     }
   }, [activeRouteTitle]);
 
@@ -2621,10 +2643,15 @@ function OnTrailTab() {
       setFieldBarError(done.summary.reasons[0] ?? 'Запись вышла рваной');
     }
     setSendingTrack(true);
-    const failReason = await sendTrackGpx(done.gpx);
+    const fail = await sendTrackGpx(done.gpx);
     setSendingTrack(false);
-    if (failReason) { setFieldBarError(failReason); return; }
+    if (fail) {
+      setFieldBarError(fail.reason);
+      setTrackRefusal(fail.refused ? fail.reason : null);
+      return;
+    }
     await recorder.discard();
+    setTrackRefusal(null);
     setFieldBarError(null);
   }, [recorder, sendTrackGpx]);
 
@@ -2676,7 +2703,22 @@ function OnTrailTab() {
     if (!pkg) return;
     trackFlushInFlightRef.current = true;
     void sendTrackGpx(pkg.gpx)
-      .then(failReason => { if (!failReason) void recorder.discard(); })
+      .then(fail => {
+        if (!fail) {
+          setTrackRefusal(null);
+          setFieldBarError(null);
+          void recorder.discard();
+          return;
+        }
+        // Не доехало — не новость: черновик ждёт связи, как и обещано, и
+        // баннер на попытку, которую никто не нажимал, крутить не о чем.
+        // А вот ОТКАЗ сервера — новость: он не рассосётся сам, и человек
+        // должен знать, что ждать связи бессмысленно.
+        if (fail.refused) {
+          setTrackRefusal(fail.reason);
+          setFieldBarError(fail.reason);
+        }
+      })
       .finally(() => { trackFlushInFlightRef.current = false; });
   }, [recorder, sendTrackGpx]);
 
@@ -2743,8 +2785,11 @@ function OnTrailTab() {
           // недописанная» не говорило главного: запись цела и ждёт отправки,
           // а не потеряна. Человек, у которого трек не дошёл, читал это как
           // «что-то недоделано» и шёл дальше.
+          // Отказ сервера вытесняет обещание: «отправим при связи» при
+          // мёртвом приёмнике — обещание, которое не сбудется никогда.
           : (recorder.restored
-              ? `запись сохранена${sendingTrack ? ', отправляем' : ', отправим при связи'}`
+              ? (trackRefusal
+                  ?? `запись сохранена${sendingTrack ? ', отправляем' : ', отправим при связи'}`)
               : null),
       });
     }
@@ -2758,7 +2803,7 @@ function OnTrailTab() {
     });
 
     return list;
-  }, [recorder, sendingTrack, stopAndSendTrack, activeRouteTitle, obsQueueLen]);
+  }, [recorder, sendingTrack, stopAndSendTrack, activeRouteTitle, obsQueueLen, trackRefusal]);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
