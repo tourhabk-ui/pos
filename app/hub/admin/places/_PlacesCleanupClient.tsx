@@ -192,6 +192,12 @@ export default function PlacesCleanupClient() {
                     {!it.isVisible && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-muted)]">скрыто</span>}
                   </div>
                 </div>
+                <Link
+                  href={`/hub/admin/places-photos?edit=${it.id}`}
+                  className="text-xs text-[var(--ocean)] hover:underline flex-shrink-0"
+                >
+                  Редактировать
+                </Link>
               </li>
             ))}
           </ul>

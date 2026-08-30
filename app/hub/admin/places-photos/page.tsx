@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import PlacesPhotosClient from './_PlacesPhotosClient';
 
 export const metadata: Metadata = {
-  title: 'Загрузка фото мест — Admin',
+  title: 'Редактор мест — Admin',
   robots: 'noindex, nofollow',
 };
 

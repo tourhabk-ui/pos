@@ -343,6 +343,24 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         <NavigateTo to={{ lat: place.lat, lng: place.lng, name: place.name }} mode="car" />
       </div>
 
+      {/* 10c. Дальше — наше: путь сюда пешком, с компасом и GPS вместо чужого
+          навигатора. NavigateTo выше довозит до начала тропы, здесь начинается
+          то, что не делают Organic Maps и 2ГИС (см. её же комментарий). Ищет
+          путь ТЕМ ЖЕ полем поиска, что заполнил бы человек сам — предзаполнен
+          именем места через ?q=. auto=1 (владелец 30.08: «сразу на маршруте
+          от места, где находится пользователь») доводит цель и старт (живой
+          GPS) до автовыбора — человеку остаётся выбрать способ передвижения
+          и сам путь, если их несколько. */}
+      <div className="max-w-3xl mx-auto px-4 mt-4">
+        <Link
+          href={`/planning?mode=trail&q=${encodeURIComponent(place.name)}&auto=1`}
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--accent)]"
+        >
+          <Navigation className="h-4 w-4 text-[var(--accent)]" aria-hidden />
+          Пройти сюда с компасом и GPS
+        </Link>
+      </div>
+
       {/* 11. Kuzmich */}
       <div className="max-w-3xl mx-auto px-4 mt-6">
         <PlaceKuzmich
