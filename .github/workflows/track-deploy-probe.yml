@@ -1,0 +1,56 @@
+# Разовая проба: доехала ли починка дожима трека до прода, и есть ли трек в очереди.
+#
+# «Задеплоилось» определяется не по времени и не по панели, а по САМОМУ коду:
+# в новом клиентском бандле есть строка «отправим при связи», в старом её нет.
+# Косвенных признаков тут мало: у прода нет метки сборки (RELEASE_SHA не задан).
+#
+# Не мержится в main — это разбор, а не расписание.
+name: Track deploy probe
+
+on:
+  push:
+    branches: [track-deploy-probe]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ждём новый бандл на проде
+        run: |
+          set -u
+          NEEDLE='отправим при связи'
+          for i in $(seq 1 40); do
+            html=$(curl -sS --max-time 30 'https://vedarai.ru/planning?mode=trail' || true)
+            if [ -z "$html" ]; then
+              echo "[$i] страница не ответила"; sleep 30; continue
+            fi
+            # Строка может лежать и в самом HTML (RSC-полезная нагрузка), и в чанках.
+            found=no
+            case "$html" in *"$NEEDLE"*) found=yes ;; esac
+            if [ "$found" = no ]; then
+              srcs=$(printf '%s' "$html" | grep -o '/_next/static/chunks/[A-Za-z0-9._/-]*\.js' | sort -u)
+              for s in $srcs; do
+                if curl -sS --max-time 30 "https://vedarai.ru$s" | grep -qF "$NEEDLE"; then
+                  found=yes; echo "нашлось в $s"; break
+                fi
+              done
+            fi
+            if [ "$found" = yes ]; then
+              echo "ПОЧИНКА НА ПРОДЕ (попытка $i)"; exit 0
+            fi
+            echo "[$i] ещё старый бандл"
+            sleep 30
+          done
+          echo "ЗА 20 МИНУТ НЕ ДОЖДАЛИСЬ — сборка идёт дольше или упала"
+          exit 1
+
+      - name: Перепись очереди треков
+        if: always()
+        run: |
+          curl -sS --max-time 60 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            'https://vedarai.ru/api/cron/track-import-queue?status=all' \
+            -o queue.json -w 'HTTP %{http_code}\n' || true
+          echo '--- сырой ответ ---'
+          cat queue.json || true
+          echo
