@@ -916,9 +916,19 @@ function OnTrailTab() {
     // спутников, чтобы показать вчерашний путь, незачем.
     crumbsRouteRef.current = routeId;
     try {
-      const restored = parseCrumbs(localStorage.getItem(crumbsKey(routeId)));
+      const raw = localStorage.getItem(crumbsKey(routeId));
+      const restored = parseCrumbs(raw);
       crumbsRef.current = restored;
       setCrumbs(restored);
+      // parseCrumbs теперь отсеивает недостоверные точки (правка 30.08,
+      // «трек за пределы Камчатки») — если брак был в самом хранилище
+      // (скрин владельца: след до Магаданской области), переписываем диск
+      // очищенной версией сразу, не дожидаясь следующей крошки: иначе брак
+      // переживёт этот визит и всплывёт снова при следующем открытии.
+      const cleanedSerialized = serializeCrumbs(restored);
+      if (raw !== null && raw !== cleanedSerialized) {
+        localStorage.setItem(crumbsKey(routeId), cleanedSerialized);
+      }
     } catch { /* хранилище закрыто — начнём след заново */ }
     fetchRouteWaypoints(routeId);
   }, [fetchRouteWaypoints]);

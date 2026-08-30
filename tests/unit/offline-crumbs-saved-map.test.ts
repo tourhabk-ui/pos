@@ -50,6 +50,29 @@ describe('след пути пишется по расстоянию, а не п
     expect(addCrumb([], { lat: 53, lng: Infinity, t: T0 })).toEqual([]);
   });
 
+  it('точка вне Камчатки не попадает в след (правка 30.08 — скрин владельца: голубая линия следа до Магаданской области)', () => {
+    // Тот же диагноз, что 17.08 у трека из БД (lib/routes/track.ts): «конечное
+    // число» — не «точка на Камчатке». Живой след писался без этой проверки —
+    // одна точка от сетевого фолбэка геолокации оставалась в следе навсегда,
+    // потому что все соседние фиксы дальше минимального шага именно от НЕЁ.
+    const magadan = { lat: 62, lng: 145, t: T0 };
+    expect(addCrumb([], magadan)).toEqual([]);
+    // И не пролезает вторым шагом поверх уже принятой точки.
+    const one = addCrumb([], north(0));
+    expect(addCrumb(one, { ...magadan, t: T0 + 60_000 })).toBe(one);
+  });
+
+  it('parseCrumbs отсеивает недостоверные точки, уже лежащие в хранилище — самолечение при следующем открытии экрана', () => {
+    const raw = JSON.stringify([
+      [53.01, 158.65, T0],
+      [62, 145, T0 + 1000],       // брак — за пределами Камчатки
+      [53.02, 158.66, T0 + 2000],
+    ]);
+    const restored = parseCrumbs(raw);
+    expect(restored).toHaveLength(2);
+    expect(restored.every(c => c.lat >= 50 && c.lat <= 66 && c.lng >= 154 && c.lng <= 175)).toBe(true);
+  });
+
   it('переполнение режет ДАЛЬНИЙ конец: возвращаются по ближнему', () => {
     let crumbs: Crumb[] = [];
     for (let i = 0; i < CRUMB_MAX + 50; i++) crumbs = addCrumb(crumbs, north(i * 30, T0 + i * 1000));
@@ -141,7 +164,12 @@ describe('экран «На маршруте» пользуется этим', (
   });
 
   it('след поднимается с диска при открытии, до первого фикса', () => {
-    expect(SCREEN).toMatch(/parseCrumbs\(localStorage\.getItem\(crumbsKey\(routeId\)\)\)/);
+    expect(SCREEN).toMatch(/parseCrumbs\(raw\)/);
+  });
+
+  it('брак, отсеянный при чтении, переписывается на диск сразу — не ждёт следующей крошки (правка 30.08)', () => {
+    expect(SCREEN).toMatch(/serializeCrumbs\(restored\)/);
+    expect(SCREEN).toMatch(/localStorage\.setItem\(crumbsKey\(routeId\), cleanedSerialized\)/);
   });
 
   it('след рисуется отдельной линией, а не подмешивается к маршруту', () => {
