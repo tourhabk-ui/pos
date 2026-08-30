@@ -252,18 +252,25 @@ export default function VolcanoClient() {
           <section className="ds-card p-4">
             <h2 className="ds-h2 mb-2">Последний прогон Evo</h2>
             {data.summary.last_evo_run ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <StateBadge state={data.summary.last_evo_run.state} />
-                <span className="text-[var(--text-secondary)]">{fmtTime(data.summary.last_evo_run.created_at)}</span>
-                <span className="text-[var(--text-primary)]">{data.summary.last_evo_run.summary ?? 'без итога'}</span>
-                <button
-                  type="button"
-                  onClick={() => void openDetail(data.summary.last_evo_run!.id)}
-                  className="text-[var(--ocean)] hover:underline"
-                >
-                  подробности
-                </button>
-              </div>
+              <>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                  <StateBadge state={data.summary.last_evo_run.state} />
+                  <span className="text-[var(--text-secondary)]">{fmtTime(data.summary.last_evo_run.created_at)}</span>
+                  <span className="text-[var(--text-primary)]">{data.summary.last_evo_run.summary ?? 'без итога'}</span>
+                  <button
+                    type="button"
+                    onClick={() => void openDetail(data.summary.last_evo_run!.id)}
+                    className="text-[var(--ocean)] hover:underline"
+                  >
+                    подробности
+                  </button>
+                </div>
+                {openTask === data.summary.last_evo_run.id && (
+                  <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                    <TaskDetailPanel detail={detail} detailError={detailError} />
+                  </div>
+                )}
+              </>
             ) : (
               <p className="text-sm text-[var(--text-secondary)]">
                 Прогонов Evo через ядро ещё не было — это «не было», а не сбой панели.
@@ -366,20 +373,27 @@ export default function VolcanoClient() {
             ) : (
               <ul className="space-y-2">
                 {data.stuck_effects.map((ef) => (
-                  <li key={ef.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm border-b border-[var(--border)] last:border-0 pb-2 last:pb-0">
-                    <HelpCircle className="w-4 h-4 text-[var(--warning)]" />
-                    <span className="text-[var(--text-primary)]">{ef.effect_key}</span>
-                    <span className="text-[var(--text-muted)] text-xs">заведён {fmtTime(ef.created_at)}</span>
-                    <button
-                      type="button"
-                      onClick={() => void openDetail(ef.task_id)}
-                      className="text-[var(--ocean)] hover:underline text-xs"
-                    >
-                      задача {shortId(ef.task_id)}
-                    </button>
-                    <span className="text-[var(--text-muted)] text-xs">
-                      не знаем, дошёл ли внешний вызов — попытка либо ещё идёт, либо упала между вызовом и записью
-                    </span>
+                  <li key={ef.id} className="text-sm border-b border-[var(--border)] last:border-0 pb-2 last:pb-0">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <HelpCircle className="w-4 h-4 text-[var(--warning)]" />
+                      <span className="text-[var(--text-primary)]">{ef.effect_key}</span>
+                      <span className="text-[var(--text-muted)] text-xs">заведён {fmtTime(ef.created_at)}</span>
+                      <button
+                        type="button"
+                        onClick={() => void openDetail(ef.task_id)}
+                        className="text-[var(--ocean)] hover:underline text-xs"
+                      >
+                        задача {shortId(ef.task_id)}
+                      </button>
+                      <span className="text-[var(--text-muted)] text-xs">
+                        не знаем, дошёл ли внешний вызов — попытка либо ещё идёт, либо упала между вызовом и записью
+                      </span>
+                    </div>
+                    {openTask === ef.task_id && (
+                      <div className="mt-2 pl-6">
+                        <TaskDetailPanel detail={detail} detailError={detailError} />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -429,20 +443,27 @@ export default function VolcanoClient() {
             ) : (
               <ul className="space-y-1 text-xs font-mono">
                 {data.events.map((e) => (
-                  <li key={e.id} className="flex flex-wrap gap-x-2 text-[var(--text-secondary)]">
-                    <span className="text-[var(--text-muted)]">{fmtTime(e.created_at)}</span>
-                    <span className="text-[var(--text-primary)]">{e.event_type}</span>
-                    {e.from_state && e.to_state && (
-                      <span>{e.from_state} → {e.to_state}</span>
+                  <li key={e.id} className="text-[var(--text-secondary)]">
+                    <div className="flex flex-wrap gap-x-2">
+                      <span className="text-[var(--text-muted)]">{fmtTime(e.created_at)}</span>
+                      <span className="text-[var(--text-primary)]">{e.event_type}</span>
+                      {e.from_state && e.to_state && (
+                        <span>{e.from_state} → {e.to_state}</span>
+                      )}
+                      <span>{e.actor}</span>
+                      <button
+                        type="button"
+                        onClick={() => void openDetail(e.task_id)}
+                        className="text-[var(--ocean)] hover:underline"
+                      >
+                        задача {shortId(e.task_id)}
+                      </button>
+                    </div>
+                    {openTask === e.task_id && (
+                      <div className="mt-1 pl-4 not-italic">
+                        <TaskDetailPanel detail={detail} detailError={detailError} />
+                      </div>
                     )}
-                    <span>{e.actor}</span>
-                    <button
-                      type="button"
-                      onClick={() => void openDetail(e.task_id)}
-                      className="text-[var(--ocean)] hover:underline"
-                    >
-                      задача {shortId(e.task_id)}
-                    </button>
                   </li>
                 ))}
               </ul>
@@ -497,39 +518,52 @@ function TaskLine({ task, open, detail, detailError, onToggle }: {
       {open && (
         <tr className="border-b border-[var(--border)] last:border-0">
           <td colSpan={6} className="py-2 pl-4 bg-[var(--bg-hover)] rounded-lg">
-            {detailError && (
-              <p className="text-xs text-[var(--danger)]">Цепочка не прочитана: {detailError}</p>
-            )}
-            {!detail && !detailError && <p className="text-xs text-[var(--text-secondary)]">Загрузка цепочки…</p>}
-            {detail && (
-              <div className="space-y-2 text-xs">
-                <div className="text-[var(--text-muted)]">
-                  id {detail.task.id} · trace {detail.task.trace_id} · попытка {detail.task.attempt}
-                  {detail.task.resource_id && <> · ресурс {detail.task.resource_type}:{detail.task.resource_id}</>}
-                </div>
-                <ol className="space-y-1 font-mono">
-                  {detail.events.map((e) => (
-                    <li key={e.seq} className="text-[var(--text-secondary)]">
-                      <span className="text-[var(--text-muted)]">#{e.seq}</span>{' '}
-                      <span className="text-[var(--text-primary)]">{e.event_type}</span>
-                      {e.from_state && e.to_state && <> {e.from_state} → {e.to_state}</>}
-                      {' · '}{e.actor}{' · '}{fmtTime(e.created_at)}
-                      {Object.keys(e.details).length > 0 && (
-                        <span className="text-[var(--text-muted)]"> · {JSON.stringify(e.details).slice(0, 160)}</span>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-                {detail.trace_tasks.length > 0 && (
-                  <div className="text-[var(--text-secondary)]">
-                    В том же trace: {detail.trace_tasks.map((t) => `${t.capability} (${STATE_META[t.state]?.label ?? t.state})`).join(', ')}
-                  </div>
-                )}
-              </div>
-            )}
+            <TaskDetailPanel detail={detail} detailError={detailError} />
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+// Тело цепочки событий одной задачи — общее для трёх мест, откуда можно
+// открыть «подробности»/«задача N» (последний прогон Evo, зависшие эффекты,
+// лента событий), не только для таблицы «Последние задачи ядра». Раньше эти
+// три кнопки писали в общее состояние openTask/detail, но отрисовывался
+// результат только внутри TaskLine — клик по остальным ничего не показывал,
+// если задача не попадала в список последних 30 (владелец: «подробности не
+// открываются»).
+function TaskDetailPanel({ detail, detailError }: { detail: TaskDetail | null; detailError: string | null }) {
+  if (detailError) {
+    return <p className="text-xs text-[var(--danger)]">Цепочка не прочитана: {detailError}</p>;
+  }
+  if (!detail) {
+    return <p className="text-xs text-[var(--text-secondary)]">Загрузка цепочки…</p>;
+  }
+  return (
+    <div className="space-y-2 text-xs">
+      <div className="text-[var(--text-muted)]">
+        id {detail.task.id} · trace {detail.task.trace_id} · попытка {detail.task.attempt}
+        {detail.task.resource_id && <> · ресурс {detail.task.resource_type}:{detail.task.resource_id}</>}
+      </div>
+      <ol className="space-y-1 font-mono">
+        {detail.events.map((e) => (
+          <li key={e.seq} className="text-[var(--text-secondary)]">
+            <span className="text-[var(--text-muted)]">#{e.seq}</span>{' '}
+            <span className="text-[var(--text-primary)]">{e.event_type}</span>
+            {e.from_state && e.to_state && <> {e.from_state} → {e.to_state}</>}
+            {' · '}{e.actor}{' · '}{fmtTime(e.created_at)}
+            {Object.keys(e.details).length > 0 && (
+              <span className="text-[var(--text-muted)]"> · {JSON.stringify(e.details).slice(0, 160)}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {detail.trace_tasks.length > 0 && (
+        <div className="text-[var(--text-secondary)]">
+          В том же trace: {detail.trace_tasks.map((t) => `${t.capability} (${STATE_META[t.state]?.label ?? t.state})`).join(', ')}
+        </div>
+      )}
+    </div>
   );
 }
