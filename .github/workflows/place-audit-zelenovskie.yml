@@ -46,3 +46,16 @@ jobs:
               echo "::error::перепись по «$q» не прошла"; exit 1
             fi
           done
+
+          # Владелец записал реальный трек «от 5 стройки». Его конец — это
+          # фактический замер GPS, и он рассудит спор координат надёжнее
+          # любой карты. Очередь загруженных треков отдаёт метаданные и
+          # ссылку на GPX.
+          echo "══ очередь загруженных треков (route_track_imports) ══"
+          HTTP=$(curl -s -o /tmp/tracks.json -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/track-import-queue?status=all&limit=20")
+          echo "HTTP $HTTP"
+          jq -c '.items[]? | {created_at, trip_tag, note, points, length_km, span_km,
+                              matched: .matched_route, problems, s3_url}' /tmp/tracks.json 2>/dev/null \
+            || cat /tmp/tracks.json
