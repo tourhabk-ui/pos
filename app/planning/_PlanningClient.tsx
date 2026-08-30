@@ -2642,19 +2642,61 @@ function OnTrailTab() {
    * чем — черновик остаётся на диске и получит ещё одну попытку на
    * следующее online.
    */
+  /**
+   * ── Правка 30.08 (второй заход): дожим ещё и при ОТКРЫТИИ экрана ────────
+   *
+   * Событие `online` возникает только на ПЕРЕХОДЕ офлайн→онлайн. Трек,
+   * остановленный без сети, ждал именно перехода — а человек возвращался в
+   * город и открывал приложение УЖЕ при связи. Перехода не было, событие не
+   * приходило, черновик оставался на диске навсегда, и единственным следом
+   * была тихая подпись «есть недописанная» на кнопке.
+   *
+   * Так пропал трек владельца от 5 стройки: в `route_track_imports` ноль
+   * строк за всё время. Человек считал, что записал путь, — и путь исчез.
+   *
+   * Поэтому вторая точка входа — появление черновика на диске (`restored`):
+   * хук вычитывает его асинхронно, и к этому моменту уже известно, есть ли
+   * что слать.
+   *
+   * Два замка, потому что они защищают от разного:
+   *   inFlight — от одновременной отправки (событие и монтирование совпали);
+   *   autoTried — от повторов в цикле: `recorder` пересоздаётся на каждом
+   *     рендере, значит эффект по нему готов срабатывать бесконечно.
+   * Настоящее возвращение связи замок autoTried снимает: это новый повод.
+   */
+  const trackFlushInFlightRef = useRef(false);
+  const trackAutoTriedRef = useRef(false);
+
+  const flushTrackDraft = useCallback(() => {
+    if (trackFlushInFlightRef.current || recorder.recording) return;
+    // navigator.onLine врёт в плюс (говорит «есть» при мёртвом Wi-Fi), но не
+    // врёт в минус: явное false — это точно не время слать.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    const pkg = recorder.packageDraft();
+    if (!pkg) return;
+    trackFlushInFlightRef.current = true;
+    void sendTrackGpx(pkg.gpx)
+      .then(failReason => { if (!failReason) void recorder.discard(); })
+      .finally(() => { trackFlushInFlightRef.current = false; });
+  }, [recorder, sendTrackGpx]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onOnline = () => {
-      if (recorder.recording) return;
-      const pkg = recorder.packageDraft();
-      if (!pkg) return;
-      void sendTrackGpx(pkg.gpx).then(failReason => {
-        if (!failReason) void recorder.discard();
-      });
+      // Связь вернулась по-настоящему — это новый повод, прошлый отказ его
+      // не отменяет.
+      trackAutoTriedRef.current = false;
+      flushTrackDraft();
     };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
-  }, [recorder, sendTrackGpx]);
+  }, [flushTrackDraft]);
+
+  useEffect(() => {
+    if (!recorder.restored || trackAutoTriedRef.current) return;
+    trackAutoTriedRef.current = true;
+    flushTrackDraft();
+  }, [recorder.restored, flushTrackDraft]);
 
   // Порядок — по плану владельца: «Добавить место · Записать трек · Наблюдение».
   // Кнопка, которую нажать нельзя, не показывается (правило FieldActionBar).
@@ -2697,7 +2739,13 @@ function OnTrailTab() {
                   `${recorder.summary.points} тчк`,
                   `${recorder.summary.lengthKm.toFixed(1)} км`,
                 ].filter(Boolean).join(' · '))
-          : (recorder.restored ? 'есть недописанная' : null),
+          // Черновик на диске — это НЕ «ничего не происходит». Прежнее «есть
+          // недописанная» не говорило главного: запись цела и ждёт отправки,
+          // а не потеряна. Человек, у которого трек не дошёл, читал это как
+          // «что-то недоделано» и шёл дальше.
+          : (recorder.restored
+              ? `запись сохранена${sendingTrack ? ', отправляем' : ', отправим при связи'}`
+              : null),
       });
     }
 
