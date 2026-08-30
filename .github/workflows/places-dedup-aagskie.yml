@@ -1,0 +1,97 @@
+name: Слияние дублей — Аагские / Чистинские (Аагские) нарзаны
+
+# Одноразовый пульт. Два места в базе — один и тот же природный объект:
+#   keep  = «Аагские нарзаны» (6e7c9f6a-7d52-4a3c-b1e7-31915291da0f) —
+#           координата всегда была верной, богатая история описаний
+#           (миграции 090, 091, 092, 111), явно возвращена в видимость
+#           миграцией 110, уже привязана к route_waypoints (874).
+#   merge = «Чистинские (Аагские) нарзаны» (5fe02f54-d018-4125-a0ec-e5fc458ad493) —
+#           координата была ~24км не там (миграция 175, idilesom), только
+#           что поправлена вручную (place-coords-fix-chistinskie).
+#
+# Слияние — через постоянный manual-роут /api/cron/places-dedup, именованный
+# режим (pairs), Bearer CRON_SECRET. Мягкое: merged_into_id, обратимо
+# (POST /api/cron/places-unmerge). Сначала сухой прогон — план, потом запись.
+#
+# У токена агента нет права на workflow_dispatch (403) — запуск тем же
+# приёмом push в именованную ветку, что tochka-check.yml и
+# place-coords-fix-chistinskie.yml. Ветка не мержится в main.
+
+on:
+  push:
+    branches: [places-dedup-aagskie]
+
+permissions:
+  contents: read
+
+jobs:
+  dedup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Сухой прогон — план слияния
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET не задан"; exit 1
+          fi
+
+          BODY='{
+            "dry_run": true,
+            "pairs": [{
+              "keep": "6e7c9f6a-7d52-4a3c-b1e7-31915291da0f",
+              "merge": "5fe02f54-d018-4125-a0ec-e5fc458ad493"
+            }]
+          }'
+
+          HTTP=$(curl -s -o /tmp/dry.json -w '%{http_code}' --max-time 30 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+            -d "$BODY" "https://vedarai.ru/api/cron/places-dedup")
+
+          echo "HTTP $HTTP"
+          cat /tmp/dry.json
+          echo
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::сухой прогон не прошёл — слияние не применяется"; exit 1
+          fi
+
+          OK=$(jq -r '.success' /tmp/dry.json)
+          if [ "$OK" != "true" ]; then
+            echo "::error::план не построился"; exit 1
+          fi
+          echo "success=$OK"
+
+      - name: Боевой прогон — слить
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          BODY='{
+            "dry_run": false,
+            "pairs": [{
+              "keep": "6e7c9f6a-7d52-4a3c-b1e7-31915291da0f",
+              "merge": "5fe02f54-d018-4125-a0ec-e5fc458ad493"
+            }]
+          }'
+
+          HTTP=$(curl -s -o /tmp/live.json -w '%{http_code}' --max-time 30 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+            -d "$BODY" "https://vedarai.ru/api/cron/places-dedup")
+
+          echo "HTTP $HTTP"
+          cat /tmp/live.json
+          echo
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::боевой прогон не прошёл — слияние НЕ применено"; exit 1
+          fi
+
+          MERGED=$(jq -r '.merged_count' /tmp/live.json)
+          echo "merged_count=$MERGED"
+          if [ "$MERGED" != "1" ]; then
+            echo "::error::слияние не применилось"; exit 1
+          fi
+          echo "Готово: слито. Откат — POST /api/cron/places-unmerge."
