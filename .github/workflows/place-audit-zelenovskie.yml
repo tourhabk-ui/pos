@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Найти все places по «зеленовск»
+      - name: Перепись по нескольким написаниям
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -30,14 +30,19 @@ jobs:
             echo "::error::CRON_SECRET не задан"; exit 1
           fi
 
-          HTTP=$(curl -s -o /tmp/out.json -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "https://vedarai.ru/api/cron/place-audit?q=%D0%B7%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B2%D1%81%D0%BA")
-
-          echo "HTTP $HTTP"
-          cat /tmp/out.json
-          echo
-
-          if [ "$HTTP" != "200" ]; then
-            echo "::error::аудит не прошёл"; exit 1
-          fi
+          # Одного слова мало: 30.08 перепись по «зеленовск» показала запись,
+          # которой не было накануне, а «Раздолье» этим словом не ловится
+          # вовсе. Спрашиваем поимённо по каждому написанию.
+          for q in "зеленовск" "раздолье" "озерки"; do
+            enc=$(printf '%s' "$q" | jq -sRr @uri)
+            HTTP=$(curl -s -o /tmp/out.json -w '%{http_code}' --max-time 30 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://vedarai.ru/api/cron/place-audit?q=$enc")
+            echo "── q=$q → HTTP $HTTP"
+            jq -c '.places[]? | {id, name, location_type, lat, lng, is_visible, has_safety, merged_into_name}' /tmp/out.json 2>/dev/null \
+              || cat /tmp/out.json
+            echo
+            if [ "$HTTP" != "200" ]; then
+              echo "::error::перепись по «$q» не прошла"; exit 1
+            fi
+          done
