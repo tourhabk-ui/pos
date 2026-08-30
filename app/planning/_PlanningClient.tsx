@@ -304,6 +304,42 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
 
 interface SavedWaypoint { lat: number; lng: number; name: string; }
 
+/**
+ * Линия маршрута для карты — снятый трек или честный фолбэк по точкам.
+ *
+ * Общая точка правды для двух разных карт (Шаг 1 редизайна 29.08):
+ * постоянного фона (виден всегда, требует стабильных identity markers —
+ * живой скрин владельца, «карта постоянно моргает», когда фон получал ту
+ * же линию, что и полноэкранный режим) и полноэкранного режима «Карта»
+ * (mapMarkers ниже, где к этой же линии добавляются след и подход). Держать
+ * эту логику в двух местах значило бы рано или поздно почистить дублирование
+ * так, что одна копия правится, а другая — нет, ровно тот класс дефекта,
+ * ради которого писался §12 CLAUDE.md для линий на карте.
+ */
+function computeRouteLineMarker(
+  track: Array<[number, number]> | null,
+  waypoints: SavedWaypoint[],
+  activeRouteTitle: string | null,
+  dataConflict: boolean,
+  lineFidelity: TrackFidelity,
+): MapMarker | null {
+  const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
+  const fallback = wpLine.length >= 2 && !isScatteredCollection(wpLine) ? wpLine : null;
+  const trackTrusted = track != null && track.length >= 2;
+  const line = dataConflict ? null : (trackTrusted ? track : fallback);
+  if (!line) return null;
+  return {
+    coords: line[0],
+    title: activeRouteTitle ?? 'Маршрут',
+    geometry: {
+      type: 'polyline',
+      coordinates: line,
+      ...trackFidelityStyle(lineFidelity),
+    } as MapMarkerGeometry,
+    suppressBalloon: true,
+  };
+}
+
 function OnTrailTab() {
   const [heading, setHeading] = useState(0);
   // Земной источник азимута, увиденный хоть раз, отменяет относительный
@@ -1220,55 +1256,16 @@ function OnTrailTab() {
   }, [offTrackNow, coarseLat, coarseLng, joinLat, joinLng]);
 
   const mapMarkers: MapMarker[] = useMemo(() => {
-    const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
-    // Паутина «35 мест по всему краю»: сегменты >25 км — это не трек,
-    // ломаную не рисуем, только точки (полевой скрин 20.07). К настоящему
-    // треку это не относится: он путь, а не список мест.
-    const fallback = wpLine.length >= 2 && !isScatteredCollection(wpLine) ? wpLine : null;
-    /**
-     * Линия, которой платформа уже не верит, не рисуется.
-     *
-     * Полевой скрин 17.08: карточка честно писала «Линия и точки маршрута
-     * расходятся» и не показывала расстояние — и одновременно рисовала эту
-     * линию через весь экран, от Магаданской области за восточный край.
-     * Экран говорил и «не верь этому», и «вот путь» сразу; из двух сообщений
-     * в поле читают то, которое нарисовано.
-     *
-     * Расхождение уже посчитано в approach (dataConflict): точки маршрута и
-     * линия описывают разные места. Тогда линии нет — остаются точки, компас
-     * и SOS, о чём карточка и говорит словами.
-     *
-     * Регресс 24.08: dataConflict раньше просто выключал ТРЕК, и код падал
-     * на `fallback` — прямую между путевыми точками. На маршруте, где цель
-     * стоит в стороне от геометрии, это именно тот полный экран уверенной
-     * линии, от которого чинили 17.08, только в исполнении из точек, а не
-     * из geometry. dataConflict значит «не знаем, как это связано между
-     * собой» — фолбэк здесь не честнее самого трека, поэтому при нём линии
-     * нет вовсе, не только трека.
-     */
-    const trackTrusted = track && track.length >= 2;
-    const line = approach?.dataConflict === true ? null : (trackTrusted ? track : fallback);
-    if (!line && waypoints.length === 0) return [];
+    // Линия маршрута — общая функция с backgroundMapMarkers (ниже), не
+    // вторая копия той же логики. Комментарий о том, почему линия иногда
+    // гасится целиком (dataConflict, регресс 24.08), теперь у самой функции
+    // (computeRouteLineMarker) — читать его там, не здесь.
+    const routeLine = computeRouteLineMarker(
+      track, waypoints, activeRouteTitle, approach?.dataConflict === true, lineFidelity,
+    );
+    if (!routeLine && waypoints.length === 0) return [];
     return [
-      // Линия рисуется по своему происхождению. Часть маршрутов имеет
-      // geometry, построенную прямыми от точки к точке (migration 168) — в
-      // её же комментарии это названо «rough visual track». До экрана
-      // оговорка не доезжала: ломаная приходила тем же полем и рисовалась
-      // тем же сплошным зелёным, что и снятый GPS-трек.
-      //
-      // В поле разница решающая: по снятому треку идти можно, а прямая между
-      // точками на камчатском рельефе проходит через каньон и реку — и
-      // выглядит на карте так же уверенно.
-      ...(line ? [{
-        coords: line[0],
-        title: activeRouteTitle ?? 'Маршрут',
-        geometry: {
-          type: 'polyline',
-          coordinates: line,
-          ...trackFidelityStyle(lineFidelity),
-        } as MapMarkerGeometry,
-        suppressBalloon: true,
-      }] : []),
+      ...(routeLine ? [routeLine] : []),
       // Подход: от человека до тропы. Пунктиром и приглушённо — это НЕ тропа,
       // а прямая по азимуту, и рисовать её тем же уверенным зелёным значило бы
       // обещать путь там, где его никто не снимал.
@@ -1308,18 +1305,31 @@ function OnTrailTab() {
   }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approachLine, approach?.dataConflict]);
   /**
    * Постоянная карта-фон (Шаг 1) видна ВСЕГДА, в т.ч. под приборной
-   * колонкой — а numbered POI-пины путевых точек рассчитаны на полноэкранный
-   * режим «Карта», где им есть куда встать. Тут они торчали в узких
-   * промежутках между карточками не пойми где (живой скрин владельца 29.08:
-   * кружок «3» между геройской карточкой и панелью действий) — на фоновом
-   * слое остаётся только ЛИНИЯ (трек/набросок/подход/след), она даёт контекст
-   * «где я иду», не нуждаясь в месте под пин. Полный набор маркеров —
-   * по-прежнему в фокус-режиме «Карта» (mapMarkers без фильтра, ниже).
+   * колонкой, и должна быть спокойным задником, а не живым инструментом.
+   * Два самостоятельных живых скрина владельца 29.08 про одну причину:
+   *
+   *  1. numbered POI-пины путевых точек рассчитаны на полноэкранный режим
+   *     «Карта», где им есть куда встать — на фоне они торчали в узких
+   *     промежутках между карточками (кружок «3» между геройской карточкой
+   *     и панелью действий);
+   *  2. карта «постоянно моргает» — фон брал ТУ ЖЕ identity markers, что и
+   *     живой mapMarkers (зависит от crumbs/approachLine — обновляются на
+   *     каждом шаге человека), и пересоздавался вслед за ней. Раньше это
+   *     не было заметно: карта открывалась только по кнопке «Карта», где
+   *     живое обновление и есть цель.
+   *
+   * Фон получает ТОЛЬКО линию маршрута, посчитанную НЕЗАВИСИМО от mapMarkers
+   * — своим useMemo с узким набором зависимостей, не включающим coords/
+   * crumbs/approachLine/currentWpIdx. Полный живой набор (линия + подход +
+   * след + пины) — по-прежнему в mapMarkers, для полноэкранного режима
+   * «Карта» (showMap=true), где обновление на ходу — то, зачем экран открыт.
    */
-  const backgroundMapMarkers = useMemo(
-    () => mapMarkers.filter(m => 'geometry' in m && m.geometry != null),
-    [mapMarkers],
-  );
+  const backgroundMapMarkers: MapMarker[] = useMemo(() => {
+    const routeLine = computeRouteLineMarker(
+      track, waypoints, activeRouteTitle, approach?.dataConflict === true, lineFidelity,
+    );
+    return routeLine ? [routeLine] : [];
+  }, [track, waypoints, activeRouteTitle, approach?.dataConflict, lineFidelity]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
