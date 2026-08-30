@@ -46,6 +46,13 @@ export interface TrackRecorderApi {
   discard: () => Promise<void>;
   /** Есть недописанная запись с прошлого раза. */
   restored: boolean;
+  /**
+   * Пакует уже лежащий на диске черновик (восстановленный или недоотправленный)
+   * в GPX, не трогая запись/watch — для автодожима при возврате связи, когда
+   * человек ничего не нажимал и заново стартовать/останавливать не должен.
+   * null — пакетировать нечего (меньше двух точек).
+   */
+  packageDraft: () => { gpx: string; summary: TrackSummary } | null;
 }
 
 function toDraft(name: string, startedAt: number, st: RecorderState): FieldTrackDraft {
@@ -193,5 +200,12 @@ export function useTrackRecorder(): TrackRecorderApi {
 
   useEffect(() => stopWatch, [stopWatch]);
 
-  return { recording, summary, silent, error, start, stop, discard, restored };
+  const packageDraft = useCallback((): { gpx: string; summary: TrackSummary } | null => {
+    const st = stateRef.current;
+    if (st.points.length < 2) return null;
+    const name = nameRef.current || 'Выход';
+    return { gpx: toGpx(st, name), summary: summarize(st) };
+  }, []);
+
+  return { recording, summary, silent, error, start, stop, discard, restored, packageDraft };
 }
