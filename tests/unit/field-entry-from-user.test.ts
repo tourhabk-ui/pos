@@ -72,7 +72,11 @@ describe('на превью видно, где я', () => {
     expect(CODE).toMatch(/markers=\{previewMap\.markers\}[\s\S]{0,120}showUserLocation/);
   });
 
-  it('полноэкранная карта его показывает по-прежнему', () => {
-    expect(CODE).toMatch(/markers=\{mapMarkers\}[\s\S]{0,200}showUserLocation/);
+  it('постоянная карта-фон его показывает по-прежнему', () => {
+    // markers теперь зависит от режима (showMap ? mapMarkers :
+    // backgroundMapMarkers — правка 29.08, numbered-пины путевых точек не
+    // торчат в промежутках фонового слоя), но showUserLocation — то же
+    // самое условие видимости человека, не тронуто.
+    expect(CODE).toMatch(/markers=\{showMap \? mapMarkers : backgroundMapMarkers\}[\s\S]{0,200}showUserLocation/);
   });
 });

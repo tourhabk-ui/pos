@@ -214,3 +214,25 @@ export function fixUsableForNavigation(accuracyM: number | null): boolean {
   if (accuracyM == null || !Number.isFinite(accuracyM)) return false;
   return accuracyM <= ARRIVAL_MAX_ACCURACY_M;
 }
+
+/**
+ * Точность хуже этого — не GPS. Браузер отдаёт `coords` и с сетевой/IP-
+ * геолокацией, когда спутников не видно: `accuracy` в таких фиксах бывает
+ * ±десятки километров, `timestamp` — только что, и по одной свежести
+ * (`fixInfo`/`figuresAreLive`) такой фикс неотличим от настоящего GPS.
+ * Живой скрин владельца 29.08: точность ±64642 м, дистанция до точки —
+ * «7921 км» вместо честного «сигнала нет».
+ *
+ * Это НЕ второй порог для того же вопроса, что у `fixUsableForNavigation`
+ * (комментарий там прямо предупреждает: два ответа на один вопрос — путаница).
+ * Тот порог (50 м) отвечает «можно ли доверять фиксу для манёвра — переход
+ * точки, поворот». Этот отвечает на другой вопрос: «это вообще положение
+ * человека, или сетевая догадка в масштабе города». Ответ на первый вопрос
+ * не имеет смысла, пока не дан честный ответ на этот.
+ */
+export const GPS_ACCURACY_IMPLAUSIBLE_M = 5000;
+
+export function fixAccuracyPlausible(accuracyM: number | null): boolean {
+  if (accuracyM == null || !Number.isFinite(accuracyM)) return true;
+  return accuracyM <= GPS_ACCURACY_IMPLAUSIBLE_M;
+}
