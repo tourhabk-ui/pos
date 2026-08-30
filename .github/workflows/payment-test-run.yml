@@ -40,10 +40,23 @@ jobs:
             exit 1
           fi
 
-          # Первый прогон (23:55 UTC) уже завёл служебного партнёра/тур/бронь —
-          # setup идемпотентен (ищет по имени/названию, находит существующую
-          # незакрытую бронь), поэтому просто повторяем его вместо угадывания id.
-          echo "── 1. Setup (идемпотентно — найдёт прошлую бронь) ────"
+          # Прошлые два прогона нашли booking_id=3 со status="cancelled" —
+          # setup идемпотентен по paid_at IS NULL, а не по booking_status, и
+          # переиспользовал СТАРУЮ бронь (видимо, от прежней проверки этого же
+          # эндпоинта — id=3 слишком мал для сегодняшнего прода), которая уже
+          # легитимно отменилась через abandoned-bookings (2-24ч без оплаты).
+          # Не баг сегодняшнего пути — переиспользование мёртвой записи.
+          #
+          # Teardown снимает старый служебный тур/бронь (мягко: deleted_at),
+          # партнёр остаётся как якорь. Следующий setup не найдёт тур по
+          # title (у старого deleted_at уже не NULL) и создаст СВЕЖИЙ.
+          echo "── 0. Teardown старой служебной обвязки ───────────────"
+          curl -sS --max-time 30 -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
+            -d '{"action":"teardown","confirm":true}' "https://vedarai.ru/api/cron/payment-test-setup"
+          echo
+
+          echo "── 1. Setup (теперь должен создать СВЕЖИЙ тур/бронь) ──"
           HTTP=$(curl -sS -o /tmp/setup.json -w '%{http_code}' --max-time 30 -X POST \
             -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
             -d '{"confirm":true}' "https://vedarai.ru/api/cron/payment-test-setup")
@@ -54,12 +67,7 @@ jobs:
           BOOKING_ID=$(jq -r '.booking_id' /tmp/setup.json)
           echo "booking_id=$BOOKING_ID"
 
-          # Первый прогон дал по этой же брони 404 «Бронирование не найдено»
-          # на POST выпуска QR, хотя setup только что отчитался успехом, а
-          # commission-dry-run секундой позже видел строку целиком (final_price,
-          # тур, партнёр). GET ниже читает booking_status БЕЗ фильтра по
-          # значению — покажет, чем именно он оказался, вместо гадания.
-          echo "── 2. Что реально хранится в строке (без фильтра статуса) ─"
+          echo "── 2. Статус свежей строки (должен быть pending_payment) ─"
           curl -sS --max-time 30 "https://vedarai.ru/api/payments/tochka/qr?bookingId=$BOOKING_ID"
           echo
 
