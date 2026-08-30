@@ -98,20 +98,27 @@ describe('линия, которой не верим, не рисуется', ()
    * то, какими словами это написано в исходнике.
    */
   it('при расхождении гасится ЛЮБАЯ линия — трек и фолбэк по точкам тоже', () => {
+    // Правка 29.08: построение line/trackTrusted переехало в общую функцию
+    // computeRouteLineMarker (используется и mapMarkers, и backgroundMapMarkers
+    // — см. описание выше), но инвариант тот же: `line` присваивается один
+    // раз, и это присваивание обязано начинаться с проверки dataConflict,
+    // а не с выбора между track и fallback.
     const body = PLANNING.slice(
-      PLANNING.indexOf('const mapMarkers: MapMarker[] = useMemo'),
-      PLANNING.indexOf('}, [track, waypoints, currentWpIdx'),
+      PLANNING.indexOf('function computeRouteLineMarker'),
+      PLANNING.indexOf('function OnTrailTab'),
     );
-    // `line` присваивается один раз — и это присваивание обязано начинаться
-    // с проверки dataConflict, а не с выбора между track и fallback.
     const assigns = [...body.matchAll(/\bconst line = /g)];
     expect(assigns).toHaveLength(1);
-    const line = body.slice(assigns[0].index, assigns[0].index + 200);
-    expect(line).toMatch(/^const line = approach\?\.dataConflict === true\s*\n?\s*\?\s*null/);
+    const line = body.slice(assigns[0].index, assigns[0].index + 100);
+    expect(line).toMatch(/^const line = dataConflict\s*\?\s*null/);
   });
 
   it('без расхождения трек по-прежнему предпочтён фолбэку по точкам', () => {
-    expect(PLANNING).toMatch(/const trackTrusted = track && track\.length >= 2;/);
+    const body = PLANNING.slice(
+      PLANNING.indexOf('function computeRouteLineMarker'),
+      PLANNING.indexOf('function OnTrailTab'),
+    );
+    expect(body).toMatch(/const trackTrusted = track != null && track\.length >= 2;/);
   });
 
   it('расхождение входит в зависимости карты — иначе линия застынет', () => {
@@ -121,23 +128,44 @@ describe('линия, которой не верим, не рисуется', ()
   });
 });
 
-describe('фоновый слой карты — только линия, без numbered-пинов (владелец 29.08)', () => {
+describe('фоновый слой карты — только линия, независимо посчитанная (владелец 29.08, два скрина)', () => {
   /**
-   * Живой скрин: постоянная карта-фон (Шаг 1 редизайна) видна ВСЕГДА, в т.ч.
-   * под приборной колонкой — и кружок-пин путевой точки «3» торчал в узком
+   * Скрин 1: постоянная карта-фон (Шаг 1 редизайна) видна ВСЕГДА, в т.ч. под
+   * приборной колонкой — кружок-пин путевой точки «3» торчал в узком
    * промежутке между геройской карточкой и панелью действий. Пины рассчитаны
-   * на полноэкранный режим «Карта», где им есть место; на фоне остаётся
-   * только линия (трек/набросок/подход/след) — она даёт контекст «где я
-   * иду», не нуждаясь в свободном месте под пин.
+   * на полноэкранный режим «Карта», где им есть место.
+   *
+   * Скрин 2 (тот же день, следом): фон брал mapMarkers.filter(...) —
+   * ту же identity, что и живой mapMarkers, зависящий от crumbs/
+   * approachLine (обновляются на каждом шаге человека). Карта «постоянно
+   * моргает» — фон пересоздавался вслед за живым треком. Фикс — не фильтр
+   * над живым массивом, а НЕЗАВИСИМЫЙ useMemo с узким набором зависимостей
+   * (через общую функцию computeRouteLineMarker, не вторую копию логики
+   * построения линии).
    */
-  it('backgroundMapMarkers фильтрует mapMarkers по наличию geometry (линии, не точки)', () => {
-    const at = PLANNING.indexOf('const backgroundMapMarkers = useMemo');
+  it('backgroundMapMarkers — свой useMemo через computeRouteLineMarker, не фильтр над mapMarkers', () => {
+    const at = PLANNING.indexOf('const backgroundMapMarkers: MapMarker[] = useMemo');
     expect(at).toBeGreaterThan(0);
-    const body = PLANNING.slice(at, at + 300);
-    expect(body).toMatch(/mapMarkers\.filter\(m => 'geometry' in m && m\.geometry != null\)/);
+    const body = PLANNING.slice(at, PLANNING.indexOf('}, [', at) + 200);
+    expect(body).toMatch(/computeRouteLineMarker\(/);
+    expect(body).not.toMatch(/mapMarkers\.filter/);
+    // Узкие зависимости — явно НЕ включают coords/crumbs/approachLine/
+    // currentWpIdx: это и есть то, что раньше заставляло фон мигать.
+    const depsAt = body.indexOf('}, [');
+    const deps = body.slice(depsAt, depsAt + 120);
+    expect(deps).not.toMatch(/crumbs/);
+    expect(deps).not.toMatch(/approachLine/);
+    expect(deps).not.toMatch(/currentWpIdx/);
   });
 
-  it('постоянная карта-фон использует отфильтрованный набор, полноэкранная — полный', () => {
+  it('mapMarkers (живой, полноэкранный режим) строит линию той же общей функцией', () => {
+    const at = PLANNING.indexOf('const mapMarkers: MapMarker[] = useMemo');
+    expect(at).toBeGreaterThan(0);
+    const body = PLANNING.slice(at, at + 400);
+    expect(body).toMatch(/computeRouteLineMarker\(/);
+  });
+
+  it('постоянная карта-фон использует независимый набор, полноэкранная — полный живой', () => {
     expect(PLANNING).toMatch(/markers=\{showMap \? mapMarkers : backgroundMapMarkers\}/);
   });
 });
