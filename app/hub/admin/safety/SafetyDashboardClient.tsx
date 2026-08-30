@@ -447,8 +447,11 @@ export function SafetyDashboardClient() {
   const [capacity, setCapacity]       = useState<CapacityItem[]>([]);
   const [capacityMeta, setCapacityMeta] = useState<CapacityMeta>({ total: 0, red_locations: 0, yellow_locations: 0 });
   const [loading, setLoading]         = useState(true);
-  const [tab, setTab] = useState<'alerts' | 'zones' | 'capacity' | 'consult' | 'artem'>('alerts');
+  const [tab, setTab] = useState<'alerts' | 'zones' | 'capacity' | 'consult' | 'artem' | 'ledger'>('alerts');
   const [refreshed, setRefreshed] = useState<Date | null>(null);
+  // Клик «Журнал» у конкретного алерта переключает вкладку и передаёт фильтр —
+  // сама вкладка LedgerTab невладелец состояния поиска, только начальное значение.
+  const [ledgerEntityId, setLedgerEntityId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -520,7 +523,7 @@ export function SafetyDashboardClient() {
         {/* ── Вкладки: Алерты / Ёмкость ────────────────────────────── */}
         <div className="ds-card mb-6">
           <div className="flex border-b border-[var(--border)]">
-            {(['alerts', 'zones', 'capacity', 'consult', 'artem'] as const).map(t => (
+            {(['alerts', 'zones', 'capacity', 'consult', 'artem', 'ledger'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -534,7 +537,8 @@ export function SafetyDashboardClient() {
                  t === 'zones'    ? 'Ограничения зон' :
                  t === 'capacity' ? `Ёмкость (${capacityMeta.total})` :
                  t === 'consult'  ? 'Консультация МЧС' :
-                 'Артём'}
+                 t === 'artem'    ? 'Артём' :
+                 'Журнал'}
               </button>
             ))}
           </div>
@@ -568,10 +572,16 @@ export function SafetyDashboardClient() {
                         {alert.alert_type}
                       </span>
                     </div>
-                    <div className="flex flex-wrap gap-4 text-xs text-[var(--text-muted)]">
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--text-muted)]">
                       <span>Зоны: {alert.affected_zones.join(', ')}</span>
                       <span>Маршрутов затронуто: {alert.affected_route_count}</span>
                       <span>Истекает: {new Date(alert.expires_at).toLocaleString('ru-RU')}</span>
+                      <button
+                        onClick={() => { setLedgerEntityId(String(alert.id)); setTab('ledger'); }}
+                        className="text-[var(--ocean)] hover:underline"
+                      >
+                        Журнал
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -582,6 +592,8 @@ export function SafetyDashboardClient() {
               <MchsConsultChat />
             ) : tab === 'artem' ? (
               <ArtemWishesChat />
+            ) : tab === 'ledger' ? (
+              <LedgerTab initialEntityId={ledgerEntityId} />
             ) : (
               <div className="space-y-2">
                 {capacity.length === 0 ? (
@@ -651,6 +663,106 @@ export function SafetyDashboardClient() {
           {refreshed && ` · последнее обновление ${refreshed.toLocaleTimeString('ru-RU')}`}
         </p>
       </div>
+    </div>
+  );
+}
+
+// ── Журнал (Safety Decision Ledger, 925) ────────────────────────────────────
+
+const LEDGER_EVENT_TYPES = [
+  'source_observed', 'fetch_failed', 'signal_normalized', 'dedup_skipped',
+  'geo_matched', 'geo_unmatched', 'risk_classified', 'published',
+  'route_or_tour_impact_calculated', 'traveller_notified',
+] as const;
+
+interface LedgerEvent {
+  id: string;
+  entity_id: string | null;
+  event_type: string;
+  occurred_at: string;
+  actor_type: string;
+  actor_id: string | null;
+  decision_reason: string | null;
+  details: Record<string, unknown>;
+}
+
+/** Read-only лента Safety Decision Ledger — история одного алерта или всех событий по типу. */
+function LedgerTab({ initialEntityId }: { initialEntityId: string | null }) {
+  const [entityId, setEntityId] = useState(initialEntityId ?? '');
+  const [eventType, setEventType] = useState('');
+  const [events, setEvents] = useState<LedgerEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { setEntityId(initialEntityId ?? ''); }, [initialEntityId]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (entityId) params.set('entity_id', entityId);
+      if (eventType) params.set('event_type', eventType);
+      const res = await fetch(`/api/admin/safety/ledger?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { events: LedgerEvent[] };
+      setEvents(data.events);
+    } catch (err) {
+      // Отказ чтения — не «событий нет» (§4.0): панель обязана это сказать.
+      setError(err instanceof Error ? err.message : 'Не удалось прочитать журнал');
+      setEvents([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [entityId, eventType]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3 items-end">
+        <label className="block">
+          <span className="ds-label">ID алерта (entity_id)</span>
+          <input
+            className="ds-input"
+            value={entityId}
+            onChange={(e) => setEntityId(e.target.value)}
+            placeholder="напр. 1234"
+          />
+        </label>
+        <label className="block">
+          <span className="ds-label">Тип события</span>
+          <select className="ds-input" value={eventType} onChange={(e) => setEventType(e.target.value)}>
+            <option value="">— все —</option>
+            {LEDGER_EVENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <button onClick={() => void load()} className="ds-btn ds-btn-secondary text-sm">Обновить</button>
+      </div>
+
+      {error && (
+        <p className="text-sm text-[var(--danger)]">Журнал не прочитан: {error}. Это отказ чтения, а не «событий нет».</p>
+      )}
+      {loading && !error && <p className="text-sm text-[var(--text-secondary)]">Загрузка…</p>}
+      {!loading && !error && events.length === 0 && (
+        <p className="text-sm text-[var(--text-secondary)] text-center py-8">Событий не найдено.</p>
+      )}
+      {!loading && !error && events.length > 0 && (
+        <ol className="space-y-1 text-xs font-mono">
+          {events.map((e) => (
+            <li key={e.id} className="flex flex-wrap gap-x-2 text-[var(--text-secondary)] border-b border-[var(--border)] pb-1">
+              <span className="text-[var(--text-muted)]">{new Date(e.occurred_at).toLocaleString('ru-RU')}</span>
+              <span className="text-[var(--text-primary)]">{e.event_type}</span>
+              {e.entity_id && <span>#{e.entity_id}</span>}
+              <span>{e.actor_type}{e.actor_id ? `:${e.actor_id}` : ''}</span>
+              {e.decision_reason && <span className="text-[var(--warning)]">{e.decision_reason}</span>}
+              {Object.keys(e.details).length > 0 && (
+                <span className="text-[var(--text-muted)]">{JSON.stringify(e.details).slice(0, 160)}</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

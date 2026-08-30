@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger } from '@/lib/services/safety/ingest-outcome';
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
@@ -21,13 +22,21 @@ import {
   type SourceStatus,
 } from '@/lib/services/safety/source-health';
 
-/** Статус источника по его результату: канал жив, если прислал хоть один сырой пост. */
-function entryFor(
+/**
+ * Статус источника по его результату: канал жив, если прислал хоть один
+ * сырой пост.
+ *
+ * Safety Decision Ledger (925): здесь же — source_observed/fetch_failed,
+ * по одному источнику за прогон. not_configured/not_fetched НЕ эмитят
+ * source_observed — источник в этих состояниях не был опрошен вовсе,
+ * фиксировать «наблюдение» было бы неправдой (§4.0).
+ */
+async function entryFor(
   key: string,
   label: string,
   result: ParseResult | undefined,
   opts: { requiresEnv?: string; notFetched?: boolean } = {},
-): SourceHealthEntry {
+): Promise<SourceHealthEntry> {
   let status: SourceStatus;
   let rawItems = 0;
   let inserted = 0;
@@ -40,6 +49,27 @@ function entryFor(
     inserted = result.inserted;
     // Жив, если пришёл хоть один сырой пост ИЛИ что-то классифицировалось.
     status = rawItems > 0 || result.events.length > 0 ? 'ok' : 'empty';
+  }
+  if (status === 'ok' || status === 'empty') {
+    await appendSafetyEvent({
+      entityId: null,
+      eventType: 'source_observed',
+      actorType: 'source',
+      actorId: key,
+      details: { label, rawItems, inserted },
+    });
+  }
+  // Частичный отказ (часть items не разобралась) не исключает source_observed
+  // выше — оба факта верны одновременно, если результат вообще был.
+  if (result && result.errors.length > 0) {
+    await appendSafetyEvent({
+      entityId: null,
+      eventType: 'fetch_failed',
+      actorType: 'source',
+      actorId: key,
+      decisionReason: result.errors.join('; ').slice(0, 500),
+      details: { label, errors: result.errors },
+    });
   }
   return { key, label, status, rawItems, inserted };
 }
@@ -180,6 +210,18 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
       FROM agg
       WHERE agg.lrs_id = lrs.id
     `);
+    // Safety Decision Ledger (925): одно событие на прогон, не на алерт — сам
+    // SQL агрегатный (array_agg/MAX(severity) по CTE), per-alert разбивка
+    // здесь не восстановима без переписывания запроса на построчный проход
+    // (отдельная задача, не эта фаза). Честно фиксируем факт «пересчёт
+    // прошёл», не «алерт X повлиял на точку Y» (§4.0).
+    await appendSafetyEvent({
+      entityId: null,
+      eventType: 'route_or_tour_impact_calculated',
+      actorType: 'system',
+      actorId: 'safety-ingest.updateRealTimeStatus',
+      details: { updated: r.rowCount ?? 0 },
+    });
     return { updated: r.rowCount ?? 0 };
   } catch (e) {
     return { updated: 0, error: `real-time update failed: ${(e as Error).message}` };
@@ -270,6 +312,17 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
       }
 
       await pool.query('UPDATE external_alerts SET push_sent_at = NOW() WHERE id = $1', [alert.id]);
+      // Safety Decision Ledger (925): рассылка широковещательная
+      // (sendPushBroadcast идёт по ВСЕМ push_subscriptions) — событие честно
+      // фиксирует «алерт разослан N подписчикам», а не «турист X уведомлён
+      // об Y»: такой связи турист↔алерт в данных нет (§4.0).
+      await appendSafetyEvent({
+        entityId: String(alert.id),
+        eventType: 'traveller_notified',
+        actorType: 'system',
+        actorId: 'safety-ingest.dispatchPushAlerts',
+        details: { sent: result.sent, failed: result.failed, total: result.total },
+      });
       dispatched++;
     }
 
@@ -544,7 +597,7 @@ export async function GET(req: Request) {
   // нет. Владение здоровьем этих двух отдано POST'у: тогда их last_run_at
   // означает ровно «когда воркфлоу принёс», и задержка становится видимой.
   // Обратная сторона той же меры уже есть — delegated_to_heartbeat в POST.
-  await watchSourceHealth([
+  await watchSourceHealth(await Promise.all([
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
@@ -552,7 +605,7 @@ export async function GET(req: Request) {
     // SAFETY_SOURCE_EXPECTATIONS: «нет термоточек» неотличимо от «нет пожаров»
     // (сезонность) — dead-алерт по тишине был бы ложью.
     entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
-  ]);
+  ]));
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get',
     { telegramSeismicAgeMin: await telegramSeismicAgeMin() }, pruned);
@@ -687,13 +740,13 @@ export async function POST(req: Request) {
   // safety_source_health: её каждые 5 минут обновляет heartbeat-GET, и
   // ложный КРИТ «живой канал МЧС мёртв» невозможен. Писать сюда
   // not_fetched было бы ровно той ошибкой, о которой предупреждала issue.
-  await watchSourceHealth([
+  await watchSourceHealth(await Promise.all([
     entryFor('kbgsras', 'КБГС РАН (сейсмо)', telegramResult.kbgsras),
     entryFor('eqkam', 'EMSD/EQKam (сейсмо)', telegramResult.eqkam),
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
     // MAX не делегирован: его умеет читать только раннер, heartbeat не покрывает.
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
-  ]);
+  ]));
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
