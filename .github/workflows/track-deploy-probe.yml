@@ -1,8 +1,11 @@
-# Разовая проба: доехала ли починка дожима трека до прода, и есть ли трек в очереди.
+# Разовая проба: дождаться, когда записанный трек доедет до очереди.
 #
-# «Задеплоилось» определяется не по времени и не по панели, а по САМОМУ коду:
-# в новом клиентском бандле есть строка «отправим при связи», в старом её нет.
-# Косвенных признаков тут мало: у прода нет метки сборки (RELEASE_SHA не задан).
+# Починка (дожим черновика при открытии экрана «На маршруте») уже на проде —
+# это проверено по самому бандлу, а не по времени: строка «отправим при связи»
+# нашлась в /_next/static/chunks/app/planning/page-*.js.
+#
+# Здесь ждём СЛЕД в данных: строку в route_track_imports. Ноль и «не смог
+# спросить» — разные исходы, поэтому HTTP-код печатается всегда (§4.0).
 #
 # Не мержится в main — это разбор, а не расписание.
 name: Track deploy probe
@@ -15,42 +18,35 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Ждём новый бандл на проде
+      - name: Ждём трек в очереди
         run: |
           set -u
-          NEEDLE='отправим при связи'
-          for i in $(seq 1 40); do
-            html=$(curl -sS --max-time 30 'https://vedarai.ru/planning?mode=trail' || true)
-            if [ -z "$html" ]; then
-              echo "[$i] страница не ответила"; sleep 30; continue
+          for i in $(seq 1 50); do
+            code=$(curl -sS --max-time 60 \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              'https://vedarai.ru/api/cron/track-import-queue?status=all' \
+              -o queue.json -w '%{http_code}' || echo '000')
+            if [ "$code" != "200" ]; then
+              echo "[$i] спросить не смог: HTTP $code"
+              sleep 20; continue
             fi
-            # Строка может лежать и в самом HTML (RSC-полезная нагрузка), и в чанках.
-            found=no
-            case "$html" in *"$NEEDLE"*) found=yes ;; esac
-            if [ "$found" = no ]; then
-              srcs=$(printf '%s' "$html" | grep -o '/_next/static/chunks/[A-Za-z0-9._/-]*\.js' | sort -u)
-              for s in $srcs; do
-                if curl -sS --max-time 30 "https://vedarai.ru$s" | grep -qF "$NEEDLE"; then
-                  found=yes; echo "нашлось в $s"; break
-                fi
-              done
+            total=$(grep -o '"total":[0-9]*' queue.json | head -1 | cut -d: -f2)
+            if [ -z "$total" ]; then
+              echo "[$i] в ответе нет поля total — это не «ноль», а «не понял ответ»:"
+              cat queue.json; echo
+              sleep 20; continue
             fi
-            if [ "$found" = yes ]; then
-              echo "ПОЧИНКА НА ПРОДЕ (попытка $i)"; exit 0
+            echo "[$i] в очереди: $total"
+            if [ "$total" != "0" ]; then
+              echo '=== ТРЕК ДОЕХАЛ ==='
+              cat queue.json
+              echo
+              exit 0
             fi
-            echo "[$i] ещё старый бандл"
-            sleep 30
+            sleep 20
           done
-          echo "ЗА 20 МИНУТ НЕ ДОЖДАЛИСЬ — сборка идёт дольше или упала"
-          exit 1
-
-      - name: Перепись очереди треков
-        if: always()
-        run: |
-          curl -sS --max-time 60 \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            'https://vedarai.ru/api/cron/track-import-queue?status=all' \
-            -o queue.json -w 'HTTP %{http_code}\n' || true
-          echo '--- сырой ответ ---'
+          echo '=== ЗА 17 МИНУТ ТРЕК НЕ ПОЯВИЛСЯ ==='
+          echo 'последний ответ:'
           cat queue.json || true
           echo
+          exit 1
