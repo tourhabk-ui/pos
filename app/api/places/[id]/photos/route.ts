@@ -74,18 +74,49 @@ export async function POST(
   const caption = CaptionSchema.safeParse(typeof captionRaw === 'string' ? captionRaw : undefined);
   const captionValue = caption.success ? caption.data : undefined;
 
+  // Без хранилища принимать фото НЕЛЬЗЯ, и это не придирка.
+  //
+  // Прежняя ветка «dev fallback» писала в базу выдуманный адрес
+  // `/api/places/{id}/photos/{uuid}.jpg`, по которому нет ни одного роута, а
+  // сами байты (`buf`) не сохраняла никуда — переменная просто не доходила до
+  // записи. Турист при этом получал 201 и зелёное «Фото отправлено», админ
+  // видел строку в очереди модерации, одобрял её — и одобрял пустоту: файла
+  // не существовало с самого начала.
+  //
+  // Это ровно тот отказ, против которого написано правило третьего состояния
+  // (CLAUDE.md 4.0): место, где нельзя сказать «не могу», отвечает «хорошо».
+  // Отказ 503 хуже для показателей и лучше для человека: он не потеряет
+  // единственный снимок, снятый в поле, поверив нашей галочке.
+  if (!isS3Configured) {
+    console.error(
+      '[places/photos] хранилище не настроено, приём фото отключён; не заданы:',
+      ['S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET']
+        .filter((v) => !process.env[v])
+        .join(', ') || 'переменные заданы, но isS3Configured ложно',
+    );
+    return NextResponse.json(
+      { success: false, error: 'Загрузка фото сейчас недоступна — попробуйте позже' },
+      { status: 503 },
+    );
+  }
+
   const ext = path.extname(file.name || '.jpg').toLowerCase() || '.jpg';
   const uid = crypto.randomUUID();
   const key = `user-photos/${placeId}/${uid}${ext}`;
   const buf = Buffer.from(await file.arrayBuffer());
 
   let url: string;
-  if (isS3Configured) {
+  try {
     const result = await uploadToS3(key, buf, file.type);
     url = result.url;
-  } else {
-    // Dev fallback: store key as placeholder URL (not served, just tracked)
-    url = `/api/places/${placeId}/photos/${uid}${ext}`;
+  } catch (err) {
+    // Хранилище настроено, но не приняло файл. Строку в очередь не заводим:
+    // модерировать нечего, а «отправлено» было бы неправдой.
+    console.error('[places/photos] S3 не принял файл:', err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось сохранить фото — попробуйте ещё раз' },
+      { status: 502 },
+    );
   }
 
   const { rows } = await pool.query<{ id: string }>(

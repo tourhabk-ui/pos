@@ -29,6 +29,7 @@ const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceInd
 const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
 const PlaceFieldReports     = dynamic(() => import('@/components/places/PlaceFieldReports'),     { ssr: false });
 const PhotoUpload           = dynamic(() => import('@/components/places/PhotoUpload').then(m => ({ default: m.PhotoUpload })), { ssr: false });
+const PlaceUserPhotos       = dynamic(() => import('@/components/places/PlaceUserPhotos'),       { ssr: false });
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
 const NavigateTo            = dynamic(() => import('@/components/shared/NavigateTo'),            { ssr: false });
@@ -384,7 +385,14 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         <PlaceReviews placeId={place.id} reviews={place.reviews} />
       </div>
 
-      {/* 12b. Tourist photo upload */}
+      {/* 12b. Фото туристов, прошедшие модерацию — ПЕРЕД формой загрузки:
+          человек сначала видит, куда попадёт его снимок, и только потом
+          загружает. Блока нет, если одобренных фото нет (см. компонент). */}
+      <div className="mt-6">
+        <PlaceUserPhotos placeId={place.id} />
+      </div>
+
+      {/* 12c. Tourist photo upload */}
       <div className="max-w-3xl mx-auto px-4 mt-6">
         <PhotoUpload placeId={place.id} placeName={place.name} />
       </div>
