@@ -142,13 +142,25 @@ export async function POST(request: NextRequest) {
     if (!tourId) throw new Error('тур не создан и не найден');
 
     // ── Бронь: без туриста, персональных данных нет ───────────────────────
+    //
+    // Найдено 30.08 живым прогоном: повторный вызов искал незакрытую бронь
+    // ТОЛЬКО по `paid_at IS NULL`, а `booking_status` не проверял. Отменённая
+    // бронь (`abandoned-bookings` закрывает висящие >24ч) тоже подходит под
+    // это условие — и находилась вместо создания новой. QR на неё честно
+    // отвечал 404 «Бронирование не найдено», но выглядело это как поломка
+    // самого маршрута выпуска QR, а не как переиспользование мёртвой строки.
+    //
+    // `booking_status NOT IN ('cancelled')` в обоих местах: как только
+    // единственная существующая бронь отменена, `WHERE NOT EXISTS` снова
+    // становится истиной, и INSERT заводит свежую — без ручного teardown.
     const { rows: bookingRows } = await client.query<{ id: string }>(
       `INSERT INTO operator_bookings
          (operator_tour_id, booking_date, participants, base_total_price, final_price, booking_status, payment_status, created_via)
        SELECT $1::bigint, CURRENT_DATE, 1, $2::numeric, $2::numeric, 'pending_payment', 'pending', 'service-payment-test'
         WHERE NOT EXISTS (
               SELECT 1 FROM operator_bookings
-               WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL)
+               WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL
+                 AND booking_status NOT IN ('cancelled'))
        RETURNING id::text`,
       [tourId, PRICE_RUB],
     );
@@ -156,6 +168,7 @@ export async function POST(request: NextRequest) {
       ?? (await client.query<{ id: string }>(
         `SELECT id::text FROM operator_bookings
           WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL
+            AND booking_status NOT IN ('cancelled')
           ORDER BY created_at DESC LIMIT 1`, [tourId],
       )).rows[0]?.id;
     if (!bookingId) throw new Error('бронь не создана и не найдена');
