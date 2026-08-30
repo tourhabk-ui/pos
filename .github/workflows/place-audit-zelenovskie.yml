@@ -56,6 +56,13 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/track-import-queue?status=all&limit=20")
           echo "HTTP $HTTP"
-          jq -c '.items[]? | {created_at, trip_tag, note, points, length_km, span_km,
-                              matched: .matched_route, problems, s3_url}' /tmp/tracks.json 2>/dev/null \
-            || cat /tmp/tracks.json
+          # Сырой ответ целиком: пустой список и неверный фильтр jq выглядят
+          # одинаково (оба печатают ничего), а это разные вещи — «трека нет»
+          # и «я не смог посмотреть».
+          echo "--- сырой ответ:"
+          head -c 3000 /tmp/tracks.json
+          echo
+          echo "--- ключи верхнего уровня:"
+          jq -r 'keys[]?' /tmp/tracks.json 2>&1 | head
+          echo "--- сколько записей:"
+          jq -r '(.items // .data // .tracks // empty) | length' /tmp/tracks.json 2>&1 | head -3
