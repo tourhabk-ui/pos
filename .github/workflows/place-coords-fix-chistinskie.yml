@@ -1,0 +1,107 @@
+name: Координата — Чистинские (Аагские) нарзаны
+
+# Одноразовая правка одной точки. Владелец прислал координату
+# N53.43587, E158.72910 для «Чистинские (Аагские) нарзаны» — в базе у этой
+# записи (id 5fe02f54-d018-4125-a0ec-e5fc458ad493) стоит 53.266799/158.497110
+# (миграция 175, источник idilesom), что почти в 25 км от присланной точки.
+#
+# Источник правды — сходятся ТРИ независимых записи:
+#   1. координата от владельца: 53.43587 / 158.72910
+#   2. place «Аагские нарзаны» (id 6e7c9f6a-7d52-4a3c-b1e7-31915291da0f),
+#      уже в базе: 53.4358506 / 158.7292639
+#   3. текст миграции 111 (полное описание того же места, независимый ввод):
+#      «Аагские нарзаны (53.436°N, 158.729°E)»
+#
+# Ветка не мержится в main: правка идёт через постоянный manual-роут
+# /api/cron/place-coords (объявлен в lib/agents/cron-schedulers.ts), сам
+# workflow — только разовый пульт для вызова с CRON_SECRET из секретов.
+# У токена агента нет права на workflow_dispatch (403) — запуск тем же
+# приёмом push в именованную ветку, что tochka-check.yml.
+
+on:
+  push:
+    branches: [place-coords-fix-chistinskie]
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Сухой прогон — план правки
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET не задан"; exit 1
+          fi
+
+          BODY='{
+            "dry_run": true,
+            "source": "владелец прислал координату 53.43587/158.72910; совпадает с place Аагские нарзаны (6e7c9f6a) 53.4358506/158.7292639 и текстом миграции 111 (53.436N/158.729E)",
+            "fixes": [{
+              "place": "5fe02f54-d018-4125-a0ec-e5fc458ad493",
+              "lat": 53.43587,
+              "lng": 158.72910,
+              "why": "текущие 53.266799/158.497110 из миграции 175 (idilesom) — ~24км от точки, подтверждённой владельцем и совпадающей с дублирующей записью и текстом описания"
+            }]
+          }'
+
+          HTTP=$(curl -s -o /tmp/dry.json -w '%{http_code}' --max-time 30 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+            -d "$BODY" "https://vedarai.ru/api/cron/place-coords")
+
+          echo "HTTP $HTTP"
+          cat /tmp/dry.json
+          echo
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::сухой прогон не прошёл — правка не применяется"; exit 1
+          fi
+
+          OK=$(jq -r '.success' /tmp/dry.json)
+          MOVED=$(jq -r '.plan[0].movedKm' /tmp/dry.json)
+          NAME=$(jq -r '.plan[0].name' /tmp/dry.json)
+          echo "success=$OK moved=${MOVED}km name=$NAME"
+
+          if [ "$OK" != "true" ]; then
+            echo "::error::план не построился"; exit 1
+          fi
+
+      - name: Боевой прогон — записать координату
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          BODY='{
+            "dry_run": false,
+            "source": "владелец прислал координату 53.43587/158.72910; совпадает с place Аагские нарзаны (6e7c9f6a) 53.4358506/158.7292639 и текстом миграции 111 (53.436N/158.729E)",
+            "fixes": [{
+              "place": "5fe02f54-d018-4125-a0ec-e5fc458ad493",
+              "lat": 53.43587,
+              "lng": 158.72910,
+              "why": "текущие 53.266799/158.497110 из миграции 175 (idilesom) — ~24км от точки, подтверждённой владельцем и совпадающей с дублирующей записью и текстом описания"
+            }]
+          }'
+
+          HTTP=$(curl -s -o /tmp/live.json -w '%{http_code}' --max-time 30 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+            -d "$BODY" "https://vedarai.ru/api/cron/place-coords")
+
+          echo "HTTP $HTTP"
+          cat /tmp/live.json
+          echo
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::боевой прогон не прошёл — координата НЕ записана"; exit 1
+          fi
+
+          APPLIED=$(jq -r '.applied_count' /tmp/live.json)
+          echo "applied_count=$APPLIED"
+          if [ "$APPLIED" != "1" ]; then
+            echo "::error::строка не обновилась"; exit 1
+          fi
+          echo "Готово: координата записана. Старое значение — в applied[0].from выше (это и есть откат)."
