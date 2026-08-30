@@ -27,6 +27,7 @@ const msgInput: EscalationMessageInput = {
   emergencyContactPhone: '+7 914 444-55-66',
   positionText: '53.02000° N, 158.65000° E',
   returnUrl: 'https://vedarai.ru/return?id=abc-123',
+  checkinUrl: 'https://vedarai.ru/checkin-ok?id=abc-123',
 };
 
 describe('decideEscalation', () => {
@@ -73,6 +74,21 @@ describe('buildEscalationMessage', () => {
     expect(soft).not.toContain('Вы зарегистрировали');
     expect(soft).toContain('Свяжитесь с руководителем');
     expect(soft).toContain(msgInput.leaderPhone);
+  });
+
+  it('soft несёт ссылку «мы на связи» — единственная ступень, где decideEscalation гасится подтверждением без возврата', () => {
+    const soft = buildEscalationMessage(msgInput, 'soft', 1.5);
+    expect(soft).toContain(msgInput.checkinUrl);
+  });
+
+  it('hard и mchs не предлагают «мы на связи» — эти ступени про реальную тревогу, не про задержку', () => {
+    expect(buildEscalationMessage(msgInput, 'hard', 4)).not.toContain(msgInput.checkinUrl);
+    expect(buildEscalationMessage(msgInput, 'mchs', 9)).not.toContain(msgInput.checkinUrl);
+  });
+
+  it('без checkinUrl soft не ломается — поле необязательное', () => {
+    const { checkinUrl: _unused, ...withoutCheckin } = msgInput;
+    expect(() => buildEscalationMessage(withoutCheckin, 'soft', 1.5)).not.toThrow();
   });
 
   it('hard и mchs содержат позицию и 112; mchs — данные экстренного контакта', () => {

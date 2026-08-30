@@ -109,6 +109,15 @@ export interface EscalationMessageInput {
   positionText: string;
   /** Ссылка «Я вернулся» — vedarai.ru/return?id=<регистрация>. */
   returnUrl: string;
+  /**
+   * Ссылка «мы ещё на маршруте, всё в порядке» — vedarai.ru/checkin-ok?id=.
+   * Только у soft: это единственная ступень, где decideEscalation вообще
+   * умеет гасить тревогу подтверждением без полного возврата (confirmedAt).
+   * До этого поля у soft не было альтернативы «я вернулся» — а группа на
+   * многодневке просто задержавшаяся, а не пропавшая, не могла сказать
+   * ничего, кроме неправды «я вернулся».
+   */
+  checkinUrl?: string;
 }
 
 export function formatPositionText(lat: string | null, lng: string | null): string {
@@ -130,7 +139,10 @@ export function buildEscalationMessage(
       `Свяжитесь с руководителем: ${input.leaderPhone}. На маршруте часто нет связи — ` +
       `это само по себе не повод для тревоги.\n` +
       `Если группа вернулась — отметьте возвращение (понадобится номер руководителя):\n` +
-      `${input.returnUrl}`
+      `${input.returnUrl}` +
+      (input.checkinUrl
+        ? `\nЕсли группа на связи, но ещё в пути — отметьте, что всё в порядке:\n${input.checkinUrl}`
+        : '')
     );
   }
   if (step === 'hard') {

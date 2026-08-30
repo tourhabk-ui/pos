@@ -117,6 +117,8 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/geofence-zones': ['GET'],// геозоны безопасности
   '/api/safety/return': ['GET', 'POST'],// отметка о возвращении — проверка внутри хендлера
   '/api/safety/checkin': ['POST'],      // «я в порядке» — анонимно, как safety/reports (issue #1420)
+  '/api/safety/route-checkin': ['GET', 'POST'], // «мы на связи, ещё на маршруте» — soft-ступень эскалации (миграция 680/920)
+  '/api/safety/mchs-informed': ['POST'],        // «сообщили в МЧС о завершении» — отдельно от возврата (миграция 920)
   '/api/analytics/dwell': ['POST'],     // маяк времени на странице (Zod + rate-limit)
   '/api/analytics/affiliate-clicks': ['POST'], // маяк партнёрских кликов (Zod + rate-limit)
   '/api/pwa/install': ['POST'],         // учёт установок PWA (client_id, не ПД, rate-limit)
