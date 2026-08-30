@@ -7,8 +7,9 @@ import Script from 'next/script';
 import {
   CheckCircle, Copy, Home, Calendar, Users, Phone,
   MessageSquare, Loader2, AlertCircle, CreditCard, BadgeCheck, ExternalLink,
-  FileText, Ticket,
+  FileText, Ticket, QrCode,
 } from 'lucide-react';
+import SbpQrPayment from '@/components/marketplace/SbpQrPayment';
 
 interface BookingData {
   id: number;
@@ -50,6 +51,7 @@ export default function BookingSuccessClient() {
   const [cpReady,  setCpReady]  = useState(false);
   const [paying,   setPaying]   = useState(false);
   const [paid,     setPaid]     = useState(false);
+  const [payMethod, setPayMethod] = useState<'card' | 'sbp'>('card');
 
   useEffect(() => {
     void (async () => {
@@ -190,40 +192,79 @@ export default function BookingSuccessClient() {
                 <p className="text-2xl font-bold text-[var(--text-primary)]">{fmtPrice(booking.total_price)}</p>
               </div>
 
-              {/* Pay button */}
+              {/* Pay */}
               {needsPayment && booking.cp_public_id && (
-                <div className="pt-1 space-y-2">
-                  {/* Telegram WebView warning */}
-                  {isInTgWebView && (
-                    <a
-                      href={`https://vedarai.ru/booking-success/${booking.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] transition-colors"
-                    >
-                      <ExternalLink size={14} />
-                      Открыть в браузере для оплаты
-                    </a>
-                  )}
-                  <button
-                    onClick={handlePay}
-                    disabled={!cpReady || paying}
-                    className="w-full flex items-center justify-center gap-2 px-5 py-4 rounded-lg font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50 text-base"
-                    style={{ background: 'var(--accent)' }}
-                  >
-                    {paying
-                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Обработка...</>
-                      : !cpReady
-                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Загрузка...</>
-                        : <><CreditCard className="w-4 h-4" /> Перейти к оплате {fmtPrice(booking.total_price)}</>
-                    }
-                  </button>
+                <div className="pt-1 space-y-3">
                   <p className="text-[11px] text-center text-[var(--text-muted)]">
                     Перед оплатой убедитесь, что дата, количество участников и условия тура вам подходят.
                   </p>
-                  <p className="text-[11px] text-center text-[var(--text-muted)]">
-                    Безопасная оплата картой · CloudPayments
-                  </p>
+
+                  {/* Способ оплаты */}
+                  <div className="flex rounded-lg border border-[var(--border)] p-1 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod('card')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors ${
+                        payMethod === 'card'
+                          ? 'bg-[var(--accent)] text-white'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                      }`}
+                    >
+                      <CreditCard className="w-3.5 h-3.5" />
+                      Картой
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod('sbp')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors ${
+                        payMethod === 'sbp'
+                          ? 'bg-[var(--accent)] text-white'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                      }`}
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      По QR (СБП)
+                    </button>
+                  </div>
+
+                  {payMethod === 'card' ? (
+                    <div className="space-y-2">
+                      {/* Telegram WebView warning */}
+                      {isInTgWebView && (
+                        <a
+                          href={`https://vedarai.ru/booking-success/${booking.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] transition-colors"
+                        >
+                          <ExternalLink size={14} />
+                          Открыть в браузере для оплаты
+                        </a>
+                      )}
+                      <button
+                        onClick={handlePay}
+                        disabled={!cpReady || paying}
+                        className="w-full flex items-center justify-center gap-2 px-5 py-4 rounded-lg font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50 text-base"
+                        style={{ background: 'var(--accent)' }}
+                      >
+                        {paying
+                          ? <><Loader2 className="w-4 h-4 animate-spin" /> Обработка...</>
+                          : !cpReady
+                            ? <><Loader2 className="w-4 h-4 animate-spin" /> Загрузка...</>
+                            : <><CreditCard className="w-4 h-4" /> Перейти к оплате {fmtPrice(booking.total_price)}</>
+                        }
+                      </button>
+                      <p className="text-[11px] text-center text-[var(--text-muted)]">
+                        Безопасная оплата картой · CloudPayments
+                      </p>
+                    </div>
+                  ) : (
+                    <SbpQrPayment
+                      bookingId={booking.id}
+                      amount={booking.total_price}
+                      onPaid={() => setPaid(true)}
+                    />
+                  )}
                 </div>
               )}
 

@@ -140,6 +140,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // Объявлено по шапке самого роута (23.08): правка координаты места партиями
   // до 10, поимённо, с обязательным источником и dry_run по умолчанию.
   // Расписания быть не должно — координату правит человек по уликам.
+  'place-audit':                { kind: 'manual', writes: false, note: 'поиск places по имени независимо от видимости/слияния + профиль безопасности, только чтение' },
   'place-coords':              { kind: 'manual', writes: true,  note: 'исправление координаты места: поимённо, с источником правды и сухим прогоном' },
   'place-link':                { kind: 'manual', writes: true,  note: 'привязка места к маршруту' },
   'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },

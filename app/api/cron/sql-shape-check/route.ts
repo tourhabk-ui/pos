@@ -148,7 +148,8 @@ export const SHAPES: ShapeEntry[] = [
        SELECT $1::bigint, CURRENT_DATE, 1, $2::numeric, $2::numeric, 'pending_payment', 'pending', 'service-payment-test'
         WHERE NOT EXISTS (
               SELECT 1 FROM operator_bookings
-               WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL)
+               WHERE operator_tour_id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL
+                 AND booking_status NOT IN ('cancelled'))
        RETURNING id::text`,
   },
   {
