@@ -382,6 +382,30 @@ function OnTrailTab() {
   // варианты смотрим на карте и только потом фиксируем маршрут.
   const [modalQuery, setModalQuery] = useState('');
   const [searchRoutes, setSearchRoutes] = useState<RoutePreview[]>([]);
+  // Deep-link с карточки места (§9 CLAUDE.md, «Маршруты» → сюда): предзаполняет
+  // то же поле поиска, что человек заполнил бы сам, — не отдельная ветка кода,
+  // поэтому идёт по тем же путям/группировке/ошибкам, что и ручной ввод.
+  //
+  // auto=1 (владелец 30.08: «сразу на маршруте от места, где находится
+  // пользователь») сверх этого доводит дело до конца САМ — цель и старт
+  // отмечает первым найденным совпадением и живым GPS, а не оставляет два
+  // тапа человеку. Каждый шаг — свой одноразовый ref, не state: после
+  // автовыбора человек волен нажать «Изменить» и передумать, и повторный
+  // рендер эффекта не обязан отменять его решение обратно.
+  const cameFromPlaceRef = useRef(false);
+  const autoDestConsumedRef = useRef(false);
+  const autoOriginConsumedRef = useRef(false);
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const q = params.get('q');
+      if (q && q.trim()) {
+        setModalQuery(q.trim());
+        if (params.get('auto') === '1') cameFromPlaceRef.current = true;
+      }
+    } catch { /* параметра нет — ничего не меняем */ }
+  }, []);
+
   // Destination-first (владелец 27.08): фиксированная карточка места, пока
   // не выбран конкретный путь к ней. null — список карточек мест, не путей.
   const [selectedDestination, setSelectedDestination] = useState<DestinationOption | null>(null);
@@ -389,6 +413,25 @@ function OnTrailTab() {
   // сущность: своё состояние, не поле внутри DestinationOption. Смена
   // старта не трогает и не сбрасывает зафиксированную цель (критерий PR 4).
   const [selectedOrigin, setSelectedOrigin] = useState<Origin | null>(null);
+
+  // Автовыбор цели: как только поиск нашёл путь к месту из деплинка.
+  useEffect(() => {
+    if (!cameFromPlaceRef.current || autoDestConsumedRef.current) return;
+    if (searchRoutes.length === 0) return;
+    const { destinations } = groupRoutesByDestination(searchRoutes, modalQuery.trim());
+    if (destinations.length > 0) {
+      autoDestConsumedRef.current = true;
+      setSelectedDestination(destinations[0]);
+    }
+  }, [searchRoutes, modalQuery]);
+
+  // Автовыбор старта: текущая позиция, как только у GPS есть фикс. Второй
+  // опрос геолокации не заводим — coords уже идёт с датчика самого экрана.
+  useEffect(() => {
+    if (!cameFromPlaceRef.current || autoOriginConsumedRef.current || !coords) return;
+    autoOriginConsumedRef.current = true;
+    setSelectedOrigin({ kind: 'current', lat: coords.lat, lon: coords.lng, accuracyM: coords.accuracy ?? undefined });
+  }, [coords]);
   // Клик по карте создаёт coordinate-цель ИЛИ coordinate-старт (владелец
   // 27.08, PR 3+4 роадмапа) — какую из двух, решает режим. Карта появляется,
   // только когда человек сам её открыл, и гаснет сразу после тапа —
