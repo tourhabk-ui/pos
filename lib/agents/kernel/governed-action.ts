@@ -87,6 +87,27 @@ export async function executeGovernedAction<T>(
 
   if (!outcome.created) {
     const owner = outcome.existing;
+
+    // ── Занят РЕСУРС, а не ключ ───────────────────────────────────────────
+    //
+    // Разные факты — разные слова. Ветки ниже разбирают конфликт КЛЮЧА: они
+    // сверяют input_hash и говорят «ключ занят». Для конфликта ресурса это
+    // было бы ложью дважды: занят не ключ (у второго вызова он свой), и
+    // сверять входы двух РАЗНЫХ действий незачем — они и должны отличаться.
+    //
+    // До 31.08 kernel эти случаи не различал вовсе: нарушение индекса 920
+    // уходило наверх необработанным исключением (аудит 30.08, K-1).
+    if (outcome.conflict === 'resource') {
+      const res = input.resource ? `${input.resource.type} ${input.resource.id}` : 'ресурс';
+      return {
+        ok: false,
+        taskId: owner.id,
+        traceId: owner.trace_id,
+        reason: `${res} занят другой задачей ${owner.capability} (состояние ${owner.state}) — дождитесь её завершения`,
+        state: owner.state,
+      };
+    }
+
     const sameInput = !input.inputHash || !owner.input_hash || owner.input_hash === input.inputHash;
     if (!sameInput) {
       return {

@@ -27,6 +27,7 @@ import {
   drainInitiativeQueue,
   sweepApprovedInitiatives,
 } from '@/lib/agents/kernel/adapters/initiative-tasks';
+import { reapExpiredLeases } from '@/lib/agents/kernel/kernel';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -47,6 +48,11 @@ export async function GET(request: NextRequest) {
   const startedAt = new Date();
 
   try {
+    // Жнец идёт ПЕРВЫМ: брошенная задача держит (capability, ресурс) по
+    // индексу 920, и пока она висит, новая по тому же ресурсу не создастся.
+    // Убрать её до sweep'а значит дать очереди шанс в этом же прогоне, а не
+    // через полчаса.
+    const reaped = await reapExpiredLeases();
     const sweep = await sweepApprovedInitiatives({ type: 'cron', id: 'kernel-worker' });
     const items = await drainInitiativeQueue(BATCH_LIMIT);
 
@@ -65,6 +71,10 @@ export async function GET(request: NextRequest) {
         swept: sweep.scanned,
         enqueued: sweep.outcomes.filter((o) => o.outcome === 'enqueued').length,
         rejected: sweep.outcomes.filter((o) => o.outcome === 'rejected').length,
+        // Прибранные задачи видны в истории: их число — мера того, как часто
+        // контейнер умирает посреди работы. Ноль здесь тоже факт.
+        reaped: reaped.length,
+        reaped_tasks: reaped.map((r) => r.id),
         task_ids: items.map((i) => i.taskId),
       },
     });
@@ -73,6 +83,7 @@ export async function GET(request: NextRequest) {
       success,
       status,
       run_logged: runLogged,
+      reaped,
       swept: sweep.scanned,
       enqueue_outcomes: sweep.outcomes,
       executed: items.filter((i) => i.ok).length,
