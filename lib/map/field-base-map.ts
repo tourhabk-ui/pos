@@ -43,13 +43,20 @@ export type FieldBaseMap =
 export function chooseFieldBaseMap(
   lat: number,
   lng: number,
+  /**
+   * Адрес хранилища пакетов. Приходит СВЕРХУ, с сервера: `NEXT_PUBLIC_*`
+   * подставляется при сборке, а сборка у нас идёт внутри образа, куда
+   * переменные приложения Timeweb не попадают (разбор 01.09 — см. шапку
+   * lib/map/pack-source.ts).
+   */
+  baseUrl: string | null,
   builtRegions: readonly RegionId[] = BUILT_PACK_REGIONS,
 ): FieldBaseMap {
   const region = regionForPoint(lat, lng);
   if (!region) {
     return { kind: 'leaflet', reason: 'Точка вне районов реестра — пакета быть не может.' };
   }
-  const source = resolvePackSource(region, builtRegions);
+  const source = resolvePackSource(region, builtRegions, baseUrl);
   if (source.state !== 'ready') {
     return { kind: 'leaflet', reason: source.reason };
   }
