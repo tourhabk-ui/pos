@@ -200,3 +200,4 @@ evo-apply-manifest.json
 # Разбор CodeQL пишет SARIF в рабочий каталог прогона
 sarif-results/
 *.sarif
+.cache/
