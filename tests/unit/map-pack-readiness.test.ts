@@ -64,6 +64,15 @@ describe('проверка готовности к пакетам карты', (
     expect(FN).toContain('base_url_matches');
   });
 
+  it('вердикт замечает уже сделанный шаг', () => {
+    // Первая редакция звала задать переменную ВСЕГДА и продолжала звать
+    // после того, как её задали. Совет, не видящий выполненного, обесценивает
+    // и остальные свои советы.
+    expect(FN).toContain('const baseReady = result.base_url_matches === true');
+    const at = FN.indexOf('result.verdict = rangeOk');
+    expect(FN.slice(at, at + 400)).toContain('baseReady');
+  });
+
   it('база адреса не дублирует префикс ключа', () => {
     // packKey уже отдаёт `map-packs/...`; база с тем же префиксом дала бы
     // `map-packs/map-packs/...` и 404 в поле.

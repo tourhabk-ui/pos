@@ -138,9 +138,19 @@ async function checkMapPackReadiness(): Promise<Record<string, unknown>> {
     result.range_status = ranged.status;
     result.range_bytes = got.length;
     result.range_read = rangeOk ? 'ok' : 'нет';
+    // Вердикт обязан смотреть на то, что уже сделано. Первая редакция звала
+    // задать переменную ВСЕГДА — и продолжала звать после того, как её
+    // задали (владелец 31.08 увидел «осталось задать» рядом с
+    // base_url_matches: true). Совет, не замечающий выполненного шага,
+    // обесценивает и остальные свои советы.
+    const baseReady = result.base_url_matches === true;
     result.verdict = rangeOk
-      ? 'Хранилище готово к пакетам карты: публичное чтение и Range работают. '
-        + 'Осталось задать NEXT_PUBLIC_MAP_PACK_BASE_URL значением base_url_to_set.'
+      ? baseReady
+        ? 'Хранилище готово и настроено: публичное чтение, Range и '
+          + 'NEXT_PUBLIC_MAP_PACK_BASE_URL на месте. Карта возьмёт пакеты районов '
+          + 'из списка BUILT_PACK_REGIONS.'
+        : 'Хранилище готово к пакетам карты: публичное чтение и Range работают. '
+          + 'Осталось задать NEXT_PUBLIC_MAP_PACK_BASE_URL значением base_url_to_set.'
       : `Range-запросы не поддержаны (статус ${ranged.status}, пришло `
         + `${got.length} байт вместо 10). PMTiles читает архив кусками — без Range `
         + 'пакет либо качается целиком, либо не открывается.';
