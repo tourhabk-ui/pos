@@ -67,6 +67,45 @@ export interface ScanCoverage {
   mock_files_scanned: number;
 }
 
+/**
+ * Замкнутое множество типов прочёса (находка E-2 аудита 30.08).
+ *
+ * До этого `scanType` был просто `string`: роут брал его из query как есть, а
+ * здесь он сравнивался со строками. Опечатка (`?type=securty`) не совпадала ни
+ * с одной веткой — прогон шёл по пустому списку, писал в `evo_growth_scans`
+ * `status='complete', issues_found=0` и возвращал `success: true`. Воркфлоу
+ * печатал «Evo Scan OK». Ноль при нулевом входе, выданный за успех, — ровно то,
+ * что запрещает последняя строка §4.0.
+ *
+ * Множество ещё и разводит два разошедшихся списка: шапка миграции 151
+ * объявляет `full, code, db, security`, а код знал `full, code, security,
+ * performance`. `db` не был реализован никогда, `performance` не был
+ * документирован. Здесь — один источник.
+ */
+export const EVO_SCAN_TYPES = ['full', 'code', 'security', 'performance'] as const;
+export type EvoScanType = (typeof EVO_SCAN_TYPES)[number];
+
+export function isEvoScanType(value: string): value is EvoScanType {
+  return (EVO_SCAN_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * Исход одного объектива прочёса.
+ *
+ * `ok` — объектив отработал (находки могли быть, могли не быть — это честный
+ * ноль). `failed` — объектив упал, и его молчание ничего не значит. Третье
+ * состояние — `not_implemented`: объектива нет вовсе, и «0 находок» от него
+ * означает «никто не смотрел».
+ */
+export type LensStatus = 'ok' | 'failed' | 'not_implemented';
+
+export interface LensOutcome {
+  name: string;
+  status: LensStatus;
+  /** Почему не сработал. Пусто только у `ok`. */
+  reason?: string;
+}
+
 export interface GrowthScanResult {
   issues: GrowthIssue[];
   /** Сколько из найденных проблем НОВЫЕ (впервые записаны в БД этим сканом). */
@@ -75,6 +114,21 @@ export interface GrowthScanResult {
   duration_ms: number;
   /** Что скан реально прочитал (диагностика глубины прочёса). */
   coverage: ScanCoverage;
+  /**
+   * Перепись объективов прогона (находка E-3 аудита 30.08).
+   *
+   * Аудит записал E-3 как одиночный дефект `scanSecurity` (функция состояла из
+   * комментария и `return issues` с пустым списком). При разборе выяснилось, что
+   * дефект не одиночный: хелпер `lens()` ловил отказ объектива, писал
+   * `console.error` и возвращал ПУСТОЙ список находок — то есть шесть объективов
+   * при падении были неотличимы от чистых. Плюс глухой `catch {}` в
+   * `scanPerformance` превращал поломку запроса в «индексов не нужно».
+   *
+   * Итого «0 проблем» означало одно из трёх: чисто, ослепло, не реализовано.
+   * Перепись разделяет их — та же правка, что W-2 сделала в Watchdog, только
+   * внутри эволюции.
+   */
+  lenses: LensOutcome[];
   /**
    * Какая модель считала этот прогон. Waterfall молча съезжает с флагмана на
    * DeepSeek/Qwen, когда нет ключа или релея, и снаружи это неотличимо: скан
@@ -136,14 +190,27 @@ async function scanDeadCode(): Promise<GrowthIssue[]> {
   }));
 }
 
-async function scanSecurity(): Promise<GrowthIssue[]> {
-  const issues: GrowthIssue[] = [];
-
-  // GitHub webhook — known risk, accepted (HMAC + hardcoded cmd)
-  // Skip — it's in ACCEPTED_RISKS
-
-  return issues;
-}
+/**
+ * Объектива безопасности НЕТ (находка E-3 аудита 30.08).
+ *
+ * Здесь стояла `scanSecurity()`, тело которой состояло из двух комментариев и
+ * `return issues` с пустым списком. Она не «ничего не находила» — она не могла
+ * найти ничего по построению, и при этом `?type=security` отвечал
+ * `status: 'complete', issues_found: 0, success: true`.
+ *
+ * Функция снята, а не оставлена «на будущее»: заглушка, возвращающая пустоту,
+ * неотличима от работающего объектива, и это худший из возможных видов. Тип
+ * прочёса `security` остался допустимым, но объектив под ним объявлен
+ * `not_implemented` в переписи — «никто не смотрел» сказано вслух.
+ *
+ * Настоящие проверки безопасности у платформы есть, просто живут не здесь:
+ * `lib/agents/compliance/` (D1 pii-flow-scanner, D2 provider-registry) гоняются
+ * в CI и блокируют мерж, а CodeQL — на каждом PR. Заводить третье место —
+ * решение владельца, не побочный эффект правки честности.
+ */
+const SECURITY_LENS_ABSENT =
+  'объектива нет: прежняя scanSecurity возвращала пустой список по построению. ' +
+  'Проверки безопасности живут в CI (lib/agents/compliance, CodeQL), не в этом прочёсе.';
 
 /**
  * Известный tech debt. Как и DEAD_MODULES — ручной список, каждая запись
@@ -164,8 +231,11 @@ async function scanTechDebt(): Promise<GrowthIssue[]> {
 async function scanPerformance(): Promise<GrowthIssue[]> {
   const issues: GrowthIssue[] = [];
 
-  // Check for missing indexes on hot tables
-  try {
+  // Отказ запроса НЕ глушится (§4.0). Здесь стоял пустой перехват с пояснением
+  // «DB might not have the tables yet» — и любая поломка запроса приходила как
+  // «индексов не нужно». Теперь исключение уходит наверх, где `lens()` назовёт
+  // объектив и причину в переписи прогона.
+  {
     const { rows } = await pool.query<{ table_name: string; column_name: string }>(`
       SELECT c.table_name, c.column_name
       FROM information_schema.columns c
@@ -189,8 +259,6 @@ async function scanPerformance(): Promise<GrowthIssue[]> {
         suggestion: `Добавить CREATE INDEX idx_${r.table_name}_${r.column_name} ON ${r.table_name}(${r.column_name}).`,
       });
     }
-  } catch {
-    // DB might not have the tables yet
   }
 
   return issues;
@@ -829,12 +897,31 @@ async function scanKuzmichEval(): Promise<GrowthIssue[]> {
  * прогон. Молчать нельзя — имя объектива и текст ошибки уходят в лог, и по
  * ним видно, что находок нет не потому, что всё в порядке.
  */
-async function lens<T>(name: string, run: () => Promise<T>, onFailure: T): Promise<T> {
+/**
+ * Прогон одного объектива с записью исхода в перепись.
+ *
+ * До правки E-3 отказ уходил только в `console.error`, а наверх возвращалась
+ * пустота — и упавший объектив был неотличим от чистого. Логи прода никто не
+ * читает построчно; перепись едет в ответе крона и в алерте.
+ *
+ * Fail-soft сохранён намеренно: один упавший объектив не должен ронять весь
+ * прочёс, иначе отказ БД в «воронке» лишил бы нас находок «схемы». Меняется не
+ * устойчивость, а честность отчёта о ней.
+ */
+async function lens<T>(
+  census: LensOutcome[],
+  name: string,
+  run: () => Promise<T>,
+  onFailure: T,
+): Promise<T> {
   try {
-    return await run();
+    const value = await run();
+    census.push({ name, status: 'ok' });
+    return value;
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'неизвестная ошибка';
     console.error(`[growth-scan] объектив «${name}» не смог проверить:`, msg);
+    census.push({ name, status: 'failed', reason: msg });
     return onFailure;
   }
 }
@@ -1124,17 +1211,31 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   let decisionError: string | null = null;
   let decisionProvenance: string[] | null = null;
 
+  // Перепись объективов прогона: кто отработал, кто упал, кого нет вовсе.
+  const lenses: LensOutcome[] = [];
+
+  // Неизвестный тип не доходит сюда из роута (он отвечает 400), но библиотека
+  // не вправе полагаться на вежливость вызывающего: её зовёт ещё и
+  // /api/admin/agents/trigger, и завтра позовёт кто-то третий.
+  if (!isEvoScanType(scanType)) {
+    throw new Error(
+      `Неизвестный тип прочёса «${scanType}». Допустимые: ${EVO_SCAN_TYPES.join(', ')}. ` +
+        'Прогон не выполнен: ноль находок по неизвестному типу — это отказ, а не чистый результат.',
+    );
+  }
+
   if (scanType === 'full' || scanType === 'code') {
-    const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
+    const dead = await lens(lenses, 'мёртвый код', scanDeadCode, [] as GrowthIssue[]);
+    const debt = await lens(lenses, 'техдолг', scanTechDebt, [] as GrowthIssue[]);
     issues.push(...dead, ...debt);
   }
 
   if (scanType === 'full' || scanType === 'security') {
-    issues.push(...await scanSecurity());
+    lenses.push({ name: 'безопасность', status: 'not_implemented', reason: SECURITY_LENS_ABSENT });
   }
 
   if (scanType === 'full' || scanType === 'performance') {
-    issues.push(...await scanPerformance());
+    issues.push(...(await lens(lenses, 'производительность', scanPerformance, [] as GrowthIssue[])));
   }
 
   if (scanType === 'full') {
@@ -1156,22 +1257,22 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     coverage.source = fileList.source;
     coverage.files_listed = fileList.listed;
     // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
-    const mocks = await lens('фейк-витрины', scanMocks, { issues: [] as GrowthIssue[], scanned: 0 });
+    const mocks = await lens(lenses, 'фейк-витрины', scanMocks, { issues: [] as GrowthIssue[], scanned: 0 });
     issues.push(...mocks.issues);
     coverage.mock_files_scanned = mocks.scanned;
     // Прод-ошибки из журнала onRequestError (Эволюция 3.0, п.1): правда с
     // прода, которой нет в коде — мёртвый роут слотов (#1008) и вечный degraded
     // /api/tours жили годами, потому что 500-ки не попадали в петлю.
-    issues.push(...(await lens('прод-ошибки', scanProdErrors, [] as GrowthIssue[])));
-    issues.push(...(await lens('воронка', scanFunnel, [] as GrowthIssue[])));
-    issues.push(...(await lens('Кузьмич-евал', scanKuzmichEval, [] as GrowthIssue[])));
+    issues.push(...(await lens(lenses, 'прод-ошибки', scanProdErrors, [] as GrowthIssue[])));
+    issues.push(...(await lens(lenses, 'воронка', scanFunnel, [] as GrowthIssue[])));
+    issues.push(...(await lens(lenses, 'Кузьмич-евал', scanKuzmichEval, [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
-    issues.push(...(await lens('структура', scanStructural, [] as GrowthIssue[])));
+    issues.push(...(await lens(lenses, 'структура', scanStructural, [] as GrowthIssue[])));
     // Объектив схемы: запрос против baseline и миграций. Единственный, кто
     // смотрит на то, чего модель не видит принципиально — она читает файл, а
     // схема лежит в других файлах. Оба настоящих дефекта 23.08 были этого
     // рода, и прочёс в тот же день объявил «по делу: 0».
-    issues.push(...(await lens('схема', scanSchemaMismatches, [] as GrowthIssue[])));
+    issues.push(...(await lens(lenses, 'схема', scanSchemaMismatches, [] as GrowthIssue[])));
   }
 
   // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →
@@ -1186,11 +1287,28 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   const suppressed = beforeStopList - issues.length;
   void suppressed;
 
+  // Смотрел ли вообще кто-нибудь. Объектив в состоянии `ok` — единственный, чей
+  // ноль находок означает «чисто»; `failed` и `not_implemented` не означают
+  // ничего. Прогон, где не отработал НИ ОДИН объектив, — отказ, и записывается
+  // он как `failed`, а не как «0 проблем» (§4.0: ноль результатов при нулевом
+  // входе — отказ, а не успех).
+  const worked = lenses.filter((l) => l.status === 'ok').length;
+  const mute = lenses.filter((l) => l.status !== 'ok');
+  const censusLine =
+    `объективов ${lenses.length}, отработало ${worked}` +
+    (mute.length ? `, НЕ ПРОВЕРЕНО ${mute.length}: ${mute.map((l) => l.name).join(', ')}` : '');
+
   // Save scan result
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO evo_growth_scans (scan_type, status, issues_found, duration_ms, summary)
-     VALUES ($1, 'complete', $2, $3, $4) RETURNING id`,
-    [scanType, issues.length, Date.now() - start, `Найдено ${issues.length} проблем`],
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [
+      scanType,
+      worked > 0 ? 'complete' : 'failed',
+      issues.length,
+      Date.now() - start,
+      `Найдено ${issues.length} проблем; ${censusLine}`,
+    ],
   );
   const scanId = rows[0]?.id ?? '';
 
@@ -1208,6 +1326,17 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     [JSON.stringify(new Date().toISOString())],
   );
 
-  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage, decision_model: decisionModel, decision_error: decisionError, decision_provenance: decisionProvenance };
+  // Отказ выносится ПОСЛЕ записи строки прогона: попытка обязана остаться в
+  // истории, иначе «прочёс не состоялся» будет неотличим от «прочёса не было».
+  // Наверх он идёт исключением — оркестратор положит его в errors, роут отдаст
+  // status='partial', и воркфлоу покраснеет. Молчаливый ноль краснеть не умеет.
+  if (worked === 0) {
+    throw new Error(
+      `Прочёс «${scanType}»: не отработал ни один объектив (${censusLine}). ` +
+        'Ноль находок здесь означает «никто не смотрел», а не «чисто».',
+    );
+  }
+
+  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage, lenses, decision_model: decisionModel, decision_error: decisionError, decision_provenance: decisionProvenance };
 }
 

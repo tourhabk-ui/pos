@@ -77,7 +77,7 @@ describe('контур подключён', () => {
     // Раньше здесь стояло `scanKuzmichEval().catch(` — проверка «подключён и
     // не роняет прогон» заодно закрепляла ГЛУШИТЕЛЬ отказа. Требование то же,
     // но исполняется через lens, который отказ ещё и называет вслух (§4.0).
-    expect(GROWTH).toMatch(/lens\('Кузьмич-евал', scanKuzmichEval/);
+    expect(GROWTH).toMatch(/lens\(lenses, 'Кузьмич-евал', scanKuzmichEval/);
     expect(GROWTH).toMatch(/FROM agent_run_history/);
     expect(GROWTH).toMatch(/'kuzmich-eval', 'kuzmich-eval-live'/);
     expect(GROWTH).toMatch(/INTERVAL '8 days'/);

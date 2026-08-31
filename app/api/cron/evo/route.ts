@@ -40,6 +40,7 @@ import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runEvoOrchestrator } from '@/lib/agents/orchestrator';
+import { EVO_SCAN_TYPES, isEvoScanType } from '@/lib/agents/evo/growth-agent';
 import { buildEvoAlert } from '@/lib/agents/evo/alert';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -91,6 +92,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // ── Неизвестный тип прочёса отвечается, а не поглощается ─────────────────
+  //
+  // Находка E-2 аудита 30.08. `type` брался из query как есть и сравнивался со
+  // строками в runGrowthScan; опечатка (`?type=securty`) не совпадала ни с одной
+  // веткой, прогон шёл по пустому списку и возвращал `success: true,
+  // status: 'completed', issues_found: 0`. Воркфлоу печатал «Evo Scan OK».
+  //
+  // Проверка стоит ДО захвата лока и до заведения kernel-задачи: отказ по
+  // неверному параметру не должен ни занимать лок, ни оставлять задачу, которую
+  // тут же придётся отбрасывать.
+  const scanType = request.nextUrl.searchParams.get('type') ?? 'full';
+  if (!isEvoScanType(scanType)) {
+    return NextResponse.json(
+      {
+        success: false,
+        status: 'rejected',
+        run_logged: false,
+        kernel_task_id: null,
+        trace_id: null,
+        error: `Неизвестный тип прочёса «${scanType}». Допустимые: ${EVO_SCAN_TYPES.join(', ')}.`,
+      },
+      { status: 400 },
+    );
+  }
+
   // Атомарный захват ДО заведения kernel-задачи: проигравший не создаёт
   // задачу, которую тут же пришлось бы отбрасывать, и не зовёт оркестратор
   // вовсе. Это НЕ ошибка вызывающего — второй живой источник расписания
@@ -106,7 +132,6 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const scanType = request.nextUrl.searchParams.get('type') ?? 'full';
   const startedAt = new Date();
 
   // Kernel-задача прогона: durable identity + стадии событиями. Fail-soft —
