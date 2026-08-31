@@ -23,8 +23,28 @@
 
 import type { RegionId } from '@/lib/geo/regions';
 
-/** Публичная база, откуда отдаются пакеты. Пусто = хранилище не настроено. */
-const PACK_BASE_URL = process.env.NEXT_PUBLIC_MAP_PACK_BASE_URL || '';
+/**
+ * Публичная база, откуда отдаются пакеты, приходит СВЕРХУ — параметром.
+ *
+ * Раньше здесь стояло `process.env.NEXT_PUBLIC_MAP_PACK_BASE_URL` на уровне
+ * модуля, и это не работало на проде НИ РАЗУ, хотя переменная была задана
+ * правильно. Разбор 01.09:
+ *
+ *   - `NEXT_PUBLIC_*` подставляется в клиентский бандл на этапе `next build`;
+ *   - `next build` у нас идёт ВНУТРИ образа Docker;
+ *   - Timeweb отдаёт переменные приложения контейнеру при ЗАПУСКЕ, а в сборку
+ *     их не передаёт — в Dockerfile нет ни одного `ARG`/`ENV` для них.
+ *
+ * Отсюда состояние, которое стоило полудня: сервер переменную видит (читает
+ * в момент запроса, диагностика показывала `base_url_matches: true`), а
+ * клиент получает пустую строку. Ни пересборка, ни инкогнито, ни сброс
+ * service worker не помогали — и не могли.
+ *
+ * Поэтому адрес читается на СЕРВЕРЕ в момент запроса и передаётся вниз
+ * пропом. Это ещё и честнее по офлайну: значение приезжает в HTML вместе со
+ * страницей, а не отдельным запросом, которого в поле может не быть.
+ */
+export const MAP_PACK_BASE_URL_ENV = 'NEXT_PUBLIC_MAP_PACK_BASE_URL';
 
 /** Ключ объекта в бакете. Одна формула на сборку и на чтение. */
 export function packKey(region: RegionId, kind: 'terrain' | 'contours'): string {
@@ -48,13 +68,15 @@ export type PackSource =
 export function resolvePackSource(
   region: RegionId,
   builtRegions: readonly RegionId[],
+  baseUrl: string | null,
 ): PackSource {
-  if (!PACK_BASE_URL) {
+  if (!baseUrl) {
     return {
       state: 'unconfigured',
-      reason: 'Хранилище карт не настроено — NEXT_PUBLIC_MAP_PACK_BASE_URL пуст.',
+      reason: `Хранилище карт не настроено — ${MAP_PACK_BASE_URL_ENV} пуст.`,
     };
   }
+  const PACK_BASE_URL = baseUrl;
   if (!builtRegions.includes(region)) {
     return {
       state: 'not_built',

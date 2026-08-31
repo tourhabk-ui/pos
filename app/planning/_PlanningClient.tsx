@@ -366,7 +366,7 @@ function computeRouteLineMarker(
   };
 }
 
-function OnTrailTab() {
+function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   const [heading, setHeading] = useState(0);
   // Земной источник азимута, увиденный хоть раз, отменяет относительный
   // навсегда — см. подписку на события ниже.
@@ -1420,8 +1420,8 @@ function OnTrailTab() {
   const fieldBaseMap = useMemo(() => {
     const p = coords ?? (mapCenter ? { lat: mapCenter[0], lng: mapCenter[1] } : null);
     if (!p) return { kind: 'leaflet' as const, reason: 'Точка ещё не известна.' };
-    return chooseFieldBaseMap(p.lat, p.lng);
-  }, [coords, mapCenter]);
+    return chooseFieldBaseMap(p.lat, p.lng, mapPackBaseUrl);
+  }, [coords, mapCenter, mapPackBaseUrl]);
 
   /**
    * Те же линии, что у Leaflet, но в порядке GeoJSON ([lng, lat]).
@@ -4150,7 +4150,18 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export function PlanningClient() {
+interface PlanningClientProps {
+  /**
+   * Адрес хранилища пакетов своей карты. Приходит с СЕРВЕРА (page.tsx),
+   * а не из process.env здесь: `NEXT_PUBLIC_*` вшивается при сборке, а
+   * сборка идёт внутри образа без переменных приложения Timeweb —
+   * клиент получал пустую строку при верно заданной переменной
+   * (разбор 01.09, см. шапку lib/map/pack-source.ts).
+   */
+  mapPackBaseUrl?: string | null;
+}
+
+export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = {}) {
   const [tab, setTab] = useState<string>('planning');
 
   useEffect(() => {
@@ -4213,7 +4224,7 @@ export function PlanningClient() {
       </div>
 
       {tab === 'planning' && <PlanningTab onStartTrail={handleStartTrail} />}
-      {tab === 'trail' && <OnTrailTab />}
+      {tab === 'trail' && <OnTrailTab mapPackBaseUrl={mapPackBaseUrl} />}
     </div>
   );
 }

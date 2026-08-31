@@ -21,7 +21,7 @@ describe('выбор подложки полевого экрана', () => {
     // Сегодня BUILT_PACK_REGIONS пуст, значит ответ обязан быть Leaflet
     // ВЕЗДЕ. Проба, не изменившая поведение до появления данных, — правильно
     // собранная проба.
-    const r = chooseFieldBaseMap(53.26, 158.83, []);
+    const r = chooseFieldBaseMap(53.26, 158.83, null, []);
     expect(r.kind).toBe('leaflet');
     expect((r as { reason: string }).reason.length).toBeGreaterThan(10);
   });
@@ -29,7 +29,7 @@ describe('выбор подложки полевого экрана', () => {
   it('точка вне районов реестра — тоже Leaflet, с отдельной причиной', () => {
     // «Пакета нет» и «района нет» — разные состояния (§4.0), и путать их
     // нельзя: второе не чинится сборкой пакета.
-    const r = chooseFieldBaseMap(0, 0, []);
+    const r = chooseFieldBaseMap(0, 0, null, []);
     expect(r.kind).toBe('leaflet');
     expect((r as { reason: string }).reason).toMatch(/вне районов/i);
   });
@@ -46,7 +46,7 @@ describe('выбор подложки полевого экрана', () => {
     // Пакет собран, но если NEXT_PUBLIC_MAP_PACK_BASE_URL не задана, идти
     // за ним некуда. Это «не настроено», а не «карты нет», и не повод
     // показать человеку пустой экран.
-    const r = chooseFieldBaseMap(53.26, 158.83, ['avacha-group']);
+    const r = chooseFieldBaseMap(53.26, 158.83, 'https://s3.example/bucket', ['avacha-group']);
     if (r.kind === 'leaflet') {
       expect(r.reason).toMatch(/не настроено|не собран/i);
     } else {
@@ -120,5 +120,51 @@ describe('своя карта не пересобирается на живых 
   it('вращение карты выключено — север сверяется с компасом', () => {
     expect(MAP).toContain('disableRotation()');
     expect(MAP).toMatch(/dragRotate: false/);
+  });
+});
+
+describe('адрес хранилища приходит с сервера, а не из сборки (01.09)', () => {
+  /**
+   * Стоило полудня. Переменная была задана верно, диагностика показывала
+   * base_url_matches: true — и карта всё равно не включалась ни после
+   * пересборки, ни в инкогнито.
+   *
+   * Причина: `NEXT_PUBLIC_*` подставляется в клиентский бандл на этапе
+   * `next build`, а он идёт ВНУТРИ образа Docker. В Dockerfile нет ни одного
+   * ARG/ENV для таких переменных, и Timeweb отдаёт их контейнеру только при
+   * ЗАПУСКЕ. Сервер значение видел (читает в момент запроса), клиент получал
+   * пустую строку — и это не чинилось ничем на стороне клиента.
+   */
+  const SRC = readFileSync(join(process.cwd(), 'lib/map/pack-source.ts'), 'utf-8');
+  const PAGE = readFileSync(join(process.cwd(), 'app/planning/page.tsx'), 'utf-8');
+  const CLIENT = readFileSync(
+    join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
+
+  it('pack-source НЕ читает process.env сам', () => {
+    // Чтение на уровне модуля вернуло бы нас ровно в ту же яму. Проверяем
+    // именно ПРИСВОЕНИЕ: имя переменной законно упоминается в шапке файла,
+    // где разобран сам случай (и первая редакция этого сторожа поймала
+    // собственный комментарий — та же ловушка, что была с matched_route_id).
+    expect(SRC).not.toMatch(/=\s*process\.env\.NEXT_PUBLIC_MAP_PACK_BASE_URL/);
+    expect(SRC).toMatch(/baseUrl: string \| null/);
+  });
+
+  it('страница читает переменную на сервере и рендерится по запросу', () => {
+    // Статическая страница прочитала бы env на сборке — та же ошибка.
+    expect(PAGE).toContain("export const dynamic = 'force-dynamic'");
+    expect(PAGE).toMatch(/process\.env\[MAP_PACK_BASE_URL_ENV\]/);
+    expect(PAGE).toContain('mapPackBaseUrl={mapPackBaseUrl}');
+  });
+
+  it('клиент берёт адрес из пропа, а не из окружения', () => {
+    expect(CLIENT).toMatch(/chooseFieldBaseMap\(p\.lat, p\.lng, mapPackBaseUrl\)/);
+    expect(CLIENT).not.toMatch(/process\.env\.NEXT_PUBLIC_MAP_PACK_BASE_URL/);
+  });
+
+  it('проп доходит до экрана «На маршруте», а не теряется в обёртке', () => {
+    // Первая правка легла в PlanningClient, а карта живёт в OnTrailTab —
+    // tsc это поймал, но сторож нужен и на будущее.
+    expect(CLIENT).toMatch(/<OnTrailTab mapPackBaseUrl=\{mapPackBaseUrl\} \/>/);
+    expect(CLIENT).toMatch(/function OnTrailTab\(\{ mapPackBaseUrl \}/);
   });
 });
