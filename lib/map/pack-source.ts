@@ -77,4 +77,10 @@ export function resolvePackSource(
  * вернуло бы «не знаю» в офлайне и превратило бы честное «не собран» в
  * «карты нет».
  */
-export const BUILT_PACK_REGIONS: readonly RegionId[] = [];
+export const BUILT_PACK_REGIONS: readonly RegionId[] = [
+  // 31.08, прогон №2 сборки: terrain-RGB (278 тайлов, z10-12, 11 МБ) и
+  // горизонтали (860 линий, 128 подписываемых) лежат в бакете под
+  // map-packs/. Заливка подтверждена шагом workflow, а не предположением —
+  // первый прогон был зелёным с ПРОПУЩЕННОЙ заливкой, и это стоило круга.
+  'avacha-group',
+];

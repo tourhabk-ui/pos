@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chooseFieldBaseMap, regionForPoint, regionCenter } from '@/lib/map/field-base-map';
+import { BUILT_PACK_REGIONS } from '@/lib/map/pack-source';
 
 describe('выбор подложки полевого экрана', () => {
   it('без собранного пакета — Leaflet, и причина названа', () => {
@@ -31,6 +32,26 @@ describe('выбор подложки полевого экрана', () => {
     const r = chooseFieldBaseMap(0, 0, []);
     expect(r.kind).toBe('leaflet');
     expect((r as { reason: string }).reason).toMatch(/вне районов/i);
+  });
+
+  it('Авачинская группа объявлена собранной — пакет залит 31.08', () => {
+    // Список — обещание, что файл в хранилище. Вносится ТОЛЬКО после
+    // подтверждённой заливки: первый прогон workflow был зелёным с
+    // пропущенным шагом заливки, и поверить ему значило бы обещать карту,
+    // которой нет.
+    expect(BUILT_PACK_REGIONS).toContain('avacha-group');
+  });
+
+  it('без заданной базы адресов район всё равно уходит на Leaflet', () => {
+    // Пакет собран, но если NEXT_PUBLIC_MAP_PACK_BASE_URL не задана, идти
+    // за ним некуда. Это «не настроено», а не «карты нет», и не повод
+    // показать человеку пустой экран.
+    const r = chooseFieldBaseMap(53.26, 158.83, ['avacha-group']);
+    if (r.kind === 'leaflet') {
+      expect(r.reason).toMatch(/не настроено|не собран/i);
+    } else {
+      expect(r.source.terrainUrl).toContain('pmtiles://');
+    }
   });
 
   it('Авачинский перевал попадает в свой район', () => {
