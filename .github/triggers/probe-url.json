@@ -1,14 +1,14 @@
 {
-  "note": "Жалоба владельца 30.08 «косяк на косяке»: поиск «карымское озеро» в каталоге (Места, фильтр Озёра) даёт 0, при этом Telegram-канал Кузьмича постит про «Озеро Карымское (вулкана Академии Наук)» со ссылкой на трек /routes/43438c7b-bb7b-4b2c-aad1-220a4b3cae3a, а владелец приводит /routes/ozero-karymskoe-vulkana-akademii-nauk. Проверяем: (1) есть ли объект под kind=place вообще (без location_type), (2) есть ли под kind=route, (3) резолвится ли UUID-ссылка бота и какой у неё slug, (4) резолвится ли slug-ссылка владельца — та же запись или другая/404.",
+  "note": "Проба 2/2 по «карымское озеро»: первые 6000 байт не долистали до текста «Маршрут не найден», найденного grep'ом в обеих страницах (43438c7b UUID-ссылка бота и slug-ссылка владельца). Печатаем контекст вокруг маркера, чтобы понять — это реальный not-found (404-компонент) или просто совпадение подстроки где-то в бандле/JSON-LD.",
   "urls": [
-    "https://vedarai.ru/api/routes?kind=place&q=%D0%BA%D0%B0%D1%80%D1%8B%D0%BC%D1%81%D0%BA%D0%BE%D0%B5&limit=5",
-    "https://vedarai.ru/api/routes?kind=route&q=%D0%BA%D0%B0%D1%80%D1%8B%D0%BC%D1%81%D0%BA%D0%BE%D0%B5&limit=5",
     "https://vedarai.ru/routes/43438c7b-bb7b-4b2c-aad1-220a4b3cae3a",
     "https://vedarai.ru/routes/ozero-karymskoe-vulkana-akademii-nauk"
   ],
-  "grep": ["Карымское", "kind\":\"place", "kind\":\"route", "\"total\":0", "canonical", "og:url", "Маршрут не найден", "404"],
-  "bytes": 6000,
+  "around": ["Маршрут не найден", "<title>", "og:title", "<h1"],
+  "aroundLines": 6,
+  "aroundHits": 2,
+  "bytes": 500,
   "timeout": 30,
-  "retries": 3,
+  "retries": 2,
   "retryDelay": 15
 }
