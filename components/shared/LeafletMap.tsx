@@ -243,6 +243,21 @@ export default function LeafletMap({
         s.textContent = `
           .leaflet-marker-pane, .leaflet-popup-pane, .leaflet-tooltip-pane { z-index: 1000 !important; }
           .leaflet-overlay-pane { z-index: 400 !important; }
+          /**
+           * Синяя точка «Я здесь» плавно скользит к новому фиксу, а не
+           * телепортируется. userMarker.setLatLng() зовётся на КАЖДЫЙ сырой
+           * GPS-фикс без сглаживания (гасить его дистанционным порогом
+           * нельзя — на машине реальный проезд между фиксами и есть те же
+           * десятки метров, что и шум в помещении, отличить одно от другого
+           * расстоянием невозможно). Leaflet двигает divIcon через
+           * transform: translate3d(...) на .leaflet-marker-icon — CSS
+           * transition на этом transform превращает каждый скачок точности
+           * (±46 м и хуже, живой скрин владельца 31.08: «карта скачет») в
+           * плавный проезд за время до следующего фикса, а не дёрганье.
+           * Компаса и панорамирования камеры это не касается — только сам
+           * маркер, чтобы визуально не пропадал момент реального движения.
+           */
+          .kh-user-location { transition: transform 0.6s ease-out; }
         `;
         document.head.appendChild(s);
       }
