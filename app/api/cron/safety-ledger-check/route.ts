@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { SAFETY_LEDGER_EVENT_TYPES } from '@/lib/safety/ledger';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -114,6 +115,35 @@ export async function GET(request: NextRequest) {
       })
     : null;
 
+  // 4b. Перепись звеньев за ВСЮ историю: сколько раз каждое встречалось и когда
+  //     в последний раз. Прогон 5 дал в последних двадцати событиях шесть типов
+  //     из десяти, и отсутствие `published`/`traveller_notified` было
+  //     неразличимо между «работает, случая не было» (в том окне всё ушло в
+  //     dedup_skipped — новых строк не заводилось, значит и публиковать было
+  //     нечего) и «врезка не достигается». Окно наблюдения такой вопрос решить
+  //     не может в принципе; счёт по всей таблице — может.
+  const byType = tableExists
+    ? await probe(async () => {
+        const { rows } = await pool.query<{ event_type: string; n: string; last_at: string }>(
+          `SELECT event_type, count(*)::text AS n, max(created_at) AS last_at
+             FROM safety_decision_events
+            GROUP BY event_type
+            ORDER BY event_type`,
+        );
+        const seen = new Map(rows.map((r) => [r.event_type, { count: parseInt(r.n, 10), last_at: r.last_at }]));
+        // Объявленное сверяется с записанным в ОБЕ стороны: звено без единой
+        // записи — «ни разу», звено вне объявленного списка — чужая запись,
+        // которой в контракте нет. Оба факта важнее суммы.
+        return {
+          written: Object.fromEntries(seen),
+          never_written: SAFETY_LEDGER_EVENT_TYPES.filter((t) => !seen.has(t)),
+          undeclared: [...seen.keys()].filter(
+            (t) => !(SAFETY_LEDGER_EVENT_TYPES as readonly string[]).includes(t),
+          ),
+        };
+      })
+    : null;
+
   // 5. Какие из двух 925-х вообще применились (коллизия номера с
   //    925_zelenovskie_ozerki_and_razdolie.sql, PR #1468).
   const applied = await probe(async () => {
@@ -132,7 +162,14 @@ export async function GET(request: NextRequest) {
   } else if (total?.ok && total.value === 0) {
     verdict = 'Таблица есть, записей ноль — конвейер до неё не доходит либо appendSafetyEvent молча отказывает (он fail-soft). Искать [safety-ledger] в логах контейнера.';
   } else if (total?.ok) {
-    verdict = `Таблица есть, записей ${total.value} — критерий приёмки фазы 1 достижим, сверять цепочку по recent.`;
+    const never = byType?.ok ? byType.value.never_written : null;
+    verdict =
+      `Таблица есть, записей ${total.value}. ` +
+      (never === null
+        ? 'Перепись звеньев не выполнилась — см. by_event_type.error; полноту цепочки судить нечем.'
+        : never.length === 0
+          ? 'Все объявленные звенья цепочки хоть раз записаны — приёмка фазы 1 пройдена полностью.'
+          : `НИ РАЗУ не записаны: ${never.join(', ')}. Это факт о всей истории, а не о последних двадцати.`);
   } else {
     verdict = 'Таблица есть, но счётчик не выполнился — см. total.error';
   }
@@ -157,14 +194,17 @@ export async function GET(request: NextRequest) {
      *
      * 1 — исходная форма: события с ключом `id`, отсортированные лексикографически.
      * 2 — `event_id` и настоящий числовой порядок (PR #1486).
+     * 3 — перепись звеньев за всю историю (`by_event_type`): «нет в последних
+     *     двадцати» перестало значить «ни разу».
      */
-    contract_version: 2,
+    contract_version: 3,
     checked_at: new Date().toISOString(),
     verdict,
     table,
     table_exists: tableExists,
     migration_failures: failures,
     total_events: total,
+    by_event_type: byType,
     recent,
     applied_925_migrations: applied,
   });
