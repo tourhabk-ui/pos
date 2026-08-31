@@ -61,10 +61,20 @@ jobs:
           if not logs:
               print('Логов нет. Верхнеуровневые ключи:', sorted(data.keys()))
           else:
+              # 31.08: Timeweb отдаёт записи СТРОКАМИ, а не объектами, и
+              # entry.get() ронял разбор с AttributeError при HTTP 200 —
+              # лог был получен, но прочитать его мы не могли. Форму ответа
+              # нельзя принимать на веру: у разбора обязан быть исход
+              # «пришло не то, что ждали», а не падение (§4.0).
               for entry in logs:
-                  ts = entry.get('created_at', '')[:19]
-                  msg = entry.get('log', entry.get('message', ''))
-                  print(f'[{ts}] {msg}')
+                  if isinstance(entry, str):
+                      print(entry)
+                  elif isinstance(entry, dict):
+                      ts = (entry.get('created_at') or '')[:19]
+                      msg = entry.get('log', entry.get('message', ''))
+                      print(f'[{ts}] {msg}' if ts else str(msg))
+                  else:
+                      print(f'[запись неизвестной формы: {type(entry).__name__}] {entry!r}')
           PY
 
           cat > /tmp/print_deploy_ids.py <<'PY'
