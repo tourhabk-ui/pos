@@ -1283,6 +1283,12 @@ function OnTrailTab() {
   // радиального маршрута, и «осталось 3 км» становится «17 км» у неподвижного
   // человека — прибор, чьи показания скачут втрое на месте, перестают читать.
   const alongRef = useRef<AlongState | null>(null);
+  // Переживает ремонт полноэкранной карты (mapMarkers меняет identity на
+  // каждом GPS-тике из-за crumbs/approachLine — см. комментарий у mapMarkers
+  // ниже), иначе внутренний isFirstFix LeafletMap каждый раз врал «первый»
+  // и panTo дёргал карту заново на живом треке («линя встала но карта
+  // скачет», 31.08). Передаётся в LeafletMap пропом autoPanDoneRef.
+  const autoPanDoneRef = useRef(false);
   const approach = useMemo(() => {
     if (!coords || !nextWp || !track || track.length < 2) return null;
     const line = track.map(([lat, lng]) => ({ lat, lng }));
@@ -1306,7 +1312,7 @@ function OnTrailTab() {
   // Смена маршрута обнуляет историю положения: она была про другой трек.
   // Трек меняется вместе с маршрутом, поэтому его и достаточно: история
   // положения была про другую ломаную.
-  useEffect(() => { alongRef.current = null; }, [track]);
+  useEffect(() => { alongRef.current = null; autoPanDoneRef.current = false; }, [track]);
 
   /**
    * Линия подхода для КАРТЫ — с огрублённым положением.
@@ -2854,6 +2860,7 @@ function OnTrailTab() {
           zoom={12}
           height="100dvh"
           showUserLocation
+          autoPanDoneRef={autoPanDoneRef}
         />
       </div>
 

@@ -96,3 +96,30 @@ describe('карта не гоняется за шумным фиксом', () =
     expect(markerAt).toBeGreaterThan(at);
   });
 });
+
+describe('panTo-один-раз переживает ремонт полноэкранной карты (31.08)', () => {
+  /**
+   * «линя встала но карта скачет» — владелец сообщил это СРАЗУ после того,
+   * как боевой GPS-трек стал geometry «Зеленовские озерки». isFirstFix
+   * живёт внутри useEffect-замыкания ОДНОГО инстанса Leaflet: полноэкранный
+   * mapMarkers меняет identity на каждом GPS-тике (crumbs/approachLine в
+   * зависимостях), LeafletMap пересоздаёт карту заново, и isFirstFix снова
+   * становится «первый» — panTo дёргает камеру на каждом ремонте, хотя сам
+   * инстанс карты для человека один и тот же. Проп autoPanDoneRef живёт у
+   * вызывающего компонента (_PlanningClient) и переживает пересоздание.
+   */
+  it('пан гасится общим для ремонтов флагом, не только isFirstFix', () => {
+    expect(geoBlock).toMatch(/isFirstFix\s*&&\s*map\.getZoom\(\)\s*>=\s*12\s*&&\s*!autoPanDoneRef\?\.current/);
+  });
+
+  it('флаг взводится сразу после пана — не остаётся false навсегда', () => {
+    const panAt = geoBlock.indexOf('map.panTo([lat, lng]');
+    expect(panAt).toBeGreaterThan(0);
+    const after = geoBlock.slice(panAt, panAt + 200);
+    expect(after).toMatch(/autoPanDoneRef\.current\s*=\s*true/);
+  });
+
+  it('проп необязателен — карты без вызывающего рефа не ломаются', () => {
+    expect(MAP).toMatch(/autoPanDoneRef\?:\s*\{\s*current:\s*boolean\s*\}/);
+  });
+});
