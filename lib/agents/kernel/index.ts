@@ -17,9 +17,13 @@ export {
   appendEvent,
   findByIdempotencyKey,
   findActiveByIdempotencyKey,
+  findActiveByResource,
+  reapExpiredLeases,
   POLICY_VERSION,
   DEFAULT_LEASE_SECONDS,
+  LEASE_REAP_GRACE_SECONDS,
 } from './kernel';
+export type { CreateConflict, CreateTaskOutcome, ReapedTask } from './kernel';
 export {
   TASK_STATES,
   TERMINAL_STATES,

@@ -71,9 +71,39 @@ export interface CreateTaskInput {
   details?: Record<string, unknown>;
 }
 
+/**
+ * Почему задача не создалась. До 31.08 исход был один на два разных случая.
+ *
+ * `idempotency` — тот же логический вызов уже имеет владельца (индекс 918).
+ * `resource` — ДРУГОЙ вызов занял тот же ресурс (индекс 920). Это разные
+ * факты и разные слова человеку: в первом случае занят ключ, во втором — тур.
+ */
+export type CreateConflict = 'idempotency' | 'resource';
+
 export type CreateTaskOutcome =
   | { created: true; task: AgentTask }
-  | { created: false; existing: AgentTask };
+  | { created: false; existing: AgentTask; conflict: CreateConflict };
+
+/**
+ * Состояния, при которых ресурс считается занятым.
+ *
+ * ОБЯЗАНЫ совпадать с предикатом уникального индекса
+ * `idx_agent_tasks_active_resource` (миграция 920): расхождение сделало бы
+ * поиск владельца ложью — индекс не дал бы вставить, а мы бы «не нашли, кто
+ * держит», и вызывающий получил бы выдуманную причину вместо настоящей.
+ */
+const RESOURCE_ACTIVE_STATES: readonly TaskState[] = [
+  'proposed', 'awaiting_approval', 'queued', 'running', 'awaiting_merge',
+  // `failed_retryable` тоже ДЕРЖИТ ресурс: предикат индекса исключает только
+  // succeeded/failed_terminal/cancelled/rejected. Состояние сейчас мёртвое
+  // (никто его не пишет — аудит 30.08, K-4), поэтому на практике разницы нет;
+  // но если его оживят, поиск держателя обязан его видеть, иначе вернётся
+  // «занято, а кем — не знаю». Сторож сверяет этот список с самой миграцией.
+  'failed_retryable',
+];
+
+/** Имя индекса из миграции 920 — по нему опознаётся конфликт ресурса. */
+const RESOURCE_INDEX = 'idx_agent_tasks_active_resource';
 
 /**
  * Создать задачу; событие рождения пишется той же транзакцией (seq=1).
@@ -126,7 +156,7 @@ export async function createTask(input: CreateTaskInput): Promise<CreateTaskOutc
         // вызывающий повторит создание сам.
         throw new Error(`конфликт идемпотентности по ключу, но владелец не найден — повторите создание`);
       }
-      return { created: false, existing };
+      return { created: false, existing, conflict: 'idempotency' };
     }
     await client.query(
       `INSERT INTO agent_events (task_id, trace_id, seq, event_type, from_state, to_state, actor, details)
@@ -137,10 +167,60 @@ export async function createTask(input: CreateTaskInput): Promise<CreateTaskOutc
     return { created: true, task };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined);
+
+    // ── Конфликт по РЕСУРСУ, а не по ключу ────────────────────────────────
+    //
+    // Миграция 920 завела уникальный индекс по (capability, resource_type,
+    // resource_id) для всех НЕтерминальных задач. Её шапка говорит только про
+    // `code.merge` — но в самом DDL условия на capability НЕТ, и индекс накрыл
+    // всё, что несёт ресурс, включая `tour.*`.
+    //
+    // `ON CONFLICT (idempotency_key)` выше нарушение ДРУГОГО индекса не ловит:
+    // Postgres поднимает 23505, оно уходило наверх необработанным. У `tour.*`
+    // ключ инвокационный, поэтому два разных вызова по одному туру дают разные
+    // ключи и один ресурс — то есть исключение вместо честного отказа, а пока
+    // первая задача висит нетерминальной, тур недоступен агентскому пути
+    // вообще (аудит 30.08, находка K-1).
+    //
+    // Индекс НЕ сужается: «одна активная задача на (capability, ресурс)» —
+    // верный инвариант, пусть и полученный случайно. Чинится обработка.
+    const pg = err as { code?: string; constraint?: string };
+    if (pg?.code === '23505' && pg.constraint === RESOURCE_INDEX && input.resource) {
+      const holder = await findActiveByResource(
+        input.capability, input.resource.type, input.resource.id,
+      );
+      if (holder) return { created: false, existing: holder, conflict: 'resource' };
+      // Владелец завершился между INSERT и SELECT — то же «повторите», что и
+      // у ключа: выдумывать причину нельзя, а гонка разрешима повтором.
+      throw new Error(
+        `ресурс ${input.resource.type}:${input.resource.id} занят другой задачей ${input.capability}, но владелец не найден — повторите создание`,
+      );
+    }
     throw err;
   } finally {
     client.release();
   }
+}
+
+/**
+ * Кто держит ресурс сейчас. Предикат совпадает с индексом 920 (см.
+ * RESOURCE_ACTIVE_STATES) — иначе ответ был бы о другом множестве задач.
+ */
+export async function findActiveByResource(
+  capability: string,
+  resourceType: string,
+  resourceId: string,
+): Promise<AgentTask | null> {
+  const states = RESOURCE_ACTIVE_STATES.map((s) => `'${s}'`).join(',');
+  const { rows } = await pool.query<TaskRow>(
+    `SELECT ${TASK_COLUMNS}
+     FROM agent_tasks
+     WHERE capability = $1 AND resource_type = $2 AND resource_id = $3
+       AND state IN (${states})
+     LIMIT 1`,
+    [capability, resourceType, resourceId],
+  );
+  return rows[0] ?? null;
 }
 
 export interface TransitionResult {
@@ -360,4 +440,84 @@ export async function findByIdempotencyKey(key: string): Promise<AgentTask | nul
     [key],
   );
   return rows[0] ?? null;
+}
+
+/**
+ * Запас сверх lease, после которого задача считается брошенной.
+ *
+ * Lease по умолчанию 300 секунд (DEFAULT_LEASE_SECONDS), у роутов maxDuration
+ * тоже 300 — значит живая работа физически не может идти дольше. Пятнадцать
+ * минут сверху берутся не «на всякий случай», а чтобы жнец никогда не спорил
+ * с настоящим исполнителем: терминальный переход у брошенной задачи и её
+ * штатное завершение — это гонка, и выиграть её должен исполнитель.
+ */
+export const LEASE_REAP_GRACE_SECONDS = 900;
+
+export interface ReapedTask {
+  id: string;
+  capability: string;
+  resource: string | null;
+  claimed_by: string | null;
+}
+
+/**
+ * Вернуть в оборот задачи с протухшим lease.
+ *
+ * `claimed_by` и `lease_until` писались с самого начала и НЕ ЧИТАЛИСЬ нигде
+ * (аудит 30.08, находка K-2): ни крон, ни Watchdog не возвращали брошенные
+ * задачи. Путь утечки назван прямо в коде — `app/api/cron/evo/route.ts`:
+ * «kernel-задача останется в 'running' — некому позвать failEvoRunTask».
+ * Вместе с индексом 920 (см. K-1) это переходило из «мусора в панели» в
+ * «ресурс заблокирован навсегда»: нетерминальная задача держит (capability,
+ * ресурс) вечно.
+ *
+ * Переход — `failed_terminal`, и это осознанный компромисс, а не утверждение
+ * о факте. Мы НЕ знаем, исполнился ли эффект: контейнер мог умереть и до, и
+ * после него. Знание об этом живёт в `agent_effects` (beginEffect ставится ДО
+ * эффекта — именно чтобы повтор не исполнил его дважды), а не в состоянии
+ * задачи. Терминальное состояние выбрано потому, что ТОЛЬКО оно освобождает
+ * ресурс: предикат индекса 920 исключает succeeded/failed_terminal/cancelled/
+ * rejected, и `failed_retryable` ресурс бы не отпустил. В детали перехода
+ * уходит `outcome_unknown: true` — чтобы «жнец прибрал» никогда не читалось
+ * как «работа провалилась».
+ */
+export async function reapExpiredLeases(
+  actor = 'kernel:lease-reaper',
+  limit = 20,
+): Promise<ReapedTask[]> {
+  const { rows } = await pool.query<{
+    id: string; capability: string; resource_type: string | null;
+    resource_id: string | null; claimed_by: string | null; lease_until: string;
+  }>(
+    `SELECT id, capability, resource_type, resource_id, claimed_by, lease_until
+     FROM agent_tasks
+     WHERE state = 'running'
+       AND lease_until IS NOT NULL
+       AND lease_until < NOW() - ($1 || ' seconds')::interval
+     ORDER BY lease_until ASC
+     LIMIT $2`,
+    [String(LEASE_REAP_GRACE_SECONDS), limit],
+  );
+
+  const reaped: ReapedTask[] = [];
+  for (const r of rows) {
+    // Переход атомарен по state: если исполнитель завершил задачу между
+    // выборкой и этой строкой, from='running' не совпадёт и жнец отступит.
+    const res = await transition(r.id, 'running', 'failed_terminal', actor, {
+      summary: 'lease истёк — задача брошена',
+      reason: 'lease_expired',
+      outcome_unknown: true,
+      lease_until: r.lease_until,
+      claimed_by: r.claimed_by,
+      grace_seconds: LEASE_REAP_GRACE_SECONDS,
+    });
+    if (!res.ok) continue;
+    reaped.push({
+      id: r.id,
+      capability: r.capability,
+      resource: r.resource_type && r.resource_id ? `${r.resource_type}:${r.resource_id}` : null,
+      claimed_by: r.claimed_by,
+    });
+  }
+  return reaped;
 }

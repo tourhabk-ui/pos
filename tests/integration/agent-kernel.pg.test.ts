@@ -457,4 +457,135 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
     expect(ids).toContain(stuck.effect.id);
     expect(ids).not.toContain(fresh.effect.id);
   });
+  /**
+   * K-1 и K-2 из аудита 30.08 — на настоящей БД, потому что обе про то, чего
+   * моки не воспроизводят: поведение уникального индекса и атомарность
+   * перехода. Прецедент 42P08 из CLAUDE.md прямо запрещает судить такое
+   * статикой.
+   */
+  describe('K-1: конфликт по ресурсу — отказ, а не исключение', () => {
+    it('второй вызов по тому же туру возвращает conflict=resource, не бросает 23505', async () => {
+      // Ключи РАЗНЫЕ (у tour.* он инвокационный) — значит ON CONFLICT по
+      // ключу не сработает, и в дело вступает индекс 920.
+      const a = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'tour.update_price', risk: 'safe',
+        state: 'queued', resource: { type: 'tour', id: 'k1-tour' }, idempotencyKey: 'inv-1',
+      });
+      expect(a.created).toBe(true);
+
+      const b = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'tour.update_price', risk: 'safe',
+        state: 'queued', resource: { type: 'tour', id: 'k1-tour' }, idempotencyKey: 'inv-2',
+      });
+      expect(b.created, 'вторая задача по занятому ресурсу создаваться не должна').toBe(false);
+      if (b.created) throw new Error('unreachable');
+      expect(b.conflict, 'занят ресурс, а не ключ — иначе сообщение соврёт').toBe('resource');
+      if (!a.created) throw new Error('unreachable');
+      expect(b.existing.id, 'вернуть надо ДЕРЖАТЕЛЯ ресурса').toBe(a.task.id);
+    });
+
+    it('конфликт по КЛЮЧУ по-прежнему называется идемпотентностью', async () => {
+      // Регрессия: прежнее поведение не должно было измениться.
+      const a = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'evo.run', risk: 'safe',
+        state: 'queued', idempotencyKey: 'same-key',
+      });
+      const b = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'evo.run', risk: 'safe',
+        state: 'queued', idempotencyKey: 'same-key',
+      });
+      expect(a.created).toBe(true);
+      expect(b.created).toBe(false);
+      if (b.created) throw new Error('unreachable');
+      expect(b.conflict).toBe('idempotency');
+    });
+
+    it('терминальная задача ресурс отпускает', async () => {
+      const a = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'tour.set_published', risk: 'safe',
+        state: 'queued', resource: { type: 'tour', id: 'k1-free' }, idempotencyKey: 'f-1',
+      });
+      if (!a.created) throw new Error('задача не создана');
+      await kernel.transition(a.task.id, 'queued', 'cancelled', 'test');
+
+      const b = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'tour.set_published', risk: 'safe',
+        state: 'queued', resource: { type: 'tour', id: 'k1-free' }, idempotencyKey: 'f-2',
+      });
+      expect(b.created, 'после терминала ресурс обязан быть свободен').toBe(true);
+    });
+  });
+
+  describe('K-2: жнец протухших lease', () => {
+    it('брошенная задача становится терминальной, и это НЕ «работа провалилась»', async () => {
+      const t = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued',
+      });
+      if (!t.created) throw new Error('задача не создана');
+      await kernel.claimTaskById(t.task.id, 'worker-dead');
+      // Контейнер умер: lease протух давно (сверх запаса).
+      await pool.query(
+        `UPDATE agent_tasks SET lease_until = NOW() - interval '1 hour' WHERE id = $1`,
+        [t.task.id],
+      );
+
+      const reaped = await kernel.reapExpiredLeases('kernel:pg-test');
+      expect(reaped.map((r) => r.id)).toContain(t.task.id);
+
+      const st = await pool.query(`SELECT state FROM agent_tasks WHERE id = $1`, [t.task.id]);
+      expect(st.rows[0].state).toBe('failed_terminal');
+
+      // Исход эффекта нам неизвестен, и событие обязано это сказать: иначе
+      // «жнец прибрал» прочитается как «действие провалилось».
+      const ev = await pool.query(
+        `SELECT details FROM agent_events WHERE task_id = $1 AND to_state = 'failed_terminal' LIMIT 1`,
+        [t.task.id],
+      );
+      expect(ev.rows[0].details.outcome_unknown).toBe(true);
+      expect(ev.rows[0].details.reason).toBe('lease_expired');
+    });
+
+    it('живой lease не трогается — жнец не спорит с исполнителем', async () => {
+      const t = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'evo.run', risk: 'safe', state: 'queued',
+      });
+      if (!t.created) throw new Error('задача не создана');
+      await kernel.claimTaskById(t.task.id, 'worker-alive');
+
+      const reaped = await kernel.reapExpiredLeases('kernel:pg-test');
+      expect(reaped.map((r) => r.id)).not.toContain(t.task.id);
+
+      const st = await pool.query(`SELECT state FROM agent_tasks WHERE id = $1`, [t.task.id]);
+      expect(st.rows[0].state).toBe('running');
+    });
+
+    it('после жатвы ресурс свободен — K-1 и K-2 смыкаются', async () => {
+      // Ради этого всё и делалось: без жнеца брошенная задача держала бы
+      // (capability, ресурс) вечно, и тур навсегда выпадал из агентского пути.
+      const a = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'tour.add_slots', risk: 'safe',
+        state: 'queued', resource: { type: 'tour', id: 'k2-tour' }, idempotencyKey: 'r-1',
+      });
+      if (!a.created) throw new Error('задача не создана');
+      await kernel.claimTaskById(a.task.id, 'worker-dead');
+      await pool.query(
+        `UPDATE agent_tasks SET lease_until = NOW() - interval '1 hour' WHERE id = $1`,
+        [a.task.id],
+      );
+
+      const blocked = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'tour.add_slots', risk: 'safe',
+        state: 'queued', resource: { type: 'tour', id: 'k2-tour' }, idempotencyKey: 'r-2',
+      });
+      expect(blocked.created, 'пока задача висит — ресурс занят').toBe(false);
+
+      await kernel.reapExpiredLeases('kernel:pg-test');
+
+      const after = await kernel.createTask({
+        principal: 'agent:pg-test', capability: 'tour.add_slots', risk: 'safe',
+        state: 'queued', resource: { type: 'tour', id: 'k2-tour' }, idempotencyKey: 'r-3',
+      });
+      expect(after.created, 'жнец обязан вернуть ресурс в оборот').toBe(true);
+    });
+  });
 });

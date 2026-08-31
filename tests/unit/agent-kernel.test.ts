@@ -512,3 +512,54 @@ describe('executeGovernedAction', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * K-1 и K-2 из аудита 30.08. Поведение проверяется на настоящей БД
+ * (agent-kernel.pg.test.ts) — здесь только то, что БД проверить не может:
+ * согласованность константы с миграцией и подключённость жнеца к прогону.
+ */
+describe('K-1/K-2: то, что доказывается только статикой', () => {
+  const KERNEL_SRC = readFileSync(join(process.cwd(), 'lib/agents/kernel/kernel.ts'), 'utf8');
+  const MIG_920 = readFileSync(
+    join(process.cwd(), 'migrations/920_agent_tasks_active_resource_index.sql'), 'utf8',
+  );
+  const WORKER = readFileSync(join(process.cwd(), 'app/api/cron/kernel-worker/route.ts'), 'utf8');
+
+  it('RESOURCE_ACTIVE_STATES дополняет предикат индекса 920, а не расходится с ним', () => {
+    // Индекс исключает терминальные; константа перечисляет активные. Если они
+    // разойдутся, findActiveByResource будет искать не в том множестве: индекс
+    // не даст вставить, а мы «не найдём держателя» и выдадим вызывающему
+    // выдуманную причину вместо настоящей.
+    const excluded = /state NOT IN \(([^)]*)\)/.exec(MIG_920);
+    expect(excluded, 'предикат индекса 920 не найден — миграцию переписали').not.toBeNull();
+    const terminal = [...excluded![1].matchAll(/'(\w+)'/g)].map(m => m[1]).sort();
+
+    const block = /RESOURCE_ACTIVE_STATES[^=]*=\s*\[([\s\S]*?)\]/.exec(KERNEL_SRC);
+    expect(block, 'RESOURCE_ACTIVE_STATES исчезла').not.toBeNull();
+    const active = [...block![1].matchAll(/'(\w+)'/g)].map(m => m[1]);
+
+    // Пересечения быть не должно, а объединение — это все состояния задачи.
+    expect(active.filter(s => terminal.includes(s)), 'состояние числится и активным, и терминальным').toEqual([]);
+    expect([...active, ...terminal].sort()).toEqual([...TASK_STATES].sort());
+  });
+
+  it('конфликт ресурса опознаётся по имени индекса из самой миграции', () => {
+    const name = /CREATE UNIQUE INDEX IF NOT EXISTS (\w+)\s*\n?\s*ON agent_tasks\(capability/.exec(MIG_920);
+    expect(name, 'индекс по (capability, resource) в 920 не найден').not.toBeNull();
+    expect(KERNEL_SRC).toContain(`RESOURCE_INDEX = '${name![1]}'`);
+  });
+
+  it('жнец подключён к прогону worker и идёт ДО разбора очереди', () => {
+    // Не подключённый жнец — то же, что его отсутствие: lease писался и не
+    // читался полгода именно так.
+    expect(WORKER).toMatch(/reapExpiredLeases\(\)/);
+    const reap = WORKER.indexOf('reapExpiredLeases()');
+    const drain = WORKER.indexOf('drainInitiativeQueue(');
+    expect(reap).toBeGreaterThan(-1);
+    expect(reap, 'жнец после дренажа освободил бы ресурс только через прогон').toBeLessThan(drain);
+  });
+
+  it('прибранные задачи попадают в историю прогона, а не только в ответ', () => {
+    expect(WORKER).toMatch(/reaped:\s*reaped\.length/);
+  });
+});
