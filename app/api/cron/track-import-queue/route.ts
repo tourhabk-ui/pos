@@ -11,15 +11,37 @@
  * ответить было нечем — не потому что треков нет, а потому что смотреть
  * было некуда.
  *
- * READ-ONLY: ничего не применяет и не помечает. Решение — за человеком.
+ * GET — READ-ONLY: ничего не применяет и не помечает.
+ *
+ * POST /api/cron/track-import-queue — применить ОДНУ запись очереди как
+ * геометрию конкретного маршрута. Решение — за человеком (30.08, владелец:
+ * «хочу чтобы этот трек реально стал геометрией маршрута»): цель называется
+ * ЯВНО (route_id/route_title), а не берётся из matched_route_id — тот подбирает
+ * ближайшую запись геометрией (POST /api/field-check/track), а не тем
+ * маршрутом, который человек фактически шёл; для этого самого трека
+ * matched_route_id указал на другую запись («Этническое стойбище Кайныран»),
+ * хотя владелец писал именно «Зеленовские озерки» (то же имя, что уже было
+ * заголовком записи в S3).
+ *
+ * Точки, лежащие вне Камчатки, отсеиваются той же проверкой, что уже ловит
+ * «трек за пределы края» в живом следе (lib/routes/track.ts,
+ * isPlausibleTrackPoint) — тот же диагноз, третье место в коде.
+ *
+ * Существующую geometry заменяет молча только если её источник —
+ * заведомо слабее записи (`waypoints_synthetic`/`kml_inbox`/пусто), как и у
+ * route-family-merge. Если там уже стоит другой настоящий трек — нужен явный
+ * `force: true`, иначе один снятый трек тихо не заменит другой.
  *
  * Bearer CRON_SECRET.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
+import { parseTrackFile } from '@/lib/field/track-import';
+import { isPlausibleTrackPoint } from '@/lib/routes/track';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -123,4 +145,187 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Ошибка чтения очереди';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+}
+
+/** Источники, которые молча уступают настоящему треку — та же граница, что у route-family-merge. */
+const WEAK_SOURCES = new Set(['waypoints_synthetic', 'kml_inbox']);
+
+const ApplyBodySchema = z.object({
+  id: z.string().uuid(),
+  route_id: z.string().min(8).max(64).optional(),
+  route_title: z.string().min(2).max(200).optional(),
+  dry_run: z.boolean().default(true),
+  force: z.boolean().default(false),
+}).refine(d => Boolean(d.route_id) !== Boolean(d.route_title), {
+  message: 'Нужен ровно один из route_id / route_title — цель называется явно, matched_route_id не используется',
+});
+
+interface QueueRow {
+  id: string;
+  status: string;
+  s3_url: string;
+  format: string;
+}
+
+interface RouteRow {
+  id: string;
+  title: string;
+  geometry_source: string | null;
+}
+
+export async function POST(request: NextRequest) {
+  if (!timingSafeCompare(getCronSecret(request), process.env.CRON_SECRET ?? '')) {
+    return NextResponse.json({ success: false, error: 'Не авторизован' }, { status: 401 });
+  }
+
+  let data: z.infer<typeof ApplyBodySchema>;
+  try {
+    data = ApplyBodySchema.parse(await request.json());
+  } catch (err) {
+    const msg = err instanceof z.ZodError ? err.issues[0]?.message : 'Некорректное тело';
+    return NextResponse.json({ success: false, error: msg }, { status: 400 });
+  }
+
+  const q = await pool.query<QueueRow>(
+    `SELECT id::text AS id, status, s3_url, format FROM route_track_imports WHERE id::text = $1`,
+    [data.id],
+  );
+  const queued = q.rows[0];
+  if (!queued) {
+    return NextResponse.json({ success: false, error: 'Запись в очереди не найдена' }, { status: 404 });
+  }
+  if (queued.status !== 'pending') {
+    return NextResponse.json(
+      { success: false, error: `Запись уже в статусе «${queued.status}» — повторно не применяем` },
+      { status: 409 },
+    );
+  }
+
+  const routeRes = data.route_id
+    ? await pool.query<RouteRow>(
+        `SELECT id::text AS id, title, geometry->>'source' AS geometry_source
+         FROM kamchatka_routes WHERE id::text = $1 AND is_visible = TRUE AND merged_into_id IS NULL`,
+        [data.route_id],
+      )
+    : await pool.query<RouteRow>(
+        `SELECT id::text AS id, title, geometry->>'source' AS geometry_source
+         FROM kamchatka_routes
+         WHERE title ILIKE $1 AND is_visible = TRUE AND merged_into_id IS NULL`,
+        [`%${data.route_title}%`],
+      );
+  if (routeRes.rows.length === 0) {
+    return NextResponse.json(
+      { success: false, error: 'Целевой маршрут не найден — ни один видимый маршрут не подошёл' },
+      { status: 404 },
+    );
+  }
+  if (routeRes.rows.length > 1) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Название совпало больше чем с одним маршрутом — назовите route_id явно',
+        candidates: routeRes.rows.map(r => ({ id: r.id, title: r.title })),
+      },
+      { status: 409 },
+    );
+  }
+  const target = routeRes.rows[0]!;
+  const targetIsStrong = target.geometry_source !== null && !WEAK_SOURCES.has(target.geometry_source);
+  if (targetIsStrong && !data.force) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `У «${target.title}» уже стоит линия из источника «${target.geometry_source}» — не заменяем молча. `
+          + 'Если это правда нужно — передайте force: true',
+      },
+      { status: 409 },
+    );
+  }
+
+  // Файл — то, что реально лежит в хранилище, а не то, что запомнила очередь:
+  // между загрузкой и применением файл теоретически мог исчезнуть.
+  let fileBuf: Buffer;
+  try {
+    const res = await fetch(queued.s3_url);
+    if (!res.ok) {
+      return NextResponse.json(
+        { success: false, error: `Хранилище отдало ${res.status} на s3_url — файл недоступен` },
+        { status: 502 },
+      );
+    }
+    fileBuf = Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'сеть';
+    return NextResponse.json({ success: false, error: `Не удалось скачать файл: ${message}` }, { status: 502 });
+  }
+
+  const parsed = parseTrackFile(fileBuf);
+  const track = parsed.tracks.find(t => t.points.length >= 2) ?? null;
+  if (!track) {
+    return NextResponse.json(
+      { success: false, error: 'Файл разобрался, но линии в нём больше нет', problems: parsed.problems },
+      { status: 422 },
+    );
+  }
+
+  // Та же проверка, что уже ловит «трек за пределы Камчатки» в живом следе
+  // (breadcrumbs) — третье место в коде с тем же диагнозом (30.08).
+  const plausible = track.points.filter(p => isPlausibleTrackPoint(p.lat, p.lng));
+  const droppedOutOfBounds = track.points.length - plausible.length;
+  if (plausible.length < 2) {
+    return NextResponse.json(
+      { success: false, error: 'После отсева точек за пределами Камчатки линии не осталось' },
+      { status: 422 },
+    );
+  }
+
+  const coords = plausible.map(p => (p.ele !== null ? [p.lng, p.lat, p.ele] : [p.lng, p.lat]));
+  const lengthKm = plausible.length === track.points.length
+    ? track.lengthKm
+    : Math.round(
+        plausible.slice(1).reduce((acc, p, i) => {
+          const a = plausible[i]!;
+          const dLat = ((p.lat - a.lat) * Math.PI) / 180;
+          const dLng = ((p.lng - a.lng) * Math.PI) / 180;
+          const s = Math.sin(dLat / 2) ** 2
+            + Math.cos((a.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+          return acc + 6371 * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+        }, 0) * 100,
+      ) / 100;
+
+  const preview = {
+    target: { id: target.id, title: target.title, previous_source: target.geometry_source },
+    new_line: { points: coords.length, length_km: lengthKm, dropped_out_of_bounds: droppedOutOfBounds },
+    source_format: parsed.format,
+  };
+
+  if (data.dry_run) {
+    return NextResponse.json({ success: true, dry_run: true, ...preview });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE kamchatka_routes
+       SET geometry = jsonb_build_object('type', 'LineString', 'coordinates', $1::jsonb, 'source', 'gpx'),
+           distance_km = $2,
+           updated_at = NOW()
+       WHERE id::text = $3`,
+      [JSON.stringify(coords), lengthKm, target.id],
+    );
+    await client.query(
+      `UPDATE route_track_imports SET status = 'applied' WHERE id::text = $1`,
+      [data.id],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    const message = err instanceof Error ? err.message : 'Ошибка записи';
+    return NextResponse.json({ success: false, error: message }, { status: 502 });
+  } finally {
+    client.release();
+  }
+
+  return NextResponse.json({ success: true, dry_run: false, applied: true, ...preview });
 }
