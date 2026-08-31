@@ -129,6 +129,34 @@ function buildPopupHtml(marker: MapMarker): string {
   return html;
 }
 
+/**
+ * Иконки маркеров по типу локации. Вынесены из тела эффекта на уровень
+ * модуля: с разделением жизненного цикла карты и отрисовки слоёв (31.08)
+ * набор строится на каждую перерисовку маркеров, а не раз на создание
+ * карты, и держать сотню килобайт SVG-литералов внутри цикла незачем.
+ * Содержимое не менялось — только место.
+ */
+function markerSvgIcons(hex: string): Record<string, string> {
+  return {
+    volcano:    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 2L2 22h20L12 2z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="2" fill="#fff" opacity="0.8"/></svg>`,
+    hot_spring: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M9 14c0-2 1.5-3 3-3s3 1 3 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    geyser:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 8v6M9 11l3 3 3-3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    lake:       `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 14c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    mountain:   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 4L3 22h18L12 4z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M8 22l4-8 4 8" stroke="#fff" stroke-width="1" stroke-linecap="round"/></svg>`,
+    waterfall:  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M10 10v8M14 10v8" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    beach:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.6"/></svg>`,
+    viewpoint:  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 10v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    rock:       `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M7 20l2-12 6-4 4 8-3 8H7z" fill="${hex}" stroke="#fff" stroke-width="1.5"/></svg>`,
+    island:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><ellipse cx="12" cy="18" rx="8" ry="4" fill="#475569" opacity="0.3"/><path d="M4 18c0-4 3-8 8-8s8 4 8 8-3.5 6-8 6-8-2-8-6z" fill="${hex}" stroke="#fff" stroke-width="1.5"/></svg>`,
+    forest:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 4L6 16h12L12 4z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="11" y="16" width="2" height="6" rx="1" fill="#fff" opacity="0.6"/></svg>`,
+    river:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M8 14c2 0 2-3 4-3s2 3 4 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    bay:        `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 14c1.5-1.5 3-1.5 5 0s3.5 1.5 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><path d="M7 18c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></svg>`,
+    museum:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M3 14l9-8 9 8v6H3v-6z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="7" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="11" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="15" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/></svg>`,
+    historical: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 8v4l2 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    other:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.5"/></svg>`,
+  };
+}
+
 export default function LeafletMap({
   markers = [],
   center = [53.0444, 158.6483],
@@ -174,6 +202,45 @@ export default function LeafletMap({
    */
   const viewRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
   const viewPropsRef = useRef<string>('');
+  /**
+   * Слои маркеров живут ОТДЕЛЬНО от самой карты.
+   *
+   * Продолжение того же разбора 31.08 («она как скакала так и скачет» — вид
+   * восстанавливать оказалось мало). Пока создание карты и отрисовка маркеров
+   * сидели в ОДНОМ эффекте с `markers` в зависимостях, каждое обновление
+   * набора точек означало `map.remove()` и сборку карты заново: новый DOM,
+   * новый тайловый слой, повторная загрузка тайлов. В полноэкранном режиме
+   * набор меняется на каждом GPS-фиксе (живой след, линия подхода) — то есть
+   * карта под рукой человека полностью перезагружалась каждые несколько
+   * секунд. Восстановленный вид убирает прыжок координат, но не мигание и не
+   * перекачку тайлов на мобильной связи.
+   *
+   * Побочно это чинило само себя ещё в одном месте: синяя точка «Я здесь»
+   * тоже пересоздавалась на каждом ремонте, поэтому CSS-transition на её
+   * transform (правка выше по файлу) не мог ничего сгладить — элемент был
+   * каждый раз НОВЫЙ, а transition работает только на живущем элементе.
+   * Теперь маркер переживает обновление набора, и сглаживание наконец
+   * действует. И GPS-watch больше не перезапускается на каждый набор: он
+   * стоит в эффекте жизненного цикла, а не рядом с маркерами.
+   *
+   * Разделение: эффект жизненного цикла (карта, тайлы, кластер, GPS, ресайз)
+   * зависит только от вида и режима; эффект маркеров снимает прежние слои и
+   * рисует новые НА ЖИВОЙ карте.
+   */
+  const LRef = useRef<typeof import('leaflet') | null>(null);
+  const drawnRef = useRef<Array<{ remove: () => void }>>([]);
+  const fitDoneRef = useRef(false);
+  // Обработчики — через ref: инлайновая стрелка у вызывающего меняет identity
+  // на каждом рендере, и будь она в зависимостях, карта пересоздавалась бы
+  // вообще на каждый рендер родителя, независимо от маркеров.
+  const onMarkerClickRef = useRef(onMarkerClick);
+  const onMapClickRef = useRef(onMapClick);
+  onMarkerClickRef.current = onMarkerClick;
+  onMapClickRef.current = onMapClick;
+  // Счётчик готовности карты — сигнал эффекту маркеров, что рисовать есть на
+  // чём. Меняется при КАЖДОМ создании карты, поэтому маркеры перерисовываются
+  // на новом инстансе, а не теряются.
+  const [mapEpoch, setMapEpoch] = useState(0);
   /**
    * Карта не завелась — это надо СКАЗАТЬ.
    *
@@ -320,9 +387,9 @@ export default function LeafletMap({
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
       L.control.zoom({ position: 'topright' }).addTo(map);
 
-      if (onMapClick) {
-        map.on('click', (e) => onMapClick(e.latlng.lat, e.latlng.lng));
-      }
+      // Через ref: обработчик вызывающего меняет identity на каждом рендере
+      // (инлайновая стрелка), а карта из-за этого пересоздаваться не должна.
+      map.on('click', (e) => onMapClickRef.current?.(e.latlng.lat, e.latlng.lng));
 
       // Базовый слой тайлов с авто-фолбэком. Раньше был единственный хост
       // (.cz-зеркало OpenTopoMap) — когда он лёг, карта превращалась в пустой
@@ -424,122 +491,30 @@ export default function LeafletMap({
         clusterGroup = null;
       }
 
-      const allCoords: [number, number][] = [];
-
-      markers.forEach((marker, idx) => {
-        const hex = resolveColor(marker.color, 'blue');
-        const markerId = marker.id ?? `mk_${idx}`;
-        allCoords.push(marker.coords);
-
-        // Геометрия маршрута (линии/полигоны) — добавляем НА карту, не в кластер
-        if (marker.geometry && marker.geometry.coordinates.length >= 2) {
-          const geomHex = resolveColor(marker.geometry.color ?? marker.color, 'teal');
-          const coords = marker.geometry.coordinates as [number, number][];
-          // Трек участвует в fitBounds — иначе линия длиннее вьюпорта обрезается
-          allCoords.push(...coords);
-          if (marker.geometry.type === 'polygon') {
-            L.polygon(coords, {
-              color: geomHex,
-              weight: marker.geometry.weight ?? 2,
-              fillOpacity: 0.15,
-            }).addTo(map);
-          } else {
-            const dash = marker.geometry.dashArray;
-            // Подложка — только у сплошных линий. У пунктирной она залила бы
-            // просветы и вернула вид снятого пути, от которого пунктир и
-            // отличает построение.
-            if (!dash) {
-              // Маршрут-линия (трек): толстая полупрозрачная подложка + тонкая яркая линия сверху — как в OsmAnd/Gaia GPS
-              L.polyline(coords, {
-                color: geomHex,
-                weight: (marker.geometry.weight ?? 3) + 3,
-                opacity: 0.25,
-                lineCap: 'round',
-                lineJoin: 'round',
-              }).addTo(map);
-            }
-            L.polyline(coords, {
-              color: geomHex,
-              weight: marker.geometry.weight ?? 3,
-              opacity: dash ? 0.75 : 0.9,
-              dashArray: dash,
-              lineCap: 'round',
-              lineJoin: 'round',
-            }).addTo(map);
-          }
-        }
-
-        // Кастомный SVG-маркер по типу локации
-        const svgIcons: Record<string, string> = {
-          volcano:    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 2L2 22h20L12 2z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="2" fill="#fff" opacity="0.8"/></svg>`,
-          hot_spring: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M9 14c0-2 1.5-3 3-3s3 1 3 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-          geyser:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 8v6M9 11l3 3 3-3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-          lake:       `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 14c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-          mountain:   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 4L3 22h18L12 4z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M8 22l4-8 4 8" stroke="#fff" stroke-width="1" stroke-linecap="round"/></svg>`,
-          waterfall:  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M10 10v8M14 10v8" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-          beach:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.6"/></svg>`,
-          viewpoint:  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 10v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-          rock:       `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M7 20l2-12 6-4 4 8-3 8H7z" fill="${hex}" stroke="#fff" stroke-width="1.5"/></svg>`,
-          island:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><ellipse cx="12" cy="18" rx="8" ry="4" fill="#475569" opacity="0.3"/><path d="M4 18c0-4 3-8 8-8s8 4 8 8-3.5 6-8 6-8-2-8-6z" fill="${hex}" stroke="#fff" stroke-width="1.5"/></svg>`,
-          forest:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 4L6 16h12L12 4z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="11" y="16" width="2" height="6" rx="1" fill="#fff" opacity="0.6"/></svg>`,
-          river:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M8 14c2 0 2-3 4-3s2 3 4 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-          bay:        `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 14c1.5-1.5 3-1.5 5 0s3.5 1.5 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><path d="M7 18c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></svg>`,
-          museum:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M3 14l9-8 9 8v6H3v-6z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="7" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="11" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="15" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/></svg>`,
-          historical: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 8v4l2 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-          other:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.5"/></svg>`,
-        };
-
-        const svgIcon = svgIcons[marker.category ?? 'other'] ?? svgIcons.other;
-        const icon = L.divIcon({
-          html: svgIcon,
-          className: 'kh-marker',
-          iconSize: [24, 28],
-          iconAnchor: [12, 26],
-          popupAnchor: [0, -26],
-        });
-
-        const m = L.marker(marker.coords, { icon });
-
-        if (!marker.suppressBalloon) {
-          m.bindPopup(buildPopupHtml(marker), { maxWidth: 260 });
-        }
-
-        if (onMarkerClick) {
-          m.on('click', () => onMarkerClick(markerId));
-        }
-
-        if (clusterGroup) {
-          clusterGroup.addLayer(m);
-        } else {
-          m.addTo(map);
-        }
-      });
-
       if (clusterGroup) {
         map.addLayer(clusterGroup);
         clusterRef.current = clusterGroup;
       }
+      LRef.current = L;
 
-      // Подгоняем вид под все маркеры (через кластер).
-      // При непрошеном ремонте (restoredView) НЕ подгоняем: вид уже
-      // восстановлен тем, каким его оставил человек, а fitBounds сбросил бы
-      // его обратно — ровно тот скачок, ради которого заведён viewRef.
-      const fitAll = () => {
-        if (restoredView) return;
-        if (allCoords.length > 1) {
-          map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
-            padding: [50, 50],
-          });
-        }
-      };
-      fitAll();
+      // Маркеры рисует ОТДЕЛЬНЫЙ эффект (см. drawnRef выше) — здесь карта
+      // только объявляется готовой. Эпоха меняется при КАЖДОМ создании
+      // инстанса, поэтому слои перерисовываются на новой карте, а не остаются
+      // висеть на уничтоженной.
+      // Восстановленный вид означает, что подгонять его под маркеры уже
+      // нельзя: fitBounds отменил бы восстановление. Отмечаем подгонку
+      // сделанной, чтобы эффект маркеров её не повторил.
+      fitDoneRef.current = Boolean(restoredView);
+      if (!cancelled) setMapEpoch((n) => n + 1);
 
       // Fix «пустая карта» в модалке/боттом-шите: контейнер к моменту init мог
       // иметь неустоявшийся размер (0×0, пока шит открывается) → Leaflet считал
       // размер нулевым, не грузил тайлы и не рисовал трек (скрин владельца
-      // «Куда идём?» — пустой бокс). После укладки пинаем invalidateSize (+
-      // повторный fitBounds под верный размер) и следим за ресайзом контейнера.
-      const kick = () => { map.invalidateSize(); fitAll(); };
+      // «Куда идём?» — пустой бокс). После укладки пинаем invalidateSize и
+      // следим за ресайзом контейнера. Повторную подгонку вида под верный
+      // размер делает эффект маркеров — там же, где и первую, чтобы «когда
+      // подгонять» решалось в одном месте, а не в двух.
+      const kick = () => map.invalidateSize();
       requestAnimationFrame(kick);
       setTimeout(kick, 250);
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
@@ -688,10 +663,143 @@ export default function LeafletMap({
         mapRef.current.remove();
         mapRef.current = null;
         clusterRef.current = null;
+        LRef.current = null;
+        // Слои умерли вместе с картой — ссылки на них больше ничего не значат
+        // и снимать их с нового инстанса нельзя (они не его).
+        drawnRef.current = [];
       }
     };
+  // Зависимости — только вид и режим. `markers` здесь БОЛЬШЕ НЕТ: набор точек
+  // не повод пересобирать карту (см. drawnRef выше), его рисует эффект ниже.
+  // Центр разложен на числа: вызывающие часто передают литерал [a, b], и по
+  // identity массива карта пересоздавалась бы на каждый рендер родителя.
+  // Обработчики ушли в ref по той же причине.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markers, center, zoom, onMarkerClick, onMapClick, attribution, showUserLocation, locationPriority, retry]);
+  }, [center[0], center[1], zoom, attribution, showUserLocation, locationPriority, retry]);
+
+  /**
+   * Отрисовка маркеров НА ЖИВОЙ карте — без пересоздания инстанса.
+   *
+   * Снимает слои прошлого набора и рисует новый. Кластер чистится своим
+   * clearLayers, отдельные линии/полигоны/маркеры — по списку drawnRef:
+   * Leaflet не даёт «удалить всё, кроме тайлов», а разбирать слои по типу
+   * значило бы угадывать чужое — свои мы знаем поимённо.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    const L = LRef.current;
+    if (!map || !L) return;
+
+    const cluster = clusterRef.current as
+      | { clearLayers: () => void; addLayer: (l: unknown) => void }
+      | null;
+
+    // Снять прошлый набор.
+    drawnRef.current.forEach((layer) => {
+      try {
+        layer.remove();
+      } catch (err) {
+        // Слой мог быть снят вместе с картой — сказать об этом, но не падать:
+        // молчаливый catch превратил бы поломку отрисовки в «маркеров нет».
+        console.error('[LeafletMap] layer remove failed', err);
+      }
+    });
+    drawnRef.current = [];
+    if (cluster) cluster.clearLayers();
+
+    const allCoords: [number, number][] = [];
+    const drawn: Array<{ remove: () => void }> = [];
+
+    markers.forEach((marker, idx) => {
+      const hex = resolveColor(marker.color, 'blue');
+      const markerId = marker.id ?? `mk_${idx}`;
+      allCoords.push(marker.coords);
+
+      // Геометрия маршрута (линии/полигоны) — добавляем НА карту, не в кластер
+      if (marker.geometry && marker.geometry.coordinates.length >= 2) {
+        const geomHex = resolveColor(marker.geometry.color ?? marker.color, 'teal');
+        const coords = marker.geometry.coordinates as [number, number][];
+        // Трек участвует в fitBounds — иначе линия длиннее вьюпорта обрезается
+        allCoords.push(...coords);
+        if (marker.geometry.type === 'polygon') {
+          drawn.push(L.polygon(coords, {
+            color: geomHex,
+            weight: marker.geometry.weight ?? 2,
+            fillOpacity: 0.15,
+          }).addTo(map));
+        } else {
+          const dash = marker.geometry.dashArray;
+          // Подложка — только у сплошных линий. У пунктирной она залила бы
+          // просветы и вернула вид снятого пути, от которого пунктир и
+          // отличает построение.
+          if (!dash) {
+            // Маршрут-линия (трек): толстая полупрозрачная подложка + тонкая яркая линия сверху — как в OsmAnd/Gaia GPS
+            drawn.push(L.polyline(coords, {
+              color: geomHex,
+              weight: (marker.geometry.weight ?? 3) + 3,
+              opacity: 0.25,
+              lineCap: 'round',
+              lineJoin: 'round',
+            }).addTo(map));
+          }
+          drawn.push(L.polyline(coords, {
+            color: geomHex,
+            weight: marker.geometry.weight ?? 3,
+            opacity: dash ? 0.75 : 0.9,
+            dashArray: dash,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }).addTo(map));
+        }
+      }
+
+      const svgIcon = markerSvgIcons(hex)[marker.category ?? 'other']
+        ?? markerSvgIcons(hex).other;
+      const icon = L.divIcon({
+        html: svgIcon,
+        className: 'kh-marker',
+        iconSize: [24, 28],
+        iconAnchor: [12, 26],
+        popupAnchor: [0, -26],
+      });
+
+      const m = L.marker(marker.coords, { icon });
+
+      if (!marker.suppressBalloon) {
+        m.bindPopup(buildPopupHtml(marker), { maxWidth: 260 });
+      }
+
+      // Через ref: обработчик мог смениться без перерисовки маркеров.
+      m.on('click', () => onMarkerClickRef.current?.(markerId));
+
+      if (cluster) {
+        cluster.addLayer(m);
+      } else {
+        drawn.push(m.addTo(map));
+      }
+    });
+
+    drawnRef.current = drawn;
+
+    // Подгонка вида — РОВНО ОДИН РАЗ на инстанс карты, и только если вид не
+    // восстановлен. Подгонять на каждый набор нельзя: набор меняется на
+    // каждом GPS-фиксе, и карта уезжала бы из-под руки ровно так же, как
+    // уезжала от пересоздания (владелец 31.08).
+    if (fitDoneRef.current || allCoords.length < 2) return;
+    fitDoneRef.current = true;
+    const fit = () => {
+      map.invalidateSize();
+      map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
+        padding: [50, 50],
+      });
+    };
+    fit();
+    // Контейнер мог ещё не устояться в размере (боттом-шит, модалка) — тот же
+    // приём, что и у invalidateSize при инициализации.
+    requestAnimationFrame(fit);
+    const settle = setTimeout(fit, 250);
+    return () => clearTimeout(settle);
+  }, [markers, mapEpoch]);
 
   return (
     <div style={{ height, position: 'relative' }} className={`overflow-hidden ${className}`}>

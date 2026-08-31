@@ -159,13 +159,84 @@ describe('вид карты переживает непрошеный ремон
     expect(MAP).toMatch(/zoom: restoredView \? restoredView\.zoom : zoom/);
   });
 
-  it('fitBounds не отменяет восстановленный вид', () => {
-    const fitAt = MAP.indexOf('const fitAll = () => {');
-    expect(fitAt).toBeGreaterThan(0);
-    const fitBody = MAP.slice(fitAt, MAP.indexOf('fitAll();', fitAt));
-    expect(fitBody).toMatch(/if \(restoredView\) return;/);
-    // Ранний выход обязан стоять ПЕРЕД самим fitBounds, иначе он бессмыслен.
-    expect(fitBody.indexOf('if (restoredView) return;'))
-      .toBeLessThan(fitBody.indexOf('map.fitBounds('));
+  it('восстановленный вид сразу считается подогнанным — fitBounds его не отменит', () => {
+    // Подгонка живёт в эффекте маркеров (см. describe ниже) и спрашивает
+    // fitDoneRef. Восстановление вида обязано взвести этот флаг, иначе
+    // первая же отрисовка маркеров подогнала бы вид и отменила восстановление.
+    expect(MAP).toMatch(/fitDoneRef\.current = Boolean\(restoredView\)/);
+  });
+});
+
+describe('маркеры рисуются на живой карте, а не пересборкой инстанса (31.08)', () => {
+  /**
+   * Корень «она как скакала так и скачет». Создание карты и отрисовка
+   * маркеров сидели в ОДНОМ эффекте, и `markers` был в его зависимостях:
+   * любое обновление набора точек означало map.remove() и полную сборку
+   * заново — новый DOM, новый тайловый слой, повторная закачка тайлов. В
+   * полноэкранном режиме набор меняется на каждом GPS-фиксе (живой след,
+   * линия подхода), то есть карта под рукой человека перезагружалась целиком
+   * каждые несколько секунд. Восстановление вида (describe выше) убирает
+   * прыжок координат, но не мигание и не перекачку тайлов.
+   */
+  it('markers НЕ в зависимостях эффекта жизненного цикла', () => {
+    // Массив зависимостей эффекта карты — тот, что содержит locationPriority.
+    const depsAt = MAP.indexOf('}, [center[0], center[1], zoom');
+    expect(depsAt).toBeGreaterThan(0);
+    const deps = MAP.slice(depsAt, MAP.indexOf(']);', depsAt));
+    expect(deps).not.toMatch(/\bmarkers\b/);
+    expect(deps).toContain('locationPriority');
+  });
+
+  it('центр разложен на числа — литерал [a, b] у вызывающего не пересоздаёт карту', () => {
+    expect(MAP).toMatch(/\}, \[center\[0\], center\[1\], zoom/);
+  });
+
+  it('обработчики через ref — инлайновая стрелка не пересоздаёт карту', () => {
+    expect(MAP).toMatch(/onMapClickRef\.current\?\.\(e\.latlng\.lat, e\.latlng\.lng\)/);
+    expect(MAP).toMatch(/onMarkerClickRef\.current\?\.\(markerId\)/);
+    const depsAt = MAP.indexOf('}, [center[0], center[1], zoom');
+    const deps = MAP.slice(depsAt, MAP.indexOf(']);', depsAt));
+    expect(deps).not.toMatch(/onMarkerClick|onMapClick/);
+  });
+
+  it('отдельный эффект маркеров снимает прошлые слои и рисует новые', () => {
+    const at = MAP.indexOf('}, [markers, mapEpoch]);');
+    expect(at).toBeGreaterThan(0);
+    const body = MAP.slice(MAP.lastIndexOf('useEffect(() => {', at), at);
+    expect(body).toContain('drawnRef.current.forEach');
+    expect(body).toContain('cluster.clearLayers()');
+    expect(body).toContain('drawnRef.current = drawn;');
+    // Карта в этом эффекте берётся, а НЕ создаётся и не разрушается.
+    expect(body).not.toContain('L.map(');
+    expect(body).not.toContain('mapRef.current.remove()');
+  });
+
+  it('снятие слоя не глушится пустым catch', () => {
+    // §4.0: отказ, превращённый в тишину, читается как «маркеров нет».
+    const at = MAP.indexOf('[LeafletMap] layer remove failed');
+    expect(at).toBeGreaterThan(0);
+  });
+
+  it('подгонка вида — один раз на инстанс, а не на каждый набор маркеров', () => {
+    const at = MAP.indexOf('}, [markers, mapEpoch]);');
+    const body = MAP.slice(MAP.lastIndexOf('useEffect(() => {', at), at);
+    expect(body).toMatch(/if \(fitDoneRef\.current \|\| allCoords\.length < 2\) return;/);
+    expect(body).toMatch(/fitDoneRef\.current = true;/);
+    expect(body.indexOf('fitDoneRef.current = true;'))
+      .toBeLessThan(body.indexOf('map.fitBounds('));
+  });
+
+  it('эпоха карты перерисовывает маркеры на новом инстансе', () => {
+    // Иначе после законного пересоздания (смена center/zoom, retry) карта
+    // осталась бы без единого маркера: слои рисовались на прошлой.
+    expect(MAP).toMatch(/setMapEpoch\(\(n\) => n \+ 1\)/);
+    expect(MAP).toMatch(/\}, \[markers, mapEpoch\]\);/);
+  });
+
+  it('умершие вместе с картой слои не переносятся на новый инстанс', () => {
+    const cleanupAt = MAP.indexOf('return () => {\n      cancelled = true;');
+    const cleanup = MAP.slice(cleanupAt, MAP.indexOf('}, [center[0]', cleanupAt));
+    expect(cleanup).toContain('drawnRef.current = [];');
+    expect(cleanup).toContain('LRef.current = null;');
   });
 });
