@@ -1,19 +1,20 @@
 {
-  "note": "Сухой прогон нового POST /api/cron/track-import-queue — применить снятый трек «Зеленовские озерки.gpx» (166 точек, id abecc060-2176-43cd-96c5-1d6ec15b2333) как geometry маршрута «Зеленовские озерки». dry_run:true — ничего не пишет, только считает. Если роут ещё не выкатился — ждём (until ловит именно новое поле preview.target).",
+  "note": "Боевое применение (владелец подтвердил «го»): трек id abecc060-2176-43cd-96c5-1d6ec15b2333 (166 точек, реальный GPS-проход) становится geometry маршрута «Зеленовские озерки», заменяя непроверенный скрейп (source=external). dry_run:false, force:true — осознанная замена, обосновано сухим прогоном выше.",
   "post": [
     {
       "url": "https://vedarai.ru/api/cron/track-import-queue",
       "body": {
         "id": "abecc060-2176-43cd-96c5-1d6ec15b2333",
         "route_title": "Зеленовские озерки",
-        "dry_run": true
+        "dry_run": false,
+        "force": true
       }
     }
   ],
-  "grep": ["success", "dry_run", "target", "new_line", "error", "previous_source"],
+  "grep": ["success", "applied", "target", "new_line", "error", "previous_source"],
   "until": "\"success\"",
   "bytes": 3000,
   "timeout": 30,
-  "retries": 30,
-  "retryDelay": 25
+  "retries": 3,
+  "retryDelay": 20
 }
