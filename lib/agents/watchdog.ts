@@ -48,18 +48,52 @@ export interface WatchdogAlert {
   critical?: boolean;
 }
 
+/**
+ * Судьба тревоги — три исхода, а не «ушло/не знаем».
+ *
+ * `nothing_to_send` (тревог не было) и `delivered` (ушло) — разные факты, и
+ * ни один из них не равен `failed`. До 30.08 различить их было нечем:
+ * `tgSend` возвращал void, и недоставка выглядела как отсутствие нарушений.
+ */
+export type WatchdogDelivery =
+  | { status: 'nothing_to_send' }
+  | { status: 'delivered' }
+  | { status: 'failed'; reason: string };
+
 export interface WatchdogResult {
   alerts: WatchdogAlert[];
   checked_at: string;
   duration_ms: number;
+  /** Дошла ли собранная тревога до владельца. Пишется в agent_run_history. */
+  delivery: WatchdogDelivery;
 }
 
-async function tgSend(text: string): Promise<void> {
+/**
+ * Отправка тревоги. Возвращает исход, а не void.
+ *
+ * До 30.08 здесь стоял `catch { // Silent fail }`, и ответ Telegram не
+ * читался вовсе. Тревога могла собраться и не уйти — без строки в логе, без
+ * отметки в результате, при зелёном прогоне. Сторож без исправного рупора
+ * неотличим от сторожа, которому не о чем доложить, и это худший вид тишины
+ * в контуре, где висят SOS и мёртвый сейсмо-приём.
+ *
+ * Отказ по-прежнему НЕ бросает исключение (крон не должен падать из-за
+ * Telegram), но теперь он назван: в логе и в `WatchdogResult.delivery`.
+ */
+type TgSendOutcome = { ok: true } | { ok: false; reason: string };
+
+async function tgSend(text: string): Promise<TgSendOutcome> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
+  if (!token || !chatId) {
+    // Раньше здесь стоял голый `return`: ненастроенный канал выглядел как
+    // отсутствие тревог. Молчание по этой причине — тоже недоставка.
+    const reason = 'TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы';
+    console.error(`[watchdog] tgSend: ${reason} — тревога никуда не ушла`);
+    return { ok: false, reason };
+  }
   try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -69,8 +103,19 @@ async function tgSend(text: string): Promise<void> {
         disable_web_page_preview: true,
       }),
     });
-  } catch {
-    // Silent fail
+    // HTTP 200 — единственное доказательство доставки, которое у нас есть.
+    // Не читать его значило принимать 403 «bot was blocked» за успех.
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const reason = `Telegram ответил ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`;
+      console.error(`[watchdog] tgSend: ${reason}`);
+      return { ok: false, reason };
+    }
+    return { ok: true };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`[watchdog] tgSend: ${reason}`);
+    return { ok: false, reason };
   }
 }
 
@@ -380,11 +425,25 @@ async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
     // (из-за него 02.08 ключи чинили полночи, а дыра была в нуле подписчиков).
     // Три разных состояния — три разных действия:
     const vapidSet = !!process.env.NEXT_PUBLIC_VAPID_KEY && !!process.env.VAPID_PRIVATE_KEY;
-    let subs = 0;
+    // Три состояния, а не два: число, измеренный ноль и «не смог посчитать».
+    //
+    // До 30.08 `subs` инициализировался нулём, а пустой catch его не трогал —
+    // значит отказ запроса становился ИЗМЕРЕННЫМ нулём. Дальше ветка «канал
+    // пуст» ниже объявляла фактом «подписчиков 0, доставлять некому» И
+    // понижала КРИТ о непредупреждённых туристах до предупреждения. То есть
+    // выдуманное число гасило тревогу в контуре безопасности — дословный
+    // случай из §4.0 («обязательное число — выдумывается»).
+    //
+    // null значит «не знаю»: ветка пустого канала на нём не срабатывает,
+    // критичность сохраняется, причина называется неустановленной.
+    let subs: number | null = null;
     try {
       const s = await pool.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM push_subscriptions`);
       subs = parseInt(s.rows[0]?.n ?? '0', 10);
-    } catch { /* не смогли посчитать — cause останется по vapidSet */ }
+    } catch (err) {
+      // Ловить можно, молчать нельзя (§4.0).
+      console.error('[watchdog] push_subscriptions count:', err instanceof Error ? err.message : err);
+    }
 
     // ── Пустой канал — не поломка доставки ─────────────────────────────────
     //
@@ -416,7 +475,11 @@ async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
 
     const cause = !vapidSet
       ? 'VAPID-ключи не заданы на Timeweb (NEXT_PUBLIC_VAPID_KEY + VAPID_PRIVATE_KEY, нужен передеплой).'
-      : `VAPID ок, подписок ${subs}, но доставка не проходит — проверь endpoint/лимиты push-сервиса.`;
+      : subs === null
+        // Причина НЕ установлена — и так и сказано. Прежний текст назвал бы
+        // здесь «подписок 0», хотя ноль был не измерен, а не получен.
+        ? 'VAPID ок, но число подписок посчитать не удалось — причина недоставки не установлена (запрос к push_subscriptions упал, см. лог).'
+        : `VAPID ок, подписок ${subs}, но доставка не проходит — проверь endpoint/лимиты push-сервиса.`;
 
     return {
       type: 'push_undelivered',
@@ -1168,6 +1231,8 @@ export async function runWatchdog(): Promise<WatchdogResult> {
   const results = await Promise.all(CHECKS.map(run => run()));
   const alerts = results.filter((a): a is WatchdogAlert => a !== null);
 
+  let delivery: WatchdogDelivery = { status: 'nothing_to_send' };
+
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
@@ -1184,12 +1249,14 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     }
     const adminUrl = getPublicBaseUrl();
     lines.push('', `<a href="${adminUrl}/hub/admin">Открыть панель</a>`);
-    await tgSend(lines.join('\n'));
+    const sent = await tgSend(lines.join('\n'));
+    delivery = sent.ok ? { status: 'delivered' } : { status: 'failed', reason: sent.reason };
   }
 
   return {
     alerts,
     checked_at: new Date().toISOString(),
     duration_ms: Date.now() - start,
+    delivery,
   };
 }
