@@ -31,6 +31,20 @@ interface ScanShape {
     files_reviewed?: number;
     mock_files_scanned?: number;
   };
+  /** Перепись объективов прогона (E-3): кто отработал, кто упал, кого нет. */
+  lenses?: Array<{ name: string; status: string; reason?: string }>;
+}
+
+/**
+ * Объективы, чьё молчание ничего не значит.
+ *
+ * `failed` — упал, `not_implemented` — его нет вовсе. И то и другое даёт ноль
+ * находок, неотличимый от чистого результата, — до этой правки такой ноль
+ * уходил в алерт как «новых проблем: 0». Тот же приём, что «НЕ ПРОВЕРЕНО N из M»
+ * в Watchdog (W-2).
+ */
+function muteLenses(s: ScanShape | null): Array<{ name: string; status: string; reason?: string }> {
+  return (s?.lenses ?? []).filter((l) => l.status !== 'ok');
 }
 
 /**
@@ -124,10 +138,13 @@ export function buildEvoAlert(
   // выглядели зелёными. Прогон, где ревью не ЗАПУСКАЛОСЬ (reviewed 0),
   // немотой не считаем — там нечего было отвечать.
   const mute = (s?.coverage?.files_reviewed ?? 0) > 0 && !s?.decision_model;
+  const unchecked = muteLenses(s);
   const nothingNew = newIssues === 0 && rescueAlerts === 0 && result.errors.length === 0 && processed === 0;
   // Ослепший прочёс, съезд с флагмана и немой решатель — тоже поводы:
   // молчание тут = «не читает всё», «думает не тот» и «не думает никто».
-  if (nothingNew && !blind && !downgraded && !mute) return null;
+  // Непроверенные объективы — тоже повод: без этой строки прогон, где половина
+  // прочёса ослепла, уходил бы в тишину как «ничего нового».
+  if (nothingNew && !blind && !downgraded && !mute && unchecked.length === 0) return null;
 
   const cov = s?.coverage;
   return `<b>Evo Scan</b> — новых проблем: ${newIssues} (найдено всего ${issues.length}, критичных ${critical})\n` +
@@ -148,6 +165,12 @@ export function buildEvoAlert(
       : (mute
         ? `<b>РЕШАТЕЛЬ МОЛЧИТ</b>: файлы ушли в ревью, но ответа нет — «0 находок» ничего не значит.\n${s?.decision_error ? `Причина: ${s.decision_error}\n` : 'Причина не записана — прогон до диагностики 01.08.\n'}`
         : '')) +
+    (unchecked.length > 0
+      ? `<b>НЕ ПРОВЕРЕНО: ${unchecked.length} из ${(s?.lenses ?? []).length} объективов</b> — их ноль находок не значит «чисто».\n` +
+        unchecked
+          .map((l) => `  · ${l.name}: ${l.status === 'not_implemented' ? 'объектива нет' : 'отказ'}${l.reason ? ` — ${l.reason.slice(0, 160)}` : ''}`)
+          .join('\n') + '\n'
+      : '') +
     (rescueAlerts > 0 ? `<b>Спасатель: ${rescueAlerts} алертов</b>\n` : '') +
     (result.errors.length > 0 ? `Ошибки: ${result.errors.join(', ')}\n` : '') +
     `Время: ${Math.round((s?.duration_ms ?? 0) / 1000)}с`;

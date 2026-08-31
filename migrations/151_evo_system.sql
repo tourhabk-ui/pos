@@ -6,7 +6,11 @@ BEGIN;
 -- Результаты сканирования Growth Agent
 CREATE TABLE IF NOT EXISTS evo_growth_scans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  scan_type VARCHAR(50) NOT NULL DEFAULT 'full',  -- full, code, db, security
+  -- Множество типов — EVO_SCAN_TYPES в lib/agents/evo/growth-agent.ts (там же
+  -- проверка isEvoScanType). До 31.08 эта строка объявляла `db`, которого не
+  -- было реализовано никогда, и умалчивала о `performance` — расхождение и
+  -- стало уликой находки E-2. Источник один, сторож — evo-scan-census.
+  scan_type VARCHAR(50) NOT NULL DEFAULT 'full',  -- full, code, security, performance
   status VARCHAR(20) NOT NULL DEFAULT 'running',   -- running, complete, failed
   issues_found INT NOT NULL DEFAULT 0,
   issues_fixed INT NOT NULL DEFAULT 0,

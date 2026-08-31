@@ -109,7 +109,7 @@ describe('контур подключён', () => {
     // Раньше здесь стояло `scanFunnel().catch(` — проверка «подключён и не
     // роняет прогон» заодно закрепляла ГЛУШИТЕЛЬ отказа. Требование то же,
     // но исполняется через lens, который отказ ещё и называет вслух.
-    expect(GROWTH).toMatch(/lens\('воронка', scanFunnel/);
+    expect(GROWTH).toMatch(/lens\(lenses, 'воронка', scanFunnel/);
     expect(GROWTH).toMatch(/FROM page_views/);
     expect(GROWTH).toMatch(/FROM funnel_events/);
     expect(GROWTH).toMatch(/FROM leads WHERE created_at/);
@@ -182,15 +182,22 @@ describe('объективы прогона: отказ слышен', () => {
     expect(SRC).not.toMatch(/scan\w+\(\)\.catch\(\(\) =>/);
   });
 
-  it('объективы обёрнуты в lens, который пишет отказ в лог', () => {
+  it('объективы обёрнуты в lens, который пишет отказ в лог И в перепись', () => {
     for (const name of ['scanMocks', 'scanProdErrors', 'scanFunnel', 'scanKuzmichEval', 'scanStructural']) {
-      expect(SRC).toMatch(new RegExp(`lens\\('[^']+', ${name}`));
+      // Первый аргумент — перепись прогона (E-3, 31.08). До неё отказ уходил
+      // только в console.error, а наверх возвращалась пустота: упавший объектив
+      // был неотличим от чистого, и логи прода никто не читает построчно.
+      expect(SRC).toMatch(new RegExp(`lens\\(lenses, '[^']+', ${name}`));
     }
     expect(SRC).toMatch(/console\.error\(`\[growth-scan\] объектив/);
+    expect(SRC).toMatch(/census\.push\(\{ name, status: 'failed', reason: msg \}\)/);
+    expect(SRC).toMatch(/census\.push\(\{ name, status: 'ok' \}\)/);
   });
 
   it('lens возвращает исход отказа, а не бросает: один объектив не роняет прогон', () => {
-    expect(SRC).toMatch(/async function lens<T>\(name: string, run: \(\) => Promise<T>, onFailure: T\)/);
+    expect(SRC).toMatch(
+      /async function lens<T>\(\s*census: LensOutcome\[\],\s*name: string,\s*run: \(\) => Promise<T>,\s*onFailure: T,?\s*\)/,
+    );
     expect(SRC).toMatch(/return onFailure;/);
   });
 });
