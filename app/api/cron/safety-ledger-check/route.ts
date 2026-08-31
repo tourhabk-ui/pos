@@ -86,10 +86,25 @@ export async function GET(request: NextRequest) {
       })
     : null;
 
+  // Псевдоним `event_id` у приведения к тексту ОБЯЗАТЕЛЕН, и вот почему.
+  //
+  // Было `SELECT id::text, ... ORDER BY id DESC`. В SQL имя ВЫХОДНОЙ колонки в
+  // ORDER BY имеет приоритет над входной, а Postgres называет выражение `id::text`
+  // по нижележащей колонке — тем же словом `id`. Сортировка уходила на ТЕКСТ и
+  // становилась лексикографической. В прогоне 31.08 это видно прямо в ответе:
+  //
+  //   9999, 9998, ... 9990, 999, 9989
+  //
+  // При 67 348 записях «последние 20» оказывались выборкой из середины истории,
+  // а их метки времени читались как «последняя запись вчера». Диагностика,
+  // которая называет выборку «recent», обязана отдавать recent — иначе она
+  // порождает ровно те выдуманные выводы, ради борьбы с которыми заведена.
+  //
+  // С псевдонимом `event_id` слово `id` в ORDER BY снова означает bigint-колонку.
   const recent = tableExists
     ? await probe(async () => {
         const { rows } = await pool.query(
-          `SELECT id::text, entity_id, event_type, actor_type, actor_id,
+          `SELECT id::text AS event_id, entity_id, event_type, actor_type, actor_id,
                   decision_reason, created_at
              FROM safety_decision_events
             ORDER BY id DESC
