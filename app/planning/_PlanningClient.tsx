@@ -35,6 +35,8 @@ import {
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
+import { chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
+import type { VedarMapLine } from '@/components/shared/VedarMap';
 import {
   calculatedCarToLeafletCoordinates, type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
@@ -85,6 +87,19 @@ const Header = dynamic(
 // чанка и первых тайлов, и ни одного признака, что что-то происходит
 // (владелец 09.08: «карта открывается с большой задержкой»).
 const NavigateTo = dynamic(() => import('@/components/shared/NavigateTo'), { ssr: false });
+
+// Своя карта (проба 31.08) — тоже client-only: MapLibre трогает window при
+// импорте, как и Leaflet. Грузится ТОЛЬКО когда для района есть пакет, так
+// что ~200 КБ её бандла не платятся там, где показывается Leaflet.
+const VedarMap = dynamic(() => import('@/components/shared/VedarMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center"
+      style={{ background: '#0d1117', color: 'var(--text-muted)', fontSize: 13 }}>
+      Загружаем карту…
+    </div>
+  ),
+});
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -1393,6 +1408,41 @@ function OnTrailTab() {
       })),
     ];
   }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approachLine, approach?.dataConflict]);
+
+  /**
+   * Какая подложка под экраном — своя карта или Leaflet (проба 31.08).
+   *
+   * Считается от точки, а не от маршрута: пакеты собраны по РАЙОНАМ реестра,
+   * и вопрос «есть ли на это место своя карта» задаётся координате. Пока
+   * пакетов нет ни одного, ответ всегда Leaflet, и экран работает как
+   * работал — регресса от неподключённой пробы быть не может по построению.
+   */
+  const fieldBaseMap = useMemo(() => {
+    const p = coords ?? (mapCenter ? { lat: mapCenter[0], lng: mapCenter[1] } : null);
+    if (!p) return { kind: 'leaflet' as const, reason: 'Точка ещё не известна.' };
+    return chooseFieldBaseMap(p.lat, p.lng);
+  }, [coords, mapCenter]);
+
+  /**
+   * Те же линии, что у Leaflet, но в порядке GeoJSON ([lng, lat]).
+   * Переворот делается ЗДЕСЬ, в одном месте — как и весь остальной обмен с
+   * контрактами GeoJSON на платформе. Род линии едет свойством `connector`,
+   * а не отдельным цветом: вид решает стиль по §12.
+   */
+  const vedarLines: VedarMapLine[] = useMemo(() => {
+    if (fieldBaseMap.kind !== 'vedar') return [];
+    const out: VedarMapLine[] = [];
+    for (const m of mapMarkers) {
+      const g = m.geometry;
+      if (!g || g.type !== 'polyline' || g.coordinates.length < 2) continue;
+      out.push({
+        coordinates: (g.coordinates as Array<[number, number]>).map(([la, ln]) => [ln, la]),
+        connector: m.title === CONNECTOR_TITLES.approach,
+        dashArray: g.dashArray,
+      });
+    }
+    return out;
+  }, [fieldBaseMap.kind, mapMarkers]);
   /**
    * Постоянная карта-фон (Шаг 1) видна ВСЕГДА, в т.ч. под приборной
    * колонкой, и должна быть спокойным задником, а не живым инструментом.
@@ -2853,15 +2903,36 @@ function OnTrailTab() {
           переключении showMap — законный, разовый, пользователем
           инициированный ремонт карты, того же рода, что уже есть у смены
           mapCenter по кнопке «Карта». */}
+      {/* Подложка: своя карта там, где для района СОБРАН пакет, иначе
+          Leaflet — тот же, что на остальных восьми поверхностях (проба
+          31.08, добавка 3 владельца: Leaflet в пробе не снимаем). Развилка
+          по наличию пакета, а не по флагу «мы переехали»: человек в поле не
+          должен потерять карту из-за нашего эксперимента. */}
       <div className="fixed inset-0 z-0">
-        <LeafletMap
-          markers={showMap ? mapMarkers : backgroundMapMarkers}
-          center={mapCenter}
-          zoom={12}
-          height="100dvh"
-          showUserLocation
-          autoPanDoneRef={autoPanDoneRef}
-        />
+        {fieldBaseMap.kind === 'vedar' ? (
+          <VedarMap
+            sources={{
+              terrainUrl: fieldBaseMap.source.terrainUrl,
+              contoursUrl: fieldBaseMap.source.contoursUrl,
+              terrainMaxZoom: 12,
+              attribution: '© Copernicus DEM (ESA)',
+            }}
+            center={mapCenter ?? regionCenter(fieldBaseMap.region)}
+            zoom={12}
+            height="100dvh"
+            showUserLocation
+            lines={vedarLines}
+          />
+        ) : (
+          <LeafletMap
+            markers={showMap ? mapMarkers : backgroundMapMarkers}
+            center={mapCenter}
+            zoom={12}
+            height="100dvh"
+            showUserLocation
+            autoPanDoneRef={autoPanDoneRef}
+          />
+        )}
       </div>
 
       {/* Весь приборный столбец — поверх карты. В режиме «Карта» (showMap)
