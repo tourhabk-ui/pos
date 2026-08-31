@@ -2740,6 +2740,18 @@ function OnTrailTab() {
     flushTrackDraft();
   }, [recorder.restored, flushTrackDraft]);
 
+  /**
+   * Отказ приёма — в баннер, целой фразой с причиной.
+   *
+   * Подпись на кнопке скажет «точки не пишутся», но не скажет ПОЧЕМУ и что
+   * делать. Человек в машине должен узнать это в ту минуту, когда ещё может
+   * поправить (выйти на открытое место, дождаться спутников), а не назавтра
+   * по пустой таблице — как вышло 31.08.
+   */
+  useEffect(() => {
+    if (recorder.rejecting) setFieldBarError(recorder.rejecting);
+  }, [recorder.rejecting]);
+
   // Порядок — по плану владельца: «Добавить место · Записать трек · Наблюдение».
   // Кнопка, которую нажать нельзя, не показывается (правило FieldActionBar).
   const fieldActions = useMemo<FieldAction[]>(() => {
@@ -2774,7 +2786,11 @@ function OnTrailTab() {
         },
         // Таймер + дистанция (док владельца): идущая запись видна числами.
         hint: recorder.recording
-          ? (recorder.silent
+          // Отказ приёма важнее счётчиков: цифры «0 тчк · 0.0 км» формально
+          // не врут, но человек за рулём читает не их, а «идёт запись».
+          ? (recorder.rejecting
+              ? 'точки не пишутся'
+              : recorder.silent
               ? 'сигнала нет'
               : [
                   recorder.summary.durationMin != null ? `${recorder.summary.durationMin} мин` : null,
