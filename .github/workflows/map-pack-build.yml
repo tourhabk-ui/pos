@@ -1,0 +1,116 @@
+name: Сборка пакета карты района
+
+# Ручной запуск: пакеты собираются редко и по решению человека — рельеф
+# Камчатки не меняется по расписанию. Автоматический прогон здесь означал бы
+# перекачку DEM и заливку 11 МБ в хранилище без причины.
+#
+# Где что исполняется (то же разделение, что в §8 CLAUDE.md):
+#   собирает — раннер GitHub (нужны Python и сеть до Copernicus);
+#   хранит   — объектное хранилище Timeweb;
+#   читает   — прод, Range-запросами.
+# Поэтому ключи S3 нужны ИМЕННО в секретах репозитория: переменные Timeweb
+# сюда не достают, это разные контуры.
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: 'Район из lib/geo/regions.ts (напр. avacha-group)'
+        required: true
+        default: 'avacha-group'
+      upload:
+        description: 'Заливать в хранилище (иначе только собрать и приложить артефактом)'
+        type: boolean
+        default: false
+
+# Права по минимуму: сборщику нужно только прочитать репозиторий. Пакет он
+# кладёт в объектное хранилище, а не в git, и писать сюда ему нечем.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Инструменты сборки
+        run: |
+          pip install --quiet rasterio pmtiles pillow matplotlib shapely
+          npm ci --ignore-scripts
+
+      - name: Границы района — из реестра, не из ввода
+        id: bbox
+        run: |
+          # Единственный источник истины о границах — lib/geo/regions.ts.
+          # Второй, вписанный руками в workflow, разъехался бы молча: пакет
+          # собрался бы на старый bbox, и карта кончалась бы у края района
+          # без единой ошибки.
+          BBOX=$(npx tsx scripts/map-tiles/region-bbox.ts "${{ inputs.region }}")
+          echo "value=$BBOX" >> "$GITHUB_OUTPUT"
+          echo "bbox района ${{ inputs.region }}: $BBOX"
+
+      - name: Рельеф — terrain-RGB в PMTiles
+        run: |
+          mkdir -p .cache/packs
+          python3 scripts/map-tiles/build_terrain.py \
+            --bbox "${{ steps.bbox.outputs.value }}" \
+            --out ".cache/packs/${{ inputs.region }}.terrain.pmtiles"
+
+      - name: Горизонтали — GeoJSON с высотой в атрибуте
+        run: |
+          python3 scripts/map-tiles/build_contours.py \
+            --bbox "${{ steps.bbox.outputs.value }}" \
+            --out ".cache/packs/${{ inputs.region }}.contours.geojson"
+
+      - name: Размер пакета — фактом в лог
+        run: |
+          # Владелец просил размер и время сборки как факты, а не «примерно».
+          # Заодно сторож §6.1: пакет НЕ должен попасть в образ, но если он
+          # вдруг вырос до десятков мегабайт — это надо увидеть здесь.
+          du -h .cache/packs/* | sed 's/^/  /'
+          total=$(du -cb .cache/packs/* | tail -1 | cut -f1)
+          echo "итого: $((total / 1024 / 1024)) МБ"
+          if [ "$total" -gt 62914560 ]; then
+            echo "::error::Пакет больше 60 МБ — район слишком велик, дробите bbox"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: map-pack-${{ inputs.region }}
+          path: .cache/packs/
+          retention-days: 7
+
+      - name: Заливка в хранилище
+        if: ${{ inputs.upload }}
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::Секреты S3 не заданы в репозитории. Это ОТДЕЛЬНЫЙ набор от переменных Timeweb (§8)."
+            exit 1
+          fi
+          npx tsx scripts/map-tiles/upload-pack.ts "${{ inputs.region }}" \
+            ".cache/packs/${{ inputs.region }}.terrain.pmtiles" \
+            ".cache/packs/${{ inputs.region }}.contours.geojson"
+
+      - name: Что делать дальше
+        if: ${{ inputs.upload }}
+        run: |
+          echo "Пакет залит. Осталось два шага, оба руками и намеренно:"
+          echo "  1. внести '${{ inputs.region }}' в BUILT_PACK_REGIONS (lib/map/pack-source.ts)"
+          echo "  2. проверить NEXT_PUBLIC_MAP_PACK_BASE_URL в переменных Timeweb"
+          echo "Список собранных пакетов — обещание, что файл на месте."
