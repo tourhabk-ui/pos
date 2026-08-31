@@ -1,11 +1,19 @@
 {
-  "note": "Владелец: «смотри трек» — только что записывал трек в поле (Петропавловск → Раздолье Камчатки / Зеленовские озерки, судя по предыдущим скринам). Проверяем очередь загруженных треков напрямую, а не гадаем по интерфейсу.",
-  "urls": [
-    "https://vedarai.ru/api/cron/track-import-queue?status=all&limit=10"
+  "note": "Сухой прогон нового POST /api/cron/track-import-queue — применить снятый трек «Зеленовские озерки.gpx» (166 точек, id abecc060-2176-43cd-96c5-1d6ec15b2333) как geometry маршрута «Зеленовские озерки». dry_run:true — ничего не пишет, только считает. Если роут ещё не выкатился — ждём (until ловит именно новое поле preview.target).",
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/track-import-queue",
+      "body": {
+        "id": "abecc060-2176-43cd-96c5-1d6ec15b2333",
+        "route_title": "Зеленовские озерки",
+        "dry_run": true
+      }
+    }
   ],
-  "grep": ["success\":true", "trip_tag", "matched_route"],
-  "bytes": 6000,
+  "grep": ["success", "dry_run", "target", "new_line", "error", "previous_source"],
+  "until": "\"success\"",
+  "bytes": 3000,
   "timeout": 30,
-  "retries": 2,
-  "retryDelay": 15
+  "retries": 6,
+  "retryDelay": 20
 }
