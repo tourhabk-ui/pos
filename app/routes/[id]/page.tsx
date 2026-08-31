@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { cache } from 'react';
 import { notFound, permanentRedirect } from 'next/navigation';
 import RouteDetailClient from './_RouteDetailClient';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
@@ -59,7 +60,22 @@ async function getRouteWaypoints(viewId: string): Promise<RouteWaypointRow[]> {
   }
 }
 
-async function getRoute(idOrSlug: string) {
+/**
+ * `cache()` — не мемоизация ради скорости, а обязательное дедуплицирование.
+ *
+ * `generateMetadata()` и сама страница ниже зовут `getRoute(id)` НЕЗАВИСИМО —
+ * это два раздельных похода в БД за один и тот же рендер, и `query()` не
+ * `fetch()`, автоматической де-дупликации Next.js на него нет. Живой пример
+ * 30.08 (владелец, «Озеро Карымское»): у обеих ссылок Кузьмича на этот
+ * маршрут `<title>`/og-теги в head называли место верно, а тело страницы
+ * упорно показывало «Маршрут не найден» — то есть один из двух одинаковых
+ * запросов в рамках ОДНОГО рендера отвечал иначе второго. Без общего лога
+ * ошибки причина (гонка за соединением пула, таймаут именно второго
+ * похода — не установлено достоверно) осталась неизвестной; `cache()`
+ * убирает саму возможность разойтись, оставляя один запрос на рендер вместо
+ * двух гоняющихся.
+ */
+async function getRouteRaw(idOrSlug: string) {
   const realId = await resolveToId(idOrSlug);
   if (!realId) return null;
   try {
@@ -104,10 +120,20 @@ async function getRoute(idOrSlug: string) {
       activityType: (r.activity_type as string | null) ?? null,
       slug,
     };
-  } catch {
+  } catch (error) {
+    // Отказ БД молчал полностью — «не смог проверить» и «не нашёл» были
+    // неотличимы снаружи (§4.0). Ровно это скрывало причину живого разъезда
+    // 30.08: meta нашла маршрут, тело страницы — нет, и лог не сказал почему.
+    const e = error as Error & { code?: string; detail?: string };
+    console.error('[routes/[id]] getRoute упал', {
+      idOrSlug, sqlstate: e?.code, message: e?.message, detail: e?.detail,
+    });
     return null;
   }
 }
+
+/** Один запрос на рендер, не два — см. комментарий у getRouteRaw(). */
+const getRoute = cache(getRouteRaw);
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
