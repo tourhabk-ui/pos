@@ -19,12 +19,27 @@
  * `unknown` остаётся законным исходом — например, при локальной сборке без
  * `.git`. Это честное «не знаю», и проверка деплоя обязана трактовать его как
  * «не смог подтвердить», а не как «не доехало».
+ *
+ * 30.08.2026: `unknown` вернулся ТРЕТИЙ раз — после починки 23.08 (разыменование
+ * ссылки) и 29.08 (форма `.git/*` в .dockerignore). Обе прежние причины закрыты
+ * и держатся сторожами, значит причина новая, и назвать её было нечем: на три
+ * независимых исхода приходилось одно слово. Аудит 30.08 замерил цену: 238
+ * красных прогонов деплоя подряд с 20.08.
+ *
+ * Отсюда `reason` — короткий машинный код, ПОЧЕМУ не установлено. Он уходит
+ * и в лог сборки, и в сам `version.json`: тогда проверка деплоя называет
+ * причину прямо в прогоне, не заставляя лезть в сборочный лог Timeweb.
+ * Разница между «`.git` не доехал вовсе» и «доехал без ссылок» — это разные
+ * починки, и раньше их нельзя было отличить.
  */
 const fs = require('fs');
 const path = require('path');
 
-/** Sha текущего коммита или null, если по файлам его не установить. */
-function resolveHeadSha(gitDir = '.git') {
+/**
+ * Sha текущего коммита ВМЕСТЕ с причиной, если установить не удалось.
+ * @returns {{ sha: string|null, reason: string }} reason='ok' при успехе.
+ */
+function resolveHeadShaDetailed(gitDir = '.git') {
   const read = (p) => fs.readFileSync(path.join(gitDir, p), 'utf8').trim();
   const isSha = (v) => /^[0-9a-f]{40}$/.test(v);
 
@@ -32,44 +47,67 @@ function resolveHeadSha(gitDir = '.git') {
   try {
     head = read('HEAD');
   } catch {
-    return null;                       // .git не попал в контекст сборки
+    // .git не попал в контекст сборки вовсе — чинится контекстом/.dockerignore.
+    return { sha: null, reason: 'no_git_head' };
   }
-  if (isSha(head)) return head;        // detached — sha лежит прямо в HEAD
+  if (isSha(head)) return { sha: head, reason: 'ok' };   // detached — sha прямо в HEAD
 
-  if (!head.startsWith('ref: ')) return null;
+  if (!head.startsWith('ref: ')) return { sha: null, reason: 'head_unrecognized' };
   const ref = head.slice(5).trim();
 
+  let refFileRead = false;
   try {
     const target = read(ref);          // .git/refs/heads/<branch>
-    if (isSha(target)) return target;
+    refFileRead = true;
+    if (isSha(target)) return { sha: target, reason: 'ok' };
   } catch {
-    // Ветка упакована — ищем в packed-refs.
+    // Ветка упакована либо файла ссылки нет — ищем в packed-refs.
   }
 
+  let packed;
   try {
-    for (const line of read('packed-refs').split('\n')) {
-      if (line.startsWith('#') || line.startsWith('^')) continue;
-      const [sha, name] = line.trim().split(/\s+/);
-      if (name === ref && isSha(sha)) return sha;
-    }
+    packed = read('packed-refs');
   } catch {
-    // packed-refs нет — значит установить нечем.
+    // Ни файла ссылки, ни packed-refs: ссылки в образ не попали.
+    return { sha: null, reason: refFileRead ? 'ref_malformed' : 'ref_and_packed_missing' };
   }
-  return null;
+
+  for (const line of packed.split('\n')) {
+    if (line.startsWith('#') || line.startsWith('^')) continue;
+    const [sha, name] = line.trim().split(/\s+/);
+    if (name === ref && isSha(sha)) return { sha, reason: 'ok' };
+  }
+  // packed-refs прочитан, но нашей ветки в нём нет — это уже про состояние
+  // клона, а не про контекст сборки.
+  return { sha: null, reason: refFileRead ? 'ref_malformed' : 'ref_not_in_packed' };
+}
+
+/**
+ * Совместимая обёртка: sha или null. Оставлена ради вызывающих, которым
+ * причина не нужна, — новый код зовёт resolveHeadShaDetailed.
+ */
+function resolveHeadSha(gitDir = '.git') {
+  return resolveHeadShaDetailed(gitDir).sha;
 }
 
 function main() {
-  const sha = resolveHeadSha();
+  const { sha, reason } = resolveHeadShaDetailed();
   fs.mkdirSync('public', { recursive: true });
   fs.writeFileSync(
     'public/version.json',
-    JSON.stringify({ commit: sha ?? 'unknown', built_at: new Date().toISOString() }),
+    JSON.stringify({
+      commit: sha ?? 'unknown',
+      built_at: new Date().toISOString(),
+      // Почему 'unknown'. При успехе — 'ok': поле есть всегда, чтобы его
+      // отсутствие означало «маркер старой сборки», а не «причина не нужна».
+      reason,
+    }),
   );
-  // Видно в логе сборки: если снова 'unknown', причина ищется здесь, а не в
-  // Timeweb и не в проверке деплоя.
-  console.log(`[version] commit=${sha ?? 'unknown'}`);
+  // Видно в логе сборки: если снова 'unknown', здесь стоит КЛАСС причины,
+  // а не одно слово на три разных беды.
+  console.log(`[version] commit=${sha ?? 'unknown'} reason=${reason}`);
 }
 
-module.exports = { resolveHeadSha };
+module.exports = { resolveHeadSha, resolveHeadShaDetailed };
 
 if (require.main === module) main();
