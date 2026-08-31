@@ -3,25 +3,32 @@ name: Диагностика Safety Decision Ledger (вручную)
 # Разбор 30.08: критерий приёмки Safety Decision Ledger (925) не пройден —
 # вкладка «Журнал» в /hub/admin/safety пуста. Три гипотезы:
 #   1) миграция 925_safety_decision_events.sql не применилась;
-#   2) применилась, пишет, но read-путь (GET /api/admin/safety/ledger
-#      или сама вкладка) не показывает то, что есть;
-#   3) применилась, но appendSafetyEvent не пишет (fail-soft глотает
-#      ошибку INSERT, или врезка в конвейер не достигается вовсе).
+#   2) применилась, пишет, но read-путь не показывает то, что есть;
+#   3) применилась, но appendSafetyEvent не пишет (fail-soft глотает отказ
+#      INSERT, или врезка в конвейер не достигается вовсе).
 #
-# Прод недостижим из песочницы разработчика (agent-egress политика режет
-# vedarai.ru и Timeweb API) — проверка идёт мостом через раннер GitHub,
-# тем же приёмом, что tochka-check.yml/ai-channel-check. Только чтение:
-# ни один запрос здесь не пишет и не мутирует данные.
+# 31.08, ПЕРВЫЙ прогон: спрашивали базу напрямую через `psql` с раннера — и
+# получили `Connection timed out` к 94.228.112.62:5432. PostgreSQL Timeweb
+# закрыт по IP, у раннеров они плавающие; аналогия с tochka-check была ложной
+# (тот ходит по HTTPS на публичный vedarai.ru, а не в базу). Инструмент не мог
+# сработать ни при каких обстоятельствах, а ждали его полтора суток.
 #
-# Watchdog 30.08 уже назвал ОДНУ упавшую миграцию — 925_zelenovskie_
-# ozerki_and_razdolie.sql (другой домен, PR #1468, коллизия номера 925
-# с этой миграцией по совпадению параллельной работы). Этот workflow
-# проверяет ИМЕННО 925_safety_decision_events.sql — Watchdog её не
-# называл в списке отказов, но список ограничен LIMIT 5 и мог её не
-# захватить.
+# Теперь спрашиваем ПРИЛОЖЕНИЕ: оно с раннера достижимо (доказано прод-смоуком
+# в deploy.yml), а доступ к базе у него есть по построению. Те же пять
+# вопросов живут в GET /api/cron/safety-ledger-check, только чтение.
+#
+# Запускается и кнопкой, и пушем файла-маркера. Ждать чужого клика оказалось
+# нечем: у токена агента нет actions:write (403 на dispatch), и пункт, который
+# никто не может закрыть, полтора суток числился «ожидающим». Приём с маркером
+# в репозитории общий — см. коммит 87bb939f, сорок с лишним воркфлоу так и
+# заводятся.
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/safety-ledger-check.json'
 
 permissions: {}
 
@@ -30,43 +37,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Триада SQL — таблица / отказ миграции / записи
+      - name: Триада — таблица / отказ миграции / записи
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          PGSSLMODE: require
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::DATABASE_URL secret не задан."
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret не задан."
             exit 1
           fi
 
-          echo "=== 1) Таблица существует? (925_safety_decision_events.sql применилась) ==="
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c \
-            "SELECT to_regclass('public.safety_decision_events') AS table_regclass;"
+          # --max-time обязателен: без него отказ висит до таймаута джоба, и
+          # «не смогли спросить» приходит через пять минут вместо секунды.
+          # Ровно это и случилось в первом прогоне с psql (2.5 минуты молчания).
+          CURL_RC=0
+          HTTP=$(curl -sS -o /tmp/ledger.json -w "%{http_code}" \
+            --max-time 45 \
+            "https://vedarai.ru/api/cron/safety-ledger-check" \
+            -H "Authorization: Bearer $CRON_SECRET") || CURL_RC=$?
 
-          echo ""
-          echo "=== 2) Отказы миграции 925_safety_decision_events (если есть) ==="
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c \
-            "SELECT name, error, attempts, first_failed_at, last_failed_at
-               FROM _migration_failures
-              WHERE name LIKE '925_safety%'
-              ORDER BY last_failed_at DESC;"
+          if [ "$CURL_RC" != "0" ]; then
+            echo "::error::Прод не ответил (curl $CURL_RC). Это «не смогли спросить», а не «ledger пуст»."
+            exit 1
+          fi
 
-          echo ""
-          echo "=== 3) Сколько строк реально записано ==="
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c \
-            "SELECT count(*) AS total_events FROM safety_decision_events;"
+          echo "HTTP $HTTP"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Роут ответил $HTTP — тело ниже."
+            cat /tmp/ledger.json 2>/dev/null || true
+            exit 1
+          fi
 
-          echo ""
-          echo "=== 4) Последние 20 событий, если есть (для сверки с контрактом) ==="
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c \
-            "SELECT id, entity_id, event_type, actor_type, actor_id,
-                    decision_reason, created_at
-               FROM safety_decision_events
-              ORDER BY id DESC
-              LIMIT 20;"
-
-          echo ""
-          echo "=== 5) Не применённые вовсе миграции (сверка с migrations/) ==="
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c \
-            "SELECT name FROM _migrations WHERE name LIKE '925%';"
+          # Вердикт словами — первым, чтобы читающий не разбирал JSON ради него.
+          python3 - <<'PY'
+          import json
+          with open('/tmp/ledger.json') as f:
+              d = json.load(f)
+          print('ВЕРДИКТ:', d.get('verdict', '(нет)'))
+          print()
+          print(json.dumps(d, ensure_ascii=False, indent=2))
+          PY
