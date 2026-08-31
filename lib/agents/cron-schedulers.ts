@@ -115,7 +115,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'safety-alert':              { kind: 'manual', writes: true,  note: 'приём предупреждения по зоне: публикация и снятие' },
   'field-check-photo':         { kind: 'manual', writes: false, note: 'снимок полевой проверки по id, только чтение' },
   'field-check-queue':         { kind: 'manual', writes: false, note: 'очередь полевых проверок с расхождениями, только чтение' },
-  'track-import-queue':        { kind: 'manual', writes: false, note: 'очередь загруженных треков (route_track_imports) — писала, не читал никто' },
+  'track-import-queue':        { kind: 'manual', writes: true, note: 'GET — очередь загруженных треков (чтение); POST — применяет один трек как geometry названного маршрута (30.08)' },
   'route-kind-classify':       { kind: 'manual', writes: true,  note: 'разметка рода записи: путь или «как добраться»' },
   'schema-drift':              { kind: 'manual', writes: false, note: 'объявленные колонки против information_schema живой базы' },
   // 'ai-channel-check' тоже дёргает scout-diagnose-report.yml — объявления
