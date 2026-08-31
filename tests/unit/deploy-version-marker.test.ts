@@ -30,8 +30,9 @@ import { tmpdir } from 'os';
 import { createRequire } from 'module';
 
 const require_ = createRequire(import.meta.url);
-const { resolveHeadSha } = require_(join(process.cwd(), 'scripts/write-version.js')) as {
+const { resolveHeadSha, resolveHeadShaDetailed } = require_(join(process.cwd(), 'scripts/write-version.js')) as {
   resolveHeadSha: (gitDir?: string) => string | null;
+  resolveHeadShaDetailed: (gitDir?: string) => { sha: string | null; reason: string };
 };
 
 const DOCKERFILE = readFileSync(join(process.cwd(), 'Dockerfile'), 'utf8');
@@ -77,6 +78,77 @@ describe('версионный маркер: коммит устанавлива
     // «Не знаю» обязано остаться «не знаю»: проверка деплоя должна отличать
     // непроверенность от «не доехало» (§4.0).
     expect(resolveHeadSha(join(mkdtempSync(join(tmpdir(), 'ver-')), 'нет-такого'))).toBeNull();
+  });
+});
+
+/**
+ * 30.08: `unknown` вернулся ТРЕТИЙ раз — после починок 23.08 (разыменование
+ * ссылки) и 29.08 (форма `.git/*`). Обе прежние причины закрыты и держатся
+ * сторожами выше, значит причина новая. Назвать её было нечем: на три
+ * независимых исхода приходилось одно слово в логе.
+ *
+ * Это тот же дефект, что чинится в проверке деплоя, только на шаг раньше:
+ * «не знаю» без причины бесполезно ровно так же, как «не знаю», выданное
+ * за «не доехало».
+ */
+describe('версионный маркер: «не знаю» называет свою причину', () => {
+  const mkGit = (files: Record<string, string>) => {
+    const git = join(mkdtempSync(join(tmpdir(), 'ver-')), '.git');
+    mkdirSync(git, { recursive: true });
+    for (const [rel, body] of Object.entries(files)) {
+      const full = join(git, rel);
+      mkdirSync(join(full, '..'), { recursive: true });
+      writeFileSync(full, body);
+    }
+    return git;
+  };
+
+  it('успех несёт reason=ok — поле есть всегда, а не только при беде', () => {
+    // Иначе отсутствие поля значило бы сразу две вещи: «причина не нужна» и
+    // «маркер старой сборки». Их надо различать.
+    expect(resolveHeadShaDetailed()).toMatchObject({ reason: 'ok' });
+    expect(resolveHeadShaDetailed().sha).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('.git не доехал вовсе — no_git_head', () => {
+    // Гипотеза о сборке Timeweb: контекст без .git. Чинится контекстом
+    // сборки, а не .dockerignore — и это разные работы.
+    const res = resolveHeadShaDetailed(join(mkdtempSync(join(tmpdir(), 'ver-')), 'нет-такого'));
+    expect(res).toEqual({ sha: null, reason: 'no_git_head' });
+  });
+
+  it('.git доехал, ссылок нет — ref_and_packed_missing', () => {
+    // Это ровно регрессия 23.08 (HEAD пускали, refs — нет). Отдельное имя,
+    // потому что чинится .dockerignore, а не контекстом.
+    const git = mkGit({ HEAD: 'ref: refs/heads/main\n' });
+    expect(resolveHeadShaDetailed(git)).toEqual({ sha: null, reason: 'ref_and_packed_missing' });
+  });
+
+  it('packed-refs есть, нашей ветки в нём нет — ref_not_in_packed', () => {
+    const git = mkGit({
+      HEAD: 'ref: refs/heads/main\n',
+      'packed-refs': `# pack-refs with: peeled\n${'a'.repeat(40)} refs/heads/other\n`,
+    });
+    expect(resolveHeadShaDetailed(git)).toEqual({ sha: null, reason: 'ref_not_in_packed' });
+  });
+
+  it('HEAD не опознан — head_unrecognized', () => {
+    const git = mkGit({ HEAD: 'не ссылка и не sha\n' });
+    expect(resolveHeadShaDetailed(git)).toEqual({ sha: null, reason: 'head_unrecognized' });
+  });
+
+  it('старая обёртка не сломана: sha или null, как и раньше', () => {
+    // resolveHeadSha остаётся ради вызывающих, которым причина не нужна.
+    expect(resolveHeadSha()).toBe(resolveHeadShaDetailed().sha);
+  });
+
+  it('причина уходит и в лог сборки, и в сам version.json', () => {
+    // В логе — чтобы читалась при разборе сборки; в файле — чтобы проверка
+    // деплоя называла причину прямо в прогоне, не читая чужой лог Timeweb.
+    const SRC = readFileSync(join(process.cwd(), 'scripts/write-version.js'), 'utf8');
+    expect(SRC).toMatch(/console\.log\(`\[version\] commit=\$\{[^}]+\} reason=\$\{reason\}`\)/);
+    const marker = SRC.slice(SRC.indexOf("'public/version.json'"), SRC.indexOf('console.log'));
+    expect(marker, 'reason обязан попасть в сам файл маркера').toMatch(/\breason,/);
   });
 });
 

@@ -14,6 +14,8 @@
  * нельзя. Точка пишется, когда пройдено расстояние, а не когда прошло время.
  */
 
+import { isPlausibleTrackPoint } from '@/lib/routes/track';
+
 export interface Crumb {
   /** Широта, округлена до пяти знаков — метровая точность, дальше шум GPS. */
   lat: number;
@@ -60,6 +62,18 @@ export function addCrumb(
   minStepM = CRUMB_MIN_STEP_M,
 ): Crumb[] {
   if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return crumbs;
+  /**
+   * Тот же диагноз, что 17.08 у трека из БД (`lib/routes/track.ts`, шапка
+   * `isPlausibleTrackPoint`): «конечное число» — не то же самое, что «точка
+   * на Камчатке». Там дыра была в разборе геометрии; здесь — в живом следе:
+   * сеть/вышка иногда отдают geolocation за сотни км от края (пропавший GPS,
+   * фолбэк на грубую сеть), и ОДНА такая точка, попав в crumbs, остаётся в
+   * следе навсегда — соседние фиксы уже не ближе минимального шага к ней, а
+   * дальше. Скрин владельца 30.08: голубая линия следа через всю карту, до
+   * Магаданской области. Тот же баг, другое место в коде — не два правила,
+   * общая проверка теперь и здесь.
+   */
+  if (!isPlausibleTrackPoint(point.lat, point.lng)) return crumbs;
   const next: Crumb = { lat: round5(point.lat), lng: round5(point.lng), t: point.t };
   const last = crumbs[crumbs.length - 1];
   if (last && metersBetween(last, next) < minStepM) return crumbs;
@@ -70,7 +84,15 @@ export function addCrumb(
   return out.length > CRUMB_MAX ? out.slice(out.length - CRUMB_MAX) : out;
 }
 
-/** Разбор сохранённого следа. Мусор в хранилище — это пустой след, не падение. */
+/**
+ * Разбор сохранённого следа. Мусор в хранилище — это пустой след, не падение.
+ *
+ * Проверка правдоподобия — и здесь тоже, не только в addCrumb(): точка,
+ * записанная ДО этого фикса (или чужим кодом, читающим то же хранилище),
+ * уже лежит на диске у телефона в поле. Без фильтра на чтении бракованная
+ * крошка возвращалась бы каждый раз, когда владелец открывает экран, и
+ * addCrumb() её бы не поймал — он проверяет только НОВЫЕ точки.
+ */
 export function parseCrumbs(raw: string | null): Crumb[] {
   if (!raw) return [];
   try {
@@ -80,7 +102,7 @@ export function parseCrumbs(raw: string | null): Crumb[] {
     for (const c of parsed) {
       if (!Array.isArray(c) || c.length < 3) continue;
       const [lat, lng, t] = c.map(Number);
-      if (Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(t)) {
+      if (Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(t) && isPlausibleTrackPoint(lat, lng)) {
         out.push({ lat, lng, t });
       }
     }
