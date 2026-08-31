@@ -30,6 +30,26 @@ interface LeafletMapProps {
   showUserLocation?: boolean;
   /** Высота приоритета: «battery» (экономит батарею) или «highAccuracy» (максимум точности) */
   locationPriority?: 'battery' | 'highAccuracy';
+  /**
+   * Пережить ремонт карты — иначе первый фикс каждый раз «первый».
+   *
+   * `isFirstFix` внутри watchPosition верно определяет момент центрирования
+   * ОДИН РАЗ на всё время жизни ЭТОГО инстанса Leaflet-карты (фикс 30.08:
+   * «карта скачет» при шумном GPS). Но полноэкранный режим «Карта» держит
+   * markers с живым составом (след, подход к тропе — см. mapMarkers в
+   * _PlanningClient.tsx), и при КАЖДОЙ смене identity этого массива весь
+   * компонент ниже размонтируется и создаётся заново — `userMarker` снова
+   * `null`, `isFirstFix` снова `true`, камера снова дёргается к точке. Живой
+   * скрин владельца 31.08 сразу после применения настоящего трека к
+   * «Зеленовским озеркам»: «линя встала но карта скачет» — тот же механизм,
+   * просто добрался до полноэкранного режима, которого не касался фикс от
+   * 30.08 (тот правил только сам watchPosition, не пережитие ремонта).
+   *
+   * Ref живёт у ВЫЗЫВАЮЩЕГО компонента, который не размонтируется на каждый
+   * GPS-тик, — поэтому переживает ремонт LeafletMap внутри себя. Не
+   * передан — поведение как раньше (центрирует один раз за жизнь инстанса).
+   */
+  autoPanDoneRef?: { current: boolean };
 }
 
 const COLOR_MAP: Record<string, string> = {
@@ -126,6 +146,7 @@ export default function LeafletMap({
   onMapClick,
   showUserLocation = false,
   locationPriority = 'highAccuracy',
+  autoPanDoneRef,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LMap | null>(null);
@@ -567,8 +588,12 @@ export default function LeafletMap({
              * вообще существует, см. комментарий выше); дальше камерой
              * распоряжается тот, кто её держит, а не шумный датчик.
              */
-            if (isFirstFix && map.getZoom() >= 12) {
+            // autoPanDoneRef живёт у вызывающего компонента и переживает
+            // ремонт ЭТОГО инстанса — без него isFirstFix врал бы «первый»
+            // на каждый ремонт полноэкранной карты (см. комментарий у пропа).
+            if (isFirstFix && map.getZoom() >= 12 && !autoPanDoneRef?.current) {
               map.panTo([lat, lng], { animate: true, duration: 0.5 });
+              if (autoPanDoneRef) autoPanDoneRef.current = true;
             }
           },
           // Отказ геолокации назывался молча — и отсутствие точки было
