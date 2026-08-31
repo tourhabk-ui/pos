@@ -49,6 +49,44 @@ export interface WatchdogAlert {
 }
 
 /**
+ * Проверка не смогла выполниться. Третий исход, отличный от null.
+ *
+ * До 31.08 исходов у проверки было два: тревога либо `null`. А `null` значил
+ * СРАЗУ ДВЕ вещи — «проверил, нарушений нет» и «не смог проверить». Отличие
+ * жило только в `console.error`, то есть в логе контейнера, который никто не
+ * читает по расписанию. Отсюда состояние, ради предотвращения которого сторож
+ * и существует: при недоступной БД все 18 проверок падали, `alerts` выходил
+ * пустым, Telegram молчал, а прогон записывался в историю как `success`.
+ *
+ * §4.0: «у проверки три исхода, не два: „хорошо“, „плохо“, „не смог
+ * проверить“. Третий не равен первому».
+ */
+export interface CheckFailure {
+  readonly kind: 'check_failed';
+  check: string;
+  reason: string;
+}
+
+/** Результат одной проверки: тревога, чистая проверка (null) или отказ. */
+type CheckResult = WatchdogAlert | CheckFailure | null;
+
+/**
+ * Отказ проверки как значение. Запись в лог НЕ делается здесь намеренно:
+ * `console.error` остаётся в теле каждой проверки, где уже стоит и где его
+ * держит сторож `watchdog-checks-wired` («ни одна проверка не глушит отказ»).
+ * Довод того сторожа сильнее удобства: логирование, спрятанное в помощника,
+ * легко потерять при следующей правке, а имя проверки рядом с её же ошибкой
+ * читается без прыжка по файлу.
+ */
+function checkFailure(check: string, err: unknown): CheckFailure {
+  return { kind: 'check_failed', check, reason: err instanceof Error ? err.message : String(err) };
+}
+
+function isCheckFailure(v: CheckResult): v is CheckFailure {
+  return v !== null && 'kind' in v && v.kind === 'check_failed';
+}
+
+/**
  * Судьба тревоги — три исхода, а не «ушло/не знаем».
  *
  * `nothing_to_send` (тревог не было) и `delivered` (ушло) — разные факты, и
@@ -60,12 +98,26 @@ export type WatchdogDelivery =
   | { status: 'delivered' }
   | { status: 'failed'; reason: string };
 
+/**
+ * Перепись прогона: сколько проверок выполнилось, сколько не смогло.
+ *
+ * Без неё пустой `alerts` означал сразу и «нарушений нет», и «ничего не
+ * проверилось». Теперь эти два состояния различает `failed`.
+ */
+export interface WatchdogChecks {
+  total: number;
+  /** Проверки, не сумевшие выполниться, поимённо и с причиной. */
+  failed: Array<{ check: string; reason: string }>;
+}
+
 export interface WatchdogResult {
   alerts: WatchdogAlert[];
   checked_at: string;
   duration_ms: number;
   /** Дошла ли собранная тревога до владельца. Пишется в agent_run_history. */
   delivery: WatchdogDelivery;
+  /** Сколько проверок отработало и какие отказали. Пишется туда же. */
+  checks: WatchdogChecks;
 }
 
 /**
@@ -119,7 +171,7 @@ async function tgSend(text: string): Promise<TgSendOutcome> {
   }
 }
 
-async function checkUnconfirmedBookings(): Promise<WatchdogAlert | null> {
+async function checkUnconfirmedBookings(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ count: string; oldest_hours: string }>(`
       SELECT
@@ -142,7 +194,7 @@ async function checkUnconfirmedBookings(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkUnconfirmedBookings:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkUnconfirmedBookings', err);
   }
 }
 
@@ -172,7 +224,7 @@ async function notifyOperatorDirectly(
   } catch { /* не блокируем */ }
 }
 
-async function checkOperatorNoResponse(): Promise<WatchdogAlert | null> {
+async function checkOperatorNoResponse(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{
       operator_id: string;
@@ -233,7 +285,7 @@ async function checkOperatorNoResponse(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkOperatorNoResponse:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkOperatorNoResponse', err);
   }
 }
 
@@ -263,7 +315,7 @@ async function notifyStayOwnerDirectly(
   } catch { /* не блокируем */ }
 }
 
-async function checkUnconfirmedStayBookings(): Promise<WatchdogAlert | null> {
+async function checkUnconfirmedStayBookings(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{
       partner_id: string | null;
@@ -309,7 +361,7 @@ async function checkUnconfirmedStayBookings(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkUnconfirmedStayBookings:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkUnconfirmedStayBookings', err);
   }
 }
 
@@ -338,7 +390,7 @@ async function notifyGearPartnerDirectly(
   } catch { /* не блокируем */ }
 }
 
-async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
+async function checkPendingGearRentals(): Promise<CheckResult> {
   try {
     // Симметрия с турами и жильём: заявка на аренду снаряжения без реакции
     // проката > 24ч. До этого gear был слепым пятном сторожа — заявка могла
@@ -384,7 +436,7 @@ async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkPendingGearRentals:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkPendingGearRentals', err);
   }
 }
 
@@ -402,7 +454,7 @@ async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
  * 30 минут (шесть пропущенных прогонов пятиминутного крона) и до сих пор
  * без push_sent_at.
  */
-async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
+async function checkUndeliveredSafetyPush(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ count: string; oldest_title: string | null }>(
       `SELECT COUNT(*)::text AS count,
@@ -494,11 +546,11 @@ async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkUndeliveredSafetyPush:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkUndeliveredSafetyPush', err);
   }
 }
 
-async function checkPendingTransferBookings(): Promise<WatchdogAlert | null> {
+async function checkPendingTransferBookings(): Promise<CheckResult> {
   try {
     // Замыкает симметрию сторожа: туры, жильё и снаряжение уже под
     // >24ч-проверкой, брони трансферов оставались слепым пятном.
@@ -552,7 +604,7 @@ async function checkPendingTransferBookings(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkPendingTransferBookings:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkPendingTransferBookings', err);
   }
 }
 
@@ -592,7 +644,7 @@ async function notifyTransferOperatorDirectly(
  * «спокойно», а «судить рано», и поднимать по нему тревогу значит приучить
  * пролистывать её.
  */
-async function checkOperatorRegistrationSpike(): Promise<WatchdogAlert | null> {
+async function checkOperatorRegistrationSpike(): Promise<CheckResult> {
   try {
     const spike = await detectRegistrationSpike();
     if (spike.verdict !== 'spike') return null;
@@ -607,7 +659,7 @@ async function checkOperatorRegistrationSpike(): Promise<WatchdogAlert | null> {
     // Отказ проверки не выдаём за отсутствие всплеска: §4.0 — «не смог» это
     // третий исход, и он обязан попасть хотя бы в лог.
     console.error('[watchdog] checkOperatorRegistrationSpike:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkOperatorRegistrationSpike', err);
   }
 }
 
@@ -625,7 +677,7 @@ async function checkOperatorRegistrationSpike(): Promise<WatchdogAlert | null> {
  * Порог — 6 часов: шесть пропущенных запусков подряд, случайной задержкой уже
  * не объясняются. Тревога говорит и о деньгах, и о причине: молчащий крон.
  */
-async function checkStuckPayouts(): Promise<WatchdogAlert | null> {
+async function checkStuckPayouts(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ count: string; total: string | null; oldest_hours: string | null }>(`
       SELECT COUNT(*)::text                                              AS count,
@@ -654,11 +706,11 @@ async function checkStuckPayouts(): Promise<WatchdogAlert | null> {
     // «Не смог проверить» — не «всё хорошо» (§4.0). Деньги оператора: молчать
     // об отказе проверки здесь дороже всего.
     console.error('[watchdog] checkStuckPayouts:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkStuckPayouts', err);
   }
 }
 
-async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
+async function checkUnprocessedLeads(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
       SELECT COUNT(*)::text AS count
@@ -677,11 +729,11 @@ async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkUnprocessedLeads:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkUnprocessedLeads', err);
   }
 }
 
-async function checkIgnoredSOS(): Promise<WatchdogAlert | null> {
+async function checkIgnoredSOS(): Promise<CheckResult> {
   try {
     // Единственный сторож SOS-таймаутов (EVO-3: Rescue-дубль убран). Порог 15 мин
     // вместо прежних 30: Watchdog бежит каждые 30 мин, при 15-мин пороге
@@ -715,7 +767,7 @@ async function checkIgnoredSOS(): Promise<WatchdogAlert | null> {
     // SOS-чек не имеет права падать молча: сломанный запрос здесь уже прятал
     // мёртвый алерт месяцами (FROM sos_signals — таблицы не существует)
     console.error('[watchdog] checkIgnoredSOS failed:', err);
-    return null;
+    return checkFailure('checkIgnoredSOS', err);
   }
 }
 
@@ -748,7 +800,7 @@ async function readCronWitness(): Promise<CronWitness | null> {
   }
 }
 
-async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
+async function checkSeismicCronDead(): Promise<CheckResult> {
   // safety-ingest cron — самый критичный. Молчание >15 мин = система слепа к землетрясениям.
   try {
     const { rows } = await pool.query<{ last_seen: string | null }>(`
@@ -784,7 +836,7 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkSeismicCronDead:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkSeismicCronDead', err);
   }
 }
 
@@ -870,7 +922,7 @@ export function seismicWorkflowDelayIssue(
   return null;
 }
 
-async function checkSeismicWorkflowDelay(): Promise<WatchdogAlert | null> {
+async function checkSeismicWorkflowDelay(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ last_post: string | null; first_any: string | null }>(`
       SELECT MAX(ended_at) FILTER (WHERE metadata->>'trigger' = 'workflow_post')::text AS last_post,
@@ -890,7 +942,7 @@ async function checkSeismicWorkflowDelay(): Promise<WatchdogAlert | null> {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkSeismicWorkflowDelay:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkSeismicWorkflowDelay', err);
   }
 }
 
@@ -922,7 +974,7 @@ async function checkSeismicWorkflowDelay(): Promise<WatchdogAlert | null> {
 const GITHUB_DELAY_FLOOR_MIN = 150;
 const SAFETY_CRON_CRITICAL_MIN = 360;
 
-async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
+async function checkDeadSafetyCrons(): Promise<CheckResult> {
   try {
     const entries = CRON_REGISTRY.filter(
       e => e.tier === 'safety' && e.agentId !== null
@@ -975,7 +1027,7 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
     };
   } catch (err) {
     console.error('[watchdog] checkDeadSafetyCrons failed:', err);
-    return null;
+    return checkFailure('checkDeadSafetyCrons', err);
   }
 }
 
@@ -985,7 +1037,7 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
  * зелен и слеп. Судим лишь там, где ноль объявлен ненормальным, и лишь по серии
  * подряд — разбор порога и оговорок в lib/agents/cron-idle.ts.
  */
-async function checkIdleCrons(): Promise<WatchdogAlert | null> {
+async function checkIdleCrons(): Promise<CheckResult> {
   try {
     const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
     if (ids.length === 0) return null;
@@ -1014,7 +1066,7 @@ async function checkIdleCrons(): Promise<WatchdogAlert | null> {
     };
   } catch (err) {
     console.error('[watchdog] checkIdleCrons failed:', err);
-    return null;
+    return checkFailure('checkIdleCrons', err);
   }
 }
 
@@ -1026,7 +1078,7 @@ async function checkIdleCrons(): Promise<WatchdogAlert | null> {
  * у постоянно падающего не находит истории вовсе. Синк авиационных кодов
  * вулканов прожил в этой щели тринадцать дней. Разбор — в lib/agents/cron-failing.ts.
  */
-async function checkFailingCrons(): Promise<WatchdogAlert | null> {
+async function checkFailingCrons(): Promise<CheckResult> {
   try {
     const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
     if (ids.length === 0) return null;
@@ -1055,7 +1107,7 @@ async function checkFailingCrons(): Promise<WatchdogAlert | null> {
     };
   } catch (err) {
     console.error('[watchdog] checkFailingCrons failed:', err);
-    return null;
+    return checkFailure('checkFailingCrons', err);
   }
 }
 
@@ -1079,7 +1131,7 @@ async function checkFailingCrons(): Promise<WatchdogAlert | null> {
  *
  * Разбор порога и оговорок — в lib/agents/cron-fruitless.ts.
  */
-async function checkFruitlessCrons(): Promise<WatchdogAlert | null> {
+async function checkFruitlessCrons(): Promise<CheckResult> {
   try {
     const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
     if (ids.length === 0) return null;
@@ -1114,11 +1166,11 @@ async function checkFruitlessCrons(): Promise<WatchdogAlert | null> {
     };
   } catch (err) {
     console.error('[watchdog] checkFruitlessCrons:', err instanceof Error ? err.message : err);
-    return null;
+    return checkFailure('checkFruitlessCrons', err);
   }
 }
 
-async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
+async function checkUnappliedMigrations(): Promise<CheckResult> {
   try {
     const dir = join(process.cwd(), 'migrations');
     const files = readdirSync(dir).filter(f => f.endsWith('.sql'));
@@ -1144,7 +1196,7 @@ async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
     };
   } catch (err) {
     console.error('[watchdog] checkUnappliedMigrations failed:', err);
-    return null;
+    return checkFailure('checkUnappliedMigrations', err);
   }
 }
 
@@ -1161,7 +1213,7 @@ async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
  * `start.js` намеренно не роняет деплой при сбое миграции — сервер поднимется в
  * любом случае. Значит единственный, кто может об этом сказать, — сторож.
  */
-async function checkFailedMigrations(): Promise<WatchdogAlert | null> {
+async function checkFailedMigrations(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ name: string; error: string; attempts: number }>(
       `SELECT name, error, attempts
@@ -1186,7 +1238,7 @@ async function checkFailedMigrations(): Promise<WatchdogAlert | null> {
   } catch (err) {
     // Таблицы может не быть на свежем окружении — это не повод для тревоги.
     console.error('[watchdog] checkFailedMigrations failed:', err);
-    return null;
+    return checkFailure('checkFailedMigrations', err);
   }
 }
 
@@ -1204,7 +1256,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
   // Позиционное сопоставление длинного списка — ловушка без сигнала: добавил
   // проверку, забыл имя — и потеря выглядит как тишина. Здесь имён нет, терять
   // нечего. Сторож состава — `tests/unit/watchdog-checks-wired.test.ts`.
-  const CHECKS: Array<() => Promise<WatchdogAlert | null>> = [
+  const CHECKS: Array<() => Promise<CheckResult>> = [
     checkUnconfirmedBookings,
     checkUnconfirmedStayBookings,
     checkPendingGearRentals,
@@ -1229,11 +1281,24 @@ export async function runWatchdog(): Promise<WatchdogResult> {
   ];
 
   const results = await Promise.all(CHECKS.map(run => run()));
-  const alerts = results.filter((a): a is WatchdogAlert => a !== null);
+
+  // Три исхода разбираются здесь, а не схлопываются в «непустое» (§4.0).
+  const alerts: WatchdogAlert[] = [];
+  const failed: Array<{ check: string; reason: string }> = [];
+  for (const r of results) {
+    if (r === null) continue;                                    // проверено, чисто
+    if (isCheckFailure(r)) failed.push({ check: r.check, reason: r.reason });
+    else alerts.push(r);
+  }
+  const checks: WatchdogChecks = { total: CHECKS.length, failed };
 
   let delivery: WatchdogDelivery = { status: 'nothing_to_send' };
 
-  if (alerts.length > 0) {
+  // Непроверенное — само по себе повод написать владельцу. Иначе всё
+  // сегодняшнее упражнение осталось бы в поле результата, которое читают
+  // так же редко, как лог: при недоступной БД alerts пуст, и без этой ветки
+  // Telegram молчал бы ровно как раньше.
+  if (alerts.length > 0 || failed.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
       // push_undelivered из этого списка убран: его уровень решает причина, а
@@ -1247,6 +1312,18 @@ export async function runWatchdog(): Promise<WatchdogResult> {
       const prefix = a.critical || a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
+    // «Не смог проверить» идёт отдельным блоком и НЕ смешивается с
+    // нарушениями: у них разная природа и разное действие. Нарушение чинят
+    // в предметной области, отказ проверки — в самом стороже или в БД.
+    if (failed.length > 0) {
+      lines.push('', `<b>НЕ ПРОВЕРЕНО: ${failed.length} из ${checks.total}</b>`);
+      for (const f of failed.slice(0, 6)) {
+        lines.push(`· ${f.check}: ${f.reason.slice(0, 160)}`);
+      }
+      if (failed.length > 6) lines.push(`· и ещё ${failed.length - 6}`);
+      lines.push('Это не «нарушений нет» — по этим проверкам ответа нет вовсе.');
+    }
+
     const adminUrl = getPublicBaseUrl();
     lines.push('', `<a href="${adminUrl}/hub/admin">Открыть панель</a>`);
     const sent = await tgSend(lines.join('\n'));
@@ -1258,5 +1335,6 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checked_at: new Date().toISOString(),
     duration_ms: Date.now() - start,
     delivery,
+    checks,
   };
 }

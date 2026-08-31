@@ -119,6 +119,64 @@ describe('W-3: несосчитанное не выдаётся за ноль', 
   });
 });
 
+describe('W-1: «не смог проверить» — не «нарушений нет»', () => {
+  /** Всё падает: и проверки, и всё остальное. Ровно случай «БД недоступна». */
+  function everythingFails() {
+    poolQueryMock.mockImplementation(() => Promise.reject(new Error('connection refused')));
+  }
+
+  it('отказ ВСЕХ проверок не выглядит как чистый прогон', async () => {
+    everythingFails();
+    const result = await runWatchdog();
+    expect(result.alerts, 'нарушений не нашли — потому что не смогли искать').toHaveLength(0);
+    expect(result.checks.failed.length, 'ни один отказ не попал в перепись').toBeGreaterThan(0);
+    expect(result.checks.total).toBeGreaterThan(5);
+  });
+
+  it('отказавшие проверки названы поимённо и с причиной', async () => {
+    everythingFails();
+    const result = await runWatchdog();
+    const one = result.checks.failed[0];
+    expect(one.check).toMatch(/^check\w+/);
+    expect(one.reason).toContain('connection refused');
+  });
+
+  it('при отказах владельцу пишут, хотя нарушений ноль', async () => {
+    // Главное следствие дефекта: alerts пуст → Telegram молчал → прогон
+    // зелёный. Молчание при непроверенном и есть выдача «не знаю» за «хорошо».
+    process.env.TELEGRAM_BOT_TOKEN = 't';
+    process.env.TELEGRAM_CHAT_ID = 'c';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, text: () => Promise.resolve('') });
+    vi.stubGlobal('fetch', fetchMock);
+    everythingFails();
+    const result = await runWatchdog();
+    expect(result.alerts).toHaveLength(0);
+    expect(result.delivery.status, 'при отказах сообщение обязано уйти').toBe('delivered');
+    const body = String((fetchMock.mock.calls[0]?.[1] as { body: string }).body);
+    expect(body).toContain('НЕ ПРОВЕРЕНО');
+    expect(body, 'сообщение обязано сказать, что это НЕ «нарушений нет»')
+      .toContain('Это не «нарушений нет»');
+    expect(body, 'проверки названы поимённо — чинят конкретную').toContain('checkUnconfirmedBookings');
+  });
+
+  it('чистый прогон переписи не портит: failed пуст', async () => {
+    const applied = readdirSync(join(process.cwd(), 'migrations'))
+      .filter(f => f.endsWith('.sql'))
+      .map(name => ({ name }));
+    poolQueryMock.mockImplementation((sql: string) => {
+      const q = String(sql);
+      if (q.includes('FROM _migrations')) return Promise.resolve({ rows: applied });
+      if (q.includes('agent_run_history')) {
+        return Promise.resolve({ rows: [{ last_seen: new Date().toISOString() }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const result = await runWatchdog();
+    expect(result.checks.failed).toEqual([]);
+    expect(result.alerts).toHaveLength(0);
+  });
+});
+
 describe('W-2: судьба тревоги названа, а не умолчана', () => {
   it('канал не настроен — это недоставка, а не отсутствие нарушений', async () => {
     routeQueries(42);
