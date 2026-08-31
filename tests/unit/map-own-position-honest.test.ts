@@ -123,3 +123,49 @@ describe('panTo-один-раз переживает ремонт полноэк
     expect(MAP).toMatch(/autoPanDoneRef\?:\s*\{\s*current:\s*boolean\s*\}/);
   });
 });
+
+describe('вид карты переживает непрошеный ремонт инстанса (31.08)', () => {
+  /**
+   * После autoPanDoneRef владелец сказал: «она как скакала так и скачет».
+   * Скакал не panTo. Эффект держит ВЕСЬ инстанс: смена identity markers →
+   * map.remove() → новый L.map() с center/zoom из пропов → fitBounds по всем
+   * маркерам, и ещё дважды (rAF + setTimeout 250). В полноэкранном режиме
+   * markers меняется на каждом GPS-фиксе, поэтому вид сбрасывался туда, где
+   * человек его не оставлял — приблизился, а его отбросило.
+   *
+   * Различать надо ремонт ПРОШЕНЫЙ (сменились center/zoom — кнопка «Карта»,
+   * выбор маршрута: новый вид и есть смысл действия) и НЕПРОШЕНЫЙ (пропы те
+   * же, виноваты маркеры). Первый работает как раньше, второй восстанавливает
+   * вид человека и не зовёт fitBounds.
+   */
+  it('вид запоминается в cleanup — ДО разрушения карты', () => {
+    const cleanupAt = MAP.indexOf('return () => {\n      cancelled = true;');
+    expect(cleanupAt).toBeGreaterThan(0);
+    const cleanup = MAP.slice(cleanupAt);
+    const captureAt = cleanup.indexOf('viewRef.current = {');
+    const removeAt = cleanup.indexOf('mapRef.current.remove()');
+    expect(captureAt).toBeGreaterThan(0);
+    expect(removeAt).toBeGreaterThan(captureAt);
+  });
+
+  it('прошеный ремонт отличается от непрошеного по пропам вида', () => {
+    expect(MAP).toMatch(/const viewPropsKey = `\$\{center\[0\]\},\$\{center\[1\]\},\$\{zoom\}`/);
+    expect(MAP).toMatch(/const deliberateView = viewPropsRef\.current !== viewPropsKey/);
+    expect(MAP).toMatch(/const restoredView = deliberateView \? null : viewRef\.current/);
+  });
+
+  it('карта создаётся на восстановленном виде, когда он есть', () => {
+    expect(MAP).toMatch(/center: restoredView\s*\n?\s*\?\s*L\.latLng\(restoredView\.lat, restoredView\.lng\)/);
+    expect(MAP).toMatch(/zoom: restoredView \? restoredView\.zoom : zoom/);
+  });
+
+  it('fitBounds не отменяет восстановленный вид', () => {
+    const fitAt = MAP.indexOf('const fitAll = () => {');
+    expect(fitAt).toBeGreaterThan(0);
+    const fitBody = MAP.slice(fitAt, MAP.indexOf('fitAll();', fitAt));
+    expect(fitBody).toMatch(/if \(restoredView\) return;/);
+    // Ранний выход обязан стоять ПЕРЕД самим fitBounds, иначе он бессмыслен.
+    expect(fitBody.indexOf('if (restoredView) return;'))
+      .toBeLessThan(fitBody.indexOf('map.fitBounds('));
+  });
+});
