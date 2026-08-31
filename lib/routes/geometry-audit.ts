@@ -271,6 +271,31 @@ export interface GeometryAudit {
    */
   navigability_reasons: Record<string, number>;
   /**
+   * Контрфакт: сколько было бы пригодных, НЕ различай мы род связи.
+   *
+   * ── Зачем цифра, которая ничего не решает ─────────────────────────────────
+   *
+   * Находка переписи требует «сверить с прошлой переписью: упало правило,
+   * порог или сами данные». Сверять было НЕ С ЧЕМ: перепись бежала три раза
+   * за всё время (расписания GitHub доходят на единицы процентов, задача
+   * #85), и порог 215 ни одним её прогоном не воспроизводился.
+   *
+   * Значит вопрос «правило или данные» надо было уметь задать ОДНИМ
+   * прогоном, а не двумя во времени. Здесь то же самое правило считает
+   * второй раз, не спрашивая род связи, — то есть ровно так, как считалось
+   * до миграции 874, когда все 769 связей числились путевыми.
+   *
+   * Расхождение этих двух чисел и есть цена разметки: насколько «пригодных»
+   * было приписано связям вида «это рядом, загляните» (предикат миграции
+   * 167 — места в 15 км от ЦЕНТРА маршрута), которые платформа читала как
+   * «маршрут здесь проходит».
+   *
+   * Это НЕ второе правило и НЕ второй порог: судит по-прежнему один
+   * `navigability`, а решение принимает человек. Заводить второй вердикт
+   * было бы ровно тем, против чего §12.
+   */
+  navigable_ignoring_link_kind: number;
+  /**
    * Улики записи: сколько импортированных линий можно ДОКАЗАТЬ как снятые.
    *
    * 17.08 скрейп понижен из «снятого трека» — доказательств не было. Владелец
@@ -806,6 +831,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   };
   /** id пригодных — по ним считается, сколько туров держится на проверенном. */
   const navigableIds: string[] = [];
+  /** Контрфакт «до 874»: см. navigable_ignoring_link_kind. */
+  let navigableIgnoringLinkKind = 0;
   /** Причины отказа поимённо: «ноль пригодных» без них ничего не объясняет. */
   const navReasons: Record<string, number> = {};
   /** Улики записи — считаются по СЫРОЙ геометрии: высота живёт третьим числом. */
@@ -918,6 +945,19 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     });
     verdicts[nav.verdict] += 1;
     if (nav.verdict === 'navigable') navigableIds.push(r.id);
+
+    // То же правило, но род связи не спрашивается: все связи судятся как
+    // путевые — поведение до миграции 874. Отвечает на «упало правило или
+    // данные» одним прогоном, потому что во времени сверять не с чем.
+    const navBeforeLinkKind = routeNavigability({
+      grade,
+      track: pairs.length >= 2 ? pairs : null,
+      waypoints: wps,
+      waypointTypes: wps.map((w) => w.type),
+      mode: detectTravelMode(r.title),
+      evidence: evidenceVerdict,
+    });
+    if (navBeforeLinkKind.verdict === 'navigable') navigableIgnoringLinkKind += 1;
 
     // Решение доверия: то же состояние, но с фактами, из которых оно собрано.
     // Донор считается подтверждённым, когда страница-источник записана у САМОЙ
@@ -1173,6 +1213,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     id_column_types: idColumnTypes,
     conflicts_only_reason: conflictCases.filter((c) => c.onlyReason).length,
     navigability: verdicts,
+    navigable_ignoring_link_kind: navigableIgnoringLinkKind,
     navigability_reasons: navReasons,
     track_evidence: evidence,
     track_evidence_reasons: evidenceReasons,
