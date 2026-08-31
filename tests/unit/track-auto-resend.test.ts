@@ -40,7 +40,14 @@ describe('useTrackRecorder: черновик можно упаковать бе�
 
   it('экспортируется в публичном API хука', () => {
     expect(HOOK).toMatch(/packageDraft: \(\) => \{ gpx: string; summary: TrackSummary \} \| null;/);
-    expect(HOOK).toMatch(/return \{ recording, summary, silent, error, start, stop, discard, restored, packageDraft \};/);
+    // Возврат судим по составу, а не по одной строке: 31.08 в него добавился
+    // `rejecting`, и точное совпадение строки сломалось бы, ничего не сказав
+    // о поведении.
+    const ret = HOOK.slice(HOOK.lastIndexOf('return {'));
+    for (const key of ['recording', 'summary', 'silent', 'error',
+                       'start', 'stop', 'discard', 'restored', 'packageDraft']) {
+      expect(ret, `в публичном API хука нет ${key}`).toContain(key);
+    }
   });
 });
 
@@ -77,7 +84,9 @@ describe('экран маршрута: трек досылается сам пр
   });
 
   it('успешная фоновая отправка снимает черновик — recorder.discard()', () => {
-    expect(flushRegion()).toMatch(/if \(!failReason\) void recorder\.discard\(\);/);
+    const body = flushRegion();
+    expect(body).toMatch(/if \(!fail\) \{/);
+    expect(body).toMatch(/void recorder\.discard\(\);/);
   });
 
   it('явная отправка (stopAndSendTrack) и тихий автодожим шлют ОДНИМ и тем же путём', () => {

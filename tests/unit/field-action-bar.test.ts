@@ -46,7 +46,12 @@ describe('полоса действий', () => {
 
   it('молчание прибора говорится словом, а не скрывается', () => {
     expect(client).toContain("'сигнала нет'");
-    expect(hook).toMatch(/setSilent\(Date\.now\(\) - lastFixRef\.current > SILENCE_MS\)/);
+    // Меряется по последней ВИДЕННОЙ засечке — молчание прибора и есть их
+    // отсутствие. 31.08 рядом появился отказ приёма (`rejecting`), который
+    // меряется по последней ПРИНЯТОЙ; это разные беды, и путать их нельзя,
+    // поэтому здесь именно lastFixRef.
+    expect(hook).toMatch(/Date\.now\(\) - lastFixRef\.current > SILENCE_MS/);
+    expect(hook).toMatch(/setSilent\(quiet\)/);
   });
 
   it('отказ действия выводится строкой', () => {

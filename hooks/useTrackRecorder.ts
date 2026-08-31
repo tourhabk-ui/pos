@@ -21,8 +21,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  acceptFix, emptyRecorder, summarize, toGpx,
-  type RecorderState, type TrackSummary,
+  acceptFix, emptyRecorder, summarize, toGpx, DROP_WORDS,
+  type DropReason, type RecorderState, type TrackSummary,
 } from '@/lib/field/track-recorder';
 import {
   saveTrackDraft, getTrackDraft, clearTrackDraft,
@@ -31,6 +31,15 @@ import {
 
 /** Дольше этого без засечки — прибор молчит, и это надо сказать. */
 const SILENCE_MS = 45_000;
+/**
+ * Дольше этого без ПРИНЯТОЙ засечки, когда сами засечки идут, — отказ приёма.
+ *
+ * Это третье состояние, которого не было (случай 31.08, см. DROP_WORDS):
+ * «молчит» и «говорит, но негодное» — разные беды, а выглядели одинаково,
+ * потому что второе не выглядело никак. Окно длиннее тишины: одиночные
+ * отказы нормальны на старте, пока прибор ловит спутники.
+ */
+const REJECT_MS = 60_000;
 /** Как часто сбрасывать запись на диск. Чаще — изнашивать, реже — терять. */
 const SAVE_EVERY = 5;
 
@@ -39,6 +48,12 @@ export interface TrackRecorderApi {
   summary: TrackSummary;
   /** Прибор молчит дольше положенного — экран обязан это показать. */
   silent: boolean;
+  /**
+   * Засечки идут, но ни одна не годится дольше минуты: запись выглядит
+   * рабочей, а не пишется. Причина словами; null — приём в порядке.
+   * Молчание прибора сюда НЕ попадает, у него своё имя (`silent`).
+   */
+  rejecting: string | null;
   /** Отказ словами; null — отказа не было. */
   error: string | null;
   start: (name: string) => void;
@@ -86,6 +101,7 @@ export function useTrackRecorder(): TrackRecorderApi {
   const [recording, setRecording] = useState(false);
   const [restored, setRestored] = useState(false);
   const [silent, setSilent] = useState(false);
+  const [rejecting, setRejecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<TrackSummary>(() => summarize(emptyRecorder()));
 
@@ -95,6 +111,10 @@ export function useTrackRecorder(): TrackRecorderApi {
   const watchRef = useRef<number | null>(null);
   const lastFixRef = useRef<number>(0);
   const sinceSaveRef = useRef<number>(0);
+  /** Когда в последний раз засечка была ПРИНЯТА (не просто получена). */
+  const lastAcceptRef = useRef<number>(0);
+  /** Чем отказывает прибор сейчас — для слов, а не для догадки. */
+  const lastDropRef = useRef<DropReason | null>(null);
 
   // Недописанная запись с прошлого раза: вкладку выгрузили, человек шёл
   // дальше. Показываем, что она есть, но НЕ продолжаем сами — решает он.
@@ -114,9 +134,18 @@ export function useTrackRecorder(): TrackRecorderApi {
   // Молчание прибора замечается таймером, а не отсутствием событий:
   // «событий нет» и «всё хорошо, просто стоим» иначе неотличимы.
   useEffect(() => {
-    if (!recording) { setSilent(false); return; }
+    if (!recording) { setSilent(false); setRejecting(null); return; }
     const t = setInterval(() => {
-      setSilent(Date.now() - lastFixRef.current > SILENCE_MS);
+      const quiet = Date.now() - lastFixRef.current > SILENCE_MS;
+      setSilent(quiet);
+      // Отказ приёма — только когда прибор ГОВОРИТ. Если он молчит, это уже
+      // названо словом `silent`, и двух тревог об одном не бывает.
+      const reason = lastDropRef.current;
+      setRejecting(
+        !quiet && reason !== null && Date.now() - lastAcceptRef.current > REJECT_MS
+          ? DROP_WORDS[reason]
+          : null,
+      );
     }, 5000);
     return () => clearInterval(t);
   }, [recording]);
@@ -134,6 +163,9 @@ export function useTrackRecorder(): TrackRecorderApi {
     nameRef.current = name;
     setRestored(false);
     lastFixRef.current = Date.now();
+    lastAcceptRef.current = Date.now();
+    lastDropRef.current = null;
+    setRejecting(null);
     sinceSaveRef.current = 0;
 
     watchRef.current = navigator.geolocation.watchPosition(
@@ -149,6 +181,12 @@ export function useTrackRecorder(): TrackRecorderApi {
         });
         stateRef.current = r.state;
         setSummary(summarize(r.state));
+        if (r.accepted) {
+          lastAcceptRef.current = lastFixRef.current;
+          lastDropRef.current = null;
+        } else {
+          lastDropRef.current = r.reason;
+        }
         if (r.accepted && ++sinceSaveRef.current >= SAVE_EVERY) {
           sinceSaveRef.current = 0;
           void saveTrackDraft(toDraft(nameRef.current, startedRef.current, r.state))
@@ -207,5 +245,8 @@ export function useTrackRecorder(): TrackRecorderApi {
     return { gpx: toGpx(st, name), summary: summarize(st) };
   }, []);
 
-  return { recording, summary, silent, error, start, stop, discard, restored, packageDraft };
+  return {
+    recording, summary, silent, rejecting, error,
+    start, stop, discard, restored, packageDraft,
+  };
 }
