@@ -201,3 +201,4 @@ evo-apply-manifest.json
 sarif-results/
 *.sarif
 .cache/
+__pycache__/
