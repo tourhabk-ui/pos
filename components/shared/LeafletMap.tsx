@@ -152,6 +152,29 @@ export default function LeafletMap({
   const mapRef = useRef<LMap | null>(null);
   const clusterRef = useRef<unknown>(null);
   /**
+   * Вид карты переживает НЕПРОШЕНЫЙ ремонт инстанса.
+   *
+   * «линя встала но карта скачет» (владелец 31.08, полевой прогон) — и это
+   * оказался не panTo. Эффект ниже держит ВЕСЬ инстанс карты и пересоздаёт
+   * его при смене identity `markers`: `map.remove()`, новый `L.map(...)` с
+   * center/zoom ИЗ ПРОПОВ, затем `fitBounds` по всем маркерам — и ещё
+   * дважды, через requestAnimationFrame и setTimeout(250). В полноэкранном
+   * режиме `markers` меняется на КАЖДОМ GPS-фиксе (в наборе живой след и
+   * линия подхода), поэтому каждый фикс сбрасывал вид туда, где человек его
+   * не оставлял: приблизился — отскочило, отвёл в сторону — вернуло.
+   * Отличить это от panTo глазом нельзя, а причина другая и лечится другим.
+   *
+   * Ремонт бывает двух родов, и путать их нельзя:
+   *  - ПРОШЕНЫЙ — сменились center/zoom в пропах (кнопка «Карта», выбор
+   *    маршрута). Тогда новый вид и есть смысл действия: ставим из пропов и
+   *    подгоняем fitBounds, как раньше.
+   *  - НЕПРОШЕНЫЙ — пропы вида те же, а инстанс всё равно пересоздаётся
+   *    из-за маркеров. Тогда вид восстанавливается тот, что был у человека
+   *    на экране, и fitBounds НЕ зовётся: он бы отменил восстановление.
+   */
+  const viewRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
+  const viewPropsRef = useRef<string>('');
+  /**
    * Карта не завелась — это надо СКАЗАТЬ.
    *
    * Инициализация падала в пустой `catch`, и при неудачной загрузке куска
@@ -184,6 +207,15 @@ export default function LeafletMap({
 
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // Считается СИНХРОННО, до async-тела: cleanup предыдущего прогона уже
+    // отработал и положил в viewRef вид, который человек видел последним.
+    const viewPropsKey = `${center[0]},${center[1]},${zoom}`;
+    const deliberateView = viewPropsRef.current !== viewPropsKey;
+    viewPropsRef.current = viewPropsKey;
+    // Первый монтаж (viewRef пуст) тоже идёт по ветке пропов — восстанавливать
+    // нечего, и fitBounds там законен.
+    const restoredView = deliberateView ? null : viewRef.current;
 
     // Watch ID для GPS — вынесен наверх, чтобы доступный в cleanup()
     let userLocationWatchId: number | null = null;
@@ -236,8 +268,10 @@ export default function LeafletMap({
       delete container._leaflet_id;
 
       const map = L.map(containerRef.current, {
-        center: L.latLng(center[0], center[1]),
-        zoom,
+        center: restoredView
+          ? L.latLng(restoredView.lat, restoredView.lng)
+          : L.latLng(center[0], center[1]),
+        zoom: restoredView ? restoredView.zoom : zoom,
         zoomControl: false,
         attributionControl: attribution !== false,
         minZoom: 5,
@@ -486,8 +520,12 @@ export default function LeafletMap({
         clusterRef.current = clusterGroup;
       }
 
-      // Подгоняем вид под все маркеры (через кластер)
+      // Подгоняем вид под все маркеры (через кластер).
+      // При непрошеном ремонте (restoredView) НЕ подгоняем: вид уже
+      // восстановлен тем, каким его оставил человек, а fitBounds сбросил бы
+      // его обратно — ровно тот скачок, ради которого заведён viewRef.
       const fitAll = () => {
+        if (restoredView) return;
         if (allCoords.length > 1) {
           map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
             padding: [50, 50],
@@ -634,6 +672,19 @@ export default function LeafletMap({
         errorOverlay = null;
       }
       if (mapRef.current) {
+        // Запоминаем вид ДО разрушения — следующий прогон эффекта решит,
+        // восстанавливать его (ремонт из-за маркеров) или взять из пропов
+        // (человек нажал «Карта» / сменил маршрут). См. viewRef выше.
+        try {
+          const c = mapRef.current.getCenter();
+          viewRef.current = { lat: c.lat, lng: c.lng, zoom: mapRef.current.getZoom() };
+        } catch (err) {
+          // Карта могла не дожить до готовности (ошибка инициализации) —
+          // тогда запоминать нечего, но молчать об этом нельзя: следующий
+          // ремонт уедет на пропы, и это надо будет с чем-то соотнести.
+          console.error('[LeafletMap] view capture failed', err);
+          viewRef.current = null;
+        }
         mapRef.current.remove();
         mapRef.current = null;
         clusterRef.current = null;
