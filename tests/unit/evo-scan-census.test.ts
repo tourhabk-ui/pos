@@ -208,6 +208,48 @@ describe('E-3: алерт печатает непроверенное', () => {
     expect(text).toContain('объектива нет');
   });
 
+  it('только отсутствующий объектив и нового нет — молчим: это не событие', async () => {
+    // Первый прод-прогон после E-3 прислал «НЕ ПРОВЕРЕНО: 1 из 10 —
+    // безопасность» при пустом прочёсе. Отсутствие объектива — состояние
+    // постоянное и осознанное; напоминать о нём трижды в сутки значит
+    // научить не читать алерт (урок EVO_FLAGSHIP_DEFERRED в том же файле).
+    const { buildEvoAlert } = await import('@/lib/agents/evo/alert');
+    const text = buildEvoAlert({
+      ...base,
+      scan: {
+        issues: [], new_issues: 0, duration_ms: 1000,
+        coverage: { source: 'disk', files_listed: 10, files_reviewed: 0, mock_files_scanned: 20 },
+        lenses: [
+          { name: 'схема', status: 'ok' },
+          { name: 'безопасность', status: 'not_implemented', reason: 'объектива нет' },
+        ],
+      },
+    });
+    expect(text, 'постоянное осознанное состояние не будит владельца').toBeNull();
+  });
+
+  it('но упавший объектив будит — отказ это событие, а не состояние', async () => {
+    const { buildEvoAlert } = await import('@/lib/agents/evo/alert');
+    const text = buildEvoAlert({
+      ...base,
+      scan: {
+        issues: [], new_issues: 0, duration_ms: 1000,
+        coverage: { source: 'disk', files_listed: 10, files_reviewed: 0, mock_files_scanned: 20 },
+        lenses: [
+          { name: 'схема', status: 'ok' },
+          { name: 'безопасность', status: 'not_implemented', reason: 'объектива нет' },
+          { name: 'воронка', status: 'failed', reason: 'relation "funnel_events" does not exist' },
+        ],
+      },
+    });
+    expect(text, 'отказ объектива обязан быть слышен').not.toBeNull();
+    // В теле перечислены ОБА непроверенных — отсутствие тоже надо видеть,
+    // когда алерт всё равно уходит; поводом оно при этом не было.
+    expect(text).toContain('НЕ ПРОВЕРЕНО: 2 из 3');
+    expect(text).toContain('воронка');
+    expect(text).toContain('безопасность');
+  });
+
   it('все объективы отработали и нового нет — молчим, как и раньше', async () => {
     const { buildEvoAlert } = await import('@/lib/agents/evo/alert');
     const text = buildEvoAlert({

@@ -95,6 +95,11 @@ printf '%s' "$line"
         LEDGER_CHECK_URL: 'https://example.invalid/api/cron/safety-ledger-check',
         LEDGER_CHECK_ATTEMPTS: '3',
         LEDGER_CHECK_DELAY: '0',
+        // Номер зафиксирован НАМЕРЕННО: сторож стережёт механизм ожидания, а не
+        // текущую версию контракта. Иначе каждый бамп в проде ломал бы тест, и
+        // его чинили бы правкой ожиданий — то есть сторож обслуживал бы себя.
+        // Совпадение номеров роута и воркфлоу проверяется отдельно, ниже.
+        LEDGER_CHECK_CONTRACT: '2',
       },
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -186,6 +191,25 @@ describe('safety-ledger-check: ожидание выкладки — испол�
     const { code, out } = runStep(['401']);
     expect(code).toBe(1);
     expect(out).toContain('Роут ответил 401');
+  });
+});
+
+describe('safety-ledger-check: объявленная версия контракта — одна на двоих', () => {
+  it('роут и воркфлоу называют один и тот же номер', () => {
+    // Половинчатый бамп — самый вероятный способ сломать эту защиту: подняли в
+    // роуте, забыли в воркфлоу (проверка ослабла и снова пропустит устаревший
+    // ответ) либо наоборот (воркфлоу ждёт версию, которой не будет, и краснеет
+    // через пятнадцать минут). Обе половины держатся здесь.
+    const route = readFileSync(
+      join(process.cwd(), 'app/api/cron/safety-ledger-check/route.ts'),
+      'utf8',
+    );
+    const declared = /contract_version:\s*(\d+)/.exec(route)?.[1];
+    const expected = /LEDGER_CHECK_CONTRACT:-(\d+)/.exec(readFileSync(WORKFLOW, 'utf8'))?.[1];
+
+    expect(declared, 'роут обязан объявлять contract_version').toBeTruthy();
+    expect(expected, 'воркфлоу обязан объявлять ожидаемую версию').toBeTruthy();
+    expect(expected, `воркфлоу ждёт ${expected}, роут отдаёт ${declared} — бамп сделан наполовину`).toBe(declared);
   });
 });
 

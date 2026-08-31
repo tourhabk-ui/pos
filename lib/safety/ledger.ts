@@ -18,17 +18,31 @@
 import { createHash } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
 
-export type SafetyLedgerEventType =
-  | 'source_observed'
-  | 'fetch_failed'
-  | 'signal_normalized'
-  | 'dedup_skipped'
-  | 'geo_matched'
-  | 'geo_unmatched'
-  | 'risk_classified'
-  | 'published'
-  | 'route_or_tour_impact_calculated'
-  | 'traveller_notified';
+/**
+ * Объявленные звенья цепочки — рантайм-список, а не только тип.
+ *
+ * Списком, потому что его надо ПЕРЕЧИСЛИТЬ во время выполнения: приёмка
+ * фазы 1 сверяет объявленное с записанным. Прогон 5 показал в последних
+ * двадцати событиях шесть типов из десяти, и отсутствие `published` с
+ * `traveller_notified` было неразличимо между «работает, случая не было»
+ * (в том окне всё ушло в dedup_skipped) и «врезка не достигается». Окно
+ * наблюдения такой вопрос не решает — решает счёт по всей истории, а для
+ * счёта нужен список, который можно обойти.
+ */
+export const SAFETY_LEDGER_EVENT_TYPES = [
+  'source_observed',
+  'fetch_failed',
+  'signal_normalized',
+  'dedup_skipped',
+  'geo_matched',
+  'geo_unmatched',
+  'risk_classified',
+  'published',
+  'route_or_tour_impact_calculated',
+  'traveller_notified',
+] as const;
+
+export type SafetyLedgerEventType = (typeof SAFETY_LEDGER_EVENT_TYPES)[number];
 
 export type SafetyLedgerActorType = 'source' | 'agent' | 'editor' | 'system';
 
