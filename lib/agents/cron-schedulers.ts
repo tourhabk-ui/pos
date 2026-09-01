@@ -77,6 +77,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // 'tochka-check' объявления здесь не несёт: его зовёт tochka-check.yml —
   // объявление тут было бы вторым ответом на тот же вопрос (см. тот же довод
   // у 'ai-channel-check' ниже).
+  'channel-photo-check':       { kind: 'manual', writes: false, note: 'почему посты канала уходят без картинок: откаты sendPhoto с ответом Telegram' },
   'channel-readiness':         { kind: 'manual', writes: false, note: 'сколько туров годится к выкладке на чужую витрину и что мешает каждому' },
   'tour-pickup':               { kind: 'manual', writes: true,  note: 'записать, как турист попадает на тур: перевозка — свойство оператора, а не поездки' },
   'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
