@@ -112,6 +112,73 @@ export async function probeFetch(
   }
 }
 
+/**
+ * Жив ли воркер из blob: — ровно тот способ, которым MapLibre поднимает свой.
+ *
+ * Утро 02.09 (Камчатка): телефон достаёт оба файла пакета за 0.2 с, а стиль,
+ * рельеф и горизонтали молчат разом. Общее у трёх — воркер: геоджсон
+ * режется в нём, тайлы рельефа декодируются в нём, и без него `load` не
+ * наступает никогда, а `error` не звучит. Проверка не через MapLibre, а
+ * напрямую: крошечный воркер обязан ответить за секунды. Исход называется
+ * словами — «отвечает», «молчит», «упал», «не создался» — четыре разные
+ * беды с четырьмя разными лекарствами.
+ */
+export function probeWorker(
+  timeoutMs = 2000,
+  makeWorker: () => Worker = () =>
+    new Worker(URL.createObjectURL(new Blob(['postMessage("ok")'], { type: 'text/javascript' }))),
+): Promise<string> {
+  const started = Date.now();
+  const secs = () => ((Date.now() - started) / 1000).toFixed(1);
+  return new Promise((resolve) => {
+    let w: Worker | null = null;
+    let settled = false;
+    const done = (s: string) => {
+      if (settled) return;
+      settled = true;
+      w?.terminate();
+      resolve(s);
+    };
+    const timer = setTimeout(() => done(`воркер молчит ${secs()} с`), timeoutMs);
+    try {
+      w = makeWorker();
+      w.onmessage = () => { clearTimeout(timer); done(`воркер отвечает за ${secs()} с`); };
+      w.onerror = (e) => {
+        clearTimeout(timer);
+        const msg = (e as { message?: string }).message;
+        done(`воркер упал: ${(msg || 'без текста').slice(0, 80)}`);
+      };
+    } catch (err) {
+      clearTimeout(timer);
+      const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      done(`воркер не создался: ${name.slice(0, 80)}`);
+    }
+  });
+}
+
+/**
+ * WebGL2 на этом устройстве. MapLibre с пятой версии без него не рисует
+ * вовсе, а отказ контекста наружу может не дойти: карта создаётся, слои
+ * молчат. Имя рендерера — чтобы отличить «блокирован драйвер» от
+ * «программный fallback», это разные разговоры с владельцем телефона.
+ */
+export function webglReport(
+  makeCanvas: () => HTMLCanvasElement = () => document.createElement('canvas'),
+): string {
+  try {
+    const gl = makeCanvas().getContext('webgl2');
+    if (!gl) return 'WebGL2 недоступен';
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_RENDERER_WEBGL: number } | null;
+    const renderer = dbg
+      ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL))
+      : String(gl.getParameter(gl.RENDERER));
+    return `WebGL2 есть (${renderer.slice(0, 60)})`;
+  } catch (err) {
+    const name = err instanceof Error ? err.name : String(err);
+    return `WebGL2: исключение ${name}`.slice(0, 80);
+  }
+}
+
 export default function VedarMap({
   theme = 'dark',
   sources,
@@ -163,9 +230,23 @@ export default function VedarMap({
      * перерисовка на каждом — это та же болезнь, что чинили в LeafletMap
      * этим же утром. Наружу они выходят один раз, по таймеру.
      */
-    const seen = { terrain: 0, contours: 0 };
+    const seen = { terrain: 0, contours: 0, terrainRequested: 0, styledata: 0 };
     let loaded = false;
     let watchdog: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * Нарушения CSP — от самого браузера, поимённо. Вечер 01.09 стиль
+     * молчал из-за запрета воркера из blob:, и узнали это по коду
+     * next.config.js, а не по телефону: браузер ЗНАЛ, какую директиву и
+     * какой адрес он заблокировал, и никто его не спрашивал.
+     */
+    const cspHits: string[] = [];
+    const onCsp = (e: Event) => {
+      const v = e as { violatedDirective?: string; blockedURI?: string };
+      if (cspHits.length < 3) {
+        cspHits.push(`${v.violatedDirective ?? '?'} → ${(v.blockedURI || '?').slice(0, 60)}`);
+      }
+    };
+    document.addEventListener('securitypolicyviolation', onCsp);
 
     (async () => {
       try {
@@ -211,6 +292,14 @@ export default function VedarMap({
           }
           if (ev.sourceId === 'contours' && ev.isSourceLoaded) seen.contours += 1;
         });
+        // Запрошено — отдельно от пришло. Ноль запросов значит, что источник
+        // не получил TileJSON (протокол PMTiles не ответил); запросы есть, а
+        // пришедших нет — тайлы не декодируются (воркер). Две разные беды.
+        map.on('dataloading', (e) => {
+          const ev = e as { sourceId?: string; tile?: unknown };
+          if (ev.sourceId === 'terrain' && ev.tile) seen.terrainRequested += 1;
+        });
+        map.on('styledata', () => { seen.styledata += 1; });
 
         /**
          * Сторож молчания. Восемь секунд — с запасом на мобильную сеть и на
@@ -241,13 +330,25 @@ export default function VedarMap({
           setDiag(head);
 
           const rawTerrain = sources.terrainUrl.replace(/^pmtiles:\/\//, '');
-          const [t, c] = await Promise.all([
+          const [t, c, w] = await Promise.all([
             // Тот же первый запрос, что делает читатель: заголовок архива.
             probeFetch(rawTerrain, 'bytes=0-16383'),
             probeFetch(sources.contoursUrl, 'bytes=0-1023'),
+            probeWorker(),
           ]);
           if (cancelled || !diagShown) return;
-          setDiag(`${head} — ${packFileName(rawTerrain)}: ${t}; ${packFileName(sources.contoursUrl)}: ${c}`);
+          // Третий этап (утро 02.09): сеть отвечала 206 за 0.2 с, а карта
+          // молчала — значит беда не снаружи. Печатается то, что знает только
+          // этот браузер: жив ли воркер, есть ли WebGL2, что запретил CSP,
+          // дошёл ли стиль и сколько тайлов запрошено против пришедших.
+          const state = [
+            `стиль: ${map.isStyleLoaded() ? 'загружен' : 'нет'}${seen.styledata ? '' : ', styledata не было'}`,
+            `тайлов рельефа запрошено ${seen.terrainRequested}, пришло ${seen.terrain}`,
+            w,
+            webglReport(),
+            cspHits.length ? `CSP: ${cspHits.join('; ')}` : 'CSP: нарушений нет',
+          ].join(' · ');
+          setDiag(`${head} — ${packFileName(rawTerrain)}: ${t}; ${packFileName(sources.contoursUrl)}: ${c} · ${state}`);
         }, 8000);
 
         map.on('error', (e) => {
@@ -273,6 +374,7 @@ export default function VedarMap({
     return () => {
       cancelled = true;
       if (watchdog) clearTimeout(watchdog);
+      document.removeEventListener('securitypolicyviolation', onCsp);
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
       mapRef.current?.remove();

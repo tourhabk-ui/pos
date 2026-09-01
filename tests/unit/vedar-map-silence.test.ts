@@ -23,7 +23,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { packFileName, probeFetch } from '@/components/shared/VedarMap';
+import { packFileName, probeFetch, probeWorker, webglReport } from '@/components/shared/VedarMap';
 
 const SRC = readFileSync(join(process.cwd(), 'components/shared/VedarMap.tsx'), 'utf-8');
 const CLIENT_SRC = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
@@ -152,6 +152,82 @@ describe('молчание карты кончается самопроверк�
     const fake = (async () => ({ status: 403 }) as Response) as unknown as typeof fetch;
     const out = await probeFetch('https://s3.example.ru/b/a.pmtiles', 'bytes=0-1', fake);
     expect(out).toMatch(/^HTTP 403 за/);
+  });
+});
+
+describe('сеть отвечает, а карта молчит — телефон проверяет себя, а не бакет', () => {
+  /**
+   * Утро 02.09 (Камчатка): самопроверка сети дала «HTTP 206 за 0.2 с» по
+   * обоим файлам — и карта всё равно молчала. Значит беда не снаружи, а
+   * в том, что знает только этот браузер: воркер, WebGL2, CSP, TileJSON.
+   * Общее у трёх молчащих слоёв — воркер: геоджсон режется в нём, тайлы
+   * рельефа декодируются в нём, без него `load` не наступает никогда, а
+   * `error` не звучит.
+   */
+  it('спрашивает воркер напрямую, тем же blob:, что MapLibre', () => {
+    expect(SRC).toMatch(/new Worker\(URL\.createObjectURL\(new Blob\(/);
+    expect(SRC).toMatch(/probeWorker\(\)/);
+  });
+
+  it('слушает нарушения CSP от самого браузера и снимает слушатель', () => {
+    // Вечер 01.09: запрет воркера из blob: нашли по коду next.config.js, а
+    // браузер всё это время ЗНАЛ директиву и адрес — его не спрашивали.
+    expect(SRC).toMatch(/document\.addEventListener\('securitypolicyviolation', onCsp\)/);
+    expect(SRC).toMatch(/document\.removeEventListener\('securitypolicyviolation', onCsp\)/);
+  });
+
+  it('запрошенные тайлы считаются отдельно от пришедших', () => {
+    // Ноль запросов — TileJSON не получен (протокол PMTiles); запросы есть,
+    // пришедших нет — не декодируется (воркер). Разные лекарства.
+    expect(SRC).toMatch(/map\.on\('dataloading'/);
+    expect(SRC).toMatch(/тайлов рельефа запрошено \$\{seen\.terrainRequested\}, пришло \$\{seen\.terrain\}/);
+  });
+
+  it('говорит, дошёл ли стиль, и упоминает WebGL2', () => {
+    expect(SRC).toMatch(/map\.isStyleLoaded\(\)/);
+    expect(SRC).toMatch(/map\.on\('styledata'/);
+    expect(SRC).toMatch(/webglReport\(\)/);
+  });
+
+  it('probeWorker: ответивший воркер — «отвечает»', async () => {
+    const fake = () => {
+      const w = { onmessage: null as null | ((e: unknown) => void), onerror: null, terminate: () => {} };
+      setTimeout(() => w.onmessage?.({ data: 'ok' }), 5);
+      return w as unknown as Worker;
+    };
+    expect(await probeWorker(500, fake)).toMatch(/^воркер отвечает за \d+\.\d с$/);
+  });
+
+  it('probeWorker: молчащий воркер — «молчит», а не вечное ожидание', async () => {
+    const fake = () => ({ onmessage: null, onerror: null, terminate: () => {} }) as unknown as Worker;
+    expect(await probeWorker(50, fake)).toMatch(/^воркер молчит \d+\.\d с$/);
+  });
+
+  it('probeWorker: скрипт воркера упал — текст ошибки на экран', async () => {
+    const fake = () => {
+      const w = { onmessage: null, onerror: null as null | ((e: unknown) => void), terminate: () => {} };
+      setTimeout(() => w.onerror?.({ message: 'Uncaught SyntaxError' }), 5);
+      return w as unknown as Worker;
+    };
+    expect(await probeWorker(500, fake)).toBe('воркер упал: Uncaught SyntaxError');
+  });
+
+  it('probeWorker: конструктор бросил (CSP, старый WebView) — «не создался» с именем', async () => {
+    const fake = () => { throw new DOMException('Failed to construct Worker', 'SecurityError'); };
+    expect(await probeWorker(500, fake)).toBe('воркер не создался: SecurityError: Failed to construct Worker');
+  });
+
+  it('webglReport: без контекста — «недоступен», с контекстом — имя рендерера', () => {
+    const none = () => ({ getContext: () => null }) as unknown as HTMLCanvasElement;
+    expect(webglReport(none)).toBe('WebGL2 недоступен');
+    const some = () => ({
+      getContext: () => ({
+        RENDERER: 7937,
+        getExtension: () => null,
+        getParameter: () => 'Adreno (TM) 650',
+      }),
+    }) as unknown as HTMLCanvasElement;
+    expect(webglReport(some)).toBe('WebGL2 есть (Adreno (TM) 650)');
   });
 });
 
