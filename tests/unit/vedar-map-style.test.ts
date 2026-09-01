@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildVedarStyle, vedarMapPalette } from '@/lib/map/vedar-style';
 import { packKey, resolvePackSource } from '@/lib/map/pack-source';
+import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 
 const SRC = {
   terrainUrl: 'pmtiles://https://example.test/map-packs/avacha-group.terrain.pmtiles',
@@ -33,6 +34,39 @@ type Layer = { id: string; type: string; source?: string; layout?: Record<string
 function layers(theme: 'dark' | 'light'): Layer[] {
   return (buildVedarStyle(theme, SRC) as { layers: Layer[] }).layers;
 }
+
+describe('стиль проходит проверку спецификацией MapLibre', () => {
+  /**
+   * Самый важный сторож файла, и появился он позже всех — после двух
+   * полевых выездов подряд, где карта была чёрной.
+   *
+   * Оба раза причина была одна по классу: MapLibre отвергает стиль ЦЕЛИКОМ
+   * из-за одной неверной строки. Сначала слой подписей просил текст без
+   * `glyphs`, потом зумовое выражение оказалось вложено в `case`. Пропадала
+   * не одна линия — пропадала вся карта, включая рельеф.
+   *
+   * Искать это глазами владельца в поле, по одной ошибке за выезд, — плохой
+   * способ. Валидатор спецификации лежит в наших же зависимостях и находит
+   * всё разом, на сборке. Ручные проверки ниже оставлены: они стерегут
+   * СМЫСЛ (подпись из данных, зум верхним уровнем), а этот — форму.
+   */
+  it('все сочетания темы и глифов валидны', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      for (const [label, src] of [
+        ['без глифов', SRC_NO_GLYPHS],
+        ['с глифами', SRC],
+      ] as const) {
+        const errors = validateStyleMin(
+          buildVedarStyle(theme, src) as never,
+        ) as Array<{ message: string }>;
+        expect(
+          errors.map(e => e.message),
+          `${theme} / ${label}`,
+        ).toEqual([]);
+      }
+    }
+  });
+});
 
 describe('подписи горизонталей приходят из данных', () => {
   it('text-field читает свойство ele, а не строку', () => {
