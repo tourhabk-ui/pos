@@ -1,18 +1,18 @@
 {
-  "note": "Карта не включается четвёртый заход подряд. Хватит гипотез — смотрим живой HTML /planning: пришёл ли в него адрес бакета с сервера (page.tsx читает env в момент запроса и передаёт пропом). Если маркера нет — проп не доехал; если есть — дело дальше по цепочке, в выборе подложки. Заодно version.json: какая сборка реально работает.",
+  "note": "Единственное непроверенное звено цепочки: читаются ли САМИ файлы пакета по своим адресам. Диагностика проверяла отдельный пробный объект, а не эти два. Владелец до заливки получал AccessDenied на contours — после заливки это не перепроверялось ни разу. PMTiles берётся Range-запросами, поэтому важен и обычный GET, и байтовый диапазон.",
   "urls": [
-    "https://vedarai.ru/version.json",
-    "https://vedarai.ru/planning"
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.contours.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.terrain.pmtiles"
   ],
   "grep": [
-    "6e853f7f-a464-4845-bec6-d3f0a4caf6d5",
-    "mapPackBaseUrl",
-    "s3.twcstorage.ru",
-    "map-packs",
-    "avacha-group"
+    "FeatureCollection",
+    "Copernicus",
+    "AccessDenied",
+    "NoSuchKey",
+    "contour_step_m"
   ],
-  "bytes": 1500,
+  "bytes": 400,
   "timeout": 45,
-  "retries": 6,
-  "retryDelay": 30
+  "retries": 2,
+  "retryDelay": 15
 }
