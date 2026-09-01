@@ -58,6 +58,19 @@ interface VedarMapProps {
   height?: string;
 }
 
+/**
+ * Имя файла пакета из его адреса — без хоста и без ключей запроса.
+ *
+ * Адрес хранилища длинный и в строку на телефоне не влезает, а полезная
+ * часть в нём одна: какой именно пакет карта не смогла прочитать.
+ */
+export function packFileName(url: string): string {
+  const noScheme = url.replace(/^pmtiles:\/\//, '');
+  const path = noScheme.split('?')[0];
+  const last = path.split('/').filter(Boolean).pop();
+  return last && last.length > 0 ? last : path;
+}
+
 export default function VedarMap({
   theme = 'dark',
   sources,
@@ -77,6 +90,20 @@ export default function VedarMap({
   const [geoDenied, setGeoDenied] = useState(false);
   /** Что именно сказала карта, когда не смогла. Видно человеку, не только в консоли. */
   const [mapError, setMapError] = useState<string | null>(null);
+  /**
+   * Отчёт карты о себе, когда она НЕ упала и всё-таки ничего не нарисовала.
+   *
+   * Полевой прогон 01.09, скрин владельца: чёрное поле между компасом и
+   * карточкой расстояния. Ни рельефа, ни трека, ни строки ошибки, ни строки
+   * про подложку OSM. То есть у карты было ровно два исхода — «рисую» и
+   * «сказала ошибку», — а случившийся третий («смонтировалась, не упала,
+   * тайлы не пришли») выглядел точно как фон страницы того же цвета.
+   *
+   * Это ровно тот дефект, который §4.0 запрещает: у проверки обязан быть
+   * исход «не смог», и он обязан отличаться от «хорошо». Здесь он называется
+   * словами и поимённо: стиль, рельеф, горизонтали — каждый сам за себя.
+   */
+  const [diag, setDiag] = useState<string | null>(null);
 
   // ── Жизненный цикл карты ────────────────────────────────────────────────
   // Зависимости — тема и адреса пакета. Ни линий, ни своего положения: они
@@ -84,6 +111,14 @@ export default function VedarMap({
   useEffect(() => {
     if (!containerRef.current || !sources) return;
     let cancelled = false;
+    /**
+     * Счётчики держатся в ref, а не в state: событий `data` у карты сотни, и
+     * перерисовка на каждом — это та же болезнь, что чинили в LeafletMap
+     * этим же утром. Наружу они выходят один раз, по таймеру.
+     */
+    const seen = { terrain: 0, contours: 0 };
+    let loaded = false;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
 
     (async () => {
       try {
@@ -112,7 +147,36 @@ export default function VedarMap({
         map.touchZoomRotate.disableRotation();
         mapRef.current = map;
 
-        map.on('load', () => { if (!cancelled) setReady(true); });
+        map.on('load', () => { loaded = true; if (!cancelled) setReady(true); });
+
+        // Пришёл ли хоть один кусок каждого источника. Не «есть ли ошибка»:
+        // при чтении PMTiles через свой протокол отказ может не дойти до
+        // события `error` вовсе — 01.09 карта молчала именно так.
+        map.on('data', (e) => {
+          const ev = e as { sourceId?: string; tile?: unknown; isSourceLoaded?: boolean };
+          if (ev.sourceId === 'terrain' && ev.tile) seen.terrain += 1;
+          if (ev.sourceId === 'contours' && ev.isSourceLoaded) seen.contours += 1;
+        });
+
+        /**
+         * Сторож молчания. Восемь секунд — с запасом на мобильную сеть и на
+         * первый Range-запрос к архиву; меньше давало бы ложную тревогу на
+         * медленном канале, больше — человек в поле успевает решить, что
+         * приложение сломалось.
+         *
+         * Молчит, когда всё хорошо: сообщение без повода читается как шум и
+         * через неделю его перестают замечать.
+         */
+        watchdog = setTimeout(() => {
+          if (cancelled) return;
+          if (loaded && seen.terrain > 0) return;
+          const parts: string[] = [];
+          if (!loaded) parts.push('стиль не загрузился');
+          if (seen.terrain === 0) parts.push('рельеф не пришёл');
+          if (seen.contours === 0) parts.push('горизонтали не пришли');
+          setDiag(parts.join(' · '));
+        }, 8000);
+
         map.on('error', (e) => {
           // Молчаливый сбой карты неотличим от «приложение умерло» — тот же
           // урок, что у LeafletMap (владелец 09.08, чёрный экран).
@@ -135,11 +199,13 @@ export default function VedarMap({
 
     return () => {
       cancelled = true;
+      if (watchdog) clearTimeout(watchdog);
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
       setReady(false);
+      setDiag(null);
     };
     // center/zoom намеренно вне зависимостей: они задают НАЧАЛЬНЫЙ вид.
     // Держи их здесь — и карта пересоздавалась бы на каждом изменении
@@ -233,7 +299,7 @@ export default function VedarMap({
   return (
     <div style={{ height, position: 'relative', background: palette.background }}>
       <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
-      {mapError && (
+      {(mapError || diag) && (
         <div role="status"
           style={{
             position: 'absolute', left: 12, right: 12, top: 12, zIndex: 5,
@@ -241,7 +307,14 @@ export default function VedarMap({
             background: 'rgba(13,17,23,0.9)', color: '#fff', fontSize: 11,
             lineHeight: 1.4,
           }}>
-          Своя карта не отрисовалась: {mapError}
+          Своя карта не отрисовалась: {mapError ?? diag}
+          {/* Имя файла пакета — чтобы отчёт из поля называл, ЧТО не пришло,
+              а не только что «не пришло». Один взгляд вместо переписки. */}
+          {!mapError && diag && (
+            <span style={{ display: 'block', opacity: 0.7, marginTop: 2 }}>
+              искала: {packFileName(sources.terrainUrl)}
+            </span>
+          )}
         </div>
       )}
       {showUserLocation && geoDenied && (
