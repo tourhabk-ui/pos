@@ -59,7 +59,7 @@ jobs:
           TOTAL_WRITTEN=0
           for i in $(seq 1 60); do
             echo "── Партия $i (offset=$OFFSET) ──"
-            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?secret=${CRON_SECRET}&limit=${LIMIT}&offset=${OFFSET}")
+            RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?limit=${LIMIT}&offset=${OFFSET}")
             echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('success','listing_total','offset','processed','tracks_written','matched_places','no_track','skipped_existing','errors','has_more','listing_errors')}, ensure_ascii=False))" || { echo "$RESP" | head -c 400; exit 1; }
             HAS_MORE=$(echo "$RESP" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('has_more', False)).lower())")
             WRITTEN=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tracks_written',0))")
@@ -88,7 +88,7 @@ jobs:
             sleep 60
           done
           for i in $(seq 1 5); do
-            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?secret=${CRON_SECRET}&mode=link")
+            RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?mode=link")
             MODE=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('mode',''))" 2>/dev/null || echo "")
             if [ "$MODE" = "link" ]; then
               echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('considered','linked','no_match','duration_ms')}, ensure_ascii=False))"

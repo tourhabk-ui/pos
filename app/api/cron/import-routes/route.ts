@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { runVisitKamchatkaImporter } from '@/lib/agents/visitkamchatka-importer';
 import { runKamchatkalandImporter } from '@/lib/agents/kamchatkaland-importer';
 import { runPlacesEnricher } from '@/lib/agents/places-enricher';
@@ -20,11 +20,10 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const secret = request.headers.get('authorization')?.replace('Bearer ', '');
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || !timingSafeCompare(secret, cronSecret)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Общий хелпер вместо разбора заголовка руками (сторож
+  // api-guard-before-action, 01.09).
+  if (!verifyCronSecret(request)) {
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
 
   const source = request.nextUrl.searchParams.get('source') ?? 'all';
