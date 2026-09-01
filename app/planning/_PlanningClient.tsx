@@ -2949,7 +2949,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                 (прежнее место). Плавающий инструмент — бейдж, не герой
                 экрана: 110 примерно соответствует масштабу на мокапе. */}
             <FieldCompass heading={effHeading} state={effCompassState}
-              targetBearing={targetBearing} headingSource={headingSource} size={110} />
+              targetBearing={targetBearing} headingSource={headingSource} size={146} />
             {/* Лекарство — на самом приборе: кнопка в строке статуса от
                 мёртвого компаса жила в другом углу экрана, и их не связывали. */}
             {compassState === 'blocked' && (
