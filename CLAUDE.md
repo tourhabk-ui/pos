@@ -485,7 +485,11 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 
 ## 7. НЕ ТРОГАТЬ
 
-- `middleware.ts` — Edge JWT + rate-limit
+- `middleware.ts` — Edge JWT + rate-limit. Исключение по слову владельца 01.09
+  («PR 2 да»): гейт `/api/admin/*` — admin-JWT либо `CRON_SECRET` в заголовке
+  `Authorization: Bearer`; `?secret=` на Edge не читается. До этого префикс
+  стоял в публичном реестре как `ALL`, и RBAC-правило для него было
+  недостижимо. Сторож: `tests/unit/edge-admin-gate.test.ts`
 - `lib/auth.ts` — JWT логика
 - `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
   и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`

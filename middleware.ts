@@ -13,6 +13,7 @@ import { jwtVerify } from 'jose';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis/cloudflare';
 import { isPathMatch, isPublicApiPath } from '@/lib/auth/public-api-routes';
+import { constantTimeEqual } from '@/lib/security/constant-time-equal';
 
 const JWT_ALGORITHM = 'HS256';
 
@@ -190,6 +191,21 @@ export async function middleware(request: NextRequest) {
     && !PUBLIC_HUB_PATHS.some(p => pathname.startsWith(p));
   const isPublicApiRoute = isPublicApiPath(pathname, method);
   const isApiRoute = pathname.startsWith('/api');
+
+  // /api/admin закрыт на Edge с 01.09 (периметр, часть 2; слово владельца по §7).
+  // Раньше префикс стоял в PUBLIC_API_ROUTES как 'ALL', и правило
+  // '/api/admin': 'admin' в API_ROLE_REQUIREMENTS не достигалось никогда:
+  // аноним уходил на публичном пропуске ниже. Теперь два пути: admin-JWT
+  // (RBAC ниже по потоку) либо CRON_SECRET в заголовке Authorization: Bearer —
+  // так админские ручки зовут workflow. Параметр ?secret= на Edge не читается:
+  // он оседает в access-логах. Сравнение — постоянным временем, без Node crypto.
+  if (isPathMatch(pathname, '/api/admin')) {
+    const bearer = extractBearerToken(request.headers.get('authorization'));
+    const cronSecret = process.env.CRON_SECRET;
+    if (bearer && cronSecret && constantTimeEqual(bearer, cronSecret)) {
+      return applySecurityHeaders(NextResponse.next(), pathname);
+    }
+  }
 
   // Skip auth check for public routes
   if (!isProtectedRoute && (isPublicApiRoute || !isApiRoute)) {
