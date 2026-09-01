@@ -21,7 +21,11 @@ const SRC = {
   contoursUrl: 'https://example.test/map-packs/avacha-group.contours.geojson',
   terrainMaxZoom: 12,
   attribution: '© Copernicus DEM (ESA)',
+  glyphsUrl: 'https://example.test/glyphs/{fontstack}/{range}.pbf',
 };
+
+/** Тот же набор, но без глифов — как сегодня на проде. */
+const SRC_NO_GLYPHS = { ...SRC, glyphsUrl: null };
 
 type Layer = { id: string; type: string; source?: string; layout?: Record<string, unknown>;
   paint?: Record<string, unknown>; filter?: unknown; minzoom?: number };
@@ -92,11 +96,28 @@ describe('атрибуция источника не теряется', () => {
     expect(s.sources.contours.attribution).toContain('Copernicus');
   });
 
-  it('внешних глифов нет — иначе офлайн был бы ложным', () => {
-    // Подписи с CDN превратили бы «карта сохранена» в «карта сохранена, но
-    // без чисел»: та же болезнь, что мы чинили в офлайн-следе.
-    const s = buildVedarStyle('dark', SRC) as { glyphs?: unknown };
+  it('без глифов слоя подписей НЕТ — иначе стиль отвергается целиком', () => {
+    // 01.09, полевой прогон: карта рисовала чёрный прямоугольник. Слой
+    // подписей просил text-field, а glyphs не был задан вовсе — MapLibre
+    // без глифов не может отрисовать текст и отвергает стиль ЦЕЛИКОМ.
+    // Пропадали не подписи, а вся карта, включая рельеф.
+    const s = buildVedarStyle('dark', SRC_NO_GLYPHS) as
+      { glyphs?: unknown; layers: Array<{ id: string; type: string }> };
     expect(s.glyphs).toBeUndefined();
+    expect(s.layers.find(l => l.id === 'contour-label')).toBeUndefined();
+    // Рельеф и горизонтали при этом на месте — карта без чисел честнее
+    // карты, которой нет.
+    expect(s.layers.find(l => l.id === 'hillshade')).toBeDefined();
+    expect(s.layers.find(l => l.id === 'contour-major')).toBeDefined();
+    // Ни один оставшийся слой не просит текст.
+    expect(s.layers.some(l => l.type === 'symbol')).toBe(false);
+  });
+
+  it('ключ glyphs не выставляется значением undefined', () => {
+    // `glyphs: undefined` в объекте — это НАЛИЧИЕ ключа со значением
+    // undefined, а не его отсутствие; валидатор стиля трактует их по-разному.
+    const s = buildVedarStyle('dark', SRC_NO_GLYPHS) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(s, 'glyphs')).toBe(false);
   });
 });
 
