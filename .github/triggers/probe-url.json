@@ -1,23 +1,21 @@
 {
-  "note": "Повтор пробы, чище. Прошлая ошибка: range/origin применились ко ВСЕМ url разом и испортили /version.json (206, 2 байта), а «avacha» искал не там — этот путь строится в браузере, в HTML его нет. Ищем базовый адрес хранилища ЛИТЕРАЛЬНО (он приезжает в HTML как проп через flight-поток гидратации Next.js) и отдельно проверяем сам файл пакета Range-запросом с Origin, как это делает браузер, читая PMTiles.",
+  "note": "Карта на телефоне: «стиль не загрузился · рельеф не пришёл · горизонтали не пришли». Адрес хранилища снят с прода литералом (проба ac2fb085): https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5. pmtiles ставит заголовок range на КАЖДЫЙ запрос (a.set('range', ...)), а range не в CORS-safelist — браузер сперва шлёт OPTIONS. Проба 31.08 проверяла только простой GET с Origin, то есть вторую половину рукопожатия. Здесь — обе: preflight OPTIONS на оба файла и Range-GET с Origin, как делает браузер.",
   "urls": [
-    "https://vedarai.ru/version.json",
-    "https://vedarai.ru/planning"
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.terrain.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.contours.geojson"
   ],
+  "preflight": [
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.terrain.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.contours.geojson"
+  ],
+  "range": "0-16383",
+  "origin": "https://vedarai.ru",
   "grep": [
-    "\"commit\"",
-    "twcstorage",
-    "6e853f7f",
-    "NEXT_PUBLIC_MAP_PACK_BASE_URL"
+    "PMTiles",
+    "FeatureCollection"
   ],
-  "around": [
-    "twcstorage",
-    "\"commit\""
-  ],
-  "aroundLines": 4,
-  "aroundHits": 3,
-  "bytes": 2000,
-  "timeout": 300,
-  "retries": 2,
-  "retryDelay": 20
+  "bytes": 200,
+  "timeout": 60,
+  "retries": 0,
+  "retryDelay": 10
 }

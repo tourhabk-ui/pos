@@ -302,6 +302,37 @@ jobs:
             stop_if_stale || break
           done
 
+          # ── Preflight (01.09) ───────────────────────────────────────────
+          # Заголовок Range не входит в CORS-safelist: перед Range-GET к
+          # чужому хосту браузер шлёт OPTIONS с
+          # Access-Control-Request-Headers: range и ждёт в ответ
+          # Access-Control-Allow-Headers с этим именем. Простой GET с Origin
+          # (проба 31.08) проверял только вторую половину рукопожатия — и
+          # пакет «прошёл CORS» на бумаге, а читатель PMTiles на телефоне
+          # молчал. Здесь три исхода, не два: принят, отказ, не смог спросить.
+          # Формат: "preflight": ["https://..."]; origin — общий с GET.
+          PRE=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('preflight', [])))")
+          if [ -n "$PRE" ]; then
+            while IFS= read -r pu; do
+              [ -z "$pu" ] && continue
+              echo "════════════════════════════════════════════════"
+              echo "PREFLIGHT (OPTIONS): $pu"
+              PCODE=$(curl -s -o /tmp/pbody -D /tmp/pheaders -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
+                -X OPTIONS -H "Origin: ${ORIGIN:-https://vedarai.ru}" \
+                -H "Access-Control-Request-Method: GET" \
+                -H "Access-Control-Request-Headers: range" "$pu" || echo 000)
+              echo "HTTP: $PCODE"
+              grep -iE '^(HTTP/|access-control-|allow|content-length|server):' /tmp/pheaders | cut -c1-300 || true
+              if [ "$PCODE" = 000 ]; then
+                echo "  НЕ СМОГ СПРОСИТЬ: соединения нет — это не ответ бакета, а отсутствие ответа"
+              elif grep -qiE '^access-control-allow-headers:.*(range|\*)' /tmp/pheaders && grep -qiE '^access-control-allow-origin:' /tmp/pheaders; then
+                echo "  preflight принят: браузер отправит Range-GET"
+              else
+                echo "  PREFLIGHT ОТКАЗ: нет allow-origin или range не в allow-headers — браузер Range-GET не отправит, читатель PMTiles повиснет без события error"
+              fi
+            done <<< "$PRE"
+          fi
+
           # Необязательные POST-пробы (приёмка MCP 08.08: tools/call руками из
           # раннера — JSON-RPC не проверить GET-ом). Формат в probe-url.json:
           #   "post": [{"url": "...", "body": {...}}]

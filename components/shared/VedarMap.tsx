@@ -84,6 +84,34 @@ export function packFileName(url: string): string {
   return last && last.length > 0 ? last : path;
 }
 
+/**
+ * Прямой запрос к файлу пакета — тем же способом, что читатель PMTiles:
+ * Range-GET через CORS. Ответ — словами для экрана: HTTP-код и время либо
+ * имя исключения.
+ *
+ * Исключение здесь и есть диагноз. Отказ preflight (заголовок Range не в
+ * safelist — браузер сперва шлёт OPTIONS), отсутствие CORS и обрыв сети
+ * браузер отдаёт одним `TypeError: Failed to fetch`; 403/404 бакета —
+ * кодом. Эти два класса лечатся в разных местах: первый — в настройках
+ * CORS хранилища, второй — в самом файле. Снаружи, с раннера, их не
+ * различить: у него другая сеть и другой клиент.
+ */
+export async function probeFetch(
+  url: string,
+  range: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const started = Date.now();
+  const secs = () => ((Date.now() - started) / 1000).toFixed(1);
+  try {
+    const res = await fetchImpl(url, { headers: { range }, cache: 'no-store', mode: 'cors' });
+    return `HTTP ${res.status} за ${secs()} с`;
+  } catch (err) {
+    const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return `${name.slice(0, 80)} через ${secs()} с`;
+  }
+}
+
 export default function VedarMap({
   theme = 'dark',
   sources,
@@ -171,9 +199,16 @@ export default function VedarMap({
         // Пришёл ли хоть один кусок каждого источника. Не «есть ли ошибка»:
         // при чтении PMTiles через свой протокол отказ может не дойти до
         // события `error` вовсе — 01.09 карта молчала именно так.
+        let diagShown = false;
         map.on('data', (e) => {
           const ev = e as { sourceId?: string; tile?: unknown; isSourceLoaded?: boolean };
-          if (ev.sourceId === 'terrain' && ev.tile) seen.terrain += 1;
+          if (ev.sourceId === 'terrain' && ev.tile) {
+            seen.terrain += 1;
+            // Поздний приход — не отказ. На слабом канале в горах пакет
+            // может ехать дольше сторожа; сообщение, пережившее рельеф,
+            // врало бы про карту, которая уже рисует.
+            if (diagShown) { diagShown = false; setDiag(null); }
+          }
           if (ev.sourceId === 'contours' && ev.isSourceLoaded) seen.contours += 1;
         });
 
@@ -185,15 +220,34 @@ export default function VedarMap({
          *
          * Молчит, когда всё хорошо: сообщение без повода читается как шум и
          * через неделю его перестают замечать.
+         *
+         * Второй этап — самопроверка. Полевой прогон 01.09 (вечер): сторож
+         * назвал «стиль не загрузился · рельеф не пришёл · горизонтали не
+         * пришли», но ПОЧЕМУ — знал только браузер телефона: CORS, preflight
+         * на заголовок Range, 403 бакета, обрыв сети снаружи неотличимы, а
+         * раннер GitHub ходит из другой сети и другим клиентом. Поэтому карта
+         * сама спрашивает оба файла тем же способом, что читатель PMTiles
+         * (Range + CORS), и печатает ответ: HTTP-код или имя исключения.
          */
-        watchdog = setTimeout(() => {
+        watchdog = setTimeout(async () => {
           if (cancelled) return;
           if (loaded && seen.terrain > 0) return;
           const parts: string[] = [];
           if (!loaded) parts.push('стиль не загрузился');
           if (seen.terrain === 0) parts.push('рельеф не пришёл');
           if (seen.contours === 0) parts.push('горизонтали не пришли');
-          setDiag(parts.join(' · '));
+          const head = parts.join(' · ');
+          diagShown = true;
+          setDiag(head);
+
+          const rawTerrain = sources.terrainUrl.replace(/^pmtiles:\/\//, '');
+          const [t, c] = await Promise.all([
+            // Тот же первый запрос, что делает читатель: заголовок архива.
+            probeFetch(rawTerrain, 'bytes=0-16383'),
+            probeFetch(sources.contoursUrl, 'bytes=0-1023'),
+          ]);
+          if (cancelled || !diagShown) return;
+          setDiag(`${head} — ${packFileName(rawTerrain)}: ${t}; ${packFileName(sources.contoursUrl)}: ${c}`);
         }, 8000);
 
         map.on('error', (e) => {
