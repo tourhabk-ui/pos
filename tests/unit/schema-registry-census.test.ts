@@ -21,7 +21,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { UNDECLARED_TABLES, CANARY_TABLES } from '@/lib/db/undeclared-registry';
+import { UNDECLARED_TABLES, CANARY_TABLES, SUSPECT_DECLARED_TABLES } from '@/lib/db/undeclared-registry';
 
 const query = vi.fn();
 
@@ -45,6 +45,7 @@ async function callRoute() {
     counts: Record<string, number>;
     canary: { expected: readonly string[]; missing: string[]; ok: boolean } | null;
     connection: Record<string, string | null> | null;
+    suspect_declared: Array<{ table: string; present: boolean; alive: boolean }> | null;
     tables: Array<{ table: string; state: string; reason?: string; columns: unknown[] }>;
   };
 }
@@ -196,12 +197,49 @@ describe('канарейка: перепись отказывается суди
     expect(body.canary?.ok).toBe(true);
   });
 
+  it('объявленные под сомнением спрашиваются, но в раскладку списка не входят', async () => {
+    // Их вопрос другой: замороженный список стережёт ОБЪЯВЛЕННОСТЬ, а эти
+    // объявлены — под сомнением их ПРИМЕНЁННОСТЬ (CREATE TABLE с внешним
+    // ключом на отсутствующую таблицу не выполняется вовсе). Разные смыслы —
+    // разные секции ответа, иначе счёт пунктов реестра поедет.
+    const [suspect] = SUSPECT_DECLARED_TABLES;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('current_user')) return { rows: [{ db_user: 'app', schema: 'public' }] };
+      return sql.includes('query_to_xml')
+        ? { rows: withCanary([{ table_name: suspect, any_row: '1' }]) }
+        : { rows: [] };
+    });
+
+    const body = await callRoute();
+
+    expect(body.counts.total).toBe(UNDECLARED_TABLES.length);
+    expect(body.tables.some((r) => r.table === suspect)).toBe(false);
+    expect(body.suspect_declared).toEqual(
+      SUSPECT_DECLARED_TABLES.map((t) => ({
+        table: t,
+        present: t === suspect,
+        alive: t === suspect,
+      })),
+    );
+  });
+
+  it('при слепой переписи сомнительные тоже не судятся', async () => {
+    query.mockImplementation(async (sql: string) =>
+      sql.includes('current_user') ? { rows: [{ db_user: 'app' }] } : { rows: [] },
+    );
+    const body = await callRoute();
+    // null, а не «их нет»: слепой запрос не вправе судить и о них.
+    expect(body.suspect_declared).toBeNull();
+  });
+
   it('контрольные и проверяемые спрашиваются ОДНИМ запросом', () => {
     // Разными запросами канарейка перестала бы быть канарейкой: она обязана
     // пройти тот же путь, что и проверяемое, иначе доказывает не то.
     const src = readFileSync(ROUTE_SRC, 'utf8');
     expect(src).toContain('const ASKED');
-    expect(src).toContain('...UNDECLARED_TABLES, ...CANARY_TABLES');
+    for (const part of ['...UNDECLARED_TABLES', '...CANARY_TABLES', '...SUSPECT_DECLARED_TABLES']) {
+      expect(src).toContain(part);
+    }
   });
 });
 
