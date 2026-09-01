@@ -1,20 +1,24 @@
 {
-  "note": "#1493, проверка собственного утверждения. Я сказал владельцу и записал в census-verdict.ts, что «у 282 маршрутов не записан донор», сославшись на anchor_sources. Это неверно: anchor_source (metadata->>'anchor_source', миграции 847/877) — откуда взята ЯКОРНАЯ КООРДИНАТА маршрута, а не страница-источник линии. Донор считается в другом месте — donorBinding (dedupe_key вида «источник:id» или source_url на http) и печатается как trust.donor_binding. Нужны настоящие числа: confirmed / proximity_only / missing.",
+  "note": "#1493, шаг 2. Первая проба опровергла мою же посылку: donor_binding = {confirmed: 279, proximity_only: 9}, missing НЕТ ВООБЩЕ. Донор записан почти у всех, и он не может быть причиной шести пригодных. Заодно видно, что link_kinds.waypoint уже 240, а не 134 — база в census-verdict.ts устарела. Теперь нужны сами вердикты: navigability по исходам, navigability_reasons по причинам, контрфакт navigable_ignoring_link_kind (#1487) и trust.states — чтобы увидеть, какой вход на самом деле обнуляет счёт.",
   "urls": [
     "https://vedarai.ru/api/cron/route-data-audit"
   ],
   "grep": [
-    "donor_binding",
-    "anchor_sources",
-    "\"trust\""
+    "navigable_ignoring_link_kind",
+    "navigability_reasons",
+    "\"states\"",
+    "source_match"
   ],
   "around": [
-    "donor_binding",
-    "anchor_sources"
+    "\"navigability\":",
+    "navigability_reasons",
+    "navigable_ignoring_link_kind",
+    "\"states\"",
+    "source_match"
   ],
-  "aroundLines": 6,
+  "aroundLines": 14,
   "aroundHits": 1,
-  "bytes": 4000,
+  "bytes": 500,
   "timeout": 300,
   "retries": 2,
   "retryDelay": 20
