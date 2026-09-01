@@ -42,10 +42,6 @@ export type AgentIntent =
   | 'guide_status'
   | 'guide_route_preflight'
   // Трансфер-оператор
-  | 'transfer_fleet'
-  | 'transfer_drivers'
-  | 'transfer_bookings'
-  | 'transfer_status'
   // AI Юрист
   | 'legal_contract'
   | 'legal_compliance'
@@ -114,7 +110,6 @@ const VALID_INTENTS: AgentIntent[] = [
   'op_create_tour', 'op_fill_ai', 'op_add_slots',
   'tourist_recommend',
   'guide_schedule', 'guide_groups', 'guide_earnings', 'guide_status', 'guide_route_preflight',
-  'transfer_fleet', 'transfer_drivers', 'transfer_bookings', 'transfer_status',
   'legal_contract', 'legal_compliance', 'legal_risks',
   'sec_access_audit', 'sec_anomaly', 'sec_report',
   'hack_growth', 'hack_funnel', 'hack_automate',
@@ -273,13 +268,6 @@ class PlatformAgentClass {
       case 'guide_route_preflight': {
         const { GuideAgency } = await import('./agencies/guide-agency');
         return new GuideAgency().run(intent, context, originalMessage);
-      }
-      case 'transfer_fleet':
-      case 'transfer_drivers':
-      case 'transfer_bookings':
-      case 'transfer_status': {
-        const { TransferOperatorAgency } = await import('./agencies/transfer-operator-agency');
-        return new TransferOperatorAgency().run(intent, context, originalMessage);
       }
       case 'rescue_sos_stats':
       case 'rescue_weather_risk':

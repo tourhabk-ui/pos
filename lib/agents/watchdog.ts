@@ -625,9 +625,13 @@ async function notifyTransferOperatorDirectly(
   const text = [
     `<b>Привет, ${operatorName}!</b>`,
     '',
-    `${count} бронь(и) трансфера ждут подтверждения уже больше суток (самая ранняя — ${oldest}).`,
+    `${count} запрос(ов) мест в трансфере ждут ответа уже больше суток (самый ранний — ${oldest}).`,
     '',
-    `Подтверди или отклони: <a href="${appUrl}/hub/transfer-operator/bookings">Брони</a>`,
+    // Прямой ссылки нет намеренно: кабинет перевозчика на схеме 926 ещё не
+    // построен, а прежний /hub/transfer-operator удалён вместе с мёртвым
+    // модулем. Вести в несуществующий адрес хуже, чем не вести никуда: пинок
+    // остаётся честным, а обещание экрана не даётся.
+    `Кабинет: ${appUrl}/hub`,
   ].join('\n');
   try {
     await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {

@@ -22,7 +22,7 @@ const HUB_LAYOUTS = [
   'app/hub/guide/layout.tsx',
   'app/hub/gear/layout.tsx',
   'app/hub/stay/layout.tsx',
-  'app/hub/transfer-operator/layout.tsx',
+  // Кабинет перевозчика удалён 01.09 вместе с мёртвым модулем трансферов.
 ];
 
 /** Строки-пункты SIDEBAR_ITEMS: { href: '...', ... }. */
