@@ -56,6 +56,19 @@ interface VedarMapProps {
   lines?: VedarMapLine[];
   showUserLocation?: boolean;
   height?: string;
+  /**
+   * Отчёт карты о себе — наружу, в дополнение к собственному оверлею.
+   *
+   * Полевой скрин владельца 01.09: строка на самой карте была, но её
+   * накрывала непрозрачная карточка статуса, стоящая ВЫШЕ по z-index в
+   * СОСЕДНЕМ стекинг-контексте (`fixed inset-0 z-0` у карты против `z-10` у
+   * приборной колонки). Поднять z-index внутри самой карты это не лечит —
+   * дочерний контекст не может перекрыть родителя соседа, только его
+   * содержимое (`§12`-подобный урок, только про CSS, а не про линии).
+   * Экран, знающий причину и не показывающий её, снова не отличим от
+   * поломки — молчание на своём месте, а видимость на чужом.
+   */
+  onDiagnostic?: (message: string | null) => void;
 }
 
 /**
@@ -80,11 +93,17 @@ export default function VedarMap({
   lines = [],
   showUserLocation = false,
   height = '100%',
+  onDiagnostic,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const autoCenterDoneRef = useRef(false);
+  // Ref, не проп напрямую в зависимостях: инлайновая стрелка у вызывающего
+  // меняет identity на каждый рендер — тот же приём, что onMapClickRef у
+  // LeafletMap, чтобы не дёргать жизненный цикл карты чужой identity.
+  const onDiagnosticRef = useRef(onDiagnostic);
+  onDiagnosticRef.current = onDiagnostic;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
@@ -279,6 +298,17 @@ export default function VedarMap({
       userMarkerRef.current = null;
     };
   }, [ready, showUserLocation]);
+
+  // Сообщение наружу — вызывающий решает, где ему видно (см. onDiagnostic).
+  // Один эффект на оба источника: `failed` сюда не входит — тот случай уже
+  // рисует свой полноэкранный текст вместо карты, дублировать некуда.
+  useEffect(() => {
+    onDiagnosticRef.current?.(mapError ?? diag ?? null);
+  }, [mapError, diag]);
+  // Очистка — отдельным эффектом с []: срабатывает только на размонтирование
+  // компонента, а не на каждую смену диагноза (в отличие от возврата из
+  // эффекта выше, который выполнялся бы на каждой смене mapError/diag).
+  useEffect(() => () => onDiagnosticRef.current?.(null), []);
 
   const palette = vedarMapPalette(theme);
 

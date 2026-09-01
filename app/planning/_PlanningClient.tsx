@@ -433,6 +433,16 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  /**
+   * Диагностика своей карты — принята здесь, а не показана внутри неё.
+   *
+   * Скрин владельца 01.09: строка на карте была, её накрывала непрозрачная
+   * карточка статуса, стоящая выше по z-index в СОСЕДНЕМ стекинг-контексте
+   * (карта — `fixed inset-0 z-0`, приборная колонка — `z-10`). Поднять
+   * z-index внутри самой карты это не лечит: дочерний контекст не может
+   * перекрыть родителя соседа. См. `VedarMap.onDiagnostic`.
+   */
+  const [vedarDiag, setVedarDiag] = useState<string | null>(null);
   // Центр карты фиксируется В МОМЕНТ открытия. LeafletMap пересоздаёт карту
   // при смене identity center/markers — живые coords в center убивали карту
   // на каждом GPS-тике: тайлы не успевали грузиться (вечно-серый фон),
@@ -2965,6 +2975,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             height="100dvh"
             showUserLocation
             lines={vedarLines}
+            onDiagnostic={setVedarDiag}
           />
         ) : (
           <LeafletMap
@@ -3022,6 +3033,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             <p className="px-3 pb-2 text-[11px] leading-snug"
               style={{ color: 'var(--text-muted)' }}>
               Подложка OSM: {fieldBaseMap.reason}
+            </p>
+          )}
+
+          {/* Тот же приём для своей карты: сообщение приходит из VedarMap
+              через onDiagnostic и рисуется ЗДЕСЬ, в приборной колонке
+              (z-10) — на самой карте (z-0) его накрывала бы эта же
+              карточка. См. комментарий у vedarDiag выше. */}
+          {fieldBaseMap.kind === 'vedar' && vedarDiag && (
+            <p className="px-3 pb-2 text-[11px] leading-snug"
+              style={{ color: 'var(--warning)' }}>
+              Своя карта не отрисовалась: {vedarDiag}
             </p>
           )}
 

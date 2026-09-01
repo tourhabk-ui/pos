@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { packFileName } from '@/components/shared/VedarMap';
 
 const SRC = readFileSync(join(process.cwd(), 'components/shared/VedarMap.tsx'), 'utf-8');
+const CLIENT_SRC = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
 
 describe('карта отчитывается о себе, когда ничего не нарисовала', () => {
   it('считает приход каждого источника поимённо', () => {
@@ -67,6 +68,41 @@ describe('карта отчитывается о себе, когда ничег
 
   it('отчёт называет файл пакета, а не только факт отказа', () => {
     expect(SRC).toMatch(/искала: \{packFileName/);
+  });
+});
+
+describe('сообщение доходит туда, где его не накроет карточка статуса', () => {
+  /**
+   * Регресс того же дня: строка была НА карте, но карта — `fixed inset-0
+   * z-0`, а приборная колонка со статусом — `z-10`, СОСЕДНИЙ стекинг-
+   * контекст. Дочерний z-index внутри z-0 не может перекрыть родителя
+   * соседа, сколько его ни поднимай, — и текст оказался под непрозрачной
+   * карточкой, видна была только полоска в 1-2 пикселя.
+   *
+   * Лечится не CSS-трюком внутри карты, а тем же приёмом, что уже применён
+   * для `fieldBaseMap.reason` («Подложка OSM: …»): сообщение выходит из
+   * карты наружу и рисуется в самой приборной колонке.
+   */
+  it('VedarMap принимает onDiagnostic и вызывает его при смене mapError/diag', () => {
+    expect(SRC).toMatch(/onDiagnostic\?:\s*\(message: string \| null\) => void/);
+    const at = SRC.indexOf('onDiagnosticRef.current?.(mapError ?? diag ?? null)');
+    expect(at, 'эффект, синхронизирующий диагноз наружу, не найден').toBeGreaterThan(0);
+  });
+
+  it('callback идёт через ref, а не напрямую в зависимостях — жизненный цикл карты не должен дёргаться от чужой identity', () => {
+    expect(SRC).toMatch(/const onDiagnosticRef = useRef\(onDiagnostic\)/);
+  });
+
+  it('очистка при размонтировании — отдельным эффектом, не при каждой смене диагноза', () => {
+    const at = SRC.indexOf('() => onDiagnosticRef.current?.(null), []');
+    expect(at, 'unmount-эффект очистки не найден').toBeGreaterThan(0);
+  });
+
+  it('_PlanningClient рисует диагноз в приборной колонке (z-10), а не только внутри VedarMap', () => {
+    expect(CLIENT_SRC).toMatch(/onDiagnostic=\{setVedarDiag\}/);
+    const at = CLIENT_SRC.indexOf("fieldBaseMap.kind === 'vedar' && vedarDiag");
+    expect(at, 'строка диагноза в приборной колонке не найдена').toBeGreaterThan(0);
+    expect(CLIENT_SRC.slice(at, at + 400)).toMatch(/Своя карта не отрисовалась: \{vedarDiag\}/);
   });
 });
 
