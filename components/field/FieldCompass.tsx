@@ -52,8 +52,22 @@ const DEGREE_LABELS = [30, 60, 120, 150, 210, 240, 300, 330];
 export function FieldCompass({ heading, state, targetBearing, size = 300, headingSource }: FieldCompassProps) {
   const trusted = state === 'ok';
   const c = size / 2;
-  const rOuter = c - 6;
-  const rTickOuter = c - 26;
+  /**
+   * Всё внутри считается ДОЛЕЙ размера, а не пикселями.
+   *
+   * Компонент писался под size=300, а на полевом экране стоит size=110
+   * (владелец 01.09: «компас чуть-чуть увеличить, не видно надписей и
+   * стрелка теряется»). Фиксированные константы — отступ подписей 30,
+   * метка курса на y=18, толщина стрелки 9, наконечник +-17 — на 110
+   * пикселях занимали втрое большую долю прибора: цифры уезжали к оси,
+   * стрелка накрывала шкалу собой. Прибор был не мелким, а
+   * непропорциональным, и «увеличить» одним числом это не лечило.
+   *
+   * k — коэффициент к исходному эталону 300.
+   */
+  const k = size / 300;
+  const rOuter = c - 6 * k;
+  const rTickOuter = c - 26 * k;
 
   // Кольцо (засечки, цифры, буквы) крутится вместе с землёй — только когда
   // азимуту можно верить. Иначе стоит в нуле: север сверху, как на карте.
@@ -69,7 +83,7 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
   const ticks: React.ReactElement[] = [];
   for (let a = 0; a < 360; a += 5) {
     const major = a % 30 === 0;
-    const len = major ? 14 : 7;
+    const len = (major ? 14 : 7) * k;
     const rad = (a * Math.PI) / 180;
     const x1 = c + (rTickOuter - len) * Math.sin(rad);
     const y1 = c - (rTickOuter - len) * Math.cos(rad);
@@ -78,7 +92,7 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
     ticks.push(
       <line key={a} x1={x1} y1={y1} x2={x2} y2={y2}
         stroke={a === 0 && trusted ? 'var(--success)' : 'rgba(255,255,255,0.55)'}
-        strokeWidth={major ? 2.5 : 1.4}
+        strokeWidth={(major ? 2.5 : 1.4) * k}
         opacity={trusted ? 1 : 0.4} />,
     );
   }
@@ -87,8 +101,8 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
     <div className="relative mx-auto" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
         {/* Корпус прибора: непрозрачный, с фаской по краю */}
-        <circle cx={c} cy={c} r={rOuter} fill="#12181f" stroke="rgba(255,255,255,0.14)" strokeWidth="2" />
-        <circle cx={c} cy={c} r={rOuter - 10} fill="#0c1116" stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+        <circle cx={c} cy={c} r={rOuter} fill="#12181f" stroke="rgba(255,255,255,0.14)" strokeWidth={2 * k} />
+        <circle cx={c} cy={c} r={rOuter - 10 * k} fill="#0c1116" stroke="rgba(255,255,255,0.07)" strokeWidth={1 * k} />
 
         {/* Шкала — вращается только с подтверждённым азимутом */}
         <g transform={`rotate(${ringRotation} ${c} ${c})`}
@@ -96,7 +110,7 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
           {ticks}
           {DEGREE_LABELS.map(a => {
             const rad = (a * Math.PI) / 180;
-            const rr = rTickOuter - 30;
+            const rr = rTickOuter - 30 * k;
             return (
               <text key={a}
                 x={c + rr * Math.sin(rad)} y={c - rr * Math.cos(rad)}
@@ -110,7 +124,7 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
           })}
           {CARDINALS.map(({ label, angle }) => {
             const rad = (angle * Math.PI) / 180;
-            const rr = rTickOuter - 30;
+            const rr = rTickOuter - 30 * k;
             const x = c + rr * Math.sin(rad);
             const y = c - rr * Math.cos(rad);
             return (
@@ -127,23 +141,28 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
         </g>
 
         {/* Метка курса — неподвижный треугольник сверху: куда смотрит телефон */}
-        <polygon points={`${c},${18} ${c - 8},${32} ${c + 8},${32}`}
+        <polygon points={`${c},${10 * k} ${c - 8 * k},${26 * k} ${c + 8 * k},${26 * k}`}
           fill={trusted ? 'var(--success)' : 'rgba(255,255,255,0.35)'} />
 
         {/* Стрелка на следующую точку — только живая */}
         {needleAngle !== null && (
           <g transform={`rotate(${needleAngle} ${c} ${c})`}
             style={{ transition: 'transform 0.3s ease' }}>
-            <line x1={c} y1={c} x2={c} y2={c - (rTickOuter - 48)}
-              stroke="var(--success)" strokeWidth="9" strokeLinecap="round" />
+            {/* Тёмная подложка под стрелкой: зелёное по зелёной шкале
+                сливалось, и стрелка «терялась» — тот же приём, что у линии
+                маршрута на карте (casing под треком). */}
+            <line x1={c} y1={c} x2={c} y2={c - (rTickOuter - 30 * k)}
+              stroke="#0a0e12" strokeWidth={10 * k} strokeLinecap="round" opacity={0.85} />
+            <line x1={c} y1={c} x2={c} y2={c - (rTickOuter - 30 * k)}
+              stroke="var(--success)" strokeWidth={6 * k} strokeLinecap="round" />
             <polygon
-              points={`${c},${c - (rTickOuter - 28)} ${c - 17},${c - (rTickOuter - 60)} ${c + 17},${c - (rTickOuter - 60)}`}
-              fill="var(--success)" />
+              points={`${c},${c - (rTickOuter - 12 * k)} ${c - 13 * k},${c - (rTickOuter - 42 * k)} ${c + 13 * k},${c - (rTickOuter - 42 * k)}`}
+              fill="var(--success)" stroke="#0a0e12" strokeWidth={1.5 * k} />
           </g>
         )}
 
         {/* Ось прибора */}
-        <circle cx={c} cy={c} r={size * 0.055} fill="#1b232b" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" />
+        <circle cx={c} cy={c} r={size * 0.055} fill="#1b232b" stroke="rgba(255,255,255,0.18)" strokeWidth={1.5 * k} />
         <circle cx={c} cy={c} r={size * 0.022} fill="#0a0e12" />
       </svg>
 
@@ -151,15 +170,41 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
           Без стрелки оно остаётся единственным честным ответом прибора. */}
       {targetBearing !== null && (
         <div className="absolute inset-x-0 flex flex-col items-center"
-          style={{ top: '58%' }}>
-          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.55)' }}>На точку:</span>
-          <span className="text-2xl font-bold tabular-nums"
-            style={{ color: trusted ? 'var(--success)' : 'var(--text-muted)' }}>
-            {formatBearing(targetBearing)}
-          </span>
-          {/* Родословная курса — словами, как у линий на карте */}
-          <span className="text-[10px] mt-0.5 px-4 text-center leading-tight"
-            style={{ color: 'rgba(255,255,255,0.45)' }}>
+          style={{ top: '54%' }}>
+          {/* Плашка под числом. Раньше подписи лежали прямо на засечках и на
+              стрелке — на 110 пикселях это каша, а число азимута и есть
+              главный ответ прибора, когда стрелки нет вовсе (правило 21.08).
+              Непрозрачная, не стеклянная: §2 — критичные приборы не блюрятся. */}
+          <div className="flex flex-col items-center rounded-lg"
+            style={{
+              background: 'rgba(10,14,18,0.88)',
+              padding: `${Math.max(2, 4 * k)}px ${Math.max(6, 10 * k)}px`,
+            }}>
+            <span style={{
+              color: 'rgba(255,255,255,0.55)',
+              fontSize: Math.max(9, 11 * k),
+              lineHeight: 1.1,
+            }}>На точку:</span>
+            <span className="font-bold tabular-nums"
+              style={{
+                color: trusted ? 'var(--success)' : 'var(--text-muted)',
+                // Пол в 17px: ниже этого азимут перестаёт читаться на ходу,
+                // а он — единственный честный ответ без стрелки.
+                fontSize: Math.max(17, 26 * k),
+                lineHeight: 1.15,
+              }}>
+              {formatBearing(targetBearing)}
+            </span>
+          </div>
+          {/* Родословная курса — словами, как у линий на карте. Вынесена ПОД
+              плашку и не наезжает на шкалу. */}
+          <span className="text-center leading-tight"
+            style={{
+              color: 'rgba(255,255,255,0.5)',
+              fontSize: Math.max(8, 10 * k),
+              marginTop: Math.max(2, 3 * k),
+              paddingLeft: 4, paddingRight: 4,
+            }}>
             {trusted
               ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')
               : 'стрелка скрыта: азимут не подтверждён'}
