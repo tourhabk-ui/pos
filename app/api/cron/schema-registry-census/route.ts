@@ -54,6 +54,11 @@ export const maxDuration = 60;
  * и то, что имя приходит из замороженного списка, запрет не снимает —
  * правило про SQL не имеет исключений «когда источник надёжный».
  *
+ * Схема тоже идёт через `%I`, а не литералом `public.`: разбор
+ * `lib/db/schema-coverage.ts` читает слово после FROM как имя таблицы и на
+ * литерале завёл несуществующую таблицу `public`. Экранировать и схему
+ * правильнее по существу, а не только ради сторожа — но сторож здесь был прав.
+ *
  * Живость спрашивается подзапросом с LIMIT 1, а не count(*): отличить пустую
  * схему от живой можно одной строкой, полный скан тридцати таблиц ради того
  * же ответа не нужен.
@@ -64,7 +69,7 @@ async function inspectAll(): Promise<Map<string, { alive: boolean }>> {
             (xpath(
                '/row/n/text()',
                query_to_xml(
-                 format('SELECT count(*) AS n FROM (SELECT 1 FROM public.%I LIMIT 1) s', t.table_name),
+                 format('SELECT count(*) AS n FROM (SELECT 1 FROM %I.%I LIMIT 1) s', t.table_schema, t.table_name),
                  false, true, ''
                )
              ))[1]::text AS any_row

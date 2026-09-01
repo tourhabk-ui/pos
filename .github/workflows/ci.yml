@@ -180,5 +180,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Kernel integration tests (real PostgreSQL)
-        run: npx vitest run tests/integration/agent-kernel.pg.test.ts
+      # ВСЕ pg-тесты, а не один по имени. Файл назывался поимённо с заведения
+      # джоба, и к 01.09 рядом лежало ещё три *.pg.test.ts, которых CI не
+      # запускал НИКОГДА: в джобе `ci` переменной KERNEL_PG_TEST_URL нет, и там
+      # они пропускаются, а сюда попадал только agent-kernel. Пропуск выглядел
+      # как успех — тот самый третий исход, выданный за первый (§4.0).
+      # Сторож полноты — tests/unit/pg-tests-run-in-ci.test.ts.
+      - name: Integration tests (real PostgreSQL)
+        run: npx vitest run "tests/integration/**/*.pg.test.ts"
