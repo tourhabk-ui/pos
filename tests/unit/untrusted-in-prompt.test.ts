@@ -71,14 +71,14 @@ describe('обрамление блока', () => {
 });
 
 describe('правило применяется там, где чужой текст входит в промпт', () => {
-  const COMPOSE = readFileSync(join(process.cwd(), 'app/api/planner/compose/route.ts'), 'utf-8');
+  // Планер /api/planner/compose удалён 01.09 вместе с мёртвым модулем: он читал
+  // reference_tours с JOIN operators, а обеих таблиц на проде нет (перепись,
+  // прогон 3, канарейка видна) — запрос не выполнялся никогда. Правило от этого
+  // не ослабло: его держит оставшийся потребитель чужого текста, tool-loop.
   const LOOP = readFileSync(join(process.cwd(), 'lib/kuzmich/tool-loop.ts'), 'utf-8');
 
   it('планер чистит операторские поля и обрамляет список', () => {
-    expect(COMPOSE).toMatch(/untrustedField\(t\.company_name\)/);
-    expect(COMPOSE).toMatch(/wrapUntrusted\(/);
     // Сырая интерполяция названия компании в строку промпта запрещена.
-    expect(COMPOSE).not.toMatch(/\$\{t\.company_name\}/);
   });
 
   it('правило ОДНО: обрамление инструментов зовёт тот же модуль', () => {

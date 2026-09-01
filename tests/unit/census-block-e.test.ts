@@ -73,13 +73,13 @@ describe('точные копии убраны, отказ назван', () => 
 
   it('живые версии на месте', () => {
     expect(code('lib/auth/guide-helpers.ts')).toMatch(/export async function getGuidePartnerId\b/);
-    expect(code('lib/auth/transfer-helpers.ts')).toMatch(/export async function getTransferPartnerId\b/);
+    // transfer-helpers.ts удалён 01.09: его звали только роуты мёртвого модуля.
   });
 
   it('отказ базы не выдаётся молча за отсутствие прав', () => {
     // Обе возвращают null и при «такой роли нет», и при отказе БД. Тип менять
     // нельзя, не тронув всех вызывающих, — поэтому отказ хотя бы называется.
-    for (const f of ['lib/auth/guide-helpers.ts', 'lib/auth/transfer-helpers.ts']) {
+    for (const f of ['lib/auth/guide-helpers.ts']) {
       expect(read(f), f).toMatch(/запрос к partners не выполнился/);
     }
   });

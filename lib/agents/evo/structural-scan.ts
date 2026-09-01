@@ -86,8 +86,8 @@ export function findOrphanHubPages(
 
 /** API-префиксы партнёрских кабинетов: у их POST обязана быть форма в UI. */
 const HUB_API_PREFIXES = [
-  'app/api/transfer-operator/',
-  'app/api/transfer/',
+  // Префиксы трансферов убраны 01.09 вместе с мёртвым модулем: обоих каталогов
+  // больше нет, и правило «у POST обязана быть форма» стерегло пустоту.
   'app/api/gear/',
   'app/api/stay/',
   'app/api/guide/',

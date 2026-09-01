@@ -38,10 +38,10 @@ describe('удержание мест трансфера не возвращае
     expect(src).toMatch(/FOR UPDATE NOWAIT/);
   });
 
-  it('бронь создаётся ДО платежа — окна для удержания нет', () => {
-    const route = code('app/api/transfers/book/route.ts');
-    expect(route.indexOf('createBookingWithLock')).toBeLessThan(route.indexOf('createPayment'));
-  });
+  // Проверка порядка «бронь до платежа» держалась на app/api/transfers/book,
+  // удалённом 01.09 вместе с мёртвым модулем: роут читал таблицы, которых на
+  // проде нет. Порядок вызовов стеречь стало негде — сам createBookingWithLock
+  // жив и остаётся под двумя проверками выше, до платёжного шага.
 });
 
 describe('схема гидов сведена к одной таблице', () => {
