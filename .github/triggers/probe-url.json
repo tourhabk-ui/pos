@@ -1,18 +1,11 @@
 {
-  "note": "Карта на телефоне: «стиль не загрузился · рельеф не пришёл · горизонтали не пришли». Адрес хранилища снят с прода литералом (проба ac2fb085): https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5. pmtiles ставит заголовок range на КАЖДЫЙ запрос (a.set('range', ...)), а range не в CORS-safelist — браузер сперва шлёт OPTIONS. Проба 31.08 проверяла только простой GET с Origin, то есть вторую половину рукопожатия. Здесь — обе: preflight OPTIONS на оба файла и Range-GET с Origin, как делает браузер.",
+  "note": "Полный CSP страницы /planning. Прежняя проба резала заголовок на 300 символах — и прятала хвост, где должен быть worker-src. Диагноз: на /planning заголовок ставит next.config.js (matcher middleware эту страницу не покрывает), и worker-src в нём не было → default-src 'self' запрещает blob: → воркер MapLibre не заводится → карта молчит без события error. Маркеры until/grep ищутся в ТЕЛЕ, а CSP — заголовок, поэтому их здесь нет: ответ читается в блоке «заголовки». До выката правки — CSP без worker-src (подтверждение диагноза); после — с worker-src 'self' blob:.",
   "urls": [
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.terrain.pmtiles",
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.contours.geojson"
+    "https://vedarai.ru/planning",
+    "https://vedarai.ru/version.json"
   ],
-  "preflight": [
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.terrain.pmtiles",
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.contours.geojson"
-  ],
-  "range": "0-16383",
-  "origin": "https://vedarai.ru",
   "grep": [
-    "PMTiles",
-    "FeatureCollection"
+    "\"commit\""
   ],
   "bytes": 200,
   "timeout": 60,

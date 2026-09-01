@@ -399,6 +399,15 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
 
+  // Чужие хосты не перехватываем — кроме тайлов OSM, у которых своя ветка
+  // ниже. Иначе они проваливались в общую ветку navigateWithTimeout, а та
+  // на отказ сети отдаёт РАЗМЕТКУ страницы /offline. Читатель PMTiles
+  // (Range-GET к s3.twcstorage.ru) получал бы HTML вместо 206, MapLibre для
+  // горизонталей — HTML вместо GeoJSON. Cache API к тому же не хранит
+  // частичные ответы (cache.put на 206 отказывает), так что кэшировать
+  // здесь всё равно нечего. Офлайн-пакет карты — отдельный слой, не этот.
+  if (url.origin !== self.location.origin && url.hostname !== TILE_HOST) return;
+
   // RSC-запрос Next (клиентский переход по <Link>): просят ПЕЙЛОАД, не документ.
   // У него mode !== 'navigate', поэтому ветка навигации ниже его не ловит, и
   // офлайн он доходил до общей ветки, где в ответ отдавалась РАЗМЕТКА страницы

@@ -166,7 +166,15 @@ const nextConfig = {
           // Честный апгрейд — nonce через middleware (next docs: CSP with nonces),
           // но middleware у нас Edge JWT + rate-limit (§7 CLAUDE.md, не трогать
           // без отдельного решения). Ужесточать только вместе с этим решением.
-          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com https://emrldco.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru https://emrldco.com; font-src 'self' data: https://*.yandex.ru;` },
+          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com https://emrldco.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru https://emrldco.com; font-src 'self' data: https://*.yandex.ru; worker-src 'self' blob:; child-src 'self' blob:;` },
+          // worker-src (01.09): MapLibre GL поднимает воркеры из blob:-URL
+          // собственного бандла. Без явного worker-src браузер берёт
+          // default-src 'self' и запрещает blob: — воркера нет, тайлы не
+          // парсятся, событие load не наступает, а error MapLibre при этом не
+          // стреляет: на телефоне владельца карта молчала чёрным полем. В
+          // middleware.ts worker-src уже был, но его matcher не покрывает
+          // /planning — на этой странице заголовок ставит именно этот файл.
+          // child-src — тот же смысл для Safari до 15.5.
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
         ],
       },
