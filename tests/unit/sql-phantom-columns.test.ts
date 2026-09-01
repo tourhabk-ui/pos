@@ -35,13 +35,15 @@ const ROOT = process.cwd();
  * они держали листинг в вечном degraded.
  * Новая запись здесь ЗАПРЕЩЕНА без миграции или явного решения владельца.
  */
+/**
+ * 01.09.2026, заход удаления: сняты 35 записей. 29 стояли за файлами мёртвого
+ * модуля трансферов (#1496), 6 — за app/api/admin/operators/verify (шаг 3,
+ * последний читатель отсутствующей на проде operators). Правило «снимать по
+ * одной, проверяя каждую» здесь исполнено буквально: файла нет — ссылаться
+ * некому. Оставлять было бы хуже: список долга, где треть записей про
+ * несуществующие файлы, перестаёт говорить, сколько долга есть на самом деле.
+ */
 const BASELINE = new Set<string>([
-  "app/api/admin/operators/verify/route.ts → operators.company_address",
-  "app/api/admin/operators/verify/route.ts → operators.company_inn",
-  "app/api/admin/operators/verify/route.ts → operators.company_name",
-  "app/api/admin/operators/verify/route.ts → operators.user_id",
-  "app/api/admin/operators/verify/route.ts → operators.verification_status",
-  "app/api/admin/operators/verify/route.ts → operators.website",
   "app/api/ai/knowledge-base/route.ts → partners.contact_info",
   "app/api/ai/knowledge-base/route.ts → partners.specialization",
   "app/api/eco-points/route.ts → eco_points.co2_saved_kg",
@@ -72,26 +74,10 @@ const BASELINE = new Set<string>([
   "app/api/payments/webhook/route.ts → operator_bookings.booking_type",
   "app/api/payments/webhook/route.ts → transfer_schedules.from_location",
   "app/api/payments/webhook/route.ts → transfer_schedules.to_location",
-  "app/api/planner/compose/route.ts → operators.company_name",
   "app/api/reviews/my/route.ts → reviews.images",
   "app/api/tours/[id]/availability/route.ts → operator_bookings.start_date",
   "app/api/tours/[id]/availability/route.ts → operator_tours.min_group_size",
   "app/api/tours/[id]/book/route.ts → operator_tours.min_group_size",
-  "app/api/transfer/drivers/[id]/documents/route.ts → driver_documents.created_at",
-  "app/api/transfer/drivers/[id]/documents/route.ts → driver_documents.document_type",
-  "app/api/transfer/drivers/[id]/documents/route.ts → driver_documents.issued_at",
-  "app/api/transfer/routes/route.ts → transfer_routes.currency",
-  "app/api/transfer/routes/route.ts → transfer_routes.duration_minutes",
-  "app/api/transfer/vehicles/[id]/documents/route.ts → vehicle_documents.created_at",
-  "app/api/transfer/vehicles/[id]/documents/route.ts → vehicle_documents.document_type",
-  "app/api/transfer/vehicles/[id]/documents/route.ts → vehicle_documents.issued_at",
-  "app/api/transfers/[routeId]/schedules/route.ts → transfer_bookings.seats_count",
-  "app/api/transfers/[routeId]/schedules/route.ts → transfer_bookings.transfer_id",
-  "app/api/transfers/[routeId]/schedules/route.ts → transfer_schedules.price",
-  "app/api/transfers/[routeId]/schedules/route.ts → transfer_schedules.total_seats",
-  "app/api/transfers/[routeId]/schedules/route.ts → transfers.departure_date",
-  "app/api/transfers/[routeId]/schedules/route.ts → transfers.schedule_id",
-  "app/api/transfers/operator/dashboard/route.ts → transfer_schedules.operator_id",
   "app/api/trip/plan/route.ts → operator_tours.coordinates",
   "app/api/trip/plan/route.ts → operator_tours.season",
   "app/api/webhooks/cloudpayments/route.ts → transfer_bookings.amount",
@@ -99,12 +85,6 @@ const BASELINE = new Set<string>([
   "app/api/webhooks/cloudpayments/route.ts → transfer_payments.error_message",
   "app/api/webhooks/cloudpayments/route.ts → transfer_payments.transaction_id",
   "lib/agents/agencies/operator-agency.ts → operator_tours.created_via",
-  "lib/agents/agencies/transfer-operator-agency.ts → drivers.transfer_operator_id",
-  "lib/agents/agencies/transfer-operator-agency.ts → drivers.user_id",
-  "lib/agents/agencies/transfer-operator-agency.ts → transfers.from_location",
-  "lib/agents/agencies/transfer-operator-agency.ts → transfers.to_location",
-  "lib/agents/agencies/transfer-operator-agency.ts → users.deleted_at",
-  "lib/agents/agencies/transfer-operator-agency.ts → users.status",
   "lib/agents/evo/rescue-agent.ts → partners.is_active",
   "lib/agents/execution/initiative-executor.ts → ai_actions_log.agent_id",
   "lib/agents/execution/initiative-executor.ts → ai_actions_log.details",
@@ -119,11 +99,9 @@ const BASELINE = new Set<string>([
   "lib/auth/guide-helpers.ts → partners.languages",
   "lib/auth/guide-helpers.ts → partners.specializations",
   "lib/auth/guide-helpers.ts → partners.total_earnings",
-  "lib/auth/transfer-helpers.ts → vehicles.rating",
   "lib/eco/compensation.ts → partners.is_active",
   "lib/events/agent-bus.ts → ai_actions_log.agent_id",
   "lib/events/agent-bus.ts → ai_actions_log.status",
-  "lib/kuzmich/transfer-search.ts → transfer_routes.duration_minutes",
   "lib/notifications/tour-channel-post.ts → operator_tours.location",
   "lib/octo/service.ts → operator_tours.gallery",
   "lib/octo/service.ts → operator_tours.hero_image",
@@ -139,11 +117,6 @@ const BASELINE = new Set<string>([
   "lib/services/operators/support.service.ts → agents.category",
   "lib/services/operators/support.service.ts → agents.description",
   "lib/services/operators/support.service.ts → agents.status",
-  "lib/transfers/matching.ts → transfer_drivers.current_location",
-  "lib/transfers/matching.ts → transfer_drivers.experience_years",
-  "lib/transfers/matching.ts → transfer_drivers.is_available",
-  "lib/transfers/matching.ts → transfer_drivers.working_hours",
-  "lib/transfers/matching.ts → transfer_vehicles.driver_id",
 ]);
 const ALLOWLIST = BASELINE;
 

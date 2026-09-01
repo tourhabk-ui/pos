@@ -345,34 +345,6 @@ export interface EmailTemplateUpdateRow {
 }
 
 // ──────────────────────────────────────────────────────────
-// Admin Operators
-// ──────────────────────────────────────────────────────────
-
-export interface OperatorVerifyRow {
-  id: string;
-  user_id: string;
-  company_name: string;
-  company_inn: string;
-  company_address: string;
-  website: string | null;
-  description: string | null;
-  verification_status: string;
-  created_at: Date;
-  email: string;
-  name: string;
-  phone: string | null;
-}
-
-export interface OperatorActionRow {
-  id: string;
-  user_id: string;
-  company_name: string;
-  verification_status: string;
-  email: string;
-  name: string;
-}
-
-// ──────────────────────────────────────────────────────────
 // Admin Users [id]
 // ──────────────────────────────────────────────────────────
 
