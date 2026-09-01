@@ -41,7 +41,11 @@ on:
     paths:
       - '.github/triggers/safety-ledger-check.json'
 
-permissions: {}
+# contents: read — ровно для checkout: цикл ожидания теперь лежит в
+# scripts/ci/wait-for-contract.sh, и его надо получить. Больше воркфлоу не
+# делает ничего: он только читает прод.
+permissions:
+  contents: read
 
 jobs:
   check:
@@ -52,80 +56,24 @@ jobs:
     # cron-evo.yml: --max-time клиента равнялся maxDuration роута).
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
+
       - name: Триада — таблица / отказ миграции / записи
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          if [ -z "$CRON_SECRET" ]; then
-            echo "::error::CRON_SECRET secret не задан."
-            exit 1
-          fi
-
-          URL="${LEDGER_CHECK_URL:-https://vedarai.ru/api/cron/safety-ledger-check}"
-          # Значения по умолчанию — боевые; переопределяются только сторожем,
-          # который исполняет этот же блок и не может ждать пятнадцать минут.
-          ATTEMPTS="${LEDGER_CHECK_ATTEMPTS:-30}"
-          DELAY="${LEDGER_CHECK_DELAY:-30}"
+          # Ожидание выкладки живёт в общем скрипте: у этой логики появился
+          # второй пользователь (перепись реестра схемы), а две копии цикла
+          # разошлись бы — в этом репозитории расхождение копий уже было корнем
+          # худших дефектов. Умолчания ATTEMPTS/DELAY боевые и переопределяются
+          # только сторожем.
+          WAIT_URL: https://vedarai.ru/api/cron/safety-ledger-check
+          WAIT_OUT: /tmp/ledger.json
           # Версия контракта ответа, которую этот воркфлоу умеет читать. Ответ
           # более старой версии — тот же третий исход, что и 404: отвечает не тот
           # код, которого мы ждём. Поднимать вместе с contract_version в роуте.
-          EXPECT_CONTRACT="${LEDGER_CHECK_CONTRACT:-3}"
-
-          i=0
-          LAST="не спрашивали"
-          while :; do
-            i=$((i + 1))
-
-            # --max-time обязателен: без него отказ висит до таймаута джоба, и
-            # «не смогли спросить» приходит через минуты вместо секунды. Ровно
-            # это и случилось в первом прогоне с psql (2.5 минуты молчания).
-            CURL_RC=0
-            HTTP=$(curl -sS -o /tmp/ledger.json -w "%{http_code}" \
-              --max-time 45 \
-              "$URL" \
-              -H "Authorization: Bearer $CRON_SECRET") || CURL_RC=$?
-
-            if [ "$CURL_RC" = "0" ] && [ "$HTTP" = "200" ]; then
-              # Ответ получен — но от ТОЙ ЛИ версии? Прогон 4 показал, что нет:
-              # роут отвечал 200 мгновенно, потому что уехал прошлым коммитом, и
-              # воркфлоу напечатал прежние, неверно отсортированные события как
-              # «последние». Достижимость отвечающего и нужность его версии —
-              # разные вопросы, и второй надо задавать вслух.
-              # sed, а не python3 -c: многострочный питон внутри блочного скаляра
-              # YAML обрывает сам скаляр (его первая строка встаёт левее отступа
-              # блока). Эта яма в репозитории уже случалась — см. шапку
-              # timeweb-deploy-logs.yml, прогоны 3/4 с IndentationError.
-              # Отсутствие поля читается как 0 — то есть как прежняя версия.
-              GOT=$(sed -n 's/.*"contract_version"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' /tmp/ledger.json | head -1)
-              [ -z "$GOT" ] && GOT=0
-              if [ "$GOT" -ge "$EXPECT_CONTRACT" ]; then
-                break
-              fi
-              LAST="контракт $GOT < $EXPECT_CONTRACT (прод отвечает прежней версией)"
-            elif [ "$CURL_RC" != "0" ]; then
-              # Во время выкладки контейнер перезапускается, и обрыв связи здесь
-              # ожидаем ровно так же, как 404. Отличать «прод лежит» от «прод
-              # переезжает» одним запросом нельзя — различает их только время.
-              LAST="curl $CURL_RC"
-            elif [ "$HTTP" = "404" ]; then
-              LAST="HTTP 404 (роута ещё нет)"
-            else
-              # Любой иной код — про сам роут, а не про выкладку: ждать нечего.
-              echo "::error::Роут ответил $HTTP — тело ниже. Это ответ приложения, а не отсутствие выкладки, поэтому ждать нечего."
-              cat /tmp/ledger.json 2>/dev/null || true
-              exit 1
-            fi
-
-            if [ "$i" -ge "$ATTEMPTS" ]; then
-              echo "::error::За $((ATTEMPTS * DELAY)) с нужного ответа не дождались, последний исход: $LAST. Это «не смогли спросить», а не «ledger пуст»: роут либо не отвечал вовсе, либо отвечал прежней версией контракта. Смотреть надо выкладку контейнера на Timeweb, а не миграцию 925."
-              exit 1
-            fi
-
-            echo "$LAST — попытка $i из $ATTEMPTS, ждём ${DELAY}с (выкладка Timeweb идёт около 12 минут)"
-            sleep "$DELAY"
-          done
-
-          echo "HTTP 200 с попытки $i"
+          WAIT_CONTRACT: '3'
+        run: |
+          bash scripts/ci/wait-for-contract.sh
 
           # Вердикт словами — первым, чтобы читающий не разбирал JSON ради него.
           python3 - <<'PY'
