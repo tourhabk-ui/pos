@@ -1,15 +1,20 @@
 {
-  "note": "#1483, шаг 2. Гипотеза про массовую перезапись наброском ОТПАЛА: road_graph_astar всего 2 маршрута из 392, surveyed_geometry 272. Значит обвал не в геометрии. Черта получает ещё два входа, которых нет в остальных метриках: род из buildRoutePassport и способ передвижения из detectTravelMode(title). Нужна раскладка navigability по вердиктам и navigability_reasons по причинам — тогда станет видно, какой вход обнулил счёт. Байт больше: блок лежит в хвосте JSON.",
+  "note": "#1493, проверка собственного утверждения. Я сказал владельцу и записал в census-verdict.ts, что «у 282 маршрутов не записан донор», сославшись на anchor_sources. Это неверно: anchor_source (metadata->>'anchor_source', миграции 847/877) — откуда взята ЯКОРНАЯ КООРДИНАТА маршрута, а не страница-источник линии. Донор считается в другом месте — donorBinding (dedupe_key вида «источник:id» или source_url на http) и печатается как trust.donor_binding. Нужны настоящие числа: confirmed / proximity_only / missing.",
   "urls": [
     "https://vedarai.ru/api/cron/route-data-audit"
   ],
   "grep": [
-    "\"navigability\"",
-    "not_on_foot",
-    "not_a_route",
-    "navigability_reasons"
+    "donor_binding",
+    "anchor_sources",
+    "\"trust\""
   ],
-  "bytes": 60000,
+  "around": [
+    "donor_binding",
+    "anchor_sources"
+  ],
+  "aroundLines": 6,
+  "aroundHits": 1,
+  "bytes": 4000,
   "timeout": 300,
   "retries": 2,
   "retryDelay": 20
