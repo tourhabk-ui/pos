@@ -1,0 +1,57 @@
+# Разбор #1483, второй заход: контрфакт «до разметки рода связи».
+#
+# PR #1487 добавил в аудит поле navigable_ignoring_link_kind — то же правило,
+# посчитанное без различения рода связи. Расхождение с настоящим числом и
+# есть цена разметки, а заодно ответ, врал ли порог 215.
+#
+# Только чтение. Не мержится в main.
+name: Nav census probe
+
+on:
+  push:
+    branches: [nav-census-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Пригодность и контрфакт
+        run: |
+          code=$(curl -sS --max-time 180 \
+            "https://vedarai.ru/api/cron/route-data-audit?secret=${{ secrets.CRON_SECRET }}" \
+            -o a.json -w '%{http_code}' || echo '000')
+          echo "HTTP $code"
+          python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open('a.json'))
+          except Exception as e:
+              print('разобрать ответ не смог:', e)
+              print(open('a.json').read()[:1500]); raise SystemExit(0)
+          nav = d.get('navigability') or {}
+          cf = d.get('navigable_ignoring_link_kind')
+          print('маршрутов посчитано:', d.get('routes_counted'))
+          print()
+          print('пригодных СЕЙЧАС (род связи различаем):', nav.get('navigable'))
+          if cf is None:
+              print('контрфакта нет — деплой ещё не доехал, поле не отдаётся')
+          else:
+              print('пригодных БЫЛО БЫ без различения рода:', cf)
+              n = nav.get('navigable') or 0
+              print('цена разметки:', cf - n, 'маршрутов')
+          print()
+          print('вердикты (голое правило):', json.dumps(nav, ensure_ascii=False))
+          t = d.get('trust') or {}
+          print()
+          print('РЕШЕНИЕ ДОВЕРИЯ (флаг снятия отказа работает):')
+          print('  состояния:', json.dumps(t.get('states'), ensure_ascii=False))
+          print('  ведут по улике:', t.get('led_by_evidence'))
+          print('  свежесть:', json.dumps(t.get('freshness'), ensure_ascii=False))
+          print('  совпадение с источником:', json.dumps(t.get('source_match'), ensure_ascii=False))
+          print('  привязка донора:', json.dumps(t.get('donor_binding'), ensure_ascii=False))
+          print()
+          print('роды связей:', json.dumps(d.get('link_kinds'), ensure_ascii=False))
+          PY
