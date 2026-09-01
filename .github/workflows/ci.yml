@@ -185,6 +185,12 @@ jobs:
       # запускал НИКОГДА: в джобе `ci` переменной KERNEL_PG_TEST_URL нет, и там
       # они пропускаются, а сюда попадал только agent-kernel. Пропуск выглядел
       # как успех — тот самый третий исход, выданный за первый (§4.0).
-      # Сторож полноты — tests/unit/pg-tests-run-in-ci.test.ts.
+      #
+      # Аргумент — ПОДСТРОКА пути, а не glob: позиционный аргумент vitest это
+      # фильтр по имени файла, и `tests/integration/**/*.pg.test.ts` не выбирает
+      # НИ ОДНОГО файла (проверено: `vitest list` молчит, джоб падает за 51 с).
+      # Сторож tests/unit/pg-tests-run-in-ci.test.ts исполняет эту же команду
+      # через `vitest list` и сверяет выбранное с каталогом — именно потому, что
+      # первая версия сторожа проверяла ФОРМУ команды и пропустила такую.
       - name: Integration tests (real PostgreSQL)
-        run: npx vitest run "tests/integration/**/*.pg.test.ts"
+        run: npx vitest run pg.test.ts
