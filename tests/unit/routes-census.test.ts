@@ -64,7 +64,12 @@ describe('пустая перепись — отказ, а не чистота',
 
 describe('регрессия ловится и адресуется', () => {
   it('просадка пригодных краснеет', () => {
-    const v = judgeCensus({ ...good, navigability: { ...good.navigability, navigable: 100 } });
+    // Значение берётся ОТ БАЗЫ, а не пишется числом: база перемеряется
+    // (01.09 — с 215 на 6, см. разбор в census-verdict.ts), и тест,
+    // прибитый к прежнему масштабу, начинал бы проверять не то. Здесь важна
+    // черта «упало ниже допустимого», а не конкретная цифра.
+    const belowFloor = Math.floor(CENSUS_BASELINE.navigable * 0.5);
+    const v = judgeCensus({ ...good, navigability: { ...good.navigability, navigable: belowFloor } });
     expect(v.red).toBe(true);
     expect(v.findings[0].metric).toMatch(/пригодные/);
   });
