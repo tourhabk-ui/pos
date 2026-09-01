@@ -29,42 +29,17 @@
  */
 import { describe, it, expect } from 'vitest';
 import { undeclaredTables, declaredTables } from '@/lib/db/schema-coverage';
+import { UNDECLARED_TABLES } from '@/lib/db/undeclared-registry';
 
 /**
- * Таблицы, к которым код обращается, а репозиторий их не объявляет.
+ * Список переехал в `lib/db/undeclared-registry.ts` и здесь только читается.
  *
- * Замер 19.08.2026. Список может только сокращаться — добавлять сюда новое
- * значит соглашаться, что схему снова нельзя будет проверить.
+ * Пока его читал один сторож, константы в тесте хватало. Теперь тот же список
+ * читает прод: перепись `GET /api/cron/schema-registry-census` спрашивает базу,
+ * в каком состоянии каждый пункт. Две копии разошлись бы, и перепись начала бы
+ * молчать ровно о том, что сторож считает бедой.
  */
-const KNOWN_UNDECLARED = new Set([
-  // Модуль трансферов целиком: описан в lib/database/transfer_schema.sql,
-  // который НЕ применяется ничем — это не миграция, а файл рядом.
-  'transfer_bookings', 'transfer_schedules', 'transfer_vehicles',
-  'transfer_drivers', 'transfer_notifications', 'transfer_payments',
-  // seat_holds ушла 22.08.2026 вместе с кодом удержания мест: таблицы не
-  // существовало ни в миграциях, ни в схеме, а гонку закрывает FOR UPDATE
-  // NOWAIT в createBookingWithLock.
-  'transfer_options', 'operator_booking_transfers',
-  // Оператор трансферов; описан в lib/database/operators_schema.sql, тоже
-  // вне реестра. На нём стоят и запросы трансферов, и админские ручки.
-  'operators',
-  // Деньги: не описаны нигде в репозитории вовсе.
-  'payments', 'payouts', 'vouchers',
-  // Турист: профиль, документы, поездки, достижения, списки.
-  // tourist_documents объявлена миграцией 903 (22.08.2026): форма собрана по
-  // живому коду, который с ней работает.
-  'tourist_profiles', 'tourist_trips', 'trip_bookings',
-  'tourist_achievements', 'tourist_reviews', 'tourist_wishlist',
-  'tourist_checklists', 'tourist_notification_preferences',
-  // Согласия и аудит согласий (152-ФЗ) — тем более странно не иметь схемы.
-  'user_agreements', 'agreement_audit_log', 'content_consents',
-  // Прочее.
-  'agents', 'operator_reviews', 'tour_images', 'weather_cache',
-  // `routes` — обращение к ней CLAUDE.md прямо запрещает: только
-  // v_kamchatka_routes_api или kamchatka_routes. Держится здесь как
-  // напоминание, а не как разрешение.
-  'routes',
-]);
+const KNOWN_UNDECLARED = new Set<string>(UNDECLARED_TABLES);
 
 describe('схема репозитория покрывает то, что спрашивает код', () => {
   it('объявленных таблиц найдено достаточно — разбор работает', () => {
