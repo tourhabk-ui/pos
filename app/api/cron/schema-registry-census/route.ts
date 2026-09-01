@@ -40,12 +40,23 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import {
   UNDECLARED_TABLES,
   CANARY_TABLES,
+  SUSPECT_DECLARED_TABLES,
   type RegistryCensusRow,
   type RegistryState,
 } from '@/lib/db/undeclared-registry';
 
-/** Спрашиваем про список и про канарейку ОДНИМ запросом — иначе они не сравнимы. */
-const ASKED: readonly string[] = [...UNDECLARED_TABLES, ...CANARY_TABLES];
+/**
+ * Спрашиваем про все три множества ОДНИМ запросом — иначе они не сравнимы.
+ *
+ * Замороженный список, канарейка и «объявленные под сомнением» отвечают на
+ * разные вопросы, но обязаны пройти один путь: разными запросами канарейка
+ * перестала бы ручаться за остальных.
+ */
+const ASKED: readonly string[] = [
+  ...UNDECLARED_TABLES,
+  ...CANARY_TABLES,
+  ...SUSPECT_DECLARED_TABLES,
+];
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -144,12 +155,13 @@ export async function GET(request: NextRequest) {
     const reason = `${e.code ? `[${e.code}] ` : ''}${e.message ?? String(err)}`;
     return NextResponse.json({
       success: false,
-      contract_version: 2,
+      contract_version: 3,
       checked_at: new Date().toISOString(),
       verdict: `НЕ СМОГЛИ ПРОВЕРИТЬ: запрос к базе не выполнился (${reason}). Это не «таблиц нет».`,
       counts: { total: UNDECLARED_TABLES.length, absent: 0, present_empty: 0, present_with_rows: 0, unknown: UNDECLARED_TABLES.length },
       canary: null,
       connection: null,
+      suspect_declared: null,
       tables: UNDECLARED_TABLES.map((t) => ({ table: t, state: 'unknown' as const, rows: null, columns: [], reason })),
     });
   }
@@ -169,7 +181,7 @@ export async function GET(request: NextRequest) {
       `смотреть схему и привилегии: ${JSON.stringify(env)}`;
     return NextResponse.json({
       success: false,
-      contract_version: 2,
+      contract_version: 3,
       checked_at: new Date().toISOString(),
       verdict:
         `НЕ ВЕРИТЬ ОТВЕТУ: ${reason}. Ответ «таблиц нет» в таком состоянии ничего не значит, ` +
@@ -177,6 +189,7 @@ export async function GET(request: NextRequest) {
       counts: { total: UNDECLARED_TABLES.length, absent: 0, present_empty: 0, present_with_rows: 0, unknown: UNDECLARED_TABLES.length },
       canary: { expected: CANARY_TABLES, missing: canaryMissing, ok: false },
       connection: env,
+      suspect_declared: null,
       tables: UNDECLARED_TABLES.map((t) => ({ table: t, state: 'unknown' as const, rows: null, columns: [], reason })),
     });
   }
@@ -224,13 +237,25 @@ export async function GET(request: NextRequest) {
      * Поднимать при любом изменении формы, от которой зависит читающий
      * (воркфлоу ждёт объявленную версию — см. safety-ledger-check).
      */
-    contract_version: 2,
+    contract_version: 3,
     checked_at: new Date().toISOString(),
     verdict,
     // Канарейка видна и в успешном ответе: читающий обязан иметь возможность
     // проверить не только вывод, но и право переписи его делать.
     canary: { expected: CANARY_TABLES, missing: [] as string[], ok: true },
     connection: env,
+    /**
+     * Объявленные миграцией, но под сомнением: их `CREATE TABLE` ссылается на
+     * таблицу, которой на проде нет, а такой CREATE не выполняется вовсе.
+     * Замороженный список стережёт объявленность и об этом молчит — здесь
+     * спрашивается ПРИМЕНЁННОСТЬ. Отдельной секцией, чтобы не смешаться с ним:
+     * у множеств разный смысл и разные правила выхода.
+     */
+    suspect_declared: SUSPECT_DECLARED_TABLES.map((t) => ({
+      table: t,
+      present: live.has(t),
+      alive: live.get(t)?.alive ?? false,
+    })),
     counts: {
       total: rows.length,
       absent: absent.length,

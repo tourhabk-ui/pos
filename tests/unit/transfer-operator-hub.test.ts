@@ -71,12 +71,20 @@ describe('онбординг: тот же конвейер, что у gear/stay'
 });
 
 describe('watchdog: трансферы в симметрии booking-доменов', () => {
-  it('проверка pending-броней >24ч существует и включена в прогон', () => {
+  it('проверка запросов мест >24ч существует и включена в прогон', () => {
+    // Перенацелено 01.09 на схему 926. Стерегомое свойство прежнее — «запросы
+    // без ответа больше суток не остаются незамеченными», — а таблицы новые:
+    // transfer_bookings и operators на проде отсутствуют (перепись, прогон 2),
+    // и прежний запрос падал с 42P01 на каждом прогоне Watchdog.
     expect(WATCHDOG).toContain('checkPendingTransferBookings');
     expect(WATCHDOG).toContain("'pending_transfer_booking'");
-    expect(WATCHDOG).toContain('FROM transfer_bookings tb');
-    expect(WATCHDOG).toContain("tb.status = 'pending'");
+    expect(WATCHDOG).toContain('FROM transfer_seat_bookings sb');
+    expect(WATCHDOG).toContain("sb.status = 'requested'");
     expect(WATCHDOG).toContain("INTERVAL '24 hours'");
+    // Мёртвых имён в живом стороже быть не должно: иначе он снова начнёт
+    // краснеть «НЕ ПРОВЕРЕНО» вместо того, чтобы проверять.
+    expect(WATCHDOG).not.toContain('FROM transfer_bookings');
+    expect(WATCHDOG).not.toContain('JOIN operators');
     // Включена в прогон, а не мёртвая функция.
     const checks = /const CHECKS\b[^[]*?=\s*\[([\s\S]*?)\n\s*\];/.exec(WATCHDOG)?.[1] ?? '';
     expect(checks).toMatch(/\bcheckPendingTransferBookings\b/);
