@@ -57,10 +57,14 @@ withPg('трансферы на настоящем PostgreSQL', () => {
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         name varchar(255) NOT NULL
       )`);
+    // Только id: тесту нужен лишь адресат внешнего ключа. Первая версия
+    // объявляла ещё и email и вставляла его — и упала на базе, где `users`
+    // осталась от чужого прогона без этой колонки. CREATE TABLE IF NOT EXISTS
+    // не чинит форму существующей таблицы, поэтому фикстура не должна зависеть
+    // от колонок, которые ей не нужны.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-        email varchar(255)
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4()
       )`);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS places (
@@ -271,7 +275,7 @@ withPg('трансферы на настоящем PostgreSQL', () => {
     ).rejects.toThrow(/one_customer/);
 
     // Два сразу.
-    const u = await pool.query<{ id: string }>(`INSERT INTO users (email) VALUES ('t@e.st') RETURNING id`);
+    const u = await pool.query<{ id: string }>(`INSERT INTO users DEFAULT VALUES RETURNING id`);
     await expect(
       pool.query(
         `INSERT INTO transfer_seat_bookings (trip_id, seats, ordered_by_partner_id, ordered_by_user_id)
