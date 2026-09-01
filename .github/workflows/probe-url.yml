@@ -195,7 +195,14 @@ jobs:
             # геолокацию на всём сайте, и по телу страницы этого не увидеть.
             if [ -s /tmp/headers ]; then
               echo "── заголовки ──"
-              grep -iE '^(HTTP/|permissions-policy|feature-policy|content-security-policy|x-frame-options|strict-transport|server|cache-control|content-range|content-length|accept-ranges|etag|age|x-cache|x-cached|access-control-):' /tmp/headers | cut -c1-300
+              # 01.09: прежний шаблон кончался на `access-control-):` — то есть
+              # требовал буквальное «access-control-:», которого не бывает, и
+              # CORS-заголовки не печатались НИКОГДА. «CORS проверен 31.08»
+              # показывал код 206, но не сами заголовки. Статусная строка тем же
+              # шаблоном тоже не ловилась (`HTTP/:`). Обрезка 300 символов
+              # прятала хвост CSP — там worker-src, без которого MapLibre не
+              # заводит воркер и молчит без события error.
+              grep -iE '^(HTTP/[0-9.]+ [0-9]{3}|(permissions-policy|feature-policy|content-security-policy|x-frame-options|strict-transport|server|cache-control|content-range|content-length|accept-ranges|etag|age|x-cache|x-cached|access-control-[a-z-]+):)' /tmp/headers | cut -c1-1500
             fi
             if [ -n "$GREP" ]; then
               echo "── маркеры ──"
@@ -322,7 +329,7 @@ jobs:
                 -H "Access-Control-Request-Method: GET" \
                 -H "Access-Control-Request-Headers: range" "$pu" || echo 000)
               echo "HTTP: $PCODE"
-              grep -iE '^(HTTP/|access-control-|allow|content-length|server):' /tmp/pheaders | cut -c1-300 || true
+              grep -iE '^(HTTP/[0-9.]+ [0-9]{3}|(access-control-[a-z-]+|allow|content-length|server):)' /tmp/pheaders | cut -c1-600 || true
               if [ "$PCODE" = 000 ]; then
                 echo "  НЕ СМОГ СПРОСИТЬ: соединения нет — это не ответ бакета, а отсутствие ответа"
               elif grep -qiE '^access-control-allow-headers:.*(range|\*)' /tmp/pheaders && grep -qiE '^access-control-allow-origin:' /tmp/pheaders; then
