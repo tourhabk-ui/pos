@@ -252,10 +252,17 @@ export function buildVedarStyle(
           'line-color': [
             'case', ['get', 'connector'], p.connector, p.track,
           ],
+          // Зумовое выражение обязано стоять ВЕРХНИМ уровнем: MapLibre не
+          // принимает `interpolate(['zoom'])` внутри `case` и отвергает стиль
+          // целиком («requires a "step" or "interpolate" expression»).
+          // Полевой прогон 01.09: именно эта строка держала карту чёрной уже
+          // после починки глифов, и нашлась она только потому, что ошибка
+          // карты стала видна на экране, а не в консоли телефона.
+          // Зависимость от свойства переносится ВНУТРЬ остановок интерполяции.
           'line-width': [
-            'case', ['get', 'connector'],
-            2,
-            ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 5],
+            'interpolate', ['linear'], ['zoom'],
+            10, ['case', ['get', 'connector'], 2, 2.5],
+            14, ['case', ['get', 'connector'], 2, 5],
           ],
           // Пунктир ставит компонент через line-dasharray на основе
           // dashArray из line-standard — здесь только сплошная основа.

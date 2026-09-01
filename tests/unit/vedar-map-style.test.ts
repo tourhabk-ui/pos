@@ -153,6 +153,45 @@ describe('линия маршрута подчиняется §12, а не ре�
     expect(casing.filter).toEqual(['==', ['get', 'connector'], false]);
   });
 
+  it('зумовое выражение стоит верхним уровнем, а не внутри case', () => {
+    /**
+     * Полевой прогон 01.09. После починки глифов карта ОСТАВАЛАСЬ чёрной, и
+     * причину назвала строка ошибки на экране: «requires a "step" or
+     * "interpolate" expression». MapLibre не принимает interpolate(['zoom'])
+     * вложенным в case и отвергает стиль ЦЕЛИКОМ — снова пропадала не одна
+     * линия, а вся карта.
+     *
+     * Проверяем все paint-свойства всех слоёв: где есть ['zoom'], там
+     * interpolate/step обязан быть корнем выражения.
+     */
+    const zoomNestedInside = (expr: unknown): boolean => {
+      if (!Array.isArray(expr)) return false;
+      const head = expr[0];
+      // Корень-интерполятор законен: его вход и есть зум.
+      if (head === 'interpolate' || head === 'step') {
+        // Внутри остановок зума быть не должно (там значения, а не вход).
+        return expr.slice(3).some(v => containsZoom(v));
+      }
+      return containsZoom(expr);
+    };
+    const containsZoom = (expr: unknown): boolean => {
+      if (!Array.isArray(expr)) return false;
+      if (expr[0] === 'zoom') return true;
+      return expr.some(v => containsZoom(v));
+    };
+
+    for (const theme of ['dark', 'light'] as const) {
+      for (const l of layers(theme)) {
+        for (const [prop, value] of Object.entries(l.paint ?? {})) {
+          expect(
+            zoomNestedInside(value),
+            `слой ${l.id}, свойство ${prop}: ['zoom'] не на верхнем уровне`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
   it('палитра трека — токен --success, а не произвольный зелёный', () => {
     expect(vedarMapPalette('dark').track).toBe('#3FB950');
   });
