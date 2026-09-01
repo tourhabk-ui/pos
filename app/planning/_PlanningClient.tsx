@@ -71,6 +71,7 @@ import { RecoveryCard } from '@/components/field/RecoveryCard';
 import { recoveryState } from '@/lib/on-route/recovery';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { FieldCompass } from '@/components/field/FieldCompass';
+import { alertGuidance, NO_GUIDANCE_TEXT } from '@/lib/safety/alert-guidance';
 import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
@@ -653,6 +654,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       const j = await res.json() as { success?: boolean; data?: Record<string, unknown> };
       const d = j?.data;
       if (j?.success && d) {
+        // Руководство кладём В ПАКЕТ вместе с тревогой (#1485): в поле сети
+        // не будет, а «что делать» нужно именно там. Справочник
+        // детерминированный — никаких запросов и никакой модели.
+        const topType = typeof d.topType === 'string' ? d.topType : null;
+        const g = alertGuidance(topType);
         safety = {
           hasAlert: d.hasAlert === true,
           maxSeverity: Number(d.maxSeverity) || 0,
@@ -660,6 +666,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           source: typeof d.source === 'string' ? d.source : '',
           at: Date.now(),
           unavailable: d.unavailable === true,
+          topType,
+          guidance: g.steps,
+          guidanceKnown: g.known,
         };
       }
     } catch { safety = null; }
@@ -709,6 +718,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         if (!(j as { success?: boolean } | null)?.success || !d) return;
         // Недоступность источника — не «спокойно»: живым снимком не считается.
         if (d.unavailable === true) return;
+        // Живой снимок несёт руководство так же, как и пакетный: иначе
+        // «что делать» появлялось бы только у тех, кто скачал пакет.
+        const liveType = typeof d.topType === 'string' ? d.topType : null;
+        const lg = alertGuidance(liveType);
         setLiveSafety({
           hasAlert: d.hasAlert === true,
           maxSeverity: Number(d.maxSeverity) || 0,
@@ -716,6 +729,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           source: typeof d.source === 'string' ? d.source : '',
           at: Date.now(),
           unavailable: false,
+          topType: liveType,
+          guidance: lg.steps,
+          guidanceKnown: lg.known,
         });
       })
       .catch(() => { /* офлайн — остаёмся на снимке пакета */ });
@@ -3598,6 +3614,38 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                     {liveSafety ? 'Живой статус' : 'Снимок из полевого пакета'} · {formatSnapshotAge(snap.at)}
                     {snap.source ? ` · ${snap.source}` : ''}
                   </p>
+                  {/* ЧТО ДЕЛАТЬ — рядом с тем, ЧТО случилось (#1485).
+                      Раньше снимок нёс только заголовок тревоги, а руководство
+                      оставалось онлайн — то есть недоступным именно там, где
+                      тревога и застаёт человека. Шаги лежат в самом пакете,
+                      берутся из детерминированного справочника. */}
+                  {snap.hasAlert && (
+                    snap.guidanceKnown && snap.guidance && snap.guidance.length > 0 ? (
+                      <div className="rounded-lg p-3 mt-1"
+                        style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                        <p className="text-xs font-semibold mb-1.5"
+                          style={{ color: 'var(--text-primary)' }}>Что делать</p>
+                        <ol className="space-y-1.5 list-decimal pl-4">
+                          {snap.guidance.map((step, i) => (
+                            <li key={i} className="text-xs leading-snug"
+                              style={{ color: 'var(--text-secondary)' }}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    ) : (
+                      // Третий исход: тревога есть, руководства нет. Общими
+                      // словами не заменяем — пустышка выглядит указанием,
+                      // ничего не указывая (§4.0).
+                      <p className="text-xs rounded-lg p-3 mt-1"
+                        style={{
+                          color: 'var(--text-secondary)',
+                          background: 'var(--bg-hover)',
+                          border: '1px solid var(--border)',
+                        }}>
+                        {NO_GUIDANCE_TEXT}
+                      </p>
+                    )
+                  )}
                   <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                     Это обстановка по краю целиком, а не оценка вашего маршрута.
                     Экстренный телефон — 112.
