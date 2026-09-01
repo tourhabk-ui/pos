@@ -23,7 +23,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { packFileName } from '@/components/shared/VedarMap';
+import { packFileName, probeFetch } from '@/components/shared/VedarMap';
 
 const SRC = readFileSync(join(process.cwd(), 'components/shared/VedarMap.tsx'), 'utf-8');
 const CLIENT_SRC = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
@@ -103,6 +103,55 @@ describe('сообщение доходит туда, где его не нак�
     const at = CLIENT_SRC.indexOf("fieldBaseMap.kind === 'vedar' && vedarDiag");
     expect(at, 'строка диагноза в приборной колонке не найдена').toBeGreaterThan(0);
     expect(CLIENT_SRC.slice(at, at + 400)).toMatch(/Своя карта не отрисовалась: \{vedarDiag\}/);
+  });
+});
+
+describe('молчание карты кончается самопроверкой, а не догадкой', () => {
+  /**
+   * Вечер 01.09: сторож назвал «стиль не загрузился · рельеф не пришёл ·
+   * горизонтали не пришли» — и на этом знание кончалось. Почему — знал
+   * только браузер телефона: preflight на заголовок Range, CORS, 403
+   * бакета и обрыв сети снаружи неотличимы, а раннер ходит из другой сети.
+   * Карта обязана спросить сама и напечатать ответ.
+   */
+  it('спрашивает оба файла тем же способом, что читатель PMTiles', () => {
+    // Заголовок архива — первый запрос читателя (getBytes(0, 16384)).
+    expect(SRC).toMatch(/probeFetch\(rawTerrain, 'bytes=0-16383'\)/);
+    expect(SRC).toMatch(/probeFetch\(sources\.contoursUrl, 'bytes=0-1023'\)/);
+    // Схема pmtiles:// — для MapLibre, а не для fetch.
+    expect(SRC).toMatch(/replace\(\/\^pmtiles:\\\/\\\/\/, ''\)/);
+  });
+
+  it('поздний приход рельефа снимает сообщение — слабый канал не отказ', () => {
+    expect(SRC).toMatch(/if \(diagShown\) \{ diagShown = false; setDiag\(null\); \}/);
+    // Ответ самопроверки, пришедший после того как рельеф уже нарисовался,
+    // не должен воскрешать сообщение.
+    expect(SRC).toMatch(/if \(cancelled \|\| !diagShown\) return;/);
+  });
+
+  it('probeFetch шлёт Range через CORS и отвечает кодом', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const fake = (async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return { status: 206 } as Response;
+    }) as unknown as typeof fetch;
+    const out = await probeFetch('https://s3.example.ru/b/a.pmtiles', 'bytes=0-16383', fake);
+    expect(out).toMatch(/^HTTP 206 за \d+\.\d с$/);
+    expect(calls).toHaveLength(1);
+    expect((calls[0][1]?.headers as Record<string, string>).range).toBe('bytes=0-16383');
+    expect(calls[0][1]?.mode).toBe('cors');
+  });
+
+  it('probeFetch называет исключение по имени — это и есть диагноз CORS/preflight', async () => {
+    const fake = (async () => { throw new TypeError('Failed to fetch'); }) as unknown as typeof fetch;
+    const out = await probeFetch('https://s3.example.ru/b/a.pmtiles', 'bytes=0-1', fake);
+    expect(out).toMatch(/^TypeError: Failed to fetch через \d+\.\d с$/);
+  });
+
+  it('probeFetch отдаёт 403/404 кодом, не исключением — у них другое лекарство', async () => {
+    const fake = (async () => ({ status: 403 }) as Response) as unknown as typeof fetch;
+    const out = await probeFetch('https://s3.example.ru/b/a.pmtiles', 'bytes=0-1', fake);
+    expect(out).toMatch(/^HTTP 403 за/);
   });
 });
 
