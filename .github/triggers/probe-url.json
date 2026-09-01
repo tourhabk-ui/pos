@@ -1,24 +1,23 @@
 {
-  "note": "#1493, шаг 3: размер рычага. Причина отказа у 255 из 288 маршрутов одна — «путевых точек меньше двух». Взять их из близости к линии ЗАПРЕЩЕНО (§4.1: род ставится по улике происхождения). Законных улик две: (1) маршрут НАЗЫВАЕТ место — route-link-suggest, но именем маршрут называет обычно ОДНУ вершину, а черте нужно две; (2) страница-донор перечисляет ЭТАПЫ маршрута — route-track-reconcile mode=stops. Оба read-only. Нужно узнать, у скольких маршрутов на донорской странице есть список этапов и сколько этапов приходится на страницу: если 2+, рычаг закрывает основную массу; если нет — надо искать третью улику, а не выдумывать связи.",
+  "note": "Владелец: «честный рельеф, а на прод выкатить не можем». Проверяем факты, а не гадаем: (1) какой коммит реально живёт на проде — /version.json; (2) отдаёт ли storage пакет рельефа с Range и правильным CORS-заголовком с origin vedarai.ru — тем самым запросом, который делает браузер при чтении PMTiles; (3) содержит ли HTML страницы planning значение NEXT_PUBLIC_MAP_PACK_BASE_URL, зашитое в клиентский бандл при сборке.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-track-reconcile?mode=stops&limit=25",
-    "https://vedarai.ru/api/cron/route-link-suggest?min_score=0.5&limit=1"
+    "https://vedarai.ru/version.json",
+    "https://vedarai.ru/planning"
   ],
   "grep": [
-    "pages_with_stop_list",
-    "links_in_route_context",
-    "unreachable",
-    "confident",
-    "disputed"
+    "\"commit\"",
+    "MAP_PACK_BASE_URL",
+    "avacha"
   ],
   "around": [
-    "pages_with_stop_list",
-    "\"checked\"",
-    "confident"
+    "\"commit\"",
+    "avacha"
   ],
-  "aroundLines": 14,
-  "aroundHits": 1,
-  "bytes": 3000,
+  "aroundLines": 6,
+  "aroundHits": 2,
+  "range": "0-1",
+  "origin": "https://vedarai.ru",
+  "bytes": 4000,
   "timeout": 300,
   "retries": 2,
   "retryDelay": 20
