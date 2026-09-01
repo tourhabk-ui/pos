@@ -1,14 +1,15 @@
 {
-  "note": "Полный CSP страницы /planning. Прежняя проба резала заголовок на 300 символах — и прятала хвост, где должен быть worker-src. Диагноз: на /planning заголовок ставит next.config.js (matcher middleware эту страницу не покрывает), и worker-src в нём не было → default-src 'self' запрещает blob: → воркер MapLibre не заводится → карта молчит без события error. Маркеры until/grep ищутся в ТЕЛЕ, а CSP — заголовок, поэтому их здесь нет: ответ читается в блоке «заголовки». До выката правки — CSP без worker-src (подтверждение диагноза); после — с worker-src 'self' blob:.",
+  "note": "Контроль лечения, с ожиданием выката. Проба до сборки сняла живой CSP /planning: заканчивается на font-src — ни worker-src, ни child-src, в точности значение next.config.js до правки. Диагноз подтверждён измерением. Теперь проба ждёт, пока в ЗАГОЛОВКЕ /planning появится worker-src 'self' blob: (маркер until отныне ищется и в заголовках — для CSP тело страницы не меняется). Timeweb собирает 40-50 минут по прошлым меткам, отсюда 50 повторов по минуте. Если маркер не появится — это «не доехало», а не «не помогло»: смотреть журнал сборки Timeweb.",
   "urls": [
     "https://vedarai.ru/planning",
     "https://vedarai.ru/version.json"
   ],
+  "until": "worker-src 'self' blob:",
   "grep": [
     "\"commit\""
   ],
-  "bytes": 200,
+  "bytes": 120,
   "timeout": 60,
-  "retries": 0,
-  "retryDelay": 10
+  "retries": 50,
+  "retryDelay": 60
 }
