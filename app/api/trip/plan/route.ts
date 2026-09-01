@@ -77,10 +77,22 @@ interface TransferCard {
   route_name: string;
   from_location: string;
   to_location: string;
-  distance_km: number;
-  duration_minutes: number;
-  price_per_person: number;
+  /**
+   * Расстояние, длительность и цена места — `null`, когда их НЕТ в данных.
+   *
+   * Прежний код подставлял `0` и `60` по умолчанию, и эти числа уходили прямо
+   * в промпт планировщика: «(60мин, 0₽)». Модель повторяла их туристу как
+   * факт о поездке. Схема 926 длительность и расстояние не хранит вовсе —
+   * перевозчик их не сообщает, — а цена места законно отсутствует, когда
+   * поездка ушла под одну группу. Пустое поле честнее придуманного (§4.0).
+   */
+  distance_km: number | null;
+  duration_minutes: number | null;
+  price_per_person: number | null;
   vehicle_type: string;
+  /** Дата выезда и остаток мест: без них предложение — обещание без покрытия. */
+  trip_date: string;
+  seats_free: number;
 }
 
 interface DayPlan {
@@ -359,44 +371,70 @@ async function selectTransfers(
   accommodations: AccommodationCard[]
 ): Promise<TransferCard[]> {
   try {
+    // ── Перенацелено 01.09 на схему 926 ────────────────────────────────────
+    //
+    // Прежний запрос шёл в transfer_routes / transfer_schedules /
+    // transfer_vehicles. Двух последних на проде НЕТ (перепись реестра схемы,
+    // прогон 2, канарейка видна), поэтому он падал с 42P01 — и падал ВНУТРЬ
+    // catch, который возвращал пустой массив. Планировщик получал «трансферов
+    // нет» и говорил это туристу: поломка выдавалась за факт о мире (§4.0).
+    //
+    // Теперь берём опубликованные поездки со СВОБОДНЫМИ местами: предлагать
+    // полную машину значит обещать то, чего нет.
     const sql = `
-      SELECT 
-        tr.id,
-        tr.name as route_name,
-        tr.from_location,
-        tr.to_location,
-        tr.distance AS distance_km,
-        tr.estimated_duration as duration_minutes,
-        ts.price_per_person,
-        tv.vehicle_type
-      FROM transfer_routes tr
-      LEFT JOIN transfer_schedules ts ON tr.id = ts.route_id
-      LEFT JOIN transfer_vehicles tv ON ts.vehicle_id = tv.id
-      WHERE 
-        tr.is_active = true
-        AND ts.is_active = true
-      ORDER BY 
-        tr.distance ASC
-      LIMIT 20
+      SELECT t.id,
+             t.to_text AS route_name,
+             t.from_text AS from_location,
+             t.to_text AS to_location,
+             t.price_per_seat::text AS price_per_seat,
+             v.kind AS vehicle_kind,
+             to_char(t.trip_date, 'YYYY-MM-DD') AS trip_date,
+             (t.seats_total - COALESCE(b.taken, 0))::int AS seats_free
+        FROM transfer_trips t
+        JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN LATERAL (
+          SELECT SUM(sb.seats) AS taken
+            FROM transfer_seat_bookings sb
+           WHERE sb.trip_id = t.id AND sb.status = 'confirmed'
+        ) b ON true
+       WHERE t.is_published
+         AND t.status IN ('planned', 'confirmed')
+         AND t.trip_date >= CURRENT_DATE
+         AND (t.seats_total - COALESCE(b.taken, 0)) > 0
+       ORDER BY t.trip_date
+       LIMIT 20
     `;
-    
+
     const result = await query<{
       id: string; route_name: string; from_location: string; to_location: string;
-      distance_km: string; duration_minutes: number; price_per_person: string; vehicle_type: string | null;
+      price_per_seat: string | null; vehicle_kind: string; trip_date: string; seats_free: number;
     }>(sql, []);
-    
+
     return result.rows.map(row => ({
       id: row.id,
       route_name: row.route_name,
       from_location: row.from_location,
       to_location: row.to_location,
-      distance_km: parseFloat(row.distance_km) || 0,
-      duration_minutes: row.duration_minutes || 60,
-      price_per_person: parseFloat(row.price_per_person) || 0,
-      vehicle_type: row.vehicle_type || 'comfort'
+      // Расстояния и длительности схема не хранит: перевозчик их не сообщает.
+      // null, а не ноль и не «60 минут» — иначе выдумка уйдёт в промпт.
+      distance_km: null,
+      duration_minutes: null,
+      price_per_person: row.price_per_seat === null ? null : parseFloat(row.price_per_seat),
+      vehicle_type: row.vehicle_kind,
+      trip_date: row.trip_date,
+      seats_free: row.seats_free,
     }));
-    
+
   } catch (error) {
+    // Пустой catch и был механизмом, которым 42P01 превращался в «трансферов
+    // нет». Ловить можно, молчать нельзя: имя проверки и SQLSTATE — в лог
+    // (§4.0). Планировщик по-прежнему отдаёт пустой список, потому что уронить
+    // весь план из-за одного блока хуже, — но теперь отказ оставляет след.
+    const e = error as { message?: string; code?: string };
+    console.error(
+      '[trip/plan] selectTransfers:',
+      `${e.code ? `[${e.code}] ` : ''}${e.message ?? String(error)}`,
+    );
     return [];
   }
 }
@@ -491,7 +529,19 @@ ${tours.map(t => `- ${t.id}: ${t.name} (${t.duration}ч, ${t.price}₽, ${t.diff
 ${accommodations.map(a => `- ${a.id}: ${a.name} (${a.price_per_night}₽/ночь, ${a.type})`).join('\n')}
 
 ДОСТУПНЫЕ ТРАНСФЕРЫ:
-${transfers.slice(0, 5).map(t => `- ${t.route_name}: ${t.from_location} → ${t.to_location} (${t.duration_minutes}мин, ${t.price_per_person}₽)`).join('\n')}
+${transfers.slice(0, 5).map(t => {
+  // В промпт уходит только известное. Прежняя строка печатала «60мин, 0₽» из
+  // подставленных умолчаний, и модель повторяла эти числа туристу как факт о
+  // поездке. Чего нет в данных — того нет и в строке (§4.0: промпт не требует
+  // того, чего в данных нет).
+  const facts = [
+    `${t.trip_date}`,
+    t.duration_minutes === null ? null : `${t.duration_minutes}мин`,
+    t.price_per_person === null ? 'цена по запросу' : `${t.price_per_person}₽/место`,
+    `свободно ${t.seats_free}`,
+  ].filter(Boolean);
+  return `- ${t.from_location} → ${t.to_location} (${facts.join(', ')})`;
+}).join('\n')}
 `;
 
   const aiResponse = await callAI(systemPrompt, userPrompt);
