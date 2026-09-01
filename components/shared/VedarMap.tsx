@@ -75,6 +75,8 @@ export default function VedarMap({
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
+  /** Что именно сказала карта, когда не смогла. Видно человеку, не только в консоли. */
+  const [mapError, setMapError] = useState<string | null>(null);
 
   // ── Жизненный цикл карты ────────────────────────────────────────────────
   // Зависимости — тема и адреса пакета. Ни линий, ни своего положения: они
@@ -115,6 +117,14 @@ export default function VedarMap({
           // Молчаливый сбой карты неотличим от «приложение умерло» — тот же
           // урок, что у LeafletMap (владелец 09.08, чёрный экран).
           console.error('[VedarMap] ошибка карты', e?.error);
+          // 01.09: карта рисовала чёрный прямоугольник, а причина (стиль
+          // отвергнут из-за подписей без глифов) лежала в консоли телефона,
+          // куда в поле не заглянешь. Ошибка обязана быть НА ЭКРАНЕ — иначе
+          // разбор снова идёт перепиской.
+          if (!cancelled) {
+            const msg = (e?.error as Error | undefined)?.message;
+            setMapError(msg ? msg.slice(0, 160) : 'неизвестная ошибка');
+          }
         });
       } catch (err) {
         if (cancelled) return;
@@ -223,6 +233,17 @@ export default function VedarMap({
   return (
     <div style={{ height, position: 'relative', background: palette.background }}>
       <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
+      {mapError && (
+        <div role="status"
+          style={{
+            position: 'absolute', left: 12, right: 12, top: 12, zIndex: 5,
+            padding: '8px 12px', borderRadius: 10,
+            background: 'rgba(13,17,23,0.9)', color: '#fff', fontSize: 11,
+            lineHeight: 1.4,
+          }}>
+          Своя карта не отрисовалась: {mapError}
+        </div>
+      )}
       {showUserLocation && geoDenied && (
         <div role="status"
           style={{
