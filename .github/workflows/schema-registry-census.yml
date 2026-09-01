@@ -57,7 +57,7 @@ jobs:
           # появления ответа, но и НУЖНОЙ его версии: прогон 4 приёмки ledger
           # показал, что прежний код отвечает 200 мгновенно и печатает старое
           # как свежее. Поднимать вместе с contract_version в роуте.
-          WAIT_CONTRACT: '1'
+          WAIT_CONTRACT: '2'
         run: |
           bash scripts/ci/wait-for-contract.sh
 
@@ -67,6 +67,14 @@ jobs:
           with open('/tmp/census.json') as f:
               d = json.load(f)
           print('ВЕРДИКТ:', d.get('verdict', '(нет)'))
+          print()
+          # Канарейка — первым делом после вердикта: без неё «нет на проде»
+          # ничего не значит. Прогон 1 ответил «нет» про все 28 пунктов сразу,
+          # и отличить правду от слепого запроса было нечем.
+          c = d.get('canary') or {}
+          print('КАНАРЕЙКА:', 'видна' if c.get('ok') else f"НЕ ВИДНА — {c.get('missing')}",
+                '· контрольные:', ', '.join(c.get('expected', [])) or '—')
+          print('ПОДКЛЮЧЕНИЕ:', json.dumps(d.get('connection') or {}, ensure_ascii=False))
           print()
           print('РАСКЛАДКА:', json.dumps(d.get('counts', {}), ensure_ascii=False))
           print()
