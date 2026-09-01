@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { load } from 'cheerio';
+import { sourceResult, type SourceFailure, type SourceResult } from './source-result.js';
 
-export async function parseLocalIncidents(limit: number = 20): Promise<unknown[]> {
+export async function parseLocalIncidents(limit: number = 20): Promise<SourceResult<unknown>> {
   // VK пабликы Камчатки с происшествиями
   // Также Telegram каналы местных новостей
 
@@ -26,7 +27,14 @@ export async function parseLocalIncidents(limit: number = 20): Promise<unknown[]
 
   const incidents: unknown[] = [];
 
+  // Отказавшие источники — в ответе, а не только в логе (source-result.ts).
+  const unavailable: SourceFailure[] = [];
+  // Считаем ФАКТИЧЕСКИ спрошенных: цикл выходит по достижению лимита, и
+  // sources.length сказал бы, что мы спросили тех, кого не спрашивали.
+  let asked = 0;
+
   for (const source of sources) {
+    asked += 1;
     try {
       let url: string;
       let parseFunc: (html: string, source: string) => unknown[];
@@ -56,14 +64,13 @@ export async function parseLocalIncidents(limit: number = 20): Promise<unknown[]
       // §4.0: отказ источника не глушится. Пустой catch превращал таймаут и
       // сетевую ошибку в «происшествий нет» — на слое безопасности это
       // худший вид тишины: он выглядит как спокойствие.
-      console.error(
-        `[local-vk] источник ${source.id} недоступен:`,
-        error instanceof Error ? error.message : error,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[local-vk] источник ${source.id} недоступен:`, message);
+      unavailable.push({ source: source.id, error: message });
     }
   }
 
-  return incidents.slice(0, limit);
+  return sourceResult(incidents.slice(0, limit), unavailable, asked);
 }
 
 function parseVkPosts(html: string, community: string): unknown[] {

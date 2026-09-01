@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { load } from 'cheerio';
+import { sourceResult, type SourceFailure, type SourceResult } from './source-result.js';
 
-export async function parseTourismObjects(searchQuery: string): Promise<unknown[]> {
+export async function parseTourismObjects(searchQuery: string): Promise<SourceResult<unknown>> {
   // Парсим туристические БД: Wikivoyage, Wikipedia, туристические сайты
 
   const urls = [
@@ -12,6 +13,9 @@ export async function parseTourismObjects(searchQuery: string): Promise<unknown[
   ];
 
   const objects: unknown[] = [];
+
+  // Отказавшие источники — в ответе, а не только в логе (source-result.ts).
+  const unavailable: SourceFailure[] = [];
 
   for (const url of urls) {
     try {
@@ -28,14 +32,13 @@ export async function parseTourismObjects(searchQuery: string): Promise<unknown[
       // §4.0: отказ источника не глушится. Пустой catch выдавал сетевую
       // поломку за «объектов не нашлось», и разобраться, почему каталог
       // пуст, было нечем.
-      console.error(
-        `[tourism-db] источник ${url} недоступен:`,
-        error instanceof Error ? error.message : error,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[tourism-db] источник ${url} недоступен:`, message);
+      unavailable.push({ source: url, error: message });
     }
   }
 
-  return objects;
+  return sourceResult(objects, unavailable, urls.length);
 }
 
 interface LocationObject {

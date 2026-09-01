@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { load } from 'cheerio';
+import { sourceResult, type SourceFailure, type SourceResult } from './source-result.js';
 
-export async function parseMchesAlerts(hoursBack: number = 24): Promise<unknown[]> {
+export async function parseMchesAlerts(hoursBack: number = 24): Promise<SourceResult<unknown>> {
   // МЧС Камчатки публикует в TG канал: @mches_kamchatka, @mches_pks
   // Парсим через RSS или TG Web (не требует API key)
 
@@ -12,6 +13,9 @@ export async function parseMchesAlerts(hoursBack: number = 24): Promise<unknown[
   ];
 
   const alerts: unknown[] = [];
+  // Отказавшие каналы — в ответе, а не только в логе: лог читает контейнер,
+  // тип читает каждый вызывающий (см. source-result.ts).
+  const unavailable: SourceFailure[] = [];
   const baseTime = new Date();
 
   for (const channel of mchesChannels) {
@@ -61,14 +65,13 @@ export async function parseMchesAlerts(hoursBack: number = 24): Promise<unknown[
       // имя канала и текст обязаны остаться в логе: без них «алертов нет»
       // неотличимо от «t.me гео-закрыт для хостинга» — а это ровно наш
       // случай, из-за которого сейсмо-каналы носит воркер.
-      console.error(
-        `[mches-telegram] канал ${channel} недоступен:`,
-        error instanceof Error ? error.message : error,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[mches-telegram] канал ${channel} недоступен:`, message);
+      unavailable.push({ source: channel, error: message });
     }
   }
 
-  return alerts;
+  return sourceResult(alerts, unavailable, mchesChannels.length);
 }
 
 function containsMchesKeywords(text: string): boolean {
