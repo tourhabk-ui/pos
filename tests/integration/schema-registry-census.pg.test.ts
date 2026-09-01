@@ -23,7 +23,6 @@ const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
 
 if (!PG_URL) {
-  // eslint-disable-next-line no-console
   console.warn(
     '[schema-registry-census] KERNEL_PG_TEST_URL не задан — тест пропущен (не прогнан, а не зелёный)',
   );
