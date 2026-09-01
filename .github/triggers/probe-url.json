@@ -1,23 +1,22 @@
 {
-  "note": "Владелец: «честный рельеф, а на прод выкатить не можем». Проверяем факты, а не гадаем: (1) какой коммит реально живёт на проде — /version.json; (2) отдаёт ли storage пакет рельефа с Range и правильным CORS-заголовком с origin vedarai.ru — тем самым запросом, который делает браузер при чтении PMTiles; (3) содержит ли HTML страницы planning значение NEXT_PUBLIC_MAP_PACK_BASE_URL, зашитое в клиентский бандл при сборке.",
+  "note": "Повтор пробы, чище. Прошлая ошибка: range/origin применились ко ВСЕМ url разом и испортили /version.json (206, 2 байта), а «avacha» искал не там — этот путь строится в браузере, в HTML его нет. Ищем базовый адрес хранилища ЛИТЕРАЛЬНО (он приезжает в HTML как проп через flight-поток гидратации Next.js) и отдельно проверяем сам файл пакета Range-запросом с Origin, как это делает браузер, читая PMTiles.",
   "urls": [
     "https://vedarai.ru/version.json",
     "https://vedarai.ru/planning"
   ],
   "grep": [
     "\"commit\"",
-    "MAP_PACK_BASE_URL",
-    "avacha"
+    "twcstorage",
+    "6e853f7f",
+    "NEXT_PUBLIC_MAP_PACK_BASE_URL"
   ],
   "around": [
-    "\"commit\"",
-    "avacha"
+    "twcstorage",
+    "\"commit\""
   ],
-  "aroundLines": 6,
-  "aroundHits": 2,
-  "range": "0-1",
-  "origin": "https://vedarai.ru",
-  "bytes": 4000,
+  "aroundLines": 4,
+  "aroundHits": 3,
+  "bytes": 2000,
   "timeout": 300,
   "retries": 2,
   "retryDelay": 20
