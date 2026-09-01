@@ -8,8 +8,12 @@ const ROLE_HUB: Record<string, string> = {
   tourist:           '/hub/tourist',
   operator:          '/hub/operator',
   guide:             '/hub/guide',
-  transfer:          '/hub/transfer-operator',
-  transfer_operator: '/hub/transfer-operator',
+  // Роли transfer/transfer_operator временно ведут в общий кабинет партнёра:
+  // прежний /hub/transfer-operator удалён вместе с мёртвым модулем (заход
+  // удаления 01.09), а новый кабинет перевозчика на схеме 926 ещё не построен.
+  // Вести в удалённый путь значило бы обещать экран, которого нет.
+  transfer:          '/hub',
+  transfer_operator: '/hub',
   agent:             '/hub/agent',
   admin:             '/hub/admin',
 };
