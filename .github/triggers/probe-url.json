@@ -1,18 +1,21 @@
 {
-  "note": "Единственное непроверенное звено цепочки: читаются ли САМИ файлы пакета по своим адресам. Диагностика проверяла отдельный пробный объект, а не эти два. Владелец до заливки получал AccessDenied на contours — после заливки это не перепроверялось ни разу. PMTiles берётся Range-запросами, поэтому важен и обычный GET, и байтовый диапазон.",
+  "note": "#1483: пригодных маршрутов 6 при пороге 193, при этом остальные метрики переписи в норме (связи 134, снятые треки 277). Значит данные целы, а обвалилось СУЖДЕНИЕ о проходимости. Нужна раскладка navigability_reasons: какая именно причина отказа стала массовой. Гипотеза — массовая перезапись геометрии наброском (road_graph_astar -> род sketch), которую улика записи по построению не отменяет (§12).",
   "urls": [
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.contours.geojson",
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.terrain.pmtiles"
+    "https://vedarai.ru/api/cron/route-data-audit"
   ],
   "grep": [
-    "FeatureCollection",
-    "Copernicus",
-    "AccessDenied",
-    "NoSuchKey",
-    "contour_step_m"
+    "navigability",
+    "navigable",
+    "orientation_only",
+    "sketch",
+    "прямыми между точками",
+    "путевых точек меньше двух",
+    "не подтверждено",
+    "road_graph_astar",
+    "external"
   ],
-  "bytes": 400,
-  "timeout": 45,
+  "bytes": 6000,
+  "timeout": 300,
   "retries": 2,
-  "retryDelay": 15
+  "retryDelay": 20
 }
