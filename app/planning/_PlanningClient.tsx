@@ -1418,10 +1418,37 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    * работал — регресса от неподключённой пробы быть не может по построению.
    */
   const fieldBaseMap = useMemo(() => {
-    const p = coords ?? (mapCenter ? { lat: mapCenter[0], lng: mapCenter[1] } : null);
-    if (!p) return { kind: 'leaflet' as const, reason: 'Точка ещё не известна.' };
+    /**
+     * Откуда берётся точка для выбора пакета — по убыванию правоты:
+     *
+     *  1. живой фикс — экран полевой, карта обязана покрывать место, где
+     *     человек стоит ногами;
+     *  2. центр карты, если его задало явное действие;
+     *  3. САМ МАРШРУТ — его начало или первая путевая точка.
+     *
+     * Третьего пункта не было, и это стоило владельцу целого дня. Выбор
+     * зависел только от `coords`, а при «GPS не получен» точки нет вовсе —
+     * своя карта не пробовалась НИ РАЗУ, хотя маршрут на экране нарисован и
+     * район его известен. Прибор отвечал «Точка ещё не известна» и уходил на
+     * OSM навсегда.
+     *
+     * «Не знаю, где человек» — это не «карты нет» (§4.0). Пока фикса нет,
+     * законно взять место, которое экран и так показывает; появится фикс —
+     * пересчитается само, и если человек в другом районе с пакетом, подложка
+     * сменится.
+     */
+    const fromRoute: { lat: number; lng: number } | null =
+      track && track.length > 0 ? { lat: track[0][0], lng: track[0][1] }
+        : waypoints.length > 0 ? { lat: waypoints[0].lat, lng: waypoints[0].lng }
+          : null;
+    const p = coords
+      ?? (mapCenter ? { lat: mapCenter[0], lng: mapCenter[1] } : null)
+      ?? fromRoute;
+    if (!p) {
+      return { kind: 'leaflet' as const, reason: 'Ни фикса, ни маршрута — брать точку неоткуда.' };
+    }
     return chooseFieldBaseMap(p.lat, p.lng, mapPackBaseUrl);
-  }, [coords, mapCenter, mapPackBaseUrl]);
+  }, [coords, mapCenter, mapPackBaseUrl, track, waypoints]);
 
   /**
    * Те же линии, что у Leaflet, но в порядке GeoJSON ([lng, lat]).
