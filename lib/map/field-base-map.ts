@@ -23,11 +23,16 @@ import {
  * «умно» здесь нельзя: любой выбор был бы догадкой, а пакеты всё равно
  * покрывают оба bbox целиком.
  */
+export function regionsForPoint(lat: number, lng: number): RegionId[] {
+  return REGIONS_LIST
+    .filter(r => lat >= r.bbox.south && lat <= r.bbox.north
+      && lng >= r.bbox.west && lng <= r.bbox.east)
+    .map(r => r.id);
+}
+
+/** Первый накрывающий район — для показа и для обратной совместимости. */
 export function regionForPoint(lat: number, lng: number): RegionId | null {
-  const hit = REGIONS_LIST.find(r =>
-    lat >= r.bbox.south && lat <= r.bbox.north
-    && lng >= r.bbox.west && lng <= r.bbox.east);
-  return hit ? hit.id : null;
+  return regionsForPoint(lat, lng)[0] ?? null;
 }
 
 export type FieldBaseMap =
@@ -52,15 +57,37 @@ export function chooseFieldBaseMap(
   baseUrl: string | null,
   builtRegions: readonly RegionId[] = BUILT_PACK_REGIONS,
 ): FieldBaseMap {
-  const region = regionForPoint(lat, lng);
-  if (!region) {
+  const candidates = regionsForPoint(lat, lng);
+  if (candidates.length === 0) {
     return { kind: 'leaflet', reason: 'Точка вне районов реестра — пакета быть не может.' };
   }
-  const source = resolvePackSource(region, builtRegions, baseUrl);
-  if (source.state !== 'ready') {
-    return { kind: 'leaflet', reason: source.reason };
+
+  /**
+   * Берём ЛЮБОЙ накрывающий район, у которого пакет собран, а не первый по
+   * списку. Замер 01.09: аэропорт Елизово попал в `avacha-group`, а сам город
+   * в шести километрах — в `paratunka`, потому что прямоугольники реестра
+   * перекрываются и проведены «на глаз» (в самом реестре записано:
+   * «координаты bbox приближённые»).
+   *
+   * Со старой логикой человек, проехавший из аэропорта в город, терял
+   * подложку на ровном месте — хотя пакет `avacha-group` физически покрывает
+   * оба места. Первый попавшийся район — это ответ о ПОРЯДКЕ В СПИСКЕ, а
+   * вопрос был о том, есть ли на эту точку карта.
+   */
+  for (const region of candidates) {
+    const source = resolvePackSource(region, builtRegions, baseUrl);
+    if (source.state === 'ready') return { kind: 'vedar', region, source };
   }
-  return { kind: 'vedar', region, source };
+
+  // Ни у одного накрывающего района пакета нет. Причину берём у первого —
+  // они различаются только именем района, а состояние у всех одно.
+  const first = resolvePackSource(candidates[0], builtRegions, baseUrl);
+  return {
+    kind: 'leaflet',
+    reason: candidates.length > 1
+      ? `${'reason' in first ? first.reason : 'Пакета нет.'} Районов на эту точку: ${candidates.length}.`
+      : ('reason' in first ? first.reason : 'Пакета нет.'),
+  };
 }
 
 /** Центр района — начальный вид своей карты, когда фикса ещё нет. */

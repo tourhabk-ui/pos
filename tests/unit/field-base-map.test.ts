@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { chooseFieldBaseMap, regionForPoint, regionCenter } from '@/lib/map/field-base-map';
+import { chooseFieldBaseMap, regionForPoint, regionsForPoint, regionCenter } from '@/lib/map/field-base-map';
 import { BUILT_PACK_REGIONS } from '@/lib/map/pack-source';
 
 describe('выбор подложки полевого экрана', () => {
@@ -52,6 +52,22 @@ describe('выбор подложки полевого экрана', () => {
     } else {
       expect(r.source.terrainUrl).toContain('pmtiles://');
     }
+  });
+
+  it('берётся любой накрывающий район с пакетом, а не первый по списку', () => {
+    // Замер 01.09: аэропорт Елизово накрыт и avacha-group, и paratunka.
+    // Со старой логикой (первый попавшийся) ответ зависел от ПОРЯДКА В
+    // СПИСКЕ регионов, а вопрос был о том, есть ли на точку карта.
+    const B = 'https://s3.example/bucket';
+    expect(regionsForPoint(53.167, 158.453).length).toBeGreaterThan(1);
+    const r = chooseFieldBaseMap(53.167, 158.453, B, ['avacha-group']);
+    expect(r.kind).toBe('vedar');
+    if (r.kind === 'vedar') expect(r.region).toBe('avacha-group');
+  });
+
+  it('Петропавловск накрыт собранным пакетом', () => {
+    const r = chooseFieldBaseMap(53.024, 158.643, 'https://s3.example/b', ['avacha-group']);
+    expect(r.kind).toBe('vedar');
   });
 
   it('Авачинский перевал попадает в свой район', () => {
