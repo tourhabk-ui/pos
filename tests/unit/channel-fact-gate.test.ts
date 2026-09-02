@@ -198,8 +198,11 @@ describe('сбой судьи = отмена публикации, не проп
       .toMatch(/if \(!firstVerdict\.ok\)[\s\S]{0,120}aiDigest = null/);
     expect(scout, 'отказ повторной сверки в канале не отменяет публикацию')
       .toMatch(/if \(!recheck\.ok\)[\s\S]{0,80}aiDigest = null/);
-    // Основной дайджест: остаток выдумок или непроверенность — выход без отправки.
-    expect(scout).toMatch(/claims === null \|\| claims\.length > 0/);
+    // Основной дайджест: непроверенность (null) — выход без отправки; остаток
+    // выдумок с 02.09 вычёркивается по строкам (stripUnsupported), и выход
+    // остаётся для «фразу не нашли» и «выпуск опустел» — сторож scout-strip-claims.
+    expect(scout).toMatch(/if \(claims === null\) \{[\s\S]{0,400}factcheck_judge_mute/);
+    expect(scout).toMatch(/stripUnsupported\(digest, claims\)/);
   });
 });
 
