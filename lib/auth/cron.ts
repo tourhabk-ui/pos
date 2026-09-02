@@ -3,6 +3,8 @@
  * Works with both NextRequest (has nextUrl) and plain Request (Web API).
  */
 
+import { constantTimeEqual } from '@/lib/security/constant-time-equal';
+
 type AnyRequest = { headers: { get(name: string): string | null }; url: string };
 
 /**
@@ -103,10 +105,5 @@ export function verifyCronSecret(request: AnyRequest): boolean {
   const provided = getCronSecret(request);
   const expected = process.env.CRON_SECRET;
   if (!provided || !expected) return false;
-  if (provided.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < provided.length; i++) {
-    diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return diff === 0;
+  return constantTimeEqual(provided, expected);
 }

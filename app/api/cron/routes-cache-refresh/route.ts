@@ -9,16 +9,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { refreshRoutesWithoutCache } from '@/lib/services/routes/route-description-cache';
-import { getCronSecret } from '@/lib/auth/cron';
+import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 
 export async function POST(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
+  if (!process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  const secret = getCronSecret(req);
-  if (!secret || secret !== cronSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Общий хелпер вместо `!==`: сравнение постоянным временем (сторож
+  // api-guard-before-action, 01.09).
+  if (!verifyCronSecret(req)) {
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
 
   try {

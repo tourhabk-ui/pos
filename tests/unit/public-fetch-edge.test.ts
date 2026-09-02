@@ -36,6 +36,11 @@ const PROTECTED_PREFIXES = ['app/hub', 'app/profile', 'app/operator'].map(p => j
 const PROTECTED_COMPONENT_DIRS = [
   'components/hub', 'components/operator', 'components/agent',
   'components/transfer-operator/Dashboard',
+  // Админские панели монтируются только под /hub/admin (за входом). Пока
+  // '/api/admin' стоял в публичном реестре, их вызовы считались публичными
+  // и каталог тут не требовался; с закрытием префикса на Edge (01.09)
+  // принадлежность фиксируется явно.
+  'components/admin',
 ].map(p => join(ROOT, p));
 
 /**
@@ -58,6 +63,10 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/places/X/reviews',
   'POST /api/places/X/photos',      // фото места: форма сама спрашивает вход (PhotoUpload)
   'GET /api/referral/my-code',      // реферальный код вошедшего
+  // Карточка места на витрине: кнопка «удалить» рисуется только при роли
+  // admin (user_roles в localStorage), вызов несёт Bearer либо cookie. До
+  // 01.09 вызов числился публичным, потому что публичным был весь /api/admin.
+  'DELETE /api/admin/places/X',
   'POST /api/accommodations/X/book',// бронь жилья — форма гейтится
   'GET /api/accommodations/X/prices',
   'POST /api/tools/equipment',      // AI-подбор снаряжения: rate-limit есть, вход пока обязателен
