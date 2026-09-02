@@ -37,6 +37,7 @@ import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@
 import { connectorLine, CONNECTOR_TITLES, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
 import type { VedarMapLine } from '@/components/shared/VedarMap';
+import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
   calculatedCarToLeafletCoordinates, type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
@@ -443,6 +444,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    * перекрыть родителя соседа. См. `VedarMap.onDiagnostic`.
    */
   const [vedarDiag, setVedarDiag] = useState<string | null>(null);
+  // Тема страницы — карте: она считает цвета в WebGL и каскада не видит.
+  // 02.09: интерфейс светлый, карта под ним принудительно тёмная.
+  const documentTheme = useDocumentTheme();
   // Центр карты фиксируется В МОМЕНТ открытия. LeafletMap пересоздаёт карту
   // при смене identity center/markers — живые coords в center убивали карту
   // на каждом GPS-тике: тайлы не успевали грузиться (вечно-серый фон),
@@ -2964,6 +2968,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       <div className="fixed inset-0 z-0">
         {fieldBaseMap.kind === 'vedar' ? (
           <VedarMap
+            theme={documentTheme}
             sources={{
               terrainUrl: fieldBaseMap.source.terrainUrl,
               contoursUrl: fieldBaseMap.source.contoursUrl,

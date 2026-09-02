@@ -178,13 +178,34 @@ describe('источник пакета называет своё состоян
 });
 
 describe('линия маршрута подчиняется §12, а не решает сама', () => {
-  it('построение отличается от снятого трека свойством, а не догадкой', () => {
-    const line = layers('dark').find(l => l.id === 'route-line')!;
-    expect(JSON.stringify(line.paint!['line-color'])).toContain('connector');
-    // Подложка — только у настоящего пути: у пунктирного построения она
-    // залила бы просветы и вернула вид снятого трека (§12).
-    const casing = layers('dark').find(l => l.id === 'route-casing')!;
-    expect(casing.filter).toEqual(['==', ['get', 'connector'], false]);
+  it('каждому роду линии — свой слой: трек сплошной, набросок и построение пунктиром', () => {
+    /**
+     * Первый живой рендер 02.09 (Авачинский перевал): набросок подборки
+     * «база Три вулкана» (8 точек на 28 км) лёг веером толстых сплошных
+     * зелёных линий — предъявил себя как путь, по которому идут. §12
+     * запрещает это прямо, а line-dasharray в MapLibre от свойства feature
+     * зависеть не умеет — потому слоя три, и род читается фильтром.
+     */
+    const L = layers('dark');
+    const byId = (id: string) => L.find(l => l.id === id)!;
+    expect(byId('route-line').filter).toEqual(['==', ['get', 'kind'], 'track']);
+    expect(byId('route-line').paint!['line-dasharray']).toBeUndefined();
+    expect(byId('route-sketch').filter).toEqual(['==', ['get', 'kind'], 'sketch']);
+    expect(byId('route-sketch').paint!['line-dasharray']).toEqual([4, 3]);
+    expect(byId('route-connector').filter).toEqual(['==', ['get', 'kind'], 'connector']);
+    expect(byId('route-connector').paint!['line-dasharray']).toEqual([3, 3]);
+    // Подложка — только у настоящего пути: у пунктира она залила бы
+    // просветы и вернула вид снятого трека (§12).
+    expect(byId('route-casing').filter).toEqual(['==', ['get', 'kind'], 'track']);
+    expect(L.filter(l => l.source === 'route' && l.id !== 'route-casing' && l.id !== 'route-line')
+      .every(l => l.paint!['line-width'] === 2)).toBe(true);
+  });
+
+  it('набросок приглушён, а не цвета трека', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const p = vedarMapPalette(theme);
+      expect(p.sketch).not.toBe(p.track);
+    }
   });
 
   it('зумовое выражение стоит верхним уровнем, а не внутри case', () => {

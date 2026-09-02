@@ -59,6 +59,8 @@ interface MapPalette {
   /** Снятый трек (§12) и его подложка. */
   track: string;
   trackCasing: string;
+  /** Набросок и импорт — пунктир, приглушённый (§12): не обещают ведения. */
+  sketch: string;
   /** Построение — подход по азимуту, связка (§12, connectorLine). */
   connector: string;
 }
@@ -70,14 +72,20 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   dark: {
     background: '#0D1117',   // --bg-primary dark
     shadow: '#05070A',
-    highlight: '#2A3B33',
+    // Первый живой рендер 02.09 (Авачинский перевал): рельеф «почти
+    // чёрный» — подсветка гребня #2A3B33 от фона #0D1117 не отличалась.
+    // Поднята вместе с горизонталями; это первая правка по глазу владельца,
+    // а не окончательная палитра — критерий приёмки пробы ещё впереди.
+    highlight: '#4A6A57',
     accentShadow: '#0A1512',
-    contourMinor: '#3D5147',
-    contourMajor: '#6E8B7A',
+    contourMinor: '#4F6B5B',
+    contourMajor: '#93B39F',
     contourLabel: '#8B949E', // --text-secondary dark
     contourLabelHalo: '#0D1117',
     track: '#3FB950',        // --success
     trackCasing: '#0D1117',
+    // Набросок — приглушённый: §12 запрещает ему выглядеть как трек.
+    sketch: '#5E7A66',
     connector: '#8B949E',
   },
   // Светлая — не «инверсия ради галочки». Тёмная карта под прямым солнцем
@@ -96,6 +104,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     contourLabelHalo: '#F5F0EB',
     track: '#1F7A34',
     trackCasing: '#FFFFFF',
+    sketch: '#6B8A74',
     connector: '#6B6560',
   },
 };
@@ -227,15 +236,24 @@ export function buildVedarStyle(
           'text-halo-width': 1.4,
         },
       }] : []),
-      // ── Линия маршрута. Вид — по §12, род приходит в свойстве `fidelity`
-      // от lib/map/line-standard: снятый трек сплошной и уверенный, набросок
-      // и импорт — пунктиром, построение — серым. Стиль НЕ решает род сам:
-      // он его читает, ровно как это устроено на Leaflet-поверхностях.
+      // ── Линии маршрута. Вид — по §12, род приходит свойством `kind` от
+      // компонента (track / sketch / connector), который сам берёт его из
+      // lib/map/line-standard. Стиль НЕ решает род: он его читает, ровно как
+      // это устроено на Leaflet-поверхностях.
+      //
+      // Три СЛОЯ, а не один с выражениями: `line-dasharray` в MapLibre не
+      // умеет зависеть от свойства feature (только от зума), и первый живой
+      // рендер 02.09 это показал — набросок подборки «Авачинский перевал
+      // (база Три вулкана)» (8 точек на 28 км) лёг веером толстых сплошных
+      // зелёных линий, то есть предъявил себя как путь, по которому идут.
+      // Ровно то, что §12 запрещает. Каждому роду — свой слой со своим
+      // пунктиром; подложка (casing) — только у настоящего трека: у пунктира
+      // она залила бы просветы и вернула вид трека.
       {
         id: 'route-casing',
         type: 'line',
         source: 'route',
-        filter: ['==', ['get', 'connector'], false],
+        filter: ['==', ['get', 'kind'], 'track'],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': p.trackCasing,
@@ -247,26 +265,44 @@ export function buildVedarStyle(
         id: 'route-line',
         type: 'line',
         source: 'route',
+        filter: ['==', ['get', 'kind'], 'track'],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': [
-            'case', ['get', 'connector'], p.connector, p.track,
-          ],
-          // Зумовое выражение обязано стоять ВЕРХНИМ уровнем: MapLibre не
-          // принимает `interpolate(['zoom'])` внутри `case` и отвергает стиль
-          // целиком («requires a "step" or "interpolate" expression»).
-          // Полевой прогон 01.09: именно эта строка держала карту чёрной уже
-          // после починки глифов, и нашлась она только потому, что ошибка
-          // карты стала видна на экране, а не в консоли телефона.
-          // Зависимость от свойства переносится ВНУТРЬ остановок интерполяции.
-          'line-width': [
-            'interpolate', ['linear'], ['zoom'],
-            10, ['case', ['get', 'connector'], 2, 2.5],
-            14, ['case', ['get', 'connector'], 2, 5],
-          ],
-          // Пунктир ставит компонент через line-dasharray на основе
-          // dashArray из line-standard — здесь только сплошная основа.
-          'line-opacity': ['case', ['get', 'connector'], 0.75, 0.95],
+          'line-color': p.track,
+          // Зумовое выражение — верхним уровнем: MapLibre не принимает
+          // interpolate(['zoom']) внутри case и отвергает стиль целиком
+          // (полевой прогон 01.09, «requires a "step" or "interpolate"»).
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 5],
+          'line-opacity': 0.95,
+        },
+      },
+      {
+        // Набросок и импорт: пунктир, приглушённый, 2px (§12). Без casing.
+        id: 'route-sketch',
+        type: 'line',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'sketch'],
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': p.sketch,
+          'line-width': 2,
+          'line-dasharray': [4, 3],
+          'line-opacity': 0.9,
+        },
+      },
+      {
+        // Построение — подход по азимуту, связка: пунктир, серый, 2px (§12).
+        // Не путь вовсе, и «Маршрутом» не называется.
+        id: 'route-connector',
+        type: 'line',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'connector'],
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': p.connector,
+          'line-width': 2,
+          'line-dasharray': [3, 3],
+          'line-opacity': 0.8,
         },
       },
     ],
