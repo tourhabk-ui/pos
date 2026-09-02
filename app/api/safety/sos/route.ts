@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { verifyAuth } from '@/lib/auth';
+import { classifySosOrigin } from '@/lib/safety/sos-origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +96,21 @@ export async function POST(request: NextRequest) {
   const finalLng = longitude ?? lng;
   const finalSource = source ?? 'direct';
 
+  // Что известно об ИСТОЧНИКЕ сигнала. Приём это не меняет ни в одном
+  // случае: сигнал принимается, пишется и уходит в канал одинаково. Меняется
+  // только то, что тревога сможет о себе сказать — см. lib/safety/sos-origin.
+  const origin = classifySosOrigin({
+    userId,
+    secFetchSite: request.headers.get('sec-fetch-site'),
+    referer: request.headers.get('referer'),
+    userAgent,
+    source: finalSource,
+    sessionId: sessionId ?? null,
+    lat: finalLat, lng: finalLng,
+    touristName: tourist_name, touristPhone: tourist_phone,
+    emergencyType: emergency_type, message,
+  });
+
   // Логируем в БД (source/relayed_by — добавлены миграцией 678).
   //
   // Отказ записи раньше глотался молча, и rate-limit всё равно ставился —
@@ -110,13 +126,14 @@ export async function POST(request: NextRequest) {
     const inserted = await query<{ id: string }>(
       `INSERT INTO sos_events
          (user_id, session_id, lat, lng, accuracy, ip_address, user_agent,
-          message, emergency_type, tourist_name, tourist_phone, source, relayed_by)
-       VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9,$10,$11,$12,$13)
+          message, emergency_type, tourist_name, tourist_phone, source, relayed_by,
+          origin_class)
+       VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING id::text AS id`,
       [userId, sessionId, finalLat, finalLng, accuracy, ip, userAgent,
        message ?? null, emergency_type ?? null,
        tourist_name ?? null, tourist_phone ?? null,
-       finalSource, relayed_by ?? null]
+       finalSource, relayed_by ?? null, origin.klass]
     );
     eventId = inserted.rows[0]?.id ?? null;
     if (eventId) setRateLimit(rateLimitKey);
@@ -155,6 +172,13 @@ export async function POST(request: NextRequest) {
       `⚠️ Тип: ${emergency_type ?? 'не указан'}`,
       message       ? `💬 Сообщение: ${message}`   : '',
       `🌐 IP: ${ip}`,
+      // Без этой строки тревога про слепую пробу эндпоинта выглядит ровно
+      // как тревога про человека в беде, и человек приучается пролистывать
+      // обе. Класс — не приговор: сигнал принят и остаётся висеть в любом
+      // случае, но получатель имеет право знать, на что смотрит.
+      '',
+      `🔎 ${origin.words}`,
+      origin.signals.length ? `<i>Признаки: ${origin.signals.join(', ')}</i>` : '',
     ].filter(Boolean).join('\n');
 
     try {

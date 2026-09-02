@@ -144,6 +144,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // до 10, поимённо, с обязательным источником и dry_run по умолчанию.
   // Расписания быть не должно — координату правит человек по уликам.
   'place-audit':                { kind: 'manual', writes: false, note: 'поиск places по имени независимо от видимости/слияния + профиль безопасности, только чтение' },
+  'sos-census':                { kind: 'manual', writes: false, note: 'кто шлёт SOS: сырые строки sos_events с IP, user-agent, сессией и сводки по ним, только чтение' },
   'place-coords':              { kind: 'manual', writes: true,  note: 'исправление координаты места: поимённо, с источником правды и сухим прогоном' },
   'place-link':                { kind: 'manual', writes: true,  note: 'привязка места к маршруту' },
   'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },
