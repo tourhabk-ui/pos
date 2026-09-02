@@ -100,7 +100,11 @@ export function osmKey(region: RegionId, layer: OsmLayer): string {
  * BUILT_PACK_REGIONS. Ставится после заливки, не до: карта с адресами слоёв,
  * которых нет, сыпала бы ошибками загрузки поверх живого рельефа.
  */
-export const OSM_BUILT_REGIONS: readonly RegionId[] = [];
+export const OSM_BUILT_REGIONS: readonly RegionId[] = [
+  // 02.09, прогон 2 пакета (run 33583128951): семь слоёв залиты вместе с
+  // рельефом GLO-30 и глифами.
+  'avacha-group',
+];
 
 export type PackSource =
   | {
