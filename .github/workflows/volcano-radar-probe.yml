@@ -56,28 +56,38 @@ jobs:
           echo "за 20 минут имя не изменилось: деплой не дошёл или миграция не применилась"
           exit 1
 
-      - name: Синк KVERT — привязка вулканов к точкам
+      - name: Дождаться нового кода и снять привязку вулканов
         run: |
-          HTTP=$(curl -s -o /tmp/kvert.json -w "%{http_code}" --max-time 120 \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "https://vedarai.ru/api/cron/kvert-acc" || echo 000)
-          echo "HTTP: $HTTP"
-          python3 -m json.tool /tmp/kvert.json || cat /tmp/kvert.json
-          test "$HTTP" = "200"
-          # Ответ обязан быть НОВОЙ формы. Старая — плоский список unmatched
-          # без причин — значит на проде ещё прежний образ, и число matched
-          # ничего не говорит о починке. Зелёная проба на старом коде хуже
-          # красной: она закрывает вопрос, не ответив на него.
-          jq -e 'has("unmatched_reasons") and has("places_indexed")' \
-            /tmp/kvert.json >/dev/null \
-            || { echo "ОТВЕТ СТАРОЙ ФОРМЫ — деплой не дошёл, проверять нечего"; exit 1; }
-          echo "--- разбор ---"
-          jq -r '"каталог вулканов: \(.places_indexed) точек",
-                 "сопоставлено:    \(.matched) из \(.fetched)",
-                 "нет в алиасах:   \(.unmatched_reasons.unknown_name | length)",
-                 "нет места:       \(.unmatched_reasons.no_place | length)",
-                 "неоднозначно:    \(.unmatched_reasons.ambiguous | length)",
-                 "отказ записи:    \(.unmatched_reasons.failed | length)"' /tmp/kvert.json
+          # Признак деплоя — ФОРМА ответа, а не применённая миграция.
+          # Прогон 07:05 показал, почему: миграция 927 уже накатилась
+          # (имя в поле name исправлено), а kvert-acc отвечал прежней формой —
+          # миграции идут до переключения трафика. Маркер срабатывал раньше
+          # того, что проверяется.
+          for i in $(seq 1 8); do
+            HTTP=$(curl -s -o /tmp/kvert.json -w "%{http_code}" --max-time 120 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://vedarai.ru/api/cron/kvert-acc" || echo 000)
+            echo "попытка $i · HTTP $HTTP"
+            if jq -e 'has("unmatched_reasons") and has("places_indexed")' \
+                 /tmp/kvert.json >/dev/null 2>&1; then
+              echo "=== НОВЫЙ КОД НА ПРОДЕ ==="
+              jq -r '"каталог вулканов: \(.places_indexed) точек",
+                     "сопоставлено:    \(.matched) из \(.fetched)",
+                     "нет в алиасах:   \(.unmatched_reasons.unknown_name | length)",
+                     "нет места:       \(.unmatched_reasons.no_place | length)",
+                     "неоднозначно:    \(.unmatched_reasons.ambiguous | length)",
+                     "отказ записи:    \(.unmatched_reasons.failed | length)"' /tmp/kvert.json
+              echo "--- нет в алиасах ---";  jq -r '.unmatched_reasons.unknown_name[]?' /tmp/kvert.json
+              echo "--- нет места ---";      jq -r '.unmatched_reasons.no_place[]?' /tmp/kvert.json
+              echo "--- неоднозначно ---";   jq -r '.unmatched_reasons.ambiguous[]?' /tmp/kvert.json
+              echo "--- отказ записи ---";   jq -r '.unmatched_reasons.failed[]?' /tmp/kvert.json
+              exit 0
+            fi
+            echo "ещё старая форма, ждём"
+            sleep 150
+          done
+          echo "за 20 минут новый код не поднялся"
+          exit 1
 
       - name: Радар — остались ли опасные коды без точки
         run: |
