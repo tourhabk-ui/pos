@@ -98,6 +98,26 @@ const VOLCANO_ALIASES: Record<string, { slug: string; ru: string }> = {
   алаид:         { slug: 'alaid', ru: 'Алаид' },
   chikurachki:   { slug: 'chikurachki', ru: 'Чикурачки' },
   чикурачки:     { slug: 'chikurachki', ru: 'Чикурачки' },
+  // Добавлено 02.09 по СПИСКУ НЕСОПОСТАВЛЕННЫХ живого прогона, а не по
+  // справочнику вулканов: сюда попадают только те, кого KVERT реально
+  // называет и кому в каталоге есть что сопоставить. Алиас на вулкан без
+  // места ничего не чинит — он лишь переносит имя из одного списка отказов
+  // в другой.
+  kronotsky:     { slug: 'kronotsky', ru: 'Кроноцкий' },
+  кроноцкий:     { slug: 'kronotsky', ru: 'Кроноцкий' },
+  ksudach:       { slug: 'ksudach', ru: 'Ксудач' },
+  ксудач:        { slug: 'ksudach', ru: 'Ксудач' },
+  zhupanovsky:   { slug: 'zhupanovsky', ru: 'Жупановский' },
+  жупановский:   { slug: 'zhupanovsky', ru: 'Жупановский' },
+  opala:         { slug: 'opala', ru: 'Опала' },
+  опала:         { slug: 'opala', ru: 'Опала' },
+  ichinsky:      { slug: 'ichinsky', ru: 'Ичинский' },
+  ичинский:      { slug: 'ichinsky', ru: 'Ичинский' },
+  // Плоский Толбачик — ОТДЕЛЬНАЯ запись каталога и отдельный конус: именно
+  // он извергался в 2012-2013. Свести его к «Толбачику» значило бы повесить
+  // код на соседа.
+  'plosky tolbachik': { slug: 'plosky-tolbachik', ru: 'Плоский Толбачик' },
+  'плоский толбачик': { slug: 'plosky-tolbachik', ru: 'Плоский Толбачик' },
 };
 
 /** Убирает CAVW-код, регистр, лишние пробелы: "Klyuchevskoy (CAVW #300260)" → "klyuchevskoy". */
