@@ -22,6 +22,15 @@ on:
         description: 'Заливать в хранилище (иначе только собрать и приложить артефактом)'
         type: boolean
         default: false
+  # Второй вход — файл-триггер, по образцу проб (probe-url.json): интеграция
+  # Claude не имеет права на workflow_dispatch (403, проверено 02.09), а
+  # просить владельца кликать с телефона в поле — лишний круг. Пуш файла
+  # запускает сборку С ТОЙ ВЕТКИ, куда запушен: конвейер и контракт пакета
+  # берутся из неё, и пакет можно пересобрать до мержа в main.
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-pack-build.json'
 
 # Права по минимуму: сборщику нужно только прочитать репозиторий. Пакет он
 # кладёт в объектное хранилище, а не в git, и писать сюда ему нечем.
@@ -34,6 +43,21 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          # Ручной запуск даёт inputs; пуш файла-триггера — нет. Один источник
+          # параметров дальше по шагам, чтобы не держать две ветки логики.
+          if [ -n "${{ inputs.region }}" ]; then
+            REGION="${{ inputs.region }}"; UPLOAD="${{ inputs.upload }}"
+          else
+            REGION=$(python3 -c "import json;print(json.load(open('.github/triggers/map-pack-build.json'))['region'])")
+            UPLOAD=$(python3 -c "import json;print('true' if json.load(open('.github/triggers/map-pack-build.json')).get('upload') else 'false')")
+          fi
+          echo "region=$REGION" >> "$GITHUB_OUTPUT"
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "район: $REGION · заливка: $UPLOAD · ref: $GITHUB_REF_NAME"
 
       - uses: actions/setup-python@v5
         with:
@@ -55,22 +79,22 @@ jobs:
           # Второй, вписанный руками в workflow, разъехался бы молча: пакет
           # собрался бы на старый bbox, и карта кончалась бы у края района
           # без единой ошибки.
-          BBOX=$(npx tsx scripts/map-tiles/region-bbox.ts "${{ inputs.region }}")
+          BBOX=$(npx tsx scripts/map-tiles/region-bbox.ts "${{ steps.cfg.outputs.region }}")
           echo "value=$BBOX" >> "$GITHUB_OUTPUT"
-          echo "bbox района ${{ inputs.region }}: $BBOX"
+          echo "bbox района ${{ steps.cfg.outputs.region }}: $BBOX"
 
       - name: Рельеф — terrain-RGB в PMTiles
         run: |
           mkdir -p .cache/packs
           python3 scripts/map-tiles/build_terrain.py \
             --bbox "${{ steps.bbox.outputs.value }}" \
-            --out ".cache/packs/${{ inputs.region }}.terrain.pmtiles"
+            --out ".cache/packs/${{ steps.cfg.outputs.region }}.terrain.pmtiles"
 
       - name: Горизонтали — GeoJSON с высотой в атрибуте
         run: |
           python3 scripts/map-tiles/build_contours.py \
             --bbox "${{ steps.bbox.outputs.value }}" \
-            --out ".cache/packs/${{ inputs.region }}.contours.geojson"
+            --out ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson"
 
       - name: Глифы — Noto Sans, цифры и кириллица
         run: |
@@ -107,12 +131,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: map-pack-${{ inputs.region }}
+          name: map-pack-${{ steps.cfg.outputs.region }}
           path: .cache/packs/
           retention-days: 7
 
       - name: Заливка в хранилище
-        if: ${{ inputs.upload }}
+        if: ${{ steps.cfg.outputs.upload == 'true' }}
         env:
           S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
@@ -123,13 +147,13 @@ jobs:
             echo "::error::Секреты S3 не заданы в репозитории. Это ОТДЕЛЬНЫЙ набор от переменных Timeweb (§8)."
             exit 1
           fi
-          npx tsx scripts/map-tiles/upload-pack.ts "${{ inputs.region }}" \
-            ".cache/packs/${{ inputs.region }}.terrain.pmtiles" \
-            ".cache/packs/${{ inputs.region }}.contours.geojson" \
+          npx tsx scripts/map-tiles/upload-pack.ts "${{ steps.cfg.outputs.region }}" \
+            ".cache/packs/${{ steps.cfg.outputs.region }}.terrain.pmtiles" \
+            ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson" \
             ".cache/packs/glyphs"
 
       - name: Пакет НЕ залит — сказать это громко
-        if: ${{ !inputs.upload }}
+        if: ${{ steps.cfg.outputs.upload != 'true' }}
         run: |
           # Пропущенный шаг выглядит в сводке почти как выполненный: галка
           # зелёная, прогон «успешен». Но заказывали файл в хранилище, а его
@@ -146,9 +170,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Что делать дальше
-        if: ${{ inputs.upload }}
+        if: ${{ steps.cfg.outputs.upload == 'true' }}
         run: |
           echo "Пакет залит. Осталось два шага, оба руками и намеренно:"
-          echo "  1. внести '${{ inputs.region }}' в BUILT_PACK_REGIONS (lib/map/pack-source.ts)"
+          echo "  1. внести '${{ steps.cfg.outputs.region }}' в BUILT_PACK_REGIONS (lib/map/pack-source.ts)"
           echo "  2. проверить NEXT_PUBLIC_MAP_PACK_BASE_URL в переменных Timeweb"
           echo "Список собранных пакетов — обещание, что файл на месте."
