@@ -65,6 +65,10 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/places/X/reviews',
   'POST /api/places/X/photos',      // фото места: форма сама спрашивает вход (PhotoUpload)
   'GET /api/referral/my-code',      // реферальный код вошедшего
+  // Витрина мест у перевозчиков (02.09): запрос мест — за входом по CHECK
+  // схемы 926 (заказчик обязателен). Гостю форма не рисуется, вместо неё
+  // ссылка «Войти, чтобы запросить места» с возвратом на /transfers.
+  'POST /api/carrier-trips/X/request',
   // Карточка места на витрине: кнопка «удалить» рисуется только при роли
   // admin (user_roles в localStorage), вызов несёт Bearer либо cookie. До
   // 01.09 вызов числился публичным, потому что публичным был весь /api/admin.
