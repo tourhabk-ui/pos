@@ -63,6 +63,8 @@ interface MapPalette {
   sketch: string;
   /** Построение — подход по азимуту, связка (§12, connectorLine). */
   connector: string;
+  /** Свой след — где человек был. Не маршрут: другой цвет, тонкая линия. */
+  trail: string;
   /** OSM (02.09): заливки и линии. Приглушённые — карта полевая, не городская. */
   water: string;
   waterway: string;
@@ -96,6 +98,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     // Набросок — приглушённый: §12 запрещает ему выглядеть как трек.
     sketch: '#5E7A66',
     connector: '#8B949E',
+    trail: '#00A8CC',       // --ocean dark; тот же голубой, что у следа на Leaflet
     // OSM: вода холодная, лес чуть теплее фона, ледник светлее гребня,
     // тропа — тёплая (как на референсе владельца 31.08), дорога — серая.
     water: '#12303F',
@@ -125,6 +128,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     trackCasing: '#FFFFFF',
     sketch: '#6B8A74',
     connector: '#6B6560',
+    trail: '#2568B0',       // --ocean light
     water: '#BFD9E8',
     waterway: '#4F88A8',
     wood: '#D9E4CC',
@@ -286,6 +290,21 @@ export function buildVedarStyle(
       // Реки, дороги, тропы — над горизонталями, под линией маршрута: путь
       // человека читается поверх карты, а не сквозь неё.
       ...osmLineLayers(sources.osmUrls, p),
+      {
+        // Свой след — ПОД маршрутом: маршрут — обещание, след — история.
+        // Тонкий, голубой, сплошной (это запись, а не обещание пути), без
+        // casing. 02.09 без своего слоя он лёг толстым зелёным треком.
+        id: 'route-trail',
+        type: 'line',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'trail'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': p.trail,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 2.5],
+          'line-opacity': 0.85,
+        },
+      },
       // ── Линии маршрута. Вид — по §12, род приходит свойством `kind` от
       // компонента (track / sketch / connector), который сам берёт его из
       // lib/map/line-standard. Стиль НЕ решает род: он его читает, ровно как
