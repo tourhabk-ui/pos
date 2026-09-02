@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 63 (02.09): векторный пакет «central-volcanoes» — tippecanoe из кэша, горизонтали 20 м в тайлах, один PMTiles на все слои. Авачинская (прогон 60): 8.78 МБ против 13.5 МБ GeoJSON.",
-  "region": "central-volcanoes",
+  "note": "Прогон 64 (02.09): векторный пакет «mutnovsky-gorely» — tippecanoe из кэша, горизонтали 20 м в тайлах, один PMTiles на все слои. Авачинская (прогон 60): 8.78 МБ против 13.5 МБ GeoJSON.",
+  "region": "mutnovsky-gorely",
   "upload": true
 }
