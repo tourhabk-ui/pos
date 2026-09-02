@@ -126,6 +126,14 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/analytics/dwell': ['POST'],     // маяк времени на странице (Zod + rate-limit)
   '/api/analytics/affiliate-clicks': ['POST'], // маяк партнёрских кликов (Zod + rate-limit)
   '/api/pwa/install': ['POST'],         // учёт установок PWA (client_id, не ПД, rate-limit)
+  // Push-подписка на предупреждения безопасности — анонимная by design
+  // (#1485, 02.09). Хендлер открыли гостю ещё 02.08 (его шапка это и говорит),
+  // а реестр — нет: гость на /safety жал «Включить», браузер подписывался,
+  // POST получал 401 на Edge, в БД не ложилось ничего, а кнопка при следующем
+  // заходе показывала «Уведомления включены» по подписке браузера. Отсюда
+  // «подписчиков 0» в Watchdog при целой механике. Внутри Zod и rate-limit;
+  // endpoint — capability-ссылка, чужой не подобрать.
+  '/api/push/subscribe': ['POST', 'DELETE'],
   '/api/payments/tochka/qr': ['GET', 'POST'],  // QR СБП из чата Кузьмича — гостевая оплата by design
   '/api/hub/bookings/create': ['POST'], // гостевая бронь by design (auth опционален, rate-limit)
   // Построение пути Origin → Destination (владелец 28.08, PR 5B-1) — тот же
