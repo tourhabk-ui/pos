@@ -25,6 +25,12 @@ export interface ImportedPoint {
   lng: number;
   /** Метры; null — в файле высоты нет. Ею §12 судит происхождение линии. */
   ele: number | null;
+  /**
+   * Время фикса, мс эпохи; null — в файле его нет у этой точки. По нему
+   * режется линия на куски там, где прибор терял сигнал (track-segments):
+   * без времени провал в 273 секунды неотличим от честного перегона.
+   */
+  t: number | null;
 }
 
 export interface ImportedTrack {
@@ -216,7 +222,9 @@ function parseGpx(xml: string): { tracks: ImportedTrack[]; waypoints: ImportedWa
         // «уровень моря». Отличить нельзя, и считать ноль высотой значит
         // объявить экспорт без высот записью прибора: у присланного 22.08
         // GPX перевала так и вышло — «высота у 100%» при сплошных нулях.
-        points.push({ lat, lng, ele: rawEle === 0 ? null : rawEle });
+        const timeM = p[3] ? /<time[^>]*>([^<]+)<\/time>/.exec(p[3]) : null;
+        const t = timeM ? Date.parse(timeM[1].trim()) : NaN;
+        points.push({ lat, lng, ele: rawEle === 0 ? null : rawEle, t: Number.isFinite(t) ? t : null });
       }
     }
     const clean = dedupe(points);
@@ -259,7 +267,7 @@ function pointFromTriple(a: string[]): ImportedPoint | null {
   const lng = num(a[0]), lat = num(a[1]);
   if (lat === null || lng === null || !plausible(lat, lng)) return null;
   const raw = a.length > 2 ? num(a[2]) : null;
-  return { lat, lng, ele: raw === null || raw === 0 ? null : raw };
+  return { lat, lng, ele: raw === null || raw === 0 ? null : raw, t: null };
 }
 
 function parseKml(xml: string): { tracks: ImportedTrack[]; waypoints: ImportedWaypoint[] } {
@@ -291,7 +299,16 @@ function parseKml(xml: string): { tracks: ImportedTrack[]; waypoints: ImportedWa
         .map(c => pointFromTriple(c[1].trim().split(/[\s,]+/)))
         .filter((p): p is ImportedPoint => p !== null);
       const whens = [...inner.matchAll(/<when[^>]*>([^<]*)<\/when>/g)].map(w => w[1].trim());
-      const points = dedupe(coords);
+      // Время к точке — только при точном совпадении числа меток и точек
+      // (то же правило, что ниже для длительности): иначе сдвиг на одну
+      // метку приписал бы каждой точке чужое время.
+      const timed = whens.length === coords.length
+        ? coords.map((c, i) => {
+            const t = Date.parse(whens[i]);
+            return { ...c, t: Number.isFinite(t) ? t : null };
+          })
+        : coords;
+      const points = dedupe(timed);
       if (points.length >= 2) {
         const t = measure(name, points);
         // Время берётся, только если его РОВНО столько же, сколько точек:

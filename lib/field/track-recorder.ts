@@ -293,19 +293,40 @@ export function toGeoJson(state: RecorderState): {
  * прочитается как «уровень моря» и соврёт (правило подтверждено кодом
  * Organic Maps, libs/kml/serdes_common.cpp).
  */
+/**
+ * Провал сигнала дольше этого — граница сегмента <trkseg>, как велит GPX.
+ *
+ * Запись «Зеленовские озерки» 31.08 (владелец, разбор 02.09): один <trkseg>
+ * на весь выход, а внутри два провала на 87 и 273 секунды — телефон в
+ * машине терял фикс. Читатель линии соединил концы провалов прямыми на 1.9
+ * и 6.5 км, и на карте вышел зигзаг, которого никто не ехал. Прямая через
+ * провал — это выдуманный путь (§12): там, где прибор молчал, линии нет.
+ */
+export const SEGMENT_GAP_S = 60;
+
 export function toGpx(state: RecorderState, name: string): string {
   const esc = (s: string) => s
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const pts = state.points.map(p => {
-    const ele = p.altitude !== null && Number.isFinite(p.altitude)
-      ? `<ele>${Math.round(p.altitude)}</ele>` : '';
-    return `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}">` +
-      `${ele}<time>${new Date(p.t).toISOString()}</time></trkpt>`;
+  const segments: TrackPoint[][] = [];
+  for (const p of state.points) {
+    const cur = segments[segments.length - 1];
+    const last = cur?.[cur.length - 1];
+    if (!cur || !last || p.t - last.t > SEGMENT_GAP_S * 1000) segments.push([p]);
+    else cur.push(p);
+  }
+  const segXml = segments.map(seg => {
+    const pts = seg.map(p => {
+      const ele = p.altitude !== null && Number.isFinite(p.altitude)
+        ? `<ele>${Math.round(p.altitude)}</ele>` : '';
+      return `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}">` +
+        `${ele}<time>${new Date(p.t).toISOString()}</time></trkpt>`;
+    }).join('\n');
+    return `<trkseg>\n${pts}\n</trkseg>`;
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Vedar" xmlns="http://www.topografix.com/GPX/1/1">
-<trk><name>${esc(name)}</name><trkseg>
-${pts}
-</trkseg></trk>
+<trk><name>${esc(name)}</name>
+${segXml}
+</trk>
 </gpx>`;
 }

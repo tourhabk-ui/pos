@@ -41,6 +41,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { parseTrackFile } from '@/lib/field/track-import';
+import { splitAtGaps, pickSegment, describeBreak } from '@/lib/field/track-segments';
 import { isPlausibleTrackPoint } from '@/lib/routes/track';
 
 export const dynamic = 'force-dynamic';
@@ -156,6 +157,19 @@ const ApplyBodySchema = z.object({
   route_title: z.string().min(2).max(200).optional(),
   dry_run: z.boolean().default(true),
   force: z.boolean().default(false),
+  /**
+   * Какой кусок записи применять (02.09, «Зеленовские озерки»). Запись
+   * рекордера режется там, где прибор молчал (track-segments): 'all' —
+   * как раньше, вся линия, провалы прямыми; 'longest' — самый длинный
+   * кусок; число — кусок по индексу из сухого прогона. Куски и их размеры
+   * всегда печатаются в ответе — решение о куске принимает человек по ним.
+   */
+  segment: z.union([z.literal('all'), z.literal('longest'), z.number().int().min(0)]).default('all'),
+  /**
+   * Применить запись, которая уже применена, ещё раз — другим куском.
+   * Без этого флага повторное применение — ошибка 409, как и было.
+   */
+  reapply: z.boolean().default(false),
 }).refine(d => Boolean(d.route_id) !== Boolean(d.route_title), {
   message: 'Нужен ровно один из route_id / route_title — цель называется явно, matched_route_id не используется',
 });
@@ -194,9 +208,9 @@ export async function POST(request: NextRequest) {
   if (!queued) {
     return NextResponse.json({ success: false, error: 'Запись в очереди не найдена' }, { status: 404 });
   }
-  if (queued.status !== 'pending') {
+  if (queued.status !== 'pending' && !(data.reapply && queued.status === 'applied')) {
     return NextResponse.json(
-      { success: false, error: `Запись уже в статусе «${queued.status}» — повторно не применяем` },
+      { success: false, error: `Запись уже в статусе «${queued.status}» — повторно не применяем (reapply: true — только для applied)` },
       { status: 409 },
     );
   }
@@ -279,23 +293,42 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const coords = plausible.map(p => (p.ele !== null ? [p.lng, p.lat, p.ele] : [p.lng, p.lat]));
-  const lengthKm = plausible.length === track.points.length
-    ? track.lengthKm
-    : Math.round(
-        plausible.slice(1).reduce((acc, p, i) => {
-          const a = plausible[i]!;
-          const dLat = ((p.lat - a.lat) * Math.PI) / 180;
-          const dLng = ((p.lng - a.lng) * Math.PI) / 180;
-          const s = Math.sin(dLat / 2) ** 2
-            + Math.cos((a.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-          return acc + 6371 * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-        }, 0) * 100,
-      ) / 100;
+  // Разрез по провалам сигнала — ВСЕГДА считается и печатается, даже при
+  // segment: 'all': человек обязан видеть, сколько кусков в записи и где
+  // линия пойдёт прямой через молчание прибора.
+  const segments = splitAtGaps(plausible);
+  const chosen = pickSegment(segments, data.segment);
+  if (!chosen || chosen.points.length < 2) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Кусок «${String(data.segment)}» не найден или короче двух точек`,
+        segments: segments.map(s => ({
+          index: s.index, from: s.from, to: s.to, points: s.points.length,
+          length_km: s.lengthKm, duration_s: s.durationS, break_before: describeBreak(s.breakBefore),
+        })),
+      },
+      { status: 422 },
+    );
+  }
+  const kept = chosen.points;
+  const coords = kept.map(p => (p.ele !== null ? [p.lng, p.lat, p.ele] : [p.lng, p.lat]));
+  const lengthKm = chosen.lengthKm;
 
   const preview = {
     target: { id: target.id, title: target.title, previous_source: target.geometry_source },
-    new_line: { points: coords.length, length_km: lengthKm, dropped_out_of_bounds: droppedOutOfBounds },
+    new_line: {
+      points: coords.length,
+      length_km: lengthKm,
+      dropped_out_of_bounds: droppedOutOfBounds,
+      dropped_by_segment: plausible.length - kept.length,
+      segment: data.segment,
+    },
+    segments: segments.map(s => ({
+      index: s.index, from: s.from, to: s.to, points: s.points.length,
+      length_km: s.lengthKm, duration_s: s.durationS, break_before: describeBreak(s.breakBefore),
+      chosen: chosen.index === s.index,
+    })),
     source_format: parsed.format,
   };
 
