@@ -75,7 +75,14 @@ describe('компас — шкала, а не кружок', () => {
 
 describe('главная цифра различима без фокусировки', () => {
   it('кегль числа задан крупным и адаптивным', () => {
-    expect(DISTANCE).toMatch(/clamp\(56px, 22vw, 92px\)/);
+    // 02.09 (форма листа, скрин владельца 08:18): 92px забирали четверть
+    // листа под одно число; 64 читается на ходу так же. Нижняя граница
+    // держит крупность, верхняя — место под чипы и действия.
+    const m = DISTANCE.match(/fontSize: 'clamp\((\d+)px, (\d+)vw, (\d+)px\)'/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(40);
+    expect(Number(m![3])).toBeGreaterThanOrEqual(56);
+    expect(Number(m![3])).toBeLessThanOrEqual(72);
   });
 
   it('единица измерения набрана отдельно от числа', () => {

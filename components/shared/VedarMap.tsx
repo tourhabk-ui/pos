@@ -33,8 +33,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
-  buildVedarStyle, vedarMapPalette, type VedarMapTheme, type VedarStyleSources,
+  buildVedarStyle, buildRegionOverlay, vedarMapPalette,
+  type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
+import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 import { Minus, Plus } from 'lucide-react';
 /**
@@ -85,6 +87,61 @@ interface VedarMapProps {
    * поломки — молчание на своём месте, а видимость на чужом.
    */
   onDiagnostic?: (message: string | null) => void;
+  /**
+   * Пакеты соседних районов (02.09, скрин владельца «карты нет других
+   * районов»). Основной стиль описывает один район; эти подкладываются на
+   * живую карту, когда попадают в видимую область. `baseRegion` — район
+   * основного стиля, его второй раз не подкладываем.
+   */
+  packs?: readonly RegionPack[];
+  baseRegion?: string;
+  /**
+   * Свои кнопки «+»/«−» на карте. Выключаются, когда их рисует экран
+   * снаружи (приборный ряд «На маршруте»): на середине высоты карты их
+   * накрывал нижний лист — скрин владельца 02.09 08:18.
+   */
+  showZoomButtons?: boolean;
+  /** Ручка управления наружу — для кнопок масштаба вне карты. null при размонтировании. */
+  onControls?: (handle: VedarMapHandle | null) => void;
+}
+
+export interface VedarMapHandle {
+  zoomIn(): void;
+  zoomOut(): void;
+}
+
+/**
+ * Ярус `detail` (горизонтали, OSM-заливки и линии) подкладывается соседям
+ * только с этого зума: ниже contour-minor всё равно не рисуется (minzoom 11),
+ * а рельефа в пакетах нет (MINZOOM = 10 в build_terrain.py) — платить
+ * мегабайты GeoJSON за обзорный вид не за что. Основной район это не
+ * касается: его стиль грузит всё сразу, как и прежде.
+ */
+export const DETAIL_MIN_ZOOM = 10;
+
+/**
+ * Кнопки масштаба — одна реализация на карту и на приборный ряд снаружи.
+ * В перчатке и на морозе щипок не всегда выходит, а «+»/«−» есть у любого
+ * навигатора. Действие — непрозрачное (§2).
+ */
+export function VedarZoomButtons({ handle }: { handle: VedarMapHandle | null }) {
+  if (!handle) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {([['Приблизить', 1, Plus], ['Отдалить', -1, Minus]] as const).map(([label, dir, Icon]) => (
+        <button key={label} type="button" aria-label={label}
+          onClick={() => { if (dir > 0) handle.zoomIn(); else handle.zoomOut(); }}
+          style={{
+            width: 44, height: 44, borderRadius: 12,
+            background: 'var(--bg-card)', color: 'var(--text-primary)',
+            border: '1px solid var(--border)', display: 'grid', placeItems: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+          }}>
+          <Icon className="w-5 h-5" />
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -205,6 +262,10 @@ export default function VedarMap({
   showUserLocation = false,
   height = '100%',
   onDiagnostic,
+  packs = [],
+  baseRegion,
+  showZoomButtons = true,
+  onControls,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
@@ -215,6 +276,8 @@ export default function VedarMap({
   // LeafletMap, чтобы не дёргать жизненный цикл карты чужой identity.
   const onDiagnosticRef = useRef(onDiagnostic);
   onDiagnosticRef.current = onDiagnostic;
+  const onControlsRef = useRef(onControls);
+  useEffect(() => { onControlsRef.current = onControls; }, [onControls]);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
@@ -413,6 +476,74 @@ export default function VedarMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme, sources?.terrainUrl, sources?.contoursUrl]);
 
+  // ── Ручка управления наружу ─────────────────────────────────────────────
+  // Живёт от `load` до размонтирования; кнопки снаружи без неё не рисуются.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) { onControlsRef.current?.(null); return; }
+    onControlsRef.current?.({ zoomIn: () => map.zoomIn(), zoomOut: () => map.zoomOut() });
+    return () => onControlsRef.current?.(null);
+  }, [ready]);
+
+  // ── Соседние районы — по видимой области ────────────────────────────────
+  // Скрин владельца 02.09 08:21: при отдалении виден один пакет, остальные
+  // девять — чёрное поле. Стиль описывает район точки; соседей карта
+  // подкладывает сама, когда их bbox входит в видимую область, ярусами
+  // (см. buildRegionOverlay): рельеф и вершины — сразу, горизонтали и OSM —
+  // с DETAIL_MIN_ZOOM. Добавленное не снимается: MapLibre держит источники
+  // без запросов, пока их тайлы не в кадре, а GeoJSON уже скачан.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || packs.length === 0) return;
+    const added = new Set<string>();
+    const ensure = () => {
+      const b = map.getBounds();
+      const view = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+      const zoom = map.getZoom();
+      for (const region of regionsIntersecting(packs, view)) {
+        if (region === baseRegion) continue;
+        const pack = packs.find(p => p.region === region);
+        if (!pack) continue;
+        const tiers: RegionTier[] = zoom >= DETAIL_MIN_ZOOM ? ['base', 'detail'] : ['base'];
+        for (const tier of tiers) {
+          const key = `${region}:${tier}`;
+          if (added.has(key)) continue;
+          added.add(key);
+          const overlay = buildRegionOverlay(theme, {
+            terrainUrl: pack.source.terrainUrl,
+            contoursUrl: pack.source.contoursUrl,
+            terrainMaxZoom: pack.source.terrainMaxZoom,
+            attribution: '© Copernicus DEM (ESA)',
+            glyphsUrl: pack.source.glyphsUrl,
+            glyphsFont: pack.source.glyphsFont,
+            osmUrls: pack.source.osmUrls,
+          }, region, tier);
+          try {
+            for (const [id, src] of Object.entries(overlay.sources)) {
+              if (!map.getSource(id)) map.addSource(id, src as never);
+            }
+            for (const layer of overlay.layers) {
+              const id = String(layer.id);
+              if (map.getLayer(id)) continue;
+              // Всё под линией маршрута: путь читается поверх карты. Заливки
+              // соседа — под его же тенью, иначе лес лёг бы поверх рельефа.
+              const hill = `hillshade-${region}`;
+              const before = layer.type === 'fill' && map.getLayer(hill) ? hill : 'route-trail';
+              map.addLayer(layer as never, map.getLayer(before) ? before : undefined);
+            }
+          } catch (err) {
+            // Не молчим: район, который не подложился, — это «не смог», а не
+            // «соседей нет» (§4.0). Карта основного района при этом цела.
+            console.error(`[VedarMap] район ${region} (${tier}) не подложился`, err);
+          }
+        }
+      }
+    };
+    ensure();
+    map.on('moveend', ensure);
+    return () => { map.off('moveend', ensure); };
+  }, [ready, packs, baseRegion, theme]);
+
   // ── Линии на живой карте ────────────────────────────────────────────────
   // setData вместо пересоздания слоя: набор меняется на каждом GPS-фиксе.
   useEffect(() => {
@@ -514,28 +645,19 @@ export default function VedarMap({
   return (
     <div style={{ height, position: 'relative', background: palette.background }}>
       <div ref={containerRef} style={{ height: '100%', width: '100%', touchAction: 'none' }} />
-      {/* Масштаб кнопками — в дополнение к щипку, не вместо него: в перчатке
-          и на морозе щипок не всегда выходит, а «+»/«−» есть у любого
-          навигатора. Слева на середине высоты: справа сверху компас, снизу
-          лист приборов — здесь кнопки не спорят ни с чем. Действие —
-          непрозрачное (§2). */}
-      {ready && (
-        <div style={{
-          position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-          zIndex: 5, display: 'flex', flexDirection: 'column', gap: 8,
-        }}>
-          {([['Приблизить', 1, Plus], ['Отдалить', -1, Minus]] as const).map(([label, dir, Icon]) => (
-            <button key={label} type="button" aria-label={label}
-              onClick={() => { const m = mapRef.current; if (!m) return; if (dir > 0) m.zoomIn(); else m.zoomOut(); }}
-              style={{
-                width: 44, height: 44, borderRadius: 12,
-                background: 'var(--bg-card)', color: 'var(--text-primary)',
-                border: '1px solid var(--border)', display: 'grid', placeItems: 'center',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-              }}>
-              <Icon className="w-5 h-5" />
-            </button>
-          ))}
+      {/* Масштаб кнопками — в дополнение к щипку, не вместо него. Свои
+          кнопки карта рисует, только когда снаружи их никто не рисует
+          (showZoomButtons): 02.09 на середине высоты их накрыл нижний лист
+          приборов, и экран «На маршруте» теперь ставит их сам, в приборный
+          ряд рядом с компасом, где ничто не накрывает. Слева сверху, а не на
+          середине: угадывать высоту листа пикселями — та же fixed-угадайка,
+          что уже ловили с компасом (29.08). */}
+      {ready && showZoomButtons && (
+        <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 5 }}>
+          <VedarZoomButtons handle={{
+            zoomIn: () => { const m = mapRef.current; if (m) m.zoomIn(); },
+            zoomOut: () => { const m = mapRef.current; if (m) m.zoomOut(); },
+          }} />
         </div>
       )}
       {(mapError || diag) && (

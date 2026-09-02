@@ -12,7 +12,7 @@
  * штатный путь.
  */
 
-import { REGIONS, REGIONS_LIST, type RegionId } from '@/lib/geo/regions';
+import { REGIONS, REGIONS_LIST, type RegionBbox, type RegionId } from '@/lib/geo/regions';
 import {
   resolvePackSource, BUILT_PACK_REGIONS, type PackSource,
 } from '@/lib/map/pack-source';
@@ -94,4 +94,53 @@ export function chooseFieldBaseMap(
 export function regionCenter(region: RegionId): [number, number] {
   const c = REGIONS[region].center;
   return [c.lat, c.lng];
+}
+
+/** Пакет района с его границами — то, что карта подкладывает по соседству. */
+export interface RegionPack {
+  region: RegionId;
+  bbox: RegionBbox;
+  source: Extract<PackSource, { state: 'ready' }>;
+}
+
+/**
+ * Все собранные пакеты с адресами (02.09, скрин владельца «карты нет
+ * других районов»). Карта района точки — основа стиля; остальные она
+ * подкладывает, когда они попадают в видимую область (VedarMap, moveend).
+ *
+ * Список идёт из реестра BUILT_PACK_REGIONS, а не из опроса хранилища — по
+ * той же причине, что и сам реестр: в офлайне опрос не пройдёт, а ответ
+ * «не знаю» превратился бы в «соседей нет».
+ */
+export function builtRegionPacks(
+  baseUrl: string | null,
+  builtRegions: readonly RegionId[] = BUILT_PACK_REGIONS,
+): RegionPack[] {
+  const out: RegionPack[] = [];
+  for (const region of builtRegions) {
+    const source = resolvePackSource(region, builtRegions, baseUrl);
+    if (source.state !== 'ready') continue;
+    out.push({ region, bbox: REGIONS[region].bbox, source });
+  }
+  return out;
+}
+
+/** Видимая область карты — в тех же осях, что bbox района. */
+export interface ViewBounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+/** Районы, чей bbox пересекает область. Касание краем — тоже пересечение. */
+export function regionsIntersecting(
+  packs: readonly RegionPack[],
+  view: ViewBounds,
+): RegionId[] {
+  return packs
+    .filter(p =>
+      p.bbox.west <= view.east && p.bbox.east >= view.west
+      && p.bbox.south <= view.north && p.bbox.north >= view.south)
+    .map(p => p.region);
 }

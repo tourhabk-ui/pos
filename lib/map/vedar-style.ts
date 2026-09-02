@@ -183,6 +183,10 @@ const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
 /**
  * Собирает style JSON MapLibre. Чистая функция: ни DOM, ни сети — поэтому
  * проверяется тестом целиком, а не «посмотрели глазами один раз».
+ *
+ * Стиль описывает ОДИН район — тот, что накрывает точку человека. Соседние
+ * районы карта подкладывает на ходу через `buildRegionOverlay` (ниже): те же
+ * слои с суффиксом района в идентификаторах.
  */
 export function buildVedarStyle(
   theme: VedarMapTheme,
@@ -198,98 +202,23 @@ export function buildVedarStyle(
     // объекте стиля MapLibre трактует не как отсутствие, а как значение.
     ...(glyphs ? { glyphs } : {}),
     sources: {
-      terrain: {
-        type: 'raster-dem',
-        url: sources.terrainUrl,
-        tileSize: 256,
-        // Mapbox terrain-RGB: height = -10000 + (R*65536 + G*256 + B) * 0.1
-        encoding: 'mapbox',
-        maxzoom: sources.terrainMaxZoom,
-        attribution: sources.attribution,
-      },
-      contours: {
-        type: 'geojson',
-        data: sources.contoursUrl,
-        attribution: sources.attribution,
-      },
+      ...terrainSource(sources, ''),
+      ...contoursSource(sources, ''),
       // Маршрут и след кладёт компонент: их геометрия приходит из БД и
       // меняется на ходу, стилю о ней знать нечего, кроме вида линии.
       route: { type: 'geojson', data: emptyFeatureCollection() },
       // OSM-слои — по одному источнику на слой, только те, что есть у района.
-      ...osmSources(sources.osmUrls),
+      ...osmSources(sources.osmUrls, ''),
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
-      ...osmFillLayers(sources.osmUrls, p),
-      {
-        id: 'hillshade',
-        type: 'hillshade',
-        source: 'terrain',
-        paint: {
-          'hillshade-shadow-color': p.shadow,
-          'hillshade-highlight-color': p.highlight,
-          'hillshade-accent-color': p.accentShadow,
-          'hillshade-exaggeration': theme === 'dark' ? 0.72 : 0.45,
-          'hillshade-illumination-anchor': 'viewport',
-          'hillshade-illumination-direction': 315,
-        },
-      },
-      {
-        id: 'contour-minor',
-        type: 'line',
-        source: 'contours',
-        filter: ['==', ['get', 'kind'], 'minor'],
-        // Частые линии на мелком зуме сливаются в кашу — там их нет вовсе.
-        minzoom: 11,
-        paint: {
-          'line-color': p.contourMinor,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 14, 0.8],
-          'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.35, 13, 0.7],
-        },
-      },
-      {
-        id: 'contour-major',
-        type: 'line',
-        source: 'contours',
-        filter: ['==', ['get', 'kind'], 'major'],
-        paint: {
-          'line-color': p.contourMajor,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 14, 1.4],
-          'line-opacity': 0.85,
-        },
-      },
-      // Слой подписей создаётся ТОЛЬКО при наличии глифов. Иначе MapLibre
-      // отвергает весь стиль, и человек получает чёрный экран вместо карты.
-      ...(glyphs ? [{
-        id: 'contour-label',
-        type: 'symbol',
-        source: 'contours',
-        filter: ['==', ['get', 'kind'], 'major'],
-        minzoom: 11,
-        layout: {
-          'symbol-placement': 'line',
-          // Шрифт — тот, что лежит в нашем хранилище (pack-source, PACK_GLYPHS).
-          'text-font': [sources.glyphsFont ?? 'Noto Sans Regular'],
-          // Число берётся ИЗ ДАННЫХ. Это и есть разница между картой и
-          // картинкой: подпись нельзя «нарисовать похоже».
-          'text-field': ['to-string', ['get', 'ele']],
-          'text-size': 10,
-          'text-max-angle': 25,
-          'text-padding': 6,
-          'symbol-spacing': 320,
-          'text-allow-overlap': false,
-          'text-ignore-placement': false,
-        },
-        paint: {
-          'text-color': p.contourLabel,
-          'text-halo-color': p.contourLabelHalo,
-          'text-halo-width': 1.4,
-        },
-      }] : []),
+      ...osmFillLayers(sources.osmUrls, p, ''),
+      hillshadeLayer(theme, p, ''),
+      ...contourLayers(sources, p, glyphs, ''),
       // Реки, дороги, тропы — над горизонталями, под линией маршрута: путь
       // человека читается поверх карты, а не сквозь неё.
-      ...osmLineLayers(sources.osmUrls, p),
+      ...osmLineLayers(sources.osmUrls, p, ''),
       {
         // Свой след — ПОД маршрутом: маршрут — обещание, след — история.
         // Тонкий, голубой, сплошной (это запись, а не обещание пути), без
@@ -375,49 +304,210 @@ export function buildVedarStyle(
         },
       },
       // Вершины — сверху всего: ориентир в поле важнее любой линии.
-      ...osmPeakLayers(sources.osmUrls, p, glyphs, sources.glyphsFont ?? 'Noto Sans Regular'),
+      ...osmPeakLayers(sources.osmUrls, p, glyphs, sources.glyphsFont ?? 'Noto Sans Regular', ''),
     ],
   };
 }
 
+/**
+ * Ярус подкладки соседнего района (02.09, скрин владельца «карты нет
+ * других районов»: при отдалении виден один пакет, остальные девять —
+ * чёрные).
+ *
+ *  - `base`   — рельеф и вершины. Рельеф читается из PMTiles кусками, по
+ *               видимым тайлам, и стоит дёшево на любом зуме; вершин в
+ *               районе десятки, файл — килобайты.
+ *  - `detail` — горизонтали и остальные OSM-слои. Это GeoJSON, и MapLibre
+ *               скачивает его ЦЕЛИКОМ: у Эссо 16 МБ горизонталей, у
+ *               Кроноцкого 8.6. Десять районов разом на обзорном зуме — это
+ *               десятки мегабайт мобильного трафика ради линий, которых на
+ *               том зуме всё равно не видно (contour-minor начинается с z11).
+ *               Поэтому ярус подкладывается только вблизи (см.
+ *               DETAIL_MIN_ZOOM в VedarMap).
+ */
+export type RegionTier = 'base' | 'detail';
+
+export interface RegionOverlay {
+  sources: Record<string, unknown>;
+  layers: Array<Record<string, unknown>>;
+}
+
+/**
+ * Те же источники и слои, что в основном стиле, но с суффиксом района в
+ * идентификаторах — чтобы их можно было добавить на живую карту рядом с
+ * уже стоящими. Одни и те же сборщики на оба случая: второй набор правил
+ * вида разошёлся бы с первым при следующей правке палитры (§12, тот же
+ * урок про три экрана и три правила).
+ */
+export function buildRegionOverlay(
+  theme: VedarMapTheme,
+  sources: VedarStyleSources,
+  regionId: string,
+  tier: RegionTier,
+): RegionOverlay {
+  const p = PALETTES[theme];
+  const glyphs = sources.glyphsUrl || null;
+  const ns = `-${regionId}`;
+  const font = sources.glyphsFont ?? 'Noto Sans Regular';
+  if (tier === 'base') {
+    const peaksOnly = sources.osmUrls?.peaks ? { peaks: sources.osmUrls.peaks } : undefined;
+    return {
+      sources: { ...terrainSource(sources, ns), ...osmSources(peaksOnly, ns) },
+      layers: [
+        hillshadeLayer(theme, p, ns),
+        ...osmPeakLayers(peaksOnly, p, glyphs, font, ns),
+      ] as Array<Record<string, unknown>>,
+    };
+  }
+  const rest: VedarStyleSources['osmUrls'] = { ...(sources.osmUrls ?? {}) };
+  delete rest.peaks;
+  return {
+    sources: { ...contoursSource(sources, ns), ...osmSources(rest, ns) },
+    layers: [
+      ...osmFillLayers(rest, p, ns),
+      ...contourLayers(sources, p, glyphs, ns),
+      ...osmLineLayers(rest, p, ns),
+    ] as Array<Record<string, unknown>>,
+  };
+}
+
+function terrainSource(sources: VedarStyleSources, ns: string): Record<string, unknown> {
+  return {
+    [`terrain${ns}`]: {
+      type: 'raster-dem',
+      url: sources.terrainUrl,
+      tileSize: 256,
+      // Mapbox terrain-RGB: height = -10000 + (R*65536 + G*256 + B) * 0.1
+      encoding: 'mapbox',
+      maxzoom: sources.terrainMaxZoom,
+      attribution: sources.attribution,
+    },
+  };
+}
+
+function contoursSource(sources: VedarStyleSources, ns: string): Record<string, unknown> {
+  return {
+    [`contours${ns}`]: {
+      type: 'geojson',
+      data: sources.contoursUrl,
+      attribution: sources.attribution,
+    },
+  };
+}
+
+function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record<string, unknown> {
+  return {
+    id: `hillshade${ns}`,
+    type: 'hillshade',
+    source: `terrain${ns}`,
+    paint: {
+      'hillshade-shadow-color': p.shadow,
+      'hillshade-highlight-color': p.highlight,
+      'hillshade-accent-color': p.accentShadow,
+      'hillshade-exaggeration': theme === 'dark' ? 0.72 : 0.45,
+      'hillshade-illumination-anchor': 'viewport',
+      'hillshade-illumination-direction': 315,
+    },
+  };
+}
+
+function contourLayers(
+  sources: VedarStyleSources, p: MapPalette, glyphs: string | null, ns: string,
+): unknown[] {
+  return [
+    {
+      id: `contour-minor${ns}`,
+      type: 'line',
+      source: `contours${ns}`,
+      filter: ['==', ['get', 'kind'], 'minor'],
+      // Частые линии на мелком зуме сливаются в кашу — там их нет вовсе.
+      minzoom: 11,
+      paint: {
+        'line-color': p.contourMinor,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 14, 0.8],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.35, 13, 0.7],
+      },
+    },
+    {
+      id: `contour-major${ns}`,
+      type: 'line',
+      source: `contours${ns}`,
+      filter: ['==', ['get', 'kind'], 'major'],
+      paint: {
+        'line-color': p.contourMajor,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 14, 1.4],
+        'line-opacity': 0.85,
+      },
+    },
+    // Слой подписей создаётся ТОЛЬКО при наличии глифов. Иначе MapLibre
+    // отвергает весь стиль, и человек получает чёрный экран вместо карты.
+    ...(glyphs ? [{
+      id: `contour-label${ns}`,
+      type: 'symbol',
+      source: `contours${ns}`,
+      filter: ['==', ['get', 'kind'], 'major'],
+      minzoom: 11,
+      layout: {
+        'symbol-placement': 'line',
+        // Шрифт — тот, что лежит в нашем хранилище (pack-source, PACK_GLYPHS).
+        'text-font': [sources.glyphsFont ?? 'Noto Sans Regular'],
+        // Число берётся ИЗ ДАННЫХ. Это и есть разница между картой и
+        // картинкой: подпись нельзя «нарисовать похоже».
+        'text-field': ['to-string', ['get', 'ele']],
+        'text-size': 10,
+        'text-max-angle': 25,
+        'text-padding': 6,
+        'symbol-spacing': 320,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+      },
+      paint: {
+        'text-color': p.contourLabel,
+        'text-halo-color': p.contourLabelHalo,
+        'text-halo-width': 1.4,
+      },
+    }] : []),
+  ];
+}
+
 /** Источники OSM — только для слоёв, чьи адреса есть. Атрибуция ODbL у каждого. */
-function osmSources(urls: VedarStyleSources['osmUrls']): Record<string, unknown> {
+function osmSources(urls: VedarStyleSources['osmUrls'], ns: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [layer, url] of Object.entries(urls ?? {})) {
     if (!url) continue;
-    out[`osm-${layer}`] = { type: 'geojson', data: url, attribution: OSM_ATTRIBUTION };
+    out[`osm-${layer}${ns}`] = { type: 'geojson', data: url, attribution: OSM_ATTRIBUTION };
   }
   return out;
 }
 
-function osmFillLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette): unknown[] {
+function osmFillLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette, ns: string): unknown[] {
   const out: unknown[] = [];
   if (urls?.wood) {
     out.push({
-      id: 'osm-wood', type: 'fill', source: 'osm-wood',
+      id: `osm-wood${ns}`, type: 'fill', source: `osm-wood${ns}`,
       paint: { 'fill-color': p.wood, 'fill-opacity': 0.55 },
     });
   }
   if (urls?.glacier) {
     out.push({
-      id: 'osm-glacier', type: 'fill', source: 'osm-glacier',
+      id: `osm-glacier${ns}`, type: 'fill', source: `osm-glacier${ns}`,
       paint: { 'fill-color': p.glacier, 'fill-opacity': 0.7 },
     });
   }
   if (urls?.water) {
     out.push({
-      id: 'osm-water', type: 'fill', source: 'osm-water',
+      id: `osm-water${ns}`, type: 'fill', source: `osm-water${ns}`,
       paint: { 'fill-color': p.water, 'fill-opacity': 0.9 },
     });
   }
   return out;
 }
 
-function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette): unknown[] {
+function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette, ns: string): unknown[] {
   const out: unknown[] = [];
   if (urls?.waterways) {
     out.push({
-      id: 'osm-waterways', type: 'line', source: 'osm-waterways',
+      id: `osm-waterways${ns}`, type: 'line', source: `osm-waterways${ns}`,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': p.waterway,
@@ -431,7 +521,7 @@ function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette): unkno
   }
   if (urls?.roads) {
     out.push({
-      id: 'osm-roads', type: 'line', source: 'osm-roads',
+      id: `osm-roads${ns}`, type: 'line', source: `osm-roads${ns}`,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': p.road,
@@ -442,7 +532,7 @@ function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette): unkno
   }
   if (urls?.paths) {
     out.push({
-      id: 'osm-paths', type: 'line', source: 'osm-paths',
+      id: `osm-paths${ns}`, type: 'line', source: `osm-paths${ns}`,
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
       paint: {
         'line-color': p.path,
@@ -458,11 +548,11 @@ function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette): unkno
 }
 
 function osmPeakLayers(
-  urls: VedarStyleSources['osmUrls'], p: MapPalette, glyphs: string | null, font: string,
+  urls: VedarStyleSources['osmUrls'], p: MapPalette, glyphs: string | null, font: string, ns: string,
 ): unknown[] {
   if (!urls?.peaks) return [];
   const out: unknown[] = [{
-    id: 'osm-peaks', type: 'circle', source: 'osm-peaks',
+    id: `osm-peaks${ns}`, type: 'circle', source: `osm-peaks${ns}`,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4],
       'circle-color': p.peak,
@@ -474,7 +564,7 @@ function osmPeakLayers(
   // целиком (тот же урок, что у горизонталей 01.09).
   if (glyphs) {
     out.push({
-      id: 'osm-peak-labels', type: 'symbol', source: 'osm-peaks',
+      id: `osm-peak-labels${ns}`, type: 'symbol', source: `osm-peaks${ns}`,
       layout: {
         'text-font': [font],
         'text-field': ['case', ['has', 'ele'],

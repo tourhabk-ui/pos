@@ -35,8 +35,8 @@ import {
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
-import { chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
-import type { VedarMapLine } from '@/components/shared/VedarMap';
+import { builtRegionPacks, chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
+import { VedarZoomButtons, type VedarMapHandle, type VedarMapLine } from '@/components/shared/VedarMap';
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
@@ -476,6 +476,18 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    * перекрыть родителя соседа. См. `VedarMap.onDiagnostic`.
    */
   const [vedarDiag, setVedarDiag] = useState<string | null>(null);
+  /**
+   * Ручка своей карты — для кнопок масштаба в приборном ряду. Внутри карты
+   * они стояли на середине высоты, и нижний лист их накрывал (скрин
+   * владельца 02.09 08:18: тёмный квадрат торчал из-под карточки).
+   */
+  const [mapCtl, setMapCtl] = useState<VedarMapHandle | null>(null);
+  /**
+   * Все собранные пакеты — карта подкладывает соседние районы по видимой
+   * области (скрин 08:21: «карты нет других районов»). Считается один раз
+   * на адрес хранилища; реестр статичен.
+   */
+  const regionPacks = useMemo(() => builtRegionPacks(mapPackBaseUrl), [mapPackBaseUrl]);
   // Тема страницы — карте: она считает цвета в WebGL и каскада не видит.
   // 02.09: интерфейс светлый, карта под ним принудительно тёмная.
   const documentTheme = useDocumentTheme();
@@ -3070,6 +3082,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             showUserLocation
             lines={vedarLines}
             onDiagnostic={setVedarDiag}
+            packs={regionPacks}
+            baseRegion={fieldBaseMap.region}
+            // В режиме «Карта» приборный столбец скрыт — тогда кнопки
+            // масштаба рисует сама карта; иначе они в приборном ряду.
+            showZoomButtons={showMap}
+            onControls={setMapCtl}
           />
         ) : fieldBaseMap.kind === 'pending' ? (
           /* Точка ещё не известна — ни одну подложку не поднимаем (см.
@@ -3188,9 +3206,15 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           Сам компас остаётся полностью непрозрачным (FieldCompass не
           тронут) — «критичные приборы... всегда непрозрачные» (§2
           CLAUDE.md), это не глянцевая плашка. */}
-      {(hasRoute || isLoadingRoute) && !showMap && (
-        <div className="relative z-20 flex justify-end px-3 pt-2">
-          <div className="flex flex-col items-center gap-2">
+      {/* Приборный ряд: слева масштаб своей карты, справа компас. Оба в
+          обычном потоке под плашкой статуса — ничто их не накрывает и
+          ничего не угадывается пикселями (02.09: кнопки внутри карты на
+          середине высоты ушли под нижний лист). */}
+      {!showMap && (hasRoute || isLoadingRoute || mapCtl) && (
+        <div className="relative z-20 flex justify-between items-start px-3 pt-2">
+          <VedarZoomButtons handle={mapCtl} />
+          {(hasRoute || isLoadingRoute) && (
+          <div className="flex flex-col items-center gap-2 ml-auto">
             {/* size=300 — дефолт компонента, рассчитанный на центр колонки
                 (прежнее место). Плавающий инструмент — бейдж, не герой
                 экрана. 146 на живом скрине владельца 02.09 занимали 40%
@@ -3208,6 +3232,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               </button>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -3234,23 +3259,41 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       {/* 02.09: потолок зависит от состояния. Свёрнутый лист — одна строка
           и панель действий, ему хватает 32vh с запасом; развёрнутый человек
           открыл сам и читает — 60vh, прокрутка внутри. */}
-      <div className={`fixed inset-x-0 bottom-0 z-10 overflow-y-auto overscroll-contain ${sheetOpen ? 'max-h-[60vh]' : 'max-h-[32vh]'}`}>
+      {/* Форма листа (владелец 02.09 08:18, «поправь форму»). Лист — одна
+          непрозрачная поверхность с тремя частями: ручка сверху, тело с
+          прокруткой, панель действий прибита к низу и видна ВСЕГДА. До
+          этого поверхности у листа не было: ручка цвета --border терялась
+          на тёмной карте (свернуть было нечем), панель действий уезжала в
+          прокрутку и подписи резались краем экрана, а карточки внутри
+          несли каждая свою рамку. Непрозрачность законна: здесь главная
+          цифра навигации и действия поля (§2: «критичные приборы и
+          действия — всегда непрозрачные»). */}
+      <div className={`fixed inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl ${sheetOpen ? 'max-h-[60vh]' : 'max-h-[32vh]'}`}
+        style={{
+          background: 'var(--bg-card)',
+          borderTop: '1px solid var(--border)',
+          boxShadow: '0 -8px 24px rgba(0,0,0,0.35)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}>
       {(hasRoute || isLoadingRoute) ? (
-        /* Ручка — кнопка: 44px по высоте, чтобы попадать пальцем в перчатке. */
+        /* Ручка — кнопка: 44px по высоте, чтобы попадать пальцем в перчатке.
+           Пилюля и шеврон — видимыми токенами текста, не цветом границы. */
         <button type="button" onClick={toggleSheet}
           aria-label={sheetOpen ? 'Свернуть приборы' : 'Развернуть приборы'} aria-expanded={sheetOpen}
-          className="w-full flex flex-col items-center justify-center pt-1.5 pb-1 min-h-[28px]">
-          <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border)' }} />
+          className="shrink-0 w-full flex flex-col items-center justify-center pt-2 pb-1 min-h-[44px]">
+          <span className="w-10 h-1 rounded-full" style={{ background: 'var(--text-muted)' }} />
           {sheetOpen
-            ? <ChevronDown className="w-4 h-4 mt-0.5" style={{ color: 'var(--text-muted)' }} />
-            : <ChevronUp className="w-4 h-4 mt-0.5" style={{ color: 'var(--text-muted)' }} />}
+            ? <ChevronDown className="w-5 h-5 mt-0.5" style={{ color: 'var(--text-secondary)' }} />
+            : <ChevronUp className="w-5 h-5 mt-0.5" style={{ color: 'var(--text-secondary)' }} />}
         </button>
       ) : (
-        <div className="flex justify-center pt-1.5 pb-1">
-          <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border)' }} />
+        <div className="shrink-0 flex justify-center pt-2 pb-1">
+          <span className="w-10 h-1 rounded-full" style={{ background: 'var(--text-muted)' }} />
         </div>
       )}
-      <div className="px-4 pb-6 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
+      {/* Тело листа — единственная прокручиваемая часть. */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      <div className="px-4 pb-4 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
 
         {!hasRoute && !isLoadingRoute ? (
           /* Destination-first (UX-коррекция владельца 27.08): цель, не
@@ -3295,12 +3338,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           </div>
         ) : !sheetOpen ? (
           /* Свёрнутый лист (02.09): цифра в одну строку, чипы времени и
-             набора, панель действий — и ничего больше. Карточка
-             непрозрачная (§2: главная цифра навигации). Всё остальное —
-             по ручке выше. */
+             набора — и ничего больше; панель действий прибита к низу
+             листа (см. конец листа). Поверхность листа непрозрачная (§2:
+             главная цифра навигации), своей рамки у строки нет — рамка в
+             рамке была бы вложенной карточкой. Всё остальное — по ручке. */
           <div className="w-full flex flex-col gap-3">
-            <div className="w-full rounded-2xl px-4 py-3 flex items-center gap-3"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <div className="w-full px-1 py-1 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 {isLoadingRoute ? (
                   <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Загружаем маршрут…</p>
@@ -3329,7 +3372,6 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                 <ChevronUp className="w-5 h-5" />
               </button>
             </div>
-            <FieldActionBar actions={fieldActions} error={fieldBarError} />
           </div>
         ) : (
         <>
@@ -3343,16 +3385,15 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             больше не требует его СМЕЩЕНИЯ, только собственная честность
             прибора (гаснущее кольцо, нет стрелки) осталась в FieldCompass
             без изменений. */}
-        {/* Геройская цифра — НЕПРОЗРАЧНАЯ карточка, не текст на карте
+        {/* Геройская цифра — на НЕПРОЗРАЧНОЙ поверхности, не текст на карте
             (правка 29.08 по живому скрину владельца: text-shadow поверх
             реального трека читался плохо, линия шла прямо сквозь цифры —
             «кринж»). Это не отступление от контракта §2, а прямое
             следование ему: «критичные приборы и действия — ...главная
-            цифра навигации... — всегда непрозрачные». Не вложенная
-            карточка — это первая и единственная видимая граница в этом
-            блоке контента. */}
-        <div className="flex flex-col items-center gap-4 w-full rounded-2xl p-4"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            цифра навигации... — всегда непрозрачные». Поверхность — сам
+            лист (02.09); своей рамки у блока нет, иначе карточка в
+            карточке. */}
+        <div className="flex flex-col items-center gap-4 w-full px-1 pt-1">
           <div className="text-center w-full">
             {isLoadingRoute ? (
               <div className="flex flex-col gap-2.5">
@@ -3454,7 +3495,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
 
                 {/* Режим движения: пеший ETA на 30-километровом плече-переезде
                     абсурден, поэтому спрашиваем прямо, а не угадываем. */}
-                <div className="mt-3 inline-flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+                {/* Режим и смена маршрута — в одну строку: два ряда по
+                    одной кнопке тянули лист вниз (форма, 02.09). */}
+                <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+                <div className="inline-flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
                   {([['foot', 'Пешком'], ['car', 'На машине']] as const).map(([m, label]) => (
                     <button key={m} onClick={() => changeTravelMode(m)}
                       aria-pressed={travelMode === m}
@@ -3467,10 +3511,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                   ))}
                 </div>
                 <button onClick={openRouteModal}
-                  className="inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg mt-3"
+                  className="inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg"
                   style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)' }}>
                   Сменить маршрут <ChevronRight className="w-3.5 h-3.5" />
                 </button>
+                </div>
               </>
             ) : activeRouteTitle ? (
               <>
@@ -3495,13 +3540,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           </div>
         </div>
 
-        {/* Панель полевых действий (владелец 27.08): место · трек ·
-            наблюдение — при карточке следующей точки, одно касание — одно
-            действие. SOS сюда не входит: он отдельным красным действием в
-            сетке ниже, красный цвет — только тревога (§7). */}
-        <div className="w-full">
-          <FieldActionBar actions={fieldActions} error={fieldBarError} />
-        </div>
+        {/* Панель полевых действий (владелец 27.08) прибита к низу листа —
+            см. конец листа. Здесь её больше нет: в прокрутке она уезжала
+            за край экрана (форма, 02.09). */}
 
         {/* Восстановление: когда реальность разошлась с планом, главной
             задачей становится она — но приборы остаются на месте, карточка
@@ -3869,6 +3910,21 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             и полевой экран — последнее место, где это допустимо. */}
         <EmergencyAction variant="field" />
       </div>
+      </div>
+      {/* Конец тела листа. */}
+
+      {/* Панель полевых действий (владелец 27.08): место · трек ·
+          наблюдение — одно касание, одно действие. Прибита к низу листа и
+          видна в обоих состояниях: действие поля не должно уезжать в
+          прокрутку (форма, 02.09). SOS сюда не входит: он отдельным
+          красным действием в сетке выше, красный цвет — только тревога
+          (§7). Без маршрута панель стоит внутри экрана выбора цели. */}
+      {(hasRoute || isLoadingRoute) && (
+        <div className="shrink-0 px-4 pt-2 pb-2 max-w-sm mx-auto w-full"
+          style={{ borderTop: '1px solid var(--border)' }}>
+          <FieldActionBar actions={fieldActions} error={fieldBarError} />
+        </div>
+      )}
       </div>
       {/* Конец bottom sheet — см. открывающий div с комментарием выше. */}
 

@@ -72,15 +72,18 @@ export function FieldDistance(p: FieldDistanceProps) {
       <div className="flex items-end justify-center gap-1.5">
         <span className="font-bold leading-none tabular-nums"
           style={{
-            fontSize: 'clamp(56px, 22vw, 92px)',
-            letterSpacing: '-2px',
+            // 92px на телефоне — четверть высоты листа под одно число
+            // (скрин владельца 02.09 08:18). 64 читается на ходу так же,
+            // а листу остаётся место под чипы и действия.
+            fontSize: 'clamp(44px, 15vw, 64px)',
+            letterSpacing: '-1.5px',
             color: p.live ? 'var(--text-primary)' : 'var(--text-muted)',
           }}>
           {value}
         </span>
         {unit && (
-          <span className="font-bold pb-2"
-            style={{ fontSize: 'clamp(18px, 6vw, 26px)', color: p.live ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+          <span className="font-bold pb-1.5"
+            style={{ fontSize: 'clamp(16px, 5vw, 22px)', color: p.live ? 'var(--text-primary)' : 'var(--text-muted)' }}>
             {unit}
           </span>
         )}
