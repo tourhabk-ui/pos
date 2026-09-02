@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { getSBPPaymentStatus } from '@/lib/payments/tochka';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
+import { settleSeatPaymentByQr } from '@/lib/transfers/seat-payment';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,8 +70,14 @@ export async function POST(req: NextRequest) {
     );
 
     if (!rows[0]) {
-      // Уже обработано или не найдено — возвращаем 200 чтобы Точка не повторяла
-      return NextResponse.json({ ok: true });
+      // Не бронь тура — возможно, заказ мест у перевозчика (миграция 928,
+      // «делай по QR» 02.09). Один приёмник на оба вида оплаты: банк зовёт
+      // один URL, а qrcId у всех QR одного мерчанта общий. Правила те же:
+      // факт и сумму подтверждает банк, «не выяснили» — повтор, не 200.
+      const seat = await settleSeatPaymentByQr(qrId);
+      if (seat.outcome === 'retry') return retryLater(seat.reason);
+      // Уже обработано, не найдено или разобрано веткой мест — 200, повторять нечего.
+      return NextResponse.json({ ok: true, ...(seat.outcome === 'not_ours' ? {} : { seat: seat.outcome }) });
     }
 
     const booking = rows[0];

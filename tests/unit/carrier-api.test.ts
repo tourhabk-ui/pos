@@ -99,7 +99,9 @@ describe('3. витрина — одна реализация чтения', () 
     expect(at).toBeGreaterThan(0);
     expect(svc.slice(at, at + 2500)).toMatch(/WHERE t\.is_published/);
     for (const f of VITRINA) {
-      expect(readFileSync(join(ROOT, f), 'utf8')).toMatch(/listPublishedTrips|requestSeats/);
+      // Витрина читает через listPublishedTrips, запрос мест — requestSeats,
+      // оплата места (928) — issueSeatQr / getSeatBookingForPayment.
+      expect(readFileSync(join(ROOT, f), 'utf8')).toMatch(/listPublishedTrips|requestSeats|issueSeatQr|getSeatBookingForPayment/);
     }
   });
 

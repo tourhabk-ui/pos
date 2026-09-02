@@ -548,6 +548,138 @@ export async function listSeatRequests(
 }
 
 /** Отказ БД доходит до вызывающего с SQLSTATE: он и решает, чинить или ждать. */
+// ── Оплата места по QR СБП (миграция 928) ──────────────────────────────────
+//
+// Деньги за место идут тем же приёмником, что СБП-оплата туров
+// (/api/payments/tochka/webhook). Здесь — только записи: выпуск QR
+// привязывается к заказу, подтверждение банка переводит его в paid. Сами
+// вызовы банка живут в lib/transfers/seat-payment.ts; таблицу трансферов
+// пишет по-прежнему только этот файл (сторож carrier-api).
+
+export type SeatPaymentStatus = 'unpaid' | 'pending' | 'paid';
+
+export interface SeatBookingPaymentRow extends SeatBookingRow {
+  /** Цена места в поездке — запас на случай, когда цена заказа не названа. */
+  price_per_seat: string | null;
+  payment_status: SeatPaymentStatus;
+  tochka_qr_id: string | null;
+  qr_expires_at: string | null;
+  paid_at: string | null;
+  paid_amount: string | null;
+  platform_fee: string | null;
+  from_text: string;
+  to_text: string;
+  trip_date: string;
+}
+
+const PAYMENT_FIELDS = `sb.id, sb.trip_id, sb.ordered_by_partner_id, sb.ordered_by_user_id,
+  sb.seats, sb.price::text AS price, sb.status, sb.decline_reason, sb.comment,
+  t.price_per_seat::text AS price_per_seat, sb.payment_status, sb.tochka_qr_id,
+  sb.qr_expires_at::text AS qr_expires_at, sb.paid_at::text AS paid_at,
+  sb.paid_amount::text AS paid_amount, sb.platform_fee::text AS platform_fee,
+  t.from_text, t.to_text, to_char(t.trip_date, 'YYYY-MM-DD') AS trip_date`;
+
+const PAYMENT_FROM = `FROM transfer_seat_bookings sb
+  JOIN transfer_trips t ON t.id = sb.trip_id`;
+
+export async function getSeatBookingForPayment(bookingId: string): Promise<SeatBookingPaymentRow | null> {
+  const { rows } = await pool.query<SeatBookingPaymentRow>(
+    `SELECT ${PAYMENT_FIELDS} ${PAYMENT_FROM} WHERE sb.id = $1`,
+    [bookingId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function findSeatBookingByQr(qrId: string): Promise<SeatBookingPaymentRow | null> {
+  const { rows } = await pool.query<SeatBookingPaymentRow>(
+    `SELECT ${PAYMENT_FIELDS} ${PAYMENT_FROM} WHERE sb.tochka_qr_id = $1`,
+    [qrId],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Сумма к оплате. Названная перевозчиком цена заказа — первая; без неё —
+ * цена места в поездке, умноженная на места. Нет ни того, ни другого —
+ * `null`: цена не названа, и выдумывать её нельзя (§4.0).
+ */
+export function seatBookingAmount(b: Pick<SeatBookingPaymentRow, 'price' | 'price_per_seat' | 'seats'>): number | null {
+  if (b.price !== null) {
+    const n = Number(b.price);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (b.price_per_seat !== null) {
+    const n = Number(b.price_per_seat) * b.seats;
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+  }
+  return null;
+}
+
+/**
+ * Привязать выпущенный QR к заказу. Условия в WHERE закрывают гонку двух
+ * одновременных выпусков: второй не найдёт строку без QR и получит
+ * wrong_status, а не перезапишет qrcId, по которому уже может прийти оплата.
+ */
+export async function attachSeatQr(params: {
+  bookingId: string;
+  qrId: string;
+  expiresAt: Date;
+}): Promise<TransferResult<{ id: string }>> {
+  try {
+    const { rows } = await pool.query<{ id: string }>(
+      `UPDATE transfer_seat_bookings
+          SET tochka_qr_id = $2, qr_expires_at = $3, payment_status = 'pending', updated_at = NOW()
+        WHERE id = $1 AND status = 'confirmed' AND payment_status = 'unpaid' AND tochka_qr_id IS NULL
+      RETURNING id`,
+      [params.bookingId, params.qrId, params.expiresAt],
+    );
+    if (rows.length === 0) {
+      return { ok: false, code: 'wrong_status', message: 'QR для этого заказа уже выпущен или заказ не подтверждён' };
+    }
+    return { ok: true, value: rows[0]! };
+  } catch (err) {
+    return failure(err, 'привязка QR к заказу не выполнена');
+  }
+}
+
+export type SeatSettleResult = 'settled' | 'already_paid' | 'not_pending' | 'not_found';
+
+/**
+ * Записать подтверждённую банком оплату. Доля платформы считается здесь же,
+ * из ставки перевозчика (`partners.commission_current`, запас — единая ставка
+ * из lib/payments/commission), и фиксируется на заказе.
+ *
+ * Условие `payment_status = 'pending'` — идемпотентность при повторной
+ * доставке вебхука; ноль строк разбирается по тому, куда ушёл заказ.
+ */
+export async function settleSeatPayment(params: {
+  bookingId: string;
+  paidAt: Date;
+  paidAmount: number;
+  fallbackRatePercent: number;
+}): Promise<SeatSettleResult> {
+  const updated = await pool.query(
+    `UPDATE transfer_seat_bookings sb
+        SET payment_status = 'paid',
+            paid_at = $2,
+            paid_amount = $3::numeric,
+            platform_fee = ROUND($3::numeric * COALESCE(p.commission_current, $4::numeric) / 100, 2),
+            updated_at = NOW()
+       FROM transfer_trips t
+       JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
+       JOIN partners p ON p.id = v.partner_id
+      WHERE sb.id = $1 AND sb.trip_id = t.id AND sb.payment_status = 'pending'`,
+    [params.bookingId, params.paidAt, params.paidAmount, params.fallbackRatePercent],
+  );
+  if ((updated.rowCount ?? 0) > 0) return 'settled';
+  const { rows } = await pool.query<{ payment_status: SeatPaymentStatus }>(
+    `SELECT payment_status FROM transfer_seat_bookings WHERE id = $1`,
+    [params.bookingId],
+  );
+  if (!rows[0]) return 'not_found';
+  return rows[0].payment_status === 'paid' ? 'already_paid' : 'not_pending';
+}
+
 function failure(err: unknown, what: string): TransferResult<never> {
   const e = err as { message?: string; code?: string };
   const reason = `${e.code ? `[${e.code}] ` : ''}${e.message ?? String(err)}`;
