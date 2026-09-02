@@ -49,9 +49,18 @@ jobs:
             exit 2
           fi
           set +e
-          npx tsx scripts/map-tiles/verify-packs.ts
-          code=$?
+          npx tsx scripts/map-tiles/verify-packs.ts | tee verify.log
+          code=${PIPESTATUS[0]}
           set -e
+          # Сводку пишет workflow, а не скрипт: тот ничего не знает про
+          # GitHub и никуда не пишет по адресу из переменной окружения.
+          {
+            echo '### Пакеты карты в хранилище'
+            echo
+            echo '```'
+            cat verify.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           # Три исхода вместо двух (§4.0): испорченный файл и «не смог
           # проверить» — разные беды, и одинаково красный прогон о них
           # соврал бы. Оба не зелёные, но называются по-разному.

@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sourceUrlIndex, buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
 import { mapErrorText } from '@/components/shared/VedarMap';
-import { packKeysToVerify, jsonFailure, verifyPacks } from '@/scripts/map-tiles/verify-packs';
+import { packKeysToVerify, jsonFailure, verifyPacks, packUrl } from '@/scripts/map-tiles/verify-packs';
 import { BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS } from '@/lib/map/pack-source';
 
 const SOURCES = {
@@ -180,6 +180,19 @@ describe('проверка хранилища: список файлов — и�
     const kinds = new Map(packKeysToVerify().map(k => [k.key, k.kind]));
     expect(kinds.get(`map-packs/${BUILT_PACK_REGIONS[0]}.terrain.pmtiles`)).toBe('archive');
     expect(kinds.get(`map-packs/${BUILT_PACK_REGIONS[0]}.contours.geojson`)).toBe('json');
+  });
+});
+
+describe('packUrl: адрес собирает платформа, а не склейка строк', () => {
+  it('лишний слэш базы не удваивается', () => {
+    expect(packUrl('https://s3.example.ru/b/', 'map-packs/a.geojson'))
+      .toBe('https://s3.example.ru/b/map-packs/a.geojson');
+    expect(packUrl('https://s3.example.ru/b', 'map-packs/a.geojson'))
+      .toBe('https://s3.example.ru/b/map-packs/a.geojson');
+  });
+
+  it('не-HTTP адрес отвергается словами, а не молча', () => {
+    expect(() => packUrl('file:///etc', 'map-packs/a.geojson')).toThrow(/http/);
   });
 });
 

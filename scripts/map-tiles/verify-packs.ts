@@ -44,7 +44,6 @@
  *   lib/storage/s3.ts)
  */
 
-import { appendFileSync } from 'node:fs';
 import {
   BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, packKey, osmKey,
 } from '@/lib/map/pack-source';
@@ -146,14 +145,27 @@ async function checkArchive(url: string, key: string, fetchImpl: typeof fetch): 
   return { key, verdict: 'ok', detail: `HTTP ${res.status}, заголовок PMTiles на месте`, bytes: head.length };
 }
 
+/**
+ * Адрес файла по ключу. Собирается `new URL`, а не склейкой строк с
+ * подрезкой хвостовых слэшей: разбор адреса — работа платформы, и свой
+ * разбор здесь означал бы свои же краевые случаи (двойной слэш, база с
+ * путём, база без схемы).
+ */
+export function packUrl(baseUrl: string, key: string): string {
+  const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  if (base.protocol !== 'https:' && base.protocol !== 'http:') {
+    throw new Error(`Адрес хранилища должен быть http(s), получено: ${base.protocol}`);
+  }
+  return new URL(key, base).toString();
+}
+
 export async function verifyPacks(
   baseUrl: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PackCheck[]> {
-  const base = baseUrl.replace(/\/+$/, '');
   const out: PackCheck[] = [];
   for (const { key, kind } of packKeysToVerify()) {
-    const url = `${base}/${key}`;
+    const url = packUrl(baseUrl, key);
     out.push(kind === 'json'
       ? await checkJson(url, key, fetchImpl)
       : await checkArchive(url, key, fetchImpl));
@@ -180,29 +192,16 @@ async function main(): Promise<number> {
   }
 
   const checks = await verifyPacks(base);
-  const lines: string[] = [];
   for (const c of checks) {
     const label = VERDICT_LABEL[c.verdict];
     console.log(`${c.verdict === 'ok' ? ' ' : '!'} ${c.key}: ${label} — ${c.detail}`);
-    lines.push(`| \`${c.key}\` | ${label} | ${c.detail.replace(/\|/g, '\\|')} |`);
   }
 
   const broken = checks.filter(c => c.verdict === 'truncated' || c.verdict === 'bad_json' || c.verdict === 'http');
   const unknown = checks.filter(c => c.verdict === 'unreachable');
-  const summary = process.env.GITHUB_STEP_SUMMARY;
-  if (summary) {
-    appendFileSync(summary, [
-      '### Пакеты карты в хранилище',
-      '',
-      `Проверено файлов: ${checks.length}. Испорчено: ${broken.length}. Не смогли проверить: ${unknown.length}.`,
-      '',
-      '| Файл | Вердикт | Подробности |',
-      '|---|---|---|',
-      ...lines,
-      '',
-    ].join('\n'));
-  }
 
+  // Сводку прогона пишет сам workflow, перенаправляя этот вывод: скрипт
+  // ничего не знает про GitHub и никуда не пишет по чужому пути.
   console.log('');
   console.log(`проверено ${checks.length}, испорчено ${broken.length}, не смогли проверить ${unknown.length}`);
   if (broken.length > 0) return 1;
