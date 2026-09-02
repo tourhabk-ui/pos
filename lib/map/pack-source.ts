@@ -115,6 +115,8 @@ export const OSM_BUILT_REGIONS: readonly RegionId[] = [
   'central-volcanoes',
   // 02.09, прогон 14 (run 33641572963): семь слоёв Ключевской, 7.5 МБ.
   'klyuchevskoy',
+  // 02.09, прогон 15 (run 33643864892): семь слоёв Южной Камчатки, 3.2 МБ.
+  'south-kamchatka',
 ];
 
 export type PackSource =
@@ -205,4 +207,7 @@ export const BUILT_PACK_REGIONS: readonly RegionId[] = [
   // горизонтали 11.15 МБ, с OSM 163 МБ. Самый большой пакет на сегодня;
   // потолок 200 МБ.
   'klyuchevskoy',
+  // 02.09, прогон 15 (run 33643864892): 2.4 кв.°, но много моря — рельеф
+  // 92.81 МБ, горизонтали 8.17 МБ, с OSM 104 МБ. Overpass занял 58 минут.
+  'south-kamchatka',
 ];
