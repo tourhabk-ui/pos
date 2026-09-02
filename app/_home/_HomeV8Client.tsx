@@ -356,9 +356,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             className="hfb"
             src="/images/brand/bear-64.webp"
             srcSet="/images/brand/bear-64.webp 64w, /images/brand/bear-128.webp 128w, /images/brand/bear-192.webp 192w"
-            sizes="34px"
-            width={34}
-            height={34}
+            sizes="48px"
+            width={48}
+            height={48}
             alt=""
             aria-hidden
             loading="eager"
@@ -880,12 +880,17 @@ const CSS = `
 .v7 a{color:inherit;text-decoration:none}
 .v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 .v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg-primary) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
-/* flex-wrap — страховка бюджета ширины (#893): если содержимое шапки не
-   помещается (длинное состояние пилюли, узкий экран), строка переносится,
-   а не уезжает за край. Переполнение прячет действие, вторая строка — нет.
-   Бюджет пересчитан после смены шрифтов на Playfair/Outfit и композиции
-   #887/#892 — числа в scripts/measure-header-budget.mjs. */
-.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:6px}
+/* Перенос в шапке ЗАПРЕЩЁН (владелец 02.09, скрин «шапка съехала»).
+   Страховка #893 (flex-wrap:wrap) на узком экране уносила ЛК на вторую
+   строку — вместо «уехало за край» получилось «шапка съехала». Бюджет
+   ширины сходится без переноса и без сжатия: поля 14px, зазор 6px,
+   самое длинное состояние пилюли укорочено («Нет данных», safety-pill.ts),
+   SOS не сжимается (flexShrink 0). Обрезать пилюлю многоточием по-прежнему
+   нельзя (833120d). Замер 02.09 (Inter): худшее состояние 146 + SOS 73 +
+   иконки 88 + зазоры 24 = 331 при доступных 332 на 360px. На 320px не
+   сходится — там переполнения не избежать без потери элемента; это
+   известный долг, а не регрессия. Числа — scripts/measure-header-budget.mjs. */
+.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 14px;display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
 /* Бренда в шапке НЕТ (итерация north-star 31.07). Измерение 31.07 показало:
    с брендом даже худшее короткое состояние пилюли требовало 427px — на всех
    ходовых мобильных ширинах бренд был скрыт media-query, то есть фактически
@@ -908,7 +913,12 @@ const CSS = `
    flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
    до «Сегодня: оп» — обрезанная «опасность» выглядит как исправный индикатор
    и не читается. Статус безопасности либо виден целиком, либо это не статус. */
-.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:30px;padding:0 10px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
+/* Пилюля — единственное, что в шапке умеет ужиматься (02.09, скрин
+   владельца: «5+ предупреждений» + SOS + две иконки не влезли, ЛК уехал на
+   вторую строку). flex:0 1 auto и min-width:0 — чтобы ужаться могла именно
+   она, а не зоны нажатия (те держат flex:none, #893); текст — в .pt с
+   многоточием: у анонимного текстового флекс-ребёнка обрезки нет. */
+.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:30px;padding:0 9px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
 .v7 .pill i{width:7px;height:7px;border-radius:50%;flex:none}
 .v7 .pill-calm i{background:var(--success)}
 /* Незнание — не спокойствие: приглушённый серый, а не зелёный. */
@@ -957,7 +967,7 @@ const CSS = `
 /* Поиск — карточка на сплошном фоне (не стекло: под ним крем, блюрить нечего).
    Отрицательный отступ кладёт её на растворяющийся низ фото — шов макета. */
 .v7 .find{position:relative;z-index:2;margin-top:-34px;display:flex;align-items:center;gap:10px;padding:9px 9px 9px 13px;border-radius:999px;background:var(--bg-card);border:1px solid var(--border);box-shadow:0 14px 34px -16px rgba(0,0,0,.3)}
-.v7 .find .hfb{width:34px;height:34px;flex:none;border-radius:50%;object-fit:cover}
+.v7 .find .hfb{width:48px;height:48px;flex:none;border-radius:50%;object-fit:cover}
 /* align-self:stretch — рамка поля выглядела крупной, а нажималась полоска
    16.8px: сам input не заполнял её по высоте, и промах по вертикали попадал
    мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */

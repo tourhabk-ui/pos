@@ -59,7 +59,11 @@ export interface SafetyPillInput {
 export function safetyPill({ activeCount, maxSeverity, limit = 5, degraded = false }: SafetyPillInput): SafetyPill {
   // Молчание источника — не спокойствие. Проверяется ПЕРВОЙ: при сбое
   // счётчики нулевые, и любая ветка ниже прочла бы их как хорошую новость.
-  if (degraded) return { tone: 'unknown', text: 'Обстановка неизвестна' };
+  // «Нет данных», а не «Обстановка неизвестна»: то же «не знаю» (§4.0), но
+  // 10 знаков вместо 21. Длинная версия в шапке на 360px не помещалась и
+  // уносила ЛК на вторую строку (скрин владельца 02.09) — бюджет ширины
+  // шапки считается по самому длинному состоянию (scripts/measure-header-budget.mjs).
+  if (degraded) return { tone: 'unknown', text: 'Нет данных' };
   if (activeCount <= 0) return { tone: 'calm', text: 'Спокойно' };
   // severity 2+ — тот же порог, по которому уходит push-рассылка и краснеет
   // recommender_status. Одно правило на всю платформу, не отдельное для витрины.
