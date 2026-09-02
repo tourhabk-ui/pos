@@ -98,6 +98,10 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback, classNa
     justifyContent: 'center',
     minWidth: '44px',
     minHeight: '44px',
+    // Во флекс-шапке кнопку сжимали соседи: min-width 44 держал зону нажатия,
+    // а надпись «SOS» резалась (замер 02.09, 360px). Сжатие запрещено — как
+    // у иконок шапки главной (#893, flex:none).
+    flexShrink: 0,
     color: 'var(--danger)',
     textDecoration: 'none',
     fontWeight: 700,
