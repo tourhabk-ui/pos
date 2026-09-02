@@ -114,8 +114,12 @@ describe('обе темы — из одного пакета', () => {
     // Запись платформы про солнце говорит дважды: прозрачность стрелки
     // компаса (21.08) и пунктир линии (§12). Оба раза вывод один — слабый
     // сигнал не годится. Светлая карта не «инверсия», у неё своя мера.
-    const ex = (t: 'dark' | 'light') =>
-      layers(t).find(l => l.id === 'hillshade')!.paint!['hillshade-exaggeration'] as number;
+    // Тень с 02.09 зависит от зума (гипсометрия под ней): сравниваем
+    // значение на самом крупном зуме — где тень несёт форму склона.
+    const ex = (t: 'dark' | 'light') => {
+      const v = layers(t).find(l => l.id === 'hillshade')!.paint!['hillshade-exaggeration'] as unknown[];
+      return v[v.length - 1] as number;
+    };
     expect(ex('light')).toBeLessThan(ex('dark'));
   });
 });

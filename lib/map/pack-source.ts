@@ -87,7 +87,12 @@ export function glyphKey(fontstack: string, range: string): string {
  * тропы, дороги, вершины. Список — тот же, что печёт
  * scripts/map-tiles/build_osm.py (LAYERS); сторож сверяет.
  */
-export const OSM_LAYERS = ['water', 'waterways', 'wood', 'glacier', 'paths', 'roads', 'peaks'] as const;
+export const OSM_LAYERS = [
+  'water', 'waterways', 'wood', 'glacier', 'paths', 'roads', 'peaks',
+  // 02.09, после осмотра карты владельцем: имён на карте не было ни одного.
+  // Посёлок — ориентир обзорного вида, приют и перевал — решения поля.
+  'places', 'shelters', 'passes',
+] as const;
 export type OsmLayer = typeof OSM_LAYERS[number];
 
 /** Ключ OSM-слоя района в бакете. Одна формула на заливку и на чтение. */
