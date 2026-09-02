@@ -1,0 +1,50 @@
+# Разовая проба: почему KVERT не находит вулканы в places.
+#
+# Крон жив (200, fetched 68), но matched 8 из 68, и KLYUCHEVSKOY — среди
+# несопоставленных. Алиас klyuchevskoy → «Ключевской» в коде есть, значит
+# падает поиск точки: resolvePlaceArkId ищет name ILIKE 'Ключевской%'.
+#
+# Смотрим, как эти вулканы названы у НАС.
+#
+# Только чтение. Не мержится в main.
+name: Volcano name probe
+
+on:
+  push:
+    branches: [volcano-name-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Как названы вулканы в places
+        run: |
+          for q in Крашен; do
+            echo "=== поиск: $q ==="
+            # -G + --data-urlencode: без процентного кодирования кириллица в
+            # URL не доезжает, и роут отвечает 400 «нужен q минимум 2 символа»
+            # — то есть на сервер приходит пустая строка.
+            curl -sS --max-time 60 -G \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              --data-urlencode "q=$q" \
+              "https://vedarai.ru/api/cron/place-audit" \
+              -o r.json -w 'HTTP %{http_code}\n' || true
+            python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open('r.json'))
+          except Exception as e:
+              print('  разобрать не смог:', e); raise SystemExit(0)
+          items = d.get('places') or []
+          if not items:
+              print('  НИЧЕГО НЕ НАЙДЕНО (total:', d.get('total'), ')')
+          for it in items[:6]:
+              print(f"  id={it.get('id')!r}")
+              print(f"  name={it.get('name')!r} type={it.get('location_type')!r} "
+                    f"visible={it.get('is_visible')} lat={it.get('lat')} lng={it.get('lng')} "
+                    f"merged={it.get('merged_into_id')!r}")
+          PY
+          done
