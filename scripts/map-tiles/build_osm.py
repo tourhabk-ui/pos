@@ -103,7 +103,14 @@ OVERPASS_MIRRORS = (
 # полградуса — четверть квадратного градуса, вчетверо меньше худшего из
 # прошедших: запас, а не догадка.
 CELL_DEG = 0.5
-RETRY_DELAYS_S = (20, 45, 90)
+RETRY_DELAYS_S = (20, 45, 90, 180)
+# Пауза между клетками: прогон 9 получил 429 на седьмой клетке подряд —
+# узел считает частые запросы одним клиентом и режет. Секунды дешевле
+# повторов.
+CELL_PAUSE_S = 3
+# Ниже этого клетка не дробится: 0.125° — 1/16 кв.° x 1/16, дальше сама
+# сетка обходится дороже данных.
+MIN_CELL_DEG = 0.125
 
 
 def split_bbox(bbox, cell_deg: float = CELL_DEG) -> list:
@@ -156,6 +163,32 @@ def fetch_overpass(query: str, url: str, cache_path: str) -> dict:
     raise RuntimeError(f'Overpass не ответил после {1 + len(RETRY_DELAYS_S)} попыток: {last_err}')
 
 
+def fetch_cell_adaptive(cell, url: str, cache_dir: str, depth: int = 0) -> list:
+    """Клетка целиком, а при отказе всех попыток — четвертями, рекурсивно.
+
+    Прогон 9 (02.09): клетки 0.5° отдавали по 80 тысяч элементов, и седьмая
+    легла на всех трёх узлах. Дробление — не «попробовать ещё раз», а
+    уменьшение запроса вчетверо; ниже MIN_CELL_DEG отказ честно всплывает.
+    """
+    cache_path = os.path.join(cache_dir, f'overpass_{"_".join(str(v) for v in cell)}.json')
+    indent = '  ' * (depth + 1)
+    try:
+        data = fetch_overpass(overpass_query(cell), url, cache_path)
+        return data.get('elements', [])
+    except RuntimeError as e:
+        w, s_, e_, n = cell
+        size = max(e_ - w, n - s_)
+        if size / 2 < MIN_CELL_DEG - 1e-9:
+            raise
+        print(f'{indent}клетка {cell} не отвечает ({e}); делю на четыре', flush=True)
+        out: list = []
+        for sub in split_bbox(cell, size / 2):
+            print(f'{indent}  подклетка {sub}', flush=True)
+            time.sleep(CELL_PAUSE_S)
+            out.extend(fetch_cell_adaptive(sub, url, cache_dir, depth + 1))
+        return out
+
+
 def fetch_overpass_cells(bbox, url: str, cache_dir: str) -> dict:
     """Район по клеткам; элементы сливаются по (type, id) — объект на стыке
     клеток приходит дважды, и второй экземпляр отбрасывается."""
@@ -164,11 +197,11 @@ def fetch_overpass_cells(bbox, url: str, cache_dir: str) -> dict:
     seen: set = set()
     elements: list = []
     for i, cell in enumerate(cells, 1):
-        cache_path = os.path.join(cache_dir, f'overpass_{"_".join(str(v) for v in cell)}.json')
         print(f'[{i}/{len(cells)}] клетка {cell}', flush=True)
-        data = fetch_overpass(overpass_query(cell), url, cache_path)
+        if i > 1:
+            time.sleep(CELL_PAUSE_S)
         n = 0
-        for el in data.get('elements', []):
+        for el in fetch_cell_adaptive(cell, url, cache_dir):
             key = (el.get('type'), el.get('id'))
             if key in seen:
                 continue

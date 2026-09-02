@@ -96,6 +96,16 @@ jobs:
             --bbox "${{ steps.bbox.outputs.value }}" \
             --out ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson"
 
+      # Кэш ответов Overpass по клеткам — между прогонами. Прогон 9 (02.09)
+      # снял шесть клеток из двенадцати и упал на седьмой; без кэша прогон 10
+      # спрашивал бы те же шесть заново у тех же перегруженных узлов.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/osm
+          key: overpass-${{ steps.cfg.outputs.region }}-v1-${{ github.run_id }}
+          restore-keys: |
+            overpass-${{ steps.cfg.outputs.region }}-v1-
+
       - name: OSM-слои — вода, реки, лес, ледники, тропы, дороги, вершины
         run: |
           # Overpass с раннера: из контейнера сборки OSM недостижим, и стиль с
