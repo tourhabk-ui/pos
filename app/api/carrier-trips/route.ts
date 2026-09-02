@@ -37,7 +37,8 @@ const QuerySchema = z.object({
   from: z.string().regex(DATE).optional(),
   to: z.string().regex(DATE).optional(),
   min_seats: z.coerce.number().int().min(1).max(60).default(1),
-  place_id: z.string().uuid().optional(),
+  // places.id на проде — TEXT (аудит 28.07), uuid здесь отверг бы настоящие id.
+  place_id: z.string().trim().min(1).max(100).optional(),
 });
 
 function isoDate(d: Date): string {

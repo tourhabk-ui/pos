@@ -264,7 +264,7 @@ export async function listPublishedTrips(params: {
       WHERE t.is_published
         AND t.status IN ('planned', 'confirmed')
         AND t.trip_date BETWEEN $1::date AND $2::date
-        AND ($4::uuid IS NULL OR t.to_place_id = $4)
+        AND ($4::text IS NULL OR t.to_place_id = $4::text)
         AND (t.seats_total - COALESCE(b.taken, 0)) >= $3
       ORDER BY t.trip_date, p.name`,
     [params.fromDate, params.toDate, params.minSeats ?? 1, params.placeId ?? null],

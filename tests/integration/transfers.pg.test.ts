@@ -68,7 +68,12 @@ withPg('трансферы на настоящем PostgreSQL', () => {
       )`);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS places (
-        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        -- Как на проде: places.id — TEXT, UUID у места лежит в ark_id (аудит
+        -- 28.07). Стенд с uuid здесь пропускал inline-FK, который на проде
+        -- падал 31 раз подряд (Watchdog 02.09): проверять надо ту форму,
+        -- которая есть у прода, а не удобную.
+        id text PRIMARY KEY,
+        ark_id uuid DEFAULT uuid_generate_v4(),
         name varchar(255)
       )`);
     await pool.query(`
