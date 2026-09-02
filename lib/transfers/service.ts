@@ -680,6 +680,31 @@ export async function settleSeatPayment(params: {
   return rows[0].payment_status === 'paid' ? 'already_paid' : 'not_pending';
 }
 
+/** Заказы мест глазами заказчика: пользователь либо его партнёрские профили. */
+export interface CustomerSeatBooking extends SeatBookingPaymentRow {
+  partner_name: string;
+  vehicle_title: string;
+  departure_note: string | null;
+}
+
+export async function listSeatBookingsForCustomer(params: {
+  userId: string;
+  partnerIds: string[];
+}): Promise<CustomerSeatBooking[]> {
+  const { rows } = await pool.query<CustomerSeatBooking>(
+    `SELECT ${PAYMENT_FIELDS}, p.name AS partner_name, v.title AS vehicle_title, t.departure_note
+       ${PAYMENT_FROM}
+       JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
+       JOIN partners p ON p.id = v.partner_id
+      WHERE sb.ordered_by_user_id = $1
+         OR (sb.ordered_by_partner_id IS NOT NULL AND sb.ordered_by_partner_id = ANY($2::uuid[]))
+      ORDER BY t.trip_date DESC, sb.created_at DESC
+      LIMIT 100`,
+    [params.userId, params.partnerIds],
+  );
+  return rows;
+}
+
 function failure(err: unknown, what: string): TransferResult<never> {
   const e = err as { message?: string; code?: string };
   const reason = `${e.code ? `[${e.code}] ` : ''}${e.message ?? String(err)}`;

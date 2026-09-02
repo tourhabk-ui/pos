@@ -101,7 +101,7 @@ describe('3. витрина — одна реализация чтения', () 
     for (const f of VITRINA) {
       // Витрина читает через listPublishedTrips, запрос мест — requestSeats,
       // оплата места (928) — issueSeatQr / getSeatBookingForPayment.
-      expect(readFileSync(join(ROOT, f), 'utf8')).toMatch(/listPublishedTrips|requestSeats|issueSeatQr|getSeatBookingForPayment/);
+      expect(readFileSync(join(ROOT, f), 'utf8')).toMatch(/listPublishedTrips|requestSeats|issueSeatQr|getSeatBookingForPayment|listSeatBookingsForCustomer/);
     }
   });
 

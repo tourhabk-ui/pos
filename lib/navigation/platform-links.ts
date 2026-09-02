@@ -21,7 +21,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf,
-  Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award,
+  Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus,
   MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase,
   Handshake, UserPlus, Bot, MessageSquare, Sparkles,
   FileText, ScrollText, Receipt, Percent, FileSignature,
@@ -63,6 +63,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Готовые планы поездок',   href: '/plans',          icon: ListChecks },
       { label: 'Конструктор маршрута',    href: '/planner',        icon: Route },
       { label: 'Жильё',                   href: '/accommodations', icon: BedDouble },
+      { label: 'Места в поездках перевозчиков', href: '/transfers', icon: Bus },
       { label: 'Планирование поездки',    href: '/partners',       icon: Plane },
       { label: 'Камчатская рыбалка',      href: '/hub/fishing',    icon: Fish },
       { label: 'Сертифицированные гиды',  href: '/guides',         icon: Award },
