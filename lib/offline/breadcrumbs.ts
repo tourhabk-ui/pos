@@ -31,9 +31,23 @@ export const CRUMB_MIN_STEP_M = 25;
  * больше любого однодневного и почти любого многодневного маршрута.
  */
 export const CRUMB_MAX = 6000;
-/** Ключ хранения: след привязан к маршруту, чужой не подмешиваем. */
+/**
+ * Ключ хранения: след привязан к маршруту, чужой не подмешиваем.
+ *
+ * v2 (владелец 02.09): след пишется ТОЛЬКО пока идёт запись по кнопке. До
+ * того он писался сам, как только выбран маршрут, — и два дня езды по
+ * городу легли зигзагом поверх карты («нам такие маршруты не нужны»). Записи
+ * под старым ключом сделаны без спроса, поэтому не поднимаются, а стираются
+ * (см. LEGACY_CRUMBS_PREFIX) — как у всех навигаторов: нет записи, нет линии.
+ */
+export const LEGACY_CRUMBS_PREFIX = 'trail_crumbs_';
 export function crumbsKey(routeId: string): string {
-  return `trail_crumbs_${routeId}`;
+  return `trail_crumbs_v2_${routeId}`;
+}
+
+/** Ключи «тихих» следов до v2 — стереть при первом открытии экрана. */
+export function isLegacyCrumbsKey(key: string): boolean {
+  return key.startsWith(LEGACY_CRUMBS_PREFIX) && !key.startsWith(`${LEGACY_CRUMBS_PREFIX}v2_`);
 }
 
 const R_EARTH = 6371000;
