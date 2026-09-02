@@ -10,7 +10,11 @@ name: Проба — вулканы на радаре
 #    минут» — это факт о часах, а не о проде.
 # 2. Только после следа — синк KVERT, и печатается ВЕСЬ ответ: matched,
 #    причины отказа поимённо, размер указателя каталога.
-# 3. Отдельно — сверка радара: сколько опасных кодов осталось без привязки.
+# 3. Отдельно — сверка радара: остались ли опасные коды без привязки.
+#
+# Вложенных python-скриптов здесь нет намеренно: первая версия оборвала
+# блочный скаляр YAML строкой с нулевой колонки, и прогон упал на старте с
+# нулём джобов — то есть выглядел как «проба не прошла», не проверив ничего.
 
 on:
   push:
@@ -34,14 +38,9 @@ jobs:
               -H "Authorization: Bearer $CRON_SECRET" \
               --data-urlencode "q=Крашен" \
               "https://vedarai.ru/api/cron/place-audit" || echo 000)
-            NAMES=$(python3 -c "
-import json,sys
-try: d=json.load(open('/tmp/k.json'))
-except Exception: sys.exit(0)
-for p in d.get('places',[]): print(p.get('name'))
-" 2>/dev/null)
-            echo "попытка $i · HTTP $HTTP · найдено: ${NAMES:-—}"
-            if printf '%s' "$NAMES" | grep -q 'Крашенинникова'; then
+            echo "попытка $i · HTTP $HTTP"
+            head -c 600 /tmp/k.json; echo
+            if grep -q 'Крашенинникова' /tmp/k.json; then
               echo "МИГРАЦИЯ 927 ПРИМЕНЕНА — имя исправлено"
               exit 0
             fi
@@ -56,8 +55,8 @@ for p in d.get('places',[]): print(p.get('name'))
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/kvert-acc" || echo 000)
           echo "HTTP: $HTTP"
-          python3 -m json.tool /tmp/kvert.json 2>/dev/null || cat /tmp/kvert.json
-          [ "$HTTP" = "200" ] || exit 1
+          python3 -m json.tool /tmp/kvert.json || cat /tmp/kvert.json
+          test "$HTTP" = "200"
 
       - name: Радар — остались ли опасные коды без точки
         run: |
