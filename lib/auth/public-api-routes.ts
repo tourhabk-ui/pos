@@ -16,7 +16,13 @@ export type PublicApiMethods = 'ALL' | ReadonlyArray<string>;
 
 export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/auth': 'ALL',
-  '/api/admin': 'ALL',  // All admin endpoints have internal auth/CRON_SECRET checks
+  // '/api/admin' здесь НЕТ с 01.09 (периметр, часть 2; слово владельца по §7).
+  // Пока префикс стоял тут как 'ALL' «с проверкой внутри», правило
+  // '/api/admin': 'admin' в middleware не достигалось никогда: аноним уходил
+  // на публичном пропуске раньше RBAC, и дверью были 155 хендлеров по
+  // отдельности. Теперь Edge пускает на /api/admin/* только admin-JWT либо
+  // CRON_SECRET в заголовке Authorization: Bearer (так зовут workflow).
+  // Сторож: tests/unit/edge-admin-gate.test.ts.
   '/api/weather': 'ALL',
   '/api/tours': ['GET'],
   '/api/routes': ['GET'],          // публичный каталог маршрутов + поиск

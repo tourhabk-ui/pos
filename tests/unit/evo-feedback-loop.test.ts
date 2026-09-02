@@ -363,8 +363,23 @@ export async function POST(req: NextRequest) {
   });
 
   it('роут действительно без защиты — по-прежнему находка', () => {
+    // Фикстура живёт под /api/cron: этот префикс Edge по-прежнему пускает
+    // анониму на GET/POST («проверка внутри»), значит POST без хелпера — дыра.
+    // DELETE тут не годится: он не в списке публичных методов, и Edge сам
+    // отдал бы 401 — объектив по своему правилу промолчал бы.
+    const src = `export async function POST() { return NextResponse.json({}); }`;
+    expect(checkRouteAuthGate('app/api/cron/wipe/route.ts', src)).toHaveLength(1);
+  });
+
+  it('/api/admin без хелпера — не находка объектива: Edge закрыл префикс 01.09', () => {
+    // До 01.09 '/api/admin' стоял в PUBLIC_API_ROUTES как 'ALL', и такой
+    // роут был дырой на улицу. Теперь Edge пускает туда только admin-JWT
+    // либо Bearer CRON_SECRET (tests/unit/edge-admin-gate.test.ts), и по
+    // собственному правилу объектива — «опасно только там, где Edge пропускает
+    // анонима» — находки нет. Вторую линию (хелпер внутри каждого admin-роута)
+    // держит отдельный сторож api-guard-before-action, а не объектив.
     const src = `export async function DELETE() { return NextResponse.json({}); }`;
-    expect(checkRouteAuthGate('app/api/admin/wipe/route.ts', src)).toHaveLength(1);
+    expect(checkRouteAuthGate('app/api/admin/wipe/route.ts', src)).toEqual([]);
   });
 });
 
