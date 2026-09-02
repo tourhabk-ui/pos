@@ -15,6 +15,10 @@
  */
 
 import { requestPosition, geoFailureText, type GeoFailure } from '@/lib/geo/current-position';
+import {
+  ACC_META, VOLCANO_STALE_DAYS, volcanoObservationAgeDays, formatObservationAge,
+  isVolcanoObservationStale, type AccColor,
+} from '@/lib/services/safety/kvert-vona';
 import { coastPaths } from '@/lib/geo/coastline';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -431,6 +435,82 @@ export function SeismicPulse({ events, source }: { events: PulseQuake[]; source:
         </button>
       ) : (
         <div className="psum">за ~48 ч — {events.length} толчков · макс M{strongest.magnitude.toFixed(1)}</div>
+      )}
+    </div>
+  );
+}
+
+interface PulseVolcano {
+  name: string; placeId: string; acc: string;
+  ashHeightM: number | null; observedAt: string | null; summary: string | null;
+}
+
+const ACC_BAR_H: Record<string, number> = { green: 28, yellow: 52, orange: 76, red: 100 };
+const ACC_ORDER: Record<string, number> = { green: 0, yellow: 1, orange: 2, red: 3 };
+
+/**
+ * «Пульс вулканов» — по образу сейсмического (владелец 02.09: «нужен график
+ * вулканов как у сейсмики»). Отличие честное: истории кодов в volcano_status
+ * нет, одна строка на вулкан, — поэтому ось не «старее → сейчас», а
+ * «спокойнее → активнее». Столбик = настоящий вулкан с кодом KVERT, высота и
+ * цвет по коду; самый активный — справа и крупно в шапке. Зелёные рисуются:
+ * пульс из одних повышенных в спокойный день был бы пустым, а пустота на
+ * слое безопасности читается как «не дошло».
+ *
+ * Возраст наблюдения — по observed_at, и устаревшее (VOLCANO_STALE_DAYS)
+ * называется словами: замороженный зелёный опаснее любого другого цвета.
+ */
+export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[]; degraded?: boolean }) {
+  const [sel, setSel] = useState<number | null>(null);
+  if (items.length === 0) {
+    return degraded
+      ? <div className="pulse"><div className="psum">Коды вулканов не получены — считать спокойным нельзя.</div></div>
+      : null;
+  }
+  const bars = [...items].sort((a, b) =>
+    (ACC_ORDER[a.acc] ?? 0) - (ACC_ORDER[b.acc] ?? 0)
+    || (a.ashHeightM ?? 0) - (b.ashHeightM ?? 0)
+    || a.name.localeCompare(b.name, 'ru'));
+  const top = bars[bars.length - 1];
+  const elevated = items.filter((v) => (ACC_ORDER[v.acc] ?? 0) >= 1).length;
+  const selected = sel != null ? bars[sel] : null;
+  const ageOf = (v: PulseVolcano) => {
+    const d = volcanoObservationAgeDays(v.observedAt);
+    return d == null ? 'дата наблюдения не передана' : formatObservationAge(d);
+  };
+  const staleAny = items.some((v) => isVolcanoObservationStale(v.observedAt));
+  const meta = (acc: string) => ACC_META[(acc as AccColor)] ?? ACC_META.unassigned;
+  return (
+    <div className="pulse">
+      <div className="phead">
+        <div className="pbig">
+          <b>{top.name.replace(/^Вулкан\s+/i, '')}</b>
+          <span>{meta(top.acc).short.toLowerCase()} · {top.ashHeightM != null ? `пепел до ${(top.ashHeightM / 1000).toFixed(1)} км · ` : ''}{ageOf(top)}</span>
+        </div>
+        <div className="psrc">Пульс вулканов<i>KVERT</i></div>
+      </div>
+      <div className="pbars">
+        {bars.map((v, i) => (
+          <button key={v.placeId} className={`pbar${sel === i ? ' on' : ''}`}
+            style={{ height: `${ACC_BAR_H[v.acc] ?? 16}%`, background: meta(v.acc).token }}
+            aria-label={`${v.name}: ${meta(v.acc).short}`} onClick={() => setSel(sel === i ? null : i)} />
+        ))}
+      </div>
+      <div className="paxis"><span>спокойнее</span><span>активнее →</span></div>
+      {selected ? (
+        <a className="psel" href={`/places/${selected.placeId}`}>
+          <span className="pmag" style={{ background: meta(selected.acc).token }}>{meta(selected.acc).short.slice(0, 1)}</span>
+          <span className="ptx">
+            <b>{selected.name}</b>
+            <span>{meta(selected.acc).label}{selected.ashHeightM != null ? ` · пепел до ${(selected.ashHeightM / 1000).toFixed(1)} км` : ''} · {ageOf(selected)}</span>
+          </span>
+        </a>
+      ) : (
+        <div className="psum">
+          под наблюдением {items.length} · повышенный код у {elevated}
+          {staleAny ? ` · часть наблюдений старше ${VOLCANO_STALE_DAYS} дн — сверьте на KVERT` : ''}
+          {degraded ? ' · показано не всё' : ''}
+        </div>
       )}
     </div>
   );
