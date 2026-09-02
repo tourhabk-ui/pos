@@ -180,7 +180,7 @@ const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c
 
 // ── Компонент ─────────────────────────────────────────────────────
 
-import { RadarScope, AlertsTicker, SeismicPulse, SRC_LABEL, fmtAgo, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
+import { RadarScope, AlertsTicker, SeismicPulse, VolcanoPulse, SRC_LABEL, fmtAgo, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
 import type { SafetyLiveData } from '@/app/_home/data';
 
 export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
@@ -361,9 +361,13 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
         <section id="radar" className="kh-live" style={{ marginBottom: 24 }}>
           <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
           <RadarScope hazards={live.radar.hazards} center={live.radar.center} degraded={live.radar.degraded} />
-          {(live.safety.alerts.length > 0 || live.seismic.events.length > 0) && (
+          {(live.safety.alerts.length > 0 || live.seismic.events.length > 0
+            || live.volcanoes.items.length > 0 || live.volcanoes.degraded) && (
             <div className="safety">
               {live.safety.alerts.length > 0 && <AlertsTicker alerts={live.safety.alerts} />}
+              {/* Пульс вулканов — выше сейсмики: вулкан, а не толчок, главная
+                  опасность полуострова, и он же был невидим до 02.09. */}
+              <VolcanoPulse items={live.volcanoes.items} degraded={live.volcanoes.degraded} />
               {live.seismic.events.length > 0 && (
                 <SeismicPulse events={live.seismic.events} source={SRC_LABEL[live.seismic.source]} />
               )}
