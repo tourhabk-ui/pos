@@ -25,8 +25,10 @@ jobs:
               -H "Authorization: Bearer $CRON_SECRET" \
               "https://vedarai.ru/api/cron/sos-census?days=90&limit=200" || echo 000)
             echo "попытка $i · HTTP $HTTP"
-            if [ "$HTTP" = "200" ] && jq -e '.success == true' /tmp/c.json >/dev/null 2>&1; then
-              echo "=== НОВЫЙ КОД НА ПРОДЕ ==="
+            # Второй прогон (после #1510): признак деплоя — след миграции 929,
+            # то есть обе фантомные строки закрыты и открытых в окне ноль.
+            if [ "$HTTP" = "200" ] && jq -e '.success == true and .open_in_window == 0 and ([.by_status[] | select(.key == "false_alarm")] | length) > 0' /tmp/c.json >/dev/null 2>&1; then
+              echo "=== МИГРАЦИЯ 929 ПРИМЕНЕНА — фантомные SOS закрыты ==="
               jq -r '"окно, дней:          \(.window_days)",
                      "всего в окне:        \(.total_in_window)",
                      "открытых:            \(.open_in_window)",
@@ -50,5 +52,5 @@ jobs:
             head -c 300 /tmp/c.json; echo
             sleep 120
           done
-          echo "за 20 минут новый код не поднялся"
+          echo "за 20 минут след миграции 929 не появился"
           exit 1
