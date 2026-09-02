@@ -11,7 +11,20 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-const UPLOAD_ROOT = path.join('/tmp', 'tourhab-uploads');
+const UPLOAD_ROOT = path.resolve('/tmp', 'tourhab-uploads');
+
+/**
+ * Лежит ли путь СТРОГО внутри каталога загрузок.
+ *
+ * До 01.09 проверка была `filePath.startsWith(UPLOAD_ROOT)` — без
+ * разделителя. Сосед `/tmp/tourhab-uploads-x/...` начинается с той же строки
+ * и проходил. Сравнение через `relative`: пустая строка — сам корень (не
+ * файл), `..` в начале — вышли наружу, абсолютный путь — другой диск.
+ */
+export function isInsideUploadRoot(filePath: string, root: string = UPLOAD_ROOT): boolean {
+  const rel = path.relative(root, filePath);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
 
 export async function GET(
   _request: NextRequest,
@@ -24,9 +37,9 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  // Защита от path traversal
-  const filePath = path.join(UPLOAD_ROOT, ...segments);
-  if (!filePath.startsWith(UPLOAD_ROOT)) {
+  // Защита от path traversal — с разделителем, см. isInsideUploadRoot.
+  const filePath = path.resolve(UPLOAD_ROOT, ...segments);
+  if (!isInsideUploadRoot(filePath)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

@@ -33,10 +33,11 @@ import { connectivityState } from '@/lib/on-route/connectivity';
 import {
   trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
-import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
-import { connectorLine, CONNECTOR_TITLES, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
+import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
+import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
 import type { VedarMapLine } from '@/components/shared/VedarMap';
+import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
   calculatedCarToLeafletCoordinates, type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
@@ -71,6 +72,7 @@ import { RecoveryCard } from '@/components/field/RecoveryCard';
 import { recoveryState } from '@/lib/on-route/recovery';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { FieldCompass } from '@/components/field/FieldCompass';
+import { alertGuidance, NO_GUIDANCE_TEXT } from '@/lib/safety/alert-guidance';
 import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
@@ -432,6 +434,19 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  /**
+   * Диагностика своей карты — принята здесь, а не показана внутри неё.
+   *
+   * Скрин владельца 01.09: строка на карте была, её накрывала непрозрачная
+   * карточка статуса, стоящая выше по z-index в СОСЕДНЕМ стекинг-контексте
+   * (карта — `fixed inset-0 z-0`, приборная колонка — `z-10`). Поднять
+   * z-index внутри самой карты это не лечит: дочерний контекст не может
+   * перекрыть родителя соседа. См. `VedarMap.onDiagnostic`.
+   */
+  const [vedarDiag, setVedarDiag] = useState<string | null>(null);
+  // Тема страницы — карте: она считает цвета в WebGL и каскада не видит.
+  // 02.09: интерфейс светлый, карта под ним принудительно тёмная.
+  const documentTheme = useDocumentTheme();
   // Центр карты фиксируется В МОМЕНТ открытия. LeafletMap пересоздаёт карту
   // при смене identity center/markers — живые coords в center убивали карту
   // на каждом GPS-тике: тайлы не успевали грузиться (вечно-серый фон),
@@ -603,6 +618,13 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
   const crumbsRouteRef = useRef<string | null>(null);
+  /**
+   * Идёт ли запись трека по кнопке. След пишется ТОЛЬКО при true (владелец
+   * 02.09: «трек записывал в движении, а не по кнопке — нам такие маршруты не
+   * нужны»). Ref, а не state: читается внутри колбэка watchPosition, который
+   * живёт дольше любого рендера. Заполняется эффектом ниже, у recorder.
+   */
+  const recordingRef = useRef(false);
   // Судьба Service Worker: без него офлайн-контура нет, и полевой экран
   // обязан сказать это до выхода, а не оставить человека гадать в поле,
   // почему «сохранённая» карта не открылась.
@@ -653,6 +675,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       const j = await res.json() as { success?: boolean; data?: Record<string, unknown> };
       const d = j?.data;
       if (j?.success && d) {
+        // Руководство кладём В ПАКЕТ вместе с тревогой (#1485): в поле сети
+        // не будет, а «что делать» нужно именно там. Справочник
+        // детерминированный — никаких запросов и никакой модели.
+        const topType = typeof d.topType === 'string' ? d.topType : null;
+        const g = alertGuidance(topType);
         safety = {
           hasAlert: d.hasAlert === true,
           maxSeverity: Number(d.maxSeverity) || 0,
@@ -660,6 +687,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           source: typeof d.source === 'string' ? d.source : '',
           at: Date.now(),
           unavailable: d.unavailable === true,
+          topType,
+          guidance: g.steps,
+          guidanceKnown: g.known,
         };
       }
     } catch { safety = null; }
@@ -709,6 +739,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         if (!(j as { success?: boolean } | null)?.success || !d) return;
         // Недоступность источника — не «спокойно»: живым снимком не считается.
         if (d.unavailable === true) return;
+        // Живой снимок несёт руководство так же, как и пакетный: иначе
+        // «что делать» появлялось бы только у тех, кто скачал пакет.
+        const liveType = typeof d.topType === 'string' ? d.topType : null;
+        const lg = alertGuidance(liveType);
         setLiveSafety({
           hasAlert: d.hasAlert === true,
           maxSeverity: Number(d.maxSeverity) || 0,
@@ -716,6 +750,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           source: typeof d.source === 'string' ? d.source : '',
           at: Date.now(),
           unavailable: false,
+          topType: liveType,
+          guidance: lg.steps,
+          guidanceKnown: lg.known,
         });
       })
       .catch(() => { /* офлайн — остаёмся на снимке пакета */ });
@@ -931,6 +968,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     // спутников, чтобы показать вчерашний путь, незачем.
     crumbsRouteRef.current = routeId;
     try {
+      // «Тихие» следы до v2 записаны без спроса — стираем, а не поднимаем.
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && isLegacyCrumbsKey(k)) localStorage.removeItem(k);
+      }
       const raw = localStorage.getItem(crumbsKey(routeId));
       const restored = parseCrumbs(raw);
       crumbsRef.current = restored;
@@ -1085,8 +1127,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           // Пишем по пройденному расстоянию, а не по времени: час у ручья не
           // должен съесть квоту хранилища. Совпадение ссылок означает «точка
           // не добавила знания» — тогда и на диск ходить незачем.
+          // Только пока идёт запись по кнопке — как у всех навигаторов. Без
+          // записи след не пишется и не рисуется (владелец 02.09).
           const routeForCrumbs = crumbsRouteRef.current;
-          if (routeForCrumbs) {
+          if (routeForCrumbs && recordingRef.current) {
             const before = crumbsRef.current;
             const after = addCrumb(before, { lat: pos.coords.latitude, lng: pos.coords.longitude, t });
             if (after !== before) {
@@ -1392,7 +1436,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       // по второму.
       ...(crumbs.length >= 2 ? [{
         coords: [crumbs[0].lat, crumbs[0].lng] as [number, number],
-        title: 'Ваш след',
+        title: TRAIL_TITLE,
         geometry: {
           type: 'polyline',
           coordinates: crumbs.map(c => [c.lat, c.lng] as [number, number]),
@@ -1462,9 +1506,16 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     for (const m of mapMarkers) {
       const g = m.geometry;
       if (!g || g.type !== 'polyline' || g.coordinates.length < 2) continue;
+      // Род — по имени и стандарту, не по цвету маркера: след телефона
+      // (TRAIL_TITLE) не маршрут и не построение, а история — 02.09 он лёг
+      // толстым зелёным треком, и владелец спросил «что это за маршрут».
+      const kind: VedarMapLine['kind'] = m.title === TRAIL_TITLE ? 'trail'
+        : m.title === CONNECTOR_TITLES.approach ? 'connector'
+          : g.dashArray ? 'sketch' : 'track';
       out.push({
         coordinates: (g.coordinates as Array<[number, number]>).map(([la, ln]) => [ln, la]),
-        connector: m.title === CONNECTOR_TITLES.approach,
+        kind,
+        connector: kind === 'connector',
         dashArray: g.dashArray,
       });
     }
@@ -2661,6 +2712,22 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   // сама. Запись трека уходит ТЕМ ЖЕ приёмником, что у /field-check.
 
   const recorder = useTrackRecorder();
+  // След следует за кнопкой: началась запись — прежний след этого маршрута
+  // обнуляется (новая запись — новая линия), идёт запись — крошки пишутся,
+  // остановлена — линия остаётся на экране как записанный трек, но не растёт.
+  useEffect(() => {
+    const was = recordingRef.current;
+    recordingRef.current = recorder.recording;
+    if (recorder.recording && !was) {
+      crumbsRef.current = [];
+      setCrumbs([]);
+      const routeId = crumbsRouteRef.current;
+      if (routeId) {
+        try { localStorage.removeItem(crumbsKey(routeId)); }
+        catch (err) { console.error('[trail] не удалось обнулить след', err); }
+      }
+    }
+  }, [recorder.recording]);
   const [obsOpen, setObsOpen] = useState(false);
   const obsQueueLen = useTrailObservationQueue();
   const [fieldBarError, setFieldBarError] = useState<string | null>(null);
@@ -2938,10 +3005,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       <div className="fixed inset-0 z-0">
         {fieldBaseMap.kind === 'vedar' ? (
           <VedarMap
+            theme={documentTheme}
             sources={{
               terrainUrl: fieldBaseMap.source.terrainUrl,
               contoursUrl: fieldBaseMap.source.contoursUrl,
-              terrainMaxZoom: 12,
+              // Предел зума и глифы — из контракта пакета, не числом здесь:
+              // 02.09 рельеф ушёл на z13 (GLO-30), и своя копия «12» просила
+              // бы у архива на уровень меньше, чем в нём есть.
+              terrainMaxZoom: fieldBaseMap.source.terrainMaxZoom,
+              glyphsUrl: fieldBaseMap.source.glyphsUrl,
+              glyphsFont: fieldBaseMap.source.glyphsFont,
+              osmUrls: fieldBaseMap.source.osmUrls,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}
@@ -2949,6 +3023,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             height="100dvh"
             showUserLocation
             lines={vedarLines}
+            onDiagnostic={setVedarDiag}
           />
         ) : (
           <LeafletMap
@@ -3006,6 +3081,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             <p className="px-3 pb-2 text-[11px] leading-snug"
               style={{ color: 'var(--text-muted)' }}>
               Подложка OSM: {fieldBaseMap.reason}
+            </p>
+          )}
+
+          {/* Тот же приём для своей карты: сообщение приходит из VedarMap
+              через onDiagnostic и рисуется ЗДЕСЬ, в приборной колонке
+              (z-10) — на самой карте (z-0) его накрывала бы эта же
+              карточка. См. комментарий у vedarDiag выше. */}
+          {fieldBaseMap.kind === 'vedar' && vedarDiag && (
+            <p className="px-3 pb-2 text-[11px] leading-snug"
+              style={{ color: 'var(--warning)' }}>
+              Своя карта не отрисовалась: {vedarDiag}
             </p>
           )}
 
@@ -3707,6 +3793,38 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                     {liveSafety ? 'Живой статус' : 'Снимок из полевого пакета'} · {formatSnapshotAge(snap.at)}
                     {snap.source ? ` · ${snap.source}` : ''}
                   </p>
+                  {/* ЧТО ДЕЛАТЬ — рядом с тем, ЧТО случилось (#1485).
+                      Раньше снимок нёс только заголовок тревоги, а руководство
+                      оставалось онлайн — то есть недоступным именно там, где
+                      тревога и застаёт человека. Шаги лежат в самом пакете,
+                      берутся из детерминированного справочника. */}
+                  {snap.hasAlert && (
+                    snap.guidanceKnown && snap.guidance && snap.guidance.length > 0 ? (
+                      <div className="rounded-lg p-3 mt-1"
+                        style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                        <p className="text-xs font-semibold mb-1.5"
+                          style={{ color: 'var(--text-primary)' }}>Что делать</p>
+                        <ol className="space-y-1.5 list-decimal pl-4">
+                          {snap.guidance.map((step, i) => (
+                            <li key={i} className="text-xs leading-snug"
+                              style={{ color: 'var(--text-secondary)' }}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    ) : (
+                      // Третий исход: тревога есть, руководства нет. Общими
+                      // словами не заменяем — пустышка выглядит указанием,
+                      // ничего не указывая (§4.0).
+                      <p className="text-xs rounded-lg p-3 mt-1"
+                        style={{
+                          color: 'var(--text-secondary)',
+                          background: 'var(--bg-hover)',
+                          border: '1px solid var(--border)',
+                        }}>
+                        {NO_GUIDANCE_TEXT}
+                      </p>
+                    )
+                  )}
                   <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                     Это обстановка по краю целиком, а не оценка вашего маршрута.
                     Экстренный телефон — 112.

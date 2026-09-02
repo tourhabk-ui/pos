@@ -9,25 +9,23 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { getCronSecret } from '@/lib/auth/cron';
+import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  // Auth
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
+  // Auth: общий хелпер, сравнение постоянным временем. До 01.09 секрет
+  // сравнивался `!==` руками — сторож api-guard-before-action этого больше
+  // не пропускает. Логика релиза ниже не тронута.
+  if (!process.env.CRON_SECRET) {
     return NextResponse.json(
       { error: 'CRON_SECRET not configured on server' },
       { status: 500 }
     );
   }
 
-  const authHeader = request.headers.get('Authorization');
-  const querySecret = getCronSecret(request);
-  const provided = authHeader?.replace('Bearer ', '').trim() ?? querySecret ?? '';
-  if (provided !== cronSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!verifyCronSecret(request)) {
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
 
   const client = await pool.connect();

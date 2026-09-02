@@ -1,5 +1,5 @@
 /**
- * GET /api/ai/relay-check?secret=CRON_SECRET
+ * GET /api/ai/relay-check
  *
  * Проверка обхода гео-блокировки РФ для флагманов (Claude/GPT). Прод крутится
  * на Timeweb в РФ, поэтому этот запрос уходит в апстримы С РФ-IP — ровно тот
@@ -13,12 +13,13 @@
  * Важно: гео-блок проявляется как сетевой таймаут/сброс, а НЕ как HTTP-статус.
  * Значит «получили любой HTTP-ответ (даже 401/404)» = апстрим достижим.
  *
- * Гейт — CRON_SECRET в query (как у debug-waterfall), cookie-аутентификация не
- * нужна. Ключи не логируются и в ответ не попадают.
+ * Гейт — CRON_SECRET заголовком `Authorization: Bearer` (как у кронов) либо
+ * сессия администратора. Ключи не логируются и в ответ не попадают.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { verifyCronSecret } from '@/lib/auth/cron';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 
 export const dynamic = 'force-dynamic';
@@ -57,16 +58,16 @@ async function probe(url: string, headers: Record<string, string>, timeoutMs = 8
 }
 
 export async function GET(request: NextRequest) {
-  // Доступ: либо ?secret=CRON_SECRET (для крона/скриптов), либо сессия админа
-  // (чтобы владелец мог открыть в браузере, залогинившись в админку, без секрета).
-  const secret = request.nextUrl.searchParams.get('secret');
-  const cronSecret = process.env.CRON_SECRET;
-  const cronOk = !!cronSecret && secret === cronSecret;
+  // Доступ: либо CRON_SECRET заголовком Authorization: Bearer (крон/скрипты),
+  // либо сессия админа (владелец открывает в браузере). До 01.09 секрет
+  // читался из ?secret= и сравнивался === — параметр оседал в access-логах,
+  // сравнение шло не постоянным временем (сторож secret-in-url).
+  const cronOk = verifyCronSecret(request);
   if (!cronOk) {
     const auth = await requireAdmin(request);
     if (auth instanceof NextResponse) {
       return NextResponse.json(
-        { error: 'Forbidden. Открой залогинившись администратором, либо передай ?secret=CRON_SECRET' },
+        { error: 'Forbidden. Открой залогинившись администратором, либо передай Authorization: Bearer CRON_SECRET' },
         { status: 403 },
       );
     }

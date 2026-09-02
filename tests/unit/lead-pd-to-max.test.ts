@@ -219,8 +219,6 @@ const TELEGRAM_PD_CENSUS: ReadonlyArray<{ file: string; why: string }> = [
     why: 'приём оплаты — §7 CLAUDE.md, только по слову владельца' },
   { file: 'app/api/safety/sos/route.ts',
     why: 'SOS — §7 CLAUDE.md, только через staging' },
-  { file: 'app/api/transfers/confirm/route.ts',
-    why: 'контакты водителя туристу — исполнение договора' },
   { file: 'lib/agents/execution/handlers/operator-outreach-executor.ts',
     why: 'почта оператора, который сам подал заявку, в отчёте о рассылке' },
   { file: 'lib/leads/proposal-delivery.ts',

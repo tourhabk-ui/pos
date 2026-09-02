@@ -37,7 +37,7 @@ jobs:
           # по нему отличаем свежий деплой от старого (эндпоинт 401 у обоих)
           RESP=""
           for i in $(seq 1 30); do
-            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/osm-traces?secret=${CRON_SECRET}")
+            RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 180 "https://vedarai.ru/api/cron/osm-traces")
             HAS_NEW=$(echo "$RESP" | python3 -c "import json,sys; print('yes' if 'feed_errors' in json.load(sys.stdin) else 'no')" 2>/dev/null || echo "no")
             if [ "$HAS_NEW" = "yes" ]; then
               break

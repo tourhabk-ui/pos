@@ -53,8 +53,71 @@ export function packKey(region: RegionId, kind: 'terrain' | 'contours'): string 
     : `map-packs/${region}.contours.geojson`;
 }
 
+/**
+ * Максимальный зум пакета рельефа — тот же, что печёт конвейер
+ * (scripts/map-tiles/build_terrain.py, MAXZOOM). Одно число на сборку и на
+ * чтение: сторож tests/unit/map-pack-readiness.test.ts сверяет их. Клиент
+ * с меньшим числом не просил бы уровень, который в архиве есть; с большим —
+ * просил бы тайлы, которых нет.
+ */
+export const PACK_TERRAIN_MAXZOOM = 13;
+
+/**
+ * Глифы для подписей — свои, в том же хранилище (02.09). Скачивает и заливает
+ * раннер (map-pack-build.yml, шаг «Глифы»), диапазоны 0-255 (цифры, знак
+ * градуса) и 1024-1279 (кириллица). Не с чужого CDN: иначе «карта
+ * сохранена» лгало бы — тайлы в пакете, а числа на них приезжают из сети.
+ *
+ * `ready` — обещание, что файлы в хранилище, того же рода, что
+ * BUILT_PACK_REGIONS: без него стиль не создаёт слой подписей вовсе.
+ */
+export const PACK_GLYPHS = {
+  fontstack: 'Noto Sans Regular',
+  ranges: ['0-255', '1024-1279'],
+  ready: true,
+} as const;
+
+/** Ключ файла глифов в бакете. Одна формула на заливку и на чтение. */
+export function glyphKey(fontstack: string, range: string): string {
+  return `map-packs/glyphs/${fontstack}/${range}.pbf`;
+}
+
+/**
+ * OSM-слои пакета (02.09, третий шаг итерации): вода, реки, лес, ледники,
+ * тропы, дороги, вершины. Список — тот же, что печёт
+ * scripts/map-tiles/build_osm.py (LAYERS); сторож сверяет.
+ */
+export const OSM_LAYERS = ['water', 'waterways', 'wood', 'glacier', 'paths', 'roads', 'peaks'] as const;
+export type OsmLayer = typeof OSM_LAYERS[number];
+
+/** Ключ OSM-слоя района в бакете. Одна формула на заливку и на чтение. */
+export function osmKey(region: RegionId, layer: OsmLayer): string {
+  return `map-packs/${region}.osm.${layer}.geojson`;
+}
+
+/**
+ * Обещание, что OSM-слои лежат в хранилище для района, — того же рода, что
+ * BUILT_PACK_REGIONS. Ставится после заливки, не до: карта с адресами слоёв,
+ * которых нет, сыпала бы ошибками загрузки поверх живого рельефа.
+ */
+export const OSM_BUILT_REGIONS: readonly RegionId[] = [
+  // 02.09, прогон 2 пакета (run 33583128951): семь слоёв залиты вместе с
+  // рельефом GLO-30 и глифами.
+  'avacha-group',
+];
+
 export type PackSource =
-  | { state: 'ready'; terrainUrl: string; contoursUrl: string }
+  | {
+      state: 'ready';
+      terrainUrl: string;
+      contoursUrl: string;
+      terrainMaxZoom: number;
+      /** Шаблон MapLibre `{fontstack}/{range}.pbf`; null — подписей нет. */
+      glyphsUrl: string | null;
+      glyphsFont: string;
+      /** Адреса OSM-слоёв; пусто — слоёв для района ещё нет (см. OSM_BUILT_REGIONS). */
+      osmUrls: Partial<Record<OsmLayer, string>>;
+    }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
 
@@ -90,6 +153,12 @@ export function resolvePackSource(
     // Range-запросами, а не качает целиком ради одного тайла.
     terrainUrl: `pmtiles://${base}/${packKey(region, 'terrain')}`,
     contoursUrl: `${base}/${packKey(region, 'contours')}`,
+    terrainMaxZoom: PACK_TERRAIN_MAXZOOM,
+    glyphsUrl: PACK_GLYPHS.ready ? `${base}/${glyphKey('{fontstack}', '{range}')}` : null,
+    glyphsFont: PACK_GLYPHS.fontstack,
+    osmUrls: OSM_BUILT_REGIONS.includes(region)
+      ? Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>
+      : {},
   };
 }
 

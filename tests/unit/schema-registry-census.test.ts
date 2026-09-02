@@ -21,7 +21,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { UNDECLARED_TABLES } from '@/lib/db/undeclared-registry';
+import { UNDECLARED_TABLES, CANARY_TABLES, SUSPECT_DECLARED_TABLES } from '@/lib/db/undeclared-registry';
 
 const query = vi.fn();
 
@@ -43,8 +43,21 @@ async function callRoute() {
     contract_version: number;
     verdict: string;
     counts: Record<string, number>;
+    canary: { expected: readonly string[]; missing: string[]; ok: boolean } | null;
+    connection: Record<string, string | null> | null;
+    suspect_declared: Array<{ table: string; present: boolean; alive: boolean }> | null;
     tables: Array<{ table: string; state: string; reason?: string; columns: unknown[] }>;
   };
+}
+
+/**
+ * Ответ подставной базы: канарейка видна, плюс что попросили сверх неё.
+ *
+ * Без канарейки перепись обязана отказываться судить, поэтому почти каждый
+ * сценарий начинается с неё — иначе тесты проверяли бы недостижимую ветку.
+ */
+function withCanary(extra: Array<{ table_name: string; any_row: string }>) {
+  return [...CANARY_TABLES.map((t) => ({ table_name: t, any_row: '1' })), ...extra];
 }
 
 beforeEach(() => {
@@ -56,12 +69,13 @@ describe('перепись реестра схемы: исходы не слив
   it('живая, пустая и отсутствующая таблицы получают РАЗНЫЕ состояния', async () => {
     const [alive, empty] = UNDECLARED_TABLES;
     query.mockImplementation(async (sql: string) => {
+      if (sql.includes('current_user')) return { rows: [{ db_user: 'app', schema: 'public' }] };
       if (sql.includes('query_to_xml')) {
         return {
-          rows: [
+          rows: withCanary([
             { table_name: alive, any_row: '1' },
             { table_name: empty, any_row: '0' },
-          ],
+          ]),
         };
       }
       return {
@@ -110,17 +124,122 @@ describe('перепись реестра схемы: исходы не слив
 
   it('вердикт словами называет обе группы поимённо', async () => {
     const [absentOne, aliveOne] = UNDECLARED_TABLES;
-    query.mockImplementation(async (sql: string) =>
-      sql.includes('query_to_xml')
-        ? { rows: [{ table_name: aliveOne, any_row: '1' }] }
-        : { rows: [] },
-    );
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('current_user')) return { rows: [{ db_user: 'app', schema: 'public' }] };
+      return sql.includes('query_to_xml')
+        ? { rows: withCanary([{ table_name: aliveOne, any_row: '1' }]) }
+        : { rows: [] };
+    });
 
     const body = await callRoute();
     // Раскладка по числам не говорит, что делать дальше: удалять код или
     // захватывать DDL — решается по именам, и они должны быть в вердикте.
     expect(body.verdict).toContain(aliveOne);
     expect(body.verdict).toContain(absentOne);
+  });
+});
+
+describe('канарейка: перепись отказывается судить, если не видит контрольных', () => {
+  it('пустой ответ базы — это НЕ «всех 28 нет», а «запрос слеп»', async () => {
+    // Ровно прогон 1 на проде: information_schema вернул пусто, и перепись
+    // объявила мёртвыми все 28 пунктов сразу — включая payments, на котором
+    // стоит живой приёмник CloudPayments. Удалить код по такому ответу значило
+    // бы снести рабочий платёжный путь.
+    query.mockImplementation(async (sql: string) =>
+      sql.includes('current_user')
+        ? { rows: [{ db_user: 'app', db_name: 'prod', schema: 'other', search_path: 'other,public' }] }
+        : { rows: [] },
+    );
+
+    const body = await callRoute();
+
+    expect(body.success).toBe(false);
+    expect(body.counts.unknown).toBe(UNDECLARED_TABLES.length);
+    expect(body.counts.absent, 'слепой запрос не вправе объявлять таблицы мёртвыми').toBe(0);
+    expect(body.verdict).toContain('НЕ ВЕРИТЬ ОТВЕТУ');
+    expect(body.verdict, 'приговор обязан прямо запрещать удаление кода').toContain('удалять по нему код НЕЛЬЗЯ');
+    expect(body.canary?.ok).toBe(false);
+    expect(body.canary?.missing).toEqual([...CANARY_TABLES]);
+    // Куда смотрели — единственное, что помогает разобрать слепоту.
+    expect(body.connection?.search_path).toBe('other,public');
+  });
+
+  it('пропажа ОДНОЙ контрольной таблицы уже отменяет вердикт', async () => {
+    // Порог намеренно нулевой: канарейки выбраны так, что каждая обязана быть.
+    // «Три из четырёх видны, значит почти хорошо» — та же арифметика, из-за
+    // которой частичная правда выдаётся за целую.
+    const [absentCanary, ...rest] = CANARY_TABLES;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('current_user')) return { rows: [{ db_user: 'app', schema: 'public' }] };
+      return sql.includes('query_to_xml')
+        ? { rows: rest.map((t) => ({ table_name: t, any_row: '1' })) }
+        : { rows: [] };
+    });
+
+    const body = await callRoute();
+
+    expect(body.success).toBe(false);
+    expect(body.canary?.missing).toEqual([absentCanary]);
+    expect(body.counts.unknown).toBe(UNDECLARED_TABLES.length);
+  });
+
+  it('контрольные таблицы не попадают в раскладку списка', async () => {
+    // Иначе канарейка сама стала бы «пунктом реестра» и раздула бы счёт.
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('current_user')) return { rows: [{ db_user: 'app', schema: 'public' }] };
+      return sql.includes('query_to_xml') ? { rows: withCanary([]) } : { rows: [] };
+    });
+
+    const body = await callRoute();
+
+    expect(body.counts.total).toBe(UNDECLARED_TABLES.length);
+    expect(body.tables.some((r) => (CANARY_TABLES as readonly string[]).includes(r.table))).toBe(false);
+    expect(body.canary?.ok).toBe(true);
+  });
+
+  it('объявленные под сомнением спрашиваются, но в раскладку списка не входят', async () => {
+    // Их вопрос другой: замороженный список стережёт ОБЪЯВЛЕННОСТЬ, а эти
+    // объявлены — под сомнением их ПРИМЕНЁННОСТЬ (CREATE TABLE с внешним
+    // ключом на отсутствующую таблицу не выполняется вовсе). Разные смыслы —
+    // разные секции ответа, иначе счёт пунктов реестра поедет.
+    const [suspect] = SUSPECT_DECLARED_TABLES;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('current_user')) return { rows: [{ db_user: 'app', schema: 'public' }] };
+      return sql.includes('query_to_xml')
+        ? { rows: withCanary([{ table_name: suspect, any_row: '1' }]) }
+        : { rows: [] };
+    });
+
+    const body = await callRoute();
+
+    expect(body.counts.total).toBe(UNDECLARED_TABLES.length);
+    expect(body.tables.some((r) => r.table === suspect)).toBe(false);
+    expect(body.suspect_declared).toEqual(
+      SUSPECT_DECLARED_TABLES.map((t) => ({
+        table: t,
+        present: t === suspect,
+        alive: t === suspect,
+      })),
+    );
+  });
+
+  it('при слепой переписи сомнительные тоже не судятся', async () => {
+    query.mockImplementation(async (sql: string) =>
+      sql.includes('current_user') ? { rows: [{ db_user: 'app' }] } : { rows: [] },
+    );
+    const body = await callRoute();
+    // null, а не «их нет»: слепой запрос не вправе судить и о них.
+    expect(body.suspect_declared).toBeNull();
+  });
+
+  it('контрольные и проверяемые спрашиваются ОДНИМ запросом', () => {
+    // Разными запросами канарейка перестала бы быть канарейкой: она обязана
+    // пройти тот же путь, что и проверяемое, иначе доказывает не то.
+    const src = readFileSync(ROUTE_SRC, 'utf8');
+    expect(src).toContain('const ASKED');
+    for (const part of ['...UNDECLARED_TABLES', '...CANARY_TABLES', '...SUSPECT_DECLARED_TABLES']) {
+      expect(src).toContain(part);
+    }
   });
 });
 

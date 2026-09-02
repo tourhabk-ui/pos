@@ -1,54 +1,57 @@
 /**
  * GET /api/ai/debug-waterfall
- * Diagnostic endpoint: calls every AI provider with a real prompt and reports detailed errors.
- * Protected by CRON_SECRET query param (no cookie auth needed).
+ * Диагностика: зовёт каждого AI-провайдера настоящим промптом и отдаёт
+ * подробные ошибки. Только по CRON_SECRET в заголовке `Authorization: Bearer`.
  *
- * Usage: /api/ai/debug-waterfall?secret=YOUR_CRON_SECRET
+ * ── Что закрыто 01.09 (аудит периметра) ──────────────────────────────────
+ *
+ * До этого дня у роута был режим `?check=env` БЕЗ секрета: карта настроенных
+ * провайдеров, первые 12 символов ключа OpenRouter и его длина — любому, кто
+ * знает адрес. Не ключ, но инвентарь для сканера: какие провайдеры
+ * подключены и какого формата ключ. Режим удалён; карта ключей осталась
+ * только в полном ответе, под секретом, и без префикса ключа — отпечаток
+ * ключа есть на /hub/admin/health (`lib/ai/key-identity.ts`).
+ *
+ * Секрет принимался параметром `?secret=` — он оседает в access-логах прокси
+ * и Timeweb. Теперь только заголовок: параметр не читается вовсе, даже как
+ * запасной путь. Единственный вызывающий — `.github/workflows/ai-debug.yml`,
+ * переведён на заголовок тем же коммитом.
+ *
+ * Без верного секрета на проде — 404, а не 403 с подсказкой: адрес не
+ * должен подтверждать своё существование. Вне прода — 401 с диагнозом, как у
+ * кронов (`diagnoseCronAuth`), чтобы разработчик видел, что именно не дошло.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { callAIWaterfallDebug } from '@/lib/ai/providers';
 import { getSystemPrompt } from '@/lib/ai/prompts';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getOpenRouterKey } from '@/lib/ai/provider-config';
+import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+
+export const dynamic = 'force-dynamic';
+
+const PROVIDER_KEYS = [
+  'DEEPSEEK_API_KEY', 'MINIMAX_API_KEY', 'MINIMAX_GROUP_ID', 'OR_API_KEY',
+  'OPENROUTER_API_KEY', 'YANDEX_API_KEY', 'YANDEX_FOLDER_ID', 'XIAOMI_API_KEY',
+  'GEMINI_API_KEY', 'XAI_API_KEY', 'ANTHROPIC_API_KEY', 'FUGU_API_KEY',
+  'GLM_API_KEY', 'NVIDIA_API_KEY', 'GROQ_API_KEY', 'CEREBRAS_API_KEY',
+  'MISTRAL_API_KEY',
+] as const;
+
+/** Секрет принимается ТОЛЬКО заголовком: без него — как без секрета. */
+function authorized(request: NextRequest): boolean {
+  if (!request.headers.get('authorization')) return false;
+  return verifyCronSecret(request);
+}
 
 export async function GET(request: NextRequest) {
-  const mode = request.nextUrl.searchParams.get('check');
-
-  // Public mode: just show which env keys are set (no secrets exposed)
-  if (mode === 'env') {
-    const orKey = getOpenRouterKey() || '';
-    return NextResponse.json({
-      env_keys: {
-        DEEPSEEK_API_KEY: !!process.env.DEEPSEEK_API_KEY,
-        MINIMAX_API_KEY: !!process.env.MINIMAX_API_KEY,
-        MINIMAX_GROUP_ID: !!process.env.MINIMAX_GROUP_ID,
-        OR_API_KEY: !!process.env.OR_API_KEY,
-        OPENROUTER_API_KEY: !!process.env.OPENROUTER_API_KEY,
-        ACTIVE_OR_KEY_PREFIX: orKey ? orKey.slice(0, 12) + '...' : 'none',
-        ACTIVE_OR_KEY_LENGTH: orKey.length,
-        YANDEX_API_KEY: !!process.env.YANDEX_API_KEY,
-        YANDEX_FOLDER_ID: !!process.env.YANDEX_FOLDER_ID,
-        XIAOMI_API_KEY: !!process.env.XIAOMI_API_KEY,
-        GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
-        XAI_API_KEY: !!process.env.XAI_API_KEY,
-        ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
-        FUGU_API_KEY: !!process.env.FUGU_API_KEY,
-        GLM_API_KEY: !!process.env.GLM_API_KEY,
-        NVIDIA_API_KEY: !!process.env.NVIDIA_API_KEY,
-        GROQ_API_KEY: !!process.env.GROQ_API_KEY,
-        CEREBRAS_API_KEY: !!process.env.CEREBRAS_API_KEY,
-        MISTRAL_API_KEY: !!process.env.MISTRAL_API_KEY,
-        CRON_SECRET: !!process.env.CRON_SECRET,
-      },
-      node_env: process.env.NODE_ENV,
-    });
-  }
-
-  // Full diagnostic mode: requires CRON_SECRET
-  const secret = request.nextUrl.searchParams.get('secret');
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || secret !== cronSecret) {
-    return NextResponse.json({ error: 'Forbidden. Pass ?secret=CRON_SECRET' }, { status: 403 });
+  if (!authorized(request)) {
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    return NextResponse.json(
+      { error: 'Unauthorized', ...diagnoseCronAuth(request) },
+      { status: 401 },
+    );
   }
 
   const testMessage = request.nextUrl.searchParams.get('q') || 'Привет, расскажи коротко про вулканы Камчатки';
@@ -66,6 +69,9 @@ export async function GET(request: NextRequest) {
   const working = results.filter(r => r.status === 'success');
   const failed = results.filter(r => r.status !== 'success');
 
+  const envKeys: Record<string, boolean> = {};
+  for (const k of PROVIDER_KEYS) envKeys[k] = !!process.env[k];
+
   return NextResponse.json({
     success: true,
     total_ms: totalMs,
@@ -77,24 +83,6 @@ export async function GET(request: NextRequest) {
       failed: failed.length,
     },
     results,
-    env_keys: {
-      DEEPSEEK_API_KEY: !!process.env.DEEPSEEK_API_KEY,
-      MINIMAX_API_KEY: !!process.env.MINIMAX_API_KEY,
-      MINIMAX_GROUP_ID: !!process.env.MINIMAX_GROUP_ID,
-      OR_API_KEY: !!process.env.OR_API_KEY,
-      OPENROUTER_API_KEY: !!process.env.OPENROUTER_API_KEY,
-      YANDEX_API_KEY: !!process.env.YANDEX_API_KEY,
-      YANDEX_FOLDER_ID: !!process.env.YANDEX_FOLDER_ID,
-      XIAOMI_API_KEY: !!process.env.XIAOMI_API_KEY,
-      GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
-      XAI_API_KEY: !!process.env.XAI_API_KEY,
-      ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
-      FUGU_API_KEY: !!process.env.FUGU_API_KEY,
-      GLM_API_KEY: !!process.env.GLM_API_KEY,
-      NVIDIA_API_KEY: !!process.env.NVIDIA_API_KEY,
-      GROQ_API_KEY: !!process.env.GROQ_API_KEY,
-      CEREBRAS_API_KEY: !!process.env.CEREBRAS_API_KEY,
-      MISTRAL_API_KEY: !!process.env.MISTRAL_API_KEY,
-    },
+    env_keys: envKeys,
   });
 }

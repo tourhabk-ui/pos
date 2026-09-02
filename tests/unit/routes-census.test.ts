@@ -17,13 +17,32 @@ import {
 
 const WF = readFileSync(join(process.cwd(), '.github/workflows/routes-audit.yml'), 'utf-8');
 
-/** Перепись 19.08 — та, по которой и брались пороги. */
+/**
+ * Перепись прода 01.09 — та, по которой перемерены пороги.
+ *
+ * Прежняя фикстура «19.08» числами прода не была: её вердикты давали в сумме
+ * 301 при `routes_counted: 294`, чего живой прогон вернуть не может (черта
+ * судит только маршруты с линией). Порог 215 был снят с неё и не
+ * воспроизводился ни одним прогоном — разбор в `lib/routes/census-verdict.ts`.
+ *
+ * Здесь числа сняты пробой с `GET /api/cron/route-data-audit` и внутренне
+ * сходятся: 6+262+0+20 = 288 — ровно столько маршрутов с линией.
+ */
 const good = {
-  routes_counted: 294,
-  navigability: { navigable: 215, orientation_only: 65, not_a_route: 1, not_on_foot: 20 },
-  link_kinds: { waypoint: 134, nearby: 447, unknown: 61 },
+  routes_counted: 392,
+  navigability: { navigable: 6, orientation_only: 262, not_a_route: 0, not_on_foot: 20 },
+  navigable_ignoring_link_kind: 22,
+  trust: {
+    states: { navigable: 207, orientation_only: 61, not_on_foot: 20 },
+    led_by_evidence: 203,
+    line_kind: { recorded_track: 266, sketch: 12, unknown: 10 },
+    source_match: { verified: 232, not_checked: 56 },
+    donor_binding: { confirmed: 279, proximity_only: 9 },
+    freshness: { current: 231, unknown: 57 },
+  },
+  link_kinds: { waypoint: 240, nearby: 460, unknown: 69 },
   link_kind_available: true,
-  track_evidence: { recorded: 277, drawn: 22, unclear: 2 },
+  track_evidence: { recorded: 266, drawn: 6, unclear: 16 },
   cleanup_queues: { no_line: 51, not_on_foot: 20, donor_missing: 8, waypoint_conflict: 7 },
 } as unknown as Parameters<typeof judgeCensus>[0];
 
@@ -32,9 +51,23 @@ describe('пороги живут в репозитории, а не в памя
     // План Ф6 требует прямо: пороги записаны в репозитории. Порог, который
     // помнит человек, незаметно смягчается.
     expect(CENSUS_BASELINE.navigable).toBeGreaterThan(0);
+    expect(CENSUS_BASELINE.navigableStrict).toBeGreaterThan(0);
     expect(CENSUS_BASELINE.waypointLinks).toBeGreaterThan(0);
     expect(CENSUS_BASELINE.recordedTracks).toBeGreaterThan(0);
     expect(CENSUS_BASELINE.cleanupTotal).toBeGreaterThan(0);
+  });
+
+  it('база и факт — одна и та же величина, а не две разных', () => {
+    // Порог 215 был снят с решения доверия, а прикладывался к строгому
+    // счёту. Такое красное вечно и потому бесполезно. Строгий счёт не может
+    // быть больше счёта с исключением: исключение только добавляет права.
+    expect(CENSUS_BASELINE.navigableStrict).toBeLessThanOrEqual(CENSUS_BASELINE.navigable);
+  });
+
+  it('контрфакт порогом не становится', () => {
+    // Он диагностика, а не вердикт: порог по нему сделал бы его вторым
+    // правилом (сторож tests/unit/census-counterfactual.test.ts).
+    expect(Object.keys(CENSUS_BASELINE)).not.toContain('navigableIgnoringLinkKind');
   });
 
   it('допуск задан и не бесконечен', () => {
@@ -42,7 +75,7 @@ describe('пороги живут в репозитории, а не в памя
     expect(TOLERANCE).toBeLessThanOrEqual(0.25);
   });
 
-  it('перепись 19.08 проходит собственные пороги', () => {
+  it('перепись 01.09 проходит собственные пороги', () => {
     // Порог, рождённый красным, выключают в первую же неделю.
     const v = judgeCensus(good);
     expect(v.red, JSON.stringify(v.findings)).toBe(false);
@@ -64,20 +97,46 @@ describe('пустая перепись — отказ, а не чистота',
 
 describe('регрессия ловится и адресуется', () => {
   it('просадка пригодных краснеет', () => {
-    const v = judgeCensus({ ...good, navigability: { ...good.navigability, navigable: 100 } });
+    // Значение берётся ОТ БАЗЫ, а не пишется числом: база перемеряется, и
+    // тест, прибитый к прежнему масштабу, начинал бы проверять не то. Здесь
+    // важна черта «упало ниже допустимого», а не конкретная цифра.
+    const belowFloor = Math.floor(CENSUS_BASELINE.navigable * 0.5);
+    const v = judgeCensus({ ...good, trust: { ...good.trust, states: { ...good.trust.states, navigable: belowFloor } } });
     expect(v.red).toBe(true);
     expect(v.findings[0].metric).toMatch(/пригодные/);
   });
 
   it('просадка на единицы регрессией не считается', () => {
     // Снятый с публикации маршрут — не поломка правила.
-    const v = judgeCensus({ ...good, navigability: { ...good.navigability, navigable: 213 } });
+    const v = judgeCensus({ ...good, trust: { ...good.trust, states: { ...good.trust.states, navigable: CENSUS_BASELINE.navigable - 2 } } });
     expect(v.red).toBe(false);
+  });
+
+  it('аудит без решения доверия — «не смог», а не «ноль пригодных»', () => {
+    // Сборка старее #1288 отдаёт перепись без блока trust. Считать это
+    // обвалом права вести значило бы выдать незнание за факт о данных (§4.0),
+    // и действие тут другое: смотреть журнал деплоя.
+    const { trust: _omit, ...noTrust } = good as typeof good & { trust: unknown };
+    const v = judgeCensus(noTrust as typeof good);
+    expect(v.red).toBe(true);
+    const f = v.findings.find((x) => x.metric.includes('доверия'));
+    expect(f, JSON.stringify(v.findings)).toBeTruthy();
+    expect(f!.action).toMatch(/деплоя/);
+  });
+
+  it('строгий счёт судится своим порогом, а не порогом с исключением', () => {
+    // Право вести у 203 из 207 держится на сверке с чужой страницей. Если
+    // строгий счёт просядет отдельно, это надо видеть — исключение маскирует.
+    const v = judgeCensus({ ...good, navigability: { ...good.navigability, navigable: 0 } });
+    expect(v.red).toBe(true);
+    expect(v.findings.some((f) => f.metric.includes('без исключения'))).toBe(true);
   });
 
   it('у каждой находки названо, что делать', () => {
     // Сигнал без действия читается как шум и через неделю выключается.
-    const v = judgeCensus({ ...good, navigability: { ...good.navigability, navigable: 10 },
+    const v = judgeCensus({ ...good,
+      trust: { ...good.trust, states: { ...good.trust.states, navigable: 10 } },
+      navigability: { ...good.navigability, navigable: 0 },
       track_evidence: { recorded: 10, drawn: 0, unclear: 0 } } as typeof good);
     expect(v.findings.length).toBeGreaterThan(0);
     for (const f of v.findings) {

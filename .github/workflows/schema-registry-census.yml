@@ -57,7 +57,7 @@ jobs:
           # появления ответа, но и НУЖНОЙ его версии: прогон 4 приёмки ledger
           # показал, что прежний код отвечает 200 мгновенно и печатает старое
           # как свежее. Поднимать вместе с contract_version в роуте.
-          WAIT_CONTRACT: '1'
+          WAIT_CONTRACT: '3'
         run: |
           bash scripts/ci/wait-for-contract.sh
 
@@ -67,6 +67,24 @@ jobs:
           with open('/tmp/census.json') as f:
               d = json.load(f)
           print('ВЕРДИКТ:', d.get('verdict', '(нет)'))
+          print()
+          # Канарейка — первым делом после вердикта: без неё «нет на проде»
+          # ничего не значит. Прогон 1 ответил «нет» про все 28 пунктов сразу,
+          # и отличить правду от слепого запроса было нечем.
+          c = d.get('canary') or {}
+          print('КАНАРЕЙКА:', 'видна' if c.get('ok') else f"НЕ ВИДНА — {c.get('missing')}",
+                '· контрольные:', ', '.join(c.get('expected', [])) or '—')
+          print('ПОДКЛЮЧЕНИЕ:', json.dumps(d.get('connection') or {}, ensure_ascii=False))
+          print()
+          # Объявленные миграцией, но под сомнением: их CREATE TABLE ссылается
+          # на отсутствующую таблицу, а такой CREATE не выполняется вовсе.
+          sd = d.get('suspect_declared')
+          if sd is None:
+              print('ОБЪЯВЛЕНЫ ПОД СОМНЕНИЕМ: не спрашивали (ответ не заслуживает доверия)')
+          else:
+              for t in sd:
+                  state = 'есть, с данными' if t['alive'] else ('есть, пусто' if t['present'] else 'НЕТ')
+                  print(f"ОБЪЯВЛЕНА ПОД СОМНЕНИЕМ · {t['table']}: {state}")
           print()
           print('РАСКЛАДКА:', json.dumps(d.get('counts', {}), ensure_ascii=False))
           print()

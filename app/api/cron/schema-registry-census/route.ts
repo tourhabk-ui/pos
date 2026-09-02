@@ -39,9 +39,24 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import {
   UNDECLARED_TABLES,
+  CANARY_TABLES,
+  SUSPECT_DECLARED_TABLES,
   type RegistryCensusRow,
   type RegistryState,
 } from '@/lib/db/undeclared-registry';
+
+/**
+ * Спрашиваем про все три множества ОДНИМ запросом — иначе они не сравнимы.
+ *
+ * Замороженный список, канарейка и «объявленные под сомнением» отвечают на
+ * разные вопросы, но обязаны пройти один путь: разными запросами канарейка
+ * перестала бы ручаться за остальных.
+ */
+const ASKED: readonly string[] = [
+  ...UNDECLARED_TABLES,
+  ...CANARY_TABLES,
+  ...SUSPECT_DECLARED_TABLES,
+];
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -76,7 +91,7 @@ async function inspectAll(): Promise<Map<string, { alive: boolean }>> {
        FROM information_schema.tables t
       WHERE t.table_schema = 'public'
         AND t.table_name = ANY($1::text[])`,
-    [[...UNDECLARED_TABLES]],
+    [[...ASKED]],
   );
   return new Map(rows.map((r) => [r.table_name, { alive: (r.any_row ?? '0') !== '0' }]));
 }
@@ -90,7 +105,7 @@ async function columnsAll(): Promise<Map<string, RegistryCensusRow['columns']>> 
        FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = ANY($1::text[])
       ORDER BY table_name, ordinal_position`,
-    [[...UNDECLARED_TABLES]],
+    [[...ASKED]],
   );
   const out = new Map<string, RegistryCensusRow['columns']>();
   for (const r of rows) {
@@ -99,6 +114,23 @@ async function columnsAll(): Promise<Map<string, RegistryCensusRow['columns']>> 
     out.set(r.table_name, list);
   }
   return out;
+}
+
+/**
+ * Кто и куда смотрит: пользователь, база, схема и search_path.
+ *
+ * Это не украшение ответа. Если канарейка не найдена, единственный полезный
+ * вопрос — «а куда мы вообще смотрели»: чужая схема и урезанные права дают
+ * одинаковое «таблиц нет», и различаются они ровно этими четырьмя строками.
+ */
+async function describeConnection(): Promise<Record<string, string | null>> {
+  const { rows } = await pool.query<Record<string, string | null>>(
+    `SELECT current_user AS db_user,
+            current_database() AS db_name,
+            current_schema() AS schema,
+            array_to_string(current_schemas(true), ',') AS search_path`,
+  );
+  return rows[0] ?? {};
 }
 
 export async function GET(request: NextRequest) {
@@ -111,21 +143,53 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
 
-  // Отказ любого из двух запросов делает НЕИЗВЕСТНЫМ весь список, а не пустым:
+  // Отказ любого из запросов делает НЕИЗВЕСТНЫМ весь список, а не пустым:
   // «не смогли спросить» не равно «ничего нет» (§4.0).
   let live: Map<string, { alive: boolean }>;
   let cols: Map<string, RegistryCensusRow['columns']>;
+  let env: Record<string, string | null> = {};
   try {
-    [live, cols] = await Promise.all([inspectAll(), columnsAll()]);
+    [live, cols, env] = await Promise.all([inspectAll(), columnsAll(), describeConnection()]);
   } catch (err) {
     const e = err as { message?: string; code?: string };
     const reason = `${e.code ? `[${e.code}] ` : ''}${e.message ?? String(err)}`;
     return NextResponse.json({
       success: false,
-      contract_version: 1,
+      contract_version: 3,
       checked_at: new Date().toISOString(),
       verdict: `НЕ СМОГЛИ ПРОВЕРИТЬ: запрос к базе не выполнился (${reason}). Это не «таблиц нет».`,
       counts: { total: UNDECLARED_TABLES.length, absent: 0, present_empty: 0, present_with_rows: 0, unknown: UNDECLARED_TABLES.length },
+      canary: null,
+      connection: null,
+      suspect_declared: null,
+      tables: UNDECLARED_TABLES.map((t) => ({ table: t, state: 'unknown' as const, rows: null, columns: [], reason })),
+    });
+  }
+
+  // КАНАРЕЙКА. Прогон 1 ответил «нет» про все 28 пунктов сразу, и отличить
+  // «их правда нет» от «запрос слеп» было нечем: information_schema.tables
+  // фильтруется по привилегиям и ограничен схемой public, так что чужая схема
+  // или урезанные права дают одинаковое «нет» про всё, включая живое.
+  //
+  // Контрольные таблицы идут ТЕМ ЖЕ запросом. Если перепись не видит и их —
+  // она не вправе судить ни о чём: весь ответ становится unknown.
+  const canaryMissing = CANARY_TABLES.filter((t) => !live.has(t));
+  if (canaryMissing.length > 0) {
+    const reason =
+      `перепись не видит контрольные таблицы: ${canaryMissing.join(', ')}. ` +
+      `Они объявлены миграциями и на проде обязаны быть, значит запрос слеп — ` +
+      `смотреть схему и привилегии: ${JSON.stringify(env)}`;
+    return NextResponse.json({
+      success: false,
+      contract_version: 3,
+      checked_at: new Date().toISOString(),
+      verdict:
+        `НЕ ВЕРИТЬ ОТВЕТУ: ${reason}. Ответ «таблиц нет» в таком состоянии ничего не значит, ` +
+        `и удалять по нему код НЕЛЬЗЯ.`,
+      counts: { total: UNDECLARED_TABLES.length, absent: 0, present_empty: 0, present_with_rows: 0, unknown: UNDECLARED_TABLES.length },
+      canary: { expected: CANARY_TABLES, missing: canaryMissing, ok: false },
+      connection: env,
+      suspect_declared: null,
       tables: UNDECLARED_TABLES.map((t) => ({ table: t, state: 'unknown' as const, rows: null, columns: [], reason })),
     });
   }
@@ -165,12 +229,33 @@ export async function GET(request: NextRequest) {
     success: true,
     /**
      * 1 — исходная форма: состояние и колонки по каждому пункту списка.
+     * 2 — канарейка и состояние подключения. Прогон 1 ответил «нет» про все
+     *     28 пунктов сразу, и отличить «их правда нет» от «запрос слеп» было
+     *     нечем. Теперь контрольные таблицы идут тем же запросом, а ответ
+     *     несёт `current_user`/`current_schema`/`search_path` — без них
+     *     непонятно даже, куда мы смотрели.
      * Поднимать при любом изменении формы, от которой зависит читающий
      * (воркфлоу ждёт объявленную версию — см. safety-ledger-check).
      */
-    contract_version: 1,
+    contract_version: 3,
     checked_at: new Date().toISOString(),
     verdict,
+    // Канарейка видна и в успешном ответе: читающий обязан иметь возможность
+    // проверить не только вывод, но и право переписи его делать.
+    canary: { expected: CANARY_TABLES, missing: [] as string[], ok: true },
+    connection: env,
+    /**
+     * Объявленные миграцией, но под сомнением: их `CREATE TABLE` ссылается на
+     * таблицу, которой на проде нет, а такой CREATE не выполняется вовсе.
+     * Замороженный список стережёт объявленность и об этом молчит — здесь
+     * спрашивается ПРИМЕНЁННОСТЬ. Отдельной секцией, чтобы не смешаться с ним:
+     * у множеств разный смысл и разные правила выхода.
+     */
+    suspect_declared: SUSPECT_DECLARED_TABLES.map((t) => ({
+      table: t,
+      present: live.has(t),
+      alive: live.get(t)?.alive ?? false,
+    })),
     counts: {
       total: rows.length,
       absent: absent.length,

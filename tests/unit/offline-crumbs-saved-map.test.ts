@@ -10,9 +10,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  addCrumb, parseCrumbs, serializeCrumbs, crumbsDistanceKm, crumbsKey,
+  addCrumb, parseCrumbs, serializeCrumbs, crumbsDistanceKm, crumbsKey, isLegacyCrumbsKey,
   CRUMB_MIN_STEP_M, CRUMB_MAX, type Crumb,
 } from '@/lib/offline/breadcrumbs';
+
+/** Экран «На маршруте» — для сторожей правила «след только по кнопке». */
+const SCREEN_SRC = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
 import {
   parseSavedMap, savedMapKey, savedAtLabel, savedMapSummary, type SavedMapRecord,
 } from '@/lib/offline/saved-map';
@@ -99,6 +102,30 @@ describe('след переживает перезапуск', () => {
     expect(parseCrumbs('[[1],[2,3]]')).toEqual([]);
   });
 
+  it('след пишется только пока идёт запись по кнопке — как у всех навигаторов', () => {
+    /**
+     * Владелец 02.09: «трек записывал в движении, а не по кнопке — нам такие
+     * маршруты не нужны». Два дня езды по городу легли зигзагом поверх
+     * карты: след писался сам, как только выбран маршрут, без индикатора и
+     * без спроса. Теперь крошка принимается только при recordingRef.current.
+     */
+    const at = SCREEN_SRC.indexOf('const routeForCrumbs = crumbsRouteRef.current');
+    expect(at).toBeGreaterThan(0);
+    expect(SCREEN_SRC.slice(at, at + 200)).toMatch(/if \(routeForCrumbs && recordingRef\.current\)/);
+    // Новая запись — новая линия: прежний след маршрута обнуляется на старте.
+    expect(SCREEN_SRC).toMatch(/if \(recorder\.recording && !was\)/);
+  });
+
+  it('«тихие» следы до v2 стираются, а не поднимаются', () => {
+    // Записаны без спроса — показывать их значило бы хранить то, о чём не
+    // просили. Ключ v2 отличается, старые ключи узнаются и удаляются.
+    expect(crumbsKey('a')).toMatch(/^trail_crumbs_v2_a$/);
+    expect(isLegacyCrumbsKey('trail_crumbs_abc')).toBe(true);
+    expect(isLegacyCrumbsKey('trail_crumbs_v2_abc')).toBe(false);
+    expect(isLegacyCrumbsKey('other_key')).toBe(false);
+    expect(SCREEN_SRC).toMatch(/if \(k && isLegacyCrumbsKey\(k\)\) localStorage\.removeItem\(k\)/);
+  });
+
   it('след привязан к маршруту — чужой не подмешается', () => {
     expect(crumbsKey('a')).not.toBe(crumbsKey('b'));
   });
@@ -174,7 +201,12 @@ describe('экран «На маршруте» пользуется этим', (
 
   it('след рисуется отдельной линией, а не подмешивается к маршруту', () => {
     // Маршрут — куда идти, след — где человек был. Возвращаются по второму.
-    expect(SCREEN).toMatch(/title: 'Ваш след'/);
+    // Имя следа — константа стандарта линий (02.09): по нему MapLibre
+    // отличает след от трека; на своей карте без этого он лёг толстым
+    // зелёным «маршрутом». Само имя по-прежнему прибито — здесь.
+    expect(SCREEN).toMatch(/title: TRAIL_TITLE/);
+    const STANDARD = readFileSync(join(process.cwd(), 'lib/map/line-standard.ts'), 'utf-8');
+    expect(STANDARD).toMatch(/export const TRAIL_TITLE = 'Ваш след'/);
     expect(SCREEN).toMatch(/crumbs\.map\(c => \[c\.lat, c\.lng\]/);
   });
 

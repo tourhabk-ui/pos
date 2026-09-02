@@ -35,10 +35,17 @@ import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
   buildVedarStyle, vedarMapPalette, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
+import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 
 export interface VedarMapLine {
   /** [lng, lat] — порядок GeoJSON, не Leaflet. */
   coordinates: Array<[number, number]>;
+  /**
+   * Род линии для стиля (§12): трек — сплошной; набросок и построение —
+   * пунктиром; след — своя тонкая линия другого цвета. Если не задан,
+   * выводится из connector/dashArray (совместимость).
+   */
+  kind?: 'track' | 'sketch' | 'connector' | 'trail';
   /** Построение (подход, связка) против снятого пути — §12. */
   connector?: boolean;
   /** Пунктир из lib/map/line-standard: набросок и импорт не сплошные. */
@@ -56,6 +63,127 @@ interface VedarMapProps {
   lines?: VedarMapLine[];
   showUserLocation?: boolean;
   height?: string;
+  /**
+   * Отчёт карты о себе — наружу, в дополнение к собственному оверлею.
+   *
+   * Полевой скрин владельца 01.09: строка на самой карте была, но её
+   * накрывала непрозрачная карточка статуса, стоящая ВЫШЕ по z-index в
+   * СОСЕДНЕМ стекинг-контексте (`fixed inset-0 z-0` у карты против `z-10` у
+   * приборной колонки). Поднять z-index внутри самой карты это не лечит —
+   * дочерний контекст не может перекрыть родителя соседа, только его
+   * содержимое (`§12`-подобный урок, только про CSS, а не про линии).
+   * Экран, знающий причину и не показывающий её, снова не отличим от
+   * поломки — молчание на своём месте, а видимость на чужом.
+   */
+  onDiagnostic?: (message: string | null) => void;
+}
+
+/**
+ * Имя файла пакета из его адреса — без хоста и без ключей запроса.
+ *
+ * Адрес хранилища длинный и в строку на телефоне не влезает, а полезная
+ * часть в нём одна: какой именно пакет карта не смогла прочитать.
+ */
+export function packFileName(url: string): string {
+  const noScheme = url.replace(/^pmtiles:\/\//, '');
+  const path = noScheme.split('?')[0];
+  const last = path.split('/').filter(Boolean).pop();
+  return last && last.length > 0 ? last : path;
+}
+
+/**
+ * Прямой запрос к файлу пакета — тем же способом, что читатель PMTiles:
+ * Range-GET через CORS. Ответ — словами для экрана: HTTP-код и время либо
+ * имя исключения.
+ *
+ * Исключение здесь и есть диагноз. Отказ preflight (заголовок Range не в
+ * safelist — браузер сперва шлёт OPTIONS), отсутствие CORS и обрыв сети
+ * браузер отдаёт одним `TypeError: Failed to fetch`; 403/404 бакета —
+ * кодом. Эти два класса лечатся в разных местах: первый — в настройках
+ * CORS хранилища, второй — в самом файле. Снаружи, с раннера, их не
+ * различить: у него другая сеть и другой клиент.
+ */
+export async function probeFetch(
+  url: string,
+  range: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const started = Date.now();
+  const secs = () => ((Date.now() - started) / 1000).toFixed(1);
+  try {
+    const res = await fetchImpl(url, { headers: { range }, cache: 'no-store', mode: 'cors' });
+    return `HTTP ${res.status} за ${secs()} с`;
+  } catch (err) {
+    const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return `${name.slice(0, 80)} через ${secs()} с`;
+  }
+}
+
+/**
+ * Жив ли воркер из blob: — ровно тот способ, которым MapLibre поднимает свой.
+ *
+ * Утро 02.09 (Камчатка): телефон достаёт оба файла пакета за 0.2 с, а стиль,
+ * рельеф и горизонтали молчат разом. Общее у трёх — воркер: геоджсон
+ * режется в нём, тайлы рельефа декодируются в нём, и без него `load` не
+ * наступает никогда, а `error` не звучит. Проверка не через MapLibre, а
+ * напрямую: крошечный воркер обязан ответить за секунды. Исход называется
+ * словами — «отвечает», «молчит», «упал», «не создался» — четыре разные
+ * беды с четырьмя разными лекарствами.
+ */
+export function probeWorker(
+  timeoutMs = 2000,
+  makeWorker: () => Worker = () =>
+    new Worker(URL.createObjectURL(new Blob(['postMessage("ok")'], { type: 'text/javascript' }))),
+): Promise<string> {
+  const started = Date.now();
+  const secs = () => ((Date.now() - started) / 1000).toFixed(1);
+  return new Promise((resolve) => {
+    let w: Worker | null = null;
+    let settled = false;
+    const done = (s: string) => {
+      if (settled) return;
+      settled = true;
+      w?.terminate();
+      resolve(s);
+    };
+    const timer = setTimeout(() => done(`воркер молчит ${secs()} с`), timeoutMs);
+    try {
+      w = makeWorker();
+      w.onmessage = () => { clearTimeout(timer); done(`воркер отвечает за ${secs()} с`); };
+      w.onerror = (e) => {
+        clearTimeout(timer);
+        const msg = (e as { message?: string }).message;
+        done(`воркер упал: ${(msg || 'без текста').slice(0, 80)}`);
+      };
+    } catch (err) {
+      clearTimeout(timer);
+      const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      done(`воркер не создался: ${name.slice(0, 80)}`);
+    }
+  });
+}
+
+/**
+ * WebGL2 на этом устройстве. MapLibre с пятой версии без него не рисует
+ * вовсе, а отказ контекста наружу может не дойти: карта создаётся, слои
+ * молчат. Имя рендерера — чтобы отличить «блокирован драйвер» от
+ * «программный fallback», это разные разговоры с владельцем телефона.
+ */
+export function webglReport(
+  makeCanvas: () => HTMLCanvasElement = () => document.createElement('canvas'),
+): string {
+  try {
+    const gl = makeCanvas().getContext('webgl2');
+    if (!gl) return 'WebGL2 недоступен';
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_RENDERER_WEBGL: number } | null;
+    const renderer = dbg
+      ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL))
+      : String(gl.getParameter(gl.RENDERER));
+    return `WebGL2 есть (${renderer.slice(0, 60)})`;
+  } catch (err) {
+    const name = err instanceof Error ? err.name : String(err);
+    return `WebGL2: исключение ${name}`.slice(0, 80);
+  }
 }
 
 export default function VedarMap({
@@ -67,16 +195,36 @@ export default function VedarMap({
   lines = [],
   showUserLocation = false,
   height = '100%',
+  onDiagnostic,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const autoCenterDoneRef = useRef(false);
+  // Ref, не проп напрямую в зависимостях: инлайновая стрелка у вызывающего
+  // меняет identity на каждый рендер — тот же приём, что onMapClickRef у
+  // LeafletMap, чтобы не дёргать жизненный цикл карты чужой identity.
+  const onDiagnosticRef = useRef(onDiagnostic);
+  onDiagnosticRef.current = onDiagnostic;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
   /** Что именно сказала карта, когда не смогла. Видно человеку, не только в консоли. */
   const [mapError, setMapError] = useState<string | null>(null);
+  /**
+   * Отчёт карты о себе, когда она НЕ упала и всё-таки ничего не нарисовала.
+   *
+   * Полевой прогон 01.09, скрин владельца: чёрное поле между компасом и
+   * карточкой расстояния. Ни рельефа, ни трека, ни строки ошибки, ни строки
+   * про подложку OSM. То есть у карты было ровно два исхода — «рисую» и
+   * «сказала ошибку», — а случившийся третий («смонтировалась, не упала,
+   * тайлы не пришли») выглядел точно как фон страницы того же цвета.
+   *
+   * Это ровно тот дефект, который §4.0 запрещает: у проверки обязан быть
+   * исход «не смог», и он обязан отличаться от «хорошо». Здесь он называется
+   * словами и поимённо: стиль, рельеф, горизонтали — каждый сам за себя.
+   */
+  const [diag, setDiag] = useState<string | null>(null);
 
   // ── Жизненный цикл карты ────────────────────────────────────────────────
   // Зависимости — тема и адреса пакета. Ни линий, ни своего положения: они
@@ -84,6 +232,28 @@ export default function VedarMap({
   useEffect(() => {
     if (!containerRef.current || !sources) return;
     let cancelled = false;
+    /**
+     * Счётчики держатся в ref, а не в state: событий `data` у карты сотни, и
+     * перерисовка на каждом — это та же болезнь, что чинили в LeafletMap
+     * этим же утром. Наружу они выходят один раз, по таймеру.
+     */
+    const seen = { terrain: 0, contours: 0, terrainRequested: 0, styledata: 0 };
+    let loaded = false;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * Нарушения CSP — от самого браузера, поимённо. Вечер 01.09 стиль
+     * молчал из-за запрета воркера из blob:, и узнали это по коду
+     * next.config.js, а не по телефону: браузер ЗНАЛ, какую директиву и
+     * какой адрес он заблокировал, и никто его не спрашивал.
+     */
+    const cspHits: string[] = [];
+    const onCsp = (e: Event) => {
+      const v = e as { violatedDirective?: string; blockedURI?: string };
+      if (cspHits.length < 3) {
+        cspHits.push(`${v.violatedDirective ?? '?'} → ${(v.blockedURI || '?').slice(0, 60)}`);
+      }
+    };
+    document.addEventListener('securitypolicyviolation', onCsp);
 
     (async () => {
       try {
@@ -96,6 +266,12 @@ export default function VedarMap({
         // просто перезапишет обработчик, но лишней работы не делаем.
         const protocol = new Protocol();
         maplibre.addProtocol('pmtiles', protocol.tile);
+
+        // Воркер — свой, с нашего домена и абсолютным адресом. Без этого
+        // MapLibre под webpack получает пустой адрес и поднимает мёртвый
+        // воркер: два дня полевых прогонов 01-02.09 карта молчала именно
+        // так. Разбор — lib/map/maplibre-worker.ts.
+        maplibre.setWorkerUrl(maplibreWorkerUrl(window.location.origin));
 
         const map = new maplibre.Map({
           container: containerRef.current,
@@ -112,7 +288,85 @@ export default function VedarMap({
         map.touchZoomRotate.disableRotation();
         mapRef.current = map;
 
-        map.on('load', () => { if (!cancelled) setReady(true); });
+        map.on('load', () => { loaded = true; if (!cancelled) setReady(true); });
+
+        // Пришёл ли хоть один кусок каждого источника. Не «есть ли ошибка»:
+        // при чтении PMTiles через свой протокол отказ может не дойти до
+        // события `error` вовсе — 01.09 карта молчала именно так.
+        let diagShown = false;
+        map.on('data', (e) => {
+          const ev = e as { sourceId?: string; tile?: unknown; isSourceLoaded?: boolean };
+          if (ev.sourceId === 'terrain' && ev.tile) {
+            seen.terrain += 1;
+            // Поздний приход — не отказ. На слабом канале в горах пакет
+            // может ехать дольше сторожа; сообщение, пережившее рельеф,
+            // врало бы про карту, которая уже рисует.
+            if (diagShown) { diagShown = false; setDiag(null); }
+          }
+          if (ev.sourceId === 'contours' && ev.isSourceLoaded) seen.contours += 1;
+        });
+        // Запрошено — отдельно от пришло. Ноль запросов значит, что источник
+        // не получил TileJSON (протокол PMTiles не ответил); запросы есть, а
+        // пришедших нет — тайлы не декодируются (воркер). Две разные беды.
+        map.on('dataloading', (e) => {
+          const ev = e as { sourceId?: string; tile?: unknown };
+          if (ev.sourceId === 'terrain' && ev.tile) seen.terrainRequested += 1;
+        });
+        map.on('styledata', () => { seen.styledata += 1; });
+
+        /**
+         * Сторож молчания. Восемь секунд — с запасом на мобильную сеть и на
+         * первый Range-запрос к архиву; меньше давало бы ложную тревогу на
+         * медленном канале, больше — человек в поле успевает решить, что
+         * приложение сломалось.
+         *
+         * Молчит, когда всё хорошо: сообщение без повода читается как шум и
+         * через неделю его перестают замечать.
+         *
+         * Второй этап — самопроверка. Полевой прогон 01.09 (вечер): сторож
+         * назвал «стиль не загрузился · рельеф не пришёл · горизонтали не
+         * пришли», но ПОЧЕМУ — знал только браузер телефона: CORS, preflight
+         * на заголовок Range, 403 бакета, обрыв сети снаружи неотличимы, а
+         * раннер GitHub ходит из другой сети и другим клиентом. Поэтому карта
+         * сама спрашивает оба файла тем же способом, что читатель PMTiles
+         * (Range + CORS), и печатает ответ: HTTP-код или имя исключения.
+         */
+        watchdog = setTimeout(async () => {
+          if (cancelled) return;
+          if (loaded && seen.terrain > 0) return;
+          const parts: string[] = [];
+          if (!loaded) parts.push('стиль не загрузился');
+          if (seen.terrain === 0) parts.push('рельеф не пришёл');
+          if (seen.contours === 0) parts.push('горизонтали не пришли');
+          const head = parts.join(' · ');
+          diagShown = true;
+          setDiag(head);
+
+          const rawTerrain = sources.terrainUrl.replace(/^pmtiles:\/\//, '');
+          const [t, c, w] = await Promise.all([
+            // Тот же первый запрос, что делает читатель: заголовок архива.
+            probeFetch(rawTerrain, 'bytes=0-16383'),
+            probeFetch(sources.contoursUrl, 'bytes=0-1023'),
+            probeWorker(),
+          ]);
+          if (cancelled || !diagShown) return;
+          // Третий этап (утро 02.09): сеть отвечала 206 за 0.2 с, а карта
+          // молчала — значит беда не снаружи. Печатается то, что знает только
+          // этот браузер: жив ли воркер, есть ли WebGL2, что запретил CSP,
+          // дошёл ли стиль и сколько тайлов запрошено против пришедших.
+          const state = [
+            `стиль: ${map.isStyleLoaded() ? 'загружен' : 'нет'}${seen.styledata ? '' : ', styledata не было'}`,
+            // Адрес, который MapLibre считает своим воркером. Пустой или
+            // file:// — тот самый дефект сборки (lib/map/maplibre-worker.ts).
+            `воркер MapLibre: ${maplibre.getWorkerUrl() || 'адрес пуст'}`,
+            `тайлов рельефа запрошено ${seen.terrainRequested}, пришло ${seen.terrain}`,
+            w,
+            webglReport(),
+            cspHits.length ? `CSP: ${cspHits.join('; ')}` : 'CSP: нарушений нет',
+          ].join(' · ');
+          setDiag(`${head} — ${packFileName(rawTerrain)}: ${t}; ${packFileName(sources.contoursUrl)}: ${c} · ${state}`);
+        }, 8000);
+
         map.on('error', (e) => {
           // Молчаливый сбой карты неотличим от «приложение умерло» — тот же
           // урок, что у LeafletMap (владелец 09.08, чёрный экран).
@@ -135,11 +389,14 @@ export default function VedarMap({
 
     return () => {
       cancelled = true;
+      if (watchdog) clearTimeout(watchdog);
+      document.removeEventListener('securitypolicyviolation', onCsp);
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
       setReady(false);
+      setDiag(null);
     };
     // center/zoom намеренно вне зависимостей: они задают НАЧАЛЬНЫЙ вид.
     // Держи их здесь — и карта пересоздавалась бы на каждом изменении
@@ -161,7 +418,11 @@ export default function VedarMap({
         .map(l => ({
           type: 'Feature' as const,
           properties: {
-            // Свойство, а не догадка: вид линии следует из её рода (§12).
+            // Род линии — свойством, стиль его читает слоями (§12). Пунктир
+            // от line-standard означает «не снятый трек»: набросок или импорт.
+            // Первый живой рендер 02.09: без этого набросок подборки лёг
+            // веером толстых сплошных зелёных линий.
+            kind: l.kind ?? (l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track'),
             connector: Boolean(l.connector),
             dash: l.dashArray ?? null,
           },
@@ -214,6 +475,17 @@ export default function VedarMap({
     };
   }, [ready, showUserLocation]);
 
+  // Сообщение наружу — вызывающий решает, где ему видно (см. onDiagnostic).
+  // Один эффект на оба источника: `failed` сюда не входит — тот случай уже
+  // рисует свой полноэкранный текст вместо карты, дублировать некуда.
+  useEffect(() => {
+    onDiagnosticRef.current?.(mapError ?? diag ?? null);
+  }, [mapError, diag]);
+  // Очистка — отдельным эффектом с []: срабатывает только на размонтирование
+  // компонента, а не на каждую смену диагноза (в отличие от возврата из
+  // эффекта выше, который выполнялся бы на каждой смене mapError/diag).
+  useEffect(() => () => onDiagnosticRef.current?.(null), []);
+
   const palette = vedarMapPalette(theme);
 
   // Пакета нет — говорим причину. Пустой тёмный прямоугольник читается как
@@ -233,7 +505,7 @@ export default function VedarMap({
   return (
     <div style={{ height, position: 'relative', background: palette.background }}>
       <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
-      {mapError && (
+      {(mapError || diag) && (
         <div role="status"
           style={{
             position: 'absolute', left: 12, right: 12, top: 12, zIndex: 5,
@@ -241,7 +513,14 @@ export default function VedarMap({
             background: 'rgba(13,17,23,0.9)', color: '#fff', fontSize: 11,
             lineHeight: 1.4,
           }}>
-          Своя карта не отрисовалась: {mapError}
+          Своя карта не отрисовалась: {mapError ?? diag}
+          {/* Имя файла пакета — чтобы отчёт из поля называл, ЧТО не пришло,
+              а не только что «не пришло». Один взгляд вместо переписки. */}
+          {!mapError && diag && (
+            <span style={{ display: 'block', opacity: 0.7, marginTop: 2 }}>
+              искала: {packFileName(sources.terrainUrl)}
+            </span>
+          )}
         </div>
       )}
       {showUserLocation && geoDenied && (

@@ -195,20 +195,22 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
               }}>
               {formatBearing(targetBearing)}
             </span>
+            {/* Родословная курса — словами, как у линий на карте. Внутри той
+                же плашки и с ограниченной шириной: без этого строка
+                растягивалась во всю ширину прибора и ложилась на букву «Ю»
+                (живой скрин владельца 01.09). */}
+            <span className="text-center leading-tight"
+              style={{
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: Math.max(8, 10 * k),
+                marginTop: Math.max(1, 2 * k),
+                maxWidth: size * 0.6,
+              }}>
+              {trusted
+                ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')
+                : 'стрелка скрыта: азимут не подтверждён'}
+            </span>
           </div>
-          {/* Родословная курса — словами, как у линий на карте. Вынесена ПОД
-              плашку и не наезжает на шкалу. */}
-          <span className="text-center leading-tight"
-            style={{
-              color: 'rgba(255,255,255,0.5)',
-              fontSize: Math.max(8, 10 * k),
-              marginTop: Math.max(2, 3 * k),
-              paddingLeft: 4, paddingRight: 4,
-            }}>
-            {trusted
-              ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')
-              : 'стрелка скрыта: азимут не подтверждён'}
-          </span>
         </div>
       )}
     </div>

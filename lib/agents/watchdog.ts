@@ -553,32 +553,37 @@ async function checkUndeliveredSafetyPush(): Promise<CheckResult> {
 async function checkPendingTransferBookings(): Promise<CheckResult> {
   try {
     // Замыкает симметрию сторожа: туры, жильё и снаряжение уже под
-    // >24ч-проверкой, брони трансферов оставались слепым пятном.
-    // operator_id в transfer_bookings ссылается на operators (транспортная
-    // подсистема), у которых нет telegram_chat_id — чат берём из partners
-    // по совпадению email (LATERAL с LIMIT 1, чтобы дубли email не
-    // размножали группы).
+    // >24ч-проверкой, места в трансферах оставались слепым пятном.
+    //
+    // ── Перенацелено 01.09 на схему 926 ──────────────────────────────────
+    //
+    // Прежний запрос шёл в `transfer_bookings` и `operators`, которых на проде
+    // НЕТ (перепись реестра схемы, прогон 2, канарейка видна). Он не «иногда
+    // не находил» — он падал с 42P01 на каждом прогоне, и Watchdog честно
+    // краснел «НЕ ПРОВЕРЕНО: checkPendingTransferBookings». Проверка стерегла
+    // настоящую заботу, поэтому её перенесли, а не удалили.
+    //
+    // Заодно исчез повод для прежнего трюка: перевозчик теперь партнёр, и
+    // telegram_chat_id берётся у него напрямую. Сопоставление по email через
+    // LATERAL было нужно лишь потому, что `operators` жила отдельно от
+    // `partners`; сущности больше нет — нет и склейки по совпадению почты.
     const { rows } = await pool.query<{
       operator_name: string | null;
       telegram_chat_id: string | null;
       count: string;
       oldest: string;
     }>(
-      `SELECT COALESCE(o.name, 'Оператор не привязан') AS operator_name,
+      `SELECT p.name AS operator_name,
               p.telegram_chat_id,
               COUNT(*)::text AS count,
-              MIN(tb.created_at)::date::text AS oldest
-       FROM transfer_bookings tb
-       LEFT JOIN operators o ON o.id = tb.operator_id
-       LEFT JOIN LATERAL (
-         SELECT telegram_chat_id FROM partners
-         WHERE LOWER(email) = LOWER(o.email)
-           AND telegram_chat_id IS NOT NULL
-         LIMIT 1
-       ) p ON true
-       WHERE tb.status = 'pending'
-         AND tb.created_at < NOW() - INTERVAL '24 hours'
-       GROUP BY o.name, p.telegram_chat_id`,
+              MIN(sb.created_at)::date::text AS oldest
+       FROM transfer_seat_bookings sb
+       JOIN transfer_trips t ON t.id = sb.trip_id
+       JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
+       JOIN partners p ON p.id = v.partner_id
+       WHERE sb.status = 'requested'
+         AND sb.created_at < NOW() - INTERVAL '24 hours'
+       GROUP BY p.name, p.telegram_chat_id`,
     );
     if (rows.length === 0) return null;
 
@@ -598,7 +603,7 @@ async function checkPendingTransferBookings(): Promise<CheckResult> {
     return {
       type: 'pending_transfer_booking',
       count: total,
-      details: `${total} бронь(и) трансфера без подтверждения > 24ч у ${rows.length} оператор(ов).`,
+      details: `${total} запрос(ов) мест в трансфере без ответа > 24ч у ${rows.length} перевозчик(ов).`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -620,9 +625,13 @@ async function notifyTransferOperatorDirectly(
   const text = [
     `<b>Привет, ${operatorName}!</b>`,
     '',
-    `${count} бронь(и) трансфера ждут подтверждения уже больше суток (самая ранняя — ${oldest}).`,
+    `${count} запрос(ов) мест в трансфере ждут ответа уже больше суток (самый ранний — ${oldest}).`,
     '',
-    `Подтверди или отклони: <a href="${appUrl}/hub/transfer-operator/bookings">Брони</a>`,
+    // Прямой ссылки нет намеренно: кабинет перевозчика на схеме 926 ещё не
+    // построен, а прежний /hub/transfer-operator удалён вместе с мёртвым
+    // модулем. Вести в несуществующий адрес хуже, чем не вести никуда: пинок
+    // остаётся честным, а обещание экрана не даётся.
+    `Кабинет: ${appUrl}/hub`,
   ].join('\n');
   try {
     await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {

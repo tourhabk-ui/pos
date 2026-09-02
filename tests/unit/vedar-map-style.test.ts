@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildVedarStyle, vedarMapPalette } from '@/lib/map/vedar-style';
 import { packKey, resolvePackSource } from '@/lib/map/pack-source';
+import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 
 const SRC = {
   terrainUrl: 'pmtiles://https://example.test/map-packs/avacha-group.terrain.pmtiles',
@@ -33,6 +34,39 @@ type Layer = { id: string; type: string; source?: string; layout?: Record<string
 function layers(theme: 'dark' | 'light'): Layer[] {
   return (buildVedarStyle(theme, SRC) as { layers: Layer[] }).layers;
 }
+
+describe('стиль проходит проверку спецификацией MapLibre', () => {
+  /**
+   * Самый важный сторож файла, и появился он позже всех — после двух
+   * полевых выездов подряд, где карта была чёрной.
+   *
+   * Оба раза причина была одна по классу: MapLibre отвергает стиль ЦЕЛИКОМ
+   * из-за одной неверной строки. Сначала слой подписей просил текст без
+   * `glyphs`, потом зумовое выражение оказалось вложено в `case`. Пропадала
+   * не одна линия — пропадала вся карта, включая рельеф.
+   *
+   * Искать это глазами владельца в поле, по одной ошибке за выезд, — плохой
+   * способ. Валидатор спецификации лежит в наших же зависимостях и находит
+   * всё разом, на сборке. Ручные проверки ниже оставлены: они стерегут
+   * СМЫСЛ (подпись из данных, зум верхним уровнем), а этот — форму.
+   */
+  it('все сочетания темы и глифов валидны', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      for (const [label, src] of [
+        ['без глифов', SRC_NO_GLYPHS],
+        ['с глифами', SRC],
+      ] as const) {
+        const errors = validateStyleMin(
+          buildVedarStyle(theme, src) as never,
+        ) as Array<{ message: string }>;
+        expect(
+          errors.map(e => e.message),
+          `${theme} / ${label}`,
+        ).toEqual([]);
+      }
+    }
+  });
+});
 
 describe('подписи горизонталей приходят из данных', () => {
   it('text-field читает свойство ele, а не строку', () => {
@@ -144,13 +178,96 @@ describe('источник пакета называет своё состоян
 });
 
 describe('линия маршрута подчиняется §12, а не решает сама', () => {
-  it('построение отличается от снятого трека свойством, а не догадкой', () => {
-    const line = layers('dark').find(l => l.id === 'route-line')!;
-    expect(JSON.stringify(line.paint!['line-color'])).toContain('connector');
-    // Подложка — только у настоящего пути: у пунктирного построения она
-    // залила бы просветы и вернула вид снятого трека (§12).
-    const casing = layers('dark').find(l => l.id === 'route-casing')!;
-    expect(casing.filter).toEqual(['==', ['get', 'connector'], false]);
+  it('каждому роду линии — свой слой: трек сплошной, набросок и построение пунктиром', () => {
+    /**
+     * Первый живой рендер 02.09 (Авачинский перевал): набросок подборки
+     * «база Три вулкана» (8 точек на 28 км) лёг веером толстых сплошных
+     * зелёных линий — предъявил себя как путь, по которому идут. §12
+     * запрещает это прямо, а line-dasharray в MapLibre от свойства feature
+     * зависеть не умеет — потому слоя три, и род читается фильтром.
+     */
+    const L = layers('dark');
+    const byId = (id: string) => L.find(l => l.id === id)!;
+    expect(byId('route-line').filter).toEqual(['==', ['get', 'kind'], 'track']);
+    expect(byId('route-line').paint!['line-dasharray']).toBeUndefined();
+    expect(byId('route-sketch').filter).toEqual(['==', ['get', 'kind'], 'sketch']);
+    expect(byId('route-sketch').paint!['line-dasharray']).toEqual([4, 3]);
+    expect(byId('route-connector').filter).toEqual(['==', ['get', 'kind'], 'connector']);
+    expect(byId('route-connector').paint!['line-dasharray']).toEqual([3, 3]);
+    // Подложка — только у настоящего пути: у пунктира она залила бы
+    // просветы и вернула вид снятого трека (§12).
+    expect(byId('route-casing').filter).toEqual(['==', ['get', 'kind'], 'track']);
+    // Пунктирные рода (§12) — 2px; след — не пунктир и не §12-род, у него
+    // своя проверка ниже.
+    expect(L.filter(l => l.source === 'route' && ['route-sketch', 'route-connector'].includes(l.id))
+      .every(l => l.paint!['line-width'] === 2)).toBe(true);
+  });
+
+  it('свой след — отдельный слой другого цвета, под маршрутом, без casing', () => {
+    /**
+     * 02.09, первый живой рендер: след телефона за два дня — перевал, город,
+     * редкие фиксы прямыми — лёг тем же толстым зелёным, что трек маршрута,
+     * и владелец спросил «что это за маршрут». Маршрут — куда идти, след —
+     * где был; путать их нельзя.
+     */
+    const L = layers('dark');
+    const trail = L.find(l => l.id === 'route-trail')!;
+    expect(trail).toBeTruthy();
+    expect(trail.filter).toEqual(['==', ['get', 'kind'], 'trail']);
+    expect(trail.paint!['line-color']).toBe(vedarMapPalette('dark').trail);
+    expect(vedarMapPalette('dark').trail).not.toBe(vedarMapPalette('dark').track);
+    expect(L.findIndex(l => l.id === 'route-trail')).toBeLessThan(L.findIndex(l => l.id === 'route-casing'));
+    // Род следа назначается по имени — одна константа на Leaflet и MapLibre.
+    const CLIENT = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
+    expect(CLIENT).toMatch(/title: TRAIL_TITLE/);
+    expect(CLIENT).toMatch(/m\.title === TRAIL_TITLE \? 'trail'/);
+    expect(CLIENT).not.toMatch(/title: 'Ваш след'/);
+  });
+
+  it('набросок приглушён, а не цвета трека', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const p = vedarMapPalette(theme);
+      expect(p.sketch).not.toBe(p.track);
+    }
+  });
+
+  it('зумовое выражение стоит верхним уровнем, а не внутри case', () => {
+    /**
+     * Полевой прогон 01.09. После починки глифов карта ОСТАВАЛАСЬ чёрной, и
+     * причину назвала строка ошибки на экране: «requires a "step" or
+     * "interpolate" expression». MapLibre не принимает interpolate(['zoom'])
+     * вложенным в case и отвергает стиль ЦЕЛИКОМ — снова пропадала не одна
+     * линия, а вся карта.
+     *
+     * Проверяем все paint-свойства всех слоёв: где есть ['zoom'], там
+     * interpolate/step обязан быть корнем выражения.
+     */
+    const zoomNestedInside = (expr: unknown): boolean => {
+      if (!Array.isArray(expr)) return false;
+      const head = expr[0];
+      // Корень-интерполятор законен: его вход и есть зум.
+      if (head === 'interpolate' || head === 'step') {
+        // Внутри остановок зума быть не должно (там значения, а не вход).
+        return expr.slice(3).some(v => containsZoom(v));
+      }
+      return containsZoom(expr);
+    };
+    const containsZoom = (expr: unknown): boolean => {
+      if (!Array.isArray(expr)) return false;
+      if (expr[0] === 'zoom') return true;
+      return expr.some(v => containsZoom(v));
+    };
+
+    for (const theme of ['dark', 'light'] as const) {
+      for (const l of layers(theme)) {
+        for (const [prop, value] of Object.entries(l.paint ?? {})) {
+          expect(
+            zoomNestedInside(value),
+            `слой ${l.id}, свойство ${prop}: ['zoom'] не на верхнем уровне`,
+          ).toBe(false);
+        }
+      }
+    }
   });
 
   it('палитра трека — токен --success, а не произвольный зелёный', () => {
@@ -161,11 +278,15 @@ describe('линия маршрута подчиняется §12, а не ре�
 describe('предел зума назван по данным', () => {
   it('в конвейере записано родное разрешение источника', () => {
     const PY = readFileSync(join(process.cwd(), 'scripts/map-tiles/build_terrain.py'), 'utf-8');
-    // GLO-90 = 90 м/отсчёт = z10 на широте региона. Печь глубже — рисовать
-    // рельеф, которого в данных нет (тот же дефект, что у генеративных
-    // моделей, только с нашей подписью).
-    expect(PY).toMatch(/NATIVE_ZOOM = 10/);
-    expect(PY).toMatch(/MAXZOOM = 12/);
+    // GLO-30 = 30 м/отсчёт = z12 на широте региона (02.09; до того GLO-90 =
+    // z10). Печь глубже — рисовать рельеф, которого в данных нет (тот же
+    // дефект, что у генеративных моделей, только с нашей подписью). Один
+    // уровень сглаживания сверх родного, не два: каждый уровень вчетверо
+    // раздувает пакет, а z13 — уже 2.6 отсчёта на пиксель.
+    expect(PY).toMatch(/NATIVE_ZOOM = 12/);
+    expect(PY).toMatch(/MAXZOOM = 13/);
+    expect(PY).toMatch(/copernicus-dem-30m/);
+    expect(PY).toMatch(/DEM_RES_CODE = '10'/);
     expect(PY).toContain("'native_zoom': NATIVE_ZOOM");
   });
 
