@@ -106,6 +106,8 @@ export const OSM_BUILT_REGIONS: readonly RegionId[] = [
   'avacha-group',
   // 02.09, прогон 5 (run 33624756412): семь слоёв Паратунки залиты, 4.3 МБ.
   'paratunka',
+  // 02.09, прогон 6 (run 33625171834): семь слоёв Мутновского, 5.7 МБ.
+  'mutnovsky-gorely',
 ];
 
 export type PackSource =
@@ -180,4 +182,8 @@ export const BUILT_PACK_REGIONS: readonly RegionId[] = [
   // понравилась, прорисовать остальные районы»: рельеф GLO-30 36.47 МБ,
   // горизонтали 3.72 МБ — заливка подтверждена шагом workflow.
   'paratunka',
+  // 02.09, прогон 6 (run 33625171834): рельеф 53.27 МБ, горизонтали 5.49 МБ,
+  // с OSM 64.5 МБ — первый пакет над прежним потолком 60, ради него потолок
+  // и поднят до 200.
+  'mutnovsky-gorely',
 ];
