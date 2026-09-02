@@ -145,6 +145,72 @@ interface RadarHazard { lat: number; lng: number; level: string; kind: string; l
 interface Placed extends RadarHazard { x: number; y: number; dist: number }
 
 /**
+ * Точки радара, стоящие рядом на экране, расходятся так, чтобы каждая
+ * осталась видна и тапаема отдельно.
+ *
+ * ── Случай 02.09 ───────────────────────────────────────────────────────────
+ *
+ * Владелец, глядя на /safety: «Ключевского не вижу на карте, а он постоянно
+ * извергается». Ключевской в данных БЫЛ — оранжевый, координаты внутри
+ * 500-км круга. Причина не в данных, а в отрисовке: Ключевская сопка и
+ * Безымянный стоят на экране в 1.8 условной единицы друг от друга при
+ * радиусе точки 4 — верхняя (критичная, рисуется поверх) полностью
+ * закрывала нижнюю. Рядом же, в 14-16 единицах, ещё и Шивелуч с пульсирующим
+ * кольцом до ~11 единиц радиуса — три вулкана сливались в один блик, и
+ * различить среди них Ключевского было нечем: ни глазом, ни тапом.
+ *
+ * ── Что делает функция ──────────────────────────────────────────────────
+ *
+ * Группирует точки, которые стоят ближе MIN_SEP (объединение по компонентам
+ * связности — если А близко к Б, а Б близко к В, все трое в одной группе),
+ * и раскладывает каждую группу равномерно по окружности вокруг ЦЕНТРА
+ * ТЯЖЕСТИ исходных позиций. Реальные координаты, расстояние до центра
+ * радара (`dist`) и текст карточки при тапе не меняются — сдвигается только
+ * экранная точка. Порядок раскладки — по имени (не по порядку прихода из
+ * БД), иначе один и тот же вулкан менял бы место на экране между
+ * перезагрузками без единой причины.
+ */
+export const RADAR_MIN_SEP = 9; // немного больше суммы радиусов двух критичных точек (4+4) плюс обводка
+export const RADAR_CLUSTER_SPREAD = 6;
+
+export function declutterPlaced<T extends { x: number; y: number; label: string }>(points: T[]): T[] {
+  const n = points.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  function find(i: number): number {
+    while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+    return i;
+  }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y);
+      if (d < RADAR_MIN_SEP) {
+        const ri = find(i), rj = find(j);
+        if (ri !== rj) parent[ri] = rj;
+      }
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    const g = groups.get(r);
+    if (g) g.push(i); else groups.set(r, [i]);
+  }
+
+  const out = points.slice();
+  for (const idxs of groups.values()) {
+    if (idxs.length < 2) continue;
+    const cx = idxs.reduce((s, i) => s + points[i].x, 0) / idxs.length;
+    const cy = idxs.reduce((s, i) => s + points[i].y, 0) / idxs.length;
+    const ordered = [...idxs].sort((a, b) => points[a].label.localeCompare(points[b].label, 'ru'));
+    ordered.forEach((i, k) => {
+      const angle = (2 * Math.PI * k) / ordered.length - Math.PI / 2;
+      out[i] = { ...points[i], x: cx + RADAR_CLUSTER_SPREAD * Math.cos(angle), y: cy + RADAR_CLUSTER_SPREAD * Math.sin(angle) };
+    });
+  }
+  return out;
+}
+
+/**
  * Радар обстановки: реальные точки (вулканы KVERT, сейсмика, модерированные
  * наблюдения туристов) по настоящему азимуту и расстоянию от центра. Центр —
  * геолокация (если разрешена) или Петропавловск. Луч-развёртка декоративен
@@ -196,14 +262,17 @@ export function RadarScope({ hazards, center, degraded = false }: {
   // В SVG последний нарисованный — сверху, поэтому критичные рисуем ПОСЛЕДНИМИ:
   // красный блип не должен прятаться под жёлтым
   const LEVEL_RANK: Record<string, number> = { warning: 0, danger: 1, critical: 2 };
-  const placed: Placed[] = hazards
+  const placedRaw: Placed[] = hazards
     .map((h) => {
       const north = (h.lat - c.lat) * kmLat;
       const east = (h.lng - c.lng) * kmLng;
       const dist = Math.hypot(north, east);
       return { ...h, dist, x: CX + (east / MAX_KM) * R, y: CY - (north / MAX_KM) * R };
     })
-    .filter((h) => h.dist <= MAX_KM)
+    .filter((h) => h.dist <= MAX_KM);
+  // Раскладка близких точек — до сортировки по слою: порядок отрисовки
+  // (критичные поверх) не зависит от того, раздвинуты точки или нет.
+  const placed: Placed[] = declutterPlaced(placedRaw)
     .sort((a, b) => (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0));
 
   /**
