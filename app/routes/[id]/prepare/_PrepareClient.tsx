@@ -177,8 +177,8 @@ export default function PrepareClient({ routeId }: { routeId: string }) {
 
 
   const items = useMemo(() => buildPreparationItems({
-    passport, packStates, answers, conditionsAgeMs, userStates,
-  }), [passport, packStates, answers, conditionsAgeMs, userStates]);
+    passport, packStates, answers, conditionsAgeMs, userStates, routeId,
+  }), [passport, packStates, answers, conditionsAgeMs, userStates, routeId]);
 
   const domains = useMemo(() => summarizeDomains(items), [items]);
   const actions = useMemo(() => nextActions(items), [items]);
