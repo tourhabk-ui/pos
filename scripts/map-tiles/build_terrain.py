@@ -127,11 +127,26 @@ def fetch_dem_tiles(bbox, cache_dir):
     return paths
 
 
+def cells_extent(bbox):
+    """Целоградусный охват скачанных клеток: floor/ceil границ bbox."""
+    west, south, east, north = bbox
+    return (math.floor(west), math.floor(south), math.ceil(east), math.ceil(north))
+
+
 def build_mosaic(paths, bbox):
-    """Склеивает клетки в один массив высот на bbox. Возвращает (array, transform-параметры)."""
+    """
+    Склеивает клетки в один массив высот. Возвращает (array, transform-параметры).
+
+    Мозаика строится на ЦЕЛОГРАДУСНОМ охвате клеток, а не на bbox района.
+    Первый живой рендер 02.09: у западного края рельеф лежал горизонтальными
+    полосами. Тайлы z10-13 выходят за bbox (тайл z10 — 0.35° по долготе), а
+    выборка за краем мозаики зажималась в крайний столбец: каждая строка
+    тайла получала одну и ту же высоту. Данные в клетках ЕСТЬ на весь
+    градус — их и берём; полосы были не отсутствием данных, а обрезкой.
+    """
     import rasterio
 
-    west, south, east, north = bbox
+    west, south, east, north = cells_extent(bbox)
     # Шаг берём у первой клетки — у Copernicus DEM он одинаков в пределах
     # широтной полосы, а регион пробы в одну полосу и укладывается.
     with rasterio.open(paths[0]) as s0:
