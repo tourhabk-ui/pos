@@ -91,18 +91,129 @@ out skel qt;
 """
 
 
+# Зеркала Overpass: основной узел на большом bbox отвечает 504 (прогон 8,
+# «Центральные вулканы» 1.8x1.1°, 02.09). Второй узел — на подмену, а не
+# «для скорости»: запрос тот же, данные те же.
+OVERPASS_MIRRORS = (
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+)
+# Клетка запроса. Районы до 1 кв.° (Авачинская, Мутновский, Налычево)
+# проходили одним запросом; 2 кв.° — 504 за десять секунд. Полградуса на
+# полградуса — четверть квадратного градуса, вчетверо меньше худшего из
+# прошедших: запас, а не догадка.
+CELL_DEG = 0.25
+# Прогон 10 (02.09): главный узел отвечал 504/429 сразу и успешно — с
+# четвёртой попытки, после суммарной паузы ~150 с; зеркала kumi и
+# private.coffee давали 502/500 каждый раз. Поэтому ждём дольше и ходим
+# на главный узел, зеркала — только в хвосте.
+RETRY_DELAYS_S = (30, 60, 120, 180, 300)
+# Пауза между клетками: прогон 9 получил 429 на седьмой клетке подряд —
+# узел считает частые запросы одним клиентом и режет. Секунды дешевле
+# повторов.
+CELL_PAUSE_S = 3
+# Ниже этого клетка не дробится: 0.125° — 1/16 кв.° x 1/16, дальше сама
+# сетка обходится дороже данных.
+MIN_CELL_DEG = 0.125
+
+
+def split_bbox(bbox, cell_deg: float = CELL_DEG) -> list:
+    """bbox -> клетки не крупнее cell_deg по каждой оси. Порядок: с юга на север, с запада на восток."""
+    west, south, east, north = bbox
+    cells = []
+    lat = south
+    while lat < north - 1e-9:
+        lat2 = min(north, lat + cell_deg)
+        lng = west
+        while lng < east - 1e-9:
+            lng2 = min(east, lng + cell_deg)
+            cells.append((round(lng, 4), round(lat, 4), round(lng2, 4), round(lat2, 4)))
+            lng = lng2
+        lat = lat2
+    return cells
+
+
 def fetch_overpass(query: str, url: str, cache_path: str) -> dict:
+    """Один запрос с повторами по узлам и паузам. Ответ ложится в кэш ЦЕЛИКОМ.
+
+    Отказ всех попыток — исключение, не пустой ответ (§4.0): пустой словарь
+    прочитался бы как «в клетке ничего нет», и лес с реками исчезли бы молча.
+    """
     if os.path.exists(cache_path):
         with open(cache_path, encoding='utf-8') as f:
             return json.load(f)
     data = urllib.parse.urlencode({'data': query}).encode('utf-8')
-    req = urllib.request.Request(url, data=data, headers={'User-Agent': 'VedarMapPack/1.0'})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        raw = r.read()
-    os.makedirs(os.path.dirname(cache_path) or '.', exist_ok=True)
-    with open(cache_path, 'wb') as f:
-        f.write(raw)
-    return json.loads(raw.decode('utf-8'))
+    urls = [url, url, url] + [m for m in OVERPASS_MIRRORS if m != url]
+    last_err: Exception | None = None
+    for attempt, delay in enumerate((0,) + RETRY_DELAYS_S):
+        if delay:
+            print(f'  повтор через {delay} с (попытка {attempt + 1})', flush=True)
+            time.sleep(delay)
+        u = urls[attempt % len(urls)]
+        req = urllib.request.Request(u, data=data, headers={'User-Agent': 'VedarMapPack/1.0'})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                raw = r.read()
+            parsed = json.loads(raw.decode('utf-8'))
+            if 'elements' not in parsed:
+                raise RuntimeError(f'ответ без elements от {u}: {raw[:200]!r}')
+            os.makedirs(os.path.dirname(cache_path) or '.', exist_ok=True)
+            with open(cache_path, 'wb') as f:
+                f.write(raw)
+            return parsed
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, RuntimeError, ValueError) as e:
+            last_err = e
+            print(f'  {u}: {e}', flush=True)
+    raise RuntimeError(f'Overpass не ответил после {1 + len(RETRY_DELAYS_S)} попыток: {last_err}')
+
+
+def fetch_cell_adaptive(cell, url: str, cache_dir: str, depth: int = 0) -> list:
+    """Клетка целиком, а при отказе всех попыток — четвертями, рекурсивно.
+
+    Прогон 9 (02.09): клетки 0.5° отдавали по 80 тысяч элементов, и седьмая
+    легла на всех трёх узлах. Дробление — не «попробовать ещё раз», а
+    уменьшение запроса вчетверо; ниже MIN_CELL_DEG отказ честно всплывает.
+    """
+    cache_path = os.path.join(cache_dir, f'overpass_{"_".join(str(v) for v in cell)}.json')
+    indent = '  ' * (depth + 1)
+    try:
+        data = fetch_overpass(overpass_query(cell), url, cache_path)
+        return data.get('elements', [])
+    except RuntimeError as e:
+        w, s_, e_, n = cell
+        size = max(e_ - w, n - s_)
+        if size / 2 < MIN_CELL_DEG - 1e-9:
+            raise
+        print(f'{indent}клетка {cell} не отвечает ({e}); делю на четыре', flush=True)
+        out: list = []
+        for sub in split_bbox(cell, size / 2):
+            print(f'{indent}  подклетка {sub}', flush=True)
+            time.sleep(CELL_PAUSE_S)
+            out.extend(fetch_cell_adaptive(sub, url, cache_dir, depth + 1))
+        return out
+
+
+def fetch_overpass_cells(bbox, url: str, cache_dir: str) -> dict:
+    """Район по клеткам; элементы сливаются по (type, id) — объект на стыке
+    клеток приходит дважды, и второй экземпляр отбрасывается."""
+    cells = split_bbox(bbox)
+    print(f'клеток Overpass: {len(cells)} (по {CELL_DEG}°)', flush=True)
+    seen: set = set()
+    elements: list = []
+    for i, cell in enumerate(cells, 1):
+        print(f'[{i}/{len(cells)}] клетка {cell}', flush=True)
+        if i > 1:
+            time.sleep(CELL_PAUSE_S)
+        n = 0
+        for el in fetch_cell_adaptive(cell, url, cache_dir):
+            key = (el.get('type'), el.get('id'))
+            if key in seen:
+                continue
+            seen.add(key)
+            elements.append(el)
+            n += 1
+        print(f'  новых элементов: {n}', flush=True)
+    return {'elements': elements}
 
 
 def classify(tags: dict, geom_type: str) -> str | None:
@@ -157,9 +268,9 @@ def main() -> int:
     import osm2geojson
     from shapely.geometry import shape, mapping
 
-    cache_path = os.path.join(args.cache, f'overpass_{"_".join(str(v) for v in bbox)}.json')
+    # Кэш — по клеткам (см. fetch_overpass_cells), не по району целиком.
     print(f'Overpass {args.overpass}, bbox {bbox}')
-    data = fetch_overpass(overpass_query(bbox), args.overpass, cache_path)
+    data = fetch_overpass_cells(bbox, args.overpass, args.cache)
     elements = data.get('elements', [])
     if not elements:
         print('Overpass вернул НОЛЬ элементов — отказ, не пустой район', file=sys.stderr)
