@@ -276,7 +276,14 @@ export async function executeABScaleWinner(task: ExecutionTask): Promise<Executi
             errors.length > 0 ? `Ошибок: ${errors.length}` : 'Ошибок нет',
           ].join('\n'),
         }),
-      }).catch(() => null);
+      }).then(
+        // Отказ Telegram не глушится (§4.0, повод — #1504): уведомление —
+        // не условие применения скидок, но «не дошло» обязано быть в логе,
+        // иначе оператор не узнает о применённых изменениях и никто не
+        // узнает, что он не узнал.
+        res => { if (!res.ok) console.error('[ab-scale] telegram: HTTP', res.status); },
+        err => console.error('[ab-scale] telegram:', err instanceof Error ? err.message : err),
+      );
     }
 
     return {

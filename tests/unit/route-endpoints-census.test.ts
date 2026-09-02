@@ -105,8 +105,14 @@ describe('GET /api/cron/route-endpoints — перепись под секрет
 describe('workflow партий', () => {
   const wf = readFileSync(join(ROOT, '.github/workflows/route-endpoints-batch.yml'), 'utf8');
 
-  it('только вручную, без токена', () => {
-    expect(wf).toMatch(/^on:\n  workflow_dispatch:/m);
+  it('вручную или по маркеру, без расписания и без токена', () => {
+    // 02.09: к workflow_dispatch добавлен push по маркеру
+    // .github/triggers/route-endpoints-batch.json — dispatch через интеграцию
+    // даёт 403. По push идёт только перепись (MODE по умолчанию census);
+    // расписания по-прежнему нет: партия — решение человека, не крона.
+    expect(wf).toMatch(/^\s+workflow_dispatch:/m);
+    expect(wf).toMatch(/^\s+paths:\n\s+- '\.github\/triggers\/route-endpoints-batch\.json'/m);
+    expect(wf).toMatch(/MODE: \$\{\{ inputs\.mode \|\| 'census' \}\}/);
     expect(wf).not.toMatch(/^\s+schedule:/m);
     expect(wf).toMatch(/^permissions: \{\}$/m);
   });

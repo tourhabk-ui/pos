@@ -16,8 +16,18 @@ name: Точки начала/конца из паспорта (вручную)
 # его не трогают).
 #
 # Почему раннер: прод из среды разработчика недостижим (403 на CONNECT).
+#
+# Перепись запускается и правкой .github/triggers/route-endpoints-batch.json
+# в main (02.09): workflow_dispatch через интеграцию GitHub отвечает 403
+# «Resource not accessible by integration», и без маркера перепись была бы
+# доступна только руками из интерфейса Actions. По push идёт ТОЛЬКО census —
+# у dry/apply входы обязательны, а у push их нет.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/route-endpoints-batch.json'
   workflow_dispatch:
     inputs:
       mode:
@@ -51,10 +61,11 @@ jobs:
       - name: Перепись или партия
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          MODE: ${{ inputs.mode }}
-          ROUTE_IDS: ${{ inputs.route_ids }}
-          SOURCE: ${{ inputs.source }}
-          WHY: ${{ inputs.why }}
+          # По push входов нет: режим — перепись, остальное пусто.
+          MODE: ${{ inputs.mode || 'census' }}
+          ROUTE_IDS: ${{ inputs.route_ids || '' }}
+          SOURCE: ${{ inputs.source || '' }}
+          WHY: ${{ inputs.why || '' }}
         run: |
           set -u
           if [ -z "$CRON_SECRET" ]; then

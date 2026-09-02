@@ -23,6 +23,22 @@ describe('finding-guard — режет галлюцинации ночных с�
     })).toBe('incoherent_same_token');
   });
 
+  it('callAIWaterfall предписан Telegram-уведомлению (#1504) → reject', () => {
+    expect(findingRejectionReason({
+      title: 'Нарушение конвенций: прямой fetch вместо callAIWaterfall',
+      description: 'Telegram-уведомление отправляется напрямую через fetch, а не через callAIWaterfall (конвенция проекта для внешних вызовов). Нет ретраев, нет логирования.',
+      suggestion: 'В ab-scale-executor.ts заменить блок с fetch(...) на вызов callAIWaterfall(...), передав те же аргументы (URL, метод, заголовки, тело).',
+    })).toBe('waterfall_is_not_http_client');
+  });
+
+  it('«callDeepSeek напрямую вместо callAIWaterfall» — настоящая находка, проходит', () => {
+    expect(findingRejectionReason({
+      title: 'Прямой вызов провайдера',
+      description: 'В lib/agents/editor.ts callDeepSeek зовётся напрямую вместо callAIWaterfall — внешний запрос к модели минует водопад.',
+      suggestion: 'Заменить callDeepSeek на callAIWaterfall',
+    })).toBeNull();
+  });
+
   it('console.error заклеймён нарушением (run #258) → reject', () => {
     expect(findingRejectionReason({
       title: 'Прямой call console.error',
