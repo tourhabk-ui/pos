@@ -161,7 +161,11 @@ def fetch_overpass(query: str, url: str, cache_path: str) -> dict:
             with open(cache_path, 'wb') as f:
                 f.write(raw)
             return parsed
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, RuntimeError, ValueError) as e:
+        # OSError покрывает и RemoteDisconnected (http.client), и обрыв
+        # сокета: прогон 11 (02.09) снял 39 клеток из 40 и упал на последней
+        # не отказом узла, а «Remote end closed connection» — исключением,
+        # которого в этом списке не было, и повторы до него не дошли.
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, RuntimeError, ValueError, OSError) as e:
             last_err = e
             print(f'  {u}: {e}', flush=True)
     raise RuntimeError(f'Overpass не ответил после {1 + len(RETRY_DELAYS_S)} попыток: {last_err}')
