@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 67 (02.09): векторный пакет «klyuchevskoy» — tippecanoe из кэша, горизонтали 20 м в тайлах, один PMTiles на все слои. Авачинская (прогон 60): 8.78 МБ против 13.5 МБ GeoJSON.",
-  "region": "klyuchevskoy",
+  "note": "Прогон 68 (02.09): векторный пакет «esso-bystrinsky» — tippecanoe из кэша, горизонтали 20 м в тайлах, один PMTiles на все слои. Авачинская (прогон 60): 8.78 МБ против 13.5 МБ GeoJSON.",
+  "region": "esso-bystrinsky",
   "upload": true
 }
