@@ -117,6 +117,10 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/accommodations': ['GET'],       // жильё: каталог, карточка, цены
   '/api/availability': ['GET'],         // календарь занятости туров
   '/api/transfers/search': ['GET'],     // поиск трансферов; ПД водителя вырезаны из ответа
+  // Витрина мест в поездках перевозчиков (схема 926, 02.09): гость смотрит,
+  // что едет и сколько мест. Запрос мест (POST …/[id]/request) остаётся за
+  // входом — схема требует заказчика. Новый путь, не адрес мёртвого модуля.
+  '/api/carrier-trips': ['GET'],
   '/api/tools': ['GET', 'POST'],        // каталог AI-инструментов; POST — счётчик кликов;
                                         // equipment/safety зовут AI — на них rate-limit внутри
   '/api/safety/warnings': ['GET'],      // предупреждения: официальные телефоны, не ПД

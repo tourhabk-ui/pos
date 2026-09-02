@@ -475,6 +475,78 @@ export async function declineSeats(params: {
   }
 }
 
+// ── Кабинет перевозчика (02.09) ────────────────────────────────────────────
+
+/** Поездка в кабинете: с техникой, занятыми, свободными и запрошенными местами. */
+export interface CarrierTrip extends TransferTripRow {
+  vehicle_kind: TransferVehicleKind;
+  vehicle_title: string;
+  seats_taken: number;
+  seats_free: number;
+  /** Запрошено и ещё не решено — ничего не держит, но перевозчику видно. */
+  seats_requested: number;
+}
+
+export async function listTripsForPartner(partnerId: string): Promise<CarrierTrip[]> {
+  const { rows } = await pool.query<CarrierTrip>(
+    `SELECT t.id, t.vehicle_id, to_char(t.trip_date, 'YYYY-MM-DD') AS trip_date,
+            t.from_text, t.to_text, t.to_place_id, t.to_route_id, t.departure_note,
+            t.seats_total, t.price_per_seat::text AS price_per_seat,
+            t.is_published, t.status, t.comment,
+            v.kind AS vehicle_kind, v.title AS vehicle_title,
+            COALESCE(c.taken, 0)::int AS seats_taken,
+            (t.seats_total - COALESCE(c.taken, 0))::int AS seats_free,
+            COALESCE(r.requested, 0)::int AS seats_requested
+       FROM transfer_trips t
+       JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
+       LEFT JOIN LATERAL (
+         SELECT SUM(sb.seats) AS taken FROM transfer_seat_bookings sb
+          WHERE sb.trip_id = t.id AND sb.status = 'confirmed'
+       ) c ON true
+       LEFT JOIN LATERAL (
+         SELECT SUM(sb.seats) AS requested FROM transfer_seat_bookings sb
+          WHERE sb.trip_id = t.id AND sb.status = 'requested'
+       ) r ON true
+      WHERE v.partner_id = $1
+        AND t.trip_date >= CURRENT_DATE - 1
+      ORDER BY t.trip_date, t.created_at`,
+    [partnerId],
+  );
+  return rows;
+}
+
+/** Запрос мест глазами перевозчика: кто, сколько, на какую поездку. */
+export interface SeatRequestRow extends SeatBookingRow {
+  contact_phone: string | null;
+  trip_date: string;
+  from_text: string;
+  to_text: string;
+  vehicle_title: string;
+  ordered_by_partner_name: string | null;
+}
+
+export async function listSeatRequests(
+  partnerId: string,
+  status: SeatBookingStatus = 'requested',
+): Promise<SeatRequestRow[]> {
+  const { rows } = await pool.query<SeatRequestRow>(
+    `SELECT sb.id, sb.trip_id, sb.ordered_by_partner_id, sb.ordered_by_user_id,
+            sb.seats, sb.price::text AS price, sb.status, sb.decline_reason, sb.comment,
+            sb.contact_phone,
+            to_char(t.trip_date, 'YYYY-MM-DD') AS trip_date, t.from_text, t.to_text,
+            v.title AS vehicle_title,
+            op.name AS ordered_by_partner_name
+       FROM transfer_seat_bookings sb
+       JOIN transfer_trips t ON t.id = sb.trip_id
+       JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
+       LEFT JOIN partners op ON op.id = sb.ordered_by_partner_id
+      WHERE v.partner_id = $1 AND sb.status = $2
+      ORDER BY sb.created_at`,
+    [partnerId, status],
+  );
+  return rows;
+}
+
 /** Отказ БД доходит до вызывающего с SQLSTATE: он и решает, чинить или ждать. */
 function failure(err: unknown, what: string): TransferResult<never> {
   const e = err as { message?: string; code?: string };
