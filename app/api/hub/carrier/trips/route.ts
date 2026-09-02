@@ -20,7 +20,9 @@ const TripSchema = z.object({
   trip_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
   from_text: z.string().trim().min(2).max(200),
   to_text: z.string().trim().min(2).max(200),
-  to_place_id: z.string().uuid().optional().nullable(),
+  // places.id на проде — TEXT, а не UUID (аудит 28.07; UUID у места лежит в
+  // ark_id). Требовать здесь uuid значило бы отвергать настоящие id мест.
+  to_place_id: z.string().trim().min(1).max(100).optional().nullable(),
   to_route_id: z.string().uuid().optional().nullable(),
   departure_note: z.string().trim().max(100).optional().nullable(),
   seats_total: z.number().int().min(1).max(60),
