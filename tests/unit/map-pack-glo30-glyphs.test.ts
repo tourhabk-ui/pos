@@ -82,7 +82,8 @@ describe('глифы — свои, из одного места', () => {
     expect(WF).toMatch(/name: Глифы/);
     // Имя шрифта и диапазоны читаются из pack-source.ts, второго списка нет.
     expect(WF).toMatch(/fontstack: '\(\[\^'\]\+\)'/);
-    expect(WF).toMatch(/\.cache\/packs\/glyphs"\s*$/m);
+    // Каталог глифов — аргумент заливки (строка может продолжаться « \»).
+    expect(WF).toMatch(/upload-pack\.ts[\s\S]{0,400}"\.cache\/packs\/glyphs"/);
   });
 
   it('заливка отказывает при неполном наборе диапазонов', () => {

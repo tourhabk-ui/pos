@@ -69,7 +69,7 @@ jobs:
 
       - name: Инструменты сборки
         run: |
-          pip install --quiet rasterio pmtiles pillow matplotlib shapely
+          pip install --quiet rasterio pmtiles pillow matplotlib shapely osm2geojson
           npm ci --ignore-scripts
 
       - name: Границы района — из реестра, не из ввода
@@ -95,6 +95,14 @@ jobs:
           python3 scripts/map-tiles/build_contours.py \
             --bbox "${{ steps.bbox.outputs.value }}" \
             --out ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson"
+
+      - name: OSM-слои — вода, реки, лес, ледники, тропы, дороги, вершины
+        run: |
+          # Overpass с раннера: из контейнера сборки OSM недостижим, и стиль с
+          # 31.08 честно писал «рек, леса и троп нет». Один запрос на район.
+          python3 scripts/map-tiles/build_osm.py \
+            --bbox "${{ steps.bbox.outputs.value }}" \
+            --out-prefix ".cache/packs/${{ steps.cfg.outputs.region }}"
 
       - name: Глифы — Noto Sans, цифры и кириллица
         run: |
@@ -150,7 +158,8 @@ jobs:
           npx tsx scripts/map-tiles/upload-pack.ts "${{ steps.cfg.outputs.region }}" \
             ".cache/packs/${{ steps.cfg.outputs.region }}.terrain.pmtiles" \
             ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson" \
-            ".cache/packs/glyphs"
+            ".cache/packs/glyphs" \
+            ".cache/packs/${{ steps.cfg.outputs.region }}"
 
       - name: Пакет НЕ залит — сказать это громко
         if: ${{ steps.cfg.outputs.upload != 'true' }}

@@ -82,6 +82,26 @@ export function glyphKey(fontstack: string, range: string): string {
   return `map-packs/glyphs/${fontstack}/${range}.pbf`;
 }
 
+/**
+ * OSM-слои пакета (02.09, третий шаг итерации): вода, реки, лес, ледники,
+ * тропы, дороги, вершины. Список — тот же, что печёт
+ * scripts/map-tiles/build_osm.py (LAYERS); сторож сверяет.
+ */
+export const OSM_LAYERS = ['water', 'waterways', 'wood', 'glacier', 'paths', 'roads', 'peaks'] as const;
+export type OsmLayer = typeof OSM_LAYERS[number];
+
+/** Ключ OSM-слоя района в бакете. Одна формула на заливку и на чтение. */
+export function osmKey(region: RegionId, layer: OsmLayer): string {
+  return `map-packs/${region}.osm.${layer}.geojson`;
+}
+
+/**
+ * Обещание, что OSM-слои лежат в хранилище для района, — того же рода, что
+ * BUILT_PACK_REGIONS. Ставится после заливки, не до: карта с адресами слоёв,
+ * которых нет, сыпала бы ошибками загрузки поверх живого рельефа.
+ */
+export const OSM_BUILT_REGIONS: readonly RegionId[] = [];
+
 export type PackSource =
   | {
       state: 'ready';
@@ -91,6 +111,8 @@ export type PackSource =
       /** Шаблон MapLibre `{fontstack}/{range}.pbf`; null — подписей нет. */
       glyphsUrl: string | null;
       glyphsFont: string;
+      /** Адреса OSM-слоёв; пусто — слоёв для района ещё нет (см. OSM_BUILT_REGIONS). */
+      osmUrls: Partial<Record<OsmLayer, string>>;
     }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
@@ -130,6 +152,9 @@ export function resolvePackSource(
     terrainMaxZoom: PACK_TERRAIN_MAXZOOM,
     glyphsUrl: PACK_GLYPHS.ready ? `${base}/${glyphKey('{fontstack}', '{range}')}` : null,
     glyphsFont: PACK_GLYPHS.fontstack,
+    osmUrls: OSM_BUILT_REGIONS.includes(region)
+      ? Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>
+      : {},
   };
 }
 

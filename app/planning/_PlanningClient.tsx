@@ -2978,6 +2978,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               terrainMaxZoom: fieldBaseMap.source.terrainMaxZoom,
               glyphsUrl: fieldBaseMap.source.glyphsUrl,
               glyphsFont: fieldBaseMap.source.glyphsFont,
+              osmUrls: fieldBaseMap.source.osmUrls,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}
