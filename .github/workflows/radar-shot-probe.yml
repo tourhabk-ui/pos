@@ -39,7 +39,10 @@ jobs:
             const page = await browser.newPage({ viewport: { width: 420, height: 1400 } });
             for (let i = 1; i <= 8; i++) {
               try {
-                await page.goto("https://vedarai.ru/safety", { waitUntil: "networkidle", timeout: 30000 });
+                // networkidle не срабатывает: страница держит фоновую активность
+                // (поллинг/аналитику) и никогда не затихает — таймаут был не о
+                // прод-недоступности, а о неверном условии ожидания.
+                await page.goto("https://vedarai.ru/safety", { waitUntil: "domcontentloaded", timeout: 30000 });
                 break;
               } catch (e) {
                 console.log(`попытка ${i}: ${e.message}`);
