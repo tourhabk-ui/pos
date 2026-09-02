@@ -45,6 +45,7 @@ OSM-слои района -> GeoJSON по слоям: вода, реки, лес
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import sys
@@ -165,7 +166,10 @@ def fetch_overpass(query: str, url: str, cache_path: str) -> dict:
         # сокета: прогон 11 (02.09) снял 39 клеток из 40 и упал на последней
         # не отказом узла, а «Remote end closed connection» — исключением,
         # которого в этом списке не было, и повторы до него не дошли.
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, RuntimeError, ValueError, OSError) as e:
+        # http.client.HTTPException — оборванное чтение тела (IncompleteRead,
+        # прогон 13 Ключевской: узел закрыл поток на 110 КБ). Не OSError.
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, RuntimeError, ValueError, OSError,
+                http.client.HTTPException) as e:
             last_err = e
             print(f'  {u}: {e}', flush=True)
     raise RuntimeError(f'Overpass не ответил после {1 + len(RETRY_DELAYS_S)} попыток: {last_err}')
