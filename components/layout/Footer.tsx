@@ -1,39 +1,11 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { Send } from 'lucide-react';
-
-const PLATFORM = [
-  { label: 'Туры', href: '/catalog' },
-  { label: 'Календарь туров', href: '/calendar' },
-  { label: 'Популярное', href: '/trending' },
-  { label: 'Камчатская рыбалка', href: '/hub/fishing' },
-  { label: 'Места', href: '/places' },
-  { label: 'Маршруты', href: '/routes' },
-  { label: 'Карта Камчатки', href: '/map' },
-  { label: 'Планирование поездки', href: '/partners' },
-  { label: 'Партнёры', href: '/operators' },
-  { label: 'Стать партнёром', href: '/for-operators' },
-  { label: 'MCP для ИИ-агентов', href: '/mcp' },
-  { label: 'Оставить заявку', href: '/contact' },
-  { label: 'Помощь туристам', href: '/help/tourists' },
-  { label: 'Помощь операторам', href: '/help/operators' },
-  { label: 'Вопросы и ответы', href: '/faq' },
-  { label: 'О платформе', href: '/about' },
-  { label: 'Блог', href: '/blog' },
-  // Статьи и связь были в sitemap, но кликнуть на них было неоткуда: поисковику
-  // страница предъявлена, человеку — нет (перепись достижимости 22.08).
-  { label: 'Статьи о Камчатке', href: '/articles' },
-  { label: 'Связь на маршруте', href: '/safety/communication' },
-  { label: 'Инциденты и алерты', href: '/safety/incidents' },
-];
-
-const LEGAL = [
-  { label: 'Пользовательское соглашение', href: '/legal/terms' },
-  { label: 'Политика конфиденциальности', href: '/legal/privacy' },
-  { label: 'Публичная оферта', href: '/legal/offer' },
-  { label: 'Условия комиссии', href: '/legal/commission' },
-  { label: 'Агентский договор', href: '/legal/agent-agreement' },
-];
+// Список ссылок — из реестра, общего со страницей «Ещё» (/menu, 02.09).
+// Своего списка у футера больше нет: две копии одного меню расходятся так же,
+// как расходились две SOS-кнопки. Ссылка на /mcp остаётся здесь по требованию
+// сторожа mcp-landing — теперь через реестр.
+import { PLATFORM_LINKS as PLATFORM, LEGAL_LINKS as LEGAL } from '@/lib/navigation/platform-links';
 
 export function Footer() {
   return (

@@ -95,8 +95,14 @@ function mentions(route: string, ownFile: string): { ui: string[]; other: string
     if (!body.includes(pref)) continue;
     if (!body.split('\n').some(l => hasPathRef(l, pref))) continue;
     // Ссылка из интерфейса = переход руками. Остальное — вебхук, cron, тест.
-    const isUi = (f.startsWith('app/') || f.startsWith('components/') || f.startsWith('hooks/'))
-      && !f.includes('/api/') && !f.startsWith('tests/');
+    //
+    // Реестр ссылок платформы (02.09) лежит в lib/, но рисуется целиком
+    // футером и страницей /menu — это интерфейс, вынесенный в данные. Без
+    // этой оговорки перенос списка из Footer.tsx в реестр сделал бы пять
+    // страниц «недостижимыми», не изменив ни одной ссылки на экране.
+    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts']);
+    const isUi = ((f.startsWith('app/') || f.startsWith('components/') || f.startsWith('hooks/'))
+      && !f.includes('/api/') && !f.startsWith('tests/')) || UI_REGISTRIES.has(f);
     (isUi ? ui : other).push(f);
   }
   return { ui, other };

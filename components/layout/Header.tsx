@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sun, Moon, UserCircle, Search, LogIn } from 'lucide-react';
+import { Sun, Moon, UserCircle, Search, LogIn, Menu } from 'lucide-react';
 import { useScrollY } from '@/hooks/useScrollY';
 import { useTheme } from '@/contexts/ThemeContext';
 import { GeoToggle } from '@/components/geo/GeoToggle';
@@ -169,6 +169,22 @@ export function Header() {
           className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           {authed === false ? <LogIn size={18} /> : <UserCircle size={18} />}
+        </Link>
+
+        {/*
+          «Ещё» — вся платформа одним касанием (владелец, 02.09). До этого на
+          телефоне половина разделов была достижима только через футер, а он
+          вмонтирован не на каждой странице. Список — общий реестр
+          lib/navigation/platform-links; сторож mobile-two-taps держит, что
+          каждая публичная страница из sitemap в двух касаниях отсюда.
+        */}
+        <Link
+          href="/menu"
+          aria-label="Ещё — все разделы"
+          style={iconBtn}
+          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+        >
+          <Menu size={18} />
         </Link>
       </div>
     </header>
