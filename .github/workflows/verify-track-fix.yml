@@ -1,0 +1,38 @@
+# Разовая проверка головы PR на ЧИСТОЙ машине.
+#
+# Штатный `ci` по агентским PR не запускается: событие порождает токен
+# приложения, а такие GitHub намеренно не поднимает (ловушка описана в шапке
+# .github/workflows/ci.yml). Node 22, как в ci.
+#
+# Проверять надо ГОЛОВУ: зелёное на предыдущем коммите ничего не говорит о
+# текущем — про это тот же комментарий в ci.yml.
+#
+# Не мержится в main.
+name: Verify PR head
+
+on:
+  push:
+    branches: [verify-track-fix]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JWT_SECRET: test-jwt-secret-for-ci-only-not-used-in-production
+      DATABASE_URL: postgresql://user:password@localhost/test
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Строгий TypeScript
+        run: npx tsc --noEmit
+      - name: Полный прогон тестов
+        run: npx vitest run
