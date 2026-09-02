@@ -55,8 +55,10 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'GET /api/tourist/wishlist',      // избранное
   'POST /api/tourist/wishlist',
   'DELETE /api/tourist/wishlist',
-  'POST /api/push/subscribe',       // push-подписка привязана к аккаунту
-  'DELETE /api/push/subscribe',
+  // 'POST /api/push/subscribe' и 'DELETE …' выбыли 02.09 (#1485): подписка
+  // анонимна по замыслу и теперь открыта в реестре. Запись «привязана к
+  // аккаунту» была неправдой — хендлер аккаунта не требовал с 02.08, а Edge
+  // резал гостя молча. Это и был ноль подписчиков.
   'POST /api/chat/conversations',   // чат с оператором — под входом
   'POST /api/reviews/photo',        // отзыв пишет вошедший
   'POST /api/reviews/tour/X',

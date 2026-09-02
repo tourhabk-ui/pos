@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Bell, BellOff, Loader2 } from 'lucide-react';
+import { Bell, BellOff, Loader2, AlertTriangle } from 'lucide-react';
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_KEY ?? '';
 
@@ -17,7 +17,15 @@ function urlB64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-type State = 'loading' | 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
+/**
+ * `failed` — третье состояние (§4.0, #1485). До 02.09 отказ сервера после
+ * успешной подписки браузера оставлял подписку В БРАУЗЕРЕ: при следующем
+ * заходе getSubscription() её находил, и кнопка показывала «Уведомления
+ * включены», хотя в БД строки не было и broadcast до человека не доходил.
+ * Кнопка врала ровно тем, кто хотел подписаться. Теперь при отказе сервера
+ * подписка браузера снимается, а человеку говорится, что сохранить не вышло.
+ */
+type State = 'loading' | 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed' | 'failed';
 
 export function PushSubscribeButton() {
   const [state, setState] = useState<State>('loading');
@@ -37,9 +45,10 @@ export function PushSubscribeButton() {
 
   const subscribe = async () => {
     setState('loading');
+    let sub: PushSubscription | null = null;
     try {
       const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
+      sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY),
       });
@@ -49,9 +58,23 @@ export function PushSubscribeButton() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
       });
-      setState(res.ok ? 'subscribed' : 'unsubscribed');
+      if (!res.ok) {
+        // Сервер не сохранил — снимаем подписку браузера, иначе при следующем
+        // заходе она выглядит как рабочая.
+        await sub.unsubscribe().catch(() => undefined);
+        setState('failed');
+        return;
+      }
+      setState('subscribed');
     } catch {
-      setState(Notification.permission === 'denied' ? 'denied' : 'unsubscribed');
+      if (Notification.permission === 'denied') { setState('denied'); return; }
+      if (sub) {
+        // Подписались в браузере, но до сервера не дошли (сеть) — тот же случай.
+        await sub.unsubscribe().catch(() => undefined);
+        setState('failed');
+        return;
+      }
+      setState('unsubscribed');
     }
   };
 
@@ -103,6 +126,24 @@ export function PushSubscribeButton() {
         <Bell size={15} className="text-[var(--success)]" />
         Уведомления включены
       </button>
+    );
+  }
+
+  if (state === 'failed') {
+    return (
+      <div className="flex flex-col items-start gap-1.5">
+        <div className="flex items-center gap-2 text-xs text-[var(--warning)]">
+          <AlertTriangle size={14} />
+          Не удалось сохранить подписку — попробуйте ещё раз
+        </div>
+        <button
+          onClick={subscribe}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-[var(--accent)] hover:opacity-90 transition-opacity"
+        >
+          <Bell size={15} />
+          Повторить
+        </button>
+      </div>
     );
   }
 
