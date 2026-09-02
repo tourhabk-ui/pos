@@ -1,0 +1,76 @@
+# Правка координаты Крашенинникова.
+#
+# В базе 54.60000000 / 160.25000000 — ровная заглушка (проба place-audit
+# 02.09, id 20d7b84d-8145-48a3-9177-3d7f40ec9915). OSM через MAPS.ME:
+# 54.596867 / 160.27625, вершина 1857 м.
+#
+# Боевой прогон идёт ТОЛЬКО если сухой подтвердил ожидаемое: ровно одна
+# правка и сдвиг меньше 5 км. Больше — значит правится не та запись, и
+# записывать наугад нельзя.
+#
+# Не мержится в main — это правка данных, не расписание.
+name: Krasheninnikov coord fix
+
+on:
+  push:
+    branches: [krash-coord-fix]
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Сухой прогон
+        run: |
+          cat > dry.body <<'JSON'
+          {"dry_run":true,
+           "source":"OpenStreetMap через MAPS.ME, снимок владельца 02.09.2026: вершина Крашенинникова 1857 м",
+           "fixes":[{"place":"20d7b84d-8145-48a3-9177-3d7f40ec9915",
+                     "lat":54.596867,"lng":160.27625,
+                     "why":"в базе ровная заглушка 54.60000000/160.25000000 — это не измерение"}]}
+          JSON
+          curl -sS --max-time 60 -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H 'Content-Type: application/json' --data @dry.body \
+            "https://vedarai.ru/api/cron/place-coords" \
+            -o dry.json -w 'HTTP %{http_code}\n'
+          echo '=== СУХОЙ ПРОГОН ==='; cat dry.json; echo
+
+      - name: План совпал с ожидаемым?
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open('dry.json'))
+          if not d.get('success'):
+              print('сухой прогон не прошёл'); sys.exit(1)
+          plan = d.get('plan') or d.get('planned') or d.get('fixes') or []
+          if len(plan) != 1:
+              print('ожидалась одна правка, пришло:', len(plan)); sys.exit(1)
+          p = plan[0]
+          # Поле называется movedKm (PlanItem в route.ts). Угадывать имя было
+          # ошибкой: сухой прогон прошёл, а сторож упал на собственной догадке.
+          km = p.get('movedKm')
+          print('место:', p.get('name'), '| сдвиг, км:', km)
+          if km is None or float(km) > 5:
+              print('сдвиг больше 5 км или не назван — стоп'); sys.exit(1)
+          print('план ожидаемый')
+          PY
+
+      - name: Боевой прогон
+        run: |
+          cat > live.body <<'JSON'
+          {"dry_run":false,
+           "source":"OpenStreetMap через MAPS.ME, снимок владельца 02.09.2026: вершина Крашенинникова 1857 м",
+           "fixes":[{"place":"20d7b84d-8145-48a3-9177-3d7f40ec9915",
+                     "lat":54.596867,"lng":160.27625,
+                     "why":"в базе ровная заглушка 54.60000000/160.25000000 — это не измерение"}]}
+          JSON
+          curl -sS --max-time 60 -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H 'Content-Type: application/json' --data @live.body \
+            "https://vedarai.ru/api/cron/place-coords" \
+            -o live.json -w 'HTTP %{http_code}\n'
+          echo '=== БОЕВОЙ (старая координата в ответе — это откат) ==='
+          cat live.json; echo
