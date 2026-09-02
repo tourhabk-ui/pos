@@ -47,6 +47,7 @@ import { useGeofence } from '@/hooks/useGeofence';
 import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
 import { usePlaceProximity } from '@/hooks/usePlaceProximity';
 import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
+import { clipAtWord } from '@/lib/text/clip-at-word';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -378,9 +379,12 @@ export default function MapPageClient() {
 
     // Расстояние от пользователя (если известно)
     const dist = userPos ? haversineDistance(userPos.lat, userPos.lng, r.lat, r.lng) : null;
+    // Обрезка по слову и с многоточием: `slice` рвал слово («дно илис»), и
+    // обрывок читался как полный текст — см. lib/text/clip-at-word.
+    const firstLine = r.description.split('\n')[0];
     const desc = dist !== null
-      ? `${formatDistance(dist)} · ${r.description.split('\n')[0].slice(0, 80)}`
-      : r.description.split('\n')[0].slice(0, 120);
+      ? `${formatDistance(dist)} · ${clipAtWord(firstLine, 80)}`
+      : clipAtWord(firstLine, 120);
 
     return {
       id:          r.id,
