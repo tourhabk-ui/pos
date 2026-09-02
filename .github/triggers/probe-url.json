@@ -1,11 +1,23 @@
 {
-  "note": "«Зеленовские озерки»: владелец 02.09 — «есть реальный трек, я записывал, убери мусор и оставь только нужный». Файл в S3 (импорт abecc060, 166 точек, 11.63 км за 9 минут, шаг до 6527 м — так пешком не ходят). Из контейнера S3 не достаётся (прокси 403), снимаем целиком с раннера: 16 КБ, печатаем полностью, чтобы разобрать локально — где запись, где скачки.",
-  "urls": [
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/field-track/2026-08-31/54f5c716-a9bf-43ef-b31e-c07fbd2789f8.gpx"
+  "note": "«Зеленовские озерки» (владелец 02.09: «убери мусор, оставь нужный трек»): сухой прогон применения куска. segment: longest — по разбору файла это третий кусок, 101 точка, 3.5 км от Зеленовских озерков до Раздолья; первые два (0.8 и 0.6 км) отделены провалами сигнала 87 и 273 с. Ждём выкладку роута с полем dropped_by_segment (until).",
+  "urls": [],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/track-import-queue",
+      "body": {
+        "id": "abecc060-2176-43cd-96c5-1d6ec15b2333",
+        "route_id": "cf257914-fff2-4a72-baba-4a4381d7a83d",
+        "segment": "longest",
+        "reapply": true,
+        "force": true,
+        "dry_run": true
+      }
+    }
   ],
-  "grep": ["<trkseg>", "<trk>", "<time>"],
-  "count": ["<trkpt", "<trkseg>", "<trk>", "<time>", "<ele>"],
-  "bytes": 20000,
-  "timeout": 60,
-  "retries": 0
+  "grep": ["dropped_by_segment", "chosen", "break_before", "error"],
+  "until": "dropped_by_segment",
+  "retries": 40,
+  "retryDelay": 30,
+  "bytes": 6000,
+  "timeout": 60
 }
