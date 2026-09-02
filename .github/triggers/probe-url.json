@@ -1,27 +1,11 @@
 {
-  "note": "«Зеленовские озерки» = cf257914-fff2-4a72-baba-4a4381d7a83d, geometry_source gpx (единственная gpx-линия в базе), 11.63 км, line_grade surveyed, одна путевая точка — само место. На экране — зигзаг прямыми на 30 км через Елизово и Петропавловск. Гипотеза для ПРОВЕРКИ, не вывод: склейка нескольких сегментов загруженного трека в одну линию (концы сегментов соединяются напрямую). Снимаем: (1) запись целиком — число точек, улика записи, вердикт черты, span; (2) очередь route_track_imports — source_name, format, points, span_km, шаги, к какому маршруту применено. CRON_SECRET шлётся заголовком.",
+  "note": "«Зеленовские озерки»: владелец 02.09 — «есть реальный трек, я записывал, убери мусор и оставь только нужный». Файл в S3 (импорт abecc060, 166 точек, 11.63 км за 9 минут, шаг до 6527 м — так пешком не ходят). Из контейнера S3 не достаётся (прокси 403), снимаем целиком с раннера: 16 КБ, печатаем полностью, чтобы разобрать локально — где запись, где скачки.",
   "urls": [
-    "https://vedarai.ru/api/routes/cf257914-fff2-4a72-baba-4a4381d7a83d",
-    "https://vedarai.ru/api/cron/track-import-queue"
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/field-track/2026-08-31/54f5c716-a9bf-43ef-b31e-c07fbd2789f8.gpx"
   ],
-  "grep": [
-    "geometry_source",
-    "evidence",
-    "navigability",
-    "span_km",
-    "applied",
-    "Зеленовские"
-  ],
-  "around": [
-    "\"evidence\"",
-    "\"navigability\"",
-    "span_km",
-    "applied"
-  ],
-  "aroundLines": 8,
-  "aroundHits": 3,
-  "bytes": 5000,
+  "grep": ["<trkseg>", "<trk>", "<time>"],
+  "count": ["<trkpt", "<trkseg>", "<trk>", "<time>", "<ele>"],
+  "bytes": 20000,
   "timeout": 60,
-  "retries": 0,
-  "retryDelay": 10
+  "retries": 0
 }
