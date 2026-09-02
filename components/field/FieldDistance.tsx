@@ -26,6 +26,12 @@ export interface FieldDistanceProps {
   etaLabel: string | null;
   /** Набор высоты впереди («+110 м»); null — высот в данных нет. */
   ascentLabel: string | null;
+  /**
+   * Свёрнутый лист (02.09, карт-бланш владельца): цифра в одну строку с
+   * чипами, карта видна на большей части экрана. Кегль меньше, но всё ещё
+   * читается на ходу; развёрнутый лист показывает геройский вариант.
+   */
+  compact?: boolean;
 }
 
 export function FieldDistance(p: FieldDistanceProps) {
@@ -35,6 +41,31 @@ export function FieldDistance(p: FieldDistanceProps) {
   const m = p.distanceLabel.match(/^([\d.,]+)\s*(.*)$/);
   const value = m ? m[1] : p.distanceLabel;
   const unit = m ? m[2] : '';
+
+  if (p.compact) {
+    const color = p.live ? 'var(--text-primary)' : 'var(--text-muted)';
+    return (
+      <div className="w-full flex items-center flex-wrap gap-x-3 gap-y-1">
+        <div className="flex items-end gap-1">
+          <span className="font-bold leading-none tabular-nums" style={{ fontSize: 34, letterSpacing: '-1px', color }}>
+            {value}
+          </span>
+          {unit && <span className="font-bold pb-0.5" style={{ fontSize: 15, color }}>{unit}</span>}
+        </div>
+        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{p.caption}</span>
+        {p.etaLabel && (
+          <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--ocean)' }}>
+            <Clock className="w-3.5 h-3.5 shrink-0" />{p.etaLabel}
+          </span>
+        )}
+        {p.ascentLabel && (
+          <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--ocean)' }}>
+            <Mountain className="w-3.5 h-3.5 shrink-0" />{p.ascentLabel}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full text-center">

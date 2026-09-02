@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
-  Check, ChevronRight, ChevronLeft, Navigation, MapPin,
+  Check, ChevronRight, ChevronUp, ChevronDown, ChevronLeft, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
   Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair,
@@ -78,6 +78,9 @@ import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
 import { bearingDeg } from '@/lib/on-route/bearing';
+
+/** Ключ памяти «лист развёрнут» (см. sheetOpen). */
+const SHEET_OPEN_KEY = 'field_sheet_open_v1';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -446,6 +449,23 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   }, [coords]);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  /**
+   * Нижний лист приборов свёрнут по умолчанию (02.09, карт-бланш владельца:
+   * «экран не юзабелен» — компас и геройская карточка закрывали карту).
+   * Свёрнутый: одна строка с цифрой и чипами + панель действий. Развёрнутый:
+   * всё, что было. Выбор запоминается на телефоне.
+   */
+  const [sheetOpen, setSheetOpen] = useState(false);
+  useEffect(() => {
+    try { setSheetOpen(window.localStorage.getItem(SHEET_OPEN_KEY) === '1'); } catch { /* нет хранилища — свёрнут */ }
+  }, []);
+  const toggleSheet = useCallback(() => {
+    setSheetOpen(v => {
+      const next = !v;
+      try { window.localStorage.setItem(SHEET_OPEN_KEY, next ? '1' : '0'); } catch { /* квота — не страшно */ }
+      return next;
+    });
+  }, []);
   /**
    * Диагностика своей карты — принята здесь, а не показана внутри неё.
    *
@@ -3211,10 +3231,25 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           (лист не растёт выше своего потолка, что бы ни решило
           отрендериться внутри), цифра ощутимо меньше: карта теперь видна
           на большей части экрана, а не только в узкой полосе сверху. */}
-      <div className="fixed inset-x-0 bottom-0 z-10 max-h-[32vh] overflow-y-auto overscroll-contain">
-      <div className="flex justify-center pt-1.5 pb-1">
-        <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border)' }} />
-      </div>
+      {/* 02.09: потолок зависит от состояния. Свёрнутый лист — одна строка
+          и панель действий, ему хватает 32vh с запасом; развёрнутый человек
+          открыл сам и читает — 60vh, прокрутка внутри. */}
+      <div className={`fixed inset-x-0 bottom-0 z-10 overflow-y-auto overscroll-contain ${sheetOpen ? 'max-h-[60vh]' : 'max-h-[32vh]'}`}>
+      {(hasRoute || isLoadingRoute) ? (
+        /* Ручка — кнопка: 44px по высоте, чтобы попадать пальцем в перчатке. */
+        <button type="button" onClick={toggleSheet}
+          aria-label={sheetOpen ? 'Свернуть приборы' : 'Развернуть приборы'} aria-expanded={sheetOpen}
+          className="w-full flex flex-col items-center justify-center pt-1.5 pb-1 min-h-[28px]">
+          <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border)' }} />
+          {sheetOpen
+            ? <ChevronDown className="w-4 h-4 mt-0.5" style={{ color: 'var(--text-muted)' }} />
+            : <ChevronUp className="w-4 h-4 mt-0.5" style={{ color: 'var(--text-muted)' }} />}
+        </button>
+      ) : (
+        <div className="flex justify-center pt-1.5 pb-1">
+          <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border)' }} />
+        </div>
+      )}
       <div className="px-4 pb-6 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
 
         {!hasRoute && !isLoadingRoute ? (
@@ -3257,6 +3292,44 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               <p className="text-xs text-[var(--text-muted)] mb-2 pt-3">Цель не нужна, чтобы сообщить о находке:</p>
               <FieldActionBar actions={fieldActions} error={fieldBarError} />
             </div>
+          </div>
+        ) : !sheetOpen ? (
+          /* Свёрнутый лист (02.09): цифра в одну строку, чипы времени и
+             набора, панель действий — и ничего больше. Карточка
+             непрозрачная (§2: главная цифра навигации). Всё остальное —
+             по ручке выше. */
+          <div className="w-full flex flex-col gap-3">
+            <div className="w-full rounded-2xl px-4 py-3 flex items-center gap-3"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+              <div className="flex-1 min-w-0">
+                {isLoadingRoute ? (
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Загружаем маршрут…</p>
+                ) : waypoints.length === 0 ? (
+                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                    {activeRouteTitle ? `${activeRouteTitle} · GPS-трек недоступен` : 'нет активного маршрута'}
+                  </p>
+                ) : approach?.dataConflict ? (
+                  <p className="text-sm font-semibold" style={{ color: 'var(--warning)' }}>Данные маршрута не сходятся</p>
+                ) : distLabel === null ? (
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Ждём сигнал GPS — расстояние появится само.</p>
+                ) : (
+                  <FieldDistance compact
+                    distanceLabel={distLabel}
+                    live={figuresLive}
+                    caption={waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
+                    pointName={null}
+                    etaLabel={eta.hours !== null ? `~${formatEta(eta.hours)}` : null}
+                    ascentLabel={ahead?.ascentM ? `+${Math.round(ahead.ascentM)} м` : null}
+                  />
+                )}
+              </div>
+              <button type="button" onClick={toggleSheet} aria-label="Развернуть приборы"
+                className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center"
+                style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                <ChevronUp className="w-5 h-5" />
+              </button>
+            </div>
+            <FieldActionBar actions={fieldActions} error={fieldBarError} />
           </div>
         ) : (
         <>
