@@ -33,7 +33,7 @@ import { connectivityState } from '@/lib/on-route/connectivity';
 import {
   trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
-import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
+import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
 import type { VedarMapLine } from '@/components/shared/VedarMap';
@@ -618,6 +618,13 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
   const crumbsRouteRef = useRef<string | null>(null);
+  /**
+   * Идёт ли запись трека по кнопке. След пишется ТОЛЬКО при true (владелец
+   * 02.09: «трек записывал в движении, а не по кнопке — нам такие маршруты не
+   * нужны»). Ref, а не state: читается внутри колбэка watchPosition, который
+   * живёт дольше любого рендера. Заполняется эффектом ниже, у recorder.
+   */
+  const recordingRef = useRef(false);
   // Судьба Service Worker: без него офлайн-контура нет, и полевой экран
   // обязан сказать это до выхода, а не оставить человека гадать в поле,
   // почему «сохранённая» карта не открылась.
@@ -961,6 +968,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     // спутников, чтобы показать вчерашний путь, незачем.
     crumbsRouteRef.current = routeId;
     try {
+      // «Тихие» следы до v2 записаны без спроса — стираем, а не поднимаем.
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && isLegacyCrumbsKey(k)) localStorage.removeItem(k);
+      }
       const raw = localStorage.getItem(crumbsKey(routeId));
       const restored = parseCrumbs(raw);
       crumbsRef.current = restored;
@@ -1115,8 +1127,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           // Пишем по пройденному расстоянию, а не по времени: час у ручья не
           // должен съесть квоту хранилища. Совпадение ссылок означает «точка
           // не добавила знания» — тогда и на диск ходить незачем.
+          // Только пока идёт запись по кнопке — как у всех навигаторов. Без
+          // записи след не пишется и не рисуется (владелец 02.09).
           const routeForCrumbs = crumbsRouteRef.current;
-          if (routeForCrumbs) {
+          if (routeForCrumbs && recordingRef.current) {
             const before = crumbsRef.current;
             const after = addCrumb(before, { lat: pos.coords.latitude, lng: pos.coords.longitude, t });
             if (after !== before) {
@@ -2698,6 +2712,22 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   // сама. Запись трека уходит ТЕМ ЖЕ приёмником, что у /field-check.
 
   const recorder = useTrackRecorder();
+  // След следует за кнопкой: началась запись — прежний след этого маршрута
+  // обнуляется (новая запись — новая линия), идёт запись — крошки пишутся,
+  // остановлена — линия остаётся на экране как записанный трек, но не растёт.
+  useEffect(() => {
+    const was = recordingRef.current;
+    recordingRef.current = recorder.recording;
+    if (recorder.recording && !was) {
+      crumbsRef.current = [];
+      setCrumbs([]);
+      const routeId = crumbsRouteRef.current;
+      if (routeId) {
+        try { localStorage.removeItem(crumbsKey(routeId)); }
+        catch (err) { console.error('[trail] не удалось обнулить след', err); }
+      }
+    }
+  }, [recorder.recording]);
   const [obsOpen, setObsOpen] = useState(false);
   const obsQueueLen = useTrailObservationQueue();
   const [fieldBarError, setFieldBarError] = useState<string | null>(null);
