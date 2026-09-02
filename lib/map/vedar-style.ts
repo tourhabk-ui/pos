@@ -84,6 +84,15 @@ interface MapPalette {
   shelter: string;
   mountainPass: string;
   waterLabel: string;
+  /**
+   * Гипсометрия (02.09, слово владельца «нужна качественно прорисованная
+   * карта»): высота читается ЦВЕТОМ, как на бумажной топокарте, а не только
+   * тенью. Пары «метры → цвет»; между ступенями MapLibre интерполирует.
+   * Первая ступень — море: Copernicus DEM держит 0 над водой, и берег
+   * рисуется без единого байта новых данных. Цена честности: пойма или
+   * дельта на нуле высоты тоже выйдет водой.
+   */
+  relief: ReadonlyArray<readonly [number, string]>;
 }
 
 const PALETTES: Record<VedarMapTheme, MapPalette> = {
@@ -123,6 +132,22 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     shelter: '#F0F6FC',
     mountainPass: '#93B39F',
     waterLabel: '#7FB3C8',
+    // Тёмная гипсометрия: низины уходят в глубокую зелень, склоны — в
+    // тёплую землю, гребни и вулканы светлеют. Море — тот же холодный тон,
+    // что у озёр (water), чтобы вода на карте была одного рода.
+    relief: [
+      [-10000, '#12303F'],
+      [0.5, '#12303F'],
+      [1, '#16261B'],
+      [200, '#1B2E21'],
+      [500, '#26332A'],
+      [900, '#3A3A2C'],
+      [1400, '#4A4332'],
+      [2000, '#5A5040'],
+      [2600, '#6B6358'],
+      [3300, '#7E7C78'],
+      [4800, '#A6A9AD'],
+    ],
   },
   // Светлая — не «инверсия ради галочки». Тёмная карта под прямым солнцем
   // читается хуже: запись платформы дважды говорит, что слабый сигнал на
@@ -155,6 +180,21 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     shelter: '#1A1714',
     mountainPass: '#5E7A66',
     waterLabel: '#2F6280',
+    // Светлая гипсометрия — классическая бумажная: зелёные низины, охра
+    // склонов, серые скалы, белый снег.
+    relief: [
+      [-10000, '#BFD9E8'],
+      [0.5, '#BFD9E8'],
+      [1, '#E3EBD3'],
+      [200, '#D9E3C2'],
+      [500, '#D6D8B0'],
+      [900, '#D3C9A0'],
+      [1400, '#CCB88C'],
+      [2000, '#C2A47E'],
+      [2600, '#B9A899'],
+      [3300, '#C9C6C2'],
+      [4800, '#F4F4F4'],
+    ],
   },
 };
 
@@ -232,6 +272,8 @@ export function buildVedarStyle(
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
+      // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
+      reliefLayer(p, ''),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
       ...osmFillLayers(sources.osmUrls, p, ''),
       hillshadeLayer(theme, p, ''),
@@ -386,6 +428,7 @@ export function buildRegionOverlay(
     return {
       sources: { ...terrainSource(sources, ns), ...osmSources(marks, ns) },
       layers: [
+        reliefLayer(p, ns),
         hillshadeLayer(theme, p, ns),
         ...osmPeakLayers(marks, p, glyphs, font, ns),
         ...osmPlaceLayers(marks, p, glyphs, font, ns),
@@ -431,6 +474,26 @@ function contoursSource(sources: VedarStyleSources, ns: string): Record<string, 
   };
 }
 
+/**
+ * Гипсометрическая окраска — слой `color-relief` MapLibre (есть с 5.7, у нас
+ * 6.6): цвет считается на клиенте ИЗ ВЫСОТ того же terrain-RGB, что и тень.
+ * Ни нового файла, ни пересборки пакета — те же байты, второе прочтение.
+ * Ступени — из палитры темы (см. MapPalette.relief).
+ */
+function reliefLayer(p: MapPalette, ns: string): Record<string, unknown> {
+  const stops: Array<number | string> = [];
+  for (const [m, color] of p.relief) stops.push(m, color);
+  return {
+    id: `relief${ns}`,
+    type: 'color-relief',
+    source: `terrain${ns}`,
+    paint: {
+      'color-relief-color': ['interpolate', ['linear'], ['elevation'], ...stops],
+      'color-relief-opacity': 1,
+    },
+  };
+}
+
 function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record<string, unknown> {
   return {
     id: `hillshade${ns}`,
@@ -440,7 +503,13 @@ function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record
       'hillshade-shadow-color': p.shadow,
       'hillshade-highlight-color': p.highlight,
       'hillshade-accent-color': p.accentShadow,
-      'hillshade-exaggeration': theme === 'dark' ? 0.72 : 0.45,
+      // Поверх гипсометрии тень нужна слабее, чем поверх плоского фона:
+      // цвет уже несёт высоту, тени остаётся форма склона. На обзорных
+      // зумах ещё слабее — там 30-метровый рельеф даёт не форму, а шум.
+      'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'],
+        8, theme === 'dark' ? 0.35 : 0.2,
+        11, theme === 'dark' ? 0.6 : 0.4,
+        14, theme === 'dark' ? 0.72 : 0.45],
       'hillshade-illumination-anchor': 'viewport',
       'hillshade-illumination-direction': 315,
     },

@@ -70,7 +70,7 @@ describe('оверлей района', () => {
       'terrain-esso-bystrinsky', 'osm-peaks-esso-bystrinsky', 'osm-places-esso-bystrinsky',
     ]);
     expect(b.layers.map(l => l.id)).toEqual([
-      'hillshade-esso-bystrinsky',
+      'relief-esso-bystrinsky', 'hillshade-esso-bystrinsky',
       'osm-peaks-esso-bystrinsky', 'osm-peak-labels-esso-bystrinsky',
       'osm-places-esso-bystrinsky', 'osm-place-labels-esso-bystrinsky',
     ]);
