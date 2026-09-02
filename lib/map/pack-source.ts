@@ -119,6 +119,9 @@ export const OSM_BUILT_REGIONS: readonly RegionId[] = [
   'south-kamchatka',
   // 02.09, прогон 17 (run 33657453826): семь слоёв Эссо, 5 МБ.
   'esso-bystrinsky',
+  // 02.09, прогон 18 (run 33658878008): семь слоёв Кроноцкого, 3.8 МБ;
+  // дорог в заповеднике нет — слой roads пустой.
+  'kronotsky',
 ];
 
 export type PackSource =
@@ -216,4 +219,7 @@ export const BUILT_PACK_REGIONS: readonly RegionId[] = [
   // горизонтали 16 МБ, с OSM 209 МБ. Самый большой пакет реестра; ради
   // него потолок сборки поднят до 256 МБ.
   'esso-bystrinsky',
+  // 02.09, прогон 18 (run 33658878008): 2.5 кв.°, восточное побережье —
+  // рельеф 82.18 МБ, горизонтали 8.59 МБ, с OSM 94.5 МБ.
+  'kronotsky',
 ];
