@@ -412,7 +412,11 @@ export default function VedarMap({
         .map(l => ({
           type: 'Feature' as const,
           properties: {
-            // Свойство, а не догадка: вид линии следует из её рода (§12).
+            // Род линии — свойством, стиль его читает слоями (§12). Пунктир
+            // от line-standard означает «не снятый трек»: набросок или импорт.
+            // Первый живой рендер 02.09: без этого набросок подборки лёг
+            // веером толстых сплошных зелёных линий.
+            kind: l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track',
             connector: Boolean(l.connector),
             dash: l.dashArray ?? null,
           },
