@@ -133,6 +133,12 @@ export interface VedarStyleSources {
    * без чисел честнее карты, которой нет.
    */
   glyphsUrl?: string | null;
+  /**
+   * Имя шрифта (fontstack) в хранилище глифов. Без него MapLibre просил бы
+   * свой умолчальный «Open Sans Regular», которого в нашем хранилище нет,
+   * и подписи молча не появились бы.
+   */
+  glyphsFont?: string;
 }
 
 /**
@@ -220,6 +226,8 @@ export function buildVedarStyle(
         minzoom: 11,
         layout: {
           'symbol-placement': 'line',
+          // Шрифт — тот, что лежит в нашем хранилище (pack-source, PACK_GLYPHS).
+          'text-font': [sources.glyphsFont ?? 'Noto Sans Regular'],
           // Число берётся ИЗ ДАННЫХ. Это и есть разница между картой и
           // картинкой: подпись нельзя «нарисовать похоже».
           'text-field': ['to-string', ['get', 'ele']],

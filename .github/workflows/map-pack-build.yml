@@ -72,6 +72,26 @@ jobs:
             --bbox "${{ steps.bbox.outputs.value }}" \
             --out ".cache/packs/${{ inputs.region }}.contours.geojson"
 
+      - name: Глифы — Noto Sans, цифры и кириллица
+        run: |
+          # Подписи высот (и дальше — имена мест) требуют PBF-глифов. Свои,
+          # в том же хранилище, а не с чужого CDN: иначе «карта сохранена»
+          # лгало бы — тайлы в пакете, а числа на них приезжают из сети.
+          # Диапазоны и имя шрифта — из lib/map/pack-source.ts (PACK_GLYPHS),
+          # второго списка здесь нет намеренно.
+          FONT=$(node -e "const t=require('fs').readFileSync('lib/map/pack-source.ts','utf8');console.log(t.match(/fontstack: '([^']+)'/)[1])")
+          RANGES=$(node -e "const t=require('fs').readFileSync('lib/map/pack-source.ts','utf8');console.log(t.match(/ranges: \[([^\]]+)\]/)[1].replace(/['\s]/g,'').split(',').join(' '))")
+          DIR=".cache/packs/glyphs/$FONT"
+          mkdir -p "$DIR"
+          ENC=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$FONT")
+          for r in $RANGES; do
+            URL="https://protomaps.github.io/basemaps-assets/fonts/$ENC/$r.pbf"
+            curl -fsSL --retry 3 -o "$DIR/$r.pbf" "$URL"
+            SZ=$(stat -c %s "$DIR/$r.pbf")
+            echo "  $FONT/$r.pbf: $SZ байт"
+            if [ "$SZ" -lt 1000 ]; then echo "::error::глифы $r: файл подозрительно мал ($SZ байт)"; exit 1; fi
+          done
+
       - name: Размер пакета — фактом в лог
         run: |
           # Владелец просил размер и время сборки как факты, а не «примерно».
@@ -105,7 +125,8 @@ jobs:
           fi
           npx tsx scripts/map-tiles/upload-pack.ts "${{ inputs.region }}" \
             ".cache/packs/${{ inputs.region }}.terrain.pmtiles" \
-            ".cache/packs/${{ inputs.region }}.contours.geojson"
+            ".cache/packs/${{ inputs.region }}.contours.geojson" \
+            ".cache/packs/glyphs"
 
       - name: Пакет НЕ залит — сказать это громко
         if: ${{ !inputs.upload }}
