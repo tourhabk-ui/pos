@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 65 (02.09): векторный пакет «south-kamchatka» — tippecanoe из кэша, горизонтали 20 м в тайлах, один PMTiles на все слои. Авачинская (прогон 60): 8.78 МБ против 13.5 МБ GeoJSON.",
-  "region": "south-kamchatka",
+  "note": "Прогон 66 (02.09): векторный пакет «kronotsky» — tippecanoe из кэша, горизонтали 20 м в тайлах, один PMTiles на все слои. Авачинская (прогон 60): 8.78 МБ против 13.5 МБ GeoJSON.",
+  "region": "kronotsky",
   "upload": true
 }
