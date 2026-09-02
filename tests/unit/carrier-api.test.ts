@@ -16,7 +16,7 @@
  *      список — факт, отказ сервиса — 503 с searched: false.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { NextRequest } from 'next/server';
 import { isPublicApiPath } from '@/lib/auth/public-api-routes';
@@ -33,11 +33,13 @@ const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\
 
 function routesUnder(dir: string): string[] {
   const acc: string[] = [];
+  // withFileTypes: тип записи приходит вместе с именем, без отдельного stat
+  // между чтением каталога и чтением файла (CodeQL js/file-system-race).
   const walk = (d: string) => {
-    for (const e of readdirSync(d)) {
-      const p = join(d, e);
-      if (statSync(p).isDirectory()) walk(p);
-      else if (e === 'route.ts') acc.push(relative(ROOT, p));
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name === 'route.ts') acc.push(relative(ROOT, p));
     }
   };
   walk(join(ROOT, dir));
@@ -56,9 +58,7 @@ describe('1. пути новые', () => {
 
   it('адресов мёртвого модуля в дереве нет', () => {
     for (const dead of ['app/api/transfer/', 'app/api/transfers/', 'app/api/transfer-operator/', 'app/hub/transfer/', 'app/hub/transfer-operator/']) {
-      let exists = true;
-      try { statSync(join(ROOT, dead)); } catch { exists = false; }
-      expect(exists, `${dead} ожил`).toBe(false);
+      expect(existsSync(join(ROOT, dead)), `${dead} ожил`).toBe(false);
     }
   });
 });
@@ -120,10 +120,10 @@ describe('4. гейт брони', () => {
     // Вне сервиса — ни одной записи в брони мест (app/ и lib/ целиком).
     const offenders: string[] = [];
     const walk = (d: string) => {
-      for (const e of readdirSync(d)) {
-        const p = join(d, e);
-        if (statSync(p).isDirectory()) { if (!/node_modules|\.next/.test(e)) walk(p); continue; }
-        if (!/\.ts$/.test(e) || p.endsWith('lib/transfers/service.ts')) continue;
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, e.name);
+        if (e.isDirectory()) { if (!/node_modules|\.next/.test(e.name)) walk(p); continue; }
+        if (!e.isFile() || !/\.ts$/.test(e.name) || p.endsWith('lib/transfers/service.ts')) continue;
         if (/UPDATE transfer_seat_bookings/.test(strip(readFileSync(p, 'utf8')))) offenders.push(relative(ROOT, p));
       }
     };
