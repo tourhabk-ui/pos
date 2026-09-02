@@ -2972,7 +2972,13 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             sources={{
               terrainUrl: fieldBaseMap.source.terrainUrl,
               contoursUrl: fieldBaseMap.source.contoursUrl,
-              terrainMaxZoom: 12,
+              // Предел зума и глифы — из контракта пакета, не числом здесь:
+              // 02.09 рельеф ушёл на z13 (GLO-30), и своя копия «12» просила
+              // бы у архива на уровень меньше, чем в нём есть.
+              terrainMaxZoom: fieldBaseMap.source.terrainMaxZoom,
+              glyphsUrl: fieldBaseMap.source.glyphsUrl,
+              glyphsFont: fieldBaseMap.source.glyphsFont,
+              osmUrls: fieldBaseMap.source.osmUrls,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}

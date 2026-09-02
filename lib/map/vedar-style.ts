@@ -63,6 +63,15 @@ interface MapPalette {
   sketch: string;
   /** Построение — подход по азимуту, связка (§12, connectorLine). */
   connector: string;
+  /** OSM (02.09): заливки и линии. Приглушённые — карта полевая, не городская. */
+  water: string;
+  waterway: string;
+  wood: string;
+  glacier: string;
+  path: string;
+  road: string;
+  peak: string;
+  peakLabel: string;
 }
 
 const PALETTES: Record<VedarMapTheme, MapPalette> = {
@@ -87,6 +96,16 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     // Набросок — приглушённый: §12 запрещает ему выглядеть как трек.
     sketch: '#5E7A66',
     connector: '#8B949E',
+    // OSM: вода холодная, лес чуть теплее фона, ледник светлее гребня,
+    // тропа — тёплая (как на референсе владельца 31.08), дорога — серая.
+    water: '#12303F',
+    waterway: '#2C6F8A',
+    wood: '#15271C',
+    glacier: '#2F3C46',
+    path: '#B0835F',
+    road: '#6E6A66',
+    peak: '#E8734A',        // --accent dark
+    peakLabel: '#F0F6FC',   // --text-primary dark
   },
   // Светлая — не «инверсия ради галочки». Тёмная карта под прямым солнцем
   // читается хуже: запись платформы дважды говорит, что слабый сигнал на
@@ -106,6 +125,14 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     trackCasing: '#FFFFFF',
     sketch: '#6B8A74',
     connector: '#6B6560',
+    water: '#BFD9E8',
+    waterway: '#4F88A8',
+    wood: '#D9E4CC',
+    glacier: '#EEF3F7',
+    path: '#8A5A3A',
+    road: '#8C8781',
+    peak: '#D44A0C',        // --accent light
+    peakLabel: '#1A1714',   // --text-primary light
   },
 };
 
@@ -133,7 +160,21 @@ export interface VedarStyleSources {
    * без чисел честнее карты, которой нет.
    */
   glyphsUrl?: string | null;
+  /**
+   * Имя шрифта (fontstack) в хранилище глифов. Без него MapLibre просил бы
+   * свой умолчальный «Open Sans Regular», которого в нашем хранилище нет,
+   * и подписи молча не появились бы.
+   */
+  glyphsFont?: string;
+  /**
+   * OSM-слои района (02.09): GeoJSON по слоям. Отсутствие — законно (район
+   * без OSM-выписки): слои просто не создаются, рельеф и маршрут остаются.
+   */
+  osmUrls?: Partial<Record<OsmLayer, string>>;
 }
+
+export type OsmLayer = 'water' | 'waterways' | 'wood' | 'glacier' | 'paths' | 'roads' | 'peaks';
+const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
 
 /**
  * Собирает style JSON MapLibre. Чистая функция: ни DOM, ни сети — поэтому
@@ -170,9 +211,13 @@ export function buildVedarStyle(
       // Маршрут и след кладёт компонент: их геометрия приходит из БД и
       // меняется на ходу, стилю о ней знать нечего, кроме вида линии.
       route: { type: 'geojson', data: emptyFeatureCollection() },
+      // OSM-слои — по одному источнику на слой, только те, что есть у района.
+      ...osmSources(sources.osmUrls),
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
+      // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
+      ...osmFillLayers(sources.osmUrls, p),
       {
         id: 'hillshade',
         type: 'hillshade',
@@ -220,6 +265,8 @@ export function buildVedarStyle(
         minzoom: 11,
         layout: {
           'symbol-placement': 'line',
+          // Шрифт — тот, что лежит в нашем хранилище (pack-source, PACK_GLYPHS).
+          'text-font': [sources.glyphsFont ?? 'Noto Sans Regular'],
           // Число берётся ИЗ ДАННЫХ. Это и есть разница между картой и
           // картинкой: подпись нельзя «нарисовать похоже».
           'text-field': ['to-string', ['get', 'ele']],
@@ -236,6 +283,9 @@ export function buildVedarStyle(
           'text-halo-width': 1.4,
         },
       }] : []),
+      // Реки, дороги, тропы — над горизонталями, под линией маршрута: путь
+      // человека читается поверх карты, а не сквозь неё.
+      ...osmLineLayers(sources.osmUrls, p),
       // ── Линии маршрута. Вид — по §12, род приходит свойством `kind` от
       // компонента (track / sketch / connector), который сам берёт его из
       // lib/map/line-standard. Стиль НЕ решает род: он его читает, ровно как
@@ -305,8 +355,125 @@ export function buildVedarStyle(
           'line-opacity': 0.8,
         },
       },
+      // Вершины — сверху всего: ориентир в поле важнее любой линии.
+      ...osmPeakLayers(sources.osmUrls, p, glyphs, sources.glyphsFont ?? 'Noto Sans Regular'),
     ],
   };
+}
+
+/** Источники OSM — только для слоёв, чьи адреса есть. Атрибуция ODbL у каждого. */
+function osmSources(urls: VedarStyleSources['osmUrls']): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [layer, url] of Object.entries(urls ?? {})) {
+    if (!url) continue;
+    out[`osm-${layer}`] = { type: 'geojson', data: url, attribution: OSM_ATTRIBUTION };
+  }
+  return out;
+}
+
+function osmFillLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette): unknown[] {
+  const out: unknown[] = [];
+  if (urls?.wood) {
+    out.push({
+      id: 'osm-wood', type: 'fill', source: 'osm-wood',
+      paint: { 'fill-color': p.wood, 'fill-opacity': 0.55 },
+    });
+  }
+  if (urls?.glacier) {
+    out.push({
+      id: 'osm-glacier', type: 'fill', source: 'osm-glacier',
+      paint: { 'fill-color': p.glacier, 'fill-opacity': 0.7 },
+    });
+  }
+  if (urls?.water) {
+    out.push({
+      id: 'osm-water', type: 'fill', source: 'osm-water',
+      paint: { 'fill-color': p.water, 'fill-opacity': 0.9 },
+    });
+  }
+  return out;
+}
+
+function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette): unknown[] {
+  const out: unknown[] = [];
+  if (urls?.waterways) {
+    out.push({
+      id: 'osm-waterways', type: 'line', source: 'osm-waterways',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': p.waterway,
+        // Река шире ручья — по тегу, не по догадке.
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          10, ['case', ['==', ['get', 'kind'], 'river'], 1.2, 0.6],
+          14, ['case', ['==', ['get', 'kind'], 'river'], 2.6, 1.2]],
+        'line-opacity': 0.9,
+      },
+    });
+  }
+  if (urls?.roads) {
+    out.push({
+      id: 'osm-roads', type: 'line', source: 'osm-roads',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': p.road,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 14, 2.2],
+        'line-opacity': 0.85,
+      },
+    });
+  }
+  if (urls?.paths) {
+    out.push({
+      id: 'osm-paths', type: 'line', source: 'osm-paths',
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': p.path,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 14, 1.8],
+        // Тропа с OSM — не наш снятый трек: пунктир, как у всего, что не
+        // обещает ведения (§12). Сплошная тёплая линия читалась бы как путь.
+        'line-dasharray': [3, 2],
+        'line-opacity': 0.9,
+      },
+    });
+  }
+  return out;
+}
+
+function osmPeakLayers(
+  urls: VedarStyleSources['osmUrls'], p: MapPalette, glyphs: string | null, font: string,
+): unknown[] {
+  if (!urls?.peaks) return [];
+  const out: unknown[] = [{
+    id: 'osm-peaks', type: 'circle', source: 'osm-peaks',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4],
+      'circle-color': p.peak,
+      'circle-stroke-color': p.background,
+      'circle-stroke-width': 1,
+    },
+  }];
+  // Имя и высота — только при глифах, иначе слой подписей отвергает стиль
+  // целиком (тот же урок, что у горизонталей 01.09).
+  if (glyphs) {
+    out.push({
+      id: 'osm-peak-labels', type: 'symbol', source: 'osm-peaks',
+      layout: {
+        'text-font': [font],
+        'text-field': ['case', ['has', 'ele'],
+          ['concat', ['get', 'name'], ' ', ['to-string', ['get', 'ele']]],
+          ['get', 'name']],
+        'text-size': 11,
+        'text-offset': [0, 0.9],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': p.peakLabel,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.4,
+      },
+    });
+  }
+  return out;
 }
 
 function emptyFeatureCollection() {
