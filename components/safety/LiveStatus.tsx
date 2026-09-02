@@ -121,7 +121,21 @@ const KIND_LABEL: Record<string, string> = {
   volcano: 'Вулкан', thermal: 'Термы', quake: 'Сейсмика',
   bear: 'Медведь', report: 'Наблюдение',
 };
-const MAX_KM = 200; // внешнее кольцо
+/**
+ * Внешнее кольцо радара.
+ *
+ * 500, а не 200 (владелец 02.09: «это сейсмика, вулканов нет, круг радара
+ * увеличь»). Радар центрируется на Петропавловске, а вулканы с повышенным
+ * кодом KVERT стоят севернее: Ключевской ~360 км, Безымянный ~350,
+ * Шивелуч ~440, Крашенинников ~200. При 200 км внутри оказывались только
+ * зелёные Авачинский и Корякский, и слой вулканов был пуст по построению —
+ * не потому, что данных нет, а потому что круг их не вмещал.
+ *
+ * Сторож tests/unit/radar-reach.test.ts держит: вулканы Ключевской группы
+ * и Шивелуч попадают в круг от Петропавловска.
+ */
+export const RADAR_MAX_KM = 500;
+const MAX_KM = RADAR_MAX_KM;
 
 interface RadarHazard { lat: number; lng: number; level: string; kind: string; label: string; note: string }
 interface Placed extends RadarHazard { x: number; y: number; dist: number }
@@ -206,7 +220,7 @@ export function RadarScope({ hazards, center, degraded = false }: {
     [c, kmLng, kmLat],
   );
 
-  const rings = [0.25, 0.5, 1]; // 50 / 100 / 200 км
+  const rings = [0.2, 0.5, 1]; // 100 / 250 / 500 км
 
   return (
     <div className="radar">

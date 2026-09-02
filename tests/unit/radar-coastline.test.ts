@@ -15,7 +15,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { COASTLINE, coastPaths } from '@/lib/geo/coastline';
+import { COASTLINE, coastPaths, CULL_KM } from '@/lib/geo/coastline';
+import { RADAR_MAX_KM } from '@/components/safety/LiveStatus';
 
 const src = readFileSync(join(process.cwd(), 'components/safety/LiveStatus.tsx'), 'utf-8');
 const KM_LAT = 111.32;
@@ -23,8 +24,8 @@ const KM_LAT = 111.32;
 function project(center: { lat: number; lng: number }) {
   const kmLng = KM_LAT * Math.cos((center.lat * Math.PI) / 180);
   return (lat: number, lng: number): [number, number] => [
-    100 + (((lng - center.lng) * kmLng) / 200) * 92,
-    100 - (((lat - center.lat) * KM_LAT) / 200) * 92,
+    100 + (((lng - center.lng) * kmLng) / RADAR_MAX_KM) * 92,
+    100 - (((lat - center.lat) * KM_LAT) / RADAR_MAX_KM) * 92,
   ];
 }
 
@@ -49,11 +50,13 @@ describe('данные контура', () => {
     expect(total).toBeLessThanOrEqual(1500);
   });
 
-  it('звенья короче 400 км — иначе отсечение дальних кусков резало бы форму', () => {
-    // coastPaths выбрасывает точки дальше 400 км от центра. Это безопасно,
-    // только пока звено не может дотянуться от такой дали до 200-км скопа:
-    // точка на отрезке отстоит от ближнего конца не больше чем на половину
-    // его длины. Ломается инвариант — падает этот тест, а не радар.
+  it('звено не дотягивается от порога отсечения до кольца радара', () => {
+    // coastPaths выбрасывает точки дальше CULL_KM от центра. Это безопасно,
+    // только пока звено не может дотянуться от такой дали до скопа
+    // RADAR_MAX_KM: точка на отрезке отстоит от ближнего конца не больше чем
+    // на половину его длины. Инвариант считается из САМИХ констант — 02.09
+    // скоп вырос с 200 до 500, и порог 400 стал бы резать берег внутри
+    // кольца; число, переписанное от руки, этого бы не поймало.
     let max = 0;
     for (const part of COASTLINE.parts) {
       for (let i = 1; i < part.length; i++) {
@@ -66,7 +69,8 @@ describe('данные контура', () => {
         max = Math.max(max, km);
       }
     }
-    expect(max).toBeLessThan(400);
+    expect(CULL_KM).toBeGreaterThan(RADAR_MAX_KM);
+    expect(max / 2).toBeLessThan(CULL_KM - RADAR_MAX_KM);
   });
 });
 
