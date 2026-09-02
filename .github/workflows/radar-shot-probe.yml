@@ -68,3 +68,12 @@ jobs:
           name: radar-screenshot
           path: radar.png
           retention-days: 3
+
+      - name: Картинка в лог base64 (сеть из песочницы до blob-хранилища
+          артефактов закрыта прокси-политикой организации — лог читается,
+          хранилище нет)
+        run: |
+          echo "---BASE64-PNG-START---"
+          base64 -w0 radar.png
+          echo
+          echo "---BASE64-PNG-END---"
