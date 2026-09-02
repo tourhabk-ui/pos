@@ -1,0 +1,54 @@
+name: Проба — кто шлёт SOS
+
+# Одноразовая проба после мержа #1507. Ветка временная, в main не идёт.
+# Признак деплоя — сам роут: до нового образа прод отвечает 404, после — 200.
+
+on:
+  push:
+    branches: [sos-census-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Дождаться нового кода и снять перепись
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET не задан"; exit 1; fi
+          for i in $(seq 1 10); do
+            HTTP=$(curl -s -o /tmp/c.json -w "%{http_code}" --max-time 60 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://vedarai.ru/api/cron/sos-census?days=90&limit=200" || echo 000)
+            echo "попытка $i · HTTP $HTTP"
+            if [ "$HTTP" = "200" ] && jq -e '.success == true' /tmp/c.json >/dev/null 2>&1; then
+              echo "=== НОВЫЙ КОД НА ПРОДЕ ==="
+              jq -r '"окно, дней:          \(.window_days)",
+                     "всего в окне:        \(.total_in_window)",
+                     "открытых:            \(.open_in_window)",
+                     "возвращено строк:    \(.returned)  (обрезано: \(.truncated))",
+                     "пустых по содержимому: \(.empty_by_content)"' /tmp/c.json
+              echo "--- по IP ---";           jq -r '.by_ip[] | "\(.n)\t\(.key)\t\(.first) … \(.last)"' /tmp/c.json
+              echo "--- по user-agent ---";   jq -r '.by_user_agent[] | "\(.n)\t\(.key)"' /tmp/c.json
+              echo "--- по классу источника ---"; jq -r '.by_origin_class[] | "\(.n)\t\(.key)"' /tmp/c.json
+              echo "--- по статусу ---";      jq -r '.by_status[] | "\(.n)\t\(.key)"' /tmp/c.json
+              echo "--- по источнику ---";    jq -r '.by_source[] | "\(.n)\t\(.key)"' /tmp/c.json
+              echo "--- строки (новые сверху) ---"
+              jq -r '.rows[] | [.created_at[0:19], (.status // "-"), (.origin_class // "-"), (.source // "-"),
+                                (.ip // "-"), ((.user_agent // "-")[0:60]),
+                                (if .user_id then "auth" else "anon" end),
+                                (if .session_id then "sess" else "-" end),
+                                (if .lat != null and .lng != null then "\(.lat),\(.lng)" else "no-coords" end),
+                                (.tourist_name // "-"), (.tourist_phone // "-"), (.emergency_type // "-"),
+                                ((.message // "-")[0:40])] | @tsv' /tmp/c.json
+              exit 0
+            fi
+            head -c 300 /tmp/c.json; echo
+            sleep 120
+          done
+          echo "за 20 минут новый код не поднялся"
+          exit 1
