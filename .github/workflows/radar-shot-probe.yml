@@ -1,0 +1,67 @@
+name: Проба — скриншот радара /safety
+
+# Одноразовая проба после мержа #1519. Ветка временная, в main не идёт.
+# Тот же приём, что e2e-smoke.yml: контейнер разработчика до vedarai.ru не
+# достаёт, скриншот прода можно снять только раннером.
+
+on:
+  push:
+    branches: [radar-shot-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  shot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Дождаться прода и снять экран радара
+        run: |
+          node -e '
+          const { chromium } = require("playwright");
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage({ viewport: { width: 420, height: 1400 } });
+            for (let i = 1; i <= 8; i++) {
+              try {
+                await page.goto("https://vedarai.ru/safety", { waitUntil: "networkidle", timeout: 30000 });
+                break;
+              } catch (e) {
+                console.log(`попытка ${i}: ${e.message}`);
+                if (i === 8) throw e;
+                await new Promise(r => setTimeout(r, 15000));
+              }
+            }
+            await page.waitForSelector("#radar", { timeout: 20000 }).catch(() => {});
+            await page.waitForTimeout(1500);
+            const radar = await page.$("#radar");
+            if (radar) {
+              await radar.screenshot({ path: "radar.png" });
+            } else {
+              await page.screenshot({ path: "radar.png", fullPage: true });
+            }
+            await browser.close();
+          })();
+          '
+
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v7
+        with:
+          name: radar-screenshot
+          path: radar.png
+          retention-days: 3
