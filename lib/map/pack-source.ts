@@ -108,6 +108,8 @@ export const OSM_BUILT_REGIONS: readonly RegionId[] = [
   'paratunka',
   // 02.09, прогон 6 (run 33625171834): семь слоёв Мутновского, 5.7 МБ.
   'mutnovsky-gorely',
+  // 02.09, прогон 7 (run 33625693124): семь слоёв Налычева, 6.0 МБ.
+  'nalychevo',
 ];
 
 export type PackSource =
@@ -186,4 +188,7 @@ export const BUILT_PACK_REGIONS: readonly RegionId[] = [
   // с OSM 64.5 МБ — первый пакет над прежним потолком 60, ради него потолок
   // и поднят до 200.
   'mutnovsky-gorely',
+  // 02.09, прогон 7 (run 33625693124): рельеф 61.0 МБ, горизонтали 5.69 МБ,
+  // с OSM 72.7 МБ.
+  'nalychevo',
 ];
