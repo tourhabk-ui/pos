@@ -102,8 +102,12 @@ OVERPASS_MIRRORS = (
 # проходили одним запросом; 2 кв.° — 504 за десять секунд. Полградуса на
 # полградуса — четверть квадратного градуса, вчетверо меньше худшего из
 # прошедших: запас, а не догадка.
-CELL_DEG = 0.5
-RETRY_DELAYS_S = (20, 45, 90, 180)
+CELL_DEG = 0.25
+# Прогон 10 (02.09): главный узел отвечал 504/429 сразу и успешно — с
+# четвёртой попытки, после суммарной паузы ~150 с; зеркала kumi и
+# private.coffee давали 502/500 каждый раз. Поэтому ждём дольше и ходим
+# на главный узел, зеркала — только в хвосте.
+RETRY_DELAYS_S = (30, 60, 120, 180, 300)
 # Пауза между клетками: прогон 9 получил 429 на седьмой клетке подряд —
 # узел считает частые запросы одним клиентом и режет. Секунды дешевле
 # повторов.
@@ -139,7 +143,7 @@ def fetch_overpass(query: str, url: str, cache_path: str) -> dict:
         with open(cache_path, encoding='utf-8') as f:
             return json.load(f)
     data = urllib.parse.urlencode({'data': query}).encode('utf-8')
-    urls = [url] + [m for m in OVERPASS_MIRRORS if m != url]
+    urls = [url, url, url] + [m for m in OVERPASS_MIRRORS if m != url]
     last_err: Exception | None = None
     for attempt, delay in enumerate((0,) + RETRY_DELAYS_S):
         if delay:
