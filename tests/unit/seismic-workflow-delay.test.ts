@@ -28,17 +28,31 @@ import {
 
 const SRC = readFileSync(join(process.cwd(), 'lib/agents/watchdog.ts'), 'utf-8');
 const INGEST = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8');
+const WATCHDOG = readFileSync(join(process.cwd(), 'lib/agents/watchdog.ts'), 'utf-8');
 
 describe('уровень по цене ошибки', () => {
   it('свежая доставка — молчим', () => {
     expect(seismicWorkflowDelayIssue(12, 10_000)).toBeNull();
   });
 
-  it('задержка расписания — ВНИМАНИЕ, не КРИТ', () => {
-    // Нашими силами не чинится. КРИТ здесь приучал бы пролистывать красное.
-    const a = seismicWorkflowDelayIssue(SEISMIC_WORKFLOW_WARN_MIN + 5, 10_000);
-    expect(a?.critical).toBe(false);
-    expect(a?.details).toContain('отстаёт');
+  it('задержка расписания — МОЛЧАНИЕ: это не поломка, а норма этого крона', () => {
+    // Перекалибровка 02.09. Замер 30 прогонов cron-safety-ingest: интервалы
+    // 102-740 мин при запрошенных 5. Прежний WARN в 90 мин срабатывал на
+    // КАЖДОЙ доставке, включая самую быструю. Сигнал, горящий при исправной
+    // работе, человек выключает — и вместе с ним настоящую поломку.
+    //
+    // Проверяем весь наблюдаемый диапазон, а не одну точку: молчать должно
+    // на всём, что расписание реально выдаёт.
+    for (const min of [102, 256, 407, 740, 1000]) {
+      expect(seismicWorkflowDelayIssue(min, 10_000), `${min} мин — норма`).toBeNull();
+    }
+  });
+
+  it('WARN не воскрешён правкой числа', () => {
+    // Порог оставлен нулём намеренно: вернуть ветку «слегка опаздывает»
+    // можно только осознанно, а не подняв константу с 90 до 120.
+    expect(SEISMIC_WORKFLOW_WARN_MIN).toBe(0);
+    expect(WATCHDOG).not.toMatch(/critical: false,[\s\S]{0,200}отстаёт/);
   });
 
   it('канал встал — КРИТ: это чинится', () => {

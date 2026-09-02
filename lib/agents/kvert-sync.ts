@@ -20,6 +20,9 @@
 import { pool } from '@/lib/db-pool';
 import { parseVonaFeed, parseAccSummary, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
+import {
+  buildVolcanoIndex, matchVolcanoPlace, type VolcanoIndex,
+} from '@/lib/services/safety/volcano-match';
 
 /**
  * Лента кодов, английская версия.
@@ -39,6 +42,23 @@ export interface KvertSyncResult {
   upserted: number;   // записано в volcano_status
   matched: number;    // сопоставлено с точкой places
   unmatched: string[]; // имена вулканов без привязки к точке
+  /**
+   * ПОЧЕМУ не привязался — по именам. Раньше все четыре причины сливались в
+   * один список, и «в каталоге нет места» было неотличимо от «упал upsert».
+   * Чинятся они в разных местах, поэтому и названы порознь (§4.0).
+   */
+  unmatched_reasons?: {
+    /** Имя из KVERT не в таблице алиасов — не знаем, как оно по-русски. */
+    unknown_name: string[];
+    /** Алиас есть, места в каталоге нет. Пробел каталога, а не синка. */
+    no_place: string[];
+    /** Основа совпала с несколькими точками: гадать нельзя. */
+    ambiguous: string[];
+    /** Запись в базу не удалась. Это отказ, а не отсутствие места. */
+    failed: string[];
+  };
+  /** Точек-вулканов в каталоге. Ноль — сопоставлять не с чем, и это отказ. */
+  places_indexed?: number;
   /** Каким путём получены данные: 'direct' (прямой fetch) или 'brightdata' (Unlocker-фолбэк). */
   via?: string;
   /** Диагностика при fetched=0: сколько байт отдал источник. */
@@ -50,19 +70,23 @@ export interface KvertSyncResult {
 }
 
 /**
- * Резолвит ark_id точки-вулкана по русскому имени. Возвращает null, если точки нет.
- * Отдельная функция — чтобы sync не падал на одном вулкане.
+ * Указатель «основа имени → точка каталога», собираемый ОДИН раз за прогон.
+ *
+ * Прежде на каждый из 68 вулканов шёл отдельный запрос с префиксным ILIKE, и
+ * он не находил почти ничего: в каталоге записи называются «Вулкан Горелый»,
+ * а искалось имя, НАЧИНАЮЩЕЕСЯ с «Горелый». Разбор — в volcano-match.ts.
+ *
+ * Пустой указатель — не повод продолжать молча: без каталога сопоставлять
+ * не с чем, и это надо сказать вызывающему (§4.0), а не отчитаться нулём
+ * совпадений, который выглядит как «вулканы не совпали».
  */
-async function resolvePlaceArkId(nameRu: string): Promise<string | null> {
-  const { rows } = await pool.query<{ ark_id: string }>(
-    `SELECT ark_id FROM places
+async function loadVolcanoIndex(): Promise<VolcanoIndex> {
+  const { rows } = await pool.query<{ ark_id: string; name: string }>(
+    `SELECT ark_id::text AS ark_id, name FROM places
       WHERE location_type = 'volcano' AND ark_id IS NOT NULL
-        AND (name ILIKE $1 OR name ILIKE $1 || '%')
-      ORDER BY length(name) ASC
-      LIMIT 1`,
-    [nameRu]
+        AND merged_into_id IS NULL`,
   );
-  return rows[0]?.ark_id ?? null;
+  return buildVolcanoIndex(rows.map((r) => ({ arkId: r.ark_id, name: r.name })));
 }
 
 /** UPSERT одной записи по name_normalized. Идемпотентно. */
@@ -165,10 +189,23 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
       .trim();
   }
 
+  // Указатель каталога — один раз на прогон, а не запрос на каждый вулкан.
+  const index = await loadVolcanoIndex();
+  const reasons = { unknown_name: [] as string[], no_place: [] as string[],
+                    ambiguous: [] as string[], failed: [] as string[] };
+  result.places_indexed = index.size;
+
   for (const v of parsed) {
-    if (!v.nameSlug) { result.unmatched.push(v.volcanoName); continue; }
+    if (!v.nameSlug || !v.nameRu) {
+      // Имени нет в таблице алиасов: по-русски вулкан не назван, и искать в
+      // каталоге нечего. Это не «места нет» — это «мы не знаем, чьё место».
+      reasons.unknown_name.push(v.volcanoName);
+      result.unmatched.push(v.volcanoName);
+      continue;
+    }
+    const m = matchVolcanoPlace(index, v.nameRu);
+    const placeArkId = m.kind === 'matched' ? m.arkId : null;
     try {
-      const placeArkId = v.nameRu ? await resolvePlaceArkId(v.nameRu) : null;
       await upsertStatus({
         slug: v.nameSlug,
         volcanoName: v.volcanoName,
@@ -182,12 +219,29 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
         observedAt: v.observedAt,
       });
       result.upserted++;
-      if (placeArkId) result.matched++;
-      else result.unmatched.push(v.volcanoName);
-    } catch {
+      if (m.kind === 'matched') {
+        result.matched++;
+      } else {
+        result.unmatched.push(v.volcanoName);
+        if (m.kind === 'ambiguous') {
+          // Кандидатов несколько — привязать наугад значит повесить код на
+          // соседний конус. Имена кандидатов в отчёте: чинится уточнением.
+          reasons.ambiguous.push(`${v.volcanoName} → ${m.candidates.join(' / ')}`);
+        } else {
+          reasons.no_place.push(`${v.volcanoName} (${v.nameRu})`);
+        }
+      }
+    } catch (err) {
+      // Пустой catch здесь превращал отказ записи в «места нет» — а это
+      // разные беды и чинятся они в разных местах.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[kvert-sync] ${v.volcanoName}: запись не удалась:`, msg);
+      reasons.failed.push(`${v.volcanoName}: ${msg.slice(0, 120)}`);
       result.unmatched.push(v.volcanoName);
     }
   }
+
+  result.unmatched_reasons = reasons;
 
   return result;
 }
@@ -205,7 +259,10 @@ export async function setVolcanoAcc(params: {
   const norm = normalizeVolcanoName(params.volcanoName);
   const slug = norm?.slug ?? params.volcanoName.trim().toLowerCase().replace(/\s+/g, '-');
   const nameRu = norm?.ru ?? params.volcanoName.trim();
-  const placeArkId = await resolvePlaceArkId(nameRu);
+  // Тот же указатель, что и у синка: два способа найти место разошлись бы,
+  // и ручная правка привязывала бы не туда, куда автоматическая.
+  const m = matchVolcanoPlace(await loadVolcanoIndex(), nameRu);
+  const placeArkId = m.kind === 'matched' ? m.arkId : null;
 
   await upsertStatus({
     slug,

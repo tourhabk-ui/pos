@@ -303,6 +303,30 @@ async function fetchRadarBase(): Promise<{ hazards: Hazard[]; degraded: boolean 
         note: `Вулкан, KVERT ${ACC_LABEL_SHORT[v.acc] ?? v.acc}. Держитесь вне закрытой зоны.`,
       });
     }
+    // Опасный код БЕЗ привязки к точке — знание, которое некуда положить.
+    //
+    // 02.09: KVERT отдавал 68 вулканов, сопоставлялось 8. Ключевской с
+    // выбросом до 6 км лежал в volcano_status без place_ark_id, а радар
+    // соединяет статус с местом именно через него — и показывал пустой круг
+    // под надписью «обновляется автоматически».
+    //
+    // Сопоставление починено (lib/services/safety/volcano-match), но одной
+    // починки мало: если завтра KVERT назовёт новый вулкан, которого нет в
+    // каталоге, круг снова промолчит. Поэтому непривязанный опасный код —
+    // это `degraded`: «показано не всё», а не «рядом чисто».
+    try {
+      const orphan = await query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n
+           FROM volcano_status
+          WHERE aviation_color_code IN ('yellow','orange','red')
+            AND place_ark_id IS NULL`,
+      );
+      if (Number(orphan.rows[0]?.n ?? 0) > 0) degraded = true;
+    } catch (err) {
+      // Не смогли сосчитать непривязанные — значит не знаем, полон ли круг.
+      console.error('[home] радар: непривязанные коды не сосчитались:', err);
+      degraded = true;
+    }
   } catch (err) {
     console.error('[home] радар: вулканы не выбрались:', err);
     degraded = true;
