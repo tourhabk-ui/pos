@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 OSM-слои района -> GeoJSON по слоям: вода, реки, лес, ледники, тропы, дороги,
-вершины. Третий шаг итерации пробы 02.09 (решение владельца «го»).
+вершины, посёлки, приюты, перевалы. Третий шаг итерации пробы 02.09
+(решение владельца «го»), имена добавлены тем же вечером после осмотра.
 
 ── Почему отдельно и почему только сейчас ────────────────────────────────
 
@@ -24,10 +25,23 @@ OSM-слои района -> GeoJSON по слоям: вода, реки, лес
   paths      highway=path|track|footway|bridleway — линии
   roads      остальные highway (от service до primary) — линии
   peaks      natural=peak|volcano с именем — точки (name, ele)
+  places     place=city|town|village|hamlet с именем — точки
+  shelters   tourism=alpine_hut|wilderness_hut, amenity=shelter — точки
+  passes     mountain_pass=yes | natural=saddle — точки (name, ele)
+
+Последние три заведены 02.09 после осмотра владельцем: на карте не было
+ни одного названия населённого пункта, а приют и перевал в поле — это
+решение «где ночевать» и «где переваливать», то есть ровно то, ради чего
+карту открывают. Свойства обрезаются до name/ele/kind — карте больше не
+нужно, а пакет должен помещаться в телефон.
+
+Приют и укрытие бывают размечены и точкой, и контуром здания. Контур
+сводится к точке (representative_point): на полевой карте это символ, а
+не постройка в масштабе, и полигон в 8 метров на зуме 12 — невидимая
+клякса ценой лишних координат.
 
 Остального (здания, границы, ЛЭП) нет намеренно: полевая карта — не
-городская. Свойства обрезаются до name/ele/kind — карте больше не нужно,
-а пакет должен помещаться в телефон.
+городская.
 
 ── Честность ─────────────────────────────────────────────────────────────
 
@@ -59,18 +73,29 @@ from build_contours import simplify_tolerance_deg  # noqa: E402
 OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
 OSM_ATTRIBUTION = '© OpenStreetMap contributors'
 
-LAYERS = ('water', 'waterways', 'wood', 'glacier', 'paths', 'roads', 'peaks')
+LAYERS = (
+    'water', 'waterways', 'wood', 'glacier', 'paths', 'roads', 'peaks',
+    'places', 'shelters', 'passes',
+)
 PATH_HIGHWAYS = {'path', 'track', 'footway', 'bridleway'}
 ROAD_HIGHWAYS = {
     'service', 'residential', 'unclassified', 'tertiary', 'secondary',
     'primary', 'trunk', 'living_street', 'road',
 }
+# Населённые пункты полевого масштаба. Ниже hamlet (isolated_dwelling,
+# farm) не берём: на Камчатке это чаще всего один домик без имени.
+PLACE_KINDS = {'city', 'town', 'village', 'hamlet'}
+SHELTER_TOURISM = {'alpine_hut', 'wilderness_hut'}
+# Слои, которые на карте — символ, а не фигура. Контур сводится к точке.
+POINT_LAYERS = {'peaks', 'places', 'shelters', 'passes'}
 
 
 def overpass_query(bbox) -> str:
     west, south, east, north = bbox
     bb = f'{south},{west},{north},{east}'
     hw = '|'.join(sorted(PATH_HIGHWAYS | ROAD_HIGHWAYS))
+    pl = '|'.join(sorted(PLACE_KINDS))
+    sh = '|'.join(sorted(SHELTER_TOURISM))
     return f"""
 [out:json][timeout:240];
 (
@@ -85,6 +110,13 @@ def overpass_query(bbox) -> str:
   relation["natural"="glacier"]({bb});
   way["highway"~"^({hw})$"]({bb});
   node["natural"~"^(peak|volcano)$"]["name"]({bb});
+  node["place"~"^({pl})$"]["name"]({bb});
+  node["tourism"~"^({sh})$"]({bb});
+  way["tourism"~"^({sh})$"]({bb});
+  node["amenity"="shelter"]({bb});
+  way["amenity"="shelter"]({bb});
+  node["mountain_pass"="yes"]({bb});
+  node["natural"="saddle"]({bb});
 );
 out body;
 >;
@@ -224,11 +256,33 @@ def fetch_overpass_cells(bbox, url: str, cache_dir: str) -> dict:
     return {'elements': elements}
 
 
+def classify_symbol(tags: dict) -> str | None:
+    """Слой-символ по тегам, независимо от того, точкой или контуром размечено.
+
+    Порядок проверок — от частного к общему: у приюта на перевале есть и
+    tourism, и mountain_pass, и он прежде всего приют (там ночуют).
+    """
+    if tags.get('natural') in ('peak', 'volcano') and tags.get('name'):
+        return 'peaks'
+    if tags.get('tourism') in SHELTER_TOURISM or tags.get('amenity') == 'shelter':
+        return 'shelters'
+    if tags.get('mountain_pass') == 'yes' or tags.get('natural') == 'saddle':
+        return 'passes'
+    if tags.get('place') in PLACE_KINDS and tags.get('name'):
+        return 'places'
+    return None
+
+
 def classify(tags: dict, geom_type: str) -> str | None:
     """Слой по тегам и геометрии. None — не наш элемент (напр. служебный узел)."""
     if geom_type == 'Point':
-        return 'peaks' if tags.get('natural') in ('peak', 'volcano') and tags.get('name') else None
+        return classify_symbol(tags)
     if geom_type in ('Polygon', 'MultiPolygon'):
+        # Приют, размеченный контуром здания, — тот же приют. Проверяется до
+        # заливок: у домика в лесу может стоять и landuse.
+        symbol = classify_symbol(tags)
+        if symbol is not None:
+            return symbol
         if tags.get('natural') == 'water':
             return 'water'
         if tags.get('natural') == 'wood' or tags.get('landuse') == 'forest':
@@ -250,10 +304,16 @@ def classify(tags: dict, geom_type: str) -> str | None:
 
 def slim_properties(tags: dict, layer: str) -> dict:
     """Только то, что читает карта. Остальное — вес без пользы."""
-    out: dict = {'kind': tags.get('highway') or tags.get('waterway') or tags.get('natural') or tags.get('landuse') or layer}
+    out: dict = {'kind': (
+        tags.get('highway') or tags.get('waterway') or tags.get('place')
+        or tags.get('tourism') or tags.get('amenity')
+        or tags.get('natural') or tags.get('landuse') or layer
+    )}
     if tags.get('name'):
         out['name'] = tags['name']
-    if layer == 'peaks' and tags.get('ele'):
+    # Высота перевала — такой же факт для решения, как высота вершины:
+    # по ней считают набор и понимают, будет ли там снег.
+    if layer in ('peaks', 'passes') and tags.get('ele'):
         try:
             out['ele'] = int(float(str(tags['ele']).replace(',', '.').split()[0]))
         except ValueError:
@@ -301,7 +361,16 @@ def main() -> int:
             skipped += 1
             continue
         g = shape(geom)
-        if geom['type'] != 'Point':
+        if layer in POINT_LAYERS:
+            # Символьный слой: контур здания приюта сводится к точке внутри
+            # него (representative_point, а не centroid — тот у подковообразной
+            # постройки лёг бы снаружи).
+            if geom['type'] != 'Point':
+                if g.is_empty:
+                    skipped += 1
+                    continue
+                g = g.representative_point()
+        elif geom['type'] != 'Point':
             g = g.simplify(tol, preserve_topology=True)
             if g.is_empty:
                 skipped += 1
