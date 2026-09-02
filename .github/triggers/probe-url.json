@@ -1,14 +1,15 @@
 {
-  "note": "Контроль лечения, с ожиданием выката. Проба до сборки сняла живой CSP /planning: заканчивается на font-src — ни worker-src, ни child-src, в точности значение next.config.js до правки. Диагноз подтверждён измерением. Теперь проба ждёт, пока в ЗАГОЛОВКЕ /planning появится worker-src 'self' blob: (маркер until отныне ищется и в заголовках — для CSP тело страницы не меняется). Timeweb собирает 40-50 минут по прошлым меткам, отсюда 50 повторов по минуте. Если маркер не появится — это «не доехало», а не «не помогло»: смотреть журнал сборки Timeweb.",
+  "note": "Контроль лечения воркера MapLibre (02.09). Диагноз с телефона: файлы пакета приходят, воркер из blob: отвечает, WebGL2 есть, CSP чиста, а «тайлов запрошено 6, пришло 0» и «стиль: нет» — мёртв воркер самого MapLibre. В собранном чанке import.meta.url = file:///…/maplibre-gl.mjs, MapLibre сам отдаёт пустой адрес воркера. Лечение: setWorkerUrl абсолютным адресом на public/vendor/maplibre-gl/6.6.0/. Проба ждёт, пока этот файл начнёт отдаваться с прода (в теле воркера есть строка maplibre-gl-shared.mjs, на странице 404 её нет), и печатает content-type — модульному воркеру нужен JS-тип.",
   "urls": [
-    "https://vedarai.ru/planning",
-    "https://vedarai.ru/version.json"
+    "https://vedarai.ru/vendor/maplibre-gl/6.6.0/maplibre-gl-worker.mjs",
+    "https://vedarai.ru/vendor/maplibre-gl/6.6.0/maplibre-gl-shared.mjs"
   ],
-  "until": "worker-src 'self' blob:",
+  "until": "maplibre-gl-shared.mjs",
   "grep": [
-    "\"commit\""
+    "content-type",
+    "from\"./maplibre-gl-shared.mjs\""
   ],
-  "bytes": 120,
+  "bytes": 300,
   "timeout": 60,
   "retries": 50,
   "retryDelay": 60

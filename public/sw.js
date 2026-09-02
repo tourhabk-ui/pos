@@ -5,7 +5,7 @@
 // запрещает bulk download, см. комментарий у TILE_HOST ниже).
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v28'; // bumped: /field-check закэширован с повторами и внесён в офлайн-белый список
+const CACHE_NAME = 'kamchatour-v29'; // bumped: воркер MapLibre (.mjs из /vendor/) стал статикой — cache-first, иначе офлайн-карта без воркера
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const MAX_TOUR_PAGES = 30;  // столько же карточек туров — иначе evictOldTourPages сравнивал с undefined и не чистил ничего
 const MAX_TRIP_PAGES = 10;  // планы поездок /trip/[token] — свой план + пара чужих по ссылкам
@@ -171,6 +171,10 @@ function isStaticAsset(url) {
          pathname.startsWith('/icons/') ||
          pathname.endsWith('.css') ||
          pathname.endsWith('.js') ||
+         // Воркер MapLibre и его общий модуль лежат в /vendor/ как .mjs
+         // (02.09). Без этой строки они шли в общую ветку network-first и в
+         // офлайне карта поднималась без воркера — то есть не поднималась.
+         pathname.endsWith('.mjs') ||
          pathname.endsWith('.woff2') ||
          pathname.endsWith('.woff');
 }

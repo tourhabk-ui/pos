@@ -35,6 +35,7 @@ import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
   buildVedarStyle, vedarMapPalette, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
+import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 
 export interface VedarMapLine {
   /** [lng, lat] — порядок GeoJSON, не Leaflet. */
@@ -260,6 +261,12 @@ export default function VedarMap({
         const protocol = new Protocol();
         maplibre.addProtocol('pmtiles', protocol.tile);
 
+        // Воркер — свой, с нашего домена и абсолютным адресом. Без этого
+        // MapLibre под webpack получает пустой адрес и поднимает мёртвый
+        // воркер: два дня полевых прогонов 01-02.09 карта молчала именно
+        // так. Разбор — lib/map/maplibre-worker.ts.
+        maplibre.setWorkerUrl(maplibreWorkerUrl(window.location.origin));
+
         const map = new maplibre.Map({
           container: containerRef.current,
           style: buildVedarStyle(theme, sources) as never,
@@ -343,6 +350,9 @@ export default function VedarMap({
           // дошёл ли стиль и сколько тайлов запрошено против пришедших.
           const state = [
             `стиль: ${map.isStyleLoaded() ? 'загружен' : 'нет'}${seen.styledata ? '' : ', styledata не было'}`,
+            // Адрес, который MapLibre считает своим воркером. Пустой или
+            // file:// — тот самый дефект сборки (lib/map/maplibre-worker.ts).
+            `воркер MapLibre: ${maplibre.getWorkerUrl() || 'адрес пуст'}`,
             `тайлов рельефа запрошено ${seen.terrainRequested}, пришло ${seen.terrain}`,
             w,
             webglReport(),
