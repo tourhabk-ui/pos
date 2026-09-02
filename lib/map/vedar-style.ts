@@ -325,6 +325,35 @@ export function buildVedarStyle(
  *               Поэтому ярус подкладывается только вблизи (см.
  *               DETAIL_MIN_ZOOM в VedarMap).
  */
+/**
+ * Адрес файла у каждого источника стиля — чтобы отказ можно было назвать
+ * ИМЕНЕМ ФАЙЛА, а не только текстом исключения.
+ *
+ * Скрин владельца 02.09 из поля: «Своя карта не отрисовалась: Expected ','
+ * or ']' after array element in JSON at position 387966». Сообщение верное и
+ * бесполезное: под точкой лежит район, а вокруг подкладываются соседние — у
+ * каждого горизонтали и семь слоёв OSM, восемьдесят с лишним файлов, и
+ * который из них оборвался, из этой строки не следует никак.
+ *
+ * MapLibre при этом ЗНАЕТ: в событии ошибки едет `sourceId` — его
+ * подставляет Style (setEventedParent у менеджера тайлов). Перевод
+ * идентификатора в имя файла берётся из самого объекта стиля, а не разбором
+ * строки: `osm-paths-south-kamchatka` на дефисы однозначно не делится, и
+ * такой разбор врал бы ровно на districts с дефисом в имени.
+ */
+export function sourceUrlIndex(sources: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [id, src] of Object.entries(sources ?? {})) {
+    if (!src || typeof src !== 'object') continue;
+    const s = src as { data?: unknown; url?: unknown };
+    // `data` у geojson, `url` у raster-dem поверх pmtiles. Встроенный
+    // GeoJSON (источник `route`) — объект, а не адрес: файла у него нет.
+    const url = typeof s.data === 'string' ? s.data : typeof s.url === 'string' ? s.url : null;
+    if (url) out[id] = url;
+  }
+  return out;
+}
+
 export type RegionTier = 'base' | 'detail';
 
 export interface RegionOverlay {
