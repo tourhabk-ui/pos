@@ -3160,7 +3160,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           {fieldBaseMap.kind === 'vedar' && vedarDiag && (
             <p className="px-3 pb-2 text-[11px] leading-snug"
               style={{ color: 'var(--warning)' }}>
-              Своя карта не отрисовалась: {vedarDiag}
+              {/* Формулировку целиком приносит VedarMap: «не отрисовалась»
+                  и «не пришёл один слой» — разные беды, и решает это та
+                  сторона, которая знает, поднялась ли карта. */}
+              {vedarDiag}
             </p>
           )}
 
