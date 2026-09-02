@@ -34,7 +34,7 @@ import {
   trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
-import { connectorLine, CONNECTOR_TITLES, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
+import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
 import type { VedarMapLine } from '@/components/shared/VedarMap';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
@@ -1422,7 +1422,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       // по второму.
       ...(crumbs.length >= 2 ? [{
         coords: [crumbs[0].lat, crumbs[0].lng] as [number, number],
-        title: 'Ваш след',
+        title: TRAIL_TITLE,
         geometry: {
           type: 'polyline',
           coordinates: crumbs.map(c => [c.lat, c.lng] as [number, number]),
@@ -1492,9 +1492,16 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     for (const m of mapMarkers) {
       const g = m.geometry;
       if (!g || g.type !== 'polyline' || g.coordinates.length < 2) continue;
+      // Род — по имени и стандарту, не по цвету маркера: след телефона
+      // (TRAIL_TITLE) не маршрут и не построение, а история — 02.09 он лёг
+      // толстым зелёным треком, и владелец спросил «что это за маршрут».
+      const kind: VedarMapLine['kind'] = m.title === TRAIL_TITLE ? 'trail'
+        : m.title === CONNECTOR_TITLES.approach ? 'connector'
+          : g.dashArray ? 'sketch' : 'track';
       out.push({
         coordinates: (g.coordinates as Array<[number, number]>).map(([la, ln]) => [ln, la]),
-        connector: m.title === CONNECTOR_TITLES.approach,
+        kind,
+        connector: kind === 'connector',
         dashArray: g.dashArray,
       });
     }

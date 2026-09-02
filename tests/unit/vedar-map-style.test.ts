@@ -197,8 +197,31 @@ describe('линия маршрута подчиняется §12, а не ре�
     // Подложка — только у настоящего пути: у пунктира она залила бы
     // просветы и вернула вид снятого трека (§12).
     expect(byId('route-casing').filter).toEqual(['==', ['get', 'kind'], 'track']);
-    expect(L.filter(l => l.source === 'route' && l.id !== 'route-casing' && l.id !== 'route-line')
+    // Пунктирные рода (§12) — 2px; след — не пунктир и не §12-род, у него
+    // своя проверка ниже.
+    expect(L.filter(l => l.source === 'route' && ['route-sketch', 'route-connector'].includes(l.id))
       .every(l => l.paint!['line-width'] === 2)).toBe(true);
+  });
+
+  it('свой след — отдельный слой другого цвета, под маршрутом, без casing', () => {
+    /**
+     * 02.09, первый живой рендер: след телефона за два дня — перевал, город,
+     * редкие фиксы прямыми — лёг тем же толстым зелёным, что трек маршрута,
+     * и владелец спросил «что это за маршрут». Маршрут — куда идти, след —
+     * где был; путать их нельзя.
+     */
+    const L = layers('dark');
+    const trail = L.find(l => l.id === 'route-trail')!;
+    expect(trail).toBeTruthy();
+    expect(trail.filter).toEqual(['==', ['get', 'kind'], 'trail']);
+    expect(trail.paint!['line-color']).toBe(vedarMapPalette('dark').trail);
+    expect(vedarMapPalette('dark').trail).not.toBe(vedarMapPalette('dark').track);
+    expect(L.findIndex(l => l.id === 'route-trail')).toBeLessThan(L.findIndex(l => l.id === 'route-casing'));
+    // Род следа назначается по имени — одна константа на Leaflet и MapLibre.
+    const CLIENT = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
+    expect(CLIENT).toMatch(/title: TRAIL_TITLE/);
+    expect(CLIENT).toMatch(/m\.title === TRAIL_TITLE \? 'trail'/);
+    expect(CLIENT).not.toMatch(/title: 'Ваш след'/);
   });
 
   it('набросок приглушён, а не цвета трека', () => {

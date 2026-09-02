@@ -40,6 +40,12 @@ import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 export interface VedarMapLine {
   /** [lng, lat] — порядок GeoJSON, не Leaflet. */
   coordinates: Array<[number, number]>;
+  /**
+   * Род линии для стиля (§12): трек — сплошной; набросок и построение —
+   * пунктиром; след — своя тонкая линия другого цвета. Если не задан,
+   * выводится из connector/dashArray (совместимость).
+   */
+  kind?: 'track' | 'sketch' | 'connector' | 'trail';
   /** Построение (подход, связка) против снятого пути — §12. */
   connector?: boolean;
   /** Пунктир из lib/map/line-standard: набросок и импорт не сплошные. */
@@ -416,7 +422,7 @@ export default function VedarMap({
             // от line-standard означает «не снятый трек»: набросок или импорт.
             // Первый живой рендер 02.09: без этого набросок подборки лёг
             // веером толстых сплошных зелёных линий.
-            kind: l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track',
+            kind: l.kind ?? (l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track'),
             connector: Boolean(l.connector),
             dash: l.dashArray ?? null,
           },
