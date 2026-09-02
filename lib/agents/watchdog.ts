@@ -32,11 +32,12 @@ import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } 
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
 import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
 import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents/migration-status';
+import { needsEscalation, type SosOriginClass } from '@/lib/safety/sos-origin';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'cron_fruitless';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'cron_fruitless';
   count: number;
   details: string;
   /**
@@ -742,35 +743,98 @@ async function checkUnprocessedLeads(): Promise<CheckResult> {
   }
 }
 
+/**
+ * Сигналы, снятые с тревоги по суткам молчания.
+ *
+ * `/api/cron/sos-events-bridge` через 24 часа без ответа переводит SOS в
+ * закрытые. Само по себе это правильно: звонить 112 по вчерашнему сигналу
+ * без координат нечего. Неправильно было ДРУГОЕ — исход записывался словом
+ * «resolved», то есть «с человеком всё в порядке», хотя означал обратное:
+ * никто не пришёл, и что стало с человеком, неизвестно. Самый громкий из
+ * возможных отказов записывался как успех и переставал быть виден.
+ *
+ * Миграция 928 развела эти состояния (`outcome = 'unknown_no_response'`), а
+ * эта проверка делает состояние слышимым. Окно — час, а не «все за всё
+ * время»: Watchdog бежит каждые полчаса, и вечный долг в сводке читается
+ * ровно так же, как отсутствие тревоги. Событие объявляется один-два раза,
+ * дальше молчит — но в базе остаётся навсегда и находится переписью.
+ */
+async function checkAbandonedSOS(): Promise<CheckResult> {
+  try {
+    const { rows } = await pool.query<{ n: string; ids: string }>(`
+      SELECT COUNT(*)::text AS n,
+             STRING_AGG(id::text, ', ' ORDER BY created_at) AS ids
+      FROM sos_events
+      WHERE outcome = 'unknown_no_response'
+        AND outcome_at > NOW() - INTERVAL '60 minutes'
+    `);
+    const count = parseInt(rows[0]?.n ?? '0', 10);
+    if (count === 0) return null;
+    return {
+      type: 'sos_abandoned',
+      count,
+      details: `${count} SOS сняты с тревоги по 24 часам молчания. Это НЕ «разрешено»: `
+        + `никто не ответил, исход неизвестен. Сигналы: ${rows[0]?.ids ?? '—'}.`,
+    };
+  } catch (err) {
+    // Та же причина, что у checkIgnoredSOS: молчание проверки на слое
+    // безопасности неотличимо от «нарушений нет» (§4.0).
+    console.error('[watchdog] checkAbandonedSOS failed:', err);
+    return checkFailure('checkAbandonedSOS', err);
+  }
+}
+
 async function checkIgnoredSOS(): Promise<CheckResult> {
   try {
     // Единственный сторож SOS-таймаутов (EVO-3: Rescue-дубль убран). Порог 15 мин
     // вместо прежних 30: Watchdog бежит каждые 30 мин, при 15-мин пороге
     // непокрытый SOS ловится на следующем прогоне (~15-45 мин), а не 30-60.
     // Координаты старейшего и «112» — из бывшего Rescue, чтобы деталь не потерять.
+    // Сигналы разделены по тому, что известно об ИСТОЧНИКЕ (миграция 928,
+    // lib/safety/sos-origin.ts). 02.09 в канал пришёл SOS без имени, без
+    // телефона, без координат и без типа, с IP дата-центра — и требовал
+    // звонить 112 каждые полчаса. Звонить было не о ком: ни человека, ни
+    // места. Такие сигналы НЕ исчезают и ложной тревогой не объявляются —
+    // они называются отдельной строкой, потому что «не знаю» не равно
+    // «всё хорошо». Строки до миграции 928 (origin_class IS NULL) считаются
+    // требующими эскалации: чего не измерили, то не смягчаем.
     const { rows } = await pool.query<{
       id: number; lat: number | null; lng: number | null;
-      age_min: number; total: string;
+      age_min: number; origin_class: string | null;
     }>(`
-      SELECT id, lat, lng,
-             ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_min,
-             COUNT(*) OVER ()::text AS total
+      SELECT id, lat, lng, origin_class,
+             ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_min
       FROM sos_events
       WHERE status NOT IN ('resolved', 'false_alarm')
         AND created_at < NOW() - INTERVAL '15 minutes'
       ORDER BY created_at ASC
-      LIMIT 1
     `);
     if (rows.length === 0) return null;
-    const oldest = rows[0];
-    const count = parseInt(oldest.total ?? '1', 10);
+
+    const escalatable = rows.filter((r) => needsEscalation(r.origin_class as SosOriginClass | null));
+    const unknownOrigin = rows.length - escalatable.length;
+
+    if (escalatable.length === 0) {
+      return {
+        type: 'sos_unattributed',
+        count: unknownOrigin,
+        details: `${unknownOrigin} SOS с НЕУСТАНОВЛЕННЫМ источником висят >15 мин: ни авторизации, `
+          + 'ни заголовков браузера, ни единого поля. Звонить 112 не о ком — ни человека, ни места. '
+          + 'Разобрать и закрыть руками; молча не закрывать.',
+      };
+    }
+
+    const oldest = escalatable[0];
     const coords = oldest.lat != null && oldest.lng != null
       ? `${oldest.lat}, ${oldest.lng}`
       : 'координаты не переданы';
+    const tail = unknownOrigin > 0
+      ? ` Ещё ${unknownOrigin} — с неустановленным источником, отдельно.`
+      : '';
     return {
       type: 'sos_ignored',
-      count,
-      details: `ВНИМАНИЕ: ${count} активных SOS без реакции >15 мин. Старейший SOS #${oldest.id} — ${oldest.age_min} мин, координаты: ${coords}. Вызвать МЧС: 112.`,
+      count: escalatable.length,
+      details: `ВНИМАНИЕ: ${escalatable.length} активных SOS без реакции >15 мин. Старейший SOS #${oldest.id} — ${oldest.age_min} мин, координаты: ${coords}. Вызвать МЧС: 112.${tail}`,
     };
   } catch (err) {
     // SOS-чек не имеет права падать молча: сломанный запрос здесь уже прятал
@@ -1296,6 +1360,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkStuckPayouts,
     checkUnprocessedLeads,
     checkIgnoredSOS,
+    checkAbandonedSOS,
     checkSeismicCronDead,
     // Отдельно от предыдущей: та меряет ЛЮБОЙ прогон и удовлетворяется
     // heartbeat'ом, который Telegram получить не может. Задержка канала,

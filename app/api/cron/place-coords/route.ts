@@ -36,15 +36,19 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { distanceKm } from '@/lib/routes/place-link';
+import {
+  KRAI_LAT_MIN, KRAI_LAT_MAX, KRAI_LNG_MIN, KRAI_LNG_MAX,
+} from '@/lib/geo/krai-envelope';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-/** Грубый конверт Камчатского края с Курилами и Командорами. */
-export const KRAI_LAT_MIN = 50.0;
-export const KRAI_LAT_MAX = 65.5;
-export const KRAI_LNG_MIN = 155.0;
-export const KRAI_LNG_MAX = 174.0;
+// Конверт края переехал в lib/geo/krai-envelope.ts: его понадобилось третье
+// место — приёмник SOS, — а зависимость «критичный роут → крон-роут» неверна
+// по направлению. Ре-экспорт оставлен, чтобы прежние импортёры не разъехались.
+export {
+  KRAI_LAT_MIN, KRAI_LAT_MAX, KRAI_LNG_MIN, KRAI_LNG_MAX,
+} from '@/lib/geo/krai-envelope';
 
 const LIVE_BATCH_MAX = 10;
 
