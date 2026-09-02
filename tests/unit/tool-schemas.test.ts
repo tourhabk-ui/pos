@@ -17,14 +17,21 @@ describe('KUZMICH_TOOLS (generated from the registry)', () => {
       // спрашивает это первым, а по месту дальше идёт в get_guardian_context.
       'safety_status',
       'search_accommodations', 'search_gear', 'search_kamchatka', 'search_taaft',
+      // search_transfers удалён 01.09 (читал таблицы, которых на проде не было,
+      // и выдавал поломку за факт) и вернулся 02.09 поверх витрины схемы 926:
+      // тот же listPublishedTrips, что у /transfers, отказ базы — словами
+      // «не смог проверить», а не «поездок нет».
+      'search_transfers',
       ]);
   });
 
-  // Инструмент search_transfers удалён 01.09 вместе с мёртвым модулем: он звал
-  // lib/kuzmich/transfer-search, читавший таблицы, которых на проде нет.
-  // Кузьмич отвечал бы туристу «трансферов не нашлось» на каждый вопрос — то
-  // есть выдавал поломку за факт о мире. Вернётся, когда витрина поездок
-  // схемы 926 получит своё API.
+  it('registers search_transfers with all filters optional (no required params)', () => {
+    const def = KUZMICH_TOOLS.find(t => t.function.name === 'search_transfers')!;
+    expect(def.function.parameters.required).toEqual([]);
+    expect(Object.keys(def.function.parameters.properties)).toEqual(
+      expect.arrayContaining(['from', 'to', 'seats', 'place']),
+    );
+  });
 
   it('registers search_gear with all filters optional (no required params)', () => {
     const def = KUZMICH_TOOLS.find(t => t.function.name === 'search_gear')!;
