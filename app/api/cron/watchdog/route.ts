@@ -45,7 +45,17 @@ export async function GET(req: Request) {
       error_msg: failedChecks > 0
         ? `не смогли выполниться: ${result.checks.failed.map(f => f.check).join(', ')}`
         : undefined,
-      metadata: result as unknown as Record<string, unknown>,
+      metadata: {
+        ...(result as unknown as Record<string, unknown>),
+        // Общий ключ `skip_reason` — его детектор бесплодных кронов читает у
+        // ЛЮБОГО крона. Без него 02.09 сорок семь прогонов partial (падала
+        // checkPendingTransferBookings на отсутствующей таблице) отчитались
+        // как «без результата, причина не записана» — класс беды без самой
+        // беды. Имена проверок — и есть причина.
+        skip_reason: failedChecks > 0
+          ? `unverified: ${result.checks.failed.map(f => f.check).join(', ')}`
+          : null,
+      },
     });
     return Response.json({ success: failedChecks === 0, ...result });
   } catch (err) {
