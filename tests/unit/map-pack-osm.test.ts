@@ -125,6 +125,17 @@ describe('имена: посёлки, приюты, перевалы, вода',
     expect(PY).toMatch(/node\["place"~/);
     expect(PY).toMatch(/way\["tourism"~/);      // приют бывает контуром здания
     expect(PY).toMatch(/node\["mountain_pass"="yes"\]/);
+    // Символы спрашиваются ОТДЕЛЬНЫМ запросом, и его кэш ключуется
+    // отпечатком запроса. Иначе кэш клеток (ключ — только координаты)
+    // вернул бы ответ на прежний вопрос, и три слоя вышли бы пустыми у
+    // всех десяти районов — тихо, потому что пустой слой законен.
+    expect(PY).toContain('def symbols_query(');
+    expect(PY).toMatch(/hashlib\.sha1\(q\.encode\('utf-8'\)\)\.hexdigest\(\)\[:8\]/);
+    // Тяжёлый запрос геометрии этих тегов не спрашивает — иначе его кэш
+    // тоже разъехался бы с вопросом.
+    const heavy = PY.slice(PY.indexOf('def overpass_query('), PY.indexOf('def symbols_query('));
+    expect(heavy).not.toContain('mountain_pass');
+    expect(heavy).not.toContain('"place"');
     // Контур сводится к точке ВНУТРИ фигуры, не к центроиду.
     expect(PY).toContain('representative_point()');
     // Высота перевала — такой же факт, как высота вершины.

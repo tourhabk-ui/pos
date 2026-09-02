@@ -59,6 +59,7 @@ OSM-слои района -> GeoJSON по слоям: вода, реки, лес
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -110,6 +111,34 @@ def overpass_query(bbox) -> str:
   relation["natural"="glacier"]({bb});
   way["highway"~"^({hw})$"]({bb});
   node["natural"~"^(peak|volcano)$"]["name"]({bb});
+);
+out body;
+>;
+out skel qt;
+"""
+
+
+def symbols_query(bbox) -> str:
+    """Имена: посёлки, приюты, перевалы — ОТДЕЛЬНЫМ запросом на весь район.
+
+    Отдельным по двум причинам, и обе — про цену ошибки, а не про красоту:
+
+     1. Кэш клеток ключуется координатами клетки (см. fetch_overpass). Добавь
+        эти теги в тяжёлый запрос — ключ не изменится, кэш вернёт ОТВЕТ НА
+        ДРУГОЙ ВОПРОС, и три новых слоя выйдут пустыми у всех десяти районов.
+        Пустой слой при этом законен (ледников бывает и правда нет), так что
+        соврало бы тихо.
+     2. Это узлы с редкими тегами: на весь район их сотни, а не десятки
+        тысяч. Резать их на клетки по 0.25° незачем — один запрос отвечает
+        за секунды там, где геометрия требует сорока.
+    """
+    west, south, east, north = bbox
+    bb = f'{south},{west},{north},{east}'
+    pl = '|'.join(sorted(PLACE_KINDS))
+    sh = '|'.join(sorted(SHELTER_TOURISM))
+    return f"""
+[out:json][timeout:180];
+(
   node["place"~"^({pl})$"]["name"]({bb});
   node["tourism"~"^({sh})$"]({bb});
   way["tourism"~"^({sh})$"]({bb});
@@ -233,6 +262,20 @@ def fetch_cell_adaptive(cell, url: str, cache_dir: str, depth: int = 0) -> list:
         return out
 
 
+def fetch_symbols(bbox, url: str, cache_dir: str) -> list:
+    """Слои-символы одним запросом на район. Кэш — по bbox И по отпечатку
+    запроса: изменишь состав тегов — файл будет другой, и старый ответ не
+    выдаст себя за новый."""
+    q = symbols_query(bbox)
+    sig = hashlib.sha1(q.encode('utf-8')).hexdigest()[:8]
+    name = 'symbols_' + '_'.join(str(v) for v in bbox) + f'_{sig}.json'
+    print(f'символы (посёлки, приюты, перевалы) одним запросом: {name}', flush=True)
+    data = fetch_overpass(q, url, os.path.join(cache_dir, name))
+    els = data.get('elements', [])
+    print(f'  элементов: {len(els)}', flush=True)
+    return els
+
+
 def fetch_overpass_cells(bbox, url: str, cache_dir: str) -> dict:
     """Район по клеткам; элементы сливаются по (type, id) — объект на стыке
     клеток приходит дважды, и второй экземпляр отбрасывается."""
@@ -344,6 +387,20 @@ def main() -> int:
         print('Overpass вернул НОЛЬ элементов — отказ, не пустой район', file=sys.stderr)
         return 1
     print(f'элементов от Overpass: {len(elements)}')
+
+    # Символы — вторым запросом, на весь район (см. symbols_query). Слияние
+    # по (type, id): узел приюта мог прийти и с геометрией как член way.
+    seen = {(el.get('type'), el.get('id')) for el in elements}
+    added = 0
+    for el in fetch_symbols(bbox, args.overpass, args.cache):
+        key = (el.get('type'), el.get('id'))
+        if key in seen:
+            continue
+        seen.add(key)
+        elements.append(el)
+        added += 1
+    print(f'символов добавлено: {added}, всего элементов: {len(elements)}')
+    data = {'elements': elements}
 
     fc = osm2geojson.json2geojson(data)
     tol = simplify_tolerance_deg((bbox[1] + bbox[3]) / 2)
