@@ -123,7 +123,21 @@ export type VectorLayer = typeof VECTOR_LAYERS[number];
  * BUILT_PACK_REGIONS. Пока района здесь нет, карта читает GeoJSON-слои, как
  * раньше: два пути в стиле живут ради перехода, не навсегда.
  */
-export const VECTOR_BUILT_REGIONS: readonly RegionId[] = [];
+export const VECTOR_BUILT_REGIONS: readonly RegionId[] = [
+  // 02.09, прогон 60 (run 33693609744): 8.78 МБ — против 13.5 МБ прежних
+  // GeoJSON, и это уже с 20-метровыми горизонталями. tippecanoe — 7 с.
+  'avacha-group',
+  // 02.09, прогоны 61-69: остальные девять районов той же сборкой.
+  'paratunka',
+  'nalychevo',
+  'central-volcanoes',
+  'mutnovsky-gorely',
+  'south-kamchatka',
+  'kronotsky',
+  'klyuchevskoy',
+  'esso-bystrinsky',
+  'commander-islands',
+];
 
 /**
  * Обещание, что OSM-слои лежат в хранилище для района, — того же рода, что
