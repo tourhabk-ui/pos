@@ -36,11 +36,6 @@ import {
 /** Сколько живёт QR. Как у туров: час, чтобы успеть открыть банк в поле. */
 export const SEAT_QR_TTL_MINUTES = 60;
 
-/** Внешняя строка в лог — без переводов строк и посторонних знаков. */
-function safeForLog(s: string): string {
-  return s.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
-}
-
 export type IssueSeatQrFailure =
   | 'not_found'
   | 'forbidden'
@@ -203,8 +198,8 @@ export async function settleSeatPaymentByQr(qrId: string): Promise<SettleSeatOut
   if (settled === 'already_paid') return { outcome: 'repeat', bookingId: booking.id };
   // Заказ ушёл из pending между поиском и записью. Деньги у банка — молчать
   // нельзя; подтверждать самовольно тоже: решение за человеком.
-  // qrcId пришёл из тела вебхука, то есть снаружи: в лог — только безопасные
-  // знаки (CodeQL js/log-injection). Формат у банка — латиница и цифры.
-  console.error('[seat-payment] оплата пришла на заказ вне pending:', `booking=${booking.id}`, `qr=${safeForLog(qrId)}`, `state=${settled}`);
+  // qrcId в лог не пишется: он пришёл из тела вебхука, то есть снаружи
+  // (CodeQL js/log-injection), а найти его можно по id заказа — он на строке.
+  console.error('[seat-payment] оплата пришла на заказ вне pending:', `booking=${booking.id}`, `state=${settled}`);
   return { outcome: 'left_pending', bookingId: booking.id };
 }
