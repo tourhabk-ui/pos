@@ -91,6 +91,26 @@ SHELTER_TOURISM = {'alpine_hut', 'wilderness_hut'}
 POINT_LAYERS = {'peaks', 'places', 'shelters', 'passes'}
 
 
+def tile_minzoom(layer: str, tags: dict) -> int:
+    """С какого зума объект кладётся в векторный тайл (tippecanoe).
+
+    Ниже — объекта в тайле нет. Это не потеря, а честная обзорность: ручей
+    и тропа на z9 — шум в пиксель, а посёлок и вершина — ориентир уже с z8.
+    Крупные дороги видны раньше просёлков.
+    """
+    if layer in ('peaks', 'places'):
+        return 8
+    if layer in ('shelters', 'passes', 'water', 'wood', 'glacier'):
+        return 9
+    if layer == 'waterways':
+        return 9 if tags.get('waterway') == 'river' else 11
+    if layer == 'roads':
+        return 8 if tags.get('highway') in ('primary', 'trunk', 'secondary') else 10
+    if layer == 'paths':
+        return 11
+    return 10
+
+
 def overpass_query(bbox) -> str:
     west, south, east, north = bbox
     bb = f'{south},{west},{north},{east}'
@@ -434,6 +454,8 @@ def main() -> int:
                 continue
         layers[layer].append({
             'type': 'Feature',
+            # Читает tippecanoe при сборке тайлов; MapLibre по GeoJSON не видит.
+            'tippecanoe': {'minzoom': tile_minzoom(layer, tags)},
             'properties': slim_properties(tags, layer),
             'geometry': mapping(g),
         })

@@ -517,6 +517,7 @@ export default function VedarMap({
             glyphsUrl: pack.source.glyphsUrl,
             glyphsFont: pack.source.glyphsFont,
             osmUrls: pack.source.osmUrls,
+            vectorUrl: pack.source.vectorUrl,
           }, region, tier);
           try {
             for (const [id, src] of Object.entries(overlay.sources)) {

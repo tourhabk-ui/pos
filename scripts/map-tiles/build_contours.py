@@ -56,6 +56,14 @@ from build_terrain import (  # noqa: E402
 # подписаны как раз редкие линии, а частые держат форму склона.
 MINOR_STEP = 100
 MAJOR_EVERY = 500
+# Частые горизонтали для векторного пакета (02.09, «качественно прорисованная
+# карта»): бумажная топокарта даёт 20-40 м, у нас было 100. В GeoJSON такой
+# шаг весил бы у Эссо ~80 МБ и качался бы целиком — поэтому частые линии
+# идут ОТДЕЛЬНЫМ файлом и только в тайлы (tippecanoe), с 13-го зума.
+FINE_STEP = 20
+# С какого зума tippecanoe кладёт линию в тайл. Ниже — линии нет вовсе, и
+# это не потеря: на z10 20-метровые горизонтали слились бы в заливку.
+TILE_MINZOOM = {'major': 8, 'minor': 11, 'fine': 13}
 # Ниже этой высоты линии не строим: 0 м — урез воды, и «горизонталь моря»
 # была бы обводкой берега, а не рельефом.
 MIN_ELEVATION = 100
@@ -79,6 +87,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--bbox', required=True, help='west,south,east,north')
     ap.add_argument('--out', required=True)
+    ap.add_argument('--fine-out', default=None,
+                    help='частые горизонтали (FINE_STEP) отдельным файлом — только для тайлов')
     ap.add_argument('--cache', default='.cache/dem')
     args = ap.parse_args()
 
@@ -116,61 +126,83 @@ def main():
     from shapely.geometry import LineString
 
     tol = simplify_tolerance_deg((south + north) / 2)
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    cs = ax.contour(lngs, lats, grid, levels=levels)
 
-    features = []
-    dropped_short = 0
-    for level, seg_list in zip(cs.levels, cs.allsegs):
-        ele = int(round(float(level)))
-        is_major = ele % MAJOR_EVERY == 0
-        for seg in seg_list:
-            if len(seg) < 2:
-                dropped_short += 1
-                continue
-            line = LineString(seg).simplify(tol, preserve_topology=False)
-            if line.is_empty or len(line.coords) < 2:
-                dropped_short += 1
-                continue
-            features.append({
-                'type': 'Feature',
-                'properties': {
-                    'ele': ele,
-                    # Род линии — записанный факт, а не арифметика в стиле.
-                    'kind': 'major' if is_major else 'minor',
-                },
-                'geometry': {
-                    'type': 'LineString',
-                    'coordinates': [[round(x, 5), round(y, 5)] for x, y in line.coords],
-                },
-            })
-    plt.close(fig)
+    def trace(levels_, kind_of):
+        """Линии matplotlib -> объекты GeoJSON с родом и зумом тайла."""
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        cs = ax.contour(lngs, lats, grid, levels=levels_)
+        feats, short = [], 0
+        for level, seg_list in zip(cs.levels, cs.allsegs):
+            ele = int(round(float(level)))
+            kind = kind_of(ele)
+            for seg in seg_list:
+                if len(seg) < 2:
+                    short += 1
+                    continue
+                line = LineString(seg).simplify(tol, preserve_topology=False)
+                if line.is_empty or len(line.coords) < 2:
+                    short += 1
+                    continue
+                feats.append({
+                    'type': 'Feature',
+                    # Ключ читает tippecanoe и в тайл не кладёт; MapLibre по
+                    # GeoJSON его не видит. Один файл — два потребителя.
+                    'tippecanoe': {'minzoom': TILE_MINZOOM[kind]},
+                    'properties': {
+                        'ele': ele,
+                        # Род линии — записанный факт, а не арифметика в стиле.
+                        'kind': kind,
+                    },
+                    'geometry': {
+                        'type': 'LineString',
+                        'coordinates': [[round(x, 5), round(y, 5)] for x, y in line.coords],
+                    },
+                })
+        plt.close(fig)
+        return feats, short
+
+    features, dropped_short = trace(levels, lambda e: 'major' if e % MAJOR_EVERY == 0 else 'minor')
 
     if not features:
         # Ноль линий при непустой мозаике — отказ, а не результат (§4.0).
         print('НИ ОДНОЙ горизонтали не построено — прекращаю', file=sys.stderr)
         return 1
 
-    majors = sum(1 for f in features if f['properties']['kind'] == 'major')
-    fc = {
-        'type': 'FeatureCollection',
-        'attribution': ATTRIBUTION,
-        'contour_step_m': MINOR_STEP,
-        'contour_major_every_m': MAJOR_EVERY,
-        'built_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        'features': features,
-    }
-    os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
-    with open(args.out, 'w', encoding='utf-8') as f:
-        json.dump(fc, f, ensure_ascii=False, separators=(',', ':'))
+    def write(path, feats, step):
+        fc = {
+            'type': 'FeatureCollection',
+            'attribution': ATTRIBUTION,
+            'contour_step_m': step,
+            'contour_major_every_m': MAJOR_EVERY,
+            'built_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'features': feats,
+        }
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(fc, f, ensure_ascii=False, separators=(',', ':'))
+        return os.path.getsize(path)
 
-    size = os.path.getsize(args.out)
+    majors = sum(1 for f in features if f['properties']['kind'] == 'major')
+    size = write(args.out, features, MINOR_STEP)
     print(f'готово: {args.out}')
     print(f'  линий: {len(features)} (подписываемых: {majors})')
     print(f'  отброшено вырожденных: {dropped_short}')
     print(f'  допуск упрощения: {tol:.7f} град (~{SIMPLIFY_PX} пикселя на z{MAXZOOM})')
     print(f'  размер: {size / 1024 / 1024:.2f} МБ')
+
+    if args.fine_out:
+        # Только те уровни, которых нет в основном файле: 20, 40, 60, 80, 120…
+        # Тайл собирается из обоих файлов, и дубль 100-метровой линии лёг бы
+        # поверх самой себя.
+        fine_levels = [lv for lv in range(MIN_ELEVATION, levels[-1] + 1, FINE_STEP)
+                       if lv % MINOR_STEP != 0]
+        fine, fine_short = trace(fine_levels, lambda e: 'fine')
+        fsize = write(args.fine_out, fine, FINE_STEP)
+        print(f'частые ({FINE_STEP} м): {args.fine_out}')
+        print(f'  линий: {len(fine)}, отброшено вырожденных: {fine_short}')
+        print(f'  размер: {fsize / 1024 / 1024:.2f} МБ (в тайлы, не в хранилище)')
+
     print(f'  время сборки: {time.time() - started:.1f} с')
     return 0
 
