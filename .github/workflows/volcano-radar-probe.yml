@@ -39,9 +39,16 @@ jobs:
               --data-urlencode "q=Крашен" \
               "https://vedarai.ru/api/cron/place-audit" || echo 000)
             echo "попытка $i · HTTP $HTTP"
-            head -c 600 /tmp/k.json; echo
-            if grep -q 'Крашенинникова' /tmp/k.json; then
-              echo "МИГРАЦИЯ 927 ПРИМЕНЕНА — имя исправлено"
+            jq -r '.places[]? | "  \(.name)"' /tmp/k.json 2>/dev/null || head -c 400 /tmp/k.json
+            # Сверяется ПОЛЕ name целиком, а не подстрока в теле ответа.
+            # Первая версия делала grep по всему JSON и позеленела мгновенно:
+            # правильное написание «Крашенинникова» стоит в ОПИСАНИИ места,
+            # а имя оставалось с опечаткой. Проба отрапортовала «миграция
+            # применена», не проверив ничего, — тот же промах, что с
+            # «не нашёл по запросу» = «нет в каталоге», только наоборот.
+            if jq -e '[.places[]? | select(.name == "Вулкан Крашенинникова")] | length > 0' \
+                 /tmp/k.json >/dev/null 2>&1; then
+              echo "МИГРАЦИЯ 927 ПРИМЕНЕНА — поле name исправлено"
               exit 0
             fi
             sleep 30
@@ -57,6 +64,20 @@ jobs:
           echo "HTTP: $HTTP"
           python3 -m json.tool /tmp/kvert.json || cat /tmp/kvert.json
           test "$HTTP" = "200"
+          # Ответ обязан быть НОВОЙ формы. Старая — плоский список unmatched
+          # без причин — значит на проде ещё прежний образ, и число matched
+          # ничего не говорит о починке. Зелёная проба на старом коде хуже
+          # красной: она закрывает вопрос, не ответив на него.
+          jq -e 'has("unmatched_reasons") and has("places_indexed")' \
+            /tmp/kvert.json >/dev/null \
+            || { echo "ОТВЕТ СТАРОЙ ФОРМЫ — деплой не дошёл, проверять нечего"; exit 1; }
+          echo "--- разбор ---"
+          jq -r '"каталог вулканов: \(.places_indexed) точек",
+                 "сопоставлено:    \(.matched) из \(.fetched)",
+                 "нет в алиасах:   \(.unmatched_reasons.unknown_name | length)",
+                 "нет места:       \(.unmatched_reasons.no_place | length)",
+                 "неоднозначно:    \(.unmatched_reasons.ambiguous | length)",
+                 "отказ записи:    \(.unmatched_reasons.failed | length)"' /tmp/kvert.json
 
       - name: Радар — остались ли опасные коды без точки
         run: |
