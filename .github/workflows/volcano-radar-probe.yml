@@ -1,20 +1,4 @@
-name: Проба — вулканы на радаре
-
-# Одноразовая проба после мержа #1497. Ветка временная, в main не идёт.
-#
-# Порядок такой, а не «подождать N минут»:
-#
-# 1. Признак деплоя — не таймер, а СЛЕД в данных: миграция 927 переименовывает
-#    «Вулкан Крашенникова» в «Вулкан Крашенинникова». Пока имя старое, новый
-#    образ не поднялся, и запускать синк рано. Таймер сказал бы «прошло 10
-#    минут» — это факт о часах, а не о проде.
-# 2. Только после следа — синк KVERT, и печатается ВЕСЬ ответ: matched,
-#    причины отказа поимённо, размер указателя каталога.
-# 3. Отдельно — сверка радара: остались ли опасные коды без привязки.
-#
-# Вложенных python-скриптов здесь нет намеренно: первая версия оборвала
-# блочный скаляр YAML строкой с нулевой колонки, и прогон упал на старте с
-# нулём джобов — то есть выглядел как «проба не прошла», не проверив ничего.
+name: Проба — Ключевской на радаре
 
 on:
   push:
@@ -26,72 +10,28 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     env:
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
-      - name: Дождаться деплоя по следу миграции 927
+      - name: Запись места в каталоге
         run: |
-          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET не задан"; exit 1; fi
-          for i in $(seq 1 40); do
-            HTTP=$(curl -s -G -o /tmp/k.json -w "%{http_code}" --max-time 30 \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              --data-urlencode "q=Крашен" \
-              "https://vedarai.ru/api/cron/place-audit" || echo 000)
-            echo "попытка $i · HTTP $HTTP"
-            jq -r '.places[]? | "  \(.name)"' /tmp/k.json 2>/dev/null || head -c 400 /tmp/k.json
-            # Сверяется ПОЛЕ name целиком, а не подстрока в теле ответа.
-            # Первая версия делала grep по всему JSON и позеленела мгновенно:
-            # правильное написание «Крашенинникова» стоит в ОПИСАНИИ места,
-            # а имя оставалось с опечаткой. Проба отрапортовала «миграция
-            # применена», не проверив ничего, — тот же промах, что с
-            # «не нашёл по запросу» = «нет в каталоге», только наоборот.
-            if jq -e '[.places[]? | select(.name == "Вулкан Крашенинникова")] | length > 0' \
-                 /tmp/k.json >/dev/null 2>&1; then
-              echo "МИГРАЦИЯ 927 ПРИМЕНЕНА — поле name исправлено"
-              exit 0
-            fi
-            sleep 30
+          for q in "Ключевск" "Шивелуч" "Безымянн" "Крашенин"; do
+            curl -s -G --max-time 30 -H "Authorization: Bearer $CRON_SECRET" \
+              --data-urlencode "q=$q" "https://vedarai.ru/api/cron/place-audit" \
+            | jq -r --arg q "$q" '.places[]? | "\($q)\t\(.name)\tlat=\(.lat) lng=\(.lng)\tvisible=\(.is_visible)\tmerged_into=\(.merged_into_name // "-")\ttype=\(.location_type)"'
           done
-          echo "за 20 минут имя не изменилось: деплой не дошёл или миграция не применилась"
-          exit 1
 
-      - name: Дождаться нового кода и снять привязку вулканов
+      - name: Что /safety отдаёт в радар
         run: |
-          # Признак деплоя — ФОРМА ответа, а не применённая миграция.
-          # Прогон 07:05 показал, почему: миграция 927 уже накатилась
-          # (имя в поле name исправлено), а kvert-acc отвечал прежней формой —
-          # миграции идут до переключения трафика. Маркер срабатывал раньше
-          # того, что проверяется.
-          for i in $(seq 1 8); do
-            HTTP=$(curl -s -o /tmp/kvert.json -w "%{http_code}" --max-time 120 \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              "https://vedarai.ru/api/cron/kvert-acc" || echo 000)
-            echo "попытка $i · HTTP $HTTP"
-            if jq -e 'has("unmatched_reasons") and has("places_indexed")' \
-                 /tmp/kvert.json >/dev/null 2>&1; then
-              echo "=== НОВЫЙ КОД НА ПРОДЕ ==="
-              jq -r '"каталог вулканов: \(.places_indexed) точек",
-                     "сопоставлено:    \(.matched) из \(.fetched)",
-                     "нет в алиасах:   \(.unmatched_reasons.unknown_name | length)",
-                     "нет места:       \(.unmatched_reasons.no_place | length)",
-                     "неоднозначно:    \(.unmatched_reasons.ambiguous | length)",
-                     "отказ записи:    \(.unmatched_reasons.failed | length)"' /tmp/kvert.json
-              echo "--- нет в алиасах ---";  jq -r '.unmatched_reasons.unknown_name[]?' /tmp/kvert.json
-              echo "--- нет места ---";      jq -r '.unmatched_reasons.no_place[]?' /tmp/kvert.json
-              echo "--- неоднозначно ---";   jq -r '.unmatched_reasons.ambiguous[]?' /tmp/kvert.json
-              echo "--- отказ записи ---";   jq -r '.unmatched_reasons.failed[]?' /tmp/kvert.json
-              exit 0
-            fi
-            echo "ещё старая форма, ждём"
-            sleep 150
+          curl -s --max-time 60 -A "Mozilla/5.0" "https://vedarai.ru/safety" -o /tmp/safety.html
+          echo "размер страницы: $(wc -c < /tmp/safety.html)"
+          echo "--- упоминания вулканов в полезной нагрузке ---"
+          for n in "Ключевск" "Шивелуч" "Безымянн" "Крашенин"; do
+            printf '%s\t%s\n' "$n" "$(grep -o "$n" /tmp/safety.html | wc -l)"
           done
-          echo "за 20 минут новый код не поднялся"
-          exit 1
-
-      - name: Радар — остались ли опасные коды без точки
-        run: |
-          HTTP=$(curl -s -o /tmp/r.json -w "%{http_code}" --max-time 60 \
-            "https://vedarai.ru/api/public/safety-status" || echo 000)
-          echo "safety-status HTTP: $HTTP"
-          head -c 2000 /tmp/r.json; echo
+          echo "--- метки радара kind=volcano (из RSC-полезной нагрузки) ---"
+          grep -o 'kind\\\\\?":\\\\\?"volcano\\\\\?"[^}]\{0,200\}' /tmp/safety.html | head -20 || true
+          grep -o '"kind":"volcano"[^}]\{0,200\}' /tmp/safety.html | head -20 || true
+          echo "--- центр и radius в разметке ---"
+          grep -o '500 км\|200 км' /tmp/safety.html | sort | uniq -c
