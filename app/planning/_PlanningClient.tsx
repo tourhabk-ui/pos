@@ -37,6 +37,7 @@ import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, t
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
 import type { VedarMapLine } from '@/components/shared/VedarMap';
+import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
   calculatedCarToLeafletCoordinates, type CalculatedCarRoute,
@@ -432,6 +433,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    */
   const [liveDataAt, setLiveDataAt] = useState<number | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+  /**
+   * Последняя известная точка с диска (lib/offline/last-fix.ts). Нужна одному
+   * решению — какую подложку открыть ПЕРВОЙ, пока нет ни фикса, ни маршрута.
+   * `undefined` — ещё не читали (SSR/первый рендер), `null` — читали, нет.
+   */
+  const [lastFix, setLastFix] = useState<LastFix | null | undefined>(undefined);
+  useEffect(() => { setLastFix(readLastFix(window.localStorage)); }, []);
+  useEffect(() => {
+    if (!coords) return;
+    writeLastFix(window.localStorage, { lat: coords.lat, lng: coords.lng, t: coords.t });
+  }, [coords]);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
   /**
@@ -1485,14 +1497,28 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       track && track.length > 0 ? { lat: track[0][0], lng: track[0][1] }
         : waypoints.length > 0 ? { lat: waypoints[0].lat, lng: waypoints[0].lng }
           : null;
+    /**
+     *  4. ПОСЛЕДНЯЯ ИЗВЕСТНАЯ точка с диска — как у любого навигатора:
+     *     открывается там, где закрылся. Скрин владельца 02.09: первой
+     *     рисовалась старая карта (Leaflet), потому что в первые секунды
+     *     точки нет ни от GPS, ни от маршрута, и «не знаю, где» читалось
+     *     как «своей карты нет». Пока диск не прочитан (undefined) и
+     *     маршрут грузится — подложки НЕТ вовсе: пустой фон честнее карты,
+     *     которую через секунду выбросят.
+     */
     const p = coords
       ?? (mapCenter ? { lat: mapCenter[0], lng: mapCenter[1] } : null)
-      ?? fromRoute;
+      ?? fromRoute
+      ?? lastFix
+      ?? null;
     if (!p) {
+      if (lastFix === undefined || isLoadingRoute) {
+        return { kind: 'pending' as const, reason: 'Точка ещё не известна — подложка не выбрана.' };
+      }
       return { kind: 'leaflet' as const, reason: 'Ни фикса, ни маршрута — брать точку неоткуда.' };
     }
     return chooseFieldBaseMap(p.lat, p.lng, mapPackBaseUrl);
-  }, [coords, mapCenter, mapPackBaseUrl, track, waypoints]);
+  }, [coords, mapCenter, mapPackBaseUrl, track, waypoints, lastFix, isLoadingRoute]);
 
   /**
    * Те же линии, что у Leaflet, но в порядке GeoJSON ([lng, lat]).
@@ -3025,6 +3051,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             lines={vedarLines}
             onDiagnostic={setVedarDiag}
           />
+        ) : fieldBaseMap.kind === 'pending' ? (
+          /* Точка ещё не известна — ни одну подложку не поднимаем (см.
+             fieldBaseMap): тёмный фон на секунду вместо старой карты,
+             которую тут же сменит своя. */
+          <div style={{ height: '100dvh', background: 'var(--bg-primary)' }} />
         ) : (
           <LeafletMap
             markers={showMap ? mapMarkers : backgroundMapMarkers}
@@ -3142,9 +3173,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           <div className="flex flex-col items-center gap-2">
             {/* size=300 — дефолт компонента, рассчитанный на центр колонки
                 (прежнее место). Плавающий инструмент — бейдж, не герой
-                экрана: 110 примерно соответствует масштабу на мокапе. */}
+                экрана. 146 на живом скрине владельца 02.09 занимали 40%
+                ширины и закрывали карту — «не юзабельно». 104 — как у
+                мокапа: азимут и стрелка читаются, карта под ним видна. */}
             <FieldCompass heading={effHeading} state={effCompassState}
-              targetBearing={targetBearing} headingSource={headingSource} size={146} />
+              targetBearing={targetBearing} headingSource={headingSource} size={104} />
             {/* Лекарство — на самом приборе: кнопка в строке статуса от
                 мёртвого компаса жила в другом углу экрана, и их не связывали. */}
             {compassState === 'blocked' && (

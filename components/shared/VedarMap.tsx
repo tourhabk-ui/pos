@@ -36,6 +36,15 @@ import {
   buildVedarStyle, vedarMapPalette, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
+import { Minus, Plus } from 'lucide-react';
+/**
+ * Стили MapLibre обязательны, а не «для красоты»: именно они ставят
+ * `touch-action: none` на контейнер холста. Без них браузер оставляет
+ * щипок и протяжку себе (прокрутка страницы, ничего), и карта жестов не
+ * видит вовсе. Скрин владельца 02.09: «масштаб не меняется» — два дня
+ * своя карта была картинкой, а не картой.
+ */
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 export interface VedarMapLine {
   /** [lng, lat] — порядок GeoJSON, не Leaflet. */
@@ -504,7 +513,31 @@ export default function VedarMap({
 
   return (
     <div style={{ height, position: 'relative', background: palette.background }}>
-      <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
+      <div ref={containerRef} style={{ height: '100%', width: '100%', touchAction: 'none' }} />
+      {/* Масштаб кнопками — в дополнение к щипку, не вместо него: в перчатке
+          и на морозе щипок не всегда выходит, а «+»/«−» есть у любого
+          навигатора. Слева на середине высоты: справа сверху компас, снизу
+          лист приборов — здесь кнопки не спорят ни с чем. Действие —
+          непрозрачное (§2). */}
+      {ready && (
+        <div style={{
+          position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+          zIndex: 5, display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          {([['Приблизить', 1, Plus], ['Отдалить', -1, Minus]] as const).map(([label, dir, Icon]) => (
+            <button key={label} type="button" aria-label={label}
+              onClick={() => { const m = mapRef.current; if (!m) return; if (dir > 0) m.zoomIn(); else m.zoomOut(); }}
+              style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: 'var(--bg-card)', color: 'var(--text-primary)',
+                border: '1px solid var(--border)', display: 'grid', placeItems: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+              }}>
+              <Icon className="w-5 h-5" />
+            </button>
+          ))}
+        </div>
+      )}
       {(mapError || diag) && (
         <div role="status"
           style={{
