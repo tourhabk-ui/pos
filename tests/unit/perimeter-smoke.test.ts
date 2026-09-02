@@ -50,7 +50,7 @@ const GOOD = {
   'debug-waterfall?check=env': '404',
   'debug-waterfall': '404',
   '/api/cron/watchdog': '401',
-  '/api/safety/sos': '400',
+  '/api/safety/sos': '405',
   '/api/push/subscribe': '400',
   '/api/mcp': '200',
 };

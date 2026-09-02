@@ -66,10 +66,22 @@ row "GET  /api/ai/debug-waterfall?check=env" "401|404" \
 row "GET  /api/cron/watchdog (без секрета)" "401|403" \
   "$(code "$BASE_URL/api/cron/watchdog")"
 
-# Открытое по замыслу: Edge не должен отвечать 401. Тело пустое, поэтому
-# хендлер вправе ответить 400 — это и есть «дошли до хендлера».
-row "POST /api/safety/sos (пустое тело)" "!401" \
-  "$(code -X POST -H 'Content-Type: application/json' -d '{}' "$BASE_URL/api/safety/sos")"
+# Открытое по замыслу: Edge не должен отвечать 401.
+#
+# SOS проверяется GET'ом, а не POST'ом, — и это не мелочь. До 02.09 здесь
+# стоял `POST {}` в расчёте на 400 «пустое тело». Но приёмник SOS принимает
+# пустое тело НАМЕРЕННО (человек без спутников и без сил заполнять поля):
+# он отвечал 200, писал строку в sos_events, слал тревогу в Telegram, а
+# Watchdog с той минуты каждые полчаса требовал звонить 112. Два таких
+# сигнала за 02.09 — оба с раннера GitHub (Azure, curl/8.5.0), секунда в
+# секунду с прогонами этого workflow. Smoke-тест периметра сам был
+# источником «анонимных SOS не с Камчатки».
+#
+# GET у роута не реализован — Next отвечает 405 из самого роута, то есть
+# Edge пропустил без 401, а сигнала не возникло по построению. Сторож:
+# tests/unit/sos-no-synthetic-signal.test.ts.
+row "GET  /api/safety/sos (без сигнала)" "!401" \
+  "$(code "$BASE_URL/api/safety/sos")"
 row "POST /api/push/subscribe (пустое тело)" "!401" \
   "$(code -X POST -H 'Content-Type: application/json' -d '{}' "$BASE_URL/api/push/subscribe")"
 row "POST /api/mcp tools/list" "200" \
