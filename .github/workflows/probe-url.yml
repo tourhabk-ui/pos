@@ -208,7 +208,10 @@ jobs:
               # шаблоном тоже не ловилась (`HTTP/:`). Обрезка 300 символов
               # прятала хвост CSP — там worker-src, без которого MapLibre не
               # заводит воркер и молчит без события error.
-              grep -iE '^(HTTP/[0-9.]+ [0-9]{3}|(permissions-policy|feature-policy|content-security-policy|x-frame-options|strict-transport|server|cache-control|content-range|content-length|accept-ranges|etag|age|x-cache|x-cached|access-control-[a-z-]+):)' /tmp/headers | cut -c1-1500
+              # content-type — с 02.09: модульный воркер MapLibre браузер
+              # запускает только с JS-типом; проба показывала 200 и тело, а
+              # тип — нет, и «отдаётся» не значило «запустится».
+              grep -iE '^(HTTP/[0-9.]+ [0-9]{3}|(permissions-policy|feature-policy|content-security-policy|content-type|x-frame-options|strict-transport|server|cache-control|content-range|content-length|accept-ranges|etag|age|x-cache|x-cached|access-control-[a-z-]+):)' /tmp/headers | cut -c1-1500
             fi
             if [ -n "$GREP" ]; then
               echo "── маркеры ──"
