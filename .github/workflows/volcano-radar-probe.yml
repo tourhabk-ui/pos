@@ -1,0 +1,67 @@
+name: Проба — вулканы на радаре
+
+# Одноразовая проба после мержа #1497. Ветка временная, в main не идёт.
+#
+# Порядок такой, а не «подождать N минут»:
+#
+# 1. Признак деплоя — не таймер, а СЛЕД в данных: миграция 927 переименовывает
+#    «Вулкан Крашенникова» в «Вулкан Крашенинникова». Пока имя старое, новый
+#    образ не поднялся, и запускать синк рано. Таймер сказал бы «прошло 10
+#    минут» — это факт о часах, а не о проде.
+# 2. Только после следа — синк KVERT, и печатается ВЕСЬ ответ: matched,
+#    причины отказа поимённо, размер указателя каталога.
+# 3. Отдельно — сверка радара: сколько опасных кодов осталось без привязки.
+
+on:
+  push:
+    branches: [volcano-radar-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Дождаться деплоя по следу миграции 927
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET не задан"; exit 1; fi
+          for i in $(seq 1 40); do
+            HTTP=$(curl -s -G -o /tmp/k.json -w "%{http_code}" --max-time 30 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              --data-urlencode "q=Крашен" \
+              "https://vedarai.ru/api/cron/place-audit" || echo 000)
+            NAMES=$(python3 -c "
+import json,sys
+try: d=json.load(open('/tmp/k.json'))
+except Exception: sys.exit(0)
+for p in d.get('places',[]): print(p.get('name'))
+" 2>/dev/null)
+            echo "попытка $i · HTTP $HTTP · найдено: ${NAMES:-—}"
+            if printf '%s' "$NAMES" | grep -q 'Крашенинникова'; then
+              echo "МИГРАЦИЯ 927 ПРИМЕНЕНА — имя исправлено"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "за 20 минут имя не изменилось: деплой не дошёл или миграция не применилась"
+          exit 1
+
+      - name: Синк KVERT — привязка вулканов к точкам
+        run: |
+          HTTP=$(curl -s -o /tmp/kvert.json -w "%{http_code}" --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/kvert-acc" || echo 000)
+          echo "HTTP: $HTTP"
+          python3 -m json.tool /tmp/kvert.json 2>/dev/null || cat /tmp/kvert.json
+          [ "$HTTP" = "200" ] || exit 1
+
+      - name: Радар — остались ли опасные коды без точки
+        run: |
+          HTTP=$(curl -s -o /tmp/r.json -w "%{http_code}" --max-time 60 \
+            "https://vedarai.ru/api/public/safety-status" || echo 000)
+          echo "safety-status HTTP: $HTTP"
+          head -c 2000 /tmp/r.json; echo
