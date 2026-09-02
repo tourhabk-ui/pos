@@ -472,7 +472,12 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
     || (a.ashHeightM ?? 0) - (b.ashHeightM ?? 0)
     || a.name.localeCompare(b.name, 'ru'));
   const top = bars[bars.length - 1];
-  const elevated = items.filter((v) => (ACC_ORDER[v.acc] ?? 0) >= 1).length;
+  // Повышенные — поимённо, а не счётом (владелец 02.09, увидев пульс:
+  // «только Шивелуч?»). В шапке крупно только самый активный, остальные
+  // читались лишь по тапу — а вопрос «кто ещё» должен отвечаться сразу.
+  const elevated = [...items]
+    .filter((v) => (ACC_ORDER[v.acc] ?? 0) >= 1)
+    .sort((a, b) => (ACC_ORDER[b.acc] ?? 0) - (ACC_ORDER[a.acc] ?? 0) || a.name.localeCompare(b.name, 'ru'));
   const selected = sel != null ? bars[sel] : null;
   const ageOf = (v: PulseVolcano) => {
     const d = volcanoObservationAgeDays(v.observedAt);
@@ -507,7 +512,12 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
         </a>
       ) : (
         <div className="psum">
-          под наблюдением {items.length} · повышенный код у {elevated}
+          под наблюдением {items.length}
+          {elevated.length > 0
+            ? ` · повышенный код у ${elevated.length}: ${elevated
+                .map((v) => `${v.name.replace(/^Вулкан\s+/i, '')} (${meta(v.acc).short.toLowerCase()})`)
+                .join(', ')}`
+            : ' · повышенных кодов нет'}
           {staleAny ? ` · часть наблюдений старше ${VOLCANO_STALE_DAYS} дн — сверьте на KVERT` : ''}
           {degraded ? ' · показано не всё' : ''}
         </div>
