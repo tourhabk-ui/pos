@@ -67,7 +67,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          RESP=$(curl -s --max-time 60 "https://vedarai.ru/api/cron/dem-elevations?secret=${CRON_SECRET}&mode=probe")
+          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 60 "https://vedarai.ru/api/cron/dem-elevations?mode=probe")
           echo "$RESP" | python3 -c "
           import json,sys
           d=json.load(sys.stdin)
@@ -87,7 +87,7 @@ jobs:
           TOTAL=0
           for i in $(seq 1 25); do
             echo "── Партия $i ──"
-            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/dem-elevations?secret=${CRON_SECRET}&limit=${LIMIT}")
+            RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 180 "https://vedarai.ru/api/cron/dem-elevations?limit=${LIMIT}")
             # Ответ не JSON — это страница ошибки от шлюза, а не сбой разбора.
             # Питоновский traceback на это место скрывал причину: прогон 09.08
             # выглядел упавшим парсером, хотя упёрся в таймаут перед приложением.
@@ -131,5 +131,5 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -s --max-time 60 "https://vedarai.ru/api/cron/relief-coverage?secret=${CRON_SECRET}" | head -c 2000
+          curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 60 "https://vedarai.ru/api/cron/relief-coverage" | head -c 2000
           echo ""

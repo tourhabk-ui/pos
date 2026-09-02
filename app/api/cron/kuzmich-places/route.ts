@@ -8,18 +8,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { runKuzmichPlaceEnricher } from '@/lib/agents/kuzmich-place-enricher';
 
 export async function GET(request: NextRequest) {
-  const secret = request.headers.get('authorization')?.replace('Bearer ', '');
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret) {
+  if (!process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  if (!timingSafeCompare(secret, cronSecret)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Общий хелпер вместо разбора заголовка руками (сторож
+  // api-guard-before-action, 01.09): одно место читает секрет, одно сравнивает.
+  if (!verifyCronSecret(request)) {
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
 
   try {

@@ -22,7 +22,7 @@ jobs:
           BASE: https://vedarai.ru
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
-          curl -s --max-time 240 "$BASE/api/ai/debug-waterfall?secret=$CRON_SECRET" \
+          curl -H "Authorization: Bearer $CRON_SECRET" -s --max-time 240 "$BASE/api/ai/debug-waterfall" \
             | python3 -m json.tool --no-ensure-ascii || true
 
       # E2E: живой путь пользователя (виджет → /api/ai/chat → waterfall).
