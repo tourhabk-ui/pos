@@ -171,21 +171,25 @@ export function packFileName(url: string): string {
  *
  * Отсюда три разных исхода вместо одного (§4.0): «карта не поднялась»,
  * «слой не пришёл» и «не смог назвать источник» — у каждого свои слова.
+ * Плюс отдельная пометка о повторе: «качаем заново» — это не тот же исход,
+ * что «не пришло и не придёт», и ждать человек в этих случаях будет разное.
  */
 export function mapErrorText(input: {
   message?: string;
   sourceId?: string;
   file?: string;
   mapLoaded: boolean;
+  retrying?: boolean;
 }): string {
   const detail = input.message ? input.message.slice(0, 160) : 'неизвестная ошибка';
   // Имя источника — запасной ответ, когда адрес файла не нашёлся: он всё
   // равно называет слой («osm-paths»), а «не знаю» здесь было бы шагом
   // назад к безымянной строке из поля.
   const where = input.file ? packFileName(input.file) : input.sourceId;
-  if (input.mapLoaded && where) return `Слой карты не пришёл — ${where}: ${detail}`;
-  if (where) return `Своя карта не отрисовалась — ${where}: ${detail}`;
-  return `Своя карта не отрисовалась: ${detail}`;
+  const tail = input.retrying ? ' — качаем заново' : '';
+  if (input.mapLoaded && where) return `Слой карты не пришёл — ${where}: ${detail}${tail}`;
+  if (where) return `Своя карта не отрисовалась — ${where}: ${detail}${tail}`;
+  return `Своя карта не отрисовалась: ${detail}${tail}`;
 }
 
 /**
@@ -420,6 +424,33 @@ export default function VedarMap({
           }
           if (ev.sourceId === 'contours' && ev.isSourceLoaded) seen.contours += 1;
         });
+
+        /**
+         * Источник, оборвавшийся на полпути, — и повтор ровно один раз.
+         *
+         * Перепись хранилища 02.09 с раннера: все 90 файлов пакетов целы,
+         * 118 МБ скачаны и разобраны за 26 секунд. Значит GeoJSON рвался НЕ
+         * в бакете, а по дороге на телефон: мобильный канал обрывает тело, и
+         * MapLibre получает половину массива — отсюда «Expected ',' or ']'»
+         * на позиции, равной длине пришедшего текста.
+         *
+         * Своего повтора у geojson-источника нет: один отказ — и слой мёртв
+         * до пересоздания карты. `setData(url)` заказывает файл заново.
+         * Повтор строго ОДИН на источник за жизнь карты: на глухом канале
+         * бесконечные попытки съедали бы батарею и трафик там, где их
+         * меньше всего можно тратить.
+         */
+        const retriedSources = new Set<string>();
+        let awaitingRetry: string | null = null;
+        map.on('sourcedata', (e) => {
+          const ev = e as { sourceId?: string; isSourceLoaded?: boolean };
+          // Слой, о котором мы сказали «не пришёл», всё-таки пришёл —
+          // сообщение снимается: жалоба на живой слой хуже молчания.
+          if (awaitingRetry && ev.sourceId === awaitingRetry && ev.isSourceLoaded) {
+            awaitingRetry = null;
+            if (!cancelled) setMapError(null);
+          }
+        });
         // Запрошено — отдельно от пришло. Ноль запросов значит, что источник
         // не получил TileJSON (протокол PMTiles не ответил); запросы есть, а
         // пришедших нет — тайлы не декодируются (воркер). Две разные беды.
@@ -497,14 +528,35 @@ export default function VedarMap({
           if (cancelled) return;
           const msg = (e?.error as Error | undefined)?.message;
           const sourceId = (e as { sourceId?: string } | undefined)?.sourceId;
+          const file = sourceId ? fileBySourceRef.current[sourceId] : undefined;
+
+          // Первый обрыв — заказываем файл заново и говорим об этом. Молча
+          // повторять нельзя: человек в поле должен понимать, почему часть
+          // карты пуста прямо сейчас.
+          let retrying = false;
+          if (sourceId && file && !retriedSources.has(sourceId)) {
+            const src = map.getSource(sourceId) as GeoJSONSource | undefined;
+            if (src && typeof src.setData === 'function') {
+              retriedSources.add(sourceId);
+              awaitingRetry = sourceId;
+              retrying = true;
+              try { src.setData(file); } catch (err) {
+                retrying = false;
+                awaitingRetry = null;
+                console.error('[VedarMap] повтор источника не удался', sourceId, err);
+              }
+            }
+          }
+
           setMapError(mapErrorText({
             message: msg,
             sourceId,
-            file: sourceId ? fileBySourceRef.current[sourceId] : undefined,
+            file,
             // Карта уже поднялась — значит упал ОДИН слой, а не карта.
             // Скрин 02.09 говорил «карта не отрисовалась» ровно тогда,
             // когда рельеф был на месте: это разные беды и разные слова.
             mapLoaded: loaded,
+            retrying,
           }));
         });
       } catch (err) {

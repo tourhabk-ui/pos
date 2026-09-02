@@ -96,6 +96,45 @@ describe('текст отказа карты: три разные беды — �
   it('ошибка без текста не превращается в пустую строку', () => {
     expect(mapErrorText({ mapLoaded: false })).toBe('Своя карта не отрисовалась: неизвестная ошибка');
   });
+
+  it('повтор назван словами: «качаем заново» — это не «не придёт»', () => {
+    const out = mapErrorText({
+      message: 'Unexpected end of JSON input',
+      sourceId: 'osm-wood',
+      file: 'https://s3.example.ru/b/map-packs/kronotsky.osm.wood.geojson',
+      mapLoaded: true,
+      retrying: true,
+    });
+    expect(out).toMatch(/ — качаем заново$/);
+  });
+});
+
+describe('оборванный слой заказывается заново — ровно один раз', () => {
+  /**
+   * Перепись хранилища с раннера 02.09: все 90 файлов целы (118 МБ скачаны и
+   * разобраны). Значит GeoJSON рвался по дороге на телефон, а своего повтора
+   * у geojson-источника нет: один обрыв — и слой мёртв до пересоздания карты.
+   */
+  const SRC = readFileSync(join(process.cwd(), 'components/shared/VedarMap.tsx'), 'utf-8');
+
+  it('повтор заказывается setData по тому же адресу', () => {
+    expect(SRC).toMatch(/src\.setData\(file\)/);
+  });
+
+  it('повтор ровно один на источник — бесконечные попытки на глухом канале жгут батарею', () => {
+    expect(SRC).toMatch(/const retriedSources = new Set<string>\(\)/);
+    expect(SRC).toMatch(/!retriedSources\.has\(sourceId\)/);
+    expect(SRC).toMatch(/retriedSources\.add\(sourceId\)/);
+  });
+
+  it('удавшийся повтор снимает сообщение: жалоба на живой слой хуже молчания', () => {
+    expect(SRC).toMatch(/map\.on\('sourcedata'/);
+    expect(SRC).toMatch(/awaitingRetry && ev\.sourceId === awaitingRetry && ev\.isSourceLoaded/);
+  });
+
+  it('отказ самого повтора не глушится', () => {
+    expect(SRC).toMatch(/повтор источника не удался/);
+  });
 });
 
 describe('VedarMap: индекс имён строится из стиля и пополняется соседями', () => {
