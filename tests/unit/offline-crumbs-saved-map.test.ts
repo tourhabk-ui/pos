@@ -174,7 +174,12 @@ describe('экран «На маршруте» пользуется этим', (
 
   it('след рисуется отдельной линией, а не подмешивается к маршруту', () => {
     // Маршрут — куда идти, след — где человек был. Возвращаются по второму.
-    expect(SCREEN).toMatch(/title: 'Ваш след'/);
+    // Имя следа — константа стандарта линий (02.09): по нему MapLibre
+    // отличает след от трека; на своей карте без этого он лёг толстым
+    // зелёным «маршрутом». Само имя по-прежнему прибито — здесь.
+    expect(SCREEN).toMatch(/title: TRAIL_TITLE/);
+    const STANDARD = readFileSync(join(process.cwd(), 'lib/map/line-standard.ts'), 'utf-8');
+    expect(STANDARD).toMatch(/export const TRAIL_TITLE = 'Ваш след'/);
     expect(SCREEN).toMatch(/crumbs\.map\(c => \[c\.lat, c\.lng\]/);
   });
 
