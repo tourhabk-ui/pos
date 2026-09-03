@@ -44,11 +44,17 @@ const GATEWAYS: Readonly<Record<string, string>> = {
 };
 
 export type PathOutcome =
-  | 'open'          // 200: дошли и ответили
-  | 'open_no_key'   // 401: дошли до Anthropic, ключ прода отсутствует или не тот
-  | 'blocked'       // 403: отказ по политике (гео-блок и подобное)
-  | 'http'          // иной HTTP-код
-  | 'unreachable';  // сетевой отказ — «не смог», а не «заблокирован»
+  | 'open'            // 200: дошли и ответили
+  | 'open_no_key'     // 401: дошли до Anthropic, ключ прода отсутствует или не тот
+  | 'open_key_refused'// 4xx с ответом формы Anthropic (400 «credit balance too low» и т.п.): дошли, ключ отвергнут
+  | 'blocked'         // 403: отказ по политике (гео-блок и подобное)
+  | 'http'            // иной HTTP-код или чужой ответ
+  | 'unreachable';    // сетевой отказ — «не смог», а не «заблокирован»
+
+/** Ответ САМОГО Anthropic (а не прокси или блокировщика) узнаётся по форме. */
+export function isAnthropicErrorBody(body: string): boolean {
+  return /"type"\s*:\s*"error"/.test(body);
+}
 
 export interface PathProbe {
   base: string;
@@ -72,12 +78,22 @@ export function gatewayBase(accountRaw: string | null, gatewayRaw: string | null
   return new URL(`/v1/${account}/${gateway}/anthropic`, GATEWAY_HOST).toString().replace(/\/+$/, '');
 }
 
-export function classify(status: number): PathOutcome {
+/**
+ * Дошли ли до Anthropic — по ФОРМЕ ответа, не только по коду. Замер run 1
+ * (03.09): с раннера через шлюз пришёл HTTP 400 «credit balance is too
+ * low» — это ответ самого Anthropic, то есть путь есть, а ключ пуст. Считать
+ * такое «не дошли» значило бы путать беду пути с бедой ключа.
+ */
+export function classify(status: number, body: string): PathOutcome {
   if (status >= 200 && status < 300) return 'open';
   if (status === 401) return 'open_no_key';
   if (status === 403) return 'blocked';
+  if (status >= 400 && status < 500 && isAnthropicErrorBody(body)) return 'open_key_refused';
   return 'http';
 }
+
+/** Исходы, при которых до Anthropic ДОШЛИ — путь открыт, что бы ни было с ключом. */
+export const OPEN_OUTCOMES: ReadonlySet<PathOutcome> = new Set(['open', 'open_no_key', 'open_key_refused']);
 
 async function probeOne(base: string, apiKey: string | null): Promise<PathProbe> {
   const url = `${base}/v1/messages`;
@@ -102,7 +118,7 @@ async function probeOne(base: string, apiKey: string | null): Promise<PathProbe>
     const body = await res.text().catch(() => '');
     return {
       base,
-      outcome: classify(res.status),
+      outcome: classify(res.status, body),
       status: res.status,
       latency_ms: Date.now() - started,
       detail: res.ok ? null : body.slice(0, 160),
@@ -144,7 +160,7 @@ export async function GET(request: NextRequest) {
     results.push(await probeOne(base, apiKey));
   }
 
-  const open = results.filter((r) => r.outcome === 'open' || r.outcome === 'open_no_key');
+  const open = results.filter((r) => OPEN_OUTCOMES.has(r.outcome));
   return NextResponse.json({
     ok: true,
     place: 'prod',

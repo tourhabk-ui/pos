@@ -101,8 +101,17 @@ jobs:
             "$BASE/v1/messages")
           echo "Раннер → шлюз → Anthropic: HTTP $CODE"
           head -c 300 /tmp/runner.json; echo
-          if [ "$CODE" != "200" ]; then
-            echo "::error::Шлюз с раннера не довёл до Anthropic — дальше мерить нечего: сломан шлюз или ключ, а не гео-путь."
+          # Дошли ли до Anthropic — по ФОРМЕ ответа, а не по коду. Run 1:
+          # HTTP 400 «credit balance is too low» — это ответ самого Anthropic,
+          # значит шлюз довёл; пустой баланс ключа — другая беда, не про путь.
+          # Провал шага — только когда ответ не от Anthropic (5xx, сеть, чужой
+          # текст) или 403 (политика/гео).
+          if [ "$CODE" = "200" ]; then
+            echo "Дошли, ключ жив."
+          elif [ "$CODE" != "403" ] && grep -q '"type":"error"' /tmp/runner.json; then
+            echo "::warning::Дошли до Anthropic (HTTP $CODE, ответ формы Anthropic) — путь через шлюз есть; ключ отвечает отказом: см. тело выше."
+          else
+            echo "::error::Шлюз с раннера не довёл до Anthropic (HTTP $CODE) — дальше мерить нечего: сломан шлюз, а не гео-путь."
             exit 1
           fi
 
