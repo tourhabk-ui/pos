@@ -242,7 +242,12 @@ export default {
         const target = parseHttpsUrl(raw);
         if (!target) { report[raw] = 'отказ: не https-адрес'; continue; }
         const r = await grab(target.toString());
-        report[raw] = r.ok ? `${r.bytes} байт` : `отказ: ${r.error}`;
+        // Размер сам по себе не говорит, лента это или страница: два адреса
+        // openai.com отдали по 706 КБ каждый (run 3), и по размеру не понять,
+        // RSS ли это или HTML сайта. Признак ленты — корневой тег.
+        report[raw] = r.ok
+          ? `${r.bytes} байт, ${/<(rss|feed)[\s>]/i.test(r.text.slice(0, 4000)) ? 'лента' : 'не лента (HTML или иное)'}`
+          : `отказ: ${r.error}`;
       }
       return new Response(JSON.stringify({ census: report }, null, 2), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
