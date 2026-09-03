@@ -92,6 +92,9 @@ export const OSM_LAYERS = [
   // 02.09, после осмотра карты владельцем: имён на карте не было ни одного.
   // Посёлок — ориентир обзорного вида, приют и перевал — решения поля.
   'places', 'shelters', 'passes',
+  // 02.09, «от этого зависят жизни людей»: стланик и болото — непроходимость,
+  // обрыв, брод и источник (горячий — ожог) — факты, по которым ступают.
+  'scrub', 'wetland', 'sand', 'rock', 'residential', 'cliffs', 'fords', 'springs',
 ] as const;
 export type OsmLayer = typeof OSM_LAYERS[number];
 

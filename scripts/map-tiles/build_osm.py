@@ -77,7 +77,14 @@ OSM_ATTRIBUTION = '© OpenStreetMap contributors'
 LAYERS = (
     'water', 'waterways', 'wood', 'glacier', 'paths', 'roads', 'peaks',
     'places', 'shelters', 'passes',
+    # Покрытия и опасности (02.09): стланик, болота, песок и галька, скалы
+    # и осыпи, застройка — полигоны; обрывы — линии; броды и источники —
+    # точки. Горячий источник несёт kind hot_spring.
+    'scrub', 'wetland', 'sand', 'rock', 'residential', 'cliffs', 'fords', 'springs',
 )
+# Слои второго клеточного запроса (landcover_query) — для проверки полноты
+# в сторожах; в кэше лежат под своим префиксом.
+LANDCOVER_LAYERS = ('scrub', 'wetland', 'sand', 'rock', 'residential', 'cliffs', 'fords', 'springs')
 PATH_HIGHWAYS = {'path', 'track', 'footway', 'bridleway'}
 ROAD_HIGHWAYS = {
     'service', 'residential', 'unclassified', 'tertiary', 'secondary',
@@ -88,7 +95,8 @@ ROAD_HIGHWAYS = {
 PLACE_KINDS = {'city', 'town', 'village', 'hamlet'}
 SHELTER_TOURISM = {'alpine_hut', 'wilderness_hut'}
 # Слои, которые на карте — символ, а не фигура. Контур сводится к точке.
-POINT_LAYERS = {'peaks', 'places', 'shelters', 'passes'}
+# Брод, размеченный отрезком дороги, и источник контуром — тоже символ.
+POINT_LAYERS = {'peaks', 'places', 'shelters', 'passes', 'fords', 'springs'}
 
 
 def tile_minzoom(layer: str, tags: dict) -> int:
@@ -108,6 +116,12 @@ def tile_minzoom(layer: str, tags: dict) -> int:
         return 8 if tags.get('highway') in ('primary', 'trunk', 'secondary') else 10
     if layer == 'paths':
         return 11
+    # Покрытия — с того же зума, что лес: они того же рода.
+    if layer in ('scrub', 'wetland', 'sand', 'rock', 'residential'):
+        return 9
+    # Опасности — раньше троп: обрыв виден до того, как к нему подойдут.
+    if layer in ('cliffs', 'fords', 'springs'):
+        return 10
     return 10
 
 
@@ -256,17 +270,23 @@ def fetch_overpass(query: str, url: str, cache_path: str) -> dict:
     raise RuntimeError(f'Overpass не ответил после {1 + len(RETRY_DELAYS_S)} попыток: {last_err}')
 
 
-def fetch_cell_adaptive(cell, url: str, cache_dir: str, depth: int = 0) -> list:
+def fetch_cell_adaptive(cell, url: str, cache_dir: str, depth: int = 0,
+                        query_fn=None, prefix: str = 'overpass') -> list:
     """Клетка целиком, а при отказе всех попыток — четвертями, рекурсивно.
 
     Прогон 9 (02.09): клетки 0.5° отдавали по 80 тысяч элементов, и седьмая
     легла на всех трёх узлах. Дробление — не «попробовать ещё раз», а
     уменьшение запроса вчетверо; ниже MIN_CELL_DEG отказ честно всплывает.
     """
-    cache_path = os.path.join(cache_dir, f'overpass_{"_".join(str(v) for v in cell)}.json')
+    # `query_fn`/`prefix` — какой вопрос задавать и под каким именем класть
+    # ответ. Имя файла кэша обязано отличать вопросы: тот же ключ для другого
+    # запроса вернул бы ответ на прежний (урок символов, 02.09). У тяжёлого
+    # запроса геометрии имя прежнее — его кэш от прогонов 20-29 верен.
+    query_fn = query_fn or overpass_query
+    cache_path = os.path.join(cache_dir, f'{prefix}_{"_".join(str(v) for v in cell)}.json')
     indent = '  ' * (depth + 1)
     try:
-        data = fetch_overpass(overpass_query(cell), url, cache_path)
+        data = fetch_overpass(query_fn(cell), url, cache_path)
         return data.get('elements', [])
     except RuntimeError as e:
         w, s_, e_, n = cell
@@ -278,8 +298,40 @@ def fetch_cell_adaptive(cell, url: str, cache_dir: str, depth: int = 0) -> list:
         for sub in split_bbox(cell, size / 2):
             print(f'{indent}  подклетка {sub}', flush=True)
             time.sleep(CELL_PAUSE_S)
-            out.extend(fetch_cell_adaptive(sub, url, cache_dir, depth + 1))
+            out.extend(fetch_cell_adaptive(sub, url, cache_dir, depth + 1, query_fn, prefix))
         return out
+
+
+def landcover_query(bbox) -> str:
+    """Покрытия и опасности — второй клеточный запрос (02.09, «от этого
+    зависят жизни людей»).
+
+    Стланик на Камчатке — не декорация, а непроходимость: кедровый и
+    ольховый стланик сжирает километр в час. Болото — то же. Обрыв, брод и
+    источник (особенно горячий) — факты, по которым в поле решают, куда
+    ступать. Ничего из этого на карте не было.
+
+    Отдельным запросом — по тем же двум причинам, что и символы: кэш
+    тяжёлой геометрии ключуется координатами и остаётся верным, а стланик
+    на 2° bbox одним запросом узел не отдаст — поэтому клетки.
+    """
+    west, south, east, north = bbox
+    bb = f'{south},{west},{north},{east}'
+    return f"""
+[out:json][timeout:240];
+(
+  way["natural"~"^(scrub|wetland|sand|beach|bare_rock|scree|shingle|cliff|spring|hot_spring)$"]({bb});
+  relation["natural"~"^(scrub|wetland|sand|beach|bare_rock|scree|shingle)$"]({bb});
+  way["landuse"="residential"]({bb});
+  relation["landuse"="residential"]({bb});
+  node["natural"~"^(spring|hot_spring)$"]({bb});
+  node["ford"="yes"]({bb});
+  way["ford"="yes"]({bb});
+);
+out body;
+>;
+out skel qt;
+"""
 
 
 def fetch_symbols(bbox, url: str, cache_dir: str) -> list:
@@ -296,11 +348,11 @@ def fetch_symbols(bbox, url: str, cache_dir: str) -> list:
     return els
 
 
-def fetch_overpass_cells(bbox, url: str, cache_dir: str) -> dict:
+def fetch_overpass_cells(bbox, url: str, cache_dir: str, query_fn=None, prefix: str = 'overpass') -> dict:
     """Район по клеткам; элементы сливаются по (type, id) — объект на стыке
     клеток приходит дважды, и второй экземпляр отбрасывается."""
     cells = split_bbox(bbox)
-    print(f'клеток Overpass: {len(cells)} (по {CELL_DEG}°)', flush=True)
+    print(f'клеток Overpass ({prefix}): {len(cells)} (по {CELL_DEG}°)', flush=True)
     seen: set = set()
     elements: list = []
     for i, cell in enumerate(cells, 1):
@@ -308,7 +360,7 @@ def fetch_overpass_cells(bbox, url: str, cache_dir: str) -> dict:
         if i > 1:
             time.sleep(CELL_PAUSE_S)
         n = 0
-        for el in fetch_cell_adaptive(cell, url, cache_dir):
+        for el in fetch_cell_adaptive(cell, url, cache_dir, 0, query_fn, prefix):
             key = (el.get('type'), el.get('id'))
             if key in seen:
                 continue
@@ -333,6 +385,12 @@ def classify_symbol(tags: dict) -> str | None:
         return 'passes'
     if tags.get('place') in PLACE_KINDS and tags.get('name'):
         return 'places'
+    # Источник — и холодный, и горячий: оба — вода и ориентир; горячий ещё
+    # и ожог. Брод — отдельный факт на дороге, а не сама дорога.
+    if tags.get('natural') in ('spring', 'hot_spring'):
+        return 'springs'
+    if tags.get('ford') == 'yes':
+        return 'fords'
     return None
 
 
@@ -340,20 +398,37 @@ def classify(tags: dict, geom_type: str) -> str | None:
     """Слой по тегам и геометрии. None — не наш элемент (напр. служебный узел)."""
     if geom_type == 'Point':
         return classify_symbol(tags)
+    natural = tags.get('natural')
     if geom_type in ('Polygon', 'MultiPolygon'):
         # Приют, размеченный контуром здания, — тот же приют. Проверяется до
         # заливок: у домика в лесу может стоять и landuse.
         symbol = classify_symbol(tags)
         if symbol is not None:
             return symbol
-        if tags.get('natural') == 'water':
+        if natural == 'water':
             return 'water'
-        if tags.get('natural') == 'wood' or tags.get('landuse') == 'forest':
+        if natural == 'wood' or tags.get('landuse') == 'forest':
             return 'wood'
-        if tags.get('natural') == 'glacier':
+        if natural == 'glacier':
             return 'glacier'
+        if natural == 'scrub':
+            return 'scrub'
+        if natural == 'wetland':
+            return 'wetland'
+        if natural in ('sand', 'beach', 'shingle'):
+            return 'sand'
+        if natural in ('bare_rock', 'scree'):
+            return 'rock'
+        if tags.get('landuse') == 'residential':
+            return 'residential'
         return None
     if geom_type in ('LineString', 'MultiLineString'):
+        # Брод отрезком дороги — символ (POINT_LAYERS сведёт к точке), а не
+        # кусок дороги: сама дорога придёт из тяжёлого запроса своим way.
+        if tags.get('ford') == 'yes' and tags.get('highway') is None:
+            return 'fords'
+        if natural == 'cliff':
+            return 'cliffs'
         if tags.get('waterway') in ('river', 'stream', 'canal'):
             return 'waterways'
         hw = tags.get('highway')
@@ -368,7 +443,9 @@ def classify(tags: dict, geom_type: str) -> str | None:
 def slim_properties(tags: dict, layer: str) -> dict:
     """Только то, что читает карта. Остальное — вес без пользы."""
     out: dict = {'kind': (
-        tags.get('highway') or tags.get('waterway') or tags.get('place')
+        # Брод — прежде дороги: у брода на просёлке kind обязан быть «ford».
+        ('ford' if tags.get('ford') == 'yes' and layer == 'fords' else None)
+        or tags.get('highway') or tags.get('waterway') or tags.get('place')
         or tags.get('tourism') or tags.get('amenity')
         or tags.get('natural') or tags.get('landuse') or layer
     )}
@@ -411,15 +488,25 @@ def main() -> int:
     # Символы — вторым запросом, на весь район (см. symbols_query). Слияние
     # по (type, id): узел приюта мог прийти и с геометрией как член way.
     seen = {(el.get('type'), el.get('id')) for el in elements}
-    added = 0
-    for el in fetch_symbols(bbox, args.overpass, args.cache):
-        key = (el.get('type'), el.get('id'))
-        if key in seen:
-            continue
-        seen.add(key)
-        elements.append(el)
-        added += 1
-    print(f'символов добавлено: {added}, всего элементов: {len(elements)}')
+
+    def merge(extra: list, label: str) -> None:
+        added = 0
+        for el in extra:
+            key = (el.get('type'), el.get('id'))
+            if key in seen:
+                continue
+            seen.add(key)
+            elements.append(el)
+            added += 1
+        print(f'{label} добавлено: {added}, всего элементов: {len(elements)}')
+
+    merge(fetch_symbols(bbox, args.overpass, args.cache), 'символов')
+    # Покрытия и опасности — третьим запросом, по клеткам, под своим именем
+    # кэша с отпечатком запроса (см. landcover_query и урок символов).
+    lc_sig = hashlib.sha1(landcover_query((0, 0, 1, 1)).encode('utf-8')).hexdigest()[:8]
+    merge(fetch_overpass_cells(bbox, args.overpass, args.cache,
+                               query_fn=landcover_query, prefix=f'landcover_{lc_sig}').get('elements', []),
+          'покрытий и опасностей')
     data = {'elements': elements}
 
     fc = osm2geojson.json2geojson(data)

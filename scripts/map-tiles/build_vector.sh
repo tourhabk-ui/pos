@@ -32,7 +32,7 @@ OUT="${2:?out.pmtiles}"
 
 command -v tippecanoe >/dev/null || { echo "tippecanoe не установлен" >&2; exit 1; }
 
-LAYERS=(water waterways wood glacier paths roads peaks places shelters passes)
+LAYERS=(water waterways wood glacier paths roads peaks places shelters passes scrub wetland sand rock residential cliffs fords springs)
 ARGS=(-L "contours:${PREFIX}.contours.geojson")
 if [ -s "${PREFIX}.contours-fine.geojson" ]; then
   ARGS+=(-L "contours_fine:${PREFIX}.contours-fine.geojson")

@@ -93,6 +93,20 @@ interface MapPalette {
    * дельта на нуле высоты тоже выйдет водой.
    */
   relief: ReadonlyArray<readonly [number, string]>;
+  /**
+   * Покрытия и опасности (02.09, «от этого зависят жизни людей»). Стланик и
+   * болото — непроходимость, их заливки читаются как «тут тяжело», не как
+   * декор. Обрыв — линия цвета тревоги, брод — вода, источник — вода,
+   * горячий источник — акцент: там ожог.
+   */
+  scrub: string;
+  wetland: string;
+  sand: string;
+  rock: string;
+  residential: string;
+  cliff: string;
+  spring: string;
+  hotSpring: string;
 }
 
 const PALETTES: Record<VedarMapTheme, MapPalette> = {
@@ -148,6 +162,14 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
       [3300, '#7E7C78'],
       [4800, '#A6A9AD'],
     ],
+    scrub: '#2C3A22',
+    wetland: '#1C3538',
+    sand: '#403B2A',
+    rock: '#41444A',
+    residential: '#332D2C',
+    cliff: '#D2704A',
+    spring: '#5FB3D6',
+    hotSpring: '#E8734A',   // --accent dark
   },
   // Светлая — не «инверсия ради галочки». Тёмная карта под прямым солнцем
   // читается хуже: запись платформы дважды говорит, что слабый сигнал на
@@ -195,6 +217,14 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
       [3300, '#C9C6C2'],
       [4800, '#F4F4F4'],
     ],
+    scrub: '#D9E0BE',
+    wetland: '#C6DDD8',
+    sand: '#F0E6C4',
+    rock: '#D6D3CD',
+    residential: '#E6DAD2',
+    cliff: '#9B4A26',
+    spring: '#2F6F95',
+    hotSpring: '#D44A0C',   // --accent light
   },
 };
 
@@ -245,7 +275,8 @@ export interface VedarStyleSources {
 
 export type OsmLayer =
   | 'water' | 'waterways' | 'wood' | 'glacier' | 'paths' | 'roads' | 'peaks'
-  | 'places' | 'shelters' | 'passes';
+  | 'places' | 'shelters' | 'passes'
+  | 'scrub' | 'wetland' | 'sand' | 'rock' | 'residential' | 'cliffs' | 'fords' | 'springs';
 const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
 
 /** Куда слой смотрит: geojson-источник по слою или source-layer векторного пакета. */
@@ -668,6 +699,23 @@ function osmSources(urls: VedarStyleSources['osmUrls'], ns: string): Record<stri
 
 function osmFillLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
   const out: unknown[] = [];
+  // Покрытия — под лесом: лес в OSM часто лежит поверх стланика тем же
+  // контуром, и лес честнее. Застройка — ниже всех: она самая грубая.
+  const fills: Array<[OsmLayer, string, number]> = [
+    ['residential', p.residential, 0.45],
+    ['rock', p.rock, 0.45],
+    ['sand', p.sand, 0.5],
+    ['scrub', p.scrub, 0.45],
+    ['wetland', p.wetland, 0.5],
+  ];
+  for (const [layer, color, opacity] of fills) {
+    const ref = r.osm(layer);
+    if (!ref) continue;
+    out.push({
+      id: `osm-${layer}${ns}`, type: 'fill', ...ref,
+      paint: { 'fill-color': color, 'fill-opacity': opacity },
+    });
+  }
   const wood = r.osm('wood');
   if (wood) {
     out.push({
@@ -748,6 +796,21 @@ function osmLineLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
         // обещает ведения (§12). Сплошная тёплая линия читалась бы как путь.
         'line-dasharray': [3, 2],
         'line-opacity': 0.9,
+      },
+    });
+  }
+  const cliffs = r.osm('cliffs');
+  if (cliffs) {
+    // Обрыв — линия цвета тревоги, ПОВЕРХ троп: подойти к нему по тропе
+    // можно, и линия обязана быть видна раньше, чем край под ногами.
+    out.push({
+      id: `osm-cliffs${ns}`, type: 'line', ...cliffs,
+      minzoom: 11,
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': p.cliff,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.2, 14, 2.4],
+        'line-opacity': 0.95,
       },
     });
   }
@@ -855,6 +918,35 @@ function osmShelterPassLayers(
   const out: unknown[] = [];
   const passes = r.osm('passes');
   const shelters = r.osm('shelters');
+  const fords = r.osm('fords');
+  const springs = r.osm('springs');
+  if (fords) {
+    // Брод — точка цвета воды с широкой кромкой: на реке она читается как
+    // «здесь переходят», не как ещё один изгиб русла.
+    out.push({
+      id: `osm-fords${ns}`, type: 'circle', ...fords,
+      minzoom: 10,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4.5],
+        'circle-color': p.waterway,
+        'circle-stroke-color': p.background,
+        'circle-stroke-width': 2,
+      },
+    });
+  }
+  if (springs) {
+    // Горячий источник — акцентом: рядом с ним ожог, и он же ориентир.
+    out.push({
+      id: `osm-springs${ns}`, type: 'circle', ...springs,
+      minzoom: 10,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4.5],
+        'circle-color': ['case', ['==', ['get', 'kind'], 'hot_spring'], p.hotSpring, p.spring],
+        'circle-stroke-color': p.background,
+        'circle-stroke-width': 1.5,
+      },
+    });
+  }
   if (passes) {
     out.push({
       id: `osm-passes${ns}`, type: 'circle', ...passes,
@@ -880,6 +972,26 @@ function osmShelterPassLayers(
     });
   }
   if (!glyphs) return out;
+  if (springs) {
+    out.push({
+      id: `osm-spring-labels${ns}`, type: 'symbol', ...springs,
+      minzoom: 12,
+      filter: ['has', 'name'],
+      layout: {
+        'text-font': [font],
+        'text-field': ['get', 'name'],
+        'text-size': 10,
+        'text-offset': [0, 0.9],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': ['case', ['==', ['get', 'kind'], 'hot_spring'], p.hotSpring, p.spring],
+        'text-halo-color': p.background,
+        'text-halo-width': 1.4,
+      },
+    });
+  }
   if (passes) {
     out.push({
       id: `osm-pass-labels${ns}`, type: 'symbol', ...passes,
