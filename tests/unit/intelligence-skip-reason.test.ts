@@ -49,6 +49,29 @@ describe('исходы домена различимы', () => {
   });
 });
 
+describe('пустой цикл называет ленту поимённо, а не только классом (03.09)', () => {
+  /**
+   * Перепись админ-панели 03.09: «Разведка» четвёртые сутки числилась
+   * пустой. Сервис уже собирал `empty_reasons` — домен и имя ленты с
+   * текстом отказа, — а роут крона это ОТБРАСЫВАЛ: в историю и в ответ
+   * доезжал только `skip_reason: no_signals`. Из лога GitHub Actions
+   * (единственное место, видное без админ-доступа) выходило
+   * `raw_signals: 72, findings: 0, domains: []` — читается как «мертва»,
+   * тогда как 72 сигнала дошли и модель честно сказала «не применимо».
+   */
+  it('роут пишет empty_reasons в историю прогонов', () => {
+    const meta = ROUTE.slice(ROUTE.indexOf('metadata: {'), ROUTE.indexOf('// Log to audit trail'));
+    expect(meta).toMatch(/empty_reasons: report\.empty_reasons/);
+  });
+
+  it('роут отдаёт причину и имена лент в ответе — их читают из лога Actions', () => {
+    const resp = ROUTE.slice(ROUTE.indexOf('return NextResponse.json({'));
+    expect(resp).toMatch(/skip_reason: report\.skip_reason/);
+    expect(resp).toMatch(/empty_reasons: report\.empty_reasons/);
+    expect(resp).toMatch(/outcomes: report\.outcomes/);
+  });
+});
+
 describe('причина выбирается по чинимости, а не по частоте', () => {
   it('отказы идут раньше честного «не применимо»', () => {
     // Иначе один относящийся к делу отказ спрячется за пятью законными

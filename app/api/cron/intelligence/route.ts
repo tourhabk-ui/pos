@@ -51,6 +51,12 @@ export async function GET(request: NextRequest) {
         // правда: причины не было ни здесь, ни в цикле.
         skip_reason: report.skip_reason,
         outcomes: report.outcomes,
+        // Поимённо, а не классом (03.09). Сервис уже называл мёртвую ленту
+        // (`empty_reasons`), а роут это отбрасывал: в историю доезжал только
+        // `no_signals`, и «Разведка» четвёртые сутки числилась пустой без
+        // единого имени того, что чинить. Код называет класс беды, чинят
+        // конкретную ленту (§4.0).
+        empty_reasons: report.empty_reasons,
         domains: report.domains.map(d => ({
           domain: d.domain,
           urgency: d.urgency,
@@ -86,6 +92,14 @@ export async function GET(request: NextRequest) {
       raw_signals: report.raw_count,
       findings: report.domains.length,
       duration_ms: report.duration_ms,
+      // Ответ читают из лога GitHub Actions — единственного места, куда
+      // видно без админ-доступа. `raw_signals: 72, findings: 0, domains: []`
+      // без причины читалось как «разведка мертва»; на деле 72 сигнала
+      // дошли, модель честно сказала «не применимо», а у одного из доменов
+      // ленты ответили пустотой. Причина и имена лент — в ответе.
+      skip_reason: report.skip_reason,
+      outcomes: report.outcomes,
+      empty_reasons: report.empty_reasons,
       domains: report.domains.map(d => ({
         domain: d.domain,
         urgency: d.urgency,
