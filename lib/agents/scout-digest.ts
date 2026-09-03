@@ -244,6 +244,18 @@ export const RSS_SOURCES: Array<{ key: string; url: string; label: string; categ
   { key: 'hackernews',    url: 'https://hnrss.org/newest?q=LLM+OR+agent+OR+Claude+OR+Cursor', label: 'Hacker News', category: 'ai' },
   // AI & Tech — русский слой
   { key: 'habr_ai',       url: 'https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru', label: 'Habr AI', category: 'ai' },
+  // AI & Tech — первоисточники лабораторий (добавлены 03.09 по слову владельца:
+  // «внешние ресурсы, которые были недоступны из РФ»). openai.com отвечает 403
+  // российским адресам, поэтому раньше в списке его не было; теперь фолбэк на
+  // реле Cloudflare (lib/agents/scout-relay) читает его с края. Адреса и
+  // природа ответа ПРОВЕРЕНЫ переписью /census с края Cloudflare (run 4,
+  // 03.09): все три — ленты (<rss/<feed), OpenAI 706 КБ, Google AI 32 КБ,
+  // DeepMind 72 КБ. У Anthropic ленты нет: /rss.xml, /news/rss.xml и
+  // /feed.xml — 404, поэтому её здесь нет, а не «подставим похожий адрес».
+  // Читается ли каждая из них с прода напрямую — покажет `via` в отчёте.
+  { key: 'openai',        url: 'https://openai.com/news/rss.xml',           label: 'OpenAI',       category: 'ai' },
+  { key: 'google_ai',     url: 'https://blog.google/technology/ai/rss/',    label: 'Google AI',    category: 'ai' },
+  { key: 'deepmind',      url: 'https://deepmind.google/blog/rss.xml',      label: 'DeepMind',     category: 'ai' },
   // Референсы и рынок — передовые travel-tech продукты и новинки, откуда берём
   // фичи/паттерны «сделать у себя». Раньше жили только в intelligence-monitor и
   // упирались в каналы — в эволюцию (evo_growth_issues) не доходили.
@@ -295,6 +307,27 @@ const SAFETY_ALERTS_LIMIT = 8;
 interface SafetyAlertRow {
   title: string | null;
   source_url: string | null;
+}
+
+/**
+ * Чередование сигналов по источникам: первый у каждого, потом второй у
+ * каждого, и так далее. Порядок источников — как они встретились в списке.
+ * Чистая; нужна там, где дальше берут первые N (AI-пост: три сигнала).
+ */
+export function interleaveBySource(items: RssItem[]): RssItem[] {
+  const bySource = new Map<string, RssItem[]>();
+  for (const it of items) {
+    const list = bySource.get(it.source);
+    if (list) list.push(it); else bySource.set(it.source, [it]);
+  }
+  const queues = [...bySource.values()];
+  const out: RssItem[] = [];
+  for (let round = 0; out.length < items.length; round++) {
+    for (const q of queues) {
+      if (round < q.length) out.push(q[round]);
+    }
+  }
+  return out;
 }
 
 /** Строки external_alerts → сигналы дайджеста (чистая, тестируется без БД). */
@@ -1137,7 +1170,13 @@ export async function runScoutDigest(): Promise<DigestResult> {
   if (!aiChannelId) {
     aiSkip = 'ai_channel_not_configured';
   } else {
-    const aiItems = dedupedItems.filter(i => AI_LABELS.has(i.source));
+    // Чередование по источникам (03.09): дальше берутся ПЕРВЫЕ ТРИ сигнала, а
+    // items лежат в порядке источников — по пять от каждого. Без чередования
+    // все три приходили из первого фида списка (Simon Willison), и любой
+    // источник, добавленный в конец, до AI-поста не доходил никогда — так
+    // было бы и с OpenAI/Google AI/DeepMind. Теперь три сигнала — из трёх
+    // разных источников.
+    const aiItems = interleaveBySource(dedupedItems.filter(i => AI_LABELS.has(i.source)));
     if (aiItems.length === 0) {
       aiSkip = 'ai_no_items';
     } else {

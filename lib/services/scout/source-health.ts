@@ -45,6 +45,12 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'marktechpost',  label: 'MarkTechPost',      maxSilenceHours: 120 },
   { key: 'hackernews',    label: 'Hacker News',       maxSilenceHours: 96 },
   { key: 'habr_ai',       label: 'Habr AI',           maxSilenceHours: 120 },
+  // Первоисточники лабораторий (03.09). OpenAI и Google AI публикуют по
+  // нескольку раз в неделю; DeepMind — реже, потому окно шире. Читаются
+  // через реле Cloudflare при гео-отказе прода (см. lib/agents/scout-relay).
+  { key: 'openai',        label: 'OpenAI',            maxSilenceHours: 168 },
+  { key: 'google_ai',     label: 'Google AI',         maxSilenceHours: 168 },
+  { key: 'deepmind',      label: 'DeepMind',          maxSilenceHours: 336 },
   { key: 'skift',         label: 'Skift',             maxSilenceHours: 120 },
   { key: 'producthunt',   label: 'Product Hunt',      maxSilenceHours: 120 },
   // ator/kamgov/mchs_rss удалены 01.08 из RSS_SOURCES как мёртвые (404 /
