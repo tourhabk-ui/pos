@@ -1,6 +1,6 @@
 {
   "note": "Маркер запуска safety-relay-deploy.yml: правка этого файла в main выкатывает воркер Cloudflare infra/safety-relay (сейсмо-реле КБГС/EQKam и реле /fetch для разведчика) и гоняет /selftest без отправки на прод. Меняйте run, чтобы прогон был новым. census_urls — адреса для переписи «читается ли с края Cloudflare» (не больше десяти, только https). Нужны секреты репозитория CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CRON_SECRET.",
-  "run": 6,
+  "run": 7,
   "run1_reason": "Первая выкатка 03.09: владелец завёл CLOUDFLARE_API_TOKEN в секретах GitHub. Пуш ветки safety-relay-deploy и dispatch через интеграцию воркфлоу не запускают.",
   "run1_result": "Секрет принят, воркер выкачен на https://vedar-safety-relay.tourhabk.workers.dev с расписанием */5, но /selftest ответил 404 «error code: 1042» до входа в воркер (наш 404 отвечает словами). Известный случай: hostname workers.dev не привязался сразу после деплоя.",
   "run2_reason": "Повтор с явным workers_dev = true в wrangler.toml и после паузы на распространение. Если 1042 повторится — дело не в конфиге, а на стороне Cloudflare, и проверять реле надо по следу на проде: приёмник safety-ingest должен получать посты каждые 5 минут (cron-триггер от hostname не зависит).",
@@ -11,14 +11,7 @@
   "run4_result": "Зелёный. Ленты: openai.com/news/rss.xml и /blog/rss.xml (706125 байт, один и тот же фид), blog.google/technology/ai/rss/ (32056), deepmind.google/blog/rss.xml (71943). У Anthropic ленты нет: /rss.xml, /news/rss.xml, /feed.xml — 404.",
   "run5_reason": "Выкатка с deepmind.google в RELAY_HOSTS: три проверенные ленты внесены в RSS_SOURCES разведчика (openai, google_ai, deepmind). Переписи нет.",
   "run6_reason": "Владелец 03.09 добавил в разведку: сайт РСТ rostourunion.ru, каналы t.me/ru_rst, t.me/minec_tourism, t.me/vibecoding_tg (ссылка-приглашение t.me/+… — закрытый чат, не читается). Три канала внесены как источники рода telegram (превью t.me/s/). rostourunion.ru в RELAY_HOSTS; перепись — есть ли у сайта лента и читаются ли превью каналов с края.",
-  "census_urls": [
-    "https://www.rostourunion.ru/",
-    "https://www.rostourunion.ru/rss/",
-    "https://www.rostourunion.ru/rss.xml",
-    "https://www.rostourunion.ru/news/rss/",
-    "https://rostourunion.ru/feed/",
-    "https://t.me/s/ru_rst",
-    "https://t.me/s/minec_tourism",
-    "https://t.me/s/vibecoding_tg"
-  ]
+  "run6_result": "Зелёный. Ленты у rostourunion.ru НЕТ: /rss/, /rss.xml, /news/rss/, /feed/ — 404, корень — 103261 байт HTML. Сайт в разведку как RSS не попадает; новости РСТ читаются из канала t.me/s/ru_rst. Превью трёх каналов с края читаются: ru_rst 134709 байт, minec_tourism 82504, vibecoding_tg 93932 (HTML — это и есть превью, его разбирает scout-telegram, не RSS-разборщик).",
+  "run7_reason": "Запись результата run 6. Переписи нет.",
+  "census_urls": []
 }
