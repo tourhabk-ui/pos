@@ -60,6 +60,12 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   // выходные, потому окно шире.
   { key: 'tourprom',      label: 'Турпром',           maxSilenceHours: 72 },
   { key: 'ratanews',      label: 'RATA News',         maxSilenceHours: 120 },
+  // Telegram-каналы (03.09, слово владельца). Живут на реле вне РФ: молчание
+  // здесь чаще означает «реле не настроено», и отчёт назовёт это отказом,
+  // а не тишиной канала.
+  { key: 'tg_ru_rst',        label: 'РСТ (Telegram)',        maxSilenceHours: 168 },
+  { key: 'tg_minec_tourism', label: 'Минэк — туризм',        maxSilenceHours: 168 },
+  { key: 'tg_vibecoding',    label: 'Vibecoding (Telegram)', maxSilenceHours: 120 },
   // Safety-слой — не RSS: раздел «Камчатка» кормится из external_alerts
   // (собственный мониторинг: сейсмика КБГС, МЧС, дороги, пожары FIRMS).
   // Неделя без ЕДИНОГО события — это не «на Камчатке тихо», это сломанный
