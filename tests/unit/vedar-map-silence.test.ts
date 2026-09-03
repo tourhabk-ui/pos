@@ -85,7 +85,9 @@ describe('сообщение доходит туда, где его не нак�
    */
   it('VedarMap принимает onDiagnostic и вызывает его при смене mapError/diag', () => {
     expect(SRC).toMatch(/onDiagnostic\?:\s*\(message: string \| null\) => void/);
-    const at = SRC.indexOf('onDiagnosticRef.current?.(mapError ?? diag ?? null)');
+    // 03.09: к ошибке и диагнозу добавились заметки (гипсометрия снята,
+    // вид вне пакета) — канал наружу один на всех.
+    const at = SRC.indexOf('onDiagnosticRef.current?.(mapError ?? diag ?? reliefNote ?? viewNote ?? null)');
     expect(at, 'эффект, синхронизирующий диагноз наружу, не найден').toBeGreaterThan(0);
   });
 
@@ -102,7 +104,9 @@ describe('сообщение доходит туда, где его не нак�
     expect(CLIENT_SRC).toMatch(/onDiagnostic=\{setVedarDiag\}/);
     const at = CLIENT_SRC.indexOf("fieldBaseMap.kind === 'vedar' && vedarDiag");
     expect(at, 'строка диагноза в приборной колонке не найдена').toBeGreaterThan(0);
-    expect(CLIENT_SRC.slice(at, at + 400)).toMatch(/Своя карта не отрисовалась: \{vedarDiag\}/);
+    // 03.09: заметка может прийти и от РИСУЮЩЕЙ карты (гипсометрия снята,
+    // вид вне пакета) — префикс без «не отрисовалась».
+    expect(CLIENT_SRC.slice(at, at + 400)).toMatch(/Своя карта: \{vedarDiag\}/);
   });
 });
 

@@ -3163,7 +3163,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           {fieldBaseMap.kind === 'vedar' && vedarDiag && (
             <p className="px-3 pb-2 text-[11px] leading-snug"
               style={{ color: 'var(--warning)' }}>
-              Своя карта не отрисовалась: {vedarDiag}
+              Своя карта: {vedarDiag}
             </p>
           )}
 
