@@ -18,7 +18,8 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const LAYOUT = read('app/hub/admin/layout.tsx').replace(/^\s*\/\/.*$/gm, '');
 const PAGE = read('app/hub/admin/ai-usage/page.tsx');
 const CONFIG = read('next.config.js');
-const AGENTS = read('app/hub/admin/agents/_AgentsClient.tsx');
+// 03.09, третья пара: клиент агентов переехал вкладкой в кокпит Volcano OS.
+const AGENTS = read('app/hub/admin/volcano/_AgentsClient.tsx');
 
 describe('«AI Кузьмич» больше не отдельная плитка', () => {
   it('в меню админки нет /hub/admin/ai-analytics', () => {

@@ -342,7 +342,7 @@ async function executeABTestSetup(task: ExecutionTask): Promise<ExecutionResult>
     changes.push(`Создан A/B эксперимент ID: ${exp.rows[0].id}`);
     changes.push(`Контрольная группа: ${controlGroup.length} туров`);
     changes.push(`Тестовая группа (−${discount}%): ${treatmentGroup.length} туров`);
-    changes.push('Результаты: /hub/admin/agents → Experiments');
+    changes.push('Результаты: /hub/admin/volcano?tab=agents → Experiments');
 
     return {
       success: true,
