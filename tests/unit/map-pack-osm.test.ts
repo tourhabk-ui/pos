@@ -34,12 +34,34 @@ type Style = { sources: Record<string, { attribution?: string }>; layers: Array<
 
 describe('список слоёв — один на конвейер и контракт', () => {
   it('LAYERS в build_osm.py совпадает с OSM_LAYERS', () => {
-    const m = PY.match(/^LAYERS = \(([\s\S]*?)\)/m);
+    // Комментарии снимаются ДО поиска скобки: скобка внутри комментария
+    // обрывала бы кортеж на середине (02.09, «(горячий — ожог)»).
+    const stripped = PY.replace(/#[^\n]*/g, '');
+    const m = stripped.match(/^LAYERS = \(([\s\S]*?)\)/m);
     expect(m, 'LAYERS в build_osm.py не найден').toBeTruthy();
-    const py = m![1]
-      .replace(/#[^\n]*/g, '')
-      .split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
+    const py = m![1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
     expect(py).toEqual([...OSM_LAYERS]);
+  });
+
+  it('покрытия и опасности — третьим запросом со своим кэшем, не в тяжёлом', () => {
+    // «От этого зависят жизни людей» (владелец 02.09): стланик и болото —
+    // непроходимость, обрыв, брод и источник — факты, по которым ступают.
+    expect(PY).toContain('def landcover_query(');
+    expect(PY).toMatch(/prefix=f'landcover_\{lc_sig\}'/);
+    const heavy = PY.slice(PY.indexOf('def overpass_query('), PY.indexOf('def symbols_query('));
+    for (const t of ['scrub', 'cliff', 'ford', 'spring']) expect(heavy).not.toContain(t);
+    const lc = PY.slice(PY.indexOf('def landcover_query('), PY.indexOf('def fetch_symbols('));
+    for (const t of ['scrub', 'wetland', 'cliff', '"ford"="yes"', 'hot_spring', 'residential']) {
+      expect(lc).toContain(t);
+    }
+    // Брод и источник — символы: контур сводится к точке.
+    expect(PY).toMatch(/POINT_LAYERS = \{[^}]*'fords', 'springs'\}/);
+    // Брод на дороге (highway + ford=yes, обычная разметка OSM) — второй
+    // объект в слое бродов, а отрезок остаётся дорогой. Прогоны 70-79 дали
+    // «броды: 0» в восьми районах подряд именно потому, что этого не было.
+    expect(PY).toContain('def ford_on_road(');
+    expect(PY).toMatch(/if ford_on_road\(tags, geom\['type'\], layer\):[\s\S]*layers\['fords'\]\.append/);
+    expect(PY).toContain("and layer in ('paths', 'roads')");
   });
 
   it('ключ слоя — одна формула', () => {
@@ -168,6 +190,19 @@ describe('имена: посёлки, приюты, перевалы, вода',
       { filter: unknown };
     expect(passLabels.filter).toEqual(['has', 'name']);
     expect(idx('osm-passes')).toBeGreaterThanOrEqual(0);
+  });
+
+  it('обрыв — поверх троп, цветом тревоги; горячий источник — акцентом', () => {
+    const ids = style.layers.map((l) => l.id);
+    expect(idx('osm-cliffs')).toBeGreaterThan(idx('osm-paths'));
+    expect(idx('osm-cliffs')).toBeLessThan(idx('route-trail'));
+    for (const id of ['osm-scrub', 'osm-wetland', 'osm-sand', 'osm-rock', 'osm-residential']) {
+      expect(idx(id), id).toBeLessThan(idx('hillshade'));
+    }
+    const springs = style.layers.find((l) => l.id === 'osm-springs')!;
+    expect(JSON.stringify(springs.paint!['circle-color'])).toContain('hot_spring');
+    expect(ids).toContain('osm-fords');
+    expect(validateStyleMin(style as never)).toEqual([]);
   });
 
   it('без глифов подписей нет, а точки остаются и стиль валиден', () => {
