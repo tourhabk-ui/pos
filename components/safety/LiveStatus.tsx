@@ -344,14 +344,30 @@ export function RadarScope({ hazards, center, degraded = false }: {
             <line x1={CX} y1={CY} x2={CX} y2={CY - R} stroke="var(--radar)" strokeOpacity={0.7} strokeWidth={1} />
           </g>
           <circle cx={CX} cy={CY} r={2.4} fill="var(--radar)" />
-          {placed.map((h, i) => (
-            <g key={i} onClick={() => setSel(h)} style={{ cursor: 'pointer' }}>
-              {h.level === 'critical' && <circle cx={h.x} cy={h.y} r={6} className="pulse" fill={LEVEL_COLOR[h.level]} />}
-              <circle cx={h.x} cy={h.y} r={h.level === 'critical' ? 4 : h.level === 'danger' ? 3.2 : 2.6}
-                fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6}
-                style={sel === h ? { filter: 'drop-shadow(0 0 4px currentColor)' } : undefined} />
-            </g>
-          ))}
+          {placed.map((h, i) => {
+            // Форма несёт РОД опасности, цвет — её силу. До 03.09 оба несла
+            // только заливка круга: вулкан и землетрясение рядом на круге
+            // были одинаковыми точками, различить их можно было только
+            // тапом по одной за раз — владелец: «в радаре нужно отличать
+            // вулкан от сейсмособытий». Треугольник — только у вулканов,
+            // остальное (сейсмика, медведь, наблюдение) — по-прежнему круг.
+            const r = h.level === 'critical' ? 4 : h.level === 'danger' ? 3.2 : 2.6;
+            const shadow = sel === h ? { filter: 'drop-shadow(0 0 4px currentColor)' } : undefined;
+            return (
+              <g key={i} onClick={() => setSel(h)} style={{ cursor: 'pointer' }}>
+                {h.level === 'critical' && <circle cx={h.x} cy={h.y} r={6} className="pulse" fill={LEVEL_COLOR[h.level]} />}
+                {h.kind === 'volcano' ? (
+                  <polygon
+                    points={`${h.x},${h.y - r * 1.25} ${h.x - r * 1.15},${h.y + r * 0.85} ${h.x + r * 1.15},${h.y + r * 0.85}`}
+                    fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} strokeLinejoin="round"
+                    style={shadow}
+                  />
+                ) : (
+                  <circle cx={h.x} cy={h.y} r={r} fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} style={shadow} />
+                )}
+              </g>
+            );
+          })}
         </svg>
         {placed.length === 0 && (
           // Пустой круг говорит ровно то, что известно, и не больше.
@@ -402,6 +418,24 @@ export function RadarScope({ hazards, center, degraded = false }: {
             <span><i style={{ background: LEVEL_COLOR.danger }} />опасно</span>
             <span><i style={{ background: LEVEL_COLOR.warning }} />внимание</span>
             <span className="rcount">{placed.length} рядом</span>
+          </div>
+        )}
+        {/* Форма — только когда на круге реально есть и то, и другое:
+            иначе строка объясняла бы различие, которого сейчас не видно. */}
+        {!sel && placed.some((h) => h.kind === 'volcano') && placed.some((h) => h.kind !== 'volcano') && (
+          <div className="rshapes">
+            <span>
+              <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+                <polygon points="4.5,0.6 8.3,8.1 0.7,8.1" fill="var(--text-muted)" />
+              </svg>
+              вулкан
+            </span>
+            <span>
+              <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+                <circle cx="4.5" cy="4.5" r="4" fill="var(--text-muted)" />
+              </svg>
+              сейсмика и остальное
+            </span>
           </div>
         )}
         {/* Честность радара: медведей техника не видит, а это главная реальная
@@ -517,6 +551,14 @@ interface PulseVolcano {
 const ACC_BAR_H: Record<string, number> = { green: 28, yellow: 52, orange: 76, red: 100 };
 const ACC_ORDER: Record<string, number> = { green: 0, yellow: 1, orange: 2, red: 3 };
 
+function volcanoWord(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return 'вулканов';
+  if (mod10 === 1) return 'вулкан';
+  if (mod10 >= 2 && mod10 <= 4) return 'вулкана';
+  return 'вулканов';
+}
+
 /**
  * «Пульс вулканов» — по образу сейсмического (владелец 02.09: «нужен график
  * вулканов как у сейсмики»). Отличие честное: истории кодов в volcano_status
@@ -536,14 +578,32 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
       ? <div className="pulse"><div className="psum">Коды вулканов не получены — считать спокойным нельзя.</div></div>
       : null;
   }
+  // Порядок столбиков — по коду и высоте пепла, БЕЗ тай-брейка по имени.
+  //
+  // 03.09: владелец заметил, что в шапке ВСЕГДА Шивелуч, хотя код KVERT
+  // сводного формата (parseAccSummary) высоты пепла не даёт — у двух
+  // оранжевых вулканов ashHeightM оба null. Прежний тай-брейк
+  // `a.name.localeCompare(b.name, 'ru')` в такой ничьей решал всё: «Шивелуч»
+  // алфавитно позже «Ключевской сопки», и bars[bars.length-1] выбирал его
+  // каждый раз — не потому что он активнее, а потому что «Ш» после «К».
+  // Придуманный ранг там, где ранжировать нечем, — ровно то, что §4.0
+  // запрещает: обязана быть третья возможность сказать «не могу выбрать».
   const bars = [...items].sort((a, b) =>
     (ACC_ORDER[a.acc] ?? 0) - (ACC_ORDER[b.acc] ?? 0)
-    || (a.ashHeightM ?? 0) - (b.ashHeightM ?? 0)
-    || a.name.localeCompare(b.name, 'ru'));
-  const top = bars[bars.length - 1];
+    || (a.ashHeightM ?? -1) - (b.ashHeightM ?? -1));
+  // Ничья на вершине — когда после кода и пепла остались несколько с
+  // одинаковым результатом. Выбирать одного и называть его «самым активным»
+  // нечестно: у KVERT нет сигнала различить их. Шапка тогда говорит «N
+  // вулканов», а не выдумывает лидера.
+  const topOrder = ACC_ORDER[bars[bars.length - 1].acc] ?? 0;
+  const topAsh = bars[bars.length - 1].ashHeightM ?? -1;
+  const topTier = bars.filter((v) => (ACC_ORDER[v.acc] ?? 0) === topOrder && (v.ashHeightM ?? -1) === topAsh);
+  const top = topTier[0];
+  const topTied = topTier.length > 1;
   // Повышенные — поимённо, а не счётом (владелец 02.09, увидев пульс:
-  // «только Шивелуч?»). В шапке крупно только самый активный, остальные
-  // читались лишь по тапу — а вопрос «кто ещё» должен отвечаться сразу.
+  // «только Шивелуч?»). В шапке крупно только самый активный (если он
+  // определим), остальные читались лишь по тапу — а вопрос «кто ещё»
+  // должен отвечаться сразу.
   const elevated = [...items]
     .filter((v) => (ACC_ORDER[v.acc] ?? 0) >= 1)
     .sort((a, b) => (ACC_ORDER[b.acc] ?? 0) - (ACC_ORDER[a.acc] ?? 0) || a.name.localeCompare(b.name, 'ru'));
@@ -557,10 +617,17 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
   return (
     <div className="pulse">
       <div className="phead">
-        <div className="pbig">
-          <b>{top.name.replace(/^Вулкан\s+/i, '')}</b>
-          <span>{meta(top.acc).short.toLowerCase()} · {top.ashHeightM != null ? `пепел до ${(top.ashHeightM / 1000).toFixed(1)} км · ` : ''}{ageOf(top)}</span>
-        </div>
+        {topTied ? (
+          <div className="pbig">
+            <b>{topTier.length} {volcanoWord(topTier.length)} {meta(top.acc).short.toLowerCase()}</b>
+            <span>{topTier.map((v) => v.name.replace(/^Вулкан\s+/i, '')).join(', ')} — выделить одного нечем</span>
+          </div>
+        ) : (
+          <div className="pbig">
+            <b>{top.name.replace(/^Вулкан\s+/i, '')}</b>
+            <span>{meta(top.acc).short.toLowerCase()} · {top.ashHeightM != null ? `пепел до ${(top.ashHeightM / 1000).toFixed(1)} км · ` : ''}{ageOf(top)}</span>
+          </div>
+        )}
         <div className="psrc">Пульс вулканов<i>KVERT</i></div>
       </div>
       <div className="pbars">
@@ -624,6 +691,8 @@ export const LIVE_STATUS_CSS = `
 .kh-live .radar .rleg span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .kh-live .radar .rleg i{width:7px;height:7px;border-radius:50%}
 .kh-live .radar .rleg .rcount{margin-left:auto;font:400 9px/1 var(--fm);color:var(--text-muted)}
+.kh-live .radar .rshapes{margin-top:6px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.kh-live .radar .rshapes span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
 .kh-live .radar .rsel{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:var(--bg-hover,color-mix(in srgb,var(--text-primary) 5%,transparent));border:1px solid var(--border);border-radius:12px;padding:11px 12px;cursor:pointer;font-family:var(--font-outfit),system-ui,sans-serif}
 .kh-live .radar .rsel .rdot{width:9px;height:9px;border-radius:50%;flex:none}
 .kh-live .radar .rsel .rtx{display:flex;flex-direction:column;gap:3px}
