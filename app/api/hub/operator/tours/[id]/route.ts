@@ -110,6 +110,7 @@ export async function PATCH(
       'min_visibility_m', 'max_wind_kmh', 'max_precipitation_mm',
       'is_active', 'is_published',
       'included', 'not_included', 'what_to_bring',
+      'cancellation_policy',
       'photos', 'tour_image',
       'available_slots', 'next_available_date',
     ] as const;

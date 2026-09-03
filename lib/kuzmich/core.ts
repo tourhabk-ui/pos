@@ -1063,11 +1063,12 @@ export async function getTourDetails(query: string): Promise<string> {
       included: string[] | null;
       not_included: string[] | null;
       what_to_bring: string[] | null;
+      cancellation_policy: string | null;
       location_name: string | null;
       activity_type: string | null;
     }>(
       `SELECT id, title, base_price, short_description, description, meeting_point,
-              included, not_included, what_to_bring, location_name, activity_type
+              included, not_included, what_to_bring, cancellation_policy, location_name, activity_type
          FROM operator_tours
         WHERE id = $1`,
       [resolved.id],
@@ -1084,6 +1085,11 @@ export async function getTourDetails(query: string): Promise<string> {
     if (t.included?.length) parts.push(`Входит в стоимость:\n- ${t.included.join('\n- ')}`);
     if (t.not_included?.length) parts.push(`Не входит:\n- ${t.not_included.join('\n- ')}`);
     if (t.what_to_bring?.length) parts.push(`Взять с собой:\n- ${t.what_to_bring.join('\n- ')}`);
+    // Третье состояние (§4.0): «не записано» — не «без условий». Модель обязана
+    // сказать, что условий у неё нет, а не сочинить «обычно возвращают».
+    parts.push(t.cancellation_policy?.trim()
+      ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${t.cancellation_policy.trim()}`
+      : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
     return parts.join('\n');
   } catch {
     return '';

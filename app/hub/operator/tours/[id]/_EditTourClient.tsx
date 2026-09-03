@@ -39,6 +39,7 @@ interface TourData {
   included: string[] | null;
   not_included: string[] | null;
   what_to_bring: string[] | null;
+  cancellation_policy: string | null;
   photos: string[] | null;
   tour_image: string | null;
 }
@@ -98,6 +99,7 @@ export default function EditTourClient() {
     included: '',
     not_included: '',
     what_to_bring: '',
+    cancellation_policy: '',
   });
   const [photos, setPhotos] = useState<string[]>([]);
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
@@ -203,6 +205,7 @@ export default function EditTourClient() {
           included: (t.included || []).join('\n'),
           not_included: (t.not_included || []).join('\n'),
           what_to_bring: (t.what_to_bring || []).join('\n'),
+          cancellation_policy: t.cancellation_policy ?? '',
         });
       } catch {
         setError('Ошибка загрузки');
@@ -253,6 +256,8 @@ export default function EditTourClient() {
         included: parseLines(form.included),
         not_included: parseLines(form.not_included),
         what_to_bring: parseLines(form.what_to_bring),
+        // Пусто — NULL, «не записано»: пустую строку в условия не сохраняем.
+        cancellation_policy: form.cancellation_policy.trim() || null,
         photos,
       };
 
@@ -595,6 +600,15 @@ export default function EditTourClient() {
           <label className={lbl}>Что взять с собой</label>
           <textarea className={inp + ' min-h-[60px] resize-y font-mono text-xs'} value={form.what_to_bring}
             onChange={e => setF('what_to_bring', e.target.value)} placeholder={'Удобная обувь\nДождевик'} />
+        </div>
+        <div>
+          <label className={lbl}>Условия отмены и возврата</label>
+          <textarea className={inp + ' min-h-[60px] resize-y text-xs'} value={form.cancellation_policy}
+            onChange={e => setF('cancellation_policy', e.target.value)}
+            placeholder={'Бесплатная отмена за 48 часов до начала; позже удерживается 30% стоимости. При отмене по погоде — полный возврат или перенос.'} />
+          <p className="text-[11px] text-[var(--text-muted)] mt-1">
+            Пока поле пустое, карточка тура блок не показывает, а Кузьмич на вопрос об отмене направляет к вам — условия он не выдумывает.
+          </p>
         </div>
       </section>
 
