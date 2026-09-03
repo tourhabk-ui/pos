@@ -3074,6 +3074,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               glyphsUrl: fieldBaseMap.source.glyphsUrl,
               glyphsFont: fieldBaseMap.source.glyphsFont,
               osmUrls: fieldBaseMap.source.osmUrls,
+              // Векторный пакет (02.09): когда собран — все линии и площади
+              // из него, тайлами по кадру; иначе GeoJSON выше.
+              vectorUrl: fieldBaseMap.source.vectorUrl,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}

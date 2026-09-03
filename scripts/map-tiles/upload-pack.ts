@@ -21,7 +21,7 @@
 import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
-import { packKey, glyphKey, osmKey, PACK_GLYPHS, OSM_LAYERS } from '@/lib/map/pack-source';
+import { packKey, glyphKey, osmKey, vectorKey, PACK_GLYPHS, OSM_LAYERS } from '@/lib/map/pack-source';
 import { REGIONS, type RegionId } from '@/lib/geo/regions';
 
 /**
@@ -39,10 +39,10 @@ function countFeatures(body: Buffer): string {
 }
 
 async function main(): Promise<number> {
-  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix] = process.argv.slice(2);
+  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix, vectorPath] = process.argv.slice(2);
 
   if (!region || !terrainPath || !contoursPath) {
-    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>]');
+    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>] [<vector.pmtiles>]');
     return 2;
   }
   if (!(region in REGIONS)) {
@@ -127,6 +127,18 @@ async function main(): Promise<number> {
       console.log(`osm ${f.layer}: ${countFeatures(body)} объектов, ${size} Б -> ${res.url}`);
     }
     console.log(`  3. внести '${region}' в OSM_BUILT_REGIONS (lib/map/pack-source.ts)`);
+  }
+
+  // Векторный пакет (02.09): один PMTiles на все линии и площади района.
+  if (vectorPath) {
+    const size = statSync(vectorPath).size;
+    if (size === 0) {
+      console.error(`ПУСТОЙ векторный пакет ${vectorPath} — прекращаю, не залит.`);
+      return 1;
+    }
+    const res = await uploadToS3(vectorKey(region as RegionId), readFileSync(vectorPath), 'application/octet-stream');
+    console.log(`vector: ${(size / 1024 / 1024).toFixed(2)} МБ -> ${res.url}`);
+    console.log(`  4. внести '${region}' в VECTOR_BUILT_REGIONS (lib/map/pack-source.ts)`);
   }
 
   console.log('');

@@ -101,6 +101,45 @@ export function osmKey(region: RegionId, layer: OsmLayer): string {
 }
 
 /**
+ * Векторный пакет района (02.09, «качественно прорисованная карта»):
+ * горизонтали 20/100/500 м и все OSM-слои в одном PMTiles, нарезанном по
+ * зумам (scripts/map-tiles/build_vector.sh). Читается кусками, как рельеф, —
+ * в отличие от GeoJSON, который MapLibre качает целиком.
+ */
+export function vectorKey(region: RegionId): string {
+  return `map-packs/${region}.vector.pmtiles`;
+}
+
+/**
+ * Имена слоёв внутри векторного пакета — контракт между build_vector.sh и
+ * стилем (source-layer). Горизонтали двумя слоями: частые (20 м) отдельно,
+ * они появляются только с z13.
+ */
+export const VECTOR_LAYERS = ['contours', 'contours_fine', ...OSM_LAYERS] as const;
+export type VectorLayer = typeof VECTOR_LAYERS[number];
+
+/**
+ * Обещание, что векторный пакет района лежит в хранилище — того же рода, что
+ * BUILT_PACK_REGIONS. Пока района здесь нет, карта читает GeoJSON-слои, как
+ * раньше: два пути в стиле живут ради перехода, не навсегда.
+ */
+export const VECTOR_BUILT_REGIONS: readonly RegionId[] = [
+  // 02.09, прогон 60 (run 33693609744): 8.78 МБ — против 13.5 МБ прежних
+  // GeoJSON, и это уже с 20-метровыми горизонталями. tippecanoe — 7 с.
+  'avacha-group',
+  // 02.09, прогоны 61-69: остальные девять районов той же сборкой.
+  'paratunka',
+  'nalychevo',
+  'central-volcanoes',
+  'mutnovsky-gorely',
+  'south-kamchatka',
+  'kronotsky',
+  'klyuchevskoy',
+  'esso-bystrinsky',
+  'commander-islands',
+];
+
+/**
  * Обещание, что OSM-слои лежат в хранилище для района, — того же рода, что
  * BUILT_PACK_REGIONS. Ставится после заливки, не до: карта с адресами слоёв,
  * которых нет, сыпала бы ошибками загрузки поверх живого рельефа.
@@ -143,6 +182,8 @@ export type PackSource =
       glyphsFont: string;
       /** Адреса OSM-слоёв; пусто — слоёв для района ещё нет (см. OSM_BUILT_REGIONS). */
       osmUrls: Partial<Record<OsmLayer, string>>;
+      /** Векторный пакет `pmtiles://…`; null — не собран (см. VECTOR_BUILT_REGIONS). */
+      vectorUrl: string | null;
     }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
@@ -185,6 +226,7 @@ export function resolvePackSource(
     osmUrls: OSM_BUILT_REGIONS.includes(region)
       ? Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>
       : {},
+    vectorUrl: VECTOR_BUILT_REGIONS.includes(region) ? `pmtiles://${base}/${vectorKey(region)}` : null,
   };
 }
 
