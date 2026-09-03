@@ -23,7 +23,7 @@ import { TEST_ACTIONS } from '@/app/api/admin/intelligence-sources/test/route';
 const ROUTE = readFileSync(
   join(process.cwd(), 'app/api/admin/intelligence-sources/test/route.ts'), 'utf-8');
 const CLIENT = readFileSync(
-  join(process.cwd(), 'app/hub/admin/intelligence/_IntelligenceSourcesClient.tsx'), 'utf-8');
+  join(process.cwd(), 'app/hub/admin/brain/_IntelligenceClient.tsx'), 'utf-8');
 
 /**
  * Действия, которые клиент шлёт ИМЕННО В ЭТОТ роут.
