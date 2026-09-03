@@ -34,6 +34,7 @@ import { hashStr } from '@/lib/notifications/post-image';
 import {
   relayBase, relayConfigured, relayFetchUrl, relayHeaders, shouldFallbackToRelay, type FetchVia,
 } from '@/lib/agents/scout-relay';
+import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 
 /**
  * Причина пропуска человеческим языком — для алерта, а не для лога.
@@ -196,6 +197,13 @@ export interface DigestResult {
   claims_dropped_detail?: string;
   /** То же для AI-канала: пост ушёл, но без этих пунктов. */
   ai_claims_dropped?: number;
+  /**
+   * Итог линзы «ИИ-фичи для Ведара» (03.09): сколько материалов ушло
+   * решателю, сколько предложений прошло машинную проверку улик, что
+   * отброшено и почему, ушла ли заметка владельцу. Идёт в каждый возврат
+   * прогона — линза работает и когда выпуск не вышел.
+   */
+  ai_features?: AiFeaturesResult;
   /**
    * Ушёл ли пост во ВТОРОЙ канал — AI-канал.
    *
@@ -822,7 +830,19 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
   // Здоровье источников: делает «нет сигналов» диагностируемым (живой фид без
   // новостей vs мёртвый фид) и алертит про молчащие. До любых ранних выходов.
-  const health = await recordSourceHealthAndAlert(fetched);
+  const health = {
+    ...(await recordSourceHealthAndAlert(fetched)),
+    // Линза «ИИ-фичи для Ведара» (03.09, слово владельца: «меня интересуют от
+    // разведчика именно ИИ-фичи для проекта»). Идёт ДО ворот выпуска и своей
+    // памятью отсеивает уже виденные статьи, поэтому живёт рядом со здоровьем
+    // источников: `...health` уезжает в каждый возврат прогона, и итог линзы
+    // виден даже когда выпуск не ушёл. Улики проверяются машиной, владельцу
+    // уходит отдельная заметка — см. lib/agents/scout-ai-features.
+    ai_features: await runAiFeatureLens(
+      interleaveBySource(allItems.filter(i => AI_LABELS.has(i.source))),
+      fetchArticleText,
+    ),
+  };
 
   if (allItems.length === 0) {
     return { signals_found: 0, digest_sent: false, digest_skip_reason: 'no_rss_items', duration_ms: Date.now() - start, ...health , ...AI_CHANNEL_ABORTED };
