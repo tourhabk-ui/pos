@@ -13,6 +13,7 @@
 import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
 import { executeGovernedAction, hashInput } from '@/lib/agents/kernel';
+import { checkPriceMove } from '@/lib/agents/kernel/guardrails';
 
 /**
  * Ключ идемпотентности мутации на ИНВОКАЦИЮ: seed приходит от запроса
@@ -173,12 +174,13 @@ const revenue: SDKTool = {
 
 const updatePrice: SDKTool = {
   name: 'update_tour_price',
-  description: 'Обновить цену тура. Только для туров этого оператора. Нужен ID тура и новая цена.',
+  description: 'Обновить цену тура. Только для туров этого оператора. Нужен ID тура и новая цена. Ход цены больше 50% от текущей требует явного подтверждения оператора (confirm_large_move=true) — иначе отказ с названным процентом.',
   parameters: {
     type: 'object',
     properties: {
       tour_id: { type: 'string', description: 'ID тура (число)' },
       new_price: { type: 'string', description: 'Новая цена в рублях (число)' },
+      confirm_large_move: { type: 'string', description: '"true", если оператор ЯВНО подтвердил ход цены больше 50% (иначе не передавать)' },
     },
     required: ['tour_id', 'new_price'],
   },
@@ -202,6 +204,15 @@ const updatePrice: SDKTool = {
     if (check.rowCount === 0) return JSON.stringify({ error: 'Тур не найден или не принадлежит вам' });
     const oldPrice = check.rows[0].base_price;
     const expectedVersion = check.rows[0].updated_at;
+
+    // Величина хода — guardrail ядра, ДО постановки действия: право менять
+    // цену не отменяет того, что «12000 вместо 120000» — опечатка. Подтвердить
+    // большой ход может только человек, явным аргументом; модель сама его
+    // не выставляет (см. описание инструмента).
+    const move = checkPriceMove(oldPrice, newPrice, args.confirm_large_move === 'true' || args.confirm_large_move === true);
+    if (!move.ok) {
+      return JSON.stringify({ error: `Изменение не выполнено: ${move.reason}`, move_pct: move.move_pct, old_price: oldPrice, new_price: newPrice });
+    }
 
     // Мутация — через ядро: policy (ownership на pre_commit), задача,
     // события эффекта, trace. Ключ идемпотентности стабилен на ИНВОКАЦИЮ

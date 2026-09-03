@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gatewayBase, classify } from '@/app/api/cron/anthropic-path-probe/route';
+import { gatewayBase, classify, OPEN_OUTCOMES } from '@/app/api/cron/anthropic-path-probe/route';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const ROUTE = read('app/api/cron/anthropic-path-probe/route.ts');
@@ -41,10 +41,18 @@ describe('адрес шлюза — из проверенных частей', (
 
 describe('три исхода на путь', () => {
   it('200 — открыт; 401 — открыт без ключа; 403 — заблокирован; прочее — http', () => {
-    expect(classify(200)).toBe('open');
-    expect(classify(401)).toBe('open_no_key');
-    expect(classify(403)).toBe('blocked');
-    expect(classify(500)).toBe('http');
+    expect(classify(200, '')).toBe('open');
+    expect(classify(401, '{"type":"error","error":{"type":"authentication_error"}}')).toBe('open_no_key');
+    expect(classify(403, 'Request not allowed')).toBe('blocked');
+    expect(classify(500, '')).toBe('http');
+  });
+
+  it('400 с ответом формы Anthropic — дошли, ключ отвергнут (run 1: пустой баланс)', () => {
+    const body = '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}';
+    expect(classify(400, body)).toBe('open_key_refused');
+    expect(OPEN_OUTCOMES.has('open_key_refused')).toBe(true);
+    // Чужой 400 без формы Anthropic (прокси, блокировщик) — не «дошли».
+    expect(classify(400, '<html>Bad Request</html>')).toBe('http');
   });
 
   it('сетевой отказ — «не смог», а не «заблокирован»; без ключа проба всё равно идёт', () => {
@@ -52,6 +60,9 @@ describe('три исхода на путь', () => {
     expect(ROUTE).toMatch(/'x-api-key': apiKey \?\? 'absent'/);
     // Все «не смог» → path_exists null, не false.
     expect(ROUTE).toMatch(/path_exists: open\.length > 0 \? true : results\.every/);
+    expect(ROUTE).toMatch(/OPEN_OUTCOMES\.has\(r\.outcome\)/);
+    // Workflow: с раннера 4xx формы Anthropic — предупреждение, не провал.
+    expect(WF).toMatch(/grep -q '"type":"error"' \/tmp\/runner\.json/);
   });
 });
 
