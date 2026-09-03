@@ -145,7 +145,9 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // Расписания быть не должно — координату правит человек по уликам.
   'place-audit':                { kind: 'manual', writes: false, note: 'поиск places по имени независимо от видимости/слияния + профиль безопасности, только чтение' },
   'sos-census':                { kind: 'manual', writes: false, note: 'кто шлёт SOS: сырые строки sos_events с IP, user-agent, сессией и сводки по ним, только чтение' },
-  'place-coords':              { kind: 'manual', writes: true,  note: 'исправление координаты места: поимённо, с источником правды и сухим прогоном' },
+  // 'place-coords' объявления здесь не несёт с 03.09: его зовёт place-coords.yml
+  // (сухой прогон и правка по маркеру — Верхне-Опальские в 29 км от места);
+  // объявление тут было бы вторым ответом на тот же вопрос, как у route-endpoints.
   'place-link':                { kind: 'manual', writes: true,  note: 'привязка места к маршруту' },
   'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },
   'place-unlink':              { kind: 'manual', writes: true,  note: 'отвязка места от маршрута' },

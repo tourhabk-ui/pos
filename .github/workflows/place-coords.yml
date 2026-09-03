@@ -1,0 +1,121 @@
+name: Координата места — сухой прогон и правка (вручную)
+
+# Актуатор POST /api/cron/place-coords (23.08): поимённо, с источником
+# правды, сухой прогон по умолчанию, боевая партия не больше 10, старая
+# координата возвращается в ответе и служит откатом. Конверт края — грубый
+# фильтр от бессмыслицы, НЕ проверка правды (см. шапку роута).
+#
+# Повод для workflow (03.09): «Верхне-Опальские термальные источники» стояли
+# в places на 52.5964/158.1239 — у Горелого, в 29 км от места. Навигация
+# «На маршруте» вела человека на эту точку. Реестр ООПТ (памятник природы
+# «Верхне-Опалинские минеральные источники») даёт 52°26′30″ с.ш.,
+# 157°44′02″ в.д.; описание (левобережье Левой Опалы, северо-западный склон
+# Асачи, заказник «Олений Дол») с этой точкой сходится.
+#
+# Два режима, каждый — отдельный запуск:
+#   dry   — план: старая и новая координата, расстояние сдвига; не пишет;
+#   apply — боевая партия: не больше 10, source и why у каждой правки.
+#
+# Порядок — правило владельца: сухой прогон, потом партия по 10.
+#
+# Почему раннер: прод из среды разработчика недостижим (403 на CONNECT).
+# Почему маркер: workflow_dispatch через интеграцию отвечает 403.
+# Умолчание маркера без `mode` — dry: файл, забытый в репозитории, не
+# должен однажды уехать боевой правкой.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/place-coords.json'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry — сухой прогон; apply — боевая правка (не больше 10)'
+        required: true
+        default: dry
+        type: choice
+        options: [dry, apply]
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Параметры — из ввода или из маркера
+        env:
+          IN_MODE: ${{ inputs.mode || '' }}
+        run: |
+          set -u
+          python3 - <<'PY'
+          import json, os, sys
+          with open('.github/triggers/place-coords.json') as f:
+              marker = json.load(f)
+          mode = (os.environ.get('IN_MODE') or marker.get('mode') or 'dry').strip()
+          if mode not in ('dry', 'apply'):
+              print(f'::error::режим {mode!r} неизвестен — dry или apply'); sys.exit(1)
+          fixes = marker.get('fixes') or []
+          source = str(marker.get('source') or '').strip()
+          if not fixes:
+              print('::error::в маркере нет fixes — править нечего'); sys.exit(1)
+          if len(fixes) > 10:
+              print(f'::error::партия из {len(fixes)} правок — не больше 10'); sys.exit(1)
+          if len(source) < 8:
+              print('::error::source обязателен: откуда взята правда'); sys.exit(1)
+          for fx in fixes:
+              for k in ('place', 'lat', 'lng', 'why'):
+                  if k not in fx:
+                      print(f'::error::у правки нет поля {k}: {fx}'); sys.exit(1)
+          body = {'dry_run': mode != 'apply', 'source': source, 'fixes': fixes}
+          with open('/tmp/body.json', 'w') as f:
+              json.dump(body, f, ensure_ascii=False)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'MODE={mode}\n')
+          print(f'режим: {mode} · правок: {len(fixes)} · источник: {source}')
+          PY
+
+      - name: Сухой прогон или правка
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория."
+            exit 1
+          fi
+          URL="https://vedarai.ru/api/cron/place-coords"
+          HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" --max-time 120 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+            --data-binary @/tmp/body.json "$URL") || HTTP="000"
+          echo "HTTP $HTTP (режим $MODE)"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Ответ $HTTP — исход не установлен, зелёным не считать."
+            head -c 3000 /tmp/out.json || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          with open('/tmp/out.json') as f:
+              a = json.load(f)
+          print(f"dry_run={a.get('dry_run')}  источник: {a.get('source')}")
+          rows = a.get('plan') if a.get('dry_run') else a.get('applied')
+          for p in rows or []:
+              fr, to = p['from'], p['to']
+              print(f"  {p['name']} [{p['placeId']}]: {fr['lat']}, {fr['lng']} -> {to['lat']}, {to['lng']}  сдвиг {p['movedKm']} км  — {p['why']}")
+          if not a.get('dry_run'):
+              print(f"применено: {a.get('applied_count')}")
+              if a.get('problems'):
+                  print('проблемы:', a['problems'])
+          PY
+          {
+            echo "## place-coords — режим $MODE"
+            echo
+            echo '```json'
+            python3 -m json.tool /tmp/out.json | head -c 20000 || cat /tmp/out.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
