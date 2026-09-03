@@ -85,7 +85,26 @@ jobs:
             --bbox "${{ steps.bbox.outputs.bbox }}" \
             --decimate "${{ steps.cfg.outputs.decimate }}" \
             --out ".cache/packs/krai-overview.terrain.pmtiles" \
-            --contours-out ".cache/packs/krai-overview.contours.geojson"
+            --contours-out ".cache/packs/krai-overview.contours.geojson" \
+            | tee .cache/overview-build.log
+
+      - name: Итог сборки — в сводку прогона, а не только в лог
+        if: always()
+        run: |
+          set -euo pipefail
+          # 04.09: у прогона 1 доля заполнения мозаики осталась НЕИЗВЕСТНОЙ —
+          # лог длиннее того, что отдаётся наружу, и решающая строка в окно
+          # не попала. Пришлось выводить полноту счётом байт на тайл вместо
+          # того, чтобы прочитать её. Сводка держит ровно те строки, по
+          # которым видно, честен ли пакет: сколько клеток прочитано, сколько
+          # пропущено, чем заполнена мозаика.
+          {
+            echo '### Обзорный пакет края'
+            echo '```'
+            grep -E 'мозаика|клеток|тайлов|размер|время сборки|нет клетки' \
+              .cache/overview-build.log | tail -40 || echo 'лог сборки не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Размер пакета — фактом в лог
         run: |
