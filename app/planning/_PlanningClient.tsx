@@ -3074,6 +3074,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               glyphsUrl: fieldBaseMap.source.glyphsUrl,
               glyphsFont: fieldBaseMap.source.glyphsFont,
               osmUrls: fieldBaseMap.source.osmUrls,
+              // Векторный пакет (02.09): когда собран — все линии и площади
+              // из него, тайлами по кадру; иначе GeoJSON выше.
+              vectorUrl: fieldBaseMap.source.vectorUrl,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}
@@ -3160,7 +3163,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           {fieldBaseMap.kind === 'vedar' && vedarDiag && (
             <p className="px-3 pb-2 text-[11px] leading-snug"
               style={{ color: 'var(--warning)' }}>
-              Своя карта не отрисовалась: {vedarDiag}
+              {/* Формулировку целиком приносит VedarMap: «не отрисовалась»
+                  и «не пришёл один слой» — разные беды, и решает это та
+                  сторона, которая знает, поднялась ли карта. */}
+              {vedarDiag}
             </p>
           )}
 
@@ -4490,6 +4496,23 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      /**
+       * `route` — какой именно маршрут открыть в поле (02.09).
+       *
+       * До этого ссылка с экрана подготовки вела просто в полевой режим, а
+       * он поднимал ПОСЛЕДНИЙ активный маршрут из localStorage. Человек,
+       * готовящийся к маршруту A, попадал на снаряжение и пакет маршрута B,
+       * и заметить подмену можно было только по названию в приборной строке.
+       * Полевой пакет при этом сохранялся бы не тот — а выясняется это уже
+       * без связи.
+       *
+       * Пишется ДО setTab: полевая вкладка читает ключ в своём эффекте
+       * монтирования, то есть строго позже этого.
+       */
+      const route = params.get('route');
+      if (route) {
+        try { localStorage.setItem('active_trail_route_id', route); } catch { /* приват-режим */ }
+      }
       if (params.get('mode') === 'trail') setTab('trail');
     }
   }, []);

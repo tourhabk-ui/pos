@@ -21,14 +21,28 @@
 import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
-import { packKey, glyphKey, osmKey, PACK_GLYPHS, OSM_LAYERS } from '@/lib/map/pack-source';
+import { packKey, glyphKey, osmKey, vectorKey, PACK_GLYPHS, OSM_LAYERS } from '@/lib/map/pack-source';
 import { REGIONS, type RegionId } from '@/lib/geo/regions';
 
+/**
+ * Сколько объектов в коллекции GeoJSON. Отказ разбора — «не знаю», а не
+ * ноль: испорченный файл не должен выглядеть как честно пустой слой.
+ */
+function countFeatures(body: Buffer): string {
+  try {
+    const parsed: unknown = JSON.parse(body.toString('utf-8'));
+    const feats = (parsed as { features?: unknown[] }).features;
+    return Array.isArray(feats) ? String(feats.length) : 'не разобрал';
+  } catch {
+    return 'не разобрал';
+  }
+}
+
 async function main(): Promise<number> {
-  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix] = process.argv.slice(2);
+  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix, vectorPath] = process.argv.slice(2);
 
   if (!region || !terrainPath || !contoursPath) {
-    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>]');
+    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>] [<vector.pmtiles>]');
     return 2;
   }
   if (!(region in REGIONS)) {
@@ -87,7 +101,7 @@ async function main(): Promise<number> {
     }
   }
 
-  // OSM-слои — все семь или ни одного: карта просит адреса по списку
+  // OSM-слои — все из списка или ни одного: карта просит адреса по списку
   // OSM_LAYERS, и дыра в списке выглядела бы как ошибка загрузки поверх
   // живого рельефа. Пустой слой (нет ледников) — законная пустая коллекция,
   // не пустой файл: размер у неё ненулевой.
@@ -100,10 +114,31 @@ async function main(): Promise<number> {
     }
     for (const f of files) {
       const size = statSync(f.path).size;
-      const res = await uploadToS3(osmKey(region as RegionId, f.layer), readFileSync(f.path), 'application/geo+json');
-      console.log(`osm ${f.layer}: ${(size / 1024).toFixed(0)} КБ -> ${res.url}`);
+      const body = readFileSync(f.path);
+      const res = await uploadToS3(osmKey(region as RegionId, f.layer), body, 'application/geo+json');
+      /**
+       * ЧИСЛО ОБЪЕКТОВ, а не только килобайты (02.09). Слой из двух посёлков
+       * весит 300 байт и печатался как «0 КБ» — тем же, чем и пустой. То есть
+       * «мало» и «ничего» в отчёте выглядели одинаково, а это разные вещи:
+       * первое — карта, второе — повод искать поломку (§4.0, у отчёта обязан
+       * быть исход «пусто», отличимый от прочих). Разбор занял полчаса ровно
+       * из-за округления.
+       */
+      console.log(`osm ${f.layer}: ${countFeatures(body)} объектов, ${size} Б -> ${res.url}`);
     }
     console.log(`  3. внести '${region}' в OSM_BUILT_REGIONS (lib/map/pack-source.ts)`);
+  }
+
+  // Векторный пакет (02.09): один PMTiles на все линии и площади района.
+  if (vectorPath) {
+    const size = statSync(vectorPath).size;
+    if (size === 0) {
+      console.error(`ПУСТОЙ векторный пакет ${vectorPath} — прекращаю, не залит.`);
+      return 1;
+    }
+    const res = await uploadToS3(vectorKey(region as RegionId), readFileSync(vectorPath), 'application/octet-stream');
+    console.log(`vector: ${(size / 1024 / 1024).toFixed(2)} МБ -> ${res.url}`);
+    console.log(`  4. внести '${region}' в VECTOR_BUILT_REGIONS (lib/map/pack-source.ts)`);
   }
 
   console.log('');

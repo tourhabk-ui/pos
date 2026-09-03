@@ -76,6 +76,27 @@ jobs:
           pip install --quiet rasterio pmtiles pillow matplotlib shapely osm2geojson
           npm ci --ignore-scripts
 
+      # tippecanoe — нарезка векторных тайлов (02.09). Собранный бинарник
+      # кэшируется по версии: сборка из исходников — три минуты на каждый
+      # прогон, а прогонов по десять за вечер.
+      - uses: actions/cache@v4
+        id: tippecanoe
+        with:
+          path: .cache/tippecanoe-bin
+          key: tippecanoe-2.78.0-${{ runner.os }}
+      - name: tippecanoe — из кэша или из исходников
+        run: |
+          if [ ! -x .cache/tippecanoe-bin/tippecanoe ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq build-essential libsqlite3-dev zlib1g-dev
+            git clone --quiet --depth 1 --branch 2.78.0 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+            make -C /tmp/tippecanoe -j"$(nproc)" >/dev/null
+            mkdir -p .cache/tippecanoe-bin
+            cp /tmp/tippecanoe/tippecanoe /tmp/tippecanoe/tile-join .cache/tippecanoe-bin/
+          fi
+          echo "$PWD/.cache/tippecanoe-bin" >> "$GITHUB_PATH"
+          .cache/tippecanoe-bin/tippecanoe --version
+
       - name: Границы района — из реестра, не из ввода
         id: bbox
         run: |
@@ -94,11 +115,12 @@ jobs:
             --bbox "${{ steps.bbox.outputs.value }}" \
             --out ".cache/packs/${{ steps.cfg.outputs.region }}.terrain.pmtiles"
 
-      - name: Горизонтали — GeoJSON с высотой в атрибуте
+      - name: Горизонтали — GeoJSON с высотой в атрибуте (100/500 м) и частые (20 м) для тайлов
         run: |
           python3 scripts/map-tiles/build_contours.py \
             --bbox "${{ steps.bbox.outputs.value }}" \
-            --out ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson"
+            --out ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson" \
+            --fine-out ".cache/vector/${{ steps.cfg.outputs.region }}.contours-fine.geojson"
 
       # Кэш ответов Overpass по клеткам — между прогонами. Прогон 9 (02.09)
       # снял шесть клеток из двенадцати и упал на седьмой; без кэша прогон 10
@@ -110,7 +132,7 @@ jobs:
           restore-keys: |
             overpass-${{ steps.cfg.outputs.region }}-v1-
 
-      - name: OSM-слои — вода, реки, лес, ледники, тропы, дороги, вершины
+      - name: OSM-слои — вода, реки, лес, ледники, тропы, дороги, вершины, посёлки, приюты, перевалы
         run: |
           # Overpass с раннера: из контейнера сборки OSM недостижим, и стиль с
           # 31.08 честно писал «рек, леса и троп нет». Один запрос на район.
@@ -126,6 +148,15 @@ jobs:
         with:
           path: .cache/osm
           key: overpass-${{ steps.cfg.outputs.region }}-v1-${{ github.run_id }}
+
+      - name: Векторные тайлы — горизонтали и все OSM-слои в один PMTiles
+        run: |
+          # Частые горизонтали лежат в .cache/vector (не в пакете — в
+          # хранилище они не идут); tippecanoe ждёт всё под одним префиксом.
+          P=".cache/packs/${{ steps.cfg.outputs.region }}"
+          cp ".cache/vector/${{ steps.cfg.outputs.region }}.contours-fine.geojson" "$P.contours-fine.geojson"
+          scripts/map-tiles/build_vector.sh "$P" "$P.vector.pmtiles"
+          rm "$P.contours-fine.geojson"
 
       - name: Глифы — Noto Sans, цифры и кириллица
         run: |
@@ -193,7 +224,8 @@ jobs:
             ".cache/packs/${{ steps.cfg.outputs.region }}.terrain.pmtiles" \
             ".cache/packs/${{ steps.cfg.outputs.region }}.contours.geojson" \
             ".cache/packs/glyphs" \
-            ".cache/packs/${{ steps.cfg.outputs.region }}"
+            ".cache/packs/${{ steps.cfg.outputs.region }}" \
+            ".cache/packs/${{ steps.cfg.outputs.region }}.vector.pmtiles"
 
       - name: Пакет НЕ залит — сказать это громко
         if: ${{ steps.cfg.outputs.upload != 'true' }}

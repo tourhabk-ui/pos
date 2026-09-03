@@ -74,6 +74,25 @@ interface MapPalette {
   road: string;
   peak: string;
   peakLabel: string;
+  /**
+   * Имена (02.09, после осмотра карты владельцем). Посёлок — главный
+   * ориентир обзорного вида; приют и перевал — решения «где ночевать» и
+   * «где переваливать». Приют держит цвет подписи, а не свой: на бумажной
+   * топокарте домик чёрный, и лишний цвет тут спорил бы с вершинами.
+   */
+  place: string;
+  shelter: string;
+  mountainPass: string;
+  waterLabel: string;
+  /**
+   * Гипсометрия (02.09, слово владельца «нужна качественно прорисованная
+   * карта»): высота читается ЦВЕТОМ, как на бумажной топокарте, а не только
+   * тенью. Пары «метры → цвет»; между ступенями MapLibre интерполирует.
+   * Первая ступень — море: Copernicus DEM держит 0 над водой, и берег
+   * рисуется без единого байта новых данных. Цена честности: пойма или
+   * дельта на нуле высоты тоже выйдет водой.
+   */
+  relief: ReadonlyArray<readonly [number, string]>;
 }
 
 const PALETTES: Record<VedarMapTheme, MapPalette> = {
@@ -109,6 +128,26 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     road: '#6E6A66',
     peak: '#E8734A',        // --accent dark
     peakLabel: '#F0F6FC',   // --text-primary dark
+    place: '#F0F6FC',       // --text-primary dark
+    shelter: '#F0F6FC',
+    mountainPass: '#93B39F',
+    waterLabel: '#7FB3C8',
+    // Тёмная гипсометрия: низины уходят в глубокую зелень, склоны — в
+    // тёплую землю, гребни и вулканы светлеют. Море — тот же холодный тон,
+    // что у озёр (water), чтобы вода на карте была одного рода.
+    relief: [
+      [-10000, '#12303F'],
+      [0.5, '#12303F'],
+      [1, '#16261B'],
+      [200, '#1B2E21'],
+      [500, '#26332A'],
+      [900, '#3A3A2C'],
+      [1400, '#4A4332'],
+      [2000, '#5A5040'],
+      [2600, '#6B6358'],
+      [3300, '#7E7C78'],
+      [4800, '#A6A9AD'],
+    ],
   },
   // Светлая — не «инверсия ради галочки». Тёмная карта под прямым солнцем
   // читается хуже: запись платформы дважды говорит, что слабый сигнал на
@@ -137,6 +176,25 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     road: '#8C8781',
     peak: '#D44A0C',        // --accent light
     peakLabel: '#1A1714',   // --text-primary light
+    place: '#1A1714',       // --text-primary light
+    shelter: '#1A1714',
+    mountainPass: '#5E7A66',
+    waterLabel: '#2F6280',
+    // Светлая гипсометрия — классическая бумажная: зелёные низины, охра
+    // склонов, серые скалы, белый снег.
+    relief: [
+      [-10000, '#BFD9E8'],
+      [0.5, '#BFD9E8'],
+      [1, '#E3EBD3'],
+      [200, '#D9E3C2'],
+      [500, '#D6D8B0'],
+      [900, '#D3C9A0'],
+      [1400, '#CCB88C'],
+      [2000, '#C2A47E'],
+      [2600, '#B9A899'],
+      [3300, '#C9C6C2'],
+      [4800, '#F4F4F4'],
+    ],
   },
 };
 
@@ -175,10 +233,65 @@ export interface VedarStyleSources {
    * без OSM-выписки): слои просто не создаются, рельеф и маршрут остаются.
    */
   osmUrls?: Partial<Record<OsmLayer, string>>;
+  /**
+   * Векторный пакет района (02.09): горизонтали 20/100/500 м и все
+   * OSM-слои одним PMTiles, нарезанным по зумам. Когда он есть, стиль
+   * читает ВСЕ линии и площади из него (source-layer), а GeoJSON-адреса
+   * выше не трогает: тайл берётся кусками по видимой области, GeoJSON —
+   * целиком. Нет — прежний путь по GeoJSON. Два пути живут ради перехода.
+   */
+  vectorUrl?: string | null;
 }
 
-export type OsmLayer = 'water' | 'waterways' | 'wood' | 'glacier' | 'paths' | 'roads' | 'peaks';
+export type OsmLayer =
+  | 'water' | 'waterways' | 'wood' | 'glacier' | 'paths' | 'roads' | 'peaks'
+  | 'places' | 'shelters' | 'passes';
 const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
+
+/** Куда слой смотрит: geojson-источник по слою или source-layer векторного пакета. */
+type SourceRef = { source: string; 'source-layer'?: string };
+
+/**
+ * Разрешение «слой → источник» для обоих путей. Сборщики слоёв не знают,
+ * откуда данные: они спрашивают `r.osm('wood')` и получают либо ссылку, либо
+ * null («слоя у района нет — не создавать»). Правила вида остаются одни на
+ * оба пути — ровно ради этого resolver, а не два набора сборщиков.
+ */
+interface LayerRefs {
+  vector: boolean;
+  /** Источники стиля этого пути (без terrain и route — они общие). */
+  sources(): Record<string, unknown>;
+  osm(layer: OsmLayer): SourceRef | null;
+  contours(): SourceRef;
+  /** Частые горизонтали (20 м) — только у векторного пакета. */
+  fine(): SourceRef | null;
+}
+
+function layerRefs(s: VedarStyleSources, ns: string): LayerRefs {
+  if (s.vectorUrl) {
+    const id = `vector${ns}`;
+    return {
+      vector: true,
+      sources: () => ({
+        [id]: {
+          type: 'vector',
+          url: s.vectorUrl,
+          attribution: `${OSM_ATTRIBUTION} · ${s.attribution}`,
+        },
+      }),
+      osm: (layer) => ({ source: id, 'source-layer': layer }),
+      contours: () => ({ source: id, 'source-layer': 'contours' }),
+      fine: () => ({ source: id, 'source-layer': 'contours_fine' }),
+    };
+  }
+  return {
+    vector: false,
+    sources: () => ({ ...contoursSource(s, ns), ...osmSources(s.osmUrls, ns) }),
+    osm: (layer) => (s.osmUrls?.[layer] ? { source: `osm-${layer}${ns}` } : null),
+    contours: () => ({ source: `contours${ns}` }),
+    fine: () => null,
+  };
+}
 
 /**
  * Собирает style JSON MapLibre. Чистая функция: ни DOM, ни сети — поэтому
@@ -194,6 +307,8 @@ export function buildVedarStyle(
 ): Record<string, unknown> {
   const p = PALETTES[theme];
   const glyphs = sources.glyphsUrl || null;
+  const font = sources.glyphsFont ?? 'Noto Sans Regular';
+  const r = layerRefs(sources, '');
   return {
     version: 8,
     name: `Ведар — ${theme === 'dark' ? 'тёмная' : 'светлая'} топооснова`,
@@ -203,22 +318,23 @@ export function buildVedarStyle(
     ...(glyphs ? { glyphs } : {}),
     sources: {
       ...terrainSource(sources, ''),
-      ...contoursSource(sources, ''),
       // Маршрут и след кладёт компонент: их геометрия приходит из БД и
       // меняется на ходу, стилю о ней знать нечего, кроме вида линии.
       route: { type: 'geojson', data: emptyFeatureCollection() },
-      // OSM-слои — по одному источнику на слой, только те, что есть у района.
-      ...osmSources(sources.osmUrls, ''),
+      // Линии и площади: один векторный пакет либо GeoJSON по слоям.
+      ...r.sources(),
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
+      // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
+      reliefLayer(p, ''),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
-      ...osmFillLayers(sources.osmUrls, p, ''),
+      ...osmFillLayers(r, p, ''),
       hillshadeLayer(theme, p, ''),
-      ...contourLayers(sources, p, glyphs, ''),
+      ...contourLayers(r, p, glyphs, font, ''),
       // Реки, дороги, тропы — над горизонталями, под линией маршрута: путь
       // человека читается поверх карты, а не сквозь неё.
-      ...osmLineLayers(sources.osmUrls, p, ''),
+      ...osmLineLayers(r, p, ''),
       {
         // Свой след — ПОД маршрутом: маршрут — обещание, след — история.
         // Тонкий, голубой, сплошной (это запись, а не обещание пути), без
@@ -303,8 +419,16 @@ export function buildVedarStyle(
           'line-opacity': 0.8,
         },
       },
+      // Имена воды — под символами: река подписывается вдоль себя, озеро
+      // в своём пятне, и оба уступают место ориентирам.
+      ...osmWaterLabelLayers(r, p, glyphs, font, ''),
+      // Приюты и перевалы — над линиями, под вершинами и посёлками.
+      ...osmShelterPassLayers(r, p, glyphs, font, ''),
       // Вершины — сверху всего: ориентир в поле важнее любой линии.
-      ...osmPeakLayers(sources.osmUrls, p, glyphs, sources.glyphsFont ?? 'Noto Sans Regular', ''),
+      ...osmPeakLayers(r, p, glyphs, font, ''),
+      // Посёлки — самый верх: на обзорном виде это единственное, по чему
+      // человек понимает, куда смотрит.
+      ...osmPlaceLayers(r, p, glyphs, font, ''),
     ],
   };
 }
@@ -325,6 +449,35 @@ export function buildVedarStyle(
  *               Поэтому ярус подкладывается только вблизи (см.
  *               DETAIL_MIN_ZOOM в VedarMap).
  */
+/**
+ * Адрес файла у каждого источника стиля — чтобы отказ можно было назвать
+ * ИМЕНЕМ ФАЙЛА, а не только текстом исключения.
+ *
+ * Скрин владельца 02.09 из поля: «Своя карта не отрисовалась: Expected ','
+ * or ']' after array element in JSON at position 387966». Сообщение верное и
+ * бесполезное: под точкой лежит район, а вокруг подкладываются соседние — у
+ * каждого горизонтали и семь слоёв OSM, восемьдесят с лишним файлов, и
+ * который из них оборвался, из этой строки не следует никак.
+ *
+ * MapLibre при этом ЗНАЕТ: в событии ошибки едет `sourceId` — его
+ * подставляет Style (setEventedParent у менеджера тайлов). Перевод
+ * идентификатора в имя файла берётся из самого объекта стиля, а не разбором
+ * строки: `osm-paths-south-kamchatka` на дефисы однозначно не делится, и
+ * такой разбор врал бы ровно на districts с дефисом в имени.
+ */
+export function sourceUrlIndex(sources: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [id, src] of Object.entries(sources ?? {})) {
+    if (!src || typeof src !== 'object') continue;
+    const s = src as { data?: unknown; url?: unknown };
+    // `data` у geojson, `url` у raster-dem поверх pmtiles. Встроенный
+    // GeoJSON (источник `route`) — объект, а не адрес: файла у него нет.
+    const url = typeof s.data === 'string' ? s.data : typeof s.url === 'string' ? s.url : null;
+    if (url) out[id] = url;
+  }
+  return out;
+}
+
 export type RegionTier = 'base' | 'detail';
 
 export interface RegionOverlay {
@@ -350,23 +503,43 @@ export function buildRegionOverlay(
   const ns = `-${regionId}`;
   const font = sources.glyphsFont ?? 'Noto Sans Regular';
   if (tier === 'base') {
-    const peaksOnly = sources.osmUrls?.peaks ? { peaks: sources.osmUrls.peaks } : undefined;
+    // Вершины и посёлки — два слоя-ориентира, ради которых обзорный вид и
+    // нужен. Файлы у обоих килобайтные, в отличие от горизонталей. Векторный
+    // пакет — один источник на всё, его тайлы и так берутся по кадру.
+    const marks: VedarStyleSources = sources.vectorUrl
+      ? sources
+      : { ...sources, osmUrls: {
+          ...(sources.osmUrls?.peaks ? { peaks: sources.osmUrls.peaks } : {}),
+          ...(sources.osmUrls?.places ? { places: sources.osmUrls.places } : {}),
+        } };
+    const r = layerRefs(marks, ns);
     return {
-      sources: { ...terrainSource(sources, ns), ...osmSources(peaksOnly, ns) },
+      sources: {
+        ...terrainSource(sources, ns),
+        ...(r.vector ? r.sources() : osmSources(marks.osmUrls, ns)),
+      },
       layers: [
+        reliefLayer(p, ns),
         hillshadeLayer(theme, p, ns),
-        ...osmPeakLayers(peaksOnly, p, glyphs, font, ns),
+        ...osmPeakLayers(r, p, glyphs, font, ns),
+        ...osmPlaceLayers(r, p, glyphs, font, ns),
       ] as Array<Record<string, unknown>>,
     };
   }
   const rest: VedarStyleSources['osmUrls'] = { ...(sources.osmUrls ?? {}) };
   delete rest.peaks;
+  delete rest.places;
+  const r = layerRefs(sources.vectorUrl ? sources : { ...sources, osmUrls: rest }, ns);
   return {
-    sources: { ...contoursSource(sources, ns), ...osmSources(rest, ns) },
+    // Векторный источник уже стоит с базового яруса (карта не добавляет
+    // источник дважды — см. VedarMap); повторить его здесь безопасно.
+    sources: r.sources(),
     layers: [
-      ...osmFillLayers(rest, p, ns),
-      ...contourLayers(sources, p, glyphs, ns),
-      ...osmLineLayers(rest, p, ns),
+      ...osmFillLayers(r, p, ns),
+      ...contourLayers(r, p, glyphs, font, ns),
+      ...osmLineLayers(r, p, ns),
+      ...osmWaterLabelLayers(r, p, glyphs, font, ns),
+      ...osmShelterPassLayers(r, p, glyphs, font, ns),
     ] as Array<Record<string, unknown>>,
   };
 }
@@ -395,6 +568,26 @@ function contoursSource(sources: VedarStyleSources, ns: string): Record<string, 
   };
 }
 
+/**
+ * Гипсометрическая окраска — слой `color-relief` MapLibre (есть с 5.7, у нас
+ * 6.6): цвет считается на клиенте ИЗ ВЫСОТ того же terrain-RGB, что и тень.
+ * Ни нового файла, ни пересборки пакета — те же байты, второе прочтение.
+ * Ступени — из палитры темы (см. MapPalette.relief).
+ */
+function reliefLayer(p: MapPalette, ns: string): Record<string, unknown> {
+  const stops: Array<number | string> = [];
+  for (const [m, color] of p.relief) stops.push(m, color);
+  return {
+    id: `relief${ns}`,
+    type: 'color-relief',
+    source: `terrain${ns}`,
+    paint: {
+      'color-relief-color': ['interpolate', ['linear'], ['elevation'], ...stops],
+      'color-relief-opacity': 1,
+    },
+  };
+}
+
 function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record<string, unknown> {
   return {
     id: `hillshade${ns}`,
@@ -404,7 +597,13 @@ function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record
       'hillshade-shadow-color': p.shadow,
       'hillshade-highlight-color': p.highlight,
       'hillshade-accent-color': p.accentShadow,
-      'hillshade-exaggeration': theme === 'dark' ? 0.72 : 0.45,
+      // Поверх гипсометрии тень нужна слабее, чем поверх плоского фона:
+      // цвет уже несёт высоту, тени остаётся форма склона. На обзорных
+      // зумах ещё слабее — там 30-метровый рельеф даёт не форму, а шум.
+      'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'],
+        8, theme === 'dark' ? 0.35 : 0.2,
+        11, theme === 'dark' ? 0.6 : 0.4,
+        14, theme === 'dark' ? 0.72 : 0.45],
       'hillshade-illumination-anchor': 'viewport',
       'hillshade-illumination-direction': 315,
     },
@@ -412,13 +611,29 @@ function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record
 }
 
 function contourLayers(
-  sources: VedarStyleSources, p: MapPalette, glyphs: string | null, ns: string,
+  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
 ): unknown[] {
+  const c = r.contours();
+  const fine = r.fine();
   return [
+    // Частые (20 м) — только из векторного пакета и только вблизи: тоньше и
+    // бледнее сотенных, чтобы форма склона читалась, а лист не серел.
+    ...(fine ? [{
+      id: `contour-fine${ns}`,
+      type: 'line',
+      ...fine,
+      filter: ['==', ['get', 'kind'], 'fine'],
+      minzoom: 13,
+      paint: {
+        'line-color': p.contourMinor,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.3, 15, 0.6],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.25, 15, 0.5],
+      },
+    }] : []),
     {
       id: `contour-minor${ns}`,
       type: 'line',
-      source: `contours${ns}`,
+      ...c,
       filter: ['==', ['get', 'kind'], 'minor'],
       // Частые линии на мелком зуме сливаются в кашу — там их нет вовсе.
       minzoom: 11,
@@ -431,7 +646,7 @@ function contourLayers(
     {
       id: `contour-major${ns}`,
       type: 'line',
-      source: `contours${ns}`,
+      ...c,
       filter: ['==', ['get', 'kind'], 'major'],
       paint: {
         'line-color': p.contourMajor,
@@ -444,13 +659,13 @@ function contourLayers(
     ...(glyphs ? [{
       id: `contour-label${ns}`,
       type: 'symbol',
-      source: `contours${ns}`,
+      ...c,
       filter: ['==', ['get', 'kind'], 'major'],
       minzoom: 11,
       layout: {
         'symbol-placement': 'line',
         // Шрифт — тот, что лежит в нашем хранилище (pack-source, PACK_GLYPHS).
-        'text-font': [sources.glyphsFont ?? 'Noto Sans Regular'],
+        'text-font': [font],
         // Число берётся ИЗ ДАННЫХ. Это и есть разница между картой и
         // картинкой: подпись нельзя «нарисовать похоже».
         'text-field': ['to-string', ['get', 'ele']],
@@ -480,34 +695,40 @@ function osmSources(urls: VedarStyleSources['osmUrls'], ns: string): Record<stri
   return out;
 }
 
-function osmFillLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette, ns: string): unknown[] {
+function osmFillLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
   const out: unknown[] = [];
-  if (urls?.wood) {
+  const wood = r.osm('wood');
+  if (wood) {
     out.push({
-      id: `osm-wood${ns}`, type: 'fill', source: `osm-wood${ns}`,
+      id: `osm-wood${ns}`, type: 'fill', ...wood,
       paint: { 'fill-color': p.wood, 'fill-opacity': 0.55 },
     });
   }
-  if (urls?.glacier) {
+  const glacier = r.osm('glacier');
+  if (glacier) {
     out.push({
-      id: `osm-glacier${ns}`, type: 'fill', source: `osm-glacier${ns}`,
+      id: `osm-glacier${ns}`, type: 'fill', ...glacier,
       paint: { 'fill-color': p.glacier, 'fill-opacity': 0.7 },
     });
   }
-  if (urls?.water) {
+  const water = r.osm('water');
+  if (water) {
     out.push({
-      id: `osm-water${ns}`, type: 'fill', source: `osm-water${ns}`,
+      id: `osm-water${ns}`, type: 'fill', ...water,
       paint: { 'fill-color': p.water, 'fill-opacity': 0.9 },
     });
   }
   return out;
 }
 
-function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette, ns: string): unknown[] {
+function osmLineLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
   const out: unknown[] = [];
-  if (urls?.waterways) {
+  const waterways = r.osm('waterways');
+  const roads = r.osm('roads');
+  const paths = r.osm('paths');
+  if (waterways) {
     out.push({
-      id: `osm-waterways${ns}`, type: 'line', source: `osm-waterways${ns}`,
+      id: `osm-waterways${ns}`, type: 'line', ...waterways,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': p.waterway,
@@ -519,20 +740,35 @@ function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette, ns: st
       },
     });
   }
-  if (urls?.roads) {
+  if (roads) {
+    // Обводка (casing) под дорогой — то, чем дорога на карте отличается от
+    // ручья того же цвета: у неё есть край. Ширина — по классу дороги.
+    const width = ['interpolate', ['linear'], ['zoom'],
+      8, ['match', ['get', 'kind'], ['primary', 'trunk'], 1.2, ['secondary', 'tertiary'], 0.9, 0.5],
+      14, ['match', ['get', 'kind'], ['primary', 'trunk'], 4, ['secondary', 'tertiary'], 3, 2]];
     out.push({
-      id: `osm-roads${ns}`, type: 'line', source: `osm-roads${ns}`,
+      id: `osm-roads-casing${ns}`, type: 'line', ...roads,
+      minzoom: 10,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': p.background,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 6],
+        'line-opacity': 0.6,
+      },
+    });
+    out.push({
+      id: `osm-roads${ns}`, type: 'line', ...roads,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': p.road,
-        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 14, 2.2],
-        'line-opacity': 0.85,
+        'line-width': width,
+        'line-opacity': 0.9,
       },
     });
   }
-  if (urls?.paths) {
+  if (paths) {
     out.push({
-      id: `osm-paths${ns}`, type: 'line', source: `osm-paths${ns}`,
+      id: `osm-paths${ns}`, type: 'line', ...paths,
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
       paint: {
         'line-color': p.path,
@@ -548,11 +784,12 @@ function osmLineLayers(urls: VedarStyleSources['osmUrls'], p: MapPalette, ns: st
 }
 
 function osmPeakLayers(
-  urls: VedarStyleSources['osmUrls'], p: MapPalette, glyphs: string | null, font: string, ns: string,
+  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
 ): unknown[] {
-  if (!urls?.peaks) return [];
+  const peaks = r.osm('peaks');
+  if (!peaks) return [];
   const out: unknown[] = [{
-    id: `osm-peaks${ns}`, type: 'circle', source: `osm-peaks${ns}`,
+    id: `osm-peaks${ns}`, type: 'circle', ...peaks,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4],
       'circle-color': p.peak,
@@ -564,7 +801,7 @@ function osmPeakLayers(
   // целиком (тот же урок, что у горизонталей 01.09).
   if (glyphs) {
     out.push({
-      id: `osm-peak-labels${ns}`, type: 'symbol', source: `osm-peaks${ns}`,
+      id: `osm-peak-labels${ns}`, type: 'symbol', ...peaks,
       layout: {
         'text-font': [font],
         'text-field': ['case', ['has', 'ele'],
@@ -579,6 +816,195 @@ function osmPeakLayers(
         'text-color': p.peakLabel,
         'text-halo-color': p.background,
         'text-halo-width': 1.4,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Посёлки (02.09, осмотр владельца: «на карте нет ни одного названия»).
+ *
+ * Слой один на все четыре рода — город, посёлок, село, хутор, — а
+ * разбираются они кеглем и ПОРЯДКОМ ВЫТЕСНЕНИЯ (`symbol-sort-key`): когда
+ * подписи не помещаются, MapLibre выбрасывает хутор, а не город. Резать
+ * зумом по родам было бы четыре слоя и четыре угаданных порога; здесь
+ * порог один — «что влезло».
+ */
+function osmPlaceLayers(
+  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
+): unknown[] {
+  const places = r.osm('places');
+  if (!places) return [];
+  const out: unknown[] = [{
+    id: `osm-places${ns}`, type: 'circle', ...places,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 13, 3.5],
+      'circle-color': p.place,
+      'circle-stroke-color': p.background,
+      'circle-stroke-width': 1,
+      'circle-opacity': 0.8,
+    },
+  }];
+  if (glyphs) {
+    out.push({
+      id: `osm-place-labels${ns}`, type: 'symbol', ...places,
+      layout: {
+        'text-font': [font],
+        'text-field': ['get', 'name'],
+        'text-size': ['match', ['get', 'kind'], 'city', 15, 'town', 13, 'village', 12, 11],
+        'text-offset': [0, 0.8],
+        'text-anchor': 'top',
+        'text-padding': 4,
+        'text-allow-overlap': false,
+        'symbol-sort-key': ['match', ['get', 'kind'], 'city', 0, 'town', 1, 'village', 2, 3],
+      },
+      paint: {
+        'text-color': p.place,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.6,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Приют и перевал — два ответа, за которыми в поле лезут в карту: где
+ * ночевать и где переваливать. Оба видны только вблизи (z10): на обзоре
+ * они не решение, а сор.
+ *
+ * Перевал подписан высотой, как вершина: по ней понимают набор и снег.
+ * Безымянный перевал остаётся точкой без подписи — он всё равно факт
+ * местности, а выдуманного имени у него нет (§4.0).
+ */
+function osmShelterPassLayers(
+  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
+): unknown[] {
+  const out: unknown[] = [];
+  const passes = r.osm('passes');
+  const shelters = r.osm('shelters');
+  if (passes) {
+    out.push({
+      id: `osm-passes${ns}`, type: 'circle', ...passes,
+      minzoom: 9,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4],
+        'circle-color': p.mountainPass,
+        'circle-stroke-color': p.background,
+        'circle-stroke-width': 1,
+      },
+    });
+  }
+  if (shelters) {
+    out.push({
+      id: `osm-shelters${ns}`, type: 'circle', ...shelters,
+      minzoom: 9,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5],
+        'circle-color': p.shelter,
+        'circle-stroke-color': p.background,
+        'circle-stroke-width': 1.5,
+      },
+    });
+  }
+  if (!glyphs) return out;
+  if (passes) {
+    out.push({
+      id: `osm-pass-labels${ns}`, type: 'symbol', ...passes,
+      minzoom: 10,
+      filter: ['has', 'name'],
+      layout: {
+        'text-font': [font],
+        'text-field': ['case', ['has', 'ele'],
+          ['concat', ['get', 'name'], ' ', ['to-string', ['get', 'ele']]],
+          ['get', 'name']],
+        'text-size': 11,
+        'text-offset': [0, 0.9],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': p.mountainPass,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.4,
+      },
+    });
+  }
+  if (shelters) {
+    out.push({
+      id: `osm-shelter-labels${ns}`, type: 'symbol', ...shelters,
+      minzoom: 10,
+      filter: ['has', 'name'],
+      layout: {
+        'text-font': [font],
+        'text-field': ['get', 'name'],
+        'text-size': 11,
+        'text-offset': [0, 0.9],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': p.shelter,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.4,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Имена рек и озёр. Новых данных не нужно: `name` уже лежит в тех же
+ * слоях `waterways` и `water` — их писал конвейер с самого начала, а карта
+ * не читала. Река подписывается ВДОЛЬ себя (symbol-placement: line), озеро
+ * — в своём пятне; безымянные молчат.
+ */
+function osmWaterLabelLayers(
+  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
+): unknown[] {
+  if (!glyphs) return [];
+  const out: unknown[] = [];
+  const waterways = r.osm('waterways');
+  const water = r.osm('water');
+  if (waterways) {
+    out.push({
+      id: `osm-waterway-labels${ns}`, type: 'symbol', ...waterways,
+      minzoom: 11,
+      filter: ['has', 'name'],
+      layout: {
+        'symbol-placement': 'line',
+        'text-font': [font],
+        'text-field': ['get', 'name'],
+        'text-size': 10,
+        'text-max-angle': 30,
+        'text-padding': 4,
+        'symbol-spacing': 400,
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': p.waterLabel,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.2,
+      },
+    });
+  }
+  if (water) {
+    out.push({
+      id: `osm-water-labels${ns}`, type: 'symbol', ...water,
+      minzoom: 10,
+      filter: ['has', 'name'],
+      layout: {
+        'text-font': [font],
+        'text-field': ['get', 'name'],
+        'text-size': 11,
+        'text-padding': 4,
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': p.waterLabel,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.2,
       },
     });
   }

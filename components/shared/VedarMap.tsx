@@ -33,7 +33,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
-  buildVedarStyle, buildRegionOverlay, vedarMapPalette,
+  buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex,
   type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
@@ -158,6 +158,41 @@ export function packFileName(url: string): string {
 }
 
 /**
+ * Строка об отказе карты — целиком, вместе с тем, ЧТО именно отказало.
+ *
+ * Скрин владельца 02.09 из поля: «Своя карта не отрисовалась: Expected ','
+ * or ']' after array element in JSON at position 387966». Обе половины
+ * сообщения были неверны по сути:
+ *
+ *   - «карта не отрисовалась» — карта в тот момент рисовала: рельеф,
+ *     горизонтали, свой след. Не пришёл ОДИН слой из восьмидесяти;
+ *   - текст исключения без имени файла не даёт даже направления: у десяти
+ *     районов по восемь GeoJSON, и который оборвался — неизвестно.
+ *
+ * Отсюда три разных исхода вместо одного (§4.0): «карта не поднялась»,
+ * «слой не пришёл» и «не смог назвать источник» — у каждого свои слова.
+ * Плюс отдельная пометка о повторе: «качаем заново» — это не тот же исход,
+ * что «не пришло и не придёт», и ждать человек в этих случаях будет разное.
+ */
+export function mapErrorText(input: {
+  message?: string;
+  sourceId?: string;
+  file?: string;
+  mapLoaded: boolean;
+  retrying?: boolean;
+}): string {
+  const detail = input.message ? input.message.slice(0, 160) : 'неизвестная ошибка';
+  // Имя источника — запасной ответ, когда адрес файла не нашёлся: он всё
+  // равно называет слой («osm-paths»), а «не знаю» здесь было бы шагом
+  // назад к безымянной строке из поля.
+  const where = input.file ? packFileName(input.file) : input.sourceId;
+  const tail = input.retrying ? ' — качаем заново' : '';
+  if (input.mapLoaded && where) return `Слой карты не пришёл — ${where}: ${detail}${tail}`;
+  if (where) return `Своя карта не отрисовалась — ${where}: ${detail}${tail}`;
+  return `Своя карта не отрисовалась: ${detail}${tail}`;
+}
+
+/**
  * Прямой запрос к файлу пакета — тем же способом, что читатель PMTiles:
  * Range-GET через CORS. Ответ — словами для экрана: HTTP-код и время либо
  * имя исключения.
@@ -278,6 +313,12 @@ export default function VedarMap({
   onDiagnosticRef.current = onDiagnostic;
   const onControlsRef = useRef(onControls);
   useEffect(() => { onControlsRef.current = onControls; }, [onControls]);
+  /**
+   * Идентификатор источника MapLibre -> адрес его файла. Заполняется из
+   * самого стиля и из подложенных соседей (см. sourceUrlIndex): отказ
+   * источника обязан называть ФАЙЛ, а не только текст исключения.
+   */
+  const fileBySourceRef = useRef<Record<string, string>>({});
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
@@ -345,9 +386,15 @@ export default function VedarMap({
         // так. Разбор — lib/map/maplibre-worker.ts.
         maplibre.setWorkerUrl(maplibreWorkerUrl(window.location.origin));
 
+        const style = buildVedarStyle(theme, sources);
+        // Индекс «источник -> файл» строится ДО карты и из того же объекта
+        // стиля, которым карта создаётся: иначе он рассказывал бы о другом
+        // наборе источников, чем тот, что реально просят с сети.
+        fileBySourceRef.current = sourceUrlIndex(style.sources as Record<string, unknown>);
+
         const map = new maplibre.Map({
           container: containerRef.current,
-          style: buildVedarStyle(theme, sources) as never,
+          style: style as never,
           center: [center[1], center[0]], // [lng, lat] — порядок MapLibre
           zoom,
           attributionControl: { compact: true },
@@ -376,6 +423,33 @@ export default function VedarMap({
             if (diagShown) { diagShown = false; setDiag(null); }
           }
           if (ev.sourceId === 'contours' && ev.isSourceLoaded) seen.contours += 1;
+        });
+
+        /**
+         * Источник, оборвавшийся на полпути, — и повтор ровно один раз.
+         *
+         * Перепись хранилища 02.09 с раннера: все 90 файлов пакетов целы,
+         * 118 МБ скачаны и разобраны за 26 секунд. Значит GeoJSON рвался НЕ
+         * в бакете, а по дороге на телефон: мобильный канал обрывает тело, и
+         * MapLibre получает половину массива — отсюда «Expected ',' or ']'»
+         * на позиции, равной длине пришедшего текста.
+         *
+         * Своего повтора у geojson-источника нет: один отказ — и слой мёртв
+         * до пересоздания карты. `setData(url)` заказывает файл заново.
+         * Повтор строго ОДИН на источник за жизнь карты: на глухом канале
+         * бесконечные попытки съедали бы батарею и трафик там, где их
+         * меньше всего можно тратить.
+         */
+        const retriedSources = new Set<string>();
+        let awaitingRetry: string | null = null;
+        map.on('sourcedata', (e) => {
+          const ev = e as { sourceId?: string; isSourceLoaded?: boolean };
+          // Слой, о котором мы сказали «не пришёл», всё-таки пришёл —
+          // сообщение снимается: жалоба на живой слой хуже молчания.
+          if (awaitingRetry && ev.sourceId === awaitingRetry && ev.isSourceLoaded) {
+            awaitingRetry = null;
+            if (!cancelled) setMapError(null);
+          }
         });
         // Запрошено — отдельно от пришло. Ноль запросов значит, что источник
         // не получил TileJSON (протокол PMTiles не ответил); запросы есть, а
@@ -410,7 +484,11 @@ export default function VedarMap({
           if (!loaded) parts.push('стиль не загрузился');
           if (seen.terrain === 0) parts.push('рельеф не пришёл');
           if (seen.contours === 0) parts.push('горизонтали не пришли');
-          const head = parts.join(' · ');
+          // Приговор целиком собирается здесь, а не у того, кто его рисует:
+          // строку показывают ДВА места (сама карта и приборная колонка), и
+          // разъехавшиеся формулировки — та же беда, что три реализации
+          // одного правила линий (§12).
+          const head = `Своя карта не отрисовалась: ${parts.join(' · ')}`;
           diagShown = true;
           setDiag(head);
 
@@ -447,10 +525,39 @@ export default function VedarMap({
           // отвергнут из-за подписей без глифов) лежала в консоли телефона,
           // куда в поле не заглянешь. Ошибка обязана быть НА ЭКРАНЕ — иначе
           // разбор снова идёт перепиской.
-          if (!cancelled) {
-            const msg = (e?.error as Error | undefined)?.message;
-            setMapError(msg ? msg.slice(0, 160) : 'неизвестная ошибка');
+          if (cancelled) return;
+          const msg = (e?.error as Error | undefined)?.message;
+          const sourceId = (e as { sourceId?: string } | undefined)?.sourceId;
+          const file = sourceId ? fileBySourceRef.current[sourceId] : undefined;
+
+          // Первый обрыв — заказываем файл заново и говорим об этом. Молча
+          // повторять нельзя: человек в поле должен понимать, почему часть
+          // карты пуста прямо сейчас.
+          let retrying = false;
+          if (sourceId && file && !retriedSources.has(sourceId)) {
+            const src = map.getSource(sourceId) as GeoJSONSource | undefined;
+            if (src && typeof src.setData === 'function') {
+              retriedSources.add(sourceId);
+              awaitingRetry = sourceId;
+              retrying = true;
+              try { src.setData(file); } catch (err) {
+                retrying = false;
+                awaitingRetry = null;
+                console.error('[VedarMap] повтор источника не удался', sourceId, err);
+              }
+            }
           }
+
+          setMapError(mapErrorText({
+            message: msg,
+            sourceId,
+            file,
+            // Карта уже поднялась — значит упал ОДИН слой, а не карта.
+            // Скрин 02.09 говорил «карта не отрисовалась» ровно тогда,
+            // когда рельеф был на месте: это разные беды и разные слова.
+            mapLoaded: loaded,
+            retrying,
+          }));
         });
       } catch (err) {
         if (cancelled) return;
@@ -517,8 +624,13 @@ export default function VedarMap({
             glyphsUrl: pack.source.glyphsUrl,
             glyphsFont: pack.source.glyphsFont,
             osmUrls: pack.source.osmUrls,
+            vectorUrl: pack.source.vectorUrl,
           }, region, tier);
           try {
+            // Соседи попадают в индекс имён вместе со своими источниками:
+            // именно их файлы (восемь на район) чаще всего и не приходят, а
+            // безымянный отказ соседа неотличим от отказа своего района.
+            Object.assign(fileBySourceRef.current, sourceUrlIndex(overlay.sources));
             for (const [id, src] of Object.entries(overlay.sources)) {
               if (!map.getSource(id)) map.addSource(id, src as never);
             }
@@ -668,7 +780,7 @@ export default function VedarMap({
             background: 'rgba(13,17,23,0.9)', color: '#fff', fontSize: 11,
             lineHeight: 1.4,
           }}>
-          Своя карта не отрисовалась: {mapError ?? diag}
+          {mapError ?? diag}
           {/* Имя файла пакета — чтобы отчёт из поля называл, ЧТО не пришло,
               а не только что «не пришло». Один взгляд вместо переписки. */}
           {!mapError && diag && (

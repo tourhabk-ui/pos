@@ -105,16 +105,28 @@ describe('GET /api/cron/route-endpoints — перепись под секрет
 describe('workflow партий', () => {
   const wf = readFileSync(join(ROOT, '.github/workflows/route-endpoints-batch.yml'), 'utf8');
 
-  it('вручную или по маркеру, без расписания и без токена', () => {
+  it('вручную или по маркеру, без расписания', () => {
     // 02.09: к workflow_dispatch добавлен push по маркеру
     // .github/triggers/route-endpoints-batch.json — dispatch через интеграцию
-    // даёт 403. По push идёт только перепись (MODE по умолчанию census);
-    // расписания по-прежнему нет: партия — решение человека, не крона.
+    // даёт 403. 03.09 маркер несёт все входы, а не только перепись: сухой
+    // прогон ничего не пишет, а ждал клика владельца сутки.
+    // Расписания по-прежнему нет: партия — решение человека, не крона.
     expect(wf).toMatch(/^\s+workflow_dispatch:/m);
     expect(wf).toMatch(/^\s+paths:\n\s+- '\.github\/triggers\/route-endpoints-batch\.json'/m);
-    expect(wf).toMatch(/MODE: \$\{\{ inputs\.mode \|\| 'census' \}\}/);
     expect(wf).not.toMatch(/^\s+schedule:/m);
-    expect(wf).toMatch(/^permissions: \{\}$/m);
+    // Права — только чтение репозитория (маркер), ничего не пишется.
+    expect(wf).toMatch(/^permissions:\n\s+contents: read$/m);
+  });
+
+  it('умолчание маркера без mode — перепись, а не партия', () => {
+    // Файл, забытый в репозитории, не должен однажды уехать боевой партией.
+    expect(wf).toMatch(/pick\('IN_MODE', 'mode', 'census'\)/);
+  });
+
+  it('маркер даёт все входы, а не только режим', () => {
+    for (const key of ['route_ids', 'source', 'why']) {
+      expect(wf).toContain(`'${key}'`);
+    }
   });
 
   it('боевая партия требует source и why и не больше 10 id', () => {

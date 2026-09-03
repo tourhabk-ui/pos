@@ -34,9 +34,11 @@ type Style = { sources: Record<string, { attribution?: string }>; layers: Array<
 
 describe('список слоёв — один на конвейер и контракт', () => {
   it('LAYERS в build_osm.py совпадает с OSM_LAYERS', () => {
-    const m = PY.match(/^LAYERS = \(([^)]+)\)/m);
+    const m = PY.match(/^LAYERS = \(([\s\S]*?)\)/m);
     expect(m, 'LAYERS в build_osm.py не найден').toBeTruthy();
-    const py = m![1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
+    const py = m![1]
+      .replace(/#[^\n]*/g, '')
+      .split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
     expect(py).toEqual([...OSM_LAYERS]);
   });
 
@@ -103,7 +105,90 @@ describe('порядок и вид слоёв', () => {
   });
 });
 
+/**
+ * Имена на карте (02.09, осмотр владельца: «на карте нет ни одного
+ * названия посёлка»). Посёлок — ориентир обзорного вида; приют и перевал —
+ * решения поля. Имена рек и озёр новых данных не потребовали: `name` уже
+ * лежал в слоях, карта его не читала.
+ */
+describe('имена: посёлки, приюты, перевалы, вода', () => {
+  const style = buildVedarStyle('dark', {
+    ...baseSources, osmUrls: allUrls,
+    glyphsUrl: `${base}/map-packs/glyphs/{fontstack}/{range}.pbf`, glyphsFont: 'Noto Sans Regular',
+  }) as unknown as Style;
+  const idx = (id: string) => style.layers.findIndex((l) => l.id === id);
+
+  it('конвейер собирает три слоя-символа и спрашивает их у Overpass', () => {
+    for (const l of ['places', 'shelters', 'passes'] as const) {
+      expect(OSM_LAYERS).toContain(l);
+    }
+    expect(PY).toMatch(/node\["place"~/);
+    expect(PY).toMatch(/way\["tourism"~/);      // приют бывает контуром здания
+    expect(PY).toMatch(/node\["mountain_pass"="yes"\]/);
+    // Символы спрашиваются ОТДЕЛЬНЫМ запросом, и его кэш ключуется
+    // отпечатком запроса. Иначе кэш клеток (ключ — только координаты)
+    // вернул бы ответ на прежний вопрос, и три слоя вышли бы пустыми у
+    // всех десяти районов — тихо, потому что пустой слой законен.
+    expect(PY).toContain('def symbols_query(');
+    expect(PY).toMatch(/hashlib\.sha1\(q\.encode\('utf-8'\)\)\.hexdigest\(\)\[:8\]/);
+    // Тяжёлый запрос геометрии этих тегов не спрашивает — иначе его кэш
+    // тоже разъехался бы с вопросом.
+    const heavy = PY.slice(PY.indexOf('def overpass_query('), PY.indexOf('def symbols_query('));
+    expect(heavy).not.toContain('mountain_pass');
+    expect(heavy).not.toContain('"place"');
+    // Контур сводится к точке ВНУТРИ фигуры, не к центроиду.
+    expect(PY).toContain('representative_point()');
+    // Высота перевала — такой же факт, как высота вершины.
+    expect(PY).toMatch(/layer in \('peaks', 'passes'\)/);
+  });
+
+  it('подписи есть у всех четырёх родов имён', () => {
+    for (const id of ['osm-place-labels', 'osm-shelter-labels', 'osm-pass-labels',
+      'osm-waterway-labels', 'osm-water-labels']) {
+      expect(idx(id), id).toBeGreaterThanOrEqual(0);
+    }
+    expect(validateStyleMin(style as never)).toEqual([]);
+  });
+
+  it('посёлки — поверх всего, вода — под символами', () => {
+    expect(idx('osm-place-labels')).toBeGreaterThan(idx('osm-peaks'));
+    expect(idx('osm-waterway-labels')).toBeLessThan(idx('osm-shelters'));
+  });
+
+  it('при тесноте вытесняется хутор, а не город', () => {
+    const labels = style.layers.find((l) => l.id === 'osm-place-labels') as unknown as
+      { layout: Record<string, unknown> };
+    expect(labels.layout['symbol-sort-key']).toEqual(
+      ['match', ['get', 'kind'], 'city', 0, 'town', 1, 'village', 2, 3]);
+    expect(labels.layout['text-allow-overlap']).toBe(false);
+  });
+
+  it('безымянный перевал остаётся точкой без подписи (§4.0)', () => {
+    const passLabels = style.layers.find((l) => l.id === 'osm-pass-labels') as unknown as
+      { filter: unknown };
+    expect(passLabels.filter).toEqual(['has', 'name']);
+    expect(idx('osm-passes')).toBeGreaterThanOrEqual(0);
+  });
+
+  it('без глифов подписей нет, а точки остаются и стиль валиден', () => {
+    const noGlyphs = buildVedarStyle('dark', { ...baseSources, osmUrls: allUrls }) as unknown as Style;
+    for (const id of ['osm-place-labels', 'osm-shelter-labels', 'osm-pass-labels', 'osm-water-labels']) {
+      expect(noGlyphs.layers.some((l) => l.id === id), id).toBe(false);
+    }
+    expect(noGlyphs.layers.some((l) => l.id === 'osm-places')).toBe(true);
+    expect(validateStyleMin(noGlyphs as never)).toEqual([]);
+  });
+});
+
 describe('заливка и workflow', () => {
+  it('отчёт заливки называет число объектов, а не только килобайты', () => {
+    // Слой из двух посёлков весит 300 байт и печатался «0 КБ» — так же,
+    // как пустой. «Мало» и «ничего» обязаны различаться (§4.0).
+    expect(UP).toContain('countFeatures(body)');
+    expect(UP).toMatch(/объектов, \$\{size\} Б/);
+    expect(UP).toContain("return 'не разобрал'");
+  });
+
   it('заливка — все семь слоёв или ни одного', () => {
     expect(UP).toMatch(/Нет OSM-слоёв: /);
     expect(UP).toMatch(/OSM_LAYERS\.map\(\(l\) => \(\{ layer: l/);

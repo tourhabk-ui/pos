@@ -59,19 +59,30 @@ describe('оверлей района', () => {
     }
   });
 
-  it('base — рельеф и вершины, без GeoJSON горизонталей; detail — без рельефа', () => {
+  it('base — рельеф, вершины и посёлки; detail — без рельефа и без них', () => {
+    // Посёлок в базовом ярусе намеренно (02.09): на обзорном виде это
+    // единственное, по чему человек понимает, куда смотрит, а файл
+    // килобайтный — в отличие от горизонталей.
     const b = buildRegionOverlay('dark', src('esso-bystrinsky'), 'esso-bystrinsky', 'base');
     const types = Object.values(b.sources).map(s => (s as { type: string }).type);
     expect(types).toContain('raster-dem');
-    expect(Object.keys(b.sources)).toEqual(['terrain-esso-bystrinsky', 'osm-peaks-esso-bystrinsky']);
+    expect(Object.keys(b.sources)).toEqual([
+      'terrain-esso-bystrinsky', 'osm-peaks-esso-bystrinsky', 'osm-places-esso-bystrinsky',
+    ]);
     expect(b.layers.map(l => l.id)).toEqual([
-      'hillshade-esso-bystrinsky', 'osm-peaks-esso-bystrinsky', 'osm-peak-labels-esso-bystrinsky',
+      'relief-esso-bystrinsky', 'hillshade-esso-bystrinsky',
+      'osm-peaks-esso-bystrinsky', 'osm-peak-labels-esso-bystrinsky',
+      'osm-places-esso-bystrinsky', 'osm-place-labels-esso-bystrinsky',
     ]);
     const d = buildRegionOverlay('dark', src('esso-bystrinsky'), 'esso-bystrinsky', 'detail');
     expect(Object.values(d.sources).every(s => (s as { type: string }).type === 'geojson')).toBe(true);
     expect(Object.keys(d.sources)).toContain('contours-esso-bystrinsky');
     expect(Object.keys(d.sources)).not.toContain('osm-peaks-esso-bystrinsky');
+    expect(Object.keys(d.sources)).not.toContain('osm-places-esso-bystrinsky');
     expect(d.layers.map(l => l.id)).toContain('contour-major-esso-bystrinsky');
+    // Приют и перевал — вблизи, вместе с горизонталями.
+    expect(d.layers.map(l => l.id)).toContain('osm-shelters-esso-bystrinsky');
+    expect(d.layers.map(l => l.id)).toContain('osm-pass-labels-esso-bystrinsky');
   });
 
   it('основной стиль не изменился: идентификаторы без суффикса', () => {

@@ -35,6 +35,13 @@ export function makeItem(item: PrepItem): PrepItem {
 
 export interface PrepEngineInput {
   passport: RoutePassport | null;
+  /**
+   * Маршрут, к которому готовятся. Нужен ссылке на полевой пакет: без него
+   * она открывала полевой режим с ПОСЛЕДНИМ активным маршрутом, и человек,
+   * готовясь к одному, сохранял пакет другого. `null` — маршрут неизвестен,
+   * ссылка остаётся прежней (это законно, а не повод выдумать id).
+   */
+  routeId?: string | null;
   /** Состояния полевого пакета (verifyFieldPack) или null — пакета нет. */
   packStates: PackAssetState[] | null;
   answers: PrepAnswers;
@@ -55,7 +62,7 @@ function withUser(item: PrepItem, userStates: Record<string, PrepState>): PrepIt
 }
 
 export function buildPreparationItems(input: PrepEngineInput): PrepItem[] {
-  const { passport, packStates, answers, conditionsAgeMs } = input;
+  const { passport, packStates, answers, conditionsAgeMs, routeId = null } = input;
   const items: PrepItem[] = [];
   const overnight = answers.duration === 'overnight' || answers.duration === 'multi_day';
 
@@ -134,7 +141,14 @@ export function buildPreparationItems(input: PrepEngineInput): PrepItem[] {
           ? 'Пакет скачан не полностью — доберите при связи'
           : 'Работает без связи, вся карта под рукой — в поле сети не будет',
       source: { type: 'field_pack', reference: readiness ?? 'нет пакета' },
-      action: { kind: 'open_field_pack', label: readiness === 'ready' ? 'Проверить' : 'Открыть', href: '/planning?mode=trail' },
+      action: {
+        kind: 'open_field_pack',
+        label: readiness === 'ready' ? 'Проверить' : 'Открыть',
+        // Маршрут — в самой ссылке: полевой режим иначе поднимет последний
+        // активный, и пакет сохранится не для того маршрута, к которому
+        // человек готовится (см. routeId выше).
+        href: routeId ? `/planning?mode=trail&route=${encodeURIComponent(routeId)}` : '/planning?mode=trail',
+      },
     }));
     items.push(makeItem({
       code: 'power_bank',
