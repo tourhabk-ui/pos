@@ -574,6 +574,19 @@ authorization: <токен агента>
 получали 403, к этому пути не относится. **Аренда VPS в Амстердаме и
 GPU за 30 744 ₽/мес сняты с повестки оба.**
 
+**Anthropic с прода достижим и без Timeweb — замер 03.09 (`GET
+/api/cron/anthropic-path-probe`, workflow `anthropic-path-probe.yml`, run 2).**
+С прода через воркер `vedar-ai-relay.tourhabk.workers.dev/anthropic` (он и
+стоит в `ANTHROPIC_BASE_URL`) и через Cloudflare AI Gateway (шлюз `vedar-ai`,
+`gateway.ai.cloudflare.com/v1/<account>/vedar-ai/anthropic`) `api.anthropic.com`
+ответил СВОИМ телом: HTTP 400 «credit balance is too low». Прямой адрес с
+прода — 403 «Request not allowed». Запись 23.08 «воркер не обходит и
+Anthropic» была выводом из случая OpenRouter (там 403 остаётся), а не
+замером. Единственный блокер для Claude на проде 03.09 — **нулевой баланс
+ключа Anthropic** (тот же ответ у ключа из секретов GitHub). Проба различает
+«дошли» по ФОРМЕ ответа Anthropic, а не по коду: 401/400 с телом
+`{"type":"error"}` — путь открыт, 403 — закрыт, сетевой отказ — «не смог».
+
 В каталоге (`/docs/ai-agents/pricing/models`) есть ровно те флагманы,
 ради которых городился релей: Anthropic Claude Opus 5 / Sonnet 5 /
 Fable 5 / Opus 4.8 / Haiku 4.5, OpenAI GPT 5.6 (Luna/Sol/Terra) и 5.4,
