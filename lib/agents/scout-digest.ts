@@ -32,9 +32,10 @@ import { stripTags } from '@/lib/html/text';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { hashStr } from '@/lib/notifications/post-image';
 import {
-  relayBase, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
+  relayBase, relayBaseProblem, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
+import { parseTelegramPreview } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 
 /**
@@ -207,6 +208,8 @@ export interface DigestResult {
   ai_features?: AiFeaturesResult;
   /** Реле вне РФ: off — не задано, bad_base — адрес не разбирается, on — работает. */
   relay?: RelayStatus;
+  /** Чем плох адрес реле — словами, с обрезком значения; null, если в порядке. */
+  relay_detail?: string | null;
   /**
    * Ушёл ли пост во ВТОРОЙ канал — AI-канал.
    *
@@ -246,8 +249,22 @@ interface RssItem {
 
 type SourceCategory = 'ai' | 'travel' | 'kamchatka' | 'reference';
 
+/**
+ * Род источника: RSS/Atom-лента (по умолчанию) или публичное превью
+ * Telegram-канала (`t.me/s/<канал>`, разбор — lib/agents/scout-telegram).
+ */
+export type SourceKind = 'rss' | 'telegram';
+
+export interface ScoutSource {
+  key: string;
+  url: string;
+  label: string;
+  category: SourceCategory;
+  kind?: SourceKind;
+}
+
 /** Экспортирован ради инвариант-теста: каждый фид обязан сторожиться. */
-export const RSS_SOURCES: Array<{ key: string; url: string; label: string; category: SourceCategory }> = [
+export const RSS_SOURCES: ScoutSource[] = [
   // AI & Tech — фронтир (англоязычные практические источники для тех, кто строит с LLM/агентами)
   { key: 'simonwillison', url: 'https://simonwillison.net/atom/everything/', label: 'Simon Willison', category: 'ai' },
   { key: 'huggingface',   url: 'https://huggingface.co/blog/feed.xml',       label: 'Hugging Face',   category: 'ai' },
@@ -282,6 +299,17 @@ export const RSS_SOURCES: Array<{ key: string; url: string; label: string; categ
   // а из собственного safety-слоя — см. SAFETY_LAYER_SOURCE ниже.
   { key: 'tourprom', url: 'https://www.tourprom.ru/feed/rss.xml', label: 'Турпром',   category: 'travel' },
   { key: 'ratanews', url: 'https://ratanews.ru/rss.xml',          label: 'RATA News', category: 'travel' },
+
+  // Telegram-каналы — по слову владельца 03.09 («добавь в разведку»). Читается
+  // публичное превью t.me/s/<канал>; с прода t.me закрыт, поэтому эти
+  // источники живут на реле вне РФ (scout-relay) и без него честно
+  // отчитаются отказом. Ссылка-приглашение t.me/+ll3pbl442dNkZmYy из того же
+  // сообщения НЕ добавлена: это закрытый чат без превью, читать его нельзя
+  // по построению (см. isTelegramInvite). Сайт РСТ rostourunion.ru ждёт
+  // переписи /census: ленты у него на известных адресах нет, гадать не будем.
+  { key: 'tg_ru_rst',        url: 'https://t.me/s/ru_rst',        label: 'РСТ (Telegram)',        category: 'travel', kind: 'telegram' },
+  { key: 'tg_minec_tourism', url: 'https://t.me/s/minec_tourism', label: 'Минэк — туризм',        category: 'travel', kind: 'telegram' },
+  { key: 'tg_vibecoding',    url: 'https://t.me/s/vibecoding_tg', label: 'Vibecoding (Telegram)', category: 'ai',     kind: 'telegram' },
 
   // ── УДАЛЕНЫ 01.08 как мёртвые (диагноз по полю error прогона 09:10 UTC) ──
   // Поле error (появилось в #916) дало точную причину, а не «молчит»:
@@ -476,11 +504,15 @@ async function fetchViaRelay(url: string, label: string): Promise<{ ok: true; te
  * в `via`: источник, живущий на реле, зависит от Cloudflare, и отчёт обязан
  * это показывать, а не сливать с «читается из РФ».
  */
-async function fetchSource(s: { key: string; url: string; label: string; category: SourceCategory }): Promise<SourceFetch> {
+async function fetchSource(s: ScoutSource): Promise<SourceFetch> {
   const base = { key: s.key, label: s.label, category: s.category };
+  // Разбор по роду источника: лента — RSS/Atom, канал — превью Telegram.
+  const parse = (text: string): RssItem[] => s.kind === 'telegram'
+    ? parseTelegramPreview(text, s.label)
+    : parseRssItems(text, s.label);
   const direct = await fetchDirect(s.url, s.label);
   if (direct.ok) {
-    const items = parseRssItems(direct.text, s.label);
+    const items = parse(direct.text);
     return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'direct' };
   }
   if (!relayConfigured() || !shouldFallbackToRelay({ status: direct.status })) {
@@ -492,7 +524,7 @@ async function fetchSource(s: { key: string; url: string; label: string; categor
     // единственная беда, а источник из РФ при этом всё так же закрыт.
     return { ...base, items: [], status: 'error', error: `напрямую: ${direct.error}; ${relayed.error}`, via: 'relay' };
   }
-  const items = parseRssItems(relayed.text, s.label);
+  const items = parse(relayed.text);
   return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'relay' };
 }
 
@@ -840,6 +872,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // отчёт читался как «реле отказало» у всех фидов разом. 'bad_base'
     // называет беду по имени.
     relay: relayStatus(),
+    // Класс беды — выше; здесь — что именно стоит в переменной, чтобы чинили
+    // строку, а не гадали (03.09: третий прогон подряд с bad_base после
+    // «поправили переменную»).
+    relay_detail: relayBaseProblem(),
     // Линза «ИИ-фичи для Ведара» (03.09, слово владельца: «меня интересуют от
     // разведчика именно ИИ-фичи для проекта»). Идёт ДО ворот выпуска и своей
     // памятью отсеивает уже виденные статьи, поэтому живёт рядом со здоровьем
@@ -959,6 +995,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
 - Цифры, цены, версии, названия фич и технический механизм — ДОСЛОВНО из сигнала. Нет в сигнале — не пиши.
 - Особенно про цены и тарифы: "без изменения цены", "дешевле", "бесплатно" — только если это сказано в сигнале. Не выводи из общих соображений.
 - Если известен только заголовок — пиши общо, что появилось, без выдуманной конкретики.
+- ДАТЫ: не пиши дат публикации и «сегодня/вчера/на этой неделе». Дата в тексте
+  допустима только если она дословно стоит в сигнале как дата события.
+  Выпуск 03.09 был удержан ровно за «опубликовано 3 сентября 2026», которого
+  в источнике не было.
 - Не объединяй РАЗНЫЕ сигналы в один вывод, тренд или причинность, если этого
   нет дословно ни в одном источнике (даже без цифр — судья считает выдумкой
   саму связку). Для сигналов с пометкой ТЕКСТ — можно опираться на её
@@ -1227,6 +1267,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 - Цифры, проценты, версии, названия фич, технический механизм бери ДОСЛОВНО из текста статьи. Нет в тексте — не пиши.
 - НЕ переноси цифру с одного инструмента на другой. НЕ обобщай чужие бенчмарки.
 - Если у материала текст недоступен (только заголовок) — пиши общо «что появилось и зачем», без выдуманной конкретики.
+- ДАТЫ: не пиши дат публикации и «сегодня/вчера/на этой неделе» — дата в шапке уже есть. Дата в тексте — только если она дословно стоит в статье как дата события.
 - Лучше скромный честный пост, чем эффектный с выдумкой. Выдуманный факт = провал.
 
 Из материалов выбери 2-3 САМЫХ СИЛЬНЫХ. Вводное и вторичное — выбрасывай.

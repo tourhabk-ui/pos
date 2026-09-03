@@ -152,3 +152,21 @@ describe('новые источники доходят до AI-поста', () =
     expect(RSS_SOURCES.find(s => s.key === 'openai')?.url).toBe('https://openai.com/news/rss.xml');
   });
 });
+
+describe('чем плох адрес реле — словами (03.09)', () => {
+  it('фраза из переписки вместо адреса — названа, значение обрезано', async () => {
+    const { relayBaseProblem } = await import('@/lib/agents/scout-relay');
+    const bad = { SCOUT_RELAY_BASE: 'https://vedarai.ru-независимо: https://vedar-safety-relay.tourhabk.workers.dev' } as NodeJS.ProcessEnv;
+    const problem = relayBaseProblem(bad);
+    expect(problem).toMatch(/не разбирается как URL/);
+    expect(problem).toMatch(/…/);
+    expect(problem).not.toContain('workers.dev» (');
+    expect(relayBaseProblem({ SCOUT_RELAY_BASE: 'http://r.example' } as NodeJS.ProcessEnv)).toMatch(/не https/);
+    expect(relayBaseProblem({ SCOUT_RELAY_BASE: 'https://r.example' } as NodeJS.ProcessEnv)).toBeNull();
+    expect(relayBaseProblem({} as NodeJS.ProcessEnv)).toBeNull();
+  });
+
+  it('отчёт разведчика несёт relay_detail рядом с relay', () => {
+    expect(DIGEST).toMatch(/relay_detail: relayBaseProblem\(\)/);
+  });
+});

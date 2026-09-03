@@ -62,6 +62,27 @@ export function relayBaseValid(env: NodeJS.ProcessEnv = process.env): boolean {
  */
 export type RelayStatus = 'off' | 'bad_base' | 'on';
 
+/**
+ * ЧЕМ плох адрес реле — словами, для отчёта (03.09). `bad_base` называет
+ * класс беды; человек в панели Timeweb чинит конкретную строку, и ему
+ * нужно видеть, что именно не так: не https, или вовсе не адрес (в
+ * переменную попала фраза из переписки). Значение показывается обрезанным:
+ * это URL, не секрет, но чужой текст целиком в отчёте не нужен.
+ * `null` — адреса нет или он в порядке.
+ */
+export function relayBaseProblem(env: NodeJS.ProcessEnv = process.env): string | null {
+  const base = relayBase(env);
+  if (!base) return null;
+  const head = base.length > 24 ? `${base.slice(0, 24)}…` : base;
+  try {
+    const u = new URL(base);
+    if (u.protocol !== 'https:') return `адрес реле не https: «${head}» (${base.length} симв.)`;
+    return null;
+  } catch {
+    return `адрес реле не разбирается как URL: «${head}» (${base.length} симв.) — в SCOUT_RELAY_BASE должен быть только https://…workers.dev`;
+  }
+}
+
 export function relayStatus(env: NodeJS.ProcessEnv = process.env): RelayStatus {
   if (!relayBase(env)) return 'off';
   if (!relayBaseValid(env)) return 'bad_base';

@@ -49,7 +49,45 @@ export interface GatherCensus {
   failed: number;
   /** Тексты отказов — для отчёта, чтобы чинили конкретное. */
   failures: string[];
+  /**
+   * Ленты, которые ответили, но не дали ни одной записи — поимённо и с
+   * тем, ЧТО они отдали (03.09). «5 из 5 лент ответили и пусты» — класс
+   * беды; чинят конкретную ленту, а у пустоты три разных лица: HTML вместо
+   * ленты (бот-заслон или сменившийся адрес), лента без записей, чужой
+   * формат. Из класса их не различить.
+   */
+  empties?: string[];
 }
+
+/** Что пришло вместо ленты — по корневому тегу, не по заголовку Content-Type. */
+export type FeedBodyKind = 'rss' | 'atom' | 'html' | 'json' | 'empty' | 'other';
+
+export function classifyFeedBody(text: string): FeedBodyKind {
+  const head = text.slice(0, 2048).trimStart();
+  if (!head) return 'empty';
+  if (/^\s*[{[]/.test(head)) return 'json';
+  if (/<(rss|rdf:RDF)[\s>]/i.test(head)) return 'rss';
+  if (/<feed[\s>]/i.test(head)) return 'atom';
+  if (/<!doctype html|<html[\s>]/i.test(head)) return 'html';
+  return 'other';
+}
+
+/** Одна строка о пустой ленте — для причины и для лога. */
+export function describeFeedBody(host: string, status: number, bytes: number, kind: FeedBodyKind): string {
+  const size = bytes >= 1024 ? `${Math.round(bytes / 1024)} КБ` : `${bytes} Б`;
+  const what: Record<FeedBodyKind, string> = {
+    rss: 'RSS без записей',
+    atom: 'Atom без записей',
+    html: 'HTML вместо ленты',
+    json: 'JSON вместо ленты',
+    empty: 'пустое тело',
+    other: 'не лента (неизвестный формат)',
+  };
+  return `${host}: HTTP ${status}, ${size}, ${what[kind]}`;
+}
+
+/** Сколько пустых лент называть в причине. */
+const EMPTIES_SHOWN = 5;
 
 /**
  * Вердикт при пустом улове. Возвращает ИМЯ ИСХОДА из словаря
@@ -91,8 +129,12 @@ export function judgeEmptyGather(c: GatherCensus): EmptyGatherVerdict {
   // часть лент при этом отказала, об этом всё равно говорим: улов мог быть
   // неполным, и молчать об этом значит выдать частичную картину за полную.
   const partial = c.failed > 0 ? `, ${c.failed} отказали` : '';
+  // Поимённо: «ответили и пусты» — класс, а чинят ленту.
+  const empties = c.empties ?? [];
+  const named = empties.slice(0, EMPTIES_SHOWN).join('; ');
+  const more = empties.length > EMPTIES_SHOWN ? ` (и ещё ${empties.length - EMPTIES_SHOWN})` : '';
   return {
     outcome: 'no_signals',
-    reason: `${c.answered} из ${c.attempted} лент ответили и пусты${partial}`,
+    reason: `${c.answered} из ${c.attempted} лент ответили и пусты${partial}${named ? `: ${named}${more}` : ''}`,
   };
 }
