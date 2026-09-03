@@ -423,8 +423,11 @@ def classify(tags: dict, geom_type: str) -> str | None:
             return 'residential'
         return None
     if geom_type in ('LineString', 'MultiLineString'):
-        # Брод отрезком дороги — символ (POINT_LAYERS сведёт к точке), а не
-        # кусок дороги: сама дорога придёт из тяжёлого запроса своим way.
+        # Брод без дороги (редкость: ford=yes на самом ручье) — символ,
+        # POINT_LAYERS сведёт к точке. Брод НА дороге — highway=track +
+        # ford=yes, обычная разметка OSM — остаётся дорогой: у way один
+        # объект, и отдать его в броды значило бы вырезать кусок трека.
+        # Точку брода для такого отрезка добавляет ford_on_road() в main().
         if tags.get('ford') == 'yes' and tags.get('highway') is None:
             return 'fords'
         if natural == 'cliff':
@@ -438,6 +441,21 @@ def classify(tags: dict, geom_type: str) -> str | None:
             return 'roads'
         return None
     return None
+
+
+def ford_on_road(tags: dict, geom_type: str, layer: str | None) -> bool:
+    """Отрезок дороги или тропы с ford=yes — брод, размеченный по-осмовски.
+
+    Урок прогонов 70-79 (03.09): восемь районов подряд дали «броды: 0», и
+    это был не факт о Камчатке, а дыра в разборе — classify() отдавал такой
+    отрезок в paths/roads, и брода не оставалось нигде. Ноль в восьми районах
+    подряд — повод проверить запрос, а не поверить в отсутствие бродов (§4.0).
+    """
+    return (
+        tags.get('ford') == 'yes'
+        and geom_type in ('LineString', 'MultiLineString')
+        and layer in ('paths', 'roads')
+    )
 
 
 def slim_properties(tags: dict, layer: str) -> dict:
@@ -513,6 +531,7 @@ def main() -> int:
     tol = simplify_tolerance_deg((bbox[1] + bbox[3]) / 2)
     layers: dict[str, list] = {name: [] for name in LAYERS}
     skipped = 0
+    fords_on_roads = 0
     for feat in fc.get('features', []):
         geom = feat.get('geometry')
         props = feat.get('properties') or {}
@@ -525,6 +544,18 @@ def main() -> int:
             skipped += 1
             continue
         g = shape(geom)
+        if ford_on_road(tags, geom['type'], layer):
+            # Брод на дороге — ВТОРОЙ объект: точка на середине отрезка в
+            # слой бродов; сам отрезок ниже уходит в дорогу/тропу как есть.
+            p = g.interpolate(0.5, normalized=True) if geom['type'] == 'LineString' else g.representative_point()
+            if not p.is_empty:
+                layers['fords'].append({
+                    'type': 'Feature',
+                    'tippecanoe': {'minzoom': tile_minzoom('fords', tags)},
+                    'properties': slim_properties(tags, 'fords'),
+                    'geometry': mapping(p),
+                })
+                fords_on_roads += 1
         if layer in POINT_LAYERS:
             # Символьный слой: контур здания приюта сводится к точке внутри
             # него (representative_point, а не centroid — тот у подковообразной
@@ -563,6 +594,7 @@ def main() -> int:
         total += size
         print(f'  {name:10s} {len(feats):6d} объектов  {size / 1024:8.0f} КБ')
     print(f'пропущено (не наш слой / без геометрии): {skipped}')
+    print(f'бродов на дорогах (точка + отрезок): {fords_on_roads}')
     print(f'итого OSM: {total / 1024 / 1024:.2f} МБ, время {time.time() - started:.1f} с')
     return 0
 

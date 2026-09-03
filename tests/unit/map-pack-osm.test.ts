@@ -56,6 +56,12 @@ describe('список слоёв — один на конвейер и конт
     }
     // Брод и источник — символы: контур сводится к точке.
     expect(PY).toMatch(/POINT_LAYERS = \{[^}]*'fords', 'springs'\}/);
+    // Брод на дороге (highway + ford=yes, обычная разметка OSM) — второй
+    // объект в слое бродов, а отрезок остаётся дорогой. Прогоны 70-79 дали
+    // «броды: 0» в восьми районах подряд именно потому, что этого не было.
+    expect(PY).toContain('def ford_on_road(');
+    expect(PY).toMatch(/if ford_on_road\(tags, geom\['type'\], layer\):[\s\S]*layers\['fords'\]\.append/);
+    expect(PY).toContain("and layer in ('paths', 'roads')");
   });
 
   it('ключ слоя — одна формула', () => {
