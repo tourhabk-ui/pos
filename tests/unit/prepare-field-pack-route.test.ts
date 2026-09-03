@@ -36,9 +36,11 @@ function packItem(routeId?: string | null) {
   return items.find(i => i.code === 'field_pack')!;
 }
 
+const ROUTE_UUID = '36c5ef4d-d171-41b9-b1a5-61783b1a3f8e';
+
 describe('ссылка на полевой пакет несёт маршрут', () => {
   it('маршрут известен — он в адресе', () => {
-    expect(packItem('r-42').action?.href).toBe('/planning?mode=trail&route=r-42');
+    expect(packItem(ROUTE_UUID).action?.href).toBe(`/planning?mode=trail&route=${ROUTE_UUID}`);
   });
 
   it('идентификатор экранируется, а не склеивается как есть', () => {
@@ -59,7 +61,7 @@ describe('полевой режим принимает маршрут из ад�
   it('пишет active_trail_route_id до переключения вкладки', () => {
     const at = TRAIL.indexOf("params.get('route')");
     expect(at, 'чтение параметра route не найдено').toBeGreaterThan(0);
-    const body = TRAIL.slice(at, at + 400);
+    const body = TRAIL.slice(at, at + 900);
     expect(body).toMatch(/localStorage\.setItem\('active_trail_route_id', route\)/);
     // Порядок важен: полевая вкладка читает ключ в своём эффекте
     // монтирования, то есть строго после этого места.
@@ -72,5 +74,21 @@ describe('полевой режим принимает маршрут из ад�
   it('приватный режим не роняет переход — запись в try', () => {
     const at = TRAIL.indexOf("localStorage.setItem('active_trail_route_id', route)");
     expect(TRAIL.slice(at - 60, at + 120)).toMatch(/try \{/);
+  });
+
+  /**
+   * Ссылку могут переслать, сократить, испортить. Полевой экран назначает по
+   * ней маршрут, по которому человек ПОЙДЁТ, и подставляет его в адрес
+   * /api/routes/…. Любая строка тут — и не тот маршрут на экране, и чужой
+   * путь в запросе.
+   */
+  it('маршрут из адреса принимается только как UUID', () => {
+    expect(TRAIL).toMatch(/if \(route && isUuid\(route\)\)/);
+    expect(TRAIL).toMatch(/import \{ isUuid \} from '@\/lib\/text\/slugify'/);
+  });
+
+  it('отвергнутый маршрут не проглатывается молча', () => {
+    const at = TRAIL.indexOf("params.get('route')");
+    expect(TRAIL.slice(at, at + 900)).toMatch(/console\.error\('\[planning\] маршрут из адреса/);
   });
 });
