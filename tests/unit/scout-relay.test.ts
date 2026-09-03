@@ -49,6 +49,19 @@ describe('настройка реле', () => {
     expect(relayConfigured({ SCOUT_RELAY_BASE: 'https://r.example', CRON_SECRET: 's' } as NodeJS.ProcessEnv)).toBe(true);
   });
 
+  it('неразбираемый адрес — это bad_base, а не «реле отказало у всех фидов»', async () => {
+    // 03.09 run 2: в переменную на Timeweb попала строка с опечаткой из
+    // переписки, и все десять фолбэков упали с «Failed to parse URL».
+    const { relayStatus } = await import('@/lib/agents/scout-relay');
+    const bad = { SCOUT_RELAY_BASE: 'https://vedarai.ru-независимо: https://vedar-safety-relay.tourhabk.workers.dev', CRON_SECRET: 's' } as NodeJS.ProcessEnv;
+    expect(relayStatus(bad)).toBe('bad_base');
+    expect(relayConfigured(bad)).toBe(false);
+    expect(relayStatus({} as NodeJS.ProcessEnv)).toBe('off');
+    expect(relayStatus({ SCOUT_RELAY_BASE: 'http://r.example', CRON_SECRET: 's' } as NodeJS.ProcessEnv)).toBe('bad_base');
+    expect(relayStatus({ SCOUT_RELAY_BASE: 'https://vedar-safety-relay.tourhabk.workers.dev', CRON_SECRET: 's' } as NodeJS.ProcessEnv)).toBe('on');
+    expect(DIGEST).toMatch(/relay: relayStatus\(\)/);
+  });
+
   it('адрес реле: /fetch?url= с кодированием, хвостовой слеш базы снимается', () => {
     expect(relayBase({ SCOUT_RELAY_BASE: 'https://r.example/' } as NodeJS.ProcessEnv)).toBe('https://r.example');
     expect(relayFetchUrl('https://r.example/', 'https://openai.com/news/rss.xml?a=1&b=2'))

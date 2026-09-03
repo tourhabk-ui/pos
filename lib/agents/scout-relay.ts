@@ -43,9 +43,38 @@ export function relayBase(env: NodeJS.ProcessEnv = process.env): string {
   return (env.SCOUT_RELAY_BASE ?? '').trim().replace(/\/+$/, '');
 }
 
-/** Настроено ли реле: нужны и адрес, и секрет, которым воркер закрыт. */
+/** Разбирается ли база как https-адрес. Пустая — «не задана», а не «плохая». */
+export function relayBaseValid(env: NodeJS.ProcessEnv = process.env): boolean {
+  const base = relayBase(env);
+  if (!base) return false;
+  try {
+    return new URL(base).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Состояние реле одним словом — для отчёта прогона: 'off' (адрес не задан),
+ * 'bad_base' (задан, но не разбирается как https-адрес — так вышло 03.09,
+ * когда в переменную на Timeweb попала строка с опечаткой из переписки),
+ * 'on' (адрес и секрет на месте).
+ */
+export type RelayStatus = 'off' | 'bad_base' | 'on';
+
+export function relayStatus(env: NodeJS.ProcessEnv = process.env): RelayStatus {
+  if (!relayBase(env)) return 'off';
+  if (!relayBaseValid(env)) return 'bad_base';
+  return (env.CRON_SECRET ?? '').trim().length > 0 ? 'on' : 'off';
+}
+
+/**
+ * Настроено ли реле: нужны и адрес, и секрет, которым воркер закрыт. Адрес
+ * обязан разбираться: с неразбираемым каждый фолбэк падал бы на разборе
+ * адреса, а отчёт показывал бы «реле отказало» вместо «реле не настроено».
+ */
 export function relayConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return relayBase(env).length > 0 && (env.CRON_SECRET ?? '').trim().length > 0;
+  return relayStatus(env) === 'on';
 }
 
 /**

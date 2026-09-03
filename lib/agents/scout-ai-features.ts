@@ -99,8 +99,13 @@ export interface AiFeaturesResult {
   stored: number;
   /** Ушло владельцу в Telegram. */
   sent: boolean;
-  /** Почему прогон не дал предложений — только когда grounded === 0. */
-  skip_reason?: 'no_candidates' | 'decision_null' | 'all_ungrounded' | 'all_duplicates' | 'error';
+  /**
+   * Почему прогон не дал предложений — только когда grounded === 0.
+   * no_candidates — материалов не было; model_empty — материалы были, модель
+   * вернула пустой массив или неразбираемый ответ (03.09 run 2: 6 кандидатов,
+   * 4 с текстом, ответ пуст — это не «нечего было читать»).
+   */
+  skip_reason?: 'no_candidates' | 'model_empty' | 'decision_null' | 'all_ungrounded' | 'all_duplicates' | 'error';
   duration_ms: number;
 }
 
@@ -321,7 +326,7 @@ export async function runAiFeatureLens(
     const { accepted, dropped } = groundProposals(proposed, candidates);
     base.dropped = dropped;
     if (accepted.length === 0) {
-      return done({ skip_reason: proposed.length === 0 ? 'no_candidates' : 'all_ungrounded' });
+      return done({ skip_reason: proposed.length === 0 ? 'model_empty' : 'all_ungrounded' });
     }
 
     const fresh: AiFeatureProposal[] = [];
