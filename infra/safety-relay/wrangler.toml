@@ -43,7 +43,7 @@ INGEST_BASE = "https://vedarai.ru"
 # openai.com и anthropic.com — гео-закрыты для прода в РФ (провайдерская
 # сторона того же блока описана в lib/ai/provider-config.ts); t.me — как у
 # сейсмо-реле. Список расширяется по замеру /census, не по догадке.
-RELAY_HOSTS = "simonwillison.net,huggingface.co,marktechpost.com,hnrss.org,habr.com,skift.com,producthunt.com,tourprom.ru,ratanews.ru,openai.com,anthropic.com,blog.google,deepmind.google,t.me"
+RELAY_HOSTS = "simonwillison.net,huggingface.co,marktechpost.com,hnrss.org,habr.com,skift.com,producthunt.com,tourprom.ru,ratanews.ru,openai.com,anthropic.com,blog.google,deepmind.google,t.me,rostourunion.ru"
 
 # CRON_SECRET задаётся секретом (wrangler secret put), а НЕ здесь:
 # содержимое [vars] видно в панели и уезжает в конфиг.

@@ -28,7 +28,10 @@ import { postAINewsToChannel, postTravelNewsToChannel } from '@/lib/notification
 import { bridgeMonitorFindings } from '@/lib/agents/evo/intel-bridge';
 import { triageActionItems } from '@/lib/agents/intel/action-quality';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
-import { judgeEmptyGather, type GatherCensus } from '@/lib/agents/intel-gather-census';
+import {
+  judgeEmptyGather, classifyFeedBody, describeFeedBody,
+  type GatherCensus, type FeedBodyKind,
+} from '@/lib/agents/intel-gather-census';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { stripTags } from '@/lib/html/text';
 
@@ -304,9 +307,11 @@ async function updateSourceStatus(url: string, error: string | null): Promise<vo
 
 // ── RSS Parser (reuses pattern from ExternalResearcher) ──────────────────────
 
-function parseRssItems(xml: string, limit = 8): Array<{ title: string; url: string; snippet: string }> {
+export function parseRssItems(xml: string, limit = 8): Array<{ title: string; url: string; snippet: string }> {
   const items: Array<{ title: string; url: string; snippet: string }> = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+  // `<item>` с атрибутами (rdf:about у RSS 1.0 и подобное) — тоже запись.
+  // Голый `<item>` в регулярке молча выкидывал такие ленты целиком (03.09).
+  const itemRegex = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
 
   let match: RegExpExecArray | null;
   while ((match = itemRegex.exec(xml)) !== null && items.length < limit) {
@@ -324,9 +329,9 @@ function parseRssItems(xml: string, limit = 8): Array<{ title: string; url: stri
 }
 
 // Also handle Atom feeds (used by some sources like HuggingFace)
-function parseAtomEntries(xml: string, limit = 8): Array<{ title: string; url: string; snippet: string }> {
+export function parseAtomEntries(xml: string, limit = 8): Array<{ title: string; url: string; snippet: string }> {
   const items: Array<{ title: string; url: string; snippet: string }> = [];
-  const entryRegex = /<entry>([\s\S]*?)<\/entry>/gi;
+  const entryRegex = /<entry\b[^>]*>([\s\S]*?)<\/entry>/gi;
 
   let match: RegExpExecArray | null;
   while ((match = entryRegex.exec(xml)) !== null && items.length < limit) {
@@ -359,23 +364,33 @@ async function fetchWithRetry(url: string, options: RequestInit, maxAttempts = 3
   throw lastErr;
 }
 
-async function fetchFeed(url: string): Promise<Array<{ title: string; url: string; snippet: string }>> {
-  try {
-    const res = await fetchWithRetry(url, {
-      headers: { 'User-Agent': 'TourHab-Intelligence/1.0' },
-    });
-    if (!res.ok) return [];
-    const xml = await res.text();
+/** Ответ ленты вместе с тем, ЧТО пришло: статус, размер, род тела. */
+export interface FeedFetch {
+  items: Array<{ title: string; url: string; snippet: string }>;
+  status: number;
+  bytes: number;
+  kind: FeedBodyKind;
+}
 
-    // Detect RSS vs Atom
-    if (xml.includes('<entry>')) {
-      return parseAtomEntries(xml);
-    }
-    return parseRssItems(xml);
-  } catch (err) {
-    console.error(`[intelligence] fetchFeed failed for ${url}:`, err instanceof Error ? err.message : err);
-    return [];
-  }
+/**
+ * Отказ ленты — исключение, а не пустой список (03.09). Раньше `!res.ok`
+ * возвращал `[]`, и 403/404/500 считались «лента ответила и пуста» — тем
+ * самым классом, что обещает живой источник. Теперь HTTP-отказ уходит
+ * наверх и попадает в отказы переписи под своим кодом.
+ */
+export async function fetchFeed(url: string): Promise<FeedFetch> {
+  const res = await fetchWithRetry(url, {
+    headers: { 'User-Agent': 'TourHab-Intelligence/1.0' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const xml = await res.text();
+  const kind = classifyFeedBody(xml);
+
+  // Atom — по корню `<feed>` или по записям `<entry>`; прочее — как RSS.
+  const items = kind === 'atom' || /<entry\b/i.test(xml)
+    ? parseAtomEntries(xml)
+    : parseRssItems(xml);
+  return { items, status: res.status, bytes: xml.length, kind };
 }
 
 // ── Search APIs (Tavily / Brave) ─────────────────────────────────────────────
@@ -507,11 +522,19 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Do
   // Отказ ленты по-прежнему не роняет домен — но теперь и не исчезает:
   // раньше он превращался в пустой список, неотличимый от живой, но пустой
   // ленты, и наверху объявлялся как «источники ответили».
-  type FeedResult = { ok: true; items: RawSignal[] } | { ok: false; error: string };
+  type FeedResult =
+    | { ok: true; items: RawSignal[]; empty: string | null }
+    | { ok: false; error: string };
   const rssPromises: Array<Promise<FeedResult>> = config.rss.map(url =>
-    fetchFeed(url).then((items): FeedResult => {
-      void updateSourceStatus(url, null);
-      return { ok: true, items: items.map(item => ({ ...item, source: new URL(url).hostname })) };
+    fetchFeed(url).then((feed): FeedResult => {
+      const host = new URL(url).hostname;
+      // Пустая лента — не ошибка источника, но и не тишина: что именно
+      // пришло, записываем поимённо, чтобы чинить ленту, а не класс.
+      const empty = feed.items.length === 0
+        ? describeFeedBody(host, feed.status, feed.bytes, feed.kind)
+        : null;
+      void updateSourceStatus(url, empty && feed.kind !== 'rss' && feed.kind !== 'atom' ? empty : null);
+      return { ok: true, items: feed.items.map(item => ({ ...item, source: host })), empty };
     }).catch((err): FeedResult => {
       const message = err instanceof Error ? err.message : String(err);
       void updateSourceStatus(url, message);
@@ -522,7 +545,7 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Do
   );
   const rssResults = await Promise.allSettled(rssPromises);
 
-  const census: GatherCensus = { attempted: config.rss.length, answered: 0, failed: 0, failures: [] };
+  const census: GatherCensus = { attempted: config.rss.length, answered: 0, failed: 0, failures: [], empties: [] };
   for (const result of rssResults) {
     if (result.status !== 'fulfilled') {
       // Сюда попасть нельзя — оба исхода выше уже пойманы, — но считать
@@ -534,6 +557,7 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Do
     if (result.value.ok) {
       census.answered++;
       signals.push(...result.value.items);
+      if (result.value.empty) census.empties!.push(result.value.empty);
     } else {
       census.failed++;
       census.failures.push(result.value.error);
