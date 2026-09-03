@@ -85,7 +85,9 @@ describe('сообщение доходит туда, где его не нак�
    */
   it('VedarMap принимает onDiagnostic и вызывает его при смене mapError/diag', () => {
     expect(SRC).toMatch(/onDiagnostic\?:\s*\(message: string \| null\) => void/);
-    const at = SRC.indexOf('onDiagnosticRef.current?.(mapError ?? diag ?? null)');
+    // 03.09: к ошибке и диагнозу добавились заметки (гипсометрия снята,
+    // вид вне пакета) — канал наружу один на всех.
+    const at = SRC.indexOf('onDiagnosticRef.current?.(mapError ?? diag ?? reliefNote ?? viewNote ?? null)');
     expect(at, 'эффект, синхронизирующий диагноз наружу, не найден').toBeGreaterThan(0);
   });
 

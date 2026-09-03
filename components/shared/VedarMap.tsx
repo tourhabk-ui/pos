@@ -118,6 +118,12 @@ export interface VedarMapHandle {
  * сразу, как и прежде.
  */
 export const DETAIL_MIN_ZOOM = 10;
+/**
+ * Нижний зум пакета: рельеф (build_terrain.py MINZOOM) и векторные тайлы
+ * (build_vector.sh --minimum-zoom) печатаются с 8. Мельче — тайлов нет по
+ * построению, и карта обязана сказать это словами, а не чёрным полем.
+ */
+export const PACK_MIN_ZOOM = 8;
 
 /**
  * Кнопки масштаба — одна реализация на карту и на приборный ряд снаружи.
@@ -325,6 +331,30 @@ export default function VedarMap({
   /** Что именно сказала карта, когда не смогла. Видно человеку, не только в консоли. */
   const [mapError, setMapError] = useState<string | null>(null);
   /**
+   * Гипсометрия отключена НА ЭТОМ устройстве (03.09, скрин владельца из
+   * Петропавловска: чёрное поле, сторож молчит, след у точки нарисован).
+   *
+   * Механизм — по коду MapLibre 6.6: «Could not compile fragment shader»
+   * бросается из `_render`, а `triggerRepaint` пробрасывает всё, кроме
+   * отмены, как НЕОБРАБОТАННОЕ исключение кадра. События `error` нет,
+   * холст замирает на последнем кадре, а сторож молчания доволен: тайлы
+   * рельефа пришли. Третий исход — «пришло, но нарисовать не смог» — не
+   * существовал (§4.0).
+   *
+   * Слой `color-relief` — единственный новый шейдер мержа 02.09, всё
+   * остальное на этом телефоне рисовалось. Поэтому при сбое кадра слои
+   * гипсометрии снимаются со стиля, кадр перезапрашивается, а рельеф
+   * остаётся тенью — как работало до мержа. Причина — на экран.
+   */
+  const reliefOffRef = useRef(false);
+  const [reliefNote, setReliefNote] = useState<string | null>(null);
+  /**
+   * Пустой вид по построению: масштаб мельче нижнего зума пакета (8) или
+   * вид вне bbox всех собранных районов. В обоих случаях карта честно
+   * рисует ничего — и обязана это назвать, иначе неотличимо от поломки.
+   */
+  const [viewNote, setViewNote] = useState<string | null>(null);
+  /**
    * Отчёт карты о себе, когда она НЕ упала и всё-таки ничего не нарисовала.
    *
    * Полевой прогон 01.09, скрин владельца: чёрное поле между компасом и
@@ -353,6 +383,7 @@ export default function VedarMap({
     const seen = { terrain: 0, contours: 0, terrainRequested: 0, styledata: 0 };
     let loaded = false;
     let watchdog: ReturnType<typeof setTimeout> | null = null;
+    let onWindowError: ((ev: ErrorEvent) => void) | null = null;
     /**
      * Нарушения CSP — от самого браузера, поимённо. Вечер 01.09 стиль
      * молчал из-за запрета воркера из blob:, и узнали это по коду
@@ -566,6 +597,32 @@ export default function VedarMap({
             retrying,
           }));
         });
+
+        // Сбой КАДРА — не событие карты, а необработанное исключение окна
+        // (см. reliefOffRef). Ловится у окна, фильтруется по следу MapLibre
+        // или WebGL: чужие ошибки страницы сюда не относятся.
+        onWindowError = (ev: ErrorEvent) => {
+          if (cancelled) return;
+          const text = `${ev.message ?? ''} ${(ev.error as Error | undefined)?.stack ?? ''}`;
+          if (!/shader|program|webgl|maplibre/i.test(text)) return;
+          const short = (ev.message || 'ошибка кадра').replace(/^Uncaught\s+(Error:\s*)?/, '').slice(0, 140);
+          const m = mapRef.current;
+          const relief = m
+            ? (m.getStyle()?.layers ?? []).filter(l => l.type === 'color-relief').map(l => l.id)
+            : [];
+          if (m && relief.length > 0 && !reliefOffRef.current) {
+            reliefOffRef.current = true;
+            for (const id of relief) {
+              try { m.removeLayer(id); } catch { /* слоя уже нет — снимать нечего */ }
+            }
+            m.triggerRepaint();
+            console.error('[VedarMap] гипсометрия отключена после сбоя кадра', ev.error ?? ev.message);
+            setReliefNote(`гипсометрия отключена, рельеф тенью — GPU не собрал шейдер: ${short}`);
+            return;
+          }
+          setMapError(`сбой кадра: ${short}`);
+        };
+        window.addEventListener('error', onWindowError);
       } catch (err) {
         if (cancelled) return;
         console.error('[VedarMap] карта не завелась', err);
@@ -576,6 +633,9 @@ export default function VedarMap({
     return () => {
       cancelled = true;
       if (watchdog) clearTimeout(watchdog);
+      if (onWindowError) window.removeEventListener('error', onWindowError);
+      setReliefNote(null);
+      setViewNote(null);
       document.removeEventListener('securitypolicyviolation', onCsp);
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
@@ -614,7 +674,18 @@ export default function VedarMap({
       const b = map.getBounds();
       const view = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
       const zoom = map.getZoom();
-      for (const region of regionsIntersecting(packs, view)) {
+      const hit = regionsIntersecting(packs, view);
+      // Пустой вид по построению называется словами (см. viewNote).
+      // PACK_MIN_ZOOM — нижний зум рельефа и векторных тайлов пакета
+      // (build_terrain.py MINZOOM, build_vector.sh --minimum-zoom).
+      if (zoom < PACK_MIN_ZOOM) {
+        setViewNote(`масштаб мельче пакета — карта района рисуется от зума ${PACK_MIN_ZOOM}, приблизьте`);
+      } else if (hit.length === 0) {
+        setViewNote('вид вне всех районов реестра — здесь пакета карты нет');
+      } else {
+        setViewNote(null);
+      }
+      for (const region of hit) {
         if (region === baseRegion) continue;
         const pack = packs.find(p => p.region === region);
         if (!pack) continue;
@@ -644,6 +715,8 @@ export default function VedarMap({
             for (const layer of overlay.layers) {
               const id = String(layer.id);
               if (map.getLayer(id)) continue;
+              // Гипсометрия снята после сбоя кадра — соседу её тоже не дать.
+              if (reliefOffRef.current && layer.type === 'color-relief') continue;
               // Всё под линией маршрута: путь читается поверх карты. Заливки
               // соседа — под его же тенью, иначе лес лёг бы поверх рельефа.
               const hill = `hillshade-${region}`;
@@ -738,8 +811,8 @@ export default function VedarMap({
   // Один эффект на оба источника: `failed` сюда не входит — тот случай уже
   // рисует свой полноэкранный текст вместо карты, дублировать некуда.
   useEffect(() => {
-    onDiagnosticRef.current?.(mapError ?? diag ?? null);
-  }, [mapError, diag]);
+    onDiagnosticRef.current?.(mapError ?? diag ?? reliefNote ?? viewNote ?? null);
+  }, [mapError, diag, reliefNote, viewNote]);
   // Очистка — отдельным эффектом с []: срабатывает только на размонтирование
   // компонента, а не на каждую смену диагноза (в отличие от возврата из
   // эффекта выше, который выполнялся бы на каждой смене mapError/diag).
