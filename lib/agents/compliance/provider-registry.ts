@@ -34,7 +34,9 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   { host: 'api.mistral.ai', jurisdiction: 'EU (France)', domestic: false, provider: 'Mistral' },
   // Anthropic. Хост был в providers.ts с самого начала, но сканер его не видел
   // (см. extractLLMHosts) — то есть зарубежный приёмник ПД проходил мимо D2.
-  { host: 'api.anthropic.com', jurisdiction: 'USA', domestic: false, provider: 'Anthropic (Claude, прямой; из РФ гео-блок)' },
+  // Прямой адрес из РФ — 403; через воркер Cloudflare и через AI Gateway с
+  // прода достижим (замер 03.09, anthropic-path-probe run 2).
+  { host: 'api.anthropic.com', jurisdiction: 'USA', domestic: false, provider: 'Anthropic (Claude, прямой; из РФ гео-блок, через релей достижим)' },
   // Alibaba DashScope: текстовый Qwen (providers.ts) + image-модель обложек
   // (cover-image.ts). Как и Anthropic, хост давно жил в providers.ts, но
   // доменный фильтр сканера его не знал — егресс шёл мимо D2. Внесён явно.

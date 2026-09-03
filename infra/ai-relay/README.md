@@ -1,5 +1,14 @@
 # AI-релей — обход гео-блокировки для флагманских моделей
 
+> **Замер с прода 03.09 (`anthropic-path-probe`, run 2):** для **Anthropic**
+> воркер РАБОТАЕТ — `api.anthropic.com` через `/anthropic` ответил с прода
+> своим телом (400 «credit balance is too low» — беда ключа, не пути), прямой
+> адрес с прода отдаёт 403. Cloudflare AI Gateway (`gateway.ai.cloudflare.com`,
+> шлюз `vedar-ai`) довёл до Anthropic тем же прогоном. Запись 23.08 «с
+> Anthropic не работает» была выводом из случая OpenRouter, не замером. Для
+> **OpenRouter** воркер по-прежнему не обходит (403 «Access denied by
+> security policy») — там нужен хоп вне сети Cloudflare.
+
 > **Нужен ли тебе релей вообще?** Для СИЛЬНОГО решателя эволюции — **нет**.
 > DeepSeek и Qwen достижимы из РФ напрямую, а модель выбирается **автоматически**
 > из `/v1/models` провайдера (`lib/ai/model-resolver.ts`, без привязки к id) —
