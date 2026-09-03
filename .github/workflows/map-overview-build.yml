@@ -1,0 +1,149 @@
+name: Сборка обзорного пакета края
+
+# Обзор — ОДИН пакет на весь Камчатский край, зумы 4-7, только рельеф.
+#
+# Почему отдельным workflow, а не веткой в map-pack-build.yml: у обзора нет
+# ни горизонталей, ни OSM, ни векторных тайлов, и bbox у него не из реестра
+# районов. Условия «пропусти четыре шага из шести» в рабочем конвейере
+# районов — это способ однажды сломать сборку района правкой про обзор.
+#
+# Где что исполняется — то же разделение, что у пакета района (§8 CLAUDE.md):
+#   собирает — раннер GitHub (Python, rasterio, сеть до Copernicus);
+#   хранит   — объектное хранилище Timeweb;
+#   читает   — прод, Range-запросами.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Заливать в хранилище (иначе только собрать и приложить артефактом)'
+        type: boolean
+        default: false
+      decimate:
+        description: 'Прореживание DEM при чтении (16 — шаг ~495 м)'
+        default: '16'
+  # Второй вход — файл-триггер, как у пакета района: интеграция Claude не
+  # имеет права на workflow_dispatch (403, проверено 02.09).
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-overview-build.json'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Клеток DEM у края под две сотни, и каждая читается по сети прореженной
+    # через /vsicurl. Время здесь — ожидание чужого сервера, не наша работа.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.decimate }}" ]; then
+            UPLOAD="${{ inputs.upload }}"; DECIMATE="${{ inputs.decimate }}"
+          else
+            UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-overview-build.json')).get('upload',False)).lower())")
+            DECIMATE=$(python3 -c "import json;print(json.load(open('.github/triggers/map-overview-build.json')).get('decimate',16))")
+          fi
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "decimate=$DECIMATE" >> "$GITHUB_OUTPUT"
+          echo "заливка: $UPLOAD, прореживание: $DECIMATE"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Инструменты сборки
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet numpy pillow rasterio pmtiles
+          npm ci --prefer-offline --no-audit --silent
+
+      - name: Границы края — из реестра, не из ввода
+        id: bbox
+        run: |
+          set -euo pipefail
+          # Единственный источник истины — OVERVIEW_BBOX (lib/geo/regions.ts).
+          BBOX=$(npx tsx scripts/map-tiles/region-bbox.ts krai-overview)
+          echo "bbox=$BBOX" >> "$GITHUB_OUTPUT"
+          echo "bbox обзора края: $BBOX"
+
+      - name: Обзорный рельеф — terrain-RGB z4-7 в PMTiles
+        run: |
+          set -euo pipefail
+          python3 scripts/map-tiles/build_overview.py \
+            --bbox "${{ steps.bbox.outputs.bbox }}" \
+            --decimate "${{ steps.cfg.outputs.decimate }}" \
+            --out ".cache/packs/krai-overview.terrain.pmtiles" \
+            --contours-out ".cache/packs/krai-overview.contours.geojson" \
+            | tee .cache/overview-build.log
+
+      - name: Итог сборки — в сводку прогона, а не только в лог
+        if: always()
+        run: |
+          set -euo pipefail
+          # 04.09: у прогона 1 доля заполнения мозаики осталась НЕИЗВЕСТНОЙ —
+          # лог длиннее того, что отдаётся наружу, и решающая строка в окно
+          # не попала. Пришлось выводить полноту счётом байт на тайл вместо
+          # того, чтобы прочитать её. Сводка держит ровно те строки, по
+          # которым видно, честен ли пакет: сколько клеток прочитано, сколько
+          # пропущено, чем заполнена мозаика.
+          {
+            echo '### Обзорный пакет края'
+            echo '```'
+            grep -E 'мозаика|клеток|тайлов|размер|время сборки|нет клетки' \
+              .cache/overview-build.log | tail -40 || echo 'лог сборки не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Размер пакета — фактом в лог
+        run: |
+          set -euo pipefail
+          ls -lh .cache/packs/krai-overview.* || true
+          du -sh .cache/packs || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: map-pack-krai-overview
+          path: .cache/packs/krai-overview.*
+          retention-days: 7
+
+      - name: Заливка в хранилище
+        if: steps.cfg.outputs.upload == 'true'
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::Секреты S3 не заданы в репозитории. Это ОТДЕЛЬНЫЙ набор от переменных Timeweb (§8)."
+            exit 1
+          fi
+          # Глифы, OSM и вектор обзору не передаются: их у него нет по замыслу.
+          npx tsx scripts/map-tiles/upload-pack.ts "krai-overview" \
+            ".cache/packs/krai-overview.terrain.pmtiles" \
+            ".cache/packs/krai-overview.contours.geojson"
+
+      - name: Пакет НЕ залит — сказать это громко
+        if: steps.cfg.outputs.upload != 'true'
+        run: |
+          echo "::warning::Обзор собран, но НЕ залит (upload=false). В хранилище его нет."
+
+      - name: Что делать дальше
+        if: steps.cfg.outputs.upload == 'true'
+        run: |
+          echo "Обзор залит. Осталось одно, руками и намеренно:"
+          echo "  поставить OVERVIEW_BUILT = true (lib/map/pack-source.ts)"
+          echo "Список собранных пакетов — обещание, что файл на месте."

@@ -13,7 +13,8 @@
  */
 
 import {
-  REGIONS_LIST, packRegionBbox, packRegionCenter, type RegionBbox, type PackRegionId,
+  REGIONS_LIST, packRegionBbox, packRegionCenter, OVERVIEW_ID,
+  type RegionBbox, type PackRegionId,
 } from '@/lib/geo/regions';
 import { gridCellsForPoint } from '@/lib/geo/grid-cells';
 import {
@@ -128,7 +129,10 @@ export function builtRegionPacks(
   builtCells: readonly PackRegionId[] = BUILT_GRID_CELLS,
 ): RegionPack[] {
   const out: RegionPack[] = [];
-  for (const region of [...builtRegions, ...builtCells]) {
+  // Обзор края идёт ПЕРВЫМ: он ярус ниже всех (зумы 4-7), и карта кладёт
+  // слои в порядке этого списка. Собран он или нет, решает resolvePackSource
+  // (OVERVIEW_BUILT) — здесь он просто всегда предъявляется.
+  for (const region of [OVERVIEW_ID, ...builtRegions, ...builtCells]) {
     const source = resolvePackSource(region, builtRegions, baseUrl);
     if (source.state !== 'ready') continue;
     const bbox = packRegionBbox(region);

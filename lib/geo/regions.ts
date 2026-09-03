@@ -162,21 +162,56 @@ export const REGIONS_LIST: Region[] = Object.values(REGIONS);
  * человека (в списке офлайн-скачивания их нет), но пакет у них того же
  * устройства, и конвейер сборки, хранилище и карта различать их не должны.
  */
-export type PackRegionId = RegionId | GridCellId;
+/**
+ * Обзорный ярус — ОДИН пакет на весь край, зумы 4-7.
+ *
+ * Скрин владельца 04.09 07:42: человек смотрит на 119 км до цели, и карты
+ * нет вовсе. Причина не в охвате: район и клетка начинаются с зума 8, а
+ * ниже нижнего зума MapLibre растровый источник не рисует и вниз не
+ * масштабирует. Сколько клеток ни собери, обзорный масштаб останется
+ * пустым — дырка в замысле, а не в данных.
+ *
+ * Опустить нижний зум у всех пакетов было нельзя: 112 клеток потащили бы
+ * каждая свою копию одних и тех же мелких тайлов, один и тот же кусок
+ * Охотского моря лёг бы в хранилище сто раз. Поэтому ярус отдельный, и
+ * зумы у ярусов НЕ ПЕРЕСЕКАЮТСЯ (обзор 4-7, пакеты с 8): на любом зуме
+ * рельеф рисует ровно один из них, стыка не видно.
+ *
+ * Это не район для человека: в списке офлайн-скачивания его нет, точке он
+ * не сопоставляется (regionsForPoint его не вернёт). Карта подкладывает
+ * его сама, как соседа, — он пересекает любой вид края.
+ */
+export const OVERVIEW_ID = 'krai-overview' as const;
+export type OverviewId = typeof OVERVIEW_ID;
+/** Охват края: объединение bbox всех районов и клеток сетки (замер 04.09). */
+export const OVERVIEW_BBOX: RegionBbox = { west: 155, south: 51, east: 175, north: 65 };
+
+export type PackRegionId = RegionId | GridCellId | OverviewId;
 
 export function isRegionId(id: string): id is RegionId {
   return Object.prototype.hasOwnProperty.call(REGIONS, id);
 }
 
-/** Границы района или клетки; null — такого id в реестре нет. */
+export function isOverviewId(id: string): id is OverviewId {
+  return id === OVERVIEW_ID;
+}
+
+/** Границы района, клетки или обзора; null — такого id в реестре нет. */
 export function packRegionBbox(id: string): RegionBbox | null {
   if (isRegionId(id)) return REGIONS[id].bbox;
+  if (isOverviewId(id)) return OVERVIEW_BBOX;
   return gridCellById(id)?.bbox ?? null;
 }
 
-/** Центр района или клетки; null — такого id в реестре нет. */
+/** Центр района, клетки или обзора; null — такого id в реестре нет. */
 export function packRegionCenter(id: string): { lat: number; lng: number } | null {
   if (isRegionId(id)) return REGIONS[id].center;
+  if (isOverviewId(id)) {
+    return {
+      lat: (OVERVIEW_BBOX.south + OVERVIEW_BBOX.north) / 2,
+      lng: (OVERVIEW_BBOX.west + OVERVIEW_BBOX.east) / 2,
+    };
+  }
   return gridCellById(id)?.center ?? null;
 }
 

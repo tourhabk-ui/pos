@@ -19,7 +19,8 @@ import { join } from 'node:path';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
 import { builtRegionPacks, regionsIntersecting } from '@/lib/map/field-base-map';
-import { OSM_LAYERS, BUILT_PACK_REGIONS, BUILT_GRID_CELLS } from '@/lib/map/pack-source';
+import { OSM_LAYERS, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT } from '@/lib/map/pack-source';
+import { OVERVIEW_ID } from '@/lib/geo/regions';
 
 const B = 'https://s3.example.ru/b';
 const osm = (r: string) => Object.fromEntries(OSM_LAYERS.map(l => [l, `${B}/map-packs/${r}.osm.${l}.geojson`]));
@@ -100,7 +101,11 @@ describe('какие районы в кадре', () => {
   it('все пакеты реестра с адресами и границами', () => {
     // 03.09: клетки сетки «вся Камчатка» подкладываются следом за районами —
     // то же обещание, тот же список пакетов (builtRegionPacks).
-    expect(packs.map(p => p.region)).toEqual([...BUILT_PACK_REGIONS, ...BUILT_GRID_CELLS]);
+    // 04.09: обзорный ярус края идёт ПЕРВЫМ и это намеренно — он ниже всех
+    // (зумы 4-7), а карта кладёт слои в порядке этого списка.
+    expect(packs.map(p => p.region)).toEqual(
+      [...(OVERVIEW_BUILT ? [OVERVIEW_ID] : []), ...BUILT_PACK_REGIONS, ...BUILT_GRID_CELLS],
+    );
     expect(packs.every(p => p.source.terrainUrl.startsWith('pmtiles://'))).toBe(true);
     expect(builtRegionPacks(null)).toEqual([]);
   });
