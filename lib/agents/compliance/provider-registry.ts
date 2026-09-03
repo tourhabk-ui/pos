@@ -61,6 +61,11 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // первым. domestic:false намеренно: это по-прежнему трансграничная
   // передача, просто без гео-блока Cloudflare на сетевом пути к ней.
   { host: 'agent.timeweb.cloud', jurisdiction: 'Russia (host) → зависит от модели агента (получатель)', domestic: false, provider: 'Timeweb AI Agents (шлюз к Claude/GPT/…)' },
+  // Cloudflare AI Gateway — прокси Cloudflare к Anthropic (03.09, проба
+  // /api/cron/anthropic-path-probe). Пока сюда уходит только замер без ПД;
+  // но если ANTHROPIC_BASE_URL переставят на шлюз, сюда поедут те же промпты,
+  // что и в api.anthropic.com. Хост и получатель — США, трансграничная.
+  { host: 'gateway.ai.cloudflare.com', jurisdiction: 'USA', domestic: false, provider: 'Cloudflare AI Gateway (прокси к Anthropic)' },
 ] as const;
 
 const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));

@@ -1,0 +1,143 @@
+name: Anthropic — замер сетевого пути с прода (Cloudflare AI Gateway)
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Гео-блок Anthropic закрывает прямой путь из РФ. Cloudflare Worker его не
+# обходит — замер 23.08 (infra/ai-relay/worker.js): апстрим за Cloudflare
+# видит исходного клиента. Cloudflare AI Gateway — другой продукт, там
+# запрос к Anthropic делает инфраструктура Cloudflare как первая сторона.
+# Обходит ли ОН — только замером с прода, и вот он.
+#
+# Три шага, каждый отвечает на свой вопрос:
+#   1. шлюз существует (создаём через API Cloudflare, если нет);
+#   2. с раннера шлюз доводит до Anthropic (контроль: раннер не в РФ, так
+#      что это проверка самого шлюза, а не гео-блока);
+#   3. с ПРОДА: /api/cron/anthropic-path-probe пробует шлюз и прямой адрес и
+#      называет исход каждого пути — open / open_no_key / blocked / unreachable.
+#
+# Прогон красный, если ни один путь с прода не открыт: зелёный прогон при
+# закрытом Anthropic — тот вечнозелёный прогон, от которого лечимся.
+#
+# Секреты: CLOUDFLARE_API_TOKEN (обязателен), CLOUDFLARE_ACCOUNT_ID
+# (необязателен — берётся из /accounts), ANTHROPIC_API_KEY (для шага 2),
+# CRON_SECRET (для шага 3). Ключи наружу не печатаются.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/anthropic-path-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Шлюз Cloudflare AI Gateway существует
+        id: gateway
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::Секрет CLOUDFLARE_API_TOKEN не задан."
+            exit 1
+          fi
+          GW=$(python3 -c "import json; print(json.load(open('.github/triggers/anthropic-path-probe.json')).get('gateway_id', 'vedar-ai'))")
+          API=https://api.cloudflare.com/client/v4
+          AUTH="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+
+          ACCOUNT="${CLOUDFLARE_ACCOUNT_ID:-}"
+          if [ -z "$ACCOUNT" ]; then
+            ACCOUNT=$(curl -s --max-time 30 -H "$AUTH" "$API/accounts" | jq -r '.result[0].id // empty')
+          fi
+          if [ -z "$ACCOUNT" ]; then
+            echo "::error::Не смог определить аккаунт Cloudflare: задай CLOUDFLARE_ACCOUNT_ID или дай токену право читать аккаунты."
+            exit 1
+          fi
+
+          # Идемпотентно: сначала спрашиваем, есть ли шлюз; создаём только если нет.
+          CODE=$(curl -s -o /tmp/gw.json -w '%{http_code}' --max-time 30 -H "$AUTH" \
+            "$API/accounts/$ACCOUNT/ai-gateway/gateways/$GW")
+          if [ "$CODE" != "200" ]; then
+            echo "Шлюза $GW нет (HTTP $CODE) — создаю."
+            CODE=$(curl -s -o /tmp/gw.json -w '%{http_code}' --max-time 30 -X POST \
+              -H "$AUTH" -H 'Content-Type: application/json' \
+              -d "{\"id\":\"$GW\",\"cache_invalidate_on_update\":true,\"cache_ttl\":0,\"collect_logs\":true,\"rate_limiting_interval\":0,\"rate_limiting_limit\":0,\"rate_limiting_technique\":\"fixed\"}" \
+              "$API/accounts/$ACCOUNT/ai-gateway/gateways")
+            if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+              echo "::error::Создание шлюза вернуло HTTP $CODE. Токену нужно право «AI Gateway: Edit» — шаблон «Edit Cloudflare Workers» его не даёт."
+              jq -c '.errors // .' /tmp/gw.json || cat /tmp/gw.json
+              exit 1
+            fi
+          fi
+          echo "Шлюз: $(jq -r '.result.id // "?"' /tmp/gw.json)"
+          BASE="https://gateway.ai.cloudflare.com/v1/$ACCOUNT/$GW/anthropic"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
+          echo "gateway=$GW" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$ACCOUNT"
+
+      - name: С раннера — шлюз доводит до Anthropic (контроль самого шлюза)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE: ${{ steps.gateway.outputs.base }}
+        run: |
+          set -u
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY не задан в секретах — контроль с раннера пропущен."
+            exit 0
+          fi
+          CODE=$(curl -s -o /tmp/runner.json -w '%{http_code}' --max-time 40 -X POST \
+            -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' \
+            -d '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"ok"}]}' \
+            "$BASE/v1/messages")
+          echo "Раннер → шлюз → Anthropic: HTTP $CODE"
+          head -c 300 /tmp/runner.json; echo
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Шлюз с раннера не довёл до Anthropic — дальше мерить нечего: сломан шлюз или ключ, а не гео-путь."
+            exit 1
+          fi
+
+      - name: С ПРОДА — какой путь до Anthropic открыт
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ACCOUNT: ${{ steps.gateway.outputs.account }}
+          GW: ${{ steps.gateway.outputs.gateway }}
+        run: |
+          set -u
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET не задан — проду нечем авторизовать пробу."
+            exit 1
+          fi
+          # Проду уходят только id аккаунта и имя шлюза; адрес он собирает
+          # сам из литерального хоста (SSRF: строка запроса в адрес не попадает).
+          CODE=$(curl -s -o /tmp/prod.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --get --data-urlencode "account=$ACCOUNT" --data-urlencode "gateway=$GW" \
+            "https://vedarai.ru/api/cron/anthropic-path-probe")
+          echo "HTTP: $CODE"
+          jq . /tmp/prod.json 2>/dev/null || cat /tmp/prod.json
+          echo
+          {
+            echo "## Замер сетевого пути прод → Anthropic"
+            echo
+            echo '```json'
+            jq . /tmp/prod.json 2>/dev/null || cat /tmp/prod.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$CODE" = "200" ] || { echo "::error::Проба на проде вернула $CODE — сам замер не состоялся (404 = роут ещё не задеплоен)."; exit 1; }
+
+          EXISTS=$(jq -r '.path_exists' /tmp/prod.json)
+          case "$EXISTS" in
+            true)  echo "Открытые пути: $(jq -c '.open_bases' /tmp/prod.json)";;
+            null)  echo "::error::Ни один путь не ответил — все «не смог». Это «не знаю», не «нет»."; exit 1;;
+            *)     echo "::error::С прода Anthropic не достаётся ни по одному из путей — AI Gateway гео-блок не обходит."; exit 1;;
+          esac
