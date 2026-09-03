@@ -36,6 +36,11 @@ const PROTECTED_PREFIXES = ['app/hub', 'app/profile', 'app/operator'].map(p => j
 const PROTECTED_COMPONENT_DIRS = [
   'components/hub', 'components/operator', 'components/agent',
   'components/transfer-operator/Dashboard',
+  // Админские панели монтируются только под /hub/admin (за входом). Пока
+  // '/api/admin' стоял в публичном реестре, их вызовы считались публичными
+  // и каталог тут не требовался; с закрытием префикса на Edge (01.09)
+  // принадлежность фиксируется явно.
+  'components/admin',
 ].map(p => join(ROOT, p));
 
 /**
@@ -50,14 +55,24 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'GET /api/tourist/wishlist',      // избранное
   'POST /api/tourist/wishlist',
   'DELETE /api/tourist/wishlist',
-  'POST /api/push/subscribe',       // push-подписка привязана к аккаунту
-  'DELETE /api/push/subscribe',
+  // 'POST /api/push/subscribe' и 'DELETE …' выбыли 02.09 (#1485): подписка
+  // анонимна по замыслу и теперь открыта в реестре. Запись «привязана к
+  // аккаунту» была неправдой — хендлер аккаунта не требовал с 02.08, а Edge
+  // резал гостя молча. Это и был ноль подписчиков.
   'POST /api/chat/conversations',   // чат с оператором — под входом
   'POST /api/reviews/photo',        // отзыв пишет вошедший
   'POST /api/reviews/tour/X',
   'POST /api/places/X/reviews',
   'POST /api/places/X/photos',      // фото места: форма сама спрашивает вход (PhotoUpload)
   'GET /api/referral/my-code',      // реферальный код вошедшего
+  // Витрина мест у перевозчиков (02.09): запрос мест — за входом по CHECK
+  // схемы 926 (заказчик обязателен). Гостю форма не рисуется, вместо неё
+  // ссылка «Войти, чтобы запросить места» с возвратом на /transfers.
+  'POST /api/carrier-trips/X/request',
+  // Карточка места на витрине: кнопка «удалить» рисуется только при роли
+  // admin (user_roles в localStorage), вызов несёт Bearer либо cookie. До
+  // 01.09 вызов числился публичным, потому что публичным был весь /api/admin.
+  'DELETE /api/admin/places/X',
   'POST /api/accommodations/X/book',// бронь жилья — форма гейтится
   'GET /api/accommodations/X/prices',
   'POST /api/tools/equipment',      // AI-подбор снаряжения: rate-limit есть, вход пока обязателен

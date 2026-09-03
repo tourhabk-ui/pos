@@ -8,8 +8,9 @@ const ROLE_HUB: Record<string, string> = {
   tourist:           '/hub/tourist',
   operator:          '/hub/operator',
   guide:             '/hub/guide',
-  transfer:          '/hub/transfer-operator',
-  transfer_operator: '/hub/transfer-operator',
+  // Кабинет перевозчика на схеме 926 (02.09): парк, поездки, запросы мест.
+  transfer:          '/hub/carrier',
+  transfer_operator: '/hub/carrier',
   agent:             '/hub/agent',
   admin:             '/hub/admin',
 };

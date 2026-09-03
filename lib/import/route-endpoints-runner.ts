@@ -18,6 +18,23 @@
  * link_kind='waypoint' обоснован происхождением: официальный паспорт,
  * утверждённый дирекцией парка/министерством, называющий точку началом или
  * концом маршрута, — это улика происхождения (§4.1), не близость.
+ *
+ * ── Что показал сухой прогон первой партии (03.09) ───────────────────────
+ *
+ * Из десяти маршрутов у ПЯТИ начало и конец пришли с одной и той же
+ * координатой до седьмого знака, и ни у одной точки не было имени. Это не
+ * «две точки маршрута» — это одна точка, названная дважды, и она бы:
+ *
+ *   - прошла черту `MIN_ROUTE_WAYPOINTS = 2`, не добавив ни грамма знания
+ *     о пути (порог вырос бы, а сверять линию по-прежнему было бы не с чем);
+ *   - завела в `places` — мастер-таблицу географии — заглушки вида «Точка
+ *     маршрута (начало)», то есть выдуманные имена там, где паспорт имени
+ *     не назвал (§4.0: пустая строка лучше придуманной).
+ *
+ * Отсюда два детерминированных отказа, а не правки промпта: `same_point`
+ * (начало и конец ближе SAME_POINT_M) и `no_name` (имени нет и рядом нет
+ * существующего места, к которому можно привязаться честно). Оба —
+ * «не смог», а не «сделал».
  */
 
 import { pool } from '@/lib/db-pool';
@@ -37,6 +54,15 @@ import {
 const MAX_MARKDOWN_CHARS = 14000;
 /** Радиус, в котором существующее место считается «тем же самым». */
 const DEDUPE_RADIUS_M = 1500;
+/**
+ * Ближе этого начало и конец — одна точка, названная дважды.
+ *
+ * 50 метров, а не ноль: паспорт пишет координату в градусах-минутах-секундах,
+ * и одна и та же точка в двух местах текста округляется по-разному. Ноль
+ * ловил бы только побайтовое совпадение и пропускал бы ту же беду на секунду
+ * в сторону.
+ */
+const SAME_POINT_M = 50;
 
 export interface RouteEndpointsParams {
   routeIds: string[];
@@ -45,14 +71,28 @@ export interface RouteEndpointsParams {
   dryRun: boolean;
 }
 
+export type EndpointSkipReason =
+  | 'no_coord' | 'coord_unparsable' | 'coord_out_of_range' | 'already_linked'
+  /** Имени нет, и рядом нет места, к которому можно привязаться честно. */
+  | 'no_name'
+  /** Начало и конец — одна и та же точка (см. SAME_POINT_M). */
+  | 'same_point';
+
 export type EndpointOutcome =
   | { kind: 'linked'; place_id: string; place_created: boolean; lat: number; lng: number; name: string | null }
-  | { kind: 'skipped'; reason: 'no_coord' | 'coord_unparsable' | 'coord_out_of_range' | 'already_linked'; name: string | null; coord_text: string | null };
+  | { kind: 'skipped'; reason: EndpointSkipReason; name: string | null; coord_text: string | null };
 
 export interface RouteEndpointsDetail {
   route_id: string;
   title: string;
-  status: 'linked' | 'ocr_missing' | 'parse_failed' | 'error';
+  /**
+   * `nothing_linked` — паспорт разобран, но ни одна из двух точек не легла в
+   * связь (обе пропущены: без координаты, без имени, вне края...). До 03.09
+   * такой маршрут получал `linked`: в сухом прогоне run 3 (#1493) «К дачным
+   * горячим источникам» стоял как `linked` при `no_coord` на обоих концах —
+   * статус отчитывался о связи, которой не было (§4.0).
+   */
+  status: 'linked' | 'nothing_linked' | 'ocr_missing' | 'parse_failed' | 'endpoints_identical' | 'error';
   start?: EndpointOutcome;
   end?: EndpointOutcome;
   error?: string;
@@ -118,6 +158,14 @@ async function resolveEndpoint(
     (p) => haversineM(coord, { lat: parseFloat(p.lat), lng: parseFloat(p.lng) }) <= DEDUPE_RADIUS_M,
   );
 
+  // Безымянную точку заводить нельзя: `places` — мастер-таблица географии, и
+  // «Точка маршрута (начало)» в ней это выдуманное имя, по которому потом
+  // сличают дубли (§4.1). Привязка к УЖЕ существующему месту рядом честна:
+  // имя там настоящее, его дал не мы.
+  if (!existing && !point.name?.trim()) {
+    return { kind: 'skipped', reason: 'no_name', name: point.name, coord_text: point.coord_text };
+  }
+
   const id = existing?.id ?? placeId(routeId, which, coord.lat, coord.lng);
 
   if (!dryRun) {
@@ -142,7 +190,10 @@ async function resolveEndpoint(
         `INSERT INTO places (id, ark_id, name, lat, lng, location_type, source_url, source_name, is_visible)
          VALUES ($1::text, $1::uuid, $2, $3::numeric, $4::numeric, 'other', $5, 'visitkamchatka.ru', true)
          ON CONFLICT (id) DO NOTHING`,
-        [id, point.name ?? `Точка маршрута (${which === 'start' ? 'начало' : 'конец'})`, coord.lat, coord.lng, pdfUrl],
+        // Имя здесь всегда есть: безымянная точка отсеяна выше (`no_name`).
+        // Прежняя заглушка «Точка маршрута (начало)» убрана 03.09 — она и
+        // была тем выдуманным именем, ради которого правило написано.
+        [id, point.name?.trim(), coord.lat, coord.lng, pdfUrl],
       );
     }
     const posRes = await pool.query<{ n: string }>(
@@ -192,15 +243,42 @@ export async function runRouteEndpoints(params: RouteEndpointsParams): Promise<R
         continue;
       }
 
+      // Одна точка, названная дважды, — не начало и конец. Проверяется ДО
+      // записи и до дедупа: на живой базе второе место схлопнулось бы в
+      // первое (радиус 1500 м), маршрут получил бы один waypoint вместо
+      // двух, а счётчик отчитался бы за два — то есть отчёт разошёлся бы с
+      // базой молча.
+      const startCoord = endpoints.start.coord_text ? parseDms(endpoints.start.coord_text) : null;
+      const endCoord = endpoints.end.coord_text ? parseDms(endpoints.end.coord_text) : null;
+      if (startCoord && endCoord && haversineM(startCoord, endCoord) <= SAME_POINT_M) {
+        details.push({
+          route_id: r.route_id, title: r.title, status: 'endpoints_identical',
+          start: { kind: 'skipped', reason: 'same_point', name: endpoints.start.name, coord_text: endpoints.start.coord_text },
+          end: { kind: 'skipped', reason: 'same_point', name: endpoints.end.name, coord_text: endpoints.end.coord_text },
+        });
+        continue;
+      }
+
       const start = await resolveEndpoint(endpoints.start, r.route_id, 'start', r.pdf_url, dryRun);
       const end = await resolveEndpoint(endpoints.end, r.route_id, 'end', r.pdf_url, dryRun);
+      // Считаем по РАЗНЫМ местам: если дедуп свёл обе точки к одному месту,
+      // связь у маршрута будет одна (ON CONFLICT DO NOTHING), и счётчик «2»
+      // был бы отчётом о работе, которой не было.
+      const linkedIds = new Set(
+        [start, end].filter(o => o.kind === 'linked').map(o => (o as { place_id: string }).place_id),
+      );
+      pointsLinked += linkedIds.size;
       for (const o of [start, end]) {
-        if (o.kind === 'linked') {
-          pointsLinked++;
-          if (o.place_created) placesCreated++;
-        }
+        if (o.kind === 'linked' && o.place_created) placesCreated++;
       }
-      details.push({ route_id: r.route_id, title: r.title, status: 'linked', start, end });
+      // Статус — по факту связи, а не по факту разбора: две пропущенные
+      // точки это `nothing_linked`, и сводка по статусам не выдаст их за
+      // сделанную работу.
+      details.push({
+        route_id: r.route_id, title: r.title,
+        status: linkedIds.size > 0 ? 'linked' : 'nothing_linked',
+        start, end,
+      });
     } catch (err) {
       details.push({
         route_id: r.route_id, title: r.title, status: 'error',

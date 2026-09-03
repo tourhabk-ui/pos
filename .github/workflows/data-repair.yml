@@ -45,7 +45,7 @@ jobs:
             echo "probe $i: HTTP $CODE — эндпоинт ещё не задеплоен, ждём 60с"
             sleep 60
           done
-          curl -s --max-time 280 "https://vedarai.ru/api/cron/data-repair?secret=${CRON_SECRET}" > /tmp/dry.json
+          curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 280 "https://vedarai.ru/api/cron/data-repair" > /tmp/dry.json
           python3 -c "import json; d=json.load(open('/tmp/dry.json')); print(json.dumps({k:v for k,v in d.items() if k != 'items'}, ensure_ascii=False))" || { head -c 400 /tmp/dry.json; exit 1; }
           echo "── Диагностика (dry-run) ──"
           python3 -c "import json; [print(f\"[{it['step']}] {it.get('place','')}: {it['detail']}\") for it in json.load(open('/tmp/dry.json')).get('items', [])]"
@@ -54,7 +54,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -s --max-time 280 "https://vedarai.ru/api/cron/data-repair?secret=${CRON_SECRET}&apply=1" > /tmp/apply.json
+          curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 280 "https://vedarai.ru/api/cron/data-repair?apply=1" > /tmp/apply.json
           python3 -c "import json; d=json.load(open('/tmp/apply.json')); print(json.dumps({k:v for k,v in d.items() if k != 'items'}, ensure_ascii=False))" || { head -c 400 /tmp/apply.json; exit 1; }
           echo "── Применено ──"
           python3 -c "import json; [print(f\"[{it['step']}] {it.get('place','')}: {it['detail']}\") for it in json.load(open('/tmp/apply.json')).get('items', [])]"
@@ -63,7 +63,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -s --max-time 180 "https://vedarai.ru/api/cron/data-inventory?secret=${CRON_SECRET}" > /tmp/inv.json
+          curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 180 "https://vedarai.ru/api/cron/data-inventory" > /tmp/inv.json
           python3 - <<'PY'
           import json
           d = json.load(open('/tmp/inv.json'))

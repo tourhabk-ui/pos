@@ -4,9 +4,18 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, AlertCircle, RefreshCw, Copy, Check } from 'lucide-react';
 
 interface SbpQrPaymentProps {
-  bookingId: number;
+  bookingId: number | string;
   amount: number;
   onPaid: () => void;
+  /**
+   * Адреса выпуска и опроса QR. По умолчанию — бронь тура
+   * (/api/payments/tochka/qr). Заказ мест у перевозчика (миграция 928) платит
+   * тем же компонентом через свои адреса: второй компонент QR разошёлся бы
+   * поведением так же, как две SOS-кнопки (#887).
+   */
+  api?: { issue: string; status: string };
+  /** Что сказать, когда СБП не настроен: у тура есть карта, у места — перевозчик. */
+  unavailableHint?: string;
 }
 
 interface QrData {
@@ -35,19 +44,21 @@ function formatCountdown(msLeft: number): string {
  * вернуться к оплате картой, а не оставляет пользователя перед сломанной
  * кнопкой.
  */
-export default function SbpQrPayment({ bookingId, amount, onPaid }: SbpQrPaymentProps) {
+export default function SbpQrPayment({ bookingId, amount, onPaid, api, unavailableHint }: SbpQrPaymentProps) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [qr, setQr] = useState<QrData | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [msLeft, setMsLeft] = useState(0);
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const issueUrl = api?.issue ?? '/api/payments/tochka/qr';
+  const statusUrl = api?.status ?? `/api/payments/tochka/qr?bookingId=${bookingId}`;
 
   const requestQr = async () => {
     setPhase('loading');
     setErrorMsg('');
     try {
-      const res = await fetch('/api/payments/tochka/qr', {
+      const res = await fetch(issueUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId }),
@@ -108,7 +119,7 @@ export default function SbpQrPayment({ bookingId, amount, onPaid }: SbpQrPayment
     if (phase !== 'showing' && phase !== 'already_started') return;
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/payments/tochka/qr?bookingId=${bookingId}`);
+        const res = await fetch(statusUrl);
         const json = await res.json() as { paid?: boolean };
         if (json.paid) {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -117,7 +128,7 @@ export default function SbpQrPayment({ bookingId, amount, onPaid }: SbpQrPayment
       } catch { /* следующий тик попробует снова */ }
     }, 3000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [phase, bookingId, onPaid]);
+  }, [phase, bookingId, onPaid, statusUrl]);
 
   const handleCopyPayload = () => {
     if (!qr) return;
@@ -140,7 +151,7 @@ export default function SbpQrPayment({ bookingId, amount, onPaid }: SbpQrPayment
       <div className="flex items-start gap-2 px-4 py-3 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)]">
         <AlertCircle className="w-4 h-4 shrink-0 text-[var(--text-secondary)] mt-0.5" />
         <p className="text-sm text-[var(--text-secondary)]">
-          Оплата по СБП сейчас недоступна. Оплатите картой — это тот же тур по той же цене.
+          {unavailableHint ?? 'Оплата по СБП сейчас недоступна. Оплатите картой — это тот же тур по той же цене.'}
         </p>
       </div>
     );

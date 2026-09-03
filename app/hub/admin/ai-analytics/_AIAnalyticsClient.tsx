@@ -55,6 +55,8 @@ interface WebChat {
   authenticated: boolean;
   createdAt: string;
   updatedAt: string;
+  referrerSource: string | null;
+  utmSource: string | null;
 }
 
 interface ChatMessage {
@@ -194,7 +196,9 @@ function ChannelCard({ id, stats }: { id: string; stats: ChannelStats }) {
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
 
-function CopyButton({ value }: { value: string }) {
+function CopyButton({ value, display, title = 'Скопировать chat_id' }: {
+  value: string; display?: string; title?: string;
+}) {
   const [copied, setCopied] = useState(false);
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -209,10 +213,10 @@ function CopyButton({ value }: { value: string }) {
       className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono
                  text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]
                  transition-colors border border-[var(--border)]"
-      title="Скопировать chat_id"
+      title={title}
     >
       {copied ? <Check size={9} className="text-[var(--success)]" /> : <Copy size={9} />}
-      {value}
+      {display ?? value}
     </button>
   );
 }
@@ -276,6 +280,14 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
               {isTg ? tg.userName : (web.authenticated ? `Пользователь` : 'Гость')}
             </span>
             {isTg && <CopyButton value={tg.chatId} />}
+            {/* session_id приходил в этом же API-ответе и раньше нигде не
+                показывался — 03.09, разбирая живую переписку про Авачинский,
+                владелец спросил «кто тестировал», и ответить было нечем
+                прямо на экране: копировать id значит лезть в БД руками. */}
+            {!isTg && (
+              <CopyButton value={web.sessionId} display={`session ${web.sessionId.slice(-8)}`}
+                title="Скопировать session_id" />
+            )}
             {!isTg && web.userId && (
               <span className="text-[10px] text-[var(--text-muted)] truncate">#{web.userId.slice(-6)}</span>
             )}
@@ -290,6 +302,13 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
       {open && (
         <div className="border-t border-[var(--border)] px-4 py-3 max-h-96 overflow-y-auto space-y-2"
           style={{ background: 'var(--bg-primary)' }}>
+          {!isTg && (
+            <p className="text-[10px] text-[var(--text-muted)] pb-1 border-b border-[var(--border)] mb-1">
+              Источник: {web.referrerSource || web.utmSource
+                ? [web.utmSource, web.referrerSource].filter(Boolean).join(' · ')
+                : 'не передан (прямой заход или заблокирован referrer)'}
+            </p>
+          )}
           {loading && (
             <p className="text-xs text-[var(--text-muted)] py-4 text-center">Загрузка...</p>
           )}

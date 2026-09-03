@@ -114,8 +114,8 @@ describe('runRouteEndpoints: поведение', () => {
   it('координата разобрана и записана: place создаётся, waypoint линкуется', async () => {
     mockRoute('паспорт с координатами');
     callAIWaterfallMock.mockResolvedValue(JSON.stringify({
-      start: { name: null, coord_text: `52°50'26"N 158°09'06"E` },
-      end: { name: null, coord_text: `52°50'26"N 158°09'06"E` },
+      start: { name: 'Кордон «Авачинский»', coord_text: `52°50'26"N 158°09'06"E` },
+      end: { name: 'Вулкан Авачинский', coord_text: `53°15'20"N 158°49'50"E` },
     }));
     const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: false });
     expect(r.points_linked).toBe(2);
@@ -124,10 +124,105 @@ describe('runRouteEndpoints: поведение', () => {
     expect(insertPlaces.length).toBe(2);
   });
 
+  /**
+   * Сухой прогон первой партии 03.09: у пяти маршрутов из десяти начало и
+   * конец пришли ОДНОЙ координатой, и ни у одной точки не было имени.
+   * Прежний код записал бы это как две точки — черта `MIN_ROUTE_WAYPOINTS = 2`
+   * прошлась бы, не узнав о пути ничего нового, а в `places` уехали бы
+   * заглушки «Точка маршрута (начало)».
+   */
+  describe('после сухого прогона 03.09', () => {
+    it('начало и конец в одной точке — endpoints_identical, ничего не пишется', async () => {
+      mockRoute('паспорт, где координата названа дважды');
+      callAIWaterfallMock.mockResolvedValue(JSON.stringify({
+        start: { name: 'Гейзеры', coord_text: `54°26'10"N 160°08'09"E` },
+        end: { name: 'Гейзеры', coord_text: `54°26'10"N 160°08'09"E` },
+      }));
+      const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: false });
+      expect(r.details[0].status).toBe('endpoints_identical');
+      expect(r.details[0].start).toMatchObject({ kind: 'skipped', reason: 'same_point' });
+      expect(r.points_linked).toBe(0);
+      const writes = poolQueryMock.mock.calls.filter(([sql]) =>
+        /INSERT INTO places|INSERT INTO route_waypoints/.test(String(sql)));
+      expect(writes.length).toBe(0);
+    });
+
+    it('разные точки в полусотне метров — тоже одна точка', async () => {
+      mockRoute('паспорт с округлением');
+      callAIWaterfallMock.mockResolvedValue(JSON.stringify({
+        start: { name: 'Кордон', coord_text: `54°26'10"N 160°08'09"E` },
+        end: { name: 'Кордон', coord_text: `54°26'11"N 160°08'09"E` },
+      }));
+      const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: false });
+      expect(r.details[0].status).toBe('endpoints_identical');
+    });
+
+    it('точка без имени не заводит место с выдуманным названием', async () => {
+      mockRoute('паспорт с координатами без имён');
+      callAIWaterfallMock.mockResolvedValue(JSON.stringify({
+        start: { name: null, coord_text: `52°50'26"N 158°09'06"E` },
+        end: { name: '  ', coord_text: `53°15'20"N 158°49'50"E` },
+      }));
+      const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: false });
+      expect(r.details[0].start).toMatchObject({ kind: 'skipped', reason: 'no_name' });
+      expect(r.details[0].end).toMatchObject({ kind: 'skipped', reason: 'no_name' });
+      expect(r.points_linked).toBe(0);
+      expect(poolQueryMock.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO places')).length).toBe(0);
+    });
+
+    it('безымянная точка рядом с существующим местом привязывается к нему', async () => {
+      // Имя там настоящее, его дали не мы — привязка честна.
+      poolQueryMock.mockImplementation((sql: string) => {
+        if (String(sql).includes('FROM kamchatka_routes r')) {
+          return Promise.resolve({ rows: [{ route_id: ROUTE_ID, title: 'Маршрут', markdown: 'паспорт', pdf_url: null }] });
+        }
+        if (String(sql).includes('FROM places')) {
+          return Promise.resolve({ rows: [{ id: 'place-1', lat: '52.84056', lng: '158.15167' }] });
+        }
+        if (String(sql).includes('SELECT COUNT(*)::text AS n FROM route_waypoints')) return Promise.resolve({ rows: [{ n: '0' }] });
+        if (String(sql).includes('INSERT INTO route_waypoints')) return Promise.resolve({ rows: [] });
+        throw new Error('unexpected SQL: ' + sql);
+      });
+      callAIWaterfallMock.mockResolvedValue(JSON.stringify({
+        start: { name: null, coord_text: `52°50'26"N 158°09'06"E` },
+        end: { name: null, coord_text: null },
+      }));
+      const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: false });
+      expect(r.details[0].start).toMatchObject({ kind: 'linked', place_id: 'place-1', place_created: false });
+      expect(r.places_created).toBe(0);
+    });
+
+    it('обе точки свелись к одному месту — счётчик говорит «одна», а не «две»', async () => {
+      // Дедуп (1500 м) отдаёт одно и то же место обеим точкам; связь у
+      // маршрута выйдет одна (ON CONFLICT DO NOTHING). Счётчик «2» был бы
+      // отчётом о работе, которой не было.
+      poolQueryMock.mockImplementation((sql: string) => {
+        if (String(sql).includes('FROM kamchatka_routes r')) {
+          return Promise.resolve({ rows: [{ route_id: ROUTE_ID, title: 'Маршрут', markdown: 'паспорт', pdf_url: null }] });
+        }
+        if (String(sql).includes('FROM places')) {
+          return Promise.resolve({ rows: [{ id: 'place-1', lat: '52.84056', lng: '158.15167' }] });
+        }
+        if (String(sql).includes('SELECT COUNT(*)::text AS n FROM route_waypoints')) return Promise.resolve({ rows: [{ n: '0' }] });
+        if (String(sql).includes('INSERT INTO route_waypoints')) return Promise.resolve({ rows: [] });
+        throw new Error('unexpected SQL: ' + sql);
+      });
+      callAIWaterfallMock.mockResolvedValue(JSON.stringify({
+        // Разные точки (черту same_point проходят: 1.2 км), но обе попадают
+        // в радиус дедупа одного и того же места.
+        start: { name: 'Кордон', coord_text: `52°50'26"N 158°09'06"E` },
+        end: { name: 'Развилка', coord_text: `52°51'00"N 158°09'06"E` },
+      }));
+      const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: false });
+      expect(r.details[0].status).toBe('linked');
+      expect(r.points_linked).toBe(1);
+    });
+  });
+
   it('сухой прогон ничего не пишет', async () => {
     mockRoute('паспорт с координатами');
     callAIWaterfallMock.mockResolvedValue(JSON.stringify({
-      start: { name: null, coord_text: `52°50'26"N 158°09'06"E` },
+      start: { name: 'Кордон «Авачинский»', coord_text: `52°50'26"N 158°09'06"E` },
       end: { name: null, coord_text: null },
     }));
     poolQueryMock.mockReset();
@@ -150,6 +245,22 @@ describe('runRouteEndpoints: поведение', () => {
     expect(r.points_linked).toBe(0);
     const d = r.details[0];
     expect(d.start).toEqual({ kind: 'skipped', reason: 'no_coord', name: 'Кордон «Авачинский»', coord_text: null });
+    // Сухой прогон run 3 (03.09, #1493): «К дачным горячим источникам» с
+    // no_coord на обоих концах стоял в отчёте как `linked`. Статус говорит о
+    // связи, а не о том, что паспорт разобрался: связи нет — `nothing_linked`.
+    expect(d.status).toBe('nothing_linked');
+  });
+
+  it('одна точка легла, вторая пропущена — статус linked, счётчик один', async () => {
+    mockRoute('паспорт: одна координата, второй ориентир словами');
+    callAIWaterfallMock.mockResolvedValue(JSON.stringify({
+      start: { name: 'Кордон «Авачинский»', coord_text: `52°50'26"N 158°09'06"E` },
+      end: { name: 'Дачные горячие источники', coord_text: null },
+    }));
+    const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: true });
+    expect(r.points_linked).toBe(1);
+    expect(r.details[0].status).toBe('linked');
+    expect(r.details[0].end).toEqual({ kind: 'skipped', reason: 'no_coord', name: 'Дачные горячие источники', coord_text: null });
   });
 
   it('координата вне Камчатки отбрасывается, а не записывается', async () => {

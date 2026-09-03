@@ -207,19 +207,6 @@ export const INTENT_KEYWORDS: Record<AgentIntent, string[]> = {
     'safety-чек маршрута', 'safety чек маршрута', 'проверка маршрута перед выходом',
     'route preflight', 'чек маршрута',
   ],
-  // Трансфер-оператор
-  transfer_fleet:    [
-    'мой автопарк', 'флот', 'транспортные средства', 'fleet', 'мои машины', 'автомобили',
-  ],
-  transfer_drivers:  [
-    'мои водители', 'список водителей', 'drivers', 'водители трансфер',
-  ],
-  transfer_bookings: [
-    'бронирования трансфер', 'заказы трансфер', 'transfer bookings', 'трансферы сегодня',
-  ],
-  transfer_status:   [
-    'статус трансфер', 'transfer status', 'дашборд трансфер', 'обзор трансфер',
-  ],
   unknown: [],
 };
 

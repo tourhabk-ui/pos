@@ -70,6 +70,22 @@ export interface Element { key: string; label: string; count: number; href: stri
 export interface Quake { magnitude: number; place: string; time: number; depth: number | null }
 export interface SeismicSnapshot { events: Quake[]; source: 'kbgsras' | 'usgs' | 'none'; updatedAt: string | null }
 
+/** Один вулкан в «пульсе»: живая строка volcano_status, привязанная к месту. */
+export interface VolcanoPulseItem {
+  name: string;
+  placeId: string;
+  acc: string; // green|yellow|orange|red|unassigned
+  ashHeightM: number | null;
+  observedAt: string | null;
+  summary: string | null;
+}
+/**
+ * Пульс вулканов. Зелёные входят намеренно: пульс из одних повышенных
+ * показывал бы пустоту в спокойный день, а пустота на слое безопасности
+ * неотличима от «данные не дошли». Отсюда же `degraded`.
+ */
+export interface VolcanoSnapshot { items: VolcanoPulseItem[]; updatedAt: string | null; degraded: boolean }
+
 export type HazardLevel = 'critical' | 'danger' | 'warning';
 export type HazardKind = 'volcano' | 'thermal' | 'quake' | 'bear' | 'report';
 export interface Hazard {
@@ -303,6 +319,30 @@ async function fetchRadarBase(): Promise<{ hazards: Hazard[]; degraded: boolean 
         note: `Вулкан, KVERT ${ACC_LABEL_SHORT[v.acc] ?? v.acc}. Держитесь вне закрытой зоны.`,
       });
     }
+    // Опасный код БЕЗ привязки к точке — знание, которое некуда положить.
+    //
+    // 02.09: KVERT отдавал 68 вулканов, сопоставлялось 8. Ключевской с
+    // выбросом до 6 км лежал в volcano_status без place_ark_id, а радар
+    // соединяет статус с местом именно через него — и показывал пустой круг
+    // под надписью «обновляется автоматически».
+    //
+    // Сопоставление починено (lib/services/safety/volcano-match), но одной
+    // починки мало: если завтра KVERT назовёт новый вулкан, которого нет в
+    // каталоге, круг снова промолчит. Поэтому непривязанный опасный код —
+    // это `degraded`: «показано не всё», а не «рядом чисто».
+    try {
+      const orphan = await query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n
+           FROM volcano_status
+          WHERE aviation_color_code IN ('yellow','orange','red')
+            AND place_ark_id IS NULL`,
+      );
+      if (Number(orphan.rows[0]?.n ?? 0) > 0) degraded = true;
+    } catch (err) {
+      // Не смогли сосчитать непривязанные — значит не знаем, полон ли круг.
+      console.error('[home] радар: непривязанные коды не сосчитались:', err);
+      degraded = true;
+    }
   } catch (err) {
     console.error('[home] радар: вулканы не выбрались:', err);
     degraded = true;
@@ -404,14 +444,54 @@ export interface SafetyLiveData {
   safety: SafetySnapshot;
   seismic: SeismicSnapshot;
   radar: RadarSnapshot;
+  volcanoes: VolcanoSnapshot;
+}
+
+/**
+ * «Пульс вулканов» — как сейсмический, но по кодам KVERT (владелец 02.09:
+ * «нужен график вулканов как у сейсмики»). Истории кодов в volcano_status
+ * нет — одна строка на вулкан, — поэтому ось не время, а активность:
+ * столбик на каждый вулкан, привязанный к месту, высота и цвет по коду.
+ * Берутся ВСЕ коды, включая зелёные: пульс из одних повышенных в спокойный
+ * день показывал бы пустоту, а пустота здесь неотличима от «не дошло».
+ */
+async function fetchVolcanoPulse(): Promise<VolcanoSnapshot> {
+  try {
+    const { rows } = await query<{
+      name: string; place_id: string; acc: string; ash: number | null;
+      observed_at: string | null; summary: string | null;
+    }>(
+      `SELECT p.name, p.id::text AS place_id, vs.aviation_color_code AS acc,
+              vs.ash_height_m AS ash, vs.observed_at::text AS observed_at,
+              LEFT(vs.summary, 300) AS summary
+         FROM volcano_status vs
+         JOIN places p ON vs.place_ark_id = p.ark_id
+        WHERE p.is_visible = TRUE
+          AND vs.aviation_color_code <> 'unassigned'
+        ORDER BY vs.observed_at DESC NULLS LAST
+        LIMIT 24`,
+    );
+    const items: VolcanoPulseItem[] = rows.map((r) => ({
+      name: r.name, placeId: r.place_id, acc: r.acc,
+      ashHeightM: r.ash, observedAt: r.observed_at, summary: r.summary,
+    }));
+    const updatedAt = rows.reduce<string | null>(
+      (m, r) => (r.observed_at && (!m || r.observed_at > m) ? r.observed_at : m), null,
+    );
+    return { items, updatedAt, degraded: false };
+  } catch (err) {
+    console.error('[home] пульс вулканов не выбрался:', err);
+    return { items: [], updatedAt: null, degraded: true };
+  }
 }
 
 export async function getSafetyLiveData(): Promise<SafetyLiveData> {
-  const [safety, feedResult, radarBase, reportHazards] = await Promise.all([
+  const [safety, feedResult, radarBase, reportHazards, volcanoes] = await Promise.all([
     fetchSafety(),
     getSeismicFeed().catch(() => ({ events: [] as SeismicEvent[], source: 'none' as const, updatedAt: new Date().toISOString() })),
     fetchRadarBase(),
     fetchReportHazards(),
+    fetchVolcanoPulse(),
   ]);
 
   const seismic = seismicSnapshot(feedResult.events, feedResult.source, feedResult.updatedAt);
@@ -438,7 +518,7 @@ export async function getSafetyLiveData(): Promise<SafetyLiveData> {
   });
 
   const radar: RadarSnapshot = { hazards, center: PETROPAVLOVSK, degraded: radarBase.degraded };
-  return { safety, seismic, radar };
+  return { safety, seismic, radar, volcanoes };
 }
 
 export async function getHomeV8Data(): Promise<HomeV8Data> {

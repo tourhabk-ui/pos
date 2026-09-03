@@ -87,6 +87,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'fetch_mches_alerts': {
+        // Отдаём ВЕСЬ ответ источника, а не .items: в нём живёт третий
+        // исход (`refused` + `unavailable`). Развернуть его здесь в голый
+        // список значило бы вернуть дефект, ради которого он заведён —
+        // «источник недоступен» снова стало бы «предупреждений нет».
         const alerts = await parseMchesAlerts(args.hours_back || 24);
         return {
           content: [
@@ -99,6 +103,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'fetch_local_incidents': {
+        // Весь ответ, включая refused/unavailable (см. fetch_mches_alerts).
         const incidents = await parseLocalIncidents(args.limit || 20);
         return {
           content: [
@@ -111,6 +116,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'fetch_tourism_objects': {
+        // Весь ответ, включая refused/unavailable (см. fetch_mches_alerts).
         const objects = await parseTourismObjects(args.query || 'Kamchatka');
         return {
           content: [

@@ -1,27 +1,28 @@
 {
-  "note": "«Зеленовские озерки» = cf257914-fff2-4a72-baba-4a4381d7a83d, geometry_source gpx (единственная gpx-линия в базе), 11.63 км, line_grade surveyed, одна путевая точка — само место. На экране — зигзаг прямыми на 30 км через Елизово и Петропавловск. Гипотеза для ПРОВЕРКИ, не вывод: склейка нескольких сегментов загруженного трека в одну линию (концы сегментов соединяются напрямую). Снимаем: (1) запись целиком — число точек, улика записи, вердикт черты, span; (2) очередь route_track_imports — source_name, format, points, span_km, шаги, к какому маршруту применено. CRON_SECRET шлётся заголовком.",
-  "urls": [
-    "https://vedarai.ru/api/routes/cf257914-fff2-4a72-baba-4a4381d7a83d",
-    "https://vedarai.ru/api/cron/track-import-queue"
+  "note": "«Зеленовские озерки», БОЕВОЕ применение куска (владелец 02.09: «убери мусор и оставь только нужный трек»). Сухой прогон 33627506329 показал три куска: 0.79 км / 0.5 км / 1.94 км (101 точка), выбран третий; провалы 87 и 273 с. Записывается geometry маршрута cf257914 из 101 точки, source gpx, distance_km 1.94; 65 точек первых двух кусков отброшены.",
+  "urls": [],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/track-import-queue",
+      "body": {
+        "id": "abecc060-2176-43cd-96c5-1d6ec15b2333",
+        "route_id": "cf257914-fff2-4a72-baba-4a4381d7a83d",
+        "segment": "longest",
+        "reapply": true,
+        "force": true,
+        "dry_run": false
+      }
+    }
   ],
   "grep": [
-    "geometry_source",
-    "evidence",
-    "navigability",
-    "span_km",
     "applied",
-    "Зеленовские"
+    "dropped_by_segment",
+    "chosen",
+    "error"
   ],
-  "around": [
-    "\"evidence\"",
-    "\"navigability\"",
-    "span_km",
-    "applied"
-  ],
-  "aroundLines": 8,
-  "aroundHits": 3,
-  "bytes": 5000,
-  "timeout": 60,
-  "retries": 0,
-  "retryDelay": 10
+  "until": "\"applied\":true",
+  "retries": 2,
+  "retryDelay": 30,
+  "bytes": 6000,
+  "timeout": 60
 }

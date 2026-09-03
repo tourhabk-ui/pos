@@ -324,7 +324,7 @@ The VM uses PostgreSQL 16 (Ubuntu 24.04 default) with PostGIS 3. The production 
 pg_ctlcluster 16 main start
 ```
 
-Default local credentials: user=`kamuser`, password=`kampass2024_local`, database=`kamhub`, host=`localhost:5432`.
+Local connection shape: user=`kamuser`, database=`kamhub`, host=`localhost:5432`. The password is whatever you set at `CREATE ROLE` and lives only in `.env.local` — it is not written in this file on purpose: the repository is public, and a documented default is a default on somebody's machine.
 
 ### Database bootstrapping gotcha
 

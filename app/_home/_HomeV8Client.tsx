@@ -687,7 +687,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <div className="hubline">
             <Link href="/routes">Туристам</Link><Link href="/routes?activity_type=fishing">Рыбалка</Link>
             <Link href="/hub">Операторам</Link><Link href="/guides">Гидам</Link>
-            <Link href="/accommodations">Жильё</Link><Link href="/gear">Снаряжение</Link><Link href="/transfers">Трансферы</Link>
+            <Link href="/accommodations">Жильё</Link><Link href="/gear">Снаряжение</Link>
           </div>
         </section>
 

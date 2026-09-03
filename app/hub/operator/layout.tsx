@@ -3,8 +3,8 @@
 import { ReactNode } from 'react';
 import {
   BarChart3, Map, Calendar, CalendarDays, Users, CreditCard,
-  Settings, Bell, FileText, ArrowLeftRight, HelpCircle, CheckCircle, Inbox, User,
-  Download, Bus, BookMarked, MessageSquareText, Contact, Bot,
+  Settings, Bell, FileText, HelpCircle, CheckCircle, Inbox, User,
+  Download, BookMarked, MessageSquareText, Contact, Bot,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
@@ -32,8 +32,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/operator/analytics', label: 'Аналитика', icon: BarChart3, section: 'Финансы' },
   { href: '/hub/operator/reports', label: 'Отчёты', icon: Download, section: 'Финансы' },
 
-  { href: '/hub/operator/transfers', label: 'Трансферы', icon: ArrowLeftRight, section: 'Логистика' },
-  { href: '/hub/transfer-operator', label: 'Автопарк', icon: Bus, section: 'Логистика' },
+  // Пункты «Трансферы» и «Автопарк» убраны 01.09 вместе с мёртвым модулем:
+  // обе страницы читали таблицы, которых на проде нет, и падали с 42P01.
+  // Вернутся, когда будет построен кабинет перевозчика на схеме 926.
   // Сирота-аудит 27.07: живой CRUD гидов (GET+POST) без пункта меню.
   { href: '/hub/operator/guides', label: 'Гиды', icon: Contact, section: 'Логистика' },
 

@@ -1,62 +1,85 @@
+// @vitest-environment node
 /**
- * tests/unit/kuzmich-transfer-search.test.ts
+ * search_transfers у Кузьмича (02.09) — три исхода, не два.
  *
- * Executor инструмента Кузьмича search_transfers: SELECT из transfer_routes
- * по from/to/price_max, только is_active, популярные и дешёвые первыми,
- * LIMIT 6; формат «откуда → куда — цена» со ссылкой на /transfers.
+ * Прежний инструмент (удалён 01.09) читал таблицы, которых на проде не было,
+ * и отвечал «трансферов не нашлось» на каждый вопрос — выдавал поломку за
+ * факт. Новый читает ТОЛЬКО через listPublishedTrips (то же, что витрина) и
+ * различает: нашли / искали и никто не едет / не смог проверить.
  */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-const poolQueryMock = vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>();
-vi.mock('@/lib/db-pool', () => ({
-  pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) },
-}));
+const listMock = vi.fn();
+vi.mock('@/lib/transfers/service', () => ({ listPublishedTrips: (...a: unknown[]) => listMock(...a) }));
+vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' }));
 
-import { searchTransfersForKuzmich } from '@/lib/kuzmich/transfer-search';
+import { searchTransfersForKuzmich, resolveWindow } from '@/lib/kuzmich/transfer-search';
 
-beforeEach(() => poolQueryMock.mockReset());
+const TRIP = {
+  id: 't1', vehicle_id: 'v1', trip_date: '2026-09-10', from_text: 'Петропавловск', to_text: 'Вулкан Горелый',
+  to_place_id: null, to_route_id: null, departure_note: 'к шести утра', seats_total: 10, price_per_seat: '3500.00',
+  is_published: true, status: 'planned', comment: null, partner_id: 'p1', partner_name: 'Камчатка-Трек',
+  vehicle_kind: 'vahtovka', vehicle_title: 'КАМАЗ', seats_taken: 4, seats_free: 6,
+};
 
-describe('searchTransfersForKuzmich', () => {
-  it('без фильтров — только is_active, популярные и дешёвые первыми, лимит 6', async () => {
-    poolQueryMock.mockResolvedValue({ rows: [] });
+beforeEach(() => { listMock.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => undefined); });
+
+describe('три исхода', () => {
+  it('нашли — список с остатком, ценой, перевозчиком и ссылкой на витрину', async () => {
+    listMock.mockResolvedValue([TRIP]);
+    const out = await searchTransfersForKuzmich({ from: '2026-09-08', to: '2026-09-15', seats: '2', place: 'Горелый' });
+    expect(out).toContain('Вулкан Горелый');
+    expect(out).toContain('свободно 6 из 10');
+    expect(out).toContain('3500 руб/место');
+    expect(out).toContain('Камчатка-Трек');
+    expect(out).toContain('https://vedarai.ru/transfers');
+    expect(listMock).toHaveBeenCalledWith({ fromDate: '2026-09-08', toDate: '2026-09-15', minSeats: 2, placeId: null });
+  });
+
+  it('искали и никто не едет — факт с окном дат, не сбой', async () => {
+    listMock.mockResolvedValue([]);
+    const out = await searchTransfersForKuzmich({ from: '2026-09-08', to: '2026-09-15' });
+    expect(out).toMatch(/никто не едет/);
+    expect(out).toContain('2026-09-08');
+    expect(out).toContain('не сбой');
+  });
+
+  it('направление не совпало — тоже «никто не едет в сторону», а не список чужих поездок', async () => {
+    listMock.mockResolvedValue([TRIP]);
+    const out = await searchTransfersForKuzmich({ place: 'Толбачик' });
+    expect(out).toMatch(/никто не едет/);
+    expect(out).toContain('Толбачик');
+    expect(out).not.toContain('Горелый');
+  });
+
+  it('база упала — «не смог проверить», без слова «нет мест»', async () => {
+    listMock.mockRejectedValue(new Error('42P01'));
     const out = await searchTransfersForKuzmich({});
-    const [sql, params] = poolQueryMock.mock.calls[0];
-    expect(sql).toContain('FROM transfer_routes');
-    expect(sql).toContain('is_active = true');
-    expect(sql).toContain('ORDER BY popular DESC, base_price ASC NULLS LAST');
-    expect(sql).toContain('LIMIT 6');
-    expect(params).toEqual([]);
-    expect(out).toBe('Трансферы по заданному направлению не найдены.');
+    expect(out).toMatch(/Не смог проверить/);
+    expect(out).not.toMatch(/никто не едет/);
   });
+});
 
-  it('from/to/price_max — параметризованные условия по порядку', async () => {
-    poolQueryMock.mockResolvedValue({ rows: [] });
-    await searchTransfersForKuzmich({ from: 'аэропорт', to: 'Паратунка', price_max: '3000' });
-    const [sql, params] = poolQueryMock.mock.calls[0];
-    expect(sql).toContain('from_location ILIKE $1');
-    expect(sql).toContain('to_location ILIKE $2');
-    expect(sql).toContain('base_price <= $3');
-    expect(params).toEqual(['%аэропорт%', '%Паратунка%', 3000]);
+describe('окно дат', () => {
+  it('без аргументов — сегодня плюс 14 дней; кривые даты не ломают', () => {
+    const now = new Date('2026-09-02T10:00:00Z');
+    expect(resolveWindow({}, now)).toEqual({ from: '2026-09-02', to: '2026-09-16' });
+    expect(resolveWindow({ from: 'завтра', to: '2026-13-99' }, now)).toEqual({ from: '2026-09-02', to: '2026-09-16' });
   });
-
-  it('игнорирует нечисловой price_max', async () => {
-    poolQueryMock.mockResolvedValue({ rows: [] });
-    await searchTransfersForKuzmich({ price_max: 'дёшево' });
-    const [sql, params] = poolQueryMock.mock.calls[0];
-    expect(sql).not.toContain('base_price <=');
-    expect(params).toEqual([]);
+  it('окно шире 60 дней или «до» раньше «от» — сжимается к 14 дням от «от»', () => {
+    expect(resolveWindow({ from: '2026-09-01', to: '2026-12-31' })).toEqual({ from: '2026-09-01', to: '2026-09-15' });
+    expect(resolveWindow({ from: '2026-09-10', to: '2026-09-01' })).toEqual({ from: '2026-09-10', to: '2026-09-24' });
   });
+});
 
-  it('форматирует маршрут с ценой, км, часами и ссылкой', async () => {
-    poolQueryMock.mockResolvedValue({ rows: [{
-      id: 't1', name: null, from_location: 'Аэропорт Елизово', to_location: 'Паратунка',
-      distance_km: '38', duration_minutes: 45, base_price: '2500',
-    }] });
-    const out = await searchTransfersForKuzmich({ to: 'Паратунка' });
-    expect(out).toContain('Аэропорт Елизово → Паратунка');
-    expect(out).toContain('от 2500 руб');
-    expect(out).toContain('38 км');
-    expect(out).toMatch(/\/transfers/);
+describe('единственный путь чтения', () => {
+  it('инструмент не ходит в таблицы сам и зовётся из executeTool', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/kuzmich/transfer-search.ts'), 'utf8');
+    expect(src).not.toMatch(/FROM transfer_|db-pool|@\/lib\/database/);
+    expect(src).toMatch(/listPublishedTrips/);
+    const core = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf8');
+    expect(core).toMatch(/name === 'search_transfers'/);
   });
 });

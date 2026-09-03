@@ -1,62 +1,75 @@
 /**
- * lib/kuzmich/transfer-search.ts
+ * lib/kuzmich/transfer-search.ts — инструмент Кузьмича search_transfers.
  *
- * Инструмент Кузьмича search_transfers — поиск трансферов (маршруты «откуда→куда»
- * с ценами). Вынесен в модуль (как accommodation-search / gear-search):
- * executeTool подгружает лениво, юнит-тест зовёт напрямую. Прямой
- * параметризованный SELECT из transfer_routes, только is_active.
- * Доступность на конкретную дату — на витрине /transfers.
+ * Вернулся 02.09 поверх витрины схемы 926. Прежний инструмент удалён 01.09:
+ * он читал таблицы, которых на проде не было, и Кузьмич отвечал бы
+ * «трансферов не нашлось» на каждый вопрос — выдавал поломку за факт о мире.
+ *
+ * Читает ТОЛЬКО через listPublishedTrips — единственное место с фильтром
+ * is_published (сторож carrier-api): Кузьмич видит ровно то, что видит
+ * витрина /transfers, и ничего сверх.
+ *
+ * Три исхода (§4.0): нашли — список; искали и нет — «в эти дни никто не
+ * едет» с окном дат; не смогли проверить — так и сказано, без выдумки.
  */
-
-import { pool } from '@/lib/db-pool';
+import { listPublishedTrips } from '@/lib/transfers/service';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export interface TransferSearchArgs {
-  from?: string;   // откуда (например: аэропорт, Петропавловск)
-  to?: string;     // куда (например: Паратунка, Эссо)
-  price_max?: string;
+  from?: string;
+  to?: string;
+  seats?: string;
+  place?: string;
 }
 
-interface TransferRouteRow {
-  id: string;
-  name: string | null;
-  from_location: string;
-  to_location: string;
-  distance_km: string | null;
-  duration_minutes: number | null;
-  base_price: string | null;
-}
+const KIND_LABEL: Record<string, string> = { jeep: 'джип', vahtovka: 'вахтовка', minibus: 'микроавтобус', other: 'транспорт' };
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DEFAULT_WINDOW_DAYS = 14;
+const MAX_WINDOW_DAYS = 60;
 
-const appBase = getPublicBaseUrl;
+function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+
+/** Окно дат из аргументов модели: неразборчивые даты — окно по умолчанию. */
+export function resolveWindow(args: TransferSearchArgs, now = new Date()): { from: string; to: string } {
+  const from = args.from && DATE.test(args.from) ? args.from : isoDate(now);
+  let to = args.to && DATE.test(args.to) ? args.to : isoDate(new Date(Date.parse(from) + DEFAULT_WINDOW_DAYS * 86_400_000));
+  const span = (Date.parse(to) - Date.parse(from)) / 86_400_000;
+  if (!Number.isFinite(span) || span < 0 || span > MAX_WINDOW_DAYS) {
+    to = isoDate(new Date(Date.parse(from) + DEFAULT_WINDOW_DAYS * 86_400_000));
+  }
+  return { from, to };
+}
 
 export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promise<string> {
-  const conds: string[] = ['is_active = true'];
-  const params: unknown[] = [];
+  const { from, to } = resolveWindow(args);
+  const seatsNum = Number(args.seats);
+  const minSeats = args.seats && Number.isFinite(seatsNum) && seatsNum >= 1 ? Math.min(60, Math.floor(seatsNum)) : 1;
 
-  if (args.from) { params.push(`%${args.from}%`); conds.push(`from_location ILIKE $${params.length}`); }
-  if (args.to) { params.push(`%${args.to}%`); conds.push(`to_location ILIKE $${params.length}`); }
-  const priceMax = Number(args.price_max);
-  if (args.price_max && Number.isFinite(priceMax) && priceMax > 0) {
-    params.push(priceMax);
-    conds.push(`base_price <= $${params.length}`);
+  let trips;
+  try {
+    trips = await listPublishedTrips({ fromDate: from, toDate: to, minSeats, placeId: null });
+  } catch (err) {
+    console.error('[kuzmich/search_transfers]', err instanceof Error ? err.message : err);
+    // Не «поездок нет», а «не смог проверить»: одно от другого турист обязан отличать.
+    return 'Не смог проверить витрину поездок перевозчиков — сбой на нашей стороне. Не говори, что мест нет; предложи посмотреть позже на /transfers.';
   }
 
-  const { rows } = await pool.query<TransferRouteRow>(
-    `SELECT id, name, from_location, to_location, distance_km, duration_minutes, base_price
-     FROM transfer_routes
-     WHERE ${conds.join(' AND ')}
-     ORDER BY popular DESC, base_price ASC NULLS LAST
-     LIMIT 6`,
-    params,
-  );
+  // Фильтр по направлению — по тексту «куда», как его написал перевозчик.
+  const needle = (args.place ?? '').trim().toLowerCase();
+  const matched = needle
+    ? trips.filter(t => t.to_text.toLowerCase().includes(needle) || t.from_text.toLowerCase().includes(needle))
+    : trips;
 
-  if (rows.length === 0) return 'Трансферы по заданному направлению не найдены.';
+  const base = getPublicBaseUrl();
+  if (matched.length === 0) {
+    const where = needle ? ` в сторону «${args.place}»` : '';
+    return `Искал с ${from} по ${to}${where}, мест от ${minSeats}: опубликованных поездок нет — в эти дни никто не едет. Это факт витрины, не сбой. Другие даты или направление — ${base}/transfers.`;
+  }
 
-  const base = appBase();
-  return rows.map(t => {
-    const price = t.base_price ? `от ${Math.round(Number(t.base_price))} руб` : 'цена по запросу';
-    const dur = t.duration_minutes ? `, ~${Math.round(t.duration_minutes / 60 * 10) / 10} ч` : '';
-    const dist = t.distance_km ? `, ${Math.round(Number(t.distance_km))} км` : '';
-    return `${t.from_location} → ${t.to_location} — ${price}${dist}${dur}. Бронирование и даты: ${base}/transfers`;
-  }).join('\n\n');
+  const lines = matched.slice(0, 6).map(t => {
+    const price = t.price_per_seat ? `${Math.round(Number(t.price_per_seat))} руб/место` : 'цена по запросу';
+    const when = t.departure_note ? `${t.trip_date}, ${t.departure_note}` : t.trip_date;
+    return `${when}: ${t.from_text} — ${t.to_text}, ${KIND_LABEL[t.vehicle_kind] ?? t.vehicle_kind} «${t.vehicle_title}», свободно ${t.seats_free} из ${t.seats_total}, ${price}. Перевозчик: ${t.partner_name}.`;
+  });
+  return `Поездки с ${from} по ${to} (мест от ${minSeats}):\n${lines.join('\n')}\n\nЗапросить место (нужен вход; место занимается после подтверждения перевозчика, оплата по QR СБП): ${base}/transfers`;
 }

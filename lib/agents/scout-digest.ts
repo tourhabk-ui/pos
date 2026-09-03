@@ -29,6 +29,8 @@ import {
 } from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { stripTags } from '@/lib/html/text';
+import { resolveCoverImage } from '@/lib/notifications/cover-image';
+import { hashStr } from '@/lib/notifications/post-image';
 
 /**
  * Причина пропуска человеческим языком — для алерта, а не для лога.
@@ -58,7 +60,7 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   judge_unparseable: 'проверяющая модель ответила прозой вместо JSON — сбой в промпте, не в провайдере',
   judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
   judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
-  unsupported_claims: 'утверждения не подтверждены источниками',
+  unsupported_claims: 'утверждения не подтверждены источниками, и вычеркнуть их из текста не удалось',
   near_repeat: 'выпуск почти повторял предыдущий',
   telegram_send_failed: 'синтез готов, но Telegram не принял отправку',
   // ── Отдельный канал — отдельные причины ──────────────────────────────────
@@ -77,7 +79,7 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   // До этого дня и отказ судьи, и оставшаяся выдумка давали один код
   // `ai_factcheck_failed`. По нему нельзя было понять, чинить провайдеров
   // или содержание поста — а для канала это была единственная подсказка.
-  ai_unsupported_claims: 'выдумки в AI-посте остались и после переписывания',
+  ai_unsupported_claims: 'выдумки в AI-посте остались после переписывания, и вычеркнуть их не удалось',
   ai_judge_silent: 'судья AI-поста вернул пустоту — молчит провайдер',
   ai_judge_unavailable: 'судью AI-поста не ответил ни один провайдер — чинить у провайдера',
   ai_judge_unparseable: 'судья AI-поста ответил прозой вместо JSON — сбой в промпте',
@@ -178,6 +180,19 @@ export interface DigestResult {
    * которого никто не видел. Не более 200 символов, только в ответ и журнал.
    */
   digest_skip_detail?: string;
+  /**
+   * Сколько пунктов вычеркнуто из выпуска перед отправкой (02.09).
+   *
+   * Выпуск с этим полем УШЁЛ — но не целиком: судья забраковал утверждения,
+   * два переписывания их не сняли, и строки с ними вычеркнуты детерминированно
+   * (stripUnsupported). Ноль здесь не пишется: «вычеркнуто 0» и «поле
+   * отсутствует» — одно и то же, а лишнее поле шумит. Что именно вычеркнуто —
+   * в `claims_dropped_detail`, теми же 200 знаками, что у skip_detail.
+   */
+  claims_dropped?: number;
+  claims_dropped_detail?: string;
+  /** То же для AI-канала: пост ушёл, но без этих пунктов. */
+  ai_claims_dropped?: number;
   /**
    * Ушёл ли пост во ВТОРОЙ канал — AI-канал.
    *
@@ -414,10 +429,23 @@ async function tgSendTo(chatId: string, text: string): Promise<boolean> {
   }
 }
 
+/**
+ * Пост с кнопками и, если задана, обложкой НАД текстом.
+ *
+ * Обложка идёт превью ссылки (`link_preview_options`), а не `sendPhoto`:
+ * подпись к фото у ботов — 1024 знака, а дайджест на два-три материала
+ * длиннее; резать его ради картинки или слать картинку отдельным
+ * сообщением (читается как два поста) — хуже. Превью с `show_above_text`
+ * даёт крупную картинку над полным текстом и не трогает кнопки.
+ *
+ * Без обложки превью остаётся включённым, как и раньше: Telegram покажет
+ * первую ссылку из текста.
+ */
 async function tgSendRich(
   chatId: string,
   text: string,
   buttons?: Array<Array<{ text: string; url: string }>>,
+  coverUrl?: string,
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return false;
@@ -426,7 +454,9 @@ async function tgSendRich(
       chat_id: chatId,
       text: text.substring(0, 4096),
       parse_mode: 'HTML',
-      disable_web_page_preview: false,
+      link_preview_options: coverUrl
+        ? { url: coverUrl, prefer_large_media: true, show_above_text: true }
+        : { is_disabled: false },
     };
     if (buttons?.length) body.reply_markup = { inline_keyboard: buttons };
     const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
@@ -439,6 +469,20 @@ async function tgSendRich(
   } catch {
     return false;
   }
+}
+
+/**
+ * Заголовки материалов выпуска — тема для обложки. Первая жирная строка
+ * («AI-дайджест · дата») — шапка, не тема; берутся следующие две. Если
+ * жирных строк нет (модель нарушила формат) — тема из первых 200 знаков
+ * текста без тегов, чтобы обложка всё равно была про выпуск.
+ */
+export function digestHeadlines(digestHtml: string): string {
+  const titles = [...digestHtml.matchAll(/<b>([^<]+)<\/b>/g)]
+    .map((m) => m[1].trim())
+    .filter((t) => !/^AI-дайджест/i.test(t) && !/^Почему важно/i.test(t));
+  if (titles.length > 0) return titles.slice(0, 2).join('. ');
+  return stripTags(digestHtml).replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
 async function tgSend(text: string): Promise<boolean> {
@@ -580,7 +624,7 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // unsupportedClaims больше не зовётся отсюда (29.08): тонкая обёртка теряет
 // причину отказа судьи, а причина — это то, ради чего разбор и открывают.
 // Везде judgeClaims, у которого исход именной.
-import { unsourcedPercents, judgeClaims, type JudgeFailure } from '@/lib/agents/fact-check';
+import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 
 /**
@@ -890,6 +934,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // 25.07.2026 в дайджест ушло «Claude Opus 5 — без изменения цены», хотя цена
   // изменилась вдвое. Модель не врала злонамеренно: ей просто не запретили
   // додумывать, и никто не сверял результат с источником.
+  let claimsDropped: number | undefined;
+  let claimsDroppedDetail: string | undefined;
   {
     let bad = unsourcedPercents(digest, signalsList);
     if (bad.length > 0) {
@@ -950,30 +996,49 @@ export async function runScoutDigest(): Promise<DigestResult> {
       }
       claims = recheck.unsupported;
     }
-    if (claims === null || claims.length > 0) {
-      // Лучше не выпустить дайджест, чем выпустить с выдумкой (или непроверенным).
-      //
+    if (claims === null) {
       // `claims === null` здесь остаётся достижимым только одним путём: первая
       // сверка вернула список, переписывание не удалось (`break` выше), и
       // список остался прежним. Отказ ПОВТОРНОЙ сверки теперь уходит выше
       // со своей точной причиной и сюда не доходит.
-      //
-      // САМИ УТВЕРЖДЕНИЯ уезжают в отчёт (29.08). До этой правки при
-      // `unsupported_claims` записывался только код: ЧТО именно судья
-      // забраковал, не видел никто. Три дня разбора молчания канала свелись
-      // к выбору между тремя правдоподобными механизмами — выдумка писателя,
-      // усечение источников на входе судьи, разная видимость контекста у
-      // писателя и судьи — при нулевых данных, чтобы этот выбор сделать.
-      //
-      // Код называет КЛАСС беды, а чинят конкретное. Ровно тот же довод, по
-      // которому 22.08 к отказу судьи приложили `sample`: без него чинили
-      // вслепую три недели.
       return {
-        signals_found: freshItems.length, digest_sent: false,
-        digest_skip_reason: claims === null ? 'factcheck_judge_mute' : 'unsupported_claims',
-        ...(claims && claims.length > 0 ? { digest_skip_detail: describeClaims(claims) } : {}),
+        signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'factcheck_judge_mute',
         duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
       };
+    }
+    if (claims.length > 0) {
+      // Остаток после двух переписываний вычёркивается ПО СТРОКАМ, а выпуск
+      // уходит без них (02.09). До этого дня любой остаток отменял выпуск
+      // целиком: писатель убирал одни связки и добавлял другие, судья
+      // находил новые, и с 17.08 в канал не ушло ни одного выпуска — при
+      // том, что девять пунктов из десяти каждый раз были подтверждены.
+      // Лучше не выпустить пункт с выдумкой, чем выпустить его; но лучше
+      // выпустить девять честных пунктов, чем ни одного.
+      //
+      // Черта, за которой всё же отмена: судья назвал фразу, а в тексте её
+      // не нашлось (unmatched) — тогда «убрали» сказать нельзя, и это «не
+      // смогли проверить», а не «чисто» (§4.0); либо после вычёркивания в
+      // выпуске не осталось ни одного пункта.
+      //
+      // САМИ УТВЕРЖДЕНИЯ уезжают в отчёт (29.08): что вычеркнуто — в
+      // claims_dropped_detail, что не нашлось — в digest_skip_detail. Код
+      // называет КЛАСС беды, а чинят конкретное — без текста чинили вслепую
+      // три недели.
+      const cut = stripUnsupported(digest, claims);
+      if (cut.unmatched.length > 0 || !hasSubstance(cut.text)) {
+        const why = cut.unmatched.length > 0
+          ? `не нашли в тексте: ${describeClaims(cut.unmatched, 170)}`
+          : `после вычёркивания ${cut.dropped.length} выпуск опустел`;
+        return {
+          signals_found: freshItems.length, digest_sent: false,
+          digest_skip_reason: 'unsupported_claims',
+          digest_skip_detail: why.slice(0, 200),
+          duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+        };
+      }
+      digest = cut.text;
+      claimsDropped = cut.dropped.length;
+      claimsDroppedDetail = describeClaims(cut.dropped);
     }
   }
 
@@ -1013,6 +1078,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // ровно то, что произошло.
   let aiSent = false;
   let aiSkip: string | undefined = 'ai_digest_aborted';
+  let aiClaimsDropped: number | undefined;
   const aiChannelId = process.env.TELEGRAM_AI_CHANNEL_ID;
   if (!aiChannelId) {
     aiSkip = 'ai_channel_not_configured';
@@ -1127,7 +1193,19 @@ export async function runScoutDigest(): Promise<DigestResult> {
             if (!recheck.ok) { aiDigest = null; aiSkip = AI_JUDGE_SKIP[recheck.why]; }
           }
           // Остаток выдумок после переписи — уже про содержание, не про судью.
-          if (aiDigest && claims !== null && claims.length > 0) { aiDigest = null; aiSkip = 'ai_unsupported_claims'; }
+          // Та же политика, что у дайджеста (02.09): вычеркнуть строки с ними
+          // и выпустить остальное; отменять пост целиком — только если фразу
+          // в тексте не нашли (убрать не смогли) или пост опустел.
+          if (aiDigest && claims !== null && claims.length > 0) {
+            const cut = stripUnsupported(aiDigest, claims);
+            if (cut.unmatched.length > 0 || !hasSubstance(cut.text)) {
+              aiDigest = null;
+              aiSkip = 'ai_unsupported_claims';
+            } else {
+              aiDigest = cut.text;
+              aiClaimsDropped = cut.dropped.length;
+            }
+          }
         }
       }
 
@@ -1136,7 +1214,17 @@ export async function runScoutDigest(): Promise<DigestResult> {
           .filter(i => i.url)
           .slice(0, 3)
           .map(i => [{ text: i.title.slice(0, 45) + (i.title.length > 45 ? '…' : ''), url: i.url }]);
-        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined);
+        // Обложка — как у новостей того же канала (postAINewsToChannel):
+        // сюжет от заголовков выпуска, seed от текста. До 02.09 дайджест
+        // уходил голым текстом среди постов с картинкой (скрин владельца).
+        // resolveCoverImage не бросает и всегда отдаёт URL; но покажет ли
+        // Telegram превью — решает его фетчер, и отказ превью отсюда не виден.
+        const cover = await resolveCoverImage(
+          digestHeadlines(aiDigest),
+          'ai',
+          hashStr(aiDigest) % 9_999_999,
+        );
+        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined, cover.url);
         aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }
@@ -1165,6 +1253,11 @@ export async function runScoutDigest(): Promise<DigestResult> {
         // неделю: свежесть основного выпуска ничего не говорит о втором.
         ai_channel_sent: aiSent,
         ai_channel_skip_reason: aiSkip ?? null,
+        // Выпуск ушёл не целиком: сколько пунктов вычеркнуто и каких (02.09).
+        // Без этого «ушёл» и «ушёл без трёх пунктов» неотличимы в журнале.
+        claims_dropped: claimsDropped ?? null,
+        claims_dropped_detail: claimsDroppedDetail ?? null,
+        ai_claims_dropped: aiClaimsDropped ?? null,
       },
       agent_id: 'scout',
     });
@@ -1190,6 +1283,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // и наоборот. Одно поле на два канала скрывало ровно этот случай.
     ai_channel_sent: aiSent,
     ...(aiSkip ? { ai_channel_skip_reason: aiSkip } : {}),
+    ...(claimsDropped ? { claims_dropped: claimsDropped, claims_dropped_detail: claimsDroppedDetail } : {}),
+    ...(aiClaimsDropped ? { ai_claims_dropped: aiClaimsDropped } : {}),
     duration_ms: Date.now() - start,
     ...health,
     repeats_suppressed,

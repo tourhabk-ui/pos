@@ -1,13 +1,18 @@
 /**
- * GET /api/admin/import-mestechko?secret=...
+ * GET /api/admin/import-mestechko
  * Одноразовый импорт туров с mestechkokam.ru в БД.
  * Создаёт партнёра "Местечко Камчатка" и 20 туров с фото.
+ *
+ * Доступ: CRON_SECRET заголовком `Authorization: Bearer` через общий хелпер.
+ * До 01.09 секрет читался из `?secret=` и сравнивался `!==` — параметр
+ * оседал в access-логах, сравнение шло не постоянным временем.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { pool } from '@/lib/db-pool';
 import { hashPassword } from '@/lib/auth/password';
+import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 
@@ -506,10 +511,8 @@ const TOURS = [
 ];
 
 export async function GET(req: NextRequest) {
-  const secret = new URL(req.url).searchParams.get('secret');
-  const expected = process.env.CRON_SECRET;
-  if (!expected || secret !== expected) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!verifyCronSecret(req)) {
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
 
   const client = await pool.connect();

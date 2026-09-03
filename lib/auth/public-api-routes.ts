@@ -16,7 +16,13 @@ export type PublicApiMethods = 'ALL' | ReadonlyArray<string>;
 
 export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/auth': 'ALL',
-  '/api/admin': 'ALL',  // All admin endpoints have internal auth/CRON_SECRET checks
+  // '/api/admin' здесь НЕТ с 01.09 (периметр, часть 2; слово владельца по §7).
+  // Пока префикс стоял тут как 'ALL' «с проверкой внутри», правило
+  // '/api/admin': 'admin' в middleware не достигалось никогда: аноним уходил
+  // на публичном пропуске раньше RBAC, и дверью были 155 хендлеров по
+  // отдельности. Теперь Edge пускает на /api/admin/* только admin-JWT либо
+  // CRON_SECRET в заголовке Authorization: Bearer (так зовут workflow).
+  // Сторож: tests/unit/edge-admin-gate.test.ts.
   '/api/weather': 'ALL',
   '/api/tours': ['GET'],
   '/api/routes': ['GET'],          // публичный каталог маршрутов + поиск
@@ -111,6 +117,10 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/accommodations': ['GET'],       // жильё: каталог, карточка, цены
   '/api/availability': ['GET'],         // календарь занятости туров
   '/api/transfers/search': ['GET'],     // поиск трансферов; ПД водителя вырезаны из ответа
+  // Витрина мест в поездках перевозчиков (схема 926, 02.09): гость смотрит,
+  // что едет и сколько мест. Запрос мест (POST …/[id]/request) остаётся за
+  // входом — схема требует заказчика. Новый путь, не адрес мёртвого модуля.
+  '/api/carrier-trips': ['GET'],
   '/api/tools': ['GET', 'POST'],        // каталог AI-инструментов; POST — счётчик кликов;
                                         // equipment/safety зовут AI — на них rate-limit внутри
   '/api/safety/warnings': ['GET'],      // предупреждения: официальные телефоны, не ПД
@@ -120,6 +130,14 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/analytics/dwell': ['POST'],     // маяк времени на странице (Zod + rate-limit)
   '/api/analytics/affiliate-clicks': ['POST'], // маяк партнёрских кликов (Zod + rate-limit)
   '/api/pwa/install': ['POST'],         // учёт установок PWA (client_id, не ПД, rate-limit)
+  // Push-подписка на предупреждения безопасности — анонимная by design
+  // (#1485, 02.09). Хендлер открыли гостю ещё 02.08 (его шапка это и говорит),
+  // а реестр — нет: гость на /safety жал «Включить», браузер подписывался,
+  // POST получал 401 на Edge, в БД не ложилось ничего, а кнопка при следующем
+  // заходе показывала «Уведомления включены» по подписке браузера. Отсюда
+  // «подписчиков 0» в Watchdog при целой механике. Внутри Zod и rate-limit;
+  // endpoint — capability-ссылка, чужой не подобрать.
+  '/api/push/subscribe': ['POST', 'DELETE'],
   '/api/payments/tochka/qr': ['GET', 'POST'],  // QR СБП из чата Кузьмича — гостевая оплата by design
   '/api/hub/bookings/create': ['POST'], // гостевая бронь by design (auth опционален, rate-limit)
   // Построение пути Origin → Destination (владелец 28.08, PR 5B-1) — тот же

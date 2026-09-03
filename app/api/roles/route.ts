@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
           'Аналитика загрузки',
           'Интеграция с турами',
         ],
-        dashboard: '/hub/transfer-operator',
+        dashboard: '/hub/carrier',
       },
       {
         id: 'agent',

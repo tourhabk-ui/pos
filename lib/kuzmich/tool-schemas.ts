@@ -117,11 +117,13 @@ const searchGearSchema = z.object({
 });
 
 // ── search_transfers ────────────────────────────────────────────────────────
-// Трансферы (маршруты откуда→куда с ценами). Все фильтры необязательны.
+// Места в поездках перевозчиков (витрина схемы 926, 02.09). Все фильтры
+// необязательны: без них — ближайшие две недели, от одного места.
 const searchTransfersSchema = z.object({
-  from: looseString(100).optional(),
-  to: looseString(100).optional(),
-  price_max: looseString(20).optional(),
+  from: looseString(10).optional(),
+  to: looseString(10).optional(),
+  seats: looseString(3).optional(),
+  place: looseString(100).optional(),
 });
 
 interface ToolSpec {
@@ -215,6 +217,26 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
     },
     schema: searchAccommodationsSchema,
   },
+  search_transfers: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'search_transfers',
+        description: 'Найти свободные места в поездках перевозчиков Камчатки (джипы, вахтовки, микроавтобусы) из витрины TourHab: дата, направление, остаток мест, цена места. Используй когда турист спрашивает как доехать, есть ли трансфер, заброска, попутный джип к вулкану или источникам. Место занимается только после подтверждения перевозчика.',
+        parameters: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Начало окна дат, ГГГГ-ММ-ДД (по умолчанию сегодня)' },
+            to: { type: 'string', description: 'Конец окна дат, ГГГГ-ММ-ДД (по умолчанию +14 дней, не больше 60)' },
+            seats: { type: 'string', description: 'Сколько мест нужно (по умолчанию 1)' },
+            place: { type: 'string', description: 'Куда или откуда: слово из направления, например «Горелый», «Толбачик», «аэропорт»' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: searchTransfersSchema,
+  },
   search_gear: {
     definition: {
       type: 'function',
@@ -233,25 +255,6 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: searchGearSchema,
-  },
-  search_transfers: {
-    definition: {
-      type: 'function',
-      function: {
-        name: 'search_transfers',
-        description: 'Найти трансфер на Камчатке (маршруты откуда-куда с ценами): аэропорт, Петропавловск, Паратунка, Эссо и т.д. Используй когда турист спрашивает как добраться, сколько стоит доехать, есть ли трансфер.',
-        parameters: {
-          type: 'object',
-          properties: {
-            from: { type: 'string', description: 'Откуда (например: аэропорт, Петропавловск-Камчатский)' },
-            to: { type: 'string', description: 'Куда (например: Паратунка, Эссо, Мильково)' },
-            price_max: { type: 'string', description: 'Максимальная цена в рублях' },
-          },
-          required: [],
-        },
-      },
-    },
-    schema: searchTransfersSchema,
   },
   // Обстановка по КРАЮ целиком — то, чего нет ни у кого, кроме нас: сейсмика и
   // вулканы КБГС РАН, сведённые в один ответ. Внешний агент спрашивает это

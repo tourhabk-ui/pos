@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2, Bot, Plug, Loader2 } from 'lucide-react';
+import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2, Bot, Plug, Loader2, BellRing } from 'lucide-react';
+import type { AlertDeliveryHealth } from '@/lib/services/safety/alert-delivery-health';
 
 /**
  * Сводный health-дашборд данных: все /api/admin/health/* метрики на одной
@@ -204,6 +205,9 @@ export default function HealthDashboardClient() {
   const air = useHealth<AirCoverage>('/api/admin/health/air-quality-coverage');
   const grounding = useHealth<GroundingHealth>('/api/admin/health/kuzmich-grounding');
   const phones = useHealth<{ success: boolean; data: PhonesHealth }>('/api/admin/health/emergency-contacts');
+  // Доставка тревог (#1485): «создана → доставлена» одним взглядом. Каждое
+  // число троично — null значит «не посчитали», и точка здоровья не рисуется.
+  const delivery = useHealth<{ success: boolean; data: AlertDeliveryHealth }>('/api/admin/health/alert-delivery');
 
   // Провайдеры ИИ проверяются ПО КНОПКЕ, а не при открытии страницы: проба
   // шлёт каждому провайдеру настоящий запрос и тратит их квоту. Состояние
@@ -267,6 +271,36 @@ export default function HealthDashboardClient() {
             <CoverageLine label="С валидным треком" pct={geometry.data.pct}
               value={geometry.data.with_track} total={geometry.data.total} />
           )}
+        </MetricCard>
+
+        <MetricCard title="Доставка тревог" icon={BellRing}
+          ok={delivery.data?.data.ok ?? undefined} error={delivery.error} loading={!delivery.data}>
+          {delivery.data && (() => {
+            const d = delivery.data.data;
+            const num = (v: number | null, reason: string | null) => v === null
+              ? <span className="text-[var(--warning)]">{reason ?? 'не посчитано'}</span>
+              : <span className="text-[var(--text-primary)] font-semibold">{v}</span>;
+            return (
+              <div className="space-y-1.5 text-xs text-[var(--text-secondary)]">
+                <p>Push-подписок: {num(d.subscriptions.count, d.subscriptions.reason)}</p>
+                <p>
+                  Сейсмо-приём: {d.last_ingest.age_minutes === null
+                    ? <span className="text-[var(--warning)]">{d.last_ingest.reason ?? 'не посчитано'}</span>
+                    : <span className={d.last_ingest.stale ? 'text-[var(--danger)] font-semibold' : 'text-[var(--text-primary)] font-semibold'}>
+                        {d.last_ingest.age_minutes} мин назад · {d.last_ingest.status}
+                      </span>}
+                </p>
+                <p>
+                  Разослано за сутки: {num(d.notified_24h.alerts, d.notified_24h.reason)} тревог
+                  {d.notified_24h.sent !== null && <> · {d.notified_24h.sent} доставок, {d.notified_24h.failed} отказов</>}
+                </p>
+                <p>Опасных без доставки более 30 мин: {num(d.undelivered.count, d.undelivered.reason)}</p>
+                {d.ok === null && (
+                  <p className="text-[var(--warning)]">Здоровье не установлено: не все числа посчитаны</p>
+                )}
+              </div>
+            );
+          })()}
         </MetricCard>
 
         <MetricCard title="Качество воздуха (IQAir)" icon={Wind}

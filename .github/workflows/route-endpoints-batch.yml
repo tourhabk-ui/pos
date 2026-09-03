@@ -1,0 +1,190 @@
+name: Точки начала/конца из паспорта (вручную)
+
+# #1493: 255 маршрутов из 288 — «линию не с чем сверить: путевых точек
+# меньше двух». Единственная улика происхождения, дающая сразу две точки, —
+# официальный OCR-паспорт, называющий начало и конец. Актуатор
+# POST /api/cron/route-endpoints уже есть; перепись GET там же (02.09)
+# говорит, у кого паспорт есть, а точек нет, и у кого в тексте координата.
+#
+# Три режима, каждый — отдельный запуск с рук:
+#   census — только перепись, ничего не пишет, модель не зовёт;
+#   dry    — сухой прогон актуатора по route_ids (зовёт модель, не пишет);
+#   apply  — боевая партия по route_ids: не больше 10, source и why обязательны.
+#
+# Порядок — правило владельца: сначала перепись, потом сухой прогон, потом
+# партия по 10, после партии — перепись снова (порог растёт сам, руками
+# его не трогают).
+#
+# Почему раннер: прод из среды разработчика недостижим (403 на CONNECT).
+#
+# Запуск маркером .github/triggers/route-endpoints-batch.json в main (02.09):
+# workflow_dispatch через интеграцию GitHub отвечает 403 «Resource not
+# accessible by integration», и без маркера всё это было бы доступно только
+# руками из интерфейса Actions.
+#
+# 03.09 маркер несёт ВСЕ входы, а не только перепись: сухой прогон партии
+# ждал клика владельца сутки, хотя он ничего не пишет и зовёт только модель.
+# Умолчание маркера без `mode` — по-прежнему census: файл, забытый в
+# репозитории, не должен однажды уехать боевой партией.
+#
+# Настоящие предохранители партии живут в АКТУАТОРЕ, а не здесь: сухой
+# прогон по умолчанию, партия не больше 10, source и why обязательны и без
+# умолчаний, старые значения возвращаются в ответе и служат откатом.
+# Воркфлоу их повторяет, но не заменяет.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/route-endpoints-batch.json'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'census — перепись; dry — сухой прогон; apply — боевая партия'
+        required: true
+        default: census
+        type: choice
+        options: [census, dry, apply]
+      route_ids:
+        description: 'UUID маршрутов через запятую (dry/apply), не больше 10'
+        required: false
+        default: ''
+      source:
+        description: 'Источник партии (apply): например «паспорт visitkamchatka.ru, OCR 730»'
+        required: false
+        default: ''
+      why:
+        description: 'Причина партии (apply): например «#1493, партия 1 по переписи 02.09»'
+        required: false
+        default: ''
+
+# Репозиторий читается только ради маркера; ничего не пишется.
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Параметры — из ввода или из маркера
+        id: cfg
+        env:
+          IN_MODE: ${{ inputs.mode || '' }}
+          IN_ROUTE_IDS: ${{ inputs.route_ids || '' }}
+          IN_SOURCE: ${{ inputs.source || '' }}
+          IN_WHY: ${{ inputs.why || '' }}
+        run: |
+          set -u
+          # Ручной запуск даёт inputs; пуш маркера — нет. Дальше по шагам
+          # идёт ОДИН источник параметров, чтобы не держать две ветки логики
+          # (тот же приём, что у сборки пакета карты).
+          python3 - <<'PY'
+          import json, os
+          marker = {}
+          try:
+              with open('.github/triggers/route-endpoints-batch.json') as f:
+                  marker = json.load(f)
+          except Exception:
+              marker = {}
+          def pick(env_key, marker_key, default=''):
+              v = os.environ.get(env_key) or marker.get(marker_key) or default
+              # Перевод строки в значении разорвал бы файл окружения.
+              return str(v).replace('\n', ' ').replace('\r', ' ').strip()
+          values = {
+              'MODE': pick('IN_MODE', 'mode', 'census'),
+              'ROUTE_IDS': pick('IN_ROUTE_IDS', 'route_ids'),
+              'SOURCE': pick('IN_SOURCE', 'source'),
+              'WHY': pick('IN_WHY', 'why'),
+          }
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for k, v in values.items():
+                  env.write(f'{k}={v}\n')
+          print(f"режим: {values['MODE']} · маршрутов в списке: "
+                f"{len([x for x in values['ROUTE_IDS'].split(',') if x.strip()])}")
+          PY
+
+      - name: Перепись или партия
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория."
+            exit 1
+          fi
+          URL="https://vedarai.ru/api/cron/route-endpoints"
+
+          if [ "$MODE" = "census" ]; then
+            HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" --max-time 120 \
+              -H "Authorization: Bearer $CRON_SECRET" "$URL") || HTTP="000"
+          else
+            if [ -z "$ROUTE_IDS" ]; then
+              echo "::error::Для режима $MODE нужны route_ids."
+              exit 1
+            fi
+            if [ "$MODE" = "apply" ] && { [ -z "$SOURCE" ] || [ -z "$WHY" ]; }; then
+              echo "::error::Боевая партия без source и why не идёт — это правило актуатора, не воркфлоу."
+              exit 1
+            fi
+            DRY=true; [ "$MODE" = "apply" ] && DRY=false
+            IDS=$(printf '%s' "$ROUTE_IDS" | tr -d ' ' | tr ',' '\n' | grep -v '^$' | jq -R . | jq -s .)
+            N=$(printf '%s' "$IDS" | jq 'length')
+            if [ "$N" -gt 10 ]; then
+              echo "::error::Партия из $N id — не больше 10."
+              exit 1
+            fi
+            BODY=$(jq -n --argjson ids "$IDS" --arg s "${SOURCE:-сухой прогон}" --arg w "${WHY:-сухой прогон по переписи #1493}" --argjson dry "$DRY" \
+              '{route_ids: $ids, source: $s, why: $w, dry_run: $dry}')
+            HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" --max-time 300 \
+              -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+              -d "$BODY" "$URL") || HTTP="000"
+          fi
+
+          echo "HTTP $HTTP (режим $MODE)"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Ответ $HTTP — исход не установлен, зелёным не считать."
+            head -c 2000 /tmp/out.json || true
+            exit 1
+          fi
+
+          python3 - "$MODE" <<'PY'
+          import json, sys
+          mode = sys.argv[1]
+          with open('/tmp/out.json') as f:
+              a = json.load(f)
+          if mode == 'census':
+              if a.get('rows') is None:
+                  print('Перепись НЕ выполнилась:', a.get('reason'))
+                  sys.exit(1)
+              for k in ('routes_with_ocr', 'already_two_waypoints', 'candidates',
+                        'with_coord_hint', 'with_mentions_only', 'without_signals'):
+                  print(f'  {k}: {a.get(k)}')
+              print('')
+              print('Первая партия (координата в тексте паспорта):')
+              titles = {r['route_id']: r for r in a.get('rows') or []}
+              for rid in a.get('next_batch') or []:
+                  r = titles.get(rid, {})
+                  print(f"  {rid}  {r.get('title')}  [точек {r.get('waypoints')}, {r.get('markdown_chars')} симв.]")
+              print('')
+              print('Скопировать в route_ids:', ','.join(a.get('next_batch') or []))
+          else:
+              print(f"dry_run={a.get('dry_run')}  processed={a.get('processed')}  points_linked={a.get('points_linked')}  places_created={a.get('places_created')}")
+              for d in a.get('details') or []:
+                  s = d.get('start') or {}; e = d.get('end') or {}
+                  def fmt(p):
+                      if not p: return '—'
+                      if p.get('kind') == 'linked': return f"{p.get('name')} ({p.get('lat')}, {p.get('lng')}){' новое' if p.get('place_created') else ''}"
+                      return f"пропуск: {p.get('reason')} {p.get('name') or ''} {p.get('coord_text') or ''}"
+                  print(f"  {d.get('title')} [{d.get('status')}]: начало — {fmt(s)}; конец — {fmt(e)}" + (f"; ошибка: {d.get('error')}" if d.get('error') else ''))
+          PY
+
+          {
+            echo "## route-endpoints — режим $MODE"
+            echo
+            echo '```json'
+            python3 -m json.tool /tmp/out.json | head -c 60000 || cat /tmp/out.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

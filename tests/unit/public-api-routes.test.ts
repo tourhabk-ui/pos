@@ -53,6 +53,14 @@ describe('isPublicApiPath — кого Edge пускает без токена',
     expect(isPublicApiPath('/api/places/abc-123', 'DELETE')).toBe(false);
   });
 
+  it('push-подписка на предупреждения — публична на POST/DELETE, не на GET (#1485)', () => {
+    // Хендлер был анонимным с 02.08, реестр молчал — и гость получал 401 до
+    // хендлера. Ноль подписчиков в Watchdog был не про людей, а про Edge.
+    expect(isPublicApiPath('/api/push/subscribe', 'POST')).toBe(true);
+    expect(isPublicApiPath('/api/push/subscribe', 'DELETE')).toBe(true);
+    expect(isPublicApiPath('/api/push/subscribe', 'GET')).toBe(false);
+  });
+
   it('кабинеты закрыты: жильё, снаряжение, брони туриста', () => {
     expect(isPublicApiPath('/api/stay/accommodations', 'POST')).toBe(false);
     expect(isPublicApiPath('/api/gear/items', 'POST')).toBe(false);

@@ -53,6 +53,9 @@ export async function GET(req: Request) {
         // Улика переживает запрос вместе с причиной: без неё «ответила
         // прозой» остаётся догадкой, а догадка уже стоила трёх недель.
         digest_skip_detail: result.digest_skip_detail ?? null,
+        // Выпуск ушёл, но без вычеркнутых пунктов (02.09): число и какие.
+        claims_dropped: result.claims_dropped ?? null,
+        claims_dropped_detail: result.claims_dropped_detail ?? null,
       },
     });
     /**

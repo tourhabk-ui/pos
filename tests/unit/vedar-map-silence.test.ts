@@ -104,9 +104,20 @@ describe('сообщение доходит туда, где его не нак�
     expect(CLIENT_SRC).toMatch(/onDiagnostic=\{setVedarDiag\}/);
     const at = CLIENT_SRC.indexOf("fieldBaseMap.kind === 'vedar' && vedarDiag");
     expect(at, 'строка диагноза в приборной колонке не найдена').toBeGreaterThan(0);
-    // 03.09: заметка может прийти и от РИСУЮЩЕЙ карты (гипсометрия снята,
-    // вид вне пакета) — префикс без «не отрисовалась».
-    expect(CLIENT_SRC.slice(at, at + 400)).toMatch(/Своя карта: \{vedarDiag\}/);
+    expect(CLIENT_SRC.slice(at, at + 500)).toMatch(/\{vedarDiag\}/);
+  });
+
+  it('формулировку приносит VedarMap целиком — приборная колонка её не дописывает', () => {
+    // До 02.09 «Своя карта не отрисовалась: » было приклеено В ДВУХ местах —
+    // и в карте, и здесь. Когда выяснилось, что бывает «упал один слой из
+    // восьмидесяти, карта цела», исправлять пришлось бы обе копии, а
+    // разошлись бы они молча (тот же урок, что три реализации одного
+    // правила линий, §12). Теперь фраза одна и живёт там, где известно,
+    // поднялась карта или нет.
+    const at = CLIENT_SRC.indexOf("fieldBaseMap.kind === 'vedar' && vedarDiag");
+    expect(CLIENT_SRC.slice(at, at + 500)).not.toMatch(/Своя карта не отрисовалась: \{vedarDiag\}/);
+    expect(SRC).toMatch(/Слой карты не пришёл — /);
+    expect(SRC).toMatch(/Своя карта не отрисовалась — /);
   });
 });
 

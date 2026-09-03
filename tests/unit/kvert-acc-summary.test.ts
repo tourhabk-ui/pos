@@ -49,11 +49,33 @@ describe('сводка разбирается по факту, а не по до
 
   it('строка с несколькими именами раскрывается в отдельные вулканы', () => {
     expect(parsed.find(v => v.nameSlug === 'bezymianny')?.color).toBe('yellow');
-    // KRASHENINNIKOV словаря не знает — приезжает без slug, а не теряется.
+    // До 02.09 KRASHENINNIKOV служил здесь примером НЕЗНАКОМОГО имени. Алиас
+    // добавлен после миграции 927 (до неё место звалось «Вулкан Крашенникова»
+    // и алиас был бы бесполезен). Теперь он знаком — и жёлтый.
     const kr = parsed.find(v => v.volcanoName === 'KRASHENINNIKOV');
     expect(kr).toBeDefined();
-    expect(kr!.nameSlug).toBeNull();
+    expect(kr!.nameSlug).toBe('krasheninnikov');
+    expect(kr!.nameRu).toBe('Крашенинников');
     expect(kr!.color).toBe('yellow');
+  });
+
+  it('незнакомое имя приезжает без slug, а не теряется', () => {
+    // GAMCHEN — из живого списка «нет в алиасах» прогона 02.09; разметка та
+    // же, что в фикстуре выше. Правило прежнее, пример сменён: прежний
+    // (Крашенинников) стал знакомым.
+    // Парсер якорится на маркере «AVIATION COLOUR CODES» — без него
+    // возвращает пусто. Первая версия этого теста маркер не несла и упала
+    // на «ничего не нашёл» — не потому, что имя терялось, а потому что
+    // разбор не начинался. Строка должна быть той же формы, что и выпуск.
+    const line = [
+      `<b>SUMMARY OF AVIATION COLOUR CODES:</b><br />`,
+      `<b>KAMCHATKA</b><br />`,
+      `GAMCHEN: <span id='YELLOW'>YELLOW</span><br />`,
+    ].join('\n');
+    const g = parseAccSummary(line).find(v => v.volcanoName === 'GAMCHEN');
+    expect(g).toBeDefined();
+    expect(g!.nameSlug).toBeNull();
+    expect(g!.color).toBe('yellow');
   });
 
   it('зелёные тоже записываются — молчание о них и есть устаревший зелёный', () => {

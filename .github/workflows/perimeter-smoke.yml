@@ -1,0 +1,51 @@
+name: Периметр с улицы
+
+# Исполняемый критерий «периметр закрыт» из аудита 01.09: с раннера GitHub,
+# без cookie и без секрета, admin и cron отвечают 401/403, debug-waterfall —
+# 404, а SOS, push-подписка и MCP — не 401. Логика — в
+# scripts/ci/perimeter-smoke.sh; там же три исхода: сошлось / разошлось /
+# не смогли проверить (код 2), и последний зелёным не красится.
+#
+# Почему раннер: контейнер разработчика до vedarai.ru не достаёт (прокси
+# отдаёт 403 на CONNECT), а раннер достаёт — тот же мост, что у e2e-smoke.
+#
+# Первый прогон — правкой .github/triggers/perimeter-smoke.json в main.
+# Дальше ежедневно и вручную.
+
+on:
+  schedule:
+    - cron: '45 6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/perimeter-smoke.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perimeter-smoke
+  cancel-in-progress: true
+
+jobs:
+  perimeter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Периметр с улицы
+        env:
+          BASE_URL: https://vedarai.ru
+        run: |
+          bash scripts/ci/perimeter-smoke.sh | tee /tmp/perimeter.txt
+          rc=${PIPESTATUS[0]}
+          {
+            echo '## Периметр с улицы'
+            echo
+            echo '```'
+            cat /tmp/perimeter.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"

@@ -1743,13 +1743,16 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const { searchAccommodationsForKuzmich } = await import('@/lib/kuzmich/accommodation-search');
       return await searchAccommodationsForKuzmich({ zone: args.zone, type: args.type, price_max: args.price_max });
     }
+    if (name === 'search_transfers') {
+      // Поверх витрины схемы 926 (02.09): тот же listPublishedTrips, что у
+      // /transfers. Отказ базы возвращается словами «не смог проверить», а не
+      // «поездок нет» — прежний инструмент выдавал поломку за факт (01.09).
+      const { searchTransfersForKuzmich } = await import('@/lib/kuzmich/transfer-search');
+      return await searchTransfersForKuzmich({ from: args.from, to: args.to, seats: args.seats, place: args.place });
+    }
     if (name === 'search_gear') {
       const { searchGearForKuzmich } = await import('@/lib/kuzmich/gear-search');
       return await searchGearForKuzmich({ query: args.query, category: args.category, price_max: args.price_max });
-    }
-    if (name === 'search_transfers') {
-      const { searchTransfersForKuzmich } = await import('@/lib/kuzmich/transfer-search');
-      return await searchTransfersForKuzmich({ from: args.from, to: args.to, price_max: args.price_max });
     }
     if (name === 'search_taaft') {
       const { searchExternalTools, trackToolUsage, formatToolsForKuzmich } = await import('@/lib/agents/tools/taaft-search');

@@ -78,6 +78,7 @@ import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
 import { bearingDeg } from '@/lib/on-route/bearing';
+import { isUuid } from '@/lib/text/slugify';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
@@ -3163,7 +3164,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           {fieldBaseMap.kind === 'vedar' && vedarDiag && (
             <p className="px-3 pb-2 text-[11px] leading-snug"
               style={{ color: 'var(--warning)' }}>
-              Своя карта: {vedarDiag}
+              {/* Формулировку целиком приносит VedarMap: «не отрисовалась»
+                  и «не пришёл один слой» — разные беды, и решает это та
+                  сторона, которая знает, поднялась ли карта. */}
+              {vedarDiag}
             </p>
           )}
 
@@ -4493,6 +4497,32 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      /**
+       * `route` — какой именно маршрут открыть в поле (02.09).
+       *
+       * До этого ссылка с экрана подготовки вела просто в полевой режим, а
+       * он поднимал ПОСЛЕДНИЙ активный маршрут из localStorage. Человек,
+       * готовящийся к маршруту A, попадал на снаряжение и пакет маршрута B,
+       * и заметить подмену можно было только по названию в приборной строке.
+       * Полевой пакет при этом сохранялся бы не тот — а выясняется это уже
+       * без связи.
+       *
+       * Пишется ДО setTab: полевая вкладка читает ключ в своём эффекте
+       * монтирования, то есть строго позже этого.
+       */
+      const route = params.get('route');
+      // Ссылка приходит откуда угодно — её могли переслать, сократить,
+      // испортить. Полевой экран навигирует человека по маршруту, который
+      // отсюда назначается, и подставлять в него что попало нельзя ни в
+      // каком виде: id маршрута — UUID, и всё остальное не маршрут, а
+      // строка (её потом ещё и подставили бы в адрес /api/routes/…).
+      if (route && isUuid(route)) {
+        try { localStorage.setItem('active_trail_route_id', route); } catch { /* приват-режим */ }
+      } else if (route) {
+        // Не молчим: экран покажет ПРЕЖНИЙ маршрут, и человек должен иметь
+        // возможность понять, почему открылось не то, что он ждал.
+        console.error('[planning] маршрут из адреса не похож на id — оставлен прежний');
+      }
       if (params.get('mode') === 'trail') setTab('trail');
     }
   }, []);

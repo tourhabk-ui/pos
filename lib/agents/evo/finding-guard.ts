@@ -51,6 +51,29 @@ function flagsSanctionedCallAIFast(text: string): boolean {
 }
 
 /**
+ * callAIWaterfall предписан вызову, который к моделям не относится.
+ *
+ * Кейс #1504 (02.09): «Telegram-уведомление отправляется напрямую через fetch,
+ * а не через callAIWaterfall (конвенция проекта для внешних вызовов)».
+ * Конвенция CLAUDE.md §4 — про вызовы ПРОВАЙДЕРОВ МОДЕЛЕЙ (callDeepSeek и
+ * прочие идут только через водопад), а не про HTTP вообще: у callAIWaterfall
+ * сигнатура «сообщения → текст», отправить им sendMessage в Telegram нельзя.
+ * Находка ложна по механизму, и такую правку выполнить невозможно.
+ *
+ * Условие узкое: в тексте назван водопад И названа жертва не из мира моделей
+ * (Telegram, webhook, «внешние запросы»), И нет ни одного имени провайдера —
+ * иначе «callDeepSeek напрямую вместо callAIWaterfall» (настоящая находка)
+ * попала бы под отсев.
+ */
+function flagsWaterfallForNonAi(text: string): boolean {
+  if (!/callAIWaterfall/i.test(text)) return false;
+  // Жертва — не модель: Telegram, webhook, «прямой fetch» без имени провайдера.
+  const nonAiVictim = /telegram|sendMessage|webhook|прям[а-яё]*\s+fetch|fetch\s+вместо|http-?клиент/i;
+  const aiProvider = /callDeepSeek|callMiMo|callOpenrouter|deepseek|openrouter|qwen|gemini|anthropic|openai|\bllm\b|модел[а-яё]*\b/i;
+  return nonAiVictim.test(text) && !aiProvider.test(text);
+}
+
+/**
  * console.error заклеймён нарушением. CLAUDE.md: запрещён console.log; console.error
  * в catch — разрешён. Глушим только когда клеймят именно console.error и рядом нет
  * console.log (тот — реальное нарушение, не трогаем).
@@ -99,6 +122,7 @@ export function findingRejectionReason(f: CandidateFinding): string | null {
   if (complainsAboutMissingInput(text)) return 'scan_input_missing';
   if (incoherentSameToken(text)) return 'incoherent_same_token';
   if (flagsSanctionedCallAIFast(text)) return 'sanctioned_callaifast';
+  if (flagsWaterfallForNonAi(text)) return 'waterfall_is_not_http_client';
   if (flagsSanctionedConsoleError(text)) return 'sanctioned_console_error';
   if (flagsForeignStack(text)) return 'foreign_stack';
   if (quotesPlaceholderAsUnsafe(text)) return 'quotes_placeholder_as_unsafe';

@@ -47,7 +47,12 @@ describe('связность первоисточника', () => {
   });
 
   it('футер ведёт на /mcp', () => {
-    expect(FOOTER).toMatch(/href: '\/mcp'/);
+    // 02.09: список ссылок футера переехал в общий реестр
+    // lib/navigation/platform-links (его же читает /menu). Ссылка на /mcp
+    // теперь там, а футер обязан читать реестр — иначе она до него не дойдёт.
+    const registry = read('lib/navigation/platform-links.ts');
+    expect(registry).toMatch(/href: '\/mcp'/);
+    expect(FOOTER).toMatch(/from '@\/lib\/navigation\/platform-links'/);
   });
 
   it('llms.txt и манифест ссылаются на HTML-страницу', () => {

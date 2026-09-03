@@ -17,9 +17,31 @@ import { z } from 'zod';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { runRouteEndpoints } from '@/lib/import/route-endpoints-runner';
+import { computeRouteEndpointsCensus, CENSUS_BATCH } from '@/lib/import/route-endpoints-census';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
+
+/**
+ * GET — перепись (#1493, 02.09): у каких маршрутов есть OCR-паспорт и меньше
+ * двух путевых точек, и у кого из них в тексте паспорта есть координата.
+ * Только чтение, модель не зовётся; отдаёт первую партию из десяти —
+ * материал для POST ниже. Логика — lib/import/route-endpoints-census.ts.
+ */
+export async function GET(req: NextRequest) {
+  const secret = getCronSecret(req);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const census = await computeRouteEndpointsCensus();
+  return NextResponse.json({
+    ok: census.rows !== null,
+    probe: 'route_endpoints_v1',
+    version: ROUTE_ENDPOINTS_VERSION,
+    census_batch: CENSUS_BATCH,
+    ...census,
+  }, { status: census.rows === null ? 500 : 200 });
+}
 
 export const LIVE_BATCH_MAX = 10;
 
