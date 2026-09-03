@@ -7,6 +7,15 @@ name: Cron — Scout Digest
 # на тот же дайджест. workflow_dispatch остаётся для ручной отладки.
 on:
   workflow_dispatch:
+  # Запуск маркером (03.09): workflow_dispatch через интеграцию отвечает 403,
+  # а проверить разведчика после выкатки (реле, ленты лабораторий, линза
+  # «ИИ-фичи») нужно сразу, не дожидаясь вечернего прогона эволюции. Тот же
+  # приём, что у prod-check и safety-relay-deploy. Расписания по-прежнему нет:
+  # маркер — ручной запуск, а не второй крон.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/scout-digest.json'
 
 jobs:
   scout-digest:
