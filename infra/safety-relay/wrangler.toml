@@ -36,5 +36,14 @@ crons = ["*/5 * * * *"]
 # переехал, а адрес остался.
 INGEST_BASE = "https://vedarai.ru"
 
+# Белый список хостов для /fetch (03.09) — чтение для разведчика
+# (lib/agents/scout-relay). Точное имя или поддомен. Без списка /fetch —
+# открытый прокси под нашим именем, поэтому пусто значит «никому».
+# Хосты нынешних фидов разведчика — чтобы фолбэк на реле работал у любого;
+# openai.com и anthropic.com — гео-закрыты для прода в РФ (провайдерская
+# сторона того же блока описана в lib/ai/provider-config.ts); t.me — как у
+# сейсмо-реле. Список расширяется по замеру /census, не по догадке.
+RELAY_HOSTS = "simonwillison.net,huggingface.co,marktechpost.com,hnrss.org,habr.com,skift.com,producthunt.com,tourprom.ru,ratanews.ru,openai.com,anthropic.com,blog.google,t.me"
+
 # CRON_SECRET задаётся секретом (wrangler secret put), а НЕ здесь:
 # содержимое [vars] видно в панели и уезжает в конфиг.

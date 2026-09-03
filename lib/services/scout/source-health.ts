@@ -143,6 +143,12 @@ export interface ScoutSourceReport {
   silent_hours: number | null;
   /** Причина сбоя этого прогона — только при status 'error'. */
   error?: string;
+  /**
+   * Каким путём прочитан в этом прогоне: 'direct' — с прода, 'relay' — через
+   * воркер Cloudflare вне РФ (lib/agents/scout-relay). Источник на реле
+   * зависит от Cloudflare, и это отдельная поломка — отчёт её не прячет.
+   */
+  via?: 'direct' | 'relay';
 }
 
 /**
@@ -151,7 +157,7 @@ export interface ScoutSourceReport {
  * Память недоступна → пустая карта, и отчёт всё равно честен по status/items.
  */
 export function buildSourceReport(
-  entries: Array<SourceHealthEntry & { category?: string }>,
+  entries: Array<SourceHealthEntry & { category?: string; via?: 'direct' | 'relay' }>,
   map: ScoutHealthMap,
   now: number,
 ): ScoutSourceReport[] {
@@ -167,6 +173,7 @@ export function buildSourceReport(
       last_ok: lastOk,
       silent_hours: Number.isNaN(ms) ? null : Math.round((now - ms) / 3_600_000),
       ...(e.error ? { error: e.error } : {}),
+      ...(e.via ? { via: e.via } : {}),
     };
   });
 }

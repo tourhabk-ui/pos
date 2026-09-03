@@ -31,6 +31,9 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { stripTags } from '@/lib/html/text';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { hashStr } from '@/lib/notifications/post-image';
+import {
+  relayBase, relayConfigured, relayFetchUrl, relayHeaders, shouldFallbackToRelay, type FetchVia,
+} from '@/lib/agents/scout-relay';
 
 /**
  * Причина пропуска человеческим языком — для алерта, а не для лога.
@@ -385,27 +388,68 @@ interface SourceFetch {
   status: SourceStatus;
   /** Причина сбоя — только при 'error': HTTP-код или текст исключения. */
   error?: string;
+  /** Каким путём прочитан: напрямую с прода или через реле вне РФ. */
+  via?: FetchVia;
+}
+
+/** Прямой запрос к фиду: тело или названная причина отказа. */
+async function fetchDirect(url: string, label: string): Promise<{ ok: true; text: string } | { ok: false; status: number | null; error: string }> {
+  try {
+    const res = await fetchRssWithRetry(url, {
+      headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
+    }, label);
+    if (!res.ok) return { ok: false, status: res.status, error: `HTTP ${res.status}` };
+    return { ok: true, text: await res.text() };
+  } catch (e) {
+    return { ok: false, status: null, error: ((e as Error).message || 'unknown').slice(0, 160) };
+  }
+}
+
+/**
+ * Тот же адрес через реле вне РФ (см. lib/agents/scout-relay). Отказ реле
+ * называется отдельно от отказа прямого пути: «реле ответило 502» и «источник
+ * из РФ недоступен» — разные поломки.
+ */
+async function fetchViaRelay(url: string, label: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetchRssWithRetry(relayFetchUrl(relayBase(), url), {
+      headers: { ...relayHeaders(), 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
+    }, `relay:${label}`);
+    if (!res.ok) return { ok: false, error: `реле: HTTP ${res.status}` };
+    return { ok: true, text: await res.text() };
+  } catch (e) {
+    return { ok: false, error: `реле: ${((e as Error).message || 'unknown').slice(0, 140)}` };
+  }
 }
 
 /**
  * Тянет один источник и КЛАССИФИЦИРУЕТ исход — чтобы «нет сигналов» перестало
  * быть немым: видно, фид отдал материал, отдал пусто или упал. Раньше упавший
  * фид молча давал [] и был неотличим от «сегодня тихо».
+ *
+ * Прямой путь первый; реле — только после отказа, похожего на блокировку, и
+ * только если настроено (SCOUT_RELAY_BASE + CRON_SECRET). Путь записывается
+ * в `via`: источник, живущий на реле, зависит от Cloudflare, и отчёт обязан
+ * это показывать, а не сливать с «читается из РФ».
  */
 async function fetchSource(s: { key: string; url: string; label: string; category: SourceCategory }): Promise<SourceFetch> {
-  try {
-    const res = await fetchRssWithRetry(s.url, {
-      headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
-    }, s.label);
-    if (!res.ok) {
-      return { key: s.key, label: s.label, category: s.category, items: [], status: 'error', error: `HTTP ${res.status}` };
-    }
-    const xml = await res.text();
-    const items = parseRssItems(xml, s.label);
-    return { key: s.key, label: s.label, category: s.category, items, status: items.length > 0 ? 'ok' : 'empty' };
-  } catch (e) {
-    return { key: s.key, label: s.label, category: s.category, items: [], status: 'error', error: ((e as Error).message || 'unknown').slice(0, 160) };
+  const base = { key: s.key, label: s.label, category: s.category };
+  const direct = await fetchDirect(s.url, s.label);
+  if (direct.ok) {
+    const items = parseRssItems(direct.text, s.label);
+    return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'direct' };
   }
+  if (!relayConfigured() || !shouldFallbackToRelay({ status: direct.status })) {
+    return { ...base, items: [], status: 'error', error: direct.error, via: 'direct' };
+  }
+  const relayed = await fetchViaRelay(s.url, s.label);
+  if (!relayed.ok) {
+    // Обе дороги названы: без прямой причины «реле упало» читалось бы как
+    // единственная беда, а источник из РФ при этом всё так же закрыт.
+    return { ...base, items: [], status: 'error', error: `напрямую: ${direct.error}; ${relayed.error}`, via: 'relay' };
+  }
+  const items = parseRssItems(relayed.text, s.label);
+  return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'relay' };
 }
 
 async function tgSendTo(chatId: string, text: string): Promise<boolean> {
@@ -640,11 +684,20 @@ async function fetchArticleText(url: string): Promise<string> {
     } catch { /* fallthrough */ }
   }
   try {
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
       signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return '';
+    }).catch(() => null);
+    // Статья с гео-закрытого сайта (openai.com, anthropic.com) с прода не
+    // читается — тогда тот же адрес через реле, как и у фида. Без реле
+    // остаётся прежнее: текст недоступен, модель опирается на заголовок.
+    if ((!res || shouldFallbackToRelay({ status: res.status })) && relayConfigured()) {
+      res = await fetch(relayFetchUrl(relayBase(), url), {
+        headers: { ...relayHeaders(), 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
+        signal: AbortSignal.timeout(12000),
+      }).catch(() => null);
+    }
+    if (!res || !res.ok) return '';
     const html = await res.text();
     // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
     // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
@@ -673,9 +726,10 @@ async function recordSourceHealthAndAlert(
 ): Promise<{ sources_ok: number; sources_total: number; dead_sources: string[]; sources: ScoutSourceReport[] }> {
   const nowIso = new Date().toISOString();
   const nowMs = Date.now();
-  const entries: Array<SourceHealthEntry & { category: SourceCategory }> = fetched.map(f => ({
+  const entries: Array<SourceHealthEntry & { category: SourceCategory; via?: FetchVia }> = fetched.map(f => ({
     key: f.key, label: f.label, category: f.category, status: f.status, rawItems: f.items.length, inserted: 0,
     ...(f.error ? { error: f.error } : {}),
+    ...(f.via ? { via: f.via } : {}),
   }));
 
   let deadLabels: string[] = [];

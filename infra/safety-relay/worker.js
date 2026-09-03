@@ -172,28 +172,107 @@ export default {
   },
 
   /**
-   * `/selftest` — сходить за источниками и показать размеры, НИЧЕГО не
-   * отправляя. Нужен, чтобы «воркер обходит блокировку» стало измерением, а
-   * не рассуждением (см. урок про OpenRouter в шапке).
+   * Три маршрута, все под одним секретом (перепись доступности наших
+   * источников и чтение чужих страниц — не то, что стоит отдавать кому угодно):
    *
-   * Закрыт тем же секретом: перепись доступности наших источников — не то,
-   * что стоит отдавать кому угодно.
+   * `/selftest` — сходить за сейсмо-источниками и показать размеры, НИЧЕГО
+   * не отправляя. Нужен, чтобы «воркер обходит блокировку» стало измерением,
+   * а не рассуждением (см. урок про OpenRouter в шапке).
+   *
+   * `/fetch?url=` — прочитать адрес и отдать тело как есть (03.09). Для
+   * разведчика (lib/agents/scout-relay): источники, гео-закрытые для прода
+   * в РФ, читаются с края Cloudflare — тем же путём, каким сюда доехали
+   * страницы t.me. Хост обязан быть в белом списке RELAY_HOSTS: без него это
+   * открытый прокси под нашим именем. Статус источника уходит наверх как
+   * `x-relay-upstream-status`, чтобы 403 источника не читался как 403 реле.
+   *
+   * `/census?urls=` — статус и размер по каждому адресу, без тела и без
+   * белого списка: это замер «читается ли отсюда», которым решают, что
+   * вносить в список, а не чтение. Не больше десяти адресов, только https.
    */
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname !== '/selftest') {
-      return new Response('safety-relay: только /selftest', { status: 404 });
-    }
     const given = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-    if (!env.CRON_SECRET || given !== env.CRON_SECRET) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { 'Content-Type': 'application/json' },
+    const unauthorized = () => new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (url.pathname === '/selftest') {
+      if (!env.CRON_SECRET || given !== env.CRON_SECRET) return unauthorized();
+      const { body, census } = await collect();
+      return new Response(JSON.stringify({
+        census,
+        would_post: Object.keys(TG_REQUIRED).every(f => Boolean(body[f])),
+      }, null, 2), { headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+    }
+
+    if (url.pathname === '/fetch') {
+      if (!env.CRON_SECRET || given !== env.CRON_SECRET) return unauthorized();
+      const target = parseHttpsUrl(url.searchParams.get('url'));
+      if (!target) return jsonError(400, 'нужен параметр url — абсолютный https-адрес');
+      if (!hostAllowed(target.hostname, env.RELAY_HOSTS)) {
+        return jsonError(403, `хост ${target.hostname} не в белом списке RELAY_HOSTS`);
+      }
+      let res;
+      try {
+        res = await fetch(target.toString(), {
+          headers: { 'User-Agent': UA, 'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8' },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          cf: { cacheTtl: 0 },
+        });
+      } catch (err) {
+        return jsonError(502, `источник не ответил: ${String(err && err.message ? err.message : err)}`);
+      }
+      // Статус источника — свой; 403 источника не должен читаться как 403 реле.
+      return new Response(res.body, {
+        status: res.status,
+        headers: {
+          'Content-Type': res.headers.get('content-type') || 'application/octet-stream',
+          'x-relay-upstream-status': String(res.status),
+          'Cache-Control': 'no-store',
+        },
       });
     }
-    const { body, census } = await collect();
-    return new Response(JSON.stringify({
-      census,
-      would_post: Object.keys(TG_REQUIRED).every(f => Boolean(body[f])),
-    }, null, 2), { headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+
+    if (url.pathname === '/census') {
+      if (!env.CRON_SECRET || given !== env.CRON_SECRET) return unauthorized();
+      const list = (url.searchParams.get('urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
+      const report = {};
+      for (const raw of list) {
+        const target = parseHttpsUrl(raw);
+        if (!target) { report[raw] = 'отказ: не https-адрес'; continue; }
+        const r = await grab(target.toString());
+        report[raw] = r.ok ? `${r.bytes} байт` : `отказ: ${r.error}`;
+      }
+      return new Response(JSON.stringify({ census: report }, null, 2), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    }
+
+    return new Response('safety-relay: только /selftest, /fetch, /census', { status: 404 });
   },
 };
+
+/** Абсолютный https-адрес или null: http и относительные пути реле не читает. */
+function parseHttpsUrl(raw) {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'https:' ? u : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Хост из белого списка (точное имя или поддомен имени из списка). */
+function hostAllowed(hostname, listVar) {
+  const allowed = String(listVar || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const h = String(hostname || '').toLowerCase();
+  return allowed.some(a => h === a || h.endsWith(`.${a}`));
+}
+
+function jsonError(status, error) {
+  return new Response(JSON.stringify({ error }), {
+    status, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  });
+}
