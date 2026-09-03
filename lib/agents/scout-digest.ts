@@ -32,7 +32,8 @@ import { stripTags } from '@/lib/html/text';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { hashStr } from '@/lib/notifications/post-image';
 import {
-  relayBase, relayConfigured, relayFetchUrl, relayHeaders, shouldFallbackToRelay, type FetchVia,
+  relayBase, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
+  type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 
@@ -204,6 +205,8 @@ export interface DigestResult {
    * прогона — линза работает и когда выпуск не вышел.
    */
   ai_features?: AiFeaturesResult;
+  /** Реле вне РФ: off — не задано, bad_base — адрес не разбирается, on — работает. */
+  relay?: RelayStatus;
   /**
    * Ушёл ли пост во ВТОРОЙ канал — AI-канал.
    *
@@ -832,6 +835,11 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // новостей vs мёртвый фид) и алертит про молчащие. До любых ранних выходов.
   const health = {
     ...(await recordSourceHealthAndAlert(fetched)),
+    // Состояние реле — в каждый возврат: 03.09 в SCOUT_RELAY_BASE на Timeweb
+    // попала строка с опечаткой, и каждый фолбэк падал на разборе адреса, а
+    // отчёт читался как «реле отказало» у всех фидов разом. 'bad_base'
+    // называет беду по имени.
+    relay: relayStatus(),
     // Линза «ИИ-фичи для Ведара» (03.09, слово владельца: «меня интересуют от
     // разведчика именно ИИ-фичи для проекта»). Идёт ДО ворот выпуска и своей
     // памятью отсеивает уже виденные статьи, поэтому живёт рядом со здоровьем
