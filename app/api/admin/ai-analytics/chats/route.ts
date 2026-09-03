@@ -94,6 +94,14 @@ export async function GET(req: NextRequest) {
     `, [days]);
 
     // ── Список веб-сессий ────────────────────────────────────────────────────
+    //
+    // referrer_source / utm_source (миграция 136) добавлены сюда 03.09:
+    // владелец, разбирая живую переписку гостя про Авачинский, спросил
+    // «кто тестировал» — и не смог ответить сам, потому что sessionId
+    // приходил в этом же ответе, но нигде не рендерился. Различить «реальный
+    // турист» и «свои потыкали виджет» по данным всё равно нельзя (IP не
+    // пишем), но источник перехода — уже что-то, и раньше он был виден
+    // только прямым запросом к БД.
     const { rows: webChats } = await pool.query<{
       session_id: string;
       user_id: string | null;
@@ -101,6 +109,8 @@ export async function GET(req: NextRequest) {
       is_authenticated: boolean;
       created_at: string;
       updated_at: string;
+      referrer_source: string | null;
+      utm_source: string | null;
     }>(`
       SELECT
         session_id,
@@ -108,7 +118,9 @@ export async function GET(req: NextRequest) {
         user_message_count::text,
         is_authenticated,
         created_at::text,
-        updated_at::text
+        updated_at::text,
+        referrer_source,
+        utm_source
       FROM chat_sessions
       WHERE created_at >= NOW() - INTERVAL '1 day' * $1
       ORDER BY updated_at DESC
@@ -126,12 +138,14 @@ export async function GET(req: NextRequest) {
         lastMsg:   r.last_msg,
       })),
       webChats: webChats.map(r => ({
-        sessionId:     r.session_id,
-        userId:        r.user_id,
-        userMsgs:      parseInt(r.user_message_count, 10),
-        authenticated: r.is_authenticated,
-        createdAt:     r.created_at,
-        updatedAt:     r.updated_at,
+        sessionId:      r.session_id,
+        userId:         r.user_id,
+        userMsgs:       parseInt(r.user_message_count, 10),
+        authenticated:  r.is_authenticated,
+        createdAt:      r.created_at,
+        updatedAt:      r.updated_at,
+        referrerSource: r.referrer_source,
+        utmSource:      r.utm_source,
       })),
     });
 
