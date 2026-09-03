@@ -1,5 +1,5 @@
 /**
- * GET /api/cron/anthropic-path-probe?base=<url>[,<url>...]
+ * GET /api/cron/anthropic-path-probe?account=<hex32>&gateway=vedar-ai
  * Authorization: Bearer <CRON_SECRET>
  *
  * Отвечает на ОДИН вопрос: по какому сетевому пути ПРОД (Timeweb, РФ)
@@ -14,8 +14,7 @@
  *
  * ПОЧЕМУ ПРОБА, А НЕ ПЕРЕМЕННАЯ. `ANTHROPIC_BASE_URL` живёт в панели Timeweb
  * и меняется руками владельца; переставлять её наугад, а потом смотреть на
- * здоровье — это сутки на один вариант. Проба берёт кандидатов из запроса
- * и отвечает за один вызов по каждому.
+ * здоровье — это сутки на один вариант. Проба отвечает за один вызов.
  *
  * ТРИ ИСХОДА НА ПУТЬ, НЕ ДВА. 200 — путь открыт и ключ прода жив. 401 —
  * путь ОТКРЫТ (до Anthropic дошли), ключа на проде нет или он не тот; это
@@ -23,8 +22,10 @@
  * не «заблокирован». Без ключа проба всё равно идёт: 401 и 403 различимы,
  * и различие в них — вся суть замера.
  *
- * SSRF. Хост кандидата обязан быть из белого списка — иначе проба стала бы
- * прокси на что угодно с секретом прода в руках.
+ * SSRF. Адрес кандидата НЕ берётся из запроса строкой. Хост шлюза — литерал;
+ * из запроса приходят только id аккаунта (32 hex, пересобирается через
+ * BigInt — строка снаружи в адрес не попадает) и имя шлюза (ключ фиксированной
+ * таблицы). Иначе проба с секретом прода стала бы прокси на что угодно.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -34,20 +35,20 @@ import { getCronSecret } from '@/lib/auth/cron';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-/** Хосты, по которым проба вообще согласна ходить. */
-export const ALLOWED_HOSTS: ReadonlyArray<RegExp> = [
-  /^api\.anthropic\.com$/,
-  /^gateway\.ai\.cloudflare\.com$/,
-  /^[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev$/,
-];
+const GATEWAY_HOST = 'https://gateway.ai.cloudflare.com';
+const DIRECT = 'https://api.anthropic.com';
+
+/** Шлюзы, которые проба знает по имени. Значение — литерал, не ввод. */
+const GATEWAYS: Readonly<Record<string, string>> = {
+  'vedar-ai': 'vedar-ai',
+};
 
 export type PathOutcome =
   | 'open'          // 200: дошли и ответили
   | 'open_no_key'   // 401: дошли до Anthropic, ключ прода отсутствует или не тот
   | 'blocked'       // 403: отказ по политике (гео-блок и подобное)
   | 'http'          // иной HTTP-код
-  | 'unreachable'   // сетевой отказ — «не смог», а не «заблокирован»
-  | 'rejected';     // хост не из белого списка — не пробовали
+  | 'unreachable';  // сетевой отказ — «не смог», а не «заблокирован»
 
 export interface PathProbe {
   base: string;
@@ -57,16 +58,21 @@ export interface PathProbe {
   detail: string | null;
 }
 
-export function isAllowedBase(base: string): boolean {
-  try {
-    const u = new URL(base);
-    return u.protocol === 'https:' && ALLOWED_HOSTS.some((re) => re.test(u.hostname));
-  } catch {
-    return false;
-  }
+/**
+ * Адрес шлюза из проверенных частей. `null` — части не прошли проверку;
+ * это отказ собрать адрес, а не «шлюза нет».
+ */
+export function gatewayBase(accountRaw: string | null, gatewayRaw: string | null): string | null {
+  if (!accountRaw || !gatewayRaw) return null;
+  if (!/^[0-9a-f]{32}$/.test(accountRaw)) return null;
+  // Пересборка через число: в адрес уходит не строка запроса, а её значение.
+  const account = BigInt(`0x${accountRaw}`).toString(16).padStart(32, '0');
+  const gateway = Object.prototype.hasOwnProperty.call(GATEWAYS, gatewayRaw) ? GATEWAYS[gatewayRaw] : null;
+  if (!gateway) return null;
+  return new URL(`/v1/${account}/${gateway}/anthropic`, GATEWAY_HOST).toString().replace(/\/+$/, '');
 }
 
-export function classify(status: number, body: string): PathOutcome {
+export function classify(status: number): PathOutcome {
   if (status >= 200 && status < 300) return 'open';
   if (status === 401) return 'open_no_key';
   if (status === 403) return 'blocked';
@@ -74,10 +80,7 @@ export function classify(status: number, body: string): PathOutcome {
 }
 
 async function probeOne(base: string, apiKey: string | null): Promise<PathProbe> {
-  if (!isAllowedBase(base)) {
-    return { base, outcome: 'rejected', status: null, latency_ms: null, detail: 'хост не из белого списка' };
-  }
-  const url = `${base.replace(/\/+$/, '')}/v1/messages`;
+  const url = `${base}/v1/messages`;
   const started = Date.now();
   try {
     const res = await fetch(url, {
@@ -99,7 +102,7 @@ async function probeOne(base: string, apiKey: string | null): Promise<PathProbe>
     const body = await res.text().catch(() => '');
     return {
       base,
-      outcome: classify(res.status, body),
+      outcome: classify(res.status),
       status: res.status,
       latency_ms: Date.now() - started,
       detail: res.ok ? null : body.slice(0, 160),
@@ -124,14 +127,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const raw = request.nextUrl.searchParams.get('base') ?? '';
-  const requested = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const gw = gatewayBase(request.nextUrl.searchParams.get('account'), request.nextUrl.searchParams.get('gateway'));
+  const current = process.env.ANTHROPIC_BASE_URL?.replace(/\/+$/, '') ?? null;
   const bases = Array.from(new Set([
-    ...requested,
+    ...(gw ? [gw] : []),
     // Текущая настройка прода — всегда в замере, чтобы было с чем сравнить.
-    ...(process.env.ANTHROPIC_BASE_URL ? [process.env.ANTHROPIC_BASE_URL] : []),
-    'https://api.anthropic.com',
-  ])).slice(0, 6);
+    ...(current ? [current] : []),
+    DIRECT,
+  ]));
 
   const apiKey = process.env.ANTHROPIC_API_KEY ?? null;
   const results: PathProbe[] = [];
@@ -146,11 +149,12 @@ export async function GET(request: NextRequest) {
     ok: true,
     place: 'prod',
     key_present: apiKey !== null,
-    current_base: process.env.ANTHROPIC_BASE_URL ?? null,
+    current_base: current,
+    gateway_probed: gw !== null,
     // Есть ли ХОТЬ ОДИН путь, по которому прод достаёт Anthropic. `null` —
     // если ни одна проба не дала ни открытого, ни закрытого ответа (все
     // «не смог»): тогда ответ на вопрос — «не знаю», а не «нет».
-    path_exists: open.length > 0 ? true : results.every((r) => r.outcome === 'unreachable' || r.outcome === 'rejected') ? null : false,
+    path_exists: open.length > 0 ? true : results.every((r) => r.outcome === 'unreachable') ? null : false,
     open_bases: open.map((r) => r.base),
     results,
   });

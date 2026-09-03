@@ -81,6 +81,8 @@ jobs:
           echo "Шлюз: $(jq -r '.result.id // "?"' /tmp/gw.json)"
           BASE="https://gateway.ai.cloudflare.com/v1/$ACCOUNT/$GW/anthropic"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
+          echo "gateway=$GW" >> "$GITHUB_OUTPUT"
           echo "::add-mask::$ACCOUNT"
 
       - name: С раннера — шлюз доводит до Anthropic (контроль самого шлюза)
@@ -107,16 +109,19 @@ jobs:
       - name: С ПРОДА — какой путь до Anthropic открыт
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          BASE: ${{ steps.gateway.outputs.base }}
+          ACCOUNT: ${{ steps.gateway.outputs.account }}
+          GW: ${{ steps.gateway.outputs.gateway }}
         run: |
           set -u
           if [ -z "${CRON_SECRET:-}" ]; then
             echo "::error::CRON_SECRET не задан — проду нечем авторизовать пробу."
             exit 1
           fi
+          # Проду уходят только id аккаунта и имя шлюза; адрес он собирает
+          # сам из литерального хоста (SSRF: строка запроса в адрес не попадает).
           CODE=$(curl -s -o /tmp/prod.json -w '%{http_code}' --max-time 90 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            --get --data-urlencode "base=$BASE" \
+            --get --data-urlencode "account=$ACCOUNT" --data-urlencode "gateway=$GW" \
             "https://vedarai.ru/api/cron/anthropic-path-probe")
           echo "HTTP: $CODE"
           jq . /tmp/prod.json 2>/dev/null || cat /tmp/prod.json
