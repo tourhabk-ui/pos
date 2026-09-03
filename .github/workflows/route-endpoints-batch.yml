@@ -17,11 +17,20 @@ name: Точки начала/конца из паспорта (вручную)
 #
 # Почему раннер: прод из среды разработчика недостижим (403 на CONNECT).
 #
-# Перепись запускается и правкой .github/triggers/route-endpoints-batch.json
-# в main (02.09): workflow_dispatch через интеграцию GitHub отвечает 403
-# «Resource not accessible by integration», и без маркера перепись была бы
-# доступна только руками из интерфейса Actions. По push идёт ТОЛЬКО census —
-# у dry/apply входы обязательны, а у push их нет.
+# Запуск маркером .github/triggers/route-endpoints-batch.json в main (02.09):
+# workflow_dispatch через интеграцию GitHub отвечает 403 «Resource not
+# accessible by integration», и без маркера всё это было бы доступно только
+# руками из интерфейса Actions.
+#
+# 03.09 маркер несёт ВСЕ входы, а не только перепись: сухой прогон партии
+# ждал клика владельца сутки, хотя он ничего не пишет и зовёт только модель.
+# Умолчание маркера без `mode` — по-прежнему census: файл, забытый в
+# репозитории, не должен однажды уехать боевой партией.
+#
+# Настоящие предохранители партии живут в АКТУАТОРЕ, а не здесь: сухой
+# прогон по умолчанию, партия не больше 10, source и why обязательны и без
+# умолчаний, старые значения возвращаются в ответе и служат откатом.
+# Воркфлоу их повторяет, но не заменяет.
 
 on:
   push:
@@ -49,23 +58,57 @@ on:
         required: false
         default: ''
 
-# Токен GitHub не нужен: один curl на vedarai.ru с CRON_SECRET и сводка в
-# $GITHUB_STEP_SUMMARY.
-permissions: {}
+# Репозиторий читается только ради маркера; ничего не пишется.
+permissions:
+  contents: read
 
 jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Параметры — из ввода или из маркера
+        id: cfg
+        env:
+          IN_MODE: ${{ inputs.mode || '' }}
+          IN_ROUTE_IDS: ${{ inputs.route_ids || '' }}
+          IN_SOURCE: ${{ inputs.source || '' }}
+          IN_WHY: ${{ inputs.why || '' }}
+        run: |
+          set -u
+          # Ручной запуск даёт inputs; пуш маркера — нет. Дальше по шагам
+          # идёт ОДИН источник параметров, чтобы не держать две ветки логики
+          # (тот же приём, что у сборки пакета карты).
+          python3 - <<'PY'
+          import json, os
+          marker = {}
+          try:
+              with open('.github/triggers/route-endpoints-batch.json') as f:
+                  marker = json.load(f)
+          except Exception:
+              marker = {}
+          def pick(env_key, marker_key, default=''):
+              v = os.environ.get(env_key) or marker.get(marker_key) or default
+              # Перевод строки в значении разорвал бы файл окружения.
+              return str(v).replace('\n', ' ').replace('\r', ' ').strip()
+          values = {
+              'MODE': pick('IN_MODE', 'mode', 'census'),
+              'ROUTE_IDS': pick('IN_ROUTE_IDS', 'route_ids'),
+              'SOURCE': pick('IN_SOURCE', 'source'),
+              'WHY': pick('IN_WHY', 'why'),
+          }
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for k, v in values.items():
+                  env.write(f'{k}={v}\n')
+          print(f"режим: {values['MODE']} · маршрутов в списке: "
+                f"{len([x for x in values['ROUTE_IDS'].split(',') if x.strip()])}")
+          PY
+
       - name: Перепись или партия
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          # По push входов нет: режим — перепись, остальное пусто.
-          MODE: ${{ inputs.mode || 'census' }}
-          ROUTE_IDS: ${{ inputs.route_ids || '' }}
-          SOURCE: ${{ inputs.source || '' }}
-          WHY: ${{ inputs.why || '' }}
         run: |
           set -u
           if [ -z "$CRON_SECRET" ]; then
