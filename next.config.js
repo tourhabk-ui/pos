@@ -134,6 +134,10 @@ const nextConfig = {
       // «Работа Volcano OS» (ядро) отвечали на один вопрос «жив ли агент» с
       // двух плиток. Теперь агенты — вкладка кокпита.
       { source: '/hub/admin/agents', destination: '/hub/admin/volcano?tab=agents', permanent: false },
+      // Четвёртая пара: «Модели эволюции» (/v1/models у провайдеров) и проба
+      // провайдеров на Health-метриках отвечали на один вопрос «кто сейчас
+      // отвечает». Теперь модели — вкладка Health-метрик.
+      { source: '/hub/admin/evo/models', destination: '/hub/admin/health?tab=models', permanent: false },
       // /home-v7 — dev-превью новой главной (noindex, без ссылок). Реорг Этап 2:
       // код переехал в app/_home/ (приватная папка, не роут), роут /home-v7 убран.
       // 301 на / — страховка от старых закладок на превью.

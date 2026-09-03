@@ -5,7 +5,7 @@ import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
   Briefcase, UserCheck, BarChart3, DollarSign, Footprints, Coins,
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Send,
-  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe, MapPin, Cpu,
+  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe, MapPin,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
   Trash2, Webhook, Eye, Gauge,
 } from 'lucide-react';
@@ -66,7 +66,8 @@ const SIDEBAR_ITEMS = [
   // агент». Старый адрес — редирект в next.config.
   { href: '/hub/admin/volcano', label: 'Работа Volcano OS', icon: Gauge, section: 'AI' },
   { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
-  { href: '/hub/admin/evo/models', label: 'Модели эволюции', icon: Cpu, section: 'AI' },
+  // 03.09: «Модели эволюции» (/hub/admin/evo/models) стали вкладкой
+  // Health-метрик — та же проба провайдеров, другим взглядом. Редирект в next.config.
   // 03.09: «Разведка» (/hub/admin/intelligence) стала вкладкой Brain — обе
   // страницы читали одну agent_memory. Старый адрес — редирект в next.config.
   { href: '/hub/admin/brain', label: 'Память и разведка', icon: Brain, section: 'AI' },
