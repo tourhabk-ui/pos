@@ -45,6 +45,8 @@ export interface ReadinessRow {
   base_price: number | null;
   duration_hours: number | null;
   has_meeting_point: boolean;
+  /** Условия отмены записаны оператором (колонка с миграции 931). */
+  has_cancellation_policy: boolean;
   has_coords: boolean;
   has_operator_contact: boolean;
   included_count: number;
@@ -73,6 +75,10 @@ export function missingFields(r: ReadinessRow): string[] {
   if (r.base_price === null || r.base_price <= 0) missing.push('base_price');
   if (r.duration_hours === null) missing.push('duration_hours');
   if (!r.has_meeting_point) missing.push('pickup');
+  // Условия отмены: покупатель на чужой витрине обязан знать, что будет с
+  // деньгами при отмене, и «не знаю» тут не публикуется. До 931 это был
+  // пробел схемы; теперь — пробел данных, чинится оператором в кабинете.
+  if (!r.has_cancellation_policy) missing.push('cancellation_policy');
   if (!r.has_coords) missing.push('coordinates');
   if (!r.has_operator_contact) missing.push('operator_contact');
   return missing;
@@ -84,7 +90,8 @@ export function missingFields(r: ReadinessRow): string[] {
  */
 export const SCHEMA_GAPS = [
   { field: 'language',            note: 'язык проведения тура — колонки нет; для иностранной витрины это обычно обязательное поле' },
-  { field: 'cancellation_policy', note: 'политика отмены — колонки нет; сейчас правило отмены живёт только в коде крона (24 часа без оплаты)' },
+  // 'cancellation_policy' снят 03.09: колонка заведена миграцией 931, поле
+  // переехало из пробелов схемы в пробелы данных (missingFields выше).
   { field: 'instant_confirmation',note: 'подтверждается ли бронь мгновенно — колонки нет; у нас подтверждение делает оператор' },
 ] as const;
 
@@ -108,6 +115,7 @@ export async function GET(req: NextRequest) {
         ot.base_price,
         ot.duration_hours,
         (ot.meeting_point IS NOT NULL AND LENGTH(TRIM(ot.meeting_point)) > 0) AS has_meeting_point,
+        (ot.cancellation_policy IS NOT NULL AND LENGTH(TRIM(ot.cancellation_policy)) > 0) AS has_cancellation_policy,
         (ot.latitude IS NOT NULL AND ot.longitude IS NOT NULL)               AS has_coords,
         (p.contact IS NOT NULL AND p.contact::text <> '{}')                  AS has_operator_contact,
         COALESCE(ARRAY_LENGTH(ot.included, 1), 0)           AS included_count,

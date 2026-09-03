@@ -8,7 +8,7 @@ import {
   MapPin, Clock, CheckCircle2, XCircle, ChevronDown,
   ChevronRight, Users, Backpack, Shield, X, LifeBuoy,
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
-  Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle,
+  Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle, RotateCcw,
 } from 'lucide-react';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
@@ -55,6 +55,7 @@ interface TourFull {
   latitude: string | null;
   longitude: string | null;
   meeting_point: string | null;
+  cancellation_policy: string | null;
   tour_image: string | null;
   photos: string[] | null;
   max_participants: number;
@@ -806,6 +807,20 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                     </div>
                   ))}
                   <p className="text-xs text-[var(--text-muted)] pt-1">Точное время оператор подтверждает после брони.</p>
+                </div>
+              </section>
+            )}
+
+            {/* Отмена и возврат — только слова оператора (931). Нет записи —
+                нет блока: типовых условий за оператора карточка не сочиняет. */}
+            {tour.cancellation_policy && (
+              <section>
+                <SectionTitle icon={RotateCcw}>Отмена и возврат</SectionTitle>
+                <div className="ds-card p-5 space-y-2.5">
+                  {tour.cancellation_policy.split('\n').filter(l => l.trim()).map((line, i) => (
+                    <p key={i} className="text-sm text-[var(--text-secondary)]">{line}</p>
+                  ))}
+                  <p className="text-xs text-[var(--text-muted)] pt-1">Условия оператора. Спорные случаи решаются с ним напрямую.</p>
                 </div>
               </section>
             )}
