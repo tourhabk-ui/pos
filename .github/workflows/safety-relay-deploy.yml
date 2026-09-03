@@ -117,3 +117,34 @@ jobs:
           fi
 
           echo "Каналы достижимы: реле будет доставлять КБГС и EQKam каждые 5 минут."
+
+      # Перепись кандидатов для разведчика (03.09): какие внешние адреса
+      # читаются с края Cloudflare. Список — в маркере (census_urls), потому
+      # что решать, что вносить в RSS_SOURCES, надо по замеру, а не по
+      # догадке: из песочницы агента эти домены закрыты, из прода — часть
+      # гео-закрыта. Шаг не красит прогон: отказ адреса — это ответ переписи,
+      # а не поломка выкатки.
+      - name: Перепись внешних адресов с края Cloudflare (для разведчика)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -u
+          URLS=$(python3 -c "import json; print(','.join(json.load(open('.github/triggers/safety-relay-deploy.json')).get('census_urls', [])))" 2>/dev/null || echo "")
+          if [ -z "$URLS" ]; then
+            echo "census_urls в маркере пуст — переписи нет."
+            exit 0
+          fi
+          HTTP=$(curl -s -o /tmp/census.json -w '%{http_code}' --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --get --data-urlencode "urls=$URLS" "$URL/census") || HTTP="000"
+          echo "HTTP: $HTTP"
+          cat /tmp/census.json || true
+          echo
+          {
+            echo "## Перепись внешних адресов с края Cloudflare"
+            echo
+            echo '```json'
+            cat /tmp/census.json 2>/dev/null || echo '{}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
