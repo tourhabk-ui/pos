@@ -5,7 +5,7 @@ import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
   Briefcase, UserCheck, BarChart3, DollarSign, Footprints, Coins,
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
-  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, MapPin, Cpu,
+  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe, MapPin, Cpu,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
   Trash2, Webhook, Eye, Gauge,
 } from 'lucide-react';
@@ -65,13 +65,14 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/volcano', label: 'Работа Volcano OS', icon: Gauge, section: 'AI' },
   { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
   { href: '/hub/admin/evo/models', label: 'Модели эволюции', icon: Cpu, section: 'AI' },
-  { href: '/hub/admin/brain', label: 'Volcano Brain', icon: Brain, section: 'AI' },
+  // 03.09: «Разведка» (/hub/admin/intelligence) стала вкладкой Brain — обе
+  // страницы читали одну agent_memory. Старый адрес — редирект в next.config.
+  { href: '/hub/admin/brain', label: 'Память и разведка', icon: Brain, section: 'AI' },
   { href: '/hub/admin/taaft', label: 'AI-инструменты', icon: Globe, section: 'AI' },
   { href: '/hub/admin/knowledge', label: 'База знаний AI', icon: Brain, section: 'AI' },
   // Отчёт по AI-инициативам. Живёт вне /hub/admin, свою проверку роли делает
   // сам; в меню его не было ни разу.
   { href: '/transparency', label: 'Transparency Hub', icon: Eye, section: 'AI' },
-  { href: '/hub/admin/intelligence', label: 'Разведка', icon: Radar, section: 'AI' },
   { href: '/hub/admin/ai-prompts', label: 'Оптим. промптов', icon: Sparkles, section: 'AI' },
 
   // Каналы

@@ -21,7 +21,9 @@ const ROOT = process.cwd();
 const MONITOR = readFileSync(join(ROOT, 'lib/services/intelligence-monitor.service.ts'), 'utf-8');
 const BRIDGE = readFileSync(join(ROOT, 'lib/agents/evo/intel-bridge.ts'), 'utf-8');
 const ACTION_ROUTE = readFileSync(join(ROOT, 'app/api/admin/intelligence-feed/[id]/action/route.ts'), 'utf-8');
-const FEED_UI = readFileSync(join(ROOT, 'app/hub/admin/intelligence/_IntelligenceSourcesClient.tsx'), 'utf-8');
+// 03.09: клиент переехал под /hub/admin/brain вкладкой «Разведка» — страница
+// /hub/admin/intelligence читала ту же agent_memory и снята (редирект в next.config).
+const FEED_UI = readFileSync(join(ROOT, 'app/hub/admin/brain/_IntelligenceClient.tsx'), 'utf-8');
 
 const finding = (over: Partial<MonitorFinding>): MonitorFinding => ({
   domain: 'ai_tech',

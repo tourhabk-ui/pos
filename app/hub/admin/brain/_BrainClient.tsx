@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Brain, RefreshCw, Activity, Database, Zap, AlertTriangle, CheckCircle, Clock, TrendingUp, Layers } from 'lucide-react';
+import { Brain, RefreshCw, Activity, Database, Zap, AlertTriangle, CheckCircle, Clock, TrendingUp, Layers, Radar } from 'lucide-react';
+import IntelligenceClient from './_IntelligenceClient';
 
 interface MemoryStat {
   agent_id: string;
@@ -135,8 +136,21 @@ function StatCard({ label, value, sub, color }: { label: string; value: number |
 export function BrainClient() {
   const [data, setData] = useState<BrainData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'feed' | 'agents' | 'types' | 'edits' | 'knowledge'>('knowledge');
+  const [tab, setTab] = useState<'feed' | 'agents' | 'types' | 'edits' | 'knowledge' | 'intel'>('knowledge');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  /**
+   * Вкладка «Разведка» (перепись админ-панели 03.09). Плитка «Разведка»
+   * читала ту же agent_memory, что и Brain, только с фильтром
+   * memory_type='intelligence'; а её вторая половина — источники (RSS,
+   * поиск) — уникальна и переезжает сюда целиком. Адрес ?tab=intel читается
+   * после монтирования: на сервере window нет, а редирект со снятого
+   * /hub/admin/intelligence должен открывать именно эту вкладку.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('tab') === 'intel') setTab('intel');
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -246,6 +260,7 @@ export function BrainClient() {
           { id: 'agents', label: 'По агентам', icon: Layers },
           { id: 'types', label: 'По типам', icon: TrendingUp },
           { id: 'edits', label: 'Изменения', icon: Zap },
+          { id: 'intel', label: 'Разведка', icon: Radar },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -477,6 +492,11 @@ export function BrainClient() {
           )}
         </div>
       )}
+
+      {/* Разведка: лента memory_type='intelligence' + источники. Клиент
+          перенесён из /hub/admin/intelligence без изменений содержания —
+          свои под-вкладки (сводка / источники) он держит сам. */}
+      {tab === 'intel' && <IntelligenceClient />}
     </div>
   );
 }
