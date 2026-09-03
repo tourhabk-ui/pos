@@ -25,9 +25,15 @@ name: Сейсмо-реле — выкатка и проверка достиж�
 on:
   workflow_dispatch:
   push:
-    # Отдельная ветка — у токена агента нет права на workflow_dispatch (403).
-    # Приём в репозитории принят (road-graph-probe-point, cronjob-sync).
-    branches: [safety-relay-deploy]
+    # Маркер в main, а не отдельная ветка (03.09). Прежний триггер — пуш ветки
+    # safety-relay-deploy — из среды агента не срабатывает: ветка запушена
+    # 03.09 09:00 UTC, прогонов ноль, потому что пуш идёт от имени интеграции,
+    # а dispatch отвечает 403. Мерж PR в main — единственный пуш, который
+    # воркфлоу отсюда видят; тот же приём, что у prod-check и
+    # route-endpoints-batch.
+    branches: [main]
+    paths:
+      - '.github/triggers/safety-relay-deploy.json'
 
 permissions:
   contents: read

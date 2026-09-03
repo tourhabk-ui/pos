@@ -1,0 +1,5 @@
+{
+  "note": "Маркер запуска safety-relay-deploy.yml: правка этого файла в main выкатывает воркер Cloudflare infra/safety-relay (сейсмо-реле КБГС/EQKam) и гоняет /selftest без отправки на прод. Меняйте run, чтобы прогон был новым. Нужны секреты репозитория CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CRON_SECRET.",
+  "run": 1,
+  "run1_reason": "Первая выкатка 03.09: владелец завёл CLOUDFLARE_API_TOKEN в секретах GitHub. Пуш ветки safety-relay-deploy и dispatch через интеграцию воркфлоу не запускают."
+}
