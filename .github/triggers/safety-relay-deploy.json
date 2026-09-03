@@ -1,5 +1,7 @@
 {
   "note": "Маркер запуска safety-relay-deploy.yml: правка этого файла в main выкатывает воркер Cloudflare infra/safety-relay (сейсмо-реле КБГС/EQKam) и гоняет /selftest без отправки на прод. Меняйте run, чтобы прогон был новым. Нужны секреты репозитория CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CRON_SECRET.",
-  "run": 1,
-  "run1_reason": "Первая выкатка 03.09: владелец завёл CLOUDFLARE_API_TOKEN в секретах GitHub. Пуш ветки safety-relay-deploy и dispatch через интеграцию воркфлоу не запускают."
+  "run": 2,
+  "run1_reason": "Первая выкатка 03.09: владелец завёл CLOUDFLARE_API_TOKEN в секретах GitHub. Пуш ветки safety-relay-deploy и dispatch через интеграцию воркфлоу не запускают.",
+  "run1_result": "Секрет принят, воркер выкачен на https://vedar-safety-relay.tourhabk.workers.dev с расписанием */5, но /selftest ответил 404 «error code: 1042» до входа в воркер (наш 404 отвечает словами). Известный случай: hostname workers.dev не привязался сразу после деплоя.",
+  "run2_reason": "Повтор с явным workers_dev = true в wrangler.toml и после паузы на распространение. Если 1042 повторится — дело не в конфиге, а на стороне Cloudflare, и проверять реле надо по следу на проде: приёмник safety-ingest должен получать посты каждые 5 минут (cron-триггер от hostname не зависит)."
 }
