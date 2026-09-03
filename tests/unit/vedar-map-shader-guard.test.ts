@@ -64,7 +64,9 @@ describe('VedarMap: сбой кадра — не чёрное поле', () => {
     expect(vector).toMatch(/--minimum-zoom=8/);
   });
 
-  it('приборная колонка печатает заметку карты без слова «не отрисовалась» — она может и рисовать', () => {
-    expect(CLIENT).toMatch(/Своя карта: \{vedarDiag\}/);
+  it('приборная колонка не дописывает «не отрисовалась» — заметка может прийти и от рисующей карты', () => {
+    const at = CLIENT.indexOf("fieldBaseMap.kind === 'vedar' && vedarDiag");
+    expect(at).toBeGreaterThan(0);
+    expect(CLIENT.slice(at, at + 500)).not.toMatch(/не отрисовалась: \{vedarDiag\}/);
   });
 });
