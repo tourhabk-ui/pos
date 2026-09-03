@@ -3,6 +3,8 @@
  * Координаты bbox — приближённые, уточняются по мере сбора геоданных.
  */
 
+import { gridCellById, type GridCellId } from '@/lib/geo/grid-cells';
+
 export type RegionId =
   | 'avacha-group'       // Авачинский, Корякский, Козельский
   | 'mutnovsky-gorely'   // Мутновский, Горелый, Опала
@@ -153,6 +155,30 @@ export const REGIONS: Record<RegionId, Region> = {
 
 /** Список всех регионов как массив */
 export const REGIONS_LIST: Region[] = Object.values(REGIONS);
+
+/**
+ * Район пакета карты: нарисованный район реестра ИЛИ градусная клетка сетки
+ * (lib/geo/grid-cells.ts, «вся Камчатка», 03.09). Клетки — не районы для
+ * человека (в списке офлайн-скачивания их нет), но пакет у них того же
+ * устройства, и конвейер сборки, хранилище и карта различать их не должны.
+ */
+export type PackRegionId = RegionId | GridCellId;
+
+export function isRegionId(id: string): id is RegionId {
+  return Object.prototype.hasOwnProperty.call(REGIONS, id);
+}
+
+/** Границы района или клетки; null — такого id в реестре нет. */
+export function packRegionBbox(id: string): RegionBbox | null {
+  if (isRegionId(id)) return REGIONS[id].bbox;
+  return gridCellById(id)?.bbox ?? null;
+}
+
+/** Центр района или клетки; null — такого id в реестре нет. */
+export function packRegionCenter(id: string): { lat: number; lng: number } | null {
+  if (isRegionId(id)) return REGIONS[id].center;
+  return gridCellById(id)?.center ?? null;
+}
 
 // getRoutesInBbox и getRegionForPoint убраны 22.08.2026 (перепись).
 //

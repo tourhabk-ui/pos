@@ -142,6 +142,6 @@ describe('конвейер', () => {
     expect(WF).toContain('--fine-out');
     expect(WF).toContain('scripts/map-tiles/build_vector.sh');
     expect(WF).toMatch(/\.vector\.pmtiles"\n/);
-    expect(UP).toContain('vectorKey(region as RegionId)');
+    expect(UP).toContain('vectorKey(region as PackRegionId)');
   });
 });
