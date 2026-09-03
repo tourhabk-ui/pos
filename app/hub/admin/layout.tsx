@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
   Briefcase, UserCheck, BarChart3, DollarSign, Footprints, Coins,
-  Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
+  Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe, MapPin, Cpu,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
   Trash2, Webhook, Eye, Gauge,
@@ -59,9 +59,11 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/operator-sites', label: 'Сайты операторов', icon: ShieldCheck, section: 'Аналитика' },
 
   // AI
-  { href: '/hub/admin/agents', label: 'AI и автоматизации', icon: Zap, section: 'AI' },
   // Кокпит ядра (P3): задачи/события kernel и «Ждут моего решения». Только
   // просмотр — решения по agent-PR принимаются в GitHub, не здесь.
+  // 03.09: «AI и автоматизации» (/hub/admin/agents, живость cron-агентов)
+  // стала вкладкой кокпита — обе плитки отвечали на один вопрос «жив ли
+  // агент». Старый адрес — редирект в next.config.
   { href: '/hub/admin/volcano', label: 'Работа Volcano OS', icon: Gauge, section: 'AI' },
   { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
   { href: '/hub/admin/evo/models', label: 'Модели эволюции', icon: Cpu, section: 'AI' },

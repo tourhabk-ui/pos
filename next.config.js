@@ -130,6 +130,10 @@ const nextConfig = {
       // Та же перепись: «Разведка» и Volcano Brain читали одну agent_memory
       // (intelligence_* ключи) с двух страниц. Теперь разведка — вкладка Brain.
       { source: '/hub/admin/intelligence', destination: '/hub/admin/brain?tab=intel', permanent: false },
+      // Та же перепись, третья пара: «AI и автоматизации» (живость кронов) и
+      // «Работа Volcano OS» (ядро) отвечали на один вопрос «жив ли агент» с
+      // двух плиток. Теперь агенты — вкладка кокпита.
+      { source: '/hub/admin/agents', destination: '/hub/admin/volcano?tab=agents', permanent: false },
       // /home-v7 — dev-превью новой главной (noindex, без ссылок). Реорг Этап 2:
       // код переехал в app/_home/ (приватная папка, не роут), роут /home-v7 убран.
       // 301 на / — страховка от старых закладок на превью.
