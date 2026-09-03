@@ -83,6 +83,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
   'funnel-census':             { kind: 'manual', writes: false, note: 'числа воронки целиком: срезы health закрыты requireAdmin, объектив эволюции отдаёт вердикт без цифр' },
   'beacon-check':              { kind: 'manual', writes: false, note: 'способен ли приёмник маяка записать событие: тот же INSERT в транзакции с гарантированным откатом' },
+  'scout-relay-check':         { kind: 'manual', writes: false, note: 'читает ли прод источники разведчика через реле Cloudflare: только чтение, без модели и публикации' },
   'sql-shape-check':           { kind: 'manual', writes: false, note: 'разбираются ли запросы формы INSERT ... SELECT $n ... WHERE NOT EXISTS: PREPARE без выполнения' },
   'booking-attempts':          { kind: 'manual', writes: false, note: 'сколько броней создано, сколько не дошло до денег, сколько сорвалось пятисоткой; попытки-касания — только с починки маяка' },
   'locked-out-partners':       { kind: 'manual', writes: false, note: 'аккаунт есть, партнёрского профиля нет: точный счёт потерь на запертой двери регистрации' },
