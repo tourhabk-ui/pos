@@ -1204,13 +1204,15 @@ export interface CompositeBooking {
 }
 
 // ──────────────────────────────────────────────────────────
-// Admin — Knowledge Base (agent_route_knowledge)
+// Admin — Knowledge Base (places UNION kamchatka_routes, 03.09 — не VIEW)
 // ──────────────────────────────────────────────────────────
 
 export interface KnowledgeRouteRow {
   id: string;
+  /** Что это за строка: место (id = places.ark_id) или маршрут (id = kamchatka_routes.id). */
+  kind: 'place' | 'route';
   title: string;
-  category: string;
+  category: string | null;
   description: string | null;
   source_url: string | null;
   source_name: string | null;
@@ -1226,8 +1228,15 @@ export interface KnowledgeRouteRow {
 }
 
 export interface KnowledgeCategoryStatsRow {
-  category: string;
+  category: string | null;
   count: string;
+}
+
+export interface KnowledgeTotalsRow {
+  total: string;
+  embedded: string;
+  places: string;
+  routes: string;
 }
 
 export interface KnowledgeSourceStatsRow {
