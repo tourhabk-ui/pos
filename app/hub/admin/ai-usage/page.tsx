@@ -1,7 +1,25 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Coins, RefreshCw, Cpu } from 'lucide-react';
+import { Coins, RefreshCw, Cpu, Sparkles } from 'lucide-react';
+import KuzmichAnalyticsClient from './_KuzmichAnalyticsClient';
+
+/**
+ * Две вкладки на одной таблице (перепись админ-панели 03.09).
+ *
+ * «Расходы AI» и «AI Кузьмич» читали один и тот же журнал ai_actions_log с
+ * двух страниц в разных разделах меню: первая — сколько и каким провайдером,
+ * вторая — те же действия глазами чатов с Кузьмичом. Два входа на один
+ * источник — это не два инструмента, а один, показанный дважды. Вкладка
+ * берётся из адреса (?tab=kuzmich), чтобы старые ссылки и редирект со
+ * снятого /hub/admin/ai-analytics открывали именно её.
+ */
+type UsageTab = 'usage' | 'kuzmich';
+
+function tabFromLocation(): UsageTab {
+  if (typeof window === 'undefined') return 'usage';
+  return new URLSearchParams(window.location.search).get('tab') === 'kuzmich' ? 'kuzmich' : 'usage';
+}
 
 interface AiUsageData {
   totals: { today: number; week: number; month: number };
@@ -12,6 +30,20 @@ interface AiUsageData {
 }
 
 export default function AdminAiUsagePage() {
+  const [tab, setTab] = useState<UsageTab>('usage');
+  // Адрес читается после монтирования: на сервере window нет, а рендер с
+  // разной вкладкой на сервере и клиенте дал бы расхождение разметки.
+  useEffect(() => { setTab(tabFromLocation()); }, []);
+  const switchTab = (next: UsageTab) => {
+    setTab(next);
+    try {
+      const url = new URL(window.location.href);
+      if (next === 'kuzmich') url.searchParams.set('tab', 'kuzmich');
+      else url.searchParams.delete('tab');
+      window.history.replaceState(null, '', url.toString());
+    } catch { /* адрес не обновился — переключение всё равно состоялось */ }
+  };
+
   const [data, setData] = useState<AiUsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +74,11 @@ export default function AdminAiUsagePage() {
   const maxType = data ? Math.max(...data.by_action_type.map(t => t.count), 1) : 1;
   const maxProvider = data ? Math.max(...data.by_provider.map(p => p.count), 1) : 1;
 
+  const tabs: Array<{ id: UsageTab; label: string; Icon: typeof Coins }> = [
+    { id: 'usage', label: 'Расходы', Icon: Coins },
+    { id: 'kuzmich', label: 'Кузьмич', Icon: Sparkles },
+  ];
+
   return (
     <div className="p-5 lg:p-6 space-y-5">
       <div className="flex items-center justify-between">
@@ -49,14 +86,40 @@ export default function AdminAiUsagePage() {
           <Coins className="w-4 h-4 text-[var(--text-muted)]" />
           <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Расходы AI</h1>
         </div>
-        <button
-          onClick={fetchData}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
-        >
-          <RefreshCw className="w-3 h-3" /> Обновить
-        </button>
+        {tab === 'usage' && (
+          <button
+            onClick={fetchData}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Обновить
+          </button>
+        )}
       </div>
 
+      {/* Вкладки: один журнал — два взгляда. Кнопки, не ссылки: адрес обновляется
+          replaceState, страница не перезагружается. */}
+      <div role="tablist" className="flex gap-1 border-b border-[var(--border)]">
+        {tabs.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => switchTab(id)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+              tab === id
+                ? 'border-[var(--accent)] text-[var(--accent)]'
+                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'kuzmich' ? (
+        <KuzmichAnalyticsClient />
+      ) : (
+      <>
       <p className="text-xs text-[var(--text-muted)]">
         Активность AI-агентов из журнала ai_actions_log: сколько раз какое действие
         отработало, каким провайдером, во времени.
@@ -179,6 +242,8 @@ export default function AdminAiUsagePage() {
             </div>
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );

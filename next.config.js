@@ -122,6 +122,11 @@ const nextConfig = {
       { source: '/tours',              destination: '/catalog',                        permanent: true },
       { source: '/terms',              destination: '/legal/terms',                    permanent: true },
       { source: '/auth/register',      destination: '/operators/join',                 permanent: false },
+      // Перепись админ-панели 03.09: «AI Кузьмич» и «Расходы AI» читали одну
+      // таблицу ai_actions_log с двух страниц в разных разделах меню. Теперь
+      // одна страница с вкладками; старый адрес живёт в закладках и в
+      // отчётах агентов — редирект, а не 404.
+      { source: '/hub/admin/ai-analytics', destination: '/hub/admin/ai-usage?tab=kuzmich', permanent: false },
       // /home-v7 — dev-превью новой главной (noindex, без ссылок). Реорг Этап 2:
       // код переехал в app/_home/ (приватная папка, не роут), роут /home-v7 убран.
       // 301 на / — страховка от старых закладок на превью.

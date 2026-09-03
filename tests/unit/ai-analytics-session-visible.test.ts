@@ -20,7 +20,9 @@ const strip = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 
 const ROUTE = strip(read('app/api/admin/ai-analytics/chats/route.ts'));
-const CLIENT = strip(read('app/hub/admin/ai-analytics/_AIAnalyticsClient.tsx'));
+// 03.09: клиент переехал под /hub/admin/ai-usage вкладкой «Кузьмич» — страница
+// /hub/admin/ai-analytics читала ту же таблицу и снята (редирект в next.config).
+const CLIENT = strip(read('app/hub/admin/ai-usage/_KuzmichAnalyticsClient.tsx'));
 
 describe('API отдаёт источник перехода', () => {
   it('referrer_source и utm_source выбираются из chat_sessions', () => {
