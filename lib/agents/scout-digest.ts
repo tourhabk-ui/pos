@@ -305,8 +305,10 @@ export const RSS_SOURCES: ScoutSource[] = [
   // источники живут на реле вне РФ (scout-relay) и без него честно
   // отчитаются отказом. Ссылка-приглашение t.me/+ll3pbl442dNkZmYy из того же
   // сообщения НЕ добавлена: это закрытый чат без превью, читать его нельзя
-  // по построению (см. isTelegramInvite). Сайт РСТ rostourunion.ru ждёт
-  // переписи /census: ленты у него на известных адресах нет, гадать не будем.
+  // по построению (см. isTelegramInvite). Сайт РСТ rostourunion.ru проверен
+  // переписью /census с края Cloudflare (safety-relay-deploy run 6, 03.09):
+  // /rss/, /rss.xml, /news/rss/, /feed/ — 404, корень — HTML. Ленты у сайта
+  // нет, в источники он не внесён; новости РСТ идут из канала tg_ru_rst.
   { key: 'tg_ru_rst',        url: 'https://t.me/s/ru_rst',        label: 'РСТ (Telegram)',        category: 'travel', kind: 'telegram' },
   { key: 'tg_minec_tourism', url: 'https://t.me/s/minec_tourism', label: 'Минэк — туризм',        category: 'travel', kind: 'telegram' },
   { key: 'tg_vibecoding',    url: 'https://t.me/s/vibecoding_tg', label: 'Vibecoding (Telegram)', category: 'ai',     kind: 'telegram' },
