@@ -78,6 +78,7 @@ import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
 import { bearingDeg } from '@/lib/on-route/bearing';
+import { isUuid } from '@/lib/text/slugify';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
@@ -4510,8 +4511,17 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
        * монтирования, то есть строго позже этого.
        */
       const route = params.get('route');
-      if (route) {
+      // Ссылка приходит откуда угодно — её могли переслать, сократить,
+      // испортить. Полевой экран навигирует человека по маршруту, который
+      // отсюда назначается, и подставлять в него что попало нельзя ни в
+      // каком виде: id маршрута — UUID, и всё остальное не маршрут, а
+      // строка (её потом ещё и подставили бы в адрес /api/routes/…).
+      if (route && isUuid(route)) {
         try { localStorage.setItem('active_trail_route_id', route); } catch { /* приват-режим */ }
+      } else if (route) {
+        // Не молчим: экран покажет ПРЕЖНИЙ маршрут, и человек должен иметь
+        // возможность понять, почему открылось не то, что он ждал.
+        console.error('[planning] маршрут из адреса не похож на id — оставлен прежний');
       }
       if (params.get('mode') === 'trail') setTab('trail');
     }

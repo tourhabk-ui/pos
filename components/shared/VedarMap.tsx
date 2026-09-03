@@ -534,18 +534,25 @@ export default function VedarMap({
           // повторять нельзя: человек в поле должен понимать, почему часть
           // карты пуста прямо сейчас.
           let retrying = false;
-          if (sourceId && file && !retriedSources.has(sourceId)) {
-            const src = map.getSource(sourceId) as GeoJSONSource | undefined;
-            if (src && typeof src.setData === 'function') {
-              retriedSources.add(sourceId);
-              awaitingRetry = sourceId;
-              retrying = true;
-              try { src.setData(file); } catch (err) {
-                retrying = false;
-                awaitingRetry = null;
-                console.error('[VedarMap] повтор источника не удался', sourceId, err);
+          // Весь повтор — под try целиком, а не только setData. Этот
+          // обработчик стоит на экране, по которому идут в поле: исключение
+          // отсюда улетело бы внутрь MapLibre (fire), и строка об ошибке,
+          // ради которой всё это писалось, до человека бы не дошла. Отказ
+          // самой диагностики не должен стоить диагностики.
+          try {
+            if (sourceId && file && !retriedSources.has(sourceId)) {
+              const src = map.getSource(sourceId) as GeoJSONSource | undefined;
+              if (src && typeof src.setData === 'function') {
+                retriedSources.add(sourceId);
+                awaitingRetry = sourceId;
+                retrying = true;
+                src.setData(file);
               }
             }
+          } catch (err) {
+            retrying = false;
+            awaitingRetry = null;
+            console.error('[VedarMap] повтор источника не удался', sourceId, err);
           }
 
           setMapError(mapErrorText({
