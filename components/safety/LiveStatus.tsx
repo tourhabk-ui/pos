@@ -123,7 +123,7 @@ const LEVEL_COLOR: Record<string, string> = {
 };
 const KIND_LABEL: Record<string, string> = {
   volcano: 'Вулкан', thermal: 'Термы', quake: 'Сейсмика',
-  bear: 'Медведь', report: 'Наблюдение',
+  bear: 'Медведь', fire: 'Пожар', report: 'Наблюдение',
 };
 /**
  * Внешнее кольцо радара.
@@ -362,6 +362,18 @@ export function RadarScope({ hazards, center, degraded = false }: {
                     fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} strokeLinejoin="round"
                     style={shadow}
                   />
+                ) : h.kind === 'fire' ? (
+                  // Ромб — своя форма для пожара (03.09, владелец: «на радаре
+                  // есть пожары, отметь другим значком»). Термоточки NASA
+                  // FIRMS раньше рисовались тем же кругом, что медведь и
+                  // погода, — различить пожар среди них можно было только
+                  // тапом. Третья форма после треугольника вулкана: круг
+                  // остаётся за всем, для чего своей формы нет.
+                  <polygon
+                    points={`${h.x},${h.y - r * 1.3} ${h.x + r * 1.3},${h.y} ${h.x},${h.y + r * 1.3} ${h.x - r * 1.3},${h.y}`}
+                    fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} strokeLinejoin="round"
+                    style={shadow}
+                  />
                 ) : (
                   <circle cx={h.x} cy={h.y} r={r} fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} style={shadow} />
                 )}
@@ -420,28 +432,49 @@ export function RadarScope({ hazards, center, degraded = false }: {
             <span className="rcount">{placed.length} рядом</span>
           </div>
         )}
-        {/* Форма — только когда на круге реально есть и то, и другое:
-            иначе строка объясняла бы различие, которого сейчас не видно. */}
-        {!sel && placed.some((h) => h.kind === 'volcano') && placed.some((h) => h.kind !== 'volcano') && (
-          <div className="rshapes">
-            <span>
-              <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
-                <polygon points="4.5,0.6 8.3,8.1 0.7,8.1" fill="var(--text-muted)" />
-              </svg>
-              вулкан
-            </span>
-            <span>
-              <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
-                <circle cx="4.5" cy="4.5" r="4" fill="var(--text-muted)" />
-              </svg>
-              сейсмика и остальное
-            </span>
-          </div>
-        )}
+        {/* Форма — только когда на круге реально есть чем различать: иначе
+            строка объясняла бы разницу, которой сейчас не видно. Три формы
+            (треугольник вулкана, ромб пожара, круг остального) появляются в
+            легенде только те, что реально стоят на круге прямо сейчас. */}
+        {!sel && (() => {
+          const hasVolcano = placed.some((h) => h.kind === 'volcano');
+          const hasFire = placed.some((h) => h.kind === 'fire');
+          const hasOther = placed.some((h) => h.kind !== 'volcano' && h.kind !== 'fire');
+          if ([hasVolcano, hasFire, hasOther].filter(Boolean).length < 2) return null;
+          return (
+            <div className="rshapes">
+              {hasVolcano && (
+                <span>
+                  <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+                    <polygon points="4.5,0.6 8.3,8.1 0.7,8.1" fill="var(--text-muted)" />
+                  </svg>
+                  вулкан
+                </span>
+              )}
+              {hasFire && (
+                <span>
+                  <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+                    <polygon points="4.5,0.4 8.4,4.5 4.5,8.6 0.6,4.5" fill="var(--text-muted)" />
+                  </svg>
+                  пожар
+                </span>
+              )}
+              {hasOther && (
+                <span>
+                  <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+                    <circle cx="4.5" cy="4.5" r="4" fill="var(--text-muted)" />
+                  </svg>
+                  сейсмика и остальное
+                </span>
+              )}
+            </div>
+          );
+        })()}
         {/* Честность радара: медведей техника не видит, а это главная реальная
             опасность края. Приписка постоянная — пустой радар не значит «безопасно» */}
         <div className="rhint">
-          Радар видит сейсмику, вулканы КВЕРТ и наблюдения туристов. Медведей он не видит —
+          Радар видит сейсмику, вулканы КВЕРТ, термоточки NASA FIRMS (возможные пожары) и
+          наблюдения туристов. Медведей он не видит —
           на Камчатке медведь может быть рядом всегда: шумите на тропе, держите дистанцию.{' '}
           <Link href="/safety/offline">Протокол встречи →</Link>
         </div>

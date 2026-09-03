@@ -87,7 +87,7 @@ export interface VolcanoPulseItem {
 export interface VolcanoSnapshot { items: VolcanoPulseItem[]; updatedAt: string | null; degraded: boolean }
 
 export type HazardLevel = 'critical' | 'danger' | 'warning';
-export type HazardKind = 'volcano' | 'thermal' | 'quake' | 'bear' | 'report';
+export type HazardKind = 'volcano' | 'thermal' | 'quake' | 'bear' | 'fire' | 'report';
 export interface Hazard {
   lat: number; lng: number;
   level: HazardLevel; kind: HazardKind;
@@ -377,8 +377,15 @@ async function fetchRadarBase(): Promise<{ hazards: Hazard[]; degraded: boolean 
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       const type = (a.alert_type ?? '').toLowerCase();
       const mag = a.magnitude ? parseFloat(a.magnitude) : NaN;
+      // 'fire' — своя ветка (03.09, владелец: «на радаре есть пожары, отметь
+      // другим значком»). До этой правки термоточки NASA FIRMS (реальные
+      // координаты, не декларация) падали в общий 'report' — тот же вид, что
+      // у медведя, погоды и камнепада, — и различить пожар среди них на
+      // радаре можно было только тапом. alert_type у них 'fire_danger'
+      // (wildfire-firms.ts и МЧС-классы в seismic-parser.ts).
       const kind: HazardKind = /volcan|ash/.test(type) ? 'volcano'
         : /quake|seismic|earth/.test(type) ? 'quake'
+        : /fire/.test(type) ? 'fire'
         : 'report';
       // Магнитуда — точнее декларированной важности там, где она есть.
       const level: HazardLevel = Number.isFinite(mag) ? quakeLevel(mag)
