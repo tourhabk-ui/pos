@@ -51,7 +51,9 @@ describe('VedarMap: сбой кадра — не чёрное поле', () => {
 
   it('пустой по построению вид назван словами: зум мельче пакета, вид вне районов', () => {
     expect(MAP).toMatch(/export const PACK_MIN_ZOOM = 8;/);
-    expect(MAP).toMatch(/if \(zoom < PACK_MIN_ZOOM\)/);
+    // Условие с 04.09 несёт вторую половину: обзорный ярус (зумы 4-7)
+    // закрывает мелкий масштаб, и жаловаться на него больше не на что.
+    expect(MAP).toMatch(/if \(zoom < PACK_MIN_ZOOM && !hasOverview\)/);
     expect(MAP).toMatch(/масштаб мельче пакета/);
     expect(MAP).toMatch(/else if \(hit\.length === 0\)/);
     expect(MAP).toMatch(/вид вне всех районов реестра/);
@@ -62,7 +64,7 @@ describe('VedarMap: сбой кадра — не чёрное поле', () => {
     // двумя кусками нарисован. Ниже зума 8 тайлов нет вовсе, значит одно из
     // двух неверно — и по словам без числа не понять, какое. Число в надписи
     // делает следующий полевой скрин решающим.
-    const at = MAP.indexOf('if (zoom < PACK_MIN_ZOOM)');
+    const at = MAP.indexOf('if (zoom < PACK_MIN_ZOOM && !hasOverview)');
     expect(at, 'ветка зума не найдена').toBeGreaterThan(0);
     const body = MAP.slice(at, at + 600);
     expect(body).toMatch(/зум \$\{z\} < \$\{PACK_MIN_ZOOM\}/);
