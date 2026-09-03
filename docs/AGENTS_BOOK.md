@@ -1162,7 +1162,7 @@ runEvoOrchestrator()
 
 #### UI для просмотра (создан в этой сессии)
 
-`/hub/admin/agents` → секция «Эволюция» → вкладки «Проблемы» и «Фиксы»
+`/hub/admin/volcano?tab=agents` → секция «Эволюция» → вкладки «Проблемы» и «Фиксы»
 
 ---
 
@@ -1207,7 +1207,7 @@ file_path, title, description, suggestion, status='open'
 
 #### Как закрыть петлю (UI)
 
-`/hub/admin/agents` → «Фиксы» → просмотреть diff → «Применён» или «Отклонить»
+`/hub/admin/volcano?tab=agents` → «Фиксы» → просмотреть diff → «Применён» или «Отклонить»
 
 ---
 
@@ -1539,7 +1539,7 @@ CLOUDPAYMENTS_SECRET=
 - [ ] `TAVILY_API_KEY` или `BRAVE_SEARCH_API_KEY` — для KB Gap
 - [ ] Запустить `cron-editor.yml` вручную — проверить что описания появляются
 - [ ] Запустить `cron-scout-digest.yml` вручную — получить дайджест в Telegram
-- [ ] `cron-evo.yml` — запустить → проверить `evo_growth_issues` в `/hub/admin/agents`
+- [ ] `cron-evo.yml` — запустить → проверить `evo_growth_issues` в `/hub/admin/volcano?tab=agents`
 
 ### Channel Sync (отдельный проект)
 

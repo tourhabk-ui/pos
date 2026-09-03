@@ -46,6 +46,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/user-photos', label: 'Фото туристов', icon: ImageIcon, section: 'Контент' },
   { href: '/hub/admin/photos', label: 'Загрузка фото', icon: ImageIcon, section: 'Контент' },
   { href: '/hub/admin/videos', label: 'Видео', icon: Video, section: 'Контент' },
+  // 03.09: из раздела AI. Это перечень мест и маршрутов (places и
+  // kamchatka_routes) с источником и вектором поиска — контент, не агент.
+  { href: '/hub/admin/knowledge', label: 'База знаний', icon: Database, section: 'Контент' },
 
   // Аналитика
   { href: '/hub/admin/analytics', label: 'Аналитика', icon: BarChart3, section: 'Аналитика' },
@@ -72,7 +75,6 @@ const SIDEBAR_ITEMS = [
   // страницы читали одну agent_memory. Старый адрес — редирект в next.config.
   { href: '/hub/admin/brain', label: 'Память и разведка', icon: Brain, section: 'AI' },
   { href: '/hub/admin/taaft', label: 'AI-инструменты', icon: Globe, section: 'AI' },
-  { href: '/hub/admin/knowledge', label: 'База знаний AI', icon: Brain, section: 'AI' },
   // Отчёт по AI-инициативам. Живёт вне /hub/admin, свою проверку роли делает
   // сам; в меню его не было ни разу.
   { href: '/transparency', label: 'Transparency Hub', icon: Eye, section: 'AI' },
