@@ -245,6 +245,22 @@ describe('runRouteEndpoints: поведение', () => {
     expect(r.points_linked).toBe(0);
     const d = r.details[0];
     expect(d.start).toEqual({ kind: 'skipped', reason: 'no_coord', name: 'Кордон «Авачинский»', coord_text: null });
+    // Сухой прогон run 3 (03.09, #1493): «К дачным горячим источникам» с
+    // no_coord на обоих концах стоял в отчёте как `linked`. Статус говорит о
+    // связи, а не о том, что паспорт разобрался: связи нет — `nothing_linked`.
+    expect(d.status).toBe('nothing_linked');
+  });
+
+  it('одна точка легла, вторая пропущена — статус linked, счётчик один', async () => {
+    mockRoute('паспорт: одна координата, второй ориентир словами');
+    callAIWaterfallMock.mockResolvedValue(JSON.stringify({
+      start: { name: 'Кордон «Авачинский»', coord_text: `52°50'26"N 158°09'06"E` },
+      end: { name: 'Дачные горячие источники', coord_text: null },
+    }));
+    const r = await runRouteEndpoints({ routeIds: [ROUTE_ID], source: 'тест', why: 'тест', dryRun: true });
+    expect(r.points_linked).toBe(1);
+    expect(r.details[0].status).toBe('linked');
+    expect(r.details[0].end).toEqual({ kind: 'skipped', reason: 'no_coord', name: 'Дачные горячие источники', coord_text: null });
   });
 
   it('координата вне Камчатки отбрасывается, а не записывается', async () => {

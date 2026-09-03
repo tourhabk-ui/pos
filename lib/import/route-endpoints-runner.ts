@@ -85,7 +85,14 @@ export type EndpointOutcome =
 export interface RouteEndpointsDetail {
   route_id: string;
   title: string;
-  status: 'linked' | 'ocr_missing' | 'parse_failed' | 'endpoints_identical' | 'error';
+  /**
+   * `nothing_linked` — паспорт разобран, но ни одна из двух точек не легла в
+   * связь (обе пропущены: без координаты, без имени, вне края...). До 03.09
+   * такой маршрут получал `linked`: в сухом прогоне run 3 (#1493) «К дачным
+   * горячим источникам» стоял как `linked` при `no_coord` на обоих концах —
+   * статус отчитывался о связи, которой не было (§4.0).
+   */
+  status: 'linked' | 'nothing_linked' | 'ocr_missing' | 'parse_failed' | 'endpoints_identical' | 'error';
   start?: EndpointOutcome;
   end?: EndpointOutcome;
   error?: string;
@@ -264,7 +271,14 @@ export async function runRouteEndpoints(params: RouteEndpointsParams): Promise<R
       for (const o of [start, end]) {
         if (o.kind === 'linked' && o.place_created) placesCreated++;
       }
-      details.push({ route_id: r.route_id, title: r.title, status: 'linked', start, end });
+      // Статус — по факту связи, а не по факту разбора: две пропущенные
+      // точки это `nothing_linked`, и сводка по статусам не выдаст их за
+      // сделанную работу.
+      details.push({
+        route_id: r.route_id, title: r.title,
+        status: linkedIds.size > 0 ? 'linked' : 'nothing_linked',
+        start, end,
+      });
     } catch (err) {
       details.push({
         route_id: r.route_id, title: r.title, status: 'error',
