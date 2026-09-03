@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import HealthDashboardClient from './_HealthDashboardClient';
+import HealthTabs from './_HealthTabs';
 
 export const metadata: Metadata = {
   title: 'Health-метрики | Tourhab Admin',
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function AdminHealthPage() {
-  return <HealthDashboardClient />;
+  return <HealthTabs />;
 }
