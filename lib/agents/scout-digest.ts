@@ -29,6 +29,8 @@ import {
 } from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { stripTags } from '@/lib/html/text';
+import { resolveCoverImage } from '@/lib/notifications/cover-image';
+import { hashStr } from '@/lib/notifications/post-image';
 
 /**
  * Причина пропуска человеческим языком — для алерта, а не для лога.
@@ -427,10 +429,23 @@ async function tgSendTo(chatId: string, text: string): Promise<boolean> {
   }
 }
 
+/**
+ * Пост с кнопками и, если задана, обложкой НАД текстом.
+ *
+ * Обложка идёт превью ссылки (`link_preview_options`), а не `sendPhoto`:
+ * подпись к фото у ботов — 1024 знака, а дайджест на два-три материала
+ * длиннее; резать его ради картинки или слать картинку отдельным
+ * сообщением (читается как два поста) — хуже. Превью с `show_above_text`
+ * даёт крупную картинку над полным текстом и не трогает кнопки.
+ *
+ * Без обложки превью остаётся включённым, как и раньше: Telegram покажет
+ * первую ссылку из текста.
+ */
 async function tgSendRich(
   chatId: string,
   text: string,
   buttons?: Array<Array<{ text: string; url: string }>>,
+  coverUrl?: string,
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return false;
@@ -439,7 +454,9 @@ async function tgSendRich(
       chat_id: chatId,
       text: text.substring(0, 4096),
       parse_mode: 'HTML',
-      disable_web_page_preview: false,
+      link_preview_options: coverUrl
+        ? { url: coverUrl, prefer_large_media: true, show_above_text: true }
+        : { is_disabled: false },
     };
     if (buttons?.length) body.reply_markup = { inline_keyboard: buttons };
     const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
@@ -452,6 +469,20 @@ async function tgSendRich(
   } catch {
     return false;
   }
+}
+
+/**
+ * Заголовки материалов выпуска — тема для обложки. Первая жирная строка
+ * («AI-дайджест · дата») — шапка, не тема; берутся следующие две. Если
+ * жирных строк нет (модель нарушила формат) — тема из первых 200 знаков
+ * текста без тегов, чтобы обложка всё равно была про выпуск.
+ */
+export function digestHeadlines(digestHtml: string): string {
+  const titles = [...digestHtml.matchAll(/<b>([^<]+)<\/b>/g)]
+    .map((m) => m[1].trim())
+    .filter((t) => !/^AI-дайджест/i.test(t) && !/^Почему важно/i.test(t));
+  if (titles.length > 0) return titles.slice(0, 2).join('. ');
+  return stripTags(digestHtml).replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
 async function tgSend(text: string): Promise<boolean> {
@@ -1183,7 +1214,17 @@ export async function runScoutDigest(): Promise<DigestResult> {
           .filter(i => i.url)
           .slice(0, 3)
           .map(i => [{ text: i.title.slice(0, 45) + (i.title.length > 45 ? '…' : ''), url: i.url }]);
-        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined);
+        // Обложка — как у новостей того же канала (postAINewsToChannel):
+        // сюжет от заголовков выпуска, seed от текста. До 02.09 дайджест
+        // уходил голым текстом среди постов с картинкой (скрин владельца).
+        // resolveCoverImage не бросает и всегда отдаёт URL; но покажет ли
+        // Telegram превью — решает его фетчер, и отказ превью отсюда не виден.
+        const cover = await resolveCoverImage(
+          digestHeadlines(aiDigest),
+          'ai',
+          hashStr(aiDigest) % 9_999_999,
+        );
+        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined, cover.url);
         aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }
