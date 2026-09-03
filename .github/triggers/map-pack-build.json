@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 86 (03.09): перепечь «kronotsky» с починкой бродов — брод на дороге (highway + ford=yes) даёт точку в слой fords, отрезок остаётся тропой. Кэш Overpass горячий. Смотреть «бродов на дорогах» и «osm fords: N объектов».",
-  "region": "kronotsky",
+  "note": "Прогон 87 (03.09): перепечь «klyuchevskoy» с починкой бродов — брод на дороге (highway + ford=yes) даёт точку в слой fords, отрезок остаётся тропой. Кэш Overpass горячий. Смотреть «бродов на дорогах» и «osm fords: N объектов».",
+  "region": "klyuchevskoy",
   "upload": true
 }
