@@ -13,17 +13,17 @@
  *   -> 158.4,52.8,159.4,53.6
  */
 
-import { REGIONS, type RegionId } from '@/lib/geo/regions';
+import { REGIONS, packRegionBbox } from '@/lib/geo/regions';
 
 const region = process.argv[2];
+// Район реестра или клетка сетки (cell-52n157e) — одна функция на оба.
+const bbox = region ? packRegionBbox(region) : null;
 
-if (!region || !(region in REGIONS)) {
+if (!bbox) {
   console.error(
-    `Нужен район из реестра. Есть: ${Object.keys(REGIONS).join(', ')}`,
+    `Нужен район из реестра или клетка сетки (cell-<lat>n<lng>e). Районы: ${Object.keys(REGIONS).join(', ')}`,
   );
   process.exit(2);
 }
-
-const { bbox } = REGIONS[region as RegionId];
 // Порядок — как у GDAL и у наших сборщиков: west,south,east,north.
 process.stdout.write(`${bbox.west},${bbox.south},${bbox.east},${bbox.north}`);

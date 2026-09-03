@@ -21,7 +21,8 @@
  * Leaflet (владелец 09.08, «по кнопке карта открывается чёрный экран»).
  */
 
-import type { RegionId } from '@/lib/geo/regions';
+import type { PackRegionId, RegionId } from '@/lib/geo/regions';
+import { isGridCellId, type GridCellId } from '@/lib/geo/grid-cells';
 
 /**
  * Публичная база, откуда отдаются пакеты, приходит СВЕРХУ — параметром.
@@ -47,7 +48,7 @@ import type { RegionId } from '@/lib/geo/regions';
 export const MAP_PACK_BASE_URL_ENV = 'NEXT_PUBLIC_MAP_PACK_BASE_URL';
 
 /** Ключ объекта в бакете. Одна формула на сборку и на чтение. */
-export function packKey(region: RegionId, kind: 'terrain' | 'contours'): string {
+export function packKey(region: PackRegionId, kind: 'terrain' | 'contours'): string {
   return kind === 'terrain'
     ? `map-packs/${region}.terrain.pmtiles`
     : `map-packs/${region}.contours.geojson`;
@@ -99,7 +100,7 @@ export const OSM_LAYERS = [
 export type OsmLayer = typeof OSM_LAYERS[number];
 
 /** Ключ OSM-слоя района в бакете. Одна формула на заливку и на чтение. */
-export function osmKey(region: RegionId, layer: OsmLayer): string {
+export function osmKey(region: PackRegionId, layer: OsmLayer): string {
   return `map-packs/${region}.osm.${layer}.geojson`;
 }
 
@@ -109,7 +110,7 @@ export function osmKey(region: RegionId, layer: OsmLayer): string {
  * зумам (scripts/map-tiles/build_vector.sh). Читается кусками, как рельеф, —
  * в отличие от GeoJSON, который MapLibre качает целиком.
  */
-export function vectorKey(region: RegionId): string {
+export function vectorKey(region: PackRegionId): string {
   return `map-packs/${region}.vector.pmtiles`;
 }
 
@@ -199,8 +200,8 @@ export type PackSource =
  * ли у неё офлайн-данные — именно в офлайне этот запрос и не пройдёт.
  */
 export function resolvePackSource(
-  region: RegionId,
-  builtRegions: readonly RegionId[],
+  region: PackRegionId,
+  builtRegions: readonly PackRegionId[],
   baseUrl: string | null,
 ): PackSource {
   if (!baseUrl) {
@@ -210,13 +211,30 @@ export function resolvePackSource(
     };
   }
   const PACK_BASE_URL = baseUrl;
+  const base = PACK_BASE_URL.replace(/\/+$/, '');
+  // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
+  // OSM, вектор), и обещание у неё одно — BUILT_GRID_CELLS.
+  if (isGridCellId(region)) {
+    if (!BUILT_GRID_CELLS.includes(region)) {
+      return { state: 'not_built', reason: 'Пакет карты для этой клетки ещё не собран.' };
+    }
+    return {
+      state: 'ready',
+      terrainUrl: `pmtiles://${base}/${packKey(region, 'terrain')}`,
+      contoursUrl: `${base}/${packKey(region, 'contours')}`,
+      terrainMaxZoom: PACK_TERRAIN_MAXZOOM,
+      glyphsUrl: PACK_GLYPHS.ready ? `${base}/${glyphKey('{fontstack}', '{range}')}` : null,
+      glyphsFont: PACK_GLYPHS.fontstack,
+      osmUrls: Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>,
+      vectorUrl: `pmtiles://${base}/${vectorKey(region)}`,
+    };
+  }
   if (!builtRegions.includes(region)) {
     return {
       state: 'not_built',
       reason: 'Пакет карты для этого района ещё не собран.',
     };
   }
-  const base = PACK_BASE_URL.replace(/\/+$/, '');
   return {
     state: 'ready',
     // pmtiles:// — протокол читателя PMTiles: он берёт куски файла
@@ -251,7 +269,9 @@ export const BUILT_PACK_REGIONS: readonly RegionId[] = [
   'paratunka',
   // 02.09, прогон 6 (run 33625171834): рельеф 53.27 МБ, горизонтали 5.49 МБ,
   // с OSM 64.5 МБ — первый пакет над прежним потолком 60, ради него потолок
-  // и поднят до 200.
+  // и поднят до 200. 03.09, прогон 90 (run 33740498279): bbox расширен на
+  // запад до 157.6 (Верхне-Опальские источники после правки координаты),
+  // вектор 14.31 МБ — реестр здесь не трогается, это тот же район.
   'mutnovsky-gorely',
   // 02.09, прогон 7 (run 33625693124): рельеф 61.0 МБ, горизонтали 5.69 МБ,
   // с OSM 72.7 МБ.
@@ -279,4 +299,17 @@ export const BUILT_PACK_REGIONS: readonly RegionId[] = [
   // рельеф 11.42 МБ, горизонтали 0.90 МБ, с OSM 13.1 МБ. Последний из
   // десяти районов реестра.
   'commander-islands',
+];
+
+/**
+ * Собранные клетки сетки «вся Камчатка» (lib/geo/grid-cells.ts). То же
+ * обещание, что BUILT_PACK_REGIONS, но одно на все ярусы: клетка собирается
+ * целиком (рельеф, горизонтали, OSM, вектор) одним прогоном. Ставится после
+ * заливки, не до. Порядок — порядок сборки: по номеру прогона видно, что
+ * когда залито.
+ */
+export const BUILT_GRID_CELLS: readonly GridCellId[] = [
+  // 03.09, прогон 91 (run 33742877180): проба клетки — Верхне-Опальские,
+  // Асача, Опала. Рельеф 2 мин, Overpass 25 мин, вектор 11.54 МБ.
+  'cell-52n157e',
 ];

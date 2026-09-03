@@ -12,9 +12,12 @@
  * штатный путь.
  */
 
-import { REGIONS, REGIONS_LIST, type RegionBbox, type RegionId } from '@/lib/geo/regions';
 import {
-  resolvePackSource, BUILT_PACK_REGIONS, type PackSource,
+  REGIONS_LIST, packRegionBbox, packRegionCenter, type RegionBbox, type PackRegionId,
+} from '@/lib/geo/regions';
+import { gridCellsForPoint } from '@/lib/geo/grid-cells';
+import {
+  resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, type PackSource,
 } from '@/lib/map/pack-source';
 
 /**
@@ -22,22 +25,28 @@ import {
  * перекрываются (Налычево заходит на Авачинскую группу), и разбирать это
  * «умно» здесь нельзя: любой выбор был бы догадкой, а пакеты всё равно
  * покрывают оба bbox целиком.
+ *
+ * Нарисованные районы — прежде клеток сетки (03.09, «вся Камчатка»): у
+ * района границы проведены по смыслу и пакет плотнее, клетка — сплошное
+ * покрытие там, где района нет.
  */
-export function regionsForPoint(lat: number, lng: number): RegionId[] {
-  return REGIONS_LIST
+export function regionsForPoint(lat: number, lng: number): PackRegionId[] {
+  const named: PackRegionId[] = REGIONS_LIST
     .filter(r => lat >= r.bbox.south && lat <= r.bbox.north
       && lng >= r.bbox.west && lng <= r.bbox.east)
     .map(r => r.id);
+  const cells: PackRegionId[] = gridCellsForPoint(lat, lng).map(c => c.id);
+  return [...named, ...cells];
 }
 
 /** Первый накрывающий район — для показа и для обратной совместимости. */
-export function regionForPoint(lat: number, lng: number): RegionId | null {
+export function regionForPoint(lat: number, lng: number): PackRegionId | null {
   return regionsForPoint(lat, lng)[0] ?? null;
 }
 
 export type FieldBaseMap =
   /** Своя карта: пакет района на месте. */
-  | { kind: 'vedar'; region: RegionId; source: Extract<PackSource, { state: 'ready' }> }
+  | { kind: 'vedar'; region: PackRegionId; source: Extract<PackSource, { state: 'ready' }> }
   /** Leaflet — и названная причина, почему не своя. Причина не показывается
    *  человеку (карта работает), но должна быть видна в разборе. */
   | { kind: 'leaflet'; reason: string };
@@ -55,7 +64,7 @@ export function chooseFieldBaseMap(
    * lib/map/pack-source.ts).
    */
   baseUrl: string | null,
-  builtRegions: readonly RegionId[] = BUILT_PACK_REGIONS,
+  builtRegions: readonly PackRegionId[] = BUILT_PACK_REGIONS,
 ): FieldBaseMap {
   const candidates = regionsForPoint(lat, lng);
   if (candidates.length === 0) {
@@ -91,14 +100,15 @@ export function chooseFieldBaseMap(
 }
 
 /** Центр района — начальный вид своей карты, когда фикса ещё нет. */
-export function regionCenter(region: RegionId): [number, number] {
-  const c = REGIONS[region].center;
+export function regionCenter(region: PackRegionId): [number, number] {
+  const c = packRegionCenter(region);
+  if (!c) throw new Error(`Района или клетки «${region}» в реестре нет`);
   return [c.lat, c.lng];
 }
 
 /** Пакет района с его границами — то, что карта подкладывает по соседству. */
 export interface RegionPack {
-  region: RegionId;
+  region: PackRegionId;
   bbox: RegionBbox;
   source: Extract<PackSource, { state: 'ready' }>;
 }
@@ -114,13 +124,16 @@ export interface RegionPack {
  */
 export function builtRegionPacks(
   baseUrl: string | null,
-  builtRegions: readonly RegionId[] = BUILT_PACK_REGIONS,
+  builtRegions: readonly PackRegionId[] = BUILT_PACK_REGIONS,
+  builtCells: readonly PackRegionId[] = BUILT_GRID_CELLS,
 ): RegionPack[] {
   const out: RegionPack[] = [];
-  for (const region of builtRegions) {
+  for (const region of [...builtRegions, ...builtCells]) {
     const source = resolvePackSource(region, builtRegions, baseUrl);
     if (source.state !== 'ready') continue;
-    out.push({ region, bbox: REGIONS[region].bbox, source });
+    const bbox = packRegionBbox(region);
+    if (!bbox) continue;
+    out.push({ region, bbox, source });
   }
   return out;
 }
@@ -137,7 +150,7 @@ export interface ViewBounds {
 export function regionsIntersecting(
   packs: readonly RegionPack[],
   view: ViewBounds,
-): RegionId[] {
+): PackRegionId[] {
   return packs
     .filter(p =>
       p.bbox.west <= view.east && p.bbox.east >= view.west

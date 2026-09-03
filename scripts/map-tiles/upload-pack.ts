@@ -22,7 +22,7 @@ import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
 import { packKey, glyphKey, osmKey, vectorKey, PACK_GLYPHS, OSM_LAYERS } from '@/lib/map/pack-source';
-import { REGIONS, type RegionId } from '@/lib/geo/regions';
+import { REGIONS, packRegionBbox, type PackRegionId } from '@/lib/geo/regions';
 
 /**
  * Сколько объектов в коллекции GeoJSON. Отказ разбора — «не знаю», а не
@@ -45,8 +45,9 @@ async function main(): Promise<number> {
     console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>] [<vector.pmtiles>]');
     return 2;
   }
-  if (!(region in REGIONS)) {
-    console.error(`Неизвестный район «${region}». Есть: ${Object.keys(REGIONS).join(', ')}`);
+  // Район реестра или клетка сетки (cell-52n157e) — одна проверка на оба.
+  if (!packRegionBbox(region)) {
+    console.error(`Неизвестный район «${region}». Районы: ${Object.keys(REGIONS).join(', ')}; клетки — cell-<lat>n<lng>e из lib/geo/grid-cells.ts`);
     return 2;
   }
   if (!isS3Configured) {
@@ -68,7 +69,7 @@ async function main(): Promise<number> {
       console.error(`ПУСТОЙ файл ${it.path} — прекращаю, ничего не залито.`);
       return 1;
     }
-    const key = packKey(region as RegionId, it.kind);
+    const key = packKey(region as PackRegionId, it.kind);
     const res = await uploadToS3(key, readFileSync(it.path), it.type);
     console.log(`${it.kind}: ${(size / 1024 / 1024).toFixed(2)} МБ -> ${res.url}`);
   }
@@ -115,7 +116,7 @@ async function main(): Promise<number> {
     for (const f of files) {
       const size = statSync(f.path).size;
       const body = readFileSync(f.path);
-      const res = await uploadToS3(osmKey(region as RegionId, f.layer), body, 'application/geo+json');
+      const res = await uploadToS3(osmKey(region as PackRegionId, f.layer), body, 'application/geo+json');
       /**
        * ЧИСЛО ОБЪЕКТОВ, а не только килобайты (02.09). Слой из двух посёлков
        * весит 300 байт и печатался как «0 КБ» — тем же, чем и пустой. То есть
@@ -136,7 +137,7 @@ async function main(): Promise<number> {
       console.error(`ПУСТОЙ векторный пакет ${vectorPath} — прекращаю, не залит.`);
       return 1;
     }
-    const res = await uploadToS3(vectorKey(region as RegionId), readFileSync(vectorPath), 'application/octet-stream');
+    const res = await uploadToS3(vectorKey(region as PackRegionId), readFileSync(vectorPath), 'application/octet-stream');
     console.log(`vector: ${(size / 1024 / 1024).toFixed(2)} МБ -> ${res.url}`);
     console.log(`  4. внести '${region}' в VECTOR_BUILT_REGIONS (lib/map/pack-source.ts)`);
   }

@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
 import { builtRegionPacks, regionsIntersecting } from '@/lib/map/field-base-map';
-import { OSM_LAYERS, BUILT_PACK_REGIONS } from '@/lib/map/pack-source';
+import { OSM_LAYERS, BUILT_PACK_REGIONS, BUILT_GRID_CELLS } from '@/lib/map/pack-source';
 
 const B = 'https://s3.example.ru/b';
 const osm = (r: string) => Object.fromEntries(OSM_LAYERS.map(l => [l, `${B}/map-packs/${r}.osm.${l}.geojson`]));
@@ -98,7 +98,9 @@ describe('какие районы в кадре', () => {
   const packs = builtRegionPacks(B);
 
   it('все пакеты реестра с адресами и границами', () => {
-    expect(packs.map(p => p.region)).toEqual([...BUILT_PACK_REGIONS]);
+    // 03.09: клетки сетки «вся Камчатка» подкладываются следом за районами —
+    // то же обещание, тот же список пакетов (builtRegionPacks).
+    expect(packs.map(p => p.region)).toEqual([...BUILT_PACK_REGIONS, ...BUILT_GRID_CELLS]);
     expect(packs.every(p => p.source.terrainUrl.startsWith('pmtiles://'))).toBe(true);
     expect(builtRegionPacks(null)).toEqual([]);
   });
