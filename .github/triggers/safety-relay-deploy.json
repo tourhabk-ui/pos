@@ -1,19 +1,14 @@
 {
   "note": "Маркер запуска safety-relay-deploy.yml: правка этого файла в main выкатывает воркер Cloudflare infra/safety-relay (сейсмо-реле КБГС/EQKam и реле /fetch для разведчика) и гоняет /selftest без отправки на прод. Меняйте run, чтобы прогон был новым. census_urls — адреса для переписи «читается ли с края Cloudflare» (не больше десяти, только https). Нужны секреты репозитория CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CRON_SECRET.",
-  "run": 4,
+  "run": 5,
   "run1_reason": "Первая выкатка 03.09: владелец завёл CLOUDFLARE_API_TOKEN в секретах GitHub. Пуш ветки safety-relay-deploy и dispatch через интеграцию воркфлоу не запускают.",
   "run1_result": "Секрет принят, воркер выкачен на https://vedar-safety-relay.tourhabk.workers.dev с расписанием */5, но /selftest ответил 404 «error code: 1042» до входа в воркер (наш 404 отвечает словами). Известный случай: hostname workers.dev не привязался сразу после деплоя.",
   "run2_reason": "Повтор с явным workers_dev = true в wrangler.toml и после паузы на распространение. Если 1042 повторится — дело не в конфиге, а на стороне Cloudflare, и проверять реле надо по следу на проде: приёмник safety-ingest должен получать посты каждые 5 минут (cron-триггер от hostname не зависит).",
   "run2_result": "Зелёный: kbgsras 106219 байт, eqkam 114331, minec 82537, kamgov 0 из 3 лент, would_post true.",
   "run3_reason": "Реле для разведчика: маршруты /fetch (белый список RELAY_HOSTS) и /census. Перепись кандидатов в RSS_SOURCES, гео-закрытых для прода в РФ: ленты OpenAI и Anthropic (адреса из intelligence-monitor и вероятные новые), блог Google AI. В список разведчика попадёт только то, что здесь отдало ленту.",
-  "census_urls": [
-    "https://openai.com/news/rss.xml",
-    "https://openai.com/blog/rss.xml",
-    "https://blog.google/technology/ai/rss/",
-    "https://deepmind.google/blog/rss.xml",
-    "https://www.anthropic.com/news/rss.xml",
-    "https://www.anthropic.com/feed.xml"
-  ],
+  "census_urls": [],
   "run3_result": "Зелёный. Перепись с края Cloudflare: openai.com/news/rss.xml и /blog/rss.xml — по 706125 байт (одинаково, природа ответа не установлена), www.anthropic.com/rss.xml — 404, anthropic.com/news — 471775 байт HTML, blog.google/technology/ai/rss/ — 32056, deepmind.google/blog/rss.xml — 71943, hnrss — 17182, t.me/s/ai_hub_money — 143273.",
-  "run4_reason": "Перепись теперь отличает ленту от страницы по корневому тегу: 706 КБ на двух адресах OpenAI могут быть HTML сайта, а не RSS. В список разведчика попадёт только то, что помечено «лента»."
+  "run4_reason": "Перепись теперь отличает ленту от страницы по корневому тегу: 706 КБ на двух адресах OpenAI могут быть HTML сайта, а не RSS. В список разведчика попадёт только то, что помечено «лента».",
+  "run4_result": "Зелёный. Ленты: openai.com/news/rss.xml и /blog/rss.xml (706125 байт, один и тот же фид), blog.google/technology/ai/rss/ (32056), deepmind.google/blog/rss.xml (71943). У Anthropic ленты нет: /rss.xml, /news/rss.xml, /feed.xml — 404.",
+  "run5_reason": "Выкатка с deepmind.google в RELAY_HOSTS: три проверенные ленты внесены в RSS_SOURCES разведчика (openai, google_ai, deepmind). Переписи нет."
 }

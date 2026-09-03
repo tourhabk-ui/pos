@@ -121,3 +121,21 @@ describe('воркер: /fetch закрыт секретом и белым сп�
     expect(WORKFLOW).toMatch(/census_urls/);
   });
 });
+
+describe('новые источники доходят до AI-поста', () => {
+  it('три первых сигнала — из трёх разных источников, а не из первого фида', async () => {
+    const { interleaveBySource, RSS_SOURCES } = await import('@/lib/agents/scout-digest');
+    const mk = (source: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ title: `${source} ${i + 1}`, url: `https://x/${source}/${i}`, source }));
+    const items = [...mk('Simon Willison', 5), ...mk('OpenAI', 5), ...mk('DeepMind', 2)];
+    const out = interleaveBySource(items);
+    expect(out.slice(0, 3).map(i => i.source)).toEqual(['Simon Willison', 'OpenAI', 'DeepMind']);
+    expect(out).toHaveLength(items.length);
+    // Ничего не потеряно и не задвоено.
+    expect(new Set(out.map(i => i.url)).size).toBe(items.length);
+    // Ленты лабораторий стоят в списке разведчика — по замеру /census (run 4).
+    const keys = RSS_SOURCES.map(s => s.key);
+    for (const k of ['openai', 'google_ai', 'deepmind']) expect(keys).toContain(k);
+    expect(RSS_SOURCES.find(s => s.key === 'openai')?.url).toBe('https://openai.com/news/rss.xml');
+  });
+});
