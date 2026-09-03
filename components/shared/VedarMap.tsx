@@ -37,6 +37,7 @@ import {
   type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
+import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 import { Minus, Plus } from 'lucide-react';
 /**
@@ -687,7 +688,12 @@ export default function VedarMap({
       // зуме или рельеф не из пакета. Число решает это со следующего
       // скрина, не заставляя человека лезть в отладчик.
       const z = zoom.toFixed(1);
-      if (zoom < PACK_MIN_ZOOM) {
+      // Обзорный ярус (зумы 4-7) закрывает мелкий масштаб целиком, поэтому
+      // жаловаться на него больше не на что: под обзором карта есть везде,
+      // где есть край. Жалоба остаётся ровно на случай, когда обзора нет —
+      // пакет не собран или хранилище не настроено.
+      const hasOverview = packs.some(p => p.region === OVERVIEW_ID);
+      if (zoom < PACK_MIN_ZOOM && !hasOverview) {
         setViewNote(`масштаб мельче пакета (зум ${z} < ${PACK_MIN_ZOOM}) — карта района рисуется от зума ${PACK_MIN_ZOOM}, приблизьте`);
       } else if (hit.length === 0) {
         setViewNote(`вид вне всех районов реестра (зум ${z}) — здесь пакета карты нет`);
@@ -698,7 +704,11 @@ export default function VedarMap({
         if (region === baseRegion) continue;
         const pack = packs.find(p => p.region === region);
         if (!pack) continue;
-        const tiers: RegionTier[] = zoom >= DETAIL_MIN_ZOOM ? ['base', 'detail'] : ['base'];
+        // У обзора нет ни горизонталей, ни OSM — подробного яруса у него не
+        // бывает по замыслу, и просить его значило бы качать пустой файл.
+        const tiers: RegionTier[] = region === OVERVIEW_ID
+          ? ['base']
+          : zoom >= DETAIL_MIN_ZOOM ? ['base', 'detail'] : ['base'];
         for (const tier of tiers) {
           const key = `${region}:${tier}`;
           if (added.has(key)) continue;

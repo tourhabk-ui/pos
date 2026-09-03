@@ -21,7 +21,7 @@
  * Leaflet (владелец 09.08, «по кнопке карта открывается чёрный экран»).
  */
 
-import type { PackRegionId, RegionId } from '@/lib/geo/regions';
+import { isOverviewId, type PackRegionId, type RegionId } from '@/lib/geo/regions';
 import { isGridCellId, type GridCellId } from '@/lib/geo/grid-cells';
 
 /**
@@ -62,6 +62,21 @@ export function packKey(region: PackRegionId, kind: 'terrain' | 'contours'): str
  * просил бы тайлы, которых нет.
  */
 export const PACK_TERRAIN_MAXZOOM = 13;
+
+/**
+ * Верхний зум ОБЗОРНОГО пакета — на единицу ниже нижнего зума пакетов
+ * района и клетки (build_terrain.py MINZOOM = 8). Ярусы не пересекаются
+ * намеренно: на любом зуме рельеф рисует ровно один из них. Совпадут —
+ * и на z8 лягут два рельефа сразу, прореженный поверх подробного.
+ * Число печёт scripts/map-tiles/build_overview.py (MAXZOOM); сторож сверяет.
+ */
+export const OVERVIEW_MAX_ZOOM = 7;
+
+/**
+ * Обещание, что обзорный пакет края лежит в хранилище. Ставится после
+ * заливки, не до, — как и все прочие реестры этого файла.
+ */
+export const OVERVIEW_BUILT = false;
 
 /**
  * Глифы для подписей — свои, в том же хранилище (02.09). Скачивает и заливает
@@ -212,6 +227,26 @@ export function resolvePackSource(
   }
   const PACK_BASE_URL = baseUrl;
   const base = PACK_BASE_URL.replace(/\/+$/, '');
+  // Обзорный ярус — только рельеф, зумы 4-7. Горизонталей и OSM у него нет
+  // по замыслу: на таком масштабе стометровая линия — шум в полпикселя, а
+  // тропа не читается вовсе. Файл горизонталей рядом лежит ПУСТОЙ (сборщик
+  // пишет коллекцию без объектов), и это тот же ответ словами: линий этого
+  // яруса нет. Пустой список osmUrls оставляет оверлею только рельеф и тень.
+  if (isOverviewId(region)) {
+    if (!OVERVIEW_BUILT) {
+      return { state: 'not_built', reason: 'Обзорный пакет края ещё не собран.' };
+    }
+    return {
+      state: 'ready',
+      terrainUrl: `pmtiles://${base}/${packKey(region, 'terrain')}`,
+      contoursUrl: `${base}/${packKey(region, 'contours')}`,
+      terrainMaxZoom: OVERVIEW_MAX_ZOOM,
+      glyphsUrl: PACK_GLYPHS.ready ? `${base}/${glyphKey('{fontstack}', '{range}')}` : null,
+      glyphsFont: PACK_GLYPHS.fontstack,
+      osmUrls: {},
+      vectorUrl: null,
+    };
+  }
   // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
   // OSM, вектор), и обещание у неё одно — BUILT_GRID_CELLS.
   if (isGridCellId(region)) {
