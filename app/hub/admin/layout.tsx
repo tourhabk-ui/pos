@@ -51,7 +51,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/analytics', label: 'Аналитика', icon: BarChart3, section: 'Аналитика' },
   { href: '/hub/admin/traffic', label: 'Посещаемость', icon: Footprints, section: 'Аналитика' },
   { href: '/hub/admin/routes-analysis', label: 'Анализ маршрутов', icon: LineChart, section: 'Аналитика' },
-  { href: '/hub/admin/ai-analytics', label: 'AI Кузьмич', icon: Sparkles, section: 'Аналитика' },
+  // «AI Кузьмич» (/hub/admin/ai-analytics) снят 03.09: та же таблица
+  // ai_actions_log, что у «Расходов AI», — теперь вкладка там. Старый адрес
+  // редиректится (next.config.js), а не отдаёт 404.
   { href: '/hub/admin/activity', label: 'Активность', icon: Activity, section: 'Аналитика' },
   { href: '/hub/admin/health', label: 'Health-метрики', icon: Activity, section: 'Аналитика' },
   { href: '/hub/admin/operator-sites', label: 'Сайты операторов', icon: ShieldCheck, section: 'Аналитика' },

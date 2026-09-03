@@ -401,7 +401,7 @@ export default function AgentsClient() {
           </div>
           <div className="flex gap-2 flex-shrink-0">
             <a href="/kuzmich" className="ds-btn ds-btn-secondary text-sm">Открыть</a>
-            <a href="/hub/admin/ai-analytics" className="ds-btn ds-btn-secondary text-sm">Аналитика</a>
+            <a href="/hub/admin/ai-usage?tab=kuzmich" className="ds-btn ds-btn-secondary text-sm">Аналитика</a>
           </div>
         </div>
       </section>
