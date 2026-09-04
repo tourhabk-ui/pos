@@ -65,8 +65,33 @@ jobs:
         with:
           node-version: '22'
 
+      # Цифры каталога — из переписи на проде, не из головы (04.09). С июля
+      # README держал «~415 мест, ~421 маршрут» при 379 и 288 по переписям,
+      # и внешний обзор репозитория унаследовал завышение как факт. Отказ
+      # переписи не роняет job и не подменяет числа: блок остаётся с прежней
+      # датой, а лог называет причину.
+      - name: Снять перепись каталога с прода
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET не задан — перепись каталога не снята, блок README не тронут"
+            exit 0
+          fi
+          HTTP=$(curl -s -o /tmp/catalog.json -w '%{http_code}' --max-time 60 \
+            "https://vedarai.ru/api/cron/catalog-census" \
+            -H "Authorization: Bearer $CRON_SECRET" || echo 000)
+          echo "catalog-census HTTP: $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            cat /tmp/catalog.json
+            echo "CATALOG=--catalog /tmp/catalog.json" >> "$GITHUB_ENV"
+          else
+            echo "перепись не снята (HTTP $HTTP) — блок каталога в README остаётся с прежней датой"
+            cat /tmp/catalog.json 2>/dev/null || true
+          fi
+
       - name: Обновить счётчики
-        run: node scripts/update-readme-stats.mjs
+        run: node scripts/update-readme-stats.mjs $CATALOG
 
       - name: Закоммитить, если цифры изменились
         run: |
@@ -84,7 +109,7 @@ jobs:
             if git push origin HEAD:main; then exit 0; fi
             git fetch origin main
             git reset --hard origin/main
-            node scripts/update-readme-stats.mjs
+            node scripts/update-readme-stats.mjs $CATALOG
             git diff --quiet README.md && exit 0
             git add README.md
             git commit -m "README-stats: автообновление после мержа [skip ci]"
