@@ -1272,8 +1272,30 @@ const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
  * размышления. Override — DEEPSEEK_THINKING=1: тогда бюджет ответа
  * (max_tokens с запасом на reasoning) — забота вызывающего.
  */
-export function deepseekThinking(): Record<string, unknown> {
-  return process.env.DEEPSEEK_THINKING === '1' ? {} : { thinking: { type: 'disabled' } };
+export function deepseekThinking(purpose: 'fast' | 'deep' = 'fast'): Record<string, unknown> {
+  if (process.env.DEEPSEEK_THINKING === '1') return {};
+  if (process.env.DEEPSEEK_THINKING === '0') return { thinking: { type: 'disabled' } };
+  return purpose === 'deep' ? {} : { thinking: { type: 'disabled' } };
+}
+
+/**
+ * Бюджет ответа, когда модель РАЗМЫШЛЯЕТ.
+ *
+ * Замечание владельца 04.09: «все модели отвечают с глубоким анализом только
+ * на 3-4 раз, первые ответы поверхностные». Одну из причин я внёс сам этим
+ * утром: выключил размышление ВЕЗДЕ, чтобы вылечить пустой content, — а
+ * замер показывал ДВА рабочих рычага, и второй (больший бюджет) размышление
+ * сохраняет. Для живого чата выбор верен: человек ждёт, и 800 токенов ответа
+ * дороже раздумий. Для ночного крона, пишущего текст людям, — нет: там
+ * глубина и есть смысл работы.
+ *
+ * max_tokens у DeepSeek считает размышление ВМЕСТЕ с ответом (04.09:
+ * finish_reason=length при 200 токенах и пустом content, reasoning 575-686
+ * знаков). Значит потолок обязан покрывать оба, иначе включённое размышление
+ * снова съест ответ целиком — ту самую немоту мы сегодня и чинили.
+ */
+export function deepThinkingBudget(answerTokens: number): number {
+  return answerTokens + 1500;
 }
 
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
@@ -1826,6 +1848,51 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     } catch (e) { why.push(`anthropic: ${(e as Error).message.slice(0, 100)}`); }
   }
 
+  // 0в) xAI Grok — флагман, достижимый из РФ НАПРЯМУЮ, без релея и без шлюза.
+  //
+  //     Решение владельца 04.09 («добавь 4.6, сильная модель») расширяет
+  //     правило 04.08 «решатель дипсик либо опус»: сток стало два, и второй
+  //     не слабое звено в хвосте, а флагман. Именно от слабого хвоста то
+  //     правило и защищало — молчание честнее тихой подмены качества, — так
+  //     что запрет на слабых остаётся в силе, а Grok под него не подходит.
+  //
+  //     Стоит ВЫШЕ DeepSeek намеренно, и это дороже по времени: замер 04.09
+  //     (ai-debug run 10, с прода) — grok-4.6 отвечает за 43 с против 0,3 с у
+  //     DeepSeek. У решателя это правильный обмен, и он записан в шапке
+  //     функции: здесь качество важнее latency, потому что зовёт крон, а не
+  //     человек. На живом пути Кузьмича обмен обратный — там xAI идёт быстрой
+  //     моделью во втором эшелоне водопада.
+  //
+  //     Модель не прибита к id: resolveXaiModel('strong') выбирает сильнейшую
+  //     из каталога провайдера (§8). Override — XAI_MODEL.
+  const xaiKey = getXaiKey();
+  if (!xaiKey) why.push('xai: ключа нет');
+  if (xaiKey) {
+    const xaiModel = await resolveXaiModel('strong');
+    if (!xaiModel) {
+      why.push(`xai: модель не разрешена — ${xaiResolveProblem() ?? 'каталог недоступен'}`);
+    } else {
+      try {
+        const res = await fetchWithRetry('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
+          body: JSON.stringify({ model: xaiModel, temperature: 0.3, max_tokens: 2000, messages: payload }),
+        }, { timeoutMs: 90_000, maxRetries: 0, label: `evo-decision-xai:${xaiModel}` });
+        if (res.ok) {
+          const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+          const text = data?.choices?.[0]?.message?.content;
+          if (text?.trim()) {
+            logLLMUsage(xaiModel, data.usage);
+            return { text, model: `xai:${xaiModel}`, provenance: why.slice() };
+          }
+          why.push(`xai(${xaiModel}): пустой ответ — ${describeEmptyCompletion(data)}`);
+        } else {
+          why.push(`xai(${xaiModel}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
+        }
+      } catch (e) { why.push(`xai(${xaiModel}): ${(e as Error).message.slice(0, 100)}`); }
+    }
+  }
+
   // 1) DeepSeek (модель определяется сама) — прямой api.deepseek.com, доступен из РФ
   const dsKey = getDeepSeekKey();
   if (!dsKey) why.push('deepseek: ключа нет');
@@ -1847,8 +1914,13 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-          body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload, ...deepseekThinking() }),
-        }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
+          // Решатель — не чат: здесь думать и надо. Потолок покрывает
+          // размышление вместе с ответом (см. deepThinkingBudget).
+          body: JSON.stringify({
+            model, temperature: 0.3, max_tokens: deepThinkingBudget(1500),
+            messages: payload, ...deepseekThinking('deep'),
+          }),
+        }, { timeoutMs: 90_000, label: `evo-decision:${model}` });
         if (res.ok) {
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
@@ -1878,6 +1950,10 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   //
   // Qwen и Kimi остаются доступны для ДРУГИХ задач (callAIWaterfall/callAIFast,
   // зрение) — здесь убран только путь принятия решений.
+  //
+  // xAI Grok (ступень 0в) этому не противоречит: правило запрещало СЛАБОЕ
+  // звено в хвосте, а не второй сток вообще. Grok-4.6 — флагман, и внесён он
+  // решением владельца 04.09, а не как «ещё один провайдер на всякий случай».
 
   return { text: null, model: null, error: why.join(' | ').slice(0, 600) || 'причина не зафиксирована', provenance: why.slice() };
 }
@@ -3349,11 +3425,17 @@ export async function callAIQuality(
   if (dsKey) {
     try {
       const model = await resolveContentModel('deepseek');
+      // Путь генерации ТЕКСТА для людей: размышление включено, потолок
+      // покрывает и его, и ответ. Иначе получаем ровно то, на что жалуется
+      // владелец, — быстрый поверхностный текст.
       const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload, ...format, ...deepseekThinking() }),
-      }, { timeoutMs: 45_000, label: 'deepseek:content' });
+        body: JSON.stringify({
+          model, temperature, max_tokens: deepThinkingBudget(maxTokens),
+          messages: payload, ...format, ...deepseekThinking('deep'),
+        }),
+      }, { timeoutMs: 90_000, label: 'deepseek:content' });
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;

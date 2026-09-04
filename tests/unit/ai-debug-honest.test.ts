@@ -125,17 +125,35 @@ describe('DeepSeek: живой путь просит ответ без разм�
     // debug-проба (...v.extra) меряет рычаги намеренно, её базовая форма проверена выше.
     const answering = bodies.filter((b) => !/max_tokens: 1,/.test(b) && !/\.\.\.v\.extra/.test(b));
     expect(answering.length).toBeGreaterThanOrEqual(6);
-    for (const b of answering) expect(b, b.slice(0, 200)).toMatch(/deepseekThinking\(\)|thinking: \{ type: 'disabled' \}/);
+    for (const b of answering) expect(b, b.slice(0, 200)).toMatch(/deepseekThinking\((?:'fast'|'deep')?\)|thinking: \{ type: 'disabled' \}/);
   });
 
-  it('override DEEPSEEK_THINKING=1 возвращает размышление', async () => {
-    const { deepseekThinking } = await import('@/lib/ai/providers');
+  it('назначение решает: чат без размышления, генерация с ним', async () => {
+    const { deepseekThinking, deepThinkingBudget } = await import('@/lib/ai/providers');
     const prev = process.env.DEEPSEEK_THINKING;
     delete process.env.DEEPSEEK_THINKING;
+    // Живой чат: человек ждёт, размышление съедает бюджет ответа.
     expect(deepseekThinking()).toEqual({ thinking: { type: 'disabled' } });
+    expect(deepseekThinking('fast')).toEqual({ thinking: { type: 'disabled' } });
+    // Текст для людей и решения: думать и надо (замечание владельца 04.09 о
+    // поверхностных первых ответах).
+    expect(deepseekThinking('deep')).toEqual({});
+    // Оба override работают в обе стороны.
     process.env.DEEPSEEK_THINKING = '1';
-    expect(deepseekThinking()).toEqual({});
+    expect(deepseekThinking('fast')).toEqual({});
+    process.env.DEEPSEEK_THINKING = '0';
+    expect(deepseekThinking('deep')).toEqual({ thinking: { type: 'disabled' } });
     if (prev === undefined) delete process.env.DEEPSEEK_THINKING; else process.env.DEEPSEEK_THINKING = prev;
+    // Потолок покрывает размышление ВМЕСТЕ с ответом: иначе включённое
+    // размышление снова съест ответ целиком (04.09, finish_reason=length).
+    expect(deepThinkingBudget(1600)).toBeGreaterThan(1600 + 1000);
+  });
+
+  it('глубокие пути просят размышление и дают ему бюджет', () => {
+    expect(PROVIDERS).toMatch(/max_tokens: deepThinkingBudget\(maxTokens\)[\s\S]{0,120}deepseekThinking\('deep'\)/);
+    expect(PROVIDERS).toMatch(/max_tokens: deepThinkingBudget\(1500\)[\s\S]{0,120}deepseekThinking\('deep'\)/);
+    // Бюджет времени тоже вырос: размышление идёт дольше.
+    expect(PROVIDERS).toMatch(/timeoutMs: 90_000, label: 'deepseek:content'/);
   });
 });
 
@@ -263,5 +281,97 @@ describe('xAI: живой провайдер, а не украшение', () =>
     expect(leg).toMatch(/timeoutMs = purpose === 'fast' \? 30_000 : 90_000/);
     // 20 с обрезали обе модели на флагмане.
     expect(leg).not.toMatch(/AbortSignal\.timeout\(20_000\)/);
+  });
+});
+
+/**
+ * Решение владельца 04.09: «добавь 4.6, сильная модель». Оно расширяет
+ * правило 04.08 («решатель дипсик либо опус»), а не отменяет его: то правило
+ * запрещало СЛАБОЕ звено в хвосте решателя, потому что при молчании сильных
+ * ответ всё равно приходил — от модели послабее, и отличить его было нечем.
+ * Grok-4.6 под запрет не подходит: это флагман.
+ */
+describe('решатель: ступень xAI', () => {
+  const ladder = () => PROVIDERS.slice(
+    PROVIDERS.indexOf('export async function callAIDecisionDetailed'),
+    PROVIDERS.indexOf('export async function probeQwenKeyStatus'),
+  );
+
+  it('ступень есть, модель берётся из каталога, а не прибита к id', () => {
+    const l = ladder();
+    expect(l).toMatch(/await resolveXaiModel\('strong'\)/);
+    expect(l).toMatch(/model: `xai:\$\{xaiModel\}`/);
+    expect(l).not.toMatch(/model: 'grok/);
+  });
+
+  it('стоит ВЫШЕ DeepSeek: у решателя качество важнее скорости', () => {
+    const l = ladder();
+    expect(l.indexOf('resolveXaiModel'), 'ступень xAI ушла ниже DeepSeek')
+      .toBeLessThan(l.indexOf('resolveDecisionModel(\'deepseek\')'));
+  });
+
+  it('бюджет времени взят из замера: 43 с ответа не влезают в 45', () => {
+    expect(ladder()).toMatch(/timeoutMs: 90_000, maxRetries: 0, label: `evo-decision-xai/);
+  });
+
+  it('правила проекта описывают ту же лестницу, что и код', () => {
+    // Расхождение правил с кодом уже стоило трёх недель: §8 обещал «DeepSeek
+    // первичный → Qwen на подхвате», когда судья считал на Opus.
+    const rules = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf-8');
+    expect(rules).toMatch(/Anthropic напрямую → xAI Grok/);
+    expect(rules).toMatch(/сильная модель/);
+  });
+
+  it('каждый отказ ступени назван, а не проглочен', () => {
+    const l = ladder();
+    expect(l).toMatch(/why\.push\('xai: ключа нет'\)/);
+    expect(l).toMatch(/why\.push\(`xai: модель не разрешена/);
+    expect(l).toMatch(/why\.push\(`xai\(\$\{xaiModel\}\): пустой ответ/);
+    expect(l).toMatch(/why\.push\(`xai\(\$\{xaiModel\}\): HTTP/);
+  });
+
+  it('правила проекта описывают ту же лестницу, что и код', () => {
+    const rules = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf-8');
+    expect(rules).toMatch(/Anthropic напрямую → xAI Grok/);
+    expect(rules).toMatch(/добавь\s*\n?\s*4\.6, сильная модель/);
+  });
+});
+
+/**
+ * Решение владельца 04.09: «добавь 4.6, сильная модель». Оно расширяет
+ * правило 04.08 («решатель дипсик либо опус»), а не отменяет его: то правило
+ * запрещало СЛАБОЕ звено в хвосте решателя — при молчании сильных ответ всё
+ * равно приходил, но от модели послабее, и отличить его было нечем. Grok-4.6
+ * под запрет не подходит: это флагман.
+ */
+describe('решатель: ступень xAI', () => {
+  const ladder = () => PROVIDERS.slice(
+    PROVIDERS.indexOf('export async function callAIDecisionDetailed'),
+    PROVIDERS.indexOf('export async function probeQwenKeyStatus'),
+  );
+
+  it('ступень есть, модель берётся из каталога, а не прибита к id', () => {
+    const l = ladder();
+    expect(l).toMatch(/await resolveXaiModel\('strong'\)/);
+    expect(l).toMatch(/model: `xai:\$\{xaiModel\}`/);
+    expect(l).not.toMatch(/model: 'grok/);
+  });
+
+  it('стоит ВЫШЕ DeepSeek: у решателя качество важнее скорости', () => {
+    const l = ladder();
+    expect(l.indexOf('resolveXaiModel'), 'ступень xAI ушла ниже DeepSeek')
+      .toBeLessThan(l.indexOf("resolveDecisionModel('deepseek')"));
+  });
+
+  it('бюджет времени взят из замера: 43 с ответа не влезают в 45', () => {
+    expect(ladder()).toMatch(/timeoutMs: 90_000, maxRetries: 0, label: `evo-decision-xai/);
+  });
+
+  it('каждый отказ ступени назван, а не проглочен', () => {
+    const l = ladder();
+    expect(l).toMatch(/why\.push\('xai: ключа нет'\)/);
+    expect(l).toMatch(/why\.push\(`xai: модель не разрешена/);
+    expect(l).toMatch(/why\.push\(`xai\(\$\{xaiModel\}\): пустой ответ/);
+    expect(l).toMatch(/why\.push\(`xai\(\$\{xaiModel\}\): HTTP/);
   });
 });
