@@ -31,8 +31,18 @@
  * ── Что проверяется ───────────────────────────────────────────────────────
  *
  * Список ключей берётся ИЗ РЕЕСТРОВ (`BUILT_PACK_REGIONS`, `OSM_BUILT_REGIONS`,
- * `OSM_LAYERS`, `packKey`/`osmKey`), а не выписывается здесь второй раз:
- * свой список разошёлся бы с тем, что просит карта, и проверял бы не то.
+ * `OSM_LAYERS`, `BUILT_GRID_CELLS`, `OVERVIEW_BUILT`, `packKey`/`osmKey`/
+ * `vectorKey`), а не выписывается здесь второй раз: свой список разошёлся бы
+ * с тем, что просит карта, и проверял бы не то.
+ *
+ * 04.09: до этой правки список ограничивался `BUILT_PACK_REGIONS` — десятью
+ * именованными районами. Клетки сетки «вся Камчатка» (`BUILT_GRID_CELLS`,
+ * тем же конвейером — рельеф, горизонтали, семь слоёв OSM, вектор) и
+ * обзорный ярус края собирались и обещались отдельными реестрами, но эта
+ * проверка их не видела вовсе: отчёт о хранилище был неполным, а не пустым,
+ * и «всё цело» на деле означало «цело то немногое, что мы посмотрели». Скрин
+ * владельца из поля (cell-53n158e.terrain.pmtiles, Failed to fetch) пришёл
+ * бы по клетке, для которой этот сторож ни разу не заглянул в бакет.
  *
  * GeoJSON качается ЦЕЛИКОМ — иначе про обрыв в конце файла ничего не узнать.
  * Рельеф (PMTiles) читается первыми килобайтами Range-запросом: так его
@@ -45,8 +55,10 @@
  */
 
 import {
-  BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, packKey, osmKey,
+  BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
+  packKey, osmKey, vectorKey,
 } from '@/lib/map/pack-source';
+import { OVERVIEW_ID } from '@/lib/geo/regions';
 
 export type PackVerdict = 'ok' | 'truncated' | 'bad_json' | 'http' | 'unreachable';
 
@@ -67,6 +79,20 @@ export function packKeysToVerify(): Array<{ key: string; kind: 'json' | 'archive
     out.push({ key: packKey(region, 'contours'), kind: 'json' });
     if (!OSM_BUILT_REGIONS.includes(region)) continue;
     for (const layer of OSM_LAYERS) out.push({ key: osmKey(region, layer), kind: 'json' });
+  }
+  // Клетка сетки собирается всем конвейером сразу (resolvePackSource,
+  // lib/map/pack-source.ts) — одно обещание, четыре рода файлов.
+  for (const cell of BUILT_GRID_CELLS) {
+    out.push({ key: packKey(cell, 'terrain'), kind: 'archive' });
+    out.push({ key: packKey(cell, 'contours'), kind: 'json' });
+    for (const layer of OSM_LAYERS) out.push({ key: osmKey(cell, layer), kind: 'json' });
+    out.push({ key: vectorKey(cell), kind: 'archive' });
+  }
+  // Обзорный ярус — только рельеф и (пустые) горизонтали, без OSM и вектора
+  // по замыслу (resolvePackSource).
+  if (OVERVIEW_BUILT) {
+    out.push({ key: packKey(OVERVIEW_ID, 'terrain'), kind: 'archive' });
+    out.push({ key: packKey(OVERVIEW_ID, 'contours'), kind: 'json' });
   }
   return out;
 }

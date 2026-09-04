@@ -111,6 +111,7 @@ export async function PATCH(
       'is_active', 'is_published',
       'included', 'not_included', 'what_to_bring',
       'cancellation_policy',
+      'pickup_type', 'pickup_details',
       'photos', 'tour_image',
       'available_slots', 'next_available_date',
     ] as const;

@@ -40,6 +40,8 @@ interface TourData {
   not_included: string[] | null;
   what_to_bring: string[] | null;
   cancellation_policy: string | null;
+  pickup_type: string | null;
+  pickup_details: string | null;
   photos: string[] | null;
   tour_image: string | null;
 }
@@ -100,6 +102,8 @@ export default function EditTourClient() {
     not_included: '',
     what_to_bring: '',
     cancellation_policy: '',
+    pickup_type: '',
+    pickup_details: '',
   });
   const [photos, setPhotos] = useState<string[]>([]);
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
@@ -206,6 +210,8 @@ export default function EditTourClient() {
           not_included: (t.not_included || []).join('\n'),
           what_to_bring: (t.what_to_bring || []).join('\n'),
           cancellation_policy: t.cancellation_policy ?? '',
+          pickup_type: t.pickup_type ?? '',
+          pickup_details: t.pickup_details ?? '',
         });
       } catch {
         setError('Ошибка загрузки');
@@ -258,6 +264,10 @@ export default function EditTourClient() {
         what_to_bring: parseLines(form.what_to_bring),
         // Пусто — NULL, «не записано»: пустую строку в условия не сохраняем.
         cancellation_policy: form.cancellation_policy.trim() || null,
+        // Пустой выбор уходит как NULL, а не как пустая строка: «не выбрано»
+        // и «выбрано ничего» — разные ответы, и схема (932) различает их.
+        pickup_type: form.pickup_type || null,
+        pickup_details: form.pickup_details.trim() || null,
         photos,
       };
 
@@ -600,6 +610,27 @@ export default function EditTourClient() {
           <label className={lbl}>Что взять с собой</label>
           <textarea className={inp + ' min-h-[60px] resize-y font-mono text-xs'} value={form.what_to_bring}
             onChange={e => setF('what_to_bring', e.target.value)} placeholder={'Удобная обувь\nДождевик'} />
+        </div>
+        <div>
+          <label className={lbl}>Как турист попадает на тур</label>
+          <select className={inp} value={form.pickup_type} onChange={e => setF('pickup_type', e.target.value)}>
+            <option value="">Не выбрано</option>
+            <option value="hotel_pickup">Забираем сами (от отеля или из района)</option>
+            <option value="meeting_point">Встречаемся в назначенном месте</option>
+            <option value="self_drive">Турист добирается сам</option>
+          </select>
+          <textarea className={inp + ' min-h-[60px] resize-y text-xs mt-2'} value={form.pickup_details}
+            onChange={e => setF('pickup_details', e.target.value)}
+            placeholder={form.pickup_type === 'hotel_pickup'
+              ? 'Забираем из Петропавловска, Елизова и Паратунки. Время согласуем накануне вечером.'
+              : form.pickup_type === 'meeting_point'
+                ? 'Сбор у стелы на въезде в Елизово, 07:30. Парковка бесплатная.'
+                : 'Дорога грунтовая, последние 12 км — только внедорожник.'} />
+          <p className="text-[11px] text-[var(--text-muted)] mt-1">
+            {form.pickup_type === '' ? 'Пока не выбрано, тур нельзя выложить на чужие витрины: покупатель обязан знать, ждать его или ехать самому.'
+              : form.pickup_type === 'self_drive' ? 'Подробности необязательны — куда ехать, скажут координаты тура. Но описание дороги снимает половину вопросов.'
+              : 'Без подробностей ответ бесполезен: напишите границы забора или адрес и время.'}
+          </p>
         </div>
         <div>
           <label className={lbl}>Условия отмены и возврата</label>

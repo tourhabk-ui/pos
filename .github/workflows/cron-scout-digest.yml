@@ -23,32 +23,45 @@ jobs:
     # 40, а не 8: ожидание деплоя (до 25 мин) плюс прогон разведчика (до 5).
     timeout-minutes: 40
     steps:
-      # Маркер уезжает в main вместе с кодом, а деплой Timeweb доезжает за
-      # 5-20 минут (ai-debug run 7: рестарт через 19 мин после мержа). Прогон
-      # на старом коде отвечает на вчерашний вопрос. Ждём свежего рестарта по
-      # uptime; ?deploy=1 обязателен — start.js перехватывает ровно
-      # '/api/health' и отвечает {"status":"ok"} без uptime. Не дождались —
-      # говорим вслух и идём как есть: провал тоже результат.
+      # Ждём НЕ любой рестарт, а сборку, которая новее этого коммита.
+      # uptime отвечает «давно ли перезапускались», а спросить надо «тот ли
+      # код на проде»: 04.09 два замера подряд поймали деплой предыдущего
+      # мержа и молча измерили старый код (run 9 — таймаут ровно 15 с и ни
+      # одной новой строки). build_time приходит из next.config.js, то есть
+      # ставится в момент сборки образа.
       - name: Wait for fresh deploy
+        env:
+          BASE: https://vedarai.ru
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: |
+          iso2epoch() { python3 -c 'import sys,datetime
+          v=(sys.argv[1] or "").strip()
+          try: print(int(datetime.datetime.fromisoformat(v.replace("Z","+00:00")).timestamp()))
+          except Exception: print(0)' "$1"; }
+
+          NEED=$(iso2epoch "$NEED_AFTER")
+          echo "нужна сборка новее коммита: $NEED_AFTER (epoch $NEED)"
+
           for i in $(seq 1 50); do
-            BODY=$(curl -s --max-time 20 "https://vedarai.ru/api/health?deploy=1" || true)
-            UP=$(printf '%s' "$BODY" | python3 -c 'import json,sys
+            BODY=$(curl -s --max-time 20 "$BASE/api/health?deploy=1" || true)
+            PAIR=$(printf '%s' "$BODY" | python3 -c 'import json,sys,datetime
           try:
-              u = json.load(sys.stdin).get("uptime")
-              print(int(float(u)) if u is not None else -1)
-          except Exception:
-              print(-1)' 2>/dev/null || echo -1)
-            if [ "$UP" -lt 0 ]; then
-              echo "uptime не прочитан (попытка $i/50); тело: $(printf '%s' "$BODY" | head -c 200)"
-            elif [ "$UP" -lt 300 ]; then
-              echo "свежий рестарт: uptime ${UP}с (попытка $i)"; exit 0
+              d=json.load(sys.stdin); bt=d.get("build_time"); u=d.get("uptime")
+              ts=int(datetime.datetime.fromisoformat(bt.replace("Z","+00:00")).timestamp()) if bt else -1
+              print(ts, int(float(u)) if u is not None else -1)
+          except Exception: print(-1,-1)' 2>/dev/null || echo "-1 -1")
+            BT=${PAIR%% *}; UP=${PAIR##* }
+            if [ "$BT" -gt 0 ] && [ "$NEED" -gt 0 ]; then
+              if [ "$BT" -ge "$NEED" ]; then echo "своя сборка на проде (build_time $BT >= $NEED, попытка $i)"; exit 0; fi
+              echo "на проде сборка старее коммита (build_time $BT < $NEED), жду 30с ($i/50)"
+            elif [ "$UP" -ge 0 ] && [ "$UP" -lt 300 ]; then
+              echo "build_time не отдан (сборка старше этой правки), но рестарт свежий: uptime ${UP}с (попытка $i)"; exit 0
             else
-              echo "uptime ${UP}с — деплой ещё не доехал, жду 30с ($i/50)"
+              echo "ещё не доехало (build_time $BT, uptime $UP), жду 30с ($i/50)"
             fi
             sleep 30
           done
-          echo "ВНИМАНИЕ: свежего рестарта не дождались за 25 мин — прогон идёт на том коде, что есть"
+          echo "ВНИМАНИЕ: своей сборки не дождались за 25 мин — прогон идёт на том коде, что есть"
 
       - name: Scout Digest — ежедневный дайджест
         env:

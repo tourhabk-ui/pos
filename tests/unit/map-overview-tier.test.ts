@@ -136,3 +136,23 @@ describe('обзорный ярус: карта', () => {
     expect(MAP).toMatch(/if \(zoom < PACK_MIN_ZOOM && !hasOverview\)/);
   });
 });
+
+describe('workflow обзора: каталог для лога существует ДО tee (04.09)', () => {
+  // Прогон 2 (run 33868408741): `tee .cache/overview-build.log` открывает
+  // файл раньше, чем python успевает что-то создать (тот делает mkdir только
+  // для .cache/packs, своей цели, уже внутри main()) — без каталога tee падает
+  // ENOENT, pipefail топит шаг кодом 1, а В ЛОГЕ сборка при этом видна
+  // полностью успешной («готово:», размер, время сборки). Ловушка «зелёного»
+  // вывода при красном прогоне — сторож ловит её статикой, а не ждёт
+  // повторной боевой пересборки.
+  const WF = readFileSync(
+    join(process.cwd(), '.github/workflows/map-overview-build.yml'), 'utf-8',
+  );
+
+  it('mkdir каталога стоит до `tee .cache/overview-build.log`', () => {
+    const teeIdx = WF.lastIndexOf('tee .cache/overview-build.log');
+    expect(teeIdx, '`tee .cache/overview-build.log` не найден в workflow').toBeGreaterThan(0);
+    const before = WF.slice(0, teeIdx);
+    expect(before).toMatch(/mkdir -p \.cache\b/);
+  });
+});

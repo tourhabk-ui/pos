@@ -19,7 +19,7 @@
 import { z } from 'zod';
 import { agentMemory, type MemoryEntry } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
-import { callAIWaterfall } from '@/lib/ai/providers';
+import { callAIWaterfallOrNull } from '@/lib/ai/providers';
 import { smokeTestKnowledgeWrites } from '@/lib/agents/smoke-test';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -129,7 +129,10 @@ export async function runMemoryReflector(): Promise<ReflectorResult> {
 
   let raw = '';
   try {
-    raw = await callAIWaterfall(messages);
+    const answer = await callAIWaterfallOrNull(messages);
+    // null — не ответил никто; строка-заглушка сюда больше не доезжает.
+    if (answer === null) throw new Error('waterfall_unavailable');
+    raw = answer;
   } catch {
     return { episodes_read: episodes.length, consolidated: 0, smoke_passed: true, reason: 'ai_unavailable' };
   }

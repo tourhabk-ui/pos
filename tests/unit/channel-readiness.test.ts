@@ -17,6 +17,10 @@ const full: ReadinessRow = {
   photo_count: 5,
   base_price: 12000,
   duration_hours: 10,
+  // 932: ответ на вопрос «как турист попадает на тур». `has_meeting_point`
+  // остаётся рядом и отвечает на другой вопрос — есть ли текст точки сбора.
+  pickup_type: 'meeting_point',
+  pickup_details_chars: 40,
   has_meeting_point: true,
   has_cancellation_policy: true,
   has_coords: true,
@@ -50,7 +54,16 @@ describe('чего не хватает туру', () => {
     // Не «точка сбора»: операторы забирают туристов сами (поправка владельца
     // 23.08). Пустое поле значит «не записано, как турист попадает на тур», а
     // не «оператор забыл» — и чинится это одной фразой на оператора.
-    expect(missingFields({ ...full, has_meeting_point: false })).toContain('pickup');
+    //
+    // С 932 судим по pickup_type, а не по тексту точки сбора: прежняя проверка
+    // требовала выдумать точку сбора там, где оператора забирает от отеля.
+    expect(missingFields({ ...full, pickup_type: null })).toContain('pickup');
+    // Текст точки сбора сам по себе больше ничего не решает.
+    expect(missingFields({ ...full, has_meeting_point: false })).toEqual([]);
+    // «Заберут» и «встречаемся» без подробностей покупателю бесполезны, а
+    // «добирается сам» — нет: куда ехать, отвечают координаты тура.
+    expect(missingFields({ ...full, pickup_type: 'hotel_pickup', pickup_details_chars: 0 })).toContain('pickup_details');
+    expect(missingFields({ ...full, pickup_type: 'self_drive', pickup_details_chars: 0 })).toEqual([]);
     expect(missingFields({ ...full, has_coords: false })).toContain('coordinates');
     expect(missingFields({ ...full, has_operator_contact: false })).toContain('operator_contact');
   });
@@ -70,7 +83,8 @@ describe('чего не хватает туру', () => {
   it('каждое пропущенное поле названо ровно один раз', () => {
     const empty: ReadinessRow = {
       ...full, title: '  ', description_chars: 0, photo_count: 0, base_price: null,
-      duration_hours: null, has_meeting_point: false, has_cancellation_policy: false,
+      duration_hours: null, pickup_type: null, pickup_details_chars: 0,
+      has_meeting_point: false, has_cancellation_policy: false,
       has_coords: false, has_operator_contact: false,
     };
     const missing = missingFields(empty);
@@ -94,7 +108,7 @@ describe('чего перепись не знает — названо вслу�
     // заводить. Смешать их с нехваткой данных значило бы обещать работу,
     // которой не существует.
     const blocking = missingFields({
-      ...full, has_meeting_point: false,
+      ...full, pickup_type: null,
     });
     for (const g of SCHEMA_GAPS) expect(blocking).not.toContain(g.field);
   });

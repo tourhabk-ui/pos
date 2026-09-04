@@ -16,6 +16,7 @@
  */
 
 import { callAIFast, callAIQualityOrNull, fetchWithRetry } from '@/lib/ai/providers';
+import { modelRefusalIssue } from '@/lib/notifications/post-validation';
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -36,7 +37,6 @@ import {
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
-import { judgePostRefusal } from '@/lib/agents/post-refusal';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 
 // Словарь причин пропуска переехал в чистый модуль (клиентский компонент
@@ -1069,6 +1069,18 @@ export async function runScoutDigest(): Promise<DigestResult> {
     };
   }
 
+  // Реплика модели вместо выпуска — не публикуем и называем это своим именем.
+  // Проверка стоит ПЕРВОЙ из содержательных: отказ проходит и числовой
+  // фактчек, и судью (утверждать ему нечего), а дальше уезжает в канал.
+  const digestRefusal = modelRefusalIssue(digest);
+  if (digestRefusal) {
+    return {
+      signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'model_refusal',
+      digest_skip_detail: digestRefusal,
+      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+    };
+  }
+
   // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
   // канал уходил дайджест из трёх строк «Нет значимых сигналов за сегодня».
   // Сообщение «сегодня новостей нет» не стоит публикации: оно ничего не несёт
@@ -1079,18 +1091,6 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 4;
   if (allEmpty) {
     return { signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
-  }
-
-  // Модель ответила не выпуском, а запиской оператору («не вижу текста,
-  // пришлите выдержки»). Ворота фактчека такое пропускают честно: они ищут
-  // НЕподтверждённые утверждения, а в отказе утверждений нет вовсе.
-  const refusal = judgePostRefusal(digest);
-  if (refusal.refused) {
-    return {
-      signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'model_refusal',
-      digest_skip_detail: refusal.reason.slice(0, 200),
-      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
-    };
   }
 
   // ── Фактчек основного дайджеста ────────────────────────────────────────────
@@ -1317,17 +1317,13 @@ export async function runScoutDigest(): Promise<DigestResult> {
       let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
       if (!aiDigest) aiSkip = 'ai_synthesis_null';
 
-      // ── Ворота отказа: пришёл не пост, а записка оператору ────────────────
-      // 04.09 в канал ушло «Не вижу текста статьи… пришли, пожалуйста,
-      // выдержки». Оба фактчека ниже пропустили это честно: они ищут
-      // НЕподтверждённые утверждения, а в отказе утверждений нет вовсе.
+      // Реплика модели вместо поста. Ровно это 04.09 и ушло в канал на 1800
+      // подписчиков: «не вижу текста статьи в сигнале… пришли выдержки».
+      // Ниже стоят ворота правдивости, и они такой текст пропускают законно —
+      // он ничего не утверждает.
       if (aiDigest) {
-        const refused = judgePostRefusal(aiDigest);
-        if (refused.refused) {
-          aiDigest = null;
-          aiSkip = 'ai_model_refusal';
-          aiSkipDetail = refused.reason.slice(0, 200);
-        }
+        const refusal = modelRefusalIssue(aiDigest);
+        if (refusal) { aiDigest = null; aiSkip = 'ai_model_refusal'; aiSkipDetail = refusal; }
       }
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──

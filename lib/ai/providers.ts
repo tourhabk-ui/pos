@@ -41,6 +41,7 @@
 
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion } from '@/lib/ai/failure-trace';
+import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
@@ -798,9 +799,96 @@ export async function callMinimax(messages: ChatMessage[]): Promise<string | nul
 }
 
 // ── xAI (Grok) ────────────────────────────────────────────────
-export async function callXai(messages: ChatMessage[]): Promise<string | null> {
+/**
+ * Модель xAI — из /v1/models, без привязки к id (CLAUDE.md §8).
+ *
+ * До 04.09 во всех трёх местах стоял хардкод `grok-4`, а живой каталог
+ * провайдера к этому дню состоял из grok-4.6 / 4.5 / 4.3 / grok-build-0.1
+ * (справка владельца). Ровно та же болезнь, что убила прямой путь DeepSeek
+ * 26.07 и пробу Gemini 04.09: провайдер сменил линейку, а мы продолжали
+ * звать снятое имя. Override — env XAI_MODEL.
+ */
+const XAI_MODELS_TTL_MS = 6 * 60 * 60 * 1000;
+const xaiModelCache = new Map<string, { id: string; at: number }>();
+let xaiListProblem: string | null = null;
+
+/** Почему каталог xAI не добыт в последний раз; null — добыт. */
+export function xaiResolveProblem(): string | null { return xaiListProblem; }
+
+/**
+ * Модель xAI под НАЗНАЧЕНИЕ, потому что разница в скорости здесь в три раза.
+ *
+ * Замер 04.09 (ai-debug run 10, с прода): grok-4.6 отвечает за 43 с,
+ * grok-build-0.1 — за 13 с. Для человека в поле, ждущего Кузьмича, сорок три
+ * секунды это не «медленно», а «не ответил»; для ночного крона, пишущего
+ * текст, — приемлемая цена за сильную модель. Поэтому назначения два, и они
+ * не смешиваются: 'fast' для живого пути, 'strong' для генерации контента.
+ *
+ * Лёгкая выбирается по имени (mini/fast/flash/lite/build), а не по позиции в
+ * списке: порядок каталога провайдера — не обещание. Не нашлось такой —
+ * берётся самая слабая пригодная, и это честнее, чем подсунуть флагман туда,
+ * где ждут быстро.
+ */
+export async function resolveXaiModel(purpose: 'strong' | 'fast' = 'strong'): Promise<string | null> {
+  const override = (purpose === 'fast' ? process.env.XAI_FAST_MODEL : process.env.XAI_MODEL)?.trim();
+  if (override) return override;
+  const cached = xaiModelCache.get(purpose);
+  if (cached && Date.now() - cached.at < XAI_MODELS_TTL_MS) return cached.id;
+
+  const key = getXaiKey();
+  if (!key) { xaiListProblem = 'ключа нет'; return null; }
+  const ids = await fetchModelIds('https://api.x.ai/v1/models', key);
+  if (ids.length === 0) { xaiListProblem = 'каталог пуст или недоступен'; return null; }
+  const eligible = classifyModels(ids).filter(m => m.eligible).map(m => m.id);
+  const picked = purpose === 'fast'
+    ? (eligible.find(id => /mini|fast|flash|lite|build/i.test(id)) ?? eligible[eligible.length - 1] ?? null)
+    : pickBestModel(ids);
+  if (!picked) { xaiListProblem = `в каталоге ${ids.length} моделей, ни одной пригодной`; return null; }
+  xaiListProblem = null;
+  xaiModelCache.set(purpose, { id: picked, at: Date.now() });
+  return picked;
+}
+
+/**
+ * Достижим ли api.x.ai С ЭТОГО адреса — БЕЗ ключа и намеренно.
+ *
+ * Разбор 04.09 встал на том, что xAI отвечает `{"code":"invalid-argument",
+ * "error":"Incorrect API key provided"}`, и у этого ответа два несовместимых
+ * кандидата: гео-отказ по адресу запроса (слова владельца) и вопрос к самому
+ * ключу либо счёту (кредиты в консоли x.ai отдельны от подписки). Спорить об
+ * этом бесполезно, различает их проба.
+ *
+ * Запрос идёт БЕЗ Authorization. Тогда ответ говорит о ДОРОГЕ, а не о ключе:
+ * 401/403 с телом самого xAI значит «дошли, дело в авторизации»; ответ края
+ * (Cloudflare и подобные) либо сетевой отказ значит «не дошли вовсе». Ключ в
+ * пробе не участвует, поэтому она ничего о нём не утверждает и утечь ему
+ * некуда.
+ */
+export async function probeXaiReachable(): Promise<{ reached: boolean | null; detail: string }> {
+  try {
+    const res = await fetch('https://api.x.ai/v1/models', {
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160);
+    // Своё тело xAI — JSON с полем code/error; край отдаёт html или чужой JSON.
+    const ownShape = /"(code|error)"\s*:/.test(body);
+    if (ownShape) return { reached: true, detail: `HTTP ${res.status}, тело xAI: ${body}` };
+    return { reached: false, detail: `HTTP ${res.status}, тело не похоже на ответ xAI: ${body}` };
+  } catch (e) {
+    return { reached: null, detail: `сеть не дала ответа: ${errorFailureReason(e)}` };
+  }
+}
+
+export async function callXai(
+  messages: ChatMessage[],
+  opts: { purpose?: 'strong' | 'fast'; timeoutMs?: number; maxTokens?: number } = {},
+): Promise<string | null> {
+  const { purpose = 'fast', timeoutMs = purpose === 'fast' ? 30_000 : 90_000, maxTokens = 800 } = opts;
   const apiKey = getXaiKey();
-  if (!apiKey) return null;
+  if (!apiKey) { recordAiLegFailure('xai', 'no_key'); return null; }
+  const model = await resolveXaiModel(purpose);
+  if (!model) { recordAiLegFailure('xai', `модель не разрешена: ${xaiResolveProblem() ?? 'каталог недоступен'}`); return null; }
 
   try {
     const payload = messages.map(({ role, content }) => ({ role, content }));
@@ -811,23 +899,30 @@ export async function callXai(messages: ChatMessage[]): Promise<string | null> {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'grok-4',
+        model,
         temperature: 0.4,
-        max_tokens: 800,
+        max_tokens: maxTokens,
         messages: payload,
       }),
-      signal: AbortSignal.timeout(20_000),
+      // Бюджет от назначения: замер 04.09 — grok-4.6 43 с, grok-build-0.1 13 с.
+      // Прежние 20 с обрезали ОБЕ модели на флагмане и делали живого
+      // провайдера мёртвым.
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
+    // Отказ назывался молчанием: тело ошибки читалось в переменную и
+    // выбрасывалось, наверх шёл голый null. Тот же дефект, из-за которого
+    // «Incorrect API key» полдня считали то гео-блоком, то мёртвым ключом.
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
+      recordAiLegFailure('xai', httpFailureReason(res.status, await res.text().catch(() => '')));
       return null;
     }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) return text;
+    recordAiLegFailure('xai', `empty (${model}): ${describeEmptyCompletion(data)}`);
     return null;
-  }
+  } catch (e) { recordAiLegFailure('xai', errorFailureReason(e)); return null; }
 }
 
 // ── Anthropic Claude (direct API) ───────────────────────────
@@ -1177,8 +1272,30 @@ const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
  * размышления. Override — DEEPSEEK_THINKING=1: тогда бюджет ответа
  * (max_tokens с запасом на reasoning) — забота вызывающего.
  */
-export function deepseekThinking(): Record<string, unknown> {
-  return process.env.DEEPSEEK_THINKING === '1' ? {} : { thinking: { type: 'disabled' } };
+export function deepseekThinking(purpose: 'fast' | 'deep' = 'fast'): Record<string, unknown> {
+  if (process.env.DEEPSEEK_THINKING === '1') return {};
+  if (process.env.DEEPSEEK_THINKING === '0') return { thinking: { type: 'disabled' } };
+  return purpose === 'deep' ? {} : { thinking: { type: 'disabled' } };
+}
+
+/**
+ * Бюджет ответа, когда модель РАЗМЫШЛЯЕТ.
+ *
+ * Замечание владельца 04.09: «все модели отвечают с глубоким анализом только
+ * на 3-4 раз, первые ответы поверхностные». Одну из причин я внёс сам этим
+ * утром: выключил размышление ВЕЗДЕ, чтобы вылечить пустой content, — а
+ * замер показывал ДВА рабочих рычага, и второй (больший бюджет) размышление
+ * сохраняет. Для живого чата выбор верен: человек ждёт, и 800 токенов ответа
+ * дороже раздумий. Для ночного крона, пишущего текст людям, — нет: там
+ * глубина и есть смысл работы.
+ *
+ * max_tokens у DeepSeek считает размышление ВМЕСТЕ с ответом (04.09:
+ * finish_reason=length при 200 токенах и пустом content, reasoning 575-686
+ * знаков). Значит потолок обязан покрывать оба, иначе включённое размышление
+ * снова съест ответ целиком — ту самую немоту мы сегодня и чинили.
+ */
+export function deepThinkingBudget(answerTokens: number): number {
+  return answerTokens + 1500;
 }
 
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
@@ -1731,6 +1848,51 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     } catch (e) { why.push(`anthropic: ${(e as Error).message.slice(0, 100)}`); }
   }
 
+  // 0в) xAI Grok — флагман, достижимый из РФ НАПРЯМУЮ, без релея и без шлюза.
+  //
+  //     Решение владельца 04.09 («добавь 4.6, сильная модель») расширяет
+  //     правило 04.08 «решатель дипсик либо опус»: сток стало два, и второй
+  //     не слабое звено в хвосте, а флагман. Именно от слабого хвоста то
+  //     правило и защищало — молчание честнее тихой подмены качества, — так
+  //     что запрет на слабых остаётся в силе, а Grok под него не подходит.
+  //
+  //     Стоит ВЫШЕ DeepSeek намеренно, и это дороже по времени: замер 04.09
+  //     (ai-debug run 10, с прода) — grok-4.6 отвечает за 43 с против 0,3 с у
+  //     DeepSeek. У решателя это правильный обмен, и он записан в шапке
+  //     функции: здесь качество важнее latency, потому что зовёт крон, а не
+  //     человек. На живом пути Кузьмича обмен обратный — там xAI идёт быстрой
+  //     моделью во втором эшелоне водопада.
+  //
+  //     Модель не прибита к id: resolveXaiModel('strong') выбирает сильнейшую
+  //     из каталога провайдера (§8). Override — XAI_MODEL.
+  const xaiKey = getXaiKey();
+  if (!xaiKey) why.push('xai: ключа нет');
+  if (xaiKey) {
+    const xaiModel = await resolveXaiModel('strong');
+    if (!xaiModel) {
+      why.push(`xai: модель не разрешена — ${xaiResolveProblem() ?? 'каталог недоступен'}`);
+    } else {
+      try {
+        const res = await fetchWithRetry('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${xaiKey}` },
+          body: JSON.stringify({ model: xaiModel, temperature: 0.3, max_tokens: 2000, messages: payload }),
+        }, { timeoutMs: 90_000, maxRetries: 0, label: `evo-decision-xai:${xaiModel}` });
+        if (res.ok) {
+          const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+          const text = data?.choices?.[0]?.message?.content;
+          if (text?.trim()) {
+            logLLMUsage(xaiModel, data.usage);
+            return { text, model: `xai:${xaiModel}`, provenance: why.slice() };
+          }
+          why.push(`xai(${xaiModel}): пустой ответ — ${describeEmptyCompletion(data)}`);
+        } else {
+          why.push(`xai(${xaiModel}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
+        }
+      } catch (e) { why.push(`xai(${xaiModel}): ${(e as Error).message.slice(0, 100)}`); }
+    }
+  }
+
   // 1) DeepSeek (модель определяется сама) — прямой api.deepseek.com, доступен из РФ
   const dsKey = getDeepSeekKey();
   if (!dsKey) why.push('deepseek: ключа нет');
@@ -1752,8 +1914,13 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-          body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload, ...deepseekThinking() }),
-        }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
+          // Решатель — не чат: здесь думать и надо. Потолок покрывает
+          // размышление вместе с ответом (см. deepThinkingBudget).
+          body: JSON.stringify({
+            model, temperature: 0.3, max_tokens: deepThinkingBudget(1500),
+            messages: payload, ...deepseekThinking('deep'),
+          }),
+        }, { timeoutMs: 90_000, label: `evo-decision:${model}` });
         if (res.ok) {
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
@@ -1783,6 +1950,10 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   //
   // Qwen и Kimi остаются доступны для ДРУГИХ задач (callAIWaterfall/callAIFast,
   // зрение) — здесь убран только путь принятия решений.
+  //
+  // xAI Grok (ступень 0в) этому не противоречит: правило запрещало СЛАБОЕ
+  // звено в хвосте, а не второй сток вообще. Grok-4.6 — флагман, и внесён он
+  // решением владельца 04.09, а не как «ещё один провайдер на всякий случай».
 
   return { text: null, model: null, error: why.join(' | ').slice(0, 600) || 'причина не зафиксирована', provenance: why.slice() };
 }
@@ -2789,11 +2960,13 @@ export async function preflightProviders(): Promise<{
   async function probeXai() {
     const apiKey = process.env.XAI_API_KEY;
     if (!apiKey) return { ok: false, error: 'XAI_API_KEY not set' };
+    const model = await resolveXaiModel();
+    if (!model) return { ok: false, error: `модель не разрешена: ${xaiResolveProblem() ?? 'каталог недоступен'}` };
     try {
       const res = await fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'grok-4', max_tokens: 5, messages: testMsg }),
+        body: JSON.stringify({ model, max_tokens: 5, messages: testMsg }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
@@ -3167,9 +3340,16 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
   if (tier1) return tier1;
 
   // Tier 2: race mid-tier fallbacks
+  //
+  // xAI добавлен 04.09 по замеру: до этого дня callXai не звался НИ ОДНИМ
+  // живым путём — только админской проверкой, — и провайдер, который отвечает,
+  // числился мёртвым. Здесь берётся быстрая модель каталога (13 с по замеру),
+  // а не флагман (43 с): во втором эшелоне ждёт человек, которому первый
+  // эшелон уже не ответил.
   const tier2 = await raceProviders([
     callYandexGPT(messages),
     callMiniMax(messages),
+    callXai(messages, { purpose: 'fast' }),
   ]);
   if (tier2) return tier2;
 
@@ -3245,11 +3425,17 @@ export async function callAIQuality(
   if (dsKey) {
     try {
       const model = await resolveContentModel('deepseek');
+      // Путь генерации ТЕКСТА для людей: размышление включено, потолок
+      // покрывает и его, и ответ. Иначе получаем ровно то, на что жалуется
+      // владелец, — быстрый поверхностный текст.
       const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload, ...format, ...deepseekThinking() }),
-      }, { timeoutMs: 45_000, label: 'deepseek:content' });
+        body: JSON.stringify({
+          model, temperature, max_tokens: deepThinkingBudget(maxTokens),
+          messages: payload, ...format, ...deepseekThinking('deep'),
+        }),
+      }, { timeoutMs: 90_000, label: 'deepseek:content' });
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
@@ -3289,7 +3475,14 @@ export async function callAIQuality(
     } catch (e) { recordAiLegFailure('qwen:content', errorFailureReason(e)); }
   }
 
-  // 3. Общий waterfall — включая флагманы, если релей настроен.
+  // 3. xAI — флагман, достижимый из РФ напрямую (замер 04.09: дорога открыта,
+  //    grok-4.6 отвечает за 43 с). Здесь генерируется ТЕКСТ для людей, и
+  //    ночному крону эти секунды по карману; ставить его выше DeepSeek
+  //    незачем — тот отвечает за треть секунды.
+  const xaiText = await callXai(messages, { purpose: 'strong', timeoutMs: 90_000, maxTokens });
+  if (xaiText?.trim()) return xaiText;
+
+  // 4. Общий waterfall — включая флагманы, если релей настроен.
   return callAIWaterfall(messages);
 }
 
@@ -3299,6 +3492,27 @@ export async function callAIQualityOrNull(
   opts: { maxTokens?: number; temperature?: number; json?: boolean } = {},
 ): Promise<string | null> {
   const text = await callAIQuality(messages, opts);
+  return isWaterfallErrorResponse(text) ? null : text;
+}
+
+/**
+ * Тот же водопад, но отказ виден как `null`, а не как строка-заглушка.
+ *
+ * Повод (04.09, экран владельца). Scout-Innovator показал в панели диагноз
+ * «в ответе нет JSON-массива (len=55, head="Извините, сервис временно
+ * недоступен...")». Разбор был прав по букве и лгал по сути: массива и правда
+ * нет, но не потому, что модель ответила плохо, а потому, что не ответил
+ * НИКТО, и в разбор уехала заглушка водопада. Диагноз назвал вторичное
+ * следствие вместо причины, и на панели это выглядело как капризная модель, а
+ * не как мёртвые провайдеры.
+ *
+ * `callAIWaterfall` обязан возвращать строку: её показывают человеку в чате,
+ * где пустой ответ хуже извинения. Но всякий, кто ответ РАЗБИРАЕТ, а не
+ * показывает, должен получать честный null — как уже сделано у
+ * callAIQualityOrNull и callAIFastOrNull.
+ */
+export async function callAIWaterfallOrNull(messages: ChatMessage[]): Promise<string | null> {
+  const text = await callAIWaterfall(messages);
   return isWaterfallErrorResponse(text) ? null : text;
 }
 
@@ -3435,6 +3649,12 @@ export interface WaterfallDebugResult {
   error?: string;
   answer_preview?: string;
   latency_ms: number;
+  /**
+   * Известное об этом отказе, когда текст провайдера вводит в заблуждение
+   * (lib/ai/refusal-notes). Ответ провайдера при этом остаётся дословным в
+   * `error`: заметка добавляется, а не заменяет.
+   */
+  note?: string;
 }
 
 export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<WaterfallDebugResult[]> {
@@ -3646,31 +3866,88 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
     }
   }
 
-  // 6. xAI
+  // 6. xAI — модель из каталога, плюс отдельной строкой ДОРОГА до api.x.ai
+  //    без ключа: «Incorrect API key» с прода имеет два кандидата (гео-отказ и
+  //    вопрос к ключу или счёту), и различает их только проба без ключа.
+  {
+    const reach = await probeXaiReachable();
+    results.push({
+      provider: 'xai:reachability',
+      model: 'без ключа, /v1/models',
+      status: reach.reached === true ? 'success' : reach.reached === false ? 'error_in_body' : 'exception',
+      error: reach.reached === true ? undefined : reach.detail,
+      answer_preview: reach.reached === true ? reach.detail : undefined,
+      latency_ms: 0,
+    });
+  }
   {
     const start = Date.now();
     const apiKey = process.env.XAI_API_KEY;
+    const xModel = apiKey ? await resolveXaiModel() : null;
     if (!apiKey) {
-      results.push({ provider: 'xai', model: 'grok-4', status: 'no_key', latency_ms: 0 });
+      results.push({ provider: 'xai', model: 'unresolved', status: 'no_key', latency_ms: 0 });
+    } else if (!xModel) {
+      results.push({ provider: 'xai', model: 'unresolved', status: 'exception', error: `каталог моделей недоступен: ${xaiResolveProblem() ?? 'причина не записана'}`, latency_ms: Date.now() - start });
     } else {
       try {
+        // 60 с, а не 15: run 8 упёрся в таймаут на grok-4.6 — это флагман с
+        // размышлением, и 15 с ему мало. Диагностике спешить некуда, а
+        // «таймаут» вместо ответа снова оставил бы вопрос открытым.
         const res = await fetch('https://api.x.ai/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: 'grok-4', temperature: 0.4, max_tokens: 200, messages: payload }),
-          signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({ model: xModel, temperature: 0.4, max_tokens: 200, messages: payload }),
+          signal: AbortSignal.timeout(60_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
-          results.push({ provider: 'xai', model: 'grok-4', status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+          results.push({ provider: 'xai', model: xModel, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
         } else {
           const data = await res.json();
           const text = data?.choices?.[0]?.message?.content;
-          results.push({ provider: 'xai', model: 'grok-4', status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+          results.push({ provider: 'xai', model: xModel, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
         }
       } catch (e) {
-        results.push({ provider: 'xai', model: 'grok-4', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+        results.push({ provider: 'xai', model: xModel, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
+  // 6b. xAI, вторая строка: САМАЯ ЛЁГКАЯ пригодная модель каталога.
+  //     Флагман (grok-4.6) может не уложиться в бюджет ответа, и тогда по
+  //     одной строке не отличить «провайдер мёртв» от «модель думает дольше
+  //     нашего терпения». Лёгкая модель отвечает или нет — и это уже ответ.
+  {
+    const start = Date.now();
+    const apiKey = process.env.XAI_API_KEY;
+    if (apiKey) {
+      const ids = classifyModels(await fetchModelIds('https://api.x.ai/v1/models', apiKey))
+        .filter(m => m.eligible).map(m => m.id);
+      const light = ids.find(id => /mini|fast|flash|lite|build/i.test(id)) ?? ids[ids.length - 1] ?? null;
+      if (!light) {
+        results.push({ provider: 'xai:light', model: 'unresolved', status: 'exception', error: `каталог пуст или непригоден: ${xaiResolveProblem() ?? 'причина не записана'}`, latency_ms: Date.now() - start });
+      } else {
+        try {
+          const res = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: light, temperature: 0.4, max_tokens: 200, messages: payload }),
+            signal: AbortSignal.timeout(30_000),
+          });
+          const ms = Date.now() - start;
+          if (!res.ok) {
+            results.push({ provider: 'xai:light', model: light, status: 'http_error', http_status: res.status, error: (await res.text().catch(() => '')).slice(0, 200), latency_ms: ms });
+          } else {
+            const data = await res.json();
+            const text = data?.choices?.[0]?.message?.content;
+            results.push(text
+              ? { provider: 'xai:light', model: light, status: 'success', answer_preview: text.slice(0, 100), latency_ms: ms }
+              : { provider: 'xai:light', model: light, status: 'empty_response', error: describeEmptyCompletion(data), latency_ms: ms });
+          }
+        } catch (e) {
+          results.push({ provider: 'xai:light', model: light, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+        }
       }
     }
   }
@@ -3888,6 +4165,14 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         results.push({ provider: 'mistral', model: MISTRAL_MODEL, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
+  }
+
+  // Поправка к отказам, которые лгут о причине: xAI отвечает про ключ там, где
+  // дело в адресе запроса (слова владельца 04.09). Ответ провайдера остаётся
+  // дословным, заметка идёт рядом.
+  for (const r of results) {
+    const note = refusalNote(r.provider, r.http_status ?? null, r.error);
+    if (note) r.note = note;
   }
 
   return results;
