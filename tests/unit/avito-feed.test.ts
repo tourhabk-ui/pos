@@ -29,6 +29,10 @@ import type { ChannelTour } from '@/lib/channels/types';
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const ROUTE = read('app/api/channels/avito/feed/route.ts');
+// 04.09: запрос ленты переехал в общий отбор — он же кормит фид Яндекса.
+// Правило, разложенное по двум роутам, — это два правила (§12), поэтому
+// сторож смотрит туда, где оно теперь живёт, а не туда, где лежало.
+const SELECT = read('lib/channels/ready-tours.ts');
 
 const tour: ChannelTour = {
   id: 27,
@@ -114,7 +118,7 @@ describe('объявление несёт то, что нужно площадк
     // Звонок «в платформу» без человека на конце убивает лид.
     expect(xml).toContain('<ContactPhone>+7 900 000-00-00</ContactPhone>');
     expect(xml).toContain('<ManagerName>Камчатка Рафтинг</ManagerName>');
-    expect(ROUTE).toMatch(/LEFT JOIN partners p ON p\.id = ot\.operator_id/);
+    expect(SELECT).toMatch(/LEFT JOIN partners p ON p\.id = ot\.operator_id/);
   });
 
   it('длительность честная: часы не делятся на 8 вслепую', () => {
@@ -136,7 +140,7 @@ describe('контакты читаются из существующей кол
   it('partners.contacts, а не несуществующая partners.contact', () => {
     // /api/tours-feed годами читал p.contact — такой колонки нет, запрос падал
     // и фид отдавал 500. Живой код везде использует contacts.
-    expect(ROUTE).toMatch(/p\.contacts->>'phone'/);
+    expect(SELECT).toMatch(/p\.contacts->>'phone'/);
     expect(ROUTE).not.toMatch(/p\.contact->>/);
     const toursFeed = read('app/api/tours-feed/route.ts');
     expect(toursFeed).not.toMatch(/p\.contact->>/);
