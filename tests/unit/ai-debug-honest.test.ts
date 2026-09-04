@@ -80,7 +80,7 @@ describe('debug-проба описывает живой водопад', () => 
     expect(debug).toMatch(/provider: 'deepseek', model: label, status: 'empty_response', error: describeEmptyCompletion\(data\)/);
     // run 6: модель думает и не договаривает — рычаги меряются, а не угадываются.
     expect(debug).toMatch(/thinking: \{ type: 'disabled' \}/);
-    expect(debug).toMatch(/\[max_tokens:2000\]/);
+    expect(debug).toMatch(/\[thinking:on max_tokens:2000\]/);
     expect(debug).toMatch(/getProviderModelIds\('deepseek'\)/);
     expect(debug).toMatch(/provider: 'qwen', model, status: 'empty_response', error: describeEmptyCompletion\(data\)/);
   });
@@ -107,5 +107,34 @@ describe('линза: decision_null — с причинами по ступен�
     expect(LENS).toMatch(/const decision = await callAIDecisionDetailed\(buildAiFeaturePrompt\(candidates, knownTopics\)\)/);
     expect(LENS).toMatch(/skip_reason: 'decision_null', decision_detail: decision\.error \?\? 'причина не записана'/);
     expect(LENS).toMatch(/decision_detail\?: string;/);
+  });
+});
+
+/**
+ * Рычаг, выбранный замером run 7 (04.09): DeepSeek V4 думает по умолчанию и
+ * на бюджете ответа молчит; `thinking: disabled` отвечает за ~320 мс. Живой
+ * путь — чат, tools-цикл, судья, решатель, пробы — просит ответ без
+ * размышления одним и тем же способом.
+ */
+describe('DeepSeek: живой путь просит ответ без размышления', () => {
+  it('deepseekThinking() спредится в каждое тело chat/completions к DeepSeek', () => {
+    const bodies = PROVIDERS.split('api.deepseek.com/').slice(1)
+      .filter((chunk) => chunk.startsWith('v1/chat/completions') || chunk.startsWith('chat/completions'))
+      .map((chunk) => chunk.slice(0, 900));
+    // ping-проба (max_tokens: 1) проверяет только HTTP и размышления не ждёт;
+    // debug-проба (...v.extra) меряет рычаги намеренно, её базовая форма проверена выше.
+    const answering = bodies.filter((b) => !/max_tokens: 1,/.test(b) && !/\.\.\.v\.extra/.test(b));
+    expect(answering.length).toBeGreaterThanOrEqual(6);
+    for (const b of answering) expect(b, b.slice(0, 200)).toMatch(/deepseekThinking\(\)|thinking: \{ type: 'disabled' \}/);
+  });
+
+  it('override DEEPSEEK_THINKING=1 возвращает размышление', async () => {
+    const { deepseekThinking } = await import('@/lib/ai/providers');
+    const prev = process.env.DEEPSEEK_THINKING;
+    delete process.env.DEEPSEEK_THINKING;
+    expect(deepseekThinking()).toEqual({ thinking: { type: 'disabled' } });
+    process.env.DEEPSEEK_THINKING = '1';
+    expect(deepseekThinking()).toEqual({});
+    if (prev === undefined) delete process.env.DEEPSEEK_THINKING; else process.env.DEEPSEEK_THINKING = prev;
   });
 });
