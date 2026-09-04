@@ -154,6 +154,30 @@ describe('xAI: модель из каталога, дорога меряется
     expect(PROVIDERS).toMatch(/fetchModelIds\('https:\/\/api\.x\.ai\/v1\/models'/);
   });
 
+  /**
+   * run 8 (04.09) закрыл спор замером: проба без ключа получила от api.x.ai
+   * его СОБСТВЕННЫЙ ответ (401 «No credentials presented»), а по ключу
+   * прочитался каталог — недействительный ключ каталог не отдаёт. Значит
+   * дорога открыта, ключ жив, а «Incorrect API key provided» xAI отвечает на
+   * неизвестную модель: мы звали снятый с линейки grok-4.
+   */
+  it('поправка к отказу xAI несёт ЗАМЕР, а не пересказ догадки', async () => {
+    const { refusalNote } = await import('@/lib/ai/refusal-notes');
+    const note = refusalNote('xai', 400, '{"error":"Incorrect API key provided."}') ?? '';
+    expect(note).toMatch(/ЗАМЕРЕНО 04\.09/);
+    expect(note).toMatch(/Ключ не перевыпускать/);
+    expect(note).toMatch(/неизвестн/i);
+    // Догадка про гео из поправки убрана: замер её опроверг.
+    expect(note).not.toMatch(/ДВА кандидата/);
+  });
+
+  it('флагману дан бюджет, а рядом меряется лёгкая модель каталога', () => {
+    const debug = section('export async function callAIWaterfallDebug', '\n  return results;');
+    expect(debug).toMatch(/provider: 'xai:light'/);
+    // 15 с не хватило флагману с размышлением (run 8) — таймаут вместо ответа.
+    expect(debug).toMatch(/AbortSignal\.timeout\(60_000\)/);
+  });
+
   it('живой путь и пробы спрашивают каталог и называют его отказ словами', () => {
     expect(PROVIDERS).toMatch(/recordAiLegFailure\('xai', `модель не разрешена: \$\{xaiResolveProblem\(\)/);
     const debug = section('export async function callAIWaterfallDebug', '\n  return results;');
@@ -180,7 +204,7 @@ describe('поправки к лживым отказам', () => {
   it('xAI, Gemini и край Cloudflare опознаются по своим признакам', async () => {
     const { refusalNote } = await import('@/lib/ai/refusal-notes');
     expect(refusalNote('xai', 400, '{"code":"invalid-argument","error":"Incorrect API key provided."}'))
-      .toMatch(/ДВА кандидата/);
+      .toMatch(/ЗАМЕРЕНО/);
     expect(refusalNote('gemini', 400, 'User location is not supported for the API use.'))
       .toMatch(/Гео-отказ Google/);
     expect(refusalNote('openrouter', 403, '{ "success": false, "error": "Access denied by security policy." }'))

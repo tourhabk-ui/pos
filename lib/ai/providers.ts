@@ -3765,11 +3765,14 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
       results.push({ provider: 'xai', model: 'unresolved', status: 'exception', error: `каталог моделей недоступен: ${xaiResolveProblem() ?? 'причина не записана'}`, latency_ms: Date.now() - start });
     } else {
       try {
+        // 60 с, а не 15: run 8 упёрся в таймаут на grok-4.6 — это флагман с
+        // размышлением, и 15 с ему мало. Диагностике спешить некуда, а
+        // «таймаут» вместо ответа снова оставил бы вопрос открытым.
         const res = await fetch('https://api.x.ai/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model: xModel, temperature: 0.4, max_tokens: 200, messages: payload }),
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(60_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
@@ -3782,6 +3785,44 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         }
       } catch (e) {
         results.push({ provider: 'xai', model: xModel, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
+  // 6b. xAI, вторая строка: САМАЯ ЛЁГКАЯ пригодная модель каталога.
+  //     Флагман (grok-4.6) может не уложиться в бюджет ответа, и тогда по
+  //     одной строке не отличить «провайдер мёртв» от «модель думает дольше
+  //     нашего терпения». Лёгкая модель отвечает или нет — и это уже ответ.
+  {
+    const start = Date.now();
+    const apiKey = process.env.XAI_API_KEY;
+    if (apiKey) {
+      const ids = classifyModels(await fetchModelIds('https://api.x.ai/v1/models', apiKey))
+        .filter(m => m.eligible).map(m => m.id);
+      const light = ids.find(id => /mini|fast|flash|lite|build/i.test(id)) ?? ids[ids.length - 1] ?? null;
+      if (!light) {
+        results.push({ provider: 'xai:light', model: 'unresolved', status: 'exception', error: `каталог пуст или непригоден: ${xaiResolveProblem() ?? 'причина не записана'}`, latency_ms: Date.now() - start });
+      } else {
+        try {
+          const res = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: light, temperature: 0.4, max_tokens: 200, messages: payload }),
+            signal: AbortSignal.timeout(30_000),
+          });
+          const ms = Date.now() - start;
+          if (!res.ok) {
+            results.push({ provider: 'xai:light', model: light, status: 'http_error', http_status: res.status, error: (await res.text().catch(() => '')).slice(0, 200), latency_ms: ms });
+          } else {
+            const data = await res.json();
+            const text = data?.choices?.[0]?.message?.content;
+            results.push(text
+              ? { provider: 'xai:light', model: light, status: 'success', answer_preview: text.slice(0, 100), latency_ms: ms }
+              : { provider: 'xai:light', model: light, status: 'empty_response', error: describeEmptyCompletion(data), latency_ms: ms });
+          }
+        } catch (e) {
+          results.push({ provider: 'xai:light', model: light, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+        }
       }
     }
   }
