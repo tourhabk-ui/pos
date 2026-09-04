@@ -642,6 +642,7 @@ export async function callDeepSeekWithTools(
         messages,
         tools,
         tool_choice: 'auto',
+        ...deepseekThinking(),
       }),
     }, { timeoutMs, label: `deepseek-tools:${model}` });
 
@@ -1007,6 +1008,7 @@ export async function callDeepSeek(
         max_tokens: opts?.maxTokens ?? 800,
         messages: payload,
         ...(opts?.json ? { response_format: { type: 'json_object' } } : {}),
+        ...deepseekThinking(),
       }),
     }, { timeoutMs: opts?.timeoutMs ?? 20_000, label: 'deepseek' });
     if (!res.ok) {
@@ -1158,6 +1160,27 @@ const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
 // «вечный» алиас умер вместе с линейкой v3. Значение ниже — из текста той
 // самой ошибки провайдера, и оно ТОЖЕ протухнет: это последняя соломинка на
 // случай недоступного /models, а не рабочий путь. Рабочий путь — резолв.
+/**
+ * DeepSeek V4 ДУМАЕТ по умолчанию — и на этом лёг весь прямой путь.
+ *
+ * Замер ai-debug run 6-7 (04.09): deepseek-v4-pro и v4-flash на обычный
+ * запрос отвечают HTTP 200 с `finish_reason=length`, reasoning_content
+ * 575-686 знаков и ПУСТЫМ content — размышление съедает бюджет max_tokens,
+ * до ответа дело не доходит. Чат Кузьмича (800 токенов) на коротких
+ * промптах ещё пролезал, судья (1600) и решатель (1500) на длинных — нет:
+ * «deepseek: content empty», synthesis_null, decision_null.
+ *
+ * Рычаг выбран измерением, а не догадкой (документацию DeepSeek из РФ и из
+ * песочницы не прочесть): `thinking: {type:'disabled'}` — обе модели
+ * отвечают за ~320 мс; max_tokens 2000 тоже спасает, но платит за
+ * размышление токенами и временем. Живой путь просит ответ без
+ * размышления. Override — DEEPSEEK_THINKING=1: тогда бюджет ответа
+ * (max_tokens с запасом на reasoning) — забота вызывающего.
+ */
+export function deepseekThinking(): Record<string, unknown> {
+  return process.env.DEEPSEEK_THINKING === '1' ? {} : { thinking: { type: 'disabled' } };
+}
+
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
   // deepseek-chat — стабильный chat-id DeepSeek (V3). Раньше здесь стоял
   // deepseek-v4-pro, но на chat/completions он возвращал пустой body (полевой
@@ -1729,7 +1752,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-          body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
+          body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload, ...deepseekThinking() }),
         }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
         if (res.ok) {
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
@@ -2747,7 +2770,7 @@ export async function preflightProviders(): Promise<{
       const res = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: await resolveDeepSeekModel(), max_tokens: 5, messages: testMsg }),
+        body: JSON.stringify({ model: await resolveDeepSeekModel(), max_tokens: 5, messages: testMsg, ...deepseekThinking() }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
@@ -2920,6 +2943,7 @@ export async function preflightProviders(): Promise<{
           temperature: 0,
           messages: [{ role: 'user', content: 'Верни JSON {"ok":true}' }],
           response_format: { type: 'json_object' },
+          ...deepseekThinking(),
         }),
         signal: AbortSignal.timeout(5000),
       });
@@ -3224,7 +3248,7 @@ export async function callAIQuality(
       const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload, ...format }),
+        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload, ...format, ...deepseekThinking() }),
       }, { timeoutMs: 45_000, label: 'deepseek:content' });
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
@@ -3545,10 +3569,13 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
       const primary = await resolveDeepSeekModel().catch(() => null);
       const listed = classifyModels(await getProviderModelIds('deepseek')).filter(m => m.eligible).map(m => m.id);
       const models = [...new Set([...(primary ? [primary] : []), ...listed])].slice(0, 2);
+      // Базовая форма — та, какой ходит живой путь (deepseekThinking). Рычаги
+      // ниже пробуются только если она молчит: run 7 показал, что оба
+      // (thinking выключен / бюджет 2000) спасают, живой путь взял первый.
       const variants: Array<{ tag: string; extra: Record<string, unknown>; timeoutMs: number }> = [
-        { tag: '', extra: { max_tokens: 200 }, timeoutMs: 15_000 },
+        { tag: '', extra: { max_tokens: 200, ...deepseekThinking() }, timeoutMs: 15_000 },
         { tag: ' [thinking:disabled]', extra: { max_tokens: 200, thinking: { type: 'disabled' } }, timeoutMs: 15_000 },
-        { tag: ' [max_tokens:2000]', extra: { max_tokens: 2000 }, timeoutMs: 60_000 },
+        { tag: ' [thinking:on max_tokens:2000]', extra: { max_tokens: 2000 }, timeoutMs: 60_000 },
       ];
       for (const dsModel of models) {
         for (const v of variants) {
