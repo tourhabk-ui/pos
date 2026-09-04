@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AI_FEATURE_SURFACES, AI_FEATURE_PROPOSALS_LIMIT, AI_FEATURE_CANDIDATES_LIMIT, AI_FEATURE_CRITIC_MIN_SCORE,
-  buildAiFeaturePrompt, parseAiFeatureProposals, groundProposals,
+  buildAiFeaturePrompt, parseAiFeatureProposals, parseAiFeatureProposalsDetailed, groundProposals,
   formatAiFeaturesMessage, toTrackerRow, buildCriticPrompt, parseCriticVerdict,
   type AiFeatureCandidate, type AiFeatureProposal,
 } from '@/lib/agents/scout-ai-features';
@@ -95,6 +95,35 @@ describe('разбор ответа модели', () => {
     expect(parseAiFeatureProposals(null)).toEqual([]);
   });
 
+  /**
+   * 04.09, run 5: линза записала «model_empty» при десяти материалах с
+   * текстом, и по этому слову нельзя было сказать, отказалась модель или мы
+   * не прочитали её ответ. Лечение у этих бед разное, значит и слова разные.
+   */
+  it('пустой список — не то же, что непрочитанный ответ: четыре вердикта', () => {
+    expect(parseAiFeatureProposalsDetailed('[]')).toMatchObject({ verdict: 'declined' });
+    expect(parseAiFeatureProposalsDetailed('[]').detail).toMatch(/предлагать нечего/);
+
+    const noArray = parseAiFeatureProposalsDetailed('Сегодня ничего применимого не нашёл.');
+    expect(noArray.verdict).toBe('unreadable');
+    expect(noArray.detail).toMatch(/массива JSON в ответе нет/);
+    expect(noArray.detail).toMatch(/Сегодня ничего применимого/);
+
+    const broken = parseAiFeatureProposalsDetailed('[{"title": "Обрыв"');
+    expect(broken.verdict).toBe('unreadable');
+    expect(parseAiFeatureProposalsDetailed(null).verdict).toBe('unreadable');
+
+    const { user_value: _v, ...noValue } = proposal();
+    void _v;
+    const partial = parseAiFeatureProposalsDetailed(JSON.stringify([noValue]));
+    expect(partial.verdict).toBe('incomplete');
+    expect(partial.detail).toMatch(/элементов 1, ни одного полного/);
+    expect(partial.detail).toMatch(/нет полей: user_value/);
+
+    expect(parseAiFeatureProposalsDetailed(JSON.stringify([proposal()])))
+      .toMatchObject({ verdict: 'proposals', detail: '' });
+  });
+
   it('без user_value предложение не проходит: «для кого» обязательно', () => {
     const { user_value: _dropped, ...noValue } = proposal();
     void _dropped;
@@ -128,6 +157,17 @@ describe('критик — закрыт по умолчанию', () => {
     expect(sys.content).toMatch(/4 ГБ RAM/);
     expect(user.content).toMatch(/Для кого и что меняет: турист в поле/);
     expect(user.content).toMatch(/Цитата-улика/);
+  });
+
+  it('прогон называет исход ответа модели тремя словами и модель-ответчика', () => {
+    // Один код на «отказалась» и «не прочитали» — это §4.0 на своём же коде.
+    expect(LENS).not.toMatch(/'model_empty'/);
+    expect(LENS).toMatch(/declined: {3}'model_declined'/);
+    expect(LENS).toMatch(/unreadable: 'model_unreadable'/);
+    expect(LENS).toMatch(/incomplete: 'model_incomplete'/);
+    expect(LENS).toMatch(/parse_detail: parsed\.detail/);
+    // Кто ответил — тоже факт прогона: с 04.09 живой провайдер один.
+    expect(LENS).toMatch(/base\.decision_model = decision\.model \?\? null/);
   });
 
   it('в прогоне: без одобрения ничего не уходит, молчание критика — свой код', () => {

@@ -110,12 +110,22 @@ export interface AiFeaturesResult {
   sent: boolean;
   /**
    * Почему прогон не дал предложений — только когда grounded === 0.
-   * no_candidates — материалов не было; model_empty — материалы были, модель
-   * вернула пустой массив или неразбираемый ответ (03.09 run 2: 6 кандидатов,
-   * 4 с текстом, ответ пуст — это не «нечего было читать»).
+   *
+   * Про ответ модели исходов ТРИ, а не один (04.09, run 5): model_declined —
+   * модель вернула пустой массив, то есть честно сказала «предлагать нечего»;
+   * model_unreadable — ответ пришёл, а мы его не прочитали (не JSON, битый
+   * JSON, не массив); model_incomplete — элементы есть, но ни один не несёт
+   * обязательных полей. Первое лечить нечем, второе и третье чинятся
+   * промптом. Прежний общий `model_empty` склеивал их и на вопрос «что
+   * случилось» отвечал «что-то».
    */
-  skip_reason?: 'no_candidates' | 'no_text' | 'model_empty' | 'decision_null' | 'all_ungrounded' | 'all_duplicates'
+  skip_reason?: 'no_candidates' | 'no_text' | 'model_declined' | 'model_unreadable' | 'model_incomplete'
+    | 'decision_null' | 'all_ungrounded' | 'all_duplicates'
     | 'critic_rejected_all' | 'critic_unavailable' | 'error';
+  /** Какая модель ответила решателем; null — не ответил никто. */
+  decision_model?: string | null;
+  /** Чем плох ответ модели — при model_unreadable / model_incomplete. */
+  parse_detail?: string;
   /**
    * Почему решатель промолчал — по ступеням (timeweb/flagship/anthropic/
    * deepseek…), только при decision_null. Run 4 (04.09) записал одно слово
@@ -235,23 +245,61 @@ export function buildAiFeaturePrompt(candidates: AiFeatureCandidate[], knownTopi
   ];
 }
 
-/** Разбор ответа модели. Терпим к json-обёртке; поля обязательны. */
-export function parseAiFeatureProposals(raw: string | null): AiFeatureProposal[] {
-  if (!raw) return [];
+/**
+ * Исход разбора ответа модели. Четыре, а не два.
+ *
+ * Повод — прогон 04.09 (run 5): линза записала `model_empty` при 10 материалах
+ * с текстом, и по этому слову НЕЛЬЗЯ сказать, что произошло. «Модель честно
+ * ответила: сегодня предлагать нечего» и «ответ пришёл, а мы его не прочитали»
+ * — разные беды с разным лечением: первую лечить нечем и не надо, вторая
+ * чинится промптом или разбором. Прежний комментарий к полю сам признавался,
+ * что склеивает их: «модель вернула пустой массив ИЛИ неразбираемый ответ».
+ * Это §4.0 на своём же коде: место, где нельзя сказать «не знаю».
+ */
+export type ProposalParseVerdict = 'proposals' | 'declined' | 'unreadable' | 'incomplete';
+
+export interface ProposalParseResult {
+  proposals: AiFeatureProposal[];
+  verdict: ProposalParseVerdict;
+  /** Чем именно плох ответ; для 'proposals' — пусто. */
+  detail: string;
+}
+
+/** Поля, без которых предложение не предложение. */
+const REQUIRED_FIELDS: Array<keyof AiFeatureProposal> = [
+  'capability', 'first_step', 'user_value', 'evidence_quote', 'source_url',
+];
+
+/** Первые знаки ответа — чтобы «не прочитали» можно было проверить глазами. */
+function answerPreview(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+/** Разбор ответа модели с вердиктом. Терпим к json-обёртке; поля обязательны. */
+export function parseAiFeatureProposalsDetailed(raw: string | null): ProposalParseResult {
+  const nothing = (verdict: ProposalParseVerdict, detail: string): ProposalParseResult =>
+    ({ proposals: [], verdict, detail });
+  if (!raw || !raw.trim()) return nothing('unreadable', 'ответ пуст');
+
   const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
   const start = cleaned.indexOf('[');
   const end = cleaned.lastIndexOf(']');
-  if (start === -1 || end === -1 || end <= start) return [];
+  if (start === -1 || end === -1 || end <= start) {
+    return nothing('unreadable', `массива JSON в ответе нет: «${answerPreview(cleaned)}»`);
+  }
   let arr: unknown;
   try {
     arr = JSON.parse(cleaned.slice(start, end + 1));
-  } catch {
-    return [];
+  } catch (e) {
+    return nothing('unreadable', `JSON не разобрался (${(e as Error).message.slice(0, 60)}): «${answerPreview(cleaned)}»`);
   }
-  if (!Array.isArray(arr)) return [];
+  if (!Array.isArray(arr)) return nothing('unreadable', `на месте массива ${typeof arr}`);
+  if (arr.length === 0) return nothing('declined', 'модель вернула пустой массив: предлагать нечего');
+
   const out: AiFeatureProposal[] = [];
+  const gaps: string[] = [];
   for (const item of arr) {
-    if (!item || typeof item !== 'object') continue;
+    if (!item || typeof item !== 'object') { gaps.push('элемент не объект'); continue; }
     const o = item as Record<string, unknown>;
     const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string).trim() : '');
     const p: AiFeatureProposal = {
@@ -264,11 +312,20 @@ export function parseAiFeatureProposals(raw: string | null): AiFeatureProposal[]
       evidence_quote: str('evidence_quote'),
       source_url: str('source_url'),
     };
-    if (p.title.length < 4 || p.title.length > 180) continue;
-    if (!p.capability || !p.first_step || !p.user_value || !p.evidence_quote || !p.source_url) continue;
+    if (p.title.length < 4 || p.title.length > 180) { gaps.push('название пустое или длиннее 180'); continue; }
+    const missing = REQUIRED_FIELDS.filter((f) => !p[f]);
+    if (missing.length > 0) { gaps.push(`нет полей: ${missing.join(', ')}`); continue; }
     out.push(p);
   }
-  return out.slice(0, AI_FEATURE_PROPOSALS_LIMIT);
+  if (out.length === 0) {
+    return nothing('incomplete', `элементов ${arr.length}, ни одного полного: ${[...new Set(gaps)].join('; ').slice(0, 200)}`);
+  }
+  return { proposals: out.slice(0, AI_FEATURE_PROPOSALS_LIMIT), verdict: 'proposals', detail: '' };
+}
+
+/** Разбор без вердикта: удобно там, где важен только список. */
+export function parseAiFeatureProposals(raw: string | null): AiFeatureProposal[] {
+  return parseAiFeatureProposalsDetailed(raw).proposals;
 }
 
 /** Нормализация для сравнения цитаты с текстом: пробелы, кавычки, регистр. */
@@ -379,6 +436,9 @@ export async function runAiFeatureLens(
     dedup_skipped: 0,
     critic_rejected: [] as Array<{ title: string; reason: string }>,
     stored: 0, sent: false,
+    // Кто ответил решателем. С 04.09 живой провайдер один (DeepSeek), и по
+    // этому полю видно, он ли ответил или ступень выше внезапно ожила.
+    decision_model: null as string | null,
   };
   const done = (extra: Partial<AiFeaturesResult>): AiFeaturesResult => ({ ...base, ...extra, duration_ms: Date.now() - startedAt });
 
@@ -414,12 +474,19 @@ export async function runAiFeatureLens(
     const raw = decision.text;
     if (raw === null) return done({ skip_reason: 'decision_null', decision_detail: decision.error ?? 'причина не записана' });
 
-    const proposed = parseAiFeatureProposals(raw);
-    base.proposed = proposed.length;
-    const { accepted, dropped } = groundProposals(proposed, candidates);
+    base.decision_model = decision.model ?? null;
+    const parsed = parseAiFeatureProposalsDetailed(raw);
+    base.proposed = parsed.proposals.length;
+    const { accepted, dropped } = groundProposals(parsed.proposals, candidates);
     base.dropped = dropped;
     if (accepted.length === 0) {
-      return done({ skip_reason: proposed.length === 0 ? 'model_empty' : 'all_ungrounded' });
+      if (parsed.verdict === 'proposals') return done({ skip_reason: 'all_ungrounded' });
+      const byVerdict = {
+        declined:   'model_declined',
+        unreadable: 'model_unreadable',
+        incomplete: 'model_incomplete',
+      } as const;
+      return done({ skip_reason: byVerdict[parsed.verdict], parse_detail: parsed.detail });
     }
 
     const fresh: AiFeatureProposal[] = [];
