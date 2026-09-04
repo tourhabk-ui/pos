@@ -390,8 +390,15 @@ nearby places within 15km*), а платформа читала их как «м
 - 354 точки с фото
 - 294 маршрута (kamchatka_routes)
   - **~150 маршрутов** с waypoints (migrations 653-657: 238 связей)
-  - Для маршрутов с 1+ waypoints: синтетический LineString (migration 168)
-  - GPS-треки из OSM: **не импортированы** (нужен `POST /api/admin/import/osm-geometry`)
+  - Откуда линия у живых маршрутов — замер 04.09 переписью
+    `GET /api/cron/catalog-census` (`geometry_by_source`, 392 живых):
+    external 252 · нет геометрии 106 · osm 13 · waypoints_synthetic 10 ·
+    visitkamchatka 6 · kml_inbox 2 · road_graph_astar 2 · gpx 1.
+    Прежние строки «синтетика у всех с waypoints» и «треки OSM не
+    импортированы» держались на памяти: синтетики осталось 10, OSM-линий 13.
+    Скрипт `scripts/import-osm-geometry.ts` с 10.07 не собирался (импорт
+    несуществующей функции, починен 04.09 в #1564) — новых OSM-линий с тех
+    пор быть не могло; его запуск — отдельное решение, сначала сухой прогон
   - Описания из visitkamchatka.ru: **статус неизвестен** (endpoint есть, вызывался ли — неизвестно)
 - **8 живых туров** от операторов (`is_active`, не удалённые) — замер 23.08
   переписью `GET /api/cron/channel-readiness`. Прежняя цифра «20» стояла здесь
@@ -983,7 +990,7 @@ COPY --from=builder /app/start.js ./start.js
 - 100 с PDF паспортами
 - 154 с обязательной регистрацией МЧС
 - ~150 маршрутов со связями route_waypoints (migrations 653-657: 238 связей) — см. §4.1
-- geometry: синтетический LineString из waypoints (migration 168); GPS-треки из OSM не импортированы
+- geometry: по источникам — замер 04.09 в §4.1 (`geometry_by_source`): скрейп external 252, без линии 106, osm 13, синтетика 168-й миграции 10
 
 ---
 
