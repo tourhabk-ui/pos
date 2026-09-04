@@ -81,6 +81,15 @@ jobs:
       - name: Обзорный рельеф — terrain-RGB z4-7 в PMTiles
         run: |
           set -euo pipefail
+          # 04.09, прогон 2: `tee .cache/overview-build.log` открывает файл
+          # ДО того, как python успевает создать директорию (тот делает это
+          # только для .cache/packs, своей цели записи, уже внутри main()).
+          # Без каталога tee падает немедленно с ENOENT, pipefail топит весь
+          # шаг кодом 1 — при этом сама сборка в логе видна полностью
+          # УСПЕШНОЙ: это ловушка «зелёного» вывода при красном прогоне.
+          # У пакета района (map-pack-build.yml) mkdir стоит явно — здесь
+          # его не было вовсе.
+          mkdir -p .cache
           python3 scripts/map-tiles/build_overview.py \
             --bbox "${{ steps.bbox.outputs.bbox }}" \
             --decimate "${{ steps.cfg.outputs.decimate }}" \
