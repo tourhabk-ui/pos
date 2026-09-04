@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 206 (03.09, «вся Камчатка»): клетка сетки paratunka, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
-  "region": "paratunka",
+  "note": "Прогон 207 (03.09, «вся Камчатка»): клетка сетки mutnovsky-gorely, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
+  "region": "mutnovsky-gorely",
   "upload": true
 }
