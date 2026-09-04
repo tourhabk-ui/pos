@@ -52,6 +52,10 @@ export async function GET(request: NextRequest) {
 
   const { q, limit } = parsed.data;
   const perType = Math.ceil(limit / 2);
+  // Семантика могла не сработать (нет модели, нет эмбеддингов, упала БД) —
+  // тогда маршруты ищутся ILIKE, и ответ ОБЯЗАН это сказать (§4.0):
+  // «нашли ноль по смыслу» и «смысл не искали» — разные ответы туристу.
+  let semanticDown: string | null = null;
   const pattern = `%${q}%`;
 
   // Маршруты: сначала семантика (embeddings — «где увидеть медведей» находит
@@ -75,8 +79,12 @@ export async function GET(request: NextRequest) {
             .map(h => byId[h.id]);
           if (semanticRoutes.length > 0) return semanticRoutes;
         }
-      } catch {
-        // семантика недоступна (нет эмбеддингов/модели) → честный ILIKE ниже
+      } catch (err) {
+        // Семантика недоступна → ILIKE ниже. Причина — в лог и в ответ, не в
+        // пустоту: до 04.09 этот catch молчал, и отказ модели был неотличим
+        // от «по смыслу ничего не нашлось».
+        semanticDown = (err instanceof Error ? err.message : String(err)).slice(0, 160);
+        console.error('[search] семантический поиск недоступен, идёт ILIKE:', semanticDown);
       }
     }
     // id — в пространстве VIEW agent_route_knowledge (COALESCE(ark_id, id)),
@@ -162,10 +170,19 @@ export async function GET(request: NextRequest) {
       ...matchingPages.map(p => ({ ...p, type: 'page' as const })),
     ];
 
-    const response = NextResponse.json({ success: true, data: results });
-    response.headers.set('Cache-Control', 'public, s-maxage=10, stale-while-revalidate=30');
+    const response = NextResponse.json({
+      success: true,
+      data: results,
+      // Третье состояние: маршруты найдены без семантики. Клиент решает сам,
+      // показать ли «поиск по смыслу временно недоступен».
+      ...(semanticDown ? { degraded: { semantic: 'unavailable' as const, reason: semanticDown } } : {}),
+    });
+    // Деградированный ответ не кэшируется: иначе минутный сбой модели
+    // раздавался бы всем ещё полминуты после того, как она ожила.
+    response.headers.set('Cache-Control', semanticDown ? 'no-store' : 'public, s-maxage=10, stale-while-revalidate=30');
     return response;
-  } catch {
+  } catch (err) {
+    console.error('[search] отказ поиска:', err instanceof Error ? err.message : String(err));
     return NextResponse.json({ success: false, error: 'Ошибка поиска' }, { status: 500 });
   }
 }
