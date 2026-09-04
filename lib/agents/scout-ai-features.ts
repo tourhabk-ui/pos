@@ -124,6 +124,19 @@ export interface AiFeaturesResult {
     | 'critic_rejected_all' | 'critic_unavailable' | 'error';
   /** Какая модель ответила решателем; null — не ответил никто. */
   decision_model?: string | null;
+  /**
+   * Сколько запретов и сколько знаков ушло модели в промпт.
+   *
+   * 04.09, run 6: DeepSeek прочитал 10 статей и ОСОЗНАННО вернул пустой
+   * список (model_declined). У такого отказа два правдоподобных объяснения, и
+   * различать их догадками нельзя: либо в материалах правда нет фичи для нас,
+   * либо список «эти темы уже были, не предлагай их ни в какой формулировке»
+   * разросся до размера, при котором осторожная модель отказывает по любому
+   * поводу. Первое лечить не надо, второе — надо. Числа отвечают на это без
+   * спора.
+   */
+  known_topics?: number;
+  prompt_chars?: number;
   /** Чем плох ответ модели — при model_unreadable / model_incomplete. */
   parse_detail?: string;
   /**
@@ -439,6 +452,8 @@ export async function runAiFeatureLens(
     // Кто ответил решателем. С 04.09 живой провайдер один (DeepSeek), и по
     // этому полю видно, он ли ответил или ступень выше внезапно ожила.
     decision_model: null as string | null,
+    known_topics: 0,
+    prompt_chars: 0,
   };
   const done = (extra: Partial<AiFeaturesResult>): AiFeaturesResult => ({ ...base, ...extra, duration_ms: Date.now() - startedAt });
 
@@ -469,7 +484,12 @@ export async function runAiFeatureLens(
       prior.map((r) => intelSignature(r)).filter((s) => !s.startsWith('intel::other:')).map((s) => s.replace('intel::', '')),
     )];
 
-    const decision = await callAIDecisionDetailed(buildAiFeaturePrompt(candidates, knownTopics))
+    // Считаем то, что РЕАЛЬНО ушло модели: тот же объект, а не его копия.
+    const prompt = buildAiFeaturePrompt(candidates, knownTopics);
+    base.known_topics = knownTopics.length;
+    base.prompt_chars = prompt.reduce((n, m) => n + m.content.length, 0);
+
+    const decision = await callAIDecisionDetailed(prompt)
       .catch((e: unknown) => ({ text: null, model: null, error: e instanceof Error ? e.message : String(e) }));
     const raw = decision.text;
     if (raw === null) return done({ skip_reason: 'decision_null', decision_detail: decision.error ?? 'причина не записана' });
