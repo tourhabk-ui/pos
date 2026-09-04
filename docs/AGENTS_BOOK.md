@@ -624,27 +624,51 @@ CRON_SECRET=<секрет>
 
 #### Что делает
 
-Готовит утренний дайджест индустриальных новостей для платформы:
+Готовит утренний дайджест индустриальных новостей для платформы.
 
-**5 RSS-источников:**
-```
-habr.com/rss/       — AI/Tech (русскоязычный)
-rata-news.ru/rss    — туристическая отрасль России
-tourprom.ru/rss     — турагентства и туроператоры
-kamgov.ru/rss       — официальные новости Камчатки
-tourprom.ru/rss     — второй feed (другой раздел)
-```
+**Источники — `RSS_SOURCES` в `lib/agents/scout-digest.ts` (15 на 03.09) плюс safety-слой:**
+
+| Раздел | Источник | Род | Путь с прода |
+|---|---|---|---|
+| AI | Simon Willison, Hugging Face, MarkTechPost, Hacker News (LLM/agent), Habr AI | RSS/Atom | прямой |
+| AI | OpenAI, Google AI, DeepMind | RSS | гео-закрыты для РФ — через реле |
+| AI | Vibecoding (`t.me/s/vibecoding_tg`) | Telegram-превью | только через реле |
+| Туризм | Турпром, RATA News | RSS | прямой |
+| Туризм | РСТ (`t.me/s/ru_rst`), Минэк — туризм (`t.me/s/minec_tourism`) | Telegram-превью | только через реле |
+| Справочно | Skift, Product Hunt | RSS | прямой |
+| Камчатка | safety-слой (`external_alerts`: сейсмика, МЧС, дороги, пожары) | не RSS | — |
+
+Прежний список (Habr, RATA, Tourprom, Kamgov) устарел 01.08: kamgov.ru и
+atorus.ru сняли ленты, RATA и Турпром вернулись на новых адресах 08.08.
+У сайта РСТ `rostourunion.ru` ленты нет (перепись с края Cloudflare 03.09:
+четыре адреса — 404), новости РСТ идут из их Telegram-канала.
+
+**Реле (03.09).** Прод в РФ не достаёт t.me, openai.com, anthropic.com.
+Такие источники читаются через воркер Cloudflare `infra/safety-relay`
+(маршрут `/fetch`, белый список `RELAY_HOSTS`, секрет — `CRON_SECRET`).
+Клиент — `lib/agents/scout-relay.ts`: реле — фолбэк после прямого отказа,
+похожего на блокировку (сеть, 403/451/429, 5xx); 404 на реле не идёт.
+В отчёте здоровья у источника стоит `via: direct | relay`. Проверка
+реле с прода без модели и публикации — `GET /api/cron/scout-relay-check`
+(вердикт `works / broken / not_configured / unknown`; замер 03.09 — `works`,
+три канала по 5 постов).
 
 **Алгоритм:**
-1. Читает до 5 последних материалов из каждого feed
-2. Дедупликация по URL (30-дневный TTL в `agent_memory`)
-3. Фильтр релевантности: AI-оценка 0–10 (порог 5)
-4. Синтез в 3–5 инсайтов через Claude Opus
-5. Отправка в два Telegram-канала:
-   - `TELEGRAM_CHAT_ID` — основной чат
-   - `TELEGRAM_AI_CHANNEL_ID` — AI-канал
+1. Читает каждый источник: RSS — `parseRssItems`/`parseAtomEntries`,
+   Telegram — `parseTelegramPreview` (`lib/agents/scout-telegram.ts`,
+   публичное превью `t.me/s/<канал>`; ссылки-приглашения `t.me/+…` не
+   читаются по построению)
+2. Учёт здоровья по источнику (`lib/services/scout/source-health.ts`):
+   `ok / empty / error`, порог тишины на каждый ключ, пустая лента
+   называется по имени и по природе ответа (HTML вместо ленты, 0 байт)
+3. Дедупликация по URL (30-дневный TTL в `agent_memory`)
+4. Синтез через `callAIDecision()`; промпт запрещает выдумывать даты
+   публикации — их в ленте нет, дайджест с выдуманной датой держат ворота
+   фактчека (`unsupported_claims`)
+5. Отправка: `TELEGRAM_CHAT_ID` — основной чат, `TELEGRAM_AI_CHANNEL_ID` —
+   AI-канал (пост чередует источники)
 
-**Архивирует** в `agent_knowledge` ключ `intel/YYYY-MM-DD`.
+**Архивирует** в `agent_knowledge` slug `intel/scout/…`.
 
 #### Настройка
 
@@ -652,19 +676,22 @@ tourprom.ru/rss     — второй feed (другой раздел)
 TELEGRAM_BOT_TOKEN=<токен>
 TELEGRAM_CHAT_ID=<основной чат>
 TELEGRAM_AI_CHANNEL_ID=<AI канал, опционально>
-ANTHROPIC_API_KEY=<Claude>
-CRON_SECRET=<секрет>
+CRON_SECRET=<секрет; тот же — у воркера реле>
+SCOUT_RELAY_BASE=https://vedar-safety-relay.<account>.workers.dev   # без пути; пусто — реле нет
 ```
 
 #### Признаки работоспособности
 
-- Каждое утро в 07:xx UTC в Telegram приходит сообщение «Дайджест» с 3–5 пунктами
-- В `agent_knowledge`: `SELECT * FROM agent_knowledge WHERE key LIKE 'intel/%' ORDER BY created_at DESC LIMIT 5`
+- Каждое утро в 07:xx UTC в Telegram приходит «Дайджест» с 3–5 пунктами
+- Отчёт прогона: у всех источников `status: ok`, у Telegram-каналов `via: relay`,
+  `relay: on` и `relay_detail: null`; `bad_base` с текстом в `relay_detail`
+  значит, что в `SCOUT_RELAY_BASE` на Timeweb не адрес
+- Почему молчит — `GET /api/cron/scout-diagnose` (read-only, история причин),
+  отчёт в Issue — workflow `scout-diagnose-report.yml`
 
 #### Улучшить дайджест
 
-- Добавить региональные Telegram-каналы в источники (через group-scout агент)
-- Повысить порог релевантности с 5 до 7 — меньше шума
+- Повысить порог релевантности — меньше шума
 - Добавить ключевые слова в промпт: «вулкан», «экотуризм», «Камчатка», «безопасность»
 
 ---
