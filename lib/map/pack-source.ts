@@ -442,4 +442,16 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   'cell-59n163e',
   'cell-59n164e',
   'cell-59n166e',
+  // 04.09, Корякия волна 1 (прогоны 153-162) — широта 60°, первая волна
+  // севернее полуострова (lat >= 60°).
+  'cell-60n161e',
+  'cell-60n162e',
+  'cell-60n163e',
+  'cell-60n164e',
+  'cell-60n165e',
+  'cell-60n166e',
+  'cell-60n167e',
+  'cell-60n168e',
+  'cell-60n169e',
+  'cell-60n170e',
 ];
