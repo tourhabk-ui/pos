@@ -20,7 +20,7 @@
 import { z } from 'zod';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
-import { callAIWaterfall } from '@/lib/ai/providers';
+import { callAIWaterfallOrNull } from '@/lib/ai/providers';
 import { formatEpisodesForSynthesis } from '@/lib/agents/memory-reflector';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -119,7 +119,10 @@ export async function runContradictionScan(): Promise<ContradictionResult> {
 
   let raw = '';
   try {
-    raw = await callAIWaterfall(messages);
+    const answer = await callAIWaterfallOrNull(messages);
+    // null — не ответил никто; строка-заглушка сюда больше не доезжает.
+    if (answer === null) throw new Error('waterfall_unavailable');
+    raw = answer;
   } catch {
     return { scanned, contradictions: 0, alerted: 0, reason: 'ai_unavailable' };
   }
