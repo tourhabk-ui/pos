@@ -93,7 +93,27 @@ export async function GET(request: NextRequest) {
     ),
   ]);
 
-  const body: CatalogCensus = {
+  // Откуда у живых маршрутов линия (04.09). Скрипт импорта OSM не собирался
+  // с 10.07 (импорт несуществующей функции), и «GPS-треки из OSM не
+  // импортированы» в CLAUDE.md §4.1 держалось на памяти, а не на замере.
+  // Ключ — geometry->>'source' (osm / external / waypoints_synthetic / …),
+  // «нет геометрии» — линии нет вовсе. null — запрос упал, не «ноль».
+  let geometryBySource: Record<string, number> | null = null;
+  try {
+    const { rows } = await pool.query<{ source: string; n: number }>(
+      `SELECT COALESCE(geometry->>'source', 'нет геометрии') AS source, COUNT(*)::int AS n
+         FROM kamchatka_routes
+        WHERE is_visible = true AND merged_into_id IS NULL
+        GROUP BY 1 ORDER BY 2 DESC`,
+    );
+    geometryBySource = Object.fromEntries(rows.map((r) => [r.source, r.n]));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[catalog-census] geometry_by_source не посчитан: ${message}`);
+    errors.push(`geometry_by_source: ${message.slice(0, 120)}`);
+  }
+
+  const body: CatalogCensus & { geometry_by_source: Record<string, number> | null } = {
     ok: true,
     probe: 'catalog_census_v1',
     measured_at: new Date().toISOString(),
@@ -102,6 +122,7 @@ export async function GET(request: NextRequest) {
     guides_certified: guides,
     definitions: DEFINITIONS,
     errors,
+    geometry_by_source: geometryBySource,
   };
   return NextResponse.json(body);
 }

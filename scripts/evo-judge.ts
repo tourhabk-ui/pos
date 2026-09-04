@@ -227,13 +227,13 @@ export async function judgeOne(f: Finding, retried = false): Promise<Judged> {
       const again = await judgeOne(f, true);
       if (again.verdict !== 'unjudged') return again;
     }
-    return { finding: f, verdict: 'unjudged', reason: 'ответ не в заданной форме', model: res.model, provenance: res.provenance };
+    return { finding: f, verdict: 'unjudged', reason: 'ответ не в заданной форме', model: res.model ?? undefined, provenance: res.provenance };
   }
   return {
     finding: f,
     verdict: v[1].toLowerCase() as Verdict,
     reason: (r?.[1] ?? '').trim().slice(0, 200) || 'причина не названа',
-    model: res.model,
+    model: res.model ?? undefined,
     provenance: res.provenance,
   };
 }
