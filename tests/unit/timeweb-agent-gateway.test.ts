@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { isFlagshipDecision } from '@/lib/agents/evo/alert';
+import { extractLLMHosts, unregisteredHosts } from '@/lib/agents/compliance/provider-registry';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -116,9 +117,14 @@ describe('D2: agent.timeweb.cloud зарегистрирован', () => {
     expect(registry).toMatch(/host: 'agent\.timeweb\.cloud'[\s\S]{0,20}jurisdiction:[\s\S]{0,80}domestic: false/);
   });
 
-  it('сканер хостов распознаёт timeweb — не проходит мимо D2 молча', () => {
-    const registry = read('lib/agents/compliance/provider-registry.ts');
-    const re = registry.match(/if \(\/([^/]+)\/\.test\(host\)\)/)?.[1] ?? '';
-    expect(re).toMatch(/timeweb/);
+  it('сканер хостов видит timeweb — не проходит мимо D2 молча', () => {
+    // Прежде тест сверялся с перечнем знакомых брендов в сканере. Перечень
+    // убран 04.09: он был не фильтром, а слепотой — провайдер, чьё имя туда не
+    // внесли, не попадал в выборку вовсе (так мимо D2 ходили xAI, MiniMax,
+    // GLM, NVIDIA, Sakana). Проверяем то же обещание по существу: хост
+    // извлекается из исходника и требует записи в реестре.
+    const src = `const url = \`https://agent.timeweb.cloud/api/v1/cloud-ai/agents/\${id}/v1/chat/completions\`;`;
+    expect(extractLLMHosts(src)).toContain('agent.timeweb.cloud');
+    expect(unregisteredHosts(src)).toEqual([]);
   });
 });

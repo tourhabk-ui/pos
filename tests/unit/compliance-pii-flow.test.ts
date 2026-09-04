@@ -8,6 +8,7 @@ import {
   LLM_EGRESS_FILES,
   unregisteredHosts,
   extractLLMHosts,
+  NON_RECEIVER_HOSTS,
 } from '@/lib/agents/compliance/provider-registry';
 
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -243,5 +244,39 @@ describe('ПД через локальную переменную (дыра, н�
       'const prompt = `Запрос: ${safeComment}`;',
     ].join('\n');
     expect(scanSource('clean.ts', clean)).toEqual([]);
+  });
+});
+
+/**
+ * 04.09. Сканер D2 искал приёмники ПД по перечню знакомых брендов, и это была
+ * не осторожность, а слепота: провайдер, чьё имя в перечень не внесли, не
+ * попадал в выборку вовсе. Так мимо сторожа месяцами ходили шесть зарубежных
+ * приёмников — xAI, оба шлюза MiniMax, GLM, NVIDIA, Sakana, — а тест был
+ * зелёный. Правило инвертировано: незнакомый хост требует решения человека.
+ */
+describe('D2 — незнакомый хост ловится, а не игнорируется', () => {
+  it('выдуманный провайдер попадает в выборку и краснит реестр', () => {
+    const src = `const r = await fetch('https://api.newthing.example/v1/chat/completions', { body });`;
+    expect(extractLLMHosts(src)).toContain('api.newthing.example');
+    expect(unregisteredHosts(src)).toContain('api.newthing.example');
+  });
+
+  it('хосты, ходившие мимо брендового фильтра, теперь в реестре', () => {
+    const registered = new Set(LLM_ENDPOINTS.map((e) => e.host));
+    for (const h of ['api.x.ai', 'api.minimaxi.chat', 'api.minimax.chat', 'open.bigmodel.cn', 'integrate.api.nvidia.com', 'api.sakana.ai']) {
+      expect(registered.has(h), `${h} не внесён в реестр приёмников ПД`).toBe(true);
+    }
+  });
+
+  it('не-приёмник исключается поимённо и с причиной, а не молчанием', () => {
+    expect(extractLLMHosts(`fetch('https://vedarai.ru/api/health')`)).toEqual([]);
+    for (const e of NON_RECEIVER_HOSTS) expect(e.why.length).toBeGreaterThan(20);
+    // Список исключений — короткий по замыслу: он про наши же адреса.
+    expect(NON_RECEIVER_HOSTS.length).toBeLessThanOrEqual(5);
+  });
+
+  it('у каждой записи реестра есть юрисдикция, домашний сток по-прежнему один', () => {
+    for (const e of LLM_ENDPOINTS) expect(e.jurisdiction.length, e.host).toBeGreaterThan(2);
+    expect(LLM_ENDPOINTS.filter((e) => e.domestic).map((e) => e.host)).toEqual(['llm.api.cloud.yandex.net']);
   });
 });

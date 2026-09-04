@@ -68,9 +68,37 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // но если ANTHROPIC_BASE_URL переставят на шлюз, сюда поедут те же промпты,
   // что и в api.anthropic.com. Хост и получатель — США, трансграничная.
   { host: 'gateway.ai.cloudflare.com', jurisdiction: 'USA', domestic: false, provider: 'Cloudflare AI Gateway (прокси к Anthropic)' },
+  // ── Внесены 04.09: их не видел ДОМЕННЫЙ ФИЛЬТР сканера ───────────────────
+  //
+  // Все шесть хостов ниже жили в providers.ts месяцами и получали текст
+  // промпта, а D2 их не показывал: фильтр искал приёмники по перечню знакомых
+  // брендов, и провайдер, чьё имя в перечень не внесли, был для сторожа
+  // невидим. Это тот же дефект, на котором уже ловили сам сканер (см. ниже про
+  // слеш): гвард пропускал ровно тот случай, ради которого заведён. Правило
+  // инвертировано — теперь всякий https-хост в точках егресса считается
+  // приёмником, пока обратное не записано явно в NON_RECEIVER_HOSTS.
+  { host: 'api.x.ai', jurisdiction: 'USA', domestic: false, provider: 'xAI (Grok)' },
+  { host: 'api.minimaxi.chat', jurisdiction: 'China', domestic: false, provider: 'MiniMax (международный шлюз)' },
+  { host: 'api.minimax.chat', jurisdiction: 'China', domestic: false, provider: 'MiniMax (материковый шлюз)' },
+  { host: 'open.bigmodel.cn', jurisdiction: 'China', domestic: false, provider: 'Zhipu GLM' },
+  { host: 'integrate.api.nvidia.com', jurisdiction: 'USA', domestic: false, provider: 'NVIDIA NIM' },
+  { host: 'api.sakana.ai', jurisdiction: 'Japan', domestic: false, provider: 'Sakana (Fugu)' },
+  // Ключа нет, вызов ждёт открытия API Meta. Реестр перечисляет, куда трафик
+  // МОЖЕТ уйти: появится ключ — промпты поедут туда без единой правки кода.
+  { host: 'api.meta.ai', jurisdiction: 'USA', domestic: false, provider: 'Meta (Muse Spark; ждёт открытия API)' },
 ] as const;
 
+/**
+ * Хосты в точках егресса, которые НЕ являются приёмниками ПД. Список
+ * исключений, а не список знакомых: незнакомое ловится, знакомо-безобидное
+ * вносится сюда с причиной.
+ */
+export const NON_RECEIVER_HOSTS: ReadonlyArray<{ host: string; why: string }> = [
+  { host: 'vedarai.ru', why: 'наш собственный домен: уходит в заголовках HTTP-Referer/X-Title, не приёмник' },
+];
+
 const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));
+const NON_RECEIVERS = new Set(NON_RECEIVER_HOSTS.map((e) => e.host));
 
 /**
  * Файлы, из которых уходит трафик в LLM. Сканировать только `providers.ts`
@@ -124,11 +152,20 @@ export function extractLLMHosts(providersSource: string): string[] {
   while ((m = re.exec(providersSource))) {
     // Хвостовые точки/дефисы — из прозы в комментариях, а не часть хоста.
     const host = m[1].toLowerCase().replace(/[.-]+$/, '');
-    // LLM-эндпоинты — по известным доменам моделей. Прочее (доки в коментах,
-    // github и т.п.) не считаем приёмником ПД.
-    if (/deepseek|openrouter|googleapis|groq|cerebras|mistral|openai|anthropic|together\.xyz|yandex|gigachat|sberbank|gigachat\.devices|dashscope|aliyuncs|moonshot|timeweb/.test(host)) {
-      hosts.add(host);
-    }
+    // Приёмником считается ВСЯКИЙ хост, кроме записанных как не-приёмники.
+    //
+    // Здесь стоял перечень знакомых брендов (deepseek|openrouter|…), и это
+    // был не фильтр, а слепота: провайдер, чьё имя в перечень не внесли,
+    // проходил мимо D2 целиком. Замер 04.09: так проходили шесть зарубежных
+    // приёмников — api.x.ai, оба шлюза MiniMax, GLM, NVIDIA, Sakana. Тест при
+    // этом был зелёный, то есть сторож 152-ФЗ отвечал «нарушений нет» там, где
+    // он попросту не смотрел (CLAUDE.md §4.0).
+    //
+    // Инверсия делает исход честным: незнакомый хост КРАСИТ сборку и требует
+    // решения человека — внести в реестр как приёмника ПД либо в
+    // NON_RECEIVER_HOSTS с причиной. Ссылки на документацию и панели сюда не
+    // попадают: комментарии уже вырезаны выше.
+    if (!NON_RECEIVERS.has(host)) hosts.add(host);
   }
   return [...hosts];
 }

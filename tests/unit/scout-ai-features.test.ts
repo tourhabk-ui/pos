@@ -168,6 +168,12 @@ describe('критик — закрыт по умолчанию', () => {
     expect(LENS).toMatch(/parse_detail: parsed\.detail/);
     // Кто ответил — тоже факт прогона: с 04.09 живой провайдер один.
     expect(LENS).toMatch(/base\.decision_model = decision\.model \?\? null/);
+    // run 6: модель отказалась осознанно. Отказ по существу и отказ от
+    // разросшегося списка запретов различаются числами, а не спором.
+    expect(LENS).toMatch(/base\.known_topics = knownTopics\.length/);
+    expect(LENS).toMatch(/base\.prompt_chars = prompt\.reduce/);
+    // Промпт собирается ОДИН раз и меряется тот же, что ушёл модели.
+    expect(LENS).toMatch(/await callAIDecisionDetailed\(prompt\)/);
   });
 
   it('в прогоне: без одобрения ничего не уходит, молчание критика — свой код', () => {

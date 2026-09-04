@@ -41,6 +41,7 @@
 
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion } from '@/lib/ai/failure-trace';
+import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
@@ -798,9 +799,74 @@ export async function callMinimax(messages: ChatMessage[]): Promise<string | nul
 }
 
 // ── xAI (Grok) ────────────────────────────────────────────────
+/**
+ * Модель xAI — из /v1/models, без привязки к id (CLAUDE.md §8).
+ *
+ * До 04.09 во всех трёх местах стоял хардкод `grok-4`, а живой каталог
+ * провайдера к этому дню состоял из grok-4.6 / 4.5 / 4.3 / grok-build-0.1
+ * (справка владельца). Ровно та же болезнь, что убила прямой путь DeepSeek
+ * 26.07 и пробу Gemini 04.09: провайдер сменил линейку, а мы продолжали
+ * звать снятое имя. Override — env XAI_MODEL.
+ */
+const XAI_MODELS_TTL_MS = 6 * 60 * 60 * 1000;
+let xaiModelCache: { id: string; at: number } | null = null;
+let xaiListProblem: string | null = null;
+
+/** Почему каталог xAI не добыт в последний раз; null — добыт. */
+export function xaiResolveProblem(): string | null { return xaiListProblem; }
+
+export async function resolveXaiModel(): Promise<string | null> {
+  const override = process.env.XAI_MODEL?.trim();
+  if (override) return override;
+  if (xaiModelCache && Date.now() - xaiModelCache.at < XAI_MODELS_TTL_MS) return xaiModelCache.id;
+
+  const key = getXaiKey();
+  if (!key) { xaiListProblem = 'ключа нет'; return null; }
+  const ids = await fetchModelIds('https://api.x.ai/v1/models', key);
+  if (ids.length === 0) { xaiListProblem = 'каталог пуст или недоступен'; return null; }
+  const picked = pickBestModel(ids);
+  if (!picked) { xaiListProblem = `в каталоге ${ids.length} моделей, ни одной пригодной`; return null; }
+  xaiListProblem = null;
+  xaiModelCache = { id: picked, at: Date.now() };
+  return picked;
+}
+
+/**
+ * Достижим ли api.x.ai С ЭТОГО адреса — БЕЗ ключа и намеренно.
+ *
+ * Разбор 04.09 встал на том, что xAI отвечает `{"code":"invalid-argument",
+ * "error":"Incorrect API key provided"}`, и у этого ответа два несовместимых
+ * кандидата: гео-отказ по адресу запроса (слова владельца) и вопрос к самому
+ * ключу либо счёту (кредиты в консоли x.ai отдельны от подписки). Спорить об
+ * этом бесполезно, различает их проба.
+ *
+ * Запрос идёт БЕЗ Authorization. Тогда ответ говорит о ДОРОГЕ, а не о ключе:
+ * 401/403 с телом самого xAI значит «дошли, дело в авторизации»; ответ края
+ * (Cloudflare и подобные) либо сетевой отказ значит «не дошли вовсе». Ключ в
+ * пробе не участвует, поэтому она ничего о нём не утверждает и утечь ему
+ * некуда.
+ */
+export async function probeXaiReachable(): Promise<{ reached: boolean | null; detail: string }> {
+  try {
+    const res = await fetch('https://api.x.ai/v1/models', {
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160);
+    // Своё тело xAI — JSON с полем code/error; край отдаёт html или чужой JSON.
+    const ownShape = /"(code|error)"\s*:/.test(body);
+    if (ownShape) return { reached: true, detail: `HTTP ${res.status}, тело xAI: ${body}` };
+    return { reached: false, detail: `HTTP ${res.status}, тело не похоже на ответ xAI: ${body}` };
+  } catch (e) {
+    return { reached: null, detail: `сеть не дала ответа: ${errorFailureReason(e)}` };
+  }
+}
+
 export async function callXai(messages: ChatMessage[]): Promise<string | null> {
   const apiKey = getXaiKey();
   if (!apiKey) return null;
+  const model = await resolveXaiModel();
+  if (!model) { recordAiLegFailure('xai', `модель не разрешена: ${xaiResolveProblem() ?? 'каталог недоступен'}`); return null; }
 
   try {
     const payload = messages.map(({ role, content }) => ({ role, content }));
@@ -811,7 +877,7 @@ export async function callXai(messages: ChatMessage[]): Promise<string | null> {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'grok-4',
+        model,
         temperature: 0.4,
         max_tokens: 800,
         messages: payload,
@@ -2789,11 +2855,13 @@ export async function preflightProviders(): Promise<{
   async function probeXai() {
     const apiKey = process.env.XAI_API_KEY;
     if (!apiKey) return { ok: false, error: 'XAI_API_KEY not set' };
+    const model = await resolveXaiModel();
+    if (!model) return { ok: false, error: `модель не разрешена: ${xaiResolveProblem() ?? 'каталог недоступен'}` };
     try {
       const res = await fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'grok-4', max_tokens: 5, messages: testMsg }),
+        body: JSON.stringify({ model, max_tokens: 5, messages: testMsg }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
@@ -3435,6 +3503,12 @@ export interface WaterfallDebugResult {
   error?: string;
   answer_preview?: string;
   latency_ms: number;
+  /**
+   * Известное об этом отказе, когда текст провайдера вводит в заблуждение
+   * (lib/ai/refusal-notes). Ответ провайдера при этом остаётся дословным в
+   * `error`: заметка добавляется, а не заменяет.
+   */
+  note?: string;
 }
 
 export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<WaterfallDebugResult[]> {
@@ -3646,31 +3720,47 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
     }
   }
 
-  // 6. xAI
+  // 6. xAI — модель из каталога, плюс отдельной строкой ДОРОГА до api.x.ai
+  //    без ключа: «Incorrect API key» с прода имеет два кандидата (гео-отказ и
+  //    вопрос к ключу или счёту), и различает их только проба без ключа.
+  {
+    const reach = await probeXaiReachable();
+    results.push({
+      provider: 'xai:reachability',
+      model: 'без ключа, /v1/models',
+      status: reach.reached === true ? 'success' : reach.reached === false ? 'error_in_body' : 'exception',
+      error: reach.reached === true ? undefined : reach.detail,
+      answer_preview: reach.reached === true ? reach.detail : undefined,
+      latency_ms: 0,
+    });
+  }
   {
     const start = Date.now();
     const apiKey = process.env.XAI_API_KEY;
+    const xModel = apiKey ? await resolveXaiModel() : null;
     if (!apiKey) {
-      results.push({ provider: 'xai', model: 'grok-4', status: 'no_key', latency_ms: 0 });
+      results.push({ provider: 'xai', model: 'unresolved', status: 'no_key', latency_ms: 0 });
+    } else if (!xModel) {
+      results.push({ provider: 'xai', model: 'unresolved', status: 'exception', error: `каталог моделей недоступен: ${xaiResolveProblem() ?? 'причина не записана'}`, latency_ms: Date.now() - start });
     } else {
       try {
         const res = await fetch('https://api.x.ai/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: 'grok-4', temperature: 0.4, max_tokens: 200, messages: payload }),
+          body: JSON.stringify({ model: xModel, temperature: 0.4, max_tokens: 200, messages: payload }),
           signal: AbortSignal.timeout(15_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
-          results.push({ provider: 'xai', model: 'grok-4', status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+          results.push({ provider: 'xai', model: xModel, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
         } else {
           const data = await res.json();
           const text = data?.choices?.[0]?.message?.content;
-          results.push({ provider: 'xai', model: 'grok-4', status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+          results.push({ provider: 'xai', model: xModel, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
         }
       } catch (e) {
-        results.push({ provider: 'xai', model: 'grok-4', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+        results.push({ provider: 'xai', model: xModel, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
   }
@@ -3888,6 +3978,14 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         results.push({ provider: 'mistral', model: MISTRAL_MODEL, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
+  }
+
+  // Поправка к отказам, которые лгут о причине: xAI отвечает про ключ там, где
+  // дело в адресе запроса (слова владельца 04.09). Ответ провайдера остаётся
+  // дословным, заметка идёт рядом.
+  for (const r of results) {
+    const note = refusalNote(r.provider, r.http_status ?? null, r.error);
+    if (note) r.note = note;
   }
 
   return results;

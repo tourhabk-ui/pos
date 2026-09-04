@@ -104,7 +104,7 @@ describe('живые пути называют форму пустого отв�
 
 describe('линза: decision_null — с причинами по ступеням', () => {
   it('предложения просит у callAIDecisionDetailed и кладёт error в decision_detail', () => {
-    expect(LENS).toMatch(/const decision = await callAIDecisionDetailed\(buildAiFeaturePrompt\(candidates, knownTopics\)\)/);
+    expect(LENS).toMatch(/const decision = await callAIDecisionDetailed\(prompt\)/);
     expect(LENS).toMatch(/skip_reason: 'decision_null', decision_detail: decision\.error \?\? 'причина не записана'/);
     expect(LENS).toMatch(/decision_detail\?: string;/);
   });
@@ -136,5 +136,65 @@ describe('DeepSeek: живой путь просит ответ без разм�
     process.env.DEEPSEEK_THINKING = '1';
     expect(deepseekThinking()).toEqual({});
     if (prev === undefined) delete process.env.DEEPSEEK_THINKING; else process.env.DEEPSEEK_THINKING = prev;
+  });
+});
+
+/**
+ * xAI, 04.09. Владелец: «XAI_API_KEY геоблок», а провайдер отвечает
+ * «Incorrect API key provided». Один из двух говорит не о том, и текстом
+ * ответа это не решается: у отказа два кандидата, гео и ключ либо счёт.
+ * Отсюда две правки: дорога меряется отдельной пробой БЕЗ ключа, а модель
+ * берётся из каталога (в коде висел снятый с линейки grok-4, тогда как у
+ * провайдера 4.6 / 4.5 / 4.3).
+ */
+describe('xAI: модель из каталога, дорога меряется без ключа', () => {
+  it('хардкода grok-4 не осталось нигде', () => {
+    expect(PROVIDERS).not.toMatch(/'grok-4'/);
+    expect(PROVIDERS).toMatch(/export async function resolveXaiModel/);
+    expect(PROVIDERS).toMatch(/fetchModelIds\('https:\/\/api\.x\.ai\/v1\/models'/);
+  });
+
+  it('живой путь и пробы спрашивают каталог и называют его отказ словами', () => {
+    expect(PROVIDERS).toMatch(/recordAiLegFailure\('xai', `модель не разрешена: \$\{xaiResolveProblem\(\)/);
+    const debug = section('export async function callAIWaterfallDebug', '\n  return results;');
+    expect(debug).toMatch(/provider: 'xai:reachability'/);
+    expect(debug).toMatch(/const xModel = apiKey \? await resolveXaiModel\(\) : null/);
+  });
+
+  it('проба дороги идёт без Authorization: она о дороге, а не о ключе', () => {
+    const probe = PROVIDERS.slice(
+      PROVIDERS.indexOf('export async function probeXaiReachable'),
+      PROVIDERS.indexOf('export async function callXai'),
+    );
+    expect(probe).not.toMatch(/Authorization/);
+    expect(probe).toMatch(/reached: true/);
+    expect(probe).toMatch(/reached: null/);
+  });
+});
+
+/**
+ * Отказ, который лжёт о причине, обязан идти с поправкой — но поправка не
+ * заменяет ответ провайдера и не выдаёт свидетельство за замер.
+ */
+describe('поправки к лживым отказам', () => {
+  it('xAI, Gemini и край Cloudflare опознаются по своим признакам', async () => {
+    const { refusalNote } = await import('@/lib/ai/refusal-notes');
+    expect(refusalNote('xai', 400, '{"code":"invalid-argument","error":"Incorrect API key provided."}'))
+      .toMatch(/ДВА кандидата/);
+    expect(refusalNote('gemini', 400, 'User location is not supported for the API use.'))
+      .toMatch(/Гео-отказ Google/);
+    expect(refusalNote('openrouter', 403, '{ "success": false, "error": "Access denied by security policy." }'))
+      .toMatch(/ответ КРАЯ Cloudflare/);
+  });
+
+  it('о чём не известно — молчит, а не выдумывает', () => {
+    expect(PROVIDERS).toMatch(/const note = refusalNote\(r\.provider, r\.http_status \?\? null, r\.error\)/);
+  });
+
+  it('поправка не подменяет ответ провайдера', async () => {
+    const { refusalNote } = await import('@/lib/ai/refusal-notes');
+    expect(refusalNote('deepseek', 402, 'Insufficient balance')).toBeNull();
+    expect(refusalNote('xai', 200, 'ok')).toBeNull();
+    expect(refusalNote('mistral', 429, 'Rate limit exceeded')).toBeNull();
   });
 });
