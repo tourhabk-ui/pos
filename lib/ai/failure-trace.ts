@@ -73,3 +73,35 @@ export function describeRecentAiFailures(windowMs = 120_000): string | null {
   for (const f of recent) byProvider.set(f.provider, f.reason);
   return [...byProvider].map(([p, r]) => `${p}: ${r}`).join('; ');
 }
+
+/**
+ * Форма ПУСТОГО ответа chat/completions — чтобы «пусто» называло, что пришло.
+ *
+ * Повод (04.09, ai-debug run 4). DeepSeek ответил HTTP 200 за 313 мс с
+ * пустым `content` — и все три пути (чат, судья, решатель) записали одно
+ * слово «empty». Тело при этом никто не сохранил, и на вопрос «модель
+ * думала и не договорила, сработал фильтр, или в теле лежит error под 200»
+ * ответить было нечем. Тот же дефект, что и у молчаливого `null` (см. шапку):
+ * исход «не смог» есть, но он не говорит, ЧТО получил.
+ *
+ * Здесь — только форма: finish_reason, поля message, длина reasoning_content,
+ * либо error в теле. Текст ответа не показывается — его нет, потому и зовут.
+ */
+export function describeEmptyCompletion(data: unknown): string {
+  if (!data || typeof data !== 'object') {
+    return `тело не объект: ${stripSecrets(JSON.stringify(data) ?? String(data)).slice(0, 80)}`;
+  }
+  const d = data as {
+    error?: unknown;
+    choices?: Array<{ finish_reason?: unknown; message?: Record<string, unknown> | null }>;
+  };
+  if (d.error !== undefined && d.error !== null) {
+    return `error в теле под 200: ${stripSecrets(JSON.stringify(d.error)).slice(0, 120)}`;
+  }
+  const choice = Array.isArray(d.choices) ? d.choices[0] : undefined;
+  if (!choice) return `choices пуст; ключи тела: ${Object.keys(d).join(',') || '—'}`;
+  const msg = choice.message && typeof choice.message === 'object' ? choice.message : {};
+  const reasoning = typeof msg.reasoning_content === 'string' ? msg.reasoning_content.length : 0;
+  const fields = Object.keys(msg).join(',') || '—';
+  return `finish_reason=${String(choice.finish_reason ?? '—')}; поля message: ${fields}; reasoning_content: ${reasoning} зн.`;
+}
