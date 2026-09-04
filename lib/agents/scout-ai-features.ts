@@ -78,6 +78,8 @@ export interface AiFeatureProposal {
   why_now: string;
   /** Первый шаг на платформе: файл/эндпоинт/эксперимент. */
   first_step: string;
+  /** Что изменится для туриста или оператора — одной фразой, по делу. */
+  user_value: string;
   /** Дословная цитата из статьи — улика, проверяется подстрокой. */
   evidence_quote: string;
   source_url: string;
@@ -95,6 +97,13 @@ export interface AiFeaturesResult {
   dropped: Array<{ title: string; reason: string }>;
   /** Отсеяны как повтор темы (трекер) или адреса (память линзы). */
   dedup_skipped: number;
+  /**
+   * Отклонены критиком (03.09, после первой заметки: «там мусор был»).
+   * Проверка улик ловит выдуманную цитату, но не ловит бесполезное
+   * предложение с настоящей цитатой. Критик судит пользу и конкретность и
+   * закрыт по умолчанию: не ответил — ничего не уходит.
+   */
+  critic_rejected: Array<{ title: string; reason: string }>;
   /** Записано в evo_growth_issues. */
   stored: number;
   /** Ушло владельцу в Telegram. */
@@ -105,12 +114,21 @@ export interface AiFeaturesResult {
    * вернула пустой массив или неразбираемый ответ (03.09 run 2: 6 кандидатов,
    * 4 с текстом, ответ пуст — это не «нечего было читать»).
    */
-  skip_reason?: 'no_candidates' | 'model_empty' | 'decision_null' | 'all_ungrounded' | 'all_duplicates' | 'error';
+  skip_reason?: 'no_candidates' | 'no_text' | 'model_empty' | 'decision_null' | 'all_ungrounded' | 'all_duplicates'
+    | 'critic_rejected_all' | 'critic_unavailable' | 'error';
   duration_ms: number;
 }
 
-/** Материалов модели за прогон: больше — дороже, а суть дня в первых. */
-export const AI_FEATURE_CANDIDATES_LIMIT = 6;
+/**
+ * Материалов за прогон. Было 6 — по одному от первых шести источников после
+ * чередования, и WeatherNext 3 от DeepMind (лучший кандидат 03.09) стоял
+ * восьмым и до модели не дошёл. Теперь окно шире, а в промпт идут только
+ * материалы с добытым текстом: без текста улику не проверить, и модель по
+ * такому материалу всё равно предлагать не должна.
+ */
+export const AI_FEATURE_CANDIDATES_LIMIT = 12;
+/** Планка критика: ниже — не отправляется. Молчание дешевле мусора. */
+export const AI_FEATURE_CRITIC_MIN_SCORE = 8;
 /** Предложений за прогон. */
 export const AI_FEATURE_PROPOSALS_LIMIT = 3;
 /** Текста статьи на материал в промпте. */
@@ -133,11 +151,65 @@ const SYSTEM_PROMPT = `Ты — техлид туристической плат
 - evidence_quote — ДОСЛОВНАЯ цитата из текста этой статьи (25-200 символов), которая подтверждает capability. Цитата проверяется машиной подстрокой: перефраз или перевод не пройдёт;
 - source_url — адрес материала из списка, ровно как дан;
 - first_step — первый шаг на платформе: что попробовать, где (эндпоинт, модуль, эксперимент), за один-два дня;
-- не предлагай общие вещи («внедрить ИИ-чат», «улучшить рекомендации») и не предлагай то, что уже есть (Кузьмич есть, планер есть, SOS есть) — только новую возможность для них;
+- user_value — что изменится для туриста в поле или оператора, одной фразой и по делу («турист видит окно погоды по своей точке трека на ближайший час», а не «повысит качество сервиса»);
+- не предлагай общие вещи («внедрить ИИ-чат», «улучшить рекомендации», «использовать энкодер для поиска») и не предлагай то, что уже есть (Кузьмич есть, планер есть, SOS есть, RAG по местам есть) — только новую возможность, которая меняет что-то для человека на Камчатке;
+- лучше ноль предложений, чем натянутое: если материал про модель или API, а связи с турами, безопасностью, маршрутами или полевой работой нет — не предлагай;
 - если в материалах нет ничего применимого — верни пустой массив. Пустой ответ лучше выдуманного.
 
 Верни СТРОГО JSON-массив без markdown, максимум ${AI_FEATURE_PROPOSALS_LIMIT} элемента:
-[{"title":"ИИ-фича ≤8 слов","surface":"kuzmich|safety|planner|offline_map|operators|content|intel","capability":"...","why_now":"...","first_step":"...","evidence_quote":"...","source_url":"..."}]`;
+[{"title":"ИИ-фича ≤8 слов","surface":"kuzmich|safety|planner|offline_map|operators|content|intel","capability":"...","why_now":"...","first_step":"...","user_value":"...","evidence_quote":"...","source_url":"..."}]`;
+
+/**
+ * Критик — вторая пара глаз с планкой. В отличие от критика Scout-Innovator
+ * (fail-open: гейт не обнуляет выдачу) этот закрыт по умолчанию: не ответил
+ * или ответил не тем — предложение не уходит. Заметка владельцу — не поток
+ * задач, её цена в доверии, и первая же заметка 03.09 была мусором.
+ */
+const CRITIC_PROMPT = `Ты — владелец туристической платформы Ведар (Камчатка): безопасность туриста в дикой природе, офлайн-карта, SOS, маршруты, Кузьмич-помощник, кабинет оператора. Тебе принесли предложение ИИ-фичи, извлечённое из статьи. Оцени его СТРОГО, как человек, которому это делать своими руками и на свои деньги.
+
+Ставь оценку 0-10 по совокупности:
+- это конкретная ИИ-возможность (модель, API, техника, инструмент), а не общее место вроде «внедрить ИИ» или «улучшить поиск»;
+- её ещё нет в Ведаре (Кузьмич, планер, SOS, тревоги, офлайн-карта, RAG по местам — уже есть);
+- она меняет что-то для туриста в поле или оператора, и это названо конкретно;
+- первый шаг реален за день-два и не требует железа, которого нет (4 ГБ RAM на всё приложение, локальные модели 7B+ не запускаются);
+- ты бы взялся за это в ближайший месяц.
+
+Общие места, пересказ новости без применения, «можно использовать для документов/поиска/рекомендаций» без привязки к Камчатке — 0-4. Верни ТОЛЬКО JSON: {"score": 0-10, "reason": "одна фраза почему"}`;
+
+export interface CriticVerdict {
+  approved: boolean;
+  score: number | null;
+  reason: string;
+}
+
+export function buildCriticPrompt(p: AiFeatureProposal): ChatMessage[] {
+  return [
+    { role: 'system', content: CRITIC_PROMPT },
+    {
+      role: 'user',
+      content: `Предложение:\nЗаголовок: ${p.title}\nПоверхность: ${p.surface}\nЧто появилось: ${p.capability}\nПочему сейчас: ${p.why_now}\nПервый шаг: ${p.first_step}\nДля кого и что меняет: ${p.user_value}\nЦитата-улика: «${p.evidence_quote}»\nИсточник: ${p.source_url}`,
+    },
+  ];
+}
+
+/**
+ * Разбор вердикта. Закрыто по умолчанию: нет JSON, нет числа, число ниже
+ * планки — не одобрено. Одобрение только явное и только с оценкой.
+ */
+export function parseCriticVerdict(raw: string | null, minScore = AI_FEATURE_CRITIC_MIN_SCORE): CriticVerdict {
+  if (!raw) return { approved: false, score: null, reason: 'критик не ответил' };
+  const m = /\{[\s\S]*\}/.exec(raw);
+  if (!m) return { approved: false, score: null, reason: 'критик ответил не JSON' };
+  try {
+    const o = JSON.parse(m[0]) as { score?: unknown; reason?: unknown };
+    const score = typeof o.score === 'number' && Number.isFinite(o.score) ? o.score : null;
+    const reason = typeof o.reason === 'string' ? o.reason.trim() : '';
+    if (score === null) return { approved: false, score: null, reason: reason || 'критик не поставил оценку' };
+    return { approved: score >= minScore, score, reason };
+  } catch {
+    return { approved: false, score: null, reason: 'критик ответил неразбираемым JSON' };
+  }
+}
 
 /** Сообщения решателю. Чистая — под тестом. */
 export function buildAiFeaturePrompt(candidates: AiFeatureCandidate[], knownTopics: string[]): ChatMessage[] {
@@ -181,11 +253,12 @@ export function parseAiFeatureProposals(raw: string | null): AiFeatureProposal[]
       capability: str('capability'),
       why_now: str('why_now'),
       first_step: str('first_step'),
+      user_value: str('user_value'),
       evidence_quote: str('evidence_quote'),
       source_url: str('source_url'),
     };
     if (p.title.length < 4 || p.title.length > 180) continue;
-    if (!p.capability || !p.first_step || !p.evidence_quote || !p.source_url) continue;
+    if (!p.capability || !p.first_step || !p.user_value || !p.evidence_quote || !p.source_url) continue;
     out.push(p);
   }
   return out.slice(0, AI_FEATURE_PROPOSALS_LIMIT);
@@ -241,6 +314,7 @@ export function formatAiFeaturesMessage(proposals: AiFeatureProposal[], dateKey:
     lines.push(`${i + 1}. <b>${esc(p.title)}</b> — ${esc(SURFACE_LABEL[p.surface])}`);
     lines.push(`Что появилось: ${esc(p.capability)}`);
     lines.push(`Почему сейчас: ${esc(p.why_now)}`);
+    lines.push(`Для кого: ${esc(p.user_value)}`);
     lines.push(`Первый шаг: ${esc(p.first_step)}`);
     lines.push(`<i>«${esc(p.evidence_quote)}»</i>`);
     lines.push(`<a href="${esc(p.source_url)}">Источник</a>`);
@@ -254,7 +328,7 @@ export function formatAiFeaturesMessage(proposals: AiFeatureProposal[], dateKey:
 export function toTrackerRow(p: AiFeatureProposal): { title: string; description: string; suggestion: string } {
   return {
     title: `ИИ-фича · ${SURFACE_LABEL[p.surface]}: ${p.title}`.slice(0, 180),
-    description: `[${p.surface}] ${p.capability}\nПочему сейчас: ${p.why_now}\nЦитата: «${p.evidence_quote}»\nИсточник: ${p.source_url}`.slice(0, 2000),
+    description: `[${p.surface}] ${p.capability}\nДля кого: ${p.user_value}\nПочему сейчас: ${p.why_now}\nЦитата: «${p.evidence_quote}»\nИсточник: ${p.source_url}`.slice(0, 2000),
     suggestion: p.first_step.slice(0, 2000),
   };
 }
@@ -292,7 +366,13 @@ export async function runAiFeatureLens(
   opts: { dateKey?: string } = {},
 ): Promise<AiFeaturesResult> {
   const startedAt = Date.now();
-  const base = { candidates: 0, with_text: 0, proposed: 0, grounded: 0, dropped: [] as Array<{ title: string; reason: string }>, dedup_skipped: 0, stored: 0, sent: false };
+  const base = {
+    candidates: 0, with_text: 0, proposed: 0, grounded: 0,
+    dropped: [] as Array<{ title: string; reason: string }>,
+    dedup_skipped: 0,
+    critic_rejected: [] as Array<{ title: string; reason: string }>,
+    stored: 0, sent: false,
+  };
   const done = (extra: Partial<AiFeaturesResult>): AiFeaturesResult => ({ ...base, ...extra, duration_ms: Date.now() - startedAt });
 
   try {
@@ -304,11 +384,15 @@ export async function runAiFeatureLens(
     const picked = items.filter((i) => i.url && !seen.has(i.url)).slice(0, AI_FEATURE_CANDIDATES_LIMIT);
     if (picked.length === 0) return done({ skip_reason: 'no_candidates' });
 
-    const candidates: AiFeatureCandidate[] = await Promise.all(
+    const fetched: AiFeatureCandidate[] = await Promise.all(
       picked.map(async (i) => ({ title: i.title, url: i.url, source: i.source, text: await fetchText(i.url).catch(() => '') })),
     );
-    base.candidates = candidates.length;
-    base.with_text = candidates.filter((c) => c.text).length;
+    base.candidates = fetched.length;
+    // В промпт — только материалы с текстом: без текста улику не проверить,
+    // а место в промпте не бесплатное.
+    const candidates = fetched.filter((c) => c.text);
+    base.with_text = candidates.length;
+    if (candidates.length === 0) return done({ skip_reason: 'no_text' });
 
     const { rows: prior } = await pool.query<{ title: string; description: string | null; suggestion: string | null }>(
       `SELECT title, description, suggestion FROM evo_growth_issues WHERE category = 'intel'`,
@@ -339,7 +423,25 @@ export async function runAiFeatureLens(
     base.grounded = fresh.length;
     if (fresh.length === 0) return done({ skip_reason: 'all_duplicates' });
 
+    // Критик — закрыт по умолчанию. Одно предложение — один вердикт; ответа
+    // нет — предложение не уходит, и это отдельный код, а не «отклонено».
+    const approved: AiFeatureProposal[] = [];
+    let criticSilent = 0;
     for (const p of fresh) {
+      const verdictRaw = await callAIDecision(buildCriticPrompt(p)).catch(() => null);
+      const verdict = parseCriticVerdict(verdictRaw);
+      if (verdict.approved) { approved.push(p); continue; }
+      if (verdict.score === null) criticSilent++;
+      base.critic_rejected.push({
+        title: p.title,
+        reason: verdict.score === null ? verdict.reason : `${verdict.score}/10: ${verdict.reason}`,
+      });
+    }
+    if (approved.length === 0) {
+      return done({ skip_reason: criticSilent === fresh.length ? 'critic_unavailable' : 'critic_rejected_all' });
+    }
+
+    for (const p of approved) {
       const row = toTrackerRow(p);
       const ok = await pool.query(
         `INSERT INTO evo_growth_issues (category, severity, title, description, suggestion, status)
@@ -350,9 +452,9 @@ export async function runAiFeatureLens(
     }
 
     const dateKey = opts.dateKey ?? new Date().toISOString().slice(0, 10);
-    const sent = await sendToOwner(formatAiFeaturesMessage(fresh, dateKey));
+    const sent = await sendToOwner(formatAiFeaturesMessage(approved, dateKey));
 
-    const urls = [...seen, ...candidates.map((c) => c.url)].slice(-300);
+    const urls = [...seen, ...fetched.map((c) => c.url)].slice(-300);
     await agentMemory.remember({
       agent_id: 'scout-digest',
       memory_type: 'ai_features_seen',
