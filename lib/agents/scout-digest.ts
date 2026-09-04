@@ -35,7 +35,8 @@ import {
   relayBase, relayBaseProblem, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
-import { parseTelegramPreview } from '@/lib/agents/scout-telegram';
+import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
+import { judgePostRefusal } from '@/lib/agents/post-refusal';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 
 /**
@@ -67,6 +68,10 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
   judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
   unsupported_claims: 'утверждения не подтверждены источниками, и вычеркнуть их из текста не удалось',
+  // 04.09: модель вместо выпуска написала записку оператору, и та ушла в
+  // канал. Фактчек её пропускает честно — в отказе нет утверждений, значит
+  // нет и неподтверждённых. Ворота отдельные: lib/agents/post-refusal.ts.
+  model_refusal: 'модель ответила отказом, а не выпуском — публиковать нечего',
   near_repeat: 'выпуск почти повторял предыдущий',
   telegram_send_failed: 'синтез готов, но Telegram не принял отправку',
   // ── Отдельный канал — отдельные причины ──────────────────────────────────
@@ -77,6 +82,7 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   ai_channel_not_configured: 'TELEGRAM_AI_CHANNEL_ID не задан — публиковать некуда',
   ai_no_items: 'ни один AI-источник не дал материалов',
   ai_synthesis_null: 'модель не вернула AI-пост',
+  ai_model_refusal: 'модель ответила отказом («не вижу текста, пришлите выдержки»), а не постом',
   ai_unsourced_percents: 'в AI-посте проценты без ссылки на источник',
   ai_factcheck_failed: 'утверждения AI-поста не подтверждены статьями',
   ai_send_failed: 'AI-пост готов, но Telegram не принял отправку',
@@ -777,25 +783,19 @@ import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, type Ju
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 
 /**
- * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
- * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
+ * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
+ * '' — не достали (это «не знаю», а не «страница пустая»).
+ *
+ * Статья с гео-закрытого сайта (openai.com, anthropic.com) с прода не
+ * читается — тогда тот же адрес через реле, как и у фида. Без реле
+ * остаётся прежнее: текст недоступен, модель опирается на заголовок.
  */
-async function fetchArticleText(url: string): Promise<string> {
-  if (!url) return '';
-  if (firecrawlAvailable()) {
-    try {
-      const page = await firecrawlScrape(url);
-      if (page?.markdown) return page.markdown.slice(0, 2500);
-    } catch { /* fallthrough */ }
-  }
+async function fetchMaybeViaRelay(url: string): Promise<string> {
   try {
     let res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
       signal: AbortSignal.timeout(8000),
     }).catch(() => null);
-    // Статья с гео-закрытого сайта (openai.com, anthropic.com) с прода не
-    // читается — тогда тот же адрес через реле, как и у фида. Без реле
-    // остаётся прежнее: текст недоступен, модель опирается на заголовок.
     if ((!res || shouldFallbackToRelay({ status: res.status })) && relayConfigured()) {
       res = await fetch(relayFetchUrl(relayBase(), url), {
         headers: { ...relayHeaders(), 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
@@ -803,15 +803,39 @@ async function fetchArticleText(url: string): Promise<string> {
       }).catch(() => null);
     }
     if (!res || !res.ok) return '';
-    const html = await res.text();
-    // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
-    // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
-    return stripTags(html, ' ')
-      .replace(/&[a-z#0-9]+;/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 2500);
+    return await res.text();
   } catch { return ''; }
+}
+
+/**
+ * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
+ * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
+ */
+async function fetchArticleText(url: string): Promise<string> {
+  if (!url) return '';
+  // Пост Telegram: страница самого поста отдаёт обёртку виджета без текста.
+  // Читаем превью канала и берём оттуда ИМЕННО этот пост (04.09: обёртку
+  // сняли как «текст статьи», модель ответила отказом, отказ ушёл в канал).
+  const tgPreview = telegramPreviewUrlForPost(url);
+  if (tgPreview) {
+    const html = await fetchMaybeViaRelay(tgPreview);
+    return html ? telegramPostText(html, url).slice(0, 2500) : '';
+  }
+  if (firecrawlAvailable()) {
+    try {
+      const page = await firecrawlScrape(url);
+      if (page?.markdown) return page.markdown.slice(0, 2500);
+    } catch { /* fallthrough */ }
+  }
+  const html = await fetchMaybeViaRelay(url);
+  if (!html) return '';
+  // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
+  // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
+  return stripTags(html, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 2500);
 }
 
 // unsupportedClaims — тоже из общего модуля (см. комментарий у re-export выше).
@@ -1113,6 +1137,18 @@ export async function runScoutDigest(): Promise<DigestResult> {
     return { signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
 
+  // Модель ответила не выпуском, а запиской оператору («не вижу текста,
+  // пришлите выдержки»). Ворота фактчека такое пропускают честно: они ищут
+  // НЕподтверждённые утверждения, а в отказе утверждений нет вовсе.
+  const refusal = judgePostRefusal(digest);
+  if (refusal.refused) {
+    return {
+      signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'model_refusal',
+      digest_skip_detail: refusal.reason.slice(0, 200),
+      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+    };
+  }
+
   // ── Фактчек основного дайджеста ────────────────────────────────────────────
   // Те же два гейта, что давно стоят на посте в AI-канал. Здесь их не было — и
   // 25.07.2026 в дайджест ушло «Claude Opus 5 — без изменения цены», хотя цена
@@ -1336,6 +1372,19 @@ export async function runScoutDigest(): Promise<DigestResult> {
       ];
       let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
       if (!aiDigest) aiSkip = 'ai_synthesis_null';
+
+      // ── Ворота отказа: пришёл не пост, а записка оператору ────────────────
+      // 04.09 в канал ушло «Не вижу текста статьи… пришли, пожалуйста,
+      // выдержки». Оба фактчека ниже пропустили это честно: они ищут
+      // НЕподтверждённые утверждения, а в отказе утверждений нет вовсе.
+      if (aiDigest) {
+        const refused = judgePostRefusal(aiDigest);
+        if (refused.refused) {
+          aiDigest = null;
+          aiSkip = 'ai_model_refusal';
+          aiSkipDetail = refused.reason.slice(0, 200);
+        }
+      }
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──
       // У модели только заголовки, поэтому любой процент, которого нет в источнике, — выдумка.
