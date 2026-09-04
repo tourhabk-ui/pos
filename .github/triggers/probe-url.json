@@ -1,25 +1,43 @@
 {
-  "note": "Повтор переписи достижимости операторов после починки: первая редакция обернула telegram_chat_id в TRIM(), а колонка BIGINT (миграция 077) — прод ответил «function pg_catalog.btrim(bigint) does not exist», и перепись упала целиком с честным verdict: unknown. Заодно перепроверяем оплату: замер 04.09 показал card.configured=false (ключа нет ни под одним именем) при sbp.configured=true — то есть СБП настроена и была заперта внутри проверки ключа карты. Только чтение.",
+  "note": "СУХОЙ прогон слияния «Бабий камень». Владелец подтвердил скриншотом Яндекс.Карт: Бабий Камень — ВОДОПАД (Елизовский район), а не гора. Значит наши две записи об одном объекте: 3795cfa5 «Бабий камень» (линии нет, 2 путевые связи) и be1c6c4a «Водопад Бабий камень» (external, 148 точек, вердикт own, улика recorded). Держим ту, у которой настоящий трек и своя координата; вторая сливается, её путевые точки перевешиваются на keep. dry_run: true — план и предупреждения, НИЧЕГО не пишется. Заодно повтор переписи операторов после починки btrim(bigint) и сверка оплаты.",
   "urls": [
     "https://vedarai.ru/api/cron/operator-reach",
     "https://vedarai.ru/api/cron/payment-config"
   ],
-  "post": [],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/routes-dedup",
+      "body": {
+        "dry_run": true,
+        "pairs": [
+          {
+            "keep": "be1c6c4a-33d8-4b3f-8025-2230654758f2",
+            "merge": "3795cfa5-4c77-4088-a349-0884f5c07a0e"
+          }
+        ]
+      }
+    }
+  ],
   "grep": [
     "verdict",
     "unreachable",
     "tours_behind_unreachable",
     "operators_with_live_tours",
     "reachable",
-    "card_pays_but_unconfirmed",
-    "configured"
+    "configured",
+    "dry_run",
+    "warnings",
+    "problems",
+    "keep_title",
+    "merge_title"
   ],
   "around": [
     "verdict",
-    "unreachable_operators"
+    "unreachable_operators",
+    "warnings"
   ],
-  "aroundLines": 20,
-  "aroundHits": 2,
+  "aroundLines": 24,
+  "aroundHits": 3,
   "retries": 12,
   "retryDelay": 60,
   "bytes": 8000,
