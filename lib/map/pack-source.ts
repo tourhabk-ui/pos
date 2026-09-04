@@ -404,4 +404,15 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   'cell-55n166e',
   'cell-56n155e',
   'cell-56n156e',
+  // 04.09, волна 4 (прогоны 124-133) — широта 56-57°, восток-центр полуострова.
+  'cell-56n157e',
+  'cell-56n158e',
+  'cell-56n159e',
+  'cell-56n160e',
+  'cell-56n161e',
+  'cell-56n162e',
+  'cell-56n163e',
+  'cell-57n156e',
+  'cell-57n157e',
+  'cell-57n158e',
 ];
