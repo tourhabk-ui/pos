@@ -72,9 +72,14 @@ describe('Кузьмич — из данных, с третьим состоян
 
 describe('перепись готовности', () => {
   it('поле переехало из пробелов схемы в пробелы данных', () => {
-    const r = read('app/api/cron/channel-readiness/route.ts');
-    expect(r).toMatch(/AS has_cancellation_policy/);
-    expect(r).toMatch(/missing\.push\('cancellation_policy'\)/);
-    expect(r).not.toMatch(/\{ field: 'cancellation_policy'/);
+    // Правило готовности переехало в lib/tours/readiness 04.09: им теперь
+    // пользуются и перепись, и обе ленты на чужие витрины. Приговор смотрим
+    // там, а чтение колонки — у тех, кто ходит в базу.
+    const rule = read('lib/tours/readiness.ts');
+    expect(rule).toMatch(/missing\.push\('cancellation_policy'\)/);
+    expect(rule).not.toMatch(/\{ field: 'cancellation_policy'/);
+    for (const src of ['app/api/cron/channel-readiness/route.ts', 'lib/channels/ready-tours.ts']) {
+      expect(read(src), `${src}: колонка условий отмены не читается`).toMatch(/AS has_cancellation_policy/);
+    }
   });
 });
