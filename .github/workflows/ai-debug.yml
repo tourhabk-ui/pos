@@ -30,8 +30,12 @@ jobs:
           # Три исхода, не два: «свежий», «старый» и «uptime не прочитан» —
           # последний показывает тело: run 5 двадцать раз печатал 10^9 вместо
           # признания, что в ответе нет поля uptime.
+          # ?deploy=1 обязателен: start.js перехватывает ровно '/api/health'
+          # (строгое сравнение req.url) и отвечает {"status":"ok"} ещё до Next —
+          # run 6 сорок раз прочитал это тело без uptime. С параметром запрос
+          # проходит в Next, и /api/health отдаёт настоящий uptime процесса.
           for i in $(seq 1 40); do
-            BODY=$(curl -s --max-time 20 "$BASE/api/health" || true)
+            BODY=$(curl -s --max-time 20 "$BASE/api/health?deploy=1" || true)
             UP=$(printf '%s' "$BODY" | python3 -c 'import json,sys
           try:
               d = json.load(sys.stdin)

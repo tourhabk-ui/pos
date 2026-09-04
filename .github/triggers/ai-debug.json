@@ -1,7 +1,8 @@
 {
   "note": "Маркер запуска ai-debug.yml: правка этого файла в main запускает диагностику AI-конвейера (debug-waterfall + E2E chat probe). run 3: проверка после замены OPENROUTER_API_KEY в env Timeweb — какой провайдер отвечает + живой путь Кузьмича.",
-  "run": 6,
+  "run": 7,
   "run4_reason": "04.09 05:58 UTC прогон разведчика: выпуск synthesis_null (deepseek: content empty; qwen: http_403 free quota exhausted; gemini: список моделей недоступен), линза ИИ-фич decision_null — решатель не ответил ни одной ступенью. Нужен статус каждого провайдера с раннера.",
   "run5_reason": "04.09 после #1565: проба на модели Gemini по /models (вместо снятого gemini-2.0-flash), Qwen вместо выключенного MiMo, форма пустого ответа DeepSeek в error. Ждём свежий деплой по uptime, затем пробуем.",
-  "run6_reason": "run 5 снят таймаутом задачи (10 мин) на шаге ожидания деплоя, который 20 раз не прочитал uptime и не показал тело. Таймаут 35 мин, тело печатается при нечитаемом uptime."
+  "run6_reason": "run 5 снят таймаутом задачи (10 мин) на шаге ожидания деплоя, который 20 раз не прочитал uptime и не показал тело. Таймаут 35 мин, тело печатается при нечитаемом uptime.",
+  "run7_reason": "run 6: DeepSeek v4-pro думает (finish_reason=length, reasoning 676 зн., content пуст); Gemini /models — 400 User location is not supported; /api/health перехватывал start.js. Меряем рычаги DeepSeek (thinking:disabled, max_tokens 2000, вторая модель), ждём деплой по /api/health?deploy=1."
 }
