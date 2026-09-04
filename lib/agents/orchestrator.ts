@@ -21,7 +21,7 @@ import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
 import { runEvolverAnalysis } from '@/lib/agents/evo/evolver-analysis';
 import { bridgeScoutIntel } from '@/lib/agents/evo/intel-bridge';
 import { runModelWatcher } from '@/lib/agents/evo/model-watcher';
-import { runScoutDigest } from '@/lib/agents/scout-digest';
+import { runScoutDigestJournaled } from '@/lib/agents/scout-digest-run';
 import { runScoutInnovator } from '@/lib/agents/scout-innovator';
 import { scanIndustryChannels } from '@/lib/telegram/industry-channels';
 import { runMemoryReflector } from '@/lib/agents/memory-reflector';
@@ -54,7 +54,10 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
     runEvolverAnalysis(),
     bridgeScoutIntel(),
     runModelWatcher(),
-    runScoutDigest(),
+    // С журналом (04.09): штатный прогон разведчика идёт отсюда, а не из
+    // крон-роута, и без записи в agent_run_history он был невидим для
+    // scout-diagnose и счёта тишины.
+    runScoutDigestJournaled('orchestrator').then((r) => r.result),
     runScoutInnovator(),
     scanIndustryChannels(),
     runMemoryReflector(),

@@ -22,7 +22,9 @@ describe('обложка дайджеста', () => {
   it('выпуск в AI-канал получает обложку тем же путём, что новости канала', () => {
     expect(CODE).toMatch(/resolveCoverImage\(\s*digestHeadlines\(aiDigest\),\s*'ai'/);
     // Обложка передаётся в отправку, исход отправки по-прежнему присваивается.
-    expect(CODE).toMatch(/aiSent = await tgSendRich\([^)]*cover\.url\)/);
+    // С 04.09 после cover.url идёт сток причины отказа Telegram — обложка
+    // по-прежнему передаётся тем же вызовом.
+    expect(CODE).toMatch(/aiSent = await tgSendRich\([^)]*cover\.url[,)]/);
   });
 
   it('обложка — превью над полным текстом, а не подпись к фото', () => {

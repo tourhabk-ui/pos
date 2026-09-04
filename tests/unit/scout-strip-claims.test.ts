@@ -25,7 +25,8 @@ const ROOT = process.cwd();
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 const FACT = readFileSync(join(ROOT, 'lib/agents/fact-check.ts'), 'utf8');
 const DIGEST = strip(readFileSync(join(ROOT, 'lib/agents/scout-digest.ts'), 'utf8'));
-const ROUTE = strip(readFileSync(join(ROOT, 'app/api/cron/scout-digest/route.ts'), 'utf8'));
+// С 04.09 журнал пишет общий модуль (крон-роут, оркестратор, админка).
+const ROUTE = strip(readFileSync(join(ROOT, 'lib/agents/scout-digest-run.ts'), 'utf8'));
 
 const SAMPLE = [
   '<b>Дайджест 02.09.2026</b>',

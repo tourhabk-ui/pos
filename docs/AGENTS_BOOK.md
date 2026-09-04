@@ -620,7 +620,12 @@ CRON_SECRET=<секрет>
 **Файл:** `lib/agents/scout-digest.ts`  
 **Эндпоинт:** `GET /api/cron/scout-digest`  
 **Workflow:** `cron-scout-digest.yml`  
-**Расписание:** ежедневно 07:00 UTC
+**Расписание:** своего нет с 29.08 (решение владельца) — стадия `runEvoOrchestrator`
+(`lib/agents/orchestrator.ts`), которую `evo.run` зовёт 4 раза в сутки с внешнего
+cron-job.org. Ручной прогон — правка маркера `.github/triggers/scout-digest.json` в main
+(workflow_dispatch через интеграцию отвечает 403). Все три дороги (крон-роут, оркестратор,
+кнопка в админке) пишут `agent_run_history` через `lib/agents/scout-digest-run.ts` с
+`metadata.trigger`; до 04.09 журнал видел только крон-роут
 
 #### Что делает
 
@@ -682,7 +687,10 @@ SCOUT_RELAY_BASE=https://vedar-safety-relay.<account>.workers.dev   # без п�
 
 #### Признаки работоспособности
 
-- Каждое утро в 07:xx UTC в Telegram приходит «Дайджест» с 3–5 пунктами
+- До четырёх раз в сутки (по расписанию `evo.run`) в Telegram приходит «Дайджест»;
+  при повторных прогонах за день разделы, где свежих сигналов нет, пустуют честно —
+  дедуп по URL держит 30 дней, и медленные ленты (туризм, Камчатка) дают материал
+  раз в сутки, а не в каждый прогон
 - Отчёт прогона: у всех источников `status: ok`, у Telegram-каналов `via: relay`,
   `relay: on` и `relay_detail: null`; `bad_base` с текстом в `relay_detail`
   значит, что в `SCOUT_RELAY_BASE` на Timeweb не адрес
