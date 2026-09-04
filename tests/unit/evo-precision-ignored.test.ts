@@ -46,6 +46,29 @@ describe('счёт точности (evo-report): в rejected входит то�
   });
 });
 
+describe('тормоз называет виновника, а не только число (04.09)', () => {
+  const api = read('app/api/cron/evo-report/route.ts');
+  const runner = read('scripts/evo-report-issues.js');
+
+  it('разрез точности по моделям считается и уезжает в ответ', () => {
+    expect(api).toMatch(/GROUP BY model/);
+    expect(api).toMatch(/precision_by_model/);
+  });
+
+  it('раннер его забирает и печатает при сработавшем тормозе', () => {
+    // Десять прогонов подряд job краснела числом «точность 22%», не называя
+    // ни одной модели, — хотя разрез уже считался с 771-й миграции, заведённой
+    // ровно ради проверки «врут ли слабые фоллбэк-модели». Посчитать и не
+    // показать — то же, что не посчитать.
+    expect(runner).toMatch(/precisionByModel/);
+    expect(runner).toMatch(/by_model: report\.precisionByModel/);
+  });
+
+  it('пустой разрез назван «атрибуции нет», а не выдан за равенство моделей', () => {
+    expect(runner).toMatch(/атрибуции нет/);
+  });
+});
+
 describe('петля знаний (learned-lessons): дайджест отказов — только rejected', () => {
   const src = read('lib/agents/evo/learned-lessons.ts');
 

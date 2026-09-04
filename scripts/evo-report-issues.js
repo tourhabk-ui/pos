@@ -52,6 +52,12 @@ async function fetchReportable() {
     guessesHeld: data.guesses_held ?? 0,
     probeSlots: data.probe_slots ?? 0,
     publishGateBlockedStreak: data.publish_gate_blocked_streak ?? 0,
+    // КТО именно даёт шум. Разрез по моделям эндпоинт считает с 771-й миграции
+    // (она и заведена ради проверки гипотезы «врут слабые фоллбэк-модели»), а
+    // раннер его не печатал — и тормоз десять прогонов подряд краснел числом
+    // «22%», не называя виновника. Считать и не показать — то же, что не
+    // считать: гипотеза остаётся спором.
+    precisionByModel: Array.isArray(data.precision_by_model) ? data.precision_by_model : [],
   };
 }
 
@@ -155,6 +161,15 @@ async function main() {
       held: report.guessesHeld,
       probe: report.probeSlots,
       streak: report.publishGateBlockedStreak,
+    });
+    // Разрез по моделям печатается ТОЛЬКО когда тормоз сработал: в норме это
+    // шум в логе, а при торможении — единственная подсказка, где чинить.
+    // Пусто — честное «атрибуции пока нет» (записи до 771-й миграции), а не
+    // «все модели одинаково хороши».
+    log('EVO_REPORT', report.precisionByModel.length > 0
+      ? 'точность по моделям'
+      : 'точность по моделям: атрибуции нет ни у одной вынесенной находки', {
+      by_model: report.precisionByModel,
     });
   }
   // Сторож самого тормоза (24.08): три прогона подряд без ни одной догадки
