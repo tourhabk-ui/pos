@@ -271,7 +271,8 @@ describe('судья просит формат, а не уговаривает',
 
   it('улика доезжает до человека, а не гибнет в функции', () => {
     const digest = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
-    const route = readFileSync(join(process.cwd(), 'app/api/cron/scout-digest/route.ts'), 'utf-8');
+    // С 04.09 журнал пишет общий модуль (крон-роут, оркестратор, админка).
+    const route = readFileSync(join(process.cwd(), 'lib/agents/scout-digest-run.ts'), 'utf-8');
     // Код называет класс беды, строка ответа — саму беду. Без неё чинят наугад.
     expect(digest).toMatch(/digest_skip_detail/);
     expect(digest).toMatch(/verdict\.sample/);

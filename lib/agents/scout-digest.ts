@@ -224,6 +224,8 @@ export interface DigestResult {
   ai_channel_sent?: boolean;
   /** Почему AI-пост НЕ ушёл. Коды с префиксом `ai_` в SKIP_REASON_LABELS. */
   ai_channel_skip_reason?: string;
+  /** Улика к `ai_send_failed`: ответ Bot API или сетевая ошибка словами (04.09). */
+  ai_channel_skip_detail?: string;
   duration_ms: number;
   /** Здоровье источников за прогон: сколько живых из всех и какие молчат. */
   sources_ok?: number;
@@ -530,9 +532,27 @@ async function fetchSource(s: ScoutSource): Promise<SourceFetch> {
   return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'relay' };
 }
 
-async function tgSendTo(chatId: string, text: string): Promise<boolean> {
+/**
+ * Причина отказа Telegram — наружу через `onError`, а не в пустоту (04.09).
+ * До этого дня оба отправителя глотали и тело ответа Bot API, и исключение:
+ * выпуск 04.09 получил `ai_send_failed` без единого слова, ПОЧЕМУ, а
+ * «Telegram не принял» одинаково звучит для неверного chat_id, бота без
+ * прав в канале, кривого HTML и сетевого обрыва — чинятся они в четырёх
+ * разных местах. Булев исход сохранён (его ждут вызывающие и сторож),
+ * причина идёт рядом.
+ */
+type SendErrorSink = (reason: string) => void;
+
+function describeTelegramReply(status: number, data: unknown): string {
+  const d = data as { description?: unknown; error_code?: unknown } | null;
+  const desc = typeof d?.description === 'string' ? d.description : '';
+  const code = typeof d?.error_code === 'number' ? d.error_code : status;
+  return `Bot API ${code}: ${desc || 'без описания'}`.slice(0, 200);
+}
+
+async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
+  if (!token) { onError?.('TELEGRAM_BOT_TOKEN не задан'); return false; }
   try {
     const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
@@ -545,8 +565,11 @@ async function tgSendTo(chatId: string, text: string): Promise<boolean> {
       }),
     });
     const data = await res.json();
-    return (data as { ok: boolean }).ok === true;
-  } catch {
+    const ok = (data as { ok: boolean }).ok === true;
+    if (!ok) onError?.(describeTelegramReply(res.status, data));
+    return ok;
+  } catch (e) {
+    onError?.(`сеть: ${((e as Error).message || 'unknown').slice(0, 160)}`);
     return false;
   }
 }
@@ -568,9 +591,10 @@ async function tgSendRich(
   text: string,
   buttons?: Array<Array<{ text: string; url: string }>>,
   coverUrl?: string,
+  onError?: SendErrorSink,
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
+  if (!token) { onError?.('TELEGRAM_BOT_TOKEN не задан'); return false; }
   try {
     const body: Record<string, unknown> = {
       chat_id: chatId,
@@ -587,8 +611,11 @@ async function tgSendRich(
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    return (data as { ok: boolean }).ok === true;
-  } catch {
+    const ok = (data as { ok: boolean }).ok === true;
+    if (!ok) onError?.(describeTelegramReply(res.status, data));
+    return ok;
+  } catch (e) {
+    onError?.(`сеть: ${((e as Error).message || 'unknown').slice(0, 160)}`);
     return false;
   }
 }
@@ -607,10 +634,10 @@ export function digestHeadlines(digestHtml: string): string {
   return stripTags(digestHtml).replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
-async function tgSend(text: string): Promise<boolean> {
+async function tgSend(text: string, onError?: SendErrorSink): Promise<boolean> {
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!chatId) return false;
-  return tgSendTo(chatId, text);
+  if (!chatId) { onError?.('TELEGRAM_CHAT_ID не задан'); return false; }
+  return tgSendTo(chatId, text, onError);
 }
 
 /** `u` — ключ (URL), `t` — когда увидели, `h` — заголовок на момент показа. */
@@ -1224,7 +1251,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
     expires_at: new Date(now + 60 * 24 * 60 * 60 * 1000), // renew 60d; internal filter handles 30d per-entry
   });
 
-  const sent = await tgSend(digest);
+  let sendDetail: string | undefined;
+  const sent = await tgSend(digest, (reason) => { sendDetail = reason; });
 
   // Post AI & Tech section only to the AI channel (@ai_hub_money — vibe-coding, 40K subs)
   //
@@ -1235,6 +1263,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // ровно то, что произошло.
   let aiSent = false;
   let aiSkip: string | undefined = 'ai_digest_aborted';
+  let aiSkipDetail: string | undefined;
   let aiClaimsDropped: number | undefined;
   const aiChannelId = process.env.TELEGRAM_AI_CHANNEL_ID;
   if (!aiChannelId) {
@@ -1388,7 +1417,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
           'ai',
           hashStr(aiDigest) % 9_999_999,
         );
-        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined, cover.url);
+        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined, cover.url, (reason) => { aiSkipDetail = reason; });
         aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }
@@ -1417,6 +1446,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         // неделю: свежесть основного выпуска ничего не говорит о втором.
         ai_channel_sent: aiSent,
         ai_channel_skip_reason: aiSkip ?? null,
+        ai_channel_skip_detail: aiSkipDetail ?? null,
         // Выпуск ушёл не целиком: сколько пунктов вычеркнуто и каких (02.09).
         // Без этого «ушёл» и «ушёл без трёх пунктов» неотличимы в журнале.
         claims_dropped: claimsDropped ?? null,
@@ -1442,11 +1472,12 @@ export async function runScoutDigest(): Promise<DigestResult> {
   return {
     signals_found: dedupedItems.length,
     digest_sent: sent,
-    ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }),
+    ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed', ...(sendDetail ? { digest_skip_detail: sendDetail } : {}) }),
     // Второй канал отчитывается отдельно: дайджест мог уйти, а AI-пост — нет,
     // и наоборот. Одно поле на два канала скрывало ровно этот случай.
     ai_channel_sent: aiSent,
     ...(aiSkip ? { ai_channel_skip_reason: aiSkip } : {}),
+    ...(aiSkipDetail ? { ai_channel_skip_detail: aiSkipDetail } : {}),
     ...(claimsDropped ? { claims_dropped: claimsDropped, claims_dropped_detail: claimsDroppedDetail } : {}),
     ...(aiClaimsDropped ? { ai_claims_dropped: aiClaimsDropped } : {}),
     duration_ms: Date.now() - start,

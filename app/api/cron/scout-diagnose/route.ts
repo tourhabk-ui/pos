@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
         digest_skip_detail?: string | null;
         ai_channel_sent?: boolean | null;
         ai_channel_skip_reason?: string | null;
+        ai_channel_skip_detail?: string | null;
+        trigger?: string | null;
       } | null;
       const code = meta?.digest_skip_reason ?? null;
       // Судьба ВТОРОГО канала (@ai_hub_money) — отдельный вопрос, и до
@@ -78,6 +80,12 @@ export async function GET(request: NextRequest) {
         ai_channel_sent: meta?.ai_channel_sent ?? null,
         ai_channel_skip_reason: aiCode,
         ai_channel_skip_label: aiCode ? (SKIP_REASON_LABELS[aiCode] ?? aiCode) : null,
+        // Улика к отказу канала (04.09): ответ Bot API словами; null — не
+        // записана (прогон старше правки) или отказа не было.
+        ai_channel_skip_detail: meta?.ai_channel_skip_detail ?? null,
+        // Кто позвал: cron (маркер/ручной), orchestrator (штатный, 4×/сутки),
+        // admin (кнопка). null — прогон старше 04.09, дорога не записана.
+        trigger: meta?.trigger ?? null,
         at: r.started_at instanceof Date ? r.started_at.toISOString() : String(r.started_at),
         status: r.status,
         signals: r.items_processed,
@@ -134,6 +142,7 @@ export async function GET(request: NextRequest) {
       claims_dropped?: number | null; claims_dropped_detail?: string | null;
       ai_claims_dropped?: number | null;
       ai_channel_sent?: boolean | null; ai_channel_skip_reason?: string | null;
+      ai_channel_skip_detail?: string | null;
     } | null;
     const lastArtifact = digest.rows[0] ? {
       slug: digest.rows[0].slug,
@@ -150,6 +159,7 @@ export async function GET(request: NextRequest) {
       ai_claims_dropped: meta?.ai_claims_dropped ?? null,
       ai_channel_sent: meta?.ai_channel_sent ?? null,
       ai_channel_skip_reason: meta?.ai_channel_skip_reason ?? null,
+      ai_channel_skip_detail: meta?.ai_channel_skip_detail ?? null,
     } : null;
 
     return NextResponse.json({
