@@ -491,4 +491,19 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   'cell-63n162e',
   'cell-63n163e',
   'cell-63n164e',
+  // 04.09, Корякия волна 5 (прогоны 193-204) — ПОСЛЕДНЯЯ: закрывает
+  // широты 63-64° и весь реестр 112/112. Собраны НОВЫМ кодировщиком
+  // (NODATA_SENTINEL_M) — пересборка им не нужна.
+  'cell-63n165e',
+  'cell-63n166e',
+  'cell-63n167e',
+  'cell-63n168e',
+  'cell-63n169e',
+  'cell-64n162e',
+  'cell-64n163e',
+  'cell-64n164e',
+  'cell-64n165e',
+  'cell-64n166e',
+  'cell-64n167e',
+  'cell-64n168e',
 ];
