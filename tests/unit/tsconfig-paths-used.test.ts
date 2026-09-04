@@ -49,8 +49,11 @@ describe('tsconfig paths', () => {
     expect(existsSync(join(ROOT, 'pillars'))).toBe(false);
   });
 
-  it('lib/mcp проверяется tsc — публичный MCP не должен жить вне проверки типов', () => {
+  it('lib/mcp и scripts/ проверяются tsc — исключение из проверки растит фиктивный код', () => {
+    // 04.09: в исключённом scripts/ лежал import-osm-geometry.ts с импортом
+    // несуществующей функции — его звали пять воркфлоу, и все падали.
     expect(TSCONFIG.exclude).not.toContain('lib/mcp');
+    expect(TSCONFIG.exclude).not.toContain('scripts');
   });
 
   it('jest.config.js с алиасами столпов не вернулся — тесты гоняет vitest', () => {

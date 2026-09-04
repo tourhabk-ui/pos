@@ -56,7 +56,6 @@
     "tests",
     "test",
     "e2e",
-    "scripts",
     "playwright.config.ts",
     "timeweb-mcp-server.ts"
   ]

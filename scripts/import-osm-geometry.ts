@@ -25,7 +25,10 @@
  */
 
 import { pool } from '../lib/db-pool';
-import { runOsmImport } from '../lib/import/osm-import-runner';
+// До 04.09 здесь стоял `runOsmImport` — экспорта с таким именем в раннере
+// нет, и скрипт падал на импорте. Пять воркфлоу звали его и краснели, а
+// scripts/ был исключён из tsc, так что ошибку не ловил никто.
+import { runOsmGeometryImport } from '../lib/import/osm-import-runner';
 
 const isDryRun = process.argv.includes('--dry-run');
 const limitArg = process.argv.indexOf('--limit');
@@ -33,7 +36,7 @@ const parsedLimit = limitArg !== -1 ? parseInt(process.argv[limitArg + 1], 10) :
 const LIMIT = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 999;
 
 async function main(): Promise<void> {
-  const result = await runOsmImport({ limit: LIMIT, dryRun: isDryRun });
+  const result = await runOsmGeometryImport({ limit: LIMIT, dryRun: isDryRun });
 
   process.stdout.write(
     `${isDryRun ? 'Сухой прогон' : 'Импорт'}: взято ${result.details.length}, `

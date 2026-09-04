@@ -1,28 +1,24 @@
 {
-  "note": "Разбор выпуска 04.09 (один раздел из четырёх). GET /api/cron/scout-diagnose теперь отдаёт last_artifact: здоровье источников по каждому с путём via, вычеркнутые фактчеком пункты, судьба AI-канала. Только чтение. Ждём выката по маркеру last_artifact.",
+  "note": "Состояние линий маршрутов на проде (04.09): скрипт импорта OSM не собирался с 10.07, и «треки OSM не импортированы» держалось на памяти. catalog-census отдаёт geometry_by_source — разбивку живых маршрутов по источнику линии. Только чтение. Ждём выката по маркеру geometry_by_source.",
   "urls": [
-    "https://vedarai.ru/api/cron/scout-diagnose?limit=3"
+    "https://vedarai.ru/api/cron/catalog-census"
   ],
   "post": [],
   "grep": [
-    "\"via\":\"relay\"",
-    "\"status\":\"error\"",
-    "\"status\":\"empty\"",
-    "claims_dropped_detail",
-    "tg_ru_rst",
-    "unsupported_claims"
+    "geometry_by_source",
+    "\"osm\"",
+    "waypoints_synthetic",
+    "external",
+    "нет геометрии"
   ],
   "around": [
-    "\"key\":\"tg_ru_rst\"",
-    "\"key\":\"tourprom\"",
-    "\"key\":\"safety_layer\"",
-    "claims_dropped_detail"
+    "geometry_by_source"
   ],
-  "aroundLines": 12,
+  "aroundLines": 10,
   "aroundHits": 1,
-  "until": "last_artifact",
+  "until": "geometry_by_source",
   "retries": 50,
   "retryDelay": 60,
-  "bytes": 12000,
+  "bytes": 4000,
   "timeout": 60
 }
