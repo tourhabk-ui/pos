@@ -77,7 +77,11 @@ describe('debug-проба описывает живой водопад', () => 
   });
 
   it('пустой content под 200 у DeepSeek и Qwen несёт форму тела', () => {
-    expect(debug).toMatch(/provider: 'deepseek', model: dsModel, status: 'empty_response', error: describeEmptyCompletion\(data\)/);
+    expect(debug).toMatch(/provider: 'deepseek', model: label, status: 'empty_response', error: describeEmptyCompletion\(data\)/);
+    // run 6: модель думает и не договаривает — рычаги меряются, а не угадываются.
+    expect(debug).toMatch(/thinking: \{ type: 'disabled' \}/);
+    expect(debug).toMatch(/\[max_tokens:2000\]/);
+    expect(debug).toMatch(/getProviderModelIds\('deepseek'\)/);
     expect(debug).toMatch(/provider: 'qwen', model, status: 'empty_response', error: describeEmptyCompletion\(data\)/);
   });
 });

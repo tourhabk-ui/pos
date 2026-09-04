@@ -3528,37 +3528,56 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
     }
   }
 
-  // 4. DeepSeek direct
+  // 4. DeepSeek direct — пригодные модели из /models и три формы запроса.
+  //    run 6 (04.09): deepseek-v4-pro отдал finish_reason=length, content пуст,
+  //    reasoning_content 676 знаков — модель ДУМАЕТ, и на 200 токенов бюджета
+  //    ответа не остаётся; у судьи (1600) и решателя (1500) исход тот же на
+  //    длинных промптах. Какой рычаг это лечит — thinking выключить, бюджет
+  //    шире, другая модель линейки — документация DeepSeek из РФ и из
+  //    песочницы не читается, значит меряем: каждая строка ниже — один рычаг.
+  //    Базовая форма ответила — рычаги не пробуются; account-wide отказ
+  //    (401/402/403/429) — остальные формы не спасут.
   {
-    const start = Date.now();
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
       results.push({ provider: 'deepseek', model: 'unresolved', status: 'no_key', latency_ms: 0 });
     } else {
-      try {
-        const dsModel = await resolveDeepSeekModel();
-        const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: dsModel, temperature: 0.4, max_tokens: 200, messages: payload }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        const ms = Date.now() - start;
-        if (!res.ok) {
-          const errText = await res.text().catch(() => '');
-          results.push({ provider: 'deepseek', model: dsModel, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
-        } else {
-          const data = await res.json();
-          const text = data?.choices?.[0]?.message?.content;
-          // Пустой content под HTTP 200 — форма тела в error: без неё «пусто»
-          // за 313 мс (run 4) нельзя отличить от фильтра, недоговорённого
-          // размышления или error в теле.
-          results.push(text
-            ? { provider: 'deepseek', model: dsModel, status: 'success', answer_preview: text.slice(0, 100), latency_ms: ms }
-            : { provider: 'deepseek', model: dsModel, status: 'empty_response', error: describeEmptyCompletion(data), latency_ms: ms });
+      const primary = await resolveDeepSeekModel().catch(() => null);
+      const listed = classifyModels(await getProviderModelIds('deepseek')).filter(m => m.eligible).map(m => m.id);
+      const models = [...new Set([...(primary ? [primary] : []), ...listed])].slice(0, 2);
+      const variants: Array<{ tag: string; extra: Record<string, unknown>; timeoutMs: number }> = [
+        { tag: '', extra: { max_tokens: 200 }, timeoutMs: 15_000 },
+        { tag: ' [thinking:disabled]', extra: { max_tokens: 200, thinking: { type: 'disabled' } }, timeoutMs: 15_000 },
+        { tag: ' [max_tokens:2000]', extra: { max_tokens: 2000 }, timeoutMs: 60_000 },
+      ];
+      for (const dsModel of models) {
+        for (const v of variants) {
+          const start = Date.now();
+          const label = `${dsModel}${v.tag}`;
+          try {
+            const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify({ model: dsModel, temperature: 0.4, messages: payload, ...v.extra }),
+              signal: AbortSignal.timeout(v.timeoutMs),
+            });
+            const ms = Date.now() - start;
+            if (!res.ok) {
+              const errText = await res.text().catch(() => '');
+              results.push({ provider: 'deepseek', model: label, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+              if ([401, 402, 403, 429].includes(res.status)) break;
+              continue;
+            }
+            const data = await res.json();
+            const text = data?.choices?.[0]?.message?.content;
+            results.push(text
+              ? { provider: 'deepseek', model: label, status: 'success', answer_preview: text.slice(0, 100), latency_ms: ms }
+              : { provider: 'deepseek', model: label, status: 'empty_response', error: describeEmptyCompletion(data), latency_ms: ms });
+            if (text && v.tag === '') break;
+          } catch (e) {
+            results.push({ provider: 'deepseek', model: label, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+          }
         }
-      } catch (e) {
-        results.push({ provider: 'deepseek', model: 'unresolved', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
   }
