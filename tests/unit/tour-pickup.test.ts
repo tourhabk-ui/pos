@@ -21,7 +21,10 @@ import { pickupForCard, pickupWording, isPickupType, PICKUP_TYPES, type PickupTy
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const MIGRATION = read('migrations/932_operator_tours_pickup.sql');
-const CENSUS = read('app/api/cron/channel-readiness/route.ts');
+// Правило готовности переехало из крона в lib/tours/readiness 04.09: им
+// пользуются и перепись, и ленты Авито с Яндексом. Сторож смотрит на правило,
+// а не на его прежний адрес.
+const CENSUS = read('lib/tours/readiness.ts');
 const CARD = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
 
 describe('словарь один на все поверхности', () => {
