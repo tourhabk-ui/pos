@@ -513,7 +513,7 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 | **Watchdog** | Cron 30 мин | **Единственный сторож** операционной безопасности: SOS-таймаут >15 мин (координаты + 112), брони без подтверждения >24ч, операторы игнорируют бронь >48ч, лиды >2ч, брони жилья >24ч, сейсмо-крон мёртв >15 мин, любой safety-крон из реестра мёртв (liveness по `lib/agents/cron-registry`), платежи удерживаются после срока релиза >6ч (след молчащего `/api/cron/payouts`), крон идёт и не доводит дело до конца >3 прогонов подряд (`lib/agents/cron-fruitless`). Алерты в Telegram. Отказ ЛЮБОЙ проверки пишется в лог — «не смог» не выдаётся за «нарушений нет» (§4.0, сторож `watchdog-checks-wired`). |
 | **Rescue** | В Evo (3× off-peak) | Только то, чего нет у Watchdog: погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS/брони сюда НЕ возвращать — дубль (EVO-3). |
 | **Editor** | Cron 22:00 UTC (off-peak) | Туры с описанием <300 символов → AI переписывает → `route_description_cache`. |
-| **Scout Digest** | Cron 07:00 UTC | RSS (Habr, RATA, Tourprom, Kamgov) → AI-синтез → дайджест в Telegram. |
+| **Scout Digest** | Cron 07:00 UTC | 15 источников + safety-слой: RSS (Habr AI, лаборатории OpenAI/Google/DeepMind, Турпром, RATA, Skift и др.) + Telegram-превью (РСТ, Минэк-туризм, Vibecoding) → AI-синтез → дайджест в Telegram. Гео-закрытые для РФ (t.me, openai.com) — через реле Cloudflare `infra/safety-relay` (`SCOUT_RELAY_BASE`); проверка реле с прода — `GET /api/cron/scout-relay-check`. Kamgov снят 01.08 — лента умерла. |
 | **Kuzmich** | Мультиканальный | Telegram, MAX, Web, Widget. Общий мозг: `lib/kuzmich/core.ts` |
 
 Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`, `evo/rescue-agent.ts`
