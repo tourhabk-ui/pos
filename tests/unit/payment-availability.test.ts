@@ -34,7 +34,7 @@ const PROBE = read('app/api/cron/payment-config/route.ts');
 const ENV_EXAMPLE = read('.env.example');
 
 const KEYS = [
-  'CLOUDPAYMENTS_PUBLIC_ID', 'NEXT_PUBLIC_CLOUDPAYMENTS_PUBLIC_ID',
+  'CLOUDPAYMENTS_PUBLIC_ID', 'NEXT_PUBLIC_CLOUDPAYMENTS_PUBLIC_ID', 'CLOUDPAYMENTS_API_SECRET',
   'TOCHKA_JWT_TOKEN', 'TOCHKA_MERCHANT_ID', 'TOCHKA_ACCOUNT_ID',
 ] as const;
 
@@ -123,6 +123,22 @@ describe('ни одного способа — это состояние, а н�
     expect(PAGE).toMatch(/Онлайн-оплата недоступна/);
     // Вкладка СБП больше не заперта внутри проверки ключа карты.
     expect(PAGE).not.toMatch(/needsPayment && booking\.cp_public_id && \(/);
+  });
+});
+
+describe('приём подтверждения — отдельный вопрос от выставления счёта', () => {
+  it('секрет вебхука считается своей переменной', () => {
+    expect(paymentConfigNames().webhook.configured).toBe(false);
+    process.env.CLOUDPAYMENTS_API_SECRET = 's';
+    expect(paymentConfigNames().webhook.configured).toBe(true);
+    expect(paymentConfigNames().webhook.name).toBe('CLOUDPAYMENTS_API_SECRET');
+  });
+
+  it('проба называет худшее состояние: платят, а подтвердить нечем', () => {
+    // Без секрета processCloudPaymentsWebhook отвергает КАЖДОЕ уведомление
+    // об оплате: деньги у банка приняты, бронь оплаченной не станет. Это
+    // хуже ненастроенной карты — там турист хотя бы видит, что платить негде.
+    expect(PROBE).toMatch(/card_pays_but_unconfirmed/);
   });
 });
 

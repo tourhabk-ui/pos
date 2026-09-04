@@ -74,6 +74,14 @@ export function paymentAvailability(): PaymentAvailability {
 export function paymentConfigNames(): {
   card: { configured: boolean; via: string | null };
   sbp: { configured: boolean; missing: string[] };
+  /**
+   * Секрет, которым подписан вебхук CloudPayments. Без него
+   * `processCloudPaymentsWebhook` отвергает КАЖДОЕ уведомление об оплате
+   * (`CONFIG_ERROR`) — деньги у банка приняты, бронь оплаченной не станет.
+   * Ключ выставления счёта и ключ приёма подтверждения — РАЗНЫЕ переменные,
+   * и настроенность одной ничего не говорит о другой.
+   */
+  webhook: { configured: boolean; name: string };
 } {
   const via = process.env.CLOUDPAYMENTS_PUBLIC_ID?.trim()
     ? 'CLOUDPAYMENTS_PUBLIC_ID'
@@ -85,5 +93,9 @@ export function paymentConfigNames(): {
   return {
     card: { configured: via !== null, via },
     sbp: { configured: missing.length === 0, missing: [...missing] },
+    webhook: {
+      configured: Boolean(process.env.CLOUDPAYMENTS_API_SECRET?.trim()),
+      name: 'CLOUDPAYMENTS_API_SECRET',
+    },
   };
 }

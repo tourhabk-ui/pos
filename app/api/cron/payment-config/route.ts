@@ -49,8 +49,20 @@ export async function GET(request: NextRequest) {
       configured: names.sbp.configured,
       missing: names.sbp.missing,
     },
+    // Приём подтверждения — отдельный вопрос от выставления счёта. Без
+    // секрета вебхука каждое уведомление CloudPayments отвергается, и деньги
+    // у банка приняты при неоплаченной броне. Настроенная карта об этом
+    // ничего не говорит: переменные разные.
+    card_webhook: {
+      configured: names.webhook.configured,
+      name: names.webhook.name,
+    },
     // Ни одного способа — турист оставляет заявку и не может заплатить.
     nothing_available: availability.none,
+    // Оплата картой без секрета вебхука — деньги уходят, бронь не оплачена.
+    // Это состояние ХУЖЕ ненастроенной карты: там турист хотя бы видит, что
+    // онлайн-оплаты нет, а здесь платит и остаётся ни с чем.
+    card_pays_but_unconfirmed: Boolean(availability.cardPublicId) && !names.webhook.configured,
     verdict: availability.none ? 'nothing' : 'configured',
     note: availability.none
       ? 'Ни карта, ни СБП не настроены: страница брони покажет «онлайн-оплата недоступна» и контакты оператора'
