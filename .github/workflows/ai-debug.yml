@@ -16,6 +16,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Маркер уезжает в main вместе с кодом, а деплой Timeweb доезжает
+      # минут через 5-10. Проба на старом коде отвечает на вчерашний вопрос
+      # (run 4, 04.09: пробовали снятый с эксплуатации id Gemini). Ждём
+      # свежего рестарта приложения по uptime из /api/health; не дождались —
+      # говорим об этом вслух и пробуем как есть: провал тоже результат.
+      - name: Wait for fresh deploy
+        env:
+          BASE: https://vedarai.ru
+        run: |
+          for i in $(seq 1 40); do
+            UP=$(curl -s --max-time 20 "$BASE/api/health" | python3 -c 'import json,sys
+          try: print(int(json.load(sys.stdin).get("uptime", 10**9)))
+          except Exception: print(-1)' 2>/dev/null || echo -1)
+            if [ "$UP" -ge 0 ] && [ "$UP" -lt 300 ]; then echo "свежий рестарт: uptime ${UP}с (попытка $i)"; exit 0; fi
+            echo "uptime ${UP}с — деплой ещё не доехал, жду 30с ($i/40)"; sleep 30
+          done
+          echo "ВНИМАНИЕ: свежего рестарта не дождались за 20 мин — проба идёт на том коде, что есть"
+
       - name: Debug waterfall
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
