@@ -40,11 +40,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const { rows } = await pool.query<Row>(
+      // Оба chat_id — BIGINT (миграции 077 и 145), не текст. Первая редакция
+      // обернула telegram_chat_id в TRIM(), и прод ответил
+      // «function pg_catalog.btrim(bigint) does not exist»: перепись упала
+      // целиком. Пустой строки у BIGINT не бывает — «есть канал» это просто
+      // NOT NULL. Тип колонки читается из миграции, а не предполагается по
+      // имени.
       `SELECT p.id,
               p.name,
-              COUNT(t.id)::int                                       AS live_tours,
-              (COALESCE(NULLIF(TRIM(p.telegram_chat_id), ''), NULL) IS NOT NULL) AS has_telegram,
-              (p.max_chat_id IS NOT NULL)                            AS has_max
+              COUNT(t.id)::int              AS live_tours,
+              (p.telegram_chat_id IS NOT NULL) AS has_telegram,
+              (p.max_chat_id IS NOT NULL)      AS has_max
          FROM partners p
          JOIN operator_tours t ON t.operator_id = p.id AND t.is_active = true
         GROUP BY p.id, p.name, p.telegram_chat_id, p.max_chat_id

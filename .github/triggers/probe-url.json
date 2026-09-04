@@ -1,32 +1,27 @@
 {
-  "note": "ГЛАВНОЕ (безопасность): /api/cron/alerts-census — течёт ли поток тревог региона. Дайджест 04.09 напечатал «Камчатка: нет значимых сигналов», а раздел кормится нашей таблицей external_alerts, то есть за 25 часов не записано ни одной тревоги. Для Камчатки неправдоподобно; та же беда видна с другой стороны в #1485 (сейсмо-канал отставал на 250 мин). Перепись различает «тихо в крае» и «молчит конвейер» парой фактов: были ли тревоги И ходил ли тот, кто их пишет. Дальше — деньги: payment-config (чем турист может заплатить; только имена переменных, значений нет) и operator-reach (до скольких операторов доходит заявка). Все пробы только читают.",
+  "note": "Повтор переписи достижимости операторов после починки: первая редакция обернула telegram_chat_id в TRIM(), а колонка BIGINT (миграция 077) — прод ответил «function pg_catalog.btrim(bigint) does not exist», и перепись упала целиком с честным verdict: unknown. Заодно перепроверяем оплату: замер 04.09 показал card.configured=false (ключа нет ни под одним именем) при sbp.configured=true — то есть СБП настроена и была заперта внутри проверки ключа карты. Только чтение.",
   "urls": [
-    "https://vedarai.ru/api/cron/alerts-census",
-    "https://vedarai.ru/api/cron/payment-config",
-    "https://vedarai.ru/api/cron/operator-reach"
+    "https://vedarai.ru/api/cron/operator-reach",
+    "https://vedarai.ru/api/cron/payment-config"
   ],
   "post": [],
   "grep": [
     "verdict",
-    "last_25h",
-    "last_7d",
-    "ingest_ran_within_25h",
-    "by_type",
-    "nothing_available",
-    "card_pays_but_unconfirmed",
-    "via",
-    "missing",
     "unreachable",
-    "tours_behind_unreachable"
+    "tours_behind_unreachable",
+    "operators_with_live_tours",
+    "reachable",
+    "card_pays_but_unconfirmed",
+    "configured"
   ],
   "around": [
     "verdict",
-    "ingest_runs"
+    "unreachable_operators"
   ],
   "aroundLines": 20,
-  "aroundHits": 3,
+  "aroundHits": 2,
   "retries": 12,
   "retryDelay": 60,
-  "bytes": 12000,
+  "bytes": 8000,
   "timeout": 60
 }

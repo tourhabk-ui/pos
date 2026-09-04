@@ -62,8 +62,14 @@ describe('перепись достижимости считает то, что 
     expect(REACH).toMatch(/JOIN operator_tours t ON t\.operator_id = p\.id AND t\.is_active = true/);
   });
 
-  it('пустой telegram_chat_id не считается каналом', () => {
-    expect(REACH).toMatch(/NULLIF\(TRIM\(p\.telegram_chat_id\), ''\)/);
+  it('chat_id читается как BIGINT, а не как текст', () => {
+    // Сторож требовал TRIM() — и тем закрепил моё неверное предположение о
+    // типе. Прод ответил «function pg_catalog.btrim(bigint) does not exist»,
+    // перепись упала целиком. Колонки BIGINT (миграции 077 и 145): пустой
+    // строки не бывает, «есть канал» — это NOT NULL.
+    expect(REACH).not.toMatch(/TRIM\(p\.telegram_chat_id\)/);
+    expect(REACH).toMatch(/p\.telegram_chat_id IS NOT NULL/);
+    expect(REACH).toMatch(/p\.max_chat_id IS NOT NULL/);
   });
 
   it('называет цену молчания — туры за недостижимыми операторами', () => {
