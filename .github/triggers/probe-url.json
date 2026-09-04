@@ -1,24 +1,21 @@
 {
-  "note": "Состояние линий маршрутов на проде (04.09): скрипт импорта OSM не собирался с 10.07, и «треки OSM не импортированы» держалось на памяти. catalog-census отдаёт geometry_by_source — разбивку живых маршрутов по источнику линии. Только чтение. Ждём выката по маркеру geometry_by_source.",
+  "note": "Настоящая работа с линиями (04.09): 106 живых маршрутов без линии, из них 87 без собственных координат. Вопрос — у скольких есть путевые точки: для них линия прокладывается по дорожному графу (A*, миграция 760) и от Overpass не зависит, а координата маршрута выводится из тех же точек. GET /api/cron/route-lay-census — только чтение, эндпоинт давно на проде, ждать выката нечего.",
   "urls": [
-    "https://vedarai.ru/api/cron/catalog-census"
+    "https://vedarai.ru/api/cron/route-lay-census"
   ],
   "post": [],
   "grep": [
-    "geometry_by_source",
-    "\"osm\"",
-    "waypoints_synthetic",
-    "external",
-    "нет геометрии"
+    "candidates",
+    "wpCount",
+    "spanKm"
   ],
   "around": [
-    "geometry_by_source"
+    "total",
+    "candidates"
   ],
-  "aroundLines": 10,
+  "aroundLines": 14,
   "aroundHits": 1,
-  "until": "geometry_by_source",
-  "retries": 50,
-  "retryDelay": 60,
-  "bytes": 4000,
+  "retries": 0,
+  "bytes": 9000,
   "timeout": 60
 }
