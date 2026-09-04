@@ -11,6 +11,7 @@ import {
   Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle, RotateCcw,
 } from 'lucide-react';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
+import { pickupForCard } from '@/lib/tours/pickup';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
@@ -55,6 +56,8 @@ interface TourFull {
   latitude: string | null;
   longitude: string | null;
   meeting_point: string | null;
+  pickup_type: string | null;
+  pickup_details: string | null;
   cancellation_policy: string | null;
   tour_image: string | null;
   photos: string[] | null;
@@ -796,8 +799,32 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
               </div>
             </section>
 
-            {/* Точка сбора */}
-            {tour.meeting_point && (
+            {/* Как турист попадает на тур (932). Отвечает на вопрос покупателя
+                «ждать меня или ехать самому», а не «где точка сбора»: у восьми
+                живых туров точки сбора нет и быть не должно — операторы
+                забирают сами. Не записано — блока нет. */}
+            {(() => {
+              const pickup = pickupForCard(tour.pickup_type, tour.pickup_details, tour.meeting_point);
+              if (!pickup) return null;
+              return (
+                <section>
+                  <SectionTitle icon={MapPin}>{pickup.title}</SectionTitle>
+                  <div className="ds-card p-5 space-y-2.5">
+                    <p className="text-sm text-[var(--text-secondary)]">{pickup.summary}</p>
+                    {pickup.lines.map((line: string, i: number) => (
+                      <div key={i} className="flex items-start gap-2.5 text-sm text-[var(--text-secondary)]">
+                        <MapPin className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />{line}
+                      </div>
+                    ))}
+                    <p className="text-xs text-[var(--text-muted)] pt-1">Точное время оператор подтверждает после брони.</p>
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* Старая точка сбора: показывается только там, где новое поле не
+                заполнено, иначе один и тот же ответ звучал бы дважды. */}
+            {!tour.pickup_type && tour.meeting_point && (
               <section>
                 <SectionTitle icon={MapPin}>Точка сбора</SectionTitle>
                 <div className="ds-card p-5 space-y-2.5">

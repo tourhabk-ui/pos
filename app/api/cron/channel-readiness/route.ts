@@ -44,6 +44,13 @@ export interface ReadinessRow {
   photo_count: number;
   base_price: number | null;
   duration_hours: number | null;
+  /**
+   * Как турист попадает на тур (миграция 932). NULL — не записано.
+   * `has_meeting_point` оставлен рядом: он отвечает на ДРУГОЙ вопрос («есть ли
+   * текст точки сбора») и нужен, чтобы отличить перенесённые данные от новых.
+   */
+  pickup_type: 'hotel_pickup' | 'meeting_point' | 'self_drive' | null;
+  pickup_details_chars: number;
   has_meeting_point: boolean;
   /** Условия отмены записаны оператором (колонка с миграции 931). */
   has_cancellation_policy: boolean;
@@ -74,7 +81,18 @@ export function missingFields(r: ReadinessRow): string[] {
   if (r.photo_count < 1) missing.push('photos');
   if (r.base_price === null || r.base_price <= 0) missing.push('base_price');
   if (r.duration_hours === null) missing.push('duration_hours');
-  if (!r.has_meeting_point) missing.push('pickup');
+  // Судим по pickup_type, а не по тексту точки сбора (932). Прежняя проверка
+  // требовала meeting_point и тем самым требовала от оператора выдумать точку
+  // сбора там, где он забирает туриста от отеля: поле отвечало не на тот
+  // вопрос, и «пробел» у половины туров был пробелом нашей схемы, не данных.
+  if (r.pickup_type === null) {
+    missing.push('pickup');
+  } else if (r.pickup_type !== 'self_drive' && r.pickup_details_chars === 0) {
+    // «Заберут» и «встречаемся» без подробностей покупателю бесполезны: он не
+    // знает ни границ забора, ни адреса. «Добирается сам» — исключение: куда
+    // ехать, отвечают координаты тура, они проверяются отдельной строкой.
+    missing.push('pickup_details');
+  }
   // Условия отмены: покупатель на чужой витрине обязан знать, что будет с
   // деньгами при отмене, и «не знаю» тут не публикуется. До 931 это был
   // пробел схемы; теперь — пробел данных, чинится оператором в кабинете.
@@ -114,6 +132,8 @@ export async function GET(req: NextRequest) {
         COALESCE(ARRAY_LENGTH(ot.photos, 1), 0)             AS photo_count,
         ot.base_price,
         ot.duration_hours,
+        ot.pickup_type,
+        COALESCE(LENGTH(TRIM(ot.pickup_details)), 0)        AS pickup_details_chars,
         (ot.meeting_point IS NOT NULL AND LENGTH(TRIM(ot.meeting_point)) > 0) AS has_meeting_point,
         (ot.cancellation_policy IS NOT NULL AND LENGTH(TRIM(ot.cancellation_policy)) > 0) AS has_cancellation_policy,
         (ot.latitude IS NOT NULL AND ot.longitude IS NOT NULL)               AS has_coords,
