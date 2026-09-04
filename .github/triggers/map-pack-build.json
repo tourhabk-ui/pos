@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 214 (03.09, «вся Камчатка»): клетка сетки commander-islands, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
-  "region": "commander-islands",
+  "note": "Прогон 215 (03.09, «вся Камчатка»): клетка сетки cell-52n157e, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
+  "region": "cell-52n157e",
   "upload": true
 }
