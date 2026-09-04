@@ -73,6 +73,7 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
 
 /** Ручные переписи, разборы и починки — расписания у них быть и не должно. */
 export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
+  'tour-describe':             { kind: 'manual', writes: true,  note: 'собрать описание тура из его собственных полей — второй блокер выкладки на чужие витрины; сухой прогон по умолчанию, партия ≤10, причина обязательна' },
   'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
   // 'tochka-check' объявления здесь не несёт: его зовёт tochka-check.yml —
   // объявление тут было бы вторым ответом на тот же вопрос (см. тот же довод
