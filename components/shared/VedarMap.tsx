@@ -429,13 +429,23 @@ export default function VedarMap({
           style: style as never,
           center: [center[1], center[0]], // [lng, lat] — порядок MapLibre
           zoom,
-          attributionControl: { compact: true },
+          // Дефолтный угол (bottom-right) здесь МЁРТВ: нижний лист приборов
+          // (_PlanningClient, fixed inset-x-0 bottom-0, минимум 32vh,
+          // непрозрачный) закрывает его НАВСЕГДА, при любой высоте листа.
+          // Атрибуция OSM/Copernicus лежала в источниках стиля честно, но
+          // человек её не видел ни разу (04.09, проверка владельца).
+          // Свой контрол — в top-right, тем же углом, что и зум-кнопки
+          // top-left (см. ниже): тот угол уже доказанно свободен в режиме
+          // «Карта» (showZoomButtons) — комментарий на кнопках объясняет,
+          // почему верх пуст именно там.
+          attributionControl: false,
           // Жестов вращения нет намеренно: на маршруте карта — прибор, а
           // случайно повёрнутый север сбивает сверку с компасом.
           pitchWithRotate: false,
           dragRotate: false,
           touchZoomRotate: true,
         });
+        map.addControl(new maplibre.AttributionControl({ compact: true }), 'top-right');
         map.touchZoomRotate.disableRotation();
         mapRef.current = map;
 
