@@ -17,6 +17,17 @@ interface LeafletMapProps {
   height?: string;
   className?: string;
   attribution?: boolean;
+  /**
+   * Угол атрибуции — по умолчанию Leaflet ставит её bottomright, и это
+   * правильно почти везде. Но там, где сверху лежит непрозрачная панель
+   * до самого низа (экран «На маршруте», _PlanningClient: нижний лист
+   * приборов, fixed inset-x-0 bottom-0, минимум 32vh) — bottomright МЁРТВ,
+   * атрибуция OpenStreetMap лежит в контроле честно, а на экране её не
+   * видно никогда (04.09, проверка владельца — тот же разрыв нашёлся у
+   * VedarMap с тем же диагнозом). Явный угол — способ вызывающего сказать
+   * «здесь низ занят», не трогая остальные семь поверхностей с Leaflet.
+   */
+  attributionPosition?: 'topleft' | 'topright' | 'bottomleft' | 'bottomright';
   onMarkerClick?: (id: string) => void;
   /**
    * Тап по свободной точке карты — сырые координаты под пальцем, не
@@ -170,6 +181,7 @@ export default function LeafletMap({
   // остаётся явным, осознанным выключением для мест, где атрибуция даётся
   // иначе (не через это проп).
   attribution = true,
+  attributionPosition,
   onMarkerClick,
   onMapClick,
   showUserLocation = false,
@@ -340,7 +352,9 @@ export default function LeafletMap({
           : L.latLng(center[0], center[1]),
         zoom: restoredView ? restoredView.zoom : zoom,
         zoomControl: false,
-        attributionControl: attribution !== false,
+        // Свой угол — свой контрол ниже (иначе Leaflet ставит его
+        // bottomright и никакая опция map() этот угол не меняет).
+        attributionControl: attribution !== false && !attributionPosition,
         minZoom: 5,
         // Совпадает с maxZoom тайлового слоя ниже (17) — владелец 28.08,
         // закрытие M0. Было 12: карта искусственно запрещала приближение,
@@ -386,6 +400,15 @@ export default function LeafletMap({
 
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
       L.control.zoom({ position: 'topright' }).addTo(map);
+
+      // Свой угол атрибуции (см. attributionPosition выше) — заменяет
+      // отключённый встроенный контрол, тем же текстом.
+      if (attribution !== false && attributionPosition) {
+        L.control.attribution({
+          position: attributionPosition,
+          prefix: false,
+        }).addTo(map);
+      }
 
       // Через ref: обработчик вызывающего меняет identity на каждом рендере
       // (инлайновая стрелка), а карта из-за этого пересоздаваться не должна.

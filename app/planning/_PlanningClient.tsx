@@ -3106,6 +3106,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             height="100dvh"
             showUserLocation
             autoPanDoneRef={autoPanDoneRef}
+            // Нижний лист приборов (ниже, fixed inset-x-0 bottom-0, минимум
+            // 32vh) держит bottomright навсегда закрытым — тот же разрыв
+            // «атрибуция есть в контроле, но её никто не видел», что нашёлся
+            // у VedarMap 04.09. Zoom-контрол Leaflet уже стоит в topright —
+            // topleft здесь его собственными оверлеями не занят.
+            attributionPosition="topleft"
           />
         )}
       </div>
