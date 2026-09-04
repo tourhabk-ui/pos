@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, Fragment, type ReactNode } from 'react';
 import {
   RefreshCw, CheckCircle2, AlertTriangle, Clock, Play, Bot, Send, AlertCircle,
   GitBranch, X, Copy, Check, Loader2, Radio, DownloadCloud, ShieldAlert, ShieldCheck,
-  Activity, HelpCircle, ExternalLink, type LucideIcon,
+  Activity, HelpCircle, ExternalLink, ChevronDown, ChevronRight, type LucideIcon,
 } from 'lucide-react';
+import { describeRunEvidence, type EvidenceTone } from '@/lib/agents/run-evidence';
 
 // Дашборд «AI и автоматизации» — единая живость всех cron-агентов платформы в
 // эталонном «туристском» формате (как «Модели эволюции»). Источник статуса —
@@ -58,6 +59,8 @@ interface RunRow {
   items_processed: number | null;
   errors_count: number;
   error_msg: string | null;
+  /** Что агент записал о себе. API отдавал это поле и до 04.09 — не читал никто. */
+  metadata: Record<string, unknown> | null;
 }
 
 interface TriggerState {
@@ -191,6 +194,55 @@ function PostureBanner({ posture }: { posture: Posture }) {
   );
 }
 
+// ── Улики прогона ──────────────────────────────────────────────────────────
+//
+// Разбор metadata живёт в чистом модуле (lib/agents/run-evidence) — здесь
+// только показ. Пустая metadata говорит «агент ничего не записал», а не
+// молчит: молчание читалось бы как «прошло чисто» (§4.0).
+
+const TONE_COLOR: Record<EvidenceTone, string> = {
+  plain: 'var(--text-primary)',
+  good: 'var(--success)',
+  alert: 'var(--danger)',
+  muted: 'var(--text-muted)',
+};
+
+function RunEvidencePanel({ run }: { run: RunRow }) {
+  const evidence = describeRunEvidence(run.metadata);
+  return (
+    <div className="rounded-lg bg-[var(--bg-hover)] p-3.5 space-y-2.5">
+      {run.error_msg && (
+        <div className="flex items-start gap-2 text-xs text-[var(--danger)]">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" strokeWidth={1.75} />
+          <span className="leading-relaxed break-words">{run.error_msg}</span>
+        </div>
+      )}
+      {evidence.nothingRecorded ? (
+        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+          Агент не записал о прогоне ничего. Это не значит «прошло чисто» — значит,
+          проверить исход по журналу нечем.
+        </p>
+      ) : (
+        <dl className="space-y-1.5">
+          {evidence.facts.map(fact => (
+            <div key={fact.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <dt className="text-xs text-[var(--text-secondary)]">{fact.label}</dt>
+              <dd className="text-xs font-medium break-words" style={{ color: TONE_COLOR[fact.tone] }}>
+                {fact.value}
+              </dd>
+              {fact.detail && (
+                <dd className="basis-full text-xs text-[var(--text-muted)] leading-relaxed break-words">
+                  {fact.detail}
+                </dd>
+              )}
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 // ── Главный клиент ─────────────────────────────────────────────────────────
 
 export default function AgentsClient() {
@@ -199,6 +251,7 @@ export default function AgentsClient() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [triggers, setTriggers] = useState<Record<string, TriggerState>>({});
+  const [expandedRun, setExpandedRun] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setRefreshing(true);
@@ -408,7 +461,11 @@ export default function AgentsClient() {
 
       {/* История запусков */}
       <section className="ds-card">
-        <SectionHeader icon={Clock} title="История запусков" subtitle="Последние 30 запусков (инструментированные агенты)" />
+        <SectionHeader
+          icon={Clock}
+          title="История запусков"
+          subtitle="Последние 30 запусков · строка раскрывается: что агент записал о прогоне"
+        />
         {loading ? (
           <div className="flex items-center justify-center py-14">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
@@ -431,24 +488,45 @@ export default function AgentsClient() {
                 </tr>
               </thead>
               <tbody>
-                {runs.map(run => (
-                  <tr key={run.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]">
-                    <td className="px-3 py-2.5 font-medium text-[var(--text-primary)]">{run.agent_id}</td>
-                    <td className="px-3 py-2.5"><StatusBadge status={run.status} /></td>
-                    <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{formatTime(run.started_at)}</td>
-                    <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{formatDuration(run.duration_ms)}</td>
-                    <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{run.items_processed ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-xs">
-                      {run.error_msg ? (
-                        <span className="text-[var(--danger)] truncate max-w-[220px] block" title={run.error_msg}>
-                          {run.error_msg.slice(0, 60)}{run.error_msg.length > 60 ? '…' : ''}
-                        </span>
-                      ) : (
-                        <span className="text-[var(--text-muted)]">—</span>
+                {runs.map(run => {
+                  const open = expandedRun === run.id;
+                  const Chevron = open ? ChevronDown : ChevronRight;
+                  return (
+                    <Fragment key={run.id}>
+                      <tr
+                        onClick={() => setExpandedRun(open ? null : run.id)}
+                        className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)] cursor-pointer"
+                      >
+                        <td className="px-3 py-2.5 font-medium text-[var(--text-primary)]">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Chevron className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0" strokeWidth={1.75} />
+                            {run.agent_id}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5"><StatusBadge status={run.status} /></td>
+                        <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{formatTime(run.started_at)}</td>
+                        <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{formatDuration(run.duration_ms)}</td>
+                        <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{run.items_processed ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-xs">
+                          {run.error_msg ? (
+                            <span className="text-[var(--danger)] truncate max-w-[220px] block" title={run.error_msg}>
+                              {run.error_msg.slice(0, 60)}{run.error_msg.length > 60 ? '…' : ''}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--text-muted)]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="border-b border-[var(--border)] last:border-0">
+                          <td colSpan={6} className="px-3 pb-3">
+                            <RunEvidencePanel run={run} />
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

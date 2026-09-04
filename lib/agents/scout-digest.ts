@@ -36,68 +36,13 @@ import {
   relayBase, relayBaseProblem, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
-import { parseTelegramPreview } from '@/lib/agents/scout-telegram';
+import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 
-/**
- * Причина пропуска человеческим языком — для алерта, а не для лога.
- *
- * Код `all_sections_empty` в Telegram владельцу означает ровно столько же,
- * сколько молчание: чтобы понять, нужно лезть в исходник. Словарь живёт РЯДОМ
- * с местами, где причины рождаются, и покрытие сторожит тест: добавили новую
- * причину — либо назвали её, либо сборка красная. Неизвестный код всё равно
- * показывается как есть — лучше сырой код, чем «неизвестно».
- */
-export const SKIP_REASON_LABELS: Record<string, string> = {
-  no_rss_items: 'ни один источник не дал свежих материалов',
-  synthesis_null: 'модель не вернула синтез',
-  all_sections_empty: 'после разбора все разделы оказались пусты',
-  // 04.09: в канал ушла реплика модели «не вижу текста, пришлите выдержки».
-  // Ворота проверяли правдивость поста и ни одни — что это вообще пост.
-  model_refusal: 'модель ответила репликой нам, а не постом — публиковать нечего',
-  unsourced_percents: 'в тексте проценты без ссылки на источник',
-  factcheck_judge_mute: 'проверяющая модель не ответила — выпуск придержан',
-  // Четыре РАЗНЫЕ беды, которые до 18.08 сливались в одну строку выше.
-  // Владелец видел «модель не ответила» семнадцать дней и искал причину в
-  // блокировке провайдера — а из четырёх случаев это верно ровно в одном.
-  judge_silent: 'проверяющая модель вернула пустоту — молчит провайдер',
-  // 22.08: заглушка callAIFast («Сервис временно недоступен.») — непустой
-  // текст без JSON, и судья звал это «прозой вместо JSON, сбой в промпте».
-  // Владелец три недели читал совет чинить промпт при мёртвых провайдерах.
-  judge_unavailable: 'не ответил ни один провайдер — чинить у провайдера, не в промпте',
-  // Обрыв — не проза: модель отвечала верно и не поместилась в потолок.
-  judge_truncated: 'ответ судьи оборвался на середине — не хватило потолка токенов',
-  judge_unparseable: 'проверяющая модель ответила прозой вместо JSON — сбой в промпте, не в провайдере',
-  judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
-  judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
-  unsupported_claims: 'утверждения не подтверждены источниками, и вычеркнуть их из текста не удалось',
-  near_repeat: 'выпуск почти повторял предыдущий',
-  telegram_send_failed: 'синтез готов, но Telegram не принял отправку',
-  // ── Отдельный канал — отдельные причины ──────────────────────────────────
-  // AI-пост живёт ВНУТРИ этого же прогона и после всех фактчек-гейтов. Любой
-  // ранний выход обрывал функцию до него, а причина записывалась про основной
-  // канал. Со стороны это выглядело как «дайджест ушёл» при молчащем AI-канале
-  // (владелец 17.08: «нет публикаций в канале, хотя расписание делали»).
-  ai_channel_not_configured: 'TELEGRAM_AI_CHANNEL_ID не задан — публиковать некуда',
-  ai_no_items: 'ни один AI-источник не дал материалов',
-  ai_synthesis_null: 'модель не вернула AI-пост',
-  ai_model_refusal: 'модель ответила репликой нам, а не AI-постом — публиковать нечего',
-  ai_unsourced_percents: 'в AI-посте проценты без ссылки на источник',
-  ai_factcheck_failed: 'утверждения AI-поста не подтверждены статьями',
-  ai_send_failed: 'AI-пост готов, но Telegram не принял отправку',
-  ai_digest_aborted: 'прогон оборвался до AI-поста',
-  // ── Канал: отказ судьи назван так же точно, как у дайджеста (29.08) ──────
-  // До этого дня и отказ судьи, и оставшаяся выдумка давали один код
-  // `ai_factcheck_failed`. По нему нельзя было понять, чинить провайдеров
-  // или содержание поста — а для канала это была единственная подсказка.
-  ai_unsupported_claims: 'выдумки в AI-посте остались после переписывания, и вычеркнуть их не удалось',
-  ai_judge_silent: 'судья AI-поста вернул пустоту — молчит провайдер',
-  ai_judge_unavailable: 'судью AI-поста не ответил ни один провайдер — чинить у провайдера',
-  ai_judge_unparseable: 'судья AI-поста ответил прозой вместо JSON — сбой в промпте',
-  ai_judge_truncated: 'ответ судьи AI-поста оборвался — не хватило потолка токенов',
-  ai_judge_bad_shape: 'в ответе судьи AI-поста нет поля unsupported — сбой в промпте',
-  ai_judge_threw: 'запрос к судье AI-поста упал — сеть, ключ или таймаут',
-};
+// Словарь причин пропуска переехал в чистый модуль (клиентский компонент
+// не может импортировать этот файл — он тянет пул БД). Re-export держит
+// прежние импорты живыми: сторожа и /api/cron/health зовут его отсюда.
+export { SKIP_REASON_LABELS } from '@/lib/agents/scout-skip-reasons';
 
 /**
  * Что записывается про AI-канал, когда прогон вышел РАНЬШЕ публикации в него.
@@ -782,25 +727,19 @@ import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, type Ju
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 
 /**
- * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
- * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
+ * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
+ * '' — не достали (это «не знаю», а не «страница пустая»).
+ *
+ * Статья с гео-закрытого сайта (openai.com, anthropic.com) с прода не
+ * читается — тогда тот же адрес через реле, как и у фида. Без реле
+ * остаётся прежнее: текст недоступен, модель опирается на заголовок.
  */
-async function fetchArticleText(url: string): Promise<string> {
-  if (!url) return '';
-  if (firecrawlAvailable()) {
-    try {
-      const page = await firecrawlScrape(url);
-      if (page?.markdown) return page.markdown.slice(0, 2500);
-    } catch { /* fallthrough */ }
-  }
+async function fetchMaybeViaRelay(url: string): Promise<string> {
   try {
     let res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
       signal: AbortSignal.timeout(8000),
     }).catch(() => null);
-    // Статья с гео-закрытого сайта (openai.com, anthropic.com) с прода не
-    // читается — тогда тот же адрес через реле, как и у фида. Без реле
-    // остаётся прежнее: текст недоступен, модель опирается на заголовок.
     if ((!res || shouldFallbackToRelay({ status: res.status })) && relayConfigured()) {
       res = await fetch(relayFetchUrl(relayBase(), url), {
         headers: { ...relayHeaders(), 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
@@ -808,15 +747,39 @@ async function fetchArticleText(url: string): Promise<string> {
       }).catch(() => null);
     }
     if (!res || !res.ok) return '';
-    const html = await res.text();
-    // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
-    // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
-    return stripTags(html, ' ')
-      .replace(/&[a-z#0-9]+;/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 2500);
+    return await res.text();
   } catch { return ''; }
+}
+
+/**
+ * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
+ * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
+ */
+async function fetchArticleText(url: string): Promise<string> {
+  if (!url) return '';
+  // Пост Telegram: страница самого поста отдаёт обёртку виджета без текста.
+  // Читаем превью канала и берём оттуда ИМЕННО этот пост (04.09: обёртку
+  // сняли как «текст статьи», модель ответила отказом, отказ ушёл в канал).
+  const tgPreview = telegramPreviewUrlForPost(url);
+  if (tgPreview) {
+    const html = await fetchMaybeViaRelay(tgPreview);
+    return html ? telegramPostText(html, url).slice(0, 2500) : '';
+  }
+  if (firecrawlAvailable()) {
+    try {
+      const page = await firecrawlScrape(url);
+      if (page?.markdown) return page.markdown.slice(0, 2500);
+    } catch { /* fallthrough */ }
+  }
+  const html = await fetchMaybeViaRelay(url);
+  if (!html) return '';
+  // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
+  // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
+  return stripTags(html, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 2500);
 }
 
 // unsupportedClaims — тоже из общего модуля (см. комментарий у re-export выше).

@@ -46,6 +46,38 @@ export function isTelegramInvite(url: string): boolean {
 }
 
 /**
+ * Адрес превью канала по ссылке на ПОСТ: `t.me/<канал>/<id>` → `t.me/s/<канал>`.
+ * null — ссылка не на пост канала (приглашение, корень, чужой хост).
+ *
+ * Нужен, потому что сама страница поста отдаёт HTML-обёртку виджета без
+ * содержимого: 04.09 её сняли как «текст статьи», отдали модели, и та
+ * ответила отказом «не вижу текста, пришли выдержки» — прямо в канал.
+ */
+export function telegramPreviewUrlForPost(postUrl: string): string | null {
+  const m = /^https:\/\/t\.me\/(?:s\/)?([A-Za-z0-9_]+)\/\d+/.exec(postUrl);
+  return m ? `https://t.me/s/${m[1]}` : null;
+}
+
+/**
+ * Текст КОНКРЕТНОГО поста со страницы превью канала. Пустая строка — пост
+ * на странице не найден (уехал за край выдачи) или в нём нет текста; это
+ * честное «текста нет», а не обёртка виджета, выданная за содержимое.
+ */
+export function telegramPostText(html: string, postUrl: string): string {
+  const id = /\/(\d+)(?:[?#]|$)/.exec(postUrl)?.[1];
+  if (!id) return '';
+  const blocks = html.split(/<div[^>]+class="[^"]*tgme_widget_message_wrap[^"]*"/i).slice(1);
+  for (const block of blocks) {
+    const href = /<a[^>]+class="[^"]*tgme_widget_message_date[^"]*"[^>]+href="(https:\/\/t\.me\/[^"]+)"/i.exec(block)?.[1] ?? '';
+    const post = /data-post="([A-Za-z0-9_]+\/\d+)"/i.exec(block)?.[1] ?? '';
+    if (!href.endsWith(`/${id}`) && !post.endsWith(`/${id}`)) continue;
+    const textHtml = /<div[^>]+class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(block)?.[1] ?? '';
+    return htmlToText(textHtml.replace(/<br\s*\/?>/gi, '\n')).trim();
+  }
+  return '';
+}
+
+/**
  * Разбор превью в посты. Чистая функция: HTML на входе, посты на выходе.
  * Пост без текста или без постоянной ссылки — не сигнал (нечего показать
  * и некуда вести), он пропускается.

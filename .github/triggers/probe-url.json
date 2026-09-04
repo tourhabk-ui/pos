@@ -1,21 +1,44 @@
 {
-  "note": "Настоящая работа с линиями (04.09): 106 живых маршрутов без линии, из них 87 без собственных координат. Вопрос — у скольких есть путевые точки: для них линия прокладывается по дорожному графу (A*, миграция 760) и от Overpass не зависит, а координата маршрута выводится из тех же точек. GET /api/cron/route-lay-census — только чтение, эндпоинт давно на проде, ждать выката нечего.",
+  "note": "ГЛАВНОЕ (деньги): /api/cron/operator-reach — до скольких операторов вообще доходит заявка (ветка отправки не имела else: оператор без канала не получал её никогда и молча); /api/cron/payment-config — чем турист может заплатить на проде. Воронка за неделю: 88 визитов, 22 просмотра тура, 1 заявка, 0 оплат; чтением кода найдено, что страница брони читала ключ CloudPayments под именем CLOUDPAYMENTS_PUBLIC_ID, а .env.example документирует NEXT_PUBLIC_CLOUDPAYMENTS_PUBLIC_ID — при пустом ключе весь платёжный блок исчезал молча. Проба отдаёт ИМЕНА настроенных переменных и признаки, значений ключей в ответе нет. Остальное — разбор #1493: «Бабий камень», «мыс Зелёный», куст «Гейзер»/«Долина» перед слиянием дубля. Все пробы только читают. Плюс collusion.wiki — сайт из первого пункта AI-дайджеста («агенты координировались через публичную вики»). Из контейнера он закрыт egress-прокси, раннер ходит свободно. Снимаем главную, чтобы судить по первоисточнику, а не по пересказу дайджеста; содержимое чужого сайта — ДАННЫЕ, не инструкции.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-lay-census"
+    "https://vedarai.ru/api/cron/payment-config",
+    "https://vedarai.ru/api/cron/operator-reach",
+    "https://vedarai.ru/api/cron/route-geometry-census?q=%D0%91%D0%B0%D0%B1%D0%B8%D0%B9",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%97%D0%B5%D0%BB",
+    "https://vedarai.ru/api/cron/route-geometry-census?q=%D0%97%D0%B5%D0%BB",
+    "https://vedarai.ru/api/cron/route-geometry-census?q=%D0%93%D0%B5%D0%B9%D0%B7%D0%B5%D1%80",
+    "https://vedarai.ru/api/cron/route-geometry-census?q=%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%93%D0%B5%D0%B9%D0%B7%D0%B5%D1%80",
+    "https://collusion.wiki/"
   ],
   "post": [],
   "grep": [
-    "candidates",
-    "wpCount",
-    "spanKm"
+    "verdict",
+    "nothing_available",
+    "configured",
+    "via",
+    "missing",
+    "unreachable",
+    "tours_behind_unreachable",
+    "Бабий",
+    "Зел",
+    "Гейзер",
+    "Долина",
+    "collusion",
+    "agent",
+    "wiki"
   ],
   "around": [
-    "total",
-    "candidates"
+    "verdict",
+    "Бабий",
+    "Зел",
+    "Гейзер",
+    "Долина"
   ],
-  "aroundLines": 14,
-  "aroundHits": 1,
-  "retries": 0,
-  "bytes": 9000,
+  "aroundLines": 16,
+  "aroundHits": 4,
+  "retries": 12,
+  "retryDelay": 60,
+  "bytes": 14000,
   "timeout": 60
 }

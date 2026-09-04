@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { makePdfToken } from '@/lib/pdf/pdf-token';
+import { paymentAvailability } from '@/lib/payments/availability';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,19 @@ export async function GET(
   const row = r.rows[0];
   const finalPrice = parseFloat(row.final_price ?? '0') || (row.base_price * row.participants);
 
+  // Способы оплаты спрашиваются у одного места (lib/payments/availability), а
+  // не собираются здесь из process.env: до 04.09 этот роут читал
+  // CLOUDPAYMENTS_PUBLIC_ID, а модал оплаты — NEXT_PUBLIC_CLOUDPAYMENTS_PUBLIC_ID,
+  // и в .env.example документировано только второе имя. При пустом ключе
+  // страница брони прятала платёжный блок молча — турист оставлял заявку и
+  // не имел ни одной кнопки заплатить.
+  const pay = paymentAvailability();
+  if (pay.none) {
+    // Отказ не глушится (§4.0): без этой строки «0 оплат» неотличимо от
+    // «никто не захотел». Значений не пишем — только факт ненастроенности.
+    console.error('[bookings/get] ни один способ оплаты не настроен: карта и СБП недоступны, бронь', row.id);
+  }
+
   return NextResponse.json({
     success: true,
     data: {
@@ -76,7 +90,10 @@ export async function GET(
       operator_name: row.operator_name,
       operator_phone: row.operator_phone,
       operator_telegram: row.operator_telegram,
-      cp_public_id: process.env.CLOUDPAYMENTS_PUBLIC_ID ?? '',
+      cp_public_id: pay.cardPublicId ?? '',
+      /** Готова ли оплата по QR СБП. Раньше вкладка СБП была заперта внутри
+       *  проверки ключа CloudPayments — настроенная Точка не спасала. */
+      sbp_available: pay.sbp,
       pdf_token: makePdfToken(row.id),
     },
   });
