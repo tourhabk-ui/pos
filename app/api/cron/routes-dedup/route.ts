@@ -23,8 +23,8 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
 import {
-  pairListProblems, pairWarnings, shouldAdoptGeometry,
-  type GeometryInfo, type PairFacts,
+  pairListProblems, pairWarnings, shouldAdoptGeometry, planFieldTransfer, TRANSFER_FIELDS,
+  type GeometryInfo, type PairFacts, type FieldTransferPlan,
 } from '@/lib/routes/dedup';
 
 export const dynamic = 'force-dynamic';
@@ -45,6 +45,8 @@ interface RouteRow {
   merge_id: string | null; merge_title: string | null; merge_merged: string | null;
   merge_geom_present: boolean; merge_geom_source: string | null;
   merge_tours: number; merge_passport: boolean;
+  /** keep_f_<col> / merge_f_<col> — значения переносимых полей текстом. */
+  [key: string]: unknown;
 }
 
 export async function POST(request: NextRequest) {
@@ -75,7 +77,27 @@ export async function POST(request: NextRequest) {
               (m.geometry IS NOT NULL) AS merge_geom_present,
               m.geometry->>'source' AS merge_geom_source,
               (SELECT COUNT(*)::int FROM operator_tours ot WHERE ot.route_id::text = m.id::text) AS merge_tours,
-              (m.pdf_url IS NOT NULL OR m.mchs_phone IS NOT NULL) AS merge_passport
+              (m.pdf_url IS NOT NULL OR m.mchs_phone IS NOT NULL) AS merge_passport,
+              -- Значения переносимых полей ОБЕИХ записей одним видом (::text):
+              -- решение принимается в TS (planFieldTransfer), а не пятью
+              -- разными сравнениями по типам внутри SQL.
+              k.pdf_url ::text AS keep_f_pdf_url, m.pdf_url ::text AS merge_f_pdf_url,
+              k.source_url ::text AS keep_f_source_url, m.source_url ::text AS merge_f_source_url,
+              k.mchs_phone ::text AS keep_f_mchs_phone, m.mchs_phone ::text AS merge_f_mchs_phone,
+              k.mchs_registration_required ::text AS keep_f_mchs_registration_required, m.mchs_registration_required ::text AS merge_f_mchs_registration_required,
+              k.registration_required ::text AS keep_f_registration_required, m.registration_required ::text AS merge_f_registration_required,
+              k.park_name ::text AS keep_f_park_name, m.park_name ::text AS merge_f_park_name,
+              k.park_approval_url ::text AS keep_f_park_approval_url, m.park_approval_url ::text AS merge_f_park_approval_url,
+              k.hazards ::text AS keep_f_hazards, m.hazards ::text AS merge_f_hazards,
+              k.equipment ::text AS keep_f_equipment, m.equipment ::text AS merge_f_equipment,
+              k.description ::text AS keep_f_description, m.description ::text AS merge_f_description,
+              k.distance_km ::text AS keep_f_distance_km, m.distance_km ::text AS merge_f_distance_km,
+              k.elevation_gain_m ::text AS keep_f_elevation_gain_m, m.elevation_gain_m ::text AS merge_f_elevation_gain_m,
+              k.duration_hours ::text AS keep_f_duration_hours, m.duration_hours ::text AS merge_f_duration_hours,
+              k.season ::text AS keep_f_season, m.season ::text AS merge_f_season,
+              k.route_type ::text AS keep_f_route_type, m.route_type ::text AS merge_f_route_type,
+              k.flora_fauna ::text AS keep_f_flora_fauna, m.flora_fauna ::text AS merge_f_flora_fauna,
+              k.accessibility ::text AS keep_f_accessibility, m.accessibility ::text AS merge_f_accessibility
        FROM unnest($1::text[], $2::text[]) AS t(keep, merge)
        LEFT JOIN kamchatka_routes k ON k.id::text = t.keep
        LEFT JOIN kamchatka_routes m ON m.id::text = t.merge`,
@@ -85,7 +107,13 @@ export async function POST(request: NextRequest) {
     interface PlanItem {
       keepId: string; keepTitle: string; mergeId: string; mergeTitle: string;
       adoptGeometry: boolean; mergeTours: number; warnings: string[];
+      /** Что доносится до keep и что осталось решать человеку. */
+      transfer: FieldTransferPlan;
     }
+
+    /** Значения переносимых полей одной стороны — из плоской строки ответа. */
+    const sideValues = (r: RouteRow, side: 'keep' | 'merge'): Record<string, string | null> =>
+      Object.fromEntries(TRANSFER_FIELDS.map(f => [f.col, (r[`${side}_f_${f.col}`] as string | null) ?? null]));
     const plan: PlanItem[] = [];
 
     for (const r of rows) {
@@ -96,16 +124,19 @@ export async function POST(request: NextRequest) {
 
       const keepG: GeometryInfo = { present: r.keep_geom_present, source: r.keep_geom_source };
       const mergeG: GeometryInfo = { present: r.merge_geom_present, source: r.merge_geom_source };
+      const transfer = planFieldTransfer(sideValues(r, 'keep'), sideValues(r, 'merge'));
       const facts: PairFacts = {
         keepName: r.keep_title ?? '', mergeName: r.merge_title ?? '',
         keepGeometry: keepG, mergeGeometry: mergeG,
         mergeTours: r.merge_tours, mergeHasPassport: r.merge_passport,
+        transfer,
       };
       plan.push({
         keepId: r.keep_id, keepTitle: r.keep_title ?? '',
         mergeId: r.merge_id, mergeTitle: r.merge_title ?? '',
         adoptGeometry: shouldAdoptGeometry(keepG, mergeG),
         mergeTours: r.merge_tours,
+        transfer,
         warnings: pairWarnings(facts),
       });
     }
@@ -122,6 +153,9 @@ export async function POST(request: NextRequest) {
     }
 
     const merged: Array<{ keep: string; merge: string; warnings: string[] }> = [];
+    // Пропуски переноса, обнаруженные уже в транзакции: в план они попасть
+    // не могли — там keep ещё был пуст.
+    const transferSkipped: string[] = [];
     for (const p of plan) {
       // eslint-disable-next-line no-await-in-loop
       await transaction(async (client) => {
@@ -133,6 +167,40 @@ export async function POST(request: NextRequest) {
              WHERE k.id::text = $1 AND m.id::text = $2 AND m.geometry IS NOT NULL`,
             [p.keepId, p.mergeId],
           );
+        }
+        // Перенос полей ДО перевешивания связей: заливаются только те
+        // колонки, где у keep пусто (plan.transfer.fill посчитан на чтении).
+        // Перезаписи быть не может по построению — список составлен из
+        // пустых у keep, — но WHERE ещё раз требует пустоты на момент
+        // записи: между чтением и транзакцией keep мог заполниться.
+        if (p.transfer.fill.length > 0) {
+          const cols = p.transfer.fill.map(f => f.col);
+          const sets = cols.map(c => `${c} = m.${c}`).join(', ');
+          // Сторож пустоты — ПО ТИПУ колонки. Первая редакция писала везде
+          // `IS NULL`, и пустой массив (`{}` — не NULL) провалил бы условие:
+          // при ANDе одна колонка отменила бы перенос всех остальных молча.
+          // Тип берётся из реестра, а не угадывается по имени (урок btrim).
+          const guards = cols.map((c) => {
+            const kind = TRANSFER_FIELDS.find(f => f.col === c)?.kind ?? 'scalar';
+            if (kind === 'text') return `(k.${c} IS NULL OR btrim(k.${c}) = '')`;
+            if (kind === 'array') return `(k.${c} IS NULL OR cardinality(k.${c}) = 0)`;
+            return `k.${c} IS NULL`;
+          }).join(' AND ');
+          const res = await client.query(
+            `UPDATE kamchatka_routes k
+                SET ${sets}, updated_at = NOW()
+               FROM kamchatka_routes m
+              WHERE k.id::text = $1 AND m.id::text = $2 AND (${guards})`,
+            [p.keepId, p.mergeId],
+          );
+          // Ноль строк при непустом списке — keep успел заполниться между
+          // чтением плана и записью. Перенос не состоялся, и сказать об этом
+          // обязательно: молчание здесь неотличимо от «всё перенесли».
+          if (res.rowCount === 0) {
+            transferSkipped.push(
+              `${p.mergeTitle}: перенос полей не состоялся — «${p.keepTitle}» изменился между планом и записью, поля остались на дубле`,
+            );
+          }
         }
         await client.query(
           `UPDATE route_waypoints rw SET route_id = (SELECT id FROM kamchatka_routes WHERE id::text = $1)
@@ -158,7 +226,12 @@ export async function POST(request: NextRequest) {
       merged.push({ keep: p.keepTitle, merge: p.mergeTitle, warnings: p.warnings });
     }
 
-    return NextResponse.json({ success: true, dry_run: false, merged_count: merged.length, merged });
+    return NextResponse.json({
+      success: true, dry_run: false, merged_count: merged.length, merged,
+      // Пустой список — переносы прошли. Непустой означает, что часть полей
+      // осталась на скрытой записи, и это надо разобрать глазами.
+      transfer_skipped: transferSkipped,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка дедупа маршрутов';
     return NextResponse.json({ success: false, error: message }, { status: 502 });

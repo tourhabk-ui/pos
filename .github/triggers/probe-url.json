@@ -1,31 +1,37 @@
 {
-  "note": "Доразведка перед боевым слиянием «Бабьего камня». Сухой прогон вернул чистый план (adoptGeometry: false — у keep уже свой трек; mergeTours: 0 — туров на дубле нет) с ОДНИМ предупреждением: у дубля есть паспортные данные (PDF/МЧС), и слияние их НЕ переносит. Прежде чем сливать, смотрим обе записи глазами: route-core-sources отдаёт source_url/pdf_url/park_approval_url и длины описаний. Если паспорт только у дубля — слияние потеряет ссылку на официальный паспорт и телефон МЧС, и это решается до слияния, а не после. Заодно повтор переписи операторов: прошлый прогон шёл через 90 секунд после мержа, починка btrim ещё не выкатилась, а 500 маркер несвежести не считает — по построению. Только чтение.",
-  "urls": [
-    "https://vedarai.ru/api/cron/operator-reach",
-    "https://vedarai.ru/api/cron/route-core-sources?ids=be1c6c4a-33d8-4b3f-8025-2230654758f2,3795cfa5-4c77-4088-a349-0884f5c07a0e"
+  "note": "СУХОЙ прогон слияния «Бабий камень» с переносом полей. Доразведка показала, что ни одна запись не богаче другой: у дубля паспорт visitkamchatka, телефон МЧС и 2 опасности, у keep трек в 148 точек и описание длиннее. Актуатор теперь переносит поля правилом «заполнить только пустое у keep, никогда не перезаписывать», а конфликты (у обоих заполнено по-разному) выносит человеку. Ожидание по плану: fill = pdf_url, mchs_phone, hazards (+ возможно distance_km и др.); conflicts = description, source_url. dry_run: true — не пишется ничего.",
+  "urls": [],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/routes-dedup",
+      "body": {
+        "dry_run": true,
+        "pairs": [
+          {
+            "keep": "be1c6c4a-33d8-4b3f-8025-2230654758f2",
+            "merge": "3795cfa5-4c77-4088-a349-0884f5c07a0e"
+          }
+        ]
+      }
+    }
   ],
-  "post": [],
   "grep": [
-    "pdf_url",
-    "source_url",
-    "park_approval_url",
-    "mchs",
-    "verdict",
-    "unreachable",
-    "reachable",
-    "operators_with_live_tours",
-    "tours_behind_unreachable"
+    "dry_run",
+    "transfer",
+    "fill",
+    "conflicts",
+    "warnings",
+    "adoptGeometry"
   ],
   "around": [
-    "pdf_url",
-    "verdict",
-    "unreachable_operators"
+    "transfer",
+    "warnings"
   ],
-  "aroundLines": 24,
-  "aroundHits": 3,
+  "aroundLines": 30,
+  "aroundHits": 2,
   "retries": 20,
   "retryDelay": 60,
-  "until": "operators_with_live_tours",
+  "until": "\"transfer\"",
   "bytes": 8000,
   "timeout": 60
 }
