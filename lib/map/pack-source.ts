@@ -454,4 +454,16 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   'cell-60n168e',
   'cell-60n169e',
   'cell-60n170e',
+  // 04.09, Корякия волна 2 (прогоны 163-172) — замыкает широту 60° и
+  // открывает 61°.
+  'cell-60n171e',
+  'cell-61n162e',
+  'cell-61n163e',
+  'cell-61n164e',
+  'cell-61n165e',
+  'cell-61n166e',
+  'cell-61n167e',
+  'cell-61n168e',
+  'cell-61n169e',
+  'cell-61n170e',
 ];
