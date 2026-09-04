@@ -809,25 +809,43 @@ export async function callMinimax(messages: ChatMessage[]): Promise<string | nul
  * звать снятое имя. Override — env XAI_MODEL.
  */
 const XAI_MODELS_TTL_MS = 6 * 60 * 60 * 1000;
-let xaiModelCache: { id: string; at: number } | null = null;
+const xaiModelCache = new Map<string, { id: string; at: number }>();
 let xaiListProblem: string | null = null;
 
 /** Почему каталог xAI не добыт в последний раз; null — добыт. */
 export function xaiResolveProblem(): string | null { return xaiListProblem; }
 
-export async function resolveXaiModel(): Promise<string | null> {
-  const override = process.env.XAI_MODEL?.trim();
+/**
+ * Модель xAI под НАЗНАЧЕНИЕ, потому что разница в скорости здесь в три раза.
+ *
+ * Замер 04.09 (ai-debug run 10, с прода): grok-4.6 отвечает за 43 с,
+ * grok-build-0.1 — за 13 с. Для человека в поле, ждущего Кузьмича, сорок три
+ * секунды это не «медленно», а «не ответил»; для ночного крона, пишущего
+ * текст, — приемлемая цена за сильную модель. Поэтому назначения два, и они
+ * не смешиваются: 'fast' для живого пути, 'strong' для генерации контента.
+ *
+ * Лёгкая выбирается по имени (mini/fast/flash/lite/build), а не по позиции в
+ * списке: порядок каталога провайдера — не обещание. Не нашлось такой —
+ * берётся самая слабая пригодная, и это честнее, чем подсунуть флагман туда,
+ * где ждут быстро.
+ */
+export async function resolveXaiModel(purpose: 'strong' | 'fast' = 'strong'): Promise<string | null> {
+  const override = (purpose === 'fast' ? process.env.XAI_FAST_MODEL : process.env.XAI_MODEL)?.trim();
   if (override) return override;
-  if (xaiModelCache && Date.now() - xaiModelCache.at < XAI_MODELS_TTL_MS) return xaiModelCache.id;
+  const cached = xaiModelCache.get(purpose);
+  if (cached && Date.now() - cached.at < XAI_MODELS_TTL_MS) return cached.id;
 
   const key = getXaiKey();
   if (!key) { xaiListProblem = 'ключа нет'; return null; }
   const ids = await fetchModelIds('https://api.x.ai/v1/models', key);
   if (ids.length === 0) { xaiListProblem = 'каталог пуст или недоступен'; return null; }
-  const picked = pickBestModel(ids);
+  const eligible = classifyModels(ids).filter(m => m.eligible).map(m => m.id);
+  const picked = purpose === 'fast'
+    ? (eligible.find(id => /mini|fast|flash|lite|build/i.test(id)) ?? eligible[eligible.length - 1] ?? null)
+    : pickBestModel(ids);
   if (!picked) { xaiListProblem = `в каталоге ${ids.length} моделей, ни одной пригодной`; return null; }
   xaiListProblem = null;
-  xaiModelCache = { id: picked, at: Date.now() };
+  xaiModelCache.set(purpose, { id: picked, at: Date.now() });
   return picked;
 }
 
@@ -862,10 +880,14 @@ export async function probeXaiReachable(): Promise<{ reached: boolean | null; de
   }
 }
 
-export async function callXai(messages: ChatMessage[]): Promise<string | null> {
+export async function callXai(
+  messages: ChatMessage[],
+  opts: { purpose?: 'strong' | 'fast'; timeoutMs?: number; maxTokens?: number } = {},
+): Promise<string | null> {
+  const { purpose = 'fast', timeoutMs = purpose === 'fast' ? 30_000 : 90_000, maxTokens = 800 } = opts;
   const apiKey = getXaiKey();
-  if (!apiKey) return null;
-  const model = await resolveXaiModel();
+  if (!apiKey) { recordAiLegFailure('xai', 'no_key'); return null; }
+  const model = await resolveXaiModel(purpose);
   if (!model) { recordAiLegFailure('xai', `модель не разрешена: ${xaiResolveProblem() ?? 'каталог недоступен'}`); return null; }
 
   try {
@@ -879,21 +901,28 @@ export async function callXai(messages: ChatMessage[]): Promise<string | null> {
       body: JSON.stringify({
         model,
         temperature: 0.4,
-        max_tokens: 800,
+        max_tokens: maxTokens,
         messages: payload,
       }),
-      signal: AbortSignal.timeout(20_000),
+      // Бюджет от назначения: замер 04.09 — grok-4.6 43 с, grok-build-0.1 13 с.
+      // Прежние 20 с обрезали ОБЕ модели на флагмане и делали живого
+      // провайдера мёртвым.
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
+    // Отказ назывался молчанием: тело ошибки читалось в переменную и
+    // выбрасывалось, наверх шёл голый null. Тот же дефект, из-за которого
+    // «Incorrect API key» полдня считали то гео-блоком, то мёртвым ключом.
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
+      recordAiLegFailure('xai', httpFailureReason(res.status, await res.text().catch(() => '')));
       return null;
     }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) return text;
+    recordAiLegFailure('xai', `empty (${model}): ${describeEmptyCompletion(data)}`);
     return null;
-  }
+  } catch (e) { recordAiLegFailure('xai', errorFailureReason(e)); return null; }
 }
 
 // ── Anthropic Claude (direct API) ───────────────────────────
@@ -3235,9 +3264,16 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
   if (tier1) return tier1;
 
   // Tier 2: race mid-tier fallbacks
+  //
+  // xAI добавлен 04.09 по замеру: до этого дня callXai не звался НИ ОДНИМ
+  // живым путём — только админской проверкой, — и провайдер, который отвечает,
+  // числился мёртвым. Здесь берётся быстрая модель каталога (13 с по замеру),
+  // а не флагман (43 с): во втором эшелоне ждёт человек, которому первый
+  // эшелон уже не ответил.
   const tier2 = await raceProviders([
     callYandexGPT(messages),
     callMiniMax(messages),
+    callXai(messages, { purpose: 'fast' }),
   ]);
   if (tier2) return tier2;
 
@@ -3357,7 +3393,14 @@ export async function callAIQuality(
     } catch (e) { recordAiLegFailure('qwen:content', errorFailureReason(e)); }
   }
 
-  // 3. Общий waterfall — включая флагманы, если релей настроен.
+  // 3. xAI — флагман, достижимый из РФ напрямую (замер 04.09: дорога открыта,
+  //    grok-4.6 отвечает за 43 с). Здесь генерируется ТЕКСТ для людей, и
+  //    ночному крону эти секунды по карману; ставить его выше DeepSeek
+  //    незачем — тот отвечает за треть секунды.
+  const xaiText = await callXai(messages, { purpose: 'strong', timeoutMs: 90_000, maxTokens });
+  if (xaiText?.trim()) return xaiText;
+
+  // 4. Общий waterfall — включая флагманы, если релей настроен.
   return callAIWaterfall(messages);
 }
 
