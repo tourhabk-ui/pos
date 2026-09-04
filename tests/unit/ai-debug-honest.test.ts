@@ -222,3 +222,46 @@ describe('поправки к лживым отказам', () => {
     expect(refusalNote('mistral', 429, 'Rate limit exceeded')).toBeNull();
   });
 });
+
+/**
+ * xAI подключён к живым путям — по замеру, а не по вере.
+ *
+ * ai-debug run 10 (04.09, с прода): grok-4.6 ответил за 43 127 мс,
+ * grok-build-0.1 — за 13 169 мс. До этого дня callXai не звался НИ ОДНИМ
+ * живым путём (только админской проверкой), модель была прибита к снятому
+ * grok-4, бюджет стоял 20 с, а отказ уходил молчаливым null: тело ошибки
+ * читалось в переменную и выбрасывалось. Работающий провайдер числился
+ * мёртвым, и ни одна строка кода об этом не говорила.
+ */
+describe('xAI: живой провайдер, а не украшение', () => {
+  it('назначения разведены: живому пути — быстрая модель, генерации — флагман', () => {
+    expect(PROVIDERS).toMatch(/resolveXaiModel\(purpose: 'strong' \| 'fast' = 'strong'\)/);
+    expect(PROVIDERS).toMatch(/mini\|fast\|flash\|lite\|build/);
+    // Живой путь Кузьмича: 43 с флагмана — это «не ответил», а не «медленно».
+    expect(PROVIDERS).toMatch(/callXai\(messages, \{ purpose: 'fast' \}\)/);
+    expect(PROVIDERS).toMatch(/callXai\(messages, \{ purpose: 'strong', timeoutMs: 90_000, maxTokens \}\)/);
+  });
+
+  it('водопад его наконец зовёт', () => {
+    // Срезы берём по КОДУ: PROVIDERS очищен от комментариев, и якорь-комментарий
+    // молча даёт indexOf -1, то есть тест проверяет не тот кусок (или весь файл).
+    const tier2 = PROVIDERS.slice(PROVIDERS.indexOf('callYandexGPT(messages)'), PROVIDERS.indexOf('const anthropic = await callAnthropic'));
+    expect(tier2, 'xAI снова не подключён ни к одному живому пути').toMatch(/callXai\(/);
+  });
+
+  it('отказ xAI называется, а не глотается', () => {
+    const leg = PROVIDERS.slice(PROVIDERS.indexOf('export async function callXai'), PROVIDERS.indexOf('export const CACHE_BREAK_MARKER'));
+    expect(leg).toMatch(/recordAiLegFailure\('xai', httpFailureReason/);
+    expect(leg).toMatch(/recordAiLegFailure\('xai', `empty/);
+    expect(leg).toMatch(/recordAiLegFailure\('xai', errorFailureReason\(e\)\)/);
+    // Прежний немой отказ: тело читалось в переменную и выбрасывалось.
+    expect(leg).not.toMatch(/const errText = await res\.text\(\)\.catch\(\(\) => ''\);\s*\n\s*return null;/);
+  });
+
+  it('бюджет времени взят из замера, а не из привычки', () => {
+    const leg = PROVIDERS.slice(PROVIDERS.indexOf('export async function callXai'), PROVIDERS.indexOf('export const CACHE_BREAK_MARKER'));
+    expect(leg).toMatch(/timeoutMs = purpose === 'fast' \? 30_000 : 90_000/);
+    // 20 с обрезали обе модели на флагмане.
+    expect(leg).not.toMatch(/AbortSignal\.timeout\(20_000\)/);
+  });
+});
