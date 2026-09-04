@@ -1,22 +1,28 @@
 {
-  "note": "Проба реле разведчика (владелец 03.09: «проверь сейчас» после правки SCOUT_RELAY_BASE на Timeweb). GET /api/cron/scout-relay-check — только чтение: состояние реле словами и исход чтения трёх Telegram-превью через воркер. Ждём выката по маркеру probe (40-50 минут по опыту 01.09).",
+  "note": "Разбор выпуска 04.09 (один раздел из четырёх). GET /api/cron/scout-diagnose теперь отдаёт last_artifact: здоровье источников по каждому с путём via, вычеркнутые фактчеком пункты, судьба AI-канала. Только чтение. Ждём выката по маркеру last_artifact.",
   "urls": [
-    "https://vedarai.ru/api/cron/scout-relay-check"
+    "https://vedarai.ru/api/cron/scout-diagnose?limit=3"
   ],
   "post": [],
   "grep": [
-    "\"verdict\":\"works\"",
-    "\"verdict\":\"broken\"",
-    "\"verdict\":\"not_configured\"",
-    "\"relay\":\"on\"",
-    "\"relay\":\"bad_base\"",
-    "relay_unauthorized",
-    "relay_host_refused",
-    "not_relay"
+    "\"via\":\"relay\"",
+    "\"status\":\"error\"",
+    "\"status\":\"empty\"",
+    "claims_dropped_detail",
+    "tg_ru_rst",
+    "unsupported_claims"
   ],
-  "until": "scout_relay_check_v1",
+  "around": [
+    "\"key\":\"tg_ru_rst\"",
+    "\"key\":\"tourprom\"",
+    "\"key\":\"safety_layer\"",
+    "claims_dropped_detail"
+  ],
+  "aroundLines": 12,
+  "aroundHits": 1,
+  "until": "last_artifact",
   "retries": 50,
   "retryDelay": 60,
-  "bytes": 6000,
+  "bytes": 12000,
   "timeout": 60
 }
