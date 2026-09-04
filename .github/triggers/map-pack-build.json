@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 203 (03.09, «вся Камчатка»): клетка сетки cell-64n167e, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
-  "region": "cell-64n167e",
+  "note": "Прогон 204 (03.09, «вся Камчатка»): клетка сетки cell-64n168e, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
+  "region": "cell-64n168e",
   "upload": true
 }
