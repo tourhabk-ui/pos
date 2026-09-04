@@ -1,5 +1,6 @@
 {
   "note": "Маркер запуска ai-debug.yml: правка этого файла в main запускает диагностику AI-конвейера (debug-waterfall + E2E chat probe). run 3: проверка после замены OPENROUTER_API_KEY в env Timeweb — какой провайдер отвечает + живой путь Кузьмича.",
-  "run": 4,
-  "run4_reason": "04.09 05:58 UTC прогон разведчика: выпуск synthesis_null (deepseek: content empty; qwen: http_403 free quota exhausted; gemini: список моделей недоступен), линза ИИ-фич decision_null — решатель не ответил ни одной ступенью. Нужен статус каждого провайдера с раннера."
+  "run": 5,
+  "run4_reason": "04.09 05:58 UTC прогон разведчика: выпуск synthesis_null (deepseek: content empty; qwen: http_403 free quota exhausted; gemini: список моделей недоступен), линза ИИ-фич decision_null — решатель не ответил ни одной ступенью. Нужен статус каждого провайдера с раннера.",
+  "run5_reason": "04.09 после #1565: проба на модели Gemini по /models (вместо снятого gemini-2.0-flash), Qwen вместо выключенного MiMo, форма пустого ответа DeepSeek в error. Ждём свежий деплой по uptime, затем пробуем."
 }
