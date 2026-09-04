@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 205 (03.09, «вся Камчатка»): клетка сетки avacha-group, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
-  "region": "avacha-group",
+  "note": "Прогон 206 (03.09, «вся Камчатка»): клетка сетки paratunka, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
+  "region": "paratunka",
   "upload": true
 }
