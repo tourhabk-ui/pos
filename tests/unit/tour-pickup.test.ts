@@ -1,64 +1,123 @@
 /**
- * Правка «как турист попадает на тур»: сухой прогон по умолчанию, источник и
- * причина без умолчаний, откат в ответе.
+ * «Как турист попадает на тур» — поле, которое блокировало ВСЕ восемь туров.
  *
- * Те же правила, что у правки координат места, и по той же причине: через
- * месяц «кто сказал» и «почему» восстановить будет неоткуда, а поле это
- * читает покупатель на чужой витрине.
+ * Перепись готовности к чужой витрине держала `pickup` в списке недостающего
+ * у каждого живого тура и считала его по пустому `meeting_point`. Владелец
+ * 23.08 поправил: пустота там не забывчивость оператора — операторы забирают
+ * туристов сами, фиксированной точки сбора у таких туров нет и быть не
+ * должно. То есть колонка отвечала не на тот вопрос, и «пробел данных» был
+ * пробелом нашей схемы.
+ *
+ * Покупателю нужно знать не «где точка сбора», а «меня заберут, я приду или
+ * еду сам»: у этих трёх ответов разная цена поездки, разный багаж и разное
+ * решение о покупке. Отсюда pickup_type с тремя значениями и NULL как честным
+ * четвёртым (§4.0: у всякого поля есть исход «не знаю»).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pickupForCard, pickupWording, isPickupType, PICKUP_TYPES, type PickupType } from '@/lib/tours/pickup';
 
-const SRC = readFileSync('app/api/cron/tour-pickup/route.ts', 'utf8');
+const ROOT = process.cwd();
+const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
+const MIGRATION = read('migrations/932_operator_tours_pickup.sql');
+const CENSUS = read('app/api/cron/channel-readiness/route.ts');
+const CARD = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
 
-describe('актуатор перевозки — правила разбора тела', () => {
-  it('сухой прогон включён по умолчанию: писать надо попросить вслух', () => {
-    expect(SRC).toMatch(/dry_run:\s*z\.boolean\(\)\.default\(true\)/);
+describe('словарь один на все поверхности', () => {
+  it('три ответа, и каждый говорит туристу разное', () => {
+    expect(PICKUP_TYPES).toEqual(['hotel_pickup', 'meeting_point', 'self_drive']);
+    const summaries = PICKUP_TYPES.map((t) => pickupWording(t).summary);
+    expect(new Set(summaries).size, 'два типа звучат одинаково — турист не различит').toBe(3);
+    for (const t of PICKUP_TYPES) {
+      expect(pickupWording(t).title.length).toBeGreaterThan(3);
+    }
   });
 
-  it('источник обязателен и без умолчания', () => {
-    expect(SRC).toMatch(/source:\s*z\.string\(\)[^\n]*\.min\(3/);
-    // .default( рядом с source означал бы приписывание чужих слов
-    const src = SRC.slice(SRC.indexOf('source:'), SRC.indexOf('dry_run:'));
-    expect(src).not.toContain('.default(');
+  it('чужое значение типом не считается', () => {
+    expect(isPickupType('hotel_pickup')).toBe(true);
+    expect(isPickupType('pickup')).toBe(false);
+    expect(isPickupType(null)).toBe(false);
+    expect(isPickupType('')).toBe(false);
   });
 
-  it('причина обязательна к КАЖДОЙ правке и без умолчания', () => {
-    const item = SRC.slice(SRC.indexOf('const ItemSchema'), SRC.indexOf('const BodySchema'));
-    expect(item).toMatch(/why:\s*z\.string\(\)[^\n]*\.min\(3/);
-    expect(item).not.toContain('.default(');
-  });
-
-  it('пустая строка перевозки не принимается: она неотличима от «не знаем»', () => {
-    const item = SRC.slice(SRC.indexOf('const ItemSchema'), SRC.indexOf('const BodySchema'));
-    expect(item).toMatch(/pickup:\s*z\.string\(\)\.trim\(\)\.min\(5/);
-  });
-
-  it('партия ограничена десятью', () => {
-    expect(SRC).toContain('export const LIVE_BATCH_MAX = 10');
-    expect(SRC).toMatch(/\.max\(LIVE_BATCH_MAX\)/);
+  it('подробности обязательны там, где без них ответ бесполезен', () => {
+    expect(pickupWording('hotel_pickup').detailsNeeded).not.toBe('');
+    expect(pickupWording('meeting_point').detailsNeeded).not.toBe('');
+    // «Добирается сам» — исключение: куда ехать, отвечают координаты тура.
+    expect(pickupWording('self_drive').detailsNeeded).toBe('');
   });
 });
 
-describe('актуатор перевозки — что возвращает', () => {
-  it('прежнее значение возвращается и в боевом прогоне: это откат', () => {
-    const live = SRC.slice(SRC.indexOf("status: 'set'"), SRC.indexOf('const changed'));
-    expect(live).toContain('was: tour.meeting_point');
+describe('карточка молчит, когда не записано', () => {
+  it('нет типа — нет блока: «уточните у оператора» вместо ответа не выдумываем', () => {
+    expect(pickupForCard(null, 'Заберём от отеля')).toBeNull();
+    expect(pickupForCard('', null)).toBeNull();
+    expect(pickupForCard('что-то своё', 'текст')).toBeNull();
   });
 
-  it('отсутствующий тур — отказ по строке, а не молчаливый пропуск', () => {
-    expect(SRC).toContain("status: 'not_found'");
-    expect(SRC).toContain("not_found: results.filter");
+  it('тип есть — блок называет суть, даже если подробностей нет', () => {
+    const p = pickupForCard('hotel_pickup', null);
+    expect(p).not.toBeNull();
+    expect(p!.title).toBe('Вас заберут');
+    expect(p!.lines).toEqual([]);
   });
 
-  it('ноль разобранных при ненулевом входе помечается как бессмысленный прогон', () => {
-    expect(SRC).toMatch(/meaningful:\s*results\.some/);
+  it('подробности разбиваются по строкам, пустые строки выбрасываются', () => {
+    const p = pickupForCard('meeting_point', 'Сбор у стелы, 07:30\n\n  Парковка бесплатная  ');
+    expect(p!.lines).toEqual(['Сбор у стелы, 07:30', 'Парковка бесплатная']);
   });
 
-  it('маркер сборки есть и в отказе разбора тела', () => {
-    // Урок пробы 107: признак сборки только в удачном ответе делает
-    // настоящую ошибку неотличимой от невыкаченного кода.
-    const bad = SRC.slice(SRC.indexOf('Тело запроса не разобрано'), SRC.indexOf('const results'));
-    expect(bad).toContain("probe: 'tour_pickup_v1'");
+  it('старый meeting_point подхватывается, если подробности не перенесены', () => {
+    const p = pickupForCard('meeting_point', null, '147-й км трассы А4');
+    expect(p!.lines).toEqual(['147-й км трассы А4']);
+    // Но только для встречи: «заберут» из старой точки сбора не выводится.
+    expect(pickupForCard('hotel_pickup', null, '147-й км трассы А4')!.lines).toEqual([]);
+  });
+});
+
+describe('схема: три значения и честный NULL', () => {
+  it('колонки заведены, значения ограничены схемой, а не только кодом', () => {
+    expect(MIGRATION).toMatch(/ADD COLUMN IF NOT EXISTS pickup_type VARCHAR\(16\)/);
+    expect(MIGRATION).toMatch(/ADD COLUMN IF NOT EXISTS pickup_details TEXT/);
+    expect(MIGRATION).toMatch(/CHECK \(pickup_type IS NULL OR pickup_type IN \('hotel_pickup', 'meeting_point', 'self_drive'\)\)/);
+  });
+
+  it('перенос старых данных идемпотентен и не затирает ответ оператора', () => {
+    expect(MIGRATION).toMatch(/WHERE pickup_type IS NULL/);
+    expect(MIGRATION).toMatch(/SET pickup_type\s+= 'meeting_point'/);
+  });
+
+  it('комментарий колонки называет NULL «не записано», а не «нет трансфера»', () => {
+    expect(MIGRATION).toMatch(/NULL — не записано, а НЕ «нет трансфера»/);
+  });
+});
+
+describe('перепись готовности судит по ответу, а не по тексту точки сбора', () => {
+  it('нет типа — пробел; тип есть, а подробностей нет — ДРУГОЙ пробел', () => {
+    expect(CENSUS).toMatch(/if \(r\.pickup_type === null\) \{\s*\n\s*missing\.push\('pickup'\);/);
+    expect(CENSUS).toMatch(/missing\.push\('pickup_details'\)/);
+  });
+
+  it('«добирается сам» не требует подробностей', () => {
+    expect(CENSUS).toMatch(/r\.pickup_type !== 'self_drive' && r\.pickup_details_chars === 0/);
+  });
+
+  it('старая проверка по meeting_point из приговора убрана', () => {
+    const code = CENSUS.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const gate = code.slice(code.indexOf('export function missingFields'), code.indexOf('\n}', code.indexOf('export function missingFields')));
+    expect(gate, 'перепись снова требует точку сбора там, где оператор забирает сам')
+      .not.toMatch(/has_meeting_point/);
+  });
+});
+
+describe('карточка тура', () => {
+  it('рисует ответ через общий словарь, а не собирает слова заново', () => {
+    expect(CARD).toMatch(/import \{ pickupForCard \} from '@\/lib\/tours\/pickup'/);
+    expect(CARD).toMatch(/pickupForCard\(tour\.pickup_type, tour\.pickup_details, tour\.meeting_point\)/);
+  });
+
+  it('старый блок точки сбора показывается только при пустом новом поле', () => {
+    expect(CARD).toMatch(/\{!tour\.pickup_type && tour\.meeting_point && \(/);
   });
 });

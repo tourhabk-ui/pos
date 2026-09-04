@@ -34,6 +34,9 @@ export interface TourCardRow {
   latitude: string | null;
   longitude: string | null;
   meeting_point: string | null;
+  /** Как турист попадает на тур (932). NULL — не записано. */
+  pickup_type: string | null;
+  pickup_details: string | null;
   /** Условия отмены и возврата от оператора. NULL — не записано, а не «без условий» (931). */
   cancellation_policy: string | null;
   tour_image: string | null;
@@ -123,6 +126,8 @@ function buildSql(withOptional: boolean): string {
       ot.activity_type, ot.location_type,
       ot.location_name, ot.latitude, ot.longitude,
       ot.meeting_point,
+      ot.pickup_type,
+      ot.pickup_details,
       ot.cancellation_policy,
       ot.tour_image, ot.photos,
       ot.max_participants, ot.min_participants,
