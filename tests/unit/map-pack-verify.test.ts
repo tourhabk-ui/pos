@@ -21,7 +21,10 @@ import { join } from 'node:path';
 import { sourceUrlIndex, buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
 import { mapErrorText } from '@/components/shared/VedarMap';
 import { packKeysToVerify, jsonFailure, verifyPacks, packUrl } from '@/scripts/map-tiles/verify-packs';
-import { BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS } from '@/lib/map/pack-source';
+import {
+  BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
+} from '@/lib/map/pack-source';
+import { OVERVIEW_ID } from '@/lib/geo/regions';
 
 const SOURCES = {
   terrainUrl: 'pmtiles://https://s3.example.ru/b/map-packs/avacha-group.terrain.pmtiles',
@@ -180,6 +183,34 @@ describe('проверка хранилища: список файлов — и�
     const kinds = new Map(packKeysToVerify().map(k => [k.key, k.kind]));
     expect(kinds.get(`map-packs/${BUILT_PACK_REGIONS[0]}.terrain.pmtiles`)).toBe('archive');
     expect(kinds.get(`map-packs/${BUILT_PACK_REGIONS[0]}.contours.geojson`)).toBe('json');
+  });
+
+  it('04.09: клетки сетки «вся Камчатка» проверяются тем же списком — рельеф, горизонтали, все слои OSM, вектор', () => {
+    // Скрин владельца из поля: cell-53n158e.terrain.pmtiles не пришёл. До этой
+    // правки packKeysToVerify() клеток не видел вовсе — прогон был бы зелёным
+    // и про эту клетку ничего бы не сказал.
+    expect(BUILT_GRID_CELLS.length).toBeGreaterThan(0);
+    const keys = packKeysToVerify().map(k => k.key);
+    const kinds = new Map(packKeysToVerify().map(k => [k.key, k.kind]));
+    for (const cell of BUILT_GRID_CELLS) {
+      expect(keys).toContain(`map-packs/${cell}.terrain.pmtiles`);
+      expect(keys).toContain(`map-packs/${cell}.contours.geojson`);
+      expect(keys).toContain(`map-packs/${cell}.vector.pmtiles`);
+      for (const layer of OSM_LAYERS) expect(keys).toContain(`map-packs/${cell}.osm.${layer}.geojson`);
+    }
+    expect(kinds.get(`map-packs/${BUILT_GRID_CELLS[0]}.terrain.pmtiles`)).toBe('archive');
+    expect(kinds.get(`map-packs/${BUILT_GRID_CELLS[0]}.vector.pmtiles`)).toBe('archive');
+    expect(kinds.get(`map-packs/${BUILT_GRID_CELLS[0]}.contours.geojson`)).toBe('json');
+  });
+
+  it('04.09: обзорный ярус края — только рельеф и горизонтали, если собран', () => {
+    const keys = packKeysToVerify().map(k => k.key);
+    if (OVERVIEW_BUILT) {
+      expect(keys).toContain(`map-packs/${OVERVIEW_ID}.terrain.pmtiles`);
+      expect(keys).toContain(`map-packs/${OVERVIEW_ID}.contours.geojson`);
+    }
+    expect(keys).not.toContain(`map-packs/${OVERVIEW_ID}.vector.pmtiles`);
+    expect(keys).not.toContain(`map-packs/${OVERVIEW_ID}.osm.paths.geojson`);
   });
 });
 
