@@ -14,7 +14,9 @@ on:
 jobs:
   debug:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 35, а не 10: шаг ожидания деплоя длится до 20 мин, а run 5 (04.09) был
+    # снят самим таймаутом задачи на 20-й попытке.
+    timeout-minutes: 35
     steps:
       # Маркер уезжает в main вместе с кодом, а деплой Timeweb доезжает
       # минут через 5-10. Проба на старом коде отвечает на вчерашний вопрос
@@ -25,12 +27,26 @@ jobs:
         env:
           BASE: https://vedarai.ru
         run: |
+          # Три исхода, не два: «свежий», «старый» и «uptime не прочитан» —
+          # последний показывает тело: run 5 двадцать раз печатал 10^9 вместо
+          # признания, что в ответе нет поля uptime.
           for i in $(seq 1 40); do
-            UP=$(curl -s --max-time 20 "$BASE/api/health" | python3 -c 'import json,sys
-          try: print(int(json.load(sys.stdin).get("uptime", 10**9)))
-          except Exception: print(-1)' 2>/dev/null || echo -1)
-            if [ "$UP" -ge 0 ] && [ "$UP" -lt 300 ]; then echo "свежий рестарт: uptime ${UP}с (попытка $i)"; exit 0; fi
-            echo "uptime ${UP}с — деплой ещё не доехал, жду 30с ($i/40)"; sleep 30
+            BODY=$(curl -s --max-time 20 "$BASE/api/health" || true)
+            UP=$(printf '%s' "$BODY" | python3 -c 'import json,sys
+          try:
+              d = json.load(sys.stdin)
+              u = d.get("uptime", (d.get("data") or {}).get("uptime") if isinstance(d.get("data"), dict) else None)
+              print(int(float(u)) if u is not None else -1)
+          except Exception:
+              print(-1)' 2>/dev/null || echo -1)
+            if [ "$UP" -lt 0 ]; then
+              echo "uptime не прочитан (попытка $i/40); тело: $(printf '%s' "$BODY" | head -c 200)"
+            elif [ "$UP" -lt 300 ]; then
+              echo "свежий рестарт: uptime ${UP}с (попытка $i)"; exit 0
+            else
+              echo "uptime ${UP}с — деплой ещё не доехал, жду 30с ($i/40)"
+            fi
+            sleep 30
           done
           echo "ВНИМАНИЕ: свежего рестарта не дождались за 20 мин — проба идёт на том коде, что есть"
 
