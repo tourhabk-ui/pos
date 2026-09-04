@@ -218,8 +218,14 @@ export async function POST(req: NextRequest) {
                 [uonId, result.bookingId],
               );
             }
-          } catch {
-            // U-ON sync failure is non-fatal — booking already created
+          } catch (err) {
+            // Не фатально для брони, но у оператора своя CRM: не доехало —
+            // заявки в ней нет, и оператор работает по неполной картине.
+            console.error(
+              '[bookings/create] синк U-ON не прошёл, бронь',
+              String(result.bookingId),
+              err instanceof Error ? err.message : err,
+            );
           }
         }
 
@@ -237,8 +243,16 @@ export async function POST(req: NextRequest) {
           operator_max_chat_id:      op?.max_chat_id ?? undefined,
           via:                       'website',
         });
-      } catch {
-        // Non-fatal
+      } catch (err) {
+        // Не фатально для брони — она уже в базе, — но и не бесследно.
+        // Пустой catch здесь означал: заявка есть, оператор о ней не знает, и
+        // это неотличимо от «оператор знает и не отвечает». Первое чинит нас,
+        // второе — оператора; путать их дорого (§4.0).
+        console.error(
+          '[bookings/create] уведомление оператору не отправлено, бронь',
+          String(result.bookingId),
+          err instanceof Error ? err.message : err,
+        );
       }
     })();
 
@@ -258,7 +272,16 @@ export async function POST(req: NextRequest) {
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}">Оплатить тур</a></p>
           <p>Оператор также получил уведомление о вашей заявке и может связаться с вами.</p>
         `,
-      }).catch(() => { /* non-fatal */ });
+      }).catch((err: unknown) => {
+        // Это письмо — единственное, что возвращает туриста к оплате: ссылка
+        // на /booking-success живёт только в нём. Молча потерять его значит
+        // молча потерять продажу.
+        console.error(
+          '[bookings/create] письмо туристу не ушло, бронь',
+          String(result.bookingId),
+          err instanceof Error ? err.message : err,
+        );
+      });
     }
 
     return NextResponse.json({
