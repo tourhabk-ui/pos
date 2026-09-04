@@ -1,5 +1,5 @@
 {
-  "note": "Прогон 211 (03.09, «вся Камчатка»): клетка сетки south-kamchatka, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
-  "region": "south-kamchatka",
+  "note": "Прогон 212 (03.09, «вся Камчатка»): клетка сетки esso-bystrinsky, 1°×1°, bbox из lib/geo/grid-cells.ts. Смотреть размер рельефа, время Overpass, вектор.",
+  "region": "esso-bystrinsky",
   "upload": true
 }
