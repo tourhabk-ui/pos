@@ -973,7 +973,15 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             : [];
         setWaypoints(effective);
         try { localStorage.setItem(cacheKey, JSON.stringify({ title: data.title as string, waypoints: effective })); } catch { /* квота */ }
-        if (effective.length > 0) {
+        // Точка-сущность (гора, озеро, источник) не имеет ни route_waypoints,
+        // ни трека — effective пустой, и план молча не запрашивался никогда:
+        // кнопка «Сохранить полевой пакет» не появлялась для таких мест
+        // (скрин из поля 04.09, «Верхне-Опальские термальные источники»).
+        // /api/routes/[id]/offline-bundle умеет собрать пакет и по одним
+        // lat/lng места (bbox вокруг точки, без коридора) — здесь просто не
+        // спрашивали, если совпадала ещё и пустота waypoints.
+        const hasOwnCoords = typeof data.lat === 'number' && typeof data.lng === 'number';
+        if (effective.length > 0 || hasOwnCoords) {
           void loadMapPlan(routeId); // что уже скачано и сколько весит недостающее
         }
       })
