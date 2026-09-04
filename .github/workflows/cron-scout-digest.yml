@@ -20,8 +20,36 @@ on:
 jobs:
   scout-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # 40, а не 8: ожидание деплоя (до 25 мин) плюс прогон разведчика (до 5).
+    timeout-minutes: 40
     steps:
+      # Маркер уезжает в main вместе с кодом, а деплой Timeweb доезжает за
+      # 5-20 минут (ai-debug run 7: рестарт через 19 мин после мержа). Прогон
+      # на старом коде отвечает на вчерашний вопрос. Ждём свежего рестарта по
+      # uptime; ?deploy=1 обязателен — start.js перехватывает ровно
+      # '/api/health' и отвечает {"status":"ok"} без uptime. Не дождались —
+      # говорим вслух и идём как есть: провал тоже результат.
+      - name: Wait for fresh deploy
+        run: |
+          for i in $(seq 1 50); do
+            BODY=$(curl -s --max-time 20 "https://vedarai.ru/api/health?deploy=1" || true)
+            UP=$(printf '%s' "$BODY" | python3 -c 'import json,sys
+          try:
+              u = json.load(sys.stdin).get("uptime")
+              print(int(float(u)) if u is not None else -1)
+          except Exception:
+              print(-1)' 2>/dev/null || echo -1)
+            if [ "$UP" -lt 0 ]; then
+              echo "uptime не прочитан (попытка $i/50); тело: $(printf '%s' "$BODY" | head -c 200)"
+            elif [ "$UP" -lt 300 ]; then
+              echo "свежий рестарт: uptime ${UP}с (попытка $i)"; exit 0
+            else
+              echo "uptime ${UP}с — деплой ещё не доехал, жду 30с ($i/50)"
+            fi
+            sleep 30
+          done
+          echo "ВНИМАНИЕ: свежего рестарта не дождались за 25 мин — прогон идёт на том коде, что есть"
+
       - name: Scout Digest — ежедневный дайджест
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
