@@ -18,41 +18,45 @@ jobs:
     # снят самим таймаутом задачи на 20-й попытке.
     timeout-minutes: 35
     steps:
-      # Маркер уезжает в main вместе с кодом, а деплой Timeweb доезжает
-      # минут через 5-10. Проба на старом коде отвечает на вчерашний вопрос
-      # (run 4, 04.09: пробовали снятый с эксплуатации id Gemini). Ждём
-      # свежего рестарта приложения по uptime из /api/health; не дождались —
-      # говорим об этом вслух и пробуем как есть: провал тоже результат.
+      # Ждём НЕ любой рестарт, а сборку, которая новее этого коммита.
+      # uptime отвечает «давно ли перезапускались», а спросить надо «тот ли
+      # код на проде»: 04.09 два замера подряд поймали деплой предыдущего
+      # мержа и молча измерили старый код (run 9 — таймаут ровно 15 с и ни
+      # одной новой строки). build_time приходит из next.config.js, то есть
+      # ставится в момент сборки образа.
       - name: Wait for fresh deploy
         env:
           BASE: https://vedarai.ru
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: |
-          # Три исхода, не два: «свежий», «старый» и «uptime не прочитан» —
-          # последний показывает тело: run 5 двадцать раз печатал 10^9 вместо
-          # признания, что в ответе нет поля uptime.
-          # ?deploy=1 обязателен: start.js перехватывает ровно '/api/health'
-          # (строгое сравнение req.url) и отвечает {"status":"ok"} ещё до Next —
-          # run 6 сорок раз прочитал это тело без uptime. С параметром запрос
-          # проходит в Next, и /api/health отдаёт настоящий uptime процесса.
-          for i in $(seq 1 40); do
+          iso2epoch() { python3 -c 'import sys,datetime
+          v=(sys.argv[1] or "").strip()
+          try: print(int(datetime.datetime.fromisoformat(v.replace("Z","+00:00")).timestamp()))
+          except Exception: print(0)' "$1"; }
+
+          NEED=$(iso2epoch "$NEED_AFTER")
+          echo "нужна сборка новее коммита: $NEED_AFTER (epoch $NEED)"
+
+          for i in $(seq 1 50); do
             BODY=$(curl -s --max-time 20 "$BASE/api/health?deploy=1" || true)
-            UP=$(printf '%s' "$BODY" | python3 -c 'import json,sys
+            PAIR=$(printf '%s' "$BODY" | python3 -c 'import json,sys,datetime
           try:
-              d = json.load(sys.stdin)
-              u = d.get("uptime", (d.get("data") or {}).get("uptime") if isinstance(d.get("data"), dict) else None)
-              print(int(float(u)) if u is not None else -1)
-          except Exception:
-              print(-1)' 2>/dev/null || echo -1)
-            if [ "$UP" -lt 0 ]; then
-              echo "uptime не прочитан (попытка $i/40); тело: $(printf '%s' "$BODY" | head -c 200)"
-            elif [ "$UP" -lt 300 ]; then
-              echo "свежий рестарт: uptime ${UP}с (попытка $i)"; exit 0
+              d=json.load(sys.stdin); bt=d.get("build_time"); u=d.get("uptime")
+              ts=int(datetime.datetime.fromisoformat(bt.replace("Z","+00:00")).timestamp()) if bt else -1
+              print(ts, int(float(u)) if u is not None else -1)
+          except Exception: print(-1,-1)' 2>/dev/null || echo "-1 -1")
+            BT=${PAIR%% *}; UP=${PAIR##* }
+            if [ "$BT" -gt 0 ] && [ "$NEED" -gt 0 ]; then
+              if [ "$BT" -ge "$NEED" ]; then echo "своя сборка на проде (build_time $BT >= $NEED, попытка $i)"; exit 0; fi
+              echo "на проде сборка старее коммита (build_time $BT < $NEED), жду 30с ($i/50)"
+            elif [ "$UP" -ge 0 ] && [ "$UP" -lt 300 ]; then
+              echo "build_time не отдан (сборка старше этой правки), но рестарт свежий: uptime ${UP}с (попытка $i)"; exit 0
             else
-              echo "uptime ${UP}с — деплой ещё не доехал, жду 30с ($i/40)"
+              echo "ещё не доехало (build_time $BT, uptime $UP), жду 30с ($i/50)"
             fi
             sleep 30
           done
-          echo "ВНИМАНИЕ: свежего рестарта не дождались за 20 мин — проба идёт на том коде, что есть"
+          echo "ВНИМАНИЕ: своей сборки не дождались за 25 мин — прогон идёт на том коде, что есть"
 
       - name: Debug waterfall
         env:
