@@ -478,4 +478,17 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   'cell-62n165e',
   'cell-62n166e',
   'cell-62n167e',
+  // 04.09, Корякия волна 4 (прогоны 183-192) — широта 62° до конца,
+  // открывает 63°. Собраны СТАРЫМ кодировщиком (пропуск DEM = высота 0) —
+  // войдут в общую пересборку после починки NODATA_SENTINEL_M.
+  'cell-62n168e',
+  'cell-62n169e',
+  'cell-62n170e',
+  'cell-62n171e',
+  'cell-62n172e',
+  'cell-62n173e',
+  'cell-62n174e',
+  'cell-63n162e',
+  'cell-63n163e',
+  'cell-63n164e',
 ];

@@ -94,6 +94,16 @@ MAXZOOM = 13
 MINZOOM = 8
 TILE_PX = 256
 
+# Пропуск DEM (море, дыра покрытия) кодировался как высота 0.0 — БАЙТ В БАЙТ
+# то же, что настоящая низкая суша на уровне моря. Клиент читает только
+# terrain-RGB: ни hillshade, ни color-relief не видят, откуда взялся ноль, и
+# рисуют пропуск как землю (04.09, «не всё прорисовалось» — жалоба с поля).
+# Сигнальная высота — заведомо ниже любой точки Камчатки (низшая суша — 0 м)
+# и ЯВНО отделена стилем от диапазона воды (lib/map/vedar-style.ts, ступень
+# NODATA_SENTINEL_M) — «не знаю» получает свой цвет, не цвет воды и не цвет
+# суши (§4.0 CLAUDE.md: незнание не заполняется правдоподобной ложью).
+NODATA_SENTINEL_M = -500.0
+
 
 def dem_tile_name(lat: int, lng: int) -> str:
     """Имя клетки Copernicus DEM по левому нижнему углу градусной клетки."""
@@ -207,7 +217,7 @@ def sample_bilinear(mosaic, geo, lats, lngs):
 
 def encode_terrain_rgb(heights):
     """Высоты -> Mapbox terrain-RGB. height = -10000 + (R*65536 + G*256 + B) * 0.1"""
-    h = np.where(np.isnan(heights), 0.0, heights)
+    h = np.where(np.isnan(heights), NODATA_SENTINEL_M, heights)
     v = np.clip((h + 10000.0) * 10.0, 0, 16777215).astype(np.uint32)
     rgb = np.empty(h.shape + (3,), dtype=np.uint8)
     rgb[..., 0] = (v >> 16) & 0xFF
