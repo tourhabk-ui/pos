@@ -33,7 +33,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIDecision } from '@/lib/ai/providers';
+import { callAIDecision, callAIDecisionDetailed } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { intelSignature } from '@/lib/agents/evo/claim-signature';
 import { scrubInjectionLines } from '@/lib/agents/evo/memory-guard';
@@ -116,6 +116,13 @@ export interface AiFeaturesResult {
    */
   skip_reason?: 'no_candidates' | 'no_text' | 'model_empty' | 'decision_null' | 'all_ungrounded' | 'all_duplicates'
     | 'critic_rejected_all' | 'critic_unavailable' | 'error';
+  /**
+   * Почему решатель промолчал — по ступеням (timeweb/flagship/anthropic/
+   * deepseek…), только при decision_null. Run 4 (04.09) записал одно слово
+   * «decision_null», и что именно легло — гео-блок, баланс, пустое тело —
+   * пришлось добывать отдельным прогоном ai-debug.
+   */
+  decision_detail?: string;
   duration_ms: number;
 }
 
@@ -402,8 +409,10 @@ export async function runAiFeatureLens(
       prior.map((r) => intelSignature(r)).filter((s) => !s.startsWith('intel::other:')).map((s) => s.replace('intel::', '')),
     )];
 
-    const raw = await callAIDecision(buildAiFeaturePrompt(candidates, knownTopics)).catch(() => null);
-    if (raw === null) return done({ skip_reason: 'decision_null' });
+    const decision = await callAIDecisionDetailed(buildAiFeaturePrompt(candidates, knownTopics))
+      .catch((e: unknown) => ({ text: null, model: null, error: e instanceof Error ? e.message : String(e) }));
+    const raw = decision.text;
+    if (raw === null) return done({ skip_reason: 'decision_null', decision_detail: decision.error ?? 'причина не записана' });
 
     const proposed = parseAiFeatureProposals(raw);
     base.proposed = proposed.length;

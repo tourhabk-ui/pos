@@ -40,7 +40,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { recordAiLegFailure, httpFailureReason, errorFailureReason } from '@/lib/ai/failure-trace';
+import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion } from '@/lib/ai/failure-trace';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
@@ -1022,7 +1022,7 @@ export async function callDeepSeek(
       logLLMUsage(model, data.usage);
       return text;
     }
-    recordAiLegFailure('deepseek', 'empty');
+    recordAiLegFailure('deepseek', `empty (${model}): ${describeEmptyCompletion(data)}`);
     return null;
   } catch (e) { recordAiLegFailure('deepseek', errorFailureReason(e)); return null; }
 }
@@ -1735,7 +1735,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
           if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model, provenance: why.slice() }; }
-          why.push(`deepseek(${model}): пустой ответ`);
+          why.push(`deepseek(${model}): пустой ответ — ${describeEmptyCompletion(data)}`);
           continue; // пустой body — беда конкретной модели, пробуем следующую
         }
         const bodyText = (await res.text().catch(() => '')).slice(0, 140);
@@ -2241,21 +2241,40 @@ export async function callMiniMax(messages: ChatMessage[]): Promise<string | nul
 const GEMINI_MODELS_TTL_MS = 6 * 60 * 60 * 1000;
 let geminiModelCache: { id: string; at: number } | null = null;
 
+/**
+ * Почему список моделей Gemini не добыт в последний раз; null — добыт.
+ *
+ * 04.09: Разведчик на проде записал «gemini: список моделей недоступен», а
+ * ai-debug двумя минутами позже получил от того же ключа осмысленный 404 —
+ * ключ жив. Что именно не так со СПИСКОМ (таймаут, HTTP-код, пустой ответ),
+ * `catch { return [] }` не говорил. Теперь причина хранится и уходит в след
+ * отказа и в debug-пробу.
+ */
+let geminiListProblem: string | null = null;
+export function geminiResolveProblem(): string | null { return geminiListProblem; }
+
 async function listGeminiModels(apiKey: string): Promise<string[]> {
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
       signal: AbortSignal.timeout(8_000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      geminiListProblem = httpFailureReason(res.status, await res.text().catch(() => ''));
+      return [];
+    }
     const data = await res.json() as {
       models?: Array<{ name?: unknown; supportedGenerationMethods?: unknown }>;
     };
-    return (data.models ?? [])
+    const ids = (data.models ?? [])
       .filter((m) => Array.isArray(m.supportedGenerationMethods)
         && (m.supportedGenerationMethods as unknown[]).includes('generateContent'))
       .map((m) => (typeof m.name === 'string' ? m.name.replace(/^models\//, '') : ''))
       .filter((id) => id.length > 0);
-  } catch { return []; }
+    geminiListProblem = ids.length === 0
+      ? `список пуст: ${(data.models ?? []).length} моделей, ни одной с generateContent`
+      : null;
+    return ids;
+  } catch (e) { geminiListProblem = errorFailureReason(e); return []; }
 }
 
 /** null — модель не разрешена: списка нет и угадывать нечем. */
@@ -2290,7 +2309,10 @@ export async function callGeminiDirect(
   if (!apiKey) { recordAiLegFailure('gemini', 'no_key'); return null; }
 
   const model = await resolveGeminiModel();
-  if (!model) { recordAiLegFailure('gemini', 'модель не разрешена: список моделей недоступен'); return null; }
+  if (!model) {
+    recordAiLegFailure('gemini', `модель не разрешена: список моделей недоступен (${geminiResolveProblem() ?? 'причина не записана'})`);
+    return null;
+  }
 
   try {
     const systemMsg = messages.find(m => m.role === 'system');
@@ -2344,12 +2366,16 @@ export async function callGeminiVision(
 ): Promise<string | null> {
   const systemHint = 'Ты — эксперт по природе и достопримечательностям Камчатки. Отвечай на русском, кратко и точно. Определяй вулканы, животных, растения, локации.';
 
-  // Приоритет 1: нативный Gemini API.
+  // Приоритет 1: нативный Gemini API. Модель — по /models, как у текстового
+  // пути: хардкод gemini-2.0-flash отвечал 404 «no longer available» (ai-debug
+  // run 4, 04.09), и распознавание фото молча уходило на OpenRouter, который
+  // с прода закрыт гео-блоком.
   const geminiKey = getGeminiKey();
-  if (geminiKey) {
+  const visionModel = geminiKey ? await resolveGeminiModel() : null;
+  if (geminiKey && visionModel) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${geminiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2507,11 +2533,13 @@ export async function callGeminiPDF(
   prompt: string,
 ): Promise<string | null> {
   // Приоритет 1: нативный Google Gemini API (стабилен с сервера, нативно читает PDF).
+  // Модель — по /models: хардкод gemini-2.0-flash снят с эксплуатации (404, 04.09).
   const geminiKey = getGeminiKey();
-  if (geminiKey) {
+  const pdfModel = geminiKey ? await resolveGeminiModel() : null;
+  if (geminiKey && pdfModel) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${pdfModel}:generateContent?key=${geminiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2726,6 +2754,11 @@ export async function preflightProviders(): Promise<{
         const body = await res.text().catch(() => '');
         return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
       }
+      // HTTP 200 — ещё не ответ: deepseek-v4-pro отдаёт 200 с пустым content
+      // (02.08, 04.09). Зелёная проба при немом живом пути — §4.0.
+      const data = await res.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null;
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text?.trim()) return { ok: false, status: 200, error: `HTTP 200, но content пуст: ${describeEmptyCompletion(data)}` };
       return { ok: true };
     } catch (e) { return { ok: false, error: String(e) }; }
   }
@@ -2940,9 +2973,13 @@ export async function preflightProviders(): Promise<{
   async function probeGeminiDirect() {
     const apiKey = getGeminiKey();
     if (!apiKey) return { ok: false, error: 'GEMINI_API_KEY not set' };
+    // Та же модель, что у живого пути (по /models): проба на снятом с
+    // эксплуатации id отвечала 404 при живом ключе и живой модели.
+    const model = await resolveGeminiModel();
+    if (!model) return { ok: false, error: `модель не разрешена: ${geminiResolveProblem() ?? 'список моделей недоступен'}` };
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2967,7 +3004,7 @@ export async function preflightProviders(): Promise<{
       probeDetailed('deepseek:content', 'DeepSeek путь судьи (content + json)', probeDeepSeekContent),
       probeDetailed('qwen',       'Qwen (DashScope, json)',       probeQwen),
       probeDetailed('kimi',       'Kimi (Moonshot)',              probeKimi),
-      probeDetailed('gemini',     'Gemini 2.0 Flash (прямой)',    probeGeminiDirect),
+      probeDetailed('gemini',     'Gemini (прямой, модель по /models)', probeGeminiDirect),
       probeDetailed('fugu',       'Sakana Fugu',                  probeFugu),
       probeDetailed('groq',       'Groq (Llama 3.3-70B)',         probeGroq),
       probeDetailed('cerebras',   'Cerebras (Llama 3.3-70B)',     probeCerebras),
@@ -3196,7 +3233,7 @@ export async function callAIQuality(
           logLLMUsage(model, data.usage);
           return text;
         }
-        recordAiLegFailure('deepseek:content', 'empty');
+        recordAiLegFailure('deepseek:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
       } else {
         recordAiLegFailure('deepseek:content', httpFailureReason(res.status, await res.text().catch(() => '')));
       }
@@ -3221,7 +3258,7 @@ export async function callAIQuality(
           logLLMUsage(model, data.usage);
           return text;
         }
-        recordAiLegFailure('qwen:content', 'empty');
+        recordAiLegFailure('qwen:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
       } else {
         recordAiLegFailure('qwen:content', httpFailureReason(res.status, await res.text().catch(() => '')));
       }
@@ -3380,31 +3417,37 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
   const results: WaterfallDebugResult[] = [];
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
-  // 1. MiMo
+  // 1. Qwen (DashScope) — второй сильный на пути судьи и первый в tools-цикле
+  //    Кузьмича. До 04.09 в этой пробе стоял MiMo, выключенный из водопада ещё
+  //    04.07 (прямой эндпоинт Xiaomi отвечал «Unsupported model»), а Qwen —
+  //    живой путь — не пробовался вовсе: диагностика красила мёртвое и
+  //    молчала о живом.
   {
     const start = Date.now();
-    const apiKey = process.env.XIAOMI_API_KEY;
+    const { apiKey, base, model } = getQwenConfig();
     if (!apiKey) {
-      results.push({ provider: 'mimo', model: 'MiMo-V2-Pro', status: 'no_key', latency_ms: 0 });
+      results.push({ provider: 'qwen', model, status: 'no_key', latency_ms: 0 });
     } else {
       try {
-        const res = await fetch('https://api.xiaomimimo.com/v1/chat/completions', {
+        const res = await fetch(`${base}/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: 'mimo-v2-pro', temperature: 0.4, max_tokens: 200, messages: payload }),
+          body: JSON.stringify({ model, temperature: 0.4, max_tokens: 200, messages: payload }),
           signal: AbortSignal.timeout(15_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
-          results.push({ provider: 'mimo', model: 'MiMo-V2-Pro', status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+          results.push({ provider: 'qwen', model, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
         } else {
           const data = await res.json();
           const text = data?.choices?.[0]?.message?.content;
-          results.push({ provider: 'mimo', model: 'MiMo-V2-Pro', status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+          results.push(text
+            ? { provider: 'qwen', model, status: 'success', answer_preview: text.slice(0, 100), latency_ms: ms }
+            : { provider: 'qwen', model, status: 'empty_response', error: describeEmptyCompletion(data), latency_ms: ms });
         }
       } catch (e) {
-        results.push({ provider: 'mimo', model: 'MiMo-V2-Pro', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+        results.push({ provider: 'qwen', model, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
   }
@@ -3507,7 +3550,12 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         } else {
           const data = await res.json();
           const text = data?.choices?.[0]?.message?.content;
-          results.push({ provider: 'deepseek', model: dsModel, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+          // Пустой content под HTTP 200 — форма тела в error: без неё «пусто»
+          // за 313 мс (run 4) нельзя отличить от фильтра, недоговорённого
+          // размышления или error в теле.
+          results.push(text
+            ? { provider: 'deepseek', model: dsModel, status: 'success', answer_preview: text.slice(0, 100), latency_ms: ms }
+            : { provider: 'deepseek', model: dsModel, status: 'empty_response', error: describeEmptyCompletion(data), latency_ms: ms });
         }
       } catch (e) {
         results.push({ provider: 'deepseek', model: 'unresolved', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
@@ -3515,12 +3563,17 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
     }
   }
 
-  // 5. Gemini direct
+  // 5. Gemini direct — модель по /models, как у живого пути. Хардкод
+  //    gemini-2.0-flash здесь отвечал 404 «no longer available» и красил
+  //    Gemini мёртвым при живом ключе (run 4, 04.09).
   {
     const start = Date.now();
     const apiKey = process.env.GEMINI_API_KEY;
+    const gModel = apiKey ? await resolveGeminiModel() : null;
     if (!apiKey) {
-      results.push({ provider: 'gemini', model: 'gemini-2.0-flash', status: 'no_key', latency_ms: 0 });
+      results.push({ provider: 'gemini', model: 'unresolved', status: 'no_key', latency_ms: 0 });
+    } else if (!gModel) {
+      results.push({ provider: 'gemini', model: 'unresolved', status: 'exception', error: `список моделей недоступен: ${geminiResolveProblem() ?? 'причина не записана'}`, latency_ms: Date.now() - start });
     } else {
       try {
         const systemMsg = messages.find(m => m.role === 'system');
@@ -3529,20 +3582,20 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         const reqBody: Record<string, unknown> = { contents };
         if (systemMsg) reqBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${apiKey}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody), signal: AbortSignal.timeout(15_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
-          results.push({ provider: 'gemini', model: 'gemini-2.0-flash', status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+          results.push({ provider: 'gemini', model: gModel, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
         } else {
           const data = await res.json();
           const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          results.push({ provider: 'gemini', model: 'gemini-2.0-flash', status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+          results.push({ provider: 'gemini', model: gModel, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
         }
       } catch (e) {
-        results.push({ provider: 'gemini', model: 'gemini-2.0-flash', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+        results.push({ provider: 'gemini', model: gModel, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
   }
