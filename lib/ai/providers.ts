@@ -3370,6 +3370,27 @@ export async function callAIQualityOrNull(
   return isWaterfallErrorResponse(text) ? null : text;
 }
 
+/**
+ * Тот же водопад, но отказ виден как `null`, а не как строка-заглушка.
+ *
+ * Повод (04.09, экран владельца). Scout-Innovator показал в панели диагноз
+ * «в ответе нет JSON-массива (len=55, head="Извините, сервис временно
+ * недоступен...")». Разбор был прав по букве и лгал по сути: массива и правда
+ * нет, но не потому, что модель ответила плохо, а потому, что не ответил
+ * НИКТО, и в разбор уехала заглушка водопада. Диагноз назвал вторичное
+ * следствие вместо причины, и на панели это выглядело как капризная модель, а
+ * не как мёртвые провайдеры.
+ *
+ * `callAIWaterfall` обязан возвращать строку: её показывают человеку в чате,
+ * где пустой ответ хуже извинения. Но всякий, кто ответ РАЗБИРАЕТ, а не
+ * показывает, должен получать честный null — как уже сделано у
+ * callAIQualityOrNull и callAIFastOrNull.
+ */
+export async function callAIWaterfallOrNull(messages: ChatMessage[]): Promise<string | null> {
+  const text = await callAIWaterfall(messages);
+  return isWaterfallErrorResponse(text) ? null : text;
+}
+
 // ── Fast Waterfall — race cheap providers ────────────────────
 // Для структурированных задач (JSON, бинарные ответы, голосование).
 // Races DeepSeek + MiMo + Gemini simultaneously.

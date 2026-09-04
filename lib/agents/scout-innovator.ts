@@ -10,7 +10,8 @@
 
 import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
-import { callQwen, callAIWaterfall, callAIFast } from '@/lib/ai/providers';
+import { callQwen, callAIWaterfallOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
@@ -163,6 +164,12 @@ async function readPlatformInventory(): Promise<string> {
 export function parseProposalsResponse(raw: string): { proposals: StructuredProposal[]; diag: string } {
   const text = (raw ?? '').trim();
   if (!text) return { proposals: [], diag: 'модель вернула пустую строку (waterfall исчерпан или провайдеры недоступны)' };
+  // Заглушка водопада — это НЕ ответ модели. Без этой ветки она доезжала до
+  // проверки на массив, и панель показывала «в ответе нет JSON-массива» там,
+  // где не ответил ни один провайдер (экран владельца 04.09).
+  if (isWaterfallErrorResponse(text)) {
+    return { proposals: [], diag: 'не ответил ни один провайдер (в разбор пришла заглушка водопада)' };
+  }
 
   // Снимаем markdown-фенсы ```json ... ``` перед поиском массива.
   const unfenced = text.replace(/```(?:json)?/gi, '').trim();
@@ -258,8 +265,15 @@ ${gitSection}
     // переставала рождать предложения. Идём через подтверждённо-живой из РФ
     // Qwen (DashScope), а водопад (DeepSeek/GLM, тоже доступны из РФ) — fallback.
     const qwen = await callQwen(messages);
-    const raw = qwen?.trim() ? qwen : await callAIWaterfall(messages);
+    // Отказ водопада приходит null, а не строкой-извинением: иначе он уезжает
+    // в разбор и превращается в «нет JSON-массива» (экран владельца 04.09).
+    const raw = qwen?.trim() ? qwen : await callAIWaterfallOrNull(messages);
     const model_used = qwen?.trim() ? 'qwen' : 'waterfall';
+    if (raw === null) {
+      const why = describeRecentAiFailures() ?? 'причины не записаны';
+      console.error(`[scout-innovator] Phase 1 (модель=${model_used}): провайдеры отказали — ${why}`);
+      return { proposals: [], diag: `модель=${model_used}: не ответил ни один провайдер (${why})`, modelUsed: model_used };
+    }
     const { proposals, diag } = parseProposalsResponse(raw);
     if (proposals.length === 0) {
       console.error(`[scout-innovator] Phase 1 (модель=${model_used}): ${diag}`);

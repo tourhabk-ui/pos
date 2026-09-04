@@ -16,6 +16,7 @@
  */
 
 import { callAIFast, callAIQualityOrNull, fetchWithRetry } from '@/lib/ai/providers';
+import { modelRefusalIssue } from '@/lib/notifications/post-validation';
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -51,6 +52,9 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   no_rss_items: 'ни один источник не дал свежих материалов',
   synthesis_null: 'модель не вернула синтез',
   all_sections_empty: 'после разбора все разделы оказались пусты',
+  // 04.09: в канал ушла реплика модели «не вижу текста, пришлите выдержки».
+  // Ворота проверяли правдивость поста и ни одни — что это вообще пост.
+  model_refusal: 'модель ответила репликой нам, а не постом — публиковать нечего',
   unsourced_percents: 'в тексте проценты без ссылки на источник',
   factcheck_judge_mute: 'проверяющая модель не ответила — выпуск придержан',
   // Четыре РАЗНЫЕ беды, которые до 18.08 сливались в одну строку выше.
@@ -77,6 +81,7 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   ai_channel_not_configured: 'TELEGRAM_AI_CHANNEL_ID не задан — публиковать некуда',
   ai_no_items: 'ни один AI-источник не дал материалов',
   ai_synthesis_null: 'модель не вернула AI-пост',
+  ai_model_refusal: 'модель ответила репликой нам, а не AI-постом — публиковать нечего',
   ai_unsourced_percents: 'в AI-посте проценты без ссылки на источник',
   ai_factcheck_failed: 'утверждения AI-поста не подтверждены статьями',
   ai_send_failed: 'AI-пост готов, но Telegram не принял отправку',
@@ -1101,6 +1106,18 @@ export async function runScoutDigest(): Promise<DigestResult> {
     };
   }
 
+  // Реплика модели вместо выпуска — не публикуем и называем это своим именем.
+  // Проверка стоит ПЕРВОЙ из содержательных: отказ проходит и числовой
+  // фактчек, и судью (утверждать ему нечего), а дальше уезжает в канал.
+  const digestRefusal = modelRefusalIssue(digest);
+  if (digestRefusal) {
+    return {
+      signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'model_refusal',
+      digest_skip_detail: digestRefusal,
+      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+    };
+  }
+
   // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
   // канал уходил дайджест из трёх строк «Нет значимых сигналов за сегодня».
   // Сообщение «сегодня новостей нет» не стоит публикации: оно ничего не несёт
@@ -1336,6 +1353,15 @@ export async function runScoutDigest(): Promise<DigestResult> {
       ];
       let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
       if (!aiDigest) aiSkip = 'ai_synthesis_null';
+
+      // Реплика модели вместо поста. Ровно это 04.09 и ушло в канал на 1800
+      // подписчиков: «не вижу текста статьи в сигнале… пришли выдержки».
+      // Ниже стоят ворота правдивости, и они такой текст пропускают законно —
+      // он ничего не утверждает.
+      if (aiDigest) {
+        const refusal = modelRefusalIssue(aiDigest);
+        if (refusal) { aiDigest = null; aiSkip = 'ai_model_refusal'; aiSkipDetail = refusal; }
+      }
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──
       // У модели только заголовки, поэтому любой процент, которого нет в источнике, — выдумка.

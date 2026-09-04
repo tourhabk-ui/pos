@@ -5,6 +5,13 @@ vi.mock('@/lib/ai/providers', () => ({
   callAIFast: vi.fn(),
   callAIWithModel: vi.fn(),
   callAIWaterfall: vi.fn(),
+  callAIWaterfallOrNull: vi.fn(),
+  callQwen: vi.fn(),
+  // Разбор опознаёт заглушку водопада как «не ответил ни один провайдер»
+  // (04.09), поэтому мок обязан отдавать и её распознаватель — иначе тест
+  // проверяет не тот код, что работает на проде.
+  isWaterfallErrorResponse: (t: string) => t.startsWith('Извините, сервис временно недоступен')
+    || t.startsWith('Сервис временно недоступен'),
 }));
 
 import { parseProposalsResponse } from '@/lib/agents/scout-innovator';
