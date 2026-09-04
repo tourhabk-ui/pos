@@ -24,6 +24,7 @@ interface BookingData {
   operator_phone: string | null;
   operator_telegram: string | null;
   cp_public_id: string;
+  sbp_available: boolean;
   pdf_token: string;
 }
 
@@ -102,6 +103,18 @@ export default function BookingSuccessClient() {
   const needsPayment = booking && !alreadyPaid &&
     ['new', 'pending_payment', 'confirmed'].includes(booking.status ?? '');
 
+  // Способы считаются ПООТДЕЛЬНОСТИ. До 04.09 вкладка СБП была вложена внутрь
+  // проверки ключа CloudPayments: настроенная Точка не помогала, если у карты
+  // ключа нет. Ключ при этом читался под другим именем, чем документирован, —
+  // и весь блок исчезал молча, оставляя обещание «переходите к оплате».
+  const canPayCard = Boolean(needsPayment && booking?.cp_public_id);
+  const canPaySbp  = Boolean(needsPayment && booking?.sbp_available);
+  const noPayWay   = Boolean(needsPayment && !canPayCard && !canPaySbp);
+
+  useEffect(() => {
+    if (payMethod === 'card' && !canPayCard && canPaySbp) setPayMethod('sbp');
+  }, [payMethod, canPayCard, canPaySbp]);
+
   // Определяем: открыто ли в Telegram WebView (блокирует попапы)
   const isInTgWebView = typeof navigator !== 'undefined' &&
     /Telegram/i.test(navigator.userAgent);
@@ -131,7 +144,9 @@ export default function BookingSuccessClient() {
           <p className="text-sm text-[var(--text-secondary)]">
             {alreadyPaid
               ? 'Оператор получил уведомление об оплате и подтвердит дальнейшие детали поездки.'
-              : 'Проверьте данные заявки и переходите к оплате, если всё подходит.'}
+              : noPayWay
+                ? 'Заявка у оператора. Онлайн-оплата сейчас недоступна — оператор свяжется с вами и подскажет, как оплатить.'
+                : 'Проверьте данные заявки и переходите к оплате, если всё подходит.'}
           </p>
         </div>
 
@@ -192,42 +207,61 @@ export default function BookingSuccessClient() {
                 <p className="text-2xl font-bold text-[var(--text-primary)]">{fmtPrice(booking.total_price)}</p>
               </div>
 
+              {/* Оплатить нечем — говорим вслух, а не прячем блок.
+                  Спрятанный блок читается как «так задумано», и турист уходит
+                  думать, что бронь оплаты не требует. */}
+              {noPayWay && (
+                <div className="pt-1 flex items-start gap-2.5 px-4 py-3 rounded-lg border border-[var(--warning)]"
+                  style={{ background: 'color-mix(in srgb, var(--warning) 10%, transparent)' }}>
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--warning)]" />
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">Онлайн-оплата недоступна</p>
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
+                      Заявка сохранена, номер выше — он же и подтверждение. Оператор получил уведомление
+                      и свяжется с вами; оплатить можно будет напрямую по его контактам ниже.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Pay */}
-              {needsPayment && booking.cp_public_id && (
+              {(canPayCard || canPaySbp) && (
                 <div className="pt-1 space-y-3">
                   <p className="text-[11px] text-center text-[var(--text-muted)]">
                     Перед оплатой убедитесь, что дата, количество участников и условия тура вам подходят.
                   </p>
 
-                  {/* Способ оплаты */}
-                  <div className="flex rounded-lg border border-[var(--border)] p-1 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPayMethod('card')}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors ${
-                        payMethod === 'card'
-                          ? 'bg-[var(--accent)] text-white'
-                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-                      }`}
-                    >
-                      <CreditCard className="w-3.5 h-3.5" />
-                      Картой
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPayMethod('sbp')}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors ${
-                        payMethod === 'sbp'
-                          ? 'bg-[var(--accent)] text-white'
-                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-                      }`}
-                    >
-                      <QrCode className="w-3.5 h-3.5" />
-                      По QR (СБП)
-                    </button>
-                  </div>
+                  {/* Переключатель — только когда способов правда два */}
+                  {canPayCard && canPaySbp && (
+                    <div className="flex rounded-lg border border-[var(--border)] p-1 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPayMethod('card')}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors ${
+                          payMethod === 'card'
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                        }`}
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        Картой
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPayMethod('sbp')}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors ${
+                          payMethod === 'sbp'
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                        }`}
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        По QR (СБП)
+                      </button>
+                    </div>
+                  )}
 
-                  {payMethod === 'card' ? (
+                  {canPayCard && payMethod === 'card' ? (
                     <div className="space-y-2">
                       {/* Telegram WebView warning */}
                       {isInTgWebView && (
