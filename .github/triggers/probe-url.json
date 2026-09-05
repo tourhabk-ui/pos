@@ -1,20 +1,19 @@
 {
-  "note": "Что случилось с дайджестом после переезда в свой крон (05.09, run 100 cron-scout-digest: curl exit 28 через 300 с). Вопрос: доделал ли сервер работу после того, как раннер бросил трубку — журнал последнего прогона scout-digest: digest_sent, ai_channel_sent, причина и длительность. Только чтение.",
+  "note": "Повтор чтения журнала разведчика. В 08:12 последний прогон был 06:00 (trigger orchestrator, внешний cron-job.org), а run 100 (08:03, trigger cron, раннер бросил трубку на 300 с) в журнале ещё не значился: либо сервер ещё работал, либо прогон умер. К выкату этой правки ответ должен быть однозначным. Только чтение.",
   "urls": [
     "https://vedarai.ru/api/cron/scout-diagnose"
   ],
   "grep": [
-    "ai_channel_sent",
-    "digest_sent",
-    "blockquote",
-    "duration_ms"
+    "\"trigger\":\"cron\"",
+    "ai_send_failed",
+    "blockquote"
   ],
   "around": [
-    "ai_channel_sent"
+    "\"runs\":["
   ],
-  "aroundLines": 14,
+  "aroundLines": 24,
   "aroundHits": 1,
   "retries": 0,
-  "bytes": 10000,
+  "bytes": 3000,
   "timeout": 60
 }
