@@ -23,11 +23,20 @@ const MARKER = JSON.parse(readFileSync(join(ROOT, '.github/triggers/map-pack-sna
 describe('снимок — тем же стилем, что карта в поле', () => {
   it('стиль строится buildVedarStyle из resolvePackSource, своей копии нет', () => {
     expect(SCRIPT).toMatch(/import \{ buildVedarStyle[^}]*\} from '@\/lib\/map\/vedar-style'/);
-    expect(SCRIPT).toMatch(/resolvePackSource\(pack as PackRegionId, BUILT_PACK_REGIONS, base\)/);
+    expect(SCRIPT).toMatch(/resolvePackSource\(pack as PackRegionId, BUILT_PACK_REGIONS, proxyBase\)/);
+    expect(SCRIPT).toMatch(/oceanUrl: src\.oceanUrl/);
     expect(SCRIPT).toMatch(/placesUrl: src\.placesUrl/);
     expect(SCRIPT).toMatch(/vectorUrl: src\.vectorUrl/);
     // Единственный «свой» стиль — проба WebGL из одного фона, без источников.
     expect(SCRIPT.match(/version: 8/g)?.length).toBe(1);
+  });
+
+  it('файлы бакета идут через локальный прокси (CORS бакета — только для сайта), с Range и кодом как есть', () => {
+    expect(SCRIPT).toMatch(/const proxyBase = `\$\{origin\}\/bucket`/);
+    expect(SCRIPT).toMatch(/if \(typeof range === 'string'\) headers\.range = range/);
+    expect(SCRIPT).toMatch(/res\.writeHead\(upstream\.status, out\)/);
+    expect(SCRIPT).toMatch(/'content-range'/);
+    expect(SCRIPT).toMatch(/запросов к бакету через прокси/);
   });
 
   it('pmtiles-протокол зарегистрирован, буфер кадра сохраняется', () => {
