@@ -38,6 +38,7 @@ import {
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
+import { repairTelegramHtml, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
 
 // Словарь причин пропуска переехал в чистый модуль (клиентский компонент
 // не может импортировать этот файл — он тянет пул БД). Re-export держит
@@ -509,7 +510,9 @@ async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text.substring(0, 4000),
+        // Срез по границе слова с закрытием тегов, а не вслепую (05.09):
+        // слепой substring оторвал </blockquote>, и Bot API ответил 400.
+        text: repairTelegramHtml(text, 4000),
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),
@@ -548,7 +551,7 @@ async function tgSendRich(
   try {
     const body: Record<string, unknown> = {
       chat_id: chatId,
-      text: text.substring(0, 4096),
+      text: repairTelegramHtml(text, TELEGRAM_TEXT_LIMIT),
       parse_mode: 'HTML',
       link_preview_options: coverUrl
         ? { url: coverUrl, prefer_large_media: true, show_above_text: true }

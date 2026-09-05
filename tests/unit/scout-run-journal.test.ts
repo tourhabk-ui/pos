@@ -22,18 +22,24 @@ const DIGEST = SRC('lib/agents/scout-digest.ts');
 const DIAG = SRC('app/api/cron/scout-diagnose/route.ts');
 
 describe('одна дорога в журнал', () => {
-  it('крон-роут, оркестратор и админка зовут runScoutDigestJournaled, а не голый runScoutDigest', () => {
+  it('крон-роут и админка зовут runScoutDigestJournaled, а не голый runScoutDigest', () => {
     expect(ROUTE).toMatch(/runScoutDigestJournaled\('cron'\)/);
-    expect(ORCH).toMatch(/runScoutDigestJournaled\('orchestrator'\)/);
     expect(ADMIN).toMatch(/runScoutDigestJournaled\('admin'\)/);
-    for (const [name, src] of [['route', ROUTE], ['orchestrator', ORCH], ['admin', ADMIN]] as const) {
+    for (const [name, src] of [['route', ROUTE], ['admin', ADMIN]] as const) {
       expect(src, `${name}: голый вызов мимо журнала`).not.toMatch(/\brunScoutDigest\(\)/);
       expect(src, `${name}: свой logAgentRun для scout-digest`).not.toMatch(/agent_id:\s*'scout-digest'/);
     }
   });
 
+  it('оркестратор дайджест НЕ зовёт — у него свой крон (05.09)', () => {
+    // Замер прогона 389: дайджест 321 с при бюджете evo.run 300 с. Вернуть
+    // его стадией — снова три мёртвых прогона подряд.
+    expect(ORCH).not.toMatch(/runScoutDigest(?:Journaled)?\(/);
+    expect(ORCH).toMatch(/digest_skip_reason: 'own_cron'/);
+  });
+
   it('журнал знает, кто позвал, и судьбу второго канала', () => {
-    expect(RUN).toMatch(/export type ScoutTrigger = 'cron' \| 'orchestrator' \| 'admin'/);
+    expect(RUN).toMatch(/export type ScoutTrigger = 'cron' \| 'admin'/);
     expect(RUN).toMatch(/metadata:\s*\{\s*trigger,/);
     expect(RUN).toMatch(/ai_channel_sent: result\.ai_channel_sent \?\? null/);
     expect(RUN).toMatch(/ai_channel_skip_reason: result\.ai_channel_skip_reason \?\? null/);

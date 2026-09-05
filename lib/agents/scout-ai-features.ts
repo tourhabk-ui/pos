@@ -38,6 +38,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { intelSignature } from '@/lib/agents/evo/claim-signature';
 import { scrubInjectionLines } from '@/lib/agents/evo/memory-guard';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { repairTelegramHtml, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
 
 /** Поверхности Ведара, к которым привязывается ИИ-возможность. */
 export const AI_FEATURE_SURFACES = [
@@ -420,7 +421,7 @@ async function sendToOwner(text: string): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text.slice(0, 4096),
+        text: repairTelegramHtml(text, TELEGRAM_TEXT_LIMIT),
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
       }),
