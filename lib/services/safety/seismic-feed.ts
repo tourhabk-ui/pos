@@ -20,6 +20,20 @@ export interface SeismicFeed {
   events: SeismicEvent[];
   source: 'kbgsras' | 'usgs' | 'none';
   updatedAt: string;
+  /**
+   * Когда мы В ПОСЛЕДНИЙ РАЗ спрашивали источник.
+   *
+   * Отдельно от времени события намеренно. На экране стояло «41 ч назад» — это
+   * возраст толчка, и по нему нельзя понять, проверяли ли мы что-нибудь за эти
+   * сорок один час. Человек в поле читает такую строку как «связи нет» или
+   * «приложение зависло», хотя новых толчков просто не было.
+   *
+   * Для ленты КБГС это время последнего ingest-прогона (крон, ~20 мин), для
+   * USGS — время живого запроса.
+   */
+  checkedAt: string | null;
+  /** Ответ пришёл из кэша, а не от источника. */
+  fromCache: boolean;
 }
 
 let usgsCache: { data: { events: SeismicEvent[]; source: 'usgs' }; ts: number } | null = null;
@@ -42,7 +56,7 @@ function parseDepth(text: string | null): number | null {
   return parseInt(m[1] ?? m[2]);
 }
 
-async function fetchFromKbgsras(): Promise<{ events: SeismicEvent[]; source: 'kbgsras' } | null> {
+async function fetchFromKbgsras(): Promise<{ events: SeismicEvent[]; source: 'kbgsras'; checkedAt: number | null } | null> {
   try {
     const { rows } = await pool.query<{
       id: string; title: string; description: string | null; created_at: Date;
@@ -71,14 +85,24 @@ async function fetchFromKbgsras(): Promise<{ events: SeismicEvent[]; source: 'kb
         };
       })
       .filter((e) => e.magnitude > 0);
-    return events.length > 0 ? { events, source: 'kbgsras' } : null;
+    // Время последнего прогона ingest: когда ленту КБГС спрашивали на самом
+    // деле. Нет строки — значит не спрашивали ни разу, и это честный null, а
+    // не «сейчас».
+    const { rows: run } = await pool.query<{ at: Date | null }>(
+      `SELECT MAX(created_at) AS at FROM external_alerts WHERE alert_type = 'earthquake'`,
+    ).catch(() => ({ rows: [{ at: null }] }));
+    const checkedAt = run[0]?.at ? new Date(run[0].at).getTime() : null;
+    return events.length > 0 ? { events, source: 'kbgsras', checkedAt } : null;
   } catch {
     return null;
   }
 }
 
-async function fetchFromUsgs(): Promise<{ events: SeismicEvent[]; source: 'usgs' }> {
-  if (usgsCache && Date.now() - usgsCache.ts < USGS_TTL) return usgsCache.data;
+async function fetchFromUsgs(fresh = false): Promise<{ events: SeismicEvent[]; source: 'usgs'; checkedAt: number; fromCache: boolean }> {
+  // `fresh` пропускает кэш, но не ограничитель: до источника доходит только
+  // то, что разрешил allowFresh (см. lib/safety/refresh-throttle).
+  const useCache = usgsCache && Date.now() - usgsCache.ts < USGS_TTL && !fresh;
+  if (useCache && usgsCache) return { ...usgsCache.data, checkedAt: usgsCache.ts, fromCache: true };
   const url =
     'https://earthquake.usgs.gov/fdsnws/event/1/query' +
     '?format=geojson&minlatitude=50&maxlatitude=63&minlongitude=155&maxlongitude=165' +
@@ -98,18 +122,35 @@ async function fetchFromUsgs(): Promise<{ events: SeismicEvent[]; source: 'usgs'
     lat: f.geometry.coordinates[1] ?? null,
   }));
   const result = { events, source: 'usgs' as const };
-  usgsCache = { data: result, ts: Date.now() };
-  return result;
+  const ts = Date.now();
+  usgsCache = { data: result, ts };
+  return { ...result, checkedAt: ts, fromCache: false };
 }
 
 /** Единая точка получения сейсмоленты. Никогда не бросает — на сбое отдаёт пусто. */
-export async function getSeismicFeed(): Promise<SeismicFeed> {
+export async function getSeismicFeed(opts: { fresh?: boolean } = {}): Promise<SeismicFeed> {
   const local = await fetchFromKbgsras();
-  if (local) return { ...local, updatedAt: new Date().toISOString() };
+  if (local) {
+    return {
+      events: local.events,
+      source: local.source,
+      updatedAt: new Date().toISOString(),
+      checkedAt: local.checkedAt !== null ? new Date(local.checkedAt).toISOString() : null,
+      fromCache: false,
+    };
+  }
   try {
-    const usgs = await fetchFromUsgs();
-    return { ...usgs, updatedAt: new Date().toISOString() };
+    const usgs = await fetchFromUsgs(opts.fresh === true);
+    return {
+      events: usgs.events,
+      source: usgs.source,
+      updatedAt: new Date().toISOString(),
+      checkedAt: new Date(usgs.checkedAt).toISOString(),
+      fromCache: usgs.fromCache,
+    };
   } catch {
-    return { events: [], source: 'none', updatedAt: new Date().toISOString() };
+    // Источник не ответил. `checkedAt: null` — «не знаем, когда данные», а не
+    // «данные сейчас»: пустая лента со свежим временем врёт дважды.
+    return { events: [], source: 'none', updatedAt: new Date().toISOString(), checkedAt: null, fromCache: false };
   }
 }
