@@ -1,11 +1,8 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 11,
-  "why": "05.09: после миграции 935 (условия отмены от владельца) — перепись готовности и фиды Авито/Яндекс: сколько туров ушло на витрины",
+  "run": 12,
+  "why": "05.09: фид Яндекса отвечал 401 (не был в реестре публичных роутов) — проверка после внесения",
   "urls": [
-    "https://vedarai.ru/api/health?deploy=1",
-    "https://vedarai.ru/api/cron/channel-readiness",
-    "https://vedarai.ru/api/channels/avito/feed",
     "https://vedarai.ru/api/channels/yandex/feed"
   ]
 }
