@@ -92,8 +92,13 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
           >
             {href === '/kuzmich' ? (
               /* Кузьмич — медальон-гравюра, приподнятый над панелью (north-star
-                 макет 31.07). Портрет вместо абстрактного компаса: проводник —
-                 лицо платформы, и это его вход. Зона нажатия — весь Link. */
+                 макет 31.07). Марка вместо абстрактного компаса: проводник —
+                 лицо платформы, и это его вход. Зона нажатия — весь Link.
+                 С 05.09 в медальоне медведь из брендового набора, а не портрет:
+                 портрет остаётся секции «Проводник Кузьмич» на главной, где
+                 он говорит; медведь раньше стоял в строке поиска над таб-баром,
+                 и на одном экране Кузьмич встречался дважды (решение
+                 владельца 05.09). */
               <span
                 style={{
                   display: 'flex',
@@ -112,8 +117,8 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                 }}
               >
                 <img
-                  src="/images/kuzmich/portrait-96.webp"
-                  srcSet="/images/kuzmich/portrait-96.webp 96w, /images/kuzmich/portrait-192.webp 192w"
+                  src="/images/brand/bear-64.webp"
+                  srcSet="/images/brand/bear-64.webp 64w, /images/brand/bear-128.webp 128w, /images/brand/bear-192.webp 192w"
                   sizes="48px"
                   width={48}
                   height={48}
