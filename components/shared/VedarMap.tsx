@@ -809,6 +809,7 @@ export default function VedarMap({
             osmUrls: pack.source.osmUrls,
             vectorUrl: pack.source.vectorUrl,
             placesUrl: pack.source.placesUrl,
+            oceanUrl: pack.source.oceanUrl,
           }, region, tier);
           try {
             // Соседи попадают в индекс имён вместе со своими источниками:

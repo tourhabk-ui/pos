@@ -3112,6 +3112,8 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               // Места платформы (05.09): свой слой поверх OSM, по реестру
               // PLACES_BUILT; null — слоя нет, и карта его не просит.
               placesUrl: fieldBaseMap.source.placesUrl,
+              // Океан обзора (05.09): у пакета поля его нет (null), он у обзора.
+              oceanUrl: fieldBaseMap.source.oceanUrl,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}

@@ -223,6 +223,23 @@ function manifestUrlFor(region: PackRegionId, base: string): string | null {
 }
 
 /**
+ * Океан обзорного яруса (05.09, build_ocean.py): bbox обзора минус полигоны
+ * суши OSM. Ложится поверх гипсометрии, чтобы дыры покрытия DEM посреди
+ * моря не читались сушей. Только у обзора: клетки читают DEM на полной
+ * сетке, и ноль высоты там — честное море.
+ */
+export function oceanKey(region: PackRegionId): string {
+  return `map-packs/${region}.ocean.geojson`;
+}
+
+/** Обещание, что океан обзора залит (map-overview-ocean.yml). Ставится ПОСЛЕ прогона. */
+export const OVERVIEW_OCEAN_BUILT = false;
+
+function oceanUrlFor(region: PackRegionId, base: string): string | null {
+  return isOverviewId(region) && OVERVIEW_OCEAN_BUILT ? `${base}/${oceanKey(region)}` : null;
+}
+
+/**
  * Имена слоёв внутри векторного пакета — контракт между build_vector.sh и
  * стилем (source-layer). Горизонтали двумя слоями: частые (20 м) отдельно,
  * они появляются только с z13.
@@ -300,6 +317,8 @@ export type PackSource =
       placesUrl: string | null;
       /** Паспорт пакета (число объектов по слоям OSM); null — не залит (см. MANIFEST_BUILT). */
       manifestUrl: string | null;
+      /** Океан поверх гипсометрии, GeoJSON; только у обзора и только когда залит (OVERVIEW_OCEAN_BUILT). */
+      oceanUrl: string | null;
     }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
@@ -345,6 +364,7 @@ export function resolvePackSource(
       // Посёлки-ориентиры нужнее всего именно на обзоре (z4-7).
       placesUrl: placesUrlFor(region, base),
     manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
     };
   }
   // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
@@ -364,6 +384,7 @@ export function resolvePackSource(
       vectorUrl: `pmtiles://${base}/${vectorKey(region)}`,
       placesUrl: placesUrlFor(region, base),
     manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
     };
   }
   if (!builtRegions.includes(region)) {
@@ -387,6 +408,7 @@ export function resolvePackSource(
     vectorUrl: VECTOR_BUILT_REGIONS.includes(region) ? `pmtiles://${base}/${vectorKey(region)}` : null,
     placesUrl: placesUrlFor(region, base),
     manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
   };
 }
 
