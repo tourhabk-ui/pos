@@ -260,6 +260,14 @@ async function serve(
         if (key.includes('.terrain.pmtiles')) {
           stats.log.push(`${key} ${range ?? '-'} → ${upstream.status} len=${out['content-length'] ?? '-'} cr=${out['content-range'] ?? '-'} body=${body.length}`);
         }
+        // Частичные ответы (206) браузеру НЕ кэшировать. Прогон 11 (05.09):
+        // прокси отдал 4778 Б с Content-Length 4778, а страница прочла 3232 —
+        // и это при двух соседних Range-запросах к тому же файлу в полёте.
+        // Так Chromium склеивает частичные записи одного адреса в своём
+        // HTTP-кэше; ровно от этого читатель PMTiles на Windows-Chrome ходит
+        // с cache: 'no-store'. Тот же заголовок карта в поле получает от
+        // хранилища (upload-pack.ts, CacheControl у архивов).
+        out['cache-control'] = 'no-store';
         res.writeHead(upstream.status, out);
         res.end(body);
         return;

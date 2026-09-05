@@ -32,6 +32,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
+import { packCacheControl } from '@/lib/map/pack-cache-policy';
 import {
   placesKey, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
 } from '@/lib/map/pack-source';
@@ -122,7 +123,7 @@ async function main(): Promise<number> {
 
   // Фаза 2 — заливки, только когда все ответы на руках.
   for (const f of fetched) {
-    const res = await uploadToS3(placesKey(f.region), f.body, 'application/geo+json');
+    const res = await uploadToS3(placesKey(f.region), f.body, 'application/geo+json', packCacheControl(placesKey(f.region)));
     console.log(`  залито ${f.region} -> ${res.url}`);
   }
   console.log(`залито пакетов: ${fetched.length}. Дальше — внести их в PLACES_BUILT (lib/map/pack-source.ts).`);

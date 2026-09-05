@@ -20,6 +20,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
+import { packCacheControl } from '@/lib/map/pack-cache-policy';
 import {
   osmKey, manifestKey, OSM_LAYERS, OSM_BUILT_REGIONS, BUILT_PACK_REGIONS, BUILT_GRID_CELLS,
   type OsmLayer,
@@ -106,7 +107,8 @@ async function main(): Promise<number> {
 
   // Фаза 2 — записи, только когда все числа на руках.
   for (const m of manifests) {
-    const res = await uploadToS3(manifestKey(m.region as PackRegionId), Buffer.from(JSON.stringify(m)), 'application/json');
+    const mk = manifestKey(m.region as PackRegionId);
+    const res = await uploadToS3(mk, Buffer.from(JSON.stringify(m)), 'application/json', packCacheControl(mk));
     console.log(`  записан ${m.region} -> ${res.url}`);
   }
   console.log(`записано паспортов: ${manifests.length}. Дальше — внести их в MANIFEST_BUILT (lib/map/pack-source.ts).`);

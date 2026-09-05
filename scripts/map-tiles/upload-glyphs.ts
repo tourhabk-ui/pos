@@ -22,6 +22,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
+import { packCacheControl } from '@/lib/map/pack-cache-policy';
 import { glyphKey, PACK_GLYPHS } from '@/lib/map/pack-source';
 
 /** Тот же источник, что у шага «Глифы» в map-pack-build.yml. */
@@ -69,7 +70,7 @@ async function main(): Promise<number> {
 
   // Фаза 2 — заливка, когда все файлы на руках.
   for (const f of files) {
-    const res = await uploadToS3(glyphKey(font, f.range), f.body, 'application/x-protobuf');
+    const res = await uploadToS3(glyphKey(font, f.range), f.body, 'application/x-protobuf', packCacheControl(glyphKey(font, f.range)));
     console.log(`  залит ${f.range} -> ${res.url}`);
   }
   console.log(`залито диапазонов: ${files.length}`);

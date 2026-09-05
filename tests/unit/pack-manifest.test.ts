@@ -118,7 +118,8 @@ describe('ключ и реестр', () => {
 describe('кто пишет и кто читает', () => {
   it('заливка пакета пишет паспорт с тех же файлов, что залила', () => {
     expect(UPLOAD).toMatch(/countGeoJsonFeatures\(body\.toString\('utf-8'\)\)/);
-    expect(UPLOAD).toMatch(/uploadToS3\(manifestKey\(region as PackRegionId\)/);
+    // Ключ паспорта берётся один раз: им же заливка называет и политику кэша.
+    expect(UPLOAD).toMatch(/const mk = manifestKey\(region as PackRegionId\);\s*const mres = await uploadToS3\(mk,/);
   });
 
   it('перепись: сначала все чтения, потом все записи; workflow зовёт её', () => {

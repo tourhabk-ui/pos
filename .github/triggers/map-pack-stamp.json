@@ -1,0 +1,6 @@
+{
+  "note": "Пуш этого файла перештамповывает Cache-Control у файлов пакетов карты в хранилище (map-pack-stamp.yml) по политике lib/map/pack-cache-policy.ts: архивам по Range — no-store, остальному — no-cache. dry_run — только посчитать; only — pmtiles (только архивы) или пусто (все). Меняйте run, чтобы прогон был новым.",
+  "run": 1,
+  "dry_run": false,
+  "only": ""
+}

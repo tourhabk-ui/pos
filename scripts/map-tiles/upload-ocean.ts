@@ -15,6 +15,7 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
+import { packCacheControl } from '@/lib/map/pack-cache-policy';
 import { oceanKey } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 
@@ -43,7 +44,7 @@ async function main(): Promise<number> {
     console.error('Это не слой океана (ждём FeatureCollection с одним Polygon/MultiPolygon kind=ocean) — не заливаю.');
     return 1;
   }
-  const res = await uploadToS3(oceanKey(OVERVIEW_ID), body, 'application/geo+json');
+  const res = await uploadToS3(oceanKey(OVERVIEW_ID), body, 'application/geo+json', packCacheControl(oceanKey(OVERVIEW_ID)));
   console.log(`океан: ${(size / 1024).toFixed(0)} КБ -> ${res.url}`);
   console.log('Осталось одно, руками и намеренно: OVERVIEW_OCEAN_BUILT = true (lib/map/pack-source.ts).');
   return 0;
