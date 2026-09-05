@@ -124,6 +124,15 @@ describe('оборванный слой заказывается заново �
     expect(SRC).toMatch(/src\.setData\(file\)/);
   });
 
+  it('05.09: у PMTiles-источников (рельеф, вектор) нет setData — повтор идёт setUrl тем же адресом', () => {
+    // Первый скрин с поля: «cell-53n158e.terrain.pmtiles: Failed to fetch» —
+    // файл в бакете цел, связь моргнула, а повтора у raster-dem не было вовсе.
+    // MapLibre 6.6: setUrl → setSourceProperty → load(true), TileJSON заново.
+    expect(SRC).toMatch(/function hasSetUrl\(src: unknown\)/);
+    expect(SRC).toMatch(/else if \(hasSetUrl\(src\)\)/);
+    expect(SRC).toMatch(/src\.setUrl\(file\)/);
+  });
+
   it('повтор ровно один на источник — бесконечные попытки на глухом канале жгут батарею', () => {
     expect(SRC).toMatch(/const retriedSources = new Set<string>\(\)/);
     expect(SRC).toMatch(/!retriedSources\.has\(sourceId\)/);
