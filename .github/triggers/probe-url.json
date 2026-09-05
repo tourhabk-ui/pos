@@ -1,22 +1,33 @@
 {
-  "note": "Разведка перед слиянием гейзеров, только чтение. Проба 437 отказала: 796c18b3 — не маршрут (это id МЕСТА из пар route_waypoints, а поиск /api/routes/search отдаёт id в пространстве ark_id, для routes-dedup непригодном). route-geometry-census отдаёт r.id::text — то пространство, по которому сверяет дедуп, — плюс источник линии, число вершин и число путевых точек. По нему выбирается keep среди четырёх гейзерных записей: «Долина гейзеров», «Гейзеры Кроноцкого заповедника» (120d3427), «Гейзеры Камчатки», «Долина гейзеров и кальдера Узон».",
-  "urls": [
-    "https://vedarai.ru/api/cron/route-geometry-census?q=%D0%B3%D0%B5%D0%B9%D0%B7%D0%B5%D1%80"
+  "note": "СУХОЙ прогон слияния гейзеров. По переписи 438 (route-geometry-census?q=гейзер): keep «Долина гейзеров» 385d1c98 — единственная запись с СНЯТЫМ треком (external, 96 вершин, улика recorded, 1.4 км), merge «Гейзеры Кроноцкого заповедника» 120d3427 — без линии и без координат, 1 путевая точка + 2 unknown. Слово владельца: «это тоже самое, что и долина гейзеров». Ничего не пишется — план читается глазами до боевого прогона.",
+  "urls": [],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/routes-dedup",
+      "body": {
+        "dry_run": true,
+        "pairs": [
+          {
+            "keep": "385d1c98-14d2-4173-bdb6-03eb5d596db0",
+            "merge": "120d3427-d8b9-42ed-b0ac-582449a9c202"
+          }
+        ]
+      }
+    }
   ],
   "grep": [
-    "120d3427",
-    "\"source\":\"external\"",
-    "\"source\":\"waypoints_synthetic\"",
-    "\"source\":null"
+    "adoptGeometry\":false",
+    "adoptGeometry\":true",
+    "conflicts",
+    "problems"
   ],
   "around": [
-    "\"title\":\"Долина гейзеров\"",
-    "\"title\":\"Гейзеры",
-    "\"title\":\"Долина Гейзеров"
+    "\"transfer\"",
+    "\"warnings\""
   ],
-  "aroundLines": 14,
-  "aroundHits": 4,
+  "aroundLines": 60,
+  "aroundHits": 1,
   "retries": 0,
-  "bytes": 12000,
+  "bytes": 10000,
   "timeout": 60
 }
