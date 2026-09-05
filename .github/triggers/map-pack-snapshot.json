@@ -1,6 +1,6 @@
 {
   "note": "Пуш этого файла снимает пакеты карты безголовым MapLibre на раннере (map-pack-snapshot.yml) и кладёт кадры артефактом прогона. packs — список id пакетов (район, клетка cell-<lat>n<lng>e или krai-overview); пусто — все собранные (123 пакета, ~360 кадров, долго). theme — dark или light. force_ocean — подложить океан обзора из бакета до включения флага, чтобы посмотреть глазами.",
-  "run": 5,
+  "run": 6,
   "packs": [
     "krai-overview",
     "avacha-group",
@@ -9,5 +9,5 @@
     "cell-62n166e"
   ],
   "theme": "dark",
-  "force_ocean": true
+  "force_ocean": false
 }

@@ -22,7 +22,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildVedarStyle, NODATA_SENTINEL_M } from '@/lib/map/vedar-style';
+import { buildVedarStyle, vedarMapPalette, NODATA_SENTINEL_M, NODATA_TRANSPARENT } from '@/lib/map/vedar-style';
 
 const ROOT = process.cwd();
 const PY = readFileSync(join(ROOT, 'scripts/map-tiles/build_terrain.py'), 'utf-8');
@@ -43,7 +43,7 @@ describe('сигнальная высота «нет данных» — одно
     expect(NODATA_SENTINEL_M).toBeLessThan(0);
   });
 
-  it('ступень NODATA_SENTINEL_M — свой цвет, отдельный от воды и от суши, в обеих темах', () => {
+  it('ступень NODATA_SENTINEL_M — прозрачная, а «не знаю» — фон карты, не цвет воды и не суши', () => {
     for (const theme of ['dark', 'light'] as const) {
       const style = buildVedarStyle(theme, {
         terrainUrl: 'pmtiles://https://s3.example.ru/b/map-packs/r.terrain.pmtiles',
@@ -63,11 +63,16 @@ describe('сигнальная высота «нет данных» — одно
       const idx = stops.indexOf(NODATA_SENTINEL_M);
       expect(idx, 'ступень NODATA_SENTINEL_M не найдена в color-relief').toBeGreaterThanOrEqual(0);
       const nodataColor = stops[idx + 1] as string;
-      // Сосед снизу (вода) и сосед сверху (суша, ступень 0.5) — другого цвета.
+      // 05.09: дыра одного пакета закрывала данные соседа полосой в полтайла
+      // (тайл z8 заходит за границу клетки). Ступень прозрачна, «не знаю»
+      // лежит фоном — и отличается от воды и от суши.
+      expect(nodataColor, theme).toBe(NODATA_TRANSPARENT);
       const waterColor = stops[idx - 1] as string;
       const seaLevelColor = stops[stops.indexOf(0.5) + 1] as string;
-      expect(nodataColor, theme).not.toBe(waterColor);
-      expect(nodataColor, theme).not.toBe(seaLevelColor);
+      const bg = (style.layers.find(l => l.id === 'bg') as { paint: Record<string, string> }).paint['background-color'];
+      expect(bg, theme).not.toBe(waterColor);
+      expect(bg, theme).not.toBe(seaLevelColor);
+      expect(bg, theme).toBe(vedarMapPalette(theme).nodata);
     }
   });
 });

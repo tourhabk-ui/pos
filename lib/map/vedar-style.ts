@@ -56,6 +56,8 @@ export type VedarMapTheme = 'dark' | 'light';
  * сушу: «не знаю» не заполняется правдоподобной ложью (§4.0 CLAUDE.md).
  */
 export const NODATA_SENTINEL_M = -500;
+/** Ступень дыры покрытия в гипсометрии — прозрачная, см. MapPalette.nodata. */
+export const NODATA_TRANSPARENT = 'rgba(0,0,0,0)';
 
 /**
  * Палитра карты по токенам §2. Держится здесь, а не читается из CSS:
@@ -65,6 +67,15 @@ export const NODATA_SENTINEL_M = -500;
 interface MapPalette {
   /** Фон под всем — там, где нет ни рельефа, ни воды. */
   background: string;
+  /**
+   * «Не знаю» — цвет дыры покрытия DEM. Лежит ФОНОМ карты, а не ступенью
+   * гипсометрии (05.09): пакеты соседей накладываются, и тайл z8 одной
+   * клетки заходит за её границу; если дыра красится непрозрачно, она
+   * закрывает данные соседа полосой в полтайла (скрин владельца 06:44,
+   * серая полоса на стыке клеток при z8-9). Ступень дыры прозрачна, и
+   * там, где данных нет НИ У КОГО, виден этот фон.
+   */
+  nodata: string;
   /** Тень склона и подсветка гребня — hillshade считается из высот. */
   shadow: string;
   highlight: string;
@@ -138,6 +149,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   // контура»), так что это не новая эстетика, а продолжение принятой.
   dark: {
     background: '#0D1117',   // --bg-primary dark
+    nodata: '#3D3A35',
     shadow: '#05070A',
     // Первый живой рендер 02.09 (Авачинский перевал): рельеф «почти
     // чёрный» — подсветка гребня #2A3B33 от фона #0D1117 не отличалась.
@@ -175,10 +187,11 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     relief: [
       [-10000, '#12303F'],
       [NODATA_SENTINEL_M - 0.5, '#12303F'],
-      // Дыра покрытия — тёплый нейтральный серый, ни вода, ни суша: «не
-      // знаю» не притворяется ответом.
-      [NODATA_SENTINEL_M, '#3D3A35'],
-      [NODATA_SENTINEL_M + 0.5, '#3D3A35'],
+      // Дыра покрытия — ПРОЗРАЧНАЯ, а «не знаю»-серый лежит фоном карты
+      // (nodata). См. NODATA_TRANSPARENT: дыра одного пакета не должна
+      // закрывать данные соседа.
+      [NODATA_SENTINEL_M, NODATA_TRANSPARENT],
+      [NODATA_SENTINEL_M + 0.5, NODATA_TRANSPARENT],
       [0.5, '#12303F'],
       [1, '#16261B'],
       [200, '#1B2E21'],
@@ -206,6 +219,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   // темнее фона — контраст растёт, а не падает.
   light: {
     background: '#F5F0EB',   // --bg-primary light
+    nodata: '#DAD5C9',
     shadow: '#6B6560',
     highlight: '#FFFFFF',
     accentShadow: '#8A7F72',
@@ -235,9 +249,9 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     relief: [
       [-10000, '#BFD9E8'],
       [NODATA_SENTINEL_M - 0.5, '#BFD9E8'],
-      // Дыра покрытия — тёплый нейтральный бежево-серый, ни вода, ни суша.
-      [NODATA_SENTINEL_M, '#DAD5C9'],
-      [NODATA_SENTINEL_M + 0.5, '#DAD5C9'],
+      // Дыра покрытия — прозрачная, «не знаю» — фоном карты (nodata).
+      [NODATA_SENTINEL_M, NODATA_TRANSPARENT],
+      [NODATA_SENTINEL_M + 0.5, NODATA_TRANSPARENT],
       [0.5, '#BFD9E8'],
       [1, '#E3EBD3'],
       [200, '#D9E3C2'],
@@ -403,7 +417,9 @@ export function buildVedarStyle(
       ...vedarPlacesSource(sources, ''),
     },
     layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
+      // Фон — «не знаю»: сквозь прозрачные дыры покрытия и за краем пакетов
+      // виден он, а не цвет страницы.
+      { id: 'bg', type: 'background', paint: { 'background-color': p.nodata } },
       // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
       reliefLayer(p, ''),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
@@ -565,6 +581,15 @@ export function sourceUrlIndex(sources: Record<string, unknown>): Record<string,
 }
 
 export type RegionTier = 'base' | 'detail';
+
+/**
+ * Ярус `detail` (горизонтали, OSM-заливки и линии) подкладывается соседям
+ * только с этого зума: ниже contour-minor всё равно не рисуется (minzoom 11),
+ * а обзорному виду хватает рельефа и вершин. Живёт здесь, а не в VedarMap:
+ * снимки на раннере (snapshot-packs) собирают подкладки тем же правилом, а
+ * компонент с CSS-импортом в tsx не грузится.
+ */
+export const DETAIL_MIN_ZOOM = 10;
 
 export interface RegionOverlay {
   sources: Record<string, unknown>;
