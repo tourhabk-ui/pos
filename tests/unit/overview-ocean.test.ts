@@ -94,6 +94,18 @@ describe('ключ, обещание, проверка', () => {
 });
 
 describe('сборщик и заливка — отказ, не пустой океан', () => {
+  it('кольца — по RFC 7946: orient() и проверка is_ccw, не предположение', () => {
+    // 05.09: без этого суша красилась морем — MapLibre судит по знаку площади.
+    expect(PY).toMatch(/from shapely\.geometry\.polygon import orient/);
+    expect(PY).toMatch(/orient\(pg, 1\.0\)/);
+    expect(PY).toMatch(/pg\.exterior\.is_ccw/);
+  });
+
+  it('заливка океана — только на обзорных зумах (maxzoom 8)', () => {
+    const layer = (buildVedarStyle('dark', SRC) as { layers: Array<Layer & { maxzoom?: number }> }).layers.find((l) => l.id === 'vedar-ocean');
+    expect(layer?.maxzoom).toBe(8);
+  });
+
   it('build_ocean.py отказывает без суши и при неправдоподобной доле', () => {
     expect(PY).toMatch(/ни один полигон суши не пересёк bbox/);
     expect(PY).toMatch(/land_share < 0\.05 or land_share > 0\.95/);

@@ -1010,6 +1010,9 @@ function vedarOceanLayers(sources: VedarStyleSources, p: MapPalette, ns: string)
   if (!sources.oceanUrl) return [];
   return [{
     id: `vedar-ocean${ns}`, type: 'fill', source: `vedar-ocean${ns}`,
+    // Только на обзорных зумах: с z8 клетка читает DEM на полной сетке, и
+    // берег в 200 м упрощения лёг бы поверх честного берега по высоте.
+    maxzoom: 8,
     paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
   }];
 }

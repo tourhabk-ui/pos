@@ -266,8 +266,12 @@ export function oceanKey(region: PackRegionId): string {
 }
 
 /** Обещание, что океан обзора залит (map-overview-ocean.yml). Ставится ПОСЛЕ прогона. */
-// Прогон map-overview-ocean run 1 (33952766081, 05.09): 180 КБ залито.
-export const OVERVIEW_OCEAN_BUILT = true;
+// Прогон map-overview-ocean run 1 (33952766081, 05.09) залил 180 КБ, и на
+// телефоне владельца синим оказалась СУША: кольца полигона шли в порядке
+// GEOS (внешнее по часовой), а MapLibre судит «внешнее/дыра» по знаку
+// площади — дыры-суша стали фигурами, рамка выпала. Выключено до пересборки
+// с ориентацией RFC 7946 и осмотра кадров глазами (не «idle без ошибок»).
+export const OVERVIEW_OCEAN_BUILT = false;
 
 function oceanUrlFor(region: PackRegionId, base: string): string | null {
   return isOverviewId(region) && OVERVIEW_OCEAN_BUILT ? `${base}/${oceanKey(region)}` : null;
