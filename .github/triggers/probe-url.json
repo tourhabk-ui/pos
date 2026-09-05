@@ -1,24 +1,13 @@
 {
-  "note": "После миграции 933 и выката: (1) перепись подозреваемых по флагу МЧС — паспорт есть, флаг не true; вердикта нет, разбор по паспорту; (2) перепись геометрии по «гейзер» — призрак «Долина Гейзеров-Долина Смерти» (f447bbe2) должен исчезнуть из живых, слитые «Гейзеры Кроноцкого заповедника» тоже. Маркер свежести — имя новой пробы; выкат Timeweb 6-50 минут, бюджет 50 повторов.",
+  "note": "Приёмка публикации вывода пробы в check-run (05.09). Запрос — уже выкаченная перепись флага, только чтение; смысл прогона — увидеть check-run «probe-output» на коммите с тем же текстом, что в логе.",
   "urls": [
-    "https://vedarai.ru/api/cron/passport-flag-census",
-    "https://vedarai.ru/api/cron/route-geometry-census?q=%D0%B3%D0%B5%D0%B9%D0%B7%D0%B5%D1%80"
+    "https://vedarai.ru/api/cron/passport-flag-census"
   ],
   "grep": [
     "suspects_total",
-    "f447bbe2",
-    "120d3427",
-    "\"title\":\"Долина гейзеров\""
+    "verdict"
   ],
-  "around": [
-    "suspects_total",
-    "\"title\":\"Долина гейзеров\""
-  ],
-  "aroundLines": 12,
-  "aroundHits": 1,
-  "retries": 50,
-  "retryDelay": 60,
-  "until": "passport_flag_census_v1",
-  "bytes": 12000,
+  "retries": 0,
+  "bytes": 4000,
   "timeout": 60
 }

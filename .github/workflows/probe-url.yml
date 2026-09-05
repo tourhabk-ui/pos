@@ -16,6 +16,17 @@ on:
     paths:
       - '.github/triggers/probe-url.json'
 
+# Вывод пробы дублируется в check-run на коммите (05.09, решение владельца).
+# Лог job GitHub отдаёт редиректом в blob-хранилище Azure, а сессия
+# Claude за прокси с политикой этот хост не видит: проба 441 прошла
+# зелёной, а прочитать её цифры было нечем, пока не поднялся GitHub MCP.
+# Check-run — репозиторный эндпоинт (/repos/{owner}/{repo}/check-runs/{id}),
+# он читается всегда. Лог остаётся первичным; check-run — второй экземпляр
+# того же текста, обрезанный по лимиту GitHub в 65 535 символов.
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -31,12 +42,18 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Fetch and print
+        id: fetch
         env:
           # Некоторые эндпоинты (например /api/cron/health) требуют CRON_SECRET.
           # Заголовок безопасен для публичных URL — они его игнорируют. Секрет
           # маскируется в логах Actions и не попадает в коммитимый probe-url.json.
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # Копия всего вывода шага — для check-run ниже. exec, а не `| tee`:
+          # конвейер съел бы код выхода, а красная проба обязана оставаться
+          # красной. Секрет в вывод не попадает: заголовок Authorization
+          # никогда не печатается, а маскировка Actions действует и здесь.
+          exec > >(tee /tmp/probe-out.txt) 2>&1
           # .get: проба может быть только-POST (проба 96 упала на KeyError без 'urls')
           URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json')).get('urls', [])))")
           BYTES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('bytes', 6000))")
@@ -377,3 +394,48 @@ jobs:
             echo "Если несвежесть и есть искомый ответ — \"allowStale\": true."
             exit 1
           fi
+
+      # Второй экземпляр вывода — check-run на коммите. Всегда, и на красной
+      # пробе тоже: красная проба читается так же, как зелёная. Заключение
+      # check-run повторяет исход шага, не заменяет его: если публикация
+      # упала, job всё равно красная/зелёная по своему шагу.
+      - name: Publish output as check-run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.fetch.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          text = open('/tmp/probe-out.txt', encoding='utf-8', errors='replace').read() if os.path.exists('/tmp/probe-out.txt') else '(вывод шага не записан)'
+          # Лимит GitHub на output.text — 65 535 символов. Хвост важнее головы:
+          # там итог и «ПРОБА НЕ УДАЛАСЬ», а голова — эхо конфига.
+          limit = 60000
+          if len(text) > limit:
+              text = '…(обрезано: показан хвост)\n' + text[-limit:]
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'probe-output',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {
+                  'title': f"Проба {os.environ.get('GITHUB_RUN_NUMBER', '?')}: {outcome}",
+                  'summary': 'Копия вывода шага Fetch and print для чтения через API репозитория.',
+                  'text': text,
+              },
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              j = json.load(r)
+              print(f"check-run {j['id']} создан: {j['html_url']}")
+          PY
