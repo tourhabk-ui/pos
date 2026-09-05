@@ -66,6 +66,10 @@ export interface Shot {
   verdict: ShotVerdict;
   /** Отказы источников/тайлов словами MapLibre — что именно не пришло. */
   errors: string[];
+  /** Тайлы, которых читатель PMTiles не нашёл в каталоге архива (ключ/z/x/y). */
+  missing: string[];
+  /** Состояние тайлов рельефа по источникам в момент кадра (см. tileDump). */
+  tiles: string;
   waitedMs: number;
   file: string | null;
 }
@@ -111,11 +115,19 @@ const PAGE = `<!doctype html>
 <script type="module">
   import * as maplibregl from '/maplibre/maplibre-gl.mjs';
   const q = new URLSearchParams(location.search);
-  const state = { errors: [], idle: false, failed: null, webgl: null };
+  // missing — тайлы, на которые читатель PMTiles ответил «в каталоге нет»
+  // (MapLibre из пустого буфера делает «could not be decoded», и по одному
+  // тексту ошибки «нет тайла» от «битый тайл» не отличить — прогон 8, 05.09).
+  const state = { errors: [], idle: false, failed: null, webgl: null, missing: [] };
   window.__snap = state;
   try {
     const protocol = new pmtiles.Protocol();
-    maplibregl.addProtocol('pmtiles', protocol.tile);
+    const shortKey = (url) => url.replace(/^pmtiles:\\/\\/[^ ]*?\\/bucket\\/map-packs\\//, '');
+    maplibregl.addProtocol('pmtiles', async (params, ctrl) => {
+      const r = await protocol.tile(params, ctrl);
+      if (!r || r.data == null || (r.data.byteLength === 0)) state.missing.push(shortKey(params.url));
+      return r;
+    });
     const map = new maplibregl.Map({
       container: 'map',
       style: q.get('style'),
@@ -231,7 +243,41 @@ async function serve(
   return { server, origin: `http://127.0.0.1:${port}` };
 }
 
-interface PageState { errors: string[]; idle: boolean; failed: string | null; webgl: boolean | null }
+interface PageState { errors: string[]; idle: boolean; failed: string | null; webgl: boolean | null; missing?: string[] }
+
+/**
+ * Состояние тайлов рельефа в кадре — по источникам: сколько на каком зуме
+ * loaded / errored / прочее. Прогон 8 (05.09): кадры z10 части клеток вышли
+ * размытыми при idle без ошибок; «idle» значит лишь, что каждый тайл либо
+ * загружен, либо ОТКАЗАН — а отказ с кодом 404 MapLibre глотает молча и
+ * рисует родителя. Без этой сводки размытый кадр и целый кадр — одно слово «ok».
+ */
+async function tileDump(page: Page): Promise<string> {
+  try {
+    return await page.evaluate(() => {
+      const map = (window as unknown as { __map?: { style?: { tileManagers?: Record<string, unknown>; sourceCaches?: Record<string, unknown> } } }).__map;
+      const managers = map?.style?.tileManagers ?? map?.style?.sourceCaches ?? {};
+      const out: string[] = [];
+      for (const id of Object.keys(managers)) {
+        if (!id.startsWith('terrain')) continue;
+        const tm = managers[id] as { _inViewTiles?: { getAllTiles(): unknown[] }; _tiles?: Record<string, unknown> };
+        const tiles = (tm._inViewTiles ? tm._inViewTiles.getAllTiles() : Object.values(tm._tiles ?? {})) as Array<{ state: string; tileID: { canonical: { z: number; x: number; y: number } } }>;
+        const counts: Record<string, number> = {};
+        const bad: string[] = [];
+        for (const t of tiles) {
+          const k = `${t.state}@z${t.tileID.canonical.z}`;
+          counts[k] = (counts[k] ?? 0) + 1;
+          if (t.state !== 'loaded' && bad.length < 6) bad.push(`${t.state} z${t.tileID.canonical.z}/${t.tileID.canonical.x}/${t.tileID.canonical.y}`);
+        }
+        const parts = Object.entries(counts).sort().map(([k, n]) => `${k}=${n}`);
+        out.push(`${id}: ${parts.join(' ')}${bad.length ? ' [' + bad.join(', ') + ']' : ''}`);
+      }
+      return out.join(' | ');
+    });
+  } catch (err) {
+    return `сводка тайлов не снята: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
 
 /** Ошибки самой страницы (модуль не загрузился, исключение вне try) — по ним видно, ПОЧЕМУ состояния нет. */
 const pageErrors: string[] = [];
@@ -425,9 +471,13 @@ async function main(): Promise<number> {
       // репозитория, JPEG в 60 — нет, а глазам хватает.
       await page.screenshot({ path: join(out, file.replace(/\.png$/, '.jpg')), type: 'jpeg', quality: 70 });
       const verdict: ShotVerdict = state.errors.length ? 'broken' : state.idle ? 'ok' : 'timeout';
-      shots.push({ pack, zoom, center, verdict, errors: state.errors, waitedMs, file });
+      const tiles = await tileDump(page);
+      const missing = state.missing ?? [];
+      shots.push({ pack, zoom, center, verdict, errors: state.errors, missing, tiles, waitedMs, file });
       const label = verdict === 'ok' ? 'снят' : verdict === 'broken' ? 'ОТКАЗ ИСТОЧНИКА' : 'НЕ ПРОГРУЗИЛСЯ';
       console.log(`${verdict === 'ok' ? ' ' : '!'} ${name}: ${label} за ${(waitedMs / 1000).toFixed(1)} с${state.errors.length ? ' — ' + state.errors.slice(0, 3).join('; ') : ''}`);
+      console.log(`    тайлы: ${tiles || 'источников рельефа нет'}`);
+      if (missing.length) console.log(`    нет в каталоге (${missing.length}): ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''}`);
     }
   } finally {
     await browser?.close();
@@ -440,8 +490,8 @@ async function main(): Promise<number> {
   const outcome = broken ? 'broken' : timeout ? 'timeout' : 'ok';
   await writeFile(join(out, 'summary.json'), JSON.stringify({ theme, base, outcome, ok, broken, timeout, proxy: stats, shots }, null, 2));
   const md = [
-    `| пакет | зум | исход | ждали, с | отказы |`, `|---|---|---|---|---|`,
-    ...shots.map((s) => `| ${s.pack} | ${s.zoom} | ${s.verdict} | ${(s.waitedMs / 1000).toFixed(1)} | ${s.errors.slice(0, 2).join('; ').replace(/\|/g, '/')} |`),
+    `| кадр | зум | исход | ждали, с | отказы | тайлы рельефа |`, `|---|---|---|---|---|---|`,
+    ...shots.map((s) => `| ${s.file?.replace(/\.[a-z]+\.png$/, '') ?? s.pack} | ${s.zoom} | ${s.verdict} | ${(s.waitedMs / 1000).toFixed(1)} | ${s.errors.slice(0, 2).join('; ').replace(/\|/g, '/')}${s.missing.length ? ` нет в каталоге: ${s.missing.slice(0, 3).join(', ')}` : ''} | ${s.tiles.replace(/\|/g, '/')} |`),
   ].join('\n');
   await writeFile(join(out, 'index.md'), md + '\n');
   console.log('');

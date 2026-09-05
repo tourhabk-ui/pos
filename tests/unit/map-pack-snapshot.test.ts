@@ -52,9 +52,16 @@ describe('снимок — тем же стилем, что карта в пол
     expect(WF).toContain('--force-ocean');
   });
 
-  it('pmtiles-протокол зарегистрирован, буфер кадра сохраняется', () => {
-    expect(SCRIPT).toMatch(/maplibregl\.addProtocol\('pmtiles', protocol\.tile\)/);
+  it('pmtiles-протокол зарегистрирован через обёртку, считающую «нет в каталоге»; буфер кадра сохраняется', () => {
+    // Обёртка зовёт ТОТ ЖЕ protocol.tile, что и карта в поле, и лишь
+    // записывает пустые ответы: из пустого буфера MapLibre делает «could not
+    // be decoded», и без этого списка «нет тайла» не отличить от «битый».
+    expect(SCRIPT).toMatch(/maplibregl\.addProtocol\('pmtiles', async \(params, ctrl\) => \{\s*const r = await protocol\.tile\(params, ctrl\)/);
+    expect(SCRIPT).toMatch(/state\.missing\.push/);
     expect(SCRIPT).toMatch(/preserveDrawingBuffer: true/);
+    // Сводка состояний тайлов рельефа — в каждом кадре, не только при отказе.
+    expect(SCRIPT).toMatch(/const tiles = await tileDump\(page\)/);
+    expect(SCRIPT).toMatch(/\| тайлы рельефа \|/);
   });
 });
 
