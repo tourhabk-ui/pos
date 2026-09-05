@@ -123,10 +123,29 @@ const PAGE = `<!doctype html>
   // PNG это сигнатура). Отказ «could not be decoded» при полном архиве и
   // читаемом в Node тайле (перепись, прогон 9) — вопрос о том, ЧТО ИМЕННО
   // получил браузер; сюда это и записывается.
-  const state = { errors: [], idle: false, failed: null, webgl: null, missing: [], tiles: {} };
+  const state = { errors: [], idle: false, failed: null, webgl: null, missing: [], tiles: {}, fetches: [] };
   window.__snap = state;
   const hex = (u8, n) => Array.from(u8.slice(0, n), (b) => b.toString(16).padStart(2, '0')).join('');
   window.__hex = hex;
+  // fetches — каждый Range-запрос читателя PMTiles к архиву рельефа: что
+  // просили и что пришло (код, Content-Length, Content-Range, длина тела).
+  // Прогон 10: браузер получил по тайлу 3232 Б там, где в архиве 4778 Б, а
+  // прямая проба тем же читателем — 4778. Значит расходятся не байты, а
+  // ОТВЕТЫ на одинаковые запросы; здесь они записываются поимённо.
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const r = await origFetch(input, init);
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (url.includes('.terrain.pmtiles')) {
+      const h = init && init.headers;
+      const range = h instanceof Headers ? h.get('range') : h ? (h.range || h.Range || null) : null;
+      const rec = { key: url.replace(/^.*\\/bucket\\/map-packs\\//, ''), range, status: r.status,
+        len: r.headers.get('content-length'), cr: r.headers.get('content-range'), bodyLen: null };
+      state.fetches.push(rec);
+      try { rec.bodyLen = (await r.clone().arrayBuffer()).byteLength; } catch (err) { rec.bodyLen = 'отказ: ' + (err && err.message); }
+    }
+    return r;
+  };
   try {
     const protocol = new pmtiles.Protocol();
     const shortKey = (url) => url.replace(/^pmtiles:\\/\\/[^ ]*?\\/bucket\\/map-packs\\//, '');
@@ -171,7 +190,16 @@ const MIME: Record<string, string> = {
 };
 
 /** Счёт запросов к бакету через прокси — чтобы в итоге сказать, сколько и с чем ушло. */
-export interface ProxyStats { requests: number; failed: number; bytes: number; failures: string[] }
+export interface ProxyStats {
+  requests: number; failed: number; bytes: number; failures: string[];
+  /** Повторы после сетевого отказа/5xx бакета (см. serve): сколько раз помогло. */
+  retried: number;
+  /** Журнал запросов к архивам рельефа: ключ, Range, код, длины — для сверки со страницей. */
+  log: string[];
+}
+
+/** Повторов на запрос к бакету при сетевом отказе или 5xx: прогон 10 — два 502 на 1976 запросов. */
+const PROXY_RETRIES = 2;
 
 /** Сколько отказов прокси называть поимённо: дальше это уже не улика, а шум. */
 const FAILURES_LISTED = 12;
@@ -197,17 +225,28 @@ async function serve(
         const headers: Record<string, string> = {};
         const range = req.headers.range;
         if (typeof range === 'string') headers.range = range;
-        let upstream: Response;
-        try {
-          upstream = await fetch(`${bucketBase}/${key}`, { headers, cache: 'no-store' });
-        } catch (err) {
+        let upstream: Response | null = null;
+        let body: Buffer | null = null;
+        let lastErr = '';
+        // Сетевой отказ и 5xx бакета — повторить; ответ 2xx/4xx — как есть.
+        for (let attempt = 0; attempt <= PROXY_RETRIES; attempt++) {
+          if (attempt) { stats.retried += 1; await new Promise((ok) => setTimeout(ok, 300 * attempt)); }
+          try {
+            const r = await fetch(`${bucketBase}/${key}`, { headers, cache: 'no-store' });
+            const b = Buffer.from(await r.arrayBuffer());
+            if (r.status >= 500 && attempt < PROXY_RETRIES) { lastErr = `HTTP ${r.status}`; continue; }
+            upstream = r; body = b; break;
+          } catch (err) {
+            lastErr = err instanceof Error ? err.message : String(err);
+          }
+        }
+        if (!upstream || !body) {
           stats.failed += 1;
-          if (stats.failures.length < FAILURES_LISTED) stats.failures.push(`сеть: ${key}${range ? ' [' + range + ']' : ''}`);
+          if (stats.failures.length < FAILURES_LISTED) stats.failures.push(`сеть: ${key}${range ? ' [' + range + ']' : ''} — ${lastErr}`);
           res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-          res.end(`прокси: бакет не ответил — ${err instanceof Error ? err.message : String(err)}`);
+          res.end(`прокси: бакет не ответил — ${lastErr}`);
           return;
         }
-        const body = Buffer.from(await upstream.arrayBuffer());
         if (upstream.status >= 400) {
           stats.failed += 1;
           if (stats.failures.length < FAILURES_LISTED) stats.failures.push(`HTTP ${upstream.status}: ${key}${range ? ' [' + range + ']' : ''}`);
@@ -217,6 +256,9 @@ async function serve(
         for (const h of PASS_HEADERS) {
           const v = upstream.headers.get(h);
           if (v) out[h] = v;
+        }
+        if (key.includes('.terrain.pmtiles')) {
+          stats.log.push(`${key} ${range ?? '-'} → ${upstream.status} len=${out['content-length'] ?? '-'} cr=${out['content-range'] ?? '-'} body=${body.length}`);
         }
         res.writeHead(upstream.status, out);
         res.end(body);
@@ -256,19 +298,33 @@ interface PageState {
   errors: string[]; idle: boolean; failed: string | null; webgl: boolean | null; missing?: string[];
   /** `<пакет>.terrain.pmtiles/z/x/y` → «N Б <8 байт hex>» — что браузер получил по тайлу рельефа. */
   tiles?: Record<string, string>;
+  /** Range-запросы страницы к архивам рельефа — см. PAGE. */
+  fetches?: PageFetch[];
+}
+
+export interface PageFetch {
+  key: string; range: string | null; status: number; len: string | null; cr: string | null; bodyLen: number | string | null;
 }
 
 /**
  * К отказу MapLibre по тайлу — что по этому тайлу пришло в браузер (байты,
- * сигнатура). `[terrain]` — основной пакет кадра, `[terrain-<район>]` — подкладка.
+ * сигнатура) и каким Range-запросом это пришло: запросы страницы к тому же
+ * архиву, чья длина тела равна полученным байтам. `[terrain]` — основной
+ * пакет кадра, `[terrain-<район>]` — подкладка.
  */
-export function annotateErrors(errors: string[], tiles: Record<string, string>, pack: string): string[] {
+export function annotateErrors(errors: string[], tiles: Record<string, string>, pack: string, fetches: PageFetch[] = []): string[] {
   return errors.map((e) => {
     const m = /\[terrain(?:-([a-z0-9-]+))?\] z(\d+)\/(\d+)\/(\d+)/.exec(e);
     if (!m) return e;
-    const key = `${m[1] ?? pack}.terrain.pmtiles/${m[2]}/${m[3]}/${m[4]}`;
+    const archive = `${m[1] ?? pack}.terrain.pmtiles`;
+    const key = `${archive}/${m[2]}/${m[3]}/${m[4]}`;
     const got = tiles[key];
-    return `${e} ← ${got ?? 'ответа по тайлу не записано'}`;
+    const bytes = got ? Number(got.split(' ')[0]) : NaN;
+    const same = Number.isFinite(bytes)
+      ? fetches.filter((f) => f.key === archive && f.bodyLen === bytes)
+        .map((f) => `${f.range ?? 'без range'} → ${f.status}, len ${f.len ?? '—'}, ${f.cr ?? 'без content-range'}`)
+      : [];
+    return `${e} ← ${got ?? 'ответа по тайлу не записано'}${same.length ? ` [запросы: ${same.slice(0, 3).join('; ')}]` : ''}`;
   });
 }
 
@@ -423,7 +479,7 @@ async function main(): Promise<number> {
   styles.set('__probe.json', JSON.stringify({ version: 8, sources: {}, layers: [
     { id: 'bg', type: 'background', paint: { 'background-color': '#224466' } },
   ] }));
-  const stats: ProxyStats = { requests: 0, failed: 0, bytes: 0, failures: [] };
+  const stats: ProxyStats = { requests: 0, failed: 0, bytes: 0, failures: [], retried: 0, log: [] };
   const { server, origin } = await serve(styles, base.replace(/\/+$/, ''), stats);
   // Адреса файлов в стиле — через локальный прокси (см. шапку про CORS):
   // тот же resolvePackSource, что у карты, только база другая.
@@ -545,7 +601,13 @@ async function main(): Promise<number> {
       const verdict: ShotVerdict = state.errors.length ? 'broken' : state.idle ? 'ok' : 'timeout';
       const tiles = await tileDump(page);
       const missing = state.missing ?? [];
-      const errors = annotateErrors(state.errors, state.tiles ?? {}, pack);
+      const errors = annotateErrors(state.errors, state.tiles ?? {}, pack, state.fetches ?? []);
+      if (state.errors.length && state.fetches?.length) {
+        // Все Range-запросы кадра к рельефу — в файл: по ним видно, что
+        // просилось и что пришло, а не только по тайлу с отказом.
+        await writeFile(join(out, `${name}.fetches.txt`),
+          state.fetches.map((f) => `${f.key} ${f.range ?? '-'} → ${f.status} len=${f.len ?? '-'} cr=${f.cr ?? '-'} body=${String(f.bodyLen)}`).join('\n') + '\n');
+      }
       shots.push({ pack, zoom, center, verdict, errors, missing, tiles, waitedMs, file });
       const label = verdict === 'ok' ? 'снят' : verdict === 'broken' ? 'ОТКАЗ ИСТОЧНИКА' : 'НЕ ПРОГРУЗИЛСЯ';
       console.log(`${verdict === 'ok' ? ' ' : '!'} ${name}: ${label} за ${(waitedMs / 1000).toFixed(1)} с${errors.length ? ' — ' + errors.slice(0, 3).join('; ') : ''}`);
@@ -561,14 +623,15 @@ async function main(): Promise<number> {
   const timeout = shots.filter((s) => s.verdict === 'timeout').length;
   const ok = shots.filter((s) => s.verdict === 'ok').length;
   const outcome = broken ? 'broken' : timeout ? 'timeout' : 'ok';
-  await writeFile(join(out, 'summary.json'), JSON.stringify({ theme, base, outcome, ok, broken, timeout, proxy: stats, shots }, null, 2));
+  await writeFile(join(out, 'summary.json'), JSON.stringify({ theme, base, outcome, ok, broken, timeout, proxy: { ...stats, log: undefined }, shots }, null, 2));
   const md = [
     `| кадр | зум | исход | ждали, с | отказы | тайлы рельефа |`, `|---|---|---|---|---|---|`,
     ...shots.map((s) => `| ${s.file?.replace(/\.[a-z]+\.png$/, '') ?? s.pack} | ${s.zoom} | ${s.verdict} | ${(s.waitedMs / 1000).toFixed(1)} | ${s.errors.slice(0, 2).join('; ').replace(/\|/g, '/')}${s.missing.length ? ` нет в каталоге: ${s.missing.slice(0, 3).join(', ')}` : ''} | ${s.tiles.replace(/\|/g, '/')} |`),
   ].join('\n');
   await writeFile(join(out, 'index.md'), md + '\n');
   console.log('');
-  console.log(`запросов к бакету через прокси: ${stats.requests}, не 2xx/сетевых отказов: ${stats.failed}, принято ${(stats.bytes / 1024 / 1024).toFixed(1)} МБ`);
+  console.log(`запросов к бакету через прокси: ${stats.requests}, не 2xx/сетевых отказов: ${stats.failed}, повторов ${stats.retried}, принято ${(stats.bytes / 1024 / 1024).toFixed(1)} МБ`);
+  await writeFile(join(out, 'proxy.log'), stats.log.join('\n') + '\n');
   // Отказы — поимённо (первые FAILURES_LISTED): «3 не 2xx» без адресов не
   // отличить «тайл за краем покрытия» от «файл пакета не отдан».
   for (const f of stats.failures) console.log(`  отказ прокси: ${f}`);
