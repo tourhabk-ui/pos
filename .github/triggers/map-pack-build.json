@@ -1,6 +1,6 @@
 {
-  "note": "Прогон 513 (05.09, запас DEM за границей): только рельеф пакета paratunka; горизонтали, OSM, вектор в хранилище прежние.",
-  "region": "paratunka",
+  "note": "Прогон 514 (05.09, запас DEM за границей): только рельеф пакета mutnovsky-gorely; горизонтали, OSM, вектор в хранилище прежние.",
+  "region": "mutnovsky-gorely",
   "upload": true,
   "terrain_only": true
 }
