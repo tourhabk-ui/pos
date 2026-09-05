@@ -71,11 +71,9 @@ describe('исходы', () => {
 });
 
 describe('план кадров', () => {
-  it('обзор — на своих зумах z4-7 плюс z3 за краем яруса; пакеты — на z8-13', () => {
-    // z3 — ниже минимума обзора: кадр того, что карта рисует за краем пакета
-    // (скрины владельца 05.09 были на z3, с полосами).
-    expect(zoomsFor(OVERVIEW_ID)).toContain(3);
-    expect(zoomsFor(OVERVIEW_ID).filter((z) => z >= 4).every((z) => z <= 7)).toBe(true);
+  it('обзор — на своих зумах z4-7, с нижнего края; пакеты — на z8-13', () => {
+    expect(zoomsFor(OVERVIEW_ID)).toContain(4);
+    expect(zoomsFor(OVERVIEW_ID).every((z) => z >= 4 && z <= 7)).toBe(true);
     expect(zoomsFor('cell-52n157e').every((z) => z >= 8 && z <= 13)).toBe(true);
     expect(zoomsFor('avacha-group').every((z) => z >= 8 && z <= 13)).toBe(true);
   });

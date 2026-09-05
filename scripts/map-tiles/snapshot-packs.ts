@@ -69,10 +69,9 @@ export interface Shot {
 
 /** Зумы кадров — по ярусу пакета: обзор живёт на z4-7, пакеты на z8-13. */
 export function zoomsFor(pack: string): number[] {
-  // z3 у обзора — НИЖЕ минимума яруса (z4): кадр того, что карта рисует за
-  // краем пакета. Скрины владельца 05.09 были сняты на z3, и там были
-  // полосы; без такого кадра их не увидеть.
-  return isOverviewId(pack) ? [3, 5, 7] : [8, 10, 12];
+  // z4 — нижний зум обзора и всей карты (OVERVIEW_MIN_ZOOM): ниже карта не
+  // уходит, кадр z3 был бы кадром того, чего человек не увидит.
+  return isOverviewId(pack) ? [4, 5, 7] : [8, 10, 12];
 }
 
 /** Центр кадра: у клетки он записан в реестре, у района и обзора — середина bbox. */
@@ -327,6 +326,17 @@ async function main(): Promise<number> {
   }
 
   await mkdir(out, { recursive: true });
+  // Океан обзора — копией в кадры: из контейнера бакет не достать, а
+  // геометрию для локальной пробы MapLibre нужно иметь на руках.
+  if (forceOcean || packs.some((p) => isOverviewId(p))) {
+    try {
+      const res = await fetch(`${base}/${oceanKey(OVERVIEW_ID)}`, { cache: 'no-store' });
+      if (res.status === 200) await writeFile(join(out, `${OVERVIEW_ID}.ocean.geojson`), Buffer.from(await res.arrayBuffer()));
+      else console.log(`океан обзора не скопирован: HTTP ${res.status}`);
+    } catch (err) {
+      console.log(`океан обзора не скопирован: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   let browser: Browser | null = null;
   const shots: Shot[] = [];
   try {

@@ -128,7 +128,7 @@ jobs:
           set -euo pipefail
           if ! ls .cache/snapshots/*.jpg >/dev/null 2>&1; then echo "кадров нет — ветку не трогаю"; exit 0; fi
           TMP=$(mktemp -d)
-          cp .cache/snapshots/*.jpg .cache/snapshots/index.md .cache/snapshots/summary.json "$TMP"/ 2>/dev/null || true
+          cp .cache/snapshots/*.jpg .cache/snapshots/*.geojson .cache/snapshots/index.md .cache/snapshots/summary.json "$TMP"/ 2>/dev/null || true
           cd "$TMP"
           git init -q -b map-snapshots
           git config user.name "map-pack-snapshot"

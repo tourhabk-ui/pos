@@ -406,12 +406,14 @@ export function buildVedarStyle(
       { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
       // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
       reliefLayer(p, ''),
-      // Океан — сразу над гипсометрией: море там, где берег OSM, а не там,
-      // где DEM дал ноль или промолчал.
-      ...vedarOceanLayers(sources, p, ''),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
       ...osmFillLayers(r, p, ''),
       hillshadeLayer(theme, p, ''),
+      // Океан — НАД тенью: море там, где берег OSM, а не там, где DEM дал
+      // ноль или промолчал. Над тенью, а не под ней: на стыках клеток DEM
+      // граница «ноль моря / нет данных» — обрыв в 500 м, и тень рисует его
+      // швом через всё море (кадры 05.09, z5).
+      ...vedarOceanLayers(sources, p, ''),
       ...contourLayers(r, p, glyphs, font, ''),
       // Реки, дороги, тропы — над горизонталями, под линией маршрута: путь
       // человека читается поверх карты, а не сквозь неё.
@@ -606,8 +608,8 @@ export function buildRegionOverlay(
       },
       layers: [
         reliefLayer(p, ns),
-        ...vedarOceanLayers(sources, p, ns),
         hillshadeLayer(theme, p, ns),
+        ...vedarOceanLayers(sources, p, ns),
         ...osmPeakLayers(r, p, glyphs, font, ns),
         ...osmPlaceLayers(r, p, glyphs, font, ns),
         ...vedarPlaceLayers(sources, p, glyphs, font, ns),

@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildVedarStyle, buildRegionOverlay, vedarMapPalette } from '@/lib/map/vedar-style';
 import {
-  oceanKey, OVERVIEW_OCEAN_BUILT, OVERVIEW_BUILT, resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS,
+  oceanKey, OVERVIEW_OCEAN_BUILT, OVERVIEW_BUILT, OVERVIEW_MIN_ZOOM, resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { packKeysToVerify } from '@/scripts/map-tiles/verify-packs';
@@ -42,10 +42,17 @@ describe('слой океана в стиле', () => {
     expect(bare.layers.some((l) => l.id === 'vedar-ocean')).toBe(false);
   });
 
-  it('лежит сразу над гипсометрией и под тенью', () => {
+  it('лежит сразу над тенью: швы DEM на стыках клеток не рисуются через море', () => {
     const ids = (buildVedarStyle('light', SRC) as { layers: Layer[] }).layers.map((l) => l.id);
-    expect(ids.indexOf('vedar-ocean')).toBe(ids.indexOf('relief') + 1);
-    expect(ids.indexOf('vedar-ocean')).toBeLessThan(ids.indexOf('hillshade'));
+    expect(ids.indexOf('vedar-ocean')).toBe(ids.indexOf('hillshade') + 1);
+    expect(ids.indexOf('vedar-ocean')).toBeGreaterThan(ids.indexOf('relief'));
+  });
+
+  it('карта не уходит ниже обзорного яруса: OVERVIEW_MIN_ZOOM = MINZOOM обзора, minZoom у VedarMap', () => {
+    const py = readFileSync(join(ROOT, 'scripts/map-tiles/build_overview.py'), 'utf-8');
+    expect(Number(py.match(/^MINZOOM = (\d+)$/m)?.[1])).toBe(OVERVIEW_MIN_ZOOM);
+    const vm = readFileSync(join(ROOT, 'components/shared/VedarMap.tsx'), 'utf-8');
+    expect(vm).toMatch(/minZoom: OVERVIEW_MIN_ZOOM/);
   });
 
   it('цвет — воды палитры, чтобы стык z7/z8 был без шва', () => {
@@ -59,7 +66,7 @@ describe('слой океана в стиле', () => {
   it('подкладка обзора (base) несёт океан под своим пространством имён', () => {
     const base = buildRegionOverlay('dark', SRC, OVERVIEW_ID, 'base');
     const ids = base.layers.map((l) => String(l.id));
-    expect(ids.indexOf(`vedar-ocean-${OVERVIEW_ID}`)).toBe(ids.indexOf(`relief-${OVERVIEW_ID}`) + 1);
+    expect(ids.indexOf(`vedar-ocean-${OVERVIEW_ID}`)).toBe(ids.indexOf(`hillshade-${OVERVIEW_ID}`) + 1);
     expect(Object.keys(base.sources)).toContain(`vedar-ocean-${OVERVIEW_ID}`);
   });
 
