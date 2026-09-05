@@ -1,6 +1,6 @@
 {
-  "note": "Прогон 519 (05.09, запас DEM за границей): только рельеф пакета esso-bystrinsky; горизонтали, OSM, вектор в хранилище прежние.",
-  "region": "esso-bystrinsky",
+  "note": "Прогон 520 (05.09, запас DEM за границей): только рельеф пакета kronotsky; горизонтали, OSM, вектор в хранилище прежние.",
+  "region": "kronotsky",
   "upload": true,
   "terrain_only": true
 }
