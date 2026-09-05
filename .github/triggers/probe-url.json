@@ -1,10 +1,11 @@
 {
-  "note": "Приёмка публикации вывода пробы в check-run (05.09). Запрос — уже выкаченная перепись флага, только чтение; смысл прогона — увидеть check-run «probe-output» на коммите с тем же текстом, что в логе.",
+  "note": "Повтор переписи достижимости операторов (04.09: 0 из 2 достижимы, 12 туров за недостижимыми). Вопрос один: привязал ли кто-то из операторов MAX или Telegram с тех пор. Только чтение.",
   "urls": [
-    "https://vedarai.ru/api/cron/passport-flag-census"
+    "https://vedarai.ru/api/cron/operator-reach"
   ],
   "grep": [
-    "suspects_total",
+    "operators_with_live_tours",
+    "tours_behind_unreachable",
     "verdict"
   ],
   "retries": 0,
