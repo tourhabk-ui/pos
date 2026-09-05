@@ -1,6 +1,12 @@
 {
   "note": "Пуш этого файла снимает пакеты карты безголовым MapLibre на раннере (map-pack-snapshot.yml) и кладёт кадры артефактом прогона. packs — список id пакетов (район, клетка cell-<lat>n<lng>e или krai-overview); пусто — все собранные (123 пакета, ~360 кадров, долго). theme — dark или light.",
-  "run": 1,
-  "packs": ["krai-overview", "avacha-group", "cell-52n157e", "cell-56n160e", "cell-62n166e"],
+  "run": 2,
+  "packs": [
+    "krai-overview",
+    "avacha-group",
+    "cell-52n157e",
+    "cell-56n160e",
+    "cell-62n166e"
+  ],
   "theme": "dark"
 }

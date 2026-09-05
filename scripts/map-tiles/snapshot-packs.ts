@@ -13,6 +13,18 @@
  * ключами; из контейнера Claude бакет закрыт прокси, и локально этот скрипт
  * честно отвечает «не прогрузилось», а не рисует чёрное как «готово».
  *
+ * ── Бакет — через свой локальный прокси, не напрямую из страницы ──────────
+ *
+ * Прогон 1 (05.09): все 14 кадров — «Failed to fetch (0)» на КАЖДЫЙ файл,
+ * при том что verify-packs с того же раннера читает бакет целиком. Ноль
+ * вместо HTTP-кода — это отказ браузера, не сервера: CORS. Бакет отдаёт
+ * файлы только сайту (origin vedarai.ru), а страница снимка живёт на
+ * 127.0.0.1 — и браузер её запросы к чужому origin не пускает, Range для
+ * PMTiles тем более (preflight). Поэтому стиль просит файлы у ЛОКАЛЬНОГО
+ * сервера (`/bucket/<ключ>`), а тот ходит в бакет из Node, где CORS нет,
+ * и отдаёт как есть — вместе с кодом, Content-Range и Content-Length. Байты
+ * те же, что читает карта в поле; меняется только то, кто их просит.
+ *
  * Три исхода у каждого кадра (§4.0), и они не смешиваются:
  *   ok        — карта дошла до idle без единого отказа источника;
  *   broken    — MapLibre сообщил об отказе источника/тайла (файл не отдан,
@@ -119,13 +131,58 @@ const MIME: Record<string, string> = {
   '.json': 'application/json', '.html': 'text/html; charset=utf-8', '.map': 'application/json',
 };
 
-/** Локальный статик: страница, MapLibre и pmtiles из node_modules, стили из памяти. */
-async function serve(styles: Map<string, string>): Promise<{ server: Server; origin: string }> {
+/** Счёт запросов к бакету через прокси — чтобы в итоге сказать, сколько и с чем ушло. */
+export interface ProxyStats { requests: number; failed: number; bytes: number; failures: string[] }
+
+/** Сколько отказов прокси называть поимённо: дальше это уже не улика, а шум. */
+const FAILURES_LISTED = 12;
+
+/** Заголовки ответа бакета, которые нужны читателю PMTiles и карте. */
+const PASS_HEADERS = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified'];
+
+/**
+ * Локальный статик: страница, MapLibre и pmtiles из node_modules, стили из
+ * памяти — и прокси к бакету (`/bucket/<ключ>`), см. шапку файла про CORS.
+ */
+async function serve(
+  styles: Map<string, string>, bucketBase: string, stats: ProxyStats,
+): Promise<{ server: Server; origin: string }> {
   const mapDist = resolve('node_modules/maplibre-gl/dist');
   const pmtilesJs = resolve('node_modules/pmtiles/dist/pmtiles.js');
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
+      if (url.pathname.startsWith('/bucket/')) {
+        const key = url.pathname.slice('/bucket/'.length);
+        stats.requests += 1;
+        const headers: Record<string, string> = {};
+        const range = req.headers.range;
+        if (typeof range === 'string') headers.range = range;
+        let upstream: Response;
+        try {
+          upstream = await fetch(`${bucketBase}/${key}`, { headers, cache: 'no-store' });
+        } catch (err) {
+          stats.failed += 1;
+          if (stats.failures.length < FAILURES_LISTED) stats.failures.push(`сеть: ${key}${range ? ' [' + range + ']' : ''}`);
+          res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end(`прокси: бакет не ответил — ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+        const body = Buffer.from(await upstream.arrayBuffer());
+        if (upstream.status >= 400) {
+          stats.failed += 1;
+          if (stats.failures.length < FAILURES_LISTED) stats.failures.push(`HTTP ${upstream.status}: ${key}${range ? ' [' + range + ']' : ''}`);
+        }
+        stats.bytes += body.length;
+        const out: Record<string, string> = {};
+        for (const h of PASS_HEADERS) {
+          const v = upstream.headers.get(h);
+          if (v) out[h] = v;
+        }
+        res.writeHead(upstream.status, out);
+        res.end(body);
+        return;
+      }
       if (url.pathname === '/') {
         res.writeHead(200, { 'content-type': MIME['.html'] }); res.end(PAGE); return;
       }
@@ -229,15 +286,21 @@ async function main(): Promise<number> {
   styles.set('__probe.json', JSON.stringify({ version: 8, sources: {}, layers: [
     { id: 'bg', type: 'background', paint: { 'background-color': '#224466' } },
   ] }));
+  const stats: ProxyStats = { requests: 0, failed: 0, bytes: 0, failures: [] };
+  const { server, origin } = await serve(styles, base.replace(/\/+$/, ''), stats);
+  // Адреса файлов в стиле — через локальный прокси (см. шапку про CORS):
+  // тот же resolvePackSource, что у карты, только база другая.
+  const proxyBase = `${origin}/bucket`;
   const plan: Array<{ pack: string; zoom: number; center: { lat: number; lng: number } }> = [];
   for (const pack of packs) {
-    const src = resolvePackSource(pack as PackRegionId, BUILT_PACK_REGIONS, base);
+    const src = resolvePackSource(pack as PackRegionId, BUILT_PACK_REGIONS, proxyBase);
     if (src.state !== 'ready') {
       console.error(`${pack}: пакет не готов — ${src.reason}`);
+      server.close();
       return 2;
     }
     const center = centerFor(pack);
-    if (!center) { console.error(`${pack}: не знаю центра`); return 2; }
+    if (!center) { console.error(`${pack}: не знаю центра`); server.close(); return 2; }
     styles.set(`${pack}.json`, JSON.stringify(buildVedarStyle(theme, {
       terrainUrl: src.terrainUrl,
       contoursUrl: src.contoursUrl,
@@ -248,12 +311,12 @@ async function main(): Promise<number> {
       osmUrls: src.osmUrls,
       vectorUrl: src.vectorUrl,
       placesUrl: src.placesUrl,
+      oceanUrl: src.oceanUrl,
     })));
     for (const zoom of zoomsFor(pack)) plan.push({ pack, zoom, center });
   }
 
   await mkdir(out, { recursive: true });
-  const { server, origin } = await serve(styles);
   let browser: Browser | null = null;
   const shots: Shot[] = [];
   try {
@@ -297,13 +360,17 @@ async function main(): Promise<number> {
   const timeout = shots.filter((s) => s.verdict === 'timeout').length;
   const ok = shots.filter((s) => s.verdict === 'ok').length;
   const outcome = broken ? 'broken' : timeout ? 'timeout' : 'ok';
-  await writeFile(join(out, 'summary.json'), JSON.stringify({ theme, base, outcome, ok, broken, timeout, shots }, null, 2));
+  await writeFile(join(out, 'summary.json'), JSON.stringify({ theme, base, outcome, ok, broken, timeout, proxy: stats, shots }, null, 2));
   const md = [
     `| пакет | зум | исход | ждали, с | отказы |`, `|---|---|---|---|---|`,
     ...shots.map((s) => `| ${s.pack} | ${s.zoom} | ${s.verdict} | ${(s.waitedMs / 1000).toFixed(1)} | ${s.errors.slice(0, 2).join('; ').replace(/\|/g, '/')} |`),
   ].join('\n');
   await writeFile(join(out, 'index.md'), md + '\n');
   console.log('');
+  console.log(`запросов к бакету через прокси: ${stats.requests}, не 2xx/сетевых отказов: ${stats.failed}, принято ${(stats.bytes / 1024 / 1024).toFixed(1)} МБ`);
+  // Отказы — поимённо (первые FAILURES_LISTED): «3 не 2xx» без адресов не
+  // отличить «тайл за краем покрытия» от «файл пакета не отдан».
+  for (const f of stats.failures) console.log(`  отказ прокси: ${f}`);
   console.log(`итого кадров: ${shots.length} — снято ${ok}, отказ источника ${broken}, не прогрузилось ${timeout}`);
   return broken ? 1 : timeout ? 3 : 0;
 }

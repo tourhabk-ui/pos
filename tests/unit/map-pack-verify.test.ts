@@ -291,6 +291,16 @@ describe('verifyPacks: у каждого файла ровно один верд
     expect(out.find(c => c.key === ONE)!.verdict).toBe('http');
   });
 
+  it('502 хранилища — «не смог проверить», а не «файл испорчен» (прогон 11, 05.09)', async () => {
+    const out = await verifyPacks('https://s3.example.ru/b', fakeFetch(() =>
+      new Response('', { status: 502 })));
+    const one = out.find(c => c.key === ONE)!;
+    expect(one.verdict).toBe('unreachable');
+    expect(one.detail).toMatch(/HTTP 502 — хранилище не ответило/);
+    const arch = out.find(c => c.key.endsWith('.terrain.pmtiles'))!;
+    expect(arch.verdict).toBe('unreachable');
+  });
+
   it('запрос не состоялся — «не смог проверить», а не «цел»', async () => {
     const out = await verifyPacks('https://s3.example.ru/b', fakeFetch(() => {
       throw new TypeError('fetch failed');
