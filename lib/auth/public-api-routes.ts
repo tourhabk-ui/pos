@@ -142,6 +142,9 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   // «подписчиков 0» в Watchdog при целой механике. Внутри Zod и rate-limit;
   // endpoint — capability-ссылка, чужой не подобрать.
   '/api/push/subscribe': ['POST', 'DELETE'],
+  // Публичный ключ VAPID во время выполнения, а не сборки (05.09): без него
+  // кнопка подписки не рисуется, если ключ не дошёл до `next build`.
+  '/api/push/vapid-public-key': ['GET'],
   '/api/payments/tochka/qr': ['GET', 'POST'],  // QR СБП из чата Кузьмича — гостевая оплата by design
   '/api/hub/bookings/create': ['POST'], // гостевая бронь by design (auth опционален, rate-limit)
   // Построение пути Origin → Destination (владелец 28.08, PR 5B-1) — тот же
