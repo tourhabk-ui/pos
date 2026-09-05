@@ -13,6 +13,7 @@ import { validateRoutePost, validateTextPost, logValidationFailure, blockingText
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 import { stripTags } from '@/lib/html/text';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
+import { composePlacePost } from '@/lib/notifications/place-post';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -636,119 +637,39 @@ interface KuzmichRouteRow {
   description: string | null;
   location_type: string | null;
   activity_type: string | null;
-  zone: string | null;
-  kuzmich_review: string | null;
-  lat: number | null;
-  lng: number | null;
   has_track: boolean;
 }
-
-// Куратор-фото по типу локации — РЕАЛЬНЫЕ снимки Камчатки из public/images.
-// Отдаются с нашего домена (Telegram/MAX точно загрузят) и НЕ являются
-// AI-пейзажем (решение владельца 2026-07-17: AI-картинки чужих мест не
-// показываем). Только файлы, которые реально лежат в public/images.
-const LOCATION_PHOTO: Record<string, string> = {
-  volcano:    '/images/categories/vulkany.jpg',
-  mountain:   '/images/categories/vulkany.jpg',
-  geyser:     '/images/bento/mutnovsky.jpg',
-  hot_spring: '/images/categories/termy.jpg',
-  thermal:    '/images/categories/termy.jpg',
-  lake:       '/images/bento/laguna.jpg',
-  river:      '/images/activities/rafting.jpg',
-  waterfall:  '/images/bento/laguna.jpg',
-  bay:        '/images/categories/morskie.jpg',
-  cape:       '/images/bento/cape.jpg',
-  island:     '/images/categories/morskie.jpg',
-  beach:      '/images/bento/khalaktyr.jpg',
-};
-
-// Карта activity_type → фото из public/images/activities/ (второй fallback)
-const ACTIVITY_PHOTO: Record<string, string> = {
-  trekking:    '/images/activities/volcanoes.jpg',
-  fishing:     '/images/activities/fishing.jpg',
-  helicopter:  '/images/activities/helicopter.jpg',
-  thermal:     '/images/activities/hotsprings.jpg',
-  boat_trip:   '/images/activities/sea.jpg',
-  snowmobile:  '/images/activities/snowmobile.jpg',
-  bears:       '/images/hero/bears-kurilskoye.jpg',
-};
 
 function publicAppUrl(): string {
   return getPublicBaseUrl();
 }
 
 /**
- * Гарантированно-достижимое честное фото для поста: куратор-снимок Камчатки
- * по типу локации/активности (с нашего домена), а карта — лишь крайний случай.
- * Порядок «фото раньше карты» специально: пост про озеро приходил с картой
- * (или вовсе текстом), а не с фото воды.
+ * Свой снимок места — единственное фото, с которым пост может выйти.
+ *
+ * До 05.09 здесь стоял каскад: свой снимок → куратор-фото Камчатки по типу
+ * локации с оговоркой «на фото не это место» → карта. Владелец снял пост про
+ * озеро Зелёное вместе с таким фото: оговорка честна, но читатель видит
+ * снимок над текстом и делает единственный вывод. Чужого снимка у поста о
+ * месте больше нет — место без своего фото не выбирается вовсе (условие в
+ * SQL ниже), а откат при отказе Telegram идёт в текст, не в чужую картинку.
+ * Свои снимки — только wikimedia и ручная загрузка, не AI-блобы.
  */
-export function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
-  const appUrl = publicAppUrl();
-  // 1. Реальное фото по типу локации
-  const locPhoto = LOCATION_PHOTO[r.location_type ?? ''];
-  if (locPhoto) return `${appUrl}${locPhoto}`;
-  // 2. Реальное фото по типу активности
-  const actPhoto = ACTIVITY_PHOTO[r.activity_type ?? ''];
-  if (actPhoto) return `${appUrl}${actPhoto}`;
-  // 3. Крайний случай — статичная карта Яндекса с точкой (честно показывает ГДЕ)
-  if (r.lat && r.lng) {
-    const ll = `${r.lng},${r.lat}`;
-    return `https://static-maps.yandex.ru/1.x/?ll=${ll}&z=11&size=650,400&pt=${ll},pm2rdm&l=map`;
-  }
-  return null;
+export const OWN_PHOTO_MODELS = ['wikimedia', 'manual-upload'] as const;
+
+function ownPhotoUrl(routeId: string): string {
+  return `${publicAppUrl()}/api/images/route/${routeId}`;
 }
 
 /**
- * Фото для поста Кузьмича — сначала РЕАЛЬНЫЙ снимок самого места (wikimedia /
- * ручная загрузка) через /api/images/route/[id]; если его нет — куратор-фото
- * Камчатки по типу локации с нашего домена (buildRoutePhotoUrl).
- *
- * Раньше здесь синхронно генерилась AI-картинка (Pollinations Flux, ~60с) —
- * ненадёжно из РФ (Timeweb) и вразрез с решением 2026-07-17 (AI-пейзажи не
- * показываем). Когда генерация зависала/падала, а фолбэк-карта не грузилась,
- * tgPostPhoto тихо откатывался на текст — пост уходил без фото (кейс владельца
- * «Большой Калыгирь»). Теперь путь детерминированный, без внешней генерации.
- */
-async function resolvePostPhotoUrl(
-  r: KuzmichRouteRow,
-): Promise<{ url: string | null; ofThisPlace: boolean }> {
-  // Реальное фото места (только wikimedia/ручная загрузка — не AI-блобы)
-  try {
-    const { rows } = await query(
-      `SELECT 1 FROM ai_route_images
-       WHERE route_id = $1 AND model IN ('wikimedia', 'manual-upload')
-       LIMIT 1`,
-      [r.id],
-    );
-    if (rows.length > 0) return { url: `${publicAppUrl()}/api/images/route/${r.id}`, ofThisPlace: true };
-  } catch {
-    // Нет доступа к БД — не блокируем пост, идём к куратор-фото
-  }
-  // Куратор-снимок — настоящая Камчатка, но НЕ это место.
-  return { url: buildRoutePhotoUrl(r), ofThisPlace: false };
-}
-
-/**
- * Подпись к чужому снимку.
- *
- * 19.08 владелец показал пост про маар «Медвежья чаша»: сверху — девушка в
- * купальнике у лестницы в бассейн, снизу — текст про тридцатиметровый кратер с
- * бирюзовой водой. Снимок настоящий и камчатский, но это НЕ маар: у места нет
- * своего фото, и подставился куратор-снимок по типу локации.
- *
- * Читатель не знает про каскад фолбэков. Он видит фото над текстом и делает
- * единственный возможный вывод: вот оно, это место. Снимок без оговорки —
- * такая же подмена, как рейтинг 4.5 у перевозчика, которого никто не оценивал.
- *
- * Дешевле всего сказать правду одной строкой: фото остаётся, ложь уходит.
- */
-const NOT_THIS_PLACE_NOTE = '\n\n<i>На фото — Камчатка, но не это место: своего снимка у нас пока нет.</i>';
-
-/**
- * Выбирает случайный маршрут, не постившийся последние 30 дней,
- * генерирует пост голосом Кузьмича и публикует в канал.
+ * Выбирает случайное место со СВОИМ фото, не постившееся последние 30 дней,
+ * собирает пост из его данных (composePlacePost — модели нет) и публикует.
  * Логирует в ai_actions_log.
+ *
+ * Решение владельца 05.09 после поста про озеро Зелёное: модель сочинила
+ * кратер, железо и тёплую воду, которых нет в данных, а фото было чужим.
+ * Промпт запрещал выдумывать — и не помог, как не помог 12.07 и 19.08.
+ * Сторож структурный: тексту неоткуда взять то, чего нет в записи.
  */
 export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: string; error?: string }> {
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
@@ -766,7 +687,6 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
     // не совпадало с содержимым страницы
     const pickResult = await query<KuzmichRouteRow>(`
       SELECT ark.id, ark.title, ark.description, ark.location_type, ark.activity_type,
-             ark.zone, ark.kuzmich_review, ark.lat, ark.lng,
              EXISTS (
                SELECT 1 FROM kamchatka_routes k
                WHERE k.geometry IS NOT NULL
@@ -776,6 +696,10 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
       FROM agent_route_knowledge ark
       WHERE ark.is_visible = TRUE
         AND ark.id::text <> ALL($1)
+        AND EXISTS (
+          SELECT 1 FROM ai_route_images i
+          WHERE i.route_id = ark.id AND i.model = ANY($2)
+        )
         AND ark.id::text NOT IN (
           SELECT metadata->>'route_id'
           FROM ai_actions_log
@@ -790,58 +714,26 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
                       OR k.metadata->>'place_ark_id' = ark.id::text)
              ) DESC, RANDOM()
       LIMIT 1
-    `, [rejectedIds]);
+    `, [rejectedIds, [...OWN_PHOTO_MODELS]]);
 
-    if (!pickResult.rows[0]) return { ok: false, error: 'Нет маршрутов для поста (все опубликованы в последние 30 дней)' };
+    if (!pickResult.rows[0]) return { ok: false, error: 'Нет мест для поста: со своим фото и не опубликованных за 30 дней не осталось' };
     const r = pickResult.rows[0];
 
     const locLabel = LOCATION_LABELS[r.location_type ?? ''] ?? r.location_type ?? '';
     const actLabel = ACTIVITY_LABELS[r.activity_type ?? ''] ?? r.activity_type ?? '';
     const appUrl   = getPublicBaseUrl();
 
-    const reviewCtx = r.kuzmich_review
-      ? `\nМои заметки об этом месте: "${r.kuzmich_review.slice(0, 280)}"`
-      : '';
+    // Текст — из записи, без модели. null — описания нет; такой кандидат
+    // отбраковывается ниже тем же путём, что и любой другой.
+    const text = composePlacePost(
+      { id: r.id, title: r.title, description: r.description, has_track: r.has_track },
+      { appUrl, locLabel, actLabel },
+    ) ?? '';
 
-    const prompt = `Ты — Кузьмич, камчадал в третьем поколении. Напиши короткий пост для Telegram-канала о конкретном месте.
-
-Место: ${r.title}
-Тип: ${locLabel || 'природный объект'}${actLabel ? ', ' + actLabel : ''}
-Описание: ${r.description?.slice(0, 300) ?? 'нет данных'}${reviewCtx}
-
-Требования:
-- 60-100 слов; если фактуры в данных мало — пиши короче (от 40 слов) и не
-  разбавляй общими словами настроения ("красиво", "впечатляет", "тест на
-  выносливость") — это не содержание, а его отсутствие
-- Конкретная деталь ИЗ ДАННЫХ ВЫШЕ: из описания или моих заметок. Не выдумывай
-  фактов, которых в них нет: ни находок, ни тайников, ни историй, ни цифр
-- Если детали в данных нет — пиши о том, что есть, короче. Пустая строка лучше
-  придуманной
-- НИКОГДА не советуй уходить с тропы, идти в сторону или искать что-либо вне
-  тропы
-- В конце обязательно ссылка: ${appUrl}/routes/${r.id}
-- Ссылку сопроводи ОДНОЙ СВОЕЙ фразой (не копируй формулировку из этой строки
-  инструкции дословно — придумай свою): ${r.has_track
-    ? 'дай понять, что на странице есть GPS-трек для похода'
-    : 'дай понять, что это карточка места — маршрута или трека там нет, только описание и карта'}
-- HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
-- Не начинай с "Привет" или своего имени
-${KUZMICH_CHANNEL_VOICE}`;
-
-    const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-
-    // Условие выше — строка в промпте, а её можно не выполнить: именно так
-    // 12.07 вышел пост про место без трека. Проверяем результат, а не надеемся
-    // на послушание модели (CLAUDE.md §8: инструмент вместо абзаца в промпте).
-    // Совет уйти с тропы — отказ БЕЗУСЛОВНЫЙ, вне зависимости от трека.
-    //
-    // 19.08 пост про маар «Медвежья чаша» предлагал идти «не по тропе, а чуть
-    // в сторону» за консервной банкой с запиской геологов, которой нет в
-    // данных. Требование промпта «секрет, который знают не все» вынуждало
-    // выдумать — а выдумка, за которой надо сойти с тропы на кромке
-    // тридцатиметрового кратера, отправляет человека искать несуществующее в
-    // опасном месте. Условие в промпте это не остановит: 12.07 уже доказало,
-    // что инструкция в промпте не гвард (§8).
+    // Проверки результата остаются и без модели: описание в базе — тоже текст,
+    // который кто-то написал, и совет уйти с тропы в нём так же недопустим, а
+    // упоминание маршрута у места без трека так же обещает лишнее (12.07,
+    // 19.08). Судим результат, а не источник.
     const leavesTrail = advisesLeavingTrail(text);
     if (leavesTrail || (!r.has_track && promisesRouteOrTrack(text))) {
       rejectedIds.push(r.id);
@@ -871,21 +763,15 @@ ${KUZMICH_CHANNEL_VOICE}`;
       continue;
     }
 
-    // Основное фото (реальный снимок места, если есть) + куратор-фолбэк:
-    // если Telegram не смог скачать основное (>5 МБ у wikimedia-оригинала,
-    // таймаут эндпоинта) — пост всё равно уйдёт с честным снимком Камчатки.
-    const photo = await resolvePostPhotoUrl(r);
-    const curatorUrl = buildRoutePhotoUrl(r);
-    // Оговорка добавляется, когда снимок не этого места. Она идёт в ТЕКСТ, а
-    // не в отдельное сообщение: подпись, оторванная от фото, читается как
-    // разговор о чём-то другом.
-    const body = photo.url && !photo.ofThisPlace ? `${text}${NOT_THIS_PLACE_NOTE}` : text;
+    // Свой снимок — он есть по условию выбора. Фолбэка на чужое фото нет:
+    // если Telegram не смог скачать наш кадр, пост уходит текстом с логом
+    // (tgPostPhoto), а не с картинкой другого места.
     const result = await postToAllChannels({
       channelId,
       postType: 'kuzmich_route',
-      text: body,
-      photoUrl: photo.url,
-      fallbackPhotoUrl: curatorUrl !== photo.url ? curatorUrl : null,
+      text,
+      photoUrl: ownPhotoUrl(r.id),
+      fallbackPhotoUrl: null,
     });
 
     if (result.ok) {
