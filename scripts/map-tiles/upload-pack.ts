@@ -40,10 +40,14 @@ function countFeatures(body: Buffer): string {
 }
 
 async function main(): Promise<number> {
-  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix, vectorPath] = process.argv.slice(2);
+  // --terrain-only (05.09): пересборка рельефа с запасом DEM за границей
+  // пакета — один файл, без горизонталей, OSM, вектора и глифов. Остальное
+  // в хранилище остаётся прежним и меняться не должно.
+  const terrainOnly = process.argv.includes('--terrain-only');
+  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix, vectorPath] = process.argv.slice(2).filter((a) => a !== '--terrain-only');
 
-  if (!region || !terrainPath || !contoursPath) {
-    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>] [<vector.pmtiles>]');
+  if (!region || !terrainPath || (!terrainOnly && !contoursPath)) {
+    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>] [<vector.pmtiles>] | <region-id> <terrain.pmtiles> --terrain-only');
     return 2;
   }
   // Район реестра или клетка сетки (cell-52n157e) — одна проверка на оба.
@@ -59,7 +63,7 @@ async function main(): Promise<number> {
 
   const items: Array<{ kind: 'terrain' | 'contours'; path: string; type: string }> = [
     { kind: 'terrain', path: terrainPath, type: 'application/octet-stream' },
-    { kind: 'contours', path: contoursPath, type: 'application/geo+json' },
+    ...(terrainOnly ? [] : [{ kind: 'contours' as const, path: contoursPath, type: 'application/geo+json' }]),
   ];
 
   for (const it of items) {
@@ -73,6 +77,11 @@ async function main(): Promise<number> {
     const key = packKey(region as PackRegionId, it.kind);
     const res = await uploadToS3(key, readFileSync(it.path), it.type);
     console.log(`${it.kind}: ${(size / 1024 / 1024).toFixed(2)} МБ -> ${res.url}`);
+  }
+
+  if (terrainOnly) {
+    console.log('только рельеф: горизонтали, OSM, вектор, глифы и паспорт не трогались.');
+    return 0;
   }
 
   // Глифы — общие для всех районов, потому не под ключом района. Каталог

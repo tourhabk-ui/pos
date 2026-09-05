@@ -77,6 +77,10 @@ import numpy as np
 # Copernicus GLO-30 на AWS Open Data. Без ключа и без регистрации — в отличие
 # от SRTM, который требует логина Earthdata (и потому в конвейер не взят).
 DEM_BUCKET = 'https://copernicus-dem-30m.s3.amazonaws.com'
+# Запас DEM вокруг bbox пакета, градусы: не меньше тайла z8 (1.406° по
+# долготе; по широте 0.85° на 55° с.ш., 0.6° на 62°). См. --margin-lon/--margin-lat.
+DEM_MARGIN_LON = 1.5
+DEM_MARGIN_LAT = 1.0
 # Код разрешения в имени клетки — шаг сетки в ДЕСЯТЫХ угловой секунды:
 # «COG_10» = 1" (GLO-30, ~30 м), «COG_30» = 3" (GLO-90, ~90 м). Из метров
 # его не вывести — только из документации набора; менять вместе с бакетом.
@@ -264,14 +268,25 @@ def main():
     ap.add_argument('--cache', default='.cache/dem')
     ap.add_argument('--minzoom', type=int, default=MINZOOM)
     ap.add_argument('--maxzoom', type=int, default=MAXZOOM)
+    # Запас DEM за границей пакета (05.09). Тайл z8 — 1.4° по долготе и до
+    # 0.85° по широте — заходит за границу клетки, и без запаса его край
+    # был дырой: гипсометрия красила дыру поверх соседа полосой в полтайла
+    # (скрин владельца 06:44), а тень рисовала обрыв в 500 м швом вдоль
+    # каждого стыка. С запасом тайл на стыке у ОБЕИХ клеток одинаков и
+    # полон — шва нет по построению. Число тайлов пакета не меняется:
+    # tile_range считается по bbox, запас идёт только в мозаику.
+    ap.add_argument('--margin-lon', type=float, default=DEM_MARGIN_LON)
+    ap.add_argument('--margin-lat', type=float, default=DEM_MARGIN_LAT)
     args = ap.parse_args()
 
     bbox = tuple(float(v) for v in args.bbox.split(','))
     assert len(bbox) == 4, 'bbox = west,south,east,north'
+    dem_bbox = (bbox[0] - args.margin_lon, bbox[1] - args.margin_lat,
+                bbox[2] + args.margin_lon, bbox[3] + args.margin_lat)
 
     started = time.time()
-    print(f'bbox {bbox}, зумы {args.minzoom}-{args.maxzoom}')
-    paths = fetch_dem_tiles(bbox, args.cache)
+    print(f'bbox {bbox}, зумы {args.minzoom}-{args.maxzoom}, запас DEM {args.margin_lon}°x{args.margin_lat}° -> {dem_bbox}')
+    paths = fetch_dem_tiles(dem_bbox, args.cache)
     if not paths:
         # Ноль клеток при непустом bbox — это отказ, а не пустой результат
         # (§4.0: прогон, разобравший 0 из N, обязан краснеть).
@@ -279,7 +294,7 @@ def main():
         return 1
     print(f'клеток DEM: {len(paths)}')
 
-    mosaic, geo, filled = build_mosaic(paths, bbox, extent=cells_extent(bbox))
+    mosaic, geo, filled = build_mosaic(paths, bbox, extent=cells_extent(dem_bbox))
     total = mosaic.size
     print(f'мозаика {mosaic.shape}, заполнено {filled}/{total} '
           f'({100.0 * filled / total:.1f}%)')
