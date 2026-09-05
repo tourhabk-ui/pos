@@ -115,7 +115,13 @@ describe('Scout-Innovator называет причину, а не следст�
 
   it('в прогоне отказ водопада не путается с ответом модели', () => {
     const src = readFileSync(join(ROOT, 'lib/agents/scout-innovator.ts'), 'utf-8');
-    expect(src).toMatch(/await callAIWaterfallOrNull\(messages\)/);
+    // Свойство — «отказ приходит null, а не строкой-извинением», а не имя
+    // функции. 05.09 запасной путь сменился с голого водопада на
+    // качественный с потолком токенов (прогон 390: обрыв на 2437), и у
+    // него та же честная форма *OrNull.
+    expect(src).toMatch(/await callAI(?:Waterfall|Quality)OrNull\(messages/);
+    expect(src).not.toMatch(/await callAIWaterfall\(messages\)/);
+    expect(src).not.toMatch(/await callAIQuality\(messages/);
     expect(src).toMatch(/не ответил ни один провайдер \(\$\{why\}\)/);
     expect(src).toMatch(/describeRecentAiFailures\(\)/);
   });
