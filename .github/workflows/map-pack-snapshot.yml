@@ -1,0 +1,105 @@
+name: Снимки пакетов карты (MapLibre на раннере)
+
+# Карта рисуется, а не только «файл цел и стиль валиден». Тот же MapLibre,
+# тот же стиль (buildVedarStyle), те же файлы из бакета — в безголовом
+# Chromium; кадры уходят артефактом, сводка — в шаг прогона. До этого
+# увидеть клетку мог только владелец в поле, по одной за выезд (05.09).
+#
+# Где исполняется (§8): раннер достаёт до бакета; контейнер Claude — нет.
+# Ручной вход и файл-триггер — как у остальных сборок карты.
+
+on:
+  workflow_dispatch:
+    inputs:
+      packs:
+        description: 'Пакеты через запятую (пусто — из файла-триггера)'
+        type: string
+        default: ''
+      theme:
+        description: 'Тема: dark или light'
+        type: string
+        default: ''
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-pack-snapshot.json'
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Chromium для Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          PACKS="${{ inputs.packs }}"
+          THEME="${{ inputs.theme }}"
+          if [ -z "$PACKS" ]; then
+            PACKS=$(python3 -c "import json;print(','.join(json.load(open('.github/triggers/map-pack-snapshot.json')).get('packs',[])))")
+          fi
+          if [ -z "$THEME" ]; then
+            THEME=$(python3 -c "import json;print(json.load(open('.github/triggers/map-pack-snapshot.json')).get('theme','dark'))")
+          fi
+          echo "packs=$PACKS" >> "$GITHUB_OUTPUT"
+          echo "theme=$THEME" >> "$GITHUB_OUTPUT"
+          echo "пакеты: ${PACKS:-<все собранные>}, тема: $THEME"
+
+      - name: Снять кадры
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::Секрета S3_BUCKET нет — снимать неоткуда. Это ОТДЕЛЬНЫЙ набор от переменных Timeweb (§8)."
+            exit 2
+          fi
+          set +e
+          FLAGS="--theme ${{ steps.cfg.outputs.theme }} --out .cache/snapshots"
+          if [ -n "${{ steps.cfg.outputs.packs }}" ]; then FLAGS="$FLAGS --packs ${{ steps.cfg.outputs.packs }}"; fi
+          npx tsx scripts/map-tiles/snapshot-packs.ts $FLAGS | tee snapshot.log
+          code=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '### Снимки пакетов карты'
+            echo
+            if [ -f .cache/snapshots/index.md ]; then cat .cache/snapshots/index.md; fi
+            echo
+            echo '```'
+            tail -n 5 snapshot.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Три исхода вместо двух (§4.0): отказ источника, «не прогрузилось»
+          # и «прогон не состоялся» — разные беды, и одинаково красный шаг о
+          # них соврал бы.
+          if [ "$code" = "1" ]; then
+            echo "::error::Есть кадры с отказом источника — карта в поле этот пакет не дорисует. Смотреть артефакт."
+          elif [ "$code" = "3" ]; then
+            echo "::error::Часть кадров не прогрузилась за бюджет. Это не значит, что они целы."
+          elif [ "$code" = "2" ]; then
+            echo "::error::Снимки не состоялись (WebGL / адрес хранилища / неизвестный пакет)."
+          fi
+          exit $code
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-pack-snapshots
+          path: .cache/snapshots/
+          retention-days: 14
+          if-no-files-found: warn

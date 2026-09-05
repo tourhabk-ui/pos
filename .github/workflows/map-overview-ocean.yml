@@ -1,0 +1,112 @@
+name: Океан обзорного яруса (полигоны суши OSM)
+
+# Обзор (z4-7) красит море по нулю высоты DEM, а дыры покрытия — серым
+# «не знаю». Посреди Охотского моря серые пятна читаются как суша. Ответ —
+# спросить берег у OSM: океан = bbox обзора минус полигоны суши
+# (osmdata.openstreetmap.de). Слой ложится поверх гипсометрии.
+#
+# Отдельно от сборки обзора: рельеф не трогается, это один файл рядом.
+# Где исполняется (§8): раннер (сеть до osmdata, ключи S3); прод читает.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Заливать в хранилище (иначе собрать и приложить артефактом)'
+        type: boolean
+        default: false
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-overview-ocean.json'
+
+permissions:
+  contents: read
+
+jobs:
+  ocean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.upload }}" ]; then
+            UPLOAD="${{ inputs.upload }}"
+          else
+            UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-overview-ocean.json')).get('upload',False)).lower())")
+          fi
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "заливка: $UPLOAD"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Инструменты
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet shapely pyshp pyproj
+          npm ci --prefer-offline --no-audit --silent
+
+      - name: Границы обзора — из реестра
+        id: bbox
+        run: |
+          set -euo pipefail
+          BBOX=$(npx tsx scripts/map-tiles/region-bbox.ts krai-overview)
+          echo "bbox=$BBOX" >> "$GITHUB_OUTPUT"
+          echo "bbox обзора: $BBOX"
+
+      - name: Океан из полигонов суши
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/packs
+          python3 scripts/map-tiles/build_ocean.py \
+            --bbox "${{ steps.bbox.outputs.bbox }}" \
+            --out .cache/packs/krai-overview.ocean.geojson \
+            | tee .cache/ocean-build.log
+
+      - name: Итог — в сводку прогона
+        if: always()
+        run: |
+          {
+            echo '### Океан обзорного яруса'
+            echo '```'
+            grep -E 'полигонов|доля суши|океан:|ОТКАЗ|время сборки' .cache/ocean-build.log || echo 'лог не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-overview-ocean
+          path: .cache/packs/krai-overview.ocean.geojson
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Заливка в хранилище
+        if: steps.cfg.outputs.upload == 'true'
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::Секреты S3 не заданы в репозитории. Это ОТДЕЛЬНЫЙ набор от переменных Timeweb (§8)."
+            exit 1
+          fi
+          npx tsx scripts/map-tiles/upload-ocean.ts .cache/packs/krai-overview.ocean.geojson
+
+      - name: Океан НЕ залит — сказать это громко
+        if: steps.cfg.outputs.upload != 'true'
+        run: |
+          echo "::warning::Океан собран, но НЕ залит (upload=false). В хранилище его нет."
