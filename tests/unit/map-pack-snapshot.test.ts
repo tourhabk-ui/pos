@@ -39,6 +39,14 @@ describe('снимок — тем же стилем, что карта в пол
     expect(SCRIPT).toMatch(/запросов к бакету через прокси/);
   });
 
+  it('кадры уходят JPEG в ветку map-snapshots — чтобы смотреть глазами, не только «idle без ошибок»', () => {
+    expect(SCRIPT).toMatch(/type: 'jpeg'/);
+    expect(WF).toMatch(/HEAD:refs\/heads\/map-snapshots/);
+    expect(WF).toMatch(/contents: write/);
+    expect(SCRIPT).toMatch(/--force-ocean/);
+    expect(WF).toContain('--force-ocean');
+  });
+
   it('pmtiles-протокол зарегистрирован, буфер кадра сохраняется', () => {
     expect(SCRIPT).toMatch(/maplibregl\.addProtocol\('pmtiles', protocol\.tile\)/);
     expect(SCRIPT).toMatch(/preserveDrawingBuffer: true/);
@@ -63,8 +71,11 @@ describe('исходы', () => {
 });
 
 describe('план кадров', () => {
-  it('обзор — на своих зумах z4-7, пакеты — на z8-13', () => {
-    expect(zoomsFor(OVERVIEW_ID).every((z) => z >= 4 && z <= 7)).toBe(true);
+  it('обзор — на своих зумах z4-7 плюс z3 за краем яруса; пакеты — на z8-13', () => {
+    // z3 — ниже минимума обзора: кадр того, что карта рисует за краем пакета
+    // (скрины владельца 05.09 были на z3, с полосами).
+    expect(zoomsFor(OVERVIEW_ID)).toContain(3);
+    expect(zoomsFor(OVERVIEW_ID).filter((z) => z >= 4).every((z) => z <= 7)).toBe(true);
     expect(zoomsFor('cell-52n157e').every((z) => z >= 8 && z <= 13)).toBe(true);
     expect(zoomsFor('avacha-group').every((z) => z >= 8 && z <= 13)).toBe(true);
   });

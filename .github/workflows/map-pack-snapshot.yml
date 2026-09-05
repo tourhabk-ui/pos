@@ -19,13 +19,18 @@ on:
         description: 'Тема: dark или light'
         type: string
         default: ''
+      force_ocean:
+        description: 'Подложить океан обзора из бакета, даже если флаг ещё не включён'
+        type: boolean
+        default: false
   push:
     branches: [main, 'claude/**']
     paths:
       - '.github/triggers/map-pack-snapshot.json'
 
 permissions:
-  contents: read
+  # write — только ради ветки map-snapshots с JPEG-кадрами (см. шаг ниже).
+  contents: write
 
 jobs:
   snapshot:
@@ -50,6 +55,11 @@ jobs:
           set -euo pipefail
           PACKS="${{ inputs.packs }}"
           THEME="${{ inputs.theme }}"
+          FORCE_OCEAN="${{ inputs.force_ocean }}"
+          if [ -z "$FORCE_OCEAN" ]; then
+            FORCE_OCEAN=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-pack-snapshot.json')).get('force_ocean',False)).lower())")
+          fi
+          echo "force_ocean=$FORCE_OCEAN" >> "$GITHUB_OUTPUT"
           if [ -z "$PACKS" ]; then
             PACKS=$(python3 -c "import json;print(','.join(json.load(open('.github/triggers/map-pack-snapshot.json')).get('packs',[])))")
           fi
@@ -72,6 +82,7 @@ jobs:
           set +e
           FLAGS="--theme ${{ steps.cfg.outputs.theme }} --out .cache/snapshots"
           if [ -n "${{ steps.cfg.outputs.packs }}" ]; then FLAGS="$FLAGS --packs ${{ steps.cfg.outputs.packs }}"; fi
+          if [ "${{ steps.cfg.outputs.force_ocean }}" = "true" ]; then FLAGS="$FLAGS --force-ocean"; fi
           npx tsx scripts/map-tiles/snapshot-packs.ts $FLAGS | tee snapshot.log
           code=${PIPESTATUS[0]}
           set -e
@@ -103,3 +114,26 @@ jobs:
           path: .cache/snapshots/
           retention-days: 14
           if-no-files-found: warn
+
+      # Кадры — ещё и в ветку map-snapshots (orphan, один коммит, force):
+      # артефакт прогона из контейнера Claude не скачать (blob-хранилище
+      # закрыто прокси), а файл в ветке репозитория читается через GitHub API
+      # и виден как картинка. 05.09 «14 кадров ok» без глаз оказалось
+      # океаном поверх суши — «idle без ошибок» не есть «нарисовано верно».
+      - name: Кадры JPEG — в ветку map-snapshots
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! ls .cache/snapshots/*.jpg >/dev/null 2>&1; then echo "кадров нет — ветку не трогаю"; exit 0; fi
+          TMP=$(mktemp -d)
+          cp .cache/snapshots/*.jpg .cache/snapshots/index.md .cache/snapshots/summary.json "$TMP"/ 2>/dev/null || true
+          cd "$TMP"
+          git init -q -b map-snapshots
+          git config user.name "map-pack-snapshot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Снимки пакетов: прогон ${GITHUB_RUN_ID}, ${GITHUB_REF_NAME} @ ${GITHUB_SHA:0:8}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/map-snapshots
+          echo "кадры: https://github.com/${GITHUB_REPOSITORY}/tree/map-snapshots"
