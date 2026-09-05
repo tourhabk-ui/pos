@@ -21,7 +21,8 @@
 import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
-import { packKey, glyphKey, osmKey, vectorKey, PACK_GLYPHS, OSM_LAYERS } from '@/lib/map/pack-source';
+import { packKey, glyphKey, osmKey, vectorKey, manifestKey, PACK_GLYPHS, OSM_LAYERS, type OsmLayer } from '@/lib/map/pack-source';
+import { buildPackManifest, countGeoJsonFeatures } from '@/lib/map/pack-manifest';
 import { REGIONS, packRegionBbox, type PackRegionId } from '@/lib/geo/regions';
 
 /**
@@ -113,9 +114,12 @@ async function main(): Promise<number> {
       console.error(`Нет OSM-слоёв: ${missing.map((m) => m.layer).join(', ')} — прекращаю, OSM не залит.`);
       return 1;
     }
+    const counts: Partial<Record<OsmLayer, number>> = {};
     for (const f of files) {
       const size = statSync(f.path).size;
       const body = readFileSync(f.path);
+      const n = countGeoJsonFeatures(body.toString('utf-8'));
+      if (n !== null) counts[f.layer] = n;
       const res = await uploadToS3(osmKey(region as PackRegionId, f.layer), body, 'application/geo+json');
       /**
        * ЧИСЛО ОБЪЕКТОВ, а не только килобайты (02.09). Слой из двух посёлков
@@ -127,7 +131,13 @@ async function main(): Promise<number> {
        */
       console.log(`osm ${f.layer}: ${countFeatures(body)} объектов, ${size} Б -> ${res.url}`);
     }
-    console.log(`  3. внести '${region}' в OSM_BUILT_REGIONS (lib/map/pack-source.ts)`);
+    // Паспорт пакета (05.09): те же числа, что напечатаны выше, — рядом с
+    // пакетом, чтобы карта могла сказать «троп в OSM здесь нет» словами.
+    // Слой, который не разобрался, в паспорт не попадает: «не знаю» ≠ 0.
+    const manifest = buildPackManifest(region, counts);
+    const mres = await uploadToS3(manifestKey(region as PackRegionId), Buffer.from(JSON.stringify(manifest)), 'application/json');
+    console.log(`manifest: ${Object.keys(counts).length} из ${OSM_LAYERS.length} слоёв посчитано -> ${mres.url}`);
+    console.log(`  3. внести '${region}' в OSM_BUILT_REGIONS и MANIFEST_BUILT (lib/map/pack-source.ts)`);
   }
 
   // Векторный пакет (02.09): один PMTiles на все линии и площади района.

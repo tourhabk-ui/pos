@@ -203,6 +203,26 @@ function placesUrlFor(region: PackRegionId, base: string): string | null {
 }
 
 /**
+ * Паспорт пакета (05.09, lib/map/pack-manifest.ts): число объектов по слоям
+ * OSM, снятое с залитых файлов. По нему карта говорит словами «троп в OSM
+ * здесь нет», а не молчит, как при сбое загрузки. Ключ — рядом с пакетом.
+ */
+export function manifestKey(region: PackRegionId): string {
+  return `map-packs/${region}.manifest.json`;
+}
+
+/**
+ * Обещание, что паспорт лежит в хранилище — того же рода, что PLACES_BUILT:
+ * ставится ПОСЛЕ прогона build-manifests / заливки пакета. Нет паспорта —
+ * карта не просит его и не судит о покрытии: «не знаю», не «пусто».
+ */
+export const MANIFEST_BUILT: readonly PackRegionId[] = [];
+
+function manifestUrlFor(region: PackRegionId, base: string): string | null {
+  return MANIFEST_BUILT.includes(region) ? `${base}/${manifestKey(region)}` : null;
+}
+
+/**
  * Имена слоёв внутри векторного пакета — контракт между build_vector.sh и
  * стилем (source-layer). Горизонтали двумя слоями: частые (20 м) отдельно,
  * они появляются только с z13.
@@ -278,6 +298,8 @@ export type PackSource =
       vectorUrl: string | null;
       /** Места платформы, GeoJSON; null — слой не залит (см. PLACES_BUILT). */
       placesUrl: string | null;
+      /** Паспорт пакета (число объектов по слоям OSM); null — не залит (см. MANIFEST_BUILT). */
+      manifestUrl: string | null;
     }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
@@ -322,6 +344,7 @@ export function resolvePackSource(
       vectorUrl: null,
       // Посёлки-ориентиры нужнее всего именно на обзоре (z4-7).
       placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
     };
   }
   // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
@@ -340,6 +363,7 @@ export function resolvePackSource(
       osmUrls: Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>,
       vectorUrl: `pmtiles://${base}/${vectorKey(region)}`,
       placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
     };
   }
   if (!builtRegions.includes(region)) {
@@ -362,6 +386,7 @@ export function resolvePackSource(
       : {},
     vectorUrl: VECTOR_BUILT_REGIONS.includes(region) ? `pmtiles://${base}/${vectorKey(region)}` : null,
     placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
   };
 }
 

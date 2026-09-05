@@ -1,0 +1,92 @@
+name: Паспорта пакетов карты (число объектов по слоям OSM)
+
+# Паспорт пакета — маленький JSON рядом с пакетом: сколько объектов в каждом
+# слое OSM. По нему карта в поле говорит словами «троп в OSM здесь нет», а
+# не молчит так же, как при сбое загрузки (§4.0: «данных нет» и «не пришло»
+# — разные исходы). Заливка пакета пишет паспорт сама; этот прогон снимает
+# паспорта с УЖЕ залитых пакетов, читая их файлы из бакета.
+#
+# Где исполняется (§8): раннер достаёт до бакета своими ключами.
+# Ручной вход и файл-триггер — как у остальных сборок карты.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Записывать в хранилище (иначе только посчитать)'
+        type: boolean
+        default: false
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-pack-manifest.json'
+
+permissions:
+  contents: read
+
+jobs:
+  manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.upload }}" ]; then
+            UPLOAD="${{ inputs.upload }}"
+          else
+            UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-pack-manifest.json')).get('upload',False)).lower())")
+          fi
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "запись: $UPLOAD"
+
+      - name: Прочитать слои каждого пакета и записать паспорта
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::Секрета S3_BUCKET нет — читать неоткуда. Это ОТДЕЛЬНЫЙ набор от переменных Timeweb (§8)."
+            exit 2
+          fi
+          mkdir -p .cache/manifests
+          FLAG=""
+          if [ "${{ steps.cfg.outputs.upload }}" != "true" ]; then FLAG="--dry-run"; fi
+          npx tsx scripts/map-tiles/build-manifests.ts $FLAG | tee .cache/manifests/build.log
+
+      - name: Итог — в сводку прогона
+        if: always()
+        run: |
+          {
+            echo '### Паспорта пакетов карты'
+            echo
+            echo '```'
+            grep -E 'пакетов:|итого|записано паспортов|ОТКАЗ|сухой прогон' .cache/manifests/build.log || echo 'лог не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-pack-manifests
+          path: .cache/manifests/summary.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Паспорта НЕ записаны — сказать это громко
+        if: ${{ steps.cfg.outputs.upload != 'true' }}
+        run: |
+          echo "::warning::Сухой прогон: паспорта посчитаны, в хранилище ничего не записано (upload=false)."

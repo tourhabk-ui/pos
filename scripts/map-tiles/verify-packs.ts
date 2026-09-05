@@ -56,7 +56,7 @@
 
 import {
   BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
-  PLACES_BUILT, packKey, osmKey, vectorKey, placesKey,
+  PLACES_BUILT, packKey, osmKey, vectorKey, placesKey, MANIFEST_BUILT, manifestKey,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 
@@ -97,6 +97,10 @@ export function packKeysToVerify(): Array<{ key: string; kind: 'json' | 'archive
   // Места платформы (05.09) — свой слой, не OSM: свой реестр и свой ключ.
   for (const region of PLACES_BUILT) {
     out.push({ key: placesKey(region), kind: 'json' });
+  }
+  // Паспорт пакета (05.09) — по нему карта говорит, чего в OSM нет.
+  for (const region of MANIFEST_BUILT) {
+    out.push({ key: manifestKey(region), kind: 'json' });
   }
   return out;
 }
