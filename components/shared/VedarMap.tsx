@@ -30,7 +30,7 @@
  * шумный датчик.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
   buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex,
@@ -109,6 +109,28 @@ interface VedarMapProps {
 export interface VedarMapHandle {
   zoomIn(): void;
   zoomOut(): void;
+  /** Текущий зум карты — для числа рядом с кнопками (владелец 05.09). */
+  getZoom(): number;
+  /** Подписка на смену зума; возвращает отписку. */
+  onZoom(cb: (zoom: number) => void): () => void;
+}
+
+/**
+ * Одна ручка на оба места, где стоят кнопки: на самой карте и в приборном
+ * ряду снаружи. Второй объект с теми же методами разошёлся бы при следующей
+ * правке (§12 — про три экрана и три правила).
+ */
+function handleFor(map: MLMap): VedarMapHandle {
+  return {
+    zoomIn: () => map.zoomIn(),
+    zoomOut: () => map.zoomOut(),
+    getZoom: () => map.getZoom(),
+    onZoom: (cb) => {
+      const tick = () => cb(map.getZoom());
+      map.on('zoom', tick);
+      return () => { map.off('zoom', tick); };
+    },
+  };
 }
 
 /**
@@ -132,21 +154,43 @@ export const PACK_MIN_ZOOM = 8;
  * навигатора. Действие — непрозрачное (§2).
  */
 export function VedarZoomButtons({ handle }: { handle: VedarMapHandle | null }) {
+  // Число зума под кнопками — просьба владельца 05.09 («чтоб отражался зум
+  // для инфы, рядом с + и −»). Читается с карты через ту же ручку, что и
+  // кнопки, — одно число на карте и в приборном ряду снаружи, второго
+  // хранилища нет. Событие zoom идёт покадрово при щипке; перерисовка —
+  // только когда меняется первый знак после запятой, ради тысячных незачем.
+  const [zoom, setZoom] = useState<number | null>(null);
+  useEffect(() => {
+    if (!handle) { setZoom(null); return; }
+    setZoom(handle.getZoom());
+    return handle.onZoom((z) => {
+      setZoom((prev) => (prev !== null && Math.round(prev * 10) === Math.round(z * 10) ? prev : z));
+    });
+  }, [handle]);
   if (!handle) return null;
+  const box = {
+    width: 44, borderRadius: 12,
+    background: 'var(--bg-card)', color: 'var(--text-primary)',
+    border: '1px solid var(--border)',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+  } as const;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {([['Приблизить', 1, Plus], ['Отдалить', -1, Minus]] as const).map(([label, dir, Icon]) => (
         <button key={label} type="button" aria-label={label}
           onClick={() => { if (dir > 0) handle.zoomIn(); else handle.zoomOut(); }}
-          style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: 'var(--bg-card)', color: 'var(--text-primary)',
-            border: '1px solid var(--border)', display: 'grid', placeItems: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-          }}>
+          style={{ ...box, height: 44, display: 'grid', placeItems: 'center' }}>
           <Icon className="w-5 h-5" />
         </button>
       ))}
+      {/* Показание, не действие: непрозрачное, как и кнопки (§2). */}
+      {zoom !== null && (
+        <div aria-label={`Зум ${zoom.toFixed(1)}`}
+          style={{ ...box, padding: '5px 0', textAlign: 'center', lineHeight: 1.1 }}>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: 0.3 }}>зум</div>
+          <div className="tabular-nums" style={{ fontSize: 13, fontWeight: 700 }}>{zoom.toFixed(1)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -692,9 +736,15 @@ export default function VedarMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) { onControlsRef.current?.(null); return; }
-    onControlsRef.current?.({ zoomIn: () => map.zoomIn(), zoomOut: () => map.zoomOut() });
+    onControlsRef.current?.(handleFor(map));
     return () => onControlsRef.current?.(null);
   }, [ready]);
+  // Та же ручка для своих кнопок на карте (showZoomButtons): один объект на
+  // жизнь карты, иначе число зума переподписывалось бы каждый кадр.
+  const inlineHandle = useMemo(
+    () => (ready && mapRef.current ? handleFor(mapRef.current) : null),
+    [ready],
+  );
 
   // ── Соседние районы — по видимой области ────────────────────────────────
   // Скрин владельца 02.09 08:21: при отдалении виден один пакет, остальные
@@ -901,10 +951,7 @@ export default function VedarMap({
           что уже ловили с компасом (29.08). */}
       {ready && showZoomButtons && (
         <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 5 }}>
-          <VedarZoomButtons handle={{
-            zoomIn: () => { const m = mapRef.current; if (m) m.zoomIn(); },
-            zoomOut: () => { const m = mapRef.current; if (m) m.zoomOut(); },
-          }} />
+          <VedarZoomButtons handle={inlineHandle} />
         </div>
       )}
       {(mapError || diag) && (

@@ -81,8 +81,11 @@ describe('своя карта принимает жесты', () => {
   });
 
   it('масштаб есть и кнопками', () => {
-    expect(MAP).toContain('m.zoomIn()');
-    expect(MAP).toContain('m.zoomOut()');
+    // 05.09: ручка собирается фабрикой handleFor(map) — одна на кнопки на
+    // карте и в приборном ряду; кнопки зовут её, она зовёт карту.
+    expect(MAP).toMatch(/zoomIn: \(\) => map\.zoomIn\(\)/);
+    expect(MAP).toMatch(/zoomOut: \(\) => map\.zoomOut\(\)/);
+    expect(MAP).toMatch(/if \(dir > 0\) handle\.zoomIn\(\); else handle\.zoomOut\(\);/);
     expect(MAP).toMatch(/aria-label=\{label\}/);
   });
 });
