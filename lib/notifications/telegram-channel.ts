@@ -868,128 +868,97 @@ ${KUZMICH_CHANNEL_VOICE}`;
 // бронируется. Владелец 24.08: «почему нет туров?» — дыра в дизайне, не баг
 // одной строчки: пайплайн писали для точек, тур как сущность в него не завели.
 
-interface TourProgramStep { title?: string; text?: string }
-
-interface KuzmichTourRow {
-  id: number;
-  title: string;
-  short_description: string | null;
-  description: string | null;
-  base_price: string | null;
-  duration_hours: number | null;
-  program: TourProgramStep[] | null;
-  included: string[] | null;
-  photos: string[] | null;
-  operator_name: string | null;
-}
-
 /**
- * Не повторяем тур раньше N дней. 30, как у маршрутов, здесь не годится —
- * живых туров единицы (замер 23.08: 8), и такая пауза быстро оставила бы
- * пул пустым при посте через день. 7 дней даёт каждому туру пройти круг
- * примерно дважды в месяц при текущем размере пула.
+ * Пауза между повторами одного тура. Живых туров единицы (замер 23.08: 8),
+ * слот — ежедневный: при 8 турах каждый выходит раз в ~8 дней, и пауза
+ * нужна только от «тот же тур два дня подряд». Прежние 7 дней при пуле в 8
+ * оставляли слот пустым, как только все прошли круг.
  */
-const TOUR_REPEAT_COOLDOWN_DAYS = 7;
+export const TOUR_REPEAT_MIN_GAP_DAYS = 2;
 
 /**
- * Выбирает опубликованный тур, не постившийся последние
- * TOUR_REPEAT_COOLDOWN_DAYS дней, пишет пост голосом Кузьмича по РЕАЛЬНЫМ
- * полям тура (описание, программа дня, что включено, цена) и публикует.
- * Логирует в ai_actions_log — тем же способом, что и посты о маршрутах.
+ * Ежедневный пост о туре: выбирает живой тур с фотографиями, который не
+ * постился дольше всех (ни разу — первым), и публикует его ТЕМ ЖЕ текстом,
+ * что и ручная публикация (buildTourPostText — только поля карточки, без
+ * модели) и теми же снимками оператора альбомом.
+ *
+ * До 05.09 текст писала модель по промпту «дай почувствовать сам тур» — то
+ * есть просила ощущений, которых в карточке нет. Владелец в тот же день снял
+ * пост о месте за выдуманную фактуру; у тура цена ошибки выше — это оферта.
+ * Решение владельца 05.09: вечерний слот — туры, не сезонные посты.
  */
 export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string }> {
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
-  const pickResult = await query<KuzmichTourRow>(`
-    SELECT ot.id, ot.title, ot.short_description, ot.description,
-           ot.base_price::text AS base_price, ot.duration_hours,
-           ot.program, ot.included, ot.photos,
-           p.name AS operator_name
+  // Динамический импорт: tour-channel-post сам импортирует отсюда tgPostMediaGroup.
+  const { buildTourPostText, tourPostHash } = await import('@/lib/notifications/tour-channel-post');
+  type TourPostRow = Parameters<typeof buildTourPostText>[0];
+
+  const pickResult = await query<TourPostRow & { last_posted_at: string | null }>(`
+    SELECT ot.id::text,
+           ot.title,
+           ot.short_description,
+           ot.base_price,
+           ot.price_unit,
+           ot.duration_hours,
+           ot.multi_day_count,
+           ot.max_participants,
+           ot.difficulty,
+           ot.activity_type,
+           ot.location_name AS location,
+           ot.photos,
+           COALESCE(p.company_name, p.name) AS operator_name,
+           lp.last_posted_at
       FROM operator_tours ot
       LEFT JOIN partners p ON p.id = ot.operator_id
+      LEFT JOIN LATERAL (
+        SELECT MAX(created_at) AS last_posted_at
+          FROM ai_actions_log
+         WHERE action_type IN ('kuzmich_tour_post', 'tour_channel_post')
+           AND metadata->>'tour_id' = ot.id::text
+      ) lp ON TRUE
      WHERE ot.is_published = TRUE AND ot.is_active = TRUE AND ot.deleted_at IS NULL
-       -- Тур без фотографий в канал не идёт ВООБЩЕ (правило владельца 05.08,
-       -- как у tour-channel-post): рисованной обложки у тура быть не может, а
-       -- голый текст продаёт хуже, чем не продаёт. Фильтр здесь, а не после
-       -- выбора: иначе бесфотный тур занял бы слот прогона и пост не вышел бы.
+       -- Тур без фотографий в канал не идёт ВООБЩЕ (правило владельца 05.08):
+       -- рисованной обложки у тура быть не может, а голый текст продаёт хуже,
+       -- чем не продаёт. Фильтр здесь, а не после выбора.
        AND COALESCE(array_length(ot.photos, 1), 0) > 0
-       AND ot.id::text NOT IN (
-         SELECT metadata->>'tour_id' FROM ai_actions_log
-          WHERE action_type = 'kuzmich_tour_post'
-            AND created_at > NOW() - INTERVAL '7 days'
-            AND metadata->>'tour_id' IS NOT NULL
-       )
-     ORDER BY COALESCE(array_length(ot.photos, 1), 0) DESC, RANDOM()
+       AND (lp.last_posted_at IS NULL OR lp.last_posted_at < NOW() - ($1::int * INTERVAL '1 day'))
+     ORDER BY lp.last_posted_at ASC NULLS FIRST,
+              COALESCE(array_length(ot.photos, 1), 0) DESC,
+              RANDOM()
      LIMIT 1
-  `);
+  `, [TOUR_REPEAT_MIN_GAP_DAYS]);
 
   const t = pickResult.rows[0];
   if (!t) {
     return {
       ok: false,
-      error: `Нет туров для поста (все с фото опубликованы в последние ${TOUR_REPEAT_COOLDOWN_DAYS} дней, либо активных туров с фотографиями нет)`,
+      error: `Нет туров для поста: живых туров с фотографиями, не публиковавшихся последние ${TOUR_REPEAT_MIN_GAP_DAYS} дн., не осталось`,
     };
   }
 
   const appUrl = getPublicBaseUrl();
-
-  const programCtx = (t.program ?? []).slice(0, 3)
-    .map((step) => [step.title, step.text?.slice(0, 150)].filter(Boolean).join(': '))
-    .filter(Boolean)
-    .join('\n');
-  const includedCtx = (t.included ?? []).slice(0, 5).join(', ');
-  const priceCtx = t.base_price && parseFloat(t.base_price) > 0
-    ? `от ${Math.round(parseFloat(t.base_price)).toLocaleString('ru-RU')} ₽`
-    : '';
-
-  const prompt = `Ты — Кузьмич, местный житель Камчатки. Напиши короткий пост для Telegram-канала о конкретном туре — реальном предложении, которое можно забронировать у оператора.
-
-Тур: ${t.title}
-Оператор: ${t.operator_name ?? 'неизвестен'}
-Описание: ${(t.short_description || t.description || '').slice(0, 300) || 'нет данных'}
-${programCtx ? `Программа дня:\n${programCtx}` : ''}
-${includedCtx ? `Включено: ${includedCtx}` : ''}
-${t.duration_hours ? `Длительность: ${t.duration_hours} ч` : ''}
-${priceCtx ? `Цена: ${priceCtx}` : ''}
-
-Требования:
-- 60-100 слов; если фактуры мало — короче, не разбавляй общими словами
-- Конкретная деталь ИЗ ДАННЫХ ВЫШЕ — из описания или программы дня. Не выдумывай
-  подробностей, которых там нет: ни маршрута, ни ощущений, которых нет в тексте
-- Дай почувствовать сам тур — что реально происходит в этот день, а не рекламный ярлык
-- Упомяни оператора по имени: это его тур, не наш
-- Цену указывай, только если она есть в данных выше, и ровно ту цифру
-- В конце — ссылка: ${appUrl}/marketplace/tours/${t.id}
-- HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
-- Не начинай с "Привет" или своего имени
-${KUZMICH_CHANNEL_VOICE}`;
-
-  const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-
-  // Настоящие снимки оператора, АЛЬБОМОМ (до 10) — тот же путь и та же
-  // абсолютизация URL, что у tour-channel-post: прежняя склейка
-  // `${appUrl}${photoRel}` ломала уже-абсолютные ссылки, и Telegram, не
-  // скачав битый URL, молча ронял пост тура в голый текст.
   const photoUrls = absolutePhotoUrls(t.photos, appUrl);
   if (photoUrls.length === 0) {
     // SQL выше такого не отдаёт; ветка — страховка от рассинхрона (§4.0):
     // тур без фото в канал не публикуется никогда, ни текстом, ни обложкой.
-    return { ok: false, tourId: t.id, error: `У тура ${t.id} нет пригодных фотографий — пост не публикуется` };
+    return { ok: false, tourId: Number(t.id), error: `У тура ${t.id} нет пригодных фотографий — пост не публикуется` };
   }
 
+  const text = buildTourPostText(t, appUrl);
   const result = await postToAllChannels({ channelId, postType: 'kuzmich_tour', text, photoUrls });
 
   if (result.ok) {
     try {
       await query(
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title })]
+        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title, text_hash: tourPostHash(text) })]
       );
     } catch { /* таблица ещё не создана — не блокируем пост */ }
   }
 
-  return { ...result, tourId: t.id };
+  return { ...result, tourId: Number(t.id) };
 }
 
 // ── AI News channel post ─────────────────────────────────────────────────────

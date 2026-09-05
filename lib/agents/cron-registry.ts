@@ -384,10 +384,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 4320, tier: 'content', agentId: null, triggerable: false,
   },
   {
-    key: 'kuzmich-sezon', label: 'Kuzmich Seasonal Post',
-    description: 'Сезонный пост в канал.',
-    workflow: 'cron-kuzmich-sezon.yml', cron: '23 16 * * 2,6', schedule: 'вт/сб · 16:23 UTC',
-    everyMin: 4320, tier: 'content', agentId: null, triggerable: false,
+    // 05.09: был kuzmich-sezon (вт/сб). Решение владельца — вместо сезонных
+    // постов публиковать живые туры; текст из карточки, снимки оператора.
+    key: 'kuzmich-tour', label: 'Kuzmich Tour Post',
+    description: 'Живой тур оператора в канал — текст из карточки, фото оператора.',
+    workflow: 'cron-kuzmich-tour.yml', cron: '23 7 * * *', schedule: 'ежедневно · 07:23 UTC',
+    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
   },
   // place-images удалён из реестра 29.07: генерация AI-обложек остановлена
   // решением владельца (issue #878). Запись нельзя было просто оставить с
@@ -513,7 +515,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'import-routes': 'unknown',
   'kuzmich-route': 'unknown',
   'kuzmich-tip': 'unknown',
-  'kuzmich-sezon': 'unknown',
+  // Как route/tip: счётчика работы роут не пишет, судить по нулю нечем.
+  // Отказ (нет живых туров с фото) приходит кодом 500 и виден liveness.
+  'kuzmich-tour': 'unknown',
 };
 
 export function idleMeaning(key: string): IdleMeaning {

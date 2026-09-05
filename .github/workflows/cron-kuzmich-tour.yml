@@ -1,0 +1,26 @@
+name: Cron Kuzmich Tour
+
+# Вечерний пост о живом туре operator_tours — текст из карточки, снимки
+# оператора. До 05.09 этот файл звался cron-kuzmich-sezon и слал type=sezon:
+# явный тип побеждал чередование sezon/tour внутри роута, и тур по расписанию
+# не выходил ни разу («я не вижу постов про реальные туры» — владелец 05.09,
+# решение: вместо сезонов публиковать туры). Ежедневно в 19:23 по Камчатке;
+# при 8 живых турах каждый повторяется примерно раз в 8 дней.
+
+on:
+  schedule:
+    - cron: '23 7 * * *'  # 07:23 UTC = 19:23 KMT (нечётная минута: GitHub дропает запуски ровно в :00)
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Kuzmich tour post
+        run: |
+          curl -X GET "https://vedarai.ru/api/cron/kuzmich?type=tour" \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions" \
+            --max-time 120 \
+            --fail
