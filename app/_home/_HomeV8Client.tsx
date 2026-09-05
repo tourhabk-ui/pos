@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, Map as MapIcon, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, Search, Map as MapIcon, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -349,21 +349,13 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             и в таб-баре. Карточка поиска наезжает на растворяющийся низ фото —
             шов между героем и крем-подложкой, как в макете. */}
         <form className="find" onSubmit={submitIntent} role="search">
-          {/* Медальон-гравюра вместо лупы: поиск на Ведаре — это не «найти
-              строку», а «спросить у того, кто знает край». Марка из набора
-              владельца, тот же резец, что у портрета Кузьмича. */}
-          <img
-            className="hfb"
-            src="/images/brand/bear-64.webp"
-            srcSet="/images/brand/bear-64.webp 64w, /images/brand/bear-128.webp 128w, /images/brand/bear-192.webp 192w"
-            sizes="48px"
-            width={48}
-            height={48}
-            alt=""
-            aria-hidden
-            loading="eager"
-            decoding="async"
-          />
+          {/* Лупа, а не медальон-медведь. До 05.09 в строке поиска стояла марка
+              медведя, а в таб-баре под ней — портрет Кузьмича: на одном экране
+              проводник встречал человека дважды (скриншот владельца 05.09,
+              «кузьмич 2 раза»). Медведь ушёл вниз, в медальон таб-бара
+              (BottomNav) — там он и есть вход к Кузьмичу; поиск остался
+              поиском. */}
+          <Search size={20} className="hfs" aria-hidden />
           <input
             type="search"
             value={intent}
@@ -934,10 +926,13 @@ const CSS = `
    панель браузера не дёргала высоту (vh оставлен первой строкой как запасной
    для старых движков). На широком экране места больше, там герой крупнее. */
 /* Высота героя: без ограничения он с шапкой и навигацией съедал весь первый
-   экран. 62dvh + растворение в крем: видно, что страница продолжается, и шов
-   между фото и подложкой не режет глаз (dvh — чтобы панель браузера не
-   дёргала высоту; vh — запасной для старых движков). */
-.v7 .hero-photo{position:relative;min-height:62vh;min-height:62dvh;background-size:cover;background-position:center;display:flex;color:#fff}
+   экран. 62dvh держался с north-star 31.07; 05.09 владелец попросил герой
+   короче — 50dvh: заголовок и подзаголовок в две строки помещаются, а строка
+   поиска и чипы поднимаются в первый экран без прокрутки. Растворение в крем
+   осталось: видно, что страница продолжается, и шов между фото и подложкой
+   не режет глаз (dvh — чтобы панель браузера не дёргала высоту; vh —
+   запасной для старых движков). */
+.v7 .hero-photo{position:relative;min-height:50vh;min-height:50dvh;background-size:cover;background-position:center;display:flex;color:#fff}
 @media (min-width:768px){.v7 .hero-photo{min-height:70vh;min-height:70dvh}}
 /* Тени — отдельными слоями, а не в background-image строки: верхняя вуаль под
    вордмарк, нижняя под заголовок, и поверх обеих — растворение в крем.
@@ -955,7 +950,7 @@ const CSS = `
 .v7 .hero-share:hover{background:rgba(0,0,0,.55)}
 .v7 .hb-mark{width:52px;height:auto;stroke:rgba(255,255,255,.95);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .v7 .hb-word{font:600 11px/1 var(--font-playfair),Georgia,serif;letter-spacing:.38em;text-transform:uppercase;color:rgba(255,255,255,.95)}
-.v7 .hero-sp{flex:1;min-height:56px}
+.v7 .hero-sp{flex:1;min-height:28px}
 /* Display-типографика — главный визуальный удар макета. clamp: на 320px не
    рвёт слова, на 480px не превращается в плакат. */
 .v7 .hero-photo h1{font:600 clamp(38px,11.6vw,48px)/1.06 var(--font-playfair),Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 28px rgba(0,0,0,.45)}
@@ -967,7 +962,7 @@ const CSS = `
 /* Поиск — карточка на сплошном фоне (не стекло: под ним крем, блюрить нечего).
    Отрицательный отступ кладёт её на растворяющийся низ фото — шов макета. */
 .v7 .find{position:relative;z-index:2;margin-top:-34px;display:flex;align-items:center;gap:10px;padding:9px 9px 9px 13px;border-radius:999px;background:var(--bg-card);border:1px solid var(--border);box-shadow:0 14px 34px -16px rgba(0,0,0,.3)}
-.v7 .find .hfb{width:48px;height:48px;flex:none;border-radius:50%;object-fit:cover}
+.v7 .find .hfs{flex:none;margin-left:4px;color:var(--text-muted)}
 /* align-self:stretch — рамка поля выглядела крупной, а нажималась полоска
    16.8px: сам input не заполнял её по высоте, и промах по вертикали попадал
    мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */
