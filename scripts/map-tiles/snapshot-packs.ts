@@ -56,6 +56,7 @@ import {
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, packRegionBbox, isOverviewId, type PackRegionId } from '@/lib/geo/regions';
 import { gridCellById } from '@/lib/geo/grid-cells';
+import { parseProbe } from '@/scripts/map-tiles/pack-census';
 
 export type ShotVerdict = 'ok' | 'broken' | 'timeout';
 
@@ -118,14 +119,22 @@ const PAGE = `<!doctype html>
   // missing — тайлы, на которые читатель PMTiles ответил «в каталоге нет»
   // (MapLibre из пустого буфера делает «could not be decoded», и по одному
   // тексту ошибки «нет тайла» от «битый тайл» не отличить — прогон 8, 05.09).
-  const state = { errors: [], idle: false, failed: null, webgl: null, missing: [] };
+  // tiles — что пришло по каждому тайлу рельефа: байты и первые 8 байт (у
+  // PNG это сигнатура). Отказ «could not be decoded» при полном архиве и
+  // читаемом в Node тайле (перепись, прогон 9) — вопрос о том, ЧТО ИМЕННО
+  // получил браузер; сюда это и записывается.
+  const state = { errors: [], idle: false, failed: null, webgl: null, missing: [], tiles: {} };
   window.__snap = state;
+  const hex = (u8, n) => Array.from(u8.slice(0, n), (b) => b.toString(16).padStart(2, '0')).join('');
+  window.__hex = hex;
   try {
     const protocol = new pmtiles.Protocol();
     const shortKey = (url) => url.replace(/^pmtiles:\\/\\/[^ ]*?\\/bucket\\/map-packs\\//, '');
     maplibregl.addProtocol('pmtiles', async (params, ctrl) => {
       const r = await protocol.tile(params, ctrl);
-      if (!r || r.data == null || (r.data.byteLength === 0)) state.missing.push(shortKey(params.url));
+      const key = shortKey(params.url);
+      if (!r || r.data == null || (r.data.byteLength === 0)) state.missing.push(key);
+      else if (key.includes('.terrain.pmtiles/')) state.tiles[key] = r.data.byteLength + ' Б ' + hex(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength), 8);
       return r;
     });
     const map = new maplibregl.Map({
@@ -243,7 +252,59 @@ async function serve(
   return { server, origin: `http://127.0.0.1:${port}` };
 }
 
-interface PageState { errors: string[]; idle: boolean; failed: string | null; webgl: boolean | null; missing?: string[] }
+interface PageState {
+  errors: string[]; idle: boolean; failed: string | null; webgl: boolean | null; missing?: string[];
+  /** `<пакет>.terrain.pmtiles/z/x/y` → «N Б <8 байт hex>» — что браузер получил по тайлу рельефа. */
+  tiles?: Record<string, string>;
+}
+
+/**
+ * К отказу MapLibre по тайлу — что по этому тайлу пришло в браузер (байты,
+ * сигнатура). `[terrain]` — основной пакет кадра, `[terrain-<район>]` — подкладка.
+ */
+export function annotateErrors(errors: string[], tiles: Record<string, string>, pack: string): string[] {
+  return errors.map((e) => {
+    const m = /\[terrain(?:-([a-z0-9-]+))?\] z(\d+)\/(\d+)\/(\d+)/.exec(e);
+    if (!m) return e;
+    const key = `${m[1] ?? pack}.terrain.pmtiles/${m[2]}/${m[3]}/${m[4]}`;
+    const got = tiles[key];
+    return `${e} ← ${got ?? 'ответа по тайлу не записано'}`;
+  });
+}
+
+/**
+ * Проба декодера без MapLibre: тот же читатель PMTiles через тот же прокси,
+ * те же байты — и createImageBitmap напрямую. Отделяет «Chromium не читает
+ * этот PNG» от «MapLibre что-то делает с тайлом по дороге».
+ */
+async function probeDecode(page: Page, origin: string, proxyBase: string, probes: Array<{ pack: string; zxy: [number, number, number] }>): Promise<string[]> {
+  if (!probes.length) return [];
+  await page.goto(`${origin}/?style=/style/__probe.json&lat=53&lng=158&z=8`);
+  await settle(page, 20_000);
+  const out: string[] = [];
+  for (const { pack, zxy } of probes) {
+    const url = `${proxyBase}/map-packs/${pack}.terrain.pmtiles`;
+    const line = await page.evaluate(async ([u, z, x, y]: [string, number, number, number]) => {
+      const w = window as unknown as { pmtiles: { PMTiles: new (u: string) => { getZxy(z: number, x: number, y: number): Promise<{ data: ArrayBuffer } | undefined> } }; __hex: (u8: Uint8Array, n: number) => string };
+      try {
+        const r = await new w.pmtiles.PMTiles(u).getZxy(z, x, y);
+        if (!r) return 'в каталоге нет';
+        const u8 = new Uint8Array(r.data);
+        const head = w.__hex(u8, 8);
+        try {
+          const bmp = await createImageBitmap(new Blob([u8], { type: 'image/png' }), { colorSpaceConversion: 'none' });
+          return `${u8.byteLength} Б ${head} → декодирован ${bmp.width}x${bmp.height}`;
+        } catch (err) {
+          return `${u8.byteLength} Б ${head} → createImageBitmap: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      } catch (err) {
+        return `читатель: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }, [url, zxy[0], zxy[1], zxy[2]] as [string, number, number, number]);
+    out.push(`${pack} ${zxy.join('/')}: ${line}`);
+  }
+  return out;
+}
 
 /**
  * Состояние тайлов рельефа в кадре — по источникам: сколько на каком зуме
@@ -313,6 +374,7 @@ async function probeWebgl(page: Page, origin: string): Promise<string | null> {
 
 function parseArgs(argv: string[]): {
   packs: string[] | null; theme: VedarMapTheme; out: string; budgetMs: number; forceOcean: boolean;
+  probes: Array<{ pack: string; zxy: [number, number, number] }>;
 } {
   let packs: string[] | null = null;
   let theme: VedarMapTheme = 'dark';
@@ -322,6 +384,9 @@ function parseArgs(argv: string[]): {
   // просит. Снимок с ним — единственный способ посмотреть на него глазами
   // прежде, чем обещать его полю (05.09: первый океан красил сушу).
   let forceOcean = false;
+  // Пробы декодера (pack:z/x/y) — тайлы, на которые MapLibre жаловался в
+  // прошлом прогоне; тот же разбор строки, что у переписи (pack-census).
+  const probes: Array<{ pack: string; zxy: [number, number, number] }> = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--packs') packs = (argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -329,12 +394,13 @@ function parseArgs(argv: string[]): {
     else if (a === '--out') out = argv[++i] ?? out;
     else if (a === '--budget-ms') budgetMs = Number(argv[++i]) || budgetMs;
     else if (a === '--force-ocean') forceOcean = true;
+    else if (a === '--probe') for (const s of (argv[++i] ?? '').split(',')) if (s.trim()) probes.push(parseProbe(s));
   }
-  return { packs, theme, out, budgetMs, forceOcean };
+  return { packs, theme, out, budgetMs, forceOcean, probes };
 }
 
 async function main(): Promise<number> {
-  const { packs: wanted, theme, out, budgetMs, forceOcean } = parseArgs(process.argv.slice(2));
+  const { packs: wanted, theme, out, budgetMs, forceOcean, probes } = parseArgs(process.argv.slice(2));
   const base = process.env.MAP_PACK_BASE_URL
     || (process.env.S3_BUCKET
       ? `${process.env.S3_ENDPOINT || 'https://s3.twcstorage.ru'}/${process.env.S3_BUCKET}`
@@ -460,6 +526,12 @@ async function main(): Promise<number> {
       return 2;
     }
     console.log(`WebGL есть. Кадров: ${plan.length}, пакетов: ${packs.length}, тема: ${theme}, бюджет ${budgetMs / 1000} с на кадр`);
+    const decoded = await probeDecode(page, origin, proxyBase, probes);
+    if (decoded.length) {
+      console.log('проба декодера (читатель PMTiles + createImageBitmap, без MapLibre):');
+      for (const line of decoded) console.log(`  ${line}`);
+      await writeFile(join(out, 'decode-probe.txt'), decoded.join('\n') + '\n');
+    }
 
     for (const { pack, zoom, center, name } of plan) {
       const url = `${origin}/?style=/style/${name}.json&lat=${center.lat}&lng=${center.lng}&z=${zoom}`;
@@ -473,9 +545,10 @@ async function main(): Promise<number> {
       const verdict: ShotVerdict = state.errors.length ? 'broken' : state.idle ? 'ok' : 'timeout';
       const tiles = await tileDump(page);
       const missing = state.missing ?? [];
-      shots.push({ pack, zoom, center, verdict, errors: state.errors, missing, tiles, waitedMs, file });
+      const errors = annotateErrors(state.errors, state.tiles ?? {}, pack);
+      shots.push({ pack, zoom, center, verdict, errors, missing, tiles, waitedMs, file });
       const label = verdict === 'ok' ? 'снят' : verdict === 'broken' ? 'ОТКАЗ ИСТОЧНИКА' : 'НЕ ПРОГРУЗИЛСЯ';
-      console.log(`${verdict === 'ok' ? ' ' : '!'} ${name}: ${label} за ${(waitedMs / 1000).toFixed(1)} с${state.errors.length ? ' — ' + state.errors.slice(0, 3).join('; ') : ''}`);
+      console.log(`${verdict === 'ok' ? ' ' : '!'} ${name}: ${label} за ${(waitedMs / 1000).toFixed(1)} с${errors.length ? ' — ' + errors.slice(0, 3).join('; ') : ''}`);
       console.log(`    тайлы: ${tiles || 'источников рельефа нет'}`);
       if (missing.length) console.log(`    нет в каталоге (${missing.length}): ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''}`);
     }

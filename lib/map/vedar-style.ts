@@ -37,7 +37,28 @@
  * цифрой. Ровно этим карта и отличается от картинки.
  */
 
-import { PLACES_ATTRIBUTION } from '@/lib/map/pack-source';
+import { PLACES_ATTRIBUTION, OVERVIEW_MAX_ZOOM } from '@/lib/map/pack-source';
+
+/**
+ * Верхний зум СЛОЁВ обзорного яруса (гипсометрия, тень, океан) — на единицу
+ * выше его последнего зума: у MapLibre `maxzoom` слоя исключающий, слой
+ * виден при zoom < 8.
+ *
+ * Без этого (снимки 05.09, прогоны 8-9) растровый источник обзора
+ * растягивался MapLibre и выше z7 — так растр устроен, overzoom не
+ * запрещён, — и его НЕПРОЗРАЧНАЯ гипсометрия ложилась поверх клетки на
+ * z10-12 везде, где у тайла z7 есть данные: кадр размывался прямоугольниками
+ * точно по границам тайлов z7, при том что архив клетки был полон, а все её
+ * тайлы — loaded. Ярусы не пересекаются по замыслу (pack-source,
+ * OVERVIEW_MAX_ZOOM): на любом зуме рельеф рисует ровно один из них — и это
+ * должно быть записано в слое, а не только в комментарии.
+ */
+export const OVERVIEW_LAYER_MAXZOOM = OVERVIEW_MAX_ZOOM + 1;
+
+/** Предел зума слоёв рельефа по ярусу источника: обзор кончается на z8, пакеты тянутся overzoom-ом. */
+function tierMaxzoom(sources: VedarStyleSources): number | undefined {
+  return sources.terrainMaxZoom <= OVERVIEW_MAX_ZOOM ? OVERVIEW_LAYER_MAXZOOM : undefined;
+}
 
 export type VedarMapTheme = 'dark' | 'light';
 
@@ -421,10 +442,10 @@ export function buildVedarStyle(
       // виден он, а не цвет страницы.
       { id: 'bg', type: 'background', paint: { 'background-color': p.nodata } },
       // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
-      reliefLayer(p, ''),
+      reliefLayer(p, '', tierMaxzoom(sources)),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
       ...osmFillLayers(r, p, ''),
-      hillshadeLayer(theme, p, ''),
+      hillshadeLayer(theme, p, '', tierMaxzoom(sources)),
       // Океан — НАД тенью: море там, где берег OSM, а не там, где DEM дал
       // ноль или промолчал. Над тенью, а не под ней: на стыках клеток DEM
       // граница «ноль моря / нет данных» — обрыв в 500 м, и тень рисует его
@@ -632,8 +653,8 @@ export function buildRegionOverlay(
         ...vedarPlacesSource(sources, ns),
       },
       layers: [
-        reliefLayer(p, ns),
-        hillshadeLayer(theme, p, ns),
+        reliefLayer(p, ns, tierMaxzoom(sources)),
+        hillshadeLayer(theme, p, ns, tierMaxzoom(sources)),
         ...vedarOceanLayers(sources, p, ns),
         ...osmPeakLayers(r, p, glyphs, font, ns),
         ...osmPlaceLayers(r, p, glyphs, font, ns),
@@ -689,13 +710,14 @@ function contoursSource(sources: VedarStyleSources, ns: string): Record<string, 
  * Ни нового файла, ни пересборки пакета — те же байты, второе прочтение.
  * Ступени — из палитры темы (см. MapPalette.relief).
  */
-function reliefLayer(p: MapPalette, ns: string): Record<string, unknown> {
+function reliefLayer(p: MapPalette, ns: string, maxzoom?: number): Record<string, unknown> {
   const stops: Array<number | string> = [];
   for (const [m, color] of p.relief) stops.push(m, color);
   return {
     id: `relief${ns}`,
     type: 'color-relief',
     source: `terrain${ns}`,
+    ...(maxzoom !== undefined ? { maxzoom } : {}),
     paint: {
       'color-relief-color': ['interpolate', ['linear'], ['elevation'], ...stops],
       'color-relief-opacity': 1,
@@ -703,11 +725,12 @@ function reliefLayer(p: MapPalette, ns: string): Record<string, unknown> {
   };
 }
 
-function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record<string, unknown> {
+function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string, maxzoom?: number): Record<string, unknown> {
   return {
     id: `hillshade${ns}`,
     type: 'hillshade',
     source: `terrain${ns}`,
+    ...(maxzoom !== undefined ? { maxzoom } : {}),
     paint: {
       'hillshade-shadow-color': p.shadow,
       'hillshade-highlight-color': p.highlight,
@@ -1039,7 +1062,7 @@ function vedarOceanLayers(sources: VedarStyleSources, p: MapPalette, ns: string)
     id: `vedar-ocean${ns}`, type: 'fill', source: `vedar-ocean${ns}`,
     // Только на обзорных зумах: с z8 клетка читает DEM на полной сетке, и
     // берег в 200 м упрощения лёг бы поверх честного берега по высоте.
-    maxzoom: 8,
+    maxzoom: OVERVIEW_LAYER_MAXZOOM,
     paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
   }];
 }
