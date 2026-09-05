@@ -808,6 +808,7 @@ export default function VedarMap({
             glyphsFont: pack.source.glyphsFont,
             osmUrls: pack.source.osmUrls,
             vectorUrl: pack.source.vectorUrl,
+            placesUrl: pack.source.placesUrl,
           }, region, tier);
           try {
             // Соседи попадают в индекс имён вместе со своими источниками:

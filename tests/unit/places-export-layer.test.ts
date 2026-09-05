@@ -21,6 +21,8 @@ import {
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
 import { packKeysToVerify } from '@/scripts/map-tiles/verify-packs';
+import { buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
+import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 
 const ROOT = process.cwd();
 const ROUTE = readFileSync(join(ROOT, 'app/api/cron/places-export/route.ts'), 'utf-8');
@@ -107,8 +109,103 @@ describe('конвейер: один прогон на все пакеты, вс
     expect(SCRIPT).toMatch(/Ничего не залито: слой либо целиком, либо никак/);
   });
 
-  it('умолчание маркера — сухой прогон', () => {
-    expect(MARKER.upload).toBe(false);
+  it('маркер держит явный флаг заливки и номер версии — не умолчание', () => {
+    // Сам файл может стоять и в upload:true (после боевого прогона), но
+    // флаг обязан быть булевым и ЯВНЫМ: workflow читает его через get(...,False),
+    // и опечатка в имени ключа тихо превратила бы боевой прогон в сухой.
+    expect(typeof MARKER.upload).toBe('boolean');
     expect(typeof MARKER.expect_v).toBe('number');
+  });
+});
+
+/**
+ * Стиль (05.09, после боевой заливки прогоном 2: 123 пакета). Слой в стиле
+ * без файлов был бы обещанием, поэтому он появился ПОСЛЕ реестра, и здесь
+ * стережётся именно эта связка: адрес есть — слой есть, адреса нет — слоя
+ * нет, а не «серый кружок по умолчанию».
+ */
+type Layer = { id: string; type: string; source?: string; minzoom?: number;
+  paint?: Record<string, unknown>; layout?: Record<string, unknown> };
+const STYLE_SRC = {
+  terrainUrl: 'pmtiles://https://example.test/map-packs/cell-52n157e.terrain.pmtiles',
+  contoursUrl: 'https://example.test/map-packs/cell-52n157e.contours.geojson',
+  terrainMaxZoom: 13,
+  attribution: '© Copernicus DEM (ESA)',
+  glyphsUrl: 'https://example.test/glyphs/{fontstack}/{range}.pbf',
+  placesUrl: 'https://example.test/map-packs/cell-52n157e.places.geojson',
+};
+
+describe('слой мест в стиле карты', () => {
+  it('реестр не пуст после боевой заливки: обзор, районы и все клетки', () => {
+    expect(PLACES_BUILT).toContain(OVERVIEW_ID);
+    for (const id of BUILT_PACK_REGIONS) expect(PLACES_BUILT, id).toContain(id);
+    for (const id of BUILT_GRID_CELLS) expect(PLACES_BUILT, id).toContain(id);
+    expect(new Set(PLACES_BUILT).size).toBe(PLACES_BUILT.length);
+  });
+
+  it('есть адрес — есть источник со СВОЕЙ атрибуцией и два слоя; нет — ничего', () => {
+    const style = buildVedarStyle('dark', STYLE_SRC) as { sources: Record<string, { attribution?: string }>; layers: Layer[] };
+    expect(style.sources['vedar-places']?.attribution).toBe(PLACES_ATTRIBUTION);
+    expect(style.layers.map((l) => l.id)).toEqual(
+      expect.arrayContaining(['vedar-places', 'vedar-place-labels']),
+    );
+    const bare = buildVedarStyle('dark', { ...STYLE_SRC, placesUrl: null }) as { sources: Record<string, unknown>; layers: Layer[] };
+    expect(bare.sources['vedar-places']).toBeUndefined();
+    expect(bare.layers.some((l) => l.id.startsWith('vedar-place'))).toBe(false);
+  });
+
+  it('id слоя не начинается с osm-: атрибуция OpenStreetMap к нашим данным не относится', () => {
+    const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
+    for (const l of style.layers.filter((x) => x.source === 'vedar-places')) {
+      expect(l.id.startsWith('osm-'), l.id).toBe(false);
+    }
+  });
+
+  it('места — верхний слой: над посёлками OSM', () => {
+    const src = { ...STYLE_SRC, osmUrls: { places: 'https://example.test/map-packs/cell-52n157e.osm-places.geojson' } };
+    const ids = (buildVedarStyle('dark', src) as { layers: Layer[] }).layers.map((l) => l.id);
+    expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-place-labels'));
+    expect(ids.at(-1)).toBe('vedar-place-labels');
+  });
+
+  it('без глифов — только кружки, подписи не просятся (иначе MapLibre отвергает весь стиль)', () => {
+    const style = buildVedarStyle('light', { ...STYLE_SRC, glyphsUrl: null }) as { layers: Layer[] };
+    expect(style.layers.some((l) => l.id === 'vedar-places')).toBe(true);
+    expect(style.layers.some((l) => l.id === 'vedar-place-labels')).toBe(false);
+  });
+
+  it('обе темы, с глифами и без, с адресом и без — валидны по спецификации', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      for (const glyphsUrl of [STYLE_SRC.glyphsUrl, null]) {
+        for (const placesUrl of [STYLE_SRC.placesUrl, null]) {
+          const errors = validateStyleMin(buildVedarStyle(theme, { ...STYLE_SRC, glyphsUrl, placesUrl }) as never);
+          expect(errors.map((e) => e.message), `${theme}/${glyphsUrl ? 'glyphs' : 'no-glyphs'}/${placesUrl ? 'places' : 'no-places'}`).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it('цвет — из данных профиля: hazard_types не пуст → тревога, иначе ориентир', () => {
+    const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
+    const circle = style.layers.find((l) => l.id === 'vedar-places');
+    expect(JSON.stringify(circle?.paint?.['circle-color'])).toContain('"hazard_types"');
+    expect(JSON.stringify(circle?.paint?.['circle-color'])).not.toContain('location_type');
+  });
+
+  it('подкладка соседа (base) несёт слой с пространством имён региона; detail — нет', () => {
+    const base = buildRegionOverlay('dark', STYLE_SRC, 'cell-53n158e', 'base');
+    expect(Object.keys(base.sources)).toContain('vedar-places-cell-53n158e');
+    expect(base.layers.map((l) => String(l.id))).toEqual(
+      expect.arrayContaining(['vedar-places-cell-53n158e', 'vedar-place-labels-cell-53n158e']),
+    );
+    const detail = buildRegionOverlay('dark', STYLE_SRC, 'cell-53n158e', 'detail');
+    expect(Object.keys(detail.sources)).not.toContain('vedar-places-cell-53n158e');
+  });
+
+  it('карта на маршруте и подкладки соседей передают адрес слоя из пакета', () => {
+    const planning = readFileSync(join(ROOT, 'app/planning/_PlanningClient.tsx'), 'utf-8');
+    const vedarMap = readFileSync(join(ROOT, 'components/shared/VedarMap.tsx'), 'utf-8');
+    expect(planning).toMatch(/placesUrl: fieldBaseMap\.source\.placesUrl/);
+    expect(vedarMap).toMatch(/placesUrl: pack\.source\.placesUrl/);
   });
 });
