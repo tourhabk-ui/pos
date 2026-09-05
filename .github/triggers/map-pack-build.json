@@ -1,6 +1,6 @@
 {
-  "note": "Прогон 520 (05.09, запас DEM за границей): только рельеф пакета kronotsky; горизонтали, OSM, вектор в хранилище прежние.",
-  "region": "kronotsky",
+  "note": "Прогон 521 (05.09, запас DEM за границей): только рельеф пакета commander-islands; горизонтали, OSM, вектор в хранилище прежние.",
+  "region": "commander-islands",
   "upload": true,
   "terrain_only": true
 }
