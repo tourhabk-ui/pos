@@ -113,6 +113,11 @@ describe('сборщик и заливка — отказ, не пустой о�
     expect(layer?.maxzoom).toBe(8);
   });
 
+  it('рамка — по границам тайлов z4, не по bbox края (кадр z4 05.09: гипсометрия за рамкой)', () => {
+    expect(PY).toMatch(/def tile_frame\(/);
+    expect(PY).toMatch(/'--tile-zoom', type=int, default=4/);
+  });
+
   it('build_ocean.py отказывает без суши и при неправдоподобной доле', () => {
     expect(PY).toMatch(/ни один полигон суши не пересёк bbox/);
     expect(PY).toMatch(/land_share < 0\.05 or land_share > 0\.95/);

@@ -33,6 +33,16 @@ z7 берег плыл бы на два-три пикселя. Для клето
 скрипт выходит с ошибкой: значит, скачан не тот набор или проекция не та,
 и заливать такой файл нельзя — карта покрасила бы Камчатку водой.
 
+── Рамка — по границам тайлов z4, не по bbox края ──────────────────────────
+
+Кадр z4 (снимки 05.09, прогон 7): океан кончался ровно на bbox края
+(155-175 / 51-65), а тайлы обзора z4 шире — 135-180 по долготе и
+41-66.5 по широте. За рамкой сквозь дыру показывалась гипсометрия: серый
+«нет данных» там, где у DEM нет тайлов, и синий ноль там, где есть, —
+полосами. Поэтому рамка расширяется до границ тайлов z4, накрывающих bbox
+(--tile-zoom 4): суша за рамкой края тоже вычитается — полигоны суши OSM
+на весь мир, — и море остаётся морем до края тайла.
+
     python3 scripts/map-tiles/build_ocean.py \
         --bbox 155,51,175,65 --out .cache/packs/krai-overview.ocean.geojson
 """
@@ -40,11 +50,34 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
 import urllib.request
 import zipfile
+
+
+def tile_frame(west: float, south: float, east: float, north: float, z: int) -> tuple[float, float, float, float]:
+    """Границы тайлов Web Mercator зума z, накрывающих bbox (west, south, east, north)."""
+    n = 2 ** z
+
+    def lon_to_x(lon: float) -> float:
+        return (lon + 180.0) / 360.0 * n
+
+    def lat_to_y(lat: float) -> float:
+        r = math.radians(lat)
+        return (1.0 - math.log(math.tan(r) + 1.0 / math.cos(r)) / math.pi) / 2.0 * n
+
+    def x_to_lon(x: float) -> float:
+        return x / n * 360.0 - 180.0
+
+    def y_to_lat(y: float) -> float:
+        return math.degrees(math.atan(math.sinh(math.pi * (1.0 - 2.0 * y / n))))
+
+    x0, x1 = math.floor(lon_to_x(west)), math.ceil(lon_to_x(east))
+    y0, y1 = math.floor(lat_to_y(north)), math.ceil(lat_to_y(south))
+    return x_to_lon(x0), y_to_lat(y1), x_to_lon(x1), y_to_lat(y0)
 
 SOURCE_URL = 'https://osmdata.openstreetmap.de/download/simplified-land-polygons-complete-3857.zip'
 ATTRIBUTION = '© OpenStreetMap contributors'
@@ -75,6 +108,8 @@ def main() -> int:
     ap.add_argument('--out', required=True)
     ap.add_argument('--source-url', default=SOURCE_URL)
     ap.add_argument('--cache-dir', default='.cache/land-polygons')
+    ap.add_argument('--tile-zoom', type=int, default=4,
+                    help='расширить рамку до границ тайлов этого зума (0 — не расширять)')
     args = ap.parse_args()
 
     try:
@@ -88,6 +123,10 @@ def main() -> int:
         return 2
 
     west, south, east, north = (float(x) for x in args.bbox.split(','))
+    if args.tile_zoom > 0:
+        fw, fs, fe, fn = tile_frame(west, south, east, north, args.tile_zoom)
+        print(f'рамка по тайлам z{args.tile_zoom}: {fw:.3f},{fs:.3f},{fe:.3f},{fn:.3f} (bbox края {west},{south},{east},{north})')
+        west, south, east, north = fw, fs, fe, fn
     started = time.time()
 
     archive = os.path.join(args.cache_dir, 'simplified-land-polygons-complete-3857.zip')
