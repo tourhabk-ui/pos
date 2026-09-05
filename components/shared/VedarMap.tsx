@@ -181,6 +181,20 @@ export function packFileName(url: string): string {
  * Плюс отдельная пометка о повторе: «качаем заново» — это не тот же исход,
  * что «не пришло и не придёт», и ждать человек в этих случаях будет разное.
  */
+/**
+ * Повтор источника: у geojson это `setData(url)`, у тайловых поверх PMTiles
+ * (рельеф raster-dem, вектор) — `setUrl(url)`: тот же адрес заново, MapLibre
+ * снимает висящий запрос TileJSON и грузит его снова (setSourceProperty →
+ * load(true)). Проверка по форме, а не по классу: у карты источники нескольких
+ * классов, а вопрос один — «умеет ли он заказать себя заново».
+ */
+function hasSetData(src: unknown): src is { setData: (data: string) => unknown } {
+  return !!src && typeof (src as { setData?: unknown }).setData === 'function';
+}
+function hasSetUrl(src: unknown): src is { setUrl: (url: string) => unknown } {
+  return !!src && typeof (src as { setUrl?: unknown }).setUrl === 'function';
+}
+
 export function mapErrorText(input: {
   message?: string;
   sourceId?: string;
@@ -583,12 +597,24 @@ export default function VedarMap({
           // самой диагностики не должен стоить диагностики.
           try {
             if (sourceId && file && !retriedSources.has(sourceId)) {
-              const src = map.getSource(sourceId) as GeoJSONSource | undefined;
-              if (src && typeof src.setData === 'function') {
+              const src: unknown = map.getSource(sourceId);
+              if (hasSetData(src)) {
                 retriedSources.add(sourceId);
                 awaitingRetry = sourceId;
                 retrying = true;
                 src.setData(file);
+              } else if (hasSetUrl(src)) {
+                // 05.09: рельеф и вектор лежат в PMTiles, у их источников нет
+                // setData — и повтора у них не было ВОВСЕ. Первый скрин с
+                // поля («cell-53n158e.terrain.pmtiles: Failed to fetch») бил
+                // ровно сюда: файл в бакете цел (проверка 1882/1882), связь
+                // моргнула, а слой оставался мёртвым до пересоздания карты,
+                // хотя GeoJSON рядом заказывался заново. setUrl тем же адресом
+                // — тот же повтор, тот же бюджет: один на источник.
+                retriedSources.add(sourceId);
+                awaitingRetry = sourceId;
+                retrying = true;
+                src.setUrl(file);
               }
             }
           } catch (err) {
