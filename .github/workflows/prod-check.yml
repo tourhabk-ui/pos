@@ -32,34 +32,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Ждём НЕ любой рестарт, а сборку не старее этого коммита. 04.09 два
-      # замера подряд поймали деплой предыдущего мержа и молча измерили старый
-      # код (ai-debug run 9: таймаут ровно 15 с при уже поднятом до 60). При
-      # запуске кнопкой (workflow_dispatch) коммита нет — тогда шаг пропускаем:
-      # человек сам решил, что проверять.
+      # Ждём НЕ любой рестарт, а СВОЮ сборку — по маркеру /version.json
+      # (commit + built_at, пишется scripts/write-version.js при сборке образа).
+      # Правило одно на все замеры — scripts/wait-for-deploy.sh; замер 05.09
+      # (prod-check run 8) показал, что штамп из next.config.js до обработчика
+      # маршрута не доходит: build_time был null, и ожидание отсиживало 25 мин
+      # впустую.
       - name: Wait for fresh deploy
         if: github.event_name == 'push'
         env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
-        run: |
-          NEED=$(python3 -c 'import sys,datetime
-          v=(sys.argv[1] or "").strip()
-          try: print(int(datetime.datetime.fromisoformat(v.replace("Z","+00:00")).timestamp()))
-          except Exception: print(0)' "$NEED_AFTER")
-          echo "нужна сборка новее коммита: $NEED_AFTER (epoch $NEED)"
-          for i in $(seq 1 50); do
-            BODY=$(curl -s --max-time 20 "https://vedarai.ru/api/health?deploy=1" || true)
-            BT=$(printf '%s' "$BODY" | python3 -c 'import json,sys,datetime
-          try:
-              bt=json.load(sys.stdin).get("build_time")
-              print(int(datetime.datetime.fromisoformat(bt.replace("Z","+00:00")).timestamp()) if bt else -1)
-          except Exception: print(-1)' 2>/dev/null || echo -1)
-            if [ "${BT:--1}" -gt 0 ] && [ "$NEED" -gt 0 ] && [ "$BT" -ge "$NEED" ]; then
-              echo "своя сборка на проде (build_time $BT >= $NEED, попытка $i)"; exit 0
-            fi
-            echo "ещё не доехало (build_time ${BT}), жду 30с ($i/50)"; sleep 30
-          done
-          echo "ВНИМАНИЕ: своей сборки не дождались за 25 мин — проверка идёт на том коде, что есть"
+        run: bash scripts/wait-for-deploy.sh
 
       - name: Check URLs
         env:

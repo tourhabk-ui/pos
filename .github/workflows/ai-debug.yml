@@ -18,45 +18,21 @@ jobs:
     # снят самим таймаутом задачи на 20-й попытке.
     timeout-minutes: 35
     steps:
-      # Ждём НЕ любой рестарт, а сборку, которая новее этого коммита.
-      # uptime отвечает «давно ли перезапускались», а спросить надо «тот ли
-      # код на проде»: 04.09 два замера подряд поймали деплой предыдущего
-      # мержа и молча измерили старый код (run 9 — таймаут ровно 15 с и ни
-      # одной новой строки). build_time приходит из next.config.js, то есть
-      # ставится в момент сборки образа.
+      # checkout ради scripts/wait-for-deploy.sh: сам замер идёт на проде.
+      - uses: actions/checkout@v7
+
+      # Ждём НЕ любой рестарт, а СВОЮ сборку — по маркеру /version.json
+      # (commit + built_at, пишется scripts/write-version.js при сборке образа).
+      # Правило одно на все замеры — scripts/wait-for-deploy.sh; замер 05.09
+      # (prod-check run 8) показал, что штамп из next.config.js до обработчика
+      # маршрута не доходит: build_time был null, и ожидание отсиживало 25 мин
+      # впустую.
       - name: Wait for fresh deploy
         env:
           BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
-        run: |
-          iso2epoch() { python3 -c 'import sys,datetime
-          v=(sys.argv[1] or "").strip()
-          try: print(int(datetime.datetime.fromisoformat(v.replace("Z","+00:00")).timestamp()))
-          except Exception: print(0)' "$1"; }
-
-          NEED=$(iso2epoch "$NEED_AFTER")
-          echo "нужна сборка новее коммита: $NEED_AFTER (epoch $NEED)"
-
-          for i in $(seq 1 50); do
-            BODY=$(curl -s --max-time 20 "$BASE/api/health?deploy=1" || true)
-            PAIR=$(printf '%s' "$BODY" | python3 -c 'import json,sys,datetime
-          try:
-              d=json.load(sys.stdin); bt=d.get("build_time"); u=d.get("uptime")
-              ts=int(datetime.datetime.fromisoformat(bt.replace("Z","+00:00")).timestamp()) if bt else -1
-              print(ts, int(float(u)) if u is not None else -1)
-          except Exception: print(-1,-1)' 2>/dev/null || echo "-1 -1")
-            BT=${PAIR%% *}; UP=${PAIR##* }
-            if [ "$BT" -gt 0 ] && [ "$NEED" -gt 0 ]; then
-              if [ "$BT" -ge "$NEED" ]; then echo "своя сборка на проде (build_time $BT >= $NEED, попытка $i)"; exit 0; fi
-              echo "на проде сборка старее коммита (build_time $BT < $NEED), жду 30с ($i/50)"
-            elif [ "$UP" -ge 0 ] && [ "$UP" -lt 300 ]; then
-              echo "build_time не отдан (сборка старше этой правки), но рестарт свежий: uptime ${UP}с (попытка $i)"; exit 0
-            else
-              echo "ещё не доехало (build_time $BT, uptime $UP), жду 30с ($i/50)"
-            fi
-            sleep 30
-          done
-          echo "ВНИМАНИЕ: своей сборки не дождались за 25 мин — прогон идёт на том коде, что есть"
+        run: bash scripts/wait-for-deploy.sh
 
       - name: Debug waterfall
         env:
