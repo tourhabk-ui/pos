@@ -18,6 +18,9 @@ interface TourCompletion {
   total_score: number;
   missing_required: string[];
   missing_recommended: string[];
+  /** Готовность к чужим витринам — судит то же правило, что и ленты каналов. */
+  marketplace_ready: boolean;
+  marketplace_blockers: Array<{ field: string; label: string }>;
 }
 
 interface CompletenessData {
@@ -363,6 +366,34 @@ export default function CompletenessClient() {
                 {/* Expanded details */}
                 {expandedTour === tour.tour_id && (
                   <div className="border-t border-[var(--border)] px-4 py-3 bg-[var(--bg-hover)]/30 space-y-3">
+                    {/* Витрины — отдельно от заполненности карточки и ПЕРВЫМ.
+                        Кабинет считал тур полным при описании в 20 знаков, а
+                        Авито и Яндекс требуют 300 и ответ «как турист попадает
+                        на тур»: оператор видел «сто процентов» и не понимал,
+                        почему тура нет на площадках. */}
+                    <div>
+                      <p className={`text-xs font-semibold mb-2 flex items-center gap-1.5 ${
+                        tour.marketplace_ready ? 'text-[var(--success)]' : 'text-[var(--warning)]'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          tour.marketplace_ready ? 'bg-[var(--success)]' : 'bg-[var(--warning)]'
+                        }`} />
+                        {tour.marketplace_ready
+                          ? 'Готов к выкладке на Авито и Яндекс'
+                          : `Не уйдёт на Авито и Яндекс (${tour.marketplace_blockers.length})`}
+                      </p>
+                      {!tour.marketplace_ready && (
+                        <ul className="space-y-1.5 ml-2.5">
+                          {tour.marketplace_blockers.map(b => (
+                            <li key={b.field} className="text-xs text-[var(--text-secondary)] flex items-start gap-1.5">
+                              <span className="text-[var(--text-muted)] shrink-0">—</span>
+                              {b.label}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
                     {/* Required fields */}
                     {tour.missing_required.length > 0 && (
                       <div>
