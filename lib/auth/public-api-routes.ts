@@ -88,6 +88,10 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/collections': ['GET'],            // публичные подборки мест и маршрутов
   '/api/trending': ['GET'],               // популярные места и маршруты
   '/api/channels/avito/feed':  ['GET'], // Avito Autoload XML feed — публичный
+  // YML-фид Яндекса. Замер 05.09 (prod-check run 11): роут отвечал 401 —
+  // в реестре его не было, Edge закрывал фид от самого Яндекса. Шапка роута
+  // с 04.09 обещала «Яндекс перечитывает фид раз в 24 часа» на закрытую дверь.
+  '/api/channels/yandex/feed': ['GET'],
   '/api/widget': ['POST', 'GET', 'OPTIONS'],    // Partner widget API — CORS-enabled
   '/api/health': ['GET'],              // health checks — monitoring/infra
   '/api/agent-market': ['GET'],        // HTTP 402 платный API для внешних AI-агентов
