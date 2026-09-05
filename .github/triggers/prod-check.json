@@ -1,9 +1,9 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 9,
-  "why": "05.09: /api/health читает маркер version.json с диска (build_time был null при env-штампе); ожидание сборки — общий scripts/wait-for-deploy.sh по version.json",
+  "run": 10,
+  "why": "05.09: после миграции 934 (pickup_type=hotel_pickup у живых туров) — перепись готовности к витринам: что ещё держит каждый тур",
   "urls": [
-    "https://vedarai.ru/version.json",
-    "https://vedarai.ru/api/health?deploy=1"
+    "https://vedarai.ru/api/health?deploy=1",
+    "https://vedarai.ru/api/cron/channel-readiness"
   ]
 }
