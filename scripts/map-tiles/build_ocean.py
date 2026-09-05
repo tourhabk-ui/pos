@@ -80,7 +80,8 @@ def main() -> int:
     try:
         import shapefile  # pyshp
         from pyproj import Transformer
-        from shapely.geometry import box, mapping, shape
+        from shapely.geometry import MultiPolygon, Polygon, box, mapping, shape
+        from shapely.geometry.polygon import orient
         from shapely.ops import transform, unary_union
     except ImportError as e:
         print(f'нет зависимости: {e}. Нужны pyshp, pyproj, shapely.', file=sys.stderr)
@@ -145,6 +146,20 @@ def main() -> int:
     if ocean.is_empty:
         print('ОТКАЗ: океан пуст после вычитания.', file=sys.stderr)
         return 1
+    # Ориентация колец — RFC 7946: внешнее против часовой, дыры по часовой.
+    # GEOS отдаёт наоборот, а MapLibre судит «внешнее или дыра» по ЗНАКУ
+    # площади кольца, не по порядку. Прогон 1 (05.09) залил океан без этого
+    # шага, и на телефоне владельца синей оказалась суша: кольца-дыры стали
+    # фигурами, рамка выпала. Проверяется ниже, а не предполагается.
+    parts = list(ocean.geoms) if isinstance(ocean, MultiPolygon) else [ocean]
+    parts = [orient(pg, 1.0) for pg in parts if isinstance(pg, Polygon) and not pg.is_empty]
+    for pg in parts:
+        if not pg.exterior.is_ccw or any(r.is_ccw for r in pg.interiors):
+            print('ОТКАЗ: ориентация колец не RFC 7946 после orient().', file=sys.stderr)
+            return 1
+    holes = sum(len(pg.interiors) for pg in parts)
+    print(f'частей океана: {len(parts)}, дыр (островов суши внутри): {holes}, кольца ориентированы по RFC 7946')
+    ocean = MultiPolygon(parts) if len(parts) > 1 else parts[0]
     geom = mapping(ocean)
     vertices = sum(len(ring) for poly in (geom['coordinates'] if geom['type'] == 'MultiPolygon' else [geom['coordinates']]) for ring in poly)
 
