@@ -1,6 +1,6 @@
 {
-  "note": "Прогон 514 (05.09, запас DEM за границей): только рельеф пакета mutnovsky-gorely; горизонтали, OSM, вектор в хранилище прежние.",
-  "region": "mutnovsky-gorely",
+  "note": "Прогон 515 (05.09, запас DEM за границей): только рельеф пакета nalychevo; горизонтали, OSM, вектор в хранилище прежние.",
+  "region": "nalychevo",
   "upload": true,
   "terrain_only": true
 }
