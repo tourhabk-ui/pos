@@ -27,9 +27,39 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 40: ожидание сборки до 25 мин плюс сами проверки.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+
+      # Ждём НЕ любой рестарт, а сборку не старее этого коммита. 04.09 два
+      # замера подряд поймали деплой предыдущего мержа и молча измерили старый
+      # код (ai-debug run 9: таймаут ровно 15 с при уже поднятом до 60). При
+      # запуске кнопкой (workflow_dispatch) коммита нет — тогда шаг пропускаем:
+      # человек сам решил, что проверять.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: |
+          NEED=$(python3 -c 'import sys,datetime
+          v=(sys.argv[1] or "").strip()
+          try: print(int(datetime.datetime.fromisoformat(v.replace("Z","+00:00")).timestamp()))
+          except Exception: print(0)' "$NEED_AFTER")
+          echo "нужна сборка новее коммита: $NEED_AFTER (epoch $NEED)"
+          for i in $(seq 1 50); do
+            BODY=$(curl -s --max-time 20 "https://vedarai.ru/api/health?deploy=1" || true)
+            BT=$(printf '%s' "$BODY" | python3 -c 'import json,sys,datetime
+          try:
+              bt=json.load(sys.stdin).get("build_time")
+              print(int(datetime.datetime.fromisoformat(bt.replace("Z","+00:00")).timestamp()) if bt else -1)
+          except Exception: print(-1)' 2>/dev/null || echo -1)
+            if [ "${BT:--1}" -gt 0 ] && [ "$NEED" -gt 0 ] && [ "$BT" -ge "$NEED" ]; then
+              echo "своя сборка на проде (build_time $BT >= $NEED, попытка $i)"; exit 0
+            fi
+            echo "ещё не доехало (build_time ${BT}), жду 30с ($i/50)"; sleep 30
+          done
+          echo "ВНИМАНИЕ: своей сборки не дождались за 25 мин — проверка идёт на том коде, что есть"
 
       - name: Check URLs
         env:
