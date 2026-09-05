@@ -6,6 +6,7 @@ vi.mock('@/lib/ai/providers', () => ({
   callAIWithModel: vi.fn(),
   callAIWaterfall: vi.fn(),
   callAIWaterfallOrNull: vi.fn(),
+  callAIQualityOrNull: vi.fn(),
   callQwen: vi.fn(),
   // Разбор опознаёт заглушку водопада как «не ответил ни один провайдер»
   // (04.09), поэтому мок обязан отдавать и её распознаватель — иначе тест
@@ -44,9 +45,13 @@ describe('оборванный по потолку токенов массив (
     expect(diag).toMatch(/JSON\.parse упал/);
   });
 
-  it('потолок токенов у Qwen поднят явно, а не остался чатовым 800', () => {
-    // Обрыв на позиции ~2440 — это 800 токенов кириллического JSON.
+  it('потолок токенов поднят явно и у Qwen, и у запасного пути', () => {
+    // Обрыв на позиции ~2440 — это 800 токенов кириллического JSON. Прогон
+    // 390: Qwen отказал по квоте, запасной голый водопад оборвался там же —
+    // потолок обязан быть у того, кто отвечает, а не только у первого.
     expect(INNOVATOR).toMatch(/callQwen\(messages, \{ maxTokens: \d{4} \}\)/);
+    expect(INNOVATOR).toMatch(/callAIQualityOrNull\(messages, \{ maxTokens: \d{4} \}\)/);
+    expect(INNOVATOR).not.toMatch(/callAIWaterfallOrNull\(messages\)/);
     expect(PROVIDERS).toMatch(/max_tokens: maxTokens/);
   });
 });

@@ -10,7 +10,7 @@
 
 import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
-import { callQwen, callAIWaterfallOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callQwen, callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
@@ -324,8 +324,14 @@ ${gitSection}
     const qwen = await callQwen(messages, { maxTokens: 3000 });
     // Отказ водопада приходит null, а не строкой-извинением: иначе он уезжает
     // в разбор и превращается в «нет JSON-массива» (экран владельца 04.09).
-    const raw = qwen?.trim() ? qwen : await callAIWaterfallOrNull(messages);
-    const model_used = qwen?.trim() ? 'qwen' : 'waterfall';
+    //
+    // Качественный путь с явным потолком, а не голый водопад (05.09, прогон
+    // 390): Qwen отказал по квоте, запасной путь ушёл в callAIWaterfall без
+    // опций — и там свои 600-800 токенов на ногу. Ответ снова оборвался на
+    // позиции 2437, из массива спасся один элемент. Потолок, поднятый только
+    // у Qwen, не поднят у того, кто отвечает вместо него.
+    const raw = qwen?.trim() ? qwen : await callAIQualityOrNull(messages, { maxTokens: 3000 });
+    const model_used = qwen?.trim() ? 'qwen' : 'quality';
     if (raw === null) {
       const why = describeRecentAiFailures() ?? 'причины не записаны';
       console.error(`[scout-innovator] Phase 1 (модель=${model_used}): провайдеры отказали — ${why}`);
