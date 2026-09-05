@@ -58,7 +58,7 @@
 import {
   BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
   PLACES_BUILT, packKey, osmKey, vectorKey, placesKey, MANIFEST_BUILT, manifestKey,
-  OVERVIEW_OCEAN_BUILT, oceanKey,
+  OVERVIEW_OCEAN_BUILT, oceanKey, PACK_GLYPHS, glyphKey,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 
@@ -73,9 +73,17 @@ export interface PackCheck {
   bytes: number | null;
 }
 
-/** Ключи всех файлов, которые карта просит у хранилища. Порядок — районами. */
-export function packKeysToVerify(): Array<{ key: string; kind: 'json' | 'archive' }> {
-  const out: Array<{ key: string; kind: 'json' | 'archive' }> = [];
+/** json — GeoJSON целиком; archive — заголовок PMTiles по Range; binary — PBF глифов целиком. */
+export type PackFileKind = 'json' | 'archive' | 'binary';
+
+/** Ключи всех файлов, которые карта просит у хранилища. Порядок — глифы, затем районами. */
+export function packKeysToVerify(): Array<{ key: string; kind: PackFileKind }> {
+  const out: Array<{ key: string; kind: PackFileKind }> = [];
+  // Глифы подписей (05.09): один набор на все пакеты. До этого дня их не
+  // проверял никто, и два недостающих диапазона нашлись только снимками.
+  if (PACK_GLYPHS.ready) {
+    for (const range of PACK_GLYPHS.ranges) out.push({ key: glyphKey(PACK_GLYPHS.fontstack, range), kind: 'binary' });
+  }
   for (const region of BUILT_PACK_REGIONS) {
     out.push({ key: packKey(region, 'terrain'), kind: 'archive' });
     out.push({ key: packKey(region, 'contours'), kind: 'json' });
@@ -193,6 +201,32 @@ async function checkArchive(url: string, key: string, fetchImpl: typeof fetch): 
   return { key, verdict: 'ok', detail: `HTTP ${res.status}, заголовок PMTiles на месте`, bytes: head.length };
 }
 
+/** Двоичный файл целиком (глифы PBF): код, полнота по Content-Length, непустое тело. */
+async function checkBinary(url: string, key: string, fetchImpl: typeof fetch): Promise<PackCheck> {
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { cache: 'no-store' });
+  } catch (err) {
+    const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return { key, verdict: 'unreachable', detail: name.slice(0, 160), bytes: null };
+  }
+  if (res.status !== 200) return httpVerdict(key, res.status);
+  const declared = Number(res.headers.get('content-length') ?? '0') || null;
+  let buf: ArrayBuffer;
+  try {
+    buf = await res.arrayBuffer();
+  } catch (err) {
+    const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return { key, verdict: 'truncated', detail: `тело оборвалось: ${name.slice(0, 120)}`, bytes: null };
+  }
+  const bytes = buf.byteLength;
+  if (declared !== null && bytes !== declared) {
+    return { key, verdict: 'truncated', bytes, detail: `Content-Length ${declared}, пришло ${bytes}` };
+  }
+  if (bytes < 1000) return { key, verdict: 'bad_json', detail: `файл подозрительно мал: ${bytes} байт`, bytes };
+  return { key, verdict: 'ok', detail: `${(bytes / 1024).toFixed(0)} КБ`, bytes };
+}
+
 /**
  * Адрес файла по ключу. Собирается `new URL`, а не склейкой строк с
  * подрезкой хвостовых слэшей: разбор адреса — работа платформы, и свой
@@ -216,7 +250,9 @@ export async function verifyPacks(
     const url = packUrl(baseUrl, key);
     out.push(kind === 'json'
       ? await checkJson(url, key, fetchImpl)
-      : await checkArchive(url, key, fetchImpl));
+      : kind === 'binary'
+        ? await checkBinary(url, key, fetchImpl)
+        : await checkArchive(url, key, fetchImpl));
   }
   return out;
 }
