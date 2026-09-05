@@ -38,6 +38,7 @@
  */
 
 import { PLACES_ATTRIBUTION, OVERVIEW_MAX_ZOOM } from '@/lib/map/pack-source';
+import { calculatedCarLine } from '@/lib/map/line-standard';
 
 /**
  * Верхний зум СЛОЁВ обзорного яруса (гипсометрия, тень, океан) — на единицу
@@ -115,6 +116,8 @@ interface MapPalette {
   connector: string;
   /** Свой след — где человек был. Не маршрут: другой цвет, тонкая линия. */
   trail: string;
+  /** Рассчитанный автопуть по дорожной сети — сплошной синий (lib/map/line-standard, calculatedCarLine). */
+  calculated: string;
   /** OSM (02.09): заливки и линии. Приглушённые — карта полевая, не городская. */
   water: string;
   waterway: string;
@@ -188,6 +191,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     sketch: '#5E7A66',
     connector: '#8B949E',
     trail: '#00A8CC',       // --ocean dark; тот же голубой, что у следа на Leaflet
+    calculated: calculatedCarLine().style.color,
     // OSM: вода холодная, лес чуть теплее фона, ледник светлее гребня,
     // тропа — тёплая (как на референсе владельца 31.08), дорога — серая.
     water: '#12303F',
@@ -253,6 +257,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     sketch: '#6B8A74',
     connector: '#6B6560',
     trail: '#2568B0',       // --ocean light
+    calculated: calculatedCarLine().style.color,
     water: '#BFD9E8',
     waterway: '#4F88A8',
     wood: '#D9E4CC',
@@ -539,6 +544,51 @@ export function buildVedarStyle(
           'line-opacity': 0.8,
         },
       },
+      {
+        // Рассчитанный автопуть (05.09, «маршруты не прокладываются на
+        // карте»): до этого дня он жил на Leaflet-карточке в 220 пикселей
+        // рядом с большой картой. Вид — из line-standard (calculatedCarLine):
+        // сплошной синий, 4px — не зелёный трека и не серый построения; он
+        // идёт по дорожному графу, это не догадка и не прямая.
+        id: 'route-calculated',
+        type: 'line',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'calculated'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': p.calculated,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5],
+          'line-opacity': 0.9,
+        },
+      },
+      {
+        // Концы автопути — «старт на дороге» и «цель на дороге»: точка
+        // привязки к графу, не сама цель. Кольцо цвета линии на фоне карты.
+        id: 'route-calculated-end',
+        type: 'circle',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'calculated_end'],
+        paint: {
+          'circle-radius': 6,
+          'circle-color': p.contourLabelHalo,
+          'circle-stroke-color': p.calculated,
+          'circle-stroke-width': 3,
+        },
+      },
+      ...(glyphs ? [{
+        id: 'route-calculated-end-label',
+        type: 'symbol',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'calculated_end'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-font': [font],
+          'text-size': 11,
+          'text-offset': [0, 1.2],
+          'text-anchor': 'top',
+        },
+        paint: { 'text-color': p.calculated, 'text-halo-color': p.contourLabelHalo, 'text-halo-width': 1.2 },
+      }] : []),
       // Имена воды — под символами: река подписывается вдоль себя, озеро
       // в своём пятне, и оба уступают место ориентирам.
       ...osmWaterLabelLayers(r, p, glyphs, font, ''),

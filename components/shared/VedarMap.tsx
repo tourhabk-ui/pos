@@ -58,11 +58,23 @@ export interface VedarMapLine {
    * пунктиром; след — своя тонкая линия другого цвета. Если не задан,
    * выводится из connector/dashArray (совместимость).
    */
-  kind?: 'track' | 'sketch' | 'connector' | 'trail';
+  kind?: 'track' | 'sketch' | 'connector' | 'trail' | 'calculated';
   /** Построение (подход, связка) против снятого пути — §12. */
   connector?: boolean;
   /** Пунктир из lib/map/line-standard: набросок и импорт не сплошные. */
   dashArray?: string;
+}
+
+/**
+ * Точка на живой карте — концы рассчитанного автопути (05.09): «старт на
+ * дороге» и «цель на дороге» с расстоянием привязки. Подпись — свойством,
+ * рисует стиль (route-calculated-end).
+ */
+export interface VedarMapPoint {
+  /** [lng, lat] — порядок GeoJSON. */
+  coordinates: [number, number];
+  kind: 'calculated_end';
+  label: string;
 }
 
 interface VedarMapProps {
@@ -103,6 +115,10 @@ interface VedarMapProps {
    * накрывал нижний лист — скрин владельца 02.09 08:18.
    */
   showZoomButtons?: boolean;
+  /** Что поставить под своими кнопками масштаба (чип координат, 05.09). Рисуется только с showZoomButtons. */
+  controlsSlot?: React.ReactNode;
+  /** Точки на живой карте — концы рассчитанного автопути. */
+  points?: VedarMapPoint[];
   /** Ручка управления наружу — для кнопок масштаба вне карты. null при размонтировании. */
   onControls?: (handle: VedarMapHandle | null) => void;
 }
@@ -114,6 +130,12 @@ export interface VedarMapHandle {
   getZoom(): number;
   /** Подписка на смену зума; возвращает отписку. */
   onZoom(cb: (zoom: number) => void): () => void;
+  /** Центр карты — для строки «Центр карты» в чипе координат (владелец 05.09). */
+  getCenter(): { lat: number; lng: number };
+  /** Подписка на конец сдвига карты (moveend); возвращает отписку. */
+  onMove(cb: (center: { lat: number; lng: number }) => void): () => void;
+  /** Подогнать вид под линию ([lng, lat]) — рассчитанный автопуть целиком в кадре. */
+  fitLine(coordinates: Array<[number, number]>): void;
 }
 
 /**
@@ -130,6 +152,27 @@ function handleFor(map: MLMap): VedarMapHandle {
       const tick = () => cb(map.getZoom());
       map.on('zoom', tick);
       return () => { map.off('zoom', tick); };
+    },
+    getCenter: () => {
+      const c = map.getCenter();
+      return { lat: c.lat, lng: c.lng };
+    },
+    onMove: (cb) => {
+      // moveend, не move: по кадру при перетаскивании чип пересчитывал бы
+      // строку на каждый пиксель, а читать её человек будет, когда отпустит.
+      const tick = () => { const c = map.getCenter(); cb({ lat: c.lat, lng: c.lng }); };
+      map.on('moveend', tick);
+      return () => { map.off('moveend', tick); };
+    },
+    fitLine: (coordinates) => {
+      if (coordinates.length < 2) return;
+      let west = Infinity; let south = Infinity; let east = -Infinity; let north = -Infinity;
+      for (const [lng, lat] of coordinates) {
+        if (lng < west) west = lng; if (lng > east) east = lng;
+        if (lat < south) south = lat; if (lat > north) north = lat;
+      }
+      // Отступ снизу больше: нижний лист приборов накрывает треть экрана.
+      map.fitBounds([[west, south], [east, north]], { padding: { top: 80, left: 40, right: 40, bottom: 260 }, duration: 600, maxZoom: 14 });
     },
   };
 }
@@ -360,12 +403,14 @@ export default function VedarMap({
   center,
   zoom = 11,
   lines = [],
+  points = [],
   showUserLocation = false,
   height = '100%',
   onDiagnostic,
   packs = [],
   baseRegion,
   showZoomButtons = true,
+  controlsSlot,
   onControls,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -857,23 +902,32 @@ export default function VedarMap({
     if (!src) return;
     src.setData({
       type: 'FeatureCollection',
-      features: lines
-        .filter(l => l.coordinates.length >= 2)
-        .map(l => ({
+      features: [
+        ...lines
+          .filter(l => l.coordinates.length >= 2)
+          .map(l => ({
+            type: 'Feature' as const,
+            properties: {
+              // Род линии — свойством, стиль его читает слоями (§12). Пунктир
+              // от line-standard означает «не снятый трек»: набросок или импорт.
+              // Первый живой рендер 02.09: без этого набросок подборки лёг
+              // веером толстых сплошных зелёных линий.
+              kind: l.kind ?? (l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track'),
+              connector: Boolean(l.connector),
+              dash: l.dashArray ?? null,
+            },
+            geometry: { type: 'LineString' as const, coordinates: l.coordinates },
+          })),
+        // Точки — в том же источнике: концы автопути живут вместе с его линией
+        // и снимаются с карты вместе с ней, одним setData.
+        ...points.map(pt => ({
           type: 'Feature' as const,
-          properties: {
-            // Род линии — свойством, стиль его читает слоями (§12). Пунктир
-            // от line-standard означает «не снятый трек»: набросок или импорт.
-            // Первый живой рендер 02.09: без этого набросок подборки лёг
-            // веером толстых сплошных зелёных линий.
-            kind: l.kind ?? (l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track'),
-            connector: Boolean(l.connector),
-            dash: l.dashArray ?? null,
-          },
-          geometry: { type: 'LineString' as const, coordinates: l.coordinates },
+          properties: { kind: pt.kind, label: pt.label },
+          geometry: { type: 'Point' as const, coordinates: pt.coordinates },
         })),
+      ],
     });
-  }, [lines, ready]);
+  }, [lines, points, ready]);
 
   // ── Своё положение ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -957,8 +1011,11 @@ export default function VedarMap({
           середине: угадывать высоту листа пикселями — та же fixed-угадайка,
           что уже ловили с компасом (29.08). */}
       {ready && showZoomButtons && (
-        <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 5 }}>
+        <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <VedarZoomButtons handle={inlineHandle} />
+          {/* Чип координат (05.09) — тот же компонент, что в приборном ряду
+              снаружи; карта лишь даёт ему место под своими кнопками. */}
+          {controlsSlot}
         </div>
       )}
       {(mapError || diag) && (
