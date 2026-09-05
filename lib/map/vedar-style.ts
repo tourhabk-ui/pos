@@ -310,6 +310,12 @@ export interface VedarStyleSources {
    * файла нет, слоя нет; рисовать «по умолчанию» было бы обещанием.
    */
   placesUrl?: string | null;
+  /**
+   * Океан обзорного яруса (05.09): bbox минус полигоны суши OSM, поверх
+   * гипсометрии. Дыра покрытия DEM посреди моря иначе красится «не знаю»-
+   * серым и читается сушей. null — слоя нет; клеткам он не нужен.
+   */
+  oceanUrl?: string | null;
 }
 
 export type OsmLayer =
@@ -393,12 +399,16 @@ export function buildVedarStyle(
       route: { type: 'geojson', data: emptyFeatureCollection() },
       // Линии и площади: один векторный пакет либо GeoJSON по слоям.
       ...r.sources(),
+      ...vedarOceanSource(sources, ''),
       ...vedarPlacesSource(sources, ''),
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
       // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
       reliefLayer(p, ''),
+      // Океан — сразу над гипсометрией: море там, где берег OSM, а не там,
+      // где DEM дал ноль или промолчал.
+      ...vedarOceanLayers(sources, p, ''),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
       ...osmFillLayers(r, p, ''),
       hillshadeLayer(theme, p, ''),
@@ -591,10 +601,12 @@ export function buildRegionOverlay(
       sources: {
         ...terrainSource(sources, ns),
         ...(r.vector ? r.sources() : osmSources(marks.osmUrls, ns)),
+        ...vedarOceanSource(sources, ns),
         ...vedarPlacesSource(sources, ns),
       },
       layers: [
         reliefLayer(p, ns),
+        ...vedarOceanLayers(sources, p, ns),
         hillshadeLayer(theme, p, ns),
         ...osmPeakLayers(r, p, glyphs, font, ns),
         ...osmPlaceLayers(r, p, glyphs, font, ns),
@@ -975,6 +987,31 @@ function osmPlaceLayers(
     });
   }
   return out;
+}
+
+/**
+ * Океан обзорного яруса — один GeoJSON, производный от OSM (полигоны суши),
+ * потому и атрибуция OSM. Нет адреса — нет ни источника, ни слоя.
+ */
+function vedarOceanSource(sources: VedarStyleSources, ns: string): Record<string, unknown> {
+  if (!sources.oceanUrl) return {};
+  return {
+    [`vedar-ocean${ns}`]: { type: 'geojson', data: sources.oceanUrl, attribution: OSM_ATTRIBUTION },
+  };
+}
+
+/**
+ * Заливка океана — цветом воды палитры, тем же, что у первой ступени
+ * гипсометрии: на стыке ярусов (z7 → z8, где океана уже нет и море красит
+ * DEM) цвет не меняется. Непрозрачная: под ней гипсометрия «не знаю»-серого
+ * и нулевой высоты, и обе должны уступить берегу OSM.
+ */
+function vedarOceanLayers(sources: VedarStyleSources, p: MapPalette, ns: string): unknown[] {
+  if (!sources.oceanUrl) return [];
+  return [{
+    id: `vedar-ocean${ns}`, type: 'fill', source: `vedar-ocean${ns}`,
+    paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
+  }];
 }
 
 /**

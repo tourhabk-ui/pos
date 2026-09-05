@@ -36,6 +36,7 @@ import {
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { builtRegionPacks, chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
+import { coverageNotice, parsePackManifest } from '@/lib/map/pack-manifest';
 import { VedarZoomButtons, type VedarMapHandle, type VedarMapLine } from '@/components/shared/VedarMap';
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
@@ -477,6 +478,14 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    * перекрыть родителя соседа. См. `VedarMap.onDiagnostic`.
    */
   const [vedarDiag, setVedarDiag] = useState<string | null>(null);
+  /**
+   * Покрытие пакета словами (05.09). Паспорт пакета (lib/map/pack-manifest)
+   * знает число объектов по слоям OSM; если троп и дорог там ноль, карта
+   * обязана сказать это САМА — иначе «данных нет» и «слой не пришёл»
+   * выглядят одинаково: рельеф есть, линий нет (§4.0). Нет паспорта — молчим:
+   * «не знаю» — не «пусто».
+   */
+  const [coverageNote, setCoverageNote] = useState<string | null>(null);
   /**
    * Ручка своей карты — для кнопок масштаба в приборном ряду. Внутри карты
    * они стояли на середине высоты, и нижний лист их накрывал (скрин
@@ -1560,6 +1569,20 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     }
     return chooseFieldBaseMap(p.lat, p.lng, mapPackBaseUrl);
   }, [coords, mapCenter, mapPackBaseUrl, track, waypoints, lastFix, isLoadingRoute]);
+
+  // Паспорт пакета — один маленький JSON на пакет; читается при смене пакета.
+  // Отказ сети (офлайн без кэша) — тишина, не приговор о покрытии.
+  const manifestUrl = fieldBaseMap.kind === 'vedar' ? fieldBaseMap.source.manifestUrl : null;
+  useEffect(() => {
+    let alive = true;
+    setCoverageNote(null);
+    if (!manifestUrl) return;
+    fetch(manifestUrl)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: unknown) => { if (alive) setCoverageNote(coverageNotice(parsePackManifest(body))); })
+      .catch(() => { /* нет паспорта — нет суждения */ });
+    return () => { alive = false; };
+  }, [manifestUrl]);
 
   /**
    * Те же линии, что у Leaflet, но в порядке GeoJSON ([lng, lat]).
@@ -3089,6 +3112,8 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               // Места платформы (05.09): свой слой поверх OSM, по реестру
               // PLACES_BUILT; null — слоя нет, и карта его не просит.
               placesUrl: fieldBaseMap.source.placesUrl,
+              // Океан обзора (05.09): у пакета поля его нет (null), он у обзора.
+              oceanUrl: fieldBaseMap.source.oceanUrl,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}
@@ -3185,6 +3210,15 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                   и «не пришёл один слой» — разные беды, и решает это та
                   сторона, которая знает, поднялась ли карта. */}
               {vedarDiag}
+            </p>
+          )}
+
+          {/* Чего в пакете НЕТ — словами из паспорта пакета, не тишиной.
+              Цвет приглушённый, не тревожный: это факт о данных, не сбой. */}
+          {fieldBaseMap.kind === 'vedar' && coverageNote && (
+            <p className="px-3 pb-2 text-[11px] leading-snug"
+              style={{ color: 'var(--text-muted)' }}>
+              {coverageNote}
             </p>
           )}
 

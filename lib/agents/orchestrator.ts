@@ -13,6 +13,14 @@
  * Intel, Memory Reflector), переехали сюда — общий пульс вместо N
  * рассинхронизированных, токены тратятся по одному расписанию, а не по
  * N подряд не связанных.
+ *
+ * Scout Digest вынесен ОБРАТНО в свой крон 05.09 (решение владельца). Замер
+ * прогона 389: весь evo.run 321 с, из них дайджест — 321 с; прочие стадии
+ * вместе меньше 30 с. Роут живёт с maxDuration = 300, и три прогона подряд
+ * (386-388) умерли на сервере без ответа и без записи — дайджест один съедал
+ * бюджет всей эволюции. Он идёт из cron-scout-digest.yml с собственным
+ * потолком; стадия `scoutDigest` в результате остаётся как честная отметка
+ * «не здесь», чтобы кокпит и адаптер ядра не потеряли поле.
  */
 
 import { runGrowthScan } from '@/lib/agents/evo/growth-agent';
@@ -21,7 +29,6 @@ import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
 import { runEvolverAnalysis } from '@/lib/agents/evo/evolver-analysis';
 import { bridgeScoutIntel } from '@/lib/agents/evo/intel-bridge';
 import { runModelWatcher } from '@/lib/agents/evo/model-watcher';
-import { runScoutDigestJournaled } from '@/lib/agents/scout-digest-run';
 import { runScoutInnovator } from '@/lib/agents/scout-innovator';
 import { scanIndustryChannels } from '@/lib/telegram/industry-channels';
 import { runMemoryReflector } from '@/lib/agents/memory-reflector';
@@ -48,16 +55,15 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   // Phase 1: параллельно — диагностика (внутрь) + безопасность + анализ логов +
   // мост разведки (наружу): дайджест Scout → находки 'intel' в общий пул +
   // четыре бывших отдельных crona (см. комментарий файла).
-  const [scanRes, rescueRes, evolverRes, intelRes, modelsRes, scoutDigestRes, scoutInnovatorRes, industryIntelRes, memoryReflectorRes] = await Promise.allSettled([
+  const [scanRes, rescueRes, evolverRes, intelRes, modelsRes, scoutInnovatorRes, industryIntelRes, memoryReflectorRes] = await Promise.allSettled([
     runGrowthScan(scanType),
     runRescueScan(),
     runEvolverAnalysis(),
     bridgeScoutIntel(),
     runModelWatcher(),
-    // С журналом (04.09): штатный прогон разведчика идёт отсюда, а не из
-    // крон-роута, и без записи в agent_run_history он был невидим для
-    // scout-diagnose и счёта тишины.
-    runScoutDigestJournaled('orchestrator').then((r) => r.result),
+    // Scout Digest здесь НЕ идёт с 05.09 — свой крон (см. шапку файла).
+    // intel-bridge выше читает последний выпуск из базы знаний, а не ждёт
+    // его от этого же прогона.
     runScoutInnovator(),
     scanIndustryChannels(),
     runMemoryReflector(),
@@ -88,7 +94,13 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
     evolver: unwrap(evolverRes, 'EvolverAnalysis'),
     intel: unwrap(intelRes, 'IntelBridge'),
     models: unwrap(modelsRes, 'ModelWatcher'),
-    scoutDigest: unwrap(scoutDigestRes, 'ScoutDigest'),
+    // Честная отметка вместо результата: stageDiag ядра читает
+    // digest_skip_reason и запишет «own_cron», а не молчание.
+    scoutDigest: {
+      skipped: true,
+      digest_skip_reason: 'own_cron',
+      digest_skip_detail: 'дайджест идёт своим кроном (cron-scout-digest.yml), не стадией эволюции — 05.09',
+    },
     scoutInnovator: unwrap(scoutInnovatorRes, 'ScoutInnovator'),
     industryIntel: unwrap(industryIntelRes, 'IndustryIntel'),
     memoryReflector: unwrap(memoryReflectorRes, 'MemoryReflector'),

@@ -1,14 +1,20 @@
 {
-  "note": "Повтор переписи достижимости операторов (04.09: 0 из 2 достижимы, 12 туров за недостижимыми). Вопрос один: привязал ли кто-то из операторов MAX или Telegram с тех пор. Только чтение.",
+  "note": "Что случилось с дайджестом после переезда в свой крон (05.09, run 100 cron-scout-digest: curl exit 28 через 300 с). Вопрос: доделал ли сервер работу после того, как раннер бросил трубку — журнал последнего прогона scout-digest: digest_sent, ai_channel_sent, причина и длительность. Только чтение.",
   "urls": [
-    "https://vedarai.ru/api/cron/operator-reach"
+    "https://vedarai.ru/api/cron/scout-diagnose"
   ],
   "grep": [
-    "operators_with_live_tours",
-    "tours_behind_unreachable",
-    "verdict"
+    "ai_channel_sent",
+    "digest_sent",
+    "blockquote",
+    "duration_ms"
   ],
+  "around": [
+    "ai_channel_sent"
+  ],
+  "aroundLines": 14,
+  "aroundHits": 1,
   "retries": 0,
-  "bytes": 4000,
+  "bytes": 10000,
   "timeout": 60
 }

@@ -18,6 +18,7 @@ import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
 import { jaccardSimilarity } from '@/lib/utils/text-similarity';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { repairTelegramHtml } from '@/lib/notifications/telegram-html';
 
 interface StructuredProposal {
   title: string;
@@ -184,8 +185,60 @@ export function parseProposalsResponse(raw: string): { proposals: StructuredProp
     return { proposals: parsed as StructuredProposal[], diag: `распознано предложений: ${parsed.length}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // Оборванный по потолку токенов массив (05.09): целые элементы спасаются,
+    // недописанный — нет. Диагноз говорит и сколько спасено, и что обрыв был:
+    // «спасено 2» без слова «оборван» выглядело бы как честные два.
+    // Хвост от первой `[`, а не m[0]: жадный `\[[\s\S]*\]` кончается на
+    // ПОСЛЕДНЕЙ `]` — у оборванного ответа это `]` вложенного массива
+    // внутри последнего целого объекта, и он тоже выглядел бы оборванным.
+    const salvaged = salvageTruncatedArray(unfenced.slice(unfenced.indexOf('[')));
+    if (salvaged.length > 0) {
+      return {
+        proposals: salvaged as StructuredProposal[],
+        diag: `ответ оборван (${msg}), спасено целых предложений: ${salvaged.length}`,
+      };
+    }
     return { proposals: [], diag: `JSON.parse упал: ${msg} (head="${m[0].slice(0, 120)}")` };
   }
+}
+
+/**
+ * Целые объекты из оборванного JSON-массива. Идёт по объектам верхнего
+ * уровня, считая скобки вне строк; последний недописанный отбрасывается.
+ * Чистая функция, без сети.
+ */
+export function salvageTruncatedArray(raw: string): unknown[] {
+  const text = raw.trim();
+  if (!text.startsWith('[')) return [];
+  const out: unknown[] = [];
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  let objStart = -1;
+  for (let i = 1; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) { esc = false; continue; }
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') { if (depth === 0) objStart = i; depth++; continue; }
+    if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        try {
+          const obj = JSON.parse(text.slice(objStart, i + 1)) as unknown;
+          if (obj && typeof obj === 'object') out.push(obj);
+        } catch {
+          // недописанный или битый элемент — не спасаем
+        }
+        objStart = -1;
+      }
+    }
+  }
+  return out;
 }
 
 async function generateStructuredProposals(
@@ -264,7 +317,11 @@ ${gitSection}
     // заблокированный OpenRouter/Anthropic-роут, вызов падал — эволюция
     // переставала рождать предложения. Идём через подтверждённо-живой из РФ
     // Qwen (DashScope), а водопад (DeepSeek/GLM, тоже доступны из РФ) — fallback.
-    const qwen = await callQwen(messages);
+    // 3000 токенов, а не умолчание 800 (05.09): три предложения с шагами и
+    // критериями по-русски — это 2500-4000 знаков JSON, и на 800 токенах
+    // ответ рвался на позиции ~2440 (прогон 389: «JSON.parse упал: Expected
+    // ',' or '}'»). Обрыв — не ошибка модели, а наш потолок.
+    const qwen = await callQwen(messages, { maxTokens: 3000 });
     // Отказ водопада приходит null, а не строкой-извинением: иначе он уезжает
     // в разбор и превращается в «нет JSON-массива» (экран владельца 04.09).
     const raw = qwen?.trim() ? qwen : await callAIWaterfallOrNull(messages);
@@ -467,7 +524,7 @@ async function tgSend(text: string): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text.substring(0, 4000),
+        text: repairTelegramHtml(text, 4000),
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),

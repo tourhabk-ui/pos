@@ -203,6 +203,72 @@ function placesUrlFor(region: PackRegionId, base: string): string | null {
 }
 
 /**
+ * Паспорт пакета (05.09, lib/map/pack-manifest.ts): число объектов по слоям
+ * OSM, снятое с залитых файлов. По нему карта говорит словами «троп в OSM
+ * здесь нет», а не молчит, как при сбое загрузки. Ключ — рядом с пакетом.
+ */
+export function manifestKey(region: PackRegionId): string {
+  return `map-packs/${region}.manifest.json`;
+}
+
+/**
+ * Обещание, что паспорт лежит в хранилище — того же рода, что PLACES_BUILT:
+ * ставится ПОСЛЕ прогона build-manifests / заливки пакета. Нет паспорта —
+ * карта не просит его и не судит о покрытии: «не знаю», не «пусто».
+ */
+export const MANIFEST_BUILT: readonly PackRegionId[] = [
+  // Прогон map-pack-manifest run 1 (33952537390, 05.09): 122 паспорта записаны,
+  // отказов 0. Порядок — manifestTargets(): районы с OSM, затем все клетки.
+  'avacha-group', 'paratunka', 'mutnovsky-gorely', 'nalychevo', 'central-volcanoes',
+  'klyuchevskoy', 'south-kamchatka', 'esso-bystrinsky', 'kronotsky', 'commander-islands',
+  'cell-52n157e', 'cell-51n156e', 'cell-51n157e', 'cell-51n158e', 'cell-52n156e',
+  'cell-52n158e', 'cell-53n155e', 'cell-53n156e', 'cell-53n157e', 'cell-53n158e',
+  'cell-53n159e', 'cell-54n156e', 'cell-54n157e', 'cell-54n158e', 'cell-54n159e',
+  'cell-54n160e', 'cell-54n161e', 'cell-54n162e', 'cell-54n166e', 'cell-54n167e',
+  'cell-54n155e', 'cell-55n155e', 'cell-55n156e', 'cell-55n157e', 'cell-55n158e',
+  'cell-55n159e', 'cell-55n160e', 'cell-55n161e', 'cell-55n166e', 'cell-56n155e',
+  'cell-56n156e', 'cell-56n157e', 'cell-56n158e', 'cell-56n159e', 'cell-56n160e',
+  'cell-56n161e', 'cell-56n162e', 'cell-56n163e', 'cell-57n156e', 'cell-57n157e',
+  'cell-57n158e', 'cell-57n159e', 'cell-57n160e', 'cell-57n161e', 'cell-57n162e',
+  'cell-57n163e', 'cell-58n158e', 'cell-58n160e', 'cell-58n161e', 'cell-58n162e',
+  'cell-58n159e', 'cell-58n163e', 'cell-58n164e', 'cell-59n159e', 'cell-59n160e',
+  'cell-59n161e', 'cell-59n162e', 'cell-59n163e', 'cell-59n164e', 'cell-59n166e',
+  'cell-60n161e', 'cell-60n162e', 'cell-60n163e', 'cell-60n164e', 'cell-60n165e',
+  'cell-60n166e', 'cell-60n167e', 'cell-60n168e', 'cell-60n169e', 'cell-60n170e',
+  'cell-60n171e', 'cell-61n162e', 'cell-61n163e', 'cell-61n164e', 'cell-61n165e',
+  'cell-61n166e', 'cell-61n167e', 'cell-61n168e', 'cell-61n169e', 'cell-61n170e',
+  'cell-61n171e', 'cell-61n172e', 'cell-61n173e', 'cell-61n174e', 'cell-62n162e',
+  'cell-62n163e', 'cell-62n164e', 'cell-62n165e', 'cell-62n166e', 'cell-62n167e',
+  'cell-62n168e', 'cell-62n169e', 'cell-62n170e', 'cell-62n171e', 'cell-62n172e',
+  'cell-62n173e', 'cell-62n174e', 'cell-63n162e', 'cell-63n163e', 'cell-63n164e',
+  'cell-63n165e', 'cell-63n166e', 'cell-63n167e', 'cell-63n168e', 'cell-63n169e',
+  'cell-64n162e', 'cell-64n163e', 'cell-64n164e', 'cell-64n165e', 'cell-64n166e',
+  'cell-64n167e', 'cell-64n168e',
+];
+
+function manifestUrlFor(region: PackRegionId, base: string): string | null {
+  return MANIFEST_BUILT.includes(region) ? `${base}/${manifestKey(region)}` : null;
+}
+
+/**
+ * Океан обзорного яруса (05.09, build_ocean.py): bbox обзора минус полигоны
+ * суши OSM. Ложится поверх гипсометрии, чтобы дыры покрытия DEM посреди
+ * моря не читались сушей. Только у обзора: клетки читают DEM на полной
+ * сетке, и ноль высоты там — честное море.
+ */
+export function oceanKey(region: PackRegionId): string {
+  return `map-packs/${region}.ocean.geojson`;
+}
+
+/** Обещание, что океан обзора залит (map-overview-ocean.yml). Ставится ПОСЛЕ прогона. */
+// Прогон map-overview-ocean run 1 (33952766081, 05.09): 180 КБ залито.
+export const OVERVIEW_OCEAN_BUILT = true;
+
+function oceanUrlFor(region: PackRegionId, base: string): string | null {
+  return isOverviewId(region) && OVERVIEW_OCEAN_BUILT ? `${base}/${oceanKey(region)}` : null;
+}
+
+/**
  * Имена слоёв внутри векторного пакета — контракт между build_vector.sh и
  * стилем (source-layer). Горизонтали двумя слоями: частые (20 м) отдельно,
  * они появляются только с z13.
@@ -278,6 +344,10 @@ export type PackSource =
       vectorUrl: string | null;
       /** Места платформы, GeoJSON; null — слой не залит (см. PLACES_BUILT). */
       placesUrl: string | null;
+      /** Паспорт пакета (число объектов по слоям OSM); null — не залит (см. MANIFEST_BUILT). */
+      manifestUrl: string | null;
+      /** Океан поверх гипсометрии, GeoJSON; только у обзора и только когда залит (OVERVIEW_OCEAN_BUILT). */
+      oceanUrl: string | null;
     }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
@@ -322,6 +392,8 @@ export function resolvePackSource(
       vectorUrl: null,
       // Посёлки-ориентиры нужнее всего именно на обзоре (z4-7).
       placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
     };
   }
   // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
@@ -340,6 +412,8 @@ export function resolvePackSource(
       osmUrls: Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>,
       vectorUrl: `pmtiles://${base}/${vectorKey(region)}`,
       placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
     };
   }
   if (!builtRegions.includes(region)) {
@@ -362,6 +436,8 @@ export function resolvePackSource(
       : {},
     vectorUrl: VECTOR_BUILT_REGIONS.includes(region) ? `pmtiles://${base}/${vectorKey(region)}` : null,
     placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
   };
 }
 
