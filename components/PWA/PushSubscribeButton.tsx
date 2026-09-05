@@ -3,7 +3,28 @@
 import { useEffect, useState } from 'react';
 import { Bell, BellOff, Loader2, AlertTriangle } from 'lucide-react';
 
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_KEY ?? '';
+// Ключ из сборки — быстрый путь, когда переменная дошла до `next build`.
+// Пустая строка здесь НЕ означает «push не настроен»: Dockerfile ключ в
+// сборку не передаёт, и 05.09 владелец с установленной PWA не нашёл кнопку
+// при ключах, заданных на сервере. Поэтому ключ спрашивается у сервера во
+// время выполнения (/api/push/vapid-public-key), а сборочный — запасной.
+const BUILD_TIME_KEY = (process.env.NEXT_PUBLIC_VAPID_KEY ?? '').trim();
+
+async function resolveVapidPublicKey(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/push/vapid-public-key', { cache: 'no-store' });
+    if (res.ok) {
+      const data: unknown = await res.json();
+      const key = data && typeof data === 'object' && 'key' in data ? (data as { key: unknown }).key : null;
+      if (typeof key === 'string' && key.trim()) return key.trim();
+      // Сервер ответил и сказал «не задано» — это ответ, а не сбой.
+      return BUILD_TIME_KEY || null;
+    }
+  } catch {
+    // Сети нет или роут недоступен — остаётся сборочный ключ, если он есть.
+  }
+  return BUILD_TIME_KEY || null;
+}
 
 // Возвращаемый тип уточнён до Uint8Array<ArrayBuffer>: с TS 5.9
 // applicationServerKey принимает только ArrayBuffer-backed BufferSource,
@@ -25,32 +46,48 @@ function urlB64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
  * Кнопка врала ровно тем, кто хотел подписаться. Теперь при отказе сервера
  * подписка браузера снимается, а человеку говорится, что сохранить не вышло.
  */
-type State = 'loading' | 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed' | 'failed';
+/**
+ * `unsupported` и `unconfigured` — разные вещи и оба ПОКАЗЫВАЮТСЯ, а не
+ * возвращают null: до 05.09 кнопка молча исчезала в обоих случаях, и человек
+ * с исправным телефоном не мог отличить «мой браузер не умеет» от «на сервере
+ * не настроено». Пустое место не диагноз (§4.0).
+ */
+type State = 'loading' | 'unsupported' | 'unconfigured' | 'denied' | 'subscribed' | 'unsubscribed' | 'failed';
 
 export function PushSubscribeButton() {
   const [state, setState] = useState<State>('loading');
+  const [vapidKey, setVapidKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setState('unsupported');
       return;
     }
-    navigator.serviceWorker.ready.then(async reg => {
+    let cancelled = false;
+    (async () => {
+      const key = await resolveVapidPublicKey();
+      if (cancelled) return;
+      if (!key) { setState('unconfigured'); return; }
+      setVapidKey(key);
+      const reg = await navigator.serviceWorker.ready;
+      if (cancelled) return;
       const sub = await reg.pushManager.getSubscription();
       if (sub) { setState('subscribed'); return; }
       if (Notification.permission === 'denied') { setState('denied'); return; }
       setState('unsubscribed');
-    });
+    })().catch(() => { if (!cancelled) setState('unsubscribed'); });
+    return () => { cancelled = true; };
   }, []);
 
   const subscribe = async () => {
+    if (!vapidKey) { setState('unconfigured'); return; }
     setState('loading');
     let sub: PushSubscription | null = null;
     try {
       const reg = await navigator.serviceWorker.ready;
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY),
+        applicationServerKey: urlB64ToUint8Array(vapidKey),
       });
       const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
       const res = await fetch('/api/push/subscribe', {
@@ -97,7 +134,23 @@ export function PushSubscribeButton() {
     }
   };
 
-  if (state === 'unsupported') return null;
+  if (state === 'unsupported') {
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-[var(--text-muted)] bg-[var(--bg-card)] border border-[var(--border)]">
+        <BellOff size={15} />
+        Этот браузер не умеет push-уведомления
+      </div>
+    );
+  }
+
+  if (state === 'unconfigured') {
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-[var(--warning)] bg-[var(--bg-card)] border border-[var(--border)]">
+        <AlertTriangle size={15} />
+        Уведомления не настроены на сервере
+      </div>
+    );
+  }
 
   if (state === 'loading') {
     return (

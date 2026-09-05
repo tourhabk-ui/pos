@@ -1,8 +1,9 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 13,
-  "why": "05.09: в фиде Яндекса картинки были относительными путями — проверка абсолютных URL после правки",
+  "run": 14,
+  "why": "05.09: ключ VAPID отдаётся во время выполнения — проверка, что прод его знает (configured), и что /sos открывается",
   "urls": [
-    "https://vedarai.ru/api/channels/yandex/feed"
+    "https://vedarai.ru/api/push/vapid-public-key",
+    "https://vedarai.ru/sos"
   ]
 }
