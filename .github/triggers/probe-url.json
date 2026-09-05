@@ -1,60 +1,22 @@
 {
-  "note": "Три шага. (0) Датчик свежести — тот же СУХОЙ прогон, что в 436, с маркером transfer: боевой POST датчиком быть не может — прежняя сборка слила бы БЕЗ переноса полей, а stop_if_stale запирает шаги после датчика. (1) БОЕВОЕ слияние «Бабий камень» → «Водопад Бабий камень». Сухой прогон 436 показал план: переезжают паспорт, телефон МЧС, парк, опасности, снаряжение, длительность, сезон, тип, флора, доступность; конфликты (source_url, mchs_registration_required false/true, описание, дистанция 3.3/5.0) остаются на решение владельца, keep их не меняет. Откат — routes-unmerge. (2) СУХОЙ прогон пары гейзеров: keep «Долина гейзеров» (796c18b3, по ссылке /routes/ из переписи) / merge «Гейзеры Кроноцкого заповедника» (120d3427, слово владельца: «это тоже самое»). Сухой прогон покажет, у кого настоящий трек, и план переноса.",
-  "urls": [],
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/routes-dedup",
-      "body": {
-        "dry_run": true,
-        "pairs": [
-          {
-            "keep": "be1c6c4a-33d8-4b3f-8025-2230654758f2",
-            "merge": "3795cfa5-4c77-4088-a349-0884f5c07a0e"
-          }
-        ]
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/cron/routes-dedup",
-      "body": {
-        "dry_run": false,
-        "pairs": [
-          {
-            "keep": "be1c6c4a-33d8-4b3f-8025-2230654758f2",
-            "merge": "3795cfa5-4c77-4088-a349-0884f5c07a0e"
-          }
-        ]
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/cron/routes-dedup",
-      "body": {
-        "dry_run": true,
-        "pairs": [
-          {
-            "keep": "796c18b3-e199-4ac6-bbd6-de50d560ff40",
-            "merge": "120d3427-d8b9-42ed-b0ac-582449a9c202"
-          }
-        ]
-      }
-    }
+  "note": "Разведка перед слиянием гейзеров, только чтение. Проба 437 отказала: 796c18b3 — не маршрут (это id МЕСТА из пар route_waypoints, а поиск /api/routes/search отдаёт id в пространстве ark_id, для routes-dedup непригодном). route-geometry-census отдаёт r.id::text — то пространство, по которому сверяет дедуп, — плюс источник линии, число вершин и число путевых точек. По нему выбирается keep среди четырёх гейзерных записей: «Долина гейзеров», «Гейзеры Кроноцкого заповедника» (120d3427), «Гейзеры Камчатки», «Долина гейзеров и кальдера Узон».",
+  "urls": [
+    "https://vedarai.ru/api/cron/route-geometry-census?q=%D0%B3%D0%B5%D0%B9%D0%B7%D0%B5%D1%80"
   ],
   "grep": [
-    "merged_count",
-    "transfer_skipped",
-    "adoptGeometry",
-    "conflicts",
-    "error"
+    "120d3427",
+    "\"source\":\"external\"",
+    "\"source\":\"waypoints_synthetic\"",
+    "\"source\":null"
   ],
   "around": [
-    "transfer_skipped",
-    "\"plan\""
+    "\"title\":\"Долина гейзеров\"",
+    "\"title\":\"Гейзеры",
+    "\"title\":\"Долина Гейзеров"
   ],
-  "aroundLines": 40,
-  "aroundHits": 2,
-  "retries": 5,
-  "retryDelay": 60,
-  "until": "\"transfer\"",
-  "bytes": 8000,
+  "aroundLines": 14,
+  "aroundHits": 4,
+  "retries": 0,
+  "bytes": 12000,
   "timeout": 60
 }
