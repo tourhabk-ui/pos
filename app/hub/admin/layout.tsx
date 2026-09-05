@@ -7,7 +7,7 @@ import {
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe, MapPin,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
-  Trash2, Webhook, Eye, Gauge,
+  Trash2, Webhook, Gauge,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
@@ -40,8 +40,11 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/enrich-places', label: 'Обогащение мест', icon: Sprout, section: 'Контент' },
   { href: '/hub/admin/places-photos', label: 'Редактор мест', icon: ImageIcon, section: 'Контент' },
   // Экран существовал без единой ссылки — найти его можно было, только помня
-  // URL наизусть (перепись достижимости 22.08). То же ниже: Transparency Hub
-  // и Webhook Telegram.
+  // URL наизусть (перепись достижимости 22.08). То же ниже: Webhook Telegram.
+  // Transparency Hub, найденный той же переписью, снесён 05.09: он показывал
+  // 13 «директоров» совета, удалённого в апреле, с выдуманными моделями и
+  // «активностью», которую писал крон сводки спроса. Живая правда про
+  // агентов — /hub/admin/volcano?tab=agents.
   { href: '/hub/admin/places', label: 'Чистка мест', icon: Trash2, section: 'Контент' },
   { href: '/hub/admin/user-photos', label: 'Фото туристов', icon: ImageIcon, section: 'Контент' },
   { href: '/hub/admin/photos', label: 'Загрузка фото', icon: ImageIcon, section: 'Контент' },
@@ -77,7 +80,6 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/taaft', label: 'AI-инструменты', icon: Globe, section: 'AI' },
   // Отчёт по AI-инициативам. Живёт вне /hub/admin, свою проверку роли делает
   // сам; в меню его не было ни разу.
-  { href: '/transparency', label: 'Transparency Hub', icon: Eye, section: 'AI' },
   { href: '/hub/admin/ai-prompts', label: 'Оптим. промптов', icon: Sparkles, section: 'AI' },
 
   // Каналы
