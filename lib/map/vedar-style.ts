@@ -37,6 +37,8 @@
  * цифрой. Ровно этим карта и отличается от картинки.
  */
 
+import { PLACES_ATTRIBUTION } from '@/lib/map/pack-source';
+
 export type VedarMapTheme = 'dark' | 'light';
 
 /**
@@ -301,6 +303,13 @@ export interface VedarStyleSources {
    * целиком. Нет — прежний путь по GeoJSON. Два пути живут ради перехода.
    */
   vectorUrl?: string | null;
+  /**
+   * Места платформы (05.09): `places` + профиль безопасности одним GeoJSON
+   * на пакет (`<region>.places.geojson`, реестр PLACES_BUILT). Свой слой, не
+   * OSM: у корякских клеток OSM-слои пусты, а наши места есть и там. null —
+   * файла нет, слоя нет; рисовать «по умолчанию» было бы обещанием.
+   */
+  placesUrl?: string | null;
 }
 
 export type OsmLayer =
@@ -384,6 +393,7 @@ export function buildVedarStyle(
       route: { type: 'geojson', data: emptyFeatureCollection() },
       // Линии и площади: один векторный пакет либо GeoJSON по слоям.
       ...r.sources(),
+      ...vedarPlacesSource(sources, ''),
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
@@ -490,6 +500,9 @@ export function buildVedarStyle(
       // Посёлки — самый верх: на обзорном виде это единственное, по чему
       // человек понимает, куда смотрит.
       ...osmPlaceLayers(r, p, glyphs, font, ''),
+      // Места платформы — над всем: ради них карту и открывают, а профиль
+      // безопасности точки — то, о чём человек в поле спрашивает первым.
+      ...vedarPlaceLayers(sources, p, glyphs, font, ''),
     ],
   };
 }
@@ -578,12 +591,14 @@ export function buildRegionOverlay(
       sources: {
         ...terrainSource(sources, ns),
         ...(r.vector ? r.sources() : osmSources(marks.osmUrls, ns)),
+        ...vedarPlacesSource(sources, ns),
       },
       layers: [
         reliefLayer(p, ns),
         hillshadeLayer(theme, p, ns),
         ...osmPeakLayers(r, p, glyphs, font, ns),
         ...osmPlaceLayers(r, p, glyphs, font, ns),
+        ...vedarPlaceLayers(sources, p, glyphs, font, ns),
       ] as Array<Record<string, unknown>>,
     };
   }
@@ -954,6 +969,77 @@ function osmPlaceLayers(
       },
       paint: {
         'text-color': p.place,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.6,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Источник слоя мест платформы — один GeoJSON на пакет, со своей атрибуцией
+ * (наши данные, не OpenStreetMap). Нет адреса — нет источника: слой без
+ * файла MapLibre честно не нарисует, но и просить файл, которого нет
+ * (PLACES_BUILT), карта не должна.
+ */
+function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<string, unknown> {
+  if (!sources.placesUrl) return {};
+  return {
+    [`vedar-places${ns}`]: { type: 'geojson', data: sources.placesUrl, attribution: PLACES_ATTRIBUTION },
+  };
+}
+
+/**
+ * Места платформы (05.09). Точка — факт географии (§9 CLAUDE.md), и на карте
+ * она отвечает на один вопрос: «что здесь и чем опасно». Цвет несёт ответ:
+ * место с записанными опасностями (`hazard_types` не пуст) — цвет тревоги,
+ * тот же, что у обрыва; остальные — цвет вершины, ориентира. Опасность
+ * читается из ДАННЫХ профиля, не из типа места: вулкан без профиля не
+ * красится тревожным «на всякий случай» — это было бы выдумкой (§4.0).
+ *
+ * `hazard_types` в свойствах — массив (эндпоинт отдаёт `?? []`); MapLibre
+ * держит вложенные значения GeoJSON как есть, и `length` по ним считается.
+ * `coalesce` с пустым литералом — на случай объекта без поля вовсе.
+ *
+ * Круг виден с z6 — на обзоре (z4-7) место читается точкой на фоне
+ * рельефа; подпись — с z9, когда есть глифы, и в вытеснении тревожная
+ * точка идёт первой: она не должна проигрывать хутору.
+ */
+function vedarPlaceLayers(
+  sources: VedarStyleSources, p: MapPalette, glyphs: string | null, font: string, ns: string,
+): unknown[] {
+  if (!sources.placesUrl) return [];
+  const source = `vedar-places${ns}`;
+  const hazardous: unknown = ['>', ['length', ['coalesce', ['get', 'hazard_types'], ['literal', []]]], 0];
+  const color: unknown = ['case', hazardous, p.cliff, p.peak];
+  const out: unknown[] = [{
+    id: `vedar-places${ns}`, type: 'circle', source,
+    minzoom: 6,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 2.5, 13, 5.5],
+      'circle-color': color,
+      'circle-stroke-color': p.background,
+      'circle-stroke-width': 1.2,
+      'circle-opacity': 0.95,
+    },
+  }];
+  if (glyphs) {
+    out.push({
+      id: `vedar-place-labels${ns}`, type: 'symbol', source,
+      minzoom: 9,
+      layout: {
+        'text-font': [font],
+        'text-field': ['get', 'name'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 13, 13],
+        'text-offset': [0, 0.9],
+        'text-anchor': 'top',
+        'text-padding': 4,
+        'text-allow-overlap': false,
+        'symbol-sort-key': ['case', hazardous, 0, 2],
+      },
+      paint: {
+        'text-color': color,
         'text-halo-color': p.background,
         'text-halo-width': 1.6,
       },

@@ -3086,6 +3086,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               // Векторный пакет (02.09): когда собран — все линии и площади
               // из него, тайлами по кадру; иначе GeoJSON выше.
               vectorUrl: fieldBaseMap.source.vectorUrl,
+              // Места платформы (05.09): свой слой поверх OSM, по реестру
+              // PLACES_BUILT; null — слоя нет, и карта его не просит.
+              placesUrl: fieldBaseMap.source.placesUrl,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}
