@@ -1,6 +1,6 @@
 {
-  "note": "Прогон 515 (05.09, запас DEM за границей): только рельеф пакета nalychevo; горизонтали, OSM, вектор в хранилище прежние.",
-  "region": "nalychevo",
+  "note": "Прогон 516 (05.09, запас DEM за границей): только рельеф пакета central-volcanoes; горизонтали, OSM, вектор в хранилище прежние.",
+  "region": "central-volcanoes",
   "upload": true,
   "terrain_only": true
 }
