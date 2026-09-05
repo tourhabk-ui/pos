@@ -141,6 +141,38 @@ export function vectorKey(region: PackRegionId): string {
 }
 
 /**
+ * Места платформы (05.09) — свой слой, не OSM.
+ *
+ * Проверка хранилища после 112 клеток: у корякских клеток слои OSM «тропы»,
+ * «приюты», «посёлки» по 0.00 МБ — в OSM там пусто. Наши `places` (779 мест,
+ * у 763 профиль безопасности) есть и там, а на офлайн-карте их не было вовсе.
+ *
+ * Отдельный ключ и отдельный реестр — не прихоть: OSM_LAYERS трижды прибит
+ * к build_osm.py и к атрибуции OpenStreetMap (map-pack-osm.test.ts), а это
+ * НАШИ данные с нашей атрибуцией. Печёт map-places-build.yml одним прогоном
+ * на все пакеты (scripts/map-tiles/build-places.ts), не пересборкой пакетов.
+ */
+export function placesKey(region: PackRegionId): string {
+  return `map-packs/${region}.places.geojson`;
+}
+
+/** Атрибуция слоя — одна строка на эндпоинт (places-export) и на стиль. */
+export const PLACES_ATTRIBUTION = '© Ведар — места и профили безопасности платформы';
+
+/**
+ * Обещание, что `<region>.places.geojson` лежит в хранилище — того же рода,
+ * что VECTOR_BUILT_REGIONS: ставится ПОСЛЕ заливки прогоном, не до. Пока
+ * список пуст, карта слой не просит и ни один пакет не ждёт файла, которого
+ * нет. Проверка хранилища (verify-packs) читает этот же список.
+ */
+export const PLACES_BUILT: readonly PackRegionId[] = [];
+
+/** Адрес слоя мест — одно правило на все три ветки resolvePackSource. */
+function placesUrlFor(region: PackRegionId, base: string): string | null {
+  return PLACES_BUILT.includes(region) ? `${base}/${placesKey(region)}` : null;
+}
+
+/**
  * Имена слоёв внутри векторного пакета — контракт между build_vector.sh и
  * стилем (source-layer). Горизонтали двумя слоями: частые (20 м) отдельно,
  * они появляются только с z13.
@@ -214,6 +246,8 @@ export type PackSource =
       osmUrls: Partial<Record<OsmLayer, string>>;
       /** Векторный пакет `pmtiles://…`; null — не собран (см. VECTOR_BUILT_REGIONS). */
       vectorUrl: string | null;
+      /** Места платформы, GeoJSON; null — слой не залит (см. PLACES_BUILT). */
+      placesUrl: string | null;
     }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
@@ -256,6 +290,8 @@ export function resolvePackSource(
       glyphsFont: PACK_GLYPHS.fontstack,
       osmUrls: {},
       vectorUrl: null,
+      // Посёлки-ориентиры нужнее всего именно на обзоре (z4-7).
+      placesUrl: placesUrlFor(region, base),
     };
   }
   // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
@@ -273,6 +309,7 @@ export function resolvePackSource(
       glyphsFont: PACK_GLYPHS.fontstack,
       osmUrls: Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>,
       vectorUrl: `pmtiles://${base}/${vectorKey(region)}`,
+      placesUrl: placesUrlFor(region, base),
     };
   }
   if (!builtRegions.includes(region)) {
@@ -294,6 +331,7 @@ export function resolvePackSource(
       ? Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>
       : {},
     vectorUrl: VECTOR_BUILT_REGIONS.includes(region) ? `pmtiles://${base}/${vectorKey(region)}` : null,
+    placesUrl: placesUrlFor(region, base),
   };
 }
 
