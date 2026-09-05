@@ -68,7 +68,41 @@ jobs:
           fi
           echo "packs=$PACKS" >> "$GITHUB_OUTPUT"
           echo "theme=$THEME" >> "$GITHUB_OUTPUT"
-          echo "пакеты: ${PACKS:-<все собранные>}, тема: $THEME"
+          # Пробы тайлов (pack:z/x/y) — те, на которые пожаловался MapLibre в
+          # прошлом кадре; только из файла-триггера.
+          PROBE=$(python3 -c "import json;print(','.join(json.load(open('.github/triggers/map-pack-snapshot.json')).get('probe',[])))")
+          echo "probe=$PROBE" >> "$GITHUB_OUTPUT"
+          echo "пакеты: ${PACKS:-<все собранные>}, тема: $THEME, пробы: ${PROBE:-нет}"
+
+      # Перепись архивов ДО кадров (05.09, прогон 8): каталог PMTiles против
+      # bbox и проба тайла на каждом зуме — тем же читателем, что у карты.
+      # Размытый кадр z10 при «idle без ошибок» — это либо тайла нет в
+      # каталоге, либо он не читается, либо карта его не попросила; первые два
+      # видны только отсюда. Красная перепись не отменяет кадры: они — улика.
+      - name: Перепись архивов рельефа
+        if: ${{ steps.cfg.outputs.packs != '' }}
+        continue-on-error: true
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set +e
+          FLAGS="--packs ${{ steps.cfg.outputs.packs }}"
+          if [ -n "${{ steps.cfg.outputs.probe }}" ]; then FLAGS="$FLAGS --probe ${{ steps.cfg.outputs.probe }}"; fi
+          npx tsx scripts/map-tiles/pack-census.ts $FLAGS | tee census.log
+          code=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '### Перепись архивов рельефа'
+            echo
+            echo '```'
+            cat census.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p .cache/snapshots && cp census.log .cache/snapshots/census.log
+          if [ "$code" = "1" ]; then echo "::error::В каталоге архива меньше тайлов, чем обещает bbox, или проба не читается."; fi
+          if [ "$code" = "2" ]; then echo "::error::Перепись не состоялась: бакет не ответил или пакет не в реестре."; fi
+          exit $code
 
       - name: Снять кадры
         env:
@@ -83,6 +117,7 @@ jobs:
           FLAGS="--theme ${{ steps.cfg.outputs.theme }} --out .cache/snapshots"
           if [ -n "${{ steps.cfg.outputs.packs }}" ]; then FLAGS="$FLAGS --packs ${{ steps.cfg.outputs.packs }}"; fi
           if [ "${{ steps.cfg.outputs.force_ocean }}" = "true" ]; then FLAGS="$FLAGS --force-ocean"; fi
+          if [ -n "${{ steps.cfg.outputs.probe }}" ]; then FLAGS="$FLAGS --probe ${{ steps.cfg.outputs.probe }}"; fi
           npx tsx scripts/map-tiles/snapshot-packs.ts $FLAGS | tee snapshot.log
           code=${PIPESTATUS[0]}
           set -e
@@ -128,7 +163,7 @@ jobs:
           set -euo pipefail
           if ! ls .cache/snapshots/*.jpg >/dev/null 2>&1; then echo "кадров нет — ветку не трогаю"; exit 0; fi
           TMP=$(mktemp -d)
-          cp .cache/snapshots/*.jpg .cache/snapshots/*.geojson .cache/snapshots/index.md .cache/snapshots/summary.json "$TMP"/ 2>/dev/null || true
+          cp .cache/snapshots/*.jpg .cache/snapshots/*.geojson .cache/snapshots/*.txt .cache/snapshots/*.log .cache/snapshots/index.md .cache/snapshots/summary.json "$TMP"/ 2>/dev/null || true
           cd "$TMP"
           git init -q -b map-snapshots
           git config user.name "map-pack-snapshot"

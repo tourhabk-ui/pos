@@ -1,0 +1,85 @@
+name: Cache-Control у файлов пакетов карты
+
+# Перештамповать заголовки уже залитых файлов пакетов (map-packs/*) по
+# политике lib/map/pack-cache-policy.ts: архивам по Range — no-store,
+# остальному — no-cache. Тело не перекачивается (копия в себя с заменой
+# метаданных). Зачем — в шапке политики: снимки 05.09, прогоны 8-11.
+#
+# Где исполняется (§8): раннер достаёт до бакета своими ключами; контейнер
+# Claude — нет. Пуш файла-триггера запускает прогон с той ветки, куда запушен.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Только посчитать, хранилище не трогать'
+        type: boolean
+        default: false
+      only:
+        description: 'Сузить: pmtiles — только архивы; пусто — все файлы пакетов'
+        type: string
+        default: ''
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-pack-stamp.json'
+
+permissions:
+  contents: read
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          DRY="${{ inputs.dry_run }}"
+          ONLY="${{ inputs.only }}"
+          if [ -z "$DRY" ]; then
+            DRY=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-pack-stamp.json')).get('dry_run',False)).lower())")
+          fi
+          if [ -z "$ONLY" ]; then
+            ONLY=$(python3 -c "import json;print(json.load(open('.github/triggers/map-pack-stamp.json')).get('only',''))")
+          fi
+          echo "dry_run=$DRY" >> "$GITHUB_OUTPUT"
+          echo "only=$ONLY" >> "$GITHUB_OUTPUT"
+          echo "сухой прогон: $DRY · только: ${ONLY:-все}"
+
+      - name: Штамповка
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::Секреты S3 не заданы в репозитории. Это ОТДЕЛЬНЫЙ набор от переменных Timeweb (§8)."
+            exit 1
+          fi
+          FLAGS=""
+          if [ "${{ steps.cfg.outputs.dry_run }}" = "true" ]; then FLAGS="$FLAGS --dry-run"; fi
+          if [ -n "${{ steps.cfg.outputs.only }}" ]; then FLAGS="$FLAGS --only ${{ steps.cfg.outputs.only }}"; fi
+          set +e
+          npx tsx scripts/map-tiles/stamp-cache-control.ts $FLAGS | tee stamp.log
+          code=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '### Cache-Control у файлов пакетов карты'
+            echo
+            echo '```'
+            tail -n 30 stamp.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
