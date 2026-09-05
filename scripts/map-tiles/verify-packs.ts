@@ -56,7 +56,7 @@
 
 import {
   BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
-  packKey, osmKey, vectorKey,
+  PLACES_BUILT, packKey, osmKey, vectorKey, placesKey,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 
@@ -93,6 +93,10 @@ export function packKeysToVerify(): Array<{ key: string; kind: 'json' | 'archive
   if (OVERVIEW_BUILT) {
     out.push({ key: packKey(OVERVIEW_ID, 'terrain'), kind: 'archive' });
     out.push({ key: packKey(OVERVIEW_ID, 'contours'), kind: 'json' });
+  }
+  // Места платформы (05.09) — свой слой, не OSM: свой реестр и свой ключ.
+  for (const region of PLACES_BUILT) {
+    out.push({ key: placesKey(region), kind: 'json' });
   }
   return out;
 }
