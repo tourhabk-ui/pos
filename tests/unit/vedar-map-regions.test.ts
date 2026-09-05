@@ -133,7 +133,10 @@ describe('карта подкладывает соседей сама', () => {
   it('по moveend, ярус detail — с DETAIL_MIN_ZOOM, основной район пропускается', () => {
     expect(MAP).toMatch(/map\.on\('moveend', ensure\)/);
     expect(MAP).toMatch(/map\.off\('moveend', ensure\)/);
-    expect(MAP).toMatch(/export const DETAIL_MIN_ZOOM = 10/);
+    // Константа живёт в стиле (снимки на раннере собирают подкладки тем же
+    // правилом), компонент её реэкспортирует.
+    expect(MAP).toMatch(/export \{ DETAIL_MIN_ZOOM \} from '@\/lib\/map\/vedar-style'/);
+    expect(readFileSync(join(process.cwd(), 'lib/map/vedar-style.ts'), 'utf-8')).toMatch(/export const DETAIL_MIN_ZOOM = 10/);
     expect(MAP).toMatch(/zoom >= DETAIL_MIN_ZOOM \? \['base', 'detail'\] : \['base'\]/);
     expect(MAP).toMatch(/if \(region === baseRegion\) continue;/);
   });

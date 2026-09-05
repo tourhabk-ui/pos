@@ -33,7 +33,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
-  buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex,
+  buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex, DETAIL_MIN_ZOOM,
   type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
@@ -141,7 +141,7 @@ function handleFor(map: MLMap): VedarMapHandle {
  * него не за что. Основной район это не касается: его стиль грузит всё
  * сразу, как и прежде.
  */
-export const DETAIL_MIN_ZOOM = 10;
+export { DETAIL_MIN_ZOOM } from '@/lib/map/vedar-style';
 /**
  * Нижний зум пакета: рельеф (build_terrain.py MINZOOM) и векторные тайлы
  * (build_vector.sh --minimum-zoom) печатаются с 8. Мельче — тайлов нет по

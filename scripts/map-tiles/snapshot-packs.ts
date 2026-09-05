@@ -47,7 +47,10 @@ import { createServer, type Server } from 'node:http';
 import { readFile, mkdir, writeFile, stat } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
 import { chromium, type Browser, type Page } from '@playwright/test';
-import { buildVedarStyle, type VedarMapTheme } from '@/lib/map/vedar-style';
+import {
+  buildVedarStyle, buildRegionOverlay, DETAIL_MIN_ZOOM, type VedarMapTheme, type VedarStyleSources, type RegionTier,
+} from '@/lib/map/vedar-style';
+import { builtRegionPacks, regionsIntersecting } from '@/lib/map/field-base-map';
 import {
   resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT, oceanKey,
 } from '@/lib/map/pack-source';
@@ -86,6 +89,17 @@ export function centerFor(pack: string): { lat: number; lng: number } | null {
 /** Все пакеты, у которых есть что снимать — тот же реестр, что у карты. */
 export function snapshotTargets(): PackRegionId[] {
   return [...(OVERVIEW_BUILT ? [OVERVIEW_ID] : []), ...BUILT_PACK_REGIONS, ...BUILT_GRID_CELLS];
+}
+
+/** Границы кадра в градусах — по Web Mercator, как их видит карта. */
+export function viewBounds(center: { lat: number; lng: number }, zoom: number, w: number, h: number) {
+  const scale = 256 * 2 ** zoom;
+  const x = (center.lng + 180) / 360 * scale;
+  const r = (center.lat * Math.PI) / 180;
+  const y = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * scale;
+  const lon = (px: number) => (px / scale) * 360 - 180;
+  const lat = (py: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * py) / scale))) * 180) / Math.PI;
+  return { west: lon(x - w / 2), east: lon(x + w / 2), north: lat(y - h / 2), south: lat(y + h / 2) };
 }
 
 const PAGE = `<!doctype html>
@@ -300,7 +314,8 @@ async function main(): Promise<number> {
   // Адреса файлов в стиле — через локальный прокси (см. шапку про CORS):
   // тот же resolvePackSource, что у карты, только база другая.
   const proxyBase = `${origin}/bucket`;
-  const plan: Array<{ pack: string; zoom: number; center: { lat: number; lng: number } }> = [];
+  const allPacks = builtRegionPacks(proxyBase);
+  const plan: Array<{ pack: string; zoom: number; center: { lat: number; lng: number }; name: string }> = [];
   for (const pack of packs) {
     const src = resolvePackSource(pack as PackRegionId, BUILT_PACK_REGIONS, proxyBase);
     if (src.state !== 'ready') {
@@ -310,7 +325,7 @@ async function main(): Promise<number> {
     }
     const center = centerFor(pack);
     if (!center) { console.error(`${pack}: не знаю центра`); server.close(); return 2; }
-    styles.set(`${pack}.json`, JSON.stringify(buildVedarStyle(theme, {
+    const sources: VedarStyleSources = {
       terrainUrl: src.terrainUrl,
       contoursUrl: src.contoursUrl,
       terrainMaxZoom: src.terrainMaxZoom,
@@ -321,8 +336,46 @@ async function main(): Promise<number> {
       vectorUrl: src.vectorUrl,
       placesUrl: src.placesUrl,
       oceanUrl: src.oceanUrl ?? (forceOcean && isOverviewId(pack) ? `${proxyBase}/${oceanKey(OVERVIEW_ID)}` : null),
-    })));
-    for (const zoom of zoomsFor(pack)) plan.push({ pack, zoom, center });
+    };
+    // Кадры: центр пакета на его зумах, а у клетки — ещё юго-западный угол
+    // на z8 и z10: там сходятся четыре клетки, и стыки видны все сразу.
+    const frames: Array<{ zoom: number; center: { lat: number; lng: number }; name: string }> = [];
+    for (const zoom of zoomsFor(pack)) frames.push({ zoom, center, name: `${pack}.z${zoom}` });
+    const cell = gridCellById(pack);
+    if (cell) {
+      const corner = { lat: cell.bbox.south + 0.03, lng: cell.bbox.west + 0.05 };
+      for (const zoom of [8, 10]) frames.push({ zoom, center: corner, name: `${pack}.corner.z${zoom}` });
+    }
+    for (const f of frames) {
+      // Соседи в кадре — как у VedarMap: их подкладки поверх основного стиля.
+      // Без них снимок одной клетки не показал бы стыков, а полоса «не знаю»
+      // на стыке (скрин владельца 05.09 06:44) живёт ровно там.
+      const style = buildVedarStyle(theme, sources) as { sources: Record<string, unknown>; layers: Array<Record<string, unknown>> };
+      const view = viewBounds(f.center, f.zoom, 900, 700);
+      for (const region of regionsIntersecting(allPacks, view)) {
+        if (region === pack) continue;
+        const rp = allPacks.find((x) => x.region === region);
+        if (!rp) continue;
+        const tiers: RegionTier[] = isOverviewId(region) ? ['base'] : f.zoom >= DETAIL_MIN_ZOOM ? ['base', 'detail'] : ['base'];
+        for (const tier of tiers) {
+          const ov = buildRegionOverlay(theme, {
+            terrainUrl: rp.source.terrainUrl, contoursUrl: rp.source.contoursUrl, terrainMaxZoom: rp.source.terrainMaxZoom,
+            attribution: '© Copernicus DEM (ESA)', glyphsUrl: rp.source.glyphsUrl, glyphsFont: rp.source.glyphsFont,
+            osmUrls: rp.source.osmUrls, vectorUrl: rp.source.vectorUrl, placesUrl: rp.source.placesUrl, oceanUrl: rp.source.oceanUrl,
+          }, region, tier);
+          for (const [id, srcDef] of Object.entries(ov.sources)) if (!(id in style.sources)) style.sources[id] = srcDef;
+          for (const layer of ov.layers) {
+            if (style.layers.some((l) => l.id === layer.id)) continue;
+            // Заливки соседа — под его же тенью (как в VedarMap), остальное — сверху.
+            const hillIdx = style.layers.findIndex((l) => l.id === `hillshade-${region}`);
+            if (layer.type === 'fill' && hillIdx >= 0) style.layers.splice(hillIdx, 0, layer);
+            else style.layers.push(layer);
+          }
+        }
+      }
+      styles.set(`${f.name}.json`, JSON.stringify(style));
+      plan.push({ pack, zoom: f.zoom, center: f.center, name: f.name });
+    }
   }
 
   await mkdir(out, { recursive: true });
@@ -360,11 +413,11 @@ async function main(): Promise<number> {
     }
     console.log(`WebGL есть. Кадров: ${plan.length}, пакетов: ${packs.length}, тема: ${theme}, бюджет ${budgetMs / 1000} с на кадр`);
 
-    for (const { pack, zoom, center } of plan) {
-      const url = `${origin}/?style=/style/${pack}.json&lat=${center.lat}&lng=${center.lng}&z=${zoom}`;
+    for (const { pack, zoom, center, name } of plan) {
+      const url = `${origin}/?style=/style/${name}.json&lat=${center.lat}&lng=${center.lng}&z=${zoom}`;
       await page.goto(url);
       const { state, waitedMs } = await settle(page, budgetMs);
-      const file = `${pack}.z${zoom}.${theme}.png`;
+      const file = `${name}.${theme}.png`;
       await page.screenshot({ path: join(out, file) });
       // JPEG рядом — для ветки map-snapshots: PNG в 400 КБ тянет историю
       // репозитория, JPEG в 60 — нет, а глазам хватает.
@@ -372,7 +425,7 @@ async function main(): Promise<number> {
       const verdict: ShotVerdict = state.errors.length ? 'broken' : state.idle ? 'ok' : 'timeout';
       shots.push({ pack, zoom, center, verdict, errors: state.errors, waitedMs, file });
       const label = verdict === 'ok' ? 'снят' : verdict === 'broken' ? 'ОТКАЗ ИСТОЧНИКА' : 'НЕ ПРОГРУЗИЛСЯ';
-      console.log(`${verdict === 'ok' ? ' ' : '!'} ${pack} z${zoom}: ${label} за ${(waitedMs / 1000).toFixed(1)} с${state.errors.length ? ' — ' + state.errors.slice(0, 3).join('; ') : ''}`);
+      console.log(`${verdict === 'ok' ? ' ' : '!'} ${name}: ${label} за ${(waitedMs / 1000).toFixed(1)} с${state.errors.length ? ' — ' + state.errors.slice(0, 3).join('; ') : ''}`);
     }
   } finally {
     await browser?.close();

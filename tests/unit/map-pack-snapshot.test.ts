@@ -22,7 +22,12 @@ const MARKER = JSON.parse(readFileSync(join(ROOT, '.github/triggers/map-pack-sna
 
 describe('снимок — тем же стилем, что карта в поле', () => {
   it('стиль строится buildVedarStyle из resolvePackSource, своей копии нет', () => {
-    expect(SCRIPT).toMatch(/import \{ buildVedarStyle[^}]*\} from '@\/lib\/map\/vedar-style'/);
+    expect(SCRIPT).toMatch(/import \{\s*buildVedarStyle[^}]*\} from '@\/lib\/map\/vedar-style'/);
+    // Соседи в кадре — тем же правилом, что у VedarMap: подкладки по
+    // пересечению с кадром, ярус detail с DETAIL_MIN_ZOOM, углы клеток.
+    expect(SCRIPT).toMatch(/regionsIntersecting\(allPacks, view\)/);
+    expect(SCRIPT).toMatch(/f\.zoom >= DETAIL_MIN_ZOOM \? \['base', 'detail'\] : \['base'\]/);
+    expect(SCRIPT).toMatch(/\$\{pack\}\.corner\.z\$\{zoom\}/);
     expect(SCRIPT).toMatch(/resolvePackSource\(pack as PackRegionId, BUILT_PACK_REGIONS, proxyBase\)/);
     expect(SCRIPT).toMatch(/oceanUrl: src\.oceanUrl/);
     expect(SCRIPT).toMatch(/placesUrl: src\.placesUrl/);
