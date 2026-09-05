@@ -1,9 +1,11 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 10,
-  "why": "05.09: после миграции 934 (pickup_type=hotel_pickup у живых туров) — перепись готовности к витринам: что ещё держит каждый тур",
+  "run": 11,
+  "why": "05.09: после миграции 935 (условия отмены от владельца) — перепись готовности и фиды Авито/Яндекс: сколько туров ушло на витрины",
   "urls": [
     "https://vedarai.ru/api/health?deploy=1",
-    "https://vedarai.ru/api/cron/channel-readiness"
+    "https://vedarai.ru/api/cron/channel-readiness",
+    "https://vedarai.ru/api/channels/avito/feed",
+    "https://vedarai.ru/api/channels/yandex/feed"
   ]
 }
