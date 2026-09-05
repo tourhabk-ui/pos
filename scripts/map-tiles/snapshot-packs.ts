@@ -132,7 +132,9 @@ const PAGE = `<!doctype html>
     map.on('error', (e) => {
       const err = e && e.error ? e.error : e;
       const src = e && e.sourceId ? ' [' + e.sourceId + ']' : '';
-      state.errors.push(String(err && err.message ? err.message : err) + src);
+      const t = e && e.tile && e.tile.tileID && e.tile.tileID.canonical;
+      const tile = t ? ' z' + t.z + '/' + t.x + '/' + t.y : '';
+      state.errors.push(String(err && err.message ? err.message : err) + src + tile);
     });
     map.on('idle', () => { state.idle = true; });
     window.__map = map;
