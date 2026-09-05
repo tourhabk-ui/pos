@@ -38,8 +38,34 @@ export const FOREIGN_LLM_CALLERS = [
   'callGeminiTranscribe',
 ] as const;
 
-/** Однозначные ПД-поля: телефон и почта. У места/тура/маршрута их нет — ложняков нет. */
-const CONTACT_FIELD = /\.\s*(phone|email|phone_number|phonenumber|mobile|tel|e_mail)\b/i;
+/**
+ * Однозначные ПД-поля. У места, тура и маршрута их нет — ложняков нет.
+ *
+ * ПРЕФИКС ОБЯЗАТЕЛЬНО УЧИТЫВАЕТСЯ (04.09). Прежний шаблон требовал, чтобы имя
+ * поля НАЧИНАЛОСЬ с ключевого слова, и потому видел `.email` и `.phone`, но не
+ * видел `.user_email`, `.customer_email`, `.partner_email`, `.operator_email`,
+ * `.user_phone`, `.contact_phone` — то есть ровно те имена, которыми поля
+ * названы в НАШЕЙ базе: в реестре строк пятнадцать интерфейсов несут почту или
+ * телефон, и почти все с приставкой. Замер пробой: из двенадцати выражений
+ * сканер видел два.
+ *
+ * Тот же класс слепоты, что нашёлся 04.09 у сканера хостов D2: перечень
+ * знакомых написаний вместо правила. Сторож, который не видит того, ради чего
+ * заведён, хуже отсутствующего — на него полагаются.
+ *
+ * Приставка отделяется подчёркиванием намеренно: без этого `.hotel` попадал бы
+ * под `tel`. Хвостовое `s?` ловит множественное число (`.emails`), но не
+ * `email_template`: после `email` там подчёркивание, а это словесный символ, и
+ * границы слова нет.
+ *
+ * Состав расширен по правилу 152-ФЗ, которое сформулировал разбор в дайджесте
+ * 05.09: персональные данные — любая информация, относящаяся к определяемому
+ * лицу, и безопасный подход считать ПД идентификаторы тоже. Отсюда паспорт,
+ * ИНН, СНИЛС, адрес, дата рождения и идентификатор Telegram.
+ */
+const CONTACT_WORD = 'telegram_id|telegram_username|chat_id|phone_number|phonenumber|passport_number'
+  + '|passport|birth_date|birthday|whatsapp|telegram|address|snils|inn|phone|email|e_mail|mobile|tel|contacts?';
+const CONTACT_FIELD = new RegExp(`\\.\\s*(?:[a-z0-9$]+_)*(?:${CONTACT_WORD})s?\\b`, 'i');
 
 /** Явные персональные имена (не «название вулкана»): по полю или по владельцу. */
 const PERSONAL_NAME_FIELD =
@@ -73,7 +99,8 @@ const PERSONAL_OWNER_NAME =
 const DECL_HEAD = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=/g;
 /** Деструктуризация: только однозначные контакты. `name` тут слишком част. */
 const DESTRUCT = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=/g;
-const DESTRUCT_CONTACT = /^\s*(phone|email|phone_number|phonenumber|mobile|tel|e_mail)\s*(?::\s*([A-Za-z_$][\w$]*))?\s*$/i;
+const DESTRUCT_CONTACT = new RegExp(
+  `^\\s*((?:[a-z0-9$]+_)*(?:${CONTACT_WORD})s?)\\s*(?::\\s*([A-Za-z_$][\\w$]*))?\\s*$`, 'i');
 
 const IDENT_G = /[A-Za-z_$][\w$]*/g;
 

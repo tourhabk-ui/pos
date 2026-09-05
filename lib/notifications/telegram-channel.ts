@@ -565,6 +565,34 @@ const FRIENDS: Record<string, FriendEntry> = {
 };
 
 /**
+ * Телефон подставляется ПОСЛЕ модели, а не отдаётся ей.
+ *
+ * Две причины, и обе весомее формальности. Первая: контакт живого человека в
+ * тексте промпта — трансграничная передача персональных данных, потому что
+ * промпт уходит зарубежному провайдеру (152-ФЗ, гард D1). Найдено 04.09
+ * расширенным сканером: прежний шаблон видел `.phone` и `.email`, но не видел
+ * `.contact`, и эта строка полтора месяца ездила в OpenRouter незамеченной.
+ *
+ * Вторая причина практическая и, пожалуй, важнее: модели ПЕРЕВИРАЮТ ЦИФРЫ.
+ * Неверный телефон в публичном посте про друга хуже, чем отсутствие поста:
+ * человек звонит не туда, а мы этого даже не узнаем. Подстановка на нашей
+ * стороне делает ошибку невозможной по построению.
+ *
+ * Модель не поставила метку — дописываем строку сами: пост без контактов
+ * бесполезен, а второй заход к модели стоил бы дороже и мог бы снова прийти
+ * без метки.
+ */
+export const CONTACT_PLACEHOLDER = 'КОНТАКТЫ_ЗДЕСЬ';
+
+export function withFriendContacts(text: string, friend: { contact: string; tg?: string }): string {
+  const line = friend.tg ? `${friend.contact}, ${friend.tg}` : friend.contact;
+  if (text.includes(CONTACT_PLACEHOLDER)) {
+    return text.split(CONTACT_PLACEHOLDER).join(line);
+  }
+  return `${text.trimEnd()}\n\n${line}`;
+}
+
+/**
  * AI генерирует пост в голосе Кузьмича про внешнего партнёра («друга»)
  * и публикует в канал.
  */
@@ -586,14 +614,16 @@ export async function postFriendToChannel(slug: string): Promise<{ ok: boolean; 
 - 60-100 слов, живой голос местного жителя, без рекламного пафоса
 - Немного иронии над городскими туристами которые сидят в гостиницах
 - Конкретно и по делу — что они делают, чем отличаются
-- В конце контакты: ${friend.contact}${friend.tg ? `, ${friend.tg}` : ''}
+- Последней строкой поставь ровно ${CONTACT_PLACEHOLDER} и больше ничего к ней не добавляй
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - Начни не с имени, а с наблюдения или ситуации
 ${KUZMICH_CHANNEL_VOICE}`;
 
-  const text = await callAIWithModelDirect([
+  const generated = await callAIWithModelDirect([
     { role: 'user', content: prompt },
   ], getModelForAgent('kuzmich'));
+
+  const text = withFriendContacts(generated, friend);
 
   return postToAllChannels({ channelId, postType: 'friend', text });
 }
