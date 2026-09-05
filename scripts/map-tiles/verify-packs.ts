@@ -22,8 +22,9 @@
  *   ok           — HTTP 200, тело целиком, JSON разобрался;
  *   truncated    — байт пришло меньше, чем обещал Content-Length;
  *   bad_json     — тело целое, но не разбирается (позиция и кусок текста);
- *   http         — код не 200/206 (403 бакета, 404 несобранного файла);
- *   unreachable  — запрос не состоялся вовсе (сеть, DNS, TLS).
+ *   http         — код 4xx (403 бакета, 404 несобранного файла): ответ о файле;
+ *   unreachable  — запрос не состоялся вовсе (сеть, DNS, TLS) либо хранилище
+ *                  ответило 5xx (05.09: серия 502 на целых файлах).
  *
  * Последний — это и есть «не знаю»: он не доказывает ни исправности файла,
  * ни его порчи, и потому не зелёный, но и не приговор пакету.
@@ -129,6 +130,20 @@ export function jsonFailure(text: string): { detail: string } | null {
   }
 }
 
+/**
+ * Код не 2xx — два разных исхода (§4.0). 4xx — ответ О ФАЙЛЕ: его нет (404)
+ * или не дают (403), это «испорчено/не отдан». 5xx — хранилище НЕ ОТВЕТИЛО:
+ * прогон 11 (05.09) дал 30 подряд HTTP 502 на cell-60n169e/60n170e, файлы
+ * которых часом раньше были целы и в следующем прогоне целы снова. Это
+ * «не смог проверить», а не порча — и красным, но своим словом.
+ */
+function httpVerdict(key: string, status: number): PackCheck {
+  if (status >= 500) {
+    return { key, verdict: 'unreachable', detail: `HTTP ${status} — хранилище не ответило`, bytes: null };
+  }
+  return { key, verdict: 'http', detail: `HTTP ${status}`, bytes: null };
+}
+
 async function checkJson(url: string, key: string, fetchImpl: typeof fetch): Promise<PackCheck> {
   let res: Response;
   try {
@@ -137,9 +152,7 @@ async function checkJson(url: string, key: string, fetchImpl: typeof fetch): Pro
     const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     return { key, verdict: 'unreachable', detail: name.slice(0, 160), bytes: null };
   }
-  if (res.status !== 200) {
-    return { key, verdict: 'http', detail: `HTTP ${res.status}`, bytes: null };
-  }
+  if (res.status !== 200) return httpVerdict(key, res.status);
   const declared = Number(res.headers.get('content-length') ?? '0') || null;
   let buf: ArrayBuffer;
   try {
@@ -170,9 +183,7 @@ async function checkArchive(url: string, key: string, fetchImpl: typeof fetch): 
     const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     return { key, verdict: 'unreachable', detail: name.slice(0, 160), bytes: null };
   }
-  if (res.status !== 206 && res.status !== 200) {
-    return { key, verdict: 'http', detail: `HTTP ${res.status}`, bytes: null };
-  }
+  if (res.status !== 206 && res.status !== 200) return httpVerdict(key, res.status);
   const head = new Uint8Array(await res.arrayBuffer());
   const magic = new TextDecoder().decode(head.slice(0, 7));
   if (magic !== 'PMTiles') {

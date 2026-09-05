@@ -132,7 +132,10 @@ const MIME: Record<string, string> = {
 };
 
 /** Счёт запросов к бакету через прокси — чтобы в итоге сказать, сколько и с чем ушло. */
-export interface ProxyStats { requests: number; failed: number; bytes: number }
+export interface ProxyStats { requests: number; failed: number; bytes: number; failures: string[] }
+
+/** Сколько отказов прокси называть поимённо: дальше это уже не улика, а шум. */
+const FAILURES_LISTED = 12;
 
 /** Заголовки ответа бакета, которые нужны читателю PMTiles и карте. */
 const PASS_HEADERS = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified'];
@@ -160,12 +163,16 @@ async function serve(
           upstream = await fetch(`${bucketBase}/${key}`, { headers, cache: 'no-store' });
         } catch (err) {
           stats.failed += 1;
+          if (stats.failures.length < FAILURES_LISTED) stats.failures.push(`сеть: ${key}${range ? ' [' + range + ']' : ''}`);
           res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
           res.end(`прокси: бакет не ответил — ${err instanceof Error ? err.message : String(err)}`);
           return;
         }
         const body = Buffer.from(await upstream.arrayBuffer());
-        if (upstream.status >= 400) stats.failed += 1;
+        if (upstream.status >= 400) {
+          stats.failed += 1;
+          if (stats.failures.length < FAILURES_LISTED) stats.failures.push(`HTTP ${upstream.status}: ${key}${range ? ' [' + range + ']' : ''}`);
+        }
         stats.bytes += body.length;
         const out: Record<string, string> = {};
         for (const h of PASS_HEADERS) {
@@ -279,7 +286,7 @@ async function main(): Promise<number> {
   styles.set('__probe.json', JSON.stringify({ version: 8, sources: {}, layers: [
     { id: 'bg', type: 'background', paint: { 'background-color': '#224466' } },
   ] }));
-  const stats: ProxyStats = { requests: 0, failed: 0, bytes: 0 };
+  const stats: ProxyStats = { requests: 0, failed: 0, bytes: 0, failures: [] };
   const { server, origin } = await serve(styles, base.replace(/\/+$/, ''), stats);
   // Адреса файлов в стиле — через локальный прокси (см. шапку про CORS):
   // тот же resolvePackSource, что у карты, только база другая.
@@ -361,6 +368,9 @@ async function main(): Promise<number> {
   await writeFile(join(out, 'index.md'), md + '\n');
   console.log('');
   console.log(`запросов к бакету через прокси: ${stats.requests}, не 2xx/сетевых отказов: ${stats.failed}, принято ${(stats.bytes / 1024 / 1024).toFixed(1)} МБ`);
+  // Отказы — поимённо (первые FAILURES_LISTED): «3 не 2xx» без адресов не
+  // отличить «тайл за краем покрытия» от «файл пакета не отдан».
+  for (const f of stats.failures) console.log(`  отказ прокси: ${f}`);
   console.log(`итого кадров: ${shots.length} — снято ${ok}, отказ источника ${broken}, не прогрузилось ${timeout}`);
   return broken ? 1 : timeout ? 3 : 0;
 }
