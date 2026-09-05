@@ -15,6 +15,7 @@
 
 import type { ChannelTour } from './types';
 import { stripTags } from '@/lib/html/text';
+import { absoluteUrl } from './avito';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -112,8 +113,12 @@ export function generateYandexYmlFeed(tours: ChannelTour[]): string {
     const cat = CATEGORY_MAP[tour.activity_type] ?? { id: '1' };
     const price = Math.round(tour.base_price);
     const desc = buildDescription(tour);
+    // Абсолютные URL — как у Авито (absoluteUrl): Яндекс скачивает картинку
+    // сам и относительный путь не поймёт. Замер 05.09 (prod-check run 12):
+    // первый же открытый ответ фида нёс <picture>/images/...</picture> —
+    // у всех восьми туров ни одной картинки, которую Яндекс смог бы забрать.
     const pictures = (tour.photos ?? []).slice(0, 10)
-      .map(url => `      <picture>${escapeXml(url)}</picture>`)
+      .map(url => `      <picture>${escapeXml(absoluteUrl(url))}</picture>`)
       .join('\n');
 
     const params: string[] = [];
