@@ -1,6 +1,6 @@
 {
-  "note": "Прогон 518 (05.09, запас DEM за границей): только рельеф пакета south-kamchatka; горизонтали, OSM, вектор в хранилище прежние.",
-  "region": "south-kamchatka",
+  "note": "Прогон 519 (05.09, запас DEM за границей): только рельеф пакета esso-bystrinsky; горизонтали, OSM, вектор в хранилище прежние.",
+  "region": "esso-bystrinsky",
   "upload": true,
   "terrain_only": true
 }
