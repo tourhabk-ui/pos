@@ -38,6 +38,7 @@ import {
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
+import { OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 import { Minus, Plus } from 'lucide-react';
 /**
@@ -487,6 +488,10 @@ export default function VedarMap({
           style: style as never,
           center: [center[1], center[0]], // [lng, lat] — порядок MapLibre
           zoom,
+          // Ниже обзорного яруса тайлов нет ни у кого: z3 на телефоне владельца
+          // (05.09) был растянутым z4 с полосами за краем пакета. Край (14°
+          // широты) целиком помещается на экран и на z4.
+          minZoom: OVERVIEW_MIN_ZOOM,
           // Дефолтный угол (bottom-right) здесь МЁРТВ: нижний лист приборов
           // (_PlanningClient, fixed inset-x-0 bottom-0, минимум 32vh,
           // непрозрачный) закрывает его НАВСЕГДА, при любой высоте листа.

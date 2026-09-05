@@ -49,7 +49,7 @@ import { join, extname, resolve } from 'node:path';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { buildVedarStyle, type VedarMapTheme } from '@/lib/map/vedar-style';
 import {
-  resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
+  resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT, oceanKey,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, packRegionBbox, isOverviewId, type PackRegionId } from '@/lib/geo/regions';
 import { gridCellById } from '@/lib/geo/grid-cells';
@@ -69,7 +69,9 @@ export interface Shot {
 
 /** Зумы кадров — по ярусу пакета: обзор живёт на z4-7, пакеты на z8-13. */
 export function zoomsFor(pack: string): number[] {
-  return isOverviewId(pack) ? [5, 7] : [8, 10, 12];
+  // z4 — нижний зум обзора и всей карты (OVERVIEW_MIN_ZOOM): ниже карта не
+  // уходит, кадр z3 был бы кадром того, чего человек не увидит.
+  return isOverviewId(pack) ? [4, 5, 7] : [8, 10, 12];
 }
 
 /** Центр кадра: у клетки он записан в реестре, у района и обзора — середина bbox. */
@@ -247,23 +249,30 @@ async function probeWebgl(page: Page, origin: string): Promise<string | null> {
   return null;
 }
 
-function parseArgs(argv: string[]): { packs: string[] | null; theme: VedarMapTheme; out: string; budgetMs: number } {
+function parseArgs(argv: string[]): {
+  packs: string[] | null; theme: VedarMapTheme; out: string; budgetMs: number; forceOcean: boolean;
+} {
   let packs: string[] | null = null;
   let theme: VedarMapTheme = 'dark';
   let out = '.cache/snapshots';
   let budgetMs = 90_000;
+  // Океан обзора ДО включения флага: файл уже в бакете, а карта его ещё не
+  // просит. Снимок с ним — единственный способ посмотреть на него глазами
+  // прежде, чем обещать его полю (05.09: первый океан красил сушу).
+  let forceOcean = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--packs') packs = (argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--theme') theme = argv[++i] === 'light' ? 'light' : 'dark';
     else if (a === '--out') out = argv[++i] ?? out;
     else if (a === '--budget-ms') budgetMs = Number(argv[++i]) || budgetMs;
+    else if (a === '--force-ocean') forceOcean = true;
   }
-  return { packs, theme, out, budgetMs };
+  return { packs, theme, out, budgetMs, forceOcean };
 }
 
 async function main(): Promise<number> {
-  const { packs: wanted, theme, out, budgetMs } = parseArgs(process.argv.slice(2));
+  const { packs: wanted, theme, out, budgetMs, forceOcean } = parseArgs(process.argv.slice(2));
   const base = process.env.MAP_PACK_BASE_URL
     || (process.env.S3_BUCKET
       ? `${process.env.S3_ENDPOINT || 'https://s3.twcstorage.ru'}/${process.env.S3_BUCKET}`
@@ -311,12 +320,23 @@ async function main(): Promise<number> {
       osmUrls: src.osmUrls,
       vectorUrl: src.vectorUrl,
       placesUrl: src.placesUrl,
-      oceanUrl: src.oceanUrl,
+      oceanUrl: src.oceanUrl ?? (forceOcean && isOverviewId(pack) ? `${proxyBase}/${oceanKey(OVERVIEW_ID)}` : null),
     })));
     for (const zoom of zoomsFor(pack)) plan.push({ pack, zoom, center });
   }
 
   await mkdir(out, { recursive: true });
+  // Океан обзора — копией в кадры: из контейнера бакет не достать, а
+  // геометрию для локальной пробы MapLibre нужно иметь на руках.
+  if (forceOcean || packs.some((p) => isOverviewId(p))) {
+    try {
+      const res = await fetch(`${base}/${oceanKey(OVERVIEW_ID)}`, { cache: 'no-store' });
+      if (res.status === 200) await writeFile(join(out, `${OVERVIEW_ID}.ocean.geojson`), Buffer.from(await res.arrayBuffer()));
+      else console.log(`океан обзора не скопирован: HTTP ${res.status}`);
+    } catch (err) {
+      console.log(`океан обзора не скопирован: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   let browser: Browser | null = null;
   const shots: Shot[] = [];
   try {
@@ -346,6 +366,9 @@ async function main(): Promise<number> {
       const { state, waitedMs } = await settle(page, budgetMs);
       const file = `${pack}.z${zoom}.${theme}.png`;
       await page.screenshot({ path: join(out, file) });
+      // JPEG рядом — для ветки map-snapshots: PNG в 400 КБ тянет историю
+      // репозитория, JPEG в 60 — нет, а глазам хватает.
+      await page.screenshot({ path: join(out, file.replace(/\.png$/, '.jpg')), type: 'jpeg', quality: 70 });
       const verdict: ShotVerdict = state.errors.length ? 'broken' : state.idle ? 'ok' : 'timeout';
       shots.push({ pack, zoom, center, verdict, errors: state.errors, waitedMs, file });
       const label = verdict === 'ok' ? 'снят' : verdict === 'broken' ? 'ОТКАЗ ИСТОЧНИКА' : 'НЕ ПРОГРУЗИЛСЯ';

@@ -71,6 +71,13 @@ export const PACK_TERRAIN_MAXZOOM = 13;
  * Число печёт scripts/map-tiles/build_overview.py (MAXZOOM); сторож сверяет.
  */
 export const OVERVIEW_MAX_ZOOM = 7;
+/**
+ * Нижний зум обзора — и нижний зум карты вообще (build_overview.py MINZOOM).
+ * Ниже z4 тайлов нет ни у одного яруса; MapLibre растягивает z4 и рисует
+ * то, что есть, а фон и слои за краем пакета выглядят полосами (скрины
+ * владельца 05.09 на z3). Карта не уходит ниже: minZoom у VedarMap.
+ */
+export const OVERVIEW_MIN_ZOOM = 4;
 
 /**
  * Обещание, что обзорный пакет края лежит в хранилище. Ставится после
@@ -266,12 +273,12 @@ export function oceanKey(region: PackRegionId): string {
 }
 
 /** Обещание, что океан обзора залит (map-overview-ocean.yml). Ставится ПОСЛЕ прогона. */
-// Прогон map-overview-ocean run 1 (33952766081, 05.09) залил 180 КБ, и на
-// телефоне владельца синим оказалась СУША: кольца полигона шли в порядке
-// GEOS (внешнее по часовой), а MapLibre судит «внешнее/дыра» по знаку
-// площади — дыры-суша стали фигурами, рамка выпала. Выключено до пересборки
-// с ориентацией RFC 7946 и осмотра кадров глазами (не «idle без ошибок»).
-export const OVERVIEW_OCEAN_BUILT = false;
+// Прогон 1 (33952766081, 05.09) залил океан без ориентации колец, и на
+// телефоне владельца синим оказалась СУША (MapLibre судит «внешнее/дыра» по
+// знаку площади). Прогон 5 (33971618750) пересобрал с RFC 7946: 2 части,
+// 50 дыр. Кадры снимков (прогон 6, ветка map-snapshots) на z5 и z7
+// осмотрены глазами: море — море, суша — суша. Ниже z4 карта не уходит.
+export const OVERVIEW_OCEAN_BUILT = true;
 
 function oceanUrlFor(region: PackRegionId, base: string): string | null {
   return isOverviewId(region) && OVERVIEW_OCEAN_BUILT ? `${base}/${oceanKey(region)}` : null;
