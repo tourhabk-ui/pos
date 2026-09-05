@@ -1202,9 +1202,15 @@ export function getQwenConfig(): { apiKey: string | null; base: string; model: s
   };
 }
 
-export async function callQwen(messages: ChatMessage[]): Promise<string | null> {
+export async function callQwen(
+  messages: ChatMessage[],
+  opts: { maxTokens?: number } = {},
+): Promise<string | null> {
   const { apiKey, base } = getQwenConfig();
   if (!apiKey) return null;
+  // 800 по умолчанию — чат Кузьмича; структурные ответы (JSON-массив
+  // предложений эволюции) просят больше явно, иначе рвутся на полуслове.
+  const maxTokens = opts.maxTokens ?? 800;
 
   try {
     // Сильнейшая доступная, а не прибитый средний тир (CLAUDE.md §8).
@@ -1219,7 +1225,7 @@ export async function callQwen(messages: ChatMessage[]): Promise<string | null> 
       body: JSON.stringify({
         model,
         temperature: 0.4,
-        max_tokens: 800,
+        max_tokens: maxTokens,
         messages: payload,
       }),
     }, { timeoutMs: 25_000, label: `qwen:${model}` });

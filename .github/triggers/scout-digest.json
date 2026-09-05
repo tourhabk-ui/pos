@@ -1,6 +1,6 @@
 {
-  "note": "Маркер запуска cron-scout-digest.yml: правка этого файла в main прогоняет разведчика на проде (GET /api/cron/scout-digest) и печатает его ответ. Меняйте run, чтобы прогон был новым. Это ручной запуск, расписания у воркфлоу нет — суточный прогон идёт из оркестратора эволюции.",
-  "run": 6,
+  "note": "Маркер запуска cron-scout-digest.yml: правка этого файла в main прогоняет разведчика на проде (GET /api/cron/scout-digest) и печатает его ответ. Меняйте run, чтобы прогон был новым. С 05.09 у воркфлоу снова своё расписание (07/17 UTC); маркер — ручной запуск между ними.",
+  "run": 7,
   "run1_reason": "Проверка после выкатки 03.09: SCOUT_RELAY_BASE заведён на Timeweb; ждём в ответе via по лентам OpenAI/Google AI/DeepMind и блок ai_features линзы «ИИ-фичи для Ведара».",
   "run1_result": "curl exit 56 (соединение сброшено) на 16-й секунде — сетевой флап после выкатки a17b898: prod-check run 7 через три минуты дал 200 на шести адресах при аптайме процесса 874 с, то есть процесс не перезапускался.",
   "run2_reason": "Повтор после стабилизации: ждём via по лентам OpenAI/Google AI/DeepMind и блок ai_features.",
@@ -11,5 +11,7 @@
   "run4_result": "HTTP 200. 16 источников ok, relay: on, relay_detail: null (HN и три TG-канала via relay). Линза: 12 кандидатов, 10 с текстом, decision_null; выпуск synthesis_null (deepseek: content empty; qwen: http_403 free quota; gemini: список моделей недоступен). ai-debug run 6-7 нашёл причину: DeepSeek V4 думает по умолчанию, reasoning_content съедает max_tokens, content пуст; thinking:disabled отвечает за ~320 мс (#1570). Gemini с прода — 400 User location is not supported.",
   "run5_reason": "После #1570 (DeepSeek без размышления): ждём synthesis у выпуска и линзу дальше decision_null — итог критика (critic_rejected / approved) и decision_detail, если решатель снова молчит.",
   "run5_result": "HTTP 200 за 60 с, ВЫПУСК УШЁЛ (digest_sent: true, 26 сигналов): починка DeepSeek (#1570) сняла synthesis_null. 16 источников из 16 ok, relay: on, три TG-канала via relay. Пост в AI-канал удержан фактгейтом: ai_unsupported_claims. Линза: 12 кандидатов, 10 с текстом, предложений 0, код model_empty — по нему нельзя сказать, отказалась модель или мы не прочитали ответ (#1574 разделил).",
-  "run6_reason": "После #1574: прочитать вердикт линзы словами (model_declined / model_unreadable / model_incomplete + parse_detail) и decision_model. Живой провайдер один — DeepSeek (слова владельца 04.09), значит ответить должен он."
+  "run6_reason": "После #1574: прочитать вердикт линзы словами (model_declined / model_unreadable / model_incomplete + parse_detail) и decision_model. Живой провайдер один — DeepSeek (слова владельца 04.09), значит ответить должен он.",
+  "run6_result": "Прочитано по журналу evo.run 389 (00:53 05.09): decision_model xai:grok-4.6, model_declined — «модель вернула пустой массив: предлагать нечего». Пост в ИИ-канал не ушёл: ai_send_failed, Bot API 400 «Can't find end tag corresponding to start tag \"blockquote\"» — слепой substring(0,4096) оторвал закрывающий тег.",
+  "run7_reason": "После PR «Эволюция: дайджест в свой крон, разметка Telegram не рвётся, обрыв JSON спасается» (дайджест в свой крон, repairTelegramHtml у отправителей): ждём ai_channel_sent true или причину словами, отличную от ai_send_failed про blockquote; digest_sent; duration_ms без бюджета evo.run."
 }
