@@ -16,6 +16,21 @@ on:
   schedule:
     - cron: '37 6 * * 1' # понедельник 06:37 UTC — до начала рабочего дня КМТ не дотягивается, но отчёт будет утром в Actions
   workflow_dispatch: {}
+  # Запуск маркером (06.09): workflow_dispatch через интеграцию отвечает 403,
+  # а перемерять надо после КАЖДОЙ правки промпта Кузьмича и набора кейсов —
+  # ждать понедельника значит не мерить вовсе. Тот же приём, что у prod-check
+  # и дайджеста. Расписания это не отменяет: маркер — ручной запуск.
+  #
+  # Здесь push работает: прогон делает `npx tsx`, а не claude-code-action,
+  # которая на push отвечает «Unsupported event type» (случай issue-triage
+  # 06.09). Разница в том, ЧТО стоит в шаге, а не в самом событии.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/eval-kuzmich.json'
+
+permissions:
+  contents: read
 
 jobs:
   safety-eval:
