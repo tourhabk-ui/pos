@@ -24,6 +24,7 @@ interface RouteLink {
 interface DetailData {
   photoUrl: string | null;
   routes: RouteLink[];
+  description: string | null;
 }
 
 interface Props {
@@ -80,6 +81,7 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
         setDetail({
           photoUrl: body.photoUrl as string | null,
           routes,
+          description: typeof body.description === 'string' ? body.description : null,
         });
       })
       .catch(() => {});
@@ -87,6 +89,11 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
 
   const typeLabel = LOCATION_LABELS[initialData.locationType ?? 'other'] ?? 'Место';
   const geoUrl = `geo:${initialData.lat},${initialData.lng}?q=${encodeURIComponent(initialData.title)}`;
+  // Своя карта (VedarMap) несёт с тапа только id/имя/тип/координаты —
+  // initialData.description там всегда пустая строка. Полный текст едет
+  // отдельным запросом ниже; до его прихода полагаемся на initialData
+  // (у старой Leaflet-карты он уже есть из allRoutes).
+  const description = detail?.description ?? (initialData.description || null);
 
   // Фолбэк копировал ссылку МОЛЧА: нажал — экран не дрогнул, и от отказа это
   // было неотличимо. Теперь исход называется вслух.
@@ -155,9 +162,9 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
           </div>
 
           {/* Description */}
-          {initialData.description && (
+          {description && (
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-2 mb-3">
-              {initialData.description.split('\n')[0]}
+              {description.split('\n')[0]}
             </p>
           )}
 
