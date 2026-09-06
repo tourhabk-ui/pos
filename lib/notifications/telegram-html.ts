@@ -39,6 +39,16 @@ const TELEGRAM_TAGS = new Set([
 /** Лимит sendMessage в Bot API. */
 export const TELEGRAM_TEXT_LIMIT = 4096;
 
+/**
+ * Лимит ПОДПИСИ к фото (sendPhoto, sendMediaGroup) — вчетверо меньше.
+ *
+ * Отдельная константа, потому что подписи резались ВСЛЕПУЮ (`caption.slice(0,
+ * 1024)`) в обход этого модуля: и балансировка тегов, и экранирование голого
+ * `<` до них не доходили. Ровно тот дефект, из-за которого дважды не уходил
+ * пост в ИИ-канал, — просто на другом отправителе.
+ */
+export const TELEGRAM_CAPTION_LIMIT = 1024;
+
 const TAG_RX = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)(\s[^<>]*)?>/g;
 
 interface TagToken { start: number; end: number; closing: boolean; name: string; raw: string }
