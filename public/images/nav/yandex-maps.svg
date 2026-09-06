@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Яндекс Карты">
+  <rect width="48" height="48" rx="11" fill="#fff"/>
+  <path d="M24 8c-6.6 0-12 5.3-12 11.9C12 29 24 41 24 41s12-12 12-21.1C36 13.3 30.6 8 24 8z" fill="#FC3F1D"/>
+  <circle cx="24" cy="20" r="4.6" fill="#fff"/>
+</svg>
