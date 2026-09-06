@@ -21,9 +21,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v7
+
       - name: Снять выпуск и показать структуру
         run: |
-          URL="http://kvert.febras.net/van/index.php?type=3&lend=en"
+          # Адрес берём из маркера: у выпуска есть языковые версии, и какая из
+          # них годится под разбор — вопрос замера, а не догадки.
+          URL=$(python3 -c "import json; print(json.load(open('.github/triggers/kvert-probe.json')).get('url') or 'http://kvert.febras.net/van/index.php?type=3&lend=en')")
+          echo "адрес: $URL"
           CODE=$(curl -s -o /tmp/kvert.html -w "%{http_code}" --max-time 60 -L "$URL" || echo 000)
           echo "HTTP $CODE, bytes: $(wc -c < /tmp/kvert.html)"
           [ "$CODE" = "200" ] || { echo "источник не ответил — разбирать нечего"; exit 0; }
@@ -49,7 +54,8 @@ jobs:
           START=$(grep -n -i -m1 "AVIATION COLOUR CODES" /tmp/kvert.txt | cut -d: -f1)
           sed -n "$((START+15)),$((START+75))p" /tmp/kvert.txt
 
-          for V in SHEVELUCH KLYUCHEVSKOY BEZYMIANNY; do
+          NAMES=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/kvert-probe.json')).get('names') or ['SHEVELUCH','KLYUCHEVSKOY','BEZYMIANNY']))")
+          for V in $NAMES; do
             echo "════ $V: первое упоминание вне сводки ════"
             # -m2: первое обычно в самой сводке, второе — в разделе активности.
             grep -n -i -m2 -A 18 "^$V" /tmp/kvert.txt | tail -25
