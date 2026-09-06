@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { repairTelegramHtml, telegramHtmlIssue, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
+import { repairTelegramHtml, telegramHtmlIssue, stripCodeFence, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -112,5 +112,27 @@ describe('случай ИИ-канала 06.09: Unclosed start tag', () => {
     const got = repairTelegramHtml('<a href="https://vedarai.ru/a?x=1&y=2">тур</a>');
     expect(got).toBe('<a href="https://vedarai.ru/a?x=1&y=2">тур</a>');
     expect(telegramHtmlIssue(got)).toBeNull();
+  });
+});
+
+describe('markdown-ограждение не уходит в канал (06.09)', () => {
+  it('строка ``` в конце выпуска снимается', () => {
+    // Видно глазами в канале: выпуск заканчивался строкой из трёх backtick.
+    // Telegram HTML о markdown не знает и печатает их как есть.
+    const got = repairTelegramHtml('<b>Дайджест</b>\n- Пункт\n```');
+    expect(got).toBe('<b>Дайджест</b>\n- Пункт');
+  });
+
+  it('открывающее ограждение с языком — тоже', () => {
+    expect(stripCodeFence('```html\n<b>Итог</b>\n```')).toBe('<b>Итог</b>');
+  });
+
+  it('backtick посреди фразы остаётся: это текст, а не ограждение', () => {
+    const line = 'Модель ответила ``` внутри строки — так и было';
+    expect(stripCodeFence(line)).toBe(line);
+  });
+
+  it('на месте ограждения не остаётся дыры из пустых строк', () => {
+    expect(stripCodeFence('<b>A</b>\n\n```\n\n<b>B</b>')).toBe('<b>A</b>\n\n<b>B</b>');
   });
 });

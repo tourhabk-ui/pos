@@ -19,6 +19,11 @@
  * тегами экранируется (`<` → `&lt;`, одинокий `&` → `&amp;`), а сами теги не
  * трогаются. Первая починка балансировала теги и этот случай пропускала.
  *
+ * 06.09, третий случай — виден глазами в канале: выпуск заканчивался строкой
+ * ``` . Модель обернула ответ в markdown-ограждение, а Telegram HTML о
+ * backtick'ах не знает и печатает их как есть. Ограждение снимается здесь же:
+ * оно приходит от модели, а через эту функцию проходят ВСЕ отправители.
+ *
  * Телеграм знает ограниченный набор тегов (parse_mode=HTML): b/strong, i/em,
  * u/ins, s/strike/del, span (только class="tg-spoiler"), tg-spoiler, a, code,
  * pre, blockquote (с expandable), tg-emoji. Незнакомый тег Bot API тоже не
@@ -37,6 +42,23 @@ export const TELEGRAM_TEXT_LIMIT = 4096;
 const TAG_RX = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)(\s[^<>]*)?>/g;
 
 interface TagToken { start: number; end: number; closing: boolean; name: string; raw: string }
+
+/**
+ * Строка-ограждение markdown: ``` сама по себе или с языком (```html).
+ * Только ЦЕЛАЯ строка: тройной backtick посреди фразы — часть текста, и
+ * выкусывать его из середины значило бы портить чужой смысл.
+ */
+const FENCE_LINE = /^[ \t]*`{3,}[a-zA-Z0-9_-]*[ \t]*$/;
+
+/** Ограждение прочь. Пустых строк на его месте не остаётся. */
+export function stripCodeFence(text: string): string {
+  return String(text ?? '')
+    .split('\n')
+    .filter((l) => !FENCE_LINE.test(l))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 /** Сущность, которую разбирать не надо: `&amp;`, `&#8212;`, `&#x2014;`. */
 const ENTITY = /&(?:[a-zA-Z][a-zA-Z0-9]{1,7}|#\d{1,6}|#[xX][0-9a-fA-F]{1,6});/;
@@ -133,7 +155,7 @@ export function telegramHtmlIssue(text: string): string | null {
 export function repairTelegramHtml(text: string, limit: number = TELEGRAM_TEXT_LIMIT): string {
   // Экранирование ПЕРЕД срезом, а не после: `<` вырастает в четыре знака, и
   // после среза итог перестал бы влезать в потолок.
-  const src = escapeStrayMarkup(String(text ?? ''));
+  const src = escapeStrayMarkup(stripCodeFence(text));
   // Запас под хвост закрывающих тегов: `</blockquote>` — 13 знаков, глубина
   // вложенности в живых постах не больше трёх.
   const reserve = 48;
