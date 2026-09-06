@@ -156,12 +156,23 @@ export async function runDiagnosticQuery(
     }
   }
 
+  // Без LIMIT «SELECT * FROM гигантская_таблица» тянет в память ВСЮ таблицу
+  // до того, как rows.slice(0,20) ниже её обрежет — обрезка результата, а не
+  // ограничение выборки (issue #1654). Дописываем LIMIT 20 в конец, сняв
+  // висящую точку с запятой (иначе "...; LIMIT 20" — синтаксическая ошибка);
+  // UNION и CTE это не ломает — LIMIT в PostgreSQL применяется к результату
+  // всего запроса, включая множественные SELECT и WITH-обёртки.
+  const hasLimit = /\blimit\b/i.test(sql);
+  const boundedSql = hasLimit ? sql : `${sql.trim().replace(/;\s*$/, '')} LIMIT 20`;
+
   try {
-    const result = await pool.query(sql);
+    const result = await pool.query(boundedSql);
     await logToolAction('db_diagnostic', { label, row_count: result.rowCount });
     return {
       success: true,
       message: `Диагностика завершена. Строк: ${result.rowCount ?? 0}`,
+      // rows уже ограничены LIMIT 20 в самом SQL; slice — страховка на
+      // случай, если детектор выше ложно решил, что LIMIT уже есть.
       details: { rows: result.rows.slice(0, 20), row_count: result.rowCount },
     };
   } catch (err) {
