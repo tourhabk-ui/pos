@@ -3,6 +3,15 @@ name: Cron Kuzmich Route
 on:
   schedule:
     - cron: '0 9 * * *'  # 09:00 UTC daily = 21:00 KMT (Kamchatka)
+  workflow_dispatch:
+  # Запуск маркером: workflow_dispatch через интеграцию отвечает 403, а
+  # расписание одно на сутки. Проверять починку отправки фото, ожидая сутки,
+  # значит проверять её раз в сутки. Тот же приём, что у prod-check и
+  # scout-digest: маркер — ручной запуск, а не второй крон.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/kuzmich-route.json'
 
 jobs:
   trigger:
