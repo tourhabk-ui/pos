@@ -32,11 +32,15 @@ describe('geometryCoverage — три состояния', () => {
     expect(coverageDot(c.state)).toBe('var(--success)');
   });
 
-  it('больше порога без трека — предупреждение словами и числом', () => {
+  it('больше порога без трека — предупреждение точкой, слова не алярмят', () => {
+    // 06.09, владелец: порог давно пройден (106 из 392, ~27%), и «Без линии
+    // N маршрутов из M» на каждом заходе на главную читалось бы тревогой.
+    // Решение — оставить на главной, но мягче: та же честная доля, с
+    // положительного конца; состояние несёт точка (coverageDot), не текст.
     const c = geometryCoverage({ total: 392, withoutTrack: 106 });
     expect(c.state).toBe('warning');
     expect(c.pct).toBe(73);
-    expect(c.label).toBe('Без линии для офлайн-карты 106 маршрутов из 392');
+    expect(c.label).toBe('Линия для офлайн-карты готова у 73% маршрутов — остальные доразмечаем');
     expect(coverageDot(c.state)).toBe('var(--warning)');
   });
 
@@ -46,10 +50,13 @@ describe('geometryCoverage — три состояния', () => {
     expect(geometryCoverage({ total: 100, withoutTrack: 21 }).state).toBe('warning');
   });
 
-  it('склонение по числу: 1 маршрут, 2 маршрута, 5 маршрутов', () => {
-    expect(geometryCoverage({ total: 3, withoutTrack: 1 }).label).toContain('1 маршрут из 3');
-    expect(geometryCoverage({ total: 5, withoutTrack: 2 }).label).toContain('2 маршрута из 5');
-    expect(geometryCoverage({ total: 9, withoutTrack: 5 }).label).toContain('5 маршрутов из 9');
+  it('доля округляется корректно и не выдаёт долю без слова «маршрутов»', () => {
+    // Мягкая подпись больше не считает штуки отсутствующей линии словами
+    // («N маршрутов из M») — только процент готового, поэтому склонение по
+    // количеству здесь ни при чём; проверяем округление и наличие слова.
+    expect(geometryCoverage({ total: 3, withoutTrack: 1 }).label).toContain('67% маршрутов');
+    expect(geometryCoverage({ total: 5, withoutTrack: 2 }).label).toContain('60% маршрутов');
+    expect(geometryCoverage({ total: 9, withoutTrack: 5 }).label).toContain('44% маршрутов');
   });
 
   it.each([
@@ -166,8 +173,13 @@ describe('главная показывает покрытие и не теря�
     expect(HOME).toContain("geometryCoverage({");
   });
 
-  it('предупреждение подсвечено токеном, не hex', () => {
-    expect(HOME).toMatch(/\.lv-warn \.lv-txt\{color:var\(--warning\)/);
+  it('состояние несёт точка, а не жирный алярм-текст (владелец 06.09, мягче)', () => {
+    // Порог давно пройден (~27% > 20%), и жирный красный текст на каждом
+    // заходе на главную читался бы постоянной тревогой. Строка одного
+    // начертания для обоих состояний — цвет и слово несёт coverageDot и
+    // сама geometryCoverage, не отдельный CSS-класс тревоги.
+    expect(HOME).not.toMatch(/lv-warn/);
+    expect(HOME).toContain('className="lv-row lv-cov"');
   });
 
   it('порог «ok» на /hub/admin/health — то же число, что и порог тревоги главной', () => {

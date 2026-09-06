@@ -413,9 +413,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           {/* Вторая строка — наличие линии (#1643). У маршрута без линии
               офлайн-карта не покажет ничего, кроме названия; доля таких —
               прибор, а не подразумеваемое «всё есть». Больше
-              GEOMETRY_GAP_WARN_PCT без линии — предупреждение цветом и
-              словами; «не посчитано» — без точки, как у свежести. */}
-          <div className={`lv-row lv-cov${coverage.state === 'warning' ? ' lv-warn' : ''}`}>
+              GEOMETRY_GAP_WARN_PCT без линии — предупреждение, но только
+              ТОЧКОЙ (как у свежести): владелец 06.09 — порог давно пройден
+              (~27%), и жирный алярм-текст на каждом заходе на главную читался
+              бы как постоянная тревога там, где это доля данных, а не
+              случившаяся беда. Текст ровно тот же для обоих состояний по
+              начертанию — состояние несёт цвет точки и сама формулировка
+              (geometryCoverage), не жирность. */}
+          <div className="lv-row lv-cov">
             <span
               className="lv-dot"
               style={coverageDot(coverage.state)
@@ -1012,7 +1017,6 @@ const CSS = `
 .v7 .live .lv-row{display:flex;align-items:center;gap:10px}
 .v7 .live .lv-cov{padding-top:7px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
 .v7 .live .lv-cov .lv-txt{color:var(--text-secondary)}
-.v7 .live .lv-warn .lv-txt{color:var(--warning);font-weight:600}
 .v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
 .v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none;white-space:nowrap}
