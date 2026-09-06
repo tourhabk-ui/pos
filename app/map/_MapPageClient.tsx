@@ -799,6 +799,12 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               // (владелец 06.09, «замкнуть /map на VedarMap», решение
               // «сначала просто карта-подложка»).
               onPlaceClick={setVedarPlaceHit}
+              // Фильтр-чипсы над картой должны действовать на саму карту —
+              // владелец 06.09, скрин: «нет точек мест» (фильтр выбран, а
+              // карта по-прежнему рисует все места разом). vedar-places
+              // несёт kind = location_type, тот же столбец, что и фильтр;
+              // activity:* фильтров у слоя нет — на них показываем как есть.
+              placesFilter={activeFilter !== 'all' && !activeFilter.startsWith('activity:') ? activeFilter : null}
             />
           ) : (
             <LeafletMap

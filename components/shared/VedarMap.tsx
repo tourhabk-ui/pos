@@ -152,6 +152,15 @@ interface VedarMapProps {
   onPlaceClick?: (place: VedarMapPlaceHit) => void;
   /** Булавка выбранной точки; null — булавки нет. */
   pin?: { lat: number; lng: number } | null;
+  /**
+   * Фильтр слоя мест по `location_type` (владелец 06.09, скрин /map:
+   * «нет точек мест» — фильтры-чипсы над картой считали свои числа из
+   * живого списка allRoutes, а сама карта рисовала vedar-places целиком и
+   * выбор фильтра никак её не касался). `null`/`undefined` — без фильтра,
+   * видны все места; строка — только места с этим `kind`. Действует на
+   * базовый слой и на все подложенные соседей, включая ещё не загруженные.
+   */
+  placesFilter?: string | null;
   /** Ручка управления наружу — для кнопок масштаба вне карты. null при размонтировании. */
   onControls?: (handle: VedarMapHandle | null) => void;
 }
@@ -169,6 +178,20 @@ export interface VedarMapHandle {
   onMove(cb: (center: { lat: number; lng: number }) => void): () => void;
   /** Подогнать вид под линию ([lng, lat]) — рассчитанный автопуть целиком в кадре. */
   fitLine(coordinates: Array<[number, number]>): void;
+}
+
+/**
+ * Фильтр слоя мест — на базовый и на каждого подложенного соседа сразу:
+ * оба несут собственный ns в id (`vedar-places${ns}` / `vedar-place-labels${ns}`),
+ * второго списка id нигде не хранится, поэтому ищем по стилю целиком.
+ */
+function applyPlacesFilter(map: MLMap, filter: string | null | undefined): void {
+  const layers = map.getStyle()?.layers ?? [];
+  const expr = filter ? ['==', ['get', 'kind'], filter] : null;
+  for (const l of layers) {
+    if (!l.id.includes('vedar-place')) continue;
+    try { map.setFilter(l.id, expr as never); } catch { /* слоя ещё нет в эту миллисекунду — следующий вызов подхватит */ }
+  }
 }
 
 /**
@@ -447,6 +470,7 @@ export default function VedarMap({
   onUserClick,
   onPlaceClick,
   pin = null,
+  placesFilter = null,
   onControls,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -456,6 +480,8 @@ export default function VedarMap({
   onUserClickRef.current = onUserClick;
   const onPlaceClickRef = useRef(onPlaceClick);
   onPlaceClickRef.current = onPlaceClick;
+  const placesFilterRef = useRef(placesFilter);
+  placesFilterRef.current = placesFilter;
   const mapRef = useRef<MLMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const autoCenterDoneRef = useRef(false);
@@ -859,6 +885,15 @@ export default function VedarMap({
     [ready],
   );
 
+  // ── Фильтр мест ──────────────────────────────────────────────────────────
+  // Отдельный эффект — не завязан на packs/эффект соседей: смена фильтра
+  // не должна ждать moveend и не должна перезаходить в перебор соседей.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    applyPlacesFilter(map, placesFilter);
+  }, [ready, placesFilter]);
+
   // ── Соседние районы — по видимой области ────────────────────────────────
   // Скрин владельца 02.09 08:21: при отдалении виден один пакет, остальные
   // девять — чёрное поле. Стиль описывает район точки; соседей карта
@@ -943,6 +978,10 @@ export default function VedarMap({
               const before = layer.type === 'fill' && map.getLayer(hill) ? hill : 'route-trail';
               map.addLayer(layer as never, map.getLayer(before) ? before : undefined);
             }
+            // Сосед мог принести свой слой мест — фильтр действующий на
+            // экране применяется сразу, а не только со следующей сменой
+            // фильтра (владелец 06.09, «нет точек мест»).
+            applyPlacesFilter(map, placesFilterRef.current);
           } catch (err) {
             // Не молчим: район, который не подложился, — это «не смог», а не
             // «соседей нет» (§4.0). Карта основного района при этом цела.
