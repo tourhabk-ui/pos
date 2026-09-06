@@ -60,6 +60,45 @@ function textOf(html: string): string {
 }
 
 /**
+ * Текст ссылки, который НИЧЕГО не говорит о записи.
+ *
+ * Замер taaft 06.09: у карточки на /new/ самой длинной ссылкой оказывается
+ * ценник — «Free + from $9.00», — а названия инструмента внутри ссылок нет
+ * вовсе. Имя записи там живёт в адресе: /ai/<инструмент>.
+ *
+ * Список НАРОЧНО узкий: ценник, дата, значок места в подборке. Он отвечает на
+ * вопрос «эта строка вообще про что-то?», а не «похожа ли она на заголовок» —
+ * второе было бы угадыванием, и под него подпал бы короткий настоящий
+ * заголовок.
+ */
+const LABEL_ONLY: RegExp[] = [
+  // Валюта перед числом («from $9.00») и после него («от 990 ₽») — оба формата.
+  /^(?:free|бесплатно)?[\s+·|—-]*(?:from|от)?\s*[$€₽]\s?\d/i,
+  /^(?:free|бесплатно)?[\s+·|—-]*(?:from|от)?\s*\d[\d\s.,]*\s*[$€₽]$/i,
+  /^[A-Za-zА-Яа-я]{3,8}\s+\d{1,2},\s+\d{4}$/,
+  /^\d{1,2}[./]\d{1,2}[./]\d{2,4}$/,
+  /^#\d+\s+(?:in|в)\s+/i,
+];
+
+export function looksLikeLabel(title: string): boolean {
+  return LABEL_ONLY.some((re) => re.test(title.trim()));
+}
+
+/**
+ * Имя из адреса — не выдумка, а собственный опознаватель источника:
+ * /ai/homeexterior-ai → «Homeexterior ai». Берётся ТОЛЬКО когда текст ссылки
+ * оказался ярлыком; настоящий заголовок адресом не подменяется.
+ */
+export function nameFromSlug(url: string): string {
+  let path = '';
+  try { path = new URL(url).pathname; } catch { return ''; }
+  const slug = path.split('/').filter(Boolean).pop() ?? '';
+  const words = slug.replace(/[-_]+/g, ' ').replace(/\.\w+$/, '').trim();
+  if (!words) return '';
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
  * Префикс отбора по умолчанию — путь самой страницы со слешем на конце.
  * Для `https://www.anthropic.com/news` это `/news/`: записи лежат ПОД
  * индексом, сам индекс в улов не попадает.
@@ -128,7 +167,13 @@ export function extractPageLinks(
     byUrl.set(url, { title, url, snippet: '' });
   }
 
-  const links = [...byUrl.values()];
+  // Ярлык вместо заголовка — берём имя из адреса, а сам ярлык оставляем
+  // подписью: цена и дата у новинки не мусор, просто они не заголовок.
+  const links = [...byUrl.values()].map((link) => {
+    if (!looksLikeLabel(link.title)) return link;
+    const name = nameFromSlug(link.url);
+    return name ? { ...link, title: name, snippet: link.title } : link;
+  });
 
   return { links, anchors, prefix };
 }

@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { extractPageLinks, defaultPrefix } from '@/lib/services/intelligence/page-links';
+import { extractPageLinks, defaultPrefix, looksLikeLabel, nameFromSlug } from '@/lib/services/intelligence/page-links';
 
 const ROOT = join(__dirname, '../..');
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -161,6 +161,35 @@ describe('источник-страница: префикс — колонка, 
 
   it('у приговора «страница» число записей от разбора ссылок, а не от разбора ленты', () => {
     expect(census).toMatch(/items: asPage \? probed!\.found : res\.items\.length/);
+  });
+});
+
+describe('источник-страница: ярлык вместо заголовка', () => {
+  it('ценник, дата и значок подборки — ярлыки', () => {
+    for (const t of ['Free + from $9.00', 'Free + from $9.99', 'Sep 5, 2026', '05.09.2026', '#2 in Trending', 'от 990 ₽']) {
+      expect(looksLikeLabel(t), t).toBe(true);
+    }
+  });
+
+  it('настоящий заголовок ярлыком не считается — даже короткий', () => {
+    for (const t of ['Linkeddit v2.0.0', 'Introducing Claude Opus 5', 'BetterSpace', 'Стоимость тура выросла на 9%']) {
+      expect(looksLikeLabel(t), t).toBe(false);
+    }
+  });
+
+  it('имя берётся из адреса и подменяет ТОЛЬКО ярлык', () => {
+    expect(nameFromSlug('https://theresanaiforthat.com/ai/homeexterior-ai')).toBe('Homeexterior ai');
+    const got2 = extractPageLinks(
+      '<a href="/ai/homeexterior-ai">Free + from $9.00</a>' +
+      '<a href="/ai/linkeddit">Linkeddit v2.0.0</a>',
+      'https://theresanaiforthat.com/new/',
+      { prefix: '/ai/' },
+    );
+    const byUrl = Object.fromEntries(got2.links.map((l) => [l.url, l]));
+    // Ярлык уехал в подпись, а не пропал: цена у новинки — не мусор.
+    expect(byUrl['https://theresanaiforthat.com/ai/homeexterior-ai'].title).toBe('Homeexterior ai');
+    expect(byUrl['https://theresanaiforthat.com/ai/homeexterior-ai'].snippet).toBe('Free + from $9.00');
+    expect(byUrl['https://theresanaiforthat.com/ai/linkeddit'].title).toBe('Linkeddit v2.0.0');
   });
 });
 

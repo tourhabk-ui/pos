@@ -1,9 +1,8 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 28,
-  "why": "06.09: замер taaft показал дефект разбора — карточка разбита на ссылки «имя», «слоган», «цена», «дата» к одному адресу, и оставалась первая (отсюда «Free + from $9.00» вместо названия). Теперь остаётся самая длинная. Перемеряем те же четыре адреса, прежде чем заводить источник",
+  "run": 29,
+  "why": "06.09: taaft заведён двумя страницами (/period/today/ и /trending/, префикс /ai/). Перепись реестра покажет, что они отдают ПОСЛЕ правила «ярлык — не заголовок»: если вместо имён снова ценники и даты, источники надо гасить, а не терпеть",
   "urls": [
-    "https://vedarai.ru/api/cron/intel-feeds-census?urls=https://theresanaiforthat.com/%7C/ai/,https://theresanaiforthat.com/new/%7C/ai/,https://theresanaiforthat.com/trending/%7C/ai/,https://theresanaiforthat.com/period/today/%7C/ai/",
     "https://vedarai.ru/api/cron/intel-feeds-census"
   ]
 }
