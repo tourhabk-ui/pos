@@ -6,7 +6,7 @@
  * Владелец 07.09, после переезда `/map` на VedarMap: «геоточки были все со
  * своими маркерами» — на старой Leaflet-карте вулкан рисовался силуэтом
  * горы, источник — кружком с волной пара, гейзер — фонтаном, и так у
- * пятнадцати типов; у новой карты все места были одним кружком двух
+ * каждого типа своя форма; у новой карты все места были одним кружком двух
  * цветов (тревога/ориентир). Разница читается с первого взгляда и была
  * потеряна при переезде не по решению, а по недосмотру.
  *
@@ -33,6 +33,14 @@ const ICONS_BY_KIND: Record<string, (hex: string) => string> = {
   bay: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 14c1.5-1.5 3-1.5 5 0s3.5 1.5 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><path d="M7 18c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></svg>`,
   museum: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M3 14l9-8 9 8v6H3v-6z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="7" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="11" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="15" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/></svg>`,
   historical: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 8v4l2 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  // Долина, мыс, пещера и посёлок — подписаны своим словом в LOCATION_LABELS
+  // (components/map/PlaceMapSheet.tsx) и LOCATION_TYPE_CONFIG
+  // (app/map/_MapPageClient.tsx), но до этой правки падали на общую форму
+  // «other» — подпись называла одно, значок показывал другое.
+  valley: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M8 11l4 6 4-6" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  cave: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 18a5 6 0 0 1 10 0" fill="#1A1714" opacity="0.55"/></svg>`,
+  cape: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><ellipse cx="12" cy="18" rx="8" ry="4" fill="#475569" opacity="0.3"/><path d="M5 16h7l4 8H5z" fill="${hex}" stroke="#fff" stroke-width="1.5"/></svg>`,
+  settlement: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 3L3 12v13h18V12L12 3z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="9.5" y="17" width="5" height="8" rx="0.5" fill="#fff" opacity="0.6"/></svg>`,
   other: (hex) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.5"/></svg>`,
 };
 
