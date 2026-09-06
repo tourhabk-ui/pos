@@ -53,6 +53,27 @@ describe('источник-страница: разбор', () => {
     expect(hosts).toEqual(['www.anthropic.com']);
   });
 
+  it('из нескольких ссылок на один адрес остаётся самая длинная', () => {
+    // Карточка taaft разбита на «имя», «слоган», «цену», «дату» — все ведут
+    // на один адрес. Первая по порядку оказывалась ценой или датой.
+    const card = extractPageLinks(
+      '<a href="/ai/tool-x">Free + from $9.00</a>' +
+      '<a href="/ai/tool-x">HomeExterior AI — ремонт фасада по фото</a>' +
+      '<a href="/ai/tool-x">Sep 5, 2026</a>',
+      'https://theresanaiforthat.com/new/',
+      { prefix: '/ai/' },
+    );
+    expect(card.links).toHaveLength(1);
+    expect(card.links[0].title).toBe('HomeExterior AI — ремонт фасада по фото');
+  });
+
+  it('потолок считает адреса, а не якоря', () => {
+    const many = Array.from({ length: 12 }, (_, i) => `<a href="/news/item-${i}">Запись номер ${i}</a>`).join('');
+    const got2 = extractPageLinks(many, NEWS, { limit: 5 });
+    expect(got2.links).toHaveLength(5);
+    expect(got2.anchors).toBe(12);
+  });
+
   it('якорь-дубль с решёткой не удваивает запись', () => {
     const opus = got.links.filter((l) => l.url.endsWith('/claude-opus-5'));
     expect(opus).toHaveLength(1);

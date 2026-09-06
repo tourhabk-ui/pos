@@ -82,15 +82,24 @@ export function extractPageLinks(
   let base: URL;
   try { base = new URL(pageUrl); } catch { return { links: [], anchors: 0, prefix }; }
 
-  const seen = new Set<string>();
-  const links: PageLink[] = [];
+  /**
+   * Одна карточка — несколько ссылок на один адрес.
+   *
+   * Замер taaft 06.09: карточка инструмента разбита на ссылки «имя»,
+   * «слоган», «цена», «дата», и все ведут на /ai/<инструмент>. Пока
+   * оставлялась ПЕРВАЯ, заголовками выходили «Free + from $9.00» и
+   * «Sep 5, 2026» — правда о разметке, но не о записи.
+   *
+   * Поэтому из ссылок на один адрес остаётся САМАЯ ДЛИННАЯ: она и несёт
+   * смысл. Правило детерминированное — не «выбрать похожее на заголовок».
+   */
+  const byUrl = new Map<string, PageLink>();
   let anchors = 0;
 
   ANCHOR.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = ANCHOR.exec(html)) !== null) {
     anchors++;
-    if (links.length >= limit) continue;
 
     const href = m[1].trim();
     if (!href || href.startsWith('#') || /^(mailto|tel|javascript):/i.test(href)) continue;
@@ -105,14 +114,21 @@ export function extractPageLinks(
 
     abs.hash = '';
     const url = abs.toString();
-    if (seen.has(url)) continue;
-
     const title = textOf(m[2]).slice(0, MAX_TITLE);
     if (title.length < MIN_TITLE) continue;
 
-    seen.add(url);
-    links.push({ title, url, snippet: '' });
+    const already = byUrl.get(url);
+    if (already) {
+      if (title.length > already.title.length) already.title = title;
+      continue;
+    }
+    // Потолок считает АДРЕСА, а не якоря: у уже взятой записи заголовок
+    // продолжает улучшаться и после того, как список набран.
+    if (byUrl.size >= limit) continue;
+    byUrl.set(url, { title, url, snippet: '' });
   }
+
+  const links = [...byUrl.values()];
 
   return { links, anchors, prefix };
 }
