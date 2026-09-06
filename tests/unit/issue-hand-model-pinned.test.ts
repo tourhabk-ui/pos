@@ -21,7 +21,21 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const HANDS = ['.github/workflows/claude.yml', '.github/workflows/issue-triage.yml'] as const;
+const HANDS = [
+  '.github/workflows/claude.yml',
+  '.github/workflows/issue-triage.yml',
+  '.github/workflows/weekly-chronicle.yml',
+] as const;
+
+/**
+ * События, которые claude-code-action понимает
+ * (`src/github/context.ts`, замер по исходнику 06.09). `push` в списке НЕТ.
+ */
+const SUPPORTED_EVENTS = [
+  'issues', 'issue_comment', 'pull_request', 'pull_request_review',
+  'pull_request_review_comment', 'workflow_dispatch', 'repository_dispatch',
+  'schedule', 'workflow_run',
+] as const;
 
 /** Замороженное решение владельца. Меняется вместе с этим файлом. */
 const PINNED = 'claude-fable-5-1';
@@ -42,6 +56,32 @@ describe('модель руки задана явно', () => {
       expect(src.match(/--model /g) ?? []).toHaveLength(1);
     });
   }
+});
+
+/**
+ * Замер 06.09: прогон 59 issue-triage умер за две секунды с
+ * «Action failed with error: Unsupported event type: push». Так же молча
+ * умирал бы всякий запуск маркером — и у летописца тоже. Маркер обязан
+ * переводиться в workflow_dispatch, а шаг руки — не запускаться на push.
+ */
+describe('маркер не доезжает до руки напрямую', () => {
+  for (const wf of HANDS) {
+    const src = readFileSync(join(process.cwd(), wf), 'utf-8');
+    if (!/^\s{2}push:/m.test(src)) continue;
+
+    it(`${wf} — у push своя работа-переводчик в workflow_dispatch`, () => {
+      expect(src).toMatch(/if: github\.event_name == 'push'/);
+      expect(src).toMatch(/gh workflow run [\w.-]+\.yml/);
+    });
+
+    it(`${wf} — работа с рукой на push не запускается`, () => {
+      expect(src).toMatch(/if: github\.event_name != 'push'/);
+    });
+  }
+
+  it('список поддерживаемых событий не содержит push — иначе перевод не нужен', () => {
+    expect(SUPPORTED_EVENTS).not.toContain('push' as never);
+  });
 });
 
 describe('issues владельца берутся в работу без маркеров', () => {

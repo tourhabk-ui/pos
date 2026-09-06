@@ -20,7 +20,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # То же, что у issue-triage: claude-code-action на push отвечает
+  # «Unsupported event type: push», поэтому маркер переводится в
+  # workflow_dispatch. Без этого воскресный летописец запускался бы
+  # маркером вхолостую — красный ран за две секунды и ни строки хроники.
+  dispatch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Re-fire as workflow_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run weekly-chronicle.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   chronicle:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -58,6 +75,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: |
+            --model claude-fable-5-1
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
             --max-turns 40
           show_full_output: true

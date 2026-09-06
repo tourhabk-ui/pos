@@ -26,7 +26,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Маркер в main запустить руку НАПРЯМУЮ не может: claude-code-action знает
+  # issue/PR/comment, schedule, workflow_dispatch, repository_dispatch и
+  # workflow_run — а на push падает «Unsupported event type: push»
+  # (src/github/context.ts). Замер 06.09: прогон 59 умер на этом за две
+  # секунды, и так же молча умирал бы всякий запуск маркером. Поэтому push
+  # ПЕРЕВОДИТСЯ в workflow_dispatch — событие, которое рука понимает.
+  # GITHUB_TOKEN это умеет: workflow_dispatch и repository_dispatch —
+  # именованное исключение из правила «события от GITHUB_TOKEN не создают
+  # прогонов».
+  dispatch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Re-fire as workflow_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run issue-triage.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   triage:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
