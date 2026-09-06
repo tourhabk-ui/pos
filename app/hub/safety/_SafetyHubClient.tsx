@@ -43,7 +43,13 @@ interface SeismicEvent {
   magnitude: number;
   place: string;
   time: number;
-  depth: number;
+  /**
+   * null — глубина неизвестна. Была `number`, и Math.round(null) печатал
+   * «Глубина: 0 км» у записей КБГС, где глубины нет: экран уверенно называл
+   * толчок поверхностным (владелец 05.09). Обязательное число выдумывается —
+   * §4.0.
+   */
+  depth: number | null;
 }
 
 interface VolcanicEvent {
@@ -110,6 +116,24 @@ function timeAgo(ms: number): string {
   return 'только что';
 }
 
+/**
+ * Подпись «проверено в …» — по времени ПРОВЕРКИ ИСТОЧНИКА, не по времени
+ * нажатия. Нет времени — так и сказано: «проверить не удалось». Пустая строка
+ * со свежими часами врёт дважды (§4.0).
+ */
+function checkedLabel(checkedAt: string | null): string {
+  if (!checkedAt) return 'проверить не удалось';
+  const t = new Date(checkedAt);
+  if (Number.isNaN(t.getTime())) return 'проверить не удалось';
+  return `проверено в ${t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+/** Кто ответил на самом деле. Роут говорит род ленты — вёрстка его не сочиняет. */
+const SEISMIC_SOURCE_LABEL: Record<string, string> = {
+  kbgsras: 'КБГС РАН',
+  usgs: 'USGS',
+};
+
 export default function SafetyHubClient() {
   const [activeTab, setActiveTab] = useState('sos');
   // Лавинный сезон считается от текущей даты, а не зашит текстом.
@@ -125,14 +149,17 @@ export default function SafetyHubClient() {
   const [seismicLoading, setSeismicLoading] = useState(false);
   const [seismicLoaded, setSeismicLoaded] = useState(false);
   const [seismicError, setSeismicError] = useState<string | null>(null);
-  const [seismicLastUpdate, setSeismicLastUpdate] = useState<Date | null>(null);
+  // Время ПРОВЕРКИ источника из ответа, а не момент нажатия кнопки, и род
+  // источника из ответа, а не подпись в вёрстке (владелец 05.09).
+  const [seismicCheckedAt, setSeismicCheckedAt] = useState<string | null>(null);
+  const [seismicSource, setSeismicSource] = useState<string>('');
 
   // Volcanic
   const [volcanic, setVolcanic] = useState<VolcanicEvent[]>([]);
   const [volcanicLoading, setVolcanicLoading] = useState(false);
   const [volcanicLoaded, setVolcanicLoaded] = useState(false);
   const [volcanicError, setVolcanicError] = useState<string | null>(null);
-  const [volcanicLastUpdate, setVolcanicLastUpdate] = useState<Date | null>(null);
+  const [volcanicCheckedAt, setVolcanicCheckedAt] = useState<string | null>(null);
 
   // Rescue chat
   const RESCUE_GREETING: RescueMessage = {
@@ -152,7 +179,7 @@ export default function SafetyHubClient() {
   const fetchWeather = useCallback(() => {
     setWeatherLoading(true);
     setWeatherError(null);
-    fetch('/api/safety/weather')
+    fetch('/api/safety/weather?fresh=1')
       .then((r) => r.json())
       .then((d: WeatherData & { error?: string }) => {
         if (d.error) { setWeatherError(d.error); return; }
@@ -165,12 +192,16 @@ export default function SafetyHubClient() {
   const fetchSeismic = useCallback(() => {
     setSeismicLoading(true);
     setSeismicError(null);
-    fetch('/api/safety/seismic')
+    // `fresh=1` — кнопка обязана СПРОСИТЬ источник, а не перечитать кэш.
+    // Ограничитель 20 с стоит на сервере (lib/safety/refresh-throttle), и
+    // придержанный ответ помечен fromCache честно.
+    fetch('/api/safety/seismic?fresh=1')
       .then((r) => r.json())
-      .then((d: { events?: SeismicEvent[]; error?: string; updatedAt?: string }) => {
+      .then((d: { events?: SeismicEvent[]; error?: string; source?: string; checkedAt?: string | null }) => {
         if (d.error) { setSeismicError(d.error); return; }
         setSeismic(d.events || []);
-        setSeismicLastUpdate(new Date());
+        setSeismicSource(d.source ?? '');
+        setSeismicCheckedAt(d.checkedAt ?? null);
       })
       .catch(() => setSeismicError('Не удалось загрузить данные сейсмики'))
       .finally(() => { setSeismicLoading(false); setSeismicLoaded(true); });
@@ -189,10 +220,10 @@ export default function SafetyHubClient() {
     setVolcanicError(null);
     fetch('/api/safety/volcanic', { cache: 'no-store' })
       .then((r) => r.json())
-      .then((d: { events?: VolcanicEvent[]; error?: string }) => {
+      .then((d: { events?: VolcanicEvent[]; error?: string; checked_at?: string | null }) => {
         if (d.error && !d.events?.length) { setVolcanicError(d.error); return; }
         setVolcanic(d.events || []);
-        setVolcanicLastUpdate(new Date());
+        setVolcanicCheckedAt(d.checked_at ?? null);
       })
       .catch(() => setVolcanicError('Не удалось загрузить данные о вулканах'))
       .finally(() => { setVolcanicLoading(false); setVolcanicLoaded(true); });
@@ -592,16 +623,16 @@ export default function SafetyHubClient() {
             </button>
           </div>
 
-          {volcanicLastUpdate && !volcanicLoading && (
+          {!volcanicLoading && volcanicLoaded && (
             <p className="text-xs text-[var(--text-muted)] text-right -mt-2">
-              обновлено в {volcanicLastUpdate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+              Лента {checkedLabel(volcanicCheckedAt)}
             </p>
           )}
 
           {volcanicLoading && (
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center">
               <Flame className="w-8 h-8 mx-auto mb-2 text-[var(--text-muted)] animate-pulse" />
-              <p className="text-sm text-[var(--text-muted)]">Загрузка данных КБГС РАН...</p>
+              <p className="text-sm text-[var(--text-muted)]">Спрашиваем ленту МЧС и КВЕРТ...</p>
             </div>
           )}
 
@@ -684,11 +715,12 @@ export default function SafetyHubClient() {
                   </div>
                 );
               })}
-              {volcanicLastUpdate && (
-                <p className="text-xs text-[var(--text-muted)] text-right">
-                  Источник: КБГС РАН · {volcanicLastUpdate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              )}
+              {/* Вулканы приходят из ленты МЧС и КВЕРТ через наш приём, а не от
+                  КБГС РАН — та про сейсмику. Источник каждой записи стоит
+                  ссылкой на самой карточке. */}
+              <p className="text-xs text-[var(--text-muted)] text-right">
+                Лента МЧС и КВЕРТ · {checkedLabel(volcanicCheckedAt)}
+              </p>
             </div>
           )}
         </div>
@@ -836,7 +868,7 @@ export default function SafetyHubClient() {
           {seismicLoading && (
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center">
               <Activity className="w-8 h-8 mx-auto mb-2 text-[var(--text-muted)] animate-pulse" />
-              <p className="text-sm text-[var(--text-muted)]">Загрузка данных USGS...</p>
+              <p className="text-sm text-[var(--text-muted)]">Спрашиваем сейсмослужбы...</p>
             </div>
           )}
 
@@ -868,7 +900,7 @@ export default function SafetyHubClient() {
                         <div>
                           <p className="text-sm font-medium text-[var(--text-primary)]">{ev.place}</p>
                           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                            Глубина: {Math.round(ev.depth)} км · {timeAgo(ev.time)}
+                            {ev.depth != null ? `Глубина: ${Math.round(ev.depth)} км · ` : ''}{timeAgo(ev.time)}
                           </p>
                         </div>
                       </div>
@@ -876,11 +908,9 @@ export default function SafetyHubClient() {
                   </div>
                 ))}
               </div>
-              {seismicLastUpdate && (
-                <p className="text-xs text-[var(--text-muted)] text-right">
-                  Источник: USGS · {seismicLastUpdate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              )}
+              <p className="text-xs text-[var(--text-muted)] text-right">
+                {SEISMIC_SOURCE_LABEL[seismicSource] ?? 'Источник не назвался'} · {checkedLabel(seismicCheckedAt)}
+              </p>
             </>
           )}
         </div>

@@ -37,6 +37,32 @@ export interface VolcanicEvent {
   active: boolean;
 }
 
+/**
+ * Когда ленту спрашивали в последний раз.
+ *
+ * Экран рисовал «обновлено в 14:39» по времени НАЖАТИЯ кнопки, при записях от
+ * 31 августа: часы шли, данные стояли, и отличить «в крае тихо» от «конвейер
+ * молчит» было нечем (владелец 05.09: «мне кажется, перестал обновлять
+ * данные»). Возраст записи отвечает на другой вопрос — когда случилось
+ * событие, а не когда мы о нём спрашивали.
+ *
+ * Три исхода, не два (§4.0): прогон есть — время, прогонов нет — null,
+ * запрос упал — null и строка в логе. Ноль здесь не выдумывается.
+ */
+async function lastIngestAt(): Promise<string | null> {
+  try {
+    const { rows } = await pool.query<{ at: Date | null }>(
+      `SELECT MAX(ended_at) AS at FROM agent_run_history
+        WHERE agent_id = 'safety-ingest' AND status = 'success'`,
+    );
+    const at = rows[0]?.at;
+    return at ? new Date(at).toISOString() : null;
+  } catch (err) {
+    console.error('[safety/volcanic] last ingest run:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 export async function GET() {
   try {
     // DISTINCT ON схлопывает повторы по СОДЕРЖАНИЮ, оставляя свежайший:
@@ -65,9 +91,9 @@ export async function GET() {
       LIMIT 20
     `);
 
-    return NextResponse.json({ events: rows });
+    return NextResponse.json({ events: rows, checked_at: await lastIngestAt() });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
-    return NextResponse.json({ events: [], error: msg });
+    return NextResponse.json({ events: [], checked_at: null, error: msg });
   }
 }
