@@ -11,6 +11,12 @@ on:
   schedule:
     - cron: '23 7 * * *'  # 07:23 UTC = 19:23 KMT (нечётная минута: GitHub дропает запуски ровно в :00)
   workflow_dispatch:
+  # Запуск маркером — см. cron-kuzmich-route.yml: dispatch через интеграцию
+  # отвечает 403, а расписание одно на сутки.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/kuzmich-tour.json'
 
 jobs:
   trigger:
