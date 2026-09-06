@@ -90,6 +90,12 @@ export interface IntelligenceReport {
   /** Разбор по доменам: сколько каких исходов. Для панели и разбора. */
   outcomes: Record<IntelligenceOutcome, number>;
   /**
+   * Довёл ли цикл дело до конца: каждый домен дал вердикт — находку или
+   * честное «не применимо». Отсюда статус прогона; по числу находок его
+   * считать нельзя, иначе законная тишина выглядит поломкой (06.09).
+   */
+  conclusive: boolean;
+  /**
    * Почему у домена вышло пусто — словами, поимённо.
    *
    * Код называет КЛАСС беды, а чинят конкретную ленту. Тот же довод, по
@@ -850,6 +856,27 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
   }
 
   /**
+   * Довёл ли цикл дело до конца.
+   *
+   * ПОВОД (06.09). Watchdog каждые полчаса писал «Intelligence Monitor — 3
+   * прогонов подряд без результата». Прогон на проде: 72 сигнала собрано,
+   * модель по домену ai_tech честно ответила «ничего применимого» — то есть
+   * работа СДЕЛАНА, а находок нет, и промпт прямо просит такой ответ. Статус
+   * же считался по числу находок, и законная тишина выглядела поломкой.
+   * Тревога, которую нельзя погасить работой, приучает пролистывать —
+   * этот урок уже стоил вечного push_undelivered.
+   *
+   * Доведён — когда КАЖДЫЙ домен дал вердикт: находку или «не применимо».
+   * Мёртвая лента, немота модели и битый ответ вердиктом не считаются: их
+   * чинят, и молчать о них нельзя.
+   */
+  const conclusive = outcomes.gather_failed === 0
+    && outcomes.no_signals === 0
+    && outcomes.model_mute === 0
+    && outcomes.model_malformed === 0
+    && domainEntries.length > 0;
+
+  /**
    * Что назвать причиной пустого цикла.
    *
    * Порядок не произволен: сначала то, что чинится (упавшие домены, немота
@@ -939,6 +966,7 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
     skip_reason: skipReason,
     errors_count: outcomes.gather_failed + outcomes.model_mute + outcomes.model_malformed,
     outcomes,
+    conclusive,
     empty_reasons: emptyReasons,
   };
 }

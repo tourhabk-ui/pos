@@ -1242,7 +1242,11 @@ async function checkFruitlessCrons(): Promise<CheckResult> {
     // оставлен вторым: в уже записанных прогонах лежит он.
     const { rows } = await pool.query<CronOutcomeRow>(
       `SELECT agent_id, status, ended_at::text AS ended_at,
-              COALESCE(metadata->>'skip_reason', metadata->>'digest_skip_reason') AS skip_reason
+              COALESCE(metadata->>'skip_reason', metadata->>'digest_skip_reason') AS skip_reason,
+              -- Первая названная причина пустоты: разведка кладёт сюда
+              -- «домен: N из M лент ответили и пусты, K отказали: имена».
+              -- Без неё алерт называет класс беды, а чинят конкретную ленту.
+              NULLIF(metadata->'empty_reasons'->>0, '') AS detail
          FROM agent_run_history
         WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
         ORDER BY ended_at DESC
