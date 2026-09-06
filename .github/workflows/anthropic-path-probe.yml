@@ -35,9 +35,28 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # 40, а не 8: ожидание своей сборки (до 25 мин) плюс сам замер.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+
+      # Замер шёл по ЧУЖОМУ контейнеру — и это уже стоило неверного вывода.
+      # Прогон 6 (06.09, 02:16 UTC) сказал «ключ на проде старый», а новый
+      # образ поднялся в 02:20:58: мерился процесс с прежней переменной.
+      # Прогон 8 повторил ту же гонку с другой стороны — ушёл в 04:06, образ
+      # встал в 04:19. Вывод там оказался верным по другой причине (переменную
+      # подхватил предыдущий выкат), но проверять его пришлось руками.
+      # Правило одно на все замеры с раннера — scripts/wait-for-deploy.sh:
+      # ждём СВОЮ сборку по маркеру /version.json, а не любой рестарт.
+      # Только для запуска маркером: при workflow_dispatch head_commit пуст,
+      # и шаг честно отсиживал бы 25 минут «своей сборки», которой не просили.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
 
       - name: Шлюз Cloudflare AI Gateway существует
         id: gateway
