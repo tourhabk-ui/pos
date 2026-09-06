@@ -1,9 +1,9 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 24,
-  "why": "06.09: догадка владельца — у Anthropic новости идут страницами, а не лентой. Проверяем её адреса, заодно NVIDIA и оставшихся кандидатов; после миграции 936 — перепись лент",
+  "run": 26,
+  "why": "06.09: разбор страниц выкачен. Тот же список адресов — но теперь перепись спрашивает HTML ещё раз разбором и говорит, сколько записей и якорей нашла. Решает, какие источники заводить типом page (Anthropic, taaft)",
   "urls": [
-    "https://vedarai.ru/api/cron/intel-feeds-census?urls=https://www.anthropic.com/news,https://www.anthropic.com/feed.xml,https://www.anthropic.com/news/rss.xml,https://www.anthropic.com/rss,https://openai.com/blog/rss.xml,https://blogs.nvidia.com/feed/,https://developer.nvidia.com/blog/feed/,https://profi.travel/rss,https://poluostrov-kamchatka.ru/feed/",
+    "https://vedarai.ru/api/cron/intel-feeds-census?urls=https://theresanaiforthat.com/,https://theresanaiforthat.com/feed/,https://theresanaiforthat.com/rss/,https://taaft.com/,https://newsletter.taaft.com/rss,https://newsletter.taaft.com/feed,https://www.anthropic.com/news,https://blogs.nvidia.com/feed/",
     "https://vedarai.ru/api/cron/intel-feeds-census"
   ]
 }

@@ -28,6 +28,7 @@ import { postAINewsToChannel, postTravelNewsToChannel } from '@/lib/notification
 import { bridgeMonitorFindings } from '@/lib/agents/evo/intel-bridge';
 import { triageActionItems } from '@/lib/agents/intel/action-quality';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
+import { extractPageLinks } from '@/lib/services/intelligence/page-links';
 import {
   judgeEmptyGather, classifyFeedBody, describeFeedBody,
   type GatherCensus, type FeedBodyKind,
@@ -125,6 +126,12 @@ export type IntelligenceSkipReason = Exclude<IntelligenceOutcome, 'finding'> | '
 interface DomainSource {
   label:   string;
   rss:     string[];
+  /**
+   * Страницы-ленты: источник публикует записи обычным HTML, ленты у него нет
+   * (случай Anthropic — замер 06.09). Читаются детерминированным разбором,
+   * см. lib/services/intelligence/page-links.ts.
+   */
+  pages?:  string[];
   search_query: string;
   ai_filter: string;
 }
@@ -267,12 +274,15 @@ async function loadDomainsFromDB(): Promise<Record<string, DomainSource>> {
 
     for (const row of rows) {
       if (!domains[row.domain]) {
-        domains[row.domain] = { label: '', rss: [], search_query: '', ai_filter: '' };
+        domains[row.domain] = { label: '', rss: [], pages: [], search_query: '', ai_filter: '' };
       }
       const d = domains[row.domain];
 
       if (row.source_type === 'rss') {
         d.rss.push(row.url);
+        if (!d.label) d.label = row.domain.replace('_', ' ');
+      } else if (row.source_type === 'page') {
+        (d.pages ??= []).push(row.url);
         if (!d.label) d.label = row.domain.replace('_', ' ');
       } else if (row.source_type.startsWith('search_')) {
         if (row.search_query) d.search_query = row.search_query;
@@ -397,6 +407,31 @@ export async function fetchFeed(url: string): Promise<FeedFetch> {
     ? parseAtomEntries(xml)
     : parseRssItems(xml);
   return { items, status: res.status, bytes: xml.length, kind };
+}
+
+export interface PageFetch {
+  items: Array<{ title: string; url: string; snippet: string }>;
+  status: number;
+  bytes: number;
+  /** Сколько якорей было в теле — чтобы «вёрстка поменялась» не читалось как «новостей нет». */
+  anchors: number;
+  prefix: string;
+}
+
+/**
+ * Страница-лента. Отказ HTTP уходит наверх исключением — как у `fetchFeed`.
+ *
+ * Пустой улов при живых якорях НЕ маскируется под тишину источника: число
+ * якорей возвращается наверх, и перепись называет разницу словами (§4.0).
+ */
+export async function fetchPage(url: string, prefix?: string): Promise<PageFetch> {
+  const res = await fetchWithRetry(url, {
+    headers: { 'User-Agent': 'TourHab-Intelligence/1.0' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const html = await res.text();
+  const extract = extractPageLinks(html, url, { prefix });
+  return { items: extract.links, status: res.status, bytes: html.length, anchors: extract.anchors, prefix: extract.prefix };
 }
 
 // ── Search APIs (Tavily / Brave) ─────────────────────────────────────────────
@@ -558,6 +593,42 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Do
       // такой случай ответом было бы неправдой.
       census.failed++;
       census.failures.push('опрос ленты не состоялся');
+      continue;
+    }
+    if (result.value.ok) {
+      census.answered++;
+      signals.push(...result.value.items);
+      if (result.value.empty) census.empties!.push(result.value.empty);
+    } else {
+      census.failed++;
+      census.failures.push(result.value.error);
+    }
+  }
+
+  // 4. Страницы-ленты (источник без RSS — случай Anthropic, 06.09)
+  const pages = config.pages ?? [];
+  census.attempted += pages.length;
+  const pageResults = await Promise.allSettled(pages.map(async (url) => {
+    const host = new URL(url).hostname;
+    try {
+      const page = await fetchPage(url);
+      // Ноль записей при живых якорях — это смена вёрстки, а не молчание
+      // источника. Разница названа словами, чтобы чинить разбор, а не список.
+      const empty = page.items.length === 0
+        ? `${host}: страница ответила (${page.bytes} б, якорей ${page.anchors}), но записей по пути ${page.prefix} не найдено`
+        : null;
+      void updateSourceStatus(url, empty);
+      return { ok: true as const, items: page.items.map(item => ({ ...item, source: host })), empty };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      void updateSourceStatus(url, message);
+      return { ok: false as const, error: `${host}: ${message}` };
+    }
+  }));
+  for (const result of pageResults) {
+    if (result.status !== 'fulfilled') {
+      census.failed++;
+      census.failures.push('опрос страницы не состоялся');
       continue;
     }
     if (result.value.ok) {

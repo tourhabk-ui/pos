@@ -69,7 +69,9 @@ describe('приговор ленте называет, ЧТО она отдал
   });
 
   it('домены без единой живой ленты названы отдельно', () => {
-    expect(SRC).toMatch(/alive: own\.filter\(\(f\) => f\.verdict === 'feed'\)\.length/);
+    // Живым считается и лента с записями, и страница, разбор которой дал записи
+    // (06.09: у Anthropic ленты нет вовсе, мерка ленты дала бы ему вечное «нет»).
+    expect(SRC).toMatch(/alive: own\.filter\(\(f\) => f\.verdict === 'feed' \|\| f\.verdict === 'page'\)\.length/);
     expect(SRC).toMatch(/silent:/);
   });
 });

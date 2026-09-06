@@ -10,6 +10,11 @@ name: Проба — живы ли ленты разведки
 #
 # Запуск: push в main, меняющий .github/triggers/feeds-probe.json, или кнопка.
 
+# Права токена: Единственный потребитель токена — checkout маркера с адресами;
+# опрос чужих лент идёт без токена вовсе.
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:
