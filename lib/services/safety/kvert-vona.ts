@@ -511,15 +511,27 @@ const SECTION_HEADER = /^([A-Z][A-Z\s'’\-]+?)\s+VOLCANO\s+\(CAVW\s+#\s*\d+\)\s
  * Высота пепла из фразы прогноза. KVERT пишет километрами («up to 12 km»),
  * а хранится метрами — как у блоков VONA, где источник даёт метры. Десятичная
  * дробь бывает («up to 2.5 km»), поэтому не только целые.
+ *
+ * ОБЯЗАТЕЛЬНОЕ «a.s.l.» — не придирка к формату. «Up to 6 km» в выпуске
+ * встречается и про ВЫСОТУ выброса, и про длину лавового потока или шлейфа;
+ * различает их только пометка «над уровнем моря», которую KVERT ставит именно
+ * у высот. Без неё экран безопасности однажды назвал бы расстояние высотой —
+ * и человек прочитал бы это как выброс в стратосферу.
+ *
+ * Формулы сняты с настоящего выпуска (пробы 06.09):
+ *   «Ash explosions up to 12 km (39,400 ft) a.s.l. could occur at any time»
+ *   «The danger of ash explosions up to 6 km (19,700 ft) a.s.l. remains»
  */
+const ASL = /\(?[\d,\s]*(?:ft)?\)?\s*a\.?\s?s\.?\s?l\.?/i;
+
 function parseAshHeight(text: string): number | null {
-  const km = text.match(/up\s+to\s+(\d+(?:[.,]\d+)?)\s*km/i);
-  if (km) {
+  const km = text.match(/up\s+to\s+(\d+(?:[.,]\d+)?)\s*km\s*(.{0,24})/i);
+  if (km && ASL.test(km[2] ?? '')) {
     const v = parseFloat(km[1].replace(',', '.'));
     return Number.isFinite(v) ? Math.round(v * 1000) : null;
   }
-  const m = text.match(/up\s+to\s+(\d[\d\s]*)\s*m\b/i);
-  if (m) {
+  const m = text.match(/up\s+to\s+(\d[\d\s]*)\s*m\b\s*(.{0,24})/i);
+  if (m && ASL.test(m[2] ?? '')) {
     const v = parseInt(m[1].replace(/\s/g, ''), 10);
     return Number.isFinite(v) ? v : null;
   }
