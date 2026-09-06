@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { repairTelegramHtml, telegramHtmlIssue, stripCodeFence, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
+import { repairTelegramHtml, telegramHtmlIssue, stripCodeFence, TELEGRAM_TEXT_LIMIT, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -134,5 +134,50 @@ describe('markdown-ограждение не уходит в канал (06.09)'
 
   it('на месте ограждения не остаётся дыры из пустых строк', () => {
     expect(stripCodeFence('<b>A</b>\n\n```\n\n<b>B</b>')).toBe('<b>A</b>\n\n<b>B</b>');
+  });
+});
+
+describe('подпись к фото режется тем же правилом, что и текст (07.09)', () => {
+  const SENDERS = [
+    'lib/notifications/telegram-channel.ts',
+    'app/api/telegram/webhook/route.ts',
+  ];
+
+  it('слепого среза подписи не осталось ни у одного отправителя', () => {
+    // `caption.slice(0, 1024)` рвал теги и оставлял голый `<` — Bot API на
+    // такую подпись отвечает 400, и пост, у которого фото ЕСТЬ, уходил голым
+    // текстом. Ровно тот дефект, что дважды ронял пост в ИИ-канал, — просто
+    // на другом отправителе, и потому пережил обе прошлые починки.
+    const offenders = SENDERS.filter((f) => {
+      const src = readFileSync(join(process.cwd(), f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+      return /caption\s*\.\s*slice\(/.test(src);
+    });
+    expect(offenders, `слепой срез подписи вернулся: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('каждый отправитель зовёт общий срез с лимитом подписи', () => {
+    for (const f of SENDERS) {
+      const src = readFileSync(join(process.cwd(), f), 'utf8');
+      expect(src, f).toMatch(/repairTelegramHtml\(caption, TELEGRAM_CAPTION_LIMIT\)/);
+    }
+  });
+
+  it('лимит подписи вчетверо меньше лимита сообщения', () => {
+    expect(TELEGRAM_CAPTION_LIMIT).toBe(1024);
+    expect(TELEGRAM_TEXT_LIMIT).toBe(4096);
+  });
+
+  it('длинная подпись с тегами остаётся валидной и влезает', () => {
+    const long = `<b>Тур</b> ${'слово '.repeat(400)}<a href="https://vedarai.ru/t/1">Подробности</a>`;
+    const got = repairTelegramHtml(long, TELEGRAM_CAPTION_LIMIT);
+    expect(got.length).toBeLessThanOrEqual(TELEGRAM_CAPTION_LIMIT);
+    expect(telegramHtmlIssue(got)).toBeNull();
+  });
+
+  it('голый < в подписи экранируется — иначе Bot API 400', () => {
+    const got = repairTelegramHtml('<b>Тур</b>: группа < 10 человек', TELEGRAM_CAPTION_LIMIT);
+    expect(got).toContain('&lt; 10');
+    expect(telegramHtmlIssue(got)).toBeNull();
   });
 });

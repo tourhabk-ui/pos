@@ -26,6 +26,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
@@ -1095,7 +1096,9 @@ export async function POST(request: NextRequest) {
             body: JSON.stringify({
               chat_id: channel,
               photo: photoUrl,
-              caption: caption.slice(0, 1024),
+              // Тот же срез, что у прочих отправителей: слепой slice рвал теги
+              // и оставлял голый `<`, а Bot API на такую подпись отвечает 400.
+              caption: repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT),
               parse_mode: 'HTML',
               reply_markup: { inline_keyboard: buttons },
             }),

@@ -14,6 +14,10 @@ import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 import { stripTags } from '@/lib/html/text';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 import { composePlacePost } from '@/lib/notifications/place-post';
+// Подпись к фото — через тот же срез, что и текст поста. Слепой slice(0, 1024)
+// рвал теги и оставлял голый `<`, а Bot API на такую подпись отвечает 400 —
+// и пост, у которого фото ЕСТЬ, уходил голым текстом.
+import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -71,7 +75,7 @@ async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string
     {
       chat_id: chatId,
       photo: photoUrl,
-      caption: caption.slice(0, 1024),
+      caption: repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT),
       parse_mode: 'HTML',
     },
   );
@@ -114,7 +118,7 @@ export async function tgPostMediaGroup(
   if (photos.length > 1) {
     const media = photos.map((url, i) => (
       i === 0
-        ? { type: 'photo', media: url, caption: caption.slice(0, 1024), parse_mode: 'HTML' }
+        ? { type: 'photo', media: url, caption: repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT), parse_mode: 'HTML' }
         : { type: 'photo', media: url }
     ));
     const data = await tgFetchWithRetry(
