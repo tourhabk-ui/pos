@@ -1,9 +1,9 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 27,
-  "why": "06.09: Anthropic заведён страницей (разбор дал 3 настоящие записи из 113 якорей). Остался taaft: с префиксом «/» разбор отдаёт навигацию и кусок шаблона, значит нужен путь записей. Проверяем пары адрес|префикс, прежде чем заводить строку в реестре",
+  "run": 28,
+  "why": "06.09: замер taaft показал дефект разбора — карточка разбита на ссылки «имя», «слоган», «цена», «дата» к одному адресу, и оставалась первая (отсюда «Free + from $9.00» вместо названия). Теперь остаётся самая длинная. Перемеряем те же четыре адреса, прежде чем заводить источник",
   "urls": [
-    "https://vedarai.ru/api/cron/intel-feeds-census?urls=https://theresanaiforthat.com/%7C/ai/,https://theresanaiforthat.com/new/%7C/ai/,https://theresanaiforthat.com/trending/%7C/ai/,https://theresanaiforthat.com/period/today/%7C/ai/,https://newsletter.taaft.com/,https://newsletter.taaft.com/archive",
+    "https://vedarai.ru/api/cron/intel-feeds-census?urls=https://theresanaiforthat.com/%7C/ai/,https://theresanaiforthat.com/new/%7C/ai/,https://theresanaiforthat.com/trending/%7C/ai/,https://theresanaiforthat.com/period/today/%7C/ai/",
     "https://vedarai.ru/api/cron/intel-feeds-census"
   ]
 }

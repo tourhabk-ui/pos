@@ -150,8 +150,11 @@ export async function GET(req: NextRequest) {
       requested: raw.length,
       alive: checked
         .filter((c) => c.verdict === 'feed' || c.verdict === 'page')
+        // Записей столько, сколько нашёл разбор, а не сколько попало в
+        // образец: `titles` обрезан до трёх, и цифра из него занижала улов
+        // втрое (замер 06.09 — «записей: 3» при items 8).
         .map((c) => c.verdict === 'page'
-          ? `${c.url} (страница, записей: ${c.page?.titles.length ?? 0}, якорей: ${c.page?.anchors ?? 0})`
+          ? `${c.url} (страница, записей: ${c.items}, якорей: ${c.page?.anchors ?? 0})`
           : `${c.url} (записей: ${c.items})`),
       feeds: checked,
     });
