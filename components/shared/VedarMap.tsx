@@ -77,6 +77,16 @@ export interface VedarMapPoint {
   label: string;
 }
 
+/** Место платформы, отданное тапом — то, что уже лежит в свойствах точки слоя. */
+export interface VedarMapPlaceHit {
+  id: string;
+  lat: number;
+  lng: number;
+  name: string | null;
+  /** location_type — по нему решает LOCATION_TYPE_CONFIG вызывающего. */
+  kind: string | null;
+}
+
 interface VedarMapProps {
   theme?: VedarMapTheme;
   /** Источники пакета. Отсутствие — законное состояние, см. `unavailableReason`. */
@@ -121,10 +131,25 @@ interface VedarMapProps {
    * Тап по карте — как в навигаторе (владелец 05.09, «посмотри, как у
    * референсов»): точка на карте открывает карточку места с координатами,
    * прокладкой и передачей в навигатор. Карта лишь сообщает, куда ткнули.
+   *
+   * Вызывается, только когда тап НЕ попал в место платформы (см.
+   * `onPlaceClick`) — два коллбэка не стреляют на один тап одновременно.
    */
   onMapClick?: (p: { lat: number; lng: number }) => void;
-  /** Тап по своей синей точке — та же карточка для «я». */
+  /**
+   * Тап по своей синей точке — та же карточка для «я».
+   */
   onUserClick?: () => void;
+  /**
+   * Тап по месту платформы — слой `vedar-places*` (lib/map/vedar-style.ts,
+   * §9 CLAUDE.md: точка — факт, не тур). Владелец 06.09, «замкнуть /map на
+   * VedarMap»: карта browse-режима отдаёт то, что уже несёт слой (id, имя,
+   * тип, координаты самой точки — не тапа), вызывающий рисует скелет
+   * карточки сразу, не дожидаясь /api/places/[id]. Проверка идёт ПЕРЕД
+   * generic `onMapClick` — попадание в кружок места важнее голой точки под
+   * ним.
+   */
+  onPlaceClick?: (place: VedarMapPlaceHit) => void;
   /** Булавка выбранной точки; null — булавки нет. */
   pin?: { lat: number; lng: number } | null;
   /** Ручка управления наружу — для кнопок масштаба вне карты. null при размонтировании. */
@@ -420,6 +445,7 @@ export default function VedarMap({
   showZoomButtons = true,
   onMapClick,
   onUserClick,
+  onPlaceClick,
   pin = null,
   onControls,
 }: VedarMapProps) {
@@ -428,6 +454,8 @@ export default function VedarMap({
   onMapClickRef.current = onMapClick;
   const onUserClickRef = useRef(onUserClick);
   onUserClickRef.current = onUserClick;
+  const onPlaceClickRef = useRef(onPlaceClick);
+  onPlaceClickRef.current = onPlaceClick;
   const mapRef = useRef<MLMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const autoCenterDoneRef = useRef(false);
@@ -572,7 +600,25 @@ export default function VedarMap({
         mapRef.current = map;
         // Тап по карте — наружу, через ref: инлайновая стрелка вызывающего
         // меняет identity каждый рендер, а карту пересоздавать из-за этого нельзя.
-        map.on('click', (e) => { onMapClickRef.current?.({ lat: e.lngLat.lat, lng: e.lngLat.lng }); });
+        // Место платформы — первым: круг `vedar-places*` (базовый стиль и
+        // подложенные соседи несут разные ns) важнее голой точки под ним.
+        map.on('click', (e) => {
+          const hit = map.queryRenderedFeatures(e.point)
+            .find(f => typeof f.layer?.id === 'string' && f.layer.id.startsWith('vedar-places'));
+          const placeId = hit?.properties?.id;
+          const coords = hit?.geometry?.type === 'Point' ? hit.geometry.coordinates : null;
+          if (typeof placeId === 'string' && placeId && coords && onPlaceClickRef.current) {
+            onPlaceClickRef.current({
+              id: placeId,
+              lng: coords[0],
+              lat: coords[1],
+              name: typeof hit.properties?.name === 'string' ? hit.properties.name : null,
+              kind: typeof hit.properties?.kind === 'string' ? hit.properties.kind : null,
+            });
+            return;
+          }
+          onMapClickRef.current?.({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+        });
 
         map.on('load', () => { loaded = true; if (!cancelled) setReady(true); });
 

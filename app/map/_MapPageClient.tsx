@@ -39,7 +39,11 @@ import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
+import type { VedarMapPlaceHit } from '@/components/shared/VedarMap';
 import { trackLine } from '@/lib/map/line-standard';
+import { builtRegionPacks } from '@/lib/map/field-base-map';
+import { resolvePackSource, BUILT_PACK_REGIONS } from '@/lib/map/pack-source';
+import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { useMesh } from '@/hooks/use-mesh';
@@ -50,6 +54,10 @@ import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 import { clipAtWord } from '@/lib/text/clip-at-word';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
+  ssr: false,
+  loading: () => <div style={{ height: 'calc(100vh - 180px)' }} className="bg-[var(--bg-hover)] animate-pulse rounded-lg" />,
+});
+const VedarMap = dynamic(() => import('@/components/shared/VedarMap'), {
   ssr: false,
   loading: () => <div style={{ height: 'calc(100vh - 180px)' }} className="bg-[var(--bg-hover)] animate-pulse rounded-lg" />,
 });
@@ -173,7 +181,12 @@ function styleGeometry(g: MapMarkerGeometry | null | undefined): MapMarkerGeomet
   return { type: 'polyline', coordinates: g.coordinates, ...line.style };
 }
 
-export default function MapPageClient() {
+interface MapPageClientProps {
+  /** Адрес хранилища пакетов, с сервера — см. app/map/page.tsx. */
+  mapPackBaseUrl?: string | null;
+}
+
+export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientProps = {}) {
   const { isDark, toggleTheme } = useTheme();
   const [activeFilter, setActiveFilter] = useState('all');
   const [allRoutes, setAllRoutes] = useState<RoutePoint[]>([]);
@@ -181,6 +194,21 @@ export default function MapPageClient() {
   const [isOffline, setIsOffline] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  // Место, открытое тапом по своей карте (владелец 06.09, «замкнуть /map на
+  // VedarMap»): своя карта отдаёт готовое место слоем vedar-places, а не id
+  // из живого списка allRoutes — карточка строится прямо из тапа, детали
+  // подтягивает сама (PlaceMapSheet, /api/places/[id]).
+  const [vedarPlaceHit, setVedarPlaceHit] = useState<VedarMapPlaceHit | null>(null);
+  // Пакеты своей карты — те же, что на полевом экране (builtRegionPacks):
+  // обзор всего края плюс районы и клетки, подкладываются по видимой
+  // области. Своя карта включается по НАЛИЧИЮ обзорного пакета, Leaflet —
+  // запасной путь, а не деградация (lib/map/field-base-map.ts).
+  const regionPacks = useMemo(() => builtRegionPacks(mapPackBaseUrl), [mapPackBaseUrl]);
+  const overviewSource = useMemo(
+    () => resolvePackSource(OVERVIEW_ID, BUILT_PACK_REGIONS, mapPackBaseUrl),
+    [mapPackBaseUrl],
+  );
+  const vedarReady = overviewSource.state === 'ready';
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showMyLocation, setShowMyLocation] = useState(false);
   const [showSos, setShowSos] = useState(false);
@@ -745,15 +773,44 @@ export default function MapPageClient() {
       <div className="px-4 pb-4">
         <div className="relative rounded-lg overflow-hidden border border-[var(--border)]">
           <MapErrorBoundary>
-          <LeafletMap
-            center={MAP_CENTER}
-            zoom={MAP_ZOOM_OFFLINE}
-            markers={allMarkers}
-            height="calc(100vh - 180px)"
-            onMarkerClick={handleMarkerClick}
-            showUserLocation={showMyLocation}
-            locationPriority="highAccuracy"
-          />
+          {vedarReady ? (
+            <VedarMap
+              theme={isDark ? 'dark' : 'light'}
+              sources={overviewSource.state === 'ready' ? {
+                terrainUrl: overviewSource.terrainUrl,
+                contoursUrl: overviewSource.contoursUrl,
+                terrainMaxZoom: overviewSource.terrainMaxZoom,
+                glyphsUrl: overviewSource.glyphsUrl,
+                glyphsFont: overviewSource.glyphsFont,
+                osmUrls: overviewSource.osmUrls,
+                vectorUrl: overviewSource.vectorUrl,
+                placesUrl: overviewSource.placesUrl,
+                oceanUrl: overviewSource.oceanUrl,
+                attribution: '© Copernicus DEM (ESA)',
+              } : null}
+              center={MAP_CENTER}
+              zoom={6}
+              height="calc(100vh - 180px)"
+              showUserLocation={showMyLocation}
+              packs={regionPacks}
+              baseRegion={OVERVIEW_ID}
+              // Своя карта на /map — просмотр, не полевой прибор: тапы по
+              // пустой карте ничего не открывают, только места платформы
+              // (владелец 06.09, «замкнуть /map на VedarMap», решение
+              // «сначала просто карта-подложка»).
+              onPlaceClick={setVedarPlaceHit}
+            />
+          ) : (
+            <LeafletMap
+              center={MAP_CENTER}
+              zoom={MAP_ZOOM_OFFLINE}
+              markers={allMarkers}
+              height="calc(100vh - 180px)"
+              onMarkerClick={handleMarkerClick}
+              showUserLocation={showMyLocation}
+              locationPriority="highAccuracy"
+            />
+          )}
           </MapErrorBoundary>
 
           {/* Кнопка GPS */}
@@ -805,6 +862,31 @@ export default function MapPageClient() {
           distLabel={userPos
             ? (() => {
                 const d = haversineDistance(userPos.lat, userPos.lng, selectedPlaceData.lat, selectedPlaceData.lng);
+                return d < 1 ? `${Math.round(d * 1000)} м` : `${d.toFixed(1)} км`;
+              })()
+            : null
+          }
+        />
+      )}
+
+      {/* Место со своей карты (VedarMap) — своя карточка не ждёт allRoutes:
+          тап сам несёт id/имя/тип/координаты, деталь тянет /api/places/[id]. */}
+      {vedarPlaceHit && (
+        <PlaceMapSheet
+          initialData={{
+            id: vedarPlaceHit.id,
+            title: vedarPlaceHit.name ?? 'Место',
+            locationType: vedarPlaceHit.kind,
+            lat: vedarPlaceHit.lat,
+            lng: vedarPlaceHit.lng,
+            description: '',
+          }}
+          userPos={userPos}
+          isOffline={false}
+          onClose={() => setVedarPlaceHit(null)}
+          distLabel={userPos
+            ? (() => {
+                const d = haversineDistance(userPos.lat, userPos.lng, vedarPlaceHit.lat, vedarPlaceHit.lng);
                 return d < 1 ? `${Math.round(d * 1000)} м` : `${d.toFixed(1)} км`;
               })()
             : null
