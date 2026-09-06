@@ -29,6 +29,7 @@ const PAGE = `
   <a href="/careers/engineer">Инженерные вакансии</a>
   <a href="https://twitter.com/anthropicai">Twitter</a>
   <a href="/news/x">Ok</a>
+  <a href="/news/closing-tag-with-space">Закрывающий тег с пробелом</a >
 </body></html>`;
 
 describe('источник-страница: разбор', () => {
@@ -56,6 +57,13 @@ describe('источник-страница: разбор', () => {
   it('теги выкидываются пробелом — слова не склеиваются', () => {
     const opus = got.links.find((l) => l.url.endsWith('/claude-opus-5'));
     expect(opus?.title).toContain('Announcements Claude Opus 5');
+  });
+
+  it('закрывающий тег читается как браузером: </a > тоже конец ссылки', () => {
+    // js/bad-tag-filter. Требуй регулярка ровно `</a>` — текст всей страницы
+    // после такой ссылки уехал бы в её заголовок.
+    const link = got.links.find((l) => l.url.endsWith('/closing-tag-with-space'));
+    expect(link?.title).toBe('Закрывающий тег с пробелом');
   });
 
   it('слишком короткий текст ссылки записью не считается', () => {
