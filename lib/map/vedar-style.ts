@@ -61,6 +61,27 @@ function tierMaxzoom(sources: VedarStyleSources): number | undefined {
   return sources.terrainMaxZoom <= OVERVIEW_MAX_ZOOM ? OVERVIEW_LAYER_MAXZOOM : undefined;
 }
 
+/**
+ * Нижний зум слоёв рельефа ПАКЕТА/КЛЕТКИ — зеркало tierMaxzoom (06.09,
+ * владелец: «z8 z7 z6 много ошибок»). До этой правки был закрыт только
+ * верхний край обзора (см. OVERVIEW_LAYER_MAXZOOM выше); нижний край пакета
+ * не был закрыт вовсе — у reliefLayer/hillshadeLayer пакета стоял только
+ * maxzoom (undefined = не ограничен), а minzoom не было НИКАКОГО.
+ *
+ * Пока клеток «Вся Камчатка» не было в builtRegionPacks(), это не давало о
+ * себе знать: на обзоре (z4-7) соседей-районов в кадре почти не оказывалось.
+ * После сетки 112 клеток на z6-z7 в видимую область обзора почти всегда
+ * попадает bbox нескольких клеток — их растровый источник рельефа не
+ * запрещает overzoom и в другую сторону: MapLibre тянет их САМЫЙ ГРУБЫЙ
+ * тайл (архив пакета начинается с z8) поверх обзорного рельефа ВНУТРИ
+ * bbox клетки — и это ровно та же болезнь, что чинилась выше, зеркально:
+ * прямоугольный шов точно по границе клетки, снимок krai-overview z7,
+ * прогон 16.
+ */
+function tierMinzoom(sources: VedarStyleSources): number | undefined {
+  return sources.terrainMaxZoom <= OVERVIEW_MAX_ZOOM ? undefined : OVERVIEW_LAYER_MAXZOOM;
+}
+
 export type VedarMapTheme = 'dark' | 'light';
 
 /**
@@ -461,10 +482,10 @@ export function buildVedarStyle(
       // виден он, а не цвет страницы.
       { id: 'bg', type: 'background', paint: { 'background-color': p.nodata } },
       // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
-      reliefLayer(p, '', tierMaxzoom(sources)),
+      reliefLayer(p, '', tierMaxzoom(sources), tierMinzoom(sources)),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
       ...osmFillLayers(r, p, ''),
-      hillshadeLayer(theme, p, '', tierMaxzoom(sources)),
+      hillshadeLayer(theme, p, '', tierMaxzoom(sources), tierMinzoom(sources)),
       // Океан — НАД тенью: море там, где берег OSM, а не там, где DEM дал
       // ноль или промолчал. Над тенью, а не под ней: на стыках клеток DEM
       // граница «ноль моря / нет данных» — обрыв в 500 м, и тень рисует его
@@ -731,8 +752,8 @@ export function buildRegionOverlay(
         ...vedarPlacesSource(sources, ns),
       },
       layers: [
-        reliefLayer(p, ns, tierMaxzoom(sources)),
-        hillshadeLayer(theme, p, ns, tierMaxzoom(sources)),
+        reliefLayer(p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
+        hillshadeLayer(theme, p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         ...vedarOceanLayers(sources, p, ns),
         ...osmPeakLayers(r, p, glyphs, font, ns),
         ...osmPlaceLayers(r, p, glyphs, font, ns),
@@ -788,7 +809,7 @@ function contoursSource(sources: VedarStyleSources, ns: string): Record<string, 
  * Ни нового файла, ни пересборки пакета — те же байты, второе прочтение.
  * Ступени — из палитры темы (см. MapPalette.relief).
  */
-function reliefLayer(p: MapPalette, ns: string, maxzoom?: number): Record<string, unknown> {
+function reliefLayer(p: MapPalette, ns: string, maxzoom?: number, minzoom?: number): Record<string, unknown> {
   const stops: Array<number | string> = [];
   for (const [m, color] of p.relief) stops.push(m, color);
   return {
@@ -796,6 +817,7 @@ function reliefLayer(p: MapPalette, ns: string, maxzoom?: number): Record<string
     type: 'color-relief',
     source: `terrain${ns}`,
     ...(maxzoom !== undefined ? { maxzoom } : {}),
+    ...(minzoom !== undefined ? { minzoom } : {}),
     paint: {
       'color-relief-color': ['interpolate', ['linear'], ['elevation'], ...stops],
       'color-relief-opacity': 1,
@@ -803,12 +825,13 @@ function reliefLayer(p: MapPalette, ns: string, maxzoom?: number): Record<string
   };
 }
 
-function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string, maxzoom?: number): Record<string, unknown> {
+function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string, maxzoom?: number, minzoom?: number): Record<string, unknown> {
   return {
     id: `hillshade${ns}`,
     type: 'hillshade',
     source: `terrain${ns}`,
     ...(maxzoom !== undefined ? { maxzoom } : {}),
+    ...(minzoom !== undefined ? { minzoom } : {}),
     paint: {
       'hillshade-shadow-color': p.shadow,
       'hillshade-highlight-color': p.highlight,
