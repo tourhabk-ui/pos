@@ -1,8 +1,10 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 18,
-  "why": "06.09: печать хвоста ответа — проверяем поле statuses ленты вулканов, которое лежит в конце JSON и в run 17 не попало в вывод",
+  "run": 19,
+  "why": "06.09: проверка актуальности — свежесть кодов KVERT и русских имён после деплоя, поток тревог и сейсмолента",
   "urls": [
-    "https://vedarai.ru/api/safety/volcanic"
+    "https://vedarai.ru/api/safety/volcanic",
+    "https://vedarai.ru/api/cron/alerts-census",
+    "https://vedarai.ru/api/safety/seismic"
   ]
 }
