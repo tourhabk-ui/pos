@@ -33,6 +33,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { callAIDecision, callAIDecisionDetailed } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { intelSignature } from '@/lib/agents/evo/claim-signature';
@@ -298,18 +299,53 @@ export function parseAiFeatureProposalsDetailed(raw: string | null): ProposalPar
   const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
   const start = cleaned.indexOf('[');
   const end = cleaned.lastIndexOf(']');
+
+  /**
+   * Оборванный ответ — не «массива нет».
+   *
+   * Прогон 06.09: Opus 5 ответила `[{"title":"Торговый агент оператора…`, и
+   * ответ обрезало на потолке токенов посреди слова. Закрывающей скобки нет,
+   * и код записал «массива JSON в ответе нет» — притом что массив был, и
+   * целые предложения в нём тоже. Правило спасения в репозитории уже жило
+   * (изобретатель, 05.09), но у линзы к нему доступа не было.
+   *
+   * Спасённые предложения — не полноценный ответ: вердикт `incomplete`
+   * говорит, что модель не договорила, а не что ей нечего сказать.
+   */
+  const salvage = (why: string): ProposalParseResult | null => {
+    if (start === -1) return null;
+    const whole = salvageTruncatedArray(cleaned.slice(start));
+    if (whole.length === 0) return null;
+    return { ...buildProposals(whole), verdict: 'incomplete', detail: `ответ оборван (${why}), спасено целых: ${whole.length}` };
+  };
+
   if (start === -1 || end === -1 || end <= start) {
-    return nothing('unreadable', `массива JSON в ответе нет: «${answerPreview(cleaned)}»`);
+    return salvage('нет закрывающей скобки')
+      ?? nothing('unreadable', `массива JSON в ответе нет: «${answerPreview(cleaned)}»`);
   }
   let arr: unknown;
   try {
     arr = JSON.parse(cleaned.slice(start, end + 1));
   } catch (e) {
-    return nothing('unreadable', `JSON не разобрался (${(e as Error).message.slice(0, 60)}): «${answerPreview(cleaned)}»`);
+    const why = (e as Error).message.slice(0, 60);
+    const saved = salvage(why);
+    if (saved) return saved;
+    return nothing('unreadable', `JSON не разобрался (${why}): «${answerPreview(cleaned)}»`);
   }
   if (!Array.isArray(arr)) return nothing('unreadable', `на месте массива ${typeof arr}`);
   if (arr.length === 0) return nothing('declined', 'модель вернула пустой массив: предлагать нечего');
 
+  return buildProposals(arr);
+}
+
+/**
+ * Элементы массива → предложения. Общая для обычного разбора и для спасения
+ * оборванного ответа: требования к полноте предложения не должны зависеть от
+ * того, договорила модель или нет.
+ */
+function buildProposals(arr: unknown[]): ProposalParseResult {
+  const nothing = (verdict: ProposalParseVerdict, detail: string): ProposalParseResult =>
+    ({ proposals: [], verdict, detail });
   const out: AiFeatureProposal[] = [];
   const gaps: string[] = [];
   for (const item of arr) {

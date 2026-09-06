@@ -9,6 +9,7 @@
  */
 
 import { readFile, readdir } from 'fs/promises';
+import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { join } from 'path';
 import { callQwen, callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
@@ -203,43 +204,11 @@ export function parseProposalsResponse(raw: string): { proposals: StructuredProp
 }
 
 /**
- * Целые объекты из оборванного JSON-массива. Идёт по объектам верхнего
- * уровня, считая скобки вне строк; последний недописанный отбрасывается.
- * Чистая функция, без сети.
+ * Спасение оборванного массива живёт в lib/ai/json-salvage: у линзы «ИИ-фичи»
+ * ровно та же беда, и второе правило разъехалось бы с первым. Ре-экспорт —
+ * чтобы прежние импорты (и сторож scout-proposals-parse) не переписывались.
  */
-export function salvageTruncatedArray(raw: string): unknown[] {
-  const text = raw.trim();
-  if (!text.startsWith('[')) return [];
-  const out: unknown[] = [];
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  let objStart = -1;
-  for (let i = 1; i < text.length; i++) {
-    const ch = text[i];
-    if (inStr) {
-      if (esc) { esc = false; continue; }
-      if (ch === '\\') { esc = true; continue; }
-      if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') { inStr = true; continue; }
-    if (ch === '{') { if (depth === 0) objStart = i; depth++; continue; }
-    if (ch === '}') {
-      depth--;
-      if (depth === 0 && objStart >= 0) {
-        try {
-          const obj = JSON.parse(text.slice(objStart, i + 1)) as unknown;
-          if (obj && typeof obj === 'object') out.push(obj);
-        } catch {
-          // недописанный или битый элемент — не спасаем
-        }
-        objStart = -1;
-      }
-    }
-  }
-  return out;
-}
+export { salvageTruncatedArray };
 
 async function generateStructuredProposals(
   repoContext: string,
