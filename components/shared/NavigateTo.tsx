@@ -14,10 +14,19 @@
  *   старта нет     → «Показать в …», ссылка ставит булавку.
  * Одинаковая подпись на разном поведении — обман в один тап: человек ждёт
  * маршрут, получает точку и узнаёт об этом уже в чужом приложении.
+ *
+ * Кнопки — марки приложений, как иконки на экране телефона (владелец 06.09:
+ * «уменьшить внешние карты, просто логотипом на кнопке»). Слово состояния
+ * при этом не пропало: оно стоит ОДНО перед рядом марок и в aria-label
+ * каждой кнопки — четыре одинаковых подписи сжались в одну, а не в ноль.
+ *
+ * `compact` — для карточки точки и листа «На маршруте»: без сноски и без
+ * кнопки «Строить маршрут от меня» (экран сам ведёт положение, второй запрос
+ * геолокации там лишний). `tone: 'glass'` — подпись белым поверх стекла.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Navigation, MapPin, Crosshair } from 'lucide-react';
+import { Crosshair } from 'lucide-react';
 import { navLinks, type NavMode, type NavPoint } from '@/lib/navigation/handoff';
 
 interface Props {
@@ -28,10 +37,16 @@ interface Props {
   mode?: NavMode;
   /** Заголовок блока; null — без заголовка (для узких мест вроде панели). */
   title?: string | null;
+  /** Только ряд марок с подписью состояния: без сноски и без запроса геолокации. */
+  compact?: boolean;
+  /** На каком фоне стоит блок: подпись состояния красится под него. */
+  tone?: 'surface' | 'glass';
   className?: string;
 }
 
-export default function NavigateTo({ to, from, mode = 'car', title = 'Проложить маршрут', className }: Props) {
+export default function NavigateTo({
+  to, from, mode = 'car', title = 'Проложить маршрут', compact = false, tone = 'surface', className,
+}: Props) {
   const [fix, setFix] = useState<NavPoint | null>(from ?? null);
   const [asking, setAsking] = useState(false);
   /** Разрешение уже выдано — можно взять фикс молча, без всплывашки. */
@@ -69,6 +84,8 @@ export default function NavigateTo({ to, from, mode = 'car', title = 'Проло
   if (links.length === 0) return null;
 
   const routing = links[0].isRoute;
+  const verb = routing ? 'Маршрут в' : 'Показать в';
+  const captionClass = tone === 'glass' ? 'text-[11px] text-white/70' : 'text-xs text-[var(--text-secondary)]';
 
   return (
     <section className={className}>
@@ -76,7 +93,8 @@ export default function NavigateTo({ to, from, mode = 'car', title = 'Проло
         <h2 className="ds-h2 mb-3">{title}</h2>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`${captionClass} mr-1`}>{verb}</span>
         {links.map((l) => (
           <a
             key={l.app}
@@ -84,16 +102,19 @@ export default function NavigateTo({ to, from, mode = 'car', title = 'Проло
             /* om:// — схема приложения, а не веб-адрес: с target="_blank"
                остаётся пустая вкладка вместо открытого навигатора. */
             {...(l.url.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-            className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--accent)]"
+            aria-label={`${verb} ${l.label}`}
+            title={`${verb} ${l.label}`}
+            className="inline-flex items-center justify-center rounded-lg transition-all duration-200 hover:opacity-90 active:opacity-70"
+            style={{ width: 44, height: 44 }}
           >
-            {l.isRoute
-              ? <Navigation className="h-4 w-4 text-[var(--accent)]" aria-hidden />
-              : <MapPin className="h-4 w-4 text-[var(--ocean)]" aria-hidden />}
-            {l.isRoute ? `Маршрут в ${l.label}` : `Показать в ${l.label}`}
+            {/* Марка — файл в public, не next/image: SVG без оптимизации, как и route-48 в BottomNav. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={l.icon} alt="" width={36} height={36} decoding="async" className="rounded-lg" style={{ width: 36, height: 36 }} />
           </a>
         ))}
       </div>
 
+      {compact ? null : (<>
       {!routing && (
         <button
           type="button"
@@ -111,6 +132,7 @@ export default function NavigateTo({ to, from, mode = 'car', title = 'Проло
           ? 'Маршрут строит навигатор. Organic Maps работает без сети — на Камчатке связь кончается раньше дороги.'
           : 'Пока не знаем, где вы, — ссылки открывают точку на карте.'}
       </p>
+      </>)}
     </section>
   );
 }

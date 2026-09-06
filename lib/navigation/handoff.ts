@@ -44,8 +44,10 @@ export interface NavPoint {
 
 export interface NavLink {
   app: NavApp;
-  /** Подпись кнопки. */
+  /** Имя приложения — для aria-label и подсказки. */
   label: string;
+  /** Марка приложения на кнопке. */
+  icon: string;
   url: string;
   /** Ссылка ведёт маршрут, а не просто показывает точку. */
   isRoute: boolean;
@@ -56,6 +58,20 @@ export const NAV_LABELS: Record<NavApp, string> = {
   maps_me: 'MAPS.ME',
   yandex: 'Яндекс.Карты',
   dgis: '2ГИС',
+};
+
+/**
+ * Марка приложения на кнопке (владелец 06.09: «уменьшить внешние карты,
+ * просто логотипом на кнопке»). Слово состояния — «Маршрут в …» /
+ * «Показать в …» — с кнопки уходит в подпись ряда и в aria-label, не
+ * теряется. Файлы — public/images/nav, цвета марок — фирменные, поэтому
+ * они в SVG, а не в коде.
+ */
+export const NAV_ICONS: Record<NavApp, string> = {
+  organic: '/images/nav/organic-maps.svg',
+  maps_me: '/images/nav/maps-me.svg',
+  yandex: '/images/nav/yandex-maps.svg',
+  dgis: '/images/nav/2gis.svg',
 };
 
 /** Координата пригодна для ссылки: число, в пределах Земли, не ноль-ноль. */
@@ -170,11 +186,11 @@ export function navLinks(
   for (const app of apps) {
     const route = routeUrl(app, from, to, mode);
     if (route) {
-      out.push({ app, label: NAV_LABELS[app], url: route, isRoute: true });
+      out.push({ app, label: NAV_LABELS[app], icon: NAV_ICONS[app], url: route, isRoute: true });
       continue;
     }
     const point = pointUrl(app, to);
-    if (point) out.push({ app, label: NAV_LABELS[app], url: point, isRoute: false });
+    if (point) out.push({ app, label: NAV_LABELS[app], icon: NAV_ICONS[app], url: point, isRoute: false });
   }
   return out;
 }

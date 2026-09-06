@@ -133,10 +133,12 @@ export function PointCard({ kind, point, me, route, onRoute, onClose }: PointCar
         )}
       </div>
       {/* Чужие навигаторы — тем же компонентом, что на карточке точки маршрута:
-          для дороги до старта они по-прежнему лучше нас (слово владельца 11.08). */}
+          для дороги до старта они по-прежнему лучше нас (слово владельца 11.08).
+          Одной строкой марок (владелец 06.09), без сноски и второго запроса
+          геолокации: положение экран уже ведёт. */}
       <div className="mt-2">
         <NavigateTo to={{ lat: point.lat, lng: point.lng, name: title }} from={me ? { lat: me.lat, lng: me.lng, name: 'Я' } : null}
-          mode="car" title={null} />
+          mode="car" title={null} compact tone="glass" />
       </div>
     </div>
   );

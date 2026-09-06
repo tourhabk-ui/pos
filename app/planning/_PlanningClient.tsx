@@ -4023,6 +4023,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             from={coords ? { lat: coords.lat, lng: coords.lng, name: 'Я' } : null}
             mode="car"
             title="Проложить дорогу до точки"
+            compact
           />
         </div>
       )}
