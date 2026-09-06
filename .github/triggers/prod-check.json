@@ -1,10 +1,9 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 19,
-  "why": "06.09: проверка актуальности — свежесть кодов KVERT и русских имён после деплоя, поток тревог и сейсмолента",
+  "run": 20,
+  "why": "06.09: синк KVERT разбирает разделы активности — прогон синка (detailed) и лента вулканов с summary и высотой пепла",
   "urls": [
-    "https://vedarai.ru/api/safety/volcanic",
-    "https://vedarai.ru/api/cron/alerts-census",
-    "https://vedarai.ru/api/safety/seismic"
+    "https://vedarai.ru/api/cron/kvert-acc",
+    "https://vedarai.ru/api/safety/volcanic"
   ]
 }
