@@ -32,7 +32,7 @@ import { fetchFeed, fetchPage } from '@/lib/services/intelligence-monitor.servic
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-interface FeedRow { url: string; domain: string; label: string; active: boolean; source_type: string }
+interface FeedRow { url: string; domain: string; label: string; active: boolean; source_type: string; page_prefix: string | null }
 
 interface FeedVerdict {
   url: string;
@@ -58,10 +58,13 @@ interface FeedVerdict {
  * спрашивается ещё раз разбором, и в ответе видно, сколько записей он нашёл и
  * сколько якорей было всего.
  */
-async function probePage(url: string): Promise<FeedVerdict['page'] | null> {
+async function probePage(url: string, prefix?: string): Promise<{ found: number; page: NonNullable<FeedVerdict['page']> } | null> {
   try {
-    const page = await fetchPage(url);
-    return { anchors: page.anchors, prefix: page.prefix, titles: page.items.slice(0, 3).map((i) => i.title) };
+    const page = await fetchPage(url, prefix);
+    return {
+      found: page.items.length,
+      page: { anchors: page.anchors, prefix: page.prefix, titles: page.items.slice(0, 3).map((i) => i.title) },
+    };
   } catch {
     return null;
   }
@@ -80,13 +83,21 @@ async function probePage(url: string): Promise<FeedVerdict['page'] | null> {
  */
 const PRIVATE_HOST = /^(localhost|127\.|0\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$|metadata\.)/i;
 
-function acceptCandidate(raw: string): { url: string } | { error: string } {
+/**
+ * Кандидат записывается как `адрес` или `адрес|префикс`: у страницы-ленты
+ * записи не всегда лежат под путём самой страницы (у Anthropic лежат, у taaft
+ * нет), и проверить это надо ДО того, как строка попадёт в реестр.
+ */
+function acceptCandidate(raw: string): { url: string; prefix?: string } | { error: string } {
+  const [rawUrl, rawPrefix] = raw.trim().split('|');
   let u: URL;
-  try { u = new URL(raw.trim()); } catch { return { error: 'не разбирается как URL' }; }
+  try { u = new URL(rawUrl.trim()); } catch { return { error: 'не разбирается как URL' }; }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return { error: `протокол ${u.protocol} не разрешён` };
   if (u.username || u.password) return { error: 'учётные данные в адресе не разрешены' };
   if (PRIVATE_HOST.test(u.hostname)) return { error: 'частный адрес не разрешён' };
-  return { url: u.toString() };
+  const prefix = (rawPrefix ?? '').trim();
+  if (prefix && !prefix.startsWith('/')) return { error: 'префикс должен начинаться со слеша' };
+  return prefix ? { url: u.toString(), prefix } : { url: u.toString() };
 }
 
 const MAX_CANDIDATES = 15;
@@ -110,12 +121,18 @@ export async function GET(req: NextRequest) {
       try {
         const res = await fetchFeed(accepted.url);
         const isFeedBody = res.kind === 'rss' || res.kind === 'atom';
-        const page = isFeedBody ? null : await probePage(accepted.url);
+        const probed = isFeedBody ? null : await probePage(accepted.url, accepted.prefix);
+        const asPage = Boolean(probed && probed.found > 0);
         checked.push({
-          url: accepted.url, domain: 'candidate', label: '',
-          verdict: res.items.length > 0 ? 'feed' : (isFeedBody ? 'empty' : (page && page.titles.length > 0 ? 'page' : 'not_a_feed')),
-          items: res.items.length, bytes: res.bytes, kind: res.kind, error: null,
-          ...(page ? { page } : {}),
+          url: accepted.url + (accepted.prefix ? `|${accepted.prefix}` : ''),
+          domain: 'candidate', label: '',
+          verdict: res.items.length > 0 ? 'feed' : (isFeedBody ? 'empty' : (asPage ? 'page' : 'not_a_feed')),
+          // Записей столько, сколько нашёл тот разбор, которым источник и будет
+          // читаться: у страницы это разбор ссылок, а не разбор ленты (у него
+          // всегда ноль — и цифра «0» рядом с приговором `page` врала бы).
+          items: asPage ? probed!.found : res.items.length,
+          bytes: res.bytes, kind: res.kind, error: null,
+          ...(probed ? { page: probed.page } : {}),
         });
       } catch (err) {
         checked.push({
@@ -143,7 +160,7 @@ export async function GET(req: NextRequest) {
   let rows: FeedRow[];
   try {
     const res = await pool.query<FeedRow>(
-      `SELECT url, domain, label, active, source_type
+      `SELECT url, domain, label, active, source_type, page_prefix
          FROM intelligence_sources
         WHERE source_type IN ('rss', 'page')
         ORDER BY domain, url`,
@@ -170,7 +187,7 @@ export async function GET(req: NextRequest) {
       // Страницу судит разбор, а не форма тела: ленты у такого источника нет
       // по построению, и мерить его меркой ленты значит всегда получать «нет».
       try {
-        const page = await fetchPage(row.url);
+        const page = await fetchPage(row.url, row.page_prefix ?? undefined);
         feeds.push({
           url: row.url, domain: row.domain, label: row.label,
           verdict: page.items.length > 0 ? 'page' : 'empty',
