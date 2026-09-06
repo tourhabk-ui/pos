@@ -1,8 +1,8 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 21,
-  "why": "06.09: Watchdog каждые полчаса пишет «Intelligence Monitor — 3 прогонов без результата, no_signals» — берём прогон разведки и смотрим empty_reasons поимённо",
+  "run": 22,
+  "why": "06.09: перепись лент разведки С ПРОДА — замер с раннера дал другие ответы (kamgov 403 против 404, visitkamchatka 404 против 200 HTML), а читает ленты прод",
   "urls": [
-    "https://vedarai.ru/api/cron/intelligence"
+    "https://vedarai.ru/api/cron/intel-feeds-census"
   ]
 }
