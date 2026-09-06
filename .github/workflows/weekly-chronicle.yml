@@ -74,6 +74,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # То же, что у issue-triage: прогон от переводчика инициирует
+          # github-actions. Разрешён именно он, не '*'.
+          allowed_bots: github-actions
           claude_args: |
             --model claude-fable-5-1
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep"

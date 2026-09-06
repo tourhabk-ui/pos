@@ -95,6 +95,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Прогон, рождённый переводчиком, инициирует github-actions — бот,
+          # и рука по умолчанию таких не пускает («Workflow initiated by
+          # non-human actor», прогон 61). Разрешён ИМЕННО он, а не '*':
+          # звёздочка пустила бы к руке любое приложение с правом писать в
+          # репозиторий, а нам нужен один известный инициатор.
+          allowed_bots: github-actions
           claude_args: |
             --model claude-fable-5-1
             --allowedTools "Bash,Read,Glob,Grep"
