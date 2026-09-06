@@ -421,11 +421,21 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     // главной честно считал дубли за отдельные угрозы. Повтор того же текста
     // при активном оригинале — это ПОДТВЕРЖДЕНИЕ угрозы: продлеваем срок
     // действия оригинала, строку не плодим.
+    //
+    // Сравнение НОРМАЛИЗОВАННОЕ, не дословное (06.09): одно и то же событие
+    // (дорожное ограничение, пожарная опасность) приходит сразу с нескольких
+    // источников — kamgov, раздел Минтура, ВК МЧС — и каждый чуть иначе
+    // форматирует один и тот же текст (лишний пробел, другой регистр). Точное
+    // `title = $2` эти пары не ловило: 5-6 источников об одном и том же —
+    // 5-6 отдельных строк и 5-6 push. lower+trim+схлопнутые пробелы ловит
+    // разницу в оформлении, но не путает РАЗНЫЕ события: заголовок остаётся
+    // единственным ключом, полное текстовое совпадение по-прежнему не требуется.
     const dup = await query(
       `UPDATE external_alerts
        SET expires_at = GREATEST(expires_at, $4)
-       WHERE alert_type = $1 AND title = $2
-         AND COALESCE(description, '') = COALESCE($3, '')
+       WHERE alert_type = $1
+         AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
+         AND regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g')
          AND expires_at > NOW()
        RETURNING id`,
       [event.alert_type, event.title, event.description, expiresAt]

@@ -461,7 +461,11 @@ async function checkUndeliveredSafetyPush(): Promise<CheckResult> {
       `SELECT COUNT(*)::text AS count,
               (ARRAY_AGG(title ORDER BY created_at ASC))[1] AS oldest_title
          FROM external_alerts
-        WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
+        -- Критерий обязан совпадать с dispatchPushAlerts (safety-ingest) —
+        -- иначе сторож бьёт тревогу о том, что крон и не пытался слать (или
+        -- наоборот, молчит о реальной недоставке). road_closure убран из
+        -- обоих мест разом 06.09 (решение владельца, отменяет #836).
+        WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
           AND push_sent_at IS NULL
           AND created_at < NOW() - INTERVAL '30 minutes'
           AND created_at > NOW() - INTERVAL '7 days'

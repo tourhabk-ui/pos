@@ -27,7 +27,15 @@ describe('saveEvent не плодит строки с одинаковым со�
 
   it('перед INSERT стоит проверка идентичного активного алерта', () => {
     expect(body, 'контент-дедуп исчез — суточные сводки МЧС снова размножатся')
-      .toMatch(/UPDATE external_alerts[\s\S]*?alert_type = \$1 AND title = \$2[\s\S]*?COALESCE\(description, ''\) = COALESCE\(\$3, ''\)[\s\S]*?expires_at > NOW\(\)/);
+      .toMatch(/UPDATE external_alerts[\s\S]*?alert_type = \$1[\s\S]*?lower\(trim\(title\)\)[\s\S]*?lower\(trim\(COALESCE\(description, ''\)\)\)[\s\S]*?expires_at > NOW\(\)/);
+  });
+
+  it('сравнение нормализованное — регистр и пробелы не заводят дубль (06.09)', () => {
+    // Одно и то же ограничение с разных источников (kamgov, Минтур, ВК МЧС)
+    // форматируется чуть по-разному — раньше это давало 5-6 отдельных строк
+    // и 5-6 push об одном и том же. lower+trim+схлопнутые пробелы это ловит.
+    expect(body).toMatch(/lower\(trim\(title\)\)/);
+    expect(body).toMatch(/lower\(trim\(\$2\)\)/);
   });
 
   it('повтор текста ПРОДЛЕВАЕТ срок оригинала, а не теряется', () => {
