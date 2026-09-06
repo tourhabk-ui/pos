@@ -97,7 +97,7 @@ describe('«когда спрашивали» — одно правило на �
   });
 
   it('обе ленты зовут его, а не считают по-своему', () => {
-    expect(VOLCANIC).toMatch(/checked_at: await lastIngestAt\(\)/);
+    expect(VOLCANIC).toMatch(/lastIngestAt\(\)/);
     expect(FEED).toMatch(/const runAt = await lastIngestAt\(\)/);
     expect(FEED).not.toMatch(/MAX\(created_at\) AS at FROM external_alerts/);
   });
@@ -105,6 +105,43 @@ describe('«когда спрашивали» — одно правило на �
   it('прогонов нет или запрос упал — null и строка в логе, не выдуманное «сейчас»', () => {
     expect(RULE).toMatch(/return at \? new Date\(at\)\.toISOString\(\) : null/);
     expect(RULE).toMatch(/console\.error\('\[safety\] последний прогон приёма не установлен:'/);
-    expect(VOLCANIC).toMatch(/checked_at: null, error: msg/);
+    expect(VOLCANIC).toMatch(/checked_at: null, statuses:/);
+  });
+});
+
+describe('вкладка «Вулканы» показывает и текущие коды KVERT (владелец 06.09)', () => {
+  // Замер prod-check run 15: за семь суток одна новость шестидневной
+  // давности, а коды KVERT обновлялись каждые 6 часов и жили только на
+  // главной. Новость говорит «что случилось», код — «что сейчас».
+  const STATUS = strip(read('lib/services/safety/volcano-status.ts'));
+
+  it('коды приходят тем же роутом, что и новости', () => {
+    expect(VOLCANIC).toMatch(/getVolcanoStatuses/);
+    expect(VOLCANIC).toMatch(/statuses/);
+  });
+
+  it('отказ новостей не гасит коды и наоборот', () => {
+    expect(VOLCANIC).toMatch(/events: \[\], checked_at: null, statuses: await getVolcanoStatuses\(\)/);
+    expect(HUB).toMatch(/setVolcanoStatuses\(d\.statuses \?\? null\)/);
+  });
+
+  it('реестр не прочитан — сказано прямо, а не «везде спокойно»', () => {
+    expect(STATUS).toMatch(/total: null, green: null, updated_at: null/);
+    expect(STATUS).toMatch(/console\.error\('\[safety\] коды KVERT не прочитаны:'/);
+    expect(HUB).toMatch(/Коды KVERT прочитать не удалось/);
+  });
+
+  it('подписи цветов берутся из общего словаря, а не заводятся заново', () => {
+    expect(HUB).toMatch(/ACC_META\[\(v\.color as AccColor\)\]/);
+    expect(HUB).not.toMatch(/'Оранжевый'|'Жёлтый'|'Красный'/);
+  });
+
+  it('старое наблюдение помечено, дата наблюдения не выдумывается', () => {
+    expect(HUB).toMatch(/isVolcanoObservationStale\(v\.observed_at\)/);
+    expect(HUB).toMatch(/'дата неизвестна'/);
+  });
+
+  it('время проверки за пределами сегодняшнего дня называет день', () => {
+    expect(HUB).toMatch(/t\.toDateString\(\) === now\.toDateString\(\)/);
   });
 });
