@@ -106,6 +106,43 @@ describe('источник-страница: проводка', () => {
   });
 });
 
+describe('источник-страница: префикс — колонка, а не догадка из адреса', () => {
+  const service = strip(readFileSync(join(ROOT, 'lib/services/intelligence-monitor.service.ts'), 'utf8'));
+  const census = strip(readFileSync(join(ROOT, 'app/api/cron/intel-feeds-census/route.ts'), 'utf8'));
+  const migration = readFileSync(join(ROOT, 'migrations/937_intel_page_sources.sql'), 'utf8');
+
+  it('явный префикс перекрывает путь страницы', () => {
+    const got = extractPageLinks(
+      '<a href="/ai/some-tool">Инструмент недели</a><a href="/new/index">Список новинок</a>',
+      'https://theresanaiforthat.com/new/',
+      { prefix: '/ai/' },
+    );
+    expect(got.prefix).toBe('/ai/');
+    expect(got.links.map((l) => l.url)).toEqual(['https://theresanaiforthat.com/ai/some-tool']);
+  });
+
+  it('колонка есть в схеме и читается в реестре', () => {
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS page_prefix TEXT/);
+    expect(service).toMatch(/SELECT url, source_type, domain, label, search_query, ai_filter, page_prefix/);
+    expect(service).toMatch(/prefix: row\.page_prefix/);
+    expect(census).toMatch(/row\.page_prefix \?\? undefined/);
+  });
+
+  it('миграция заводит Anthropic страницей и НЕ заводит непроверенный taaft', () => {
+    expect(migration).toMatch(/'https:\/\/www\.anthropic\.com\/news', 'page'/);
+    expect(migration).not.toMatch(/INSERT[\s\S]*theresanaiforthat/);
+  });
+
+  it('перепись проверяет пару адрес|префикс до записи в реестр', () => {
+    expect(census).toMatch(/raw\.trim\(\)\.split\('\|'\)/);
+    expect(census).toMatch(/префикс должен начинаться со слеша/);
+  });
+
+  it('у приговора «страница» число записей от разбора ссылок, а не от разбора ленты', () => {
+    expect(census).toMatch(/items: asPage \? probed!\.found : res\.items\.length/);
+  });
+});
+
 describe('источник-страница: перепись лент', () => {
   const census = strip(readFileSync(join(ROOT, 'app/api/cron/intel-feeds-census/route.ts'), 'utf8'));
 

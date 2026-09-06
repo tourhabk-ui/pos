@@ -130,8 +130,13 @@ interface DomainSource {
    * Страницы-ленты: источник публикует записи обычным HTML, ленты у него нет
    * (случай Anthropic — замер 06.09). Читаются детерминированным разбором,
    * см. lib/services/intelligence/page-links.ts.
+   *
+   * `prefix` — путь, под которым лежат записи. У Anthropic он совпадает с
+   * путём самой страницы (/news → /news/...), у taaft НЕТ, поэтому он
+   * хранится отдельной колонкой, а не выводится из адреса. NULL — «путь
+   * самой страницы».
    */
-  pages?:  string[];
+  pages?:  Array<{ url: string; prefix: string | null }>;
   search_query: string;
   ai_filter: string;
 }
@@ -263,8 +268,9 @@ async function loadDomainsFromDB(): Promise<Record<string, DomainSource>> {
     const { rows } = await pool.query<{
       url: string; source_type: string; domain: string;
       label: string; search_query: string | null; ai_filter: string | null;
+      page_prefix: string | null;
     }>(
-      `SELECT url, source_type, domain, label, search_query, ai_filter
+      `SELECT url, source_type, domain, label, search_query, ai_filter, page_prefix
        FROM intelligence_sources WHERE active = true ORDER BY domain, created_at`
     );
 
@@ -282,7 +288,7 @@ async function loadDomainsFromDB(): Promise<Record<string, DomainSource>> {
         d.rss.push(row.url);
         if (!d.label) d.label = row.domain.replace('_', ' ');
       } else if (row.source_type === 'page') {
-        (d.pages ??= []).push(row.url);
+        (d.pages ??= []).push({ url: row.url, prefix: row.page_prefix });
         if (!d.label) d.label = row.domain.replace('_', ' ');
       } else if (row.source_type.startsWith('search_')) {
         if (row.search_query) d.search_query = row.search_query;
@@ -608,10 +614,10 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Do
   // 4. Страницы-ленты (источник без RSS — случай Anthropic, 06.09)
   const pages = config.pages ?? [];
   census.attempted += pages.length;
-  const pageResults = await Promise.allSettled(pages.map(async (url) => {
+  const pageResults = await Promise.allSettled(pages.map(async ({ url, prefix }) => {
     const host = new URL(url).hostname;
     try {
-      const page = await fetchPage(url);
+      const page = await fetchPage(url, prefix ?? undefined);
       // Ноль записей при живых якорях — это смена вёрстки, а не молчание
       // источника. Разница названа словами, чтобы чинить разбор, а не список.
       const empty = page.items.length === 0
