@@ -45,7 +45,11 @@ export async function GET(_req: NextRequest, { params }: Props) {
         },
       });
     }
-  } catch {
+  } catch (err) {
+    // Молчащий catch превращал поломку хранилища в «картинки нет»: 503 без
+    // единой строки в логе, и чинить нечего (§4.0 — отказ не глушится).
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[images] снимок не выбрался:', routeId, msg);
     return new NextResponse('Image unavailable', { status: 503 });
   }
 
