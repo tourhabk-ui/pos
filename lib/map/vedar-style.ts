@@ -37,7 +37,7 @@
  * цифрой. Ровно этим карта и отличается от картинки.
  */
 
-import { PLACES_ATTRIBUTION, OVERVIEW_MAX_ZOOM } from '@/lib/map/pack-source';
+import { PLACES_ATTRIBUTION, OVERVIEW_MAX_ZOOM, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { calculatedCarLine } from '@/lib/map/line-standard';
 
 /**
@@ -1199,9 +1199,14 @@ function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<strin
  * держит вложенные значения GeoJSON как есть, и `length` по ним считается.
  * `coalesce` с пустым литералом — на случай объекта без поля вовсе.
  *
- * Круг виден с z6 — на обзоре (z4-7) место читается точкой на фоне
- * рельефа; подпись — с z9, когда есть глифы, и в вытеснении тревожная
- * точка идёт первой: она не должна проигрывать хутору.
+ * Круг виден с самого нижнего зума карты (OVERVIEW_MIN_ZOOM, сейчас z4) —
+ * на /map это первый экран, который видит человек, и «Точек: 383» под ним
+ * не должно врать пустой картой (владелец 06.09, скрин: «точек мест нет»,
+ * зум 4.4). До этой правки круг был виден только с z6: разумно для
+ * полевого экрана, где «На маршруте» всегда стартует ближе, но не для
+ * витрины всего края, которая открывается на минимальном зуме. Подпись —
+ * с z9, когда есть глифы (383 имени на весь край читались бы кашей), и в
+ * вытеснении тревожная точка идёт первой: она не должна проигрывать хутору.
  */
 function vedarPlaceLayers(
   sources: VedarStyleSources, p: MapPalette, glyphs: string | null, font: string, ns: string,
@@ -1212,9 +1217,9 @@ function vedarPlaceLayers(
   const color: unknown = ['case', hazardous, p.cliff, p.peak];
   const out: unknown[] = [{
     id: `vedar-places${ns}`, type: 'circle', source,
-    minzoom: 6,
+    minzoom: OVERVIEW_MIN_ZOOM,
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 2.5, 13, 5.5],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], OVERVIEW_MIN_ZOOM, 2, 13, 5.5],
       'circle-color': color,
       'circle-stroke-color': p.background,
       'circle-stroke-width': 1.2,

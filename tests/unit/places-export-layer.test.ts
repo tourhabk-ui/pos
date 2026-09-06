@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   placesKey, PLACES_BUILT, PLACES_ATTRIBUTION, resolvePackSource,
-  BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
+  BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT, OVERVIEW_MIN_ZOOM,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
 import { packKeysToVerify } from '@/scripts/map-tiles/verify-packs';
@@ -190,6 +190,15 @@ describe('слой мест в стиле карты', () => {
     const circle = style.layers.find((l) => l.id === 'vedar-places');
     expect(JSON.stringify(circle?.paint?.['circle-color'])).toContain('"hazard_types"');
     expect(JSON.stringify(circle?.paint?.['circle-color'])).not.toContain('location_type');
+  });
+
+  it('круг виден с нижнего зума карты, не только с z6 (владелец 06.09, «точек мест нет» на z4.4)', () => {
+    // /map открывается на минимальном зуме края — «Точек: 383» под картой
+    // не должно врать пустой картой ровно там, где человек её впервые видит.
+    const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
+    const circle = style.layers.find((l) => l.id === 'vedar-places') as { minzoom?: number } | undefined;
+    expect(circle?.minzoom).toBe(OVERVIEW_MIN_ZOOM);
+    expect(OVERVIEW_MIN_ZOOM).toBeLessThan(6);
   });
 
   it('подкладка соседа (base) несёт слой с пространством имён региона; detail — нет', () => {
