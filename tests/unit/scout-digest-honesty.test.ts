@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { unsourcedPercents } from '@/lib/agents/scout-digest';
+import { tidySections } from '@/lib/agents/fact-check';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -170,5 +171,40 @@ describe('даты не выдумываются (03.09)', () => {
   it('оба промпта запрещают даты публикации и «сегодня/вчера»', () => {
     const rules = SRC.match(/ДАТЫ: не пиши дат публикации/g) ?? [];
     expect(rules.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('пустой раздел не утверждает, что тема молчала (06.09)', () => {
+  it('раздел без пунктов исчезает вместе с заголовком', () => {
+    const { text, emptied } = tidySections(
+      '<b>Дайджест</b>\n\n<b>AI & Tech</b>\n- Вышла модель\n\n<b>Камчатка</b>\n- Нет значимых сигналов за сегодня\n',
+    );
+    expect(text).toContain('<b>AI & Tech</b>');
+    expect(text).not.toContain('Камчатка');
+    expect(text).not.toMatch(/Нет значимых сигналов/);
+    expect(emptied).toEqual(['Камчатка']);
+  });
+
+  it('раздел с пунктами не трогается', () => {
+    const { text, emptied } = tidySections('<b>Дайджест</b>\n\n<b>Камчатка</b>\n- Пепел Шивелуча\n');
+    expect(text).toContain('<b>Камчатка</b>');
+    expect(emptied).toEqual([]);
+  });
+
+  it('заголовок самого выпуска разделом не считается', () => {
+    const { text } = tidySections('<b>Дайджест 06.09</b>\n\n<b>AI</b>\n- Что-то\n');
+    expect(text).toMatch(/^<b>Дайджест 06\.09<\/b>/);
+  });
+
+  it('промпт запрещает писать пустой раздел, а не разрешает заглушку', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf8');
+    expect(src).toMatch(/НЕ ПИШИ ВОВСЕ/);
+    expect(src).not.toMatch(/"Нет значимых сигналов за сегодня" — ТОЛЬКО если/);
+  });
+
+  it('пустота не исчезает из виду: имена разделов уходят в журнал прогона', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf8');
+    expect(src).toMatch(/sections_empty\?: string\[\]/);
+    expect(src).toMatch(/sections_empty: sectionsEmpty/);
   });
 });

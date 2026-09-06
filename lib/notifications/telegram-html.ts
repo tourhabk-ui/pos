@@ -12,6 +12,13 @@
  * закрывается в обратном порядке. Лишний закрывающий тег без пары
  * выбрасывается. Итог всегда влезает в потолок и всегда сбалансирован.
  *
+ * 06.09, тот же канал, ДРУГАЯ ошибка: `Bot API 400: can't parse entities:
+ * Unclosed start tag at byte offset 381`. Теги здесь были сбалансированы —
+ * дело в голом `<` внутри ТЕКСТА: разборщик Bot API принимает его за начало
+ * тега и ищет закрывающую скобку до конца сообщения. Поэтому текст между
+ * тегами экранируется (`<` → `&lt;`, одинокий `&` → `&amp;`), а сами теги не
+ * трогаются. Первая починка балансировала теги и этот случай пропускала.
+ *
  * Телеграм знает ограниченный набор тегов (parse_mode=HTML): b/strong, i/em,
  * u/ins, s/strike/del, span (только class="tg-spoiler"), tg-spoiler, a, code,
  * pre, blockquote (с expandable), tg-emoji. Незнакомый тег Bot API тоже не
@@ -30,6 +37,53 @@ export const TELEGRAM_TEXT_LIMIT = 4096;
 const TAG_RX = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)(\s[^<>]*)?>/g;
 
 interface TagToken { start: number; end: number; closing: boolean; name: string; raw: string }
+
+/** Сущность, которую разбирать не надо: `&amp;`, `&#8212;`, `&#x2014;`. */
+const ENTITY = /&(?:[a-zA-Z][a-zA-Z0-9]{1,7}|#\d{1,6}|#[xX][0-9a-fA-F]{1,6});/;
+
+/**
+ * Экранирует ТЕКСТ между тегами: голый `<` Bot API читает как начало тега.
+ * Сущности сохраняются как есть — иначе `&amp;` превратился бы в `&amp;amp;`
+ * (то самое двойное экранирование, от которого стоит сторож html-entities).
+ */
+function escapeText(chunk: string): string {
+  return chunk
+    .replace(new RegExp(`&(?!${ENTITY.source.slice(1)})`, 'g'), '&amp;')
+    .replace(/</g, '&lt;');
+}
+
+/**
+ * Голый `<` вне тега — есть или нет. Позиции тегов известны, значит всё
+ * остальное `<` в тексте.
+ */
+function strayAngle(text: string): boolean {
+  const spans = tokens(text);
+  let i = text.indexOf('<');
+  while (i !== -1) {
+    if (!spans.some((t) => t.start === i)) return true;
+    i = text.indexOf('<', i + 1);
+  }
+  return false;
+}
+
+/**
+ * Текст между тегами — экранированным, теги — как были.
+ *
+ * Незнакомые теги остаются нетронутыми намеренно: их называет
+ * `telegramHtmlIssue`, и решение по ним принимает вызывающий. Экранировать их
+ * значило бы молча превращать нарушение формата в видимый мусор.
+ */
+export function escapeStrayMarkup(text: string): string {
+  const src = String(text ?? '');
+  let out = '';
+  let pos = 0;
+  for (const t of tokens(src)) {
+    out += escapeText(src.slice(pos, t.start));
+    out += t.raw;
+    pos = t.end;
+  }
+  return out + escapeText(src.slice(pos));
+}
 
 function tokens(text: string): TagToken[] {
   const out: TagToken[] = [];
@@ -51,6 +105,7 @@ function tokens(text: string): TagToken[] {
  * закрывающего. Диагноз, а не починка: чинит `repairTelegramHtml`.
  */
 export function telegramHtmlIssue(text: string): string | null {
+  if (strayAngle(text)) return 'голый < в тексте: Bot API примет его за начало тега';
   const stack: string[] = [];
   for (const t of tokens(text)) {
     if (!TELEGRAM_TAGS.has(t.name)) return `тег <${t.name}> Telegram не знает`;
@@ -76,7 +131,9 @@ export function telegramHtmlIssue(text: string): string | null {
  * называет `telegramHtmlIssue`, и решение о них принимает вызывающий.
  */
 export function repairTelegramHtml(text: string, limit: number = TELEGRAM_TEXT_LIMIT): string {
-  const src = String(text ?? '');
+  // Экранирование ПЕРЕД срезом, а не после: `<` вырастает в четыре знака, и
+  // после среза итог перестал бы влезать в потолок.
+  const src = escapeStrayMarkup(String(text ?? ''));
   // Запас под хвост закрывающих тегов: `</blockquote>` — 13 знаков, глубина
   // вложенности в живых постах не больше трёх.
   const reserve = 48;
