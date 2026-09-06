@@ -172,10 +172,22 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // Чем прод вообще может читать НЕ-ленты. Anthropic новостей лентой не
+  // публикует (замер 06.09: /news отдаёт страницу, три RSS-адреса — 404), и
+  // единственный путь к ним — разбор страницы. Настроен ли инструмент, по
+  // молчанию разведки не видно: без ключа Firecrawl просто ничего не вернёт.
+  // Имена переменных без значений — так же, как в payment-config.
+  const tools = {
+    firecrawl: Boolean((process.env.FIRECRAWL_API_KEY ?? '').trim()),
+    tavily: Boolean((process.env.TAVILY_API_KEY ?? '').trim()),
+    brave: Boolean((process.env.BRAVE_SEARCH_API_KEY ?? '').trim()),
+  };
+
   return NextResponse.json({
     probe: 'intel_feeds_census_v1',
     checked_at: new Date().toISOString(),
     checked_from: 'prod',
+    tools,
     total: feeds.length,
     by_verdict: byVerdict,
     domains,
