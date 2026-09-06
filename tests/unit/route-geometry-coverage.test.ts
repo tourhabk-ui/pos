@@ -28,7 +28,7 @@ describe('geometryCoverage — три состояния', () => {
     const c = geometryCoverage({ total: 100, withoutTrack: 10 });
     expect(c.state).toBe('ok');
     expect(c.pct).toBe(90);
-    expect(c.label).toBe('Трек для офлайн-карты есть у 90% маршрутов');
+    expect(c.label).toBe('Линия для офлайн-карты есть у 90% маршрутов');
     expect(coverageDot(c.state)).toBe('var(--success)');
   });
 
@@ -36,7 +36,7 @@ describe('geometryCoverage — три состояния', () => {
     const c = geometryCoverage({ total: 392, withoutTrack: 106 });
     expect(c.state).toBe('warning');
     expect(c.pct).toBe(73);
-    expect(c.label).toBe('Без трека для офлайн-карты 106 маршрутов из 392');
+    expect(c.label).toBe('Без линии для офлайн-карты 106 маршрутов из 392');
     expect(coverageDot(c.state)).toBe('var(--warning)');
   });
 
@@ -63,9 +63,45 @@ describe('geometryCoverage — три состояния', () => {
     const c = geometryCoverage(input);
     expect(c.state).toBe('unknown');
     expect(c.pct).toBeNull();
-    expect(c.label).toBe('Покрытие маршрутов треками не посчитано');
+    expect(c.label).toBe('Линии маршрутов для офлайн-карты не посчитаны');
     // Главное: никакой зелёной точки. Зелёное = «проверено и хорошо».
     expect(coverageDot(c.state)).toBeNull();
+  });
+});
+
+describe('подпись обещает ровно то, что посчитано', () => {
+  /**
+   * Первая редакция считала «geometry не NULL и точек больше одной», а
+   * подписывала «Трек для офлайн-карты есть у N%». В §12 трек — род линии,
+   * который ОДИН даёт право обещать ведение; набросок прямыми и линия из
+   * скрейпа понижены решением владельца 17.08 и ведения не обещают. Замер
+   * 04.09: из 392 живых скрейп 252, синтетика 10 — то есть почти всё, что
+   * счётчик засчитал бы в «трек». Подпись обещала бы ведение там, где
+   * платформа его сознательно не даёт, и цифра встала бы в один ряд с
+   * «778 местами» и «20 турами».
+   *
+   * Право вести решает lib/routes/navigability и одним запросом не считается.
+   * Поэтому подпись говорит про НАЛИЧИЕ ЛИНИИ — и не смеет говорить иначе.
+   */
+  const labels = [
+    geometryCoverage({ total: 100, withoutTrack: 10 }).label,
+    geometryCoverage({ total: 100, withoutTrack: 50 }).label,
+    geometryCoverage({ total: null, withoutTrack: null }).label,
+  ];
+
+  it('ни одна подпись не называет линию треком', () => {
+    for (const l of labels) expect(l.toLowerCase()).not.toMatch(/трек/);
+  });
+
+  it('ни одна подпись не обещает ведения по линии', () => {
+    for (const l of labels) expect(l.toLowerCase()).not.toMatch(/вед[её]т|проведёт|навигац/);
+  });
+
+  it('счётчик не выдаёт себя за меру навигабельности', () => {
+    const HEALTH = readFileSync(join(process.cwd(), 'lib/services/routes/routes-geometry-health.ts'), 'utf-8');
+    // Правило про право вести живёт в одном месте; если счётчик когда-нибудь
+    // начнёт его считать — он обязан звать его, а не заводить своё.
+    expect(HEALTH).toMatch(/navigability/);
   });
 });
 
