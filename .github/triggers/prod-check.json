@@ -1,9 +1,8 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 20,
-  "why": "06.09: синк KVERT разбирает разделы активности — прогон синка (detailed) и лента вулканов с summary и высотой пепла",
+  "run": 21,
+  "why": "06.09: Watchdog каждые полчаса пишет «Intelligence Monitor — 3 прогонов без результата, no_signals» — берём прогон разведки и смотрим empty_reasons поимённо",
   "urls": [
-    "https://vedarai.ru/api/cron/kvert-acc",
-    "https://vedarai.ru/api/safety/volcanic"
+    "https://vedarai.ru/api/cron/intelligence"
   ]
 }
