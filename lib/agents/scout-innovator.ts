@@ -9,8 +9,9 @@
  */
 
 import { readFile, readdir } from 'fs/promises';
+import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { join } from 'path';
-import { callQwen, callAIWaterfallOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callQwen, callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
@@ -18,6 +19,7 @@ import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
 import { jaccardSimilarity } from '@/lib/utils/text-similarity';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { repairTelegramHtml } from '@/lib/notifications/telegram-html';
 
 interface StructuredProposal {
   title: string;
@@ -184,9 +186,29 @@ export function parseProposalsResponse(raw: string): { proposals: StructuredProp
     return { proposals: parsed as StructuredProposal[], diag: `распознано предложений: ${parsed.length}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // Оборванный по потолку токенов массив (05.09): целые элементы спасаются,
+    // недописанный — нет. Диагноз говорит и сколько спасено, и что обрыв был:
+    // «спасено 2» без слова «оборван» выглядело бы как честные два.
+    // Хвост от первой `[`, а не m[0]: жадный `\[[\s\S]*\]` кончается на
+    // ПОСЛЕДНЕЙ `]` — у оборванного ответа это `]` вложенного массива
+    // внутри последнего целого объекта, и он тоже выглядел бы оборванным.
+    const salvaged = salvageTruncatedArray(unfenced.slice(unfenced.indexOf('[')));
+    if (salvaged.length > 0) {
+      return {
+        proposals: salvaged as StructuredProposal[],
+        diag: `ответ оборван (${msg}), спасено целых предложений: ${salvaged.length}`,
+      };
+    }
     return { proposals: [], diag: `JSON.parse упал: ${msg} (head="${m[0].slice(0, 120)}")` };
   }
 }
+
+/**
+ * Спасение оборванного массива живёт в lib/ai/json-salvage: у линзы «ИИ-фичи»
+ * ровно та же беда, и второе правило разъехалось бы с первым. Ре-экспорт —
+ * чтобы прежние импорты (и сторож scout-proposals-parse) не переписывались.
+ */
+export { salvageTruncatedArray };
 
 async function generateStructuredProposals(
   repoContext: string,
@@ -264,11 +286,21 @@ ${gitSection}
     // заблокированный OpenRouter/Anthropic-роут, вызов падал — эволюция
     // переставала рождать предложения. Идём через подтверждённо-живой из РФ
     // Qwen (DashScope), а водопад (DeepSeek/GLM, тоже доступны из РФ) — fallback.
-    const qwen = await callQwen(messages);
+    // 3000 токенов, а не умолчание 800 (05.09): три предложения с шагами и
+    // критериями по-русски — это 2500-4000 знаков JSON, и на 800 токенах
+    // ответ рвался на позиции ~2440 (прогон 389: «JSON.parse упал: Expected
+    // ',' or '}'»). Обрыв — не ошибка модели, а наш потолок.
+    const qwen = await callQwen(messages, { maxTokens: 3000 });
     // Отказ водопада приходит null, а не строкой-извинением: иначе он уезжает
     // в разбор и превращается в «нет JSON-массива» (экран владельца 04.09).
-    const raw = qwen?.trim() ? qwen : await callAIWaterfallOrNull(messages);
-    const model_used = qwen?.trim() ? 'qwen' : 'waterfall';
+    //
+    // Качественный путь с явным потолком, а не голый водопад (05.09, прогон
+    // 390): Qwen отказал по квоте, запасной путь ушёл в callAIWaterfall без
+    // опций — и там свои 600-800 токенов на ногу. Ответ снова оборвался на
+    // позиции 2437, из массива спасся один элемент. Потолок, поднятый только
+    // у Qwen, не поднят у того, кто отвечает вместо него.
+    const raw = qwen?.trim() ? qwen : await callAIQualityOrNull(messages, { maxTokens: 3000 });
+    const model_used = qwen?.trim() ? 'qwen' : 'quality';
     if (raw === null) {
       const why = describeRecentAiFailures() ?? 'причины не записаны';
       console.error(`[scout-innovator] Phase 1 (модель=${model_used}): провайдеры отказали — ${why}`);
@@ -467,7 +499,7 @@ async function tgSend(text: string): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text.substring(0, 4000),
+        text: repairTelegramHtml(text, 4000),
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),

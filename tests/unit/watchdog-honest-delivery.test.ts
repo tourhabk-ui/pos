@@ -100,14 +100,15 @@ describe('W-3: несосчитанное не выдаётся за ноль', 
     expect(logged, 'пустой catch превращает поломку в «данных нет»').toBe(true);
   });
 
-  it('ИЗМЕРЕННЫЙ ноль по-прежнему понижает критичность — поведение сохранено', async () => {
+  it('ИЗМЕРЕННЫЙ ноль — алерта нет, факт в логе (решение владельца 05.09)', async () => {
     // Пустой канал это один стоячий факт о воронке, а не N критов о недоставке.
-    // Правка касается только неизмеренного случая, не этого.
+    // Ноль ИЗМЕРЕН — потому и молчим; неизмеренный (тест выше) остаётся КРИТом.
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     routeQueries(0);
     const result = await runWatchdog();
-    const alert = result.alerts.find(a => a.type === 'push_undelivered')!;
-    expect(alert.critical).toBe(false);
-    expect(alert.details).toContain('Push-канал пуст');
+    expect(result.alerts.find(a => a.type === 'push_undelivered')).toBeUndefined();
+    expect(infoSpy.mock.calls.some(c => String(c[0]).includes('Push-канал пуст'))).toBe(true);
+    infoSpy.mockRestore();
   });
 
   it('подписчики есть, доставки нет — КРИТ с их числом', async () => {

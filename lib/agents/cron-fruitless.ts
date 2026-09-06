@@ -30,6 +30,15 @@ export interface CronOutcomeRow {
   ended_at: string;
   /** Причина пропуска, если крон её записал (scout-digest пишет). */
   skip_reason?: string | null;
+  /**
+   * Что именно молчит — словами и поимённо, если крон записал.
+   *
+   * 06.09 алерт говорил «чаще всего: no_signals», и по нему нельзя было
+   * понять, что чинить. В том же прогоне лежало готовое: «travel_industry:
+   * 1 из 5 лент ответили и пусты, 4 отказали». Класс беды у нас был, а
+   * адрес починки — нет.
+   */
+  detail?: string | null;
 }
 
 export interface FruitlessCron {
@@ -43,6 +52,8 @@ export interface FruitlessCron {
   daysSinceSuccess: number | null;
   /** Самая частая причина пропуска за серию — с неё начинают разбор. */
   dominantReason: string | null;
+  /** Подробность из самого свежего прогона серии: что именно молчит. */
+  detail: string | null;
 }
 
 /**
@@ -114,6 +125,10 @@ export function findFruitlessCrons(
       if (n > best) { dominant = reason; best = n; }
     }
 
+    // Подробность берём у САМОГО СВЕЖЕГО прогона серии: старая лента могла
+    // ожить, и чинить надо то, что молчит сейчас.
+    const freshDetail = window.map((r) => (r.detail ?? '').trim()).find((d) => d !== '') ?? null;
+
     out.push({
       key: e.key,
       label: e.label,
@@ -121,6 +136,7 @@ export function findFruitlessCrons(
       lastSuccessAt: success?.ended_at ?? null,
       daysSinceSuccess: daysSince,
       dominantReason: dominant,
+      detail: freshDetail,
     });
   }
 
@@ -137,7 +153,10 @@ export function formatFruitlessCrons(list: readonly FruitlessCron[]): string {
       const why = c.dominantReason === null
         ? 'причина пропуска не записана'
         : `чаще всего: ${c.dominantReason}`;
-      return `${c.label} — ${c.runs} прогонов подряд без результата, ${since}, ${why}`;
+      // Имя молчащего источника — то, ради чего алерт читают. Без него
+      // «no_signals» отправляет разбираться во всю разведку сразу.
+      const what = c.detail ? ` (${c.detail})` : '';
+      return `${c.label} — ${c.runs} прогонов подряд без результата, ${since}, ${why}${what}`;
     })
     .join('; ');
 }

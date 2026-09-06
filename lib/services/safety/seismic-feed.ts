@@ -6,6 +6,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { lastIngestAt } from '@/lib/safety/ingest-run';
 
 export interface SeismicEvent {
   id: string;
@@ -85,13 +86,16 @@ async function fetchFromKbgsras(): Promise<{ events: SeismicEvent[]; source: 'kb
         };
       })
       .filter((e) => e.magnitude > 0);
-    // Время последнего прогона ingest: когда ленту КБГС спрашивали на самом
-    // деле. Нет строки — значит не спрашивали ни разу, и это честный null, а
-    // не «сейчас».
-    const { rows: run } = await pool.query<{ at: Date | null }>(
-      `SELECT MAX(created_at) AS at FROM external_alerts WHERE alert_type = 'earthquake'`,
-    ).catch(() => ({ rows: [{ at: null }] }));
-    const checkedAt = run[0]?.at ? new Date(run[0].at).getTime() : null;
+    // Время последнего ПРОГОНА приёма, а не последней записи.
+    //
+    // Здесь стоял `MAX(created_at)` по external_alerts, и комментарий обещал
+    // «время прогона ingest» — но это время СОБЫТИЯ. Замер 05.09
+    // (prod-check run 15): приём отработал минуту назад, свежайшая запись
+    // землетрясения — 41-часовой давности. Экран сказал бы «проверено
+    // позавчера» при живом приёме, и человек прочитал бы поломку там, где её
+    // нет. Возраст события уже виден в строке самого события.
+    const runAt = await lastIngestAt();
+    const checkedAt = runAt ? new Date(runAt).getTime() : null;
     return events.length > 0 ? { events, source: 'kbgsras', checkedAt } : null;
   } catch {
     return null;

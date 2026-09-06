@@ -514,16 +514,18 @@ async function checkUndeliveredSafetyPush(): Promise<CheckResult> {
     // КРИТ остаётся там, где он означает действие: подписчики есть, а
     // доставка не проходит. Это чинится. Нет ключей — тоже чинится (задать
     // переменные), и канал закрыт целиком, поэтому тоже КРИТ.
+    //
+    // Решение владельца 05.09: пока подписчиков нет, алерта нет ВОВСЕ. Он
+    // приходил каждые полчаса с 23.08 и не гас ничем, кроме появления
+    // первого подписчика, а это не действие дежурного. Факт не глушится —
+    // он уходит в лог, и вернётся алертом сам, как только подписчик появится,
+    // а доставка нет: ветка ниже на subs > 0 не тронута.
     if (vapidSet && subs === 0) {
-      return {
-        type: 'push_undelivered',
-        count,
-        critical: false,
-        details:
-          `Push-канал пуст: подписчиков 0, доставлять некому. ` +
-          `${count} предупрежд(ений) не ушло — это следствие пустого канала, ` +
-          `а не отказ доставки. Нужны подписки туристов (промпт на /safety).`,
-      };
+      console.info(
+        `[watchdog] Push-канал пуст: подписчиков 0, ${count} предупрежд(ений) доставлять некому — ` +
+        `алерт не поднимается (решение владельца 05.09), нужны подписки туристов (кнопка на /safety)`,
+      );
+      return null;
     }
 
     const cause = !vapidSet
@@ -1240,7 +1242,11 @@ async function checkFruitlessCrons(): Promise<CheckResult> {
     // оставлен вторым: в уже записанных прогонах лежит он.
     const { rows } = await pool.query<CronOutcomeRow>(
       `SELECT agent_id, status, ended_at::text AS ended_at,
-              COALESCE(metadata->>'skip_reason', metadata->>'digest_skip_reason') AS skip_reason
+              COALESCE(metadata->>'skip_reason', metadata->>'digest_skip_reason') AS skip_reason,
+              -- Первая названная причина пустоты: разведка кладёт сюда
+              -- «домен: N из M лент ответили и пусты, K отказали: имена».
+              -- Без неё алерт называет класс беды, а чинят конкретную ленту.
+              NULLIF(metadata->'empty_reasons'->>0, '') AS detail
          FROM agent_run_history
         WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
         ORDER BY ended_at DESC

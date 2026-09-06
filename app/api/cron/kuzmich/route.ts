@@ -3,55 +3,43 @@
  * Публикует AI-пост Кузьмича в Telegram-канал.
  *
  * Типы постов:
- *   route — маршрут дня (случайный, не повторяется 30 дней)
+ *   route — место дня (со своим фото, текст из записи, не повторяется 30 дней)
  *   tip   — практичный совет от Кузьмича
- *   sezon — сезонный пост про текущий месяц
- *   tour  — конкретный тур operator_tours (24.08: канал ни разу не постил
- *           реальные бронируемые туры — только бесплатные точки/маршруты)
+ *   tour  — живой тур operator_tours с фотографиями оператора, текст из
+ *           карточки; ротация по давности публикации
+ *   sezon — АЛИАС tour (решение владельца 05.09: «вместо сезонов публиковать
+ *           туры»). Сезонный пост остался ручной командой /sezon в боте.
  *
  * Если type не передан — выбирается по часу UTC (Камчатка UTC+12):
  *   09:00 KMT = 21:00 UTC → route
  *   14:00 KMT = 02:00 UTC → tip
- *   19:00 KMT = 07:00 UTC → sezon по нечётным дням месяца, tour по чётным
+ *   19:00 KMT = 07:00 UTC → tour
  *
  * Защита: ?secret=CRON_SECRET
  *
- * Настройка cron-job.org (3 задачи — четвёртой под tour НЕ заводим, он
- * приходит на слот sezon по чётным дням):
+ * Настройка cron-job.org (3 задачи, менять НЕ нужно: третья с type=sezon
+ * теперь публикует тур):
  *   https://vedarai.ru/api/cron/kuzmich?secret=SECRET&type=route   → 21:00 UTC ежедневно
  *   https://vedarai.ru/api/cron/kuzmich?secret=SECRET&type=tip     → 02:00 UTC ежедневно
- *   https://vedarai.ru/api/cron/kuzmich?secret=SECRET&type=sezon   → 07:00 UTC ежедневно
+ *   https://vedarai.ru/api/cron/kuzmich?secret=SECRET&type=sezon   → 07:00 UTC ежедневно (= tour)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
   postKuzmichRoute,
   postKuzmichTip,
-  postSezonToChannel,
   postFriendToChannel,
   postKuzmichTour,
 } from '@/lib/notifications/telegram-channel';
+import { resolvePostType } from '@/lib/notifications/kuzmich-post-slot';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 
-type PostType = 'route' | 'tip' | 'sezon' | 'friend' | 'tour';
-
-/**
- * Слот 19:00 KMT чередует sezon/tour по чётности дня месяца — новой внешней
- * cron-задачи под туры не заводим (расписание держит cron-job.org СНАРУЖИ
- * репозитория). Владелец 24.08: «почему нет туров?» — канал ни разу не
- * упоминал operator_tours, весь трафик уходил на бесплатные точки/маршруты.
- */
-function pickTypeByHour(): PostType {
-  const now = new Date();
-  const h = now.getUTCHours();
-  if (h >= 20 && h <= 22) return 'route';  // 08–10 KMT
-  if (h >= 1  && h <= 3)  return 'tip';    // 13–15 KMT
-  if (h >= 6  && h <= 8)  return now.getUTCDate() % 2 === 0 ? 'tour' : 'sezon';  // 18–20 KMT
-  return 'route';
-}
+// Слот и алиасы — lib/notifications/kuzmich-post-slot.ts (решение владельца
+// 05.09: вечерний слот — туры; `type=sezon` означает тур, чтобы не зависеть
+// от того, что именно передаёт cron-job.org).
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -69,11 +57,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  const typeParam = searchParams.get('type');
-  const postType: PostType =
-    typeParam === 'route' || typeParam === 'tip' || typeParam === 'sezon' || typeParam === 'friend' || typeParam === 'tour'
-      ? typeParam
-      : pickTypeByHour();
+  const resolved = resolvePostType(searchParams.get('type'));
+  const postType = resolved.type;
 
   let result: { ok: boolean; error?: string; routeId?: string; tourId?: number };
 
@@ -85,15 +70,13 @@ export async function GET(request: NextRequest) {
     result = await postKuzmichRoute();
   } else if (postType === 'tip') {
     result = await postKuzmichTip();
-  } else if (postType === 'tour') {
-    result = await postKuzmichTour();
   } else {
-    result = await postSezonToChannel();
+    result = await postKuzmichTour();
   }
 
   if (!result.ok) {
     return NextResponse.json(
-      { success: false, type: postType, error: result.error },
+      { success: false, type: postType, requested: resolved.requested ?? null, error: result.error },
       { status: 500 }
     );
   }
@@ -101,6 +84,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     type: postType,
+    requested: resolved.requested ?? null,
     routeId: result.routeId ?? null,
     tourId: result.tourId ?? null,
     timestamp: new Date().toISOString(),

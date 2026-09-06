@@ -60,9 +60,11 @@ describe('чего не хватает туру', () => {
     expect(missingFields({ ...full, pickup_type: null })).toContain('pickup');
     // Текст точки сбора сам по себе больше ничего не решает.
     expect(missingFields({ ...full, has_meeting_point: false })).toEqual([]);
-    // «Заберут» и «встречаемся» без подробностей покупателю бесполезны, а
-    // «добирается сам» — нет: куда ехать, отвечают координаты тура.
-    expect(missingFields({ ...full, pickup_type: 'hotel_pickup', pickup_details_chars: 0 })).toContain('pickup_details');
+    // «Встречаемся» без адреса покупателю бесполезно. «Заберут» подробностей
+    // не требует (владелец 05.09: «забирает он туристов сам» — вся фраза),
+    // «добирается сам» — тоже: куда ехать, отвечают координаты тура.
+    expect(missingFields({ ...full, pickup_type: 'meeting_point', pickup_details_chars: 0 })).toContain('pickup_details');
+    expect(missingFields({ ...full, pickup_type: 'hotel_pickup', pickup_details_chars: 0 })).toEqual([]);
     expect(missingFields({ ...full, pickup_type: 'self_drive', pickup_details_chars: 0 })).toEqual([]);
     expect(missingFields({ ...full, has_coords: false })).toContain('coordinates');
     expect(missingFields({ ...full, has_operator_contact: false })).toContain('operator_contact');

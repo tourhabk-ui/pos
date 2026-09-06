@@ -93,3 +93,15 @@ describe('что именно не пройдёт на витрину', () => {
     expect(missingFields({ ...ready, has_operator_contact: false })).toContain('operator_contact');
   });
 });
+
+describe('оба фида открыты Edge-гейтом — витрина не читает закрытую дверь', () => {
+  // Замер 05.09 (prod-check run 11): Авито 200, Яндекс 401. Яндекса не было в
+  // реестре публичных роутов, и «перечитывает фид раз в 24 часа» из шапки
+  // роута относилось к двери, которую Edge держал закрытой.
+  const REGISTRY = read('lib/auth/public-api-routes.ts');
+  it('avito и yandex перечислены с GET', () => {
+    expect(REGISTRY).toMatch(/'\/api\/channels\/avito\/feed':\s*\['GET'\]/);
+    expect(REGISTRY).toMatch(/'\/api\/channels\/yandex\/feed':\s*\['GET'\]/);
+  });
+});
+

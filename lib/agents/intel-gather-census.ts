@@ -128,7 +128,18 @@ export function judgeEmptyGather(c: GatherCensus): EmptyGatherVerdict {
   // Хоть кто-то ответил — теперь «пусто» это правда о содержимом. Но если
   // часть лент при этом отказала, об этом всё равно говорим: улов мог быть
   // неполным, и молчать об этом значит выдать частичную картину за полную.
-  const partial = c.failed > 0 ? `, ${c.failed} отказали` : '';
+  //
+  // ИМЕНА отказавших, а не только счёт (06.09). Прогон на проде сказал
+  // «travel_industry: 1 из 5 лент ответили и пусты, 4 отказали» — и чинить
+  // было нечего: четыре ленты названы числом. Ровно та же болезнь, что
+  // чинили 03.09 у пустых, только этажом ниже.
+  const failedShown = c.failures.slice(0, FAILURES_SHOWN).join('; ');
+  const failedMore = c.failures.length > FAILURES_SHOWN
+    ? ` (и ещё ${c.failures.length - FAILURES_SHOWN})`
+    : '';
+  const partial = c.failed > 0
+    ? `, ${c.failed} отказали${failedShown ? `: ${failedShown}${failedMore}` : ''}`
+    : '';
   // Поимённо: «ответили и пусты» — класс, а чинят ленту.
   const empties = c.empties ?? [];
   const named = empties.slice(0, EMPTIES_SHOWN).join('; ');

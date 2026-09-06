@@ -38,6 +38,7 @@ import {
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
+import { repairTelegramHtml, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
 
 // Словарь причин пропуска переехал в чистый модуль (клиентский компонент
 // не может импортировать этот файл — он тянет пул БД). Re-export держит
@@ -189,6 +190,13 @@ export interface DigestResult {
   sources?: ScoutSourceReport[];
   /** Сколько сигналов отсеяно как уже показанные (URL + похожий заголовок). */
   repeats_suppressed?: number;
+  /**
+   * Разделы, ушедшие из выпуска пустыми. Читателю их не показывают (пустой
+   * раздел — не факт о предмете), но нам они говорят, где источник молчит
+   * систематически. 06.09: раздел «Камчатка» пуст при живом safety-слое —
+   * это про наши источники, а не про регион.
+   */
+  sections_empty?: string[];
   /** Выпуск почти дословно повторил предыдущий и был заблокирован перед отправкой. */
   repeat_blocked?: boolean;
 }
@@ -509,7 +517,9 @@ async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text.substring(0, 4000),
+        // Срез по границе слова с закрытием тегов, а не вслепую (05.09):
+        // слепой substring оторвал </blockquote>, и Bot API ответил 400.
+        text: repairTelegramHtml(text, 4000),
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),
@@ -548,7 +558,7 @@ async function tgSendRich(
   try {
     const body: Record<string, unknown> = {
       chat_id: chatId,
-      text: text.substring(0, 4096),
+      text: repairTelegramHtml(text, TELEGRAM_TEXT_LIMIT),
       parse_mode: 'HTML',
       link_preview_options: coverUrl
         ? { url: coverUrl, prefer_large_media: true, show_above_text: true }
@@ -723,7 +733,7 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // unsupportedClaims больше не зовётся отсюда (29.08): тонкая обёртка теряет
 // причину отказа судьи, а причина — это то, ради чего разбор и открывают.
 // Везде judgeClaims, у которого исход именной.
-import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, type JudgeFailure } from '@/lib/agents/fact-check';
+import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySections, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 
 /**
@@ -986,7 +996,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 - Раздел "Туриндустрия" — туризм в РФ и мире, онлайн-бронирование, OTA, CRM для туроператоров, новые тренды. Другие регионы — допустимы как контекст или аналогия.
 - Раздел "Референсы и рынок" — передовые travel-tech продукты и новинки (Skift, Product Hunt): конкретные фичи/паттерны, которые можно перенять на нашу платформу (планировщик, бронирование, ИИ-помощник, офлайн, карты). Пиши, ЧТО именно сделали и что из этого нам стоит рассмотреть.
 - Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен. Сигналы с пометкой [Safety-слой] — события из нашего собственного мониторинга безопасности региона (сейсмика, вулканы, дороги, пожары): излагай сам факт из заголовка, это и есть новость региона.
-- "Нет значимых сигналов за сегодня" — ТОЛЬКО если в разделе буквально ноль материалов. Если есть хоть что-то — пиши.
+- Раздел, в котором буквально ноль материалов, НЕ ПИШИ ВОВСЕ — ни заголовка, ни строки о том, что новостей нет. Отсутствие раздела ничего не утверждает, а строка «нет значимых сигналов» утверждает, что за сутки по теме ничего не случилось, и проверить это нечем.
 
 НЕ ВРАТЬ. Пиши только то, что есть в сигналах:
 - Цифры, цены, версии, названия фич и технический механизм — ДОСЛОВНО из сигнала. Нет в сигнале — не пиши.
@@ -1085,10 +1095,18 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // канал уходил дайджест из трёх строк «Нет значимых сигналов за сегодня».
   // Сообщение «сегодня новостей нет» не стоит публикации: оно ничего не несёт
   // и приучает пролистывать. seen_urls тоже не трогаем — вернёмся завтра.
-  // Порог = число разделов дайджеста (AI, Туриндустрия, Референсы, Камчатка).
-  // Иначе, добавив раздел, мы бы глушили дайджест, где пусты 3 из 4 — а в
-  // четвёртом (напр. «Референсы») есть настоящий сигнал.
-  const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 4;
+  //
+  // Считается ПО СУЩЕСТВУ, а не по числу заглушек (06.09): заглушку больше не
+  // ставят ни писатель, ни фактчек — пустой раздел исчезает целиком. Прежний
+  // порог «четыре строки-заглушки» после этого не срабатывал бы никогда, и
+  // выпуск из одних заголовков ушёл бы в канал.
+  // Заглушки и опустевшие разделы — вон, детерминированно (промпт просит, но
+  // не гарантирует). Имена убранных разделов уходят в журнал прогона: пустота
+  // должна быть слышна НАМ, а не подаваться читателю как факт о регионе.
+  const tidied = tidySections(digest);
+  digest = tidied.text;
+  const sectionsEmpty = tidied.emptied;
+  const allEmpty = !hasSubstance(digest);
   if (allEmpty) {
     return { signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
@@ -1472,5 +1490,6 @@ export async function runScoutDigest(): Promise<DigestResult> {
     duration_ms: Date.now() - start,
     ...health,
     repeats_suppressed,
+    ...(sectionsEmpty.length > 0 ? { sections_empty: sectionsEmpty } : {}),
   };
 }

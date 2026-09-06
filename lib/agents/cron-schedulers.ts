@@ -82,6 +82,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'channel-readiness':         { kind: 'manual', writes: false, note: 'сколько туров годится к выкладке на чужую витрину и что мешает каждому' },
   'tour-pickup':               { kind: 'manual', writes: true,  note: 'записать, как турист попадает на тур: перевозка — свойство оператора, а не поездки' },
   'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
+  'intel-feeds-census':        { kind: 'manual', writes: false, note: 'живы ли ленты разведки — спрошенные С ПРОДА: замер 06.09 показал, что один адрес отвечает проду и раннеру по-разному (kamgov 404/403, visitkamchatka 200/404), и судить о ленте с чужой машины значит чинить не то' },
   'alerts-census':             { kind: 'manual', writes: false, note: 'течёт ли поток тревог региона: «тревог нет» и «конвейер молчит» из дайджеста неотличимы, а стоят разного' },
   'funnel-census':             { kind: 'manual', writes: false, note: 'числа воронки целиком: срезы health закрыты requireAdmin, объектив эволюции отдаёт вердикт без цифр' },
   'payment-config':            { kind: 'manual', writes: false, note: 'какими способами турист может заплатить: имена настроенных переменных без значений — «0 оплат» не должно быть неотличимо от «нечем платить»' },

@@ -20,7 +20,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # То же, что у issue-triage: claude-code-action на push отвечает
+  # «Unsupported event type: push», поэтому маркер переводится в
+  # workflow_dispatch. Без этого воскресный летописец запускался бы
+  # маркером вхолостую — красный ран за две секунды и ни строки хроники.
+  dispatch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Re-fire as workflow_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run weekly-chronicle.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   chronicle:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -52,12 +69,16 @@ jobs:
 
       - name: Run Claude chronicler
         if: steps.merged.outputs.count != '0'
-        uses: anthropics/claude-code-action@c81e3bc69d1b18badbb63ba39581218f02421678 # v1
+        uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636 # v1
         env:
           GH_TOKEN: ${{ github.token }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # То же, что у issue-triage: прогон от переводчика инициирует
+          # github-actions. Разрешён именно он, не '*'.
+          allowed_bots: github-actions
           claude_args: |
+            --model claude-fable-5-1
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
             --max-turns 40
           show_full_output: true

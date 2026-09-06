@@ -137,6 +137,26 @@ export async function fixSQLColumnErrors(agencyFileName?: string): Promise<ToolR
   return { success: true, message: msg, details: { changes, errors } };
 }
 
+/** Потолок строк диагностики: инструмент для взгляда, а не для выгрузки. */
+export const DIAGNOSTIC_ROW_LIMIT = 20;
+
+/**
+ * Ограничение ставится ОБЁРТКОЙ, а не дописыванием ` LIMIT 20` в хвост.
+ *
+ * Дописывание ломается ровно там, где диагностику и пишут: у запроса с CTE
+ * (`WITH ... SELECT`), с `UNION`, с завершающей точкой с запятой. Обёртка
+ * подзапросом работает с любым SELECT, включая эти три случая, и не требует
+ * разбирать чужой SQL регулярками.
+ *
+ * До 06.09 потолка не было вовсе: `rows.slice(0, 20)` обрезал УЖЕ полученный
+ * результат, то есть `SELECT * FROM большая_таблица` сначала целиком приезжал
+ * в память и только потом обрезался. Срез выглядел ограничением, не будучи им.
+ */
+export function withDiagnosticLimit(sql: string): string {
+  const one = sql.trim().replace(/;\s*$/, '');
+  return `SELECT * FROM (${one}) AS diagnostic_scope LIMIT ${DIAGNOSTIC_ROW_LIMIT}`;
+}
+
 /**
  * Выполняет безопасный SELECT-запрос для диагностики.
  */
@@ -156,24 +176,20 @@ export async function runDiagnosticQuery(
     }
   }
 
-  // Без LIMIT «SELECT * FROM гигантская_таблица» тянет в память ВСЮ таблицу
-  // до того, как rows.slice(0,20) ниже её обрежет — обрезка результата, а не
-  // ограничение выборки (issue #1654). Дописываем LIMIT 20 в конец, сняв
-  // висящую точку с запятой (иначе "...; LIMIT 20" — синтаксическая ошибка);
-  // UNION и CTE это не ломает — LIMIT в PostgreSQL применяется к результату
-  // всего запроса, включая множественные SELECT и WITH-обёртки.
-  const hasLimit = /\blimit\b/i.test(sql);
-  const boundedSql = hasLimit ? sql : `${sql.trim().replace(/;\s*$/, '')} LIMIT 20`;
+  // Ровно один запрос. Точка с запятой в середине — это второй запрос, а
+  // проверка запрещённых слов выше смотрит только на начало и на `; KEYWORD`.
+  if (/;/.test(sql.trim().replace(/;\s*$/, ''))) {
+    return { success: false, message: 'Запрос отклонён: диагностика выполняет ровно один запрос' };
+  }
 
   try {
-    const result = await pool.query(boundedSql);
+    const result = await pool.query(withDiagnosticLimit(sql));
     await logToolAction('db_diagnostic', { label, row_count: result.rowCount });
     return {
       success: true,
-      message: `Диагностика завершена. Строк: ${result.rowCount ?? 0}`,
-      // rows уже ограничены LIMIT 20 в самом SQL; slice — страховка на
-      // случай, если детектор выше ложно решил, что LIMIT уже есть.
-      details: { rows: result.rows.slice(0, 20), row_count: result.rowCount },
+      // Полного числа строк мы больше НЕ ЗНАЕМ — и не выдаём потолок за него.
+      message: `Диагностика завершена. Строк получено: ${result.rowCount ?? 0} (потолок ${DIAGNOSTIC_ROW_LIMIT})`,
+      details: { rows: result.rows, row_count: result.rowCount, row_limit: DIAGNOSTIC_ROW_LIMIT },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

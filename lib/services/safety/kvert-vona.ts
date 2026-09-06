@@ -458,3 +458,135 @@ export function textFromEscapedHtml(escaped: string): string {
  * 23.08.2026). Вынесена наружу, чтобы копий больше не заводили.
  */
 const decodeEntities = decodeHtmlEntities;
+
+// ── Разделы активности выпуска ───────────────────────────────────────────────
+
+/**
+ * Третий кусок того же выпуска: описания активности по вулканам.
+ *
+ * ПОВОД (владелец 06.09). На вкладке «Вулканы» у всех кодов пустые `summary` и
+ * высота пепла. Сводная таблица кодов (`parseAccSummary`) их и правда не
+ * содержит — но ниже в том же выпуске идут разделы вида (снимок пробой с
+ * раннера 06.09, kvert-probe run 1):
+ *
+ *   SHEVELUCH VOLCANO (CAVW #300270)
+ *   56.64 N, 161.32 E; Elevation 3283 m (10768 ft), the dome elevation ~2500 m
+ *   Aviation Colour Code is  ORANGE
+ *
+ *   The explosive-extrusive eruption of the volcano continues. Ash explosions
+ *   up to 12 km (39,400 ft) a.s.l. could occur at any time. Ongoing activity
+ *   could affect international and low-flying aircraft.
+ *
+ *   The explosive-extrusive eruption of the volcano continues, accompanied by
+ *   powerful gas-steam activity; a new block of lava continues to grow...
+ *   http://kvert.febras.net/volc?lang=en&name=Sheveluch
+ *
+ * Разбор консервативен той же меркой, что и сводка: секция начинается строкой
+ * «ИМЯ VOLCANO (CAVW #число)», всё до следующего такого заголовка — её тело.
+ * Чего в теле нет — остаётся null; догадок здесь нет ни одной.
+ *
+ * Язык только английский: замер 06.09 (kvert-probe run 2) показал, что
+ * `lend=ru` отдаёт ровно тот же английский текст. Перевод для экрана делает
+ * детерминированный разговорник (lib/services/safety/kvert-activity-ru), а
+ * не модель: на экране безопасности выдуманная фраза дороже отсутствующей.
+ */
+export interface KvertActivitySection {
+  volcanoName: string;
+  nameSlug: string | null;
+  nameRu: string | null;
+  color: AccColor | null;
+  summitElevationM: number | null;
+  ashHeightM: number | null;
+  /** Абзац прогноза («Ash explosions up to 12 km could occur at any time»). */
+  hazardEn: string | null;
+  /** Абзац наблюдений за неделю. */
+  activityEn: string | null;
+  /** Ссылка на карточку вулкана в KVERT — она точнее адреса выпуска. */
+  sourceUrl: string | null;
+}
+
+const SECTION_HEADER = /^([A-Z][A-Z\s'’\-]+?)\s+VOLCANO\s+\(CAVW\s+#\s*\d+\)\s*$/;
+
+/**
+ * Высота пепла из фразы прогноза. KVERT пишет километрами («up to 12 km»),
+ * а хранится метрами — как у блоков VONA, где источник даёт метры. Десятичная
+ * дробь бывает («up to 2.5 km»), поэтому не только целые.
+ *
+ * ОБЯЗАТЕЛЬНОЕ «a.s.l.» — не придирка к формату. «Up to 6 km» в выпуске
+ * встречается и про ВЫСОТУ выброса, и про длину лавового потока или шлейфа;
+ * различает их только пометка «над уровнем моря», которую KVERT ставит именно
+ * у высот. Без неё экран безопасности однажды назвал бы расстояние высотой —
+ * и человек прочитал бы это как выброс в стратосферу.
+ *
+ * Формулы сняты с настоящего выпуска (пробы 06.09):
+ *   «Ash explosions up to 12 km (39,400 ft) a.s.l. could occur at any time»
+ *   «The danger of ash explosions up to 6 km (19,700 ft) a.s.l. remains»
+ */
+const ASL = /\(?[\d,\s]*(?:ft)?\)?\s*a\.?\s?s\.?\s?l\.?/i;
+
+function parseAshHeight(text: string): number | null {
+  const km = text.match(/up\s+to\s+(\d+(?:[.,]\d+)?)\s*km\s*(.{0,24})/i);
+  if (km && ASL.test(km[2] ?? '')) {
+    const v = parseFloat(km[1].replace(',', '.'));
+    return Number.isFinite(v) ? Math.round(v * 1000) : null;
+  }
+  const m = text.match(/up\s+to\s+(\d[\d\s]*)\s*m\b\s*(.{0,24})/i);
+  if (m && ASL.test(m[2] ?? '')) {
+    const v = parseInt(m[1].replace(/\s/g, ''), 10);
+    return Number.isFinite(v) ? v : null;
+  }
+  return null;
+}
+
+export function parseActivitySections(html: string): KvertActivitySection[] {
+  const lines = stripTags(html).split('\n').map((l) => l.trim());
+
+  const out: KvertActivitySection[] = [];
+  let current: { name: string; body: string[] } | null = null;
+
+  const flush = () => {
+    if (!current) return;
+    const body = current.body;
+    const norm = normalizeVolcanoName(current.name);
+
+    const colorLine = body.find((l) => /Aviation\s+Colou?r\s+Code\s+is/i.test(l));
+    const colorRaw = colorLine?.match(/Aviation\s+Colou?r\s+Code\s+is\s+(\w+)/i)?.[1] ?? null;
+
+    const elevRaw = body.find((l) => /Elevation\s+\d/i.test(l))?.match(/Elevation\s+(\d[\d\s]*)\s*m/i)?.[1] ?? null;
+
+    // Абзацы — строки после строки кода, отбрасывая ссылки и координаты.
+    const codeAt = colorLine ? body.indexOf(colorLine) : -1;
+    const paragraphs = (codeAt >= 0 ? body.slice(codeAt + 1) : body)
+      .filter((l) => l.length > 40 && !/^https?:\/\//i.test(l));
+
+    const sourceUrl = body.find((l) => /^https?:\/\/[^\s]*kvert[^\s]*$/i.test(l)) ?? null;
+    const hazardEn = paragraphs[0] ?? null;
+    const activityEn = paragraphs[1] ?? null;
+
+    out.push({
+      volcanoName: current.name,
+      nameSlug: norm?.slug ?? null,
+      nameRu: norm?.ru ?? null,
+      color: colorRaw ? parseColor(colorRaw) : null,
+      summitElevationM: elevRaw ? parseInt(elevRaw.replace(/\s/g, ''), 10) : null,
+      ashHeightM: hazardEn ? parseAshHeight(hazardEn) : null,
+      hazardEn,
+      activityEn,
+      sourceUrl,
+    });
+    current = null;
+  };
+
+  for (const line of lines) {
+    const header = line.match(SECTION_HEADER);
+    if (header) {
+      flush();
+      current = { name: header[1].trim(), body: [] };
+      continue;
+    }
+    if (current) current.body.push(line);
+  }
+  flush();
+
+  return out;
+}

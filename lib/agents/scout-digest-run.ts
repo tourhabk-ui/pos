@@ -1,9 +1,10 @@
 /**
  * lib/agents/scout-digest-run.ts — прогон разведчика С ЖУРНАЛОМ.
  *
- * Разведчик запускается тремя дорогами: крон-роут /api/cron/scout-digest
- * (ручной маркер), стадия runEvoOrchestrator (4×/сутки — это и есть
- * штатный прогон с 29.08) и кнопка в админке. До 04.09 журнал
+ * Разведчик запускается двумя дорогами: крон-роут /api/cron/scout-digest
+ * (расписание cron-scout-digest.yml и ручной маркер; с 29.08 по 05.09 был
+ * стадией runEvoOrchestrator, вынесен обратно — съедал весь бюджет
+ * evo.run) и кнопка в админке. До 04.09 журнал
  * agent_run_history вёл ТОЛЬКО роут: выпуск 04.09 00:02 UTC вышел из
  * оркестратора, а разбор «почему молчит» (scout-diagnose) и счёт тишины
  * (silent_runs) читали журнал и видели последний прогон 03.09 15:59.
@@ -24,7 +25,9 @@ import { runScoutDigest, type DigestResult } from '@/lib/agents/scout-digest';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { runWithUsageTracking, type UsageSnapshot } from '@/lib/ai/usage-context';
 
-export type ScoutTrigger = 'cron' | 'orchestrator' | 'admin';
+// 'orchestrator' снят 05.09: дайджест снова идёт своим кроном, стадии в
+// эволюции нет (замер 389: дайджест съедал весь бюджет evo.run).
+export type ScoutTrigger = 'cron' | 'admin';
 
 export interface JournaledDigestRun {
   result: DigestResult;

@@ -6,6 +6,7 @@ vi.mock('@/lib/ai/providers', () => ({
   callAIWithModel: vi.fn(),
   callAIWaterfall: vi.fn(),
   callAIWaterfallOrNull: vi.fn(),
+  callAIQualityOrNull: vi.fn(),
   callQwen: vi.fn(),
   // Разбор опознаёт заглушку водопада как «не ответил ни один провайдер»
   // (04.09), поэтому мок обязан отдавать и её распознаватель — иначе тест
@@ -14,7 +15,46 @@ vi.mock('@/lib/ai/providers', () => ({
     || t.startsWith('Сервис временно недоступен'),
 }));
 
-import { parseProposalsResponse } from '@/lib/agents/scout-innovator';
+import { parseProposalsResponse, salvageTruncatedArray } from '@/lib/agents/scout-innovator';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const INNOVATOR = readFileSync(join(process.cwd(), 'lib/agents/scout-innovator.ts'), 'utf-8');
+const PROVIDERS = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
+
+describe('оборванный по потолку токенов массив (прогон 389, 05.09)', () => {
+  const full = '{"title":"A","why":"w","files_to_change":["lib/a.ts"],"implementation_steps":["1"],"acceptance_criteria":["ok"],"complexity":"small","category":"fix"}';
+  const truncated = `[${full},${full.replace('"A"', '"B"')},{"title":"C","why":"обры`;
+
+  it('целые предложения спасаются, недописанное — нет', () => {
+    const { proposals, diag } = parseProposalsResponse(truncated);
+    expect(proposals).toHaveLength(2);
+    expect(proposals.map(p => p.title)).toEqual(['A', 'B']);
+    expect(diag).toMatch(/оборван/);
+    expect(diag).toMatch(/спасено целых предложений: 2/);
+  });
+
+  it('фигурные скобки и кавычки внутри строк не путают счёт', () => {
+    const tricky = '[{"title":"скобка } в строке","why":"кавычка \\" тоже"},{"title":"недо';
+    expect(salvageTruncatedArray(tricky)).toHaveLength(1);
+  });
+
+  it('если целых нет — прежний диагноз про parse, без спасённых', () => {
+    const { proposals, diag } = parseProposalsResponse('[{"title": broken}]');
+    expect(proposals).toHaveLength(0);
+    expect(diag).toMatch(/JSON\.parse упал/);
+  });
+
+  it('потолок токенов поднят явно и у Qwen, и у запасного пути', () => {
+    // Обрыв на позиции ~2440 — это 800 токенов кириллического JSON. Прогон
+    // 390: Qwen отказал по квоте, запасной голый водопад оборвался там же —
+    // потолок обязан быть у того, кто отвечает, а не только у первого.
+    expect(INNOVATOR).toMatch(/callQwen\(messages, \{ maxTokens: \d{4} \}\)/);
+    expect(INNOVATOR).toMatch(/callAIQualityOrNull\(messages, \{ maxTokens: \d{4} \}\)/);
+    expect(INNOVATOR).not.toMatch(/callAIWaterfallOrNull\(messages\)/);
+    expect(PROVIDERS).toMatch(/max_tokens: maxTokens/);
+  });
+});
 
 describe('parseProposalsResponse', () => {
   const one = '[{"title":"T","why":"w","files_to_change":["lib/a.ts"],"implementation_steps":["1"],"acceptance_criteria":["ok"],"complexity":"small","category":"fix"}]';

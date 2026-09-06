@@ -1,4 +1,11 @@
 {
   "note": "Маркер запуска issue-triage.yml вне расписания: правка этого файла в main запускает ночной триаж прямо сейчас.",
-  "run": 1
+  "run": 5,
+  "run2_result": "ОТКАЗ, и отказ полезный: «Action failed with error: Unsupported event type: push» за две секунды. claude-code-action знает issue/PR/comment, schedule, workflow_dispatch, repository_dispatch, workflow_run — push в её списке нет. Значит маркер этого workflow не работал НИКОГДА с момента заведения, и та же дыра была у weekly-chronicle. Прогон по расписанию (58, 05.09 22:37) до модели доезжал и упирался в другое: api_error_status 400, «Credit balance is too low» — старый ключ.",
+  "run3_reason": "Первый прогон после перевода маркера: push теперь переводится работой-переводчиком в workflow_dispatch, и рука получает событие, которое понимает. Ключ в секретах GitHub с 06.09 живой (проба anthropic-path-probe run 4: HTTP 200 с ответом модели), модель задана явно.",
+  "expect": "два прогона подряд: push-прогон делает только dispatch, следом идёт workflow_dispatch-прогон с триажем. Три открытых тикета (1584, 1493, 1428) получают тип, объём и маршрут; size-L и safety/деньги уходят в needs-owner, тривиальные S/M получают agent-proposal и будят claude.yml. Зелёный ран, не тронувший ни одного тикета, — отказ, а не успех.",
+  "run3_result": "Переводчик СРАБОТАЛ: прогон 60 (push) зелёный, из него родился прогон 61 с событием workflow_dispatch — «Auto-detected mode: agent for event: workflow_dispatch». Но рука отказала на третьем слое: «Workflow initiated by non-human actor: github-actions (type: Bot). Add bot to allowed_bots list». Инициатор переведённого прогона — бот по построению, и без allowed_bots переводчик бесполезен: рождает прогон, который отвергают.",
+  "run4_reason": "Бот-инициатор разрешён поимённо (allowed_bots: github-actions, не '*'). Три слоя теперь свободны: событие рука понимает, инициатора пускает, ключ живой.",
+  "run4_result": "Бот-инициатор пропущен, прогон дошёл ДО МОДЕЛИ и вернул четвёртый слой: «API Error: 400 Claude Code 2.1.241 does not support this model; version 2.1.251 or newer is required». Модель названа верно — её отвергает не Anthropic, а старый CLI внутри закреплённой по хешу версии action.",
+  "run5_reason": "Пин action поднят до текущего v1 (хеш 9c5ddab, «bump Claude Code to 2.1.263») — CLI выше требуемого 2.1.251. Четыре слоя сняты: событие, инициатор, ключ, версия CLI."
 }
