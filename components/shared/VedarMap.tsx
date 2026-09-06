@@ -40,6 +40,8 @@ import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
+import { placeMarkerSvg, PLACE_MARKER_SIZE } from '@/lib/map/place-marker-icons';
+import { parsePlaceIconImageId, rasterizePlaceIcon, PLACE_ICON_PIXEL_RATIO } from '@/lib/map/place-icon-raster';
 import { Minus, Plus } from 'lucide-react';
 /**
  * Стили MapLibre обязательны, а не «для красоты»: именно они ставят
@@ -595,6 +597,10 @@ export default function VedarMap({
         // стиля, которым карта создаётся: иначе он рассказывал бы о другом
         // наборе источников, чем тот, что реально просят с сети.
         fileBySourceRef.current = sourceUrlIndex(style.sources as Record<string, unknown>);
+        // Палитра ДЛЯ ЭТОГО инстанса карты — эффект пересоздаёт карту целиком
+        // при смене темы (зависимость [theme, ...] ниже), поэтому захват в
+        // замыкании не устаревает за жизнь инстанса.
+        const palette = vedarMapPalette(theme);
 
         const map = new maplibre.Map({
           container: containerRef.current,
@@ -644,6 +650,30 @@ export default function VedarMap({
             return;
           }
           onMapClickRef.current?.({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+        });
+
+        // Формы маркеров мест рисуются ПО ЗАПРОСУ, не впрок. Стиль называет
+        // иконку строкой (`place-icon-<hazard|normal>-<kind>`), сам растр не
+        // может собрать — он строится без DOM/canvas. Когда MapLibre впервые
+        // просит эту строку, styleimagemissing даёт нам шанс её нарисовать;
+        // растеризуется РОВНО столько форм×цветов, сколько реально видно на
+        // экране, а не все 15 форм на 2 цвета сразу, даже если на карте одни
+        // вулканы (владелец 07.09, «геоточки были все со своими маркерами»).
+        const missingIconRequests = new Set<string>();
+        map.on('styleimagemissing', (e) => {
+          const id = (e as { id: string }).id;
+          if (missingIconRequests.has(id) || map.hasImage(id)) return;
+          const parsed = parsePlaceIconImageId(id);
+          if (!parsed) return;
+          missingIconRequests.add(id);
+          const hex = parsed.hazardous ? palette.cliff : palette.peak;
+          const svg = placeMarkerSvg(hex, parsed.kind);
+          rasterizePlaceIcon(svg, PLACE_MARKER_SIZE.width, PLACE_MARKER_SIZE.height)
+            .then((img) => {
+              if (cancelled || map.hasImage(id)) return;
+              map.addImage(id, img, { pixelRatio: PLACE_ICON_PIXEL_RATIO });
+            })
+            .catch((err) => console.error('[VedarMap] иконка места не собралась', id, err));
         });
 
         map.on('load', () => { loaded = true; if (!cancelled) setReady(true); });
