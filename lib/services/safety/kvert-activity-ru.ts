@@ -70,11 +70,20 @@ export function describeActivityRu(facts: ActivityFacts): string | null {
     if (state) parts.push(state.ru.charAt(0).toUpperCase() + state.ru.slice(1));
   }
 
-  // Про пепел говорим, только если источник назвал высоту И сказал, что
-  // выбросы возможны. «Ash plumes extended for 200 km» — про шлейф, а не про
-  // высоту, и в эту фразу не годится.
-  if (facts.ashHeightM != null && /could\s+occur|possible/i.test(facts.hazardEn ?? '')) {
-    parts.push(`пепловые взрывы до ${highMeters(facts.ashHeightM)} над уровнем моря возможны в любое время`);
+  // Про пепел говорим, только если источник назвал высоту И сказал, чем она
+  // грозит. Двух формул KVERT достаточно, обе сняты с выпуска 06.09:
+  //   «…could occur at any time»          → возможны в любое время
+  //   «The danger of … remains»           → опасность сохраняется
+  // Третьей формулировки не придумываем: без неё высота всё равно видна
+  // отдельной строкой на карточке, а выдуманное «угрозы нет» было бы ложью.
+  const hazard = facts.hazardEn ?? '';
+  if (facts.ashHeightM != null) {
+    const high = highMeters(facts.ashHeightM);
+    if (/could\s+occur|possible/i.test(hazard)) {
+      parts.push(`пепловые взрывы до ${high} над уровнем моря возможны в любое время`);
+    } else if (/danger[\s\S]{0,80}remains/i.test(hazard)) {
+      parts.push(`сохраняется опасность пепловых взрывов до ${high} над уровнем моря`);
+    }
   }
 
   if (parts.length === 0) return null;

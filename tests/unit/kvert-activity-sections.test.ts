@@ -49,6 +49,18 @@ The summit explosive eruption (Strombolian activity) of the volcano continues. A
 <br />
 http://kvert.febras.net/volc?lang=en&name=Klyuchevskoy<br />
 <br />
+KRASHENINNIKOV VOLCANO (CAVW #300190)<br />
+<br />
+54.6 N, 160.27 E; Elevation 1856 m (6088 ft)<br />
+<br />
+Aviation Colour Code is  YELLOW<br />
+<br />
+The effusive eruption of the volcano continues. The danger of ash explosions up to 6 km (19,700 ft) a.s.l. remains. Ongoing activity could affect low-flying aircraft.<br />
+<br />
+The effusive eruption of the volcano continues: lava flows are effusing to the eastern slope of the Northern Cone of the volcano, and a gas-steam emission from this Cone is observing. Satellite data by KVERT showed a big thermal anomaly on the volcano all week.<br />
+<br />
+http://kvert.febras.net/volc?lang=en&name=Krasheninnikov<br />
+<br />
 BEZYMIANNY VOLCANO (CAVW #300250)<br />
 <br />
 55.97 N, 160.6 E; Elevation 2882 m (9453 ft)<br />
@@ -66,8 +78,8 @@ const sections = parseActivitySections(RELEASE);
 const by = (slug: string) => sections.find((s) => s.nameSlug === slug);
 
 describe('разделы активности разбираются по настоящему выпуску', () => {
-  it('найдены все три вулкана и опознаны по-русски', () => {
-    expect(sections.length).toBe(3);
+  it('найдены все вулканы и опознаны по-русски', () => {
+    expect(sections.length).toBe(4);
     expect(by('sheveluch')?.nameRu).toBe('Шивелуч');
     expect(by('klyuchevskoy')?.nameRu).toBe('Ключевской');
     expect(by('bezymianny')?.nameRu).toBe('Безымянный');
@@ -161,5 +173,34 @@ describe('синк дополняет коды подробностями, а н
 
   it('сколько вулканов получили подробности — сообщается прогоном', () => {
     expect(SYNC).toMatch(/result\.detailed = details\.size/);
+  });
+});
+
+describe('высота выброса отличается от расстояния (проба 06.09)', () => {
+  it('Крашенинников: «danger of ash explosions up to 6 km a.s.l. remains»', () => {
+    const s = by('krasheninnikov')!;
+    expect(s.ashHeightM).toBe(6000);
+    const ru = describeActivityRu({ hazardEn: s.hazardEn, activityEn: s.activityEn, ashHeightM: s.ashHeightM })!;
+    expect(ru).toBe('Продолжается эффузивное извержение. Сохраняется опасность пепловых взрывов до 6 км над уровнем моря.');
+  });
+
+  it('«up to N km» БЕЗ пометки над уровнем моря высотой не считается', () => {
+    // Лавовый поток и шлейф KVERT тоже меряет километрами. Прочитать их как
+    // высоту значило бы объявить выброс в стратосферу.
+    const flow = parseActivitySections(`
+LAVA TEST VOLCANO (CAVW #300999)<br />
+55.0 N, 160.0 E; Elevation 1000 m (3280 ft)<br />
+Aviation Colour Code is  YELLOW<br />
+The effusive eruption continues. Lava flows are moving up to 6 km to the eastern slope of the volcano.<br />
+`)[0];
+    expect(flow.ashHeightM).toBeNull();
+  });
+
+  it('незнакомая формула опасности оставляет высоту без фразы, а не сочиняет её', () => {
+    const ru = describeActivityRu({
+      hazardEn: 'The effusive eruption of the volcano continues. Ash up to 4 km a.s.l. was noted yesterday.',
+      ashHeightM: 4000,
+    });
+    expect(ru).toBe('Продолжается эффузивное извержение.');
   });
 });
