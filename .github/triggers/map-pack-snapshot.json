@@ -1,13 +1,13 @@
 {
   "note": "Пуш этого файла снимает пакеты карты безголовым MapLibre на раннере (map-pack-snapshot.yml) и кладёт кадры артефактом прогона. packs — список id пакетов (район, клетка cell-<lat>n<lng>e или krai-overview); пусто — ВСЕ собранные (123 пакета, ~594 кадра с углами клеток) — 06.09 такой прогон уходит за час (job timeout) и не даёт НИЧЕГО: ни артефакта, ни ветки, шаг «Снять кадры» просто прерывается. Партиями по 25-30 пакетов — безопасно. theme — dark или light. force_ocean — подложить океан обзора из бакета до включения флага, чтобы посмотреть глазами. probe — тайлы pack:z/x/y для переписи архива (те, на которые пожаловался MapLibre в прошлом прогоне).",
-  "run": 21,
+  "run": 22,
   "packs": [
-    "cell-57n156e", "cell-57n157e", "cell-57n159e", "cell-57n160e", "cell-57n161e",
-    "cell-57n163e", "cell-58n158e", "cell-58n159e", "cell-58n161e", "cell-58n162e",
-    "cell-58n163e", "cell-59n159e", "cell-59n160e", "cell-59n161e", "cell-59n163e",
-    "cell-59n164e", "cell-59n166e", "cell-60n162e", "cell-60n163e", "cell-60n164e",
-    "cell-60n166e", "cell-60n167e", "cell-60n168e", "cell-60n170e", "cell-60n171e",
-    "cell-61n162e", "cell-61n164e", "cell-61n165e"
+    "cell-61n166e", "cell-61n168e", "cell-61n169e", "cell-61n170e", "cell-61n172e",
+    "cell-61n173e", "cell-61n174e", "cell-62n163e", "cell-62n164e", "cell-62n165e",
+    "cell-62n167e", "cell-62n168e", "cell-62n169e", "cell-62n171e", "cell-62n172e",
+    "cell-62n173e", "cell-63n162e", "cell-63n163e", "cell-63n164e", "cell-63n166e",
+    "cell-63n167e", "cell-63n168e", "cell-64n162e", "cell-64n163e", "cell-64n164e",
+    "cell-64n166e", "cell-64n167e", "cell-64n168e"
   ],
   "probe": [],
   "theme": "dark",
