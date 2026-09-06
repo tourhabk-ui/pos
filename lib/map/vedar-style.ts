@@ -118,6 +118,8 @@ interface MapPalette {
   trail: string;
   /** Рассчитанный автопуть по дорожной сети — сплошной синий (lib/map/line-standard, calculatedCarLine). */
   calculated: string;
+  /** Булавка выбранной точки (тап по карте) — акцент лавы, --accent. */
+  pin: string;
   /** OSM (02.09): заливки и линии. Приглушённые — карта полевая, не городская. */
   water: string;
   waterway: string;
@@ -192,6 +194,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     connector: '#8B949E',
     trail: '#00A8CC',       // --ocean dark; тот же голубой, что у следа на Leaflet
     calculated: calculatedCarLine().style.color,
+    pin: '#E8734A',         // --accent dark
     // OSM: вода холодная, лес чуть теплее фона, ледник светлее гребня,
     // тропа — тёплая (как на референсе владельца 31.08), дорога — серая.
     water: '#12303F',
@@ -258,6 +261,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     connector: '#6B6560',
     trail: '#2568B0',       // --ocean light
     calculated: calculatedCarLine().style.color,
+    pin: '#D44A0C',         // --accent light
     water: '#BFD9E8',
     waterway: '#4F88A8',
     wood: '#D9E4CC',
@@ -572,6 +576,20 @@ export function buildVedarStyle(
           'circle-radius': 6,
           'circle-color': p.contourLabelHalo,
           'circle-stroke-color': p.calculated,
+          'circle-stroke-width': 3,
+        },
+      },
+      {
+        // Булавка точки, по которой ткнули (05.09, по образцу навигатора):
+        // кольцо акцента с белой каймой — над всеми линиями, под подписями.
+        id: 'route-pin',
+        type: 'circle',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'pin'],
+        paint: {
+          'circle-radius': 8,
+          'circle-color': p.pin,
+          'circle-stroke-color': p.contourLabelHalo,
           'circle-stroke-width': 3,
         },
       },

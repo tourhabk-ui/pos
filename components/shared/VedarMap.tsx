@@ -115,10 +115,18 @@ interface VedarMapProps {
    * накрывал нижний лист — скрин владельца 02.09 08:18.
    */
   showZoomButtons?: boolean;
-  /** Что поставить под своими кнопками масштаба (чип координат, 05.09). Рисуется только с showZoomButtons. */
-  controlsSlot?: React.ReactNode;
   /** Точки на живой карте — концы рассчитанного автопути. */
   points?: VedarMapPoint[];
+  /**
+   * Тап по карте — как в навигаторе (владелец 05.09, «посмотри, как у
+   * референсов»): точка на карте открывает карточку места с координатами,
+   * прокладкой и передачей в навигатор. Карта лишь сообщает, куда ткнули.
+   */
+  onMapClick?: (p: { lat: number; lng: number }) => void;
+  /** Тап по своей синей точке — та же карточка для «я». */
+  onUserClick?: () => void;
+  /** Булавка выбранной точки; null — булавки нет. */
+  pin?: { lat: number; lng: number } | null;
   /** Ручка управления наружу — для кнопок масштаба вне карты. null при размонтировании. */
   onControls?: (handle: VedarMapHandle | null) => void;
 }
@@ -410,10 +418,16 @@ export default function VedarMap({
   packs = [],
   baseRegion,
   showZoomButtons = true,
-  controlsSlot,
+  onMapClick,
+  onUserClick,
+  pin = null,
   onControls,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const onMapClickRef = useRef(onMapClick);
+  onMapClickRef.current = onMapClick;
+  const onUserClickRef = useRef(onUserClick);
+  onUserClickRef.current = onUserClick;
   const mapRef = useRef<MLMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const autoCenterDoneRef = useRef(false);
@@ -556,6 +570,9 @@ export default function VedarMap({
         map.addControl(new maplibre.AttributionControl({ compact: true }), 'top-right');
         map.touchZoomRotate.disableRotation();
         mapRef.current = map;
+        // Тап по карте — наружу, через ref: инлайновая стрелка вызывающего
+        // меняет identity каждый рендер, а карту пересоздавать из-за этого нельзя.
+        map.on('click', (e) => { onMapClickRef.current?.({ lat: e.lngLat.lat, lng: e.lngLat.lng }); });
 
         map.on('load', () => { loaded = true; if (!cancelled) setReady(true); });
 
@@ -925,9 +942,16 @@ export default function VedarMap({
           properties: { kind: pt.kind, label: pt.label },
           geometry: { type: 'Point' as const, coordinates: pt.coordinates },
         })),
+        // Булавка выбранной точки — тоже в источнике маршрута: один setData,
+        // стиль рисует её слоем route-pin.
+        ...(pin ? [{
+          type: 'Feature' as const,
+          properties: { kind: 'pin' },
+          geometry: { type: 'Point' as const, coordinates: [pin.lng, pin.lat] },
+        }] : []),
       ],
     });
-  }, [lines, points, ready]);
+  }, [lines, points, pin, ready]);
 
   // ── Своё положение ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -949,7 +973,11 @@ export default function VedarMap({
             'border:3px solid #fff;box-shadow:0 0 8px rgba(66,133,244,0.6);' +
             // Плавный проезд между фиксами вместо телепорта — та же правка,
             // что для синей точки Leaflet (владелец 31.08, GPS ±46 м).
-            'transition:transform 0.6s ease-out;';
+            'transition:transform 0.6s ease-out;cursor:pointer;';
+          // Тап по своей точке — карточка «я» с координатами (как тап по
+          // стрелке положения в навигаторе). stopPropagation — иначе тот же
+          // тап дошёл бы до карты и поставил булавку под ногами.
+          el.addEventListener('click', (ev) => { ev.stopPropagation(); onUserClickRef.current?.(); });
           marker = new maplibre.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
           userMarkerRef.current = marker;
           // Центрируем РОВНО ОДИН раз — «вот вы». Дальше камера человека.
@@ -1011,11 +1039,8 @@ export default function VedarMap({
           середине: угадывать высоту листа пикселями — та же fixed-угадайка,
           что уже ловили с компасом (29.08). */}
       {ready && showZoomButtons && (
-        <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 5 }}>
           <VedarZoomButtons handle={inlineHandle} />
-          {/* Чип координат (05.09) — тот же компонент, что в приборном ряду
-              снаружи; карта лишь даёт ему место под своими кнопками. */}
-          {controlsSlot}
         </div>
       )}
       {(mapError || diag) && (
