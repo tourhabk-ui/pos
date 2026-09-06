@@ -45,8 +45,12 @@ describe('источник-страница: разбор', () => {
     expect(urls).toContain('https://www.anthropic.com/news/claude-opus-5');
     expect(urls).toContain('https://www.anthropic.com/news/interpretability-update');
     expect(urls).not.toContain('https://www.anthropic.com/news');
-    expect(urls.some((u) => u.includes('/careers/'))).toBe(false);
-    expect(urls.some((u) => u.includes('twitter.com'))).toBe(false);
+    expect(urls.some((u) => new URL(u).pathname.startsWith('/careers/'))).toBe(false);
+    // Хост сверяется разбором, а не подстрокой: `includes('twitter.com')`
+    // прошло бы и на `anthropic.com.twitter.com.evil/`, и CodeQL прав, что
+    // помечает такую проверку (js/incomplete-url-substring-sanitization).
+    const hosts = [...new Set(urls.map((u) => new URL(u).hostname))];
+    expect(hosts).toEqual(['www.anthropic.com']);
   });
 
   it('якорь-дубль с решёткой не удваивает запись', () => {
