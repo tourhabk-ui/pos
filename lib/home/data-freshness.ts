@@ -111,3 +111,81 @@ export function freshnessDot(state: FreshnessState): string | null {
   if (state === 'stale') return 'var(--warning)';
   return null;
 }
+
+/* ── Покрытие маршрутов треком для офлайн-карты (#1643) ─────────────────────
+ *
+ * Свежесть отвечает «можно ли верить обстановке», покрытие — «можно ли верить
+ * карте без связи». Маршрут без линии офлайн не ведёт: на экране только
+ * название, и человек в поле остаётся с бумажкой. Доля таких маршрутов —
+ * такой же прибор главной, как возраст сводки: её показывают, а не подразумевают.
+ *
+ * Три состояния, как у свежести: «хорошо», «плохо», «не посчитано». Третье
+ * не равно первому: упавший запрос или пустой каталог не рисуют зелёной точки.
+ */
+
+export type CoverageState = 'ok' | 'warning' | 'unknown';
+
+export interface GeometryCoverage {
+  state: CoverageState;
+  /** Доля маршрутов с треком, целые проценты. null — когда посчитать нечем. */
+  pct: number | null;
+  /** Готовая строка для интерфейса. */
+  label: string;
+}
+
+/**
+ * Порог тревоги: больше этой доли маршрутов без трека — предупреждение
+ * администратору и оператору. Одно число на все поверхности: карточка
+ * `/hub/admin/health` считает «ok» от него же (100 − порог).
+ */
+export const GEOMETRY_GAP_WARN_PCT = 20;
+
+export interface GeometryCoverageInput {
+  /** Живых маршрутов всего. null — запрос не выполнился. */
+  total: number | null;
+  /** Из них без трека, пригодного для офлайн-карты. null — запрос не выполнился. */
+  withoutTrack: number | null;
+}
+
+const COVERAGE_UNKNOWN: GeometryCoverage = {
+  state: 'unknown',
+  pct: null,
+  label: 'Покрытие маршрутов треками не посчитано',
+};
+
+function isCount(n: number | null): n is number {
+  return typeof n === 'number' && Number.isFinite(n) && Number.isInteger(n) && n >= 0;
+}
+
+export function geometryCoverage({ total, withoutTrack }: GeometryCoverageInput): GeometryCoverage {
+  if (!isCount(total) || !isCount(withoutTrack)) return COVERAGE_UNKNOWN;
+  // Ноль маршрутов — не «100% покрытие», а отсутствие материала для оценки
+  // (§4.0: ноль результатов при нулевом входе — отказ, не успех).
+  if (total === 0) return COVERAGE_UNKNOWN;
+  // Часть больше целого — данные противоречат себе; из них ничего не следует.
+  if (withoutTrack > total) return COVERAGE_UNKNOWN;
+
+  const gapPct = (withoutTrack / total) * 100;
+  const pct = Math.round(100 - gapPct);
+
+  if (gapPct > GEOMETRY_GAP_WARN_PCT) {
+    return {
+      state: 'warning',
+      pct,
+      label: `Без трека для офлайн-карты ${withoutTrack} ${plural(withoutTrack, 'маршрут', 'маршрута', 'маршрутов')} из ${total}`,
+    };
+  }
+
+  return {
+    state: 'ok',
+    pct,
+    label: `Трек для офлайн-карты есть у ${pct}% маршрутов`,
+  };
+}
+
+/** Точка покрытия по тем же правилам, что и у свежести: «не посчитано» — без точки. */
+export function coverageDot(state: CoverageState): string | null {
+  if (state === 'ok') return 'var(--success)';
+  if (state === 'warning') return 'var(--warning)';
+  return null;
+}
