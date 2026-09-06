@@ -24,6 +24,8 @@ import { pool } from '@/lib/db-pool';
 // Время проверки — общее правило на все ленты (lib/safety/ingest-run):
 // «когда спрашивали» считается по прогону приёма, а не по возрасту записи.
 import { lastIngestAt } from '@/lib/safety/ingest-run';
+// Коды KVERT — «что сейчас», новости — «что случилось». Экран показывает оба.
+import { getVolcanoStatuses } from '@/lib/services/safety/volcano-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,9 +70,12 @@ export async function GET() {
       LIMIT 20
     `);
 
-    return NextResponse.json({ events: rows, checked_at: await lastIngestAt() });
+    const [checked_at, statuses] = await Promise.all([lastIngestAt(), getVolcanoStatuses()]);
+    return NextResponse.json({ events: rows, checked_at, statuses });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
-    return NextResponse.json({ events: [], checked_at: null, error: msg });
+    // Новости не прочитались — коды могли: спрашиваем отдельно, чтобы отказ
+    // одной ленты не гасил вторую.
+    return NextResponse.json({ events: [], checked_at: null, statuses: await getVolcanoStatuses(), error: msg });
   }
 }
