@@ -13,6 +13,8 @@ import { join } from 'node:path';
 import { placeMarkerSvg, PLACE_MARKER_KINDS, PLACE_MARKER_SIZE } from '@/lib/map/place-marker-icons';
 
 const LEAFLET = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf-8');
+const MAP_CLIENT = readFileSync(join(process.cwd(), 'app/map/_MapPageClient.tsx'), 'utf-8');
+const PLACE_SHEET = readFileSync(join(process.cwd(), 'components/map/PlaceMapSheet.tsx'), 'utf-8');
 
 describe('placeMarkerSvg', () => {
   it('известный тип — своя форма, залитая переданным цветом', () => {
@@ -45,6 +47,41 @@ describe('placeMarkerSvg', () => {
       'waterfall', 'viewpoint', 'rock', 'island', 'beach', 'forest',
       'museum', 'historical',
     ]) {
+      expect(PLACE_MARKER_KINDS, kind).toContain(kind);
+    }
+  });
+
+  /**
+   * Каждый ключ, которому платформа сама даёт имя в UI (фильтр /map или
+   * заголовок карточки места), обязан иметь СВОЮ форму — иначе подпись
+   * называет одно («Мыс», «Пещера»), а значок молча показывает общий
+   * кружок «other». Разрыв ровно такого рода нашёлся 07.09: cape,
+   * settlement, valley и cave были подписаны словом в обоих словарях, но
+   * падали на общую форму — сторож ловит эту рассинхронизацию впредь,
+   * читая ключи прямо из словарей, а не переписывая их список руками.
+   */
+  it('каждый ключ LOCATION_TYPE_CONFIG (/map) имеет свою форму', () => {
+    const block = MAP_CLIENT.slice(
+      MAP_CLIENT.indexOf('const LOCATION_TYPE_CONFIG'),
+      MAP_CLIENT.indexOf('};', MAP_CLIENT.indexOf('const LOCATION_TYPE_CONFIG')),
+    );
+    const keys = [...block.matchAll(/^\s*(\w+):\s*\{ label:/gm)].map((m) => m[1]);
+    expect(keys.length).toBeGreaterThan(10);
+    for (const kind of keys) {
+      if (kind === 'other') continue;
+      expect(PLACE_MARKER_KINDS, kind).toContain(kind);
+    }
+  });
+
+  it('каждый ключ LOCATION_LABELS (карточка места) имеет свою форму', () => {
+    const block = PLACE_SHEET.slice(
+      PLACE_SHEET.indexOf('const LOCATION_LABELS'),
+      PLACE_SHEET.indexOf('};', PLACE_SHEET.indexOf('const LOCATION_LABELS')),
+    );
+    const keys = [...block.matchAll(/(\w+):\s*'[^']+'/g)].map((m) => m[1]);
+    expect(keys.length).toBeGreaterThan(10);
+    for (const kind of keys) {
+      if (kind === 'other') continue;
       expect(PLACE_MARKER_KINDS, kind).toContain(kind);
     }
   });
