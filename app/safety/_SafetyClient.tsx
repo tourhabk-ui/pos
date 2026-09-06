@@ -183,6 +183,15 @@ const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c
 import { RadarScope, AlertsTicker, SeismicPulse, VolcanoPulse, SRC_LABEL, fmtAgo, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
 import type { SafetyLiveData } from '@/app/_home/data';
 
+/**
+ * Отметка обновления словами. Отсутствие отметки — не повод молчать: «время
+ * обновления неизвестно» и «обновлено только что» — разные вещи, и вторую
+ * читатель домысливает сам, если первую не сказать (§4.0).
+ */
+function stampLabel(at: string | null | undefined): string {
+  return at ? `обновлено ${fmtAgo(at)}` : 'время обновления неизвестно';
+}
+
 export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
   const [zones, setZones] = useState<ZoneData[]>([]);
   // Отдельно от самого списка: «зон нет» и «оценку не посчитали» — разные
@@ -423,7 +432,26 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
               {live.seismic.events.length > 0 && (
                 <SeismicPulse events={live.seismic.events} source={SRC_LABEL[live.seismic.source]} />
               )}
-              <div className="src">Источник: КВЕРТ · Камчатское УГМС · КБГС РАН / USGS{live.safety.updatedAt ? ` · обновлено ${fmtAgo(live.safety.updatedAt)}` : ''}</div>
+              {/*
+                Отметка времени принадлежит ТОМУ источнику, который её выдал.
+                До 07.09 здесь стояла одна цифра на четыре источника, и брали
+                её из `location_real_time_status` — таблицы о загруженности и
+                режиме работы МЕСТ, не имеющей отношения ни к КВЕРТ, ни к
+                КБГС, ни к USGS. Владелец увидел итог на экране: сильнейший
+                толчок «5 ч назад» под строкой «обновлено 9 ч назад». Данные
+                не могут быть новее собственной отметки обновления.
+
+                У вулканов честная отметка — время последнего наблюдения; у
+                сейсмики — `checkedAt`, время последнего ОПРОСА ленты (а не
+                `updatedAt`, который равен моменту сборки ответа и всегда
+                показывал бы «только что»). Нет отметки — так и говорим.
+              */}
+              <div className="src">
+                Источник: КВЕРТ (вулканы) — {stampLabel(live.volcanoes.updatedAt)}
+                {live.seismic.events.length > 0
+                  ? ` · ${SRC_LABEL[live.seismic.source]} (толчки) — ${stampLabel(live.seismic.checkedAt)}`
+                  : ''}
+              </div>
             </div>
           )}
         </section>
