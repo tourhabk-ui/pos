@@ -31,7 +31,7 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
-import { dataFreshness, freshnessDot } from '@/lib/home/data-freshness';
+import { dataFreshness, freshnessDot, geometryCoverage, coverageDot } from '@/lib/home/data-freshness';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
@@ -78,7 +78,7 @@ interface ActiveTrip {
 }
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, seismic, radar, plates, feed, stats, elements } = data;
+  const { safety, seismic, radar, plates, feed, stats, elements, geometry } = data;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -120,6 +120,13 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // данным и «спокойно» по свежим — разные утверждения, и человек должен
   // видеть, какое из них ему показали.
   const fresh = dataFreshness({ updatedAt: safety.updatedAt, source: 'safety' });
+  // Наличие линии у маршрута (#1643): без связи карта покажет только её.
+  // Считается НАЛИЧИЕ, не право вести — право вести решает §12/navigability.
+  // null от счётчика — «не посчитано», без точки; не ноль и не 100%.
+  const coverage = geometryCoverage({
+    total: geometry?.total ?? null,
+    withoutTrack: geometry?.without_track ?? null,
+  });
 
   // Поиск ведёт в тот же SSR-листинг, который турист увидит по любой ссылке
   // каталога: одна выдача, а не отдельная «поисковая» ветка со своей правдой.
@@ -393,14 +400,35 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             по позавчерашним данным и «спокойно» по свежим — разные
             утверждения, и человек должен видеть, какое ему показали. */}
         <section className="live">
-          <span
-            className="lv-dot"
-            style={freshnessDot(fresh.state)
-              ? { background: freshnessDot(fresh.state) as string }
-              : { border: '1px solid var(--text-muted)' }}
-          />
-          <span className="lv-txt">{fresh.label}</span>
-          <Link className="lv-go" href="/safety">Карта сегодня →</Link>
+          <div className="lv-row">
+            <span
+              className="lv-dot"
+              style={freshnessDot(fresh.state)
+                ? { background: freshnessDot(fresh.state) as string }
+                : { border: '1px solid var(--text-muted)' }}
+            />
+            <span className="lv-txt">{fresh.label}</span>
+            <Link className="lv-go" href="/safety">Карта сегодня →</Link>
+          </div>
+          {/* Вторая строка — наличие линии (#1643). У маршрута без линии
+              офлайн-карта не покажет ничего, кроме названия; доля таких —
+              прибор, а не подразумеваемое «всё есть». Больше
+              GEOMETRY_GAP_WARN_PCT без линии — предупреждение, но только
+              ТОЧКОЙ (как у свежести): владелец 06.09 — порог давно пройден
+              (~27%), и жирный алярм-текст на каждом заходе на главную читался
+              бы как постоянная тревога там, где это доля данных, а не
+              случившаяся беда. Текст ровно тот же для обоих состояний по
+              начертанию — состояние несёт цвет точки и сама формулировка
+              (geometryCoverage), не жирность. */}
+          <div className="lv-row lv-cov">
+            <span
+              className="lv-dot"
+              style={coverageDot(coverage.state)
+                ? { background: coverageDot(coverage.state) as string }
+                : { border: '1px solid var(--text-muted)' }}
+            />
+            <span className="lv-txt">{coverage.label}</span>
+          </div>
         </section>
 
         {/* ЧТО ИМЕННО СЛУЧИЛОСЬ. Пилюля в шапке и строка выше сообщают
@@ -985,7 +1013,10 @@ const CSS = `
 /* секции */
 .v7 section{margin-top:40px}
 .v7 section.live{margin-top:16px}
-.v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;background:var(--bg-card);border:1px solid var(--border);border-radius:16px}
+.v7 .live{display:flex;flex-direction:column;gap:2px;padding:8px 14px 11px;margin-bottom:26px;background:var(--bg-card);border:1px solid var(--border);border-radius:16px}
+.v7 .live .lv-row{display:flex;align-items:center;gap:10px}
+.v7 .live .lv-cov{padding-top:7px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+.v7 .live .lv-cov .lv-txt{color:var(--text-secondary)}
 .v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
 .v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none;white-space:nowrap}
