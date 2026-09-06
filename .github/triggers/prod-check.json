@@ -1,7 +1,7 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 25,
-  "why": "06.09: владелец — Anthropic главным и нужен taaft. У Anthropic лент нет (проверено), значит нужен разбор страниц: смотрим адреса taaft и спрашиваем прод, какие инструменты чтения страниц настроены",
+  "run": 26,
+  "why": "06.09: разбор страниц выкачен. Тот же список адресов — но теперь перепись спрашивает HTML ещё раз разбором и говорит, сколько записей и якорей нашла. Решает, какие источники заводить типом page (Anthropic, taaft)",
   "urls": [
     "https://vedarai.ru/api/cron/intel-feeds-census?urls=https://theresanaiforthat.com/,https://theresanaiforthat.com/feed/,https://theresanaiforthat.com/rss/,https://taaft.com/,https://newsletter.taaft.com/rss,https://newsletter.taaft.com/feed,https://www.anthropic.com/news,https://blogs.nvidia.com/feed/",
     "https://vedarai.ru/api/cron/intel-feeds-census"

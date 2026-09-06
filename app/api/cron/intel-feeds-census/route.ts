@@ -27,24 +27,44 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { fetchFeed } from '@/lib/services/intelligence-monitor.service';
+import { fetchFeed, fetchPage } from '@/lib/services/intelligence-monitor.service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-interface FeedRow { url: string; domain: string; label: string; active: boolean }
+interface FeedRow { url: string; domain: string; label: string; active: boolean; source_type: string }
 
 interface FeedVerdict {
   url: string;
   domain: string;
   label: string;
-  /** 'feed' — настоящая лента с записями; 'empty' — лента без записей;
-   *  'not_a_feed' — ответ есть, но это не лента; 'failed' — отказ. */
-  verdict: 'feed' | 'empty' | 'not_a_feed' | 'failed';
+  /** 'feed' — настоящая лента с записями; 'page' — страница, разбор дал записи;
+   *  'empty' — ответ есть, записей нет; 'not_a_feed' — ответ есть, но это не лента;
+   *  'failed' — отказ. */
+  verdict: 'feed' | 'page' | 'empty' | 'not_a_feed' | 'failed';
   items: number | null;
   bytes: number | null;
   kind: string | null;
   error: string | null;
+  /** Что вытащил разбор страницы — только для HTML. Пусто при живых якорях = смена вёрстки. */
+  page?: { anchors: number; prefix: string; titles: string[] };
+}
+
+/**
+ * Разбор страницы как второй вопрос к тому же адресу.
+ *
+ * Ответ «это не лента» сам по себе приговора не выносит: у Anthropic лент нет
+ * вовсе, и страница — единственный путь к главному источнику. Поэтому HTML
+ * спрашивается ещё раз разбором, и в ответе видно, сколько записей он нашёл и
+ * сколько якорей было всего.
+ */
+async function probePage(url: string): Promise<FeedVerdict['page'] | null> {
+  try {
+    const page = await fetchPage(url);
+    return { anchors: page.anchors, prefix: page.prefix, titles: page.items.slice(0, 3).map((i) => i.title) };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -89,10 +109,13 @@ export async function GET(req: NextRequest) {
       }
       try {
         const res = await fetchFeed(accepted.url);
+        const isFeedBody = res.kind === 'rss' || res.kind === 'atom';
+        const page = isFeedBody ? null : await probePage(accepted.url);
         checked.push({
           url: accepted.url, domain: 'candidate', label: '',
-          verdict: res.items.length > 0 ? 'feed' : (res.kind === 'rss' || res.kind === 'atom' ? 'empty' : 'not_a_feed'),
+          verdict: res.items.length > 0 ? 'feed' : (isFeedBody ? 'empty' : (page && page.titles.length > 0 ? 'page' : 'not_a_feed')),
           items: res.items.length, bytes: res.bytes, kind: res.kind, error: null,
+          ...(page ? { page } : {}),
         });
       } catch (err) {
         checked.push({
@@ -108,7 +131,11 @@ export async function GET(req: NextRequest) {
       checked_at: new Date().toISOString(),
       checked_from: 'prod',
       requested: raw.length,
-      alive: checked.filter((c) => c.verdict === 'feed').map((c) => `${c.url} (записей: ${c.items})`),
+      alive: checked
+        .filter((c) => c.verdict === 'feed' || c.verdict === 'page')
+        .map((c) => c.verdict === 'page'
+          ? `${c.url} (страница, записей: ${c.page?.titles.length ?? 0}, якорей: ${c.page?.anchors ?? 0})`
+          : `${c.url} (записей: ${c.items})`),
       feeds: checked,
     });
   }
@@ -116,9 +143,9 @@ export async function GET(req: NextRequest) {
   let rows: FeedRow[];
   try {
     const res = await pool.query<FeedRow>(
-      `SELECT url, domain, label, active
+      `SELECT url, domain, label, active, source_type
          FROM intelligence_sources
-        WHERE source_type = 'rss'
+        WHERE source_type IN ('rss', 'page')
         ORDER BY domain, url`,
     );
     rows = res.rows;
@@ -137,6 +164,26 @@ export async function GET(req: NextRequest) {
   for (const row of rows) {
     if (!row.active) {
       feeds.push({ ...row, verdict: 'failed', items: null, bytes: null, kind: null, error: 'отключена в реестре' });
+      continue;
+    }
+    if (row.source_type === 'page') {
+      // Страницу судит разбор, а не форма тела: ленты у такого источника нет
+      // по построению, и мерить его меркой ленты значит всегда получать «нет».
+      try {
+        const page = await fetchPage(row.url);
+        feeds.push({
+          url: row.url, domain: row.domain, label: row.label,
+          verdict: page.items.length > 0 ? 'page' : 'empty',
+          items: page.items.length, bytes: page.bytes, kind: 'html', error: null,
+          page: { anchors: page.anchors, prefix: page.prefix, titles: page.items.slice(0, 3).map((i) => i.title) },
+        });
+      } catch (err) {
+        feeds.push({
+          url: row.url, domain: row.domain, label: row.label,
+          verdict: 'failed', items: null, bytes: null, kind: 'html',
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
+        });
+      }
       continue;
     }
     try {
@@ -167,8 +214,10 @@ export async function GET(req: NextRequest) {
     return {
       domain,
       total: own.length,
-      alive: own.filter((f) => f.verdict === 'feed').length,
-      silent: own.filter((f) => f.verdict !== 'feed').map((f) => `${f.url} — ${f.error ?? f.verdict}`),
+      alive: own.filter((f) => f.verdict === 'feed' || f.verdict === 'page').length,
+      silent: own
+        .filter((f) => f.verdict !== 'feed' && f.verdict !== 'page')
+        .map((f) => `${f.url} — ${f.error ?? f.verdict}`),
     };
   });
 
