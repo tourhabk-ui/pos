@@ -1,14 +1,8 @@
 {
   "note": "Пуш этого файла снимает пакеты карты безголовым MapLibre на раннере (map-pack-snapshot.yml) и кладёт кадры артефактом прогона. packs — список id пакетов (район, клетка cell-<lat>n<lng>e или krai-overview); пусто — все собранные (123 пакета, ~360 кадров, долго). theme — dark или light. force_ocean — подложить океан обзора из бакета до включения флага, чтобы посмотреть глазами. probe — тайлы pack:z/x/y для переписи архива (те, на которые пожаловался MapLibre в прошлом прогоне).",
   "run": 18,
-  "packs": [
-    "krai-overview",
-    "avacha-group",
-    "esso-bystrinsky",
-    "south-kamchatka",
-    "commander-islands"
-  ],
+  "packs": [],
   "probe": [],
-  "theme": "light",
+  "theme": "dark",
   "force_ocean": false
 }
