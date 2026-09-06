@@ -1,8 +1,8 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 22,
-  "why": "06.09: перепись лент разведки С ПРОДА — замер с раннера дал другие ответы (kamgov 403 против 404, visitkamchatka 404 против 200 HTML), а читает ленты прод",
+  "run": 23,
+  "why": "06.09: перепись показала competitors 0 из 2 и travel_industry 0 из 5 живых лент — проверяем кандидатов на замену С ПРОДА, ничего не записывая",
   "urls": [
-    "https://vedarai.ru/api/cron/intel-feeds-census"
+    "https://vedarai.ru/api/cron/intel-feeds-census?urls=https://www.tourprom.ru/rss/,https://www.tourprom.ru/rss.xml,https://www.atorus.ru/news/rss.xml,https://www.atorus.ru/rss.xml,https://ratanews.ru/feed/,https://www.ratanews.ru/rss/,https://profi.travel/rss,https://tourdom.ru/rss/,https://kamchatinfo.com/rss,https://poluostrov-kamchatka.ru/feed/,https://kamchatka.aif.ru/rss/all.php,https://tass.ru/rss/v2.xml,https://www.interfax-russia.ru/rss.xml,https://kam24.ru/news/rss,https://visitkamchatka.ru/news/feed/"
   ]
 }

@@ -47,9 +47,70 @@ interface FeedVerdict {
   error: string | null;
 }
 
+/**
+ * Кандидаты на замену — тем же путём и с той же машины.
+ *
+ * Замена мёртвой ленты выбирается замером, а не памятью: адрес, живой у
+ * поисковика, может отдавать проду 404 или HTML. Проверка кандидатов ничего
+ * не записывает — решение о списке принимает человек.
+ *
+ * Ограничения не для красоты: роут ходит по адресу из параметра, и без них
+ * он стал бы дверью во внутреннюю сеть (SSRF). Поэтому только http(s), не
+ * больше пятнадцати за раз, без учётных данных в URL и без частных адресов.
+ */
+const PRIVATE_HOST = /^(localhost|127\.|0\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$|metadata\.)/i;
+
+function acceptCandidate(raw: string): { url: string } | { error: string } {
+  let u: URL;
+  try { u = new URL(raw.trim()); } catch { return { error: 'не разбирается как URL' }; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return { error: `протокол ${u.protocol} не разрешён` };
+  if (u.username || u.password) return { error: 'учётные данные в адресе не разрешены' };
+  if (PRIVATE_HOST.test(u.hostname)) return { error: 'частный адрес не разрешён' };
+  return { url: u.toString() };
+}
+
+const MAX_CANDIDATES = 15;
+
 export async function GET(req: NextRequest) {
   if (!timingSafeCompare(getCronSecret(req), process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // ?urls=… — проверить кандидатов, ничего не записывая.
+  const candidatesParam = (req.nextUrl.searchParams.get('urls') ?? '').trim();
+  if (candidatesParam) {
+    const raw = candidatesParam.split(',').map((s) => s.trim()).filter(Boolean).slice(0, MAX_CANDIDATES);
+    const checked: FeedVerdict[] = [];
+    for (const item of raw) {
+      const accepted = acceptCandidate(item);
+      if ('error' in accepted) {
+        checked.push({ url: item, domain: 'candidate', label: '', verdict: 'failed', items: null, bytes: null, kind: null, error: accepted.error });
+        continue;
+      }
+      try {
+        const res = await fetchFeed(accepted.url);
+        checked.push({
+          url: accepted.url, domain: 'candidate', label: '',
+          verdict: res.items.length > 0 ? 'feed' : (res.kind === 'rss' || res.kind === 'atom' ? 'empty' : 'not_a_feed'),
+          items: res.items.length, bytes: res.bytes, kind: res.kind, error: null,
+        });
+      } catch (err) {
+        checked.push({
+          url: accepted.url, domain: 'candidate', label: '', verdict: 'failed',
+          items: null, bytes: null, kind: null,
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
+        });
+      }
+    }
+    return NextResponse.json({
+      probe: 'intel_feeds_census_v1',
+      mode: 'candidates',
+      checked_at: new Date().toISOString(),
+      checked_from: 'prod',
+      requested: raw.length,
+      alive: checked.filter((c) => c.verdict === 'feed').map((c) => `${c.url} (записей: ${c.items})`),
+      feeds: checked,
+    });
   }
 
   let rows: FeedRow[];
