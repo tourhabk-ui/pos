@@ -30,6 +30,21 @@ const hasPermissions = (f: string) => /^\s*permissions:/m.test(readFileSync(join
 /** Разобранные поимённо. Список может только РАСТИ. */
 const DECLARED = ['shannon-pentest.yml', 'waypoint-proposals.yml', 'timeweb-app-info.yml'];
 
+/**
+ * Разобрано, но ещё не записано в сам workflow.
+ *
+ * Обеим пробам разведки нужен ровно `contents: read`: единственный
+ * потребитель токена у них — `actions/checkout` (читает маркер с адресами),
+ * опрос чужих лент идёт без токена вовсе. Записать это в файлы отсюда
+ * нельзя: токен приложения не имеет области `workflows`, и пуш правки в
+ * `.github/workflows/*` GitHub отклоняет. Правка — за человеком, issue #1651.
+ *
+ * Список может только СОКРАЩАТЬСЯ: строка удаляется, когда блок появился в
+ * файле. Это НЕ общая амнистия — исключены ровно два названных файла,
+ * любой другой workflow без прав по-прежнему упирается в потолок.
+ */
+const PENDING = ['kvert-probe.yml', 'feeds-probe.yml'];
+
 describe('права токена объявлены там, где разобраны', () => {
   it('все три отмеченных workflow объявляют permissions', () => {
     const missing = DECLARED.filter((f) => !hasPermissions(f));
@@ -50,14 +65,25 @@ describe('права токена объявлены там, где разобр
 
 describe('перепись остальных: цифра записана, а не забыта', () => {
   it('workflow без объявления прав не становится больше', () => {
-    // Потолок — замер 23.08.2026 (86 из 104). Он может только СОКРАЩАТЬСЯ:
-    // новый workflow без блока permissions покраснеет здесь и заставит
-    // решить осознанно, а не унаследовать умолчание.
-    const CEILING = 86;
-    const without = files.filter((f) => !hasPermissions(f));
+    // Потолок — замер 06.09.2026 (85 из 131 сверх PENDING; было 86 из 104
+    // на 23.08). Он может только СОКРАЩАТЬСЯ: новый workflow без блока
+    // permissions покраснеет здесь и заставит решить осознанно, а не
+    // унаследовать умолчание.
+    //
+    // Красным он стал с опозданием на два PR: сам этот сторож живёт в CI, а
+    // CI не поднимается на PR, который трогает ТОЛЬКО .github/workflows/*
+    // (в его paths-фильтре из всего каталога перечислен один ci.yml). Так
+    // обе пробы разведки вошли в main непроверенными.
+    const CEILING = 85;
+    const without = files.filter((f) => !hasPermissions(f) && !PENDING.includes(f));
     expect(
       without.length,
       `workflow без permissions стало больше замера: ${without.length} против ${CEILING}`,
     ).toBeLessThanOrEqual(CEILING);
+  });
+
+  it('отложенные не растворяются: каждый файл из PENDING существует и ждёт ровно contents: read', () => {
+    const gone = PENDING.filter((f) => !files.includes(f));
+    expect(gone, `файла нет — строку из PENDING надо удалить: ${gone.join(', ')}`).toEqual([]);
   });
 });
