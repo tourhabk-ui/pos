@@ -185,20 +185,35 @@ describe('слой мест в стиле карты', () => {
     }
   });
 
-  it('цвет — из данных профиля: hazard_types не пуст → тревога, иначе ориентир', () => {
+  it('форма и цвет иконки — из данных: hazard_types не пуст → тревожная форма, иначе — ориентир', () => {
+    // Владелец 07.09: «геоточки были все со своими маркерами» — форма несёт
+    // тип места (kind), а не только цвет опасности; имя иконки кодирует оба.
     const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
-    const circle = style.layers.find((l) => l.id === 'vedar-places');
-    expect(JSON.stringify(circle?.paint?.['circle-color'])).toContain('"hazard_types"');
-    expect(JSON.stringify(circle?.paint?.['circle-color'])).not.toContain('location_type');
+    const places = style.layers.find((l) => l.id === 'vedar-places');
+    const iconImage = JSON.stringify(places?.layout?.['icon-image']);
+    expect(iconImage).toContain('"hazard_types"');
+    expect(iconImage).not.toContain('location_type');
+    expect(iconImage).toContain('place-icon-');
+    expect(iconImage).toContain('"kind"');
   });
 
-  it('круг виден с нижнего зума карты, не только с z6 (владелец 06.09, «точек мест нет» на z4.4)', () => {
+  it('иконка виден с нижнего зума карты, не только с z6 (владелец 06.09, «точек мест нет» на z4.4)', () => {
     // /map открывается на минимальном зуме края — «Точек: 383» под картой
     // не должно врать пустой картой ровно там, где человек её впервые видит.
     const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
-    const circle = style.layers.find((l) => l.id === 'vedar-places') as { minzoom?: number } | undefined;
-    expect(circle?.minzoom).toBe(OVERVIEW_MIN_ZOOM);
+    const places = style.layers.find((l) => l.id === 'vedar-places') as { minzoom?: number } | undefined;
+    expect(places?.minzoom).toBe(OVERVIEW_MIN_ZOOM);
     expect(OVERVIEW_MIN_ZOOM).toBeLessThan(6);
+  });
+
+  it('слой мест — symbol с иконкой, не голый кружок (владелец 07.09)', () => {
+    const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
+    const places = style.layers.find((l) => l.id === 'vedar-places') as Layer | undefined;
+    expect(places?.type).toBe('symbol');
+    expect(places?.layout?.['icon-image']).toBeDefined();
+    // Тесно на обзоре (383 точки) — иконки не должны прятаться друг за
+    // друга: раньше все кружки рисовались независимо от тесноты.
+    expect(places?.layout?.['icon-allow-overlap']).toBe(true);
   });
 
   it('подкладка соседа (base) несёт слой с пространством имён региона; detail — нет', () => {
