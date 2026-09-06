@@ -9,6 +9,11 @@ name: Проба — формат выпуска KVERT
 #
 # Запуск: push в main, меняющий .github/triggers/kvert-probe.json, или кнопка.
 
+# Права токена: Единственный потребитель токена — checkout маркера с адресами;
+# опрос KVERT идёт без токена вовсе.
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:

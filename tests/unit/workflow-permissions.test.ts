@@ -28,25 +28,21 @@ const files = readdirSync(WF_DIR).filter((f) => /\.ya?ml$/.test(f));
 const hasPermissions = (f: string) => /^\s*permissions:/m.test(readFileSync(join(WF_DIR, f), 'utf8'));
 
 /** Разобранные поимённо. Список может только РАСТИ. */
-const DECLARED = ['shannon-pentest.yml', 'waypoint-proposals.yml', 'timeweb-app-info.yml'];
+const DECLARED = ['shannon-pentest.yml', 'waypoint-proposals.yml', 'timeweb-app-info.yml',
+  'kvert-probe.yml', 'feeds-probe.yml'];
 
 /**
- * Разобрано, но ещё не записано в сам workflow.
+ * Отложенных не осталось.
  *
- * Обеим пробам разведки нужен ровно `contents: read`: единственный
- * потребитель токена у них — `actions/checkout` (читает маркер с адресами),
- * опрос чужих лент идёт без токена вовсе. Записать это в файлы отсюда
- * нельзя: токен приложения не имеет области `workflows`, и пуш правки в
- * `.github/workflows/*` GitHub отклоняет. Правка — за человеком, issue #1651.
- *
- * Список может только СОКРАЩАТЬСЯ: строка удаляется, когда блок появился в
- * файле. Это НЕ общая амнистия — исключены ровно два названных файла,
- * любой другой workflow без прав по-прежнему упирается в потолок.
+ * Обе пробы разведки (`kvert-probe.yml`, `feeds-probe.yml`) просили ровно
+ * `contents: read` и с 06.09 объявляют это в самих файлах. Список оставлен
+ * пустым намеренно: место для следующего разобранного, но ещё не записанного
+ * случая — и оно должно оставаться пустым.
  */
-const PENDING = ['kvert-probe.yml', 'feeds-probe.yml'];
+const PENDING: string[] = [];
 
 describe('права токена объявлены там, где разобраны', () => {
-  it('все три отмеченных workflow объявляют permissions', () => {
+  it('все отмеченные workflow объявляют permissions', () => {
     const missing = DECLARED.filter((f) => !hasPermissions(f));
     expect(missing, `объявление прав пропало: ${missing.join(', ')}`).toEqual([]);
   });
@@ -54,6 +50,12 @@ describe('права токена объявлены там, где разобр
   it('shannon-pentest просит ровно contents: read', () => {
     const src = readFileSync(join(WF_DIR, 'shannon-pentest.yml'), 'utf8');
     expect(src).toMatch(/^permissions:\n  contents: read$/m);
+  });
+
+  it('обе пробы разведки просят ровно contents: read', () => {
+    for (const f of ['kvert-probe.yml', 'feeds-probe.yml']) {
+      expect(readFileSync(join(WF_DIR, f), 'utf8'), f).toMatch(/^permissions:\n  contents: read$/m);
+    }
   });
 
   it('двум разборам токен не нужен вовсе', () => {
