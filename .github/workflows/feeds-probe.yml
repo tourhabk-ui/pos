@@ -1,0 +1,57 @@
+name: Проба — живы ли ленты разведки
+
+# Проверяет список адресов и говорит по каждому: код ответа, размер и ЧТО
+# пришло — лента или страница. Нужна, потому что песочница агента наружу не
+# ходит, а список источников правят по факту, а не по догадке: тревога 06.09
+# назвала kamgov.ru (404) и visitkamchatka.ru (HTML вместо ленты), но чем их
+# заменить — вопрос замера.
+#
+# Только чтение чужих адресов: ни прод, ни база не участвуют.
+#
+# Запуск: push в main, меняющий .github/triggers/feeds-probe.json, или кнопка.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/feeds-probe.json'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Опросить адреса
+        run: |
+          python3 - <<'PY'
+          import json, re, urllib.request, urllib.error, socket
+
+          urls = json.load(open('.github/triggers/feeds-probe.json')).get('urls', [])
+          print(f'адресов: {len(urls)}')
+
+          def kind(body: bytes) -> str:
+              head = body[:2048].decode('utf-8', 'replace').lstrip()
+              if not head: return 'пусто'
+              if head[:1] in '{[': return 'JSON'
+              if re.search(r'<(rss|rdf:RDF)[\s>]', head, re.I): return 'RSS'
+              if re.search(r'<feed[\s>]', head, re.I): return 'Atom'
+              if re.search(r'<!doctype html|<html[\s>]', head, re.I): return 'HTML (не лента)'
+              return 'иное'
+
+          for u in urls:
+              req = urllib.request.Request(u, headers={'User-Agent': 'TourHabKamchatka/1.0 (safety monitoring)'})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      body = r.read(200_000)
+                      k = kind(body)
+                      # Записей в ленте: по ним и судят, живая она или пустая.
+                      items = len(re.findall(rb'<item\b', body, re.I)) or len(re.findall(rb'<entry\b', body, re.I))
+                      print(f'{u}\n    HTTP {r.status}, {len(body)} Б, {k}, записей: {items}')
+              except urllib.error.HTTPError as e:
+                  print(f'{u}\n    HTTP {e.code} ({e.reason})')
+              except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+                  print(f'{u}\n    не ответил: {e}')
+          PY
