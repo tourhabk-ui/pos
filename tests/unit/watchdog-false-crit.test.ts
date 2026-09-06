@@ -44,10 +44,15 @@ describe('молчание крона не выдаётся за отказ аг
   it('уровень решает длительность молчания, а не тип алерта', () => {
     // Пока safety_cron_dead стоит в списке безусловных КРИТ, флаг critical
     // ничего не решает и ВНИМАНИЕ недостижимо.
-    const prefixLine = CODE.split('\n').find((l) => l.includes("? 'КРИТ:' : 'ВНИМАНИЕ:'"));
-    expect(prefixLine, 'строка выбора префикса не найдена').toBeTruthy();
-    expect(prefixLine).not.toContain('safety_cron_dead');
-    expect(prefixLine).toContain('a.critical');
+    //
+    // Решение критичности вынесено в isDisplayedCritical() (06.09) — им же
+    // судит и дебаунс, чтобы текст и решение "долбить повторно или нет" не
+    // разошлись между собой. Смотрим само правило, а не место вызова.
+    const fnAt = CODE.indexOf('function isDisplayedCritical');
+    const fn = CODE.slice(fnAt, fnAt + 200);
+    expect(fnAt, 'isDisplayedCritical не найдена').toBeGreaterThan(-1);
+    expect(fn).not.toContain('safety_cron_dead');
+    expect(fn).toContain('a.critical');
   });
 
   it('алерт говорит про прогон, а не про состояние агента', () => {

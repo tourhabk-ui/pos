@@ -33,6 +33,8 @@ import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type Cron
 import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
 import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents/migration-status';
 import { needsEscalation, type SosOriginClass } from '@/lib/safety/sos-origin';
+import { hashPayload } from '@/lib/safety/ledger';
+import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
@@ -97,7 +99,14 @@ function isCheckFailure(v: CheckResult): v is CheckFailure {
 export type WatchdogDelivery =
   | { status: 'nothing_to_send' }
   | { status: 'delivered' }
-  | { status: 'failed'; reason: string };
+  | { status: 'failed'; reason: string }
+  /**
+   * Нарушения ЕСТЬ, но по каждому из них Telegram уже писали в пределах
+   * окна дебаунса (06.09) — новый текст не отправлен, а не «нечего слать».
+   * Разница важна: nothing_to_send читается как «всё чисто», а здесь
+   * проблема стоит, просто владельца о ней не долбят повторно каждые 30 мин.
+   */
+  | { status: 'debounced'; suppressed: number };
 
 /**
  * Перепись прогона: сколько проверок выполнилось, сколько не смогло.
@@ -1340,6 +1349,81 @@ async function checkFailedMigrations(): Promise<CheckResult> {
   }
 }
 
+/**
+ * Является ли алерт КРИТ по итоговому правилу отображения. Та же формула,
+ * что решает префикс `КРИТ:`/`ВНИМАНИЕ:` в тексте — вынесена в функцию,
+ * чтобы дебаунс ниже судил ТЕМ ЖЕ критерием и не разошёлся с текстом сам с
+ * собой (типичный способ, каким уже разъезжались критерии в этом файле —
+ * см. push-delivery-guard.test.ts про watchdog и safety-ingest).
+ */
+function isDisplayedCritical(a: WatchdogAlert): boolean {
+  return a.critical === true || a.type === 'seismic_cron_dead' || a.type === 'sos_ignored';
+}
+
+/**
+ * Сколько часов молчать про ОДИН И ТОТ ЖЕ (тип + содержание) алерт, прежде
+ * чем напомнить снова. Та же цифра, что у дебаунса мёртвых источников
+ * разведки (source-health.ALERT_COOLDOWN_HOURS) — тот же класс задачи:
+ * стоячее условие, а не разовое событие.
+ */
+export const WATCHDOG_ALERT_DEBOUNCE_HOURS = 12;
+
+/**
+ * Дебаунс Telegram-сообщений Watchdog (06.09).
+ *
+ * Владелец на живом скрине: «Watchdog — требует внимания» с ДОСЛОВНО
+ * одинаковым текстом про Intelligence Monitor три раза за час (14:04, 14:46,
+ * 15:08) — крон идёт каждые 30 мин, и пока условие не исчезнет, шлёт одно и
+ * то же без остановки. Та же болезнь, что была у push-алертов туристам
+ * (road_closure с нескольких источников): рупор, который не может замолчать
+ * даже когда сказать нечего нового, приучает не читать, а не читать —
+ * заодно и КРИТ, когда он реально будет нужен.
+ *
+ * КРИТ намеренно НЕ дебаунсится: это уже решено раньше (комментарий у
+ * `checkUndeliveredSafetyPush`) — «красное, что не гаснет работой, приучает
+ * пролистывать» относится к ложному КРИТ, а не к настоящему; настоящий
+ * обязан долбить, пока не почини́ли. Дебаунс — только для ВНИМАНИЕ: там
+ * повтор ничего не решает и только приучает пролистывать весь Telegram.
+ *
+ * Ключ — тип + хэш содержания (не только тип): если условие ИЗМЕНИЛОСЬ
+ * (другая причина, другое число прогонов), это уже другое сообщение и
+ * дебаунс на него не распространяется — молчать разрешено только про
+ * ПОВТОР, не про новую информацию под тем же типом.
+ */
+function watchdogDebounceKey(a: WatchdogAlert): string {
+  return `${a.type}:${hashPayload({ details: a.details }).slice(0, 16)}`;
+}
+
+/** Разносит алерты на «слать» и «уже говорили недавно, не повторяем». */
+async function splitByDebounce(
+  alerts: readonly WatchdogAlert[],
+): Promise<{ due: WatchdogAlert[]; suppressed: WatchdogAlert[] }> {
+  const due: WatchdogAlert[] = [];
+  const suppressed: WatchdogAlert[] = [];
+  for (const a of alerts) {
+    if (isDisplayedCritical(a)) { due.push(a); continue; }
+    const seen = await agentMemory.get('watchdog', 'alert_sent', watchdogDebounceKey(a));
+    if (seen) suppressed.push(a); else due.push(a);
+  }
+  return { due, suppressed };
+}
+
+/** Отмечает отправленные ВНИМАНИЕ-алерты, чтобы не повторять их в окне дебаунса. */
+async function markDebounced(alerts: readonly WatchdogAlert[]): Promise<void> {
+  const expires = new Date(Date.now() + WATCHDOG_ALERT_DEBOUNCE_HOURS * 3_600_000);
+  await Promise.all(
+    alerts
+      .filter((a) => !isDisplayedCritical(a))
+      .map((a) => agentMemory.remember({
+        agent_id: 'watchdog',
+        memory_type: 'alert_sent',
+        key: watchdogDebounceKey(a),
+        value: { type: a.type, sent_at: new Date().toISOString() },
+        expires_at: expires,
+      })),
+  );
+}
+
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
@@ -1393,13 +1477,18 @@ export async function runWatchdog(): Promise<WatchdogResult> {
 
   let delivery: WatchdogDelivery = { status: 'nothing_to_send' };
 
+  // Дебаунс ПЕРЕД сборкой текста: `alerts` в результате остаётся полным и
+  // честным (панель и cron-fruitless видят все нарушения без изменений) —
+  // сокращается только то, что уходит в Telegram этим прогоном.
+  const { due, suppressed } = await splitByDebounce(alerts);
+
   // Непроверенное — само по себе повод написать владельцу. Иначе всё
   // сегодняшнее упражнение осталось бы в поле результата, которое читают
   // так же редко, как лог: при недоступной БД alerts пуст, и без этой ветки
   // Telegram молчал бы ровно как раньше.
-  if (alerts.length > 0 || failed.length > 0) {
+  if (due.length > 0 || failed.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
-    for (const a of alerts) {
+    for (const a of due) {
       // push_undelivered из этого списка убран: его уровень решает причина, а
       // не тип. При нуле подписчиков «турист не получил предупреждение» верно,
       // но неисправимо этим алертом — и КРИТ висел бы неделю, пока запись не
@@ -1408,8 +1497,11 @@ export async function runWatchdog(): Promise<WatchdogResult> {
       // safety_cron_dead убран по той же логике раньше: молчание крона бывает
       // и задержкой расписания GitHub, поэтому решает длительность молчания,
       // а не сам тип алерта.
-      const prefix = a.critical || a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' ? 'КРИТ:' : 'ВНИМАНИЕ:';
+      const prefix = isDisplayedCritical(a) ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
+    }
+    if (suppressed.length > 0) {
+      lines.push(`(и ещё ${suppressed.length} без изменений — писали в последние ${WATCHDOG_ALERT_DEBOUNCE_HOURS} ч, не повторяю)`);
     }
     // «Не смог проверить» идёт отдельным блоком и НЕ смешивается с
     // нарушениями: у них разная природа и разное действие. Нарушение чинят
@@ -1427,6 +1519,14 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     lines.push('', `<a href="${adminUrl}/hub/admin">Открыть панель</a>`);
     const sent = await tgSend(lines.join('\n'));
     delivery = sent.ok ? { status: 'delivered' } : { status: 'failed', reason: sent.reason };
+    // Отмечаем ТОЛЬКО при удачной отправке: если Telegram не принял, владелец
+    // ничего не увидел, и следующий прогон обязан повторить попытку, а не
+    // молчать «уже писали».
+    if (sent.ok) await markDebounced(due);
+  } else if (alerts.length > 0) {
+    // Нарушения есть, но каждое уже отправлено недавно — это НЕ «всё чисто»
+    // (nothing_to_send) и НЕ «доставлено» (в этом прогоне ничего не ушло).
+    delivery = { status: 'debounced', suppressed: alerts.length };
   }
 
   return {
