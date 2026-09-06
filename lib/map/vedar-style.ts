@@ -231,11 +231,20 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
       [3300, '#7E7C78'],
       [4800, '#A6A9AD'],
     ],
-    scrub: '#2C3A22',
-    wetland: '#1C3538',
-    sand: '#403B2A',
-    rock: '#41444A',
-    residential: '#332D2C',
+    // 06.09, владелец: «качество и детальность». Прежние тона (#2C3A22 и
+    // соседи) лежали в той же полосе, что гипсометрия НИЗКИХ высот
+    // (0-900 м: #16261B…#3A3A2C), да ещё под hillshade сверху — стланик и
+    // болото не читались вовсе поверх собственного склона, хотя это
+    // безопасность («от этого зависят жизни людей», см. LAYERS выше).
+    // Сдвиг — по НАСЫЩЕННОСТИ И ОТТЕНКУ от ближайшей ступени рельефа, не
+    // ярче фона платформы: стланик зеленее лесной ступени, болото —
+    // холоднее в бирюзу, песок — теплее в охру, скалы — холоднее в
+    // сине-серый, застройка — в тёплую терракоту.
+    scrub: '#3D6B35',
+    wetland: '#1F6B6E',
+    sand: '#8A7A4A',
+    rock: '#6B7280',
+    residential: '#5A4038',
     cliff: '#D2704A',
     spring: '#5FB3D6',
     hotSpring: '#E8734A',   // --accent dark
@@ -293,11 +302,12 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
       [3300, '#C9C6C2'],
       [4800, '#F4F4F4'],
     ],
-    scrub: '#D9E0BE',
-    wetland: '#C6DDD8',
-    sand: '#F0E6C4',
-    rock: '#D6D3CD',
-    residential: '#E6DAD2',
+    // Та же правка контраста 06.09, что в тёмной палитре — см. её комментарий.
+    scrub: '#8FAE5C',
+    wetland: '#5FA8AE',
+    sand: '#E8C468',
+    rock: '#8B94A0',
+    residential: '#C9A08C',
     cliff: '#9B4A26',
     spring: '#2F6F95',
     hotSpring: '#D44A0C',   // --accent light
@@ -905,12 +915,18 @@ function osmFillLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
   const out: unknown[] = [];
   // Покрытия — под лесом: лес в OSM часто лежит поверх стланика тем же
   // контуром, и лес честнее. Застройка — ниже всех: она самая грубая.
+  //
+  // Непрозрачность поднята 06.09 (владелец: «качество и детальность») вместе
+  // с цветом выше: слой рисуется РАНЬШЕ hillshade (см. порядок в
+  // buildVedarStyle/buildRegionOverlay) и тень поверх ещё гасит контраст —
+  // на снимках прогона 14 покрытия при 0.45-0.5 не читались вовсе поверх
+  // своего же склона, хотя опасность (стланик, болото) для того и рисуется.
   const fills: Array<[OsmLayer, string, number]> = [
-    ['residential', p.residential, 0.45],
-    ['rock', p.rock, 0.45],
-    ['sand', p.sand, 0.5],
-    ['scrub', p.scrub, 0.45],
-    ['wetland', p.wetland, 0.5],
+    ['residential', p.residential, 0.55],
+    ['rock', p.rock, 0.55],
+    ['sand', p.sand, 0.6],
+    ['scrub', p.scrub, 0.6],
+    ['wetland', p.wetland, 0.6],
   ];
   for (const [layer, color, opacity] of fills) {
     const ref = r.osm(layer);
