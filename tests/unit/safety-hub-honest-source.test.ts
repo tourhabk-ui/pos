@@ -17,6 +17,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { normalizeVolcanoName } from '@/lib/services/safety/kvert-vona';
 import { join } from 'node:path';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -143,5 +144,22 @@ describe('вкладка «Вулканы» показывает и текущи
 
   it('время проверки за пределами сегодняшнего дня называет день', () => {
     expect(HUB).toMatch(/t\.toDateString\(\) === now\.toDateString\(\)/);
+  });
+});
+
+describe('вулкан назван по-русски, но не переименован наугад', () => {
+  // Замер prod-check run 18: KVERT отдал KLYUCHEVSKOY, SHEVELUCH, BEZYMIANNY,
+  // KRASHENINNIKOV — капсом и латиницей. На русском экране безопасности это
+  // читается как код, а не как вулкан.
+  it('имена с прода переводятся общей таблицей алиасов', () => {
+    expect(normalizeVolcanoName('KLYUCHEVSKOY')?.ru).toBe('Ключевской');
+    expect(normalizeVolcanoName('SHEVELUCH')?.ru).toBe('Шивелуч');
+    expect(normalizeVolcanoName('BEZYMIANNY')?.ru).toBe('Безымянный');
+  });
+
+  it('незнакомый вулкан остаётся под своим именем, а не «похожим»', () => {
+    const STATUS = strip(read('lib/services/safety/volcano-status.ts'));
+    expect(STATUS).toMatch(/normalizeVolcanoName\(r\.volcano_name\)\?\.ru \?\? r\.volcano_name/);
+    expect(normalizeVolcanoName('SOMETHING-UNKNOWN')).toBeNull();
   });
 });

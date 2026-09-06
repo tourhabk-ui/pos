@@ -18,7 +18,7 @@
  * первым.
  */
 import { pool } from '@/lib/db-pool';
-import type { AccColor } from '@/lib/services/safety/kvert-vona';
+import { normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
 
 export interface VolcanoStatusRow {
   name: string;
@@ -68,7 +68,12 @@ export async function getVolcanoStatuses(): Promise<VolcanoStatusFeed> {
     const elevated = rows
       .filter((r) => ELEVATED.includes(r.aviation_color_code))
       .map((r) => ({
-        name: r.volcano_name,
+        // KVERT присылает имена латиницей и капсом (KLYUCHEVSKOY, SHEVELUCH) —
+        // на русском экране это читается как код, а не как вулкан. Русское имя
+        // берём из общей таблицы алиасов (она же сопоставляет вулкан с местом),
+        // а не из нового словаря. Вулкан не из таблицы остаётся под своим
+        // именем: подставлять «похожее» значило бы назвать не тот вулкан.
+        name: normalizeVolcanoName(r.volcano_name)?.ru ?? r.volcano_name,
         color: r.aviation_color_code as AccColor,
         summary: r.summary,
         ash_height_m: r.ash_height_m,
