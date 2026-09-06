@@ -67,7 +67,16 @@ jobs:
               https://vedarai.ru/api/cron/*) [ -n "$CRON_SECRET" ] && AUTH=(-H "Authorization: Bearer $CRON_SECRET") ;;
             esac
             CODE=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 60 -L "${AUTH[@]}" "$URL")
-            echo "HTTP $CODE, bytes: $(wc -c < /tmp/body)"
-            head -c 1500 /tmp/body | tr -d '\0'
+            BYTES=$(wc -c < /tmp/body)
+            echo "HTTP $CODE, bytes: $BYTES"
+            head -c 1200 /tmp/body | tr -d '\0'
+            # Хвост тоже: у JSON интересное часто в КОНЦЕ (замер 06.09 —
+            # поле statuses ленты вулканов не попало в печать вовсе, и
+            # проверить его было нечем, хотя ответ пришёл целым).
+            if [ "$BYTES" -gt 1200 ]; then
+              echo ""
+              echo "…хвост:"
+              tail -c 800 /tmp/body | tr -d '\0'
+            fi
             echo ""
           done <<< "$URLS"
