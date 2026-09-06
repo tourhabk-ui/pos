@@ -77,6 +77,14 @@ describe('маркер не доезжает до руки напрямую', ()
     it(`${wf} — работа с рукой на push не запускается`, () => {
       expect(src).toMatch(/if: github\.event_name != 'push'/);
     });
+
+    // Прогон 61: переводчик сработал, а рука отказала — «Workflow initiated
+    // by non-human actor: github-actions (type: Bot)». Переводчик без этого
+    // разрешения бесполезен: он рождает прогон, который отвергают.
+    it(`${wf} — инициатор-бот переводчика разрешён поимённо, не звёздочкой`, () => {
+      expect(src).toMatch(/allowed_bots: github-actions\s*$/m);
+      expect(src).not.toMatch(/allowed_bots:\s*['"]?\*/);
+    });
   }
 
   it('список поддерживаемых событий не содержит push — иначе перевод не нужен', () => {
