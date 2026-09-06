@@ -127,11 +127,43 @@ function tourDescription(tour: ChannelTour): string {
   return (base + included + link).slice(0, 7000);
 }
 
-export function generateAvitoXmlFeed(tours: ChannelTour[]): string {
+/**
+ * Тур, не доехавший до объявления, и ПОЧЕМУ.
+ *
+ * Пока тип активности не лёг в карту категорий, тур исчезал молча: проверку
+ * готовности он проходил, до генератора доезжал и растворялся. Заголовок
+ * X-Withheld-Tours про это не знал — он считает только неготовность, — и
+ * прежний комментарий «это видно в счётчике фида» был неправдой. Замер 06.09:
+ * в карте три типа (fishing, rafting, boat_trip), а в платформе их
+ * тринадцать; вулканы, медведи, вертолёт и треккинг — то, ради чего на
+ * Камчатку и едут, — в ленту не попадали, и узнать об этом было неоткуда.
+ *
+ * §4.0: у выгрузки три исхода, а не два — «ушёл», «придержан по готовности»
+ * и «типу не сопоставлена категория». Третий не равен молчанию.
+ */
+export interface AvitoSkipped {
+  id: string | number;
+  activity_type: string | null;
+  reason: 'no_category';
+}
+
+export interface AvitoFeed {
+  xml: string;
+  /** Готовые туры, которым не нашлось категории Авито. Пусто — все доехали. */
+  skipped: AvitoSkipped[];
+}
+
+export function generateAvitoXmlFeed(tours: ChannelTour[]): AvitoFeed {
+  const skipped: AvitoSkipped[] = [];
   const items = tours
     .map(tour => {
       const cat = avitoCategory(tour.activity_type);
-      if (!cat) return null; // тип без категории наружу не выгружаем — см. карту выше
+      if (!cat) {
+        // Не выгружаем, но и не молчим: неверная категория снимает объявление,
+        // а молчаливый пропуск снимает тур из продажи незаметно.
+        skipped.push({ id: tour.id, activity_type: tour.activity_type ?? null, reason: 'no_category' });
+        return null;
+      }
       const price = Math.round(tour.base_price);
       const photos = (tour.photos ?? []).slice(0, 10)
         .map(url => `      <Image url="${escapeXml(absoluteUrl(url))}"/>`)
@@ -170,10 +202,11 @@ export function generateAvitoXmlFeed(tours: ChannelTour[]): string {
     .filter((x): x is string => x !== null)
     .join('\n\n  ');
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Ads formatVersion="3" target="Avito.ru">
   ${items}
 </Ads>`;
+  return { xml, skipped };
 }
 
 // ── Messenger API — чтение входящих лидов ────────────────────────────────

@@ -65,7 +65,7 @@ describe('ссылка ведёт на живую публичную карто�
   });
 
   it('в описании объявления стоит именно она', () => {
-    const xml = generateAvitoXmlFeed([tour]);
+    const { xml } = generateAvitoXmlFeed([tour]);
     expect(xml).toContain('/catalog/tours/27');
     expect(xml).not.toContain('/hub/tour/');
   });
@@ -81,7 +81,7 @@ describe('фотографии абсолютные — иначе Авито и
   });
 
   it('в фиде картинка идёт абсолютной', () => {
-    const xml = generateAvitoXmlFeed([tour]);
+    const { xml } = generateAvitoXmlFeed([tour]);
     expect(xml).toMatch(/<Image url="https?:\/\/[^"]+\/images\//);
   });
 });
@@ -96,8 +96,27 @@ describe('категория — по типу активности, а не о�
     // Лучше не подать тур, чем подать не туда: за чужую категорию Авито
     // снимает объявление, а при повторах — режет аккаунт.
     expect(avitoCategory('helicopter')).toBeNull();
-    const xml = generateAvitoXmlFeed([{ ...tour, activity_type: 'helicopter' }]);
+    const { xml, skipped } = generateAvitoXmlFeed([{ ...tour, activity_type: 'helicopter' }]);
     expect(xml).not.toContain('<Ad>');
+    // Не выгрузить — можно. Молча не выгрузить — нельзя: тур, которого нет в
+    // ленте, не продаётся, а X-Withheld-Tours считает только неготовность.
+    expect(skipped).toEqual([{ id: tour.id, activity_type: 'helicopter', reason: 'no_category' }]);
+  });
+
+  it('пропуск называет КАЖДЫЙ невыгруженный тур, а не только факт пропуска', () => {
+    const { skipped } = generateAvitoXmlFeed([
+      { ...tour, id: 1, activity_type: 'volcano' },
+      { ...tour, id: 2, activity_type: 'fishing' },
+      { ...tour, id: 3, activity_type: 'bears' },
+      { ...tour, id: 4, activity_type: null },
+    ]);
+    expect(skipped.map((s) => s.id)).toEqual([1, 3, 4]);
+    expect(skipped.map((s) => s.activity_type)).toEqual(['volcano', 'bears', null]);
+  });
+
+  it('всё сопоставлено — пропусков нет', () => {
+    const { skipped } = generateAvitoXmlFeed([{ ...tour, activity_type: 'rafting' }]);
+    expect(skipped).toEqual([]);
   });
 
   it('карта категорий — одно место, а не строки по коду', () => {
@@ -106,7 +125,7 @@ describe('категория — по типу активности, а не о�
 });
 
 describe('объявление несёт то, что нужно площадке и человеку', () => {
-  const xml = generateAvitoXmlFeed([tour]);
+  const { xml } = generateAvitoXmlFeed([tour]);
 
   it('цена, адрес и координаты', () => {
     expect(xml).toContain('<Price>13000</Price>');
@@ -130,7 +149,7 @@ describe('объявление несёт то, что нужно площадк
   });
 
   it('заголовок укладывается в лимит Авито', () => {
-    const long = generateAvitoXmlFeed([{ ...tour, title: 'о'.repeat(120) }]);
+    const { xml: long } = generateAvitoXmlFeed([{ ...tour, title: 'о'.repeat(120) }]);
     const title = long.match(/<Title>([^<]*)<\/Title>/)?.[1] ?? '';
     expect(title.length).toBeLessThanOrEqual(50);
   });
