@@ -67,8 +67,15 @@ describe('время проверки отделено от времени со�
     expect(FEED).toMatch(/source: 'none', updatedAt: new Date\(\)\.toISOString\(\), checkedAt: null/);
   });
 
-  it('для ленты КБГС время проверки берётся из данных, а не из часов сервера', () => {
-    expect(FEED).toMatch(/SELECT MAX\(created_at\) AS at FROM external_alerts/);
+  it('для ленты КБГС время проверки — прогон приёма, а не возраст записи', () => {
+    // Прежняя редакция держала здесь `MAX(created_at)` по external_alerts и
+    // называла это «временем проверки». Замер 06.09 (prod-check run 15)
+    // показал цену ошибки: приём отработал минуту назад, свежайшая запись
+    // землетрясения — 41-часовой давности, и экран сказал бы «проверено
+    // позавчера» при живом приёме. Возраст события уже виден в самой строке
+    // события; здесь нужен возраст ПРОГОНА (lib/safety/ingest-run).
+    expect(FEED).toMatch(/const runAt = await lastIngestAt\(\)/);
+    expect(FEED).not.toMatch(/MAX\(created_at\) AS at FROM external_alerts/);
   });
 });
 

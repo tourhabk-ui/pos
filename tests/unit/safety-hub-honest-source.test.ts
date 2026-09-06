@@ -83,15 +83,28 @@ describe('глубина: неизвестна — значит неизвест
   });
 });
 
-describe('роут вулканов сообщает, когда лента проверялась', () => {
-  it('время берётся из журнала прогонов приёма', () => {
-    expect(VOLCANIC).toMatch(/MAX\(ended_at\)[\s\S]{0,120}agent_id = 'safety-ingest'/);
+describe('«когда спрашивали» — одно правило на все ленты', () => {
+  // Замер 05.09 (prod-check run 15): приём отработал минуту назад, а
+  // свежайшая запись землетрясения — 41-часовой давности. Возраст ЗАПИСИ и
+  // возраст ПРОГОНА — разные вопросы; на экране нужен второй, иначе живой
+  // приём читается как поломка.
+  const RULE = strip(read('lib/safety/ingest-run.ts'));
+  const FEED = strip(read('lib/services/safety/seismic-feed.ts'));
+
+  it('правило одно и живёт в общем модуле', () => {
+    expect(RULE).toMatch(/MAX\(ended_at\)[\s\S]{0,140}agent_id = \$1 AND status = 'success'/);
+    expect(RULE).toMatch(/INGEST_AGENT_ID = 'safety-ingest'/);
+  });
+
+  it('обе ленты зовут его, а не считают по-своему', () => {
     expect(VOLCANIC).toMatch(/checked_at: await lastIngestAt\(\)/);
+    expect(FEED).toMatch(/const runAt = await lastIngestAt\(\)/);
+    expect(FEED).not.toMatch(/MAX\(created_at\) AS at FROM external_alerts/);
   });
 
   it('прогонов нет или запрос упал — null и строка в логе, не выдуманное «сейчас»', () => {
-    expect(VOLCANIC).toMatch(/return at \? new Date\(at\)\.toISOString\(\) : null/);
-    expect(VOLCANIC).toMatch(/console\.error\('\[safety\/volcanic\] last ingest run:'/);
+    expect(RULE).toMatch(/return at \? new Date\(at\)\.toISOString\(\) : null/);
+    expect(RULE).toMatch(/console\.error\('\[safety\] последний прогон приёма не установлен:'/);
     expect(VOLCANIC).toMatch(/checked_at: null, error: msg/);
   });
 });
