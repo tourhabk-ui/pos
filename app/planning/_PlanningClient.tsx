@@ -74,7 +74,7 @@ import { RecoveryCard } from '@/components/field/RecoveryCard';
 import { recoveryState } from '@/lib/on-route/recovery';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { FieldCompass } from '@/components/field/FieldCompass';
-import { FieldCoords } from '@/components/field/FieldCoords';
+import { PointCard, type PointCardRouteState } from '@/components/field/PointCard';
 import { alertGuidance, NO_GUIDANCE_TEXT } from '@/lib/safety/alert-guidance';
 import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
@@ -494,17 +494,19 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    */
   const [mapCtl, setMapCtl] = useState<VedarMapHandle | null>(null);
   /**
-   * Центр своей карты — для строки «Центр карты» в чипе координат
-   * (владелец 05.09, «хочу видеть координаты»). Обновляется по moveend
-   * через ту же ручку, что кнопки масштаба; не путать с mapCenter ниже —
-   * тот задаёт центр Leaflet-подложке, а этот читается с живой карты.
+   * Карточка точки — как в навигаторе (владелец 05.09, «посмотри, как у
+   * референсов навигационных это работает»): тап по карте ставит булавку и
+   * открывает снизу карточку с координатами, «скопировать», «проложить
+   * сюда» и передачей в чужой навигатор; тап по своей синей точке — ту же
+   * карточку для «я». Первая редакция была коробкой координат поверх карты
+   * и владельцу не подошла — координаты в навигаторе принадлежат ТОЧКЕ, а
+   * не углу экрана.
    */
-  const [viewCenter, setViewCenter] = useState<{ lat: number; lng: number } | null>(null);
-  useEffect(() => {
-    if (!mapCtl) { setViewCenter(null); return; }
-    setViewCenter(mapCtl.getCenter());
-    return mapCtl.onMove(setViewCenter);
-  }, [mapCtl]);
+  const [pointCard, setPointCard] = useState<{ kind: 'pin' | 'me'; lat: number; lng: number } | null>(null);
+  /** Прокладка запущена С КАРТОЧКИ — тогда найденный автопуть открывается на карте сам, без списка вариантов. */
+  const cardBuildRef = useRef(false);
+  const [cardRoute, setCardRoute] = useState<PointCardRouteState>({ phase: 'idle' });
+  useEffect(() => { setCardRoute({ phase: 'idle' }); cardBuildRef.current = false; }, [pointCard]);
   /**
    * Все собранные пакеты — карта подкладывает соседние районы по видимой
    * области (скрин 08:21: «карты нет других районов»). Считается один раз
@@ -1653,6 +1655,40 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     if (!mapCtl || !calc || !calc.mayDisplay) return;
     mapCtl.fitLine(calc.geometry.coordinates);
   }, [mapCtl, calculatedPreview]);
+  /**
+   * «Проложить сюда» с карточки точки: старт — мой фикс, цель — булавка,
+   * способ — автомобиль (граф дорог). Дальше работает та же машина
+   * состояний build(), что и в планировщике: второго пути к серверу нет.
+   */
+  const routeFromCard = useCallback(() => {
+    if (!pointCard || pointCard.kind !== 'pin' || !coords) return;
+    cardBuildRef.current = true;
+    setCardRoute({ phase: 'building' });
+    setBuildTravelMode('car');
+    setSelectedOrigin({ kind: 'current', lat: coords.lat, lon: coords.lng, accuracyM: coords.accuracy ?? undefined });
+    setSelectedDestination({ destination: { kind: 'coordinate', lat: pointCard.lat, lon: pointCard.lng, title: 'Точка на карте' }, routeOptions: [] });
+  }, [pointCard, coords]);
+  // Ответ build() для карточки: найденный автопуть открывается на карте
+  // сам (как в навигаторе — линия сразу, без списка), отказ — словами в
+  // карточке, теми же, что даёт сервер (§4.0: не выдумывать причину).
+  useEffect(() => {
+    if (!cardBuildRef.current || buildPhase.phase !== 'done') return;
+    const r = buildPhase.result;
+    if (r.status === 'found') {
+      const withLine = r.options.find(o => o.calculated);
+      if (withLine) {
+        openPreview(routeOptionToPreview(withLine));
+        setCardRoute({ phase: 'found' });
+      } else {
+        setCardRoute({ phase: 'failed', text: 'Готовые треки нашлись, а дороги по графу нет — откройте «Куда хотите пойти?»' });
+      }
+    } else {
+      setCardRoute({ phase: 'failed', text: r.status === 'failed' ? r.message : r.reason });
+    }
+    cardBuildRef.current = false;
+  // openPreview и routeOptionToPreview — функции компонента, стабильные по смыслу.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildPhase]);
   /**
    * Постоянная карта-фон (Шаг 1) видна ВСЕГДА, в т.ч. под приборной
    * колонкой, и должна быть спокойным задником, а не живым инструментом.
@@ -3182,9 +3218,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             // В режиме «Карта» приборный столбец скрыт — тогда кнопки
             // масштаба рисует сама карта; иначе они в приборном ряду.
             showZoomButtons={showMap}
-            // В режиме «Карта» чип координат стоит под кнопками карты — тот
-            // же компонент, что в приборном ряду снаружи.
-            controlsSlot={<FieldCoords fix={coords ? { lat: coords.lat, lng: coords.lng } : null} center={viewCenter} />}
+            // Тап по карте — булавка и карточка точки; тап по своей точке —
+            // карточка «я» (по образцу навигатора, владелец 05.09).
+            onMapClick={p => setPointCard({ kind: 'pin', ...p })}
+            onUserClick={() => { if (coords) setPointCard({ kind: 'me', lat: coords.lat, lng: coords.lng }); }}
+            pin={pointCard?.kind === 'pin' ? { lat: pointCard.lat, lng: pointCard.lng } : null}
             points={vedarPoints}
             onControls={setMapCtl}
           />
@@ -3329,12 +3367,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           середине высоты ушли под нижний лист). */}
       {!showMap && (hasRoute || isLoadingRoute || mapCtl) && (
         <div className="relative z-20 flex justify-between items-start px-3 pt-2">
-          <div className="flex flex-col gap-2">
-            <VedarZoomButtons handle={mapCtl} />
-            {/* Координаты — своё положение и центр карты (владелец 05.09).
-                Показание, не действие: непрозрачный прибор, как компас. */}
-            {mapCtl && <FieldCoords fix={coords ? { lat: coords.lat, lng: coords.lng } : null} center={viewCenter} />}
-          </div>
+          <VedarZoomButtons handle={mapCtl} />
           {(hasRoute || isLoadingRoute) && (
           <div className="flex flex-col items-center gap-2 ml-auto">
             {/* size=300 — дефолт компонента, рассчитанный на центр колонки
@@ -4182,6 +4215,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           телефоне в поле. Здесь только фокус-режим: приборный столбец скрыт
           (класс hidden у z-10-обёртки), остаются только кнопка закрытия,
           пустая-карта подсказка и панель действий — поверх той же карты. */}
+      {/* Карточка точки (05.09, по образцу навигатора) — поверх карты, над
+          нижним листом: в режиме «Карта» у самого низа, иначе над потолком
+          листа (32vh / 60vh — те же числа, что у самого листа). */}
+      {pointCard && fieldBaseMap.kind === 'vedar' && (
+        <div className="fixed inset-x-3 z-30"
+          style={{ bottom: showMap ? 'calc(16px + env(safe-area-inset-bottom))' : `calc(${sheetOpen ? '60vh' : '32vh'} + 12px)` }}>
+          <PointCard kind={pointCard.kind} point={{ lat: pointCard.lat, lng: pointCard.lng }}
+            me={coords ? { lat: coords.lat, lng: coords.lng } : null}
+            route={cardRoute} onRoute={routeFromCard} onClose={() => setPointCard(null)} />
+        </div>
+      )}
       {showMap && (
         <div className="fixed inset-0 z-20 pointer-events-none">
           <button onClick={() => setShowMap(false)}
