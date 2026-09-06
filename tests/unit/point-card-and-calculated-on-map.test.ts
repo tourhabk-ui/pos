@@ -32,7 +32,11 @@ describe('карточка точки — как в навигаторе', () =>
   });
 
   it('карта отдаёт тап по карте и по своей точке наружу, булавка — свойством kind=pin', () => {
-    expect(MAP).toMatch(/map\.on\('click', \(e\) => \{ onMapClickRef\.current\?\.\(\{ lat: e\.lngLat\.lat, lng: e\.lngLat\.lng \}\); \}\)/);
+    // Место платформы (vedar-places*) проверяется ПЕРЕД generic onMapClick —
+    // владелец 06.09, «замкнуть /map на VedarMap»: попадание в кружок места
+    // важнее голой точки под ним.
+    expect(MAP).toMatch(/onPlaceClickRef\.current\(\{/);
+    expect(MAP).toMatch(/onMapClickRef\.current\?\.\(\{ lat: e\.lngLat\.lat, lng: e\.lngLat\.lng \}\);/);
     expect(MAP).toMatch(/el\.addEventListener\('click', \(ev\) => \{ ev\.stopPropagation\(\); onUserClickRef\.current\?\.\(\); \}\)/);
     expect(MAP).toMatch(/properties: \{ kind: 'pin' \}/);
   });
