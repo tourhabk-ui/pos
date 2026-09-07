@@ -27,10 +27,22 @@ name: Логи сборки Timeweb по deploy_id (вручную)
 # строка Python-кода оказалась с ведущим пробелом. Вынесен в отдельный файл
 # скрипта (пишется один раз, до цикла, без отступов) вместо инлайна.
 #
-# Только workflow_dispatch: инструмент разбора, не наблюдение.
+# 07.09, четвёртая правка: добавлен маркерный запуск через push. Причина не в
+# удобстве: агент из песочницы не может ни дёрнуть workflow_dispatch (403
+# «Resource not accessible by integration»), ни достучаться до vedarai.ru —
+# то есть единственный инструмент разбора сборки был ему недоступен ровно
+# тогда, когда сборка встала. Маркер — тот же приём, что у prod-check.
+#
+# Заодно спрашивается ДЕСЯТЬ последних деплоев, а не три: по одному статусу
+# не видно, когда именно сборки перестали доходить, а это первый вопрос при
+# застрявшем деплое.
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/timeweb-deploy-logs.json'
 
 permissions: {}
 
@@ -85,19 +97,24 @@ jobs:
               data = json.load(f) or {}
 
           deploys = data.get('deploys', data.get('app_deploys', []))
-          for d in deploys[:2]:
+          if not deploys:
+              print('Список деплоев пуст. Верхнеуровневые ключи:', sorted(data.keys()), file=sys.stderr)
+          # Статусы печатаются у ВСЕХ полученных, логи читаются у двух свежих:
+          # по одному статусу не видно, когда сборки перестали доходить, а лог
+          # десяти сборок — это простыня, в которой ответ теряется.
+          for n, d in enumerate(deploys):
               did = d.get('id', '')
               status = d.get('status', '?')
-              commit = (d.get('commit_sha') or d.get('commit', {}).get('sha') or '')[:8]
-              created = d.get('created_at', '?')[:19]
+              commit = (d.get('commit_sha') or (d.get('commit') or {}).get('sha') or '')[:8]
+              created = str(d.get('created_at') or '?')[:19]
               print(f'{did}|{status}|{commit}|{created}', file=sys.stderr)
-              if did:
+              if did and n < 2:
                   print(did)
           PY
 
           HTTP=$(curl -sS -o /tmp/deploys.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploys?limit=3&offset=0") || HTTP="000"
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploys?limit=10&offset=0") || HTTP="000"
 
           echo "HTTP список деплоев: $HTTP"
           if [ "$HTTP" != "200" ]; then
