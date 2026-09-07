@@ -55,6 +55,11 @@ jobs:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          # Эндпоинт этой пробы едет ТЕМ ЖЕ коммитом: не дождались сборки —
+          # спрашивать нечего, и прогон обязан покраснеть на своей причине.
+          # 07.09 без этого две пробы отчитались успехом ожидания и получили
+          # 404, а в логе это выглядело отказом прода.
+          REQUIRE_FRESH: '1'
         run: bash scripts/wait-for-deploy.sh
 
       - name: Забрать корпус с прода
