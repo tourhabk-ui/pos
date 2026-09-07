@@ -21,7 +21,29 @@ on:
 jobs:
   trigger:
     runs-on: ubuntu-latest
+    # 40: ожидание своей сборки (до 25 мин) плюс сам пост.
+    timeout-minutes: 40
     steps:
+      # checkout ради scripts/wait-for-deploy.sh: сам пост идёт на проде.
+      - uses: actions/checkout@v7
+
+      # Ждём СВОЮ сборку — иначе маркер бьёт по старому коду.
+      #
+      # Замер 07.09: маркер поднят, пост ушёл через 40 секунд, ответ пришёл
+      # без поля photo — правка ещё не выкатилась, а два поста в канал уже
+      # ушли. Проверять починку прогоном по старому коду значит проверять
+      # старый код.
+      #
+      # Только для запуска маркером: по расписанию head_commit пуст, и шаг
+      # честно ждал бы «свою сборку», которой не просили.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
       - name: Trigger Kuzmich tour post
         run: |
           curl -X GET "https://vedarai.ru/api/cron/kuzmich?type=tour" \
