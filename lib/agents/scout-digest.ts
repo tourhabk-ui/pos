@@ -233,6 +233,16 @@ export type ItemAge = 'fresh' | 'stale' | 'unknown';
 /** Окно свежести. Дайджест выходит дважды в сутки; две недели — запас для медленных блогов. */
 export const MAX_ITEM_AGE_DAYS = 14;
 
+/**
+ * Меньше этого числа свежих сигналов — выпуска нет.
+ *
+ * Три, а не два: дайджест разложен по разделам (AI, туриндустрия, референсы),
+ * и на двух пунктах разделы вырождаются в список из одной строки. Не «чем
+ * больше, тем лучше»: высокий порог превратил бы осторожность в немоту, а
+ * молчание у этого агента уже стоило семнадцати дней тишины при зелёном кроне.
+ */
+export const MIN_SIGNALS_FOR_DIGEST = 3;
+
 export function classifyItemAge(
   publishedAt: string | undefined,
   nowMs: number,
@@ -985,6 +995,28 @@ export async function runScoutDigest(): Promise<DigestResult> {
       `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
     );
     return { signals_found: 0, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
+  }
+
+  /**
+   * Нижний порог выпуска.
+   *
+   * 07.09 в канал ушёл дайджест ИЗ ОДНОГО пункта. Сбор был исправен: 16
+   * источников из 16 живы, 78 материалов получено. Но за 25 минут до этого
+   * прогон уже разобрал ту же ленту, и межпрогонный дедуп снял 77 записей из
+   * 78. Ворота были только на НОЛЬ — ноль умел молчать, а единица шла в печать.
+   *
+   * Выпуск из одного пункта хуже молчания: подписчик видит не «сегодня тихо»,
+   * а сломанного агента, и следующий полноценный выпуск читает с меньшим
+   * доверием. Молчание же тут не потеряется — счётчик silent_runs краснит крон
+   * на третьем подряд (max_silent_runs), то есть систематический недобор
+   * потребует человека, а разовый пройдёт тихо и правильно.
+   */
+  if (freshItems.length < MIN_SIGNALS_FOR_DIGEST) {
+    return {
+      signals_found: freshItems.length, digest_sent: false,
+      digest_skip_reason: 'too_few_signals',
+      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+    };
   }
 
   // Дедупликация: одна история из нескольких источников → одна запись
