@@ -42,17 +42,63 @@ export type RejectedGenre = 'daily_bulletin' | 'rescue_report' | 'service_statis
 /**
  * Какой жанр отбраковал бы текст сегодня. `null` — запись законная.
  *
- * Порядок проверок значения не имеет: обе ветки одинаково означают «это не
+ * Порядок проверок значения не имеет: ветки одинаково означают «это не
  * предупреждение», а различаются только в отчёте, чтобы было видно, чего
  * именно накопилось.
  */
-export function rejectedGenre(text: string): RejectedGenre | null {
+function genreOf(text: string): RejectedGenre | null {
   if (isDailyBulletin(text)) return 'daily_bulletin';
   if (isRescueOperationReport(text)) return 'rescue_report';
   // 07.09: отчёт службы о собственной работе за сутки. На главной висели
   // «привлекались один раз» и «…два раза» — счёт выездов там, где стоят угрозы.
   if (isServiceStatistics(text)) return 'service_statistics';
   return null;
+}
+
+/**
+ * Приговор записи. Заголовок судится ОТДЕЛЬНО и первым — и вот почему.
+ *
+ * ── Что показала перепись 07.09 ────────────────────────────────────────────
+ *
+ * Две записи с главной (`GET /api/cron/alerts-census`, прогон 1) оказались не
+ * тревогами, а целыми суточными сводками МЧС, уложенными в ОДНУ строку базы:
+ *
+ *   заголовок:  «К тушению техногенных пожаров ... привлекались один раз»
+ *   тело (595): та же строка, потом «Горел мусор...», потом «К ликвидации
+ *               последствий ДТП ... не привлекались», потом «За сутки
+ *               сейсмособытий ... не зарегистрировано», потом «Продолжается
+ *               активность вулканов ...»
+ *   alert_type: road_closure  ← из какой-то строки ниже
+ *
+ * Три разных предмета в одной записи, и каждое суждение о ней относится не к
+ * той фразе, которую читает человек: в ленте виден ЗАГОЛОВОК, тип пришёл из
+ * другой строки, а взгляд-вперёд, отменяющий отбраковку жанра, — из третьей.
+ * Замер прямой: на первых 300 символах страж отвечает `service_statistics`,
+ * на полном теле — `null`. Отбраковку снимала посторонняя фраза.
+ *
+ * ── Правило ────────────────────────────────────────────────────────────────
+ *
+ * Заголовок — это то, что предъявлено человеку как предупреждение. Если сам
+ * заголовок является отчётом, запись не становится предупреждением от того,
+ * что ниже в теле сказано про вулканы или про дорогу: тело говорит О ДРУГОМ.
+ *
+ * Поэтому сперва судится заголовок в одиночку, и лишь потом — склейка (она
+ * ловит записи, где глагол жанра живёт только в теле; для однострочной записи
+ * это то же самое суждение).
+ *
+ * Разбирать сводку построчно и заводить по строке на предмет — работа приёма
+ * (`classifyMchsItems`), а не чистки: чистка вправе только снять то, что
+ * сегодняшний страж не пропустил бы. Настоящая тревога, случайно оказавшаяся
+ * в теле такой сводки, придёт своей записью со своим заголовком.
+ */
+export function rejectedGenre(title: string, description = ''): RejectedGenre | null {
+  const head = title.trim();
+  if (head !== '') {
+    const byTitle = genreOf(head);
+    if (byTitle) return byTitle;
+  }
+  const whole = `${head} ${description}`.trim();
+  return whole === '' ? null : genreOf(whole);
 }
 
 export type QueryFn = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
@@ -71,9 +117,9 @@ interface AlertRow { id: string; title: string | null; description: string | nul
 /**
  * Убирает из хранилища то, что сегодняшний страж не пропустил бы.
  *
- * Смотрит заголовок ВМЕСТЕ с телом: жанр виден по глаголу, а глагол не всегда
- * в заголовке. Пустое тело — не повод считать запись законной, поэтому
- * проверяется склейка, а не тело отдельно.
+ * Судит через `rejectedGenre`: сперва заголовок в одиночку (его читает
+ * человек в ленте), затем склейку с телом (глагол жанра не всегда в
+ * заголовке). Пустое тело — не повод считать запись законной.
  */
 export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> {
   const res = await query<AlertRow>(
@@ -88,9 +134,10 @@ export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> 
   const doomedTitles: string[] = [];
 
   for (const row of res.rows) {
-    const text = `${row.title ?? ''} ${row.description ?? ''}`.trim();
-    if (text === '') continue;
-    const genre = rejectedGenre(text);
+    const title = row.title ?? '';
+    const description = row.description ?? '';
+    if (`${title} ${description}`.trim() === '') continue;
+    const genre = rejectedGenre(title, description);
     if (!genre) continue;
     by_genre[genre] += 1;
     doomedIds.push(row.id);

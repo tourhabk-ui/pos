@@ -108,7 +108,8 @@ export async function GET(request: NextRequest) {
         LIMIT 60`,
     );
     const live_alerts = live.map((r) => {
-      const text = `${r.title ?? ''} ${r.description ?? ''}`.trim();
+      const title = r.title ?? '';
+      const description = r.description ?? '';
       return {
         id: r.id,
         alert_type: r.alert_type,
@@ -118,13 +119,17 @@ export async function GET(request: NextRequest) {
         in_feed: isFeedAlertType(r.alert_type),
         // Приговор ТОГО ЖЕ стража, что чистит хранилище каждые пять минут.
         // null здесь при жанровом тексте на экране = страж его не узнаёт.
-        rejected_genre: text === '' ? null : rejectedGenre(text),
+        rejected_genre: `${title} ${description}`.trim() === '' ? null : rejectedGenre(title, description),
+        // Приговор по одному заголовку — отдельным полем. Прогон 1 показал
+        // записи, где заголовок отчёт, а тело говорит о другом: разойтись эти
+        // два приговора могут только так, и тогда это видно, а не гадается.
+        rejected_genre_title: title.trim() === '' ? null : rejectedGenre(title),
         title: r.title,
-        // Тело целиком раздуло бы ответ (дорожные сводки идут абзацами), но и
-        // молчать о нём нельзя: жанр виден по глаголу, а глагол бывает только
-        // в теле. Отдаём начало и длину — по ним видно, что читал страж.
-        description_head: (r.description ?? '').slice(0, 300),
-        description_len: (r.description ?? '').length,
+        // 300 символов оказалось мало: в прогоне 1 отбраковку жанра снимала
+        // фраза из ХВОСТА суточной сводки, и по обрезанному телу вывод был
+        // прямо противоположен прод-ответу. Тело сводки укладывается в 900.
+        description_head: description.slice(0, 900),
+        description_len: description.length,
       };
     });
 

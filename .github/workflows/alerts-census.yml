@@ -59,18 +59,41 @@ jobs:
             exit 1
           fi
           python3 - <<'PY'
-          import json
+          import json, sys
           d = json.load(open('/tmp/alerts.json'))
           live = d.get('live') or {}
+          alerts = live.get('alerts') or []
           print('ВЕРДИКТ ПОТОКА:', d.get('verdict', '(нет)'))
           print('живых тревог:', live.get('total'), '| в ленте:', live.get('in_feed'),
                 '| отбраковал бы страж:', live.get('rejected_by_genre'))
           print()
-          for a in live.get('alerts') or []:
+          for a in alerts:
               print('---')
               print(' тип:', a.get('alert_type'), '| в ленте:', a.get('in_feed'),
-                    '| жанр:', a.get('rejected_genre'), '| важность:', a.get('severity'))
+                    '| жанр:', a.get('rejected_genre'), '| жанр заголовка:', a.get('rejected_genre_title'),
+                    '| важность:', a.get('severity'))
               print(' создана:', a.get('created_at'), '| до:', a.get('expires_at'))
               print(' заголовок:', a.get('title'))
               print(' тело (%d симв.):' % (a.get('description_len') or 0), a.get('description_head'))
+
+          # ПРИЁМКА, а не отчёт. Отчёт читает человек и верит на слово тому, кто
+          # его показал; здесь приговор выносит прогон.
+          #
+          # 07.09: «починено» об этом дефекте было сказано дважды до того, как
+          # результат стало видно, и оба раза строки оставались на главной.
+          # Поэтому условие названо явно и проверяется машиной: в ленте стоит
+          # запись, которую сегодняшний страж жанров не пропустил бы, — прогон
+          # красный. Ни одной такой записи — зелёный, и это факт прогона, а не
+          # чьё-то утверждение.
+          bad = [a for a in alerts if a.get('in_feed') and a.get('rejected_genre')]
+          if bad:
+              print()
+              print('КРАСНЫЙ: в ленте стоят записи, которые страж жанров не пропустил бы —', len(bad))
+              for a in bad:
+                  print('  [%s] %s' % (a.get('rejected_genre'), a.get('title')))
+              print('Чистка ходит каждые пять минут вместе с приёмом; если эти строки')
+              print('живы после выкладки, правило отбраковки их не узнаёт.')
+              sys.exit(1)
+          print()
+          print('ЗЕЛЁНЫЙ: ни одной жанровой записи в ленте.')
           PY
