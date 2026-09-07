@@ -25,6 +25,8 @@ import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { checkMcpWrite } from '@/lib/mcp/write-guard';
+import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { createRateLimiter } from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
@@ -53,11 +55,52 @@ function clientIp(request: NextRequest): string {
 // тот же список нужен манифесту /.well-known/mcp.json, а два списка
 // разошлись бы в первый же день. Здесь остаётся только исполнение.
 
+/**
+ * Что известно о вызывающем на момент записи. Нужен обеим заявочным
+ * функциям: решение о допуске считается по адресу и агенту, а согласие
+ * записывается вместе с адресом — время без адреса и версии текста не
+ * доказательство (см. lib/legal/pd-consent).
+ */
+interface McpCallContext {
+  ip: string;
+  userAgent: string;
+}
+
+/**
+ * Допуск к записи — одна дверь на оба заявочных инструмента.
+ *
+ * Возвращает готовую запись согласия, если пускать можно, и бросает с
+ * человеческим объяснением, если нет. Бросок, а не тихий возврат: заявка,
+ * не созданная молча, для агента неотличима от созданной.
+ */
+async function admitWrite(
+  ctx: McpCallContext,
+  tool: string,
+  phone: string,
+  consent: boolean | undefined,
+) {
+  const verdict = await checkMcpWrite({
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+    tool,
+    phone,
+    consent: consent === true,
+  });
+  // «Не смог проверить» здесь читается как отказ, и это решение вызывающего,
+  // а не сторожа: анонимный приём ПД — не то место, где непроверенное
+  // пропускают. Потери нет: счёт живёт в той же базе, что и лид.
+  if (verdict.decision !== 'allow') {
+    throw new Error(verdict.message);
+  }
+  return buildConsentRecord(true, ctx.ip, 'mcp');
+}
+
 const createLeadArgsSchema = z.object({
   name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
   phone: z.string().trim().min(5, 'Телефон обязателен — иначе менеджеру не с кем связаться').max(50),
   comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000),
   interest: z.string().trim().max(200).optional(),
+  consent: z.boolean().optional(),
 });
 
 // ── create_booking_request (Эволюция 3.0, п.4) ───────────────
@@ -73,9 +116,10 @@ const bookingRequestArgsSchema = z.object({
   name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50),
   comment: z.string().trim().max(2000).optional(),
+  consent: z.boolean().optional(),
 });
 
-async function executeCreateBookingRequest(rawArgs: Record<string, unknown>): Promise<string> {
+async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
@@ -125,6 +169,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>): Pr
       (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.` : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.');
   }
 
+  const pd_consent = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent);
   const leadId = await createLead({
     name,
     phone,
@@ -134,6 +179,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>): Pr
     route_title: tour.title,
     source_url: 'mcp://vedar/booking',
     source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants },
+    pd_consent,
   });
   if (!leadId) {
     throw new Error('Не удалось сохранить заявку — попробуйте позже');
@@ -142,7 +188,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>): Pr
     `На ${date} свободно ${remaining} мест. Оператор подтвердит бронь по телефону ${phone}. Это заявка, не оплата.`;
 }
 
-async function executeCreateLead(rawArgs: Record<string, unknown>): Promise<string> {
+async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
@@ -152,12 +198,14 @@ async function executeCreateLead(rawArgs: Record<string, unknown>): Promise<stri
   if (!phone) {
     throw new Error('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
   }
+  const pd_consent = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
   const leadId = await createLead({
     name,
     phone,
     comment: interest ? `[Интерес: ${interest}] ${comment}` : comment,
     source_url: 'mcp://vedar',
     source_data: { source: 'mcp' },
+    pd_consent,
   });
   if (!leadId) {
     throw new Error('Не удалось сохранить заявку — попробуйте позже');
@@ -167,15 +215,19 @@ async function executeCreateLead(rawArgs: Record<string, unknown>): Promise<stri
 
 
 // ── Execute tool by name ─────────────────────────────────────
-async function executeTool(name: string, rawArgs: Record<string, unknown>): Promise<string> {
+async function executeTool(
+  name: string,
+  rawArgs: Record<string, unknown>,
+  ctx: McpCallContext,
+): Promise<string> {
   if (!PUBLIC_MCP_TOOL_NAMES.has(name)) {
     throw new Error(`Unknown tool: ${name}`);
   }
   if (name === CREATE_LEAD_TOOL.name) {
-    return executeCreateLead(rawArgs);
+    return executeCreateLead(rawArgs, ctx);
   }
   if (name === BOOKING_REQUEST_TOOL.name) {
-    return executeCreateBookingRequest(rawArgs);
+    return executeCreateBookingRequest(rawArgs, ctx);
   }
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
@@ -283,7 +335,7 @@ export async function POST(request: NextRequest) {
         const startedAt = Date.now();
         const invocationId = randomUUID();
         try {
-          const text = await executeTool(toolName, toolArgs);
+          const text = await executeTool(toolName, toolArgs, { ip, userAgent });
           logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, ip, userAgent });
 
           // Мост «ответ агента → действие человека»: отдельная проверяемая
