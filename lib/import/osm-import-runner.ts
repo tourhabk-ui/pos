@@ -9,10 +9,10 @@
  * Чистая геометрия (bbox, выбор пути, LineString) — в lib/import/osm-geometry.ts.
  * Здесь — сеть (Overpass) + БД (выборка маршрутов без geometry, UPDATE).
  *
- * Пул импорта: geometry IS NULL ИЛИ синтетика миграции 168 (прямые линии по
- * waypoints, geometry->>'source' = 'waypoints_synthetic' после бэкфилла 776) —
- * реальный OSM-трек её перекрывает, как и обещал комментарий 168-й. Реальные
- * треки (source 'osm'/'idilesom'/'visitkamchatka' или без source) не трогаем.
+ * Пул импорта задаёт общее правило старшинства (lib/routes/geometry-precedence):
+ * OSM кладётся туда, где линии нет или она подтверждена слабее. Свой перечень
+ * («NULL или waypoints_synthetic») отсюда убран — он был одной из девяти копий
+ * правила, разошедшихся между собой (замер 07.09).
  * Импортированный трек помечается in-band: source='osm' внутри GeoJSON — эту
  * конвенцию уже читает дедуп idilesom-скрипта.
  *
@@ -22,6 +22,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { overwritableSources, overwriteWhereSql } from '@/lib/routes/geometry-precedence';
 import {
   buildOverpassQuery, parseOverpassWays, chooseWay, wayToGeoJSON,
   type OsmWay, type WayChoiceReason,
@@ -137,10 +138,10 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
     WHERE is_visible = true
       AND kr.merged_into_id IS NULL
       AND kr.lat IS NOT NULL AND kr.lng IS NOT NULL
-      AND (kr.geometry IS NULL OR kr.geometry->>'source' = 'waypoints_synthetic')
+      AND ${overwriteWhereSql(3, 'kr.geometry')}
     ORDER BY (kr.geometry IS NULL) DESC, kr.title
     LIMIT $1 OFFSET $2
-  `, [limit, offset]);
+  `, [limit, offset, overwritableSources('osm')]);
 
   const totals = await pool.query<{ without_geometry: string; synthetic: string }>(
     `SELECT
@@ -186,8 +187,8 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
             `UPDATE kamchatka_routes SET geometry = $1
               WHERE id = $2
                 AND merged_into_id IS NULL
-                AND (geometry IS NULL OR geometry->>'source' = 'waypoints_synthetic')`,
-            [JSON.stringify({ ...geojson, source: 'osm' }), r.id],
+                AND ${overwriteWhereSql(3)}`,
+            [JSON.stringify({ ...geojson, source: 'osm' }), r.id, overwritableSources('osm')],
           );
         }
         imported++;

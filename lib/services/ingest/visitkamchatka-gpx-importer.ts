@@ -6,6 +6,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { overwritableSources, overwriteWhereSql } from '@/lib/routes/geometry-precedence';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0',
@@ -27,7 +28,12 @@ const GPX_ROUTES: Record<string, string> = {
 
 export interface GpxTrackResult {
   slug: string;
-  status: 'imported' | 'no_match' | 'fetch_error' | 'no_coords';
+  /**
+   * `kept_stronger` — маршрут найден, но лежащая линия подтверждена не хуже
+   * паспортной, и правило старшинства перезаписать не дало. Это исход, а не
+   * ошибка: без него прогон отчитался бы об импорте, которого не было.
+   */
+  status: 'imported' | 'no_match' | 'fetch_error' | 'no_coords' | 'kept_stronger';
   matched_route?: string;
   matched_route_id?: string;
   points?: number;
@@ -117,10 +123,22 @@ export async function importVisitKamchatkaGpx(): Promise<GpxImportResult> {
     }
 
     const geojson = { type: 'LineString', coordinates: coords, source: 'visitkamchatka' };
-    await pool.query(
-      `UPDATE kamchatka_routes SET geometry = $1, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(geojson), best.id],
+    // Условия здесь не было ВОВСЕ: паспортная линия молча ложилась поверх
+    // чего угодно, включая снятый трек. Право на перезапись даёт общее
+    // правило старшинства, а не порядок прогонов (lib/routes/geometry-precedence).
+    const allowed = overwritableSources('visitkamchatka');
+    const upd = await pool.query(
+      `UPDATE kamchatka_routes SET geometry = $1, updated_at = NOW()
+        WHERE id = $2 AND ${overwriteWhereSql(3)}`,
+      [JSON.stringify(geojson), best.id, allowed],
     );
+    if (upd.rowCount === 0) {
+      // Отказ по старшинству — не «импортировано» и не ошибка: лежащая линия
+      // подтверждена не хуже. Молчать нельзя, иначе прогон отчитается об
+      // импорте, которого не было (§4.0).
+      tracks.push({ slug, status: 'kept_stronger', matched_route: best.title, matched_route_id: best.id, points: coords.length });
+      continue;
+    }
 
     tracks.push({
       slug,

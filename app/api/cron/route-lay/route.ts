@@ -10,7 +10,10 @@
  *     (частичная линия — то же враньё, что прямая миграции 168);
  *   - точка дальше max_snap_m от графа → отказ звена: тянуть линию к
  *     дальней дороге значит рисовать путь, которым не ходят;
- *   - geometry пишется ТОЛЬКО в пустоту (geometry IS NULL) и с маркером
+ *   - право на запись даёт общее правило старшинства
+ *     (lib/routes/geometry-precedence): построение по графу слабее любой
+ *     записи прибором и ложится только в пустоту либо поверх прямых 168-й.
+ *     Маркер
  *     source='road_graph_astar' — track-fidelity и аудиты обязаны знать
  *     происхождение; настоящий снятый трек такая линия никогда не перетрёт;
  *   - это линия ПО ДОРОГАМ И ТРОПАМ: там, где маршрут идёт по азимуту,
@@ -21,6 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { overwritableSources, overwriteWhereSql } from '@/lib/routes/geometry-precedence';
 import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -141,8 +145,8 @@ export async function POST(request: NextRequest) {
                  'source', 'road_graph_astar'
                ),
                updated_at = NOW()
-           WHERE id::text = $2 AND geometry IS NULL`,
-          [JSON.stringify(coords), routeId],
+           WHERE id::text = $2 AND ${overwriteWhereSql(3)}`,
+          [JSON.stringify(coords), routeId, overwritableSources('road_graph_astar')],
         );
         written = (upd.rowCount ?? 0) > 0;
       }

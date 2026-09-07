@@ -1,0 +1,88 @@
+name: Разбор справочника маршрутов одним проходом (с раннера)
+
+# Решение владельца 07.09: «пусть разбирает маршруты».
+#
+# Очная ставка моделей (astra-probe, прогон 1) показала, где Astra выигрывает,
+# а где нет. На работе Editor'а она проиграла: вдвое дороже (6813 ₽ против
+# 3890 ₽ за тысячу описаний) и текст жиже — там осталась прежняя модель.
+# Выигрывает она в другом: контекст 1 050 000 токенов и ответ за секунду.
+#
+# Здесь это и используется. Все прежние переписи смотрят на маршруты ПО
+# ОДНОМУ и отвечают на заранее заданный вопрос; то, что видно только МЕЖДУ
+# записями — дубли, одинаковые наборы точек, имя без объекта, чужие точки, —
+# не увидит ни одна из них. Модель, держащая корпус целиком, может.
+#
+# Разбор НИЧЕГО не пишет в базу. Он печатает находки с уликами, а решает
+# человек: переименование и разметка связей сочиняют смысл (§13).
+#
+# Находки проверяются детерминированно: ссылка на маршрут вне корпуса —
+# признак выдумки, такая находка выбрасывается и считается отдельно.
+#
+# Расход: корпус ~294 маршрута ≈ 50-100 тыс. входных токенов, порядка 70-135 ₽
+# за прогон. Точная цифра печатается из usage.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/route-analysis.json'
+
+permissions:
+  contents: read
+
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Эндпоинт корпуса едет тем же коммитом, что и маркер, — без ожидания
+      # первый прогон спросил бы прод, на котором его ещё нет (сторож
+      # tests/unit/marker-waits-for-deploy.test.ts).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Забрать корпус с прода
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          CODE=$(curl -sS -o /tmp/corpus.json -w '%{http_code}' --max-time 120 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/route-corpus")
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Корпус не отдан — разбирать нечего, и это не «маршруты в порядке»."
+            cat /tmp/corpus.json 2>/dev/null || true
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/corpus.json'));print('маршрутов в корпусе:',d.get('total'))"
+
+      - name: Разбор одним проходом
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -uo pipefail
+          MODEL=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.github/triggers/route-analysis.json')).get('model') or '')
+          except Exception:
+              print('')
+          ")
+          npx tsx scripts/route-analysis-runner.ts /tmp/corpus.json $MODEL

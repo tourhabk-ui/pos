@@ -17,6 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { mayOverwrite, normalizeGeometrySource } from '@/lib/routes/geometry-precedence';
 import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -134,16 +135,38 @@ export async function POST(request: NextRequest) {
         await client.query('BEGIN');
         let trackMoved = false;
         if (p.trackMove === 'move') {
-          const res = await client.query(
-            `UPDATE kamchatka_routes l
-             SET geometry = h.geometry, updated_at = NOW()
-             FROM kamchatka_routes h
-             WHERE l.id::text = $1 AND h.id::text = $2
-               AND h.geometry IS NOT NULL
-               AND (l.geometry IS NULL OR l.geometry->>'source' IN ('waypoints_synthetic', 'kml_inbox'))`,
+          // Здесь линию переносят с близнеца, и её источник заранее не известен
+          // — значит списком слогов в SQL не обойтись: сравнивать надо силу с
+          // силой. Прежде тут стоял свой перечень
+          // ('waypoints_synthetic', 'kml_inbox') — одна из девяти копий правила,
+          // разошедшихся между собой (замер 07.09). Решение принимает общее
+          // правило, а запрос лишь исполняет его по идентификаторам.
+          const pair = await client.query<{ live_source: string | null; hidden_source: string | null }>(
+            `SELECT l.geometry->>'source' AS live_source,
+                    h.geometry->>'source' AS hidden_source,
+                    (h.geometry IS NOT NULL) AS hidden_has_line
+               FROM kamchatka_routes l, kamchatka_routes h
+              WHERE l.id::text = $1 AND h.id::text = $2`,
             [p.liveId, p.hiddenId],
           );
-          trackMoved = (res.rowCount ?? 0) > 0;
+          const row = pair.rows[0];
+          const incoming = normalizeGeometrySource(row?.hidden_source ?? null);
+          // Неизвестный слог у переносимой линии — не повод её двигать:
+          // чем она подтверждена, мы не знаем (§4.0).
+          const decision = incoming === null
+            ? { allowed: false, reason: 'слог переносимой линии неизвестен' }
+            : mayOverwrite(row?.live_source ?? null, incoming);
+          if (decision.allowed) {
+            const res = await client.query(
+              `UPDATE kamchatka_routes l
+               SET geometry = h.geometry, updated_at = NOW()
+               FROM kamchatka_routes h
+               WHERE l.id::text = $1 AND h.id::text = $2
+                 AND h.geometry IS NOT NULL`,
+              [p.liveId, p.hiddenId],
+            );
+            trackMoved = (res.rowCount ?? 0) > 0;
+          }
         }
         const wp = await client.query(
           `INSERT INTO route_waypoints (route_id, place_id, position, link_kind, link_kind_at)
