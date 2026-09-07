@@ -1,0 +1,74 @@
+name: Подбор источников разведчика одним проходом (Astra)
+
+# Вопрос владельца 07.09: «все источники и туриндустрия с законодательством
+# рф? и опасности». Замер по коду: правового источника нет ни одного (все
+# четыре туристических — отраслевые пересказы), а лавинных наблюдений нет
+# вовсе — тип `avalanche` объявлен, текст пуша написан, и ни один источник его
+# никогда не пишет.
+#
+# Решение владельца там же: «используй астру через опенроутер в гитхабе, она
+# может собрать все одним проходом, у неё огромный объём».
+#
+# Раннер, а не прод: ключ OpenRouter для раннера живёт в секретах репозитория,
+# и OpenRouter с раннера достижим напрямую (§8, таблица «какой ключ откуда»).
+#
+# Прогон НИЧЕГО не меняет: ни базы, ни состава источников. Он печатает таблицу
+# с приговором по каждому адресу — вносит человек.
+#
+# Приговор выносит СЕРВЕР, а не модель: каждый предложенный адрес
+# запрашивается, и в «живые» попадает только ответивший лентой. Отдельно
+# печатается `refused_here` — отказ адреса раннеру, который стоит вне РФ; это
+# не «ленты нет», а требование проверить с прода.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/source-discovery.json'
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Ожидания сборки здесь нет намеренно: прогон не зовёт прод вовсе —
+      # только OpenRouter и сами адреса-кандидаты. Ждать деплой было бы
+      # ожиданием ради ожидания (сторож tests/unit/marker-waits-for-deploy).
+      - name: Подбор и перепись
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -uo pipefail
+          MODEL=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.github/triggers/source-discovery.json')).get('model') or '')
+          except Exception:
+              print('')
+          ")
+          npx tsx scripts/source-discovery-runner.ts $MODEL | tee /tmp/discovery.txt
+
+      - name: Итог в сводку прогона
+        if: always()
+        run: |
+          {
+            echo "## Подбор источников разведчика"
+            echo
+            echo '```'
+            cat /tmp/discovery.txt 2>/dev/null || echo 'вывода нет'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
