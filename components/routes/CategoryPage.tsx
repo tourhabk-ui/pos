@@ -33,10 +33,16 @@ export default async function CategoryPage({ category, zone }: { category: strin
        FROM agent_route_knowledge
        WHERE category = $1 AND is_visible = TRUE
          AND ($2::text IS NULL OR zone = $2)
+       -- Порядок по НАПОЛНЕННОСТИ карточки, а не по тому, с чьего сайта она
+       -- скачана (07.09). Прежде первыми шли записи с source_name
+       -- 'idilesom.com', вторыми 'kamchatintour.ru' — то есть витрина
+       -- категории поднимала наверх контент конкурентов просто потому, что он
+       -- подробнее. После миграции 941 первое условие не совпало бы ни с чем,
+       -- и наверх молча уехал бы второй конкурент — поэтому правило заменено, а
+       -- не подчищено. Порог 300 знаков — тот же, по которому Editor судит
+       -- описание бедным (§11).
        ORDER BY
-         CASE WHEN source_name = 'idilesom.com' THEN 0
-              WHEN source_name = 'kamchatintour.ru' THEN 1
-              ELSE 2 END,
+         CASE WHEN length(COALESCE(description, '')) >= 300 THEN 0 ELSE 1 END,
          title ASC
        LIMIT 24`,
       [category, zone ?? null]

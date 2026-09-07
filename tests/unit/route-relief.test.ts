@@ -258,8 +258,11 @@ describe('положение переводится в шкалу трека, а
 });
 
 describe('высоты источника не теряются на импорте', () => {
-  const IMP = read('lib/services/ingest/idilesom-importer.ts');
-
+  // 07.09: скрейпер источника удалён («вычистить idilesom»), и вместе с ним
+  // ушли две проверки этого блока — они смотрели на его файл и на его крон.
+  // Проверка ниже осталась и стала единственной: она про общее правило разбора
+  // (lib/services/ingest/track-parse), которым пользуются и другие ввозы —
+  // KML-инбокс, GPX. Свойство важнее того, кто первым его потребовал.
   it('третий элемент переживает ОБА порядка координат', () => {
     // Замер прода 09.08: 289 маршрутов из idilesom, 119 683 точки, ноль высот.
     // Причина — ветка «широта первой» выбрасывала p[2], пока соседняя его
@@ -285,27 +288,6 @@ describe('высоты источника не теряются на импор�
         `высота потеряна в порядке «${latFirst ? 'широта' : 'долгота'} первой»`,
       ).toBe(true);
     }
-    // Импортёр разбирает общим правилом, а не своей копией.
-    expect(IMP).toMatch(/parseTrackBlocks\(html\)/);
-  });
-
-  it('форму источника можно проверить, а не предполагать', () => {
-    expect(IMP).toMatch(/export async function inspectIdilesomShape/);
-    // Наружу — форма, а не содержимое: длина точки, порядок, диапазон высот.
-    expect(IMP).toMatch(/tupleLength/);
-    expect(IMP).toMatch(/'lng-first' \| 'lat-first'/);
-    // Порядок в отчёте — наблюдение по всему блоку (axisOrder), а не догадка
-    // по первой точке: у профиля высот первое число меньше 90, и прежний
-    // ответ «lat-first» был той же ошибкой, что рисовала линию через край.
-    expect(IMP).toMatch(/order: axisOrder\(/);
-  });
-
-  it('диагностика ничего не пишет в базу', () => {
-    const route = read('app/api/cron/idilesom-tracks/route.ts');
-    expect(route).toMatch(/get\('mode'\) === 'inspect'/);
-    const start = route.indexOf("=== 'inspect'");
-    const inspectBlock = route.slice(start, route.indexOf("=== 'link'", start));
-    expect(inspectBlock).not.toMatch(/INSERT|UPDATE|DELETE/);
   });
 });
 

@@ -5,7 +5,10 @@ const path = require('path');
 const { Pool } = require('pg');
 require('dotenv').config({ path: '.env.local' });
 
-const defaultInputPaths = ['kamchatka-routes-curated.json', 'idilesom-tours.json'];
+// Дамп чужого сайта (idilesom-tours.json) убран из входов 07.09 вместе со
+// скрейперами, которые его писали: он был семенем, из которого имя источника
+// заново прорастало в базу при каждом импорте — мимо миграции 941.
+const defaultInputPaths = ['kamchatka-routes-curated.json'];
 const cliArgs = process.argv.slice(2);
 const resetBeforeImport = cliArgs.includes('--reset');
 const inputPaths = cliArgs.filter((arg) => !arg.startsWith('--')).length > 0
@@ -116,44 +119,18 @@ function normalizeCuratedRoute(route, sourceFile) {
   };
 }
 
-function normalizeIdilesomRoute(route, categoryKey, sourceFile) {
-  const lat = Number(route.lat);
-  const lng = Number(route.lng);
-
-  return {
-    category: normalizeCategory(route.category_slug || categoryKey || route.category),
-    title: String(route.name || route.title || '').trim(),
-    description: route.description ? String(route.description).trim() : null,
-    lat: Number.isFinite(lat) ? lat : null,
-    lng: Number.isFinite(lng) ? lng : null,
-    sourceUrl: route.url ? String(route.url).trim() : null,
-    sourceName: 'idilesom',
-    externalId: route.id ? String(route.id).trim() : null,
-    rawCoord: null,
-    sourceFile,
-  };
-}
-
+// Вторая форма входа — объект «категория → items» из дампа чужого сайта — убрана
+// 07.09 вместе с самим дампом и скрейперами. Она была единственным местом, где
+// импортёр ВПИСЫВАЛ имя источника в source_name, то есть возвращал бы подпись,
+// вычищенную миграцией 941, при каждом прогоне.
 function flattenRoutes(inputData, sourceFile) {
   if (Array.isArray(inputData)) {
     return inputData.map((route) => normalizeCuratedRoute(route, sourceFile));
   }
 
-  if (inputData && typeof inputData === 'object') {
-    const flattened = [];
-    for (const [categoryKey, categoryValue] of Object.entries(inputData)) {
-      if (!categoryValue || !Array.isArray(categoryValue.items)) {
-        continue;
-      }
-
-      for (const item of categoryValue.items) {
-        flattened.push(normalizeIdilesomRoute(item, categoryKey, sourceFile));
-      }
-    }
-    return flattened;
-  }
-
-  throw new Error(`Unsupported JSON structure in ${sourceFile}.`);
+  throw new Error(
+    `Unsupported JSON structure in ${sourceFile}: expected an array of curated routes.`,
+  );
 }
 
 function buildDedupeKey(route, lat, lng) {

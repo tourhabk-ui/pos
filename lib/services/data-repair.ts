@@ -22,7 +22,7 @@ import { pool } from '@/lib/db-pool';
 import { normalizeTitle } from '@/lib/import/kml-inbox';
 import { stems } from '@/lib/routes/duplicate-audit';
 import { slugify } from '@/lib/text/slugify';
-import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
+import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/ingest/track-place-match';
 import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
 
 // Места-статьи/события из инвентаризации — скрыть (точное имя, не паттерн:
@@ -662,14 +662,23 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
   }
 
   // ── Шаг 4: нормализация source_name ─────────────────────────────────────
+  //
+  // Раньше шаг приводил слог 'idilesom' к 'idilesom.com'. Миграция 941 убрала
+  // имя чужого сайта из подписи источника («вычистить idilesom», решение
+  // владельца 07.09), и прежняя нормализация вписывала бы его обратно при
+  // каждом прогоне починки — тихо, по одной записи, мимо миграции.
+  //
+  // Целевая подпись та же, что у мест с 17.08 (миграция 871): род без имени.
   if (dryRun) {
     const { rows } = await pool.query<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM kamchatka_routes WHERE source_name = 'idilesom'`,
+      `SELECT COUNT(*)::int AS n FROM kamchatka_routes
+        WHERE source_name IN ('idilesom', 'idilesom.com')`,
     );
     res.normalized_sources = rows[0]?.n ?? 0;
   } else {
     const upd = await pool.query(
-      `UPDATE kamchatka_routes SET source_name = 'idilesom.com' WHERE source_name = 'idilesom'`,
+      `UPDATE kamchatka_routes SET source_name = 'сторонний источник'
+        WHERE source_name IN ('idilesom', 'idilesom.com')`,
     );
     res.normalized_sources = upd.rowCount ?? 0;
   }

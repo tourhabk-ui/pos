@@ -47,7 +47,7 @@ export async function GET(
        LEFT JOIN LATERAL (
          -- Трек места может жить отдельной строкой kamchatka_routes:
          -- «Гора Замок» — точка, её трек — маршрут. Связь: metadata.place_ark_id
-         -- (idilesom-backfill) или общий source_url
+         -- (backfill скрейпа) или общий source_url
          SELECT geometry FROM kamchatka_routes k2
          WHERE k2.geometry IS NOT NULL
            AND k2.id <> ark.id
