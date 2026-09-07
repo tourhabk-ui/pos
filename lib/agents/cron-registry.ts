@@ -348,6 +348,17 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: DAY, tier: 'content', agentId: 'editor', triggerable: true,
   },
   {
+    key: 'editor-runner', label: 'Editor (раннер)',
+    // Тот же Editor, но модель зовёт раннер GitHub: с прода OpenRouter отвечает
+    // 403 и напрямую, и через релей (замер 07.09 — ответы совпали дословно,
+    // значит режет край сети по нашему адресу). Прод-крон остаётся запасным на
+    // DeepSeek, поэтому в реестре обе записи: молчание любой из них должно быть
+    // видно отдельно.
+    description: 'Описания флагманом с раннера GitHub (OpenRouter напрямую); прод отдаёт очередь и принимает текст.',
+    workflow: 'editor-runner.yml', cron: '40 21 * * *', schedule: 'ежедневно · 21:40 UTC (перед прод-кроном)',
+    everyMin: DAY, tier: 'content', agentId: 'editor', triggerable: true,
+  },
+  {
     key: 'enrich-routes', label: 'Enrich Routes',
     description: 'Обогащение описаний маршрутов (20/запуск).',
     workflow: 'cron-enrich-routes.yml', cron: '0 23 * * *', schedule: 'ежедневно · 23:00 UTC (off-peak)',
@@ -509,6 +520,11 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // ── Контент ─────────────────────────────────────────────────────────────
   // items = туры с коротким описанием: ноль означает, что переписывать нечего.
   'editor': 'normal',
+  // У раннера ноль значит другое, чем у прод-крона, и потому объявлен отдельно:
+  // прогон с непустой очередью и нулём описаний КРАСНЕЕТ в самом workflow
+  // (скрипт выходит с отказом). Значит ноль, доехавший сюда, — это пустая
+  // очередь, то есть законное «писать нечего».
+  'editor-runner': 'normal',
   'enrich-routes': 'unknown',
   'routes-cache': 'unknown',
   'kuzmich-places': 'unknown',
