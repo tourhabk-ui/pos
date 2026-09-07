@@ -145,21 +145,46 @@ export function dueForAlert(
 
 // ── DB-слой ──────────────────────────────────────────────────────────────
 
-/** Записывает статус источников за прогон. `last_nonempty_at` двигаем при status='ok'. */
+/**
+ * Записывает статус источников за прогон.
+ *
+ * `last_nonempty_at` двигается, когда источник дал НОВОЕ (`inserted > 0`), а не
+ * когда страница просто отрисовалась.
+ *
+ * ── Почему это не косметика (07.09) ────────────────────────────────────────
+ *
+ * Перепись каналов показала: `t.me/s/kbgsras` — наш первый источник сейсмики —
+ * молчит с 24 марта, 167 дней. Тревоги не было ни одной, и быть не могло.
+ *
+ * Прежнее условие двигало отметку при `last_status = 'ok'`, а `ok` ставится по
+ * `rawItems > 0` — это «сколько постов РАЗОБРАНО со страницы», а не «сколько
+ * НОВЫХ». Превью Telegram всегда показывает те же две с половиной сотни старых
+ * постов, включая мартовские. Каждый прогон их разбирал, ставил `ok`, двигал
+ * отметку на сейчас — и «молчит 167 дней» превращалось в «молчит 0 часов».
+ * Порог `maxSilenceHours` был недостижим ПО ПОСТРОЕНИЮ, у всех пяти источников
+ * сразу: kbgsras, eqkam, vk_mchs, max_mchs, mchs_rss.
+ *
+ * То есть исход «источник замолчал» в коде существовал, а сработать не мог
+ * никогда — §4.0 на самом дорогом направлении: молчащая сейсмика выглядела
+ * ровно как спокойная сейсмика.
+ *
+ * Залпа тревог смена не даёт: отметка у живых источников не сбрасывается, и
+ * отсчёт тишины у каждого начинается с его последнего НАСТОЯЩЕГО события.
+ */
 export async function recordSourceHealth(pool: Pool, entries: SourceHealthEntry[]): Promise<void> {
   for (const e of entries) {
     await pool.query(
       `INSERT INTO safety_source_health
          (source_key, label, last_run_at, last_status, raw_items, inserted,
           last_nonempty_at, first_seen_at, updated_at)
-       VALUES ($1, $2, NOW(), $3, $4, $5, CASE WHEN $3 = 'ok' THEN NOW() ELSE NULL END, NOW(), NOW())
+       VALUES ($1, $2, NOW(), $3, $4, $5, CASE WHEN $3 = 'ok' AND $5 > 0 THEN NOW() ELSE NULL END, NOW(), NOW())
        ON CONFLICT (source_key) DO UPDATE SET
          label            = EXCLUDED.label,
          last_run_at      = NOW(),
          last_status      = EXCLUDED.last_status,
          raw_items        = EXCLUDED.raw_items,
          inserted         = EXCLUDED.inserted,
-         last_nonempty_at = CASE WHEN EXCLUDED.last_status = 'ok'
+         last_nonempty_at = CASE WHEN EXCLUDED.last_status = 'ok' AND EXCLUDED.inserted > 0
                                  THEN NOW() ELSE safety_source_health.last_nonempty_at END,
          first_seen_at    = COALESCE(safety_source_health.first_seen_at, NOW()),
          updated_at       = NOW()`,
