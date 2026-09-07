@@ -237,9 +237,31 @@ jobs:
           # пишется в образ на сборке (см. Dockerfile), поэтому отвечает на
           # вопрос «какой контейнер СЕЙЧАС отдаёт страницы», а не «что панель
           # думает о последней сборке». Именно этого различия и не хватало.
+          # ВРЕМЯ СБОРКИ — второй свидетель, и он работает, когда первый молчит.
+          #
+          # 07.09: прод отдавал образ built_at=10:55, тогда как проверяемый
+          # коммит лёг в main в 11:30 — то есть контейнер физически не мог
+          # содержать наш код. Панель при этом сообщала active на нашем
+          # коммите через 33 секунды после запроса сборки (столько она не
+          # собирается): поле commit у панели — эхо ЗАПРОСА, а не то, что
+          # работает. Проверка ниже верила этому эху дословно.
+          #
+          # built_at врать не может: его пишет сам образ на сборке
+          # (Dockerfile → scripts/write-version.js), и он приезжает в том же
+          # ответе, что и `unknown`. Сравнение с временем нашего коммита даёт
+          # ответ там, где sha не установлен: образ СТАРШЕ коммита — значит
+          # не доехал, и это не «не знаю».
+          #
+          # Правило не новое: ровно им живёт scripts/wait-for-deploy.sh
+          # (исход 2). Здесь его не было, и два места, решающие один вопрос,
+          # расходились — та самая болезнь, ради которой писался §12.
+          NEED_EPOCH=$(git show -s --format=%ct "$EXPECTED_SHA" 2>/dev/null || echo 0)
+          echo "Наш коммит ${EXPECTED_SHA:0:7} создан в epoch $NEED_EPOCH — образ старше этого времени нашего кода не содержит."
+
           SERVED_OK=""
           SERVED=""
           REASON=""
+          BUILT_EPOCH=0
           for i in $(seq 1 20); do
             curl -s --max-time 15 "https://vedarai.ru/version.json" -o /tmp/served.json || true
             SERVED=$(python3 -c "import json;print(json.load(open('/tmp/served.json')).get('commit',''))" 2>/dev/null || echo "")
@@ -247,8 +269,15 @@ jobs:
             # причина «не знаю» приезжает вместе с ответом, а не ищется в чужом
             # сборочном логе. У старой сборки поля нет — это законная пустота.
             REASON=$(python3 -c "import json;print(json.load(open('/tmp/served.json')).get('reason',''))" 2>/dev/null || echo "")
-            echo "[$i/20] сайт отдаёт ${SERVED:0:7}${REASON:+ (reason=$REASON)}"
-            if contains_expected "$SERVED"; then SERVED_OK=1; break; fi
+            # Разборы однострочные намеренно: тело run — блочный скаляр YAML, и
+            # многострочная программа с отступами от нулевой колонки обрывает
+            # его молча (проверено 07.09 — файл перестал разбираться как YAML).
+            BUILT_EPOCH=$(python3 -c "import json,datetime;b=json.load(open('/tmp/served.json')).get('built_at');print(int(datetime.datetime.fromisoformat(str(b).replace('Z','+00:00')).timestamp()) if b else 0)" 2>/dev/null || echo 0)
+            echo "[$i/20] сайт отдаёт ${SERVED:0:7}${REASON:+ (reason=$REASON)}, built_at epoch $BUILT_EPOCH"
+            if contains_expected "$SERVED"; then SERVED_OK=commit; break; fi
+            if [ "$BUILT_EPOCH" -gt 0 ] && [ "$NEED_EPOCH" -gt 0 ] && [ "$BUILT_EPOCH" -ge "$NEED_EPOCH" ]; then
+              SERVED_OK=built_at; break
+            fi
             sleep 15
           done
 
@@ -272,10 +301,19 @@ jobs:
           # Красным остаётся только НАСТОЯЩЕЕ расхождение: сайт назвал живой
           # коммит, и нашего в нём нет. Это по-прежнему откат или застрявшая
           # сборка, и формулировка про контейнер там верна.
-          if [ -n "$SERVED_OK" ]; then
+          if [ "$SERVED_OK" = "commit" ]; then
             echo "Деплой подтверждён фактом: vedarai.ru отдаёт ${SERVED:0:7}, он содержит ${EXPECTED_SHA:0:7}."
+          elif [ "$SERVED_OK" = "built_at" ]; then
+            echo "Деплой подтверждён временем сборки: образ собран в epoch $BUILT_EPOCH, не раньше нашего коммита ($NEED_EPOCH) — значит содержит его. Sha образ не назвал (reason='${REASON:-не указана}'), и это отдельная поломка маркера, а не деплоя."
+          elif [ "$BUILT_EPOCH" -gt 0 ] && [ "$NEED_EPOCH" -gt 0 ] && [ "$BUILT_EPOCH" -lt "$NEED_EPOCH" ]; then
+            # Здесь «не знаю» кончается: даже без sha образ САМ назвал время
+            # своей сборки, и оно раньше, чем наш коммит появился на свет.
+            # Панель может сколько угодно сообщать active на нашем коммите —
+            # она отвечает за свой запрос, а не за то, что отдаёт сайт.
+            echo "::error::Прод отдаёт образ, собранный РАНЬШЕ нашего коммита: built_at epoch $BUILT_EPOCH < $NEED_EPOCH (${EXPECTED_SHA:0:7}). Наш код на прод не доехал, миграции этого деплоя не накатывались. Панель Timeweb при этом сообщает ${COMMIT:0:7} — её поле commit отражает ЗАПРОС на сборку, а не работающий контейнер."
+            exit 1
           elif ! printf '%s' "$SERVED" | grep -Eq '^[0-9a-f]{7,40}$'; then
-            echo "::warning::НЕ СМОГЛИ ПОДТВЕРДИТЬ фактом сайта: /version.json не назвал коммит (commit='${SERVED:-пусто}', reason='${REASON:-не указана}'). Это не «не доехало»: панель Timeweb сообщает ${COMMIT:0:7}, содержащий ${EXPECTED_SHA:0:7}, а работоспособность проверяет смоук ниже. Причины по reason (scripts/write-version.js): no_git_head — .git не попал в контекст сборки; ref_and_packed_missing / ref_not_in_packed — попал без ссылок; head_unrecognized — HEAD не опознан."
+            echo "::warning::НЕ СМОГЛИ ПОДТВЕРДИТЬ фактом сайта: /version.json не назвал ни коммит (commit='${SERVED:-пусто}', reason='${REASON:-не указана}'), ни время сборки. Оба свидетеля молчат — это «не знаю», а не «доехало»: панель Timeweb сообщает ${COMMIT:0:7}, работоспособность проверяет смоук ниже. Причины по reason (scripts/write-version.js): no_git_head — .git не попал в контекст сборки; ref_and_packed_missing / ref_not_in_packed — попал без ссылок; head_unrecognized — HEAD не опознан."
           elif ! git cat-file -e "${SERVED}^{commit}" 2>/dev/null; then
             echo "::warning::НЕ СМОГЛИ ПОДТВЕРДИТЬ: сайт назвал ${SERVED:0:7}, но такого коммита нет ни в клоне, ни на origin — родство с ${EXPECTED_SHA:0:7} установить нечем. Это тоже «не знаю», а не «не доехало»."
           else
