@@ -21,6 +21,7 @@ import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
+import { openRouterAttribution } from '@/lib/ai/attribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -153,8 +154,7 @@ export async function GET(request: NextRequest) {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${orKey}`,
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'Vedarai Kamchatka',
+          ...openRouterAttribution('relay-check'),
         },
         body: JSON.stringify({
           model,

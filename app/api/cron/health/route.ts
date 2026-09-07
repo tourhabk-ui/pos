@@ -398,12 +398,24 @@ export async function GET(request: NextRequest) {
     // Причина, а не одно слово. Прежде предупреждение было безусловным и
     // покрывало три случая разом: ключа нет, ключ отвергнут, сеть упала. Из-за
     // этого задача в бэклоге называлась «ключ пропал с прода» при живом ключе.
+    // «С ПРОДА» — не украшение, а граница замера (07.09). Владелец положил
+    // рядом два экрана: этот алерт со словом «недоступен» и консоль OpenRouter,
+    // где приложение vedarai.ru жжёт 50-90 тыс. токенов В СУТКИ. Оба верны:
+    // проба ходит только отсюда и честно получает 403, а те токены жжёт раннер
+    // GitHub (evo-judge, evo-review, editor-runner, astra-probe), которому
+    // OpenRouter доступен — туда же 07.09 решением владельца переехал Editor.
+    // Слово без места превращает «здесь не работает» в «не работает вообще» —
+    // ровно та подмена, которую §4.0 запрещает. Раннерный путь этой пробой не
+    // измеряется, и молчать об этом нельзя: молчание читается как «проверено».
     if (!openrouterOk) {
       const why = orKeyDiag ? ` — ${explainOpenRouterFailure(orKeyDiag)}` : ' (диагностика не собралась)';
-      issues.push({ level: 'warn', text: `OpenRouter недоступен${why}` });
+      issues.push({
+        level: 'warn',
+        text: `OpenRouter недоступен с прода${why}. Путь с раннера GitHub этой пробой не проверялся`,
+      });
     }
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
-      issues.push({ level: 'warn', text: 'Anthropic недоступен напрямую и через OpenRouter' });
+      issues.push({ level: 'warn', text: 'Anthropic недоступен с прода — и напрямую, и через OpenRouter' });
     }
     if (process.env.FUGU_API_KEY && !fuguOk) {
       issues.push({ level: 'warn', text: 'Fugu недоступен (ключ задан, но провайдер не отвечает)' });
