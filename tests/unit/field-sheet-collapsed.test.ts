@@ -73,15 +73,33 @@ describe('форма листа (02.09 08:18)', () => {
   });
 
   it('панель действий прибита к низу листа и одна на оба состояния', () => {
-    const footerAt = SHEET.lastIndexOf('<FieldActionBar actions={fieldActions} error={fieldBarError} />');
+    const footerAt = SHEET.lastIndexOf('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError} />');
     expect(footerAt).toBeGreaterThan(0);
     const tail = SHEET.slice(SHEET.indexOf('{/* Конец тела листа. */}'));
     expect(tail).toContain('shrink-0 px-4 pt-2 pb-2 max-w-sm mx-auto w-full');
-    expect(tail).toContain('<FieldActionBar actions={fieldActions} error={fieldBarError} />');
+    expect(tail).toContain('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError} />');
     // Внутри тела при маршруте панели нет: только в ветке без маршрута
     // (экран выбора цели) и в прибитом низу.
     const occurrences = SHEET.split('<FieldActionBar actions={fieldActions}').length - 1;
     expect(occurrences).toBe(2);
+  });
+
+  /**
+   * Владелец 07.09, третий раунд «занимает очень много места карты» (после
+   * 60vh→45vh→32vh): кнопки — та же панель, что и раньше, но подпись под
+   * ними уходит вместе со сворачиванием листа. Кружок-кнопка (56px под
+   * палец в перчатке) остаётся тем же размером в обоих видах — сторож
+   * ловит именно это: экономия идёт за счёт текста, не за счёт цели.
+   */
+  it('панель действий сжимается вместе со свёрнутым листом, кружок-кнопка не меняется', () => {
+    expect(SHEET).toContain('compact={!sheetOpen}');
+    const BAR = readFileSync(join(process.cwd(), 'components/field/FieldActionBar.tsx'), 'utf-8');
+    expect(BAR).toMatch(/compact\?: boolean;/);
+    expect(BAR).toMatch(/\{!compact && \(/);
+    expect(BAR).toContain('aria-label={compact ? a.label : undefined}');
+    // Кружок задан TAP БЕЗУСЛОВНО — ни одного тернарника от compact рядом
+    // с его width/height: сжатие листа не имеет права тронуть размер цели.
+    expect(BAR).toContain('width: TAP + 8,\n                height: TAP + 8,');
   });
 
   it('геройская цифра — на поверхности листа, без своей рамки; не крупнее 64px', () => {
