@@ -73,6 +73,8 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
 
 /** Ручные переписи, разборы и починки — расписания у них быть и не должно. */
 export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
+  'tour-describe':             { kind: 'manual', writes: true,  note: 'собрать описание тура из его собственных полей — второй блокер выкладки на чужие витрины; сухой прогон по умолчанию, партия ≤10, причина обязательна' },
+  'tour-photos-census':        { kind: 'manual', writes: false, note: 'почему у поста о туре нет снимка: что лежит в operator_tours.photos, доступен ли каждый снимок тем же способом, каким его берёт Telegram, и что Bot API отвечал в прошлые разы (записанные отказы из журнала)' },
   'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
   // 'tochka-check' объявления здесь не несёт: его зовёт tochka-check.yml —
   // объявление тут было бы вторым ответом на тот же вопрос (см. тот же довод
@@ -81,7 +83,12 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'channel-readiness':         { kind: 'manual', writes: false, note: 'сколько туров годится к выкладке на чужую витрину и что мешает каждому' },
   'tour-pickup':               { kind: 'manual', writes: true,  note: 'записать, как турист попадает на тур: перевозка — свойство оператора, а не поездки' },
   'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
+  'intel-feeds-census':        { kind: 'manual', writes: false, note: 'живы ли ленты разведки — спрошенные С ПРОДА: замер 06.09 показал, что один адрес отвечает проду и раннеру по-разному (kamgov 404/403, visitkamchatka 200/404), и судить о ленте с чужой машины значит чинить не то' },
+  'alerts-census':             { kind: 'manual', writes: false, note: 'течёт ли поток тревог региона: «тревог нет» и «конвейер молчит» из дайджеста неотличимы, а стоят разного' },
   'funnel-census':             { kind: 'manual', writes: false, note: 'числа воронки целиком: срезы health закрыты requireAdmin, объектив эволюции отдаёт вердикт без цифр' },
+  'payment-config':            { kind: 'manual', writes: false, note: 'какими способами турист может заплатить: имена настроенных переменных без значений — «0 оплат» не должно быть неотличимо от «нечем платить»' },
+  'operator-reach':            { kind: 'manual', writes: false, note: 'до скольких операторов с живыми турами дойдёт заявка: без канала связи она не доходит никогда, и это неотличимо от «оператор молчит»' },
+  'passport-flag-census':      { kind: 'manual', writes: false, note: 'паспорт есть, флаг «регистрация в МЧС обязательна» false: подозреваемые для разбора по паспорту, вердикта нет — «сказано false» и «дефолт false» по базе неотличимы' },
   'beacon-check':              { kind: 'manual', writes: false, note: 'способен ли приёмник маяка записать событие: тот же INSERT в транзакции с гарантированным откатом' },
   'scout-relay-check':         { kind: 'manual', writes: false, note: 'читает ли прод источники разведчика через реле Cloudflare: только чтение, без модели и публикации' },
   'sql-shape-check':           { kind: 'manual', writes: false, note: 'разбираются ли запросы формы INSERT ... SELECT $n ... WHERE NOT EXISTS: PREPARE без выполнения' },

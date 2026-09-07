@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { loadSchemaModel } from '@/lib/agents/evo/schema-model';
 import { scanSourceAgainstSchema, schemaMismatchToIssue } from '@/lib/agents/evo/schema-lens';
 import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
+import { paymentAvailability } from '@/lib/payments/availability';
 
 export interface GrowthIssue {
   // 'compliance' — требования закона (маркировка рекламы, 152-ФЗ): не баг и не
@@ -814,6 +815,86 @@ export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
 }
 
 /**
+ * Объектив «путь денег» (05.09, решение владельца «усилить ОС»: кормить
+ * эволюцию правдой прода, а не догадками модели).
+ *
+ * Воронка выше судит по СЛЕДАМ (визиты, брони, оплаты). Этот объектив судит
+ * по УСТРОЙСТВУ: способен ли путь до денег вообще сработать, даже если по
+ * нему ещё никто не прошёл. Две переписи, найденные руками 04.09 и с тех пор
+ * дёргаемые вручную: заявка по туру оператора без MAX и без Telegram не
+ * доходит НИКОГДА (operator-reach: 0 из 2 операторов, 12 туров), и «0 оплат»
+ * неотличимо от «нечем платить», пока ни один способ не настроен
+ * (payment-config). Оба факта — из базы и из имён переменных, без модели,
+ * значит мимо тормоза точности по построению.
+ *
+ * Категория 'funnel' намеренно: чинится руками владельца (оператор пишет
+ * боту, ключ кладётся в переменные), не кодом — авто-исполнение таким
+ * находкам не положено (OUTWARD_CATEGORIES).
+ */
+export interface MoneyPathFacts {
+  /** Операторы с живыми турами, у которых нет ни MAX, ни Telegram. */
+  unreachable_operators: Array<{ name: string; live_tours: number }>;
+  /** Операторов с живыми турами всего. */
+  operators_with_live_tours: number;
+  /** Ни карта, ни СБП не настроены (имена переменных, не значения). */
+  no_payment_way: boolean;
+}
+
+/** Чистая: факты устройства пути денег → находки (0, 1 или 2). */
+export function pickMoneyPathFindings(f: MoneyPathFacts): GrowthIssue[] {
+  const base = { category: 'funnel' as const, model: 'deterministic', status: 'suggested' as const };
+  const out: GrowthIssue[] = [];
+
+  if (f.unreachable_operators.length > 0) {
+    const tours = f.unreachable_operators.reduce((s, o) => s + o.live_tours, 0);
+    const names = f.unreachable_operators.map((o) => `«${o.name}» (${o.live_tours})`).join(', ');
+    out.push({
+      ...base, severity: 'high',
+      title: 'Путь денег: заявка не доходит до оператора',
+      description:
+        `У ${f.unreachable_operators.length} из ${f.operators_with_live_tours} операторов с живыми турами нет ни MAX, ни Telegram: ${names}. ` +
+        `За ними ${tours} живых туров. Заявка по такому туру создаётся в базе и никуда не уезжает, а Watchdog через 48 часов запишет это как «оператор игнорирует бронь». ` +
+        'Источник — partners.max_chat_id / telegram_chat_id и operator_tours.is_active (факты, не чтение кода).',
+      suggestion:
+        'Оператор пишет боту Кузьмича в MAX «партнер» и свою почту из профиля — бот сам запишет чат в профиль партнёра. Одно сообщение с телефона оператора; со стороны кода делать нечего.',
+    });
+  }
+
+  if (f.no_payment_way) {
+    out.push({
+      ...base, severity: 'high',
+      title: 'Путь денег: ни один способ оплаты не настроен',
+      description:
+        'Ни ключ CloudPayments (CLOUDPAYMENTS_PUBLIC_ID / NEXT_PUBLIC_CLOUDPAYMENTS_PUBLIC_ID), ни тройка переменных СБП Точки не заданы на проде. ' +
+        'Страница после брони покажет «онлайн-оплата недоступна», и «0 оплат» в воронке — это «нечем платить», а не «не хотят». ' +
+        'Источник — имена переменных окружения (без значений).',
+      suggestion:
+        'Положить в переменные приложения на Timeweb хотя бы один способ: публичный id CloudPayments для карты или три переменные Точки для СБП. Перепись payment-config подтвердит.',
+    });
+  }
+
+  return out;
+}
+
+async function scanMoneyPath(): Promise<GrowthIssue[]> {
+  // Оба chat_id — BIGINT (миграции 077 и 145): «есть канал» это NOT NULL,
+  // TRIM() тут падал на проде (урок 04.09).
+  const { rows } = await pool.query<{ name: string; live_tours: number; reachable: boolean }>(
+    `SELECT p.name,
+            COUNT(t.id)::int AS live_tours,
+            (p.telegram_chat_id IS NOT NULL OR p.max_chat_id IS NOT NULL) AS reachable
+       FROM partners p
+       JOIN operator_tours t ON t.operator_id = p.id AND t.is_active = true
+      GROUP BY p.id, p.name, p.telegram_chat_id, p.max_chat_id`,
+  );
+  return pickMoneyPathFindings({
+    unreachable_operators: rows.filter((r) => !r.reachable).map((r) => ({ name: r.name, live_tours: r.live_tours })),
+    operators_with_live_tours: rows.length,
+    no_payment_way: paymentAvailability().none,
+  });
+}
+
+/**
  * Кузьмич-евал в петле (Эволюция 3.0, п.6, владелец 08.08: «эволюция»).
  *
  * Еженедельный faithfulness-евал (kuzmich-eval / kuzmich-eval-live) уже
@@ -1265,6 +1346,9 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     // /api/tours жили годами, потому что 500-ки не попадали в петлю.
     issues.push(...(await lens(lenses, 'прод-ошибки', scanProdErrors, [] as GrowthIssue[])));
     issues.push(...(await lens(lenses, 'воронка', scanFunnel, [] as GrowthIssue[])));
+    // Устройство пути денег (05.09): доходит ли заявка до оператора, есть ли
+    // чем платить. Переписи operator-reach и payment-config — в петле.
+    issues.push(...(await lens(lenses, 'путь денег', scanMoneyPath, [] as GrowthIssue[])));
     issues.push(...(await lens(lenses, 'Кузьмич-евал', scanKuzmichEval, [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
     issues.push(...(await lens(lenses, 'структура', scanStructural, [] as GrowthIssue[])));

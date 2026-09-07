@@ -9,6 +9,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 export { MarkerType } from '@/components/shared/leaflet-types';
 export type { MapMarkerGeometry, MapMarker } from '@/components/shared/leaflet-types';
 import type { MapMarker, MapMarkerGeometry } from '@/components/shared/leaflet-types';
+import { placeMarkerSvg } from '@/lib/map/place-marker-icons';
 
 interface LeafletMapProps {
   markers?: MapMarker[];
@@ -17,6 +18,17 @@ interface LeafletMapProps {
   height?: string;
   className?: string;
   attribution?: boolean;
+  /**
+   * Угол атрибуции — по умолчанию Leaflet ставит её bottomright, и это
+   * правильно почти везде. Но там, где сверху лежит непрозрачная панель
+   * до самого низа (экран «На маршруте», _PlanningClient: нижний лист
+   * приборов, fixed inset-x-0 bottom-0, минимум 32vh) — bottomright МЁРТВ,
+   * атрибуция OpenStreetMap лежит в контроле честно, а на экране её не
+   * видно никогда (04.09, проверка владельца — тот же разрыв нашёлся у
+   * VedarMap с тем же диагнозом). Явный угол — способ вызывающего сказать
+   * «здесь низ занят», не трогая остальные семь поверхностей с Leaflet.
+   */
+  attributionPosition?: 'topleft' | 'topright' | 'bottomleft' | 'bottomright';
   onMarkerClick?: (id: string) => void;
   /**
    * Тап по свободной точке карты — сырые координаты под пальцем, не
@@ -136,27 +148,6 @@ function buildPopupHtml(marker: MapMarker): string {
  * карты, и держать сотню килобайт SVG-литералов внутри цикла незачем.
  * Содержимое не менялось — только место.
  */
-function markerSvgIcons(hex: string): Record<string, string> {
-  return {
-    volcano:    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 2L2 22h20L12 2z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="2" fill="#fff" opacity="0.8"/></svg>`,
-    hot_spring: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M9 14c0-2 1.5-3 3-3s3 1 3 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-    geyser:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 8v6M9 11l3 3 3-3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    lake:       `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 14c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-    mountain:   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 4L3 22h18L12 4z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M8 22l4-8 4 8" stroke="#fff" stroke-width="1" stroke-linecap="round"/></svg>`,
-    waterfall:  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M10 10v8M14 10v8" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-    beach:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.6"/></svg>`,
-    viewpoint:  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 10v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    rock:       `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M7 20l2-12 6-4 4 8-3 8H7z" fill="${hex}" stroke="#fff" stroke-width="1.5"/></svg>`,
-    island:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><ellipse cx="12" cy="18" rx="8" ry="4" fill="#475569" opacity="0.3"/><path d="M4 18c0-4 3-8 8-8s8 4 8 8-3.5 6-8 6-8-2-8-6z" fill="${hex}" stroke="#fff" stroke-width="1.5"/></svg>`,
-    forest:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 4L6 16h12L12 4z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="11" y="16" width="2" height="6" rx="1" fill="#fff" opacity="0.6"/></svg>`,
-    river:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M8 14c2 0 2-3 4-3s2 3 4 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-    bay:        `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M7 14c1.5-1.5 3-1.5 5 0s3.5 1.5 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><path d="M7 18c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></svg>`,
-    museum:     `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M3 14l9-8 9 8v6H3v-6z" fill="${hex}" stroke="#fff" stroke-width="1.5"/><rect x="7" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="11" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="15" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/></svg>`,
-    historical: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><path d="M12 8v4l2 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    other:      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.5"/></svg>`,
-  };
-}
-
 export default function LeafletMap({
   markers = [],
   center = [53.0444, 158.6483],
@@ -170,6 +161,7 @@ export default function LeafletMap({
   // остаётся явным, осознанным выключением для мест, где атрибуция даётся
   // иначе (не через это проп).
   attribution = true,
+  attributionPosition,
   onMarkerClick,
   onMapClick,
   showUserLocation = false,
@@ -340,7 +332,9 @@ export default function LeafletMap({
           : L.latLng(center[0], center[1]),
         zoom: restoredView ? restoredView.zoom : zoom,
         zoomControl: false,
-        attributionControl: attribution !== false,
+        // Свой угол — свой контрол ниже (иначе Leaflet ставит его
+        // bottomright и никакая опция map() этот угол не меняет).
+        attributionControl: attribution !== false && !attributionPosition,
         minZoom: 5,
         // Совпадает с maxZoom тайлового слоя ниже (17) — владелец 28.08,
         // закрытие M0. Было 12: карта искусственно запрещала приближение,
@@ -386,6 +380,15 @@ export default function LeafletMap({
 
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
       L.control.zoom({ position: 'topright' }).addTo(map);
+
+      // Свой угол атрибуции (см. attributionPosition выше) — заменяет
+      // отключённый встроенный контрол, тем же текстом.
+      if (attribution !== false && attributionPosition) {
+        L.control.attribution({
+          position: attributionPosition,
+          prefix: false,
+        }).addTo(map);
+      }
 
       // Через ref: обработчик вызывающего меняет identity на каждом рендере
       // (инлайновая стрелка), а карта из-за этого пересоздаваться не должна.
@@ -753,8 +756,7 @@ export default function LeafletMap({
         }
       }
 
-      const svgIcon = markerSvgIcons(hex)[marker.category ?? 'other']
-        ?? markerSvgIcons(hex).other;
+      const svgIcon = placeMarkerSvg(hex, marker.category);
       const icon = L.divIcon({
         html: svgIcon,
         className: 'kh-marker',

@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
         digest_skip_detail?: string | null;
         ai_channel_sent?: boolean | null;
         ai_channel_skip_reason?: string | null;
+        ai_channel_skip_detail?: string | null;
+        trigger?: string | null;
       } | null;
       const code = meta?.digest_skip_reason ?? null;
       // Судьба ВТОРОГО канала (@ai_hub_money) — отдельный вопрос, и до
@@ -78,6 +80,12 @@ export async function GET(request: NextRequest) {
         ai_channel_sent: meta?.ai_channel_sent ?? null,
         ai_channel_skip_reason: aiCode,
         ai_channel_skip_label: aiCode ? (SKIP_REASON_LABELS[aiCode] ?? aiCode) : null,
+        // Улика к отказу канала (04.09): ответ Bot API словами; null — не
+        // записана (прогон старше правки) или отказа не было.
+        ai_channel_skip_detail: meta?.ai_channel_skip_detail ?? null,
+        // Кто позвал: cron (маркер/ручной), orchestrator (штатный, 4×/сутки),
+        // admin (кнопка). null — прогон старше 04.09, дорога не записана.
+        trigger: meta?.trigger ?? null,
         at: r.started_at instanceof Date ? r.started_at.toISOString() : String(r.started_at),
         status: r.status,
         signals: r.items_processed,
@@ -116,11 +124,43 @@ export async function GET(request: NextRequest) {
 
     // Последний ОПУБЛИКОВАННЫЙ выпуск: журнал прогонов и знание агента —
     // разные источники, и расхождение между ними само по себе улика.
-    const digest = await pool.query<{ slug: string; created_at: Date }>(
-      `SELECT slug, created_at FROM agent_knowledge
+    const digest = await pool.query<{ slug: string; created_at: Date; metadata: unknown }>(
+      `SELECT slug, created_at, metadata FROM agent_knowledge
         WHERE agent_id = 'scout' AND type = 'intel' AND slug LIKE 'intel/scout/%'
         ORDER BY created_at DESC LIMIT 1`,
     );
+
+    // Последний артефакт ЦЕЛИКОМ по здоровью (04.09). Выпуск 04.09 ушёл с
+    // одним разделом из четырёх, и по тексту не сказать, почему: источники
+    // туризма молчали, реле не сработало или фактчек вычеркнул пункты. Всё
+    // это записано в metadata артефакта (source_health по каждому источнику
+    // с путём via, claims_dropped_detail), но наружу не отдавалось — и
+    // разбор шёл по догадкам. Только чтение, ничего не пересчитывается.
+    const meta = (digest.rows[0]?.metadata ?? null) as {
+      signals?: number; raw_signals?: number; fresh_signals?: number;
+      source_health?: unknown; dead_sources?: unknown;
+      claims_dropped?: number | null; claims_dropped_detail?: string | null;
+      ai_claims_dropped?: number | null;
+      ai_channel_sent?: boolean | null; ai_channel_skip_reason?: string | null;
+      ai_channel_skip_detail?: string | null;
+    } | null;
+    const lastArtifact = digest.rows[0] ? {
+      slug: digest.rows[0].slug,
+      created_at: digest.rows[0].created_at,
+      signals: meta?.signals ?? null,
+      raw_signals: meta?.raw_signals ?? null,
+      fresh_signals: meta?.fresh_signals ?? null,
+      // null — артефакт старше того дня, когда здоровье стали записывать;
+      // это «не записано», а не «все источники в порядке».
+      source_health: Array.isArray(meta?.source_health) ? meta.source_health : null,
+      dead_sources: Array.isArray(meta?.dead_sources) ? meta.dead_sources : null,
+      claims_dropped: meta?.claims_dropped ?? null,
+      claims_dropped_detail: meta?.claims_dropped_detail ?? null,
+      ai_claims_dropped: meta?.ai_claims_dropped ?? null,
+      ai_channel_sent: meta?.ai_channel_sent ?? null,
+      ai_channel_skip_reason: meta?.ai_channel_skip_reason ?? null,
+      ai_channel_skip_detail: meta?.ai_channel_skip_detail ?? null,
+    } : null;
 
     return NextResponse.json({
       success: true,
@@ -132,6 +172,7 @@ export async function GET(request: NextRequest) {
       last_success_at: lastSent?.at ?? null,
       last_published_slug: digest.rows[0]?.slug ?? null,
       last_published_at: digest.rows[0]?.created_at ?? null,
+      last_artifact: lastArtifact,
       runs,
     });
   } catch (err) {

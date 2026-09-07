@@ -6,7 +6,7 @@
  * Если S3 не настроен — fallback на локальную файловую систему (/tmp).
  */
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +74,10 @@ export async function uploadToS3(
   key: string,
   body: Buffer,
   contentType: string,
+  // Год и immutable — для фото и видео: у них новый файл — новый ключ. Файлы
+  // пакетов карты живут под постоянным ключом и читаются кусками — у них
+  // своя политика (lib/map/pack-cache-policy.ts), и заливка её передаёт.
+  cacheControl: string = 'public, max-age=31536000, immutable',
 ): Promise<UploadResult> {
   const client = getClient();
 
@@ -84,7 +88,7 @@ export async function uploadToS3(
       Body: body,
       ContentType: contentType,
       ACL: 'public-read',
-      CacheControl: 'public, max-age=31536000, immutable',
+      CacheControl: cacheControl,
     }),
   );
 
@@ -93,6 +97,26 @@ export async function uploadToS3(
     key,
     size: body.length,
   };
+}
+
+/**
+ * Переписать заголовки объекта на месте, не перекачивая тело: копия объекта
+ * в самого себя с MetadataDirective REPLACE. S3 при REPLACE забывает и
+ * Content-Type, и ACL — поэтому оба задаются заново, а не «остаются».
+ */
+export async function restampObject(key: string, contentType: string, cacheControl: string): Promise<void> {
+  const client = getClient();
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      CopySource: `${S3_BUCKET}/${key}`,
+      MetadataDirective: 'REPLACE',
+      ContentType: contentType,
+      CacheControl: cacheControl,
+      ACL: 'public-read',
+    }),
+  );
 }
 
 // ── Delete ───────────────────────────────────────────────────────────────────

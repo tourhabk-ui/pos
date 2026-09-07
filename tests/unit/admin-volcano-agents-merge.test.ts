@@ -41,8 +41,9 @@ describe('«AI и автоматизации» больше не отдельн�
   });
 
   it('ссылки на снятый адрес ведут на вкладку', () => {
+    // app/transparency снесён 05.09 (ископаемое совета директоров) — см.
+    // tests/unit/transparency-removed.test.ts.
     for (const p of [
-      'app/transparency/_TransparencyClient.tsx',
       'lib/agents/execution/initiative-executor.ts',
       'app/hub/admin/email/_EmailAdminClient.tsx',
     ]) {

@@ -16,13 +16,14 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  AI_FEATURE_SURFACES, AI_FEATURE_PROPOSALS_LIMIT,
-  buildAiFeaturePrompt, parseAiFeatureProposals, groundProposals,
-  formatAiFeaturesMessage, toTrackerRow,
+  AI_FEATURE_SURFACES, AI_FEATURE_PROPOSALS_LIMIT, AI_FEATURE_CANDIDATES_LIMIT, AI_FEATURE_CRITIC_MIN_SCORE,
+  buildAiFeaturePrompt, parseAiFeatureProposals, parseAiFeatureProposalsDetailed, groundProposals,
+  formatAiFeaturesMessage, toTrackerRow, buildCriticPrompt, parseCriticVerdict,
   type AiFeatureCandidate, type AiFeatureProposal,
 } from '@/lib/agents/scout-ai-features';
 
 const DIGEST = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+const LENS = readFileSync(join(process.cwd(), 'lib/agents/scout-ai-features.ts'), 'utf-8');
 
 const ARTICLE = 'OpenAI today introduced the Realtime API with speech-to-speech streaming, allowing developers to build low-latency voice agents. Pricing starts at $5 per million input tokens.';
 const CANDS: AiFeatureCandidate[] = [
@@ -36,6 +37,7 @@ const proposal = (over: Partial<AiFeatureProposal> = {}): AiFeatureProposal => (
   capability: 'speech-to-speech streaming, низкая задержка',
   why_now: 'в поле руки заняты',
   first_step: 'проба в lib/kuzmich: голосовой вход через Realtime API',
+  user_value: 'турист в поле спрашивает Кузьмича голосом, не снимая перчаток',
   evidence_quote: 'speech-to-speech streaming, allowing developers to build low-latency voice agents',
   source_url: 'https://openai.com/index/realtime',
   ...over,
@@ -92,6 +94,97 @@ describe('разбор ответа модели', () => {
     expect(parseAiFeatureProposals('Ничего применимого')).toEqual([]);
     expect(parseAiFeatureProposals(null)).toEqual([]);
   });
+
+  /**
+   * 04.09, run 5: линза записала «model_empty» при десяти материалах с
+   * текстом, и по этому слову нельзя было сказать, отказалась модель или мы
+   * не прочитали её ответ. Лечение у этих бед разное, значит и слова разные.
+   */
+  it('пустой список — не то же, что непрочитанный ответ: четыре вердикта', () => {
+    expect(parseAiFeatureProposalsDetailed('[]')).toMatchObject({ verdict: 'declined' });
+    expect(parseAiFeatureProposalsDetailed('[]').detail).toMatch(/предлагать нечего/);
+
+    const noArray = parseAiFeatureProposalsDetailed('Сегодня ничего применимого не нашёл.');
+    expect(noArray.verdict).toBe('unreadable');
+    expect(noArray.detail).toMatch(/массива JSON в ответе нет/);
+    expect(noArray.detail).toMatch(/Сегодня ничего применимого/);
+
+    const broken = parseAiFeatureProposalsDetailed('[{"title": "Обрыв"');
+    expect(broken.verdict).toBe('unreadable');
+    expect(parseAiFeatureProposalsDetailed(null).verdict).toBe('unreadable');
+
+    const { user_value: _v, ...noValue } = proposal();
+    void _v;
+    const partial = parseAiFeatureProposalsDetailed(JSON.stringify([noValue]));
+    expect(partial.verdict).toBe('incomplete');
+    expect(partial.detail).toMatch(/элементов 1, ни одного полного/);
+    expect(partial.detail).toMatch(/нет полей: user_value/);
+
+    expect(parseAiFeatureProposalsDetailed(JSON.stringify([proposal()])))
+      .toMatchObject({ verdict: 'proposals', detail: '' });
+  });
+
+  it('без user_value предложение не проходит: «для кого» обязательно', () => {
+    const { user_value: _dropped, ...noValue } = proposal();
+    void _dropped;
+    expect(parseAiFeatureProposals(JSON.stringify([noValue]))).toEqual([]);
+  });
+});
+
+/**
+ * Критик появился после первой заметки 03.09 («там мусор был»): проверка
+ * улик ловит выдуманную цитату, но не бесполезное предложение с настоящей.
+ * Критик закрыт по умолчанию — в отличие от критика Scout-Innovator, который
+ * fail-open и никогда не обнуляет выдачу. Заметка владельцу — не поток задач.
+ */
+describe('критик — закрыт по умолчанию', () => {
+  it('одобрение только явное, с оценкой не ниже планки', () => {
+    expect(parseCriticVerdict(`{"score": ${AI_FEATURE_CRITIC_MIN_SCORE}, "reason": "конкретно и ново"}`).approved).toBe(true);
+    expect(parseCriticVerdict(`{"score": ${AI_FEATURE_CRITIC_MIN_SCORE - 1}, "reason": "общее место"}`).approved).toBe(false);
+    expect(parseCriticVerdict('{"score": 3, "reason": "пересказ новости"}')).toEqual({ approved: false, score: 3, reason: 'пересказ новости' });
+  });
+
+  it('молчание, не-JSON и JSON без оценки — не одобрено, с названной причиной', () => {
+    expect(parseCriticVerdict(null)).toMatchObject({ approved: false, score: null });
+    expect(parseCriticVerdict('Отличная идея, одобряю')).toMatchObject({ approved: false, score: null });
+    expect(parseCriticVerdict('{"approved": true}')).toMatchObject({ approved: false, score: null });
+    expect(parseCriticVerdict('{"score": "9"}')).toMatchObject({ approved: false, score: null });
+  });
+
+  it('критику показывают всё предложение целиком и правило «уже есть»', () => {
+    const [sys, user] = buildCriticPrompt(proposal());
+    expect(sys.content).toMatch(/уже есть/);
+    expect(sys.content).toMatch(/4 ГБ RAM/);
+    expect(user.content).toMatch(/Для кого и что меняет: турист в поле/);
+    expect(user.content).toMatch(/Цитата-улика/);
+  });
+
+  it('прогон называет исход ответа модели тремя словами и модель-ответчика', () => {
+    // Один код на «отказалась» и «не прочитали» — это §4.0 на своём же коде.
+    expect(LENS).not.toMatch(/'model_empty'/);
+    expect(LENS).toMatch(/declined: {3}'model_declined'/);
+    expect(LENS).toMatch(/unreadable: 'model_unreadable'/);
+    expect(LENS).toMatch(/incomplete: 'model_incomplete'/);
+    expect(LENS).toMatch(/parse_detail: parsed\.detail/);
+    // Кто ответил — тоже факт прогона: с 04.09 живой провайдер один.
+    expect(LENS).toMatch(/base\.decision_model = decision\.model \?\? null/);
+    // run 6: модель отказалась осознанно. Отказ по существу и отказ от
+    // разросшегося списка запретов различаются числами, а не спором.
+    expect(LENS).toMatch(/base\.known_topics = knownTopics\.length/);
+    expect(LENS).toMatch(/base\.prompt_chars = prompt\.reduce/);
+    // Промпт собирается ОДИН раз и меряется тот же, что ушёл модели.
+    expect(LENS).toMatch(/await callAIDecisionDetailed\(prompt\)/);
+  });
+
+  it('в прогоне: без одобрения ничего не уходит, молчание критика — свой код', () => {
+    expect(LENS).toMatch(/const verdict = parseCriticVerdict\(verdictRaw\)/);
+    expect(LENS).toMatch(/'critic_unavailable' : 'critic_rejected_all'/);
+    expect(LENS).toMatch(/formatAiFeaturesMessage\(approved, dateKey\)/);
+    // Окно шире шести: WeatherNext 3 стоял восьмым и до модели не дошёл.
+    expect(AI_FEATURE_CANDIDATES_LIMIT).toBeGreaterThanOrEqual(12);
+    // В промпт — только материалы с текстом.
+    expect(LENS).toMatch(/const candidates = fetched\.filter\(\(c\) => c\.text\)/);
+  });
 });
 
 describe('промпт', () => {
@@ -111,6 +204,7 @@ describe('выход', () => {
     expect(msg).toMatch(/ИИ-фичи для Ведара · 2026-09-03/);
     expect(msg).toMatch(/Кузьмич/);
     expect(msg).toMatch(/Первый шаг:/);
+    expect(msg).toMatch(/Для кого: турист в поле/);
     expect(msg).toMatch(/speech-to-speech streaming/);
     expect(msg).toMatch(/href="https:\/\/openai\.com\/index\/realtime"/);
     // Честная подпись: проверена цитата, а не применимость.

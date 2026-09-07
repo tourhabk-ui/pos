@@ -2,7 +2,8 @@ name: Deploy to Timeweb Cloud
 
 # Timeweb Cloud auto-deploy включён (is_auto_deploy: true)
 # Деплой запускается автоматически через webhook при push в main
-# Env vars управляются через Timeweb UI или scripts/sync-timeweb-envs.js
+# Env vars управляются через Timeweb UI. (Скрипта scripts/sync-timeweb-envs.js,
+# на который ссылалась эта строка, в репозитории нет — снято 04.09.)
 #
 # Quality gate: runs only after CI workflow succeeds on main.
 # Manual dispatch (workflow_dispatch) bypasses the CI gate.

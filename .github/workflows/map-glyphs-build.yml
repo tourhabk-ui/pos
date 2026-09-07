@@ -1,0 +1,77 @@
+name: Глифы подписей карты (все диапазоны PACK_GLYPHS)
+
+# Глифы качаются и заливаются шагом «Глифы» сборки пакета — только вместе с
+# часами рельефа и Overpass. Когда в реестре появляется новый диапазон (05.09:
+# длинное тире и знак номера), пересобирать ради него пакет незачем: этот
+# прогон заливает ВСЕ диапазоны PACK_GLYPHS из того же источника.
+#
+# Где исполняется (§8): раннер (сеть до protomaps, ключи S3); прод читает.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Заливать в хранилище (иначе только скачать и посчитать)'
+        type: boolean
+        default: false
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-glyphs-build.json'
+
+permissions:
+  contents: read
+
+jobs:
+  glyphs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.upload }}" ]; then
+            UPLOAD="${{ inputs.upload }}"
+          else
+            UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-glyphs-build.json')).get('upload',False)).lower())")
+          fi
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "заливка: $UPLOAD"
+
+      - name: Скачать диапазоны и залить
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [ "${{ steps.cfg.outputs.upload }}" != "true" ]; then FLAG="--dry-run"; fi
+          mkdir -p .cache/glyphs
+          npx tsx scripts/map-tiles/upload-glyphs.ts $FLAG | tee .cache/glyphs/build.log
+
+      - name: Итог — в сводку прогона
+        if: always()
+        run: |
+          {
+            echo '### Глифы подписей карты'
+            echo '```'
+            cat .cache/glyphs/build.log 2>/dev/null || echo 'лог не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Глифы НЕ залиты — сказать это громко
+        if: ${{ steps.cfg.outputs.upload != 'true' }}
+        run: |
+          echo "::warning::Сухой прогон: глифы скачаны, в хранилище ничего не записано (upload=false)."

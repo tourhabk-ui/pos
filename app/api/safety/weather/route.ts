@@ -1,12 +1,17 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { allowFresh } from '@/lib/safety/refresh-throttle';
 
 // Cache weather for 10 minutes
-let cache: { data: unknown; ts: number } | null = null;
+let cache: { data: Record<string, unknown>; ts: number } | null = null;
 const CACHE_TTL = 10 * 60 * 1000;
 
-export async function GET() {
-  if (cache && Date.now() - cache.ts < CACHE_TTL) {
-    return NextResponse.json(cache.data);
+export async function GET(request: NextRequest) {
+  // `?fresh=1` — кнопка «обновить»: кэш пропускается, но к wttr.in идём не
+  // чаще, чем разрешает ограничитель. Из кэша ответ уходит с ЧЕСТНЫМ временем
+  // проверки, а не с текущим: иначе кнопка обещала бы свежесть, которой нет.
+  const wantFresh = request.nextUrl.searchParams.get('fresh') === '1' && allowFresh('weather');
+  if (cache && (Date.now() - cache.ts < CACHE_TTL) && !wantFresh) {
+    return NextResponse.json({ ...cache.data, checked_at: new Date(cache.ts).toISOString(), from_cache: true });
   }
 
   try {
@@ -15,6 +20,9 @@ export async function GET() {
       { signal: AbortSignal.timeout(8000) }
     );
     if (!res.ok) {
+      // В поле старая погода полезнее пустого экрана — но только названная
+      // старой. Кэша нет — честный отказ.
+      if (cache) return NextResponse.json({ ...cache.data, checked_at: new Date(cache.ts).toISOString(), from_cache: true, stale: true });
       return NextResponse.json({ error: 'Сервис погоды недоступен' }, { status: 502 });
     }
     const raw = await res.json() as {
@@ -39,8 +47,9 @@ export async function GET() {
       windKmph: cur.windspeedKmph,
       updatedAt: new Date().toISOString(),
     };
-    cache = { data, ts: Date.now() };
-    return NextResponse.json(data);
+    const ts = Date.now();
+    cache = { data, ts };
+    return NextResponse.json({ ...data, checked_at: new Date(ts).toISOString(), from_cache: false });
   } catch {
     return NextResponse.json({ error: 'Не удалось загрузить прогноз погоды' }, { status: 502 });
   }

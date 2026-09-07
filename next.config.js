@@ -6,6 +6,17 @@
 // не ослабляется ни на символ.
 const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
 
+/**
+ * Штампа сборки здесь НЕТ — и это результат замера, а не забывчивость.
+ *
+ * 04.09 (#1582) сюда поставили `env: { BUILD_TIME }`, чтобы /api/health
+ * отвечал «тот ли код на проде». 05.09 prod-check run 8 показал на проде
+ * `build_time: null` при uptime 464 с: в standalone-сборке значение из `env`
+ * до обработчика маршрута не доходит, и три ожидания деплоя подряд честно
+ * отсидели по 25 минут впустую. Маркер деплоя один — public/version.json
+ * (scripts/write-version.js, commit + built_at); его читает и /api/health,
+ * и scripts/wait-for-deploy.sh. Второй штамп заводить не нужно.
+ */
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,

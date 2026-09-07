@@ -16,6 +16,7 @@
  */
 
 import { callAIFast, callAIQualityOrNull, fetchWithRetry } from '@/lib/ai/providers';
+import { modelRefusalIssue } from '@/lib/notifications/post-validation';
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -35,64 +36,14 @@ import {
   relayBase, relayBaseProblem, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
-import { parseTelegramPreview } from '@/lib/agents/scout-telegram';
+import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
+import { repairTelegramHtml, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
 
-/**
- * Причина пропуска человеческим языком — для алерта, а не для лога.
- *
- * Код `all_sections_empty` в Telegram владельцу означает ровно столько же,
- * сколько молчание: чтобы понять, нужно лезть в исходник. Словарь живёт РЯДОМ
- * с местами, где причины рождаются, и покрытие сторожит тест: добавили новую
- * причину — либо назвали её, либо сборка красная. Неизвестный код всё равно
- * показывается как есть — лучше сырой код, чем «неизвестно».
- */
-export const SKIP_REASON_LABELS: Record<string, string> = {
-  no_rss_items: 'ни один источник не дал свежих материалов',
-  synthesis_null: 'модель не вернула синтез',
-  all_sections_empty: 'после разбора все разделы оказались пусты',
-  unsourced_percents: 'в тексте проценты без ссылки на источник',
-  factcheck_judge_mute: 'проверяющая модель не ответила — выпуск придержан',
-  // Четыре РАЗНЫЕ беды, которые до 18.08 сливались в одну строку выше.
-  // Владелец видел «модель не ответила» семнадцать дней и искал причину в
-  // блокировке провайдера — а из четырёх случаев это верно ровно в одном.
-  judge_silent: 'проверяющая модель вернула пустоту — молчит провайдер',
-  // 22.08: заглушка callAIFast («Сервис временно недоступен.») — непустой
-  // текст без JSON, и судья звал это «прозой вместо JSON, сбой в промпте».
-  // Владелец три недели читал совет чинить промпт при мёртвых провайдерах.
-  judge_unavailable: 'не ответил ни один провайдер — чинить у провайдера, не в промпте',
-  // Обрыв — не проза: модель отвечала верно и не поместилась в потолок.
-  judge_truncated: 'ответ судьи оборвался на середине — не хватило потолка токенов',
-  judge_unparseable: 'проверяющая модель ответила прозой вместо JSON — сбой в промпте, не в провайдере',
-  judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
-  judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
-  unsupported_claims: 'утверждения не подтверждены источниками, и вычеркнуть их из текста не удалось',
-  near_repeat: 'выпуск почти повторял предыдущий',
-  telegram_send_failed: 'синтез готов, но Telegram не принял отправку',
-  // ── Отдельный канал — отдельные причины ──────────────────────────────────
-  // AI-пост живёт ВНУТРИ этого же прогона и после всех фактчек-гейтов. Любой
-  // ранний выход обрывал функцию до него, а причина записывалась про основной
-  // канал. Со стороны это выглядело как «дайджест ушёл» при молчащем AI-канале
-  // (владелец 17.08: «нет публикаций в канале, хотя расписание делали»).
-  ai_channel_not_configured: 'TELEGRAM_AI_CHANNEL_ID не задан — публиковать некуда',
-  ai_no_items: 'ни один AI-источник не дал материалов',
-  ai_synthesis_null: 'модель не вернула AI-пост',
-  ai_unsourced_percents: 'в AI-посте проценты без ссылки на источник',
-  ai_factcheck_failed: 'утверждения AI-поста не подтверждены статьями',
-  ai_send_failed: 'AI-пост готов, но Telegram не принял отправку',
-  ai_digest_aborted: 'прогон оборвался до AI-поста',
-  // ── Канал: отказ судьи назван так же точно, как у дайджеста (29.08) ──────
-  // До этого дня и отказ судьи, и оставшаяся выдумка давали один код
-  // `ai_factcheck_failed`. По нему нельзя было понять, чинить провайдеров
-  // или содержание поста — а для канала это была единственная подсказка.
-  ai_unsupported_claims: 'выдумки в AI-посте остались после переписывания, и вычеркнуть их не удалось',
-  ai_judge_silent: 'судья AI-поста вернул пустоту — молчит провайдер',
-  ai_judge_unavailable: 'судью AI-поста не ответил ни один провайдер — чинить у провайдера',
-  ai_judge_unparseable: 'судья AI-поста ответил прозой вместо JSON — сбой в промпте',
-  ai_judge_truncated: 'ответ судьи AI-поста оборвался — не хватило потолка токенов',
-  ai_judge_bad_shape: 'в ответе судьи AI-поста нет поля unsupported — сбой в промпте',
-  ai_judge_threw: 'запрос к судье AI-поста упал — сеть, ключ или таймаут',
-};
+// Словарь причин пропуска переехал в чистый модуль (клиентский компонент
+// не может импортировать этот файл — он тянет пул БД). Re-export держит
+// прежние импорты живыми: сторожа и /api/cron/health зовут его отсюда.
+export { SKIP_REASON_LABELS } from '@/lib/agents/scout-skip-reasons';
 
 /**
  * Что записывается про AI-канал, когда прогон вышел РАНЬШЕ публикации в него.
@@ -224,6 +175,8 @@ export interface DigestResult {
   ai_channel_sent?: boolean;
   /** Почему AI-пост НЕ ушёл. Коды с префиксом `ai_` в SKIP_REASON_LABELS. */
   ai_channel_skip_reason?: string;
+  /** Улика к `ai_send_failed`: ответ Bot API или сетевая ошибка словами (04.09). */
+  ai_channel_skip_detail?: string;
   duration_ms: number;
   /** Здоровье источников за прогон: сколько живых из всех и какие молчат. */
   sources_ok?: number;
@@ -237,6 +190,13 @@ export interface DigestResult {
   sources?: ScoutSourceReport[];
   /** Сколько сигналов отсеяно как уже показанные (URL + похожий заголовок). */
   repeats_suppressed?: number;
+  /**
+   * Разделы, ушедшие из выпуска пустыми. Читателю их не показывают (пустой
+   * раздел — не факт о предмете), но нам они говорят, где источник молчит
+   * систематически. 06.09: раздел «Камчатка» пуст при живом safety-слое —
+   * это про наши источники, а не про регион.
+   */
+  sections_empty?: string[];
   /** Выпуск почти дословно повторил предыдущий и был заблокирован перед отправкой. */
   repeat_blocked?: boolean;
 }
@@ -530,23 +490,46 @@ async function fetchSource(s: ScoutSource): Promise<SourceFetch> {
   return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'relay' };
 }
 
-async function tgSendTo(chatId: string, text: string): Promise<boolean> {
+/**
+ * Причина отказа Telegram — наружу через `onError`, а не в пустоту (04.09).
+ * До этого дня оба отправителя глотали и тело ответа Bot API, и исключение:
+ * выпуск 04.09 получил `ai_send_failed` без единого слова, ПОЧЕМУ, а
+ * «Telegram не принял» одинаково звучит для неверного chat_id, бота без
+ * прав в канале, кривого HTML и сетевого обрыва — чинятся они в четырёх
+ * разных местах. Булев исход сохранён (его ждут вызывающие и сторож),
+ * причина идёт рядом.
+ */
+type SendErrorSink = (reason: string) => void;
+
+function describeTelegramReply(status: number, data: unknown): string {
+  const d = data as { description?: unknown; error_code?: unknown } | null;
+  const desc = typeof d?.description === 'string' ? d.description : '';
+  const code = typeof d?.error_code === 'number' ? d.error_code : status;
+  return `Bot API ${code}: ${desc || 'без описания'}`.slice(0, 200);
+}
+
+async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
+  if (!token) { onError?.('TELEGRAM_BOT_TOKEN не задан'); return false; }
   try {
     const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text.substring(0, 4000),
+        // Срез по границе слова с закрытием тегов, а не вслепую (05.09):
+        // слепой substring оторвал </blockquote>, и Bot API ответил 400.
+        text: repairTelegramHtml(text, 4000),
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),
     });
     const data = await res.json();
-    return (data as { ok: boolean }).ok === true;
-  } catch {
+    const ok = (data as { ok: boolean }).ok === true;
+    if (!ok) onError?.(describeTelegramReply(res.status, data));
+    return ok;
+  } catch (e) {
+    onError?.(`сеть: ${((e as Error).message || 'unknown').slice(0, 160)}`);
     return false;
   }
 }
@@ -568,13 +551,14 @@ async function tgSendRich(
   text: string,
   buttons?: Array<Array<{ text: string; url: string }>>,
   coverUrl?: string,
+  onError?: SendErrorSink,
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
+  if (!token) { onError?.('TELEGRAM_BOT_TOKEN не задан'); return false; }
   try {
     const body: Record<string, unknown> = {
       chat_id: chatId,
-      text: text.substring(0, 4096),
+      text: repairTelegramHtml(text, TELEGRAM_TEXT_LIMIT),
       parse_mode: 'HTML',
       link_preview_options: coverUrl
         ? { url: coverUrl, prefer_large_media: true, show_above_text: true }
@@ -587,8 +571,11 @@ async function tgSendRich(
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    return (data as { ok: boolean }).ok === true;
-  } catch {
+    const ok = (data as { ok: boolean }).ok === true;
+    if (!ok) onError?.(describeTelegramReply(res.status, data));
+    return ok;
+  } catch (e) {
+    onError?.(`сеть: ${((e as Error).message || 'unknown').slice(0, 160)}`);
     return false;
   }
 }
@@ -607,10 +594,10 @@ export function digestHeadlines(digestHtml: string): string {
   return stripTags(digestHtml).replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
-async function tgSend(text: string): Promise<boolean> {
+async function tgSend(text: string, onError?: SendErrorSink): Promise<boolean> {
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!chatId) return false;
-  return tgSendTo(chatId, text);
+  if (!chatId) { onError?.('TELEGRAM_CHAT_ID не задан'); return false; }
+  return tgSendTo(chatId, text, onError);
 }
 
 /** `u` — ключ (URL), `t` — когда увидели, `h` — заголовок на момент показа. */
@@ -746,29 +733,23 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // unsupportedClaims больше не зовётся отсюда (29.08): тонкая обёртка теряет
 // причину отказа судьи, а причина — это то, ради чего разбор и открывают.
 // Везде judgeClaims, у которого исход именной.
-import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, type JudgeFailure } from '@/lib/agents/fact-check';
+import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySections, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 
 /**
- * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
- * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
+ * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
+ * '' — не достали (это «не знаю», а не «страница пустая»).
+ *
+ * Статья с гео-закрытого сайта (openai.com, anthropic.com) с прода не
+ * читается — тогда тот же адрес через реле, как и у фида. Без реле
+ * остаётся прежнее: текст недоступен, модель опирается на заголовок.
  */
-async function fetchArticleText(url: string): Promise<string> {
-  if (!url) return '';
-  if (firecrawlAvailable()) {
-    try {
-      const page = await firecrawlScrape(url);
-      if (page?.markdown) return page.markdown.slice(0, 2500);
-    } catch { /* fallthrough */ }
-  }
+async function fetchMaybeViaRelay(url: string): Promise<string> {
   try {
     let res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
       signal: AbortSignal.timeout(8000),
     }).catch(() => null);
-    // Статья с гео-закрытого сайта (openai.com, anthropic.com) с прода не
-    // читается — тогда тот же адрес через реле, как и у фида. Без реле
-    // остаётся прежнее: текст недоступен, модель опирается на заголовок.
     if ((!res || shouldFallbackToRelay({ status: res.status })) && relayConfigured()) {
       res = await fetch(relayFetchUrl(relayBase(), url), {
         headers: { ...relayHeaders(), 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
@@ -776,15 +757,39 @@ async function fetchArticleText(url: string): Promise<string> {
       }).catch(() => null);
     }
     if (!res || !res.ok) return '';
-    const html = await res.text();
-    // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
-    // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
-    return stripTags(html, ' ')
-      .replace(/&[a-z#0-9]+;/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 2500);
+    return await res.text();
   } catch { return ''; }
+}
+
+/**
+ * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
+ * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
+ */
+async function fetchArticleText(url: string): Promise<string> {
+  if (!url) return '';
+  // Пост Telegram: страница самого поста отдаёт обёртку виджета без текста.
+  // Читаем превью канала и берём оттуда ИМЕННО этот пост (04.09: обёртку
+  // сняли как «текст статьи», модель ответила отказом, отказ ушёл в канал).
+  const tgPreview = telegramPreviewUrlForPost(url);
+  if (tgPreview) {
+    const html = await fetchMaybeViaRelay(tgPreview);
+    return html ? telegramPostText(html, url).slice(0, 2500) : '';
+  }
+  if (firecrawlAvailable()) {
+    try {
+      const page = await firecrawlScrape(url);
+      if (page?.markdown) return page.markdown.slice(0, 2500);
+    } catch { /* fallthrough */ }
+  }
+  const html = await fetchMaybeViaRelay(url);
+  if (!html) return '';
+  // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
+  // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
+  return stripTags(html, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 2500);
 }
 
 // unsupportedClaims — тоже из общего модуля (см. комментарий у re-export выше).
@@ -991,7 +996,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 - Раздел "Туриндустрия" — туризм в РФ и мире, онлайн-бронирование, OTA, CRM для туроператоров, новые тренды. Другие регионы — допустимы как контекст или аналогия.
 - Раздел "Референсы и рынок" — передовые travel-tech продукты и новинки (Skift, Product Hunt): конкретные фичи/паттерны, которые можно перенять на нашу платформу (планировщик, бронирование, ИИ-помощник, офлайн, карты). Пиши, ЧТО именно сделали и что из этого нам стоит рассмотреть.
 - Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен. Сигналы с пометкой [Safety-слой] — события из нашего собственного мониторинга безопасности региона (сейсмика, вулканы, дороги, пожары): излагай сам факт из заголовка, это и есть новость региона.
-- "Нет значимых сигналов за сегодня" — ТОЛЬКО если в разделе буквально ноль материалов. Если есть хоть что-то — пиши.
+- Раздел, в котором буквально ноль материалов, НЕ ПИШИ ВОВСЕ — ни заголовка, ни строки о том, что новостей нет. Отсутствие раздела ничего не утверждает, а строка «нет значимых сигналов» утверждает, что за сутки по теме ничего не случилось, и проверить это нечем.
 
 НЕ ВРАТЬ. Пиши только то, что есть в сигналах:
 - Цифры, цены, версии, названия фич и технический механизм — ДОСЛОВНО из сигнала. Нет в сигнале — не пиши.
@@ -1074,14 +1079,34 @@ export async function runScoutDigest(): Promise<DigestResult> {
     };
   }
 
+  // Реплика модели вместо выпуска — не публикуем и называем это своим именем.
+  // Проверка стоит ПЕРВОЙ из содержательных: отказ проходит и числовой
+  // фактчек, и судью (утверждать ему нечего), а дальше уезжает в канал.
+  const digestRefusal = modelRefusalIssue(digest);
+  if (digestRefusal) {
+    return {
+      signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'model_refusal',
+      digest_skip_detail: digestRefusal,
+      duration_ms: Date.now() - start, ...health, repeats_suppressed, ...AI_CHANNEL_ABORTED,
+    };
+  }
+
   // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
   // канал уходил дайджест из трёх строк «Нет значимых сигналов за сегодня».
   // Сообщение «сегодня новостей нет» не стоит публикации: оно ничего не несёт
   // и приучает пролистывать. seen_urls тоже не трогаем — вернёмся завтра.
-  // Порог = число разделов дайджеста (AI, Туриндустрия, Референсы, Камчатка).
-  // Иначе, добавив раздел, мы бы глушили дайджест, где пусты 3 из 4 — а в
-  // четвёртом (напр. «Референсы») есть настоящий сигнал.
-  const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 4;
+  //
+  // Считается ПО СУЩЕСТВУ, а не по числу заглушек (06.09): заглушку больше не
+  // ставят ни писатель, ни фактчек — пустой раздел исчезает целиком. Прежний
+  // порог «четыре строки-заглушки» после этого не срабатывал бы никогда, и
+  // выпуск из одних заголовков ушёл бы в канал.
+  // Заглушки и опустевшие разделы — вон, детерминированно (промпт просит, но
+  // не гарантирует). Имена убранных разделов уходят в журнал прогона: пустота
+  // должна быть слышна НАМ, а не подаваться читателю как факт о регионе.
+  const tidied = tidySections(digest);
+  digest = tidied.text;
+  const sectionsEmpty = tidied.emptied;
+  const allEmpty = !hasSubstance(digest);
   if (allEmpty) {
     return { signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty', duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
@@ -1224,7 +1249,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
     expires_at: new Date(now + 60 * 24 * 60 * 60 * 1000), // renew 60d; internal filter handles 30d per-entry
   });
 
-  const sent = await tgSend(digest);
+  let sendDetail: string | undefined;
+  const sent = await tgSend(digest, (reason) => { sendDetail = reason; });
 
   // Post AI & Tech section only to the AI channel (@ai_hub_money — vibe-coding, 40K subs)
   //
@@ -1235,6 +1261,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // ровно то, что произошло.
   let aiSent = false;
   let aiSkip: string | undefined = 'ai_digest_aborted';
+  let aiSkipDetail: string | undefined;
   let aiClaimsDropped: number | undefined;
   const aiChannelId = process.env.TELEGRAM_AI_CHANNEL_ID;
   if (!aiChannelId) {
@@ -1307,6 +1334,15 @@ export async function runScoutDigest(): Promise<DigestResult> {
       ];
       let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
       if (!aiDigest) aiSkip = 'ai_synthesis_null';
+
+      // Реплика модели вместо поста. Ровно это 04.09 и ушло в канал на 1800
+      // подписчиков: «не вижу текста статьи в сигнале… пришли выдержки».
+      // Ниже стоят ворота правдивости, и они такой текст пропускают законно —
+      // он ничего не утверждает.
+      if (aiDigest) {
+        const refusal = modelRefusalIssue(aiDigest);
+        if (refusal) { aiDigest = null; aiSkip = 'ai_model_refusal'; aiSkipDetail = refusal; }
+      }
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──
       // У модели только заголовки, поэтому любой процент, которого нет в источнике, — выдумка.
@@ -1388,7 +1424,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
           'ai',
           hashStr(aiDigest) % 9_999_999,
         );
-        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined, cover.url);
+        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined, cover.url, (reason) => { aiSkipDetail = reason; });
         aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }
@@ -1417,6 +1453,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         // неделю: свежесть основного выпуска ничего не говорит о втором.
         ai_channel_sent: aiSent,
         ai_channel_skip_reason: aiSkip ?? null,
+        ai_channel_skip_detail: aiSkipDetail ?? null,
         // Выпуск ушёл не целиком: сколько пунктов вычеркнуто и каких (02.09).
         // Без этого «ушёл» и «ушёл без трёх пунктов» неотличимы в журнале.
         claims_dropped: claimsDropped ?? null,
@@ -1442,15 +1479,17 @@ export async function runScoutDigest(): Promise<DigestResult> {
   return {
     signals_found: dedupedItems.length,
     digest_sent: sent,
-    ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }),
+    ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed', ...(sendDetail ? { digest_skip_detail: sendDetail } : {}) }),
     // Второй канал отчитывается отдельно: дайджест мог уйти, а AI-пост — нет,
     // и наоборот. Одно поле на два канала скрывало ровно этот случай.
     ai_channel_sent: aiSent,
     ...(aiSkip ? { ai_channel_skip_reason: aiSkip } : {}),
+    ...(aiSkipDetail ? { ai_channel_skip_detail: aiSkipDetail } : {}),
     ...(claimsDropped ? { claims_dropped: claimsDropped, claims_dropped_detail: claimsDroppedDetail } : {}),
     ...(aiClaimsDropped ? { ai_claims_dropped: aiClaimsDropped } : {}),
     duration_ms: Date.now() - start,
     ...health,
     repeats_suppressed,
+    ...(sectionsEmpty.length > 0 ? { sections_empty: sectionsEmpty } : {}),
   };
 }

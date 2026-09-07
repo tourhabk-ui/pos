@@ -37,7 +37,11 @@ export async function GET(request: NextRequest) {
     // Log to run history
     await logAgentRun({
       agent_id: 'intelligence',
-      status: report.domains.length > 0 ? 'success' : 'partial',
+      // Успех — «цикл довёл дело до конца», а не «нашёл что-то». 06.09
+      // прогон собрал 72 сигнала, модель честно ответила «ничего
+      // применимого», и Watchdog каждые полчаса докладывал о поломке,
+      // которой не было. Правило одно и живёт в сервисе (conclusive).
+      status: report.conclusive ? 'success' : 'partial',
       started_at: startedAt,
       duration_ms: report.duration_ms,
       items_processed: report.raw_count,

@@ -293,17 +293,22 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-intelligence.yml', cron: '0 3,9,15,21 * * *', schedule: 'каждые 6 ч · 3/9/15/21 UTC',
     everyMin: 360, tier: 'growth', agentId: 'intelligence', triggerable: true,
   },
-  // Scout-Innovator и Scout Digest сняты отсюда 29.08 (решение владельца):
-  // обе стадии переехали внутрь runEvoOrchestrator (см. cron-evo.yml/'evo'
-  // ниже) — у cron-scout.yml/cron-scout-digest.yml больше нет schedule:,
-  // только workflow_dispatch для ручной отладки. Собственных agent_run_history
-  // записей у них тоже больше нет: agentId 'scout'/'scout-digest' писали
-  // только их standalone route-обёртки (runWithContext в
-  // app/api/cron/scout/route.ts, аналогично у scout-digest), а orchestrator
-  // вызывает функции напрямую, без этого слоя. Оставленная запись в реестре
-  // показывала бы панели «AI и автоматизации» вечно стареющий last-run —
-  // ложное «сломано» по факту работающего агента. Живая телеметрия обеих
-  // стадий — под agentId 'evo' (см. запись ниже) и в /hub/admin/volcano.
+  // Scout-Innovator снят отсюда 29.08 (решение владельца): стадия переехала
+  // внутрь runEvoOrchestrator (см. 'evo' выше) — у cron-scout.yml нет
+  // schedule:, только workflow_dispatch. Своих agent_run_history записей у
+  // него нет, телеметрия — под agentId 'evo' и в /hub/admin/volcano.
+  //
+  // Scout Digest тем же решением уехал туда же, а 05.09 вернулся в свой крон:
+  // замер прогона 389 — дайджест 321 с при бюджете evo.run в 300 с, три
+  // прогона эволюции подряд умерли без ответа. Журнал у него свой с 04.09
+  // (runScoutDigestJournaled → agent_id 'scout-digest'), так что liveness
+  // здесь честный, а не вечно стареющий.
+  {
+    key: 'scout-digest', label: 'Scout Digest',
+    description: '16 источников + safety-слой → AI-синтез → дайджест и пост в ИИ-канал.',
+    workflow: 'cron-scout-digest.yml', cron: '0 7,17 * * *', schedule: '2× в сутки · 07/17 UTC',
+    everyMin: 720, tier: 'growth', agentId: 'scout-digest', triggerable: true,
+  },
   {
     key: 'group-scout', label: 'Group Scout',
     description: 'Разведка TG-групп по туризму.',
@@ -379,10 +384,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 4320, tier: 'content', agentId: null, triggerable: false,
   },
   {
-    key: 'kuzmich-sezon', label: 'Kuzmich Seasonal Post',
-    description: 'Сезонный пост в канал.',
-    workflow: 'cron-kuzmich-sezon.yml', cron: '23 16 * * 2,6', schedule: 'вт/сб · 16:23 UTC',
-    everyMin: 4320, tier: 'content', agentId: null, triggerable: false,
+    // 05.09: был kuzmich-sezon (вт/сб). Решение владельца — вместо сезонных
+    // постов публиковать живые туры; текст из карточки, снимки оператора.
+    key: 'kuzmich-tour', label: 'Kuzmich Tour Post',
+    description: 'Живой тур оператора в канал — текст из карточки, фото оператора.',
+    workflow: 'cron-kuzmich-tour.yml', cron: '23 7 * * *', schedule: 'ежедневно · 07:23 UTC',
+    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
   },
   // place-images удалён из реестра 29.07: генерация AI-обложек остановлена
   // решением владельца (issue #878). Запись нельзя было просто оставить с
@@ -485,10 +492,12 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // items = сырые сигналы из RSS: ноль означает, что фиды не достались.
   'intelligence': 'broken',
   // У Growth Scan ноль находок — желаемый исход, тревожить по нему нельзя.
-  // Тот же ключ 'evo' теперь покрывает и бывшие scout/scout-digest — они
-  // переехали внутрь оркестратора 29.08 (см. комментарий у CRON_REGISTRY),
-  // своих отдельных записей здесь больше нет намеренно.
+  // Тот же ключ 'evo' покрывает и бывший scout (Innovator) — он переехал
+  // внутрь оркестратора 29.08 (см. комментарий у CRON_REGISTRY).
   'evo': 'normal',
+  // Дайджест без выпуска — законная осторожность ворот, а не обрыв; молчание
+  // ПОДРЯД судит scout-silence (silent_runs), а не этот счётчик.
+  'scout-digest': 'unknown',
   'group-scout': 'unknown',
   'memory-bridge': 'unknown',
   'engagement': 'unknown',
@@ -506,7 +515,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'import-routes': 'unknown',
   'kuzmich-route': 'unknown',
   'kuzmich-tip': 'unknown',
-  'kuzmich-sezon': 'unknown',
+  // Как route/tip: счётчика работы роут не пишет, судить по нулю нечем.
+  // Отказ (нет живых туров с фото) приходит кодом 500 и виден liveness.
+  'kuzmich-tour': 'unknown',
 };
 
 export function idleMeaning(key: string): IdleMeaning {

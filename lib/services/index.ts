@@ -37,12 +37,16 @@ export { chatService } from './operators/chat.service';
 export { notificationService } from './operators/notification.service';
 
 // Support (agents, feedback, SLA, ticket messages)
-export { agentService, feedbackService, slaService, ticketMessageService } from './operators/support.service';
+// ticketMessageService снят 04.09: писал в ticket_messages, которую никто
+// не читал; переписка тикета живёт в support_tickets.messages (lib/support).
+export { agentService, feedbackService, slaService } from './operators/support.service';
 
 // Analytics (dashboard, metrics, reports)
 export { dashboardService, metricsService, reportService } from './analytics.service';
 
-// Pillar services
-export { paymentService, PaymentService } from '@/pillars/booking-pillar/lib/payment/services';
-export { wishlistService, WishlistService } from '@/pillars/engagement-pillar/lib/wishlist/services';
-export { ticketService, TicketService } from '@/pillars/support-pillar/services/ticket.service';
+// «Pillar»-сервисы сняты 04.09: каталог pillars/ держал три файла и 47
+// алиасов в tsconfig, из которых не использовался ни один. paymentService и
+// wishlistService никто не звал, их таблицы не объявлены ни одной миграцией;
+// ticketService INSERT-ил колонки, которых у support_tickets нет. Сторожа
+// схемы этого не видели только потому, что pillars/ не сканировался.
+// Тикеты поддержки — единственный сервис lib/support/ticket.service.

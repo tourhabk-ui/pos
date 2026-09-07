@@ -21,16 +21,19 @@ import { formatSkipReason } from '@/app/api/cron/health/route';
 const SRC = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
 describe('причина пропуска записывается, а не теряется', () => {
-  it('крон разведчика кладёт причину в журнал', () => {
-    const route = SRC('app/api/cron/scout-digest/route.ts');
-    expect(route).toMatch(/metadata:\s*\{\s*digest_skip_reason/);
+  // С 04.09 журнал пишет общий модуль lib/agents/scout-digest-run — им
+  // пользуются крон-роут, оркестратор эволюции и админка. Сторож читает
+  // модуль, а роут обязан через него идти (см. scout-run-journal.test.ts).
+  it('прогон разведчика кладёт причину в журнал', () => {
+    const run = SRC('lib/agents/scout-digest-run.ts');
+    expect(run).toMatch(/metadata:\s*\{\s*trigger,\s*digest_skip_reason/);
   });
 
   it('поле есть всегда: отправленный выпуск даёт null, а не отсутствие ключа', () => {
     // Разница существенная: `null` читается как «проверено, причины нет»,
     // отсутствие ключа — как «не записали». Эти два состояния уже путались.
-    const route = SRC('app/api/cron/scout-digest/route.ts');
-    expect(route).toMatch(/digest_skip_reason:\s*result\.digest_skip_reason\s*\?\?\s*null/);
+    const run = SRC('lib/agents/scout-digest-run.ts');
+    expect(run).toMatch(/digest_skip_reason:\s*result\.digest_skip_reason\s*\?\?\s*null/);
   });
 
   it('монитор называет причину, а не отсылает за ней в ответ крона', () => {

@@ -18,7 +18,8 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { parseVonaFeed, parseAccSummary, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { parseVonaFeed, parseAccSummary, parseActivitySections, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { describeActivityRu } from '@/lib/services/safety/kvert-activity-ru';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 import {
   buildVolcanoIndex, matchVolcanoPlace, type VolcanoIndex,
@@ -39,6 +40,13 @@ const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3&lend=en'
 
 export interface KvertSyncResult {
   fetched: number;    // распознано VONA-блоков
+  /**
+   * Сколько вулканов получили подробности из разделов активности выпуска
+   * (высота пепла, текст). Отдельно от `fetched`: коды могут разбираться, а
+   * разделы — нет, и тогда экран покажет цвет без слов. Молчание об этом
+   * означало бы, что мы не заметили половины поломки.
+   */
+  detailed?: number;
   upserted: number;   // записано в volcano_status
   matched: number;    // сопоставлено с точкой places
   unmatched: string[]; // имена вулканов без привязки к точке
@@ -189,6 +197,16 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
       .trim();
   }
 
+  // Разделы активности того же выпуска: сводка даёт только цвет, а высота
+  // пепла и текст лежат ниже, по вулканам (владелец 06.09 — на экране у всех
+  // кодов было пусто). Ключ — канонический slug; вулкан без раздела просто
+  // остаётся без подробностей.
+  const details = new Map<string, ReturnType<typeof parseActivitySections>[number]>();
+  for (const sec of parseActivitySections(text)) {
+    if (sec.nameSlug && !details.has(sec.nameSlug)) details.set(sec.nameSlug, sec);
+  }
+  result.detailed = details.size;
+
   // Указатель каталога — один раз на прогон, а не запрос на каждый вулкан.
   const index = await loadVolcanoIndex();
   const reasons = { unknown_name: [] as string[], no_place: [] as string[],
@@ -205,6 +223,14 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
     }
     const m = matchVolcanoPlace(index, v.nameRu);
     const placeArkId = m.kind === 'matched' ? m.arkId : null;
+    const sec = details.get(v.nameSlug);
+    // Подробности ДОПОЛНЯЮТ, а не переписывают: у блоков VONA свои высота и
+    // текст, и они точнее — там источник говорит про конкретный выброс.
+    const ashHeightM = v.ashHeightM ?? sec?.ashHeightM ?? null;
+    // На экран идёт русская фраза, собранная разговорником из формул выпуска;
+    // английский оригинал остаётся в activity_level как улика происхождения.
+    const summaryRu = v.summary
+      ?? (sec ? describeActivityRu({ hazardEn: sec.hazardEn, activityEn: sec.activityEn, ashHeightM }) : null);
     try {
       await upsertStatus({
         slug: v.nameSlug,
@@ -212,10 +238,10 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
         nameRu: v.nameRu,
         placeArkId,
         color: v.color,
-        activityLevel: v.summary ? v.summary.slice(0, 200) : null,
-        ashHeightM: v.ashHeightM,
-        summary: v.summary,
-        sourceUrl: url,
+        activityLevel: (sec?.hazardEn ?? v.summary)?.slice(0, 200) ?? null,
+        ashHeightM,
+        summary: summaryRu,
+        sourceUrl: sec?.sourceUrl ?? url,
         observedAt: v.observedAt,
       });
       result.upserted++;

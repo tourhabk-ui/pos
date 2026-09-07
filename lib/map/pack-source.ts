@@ -71,6 +71,13 @@ export const PACK_TERRAIN_MAXZOOM = 13;
  * Число печёт scripts/map-tiles/build_overview.py (MAXZOOM); сторож сверяет.
  */
 export const OVERVIEW_MAX_ZOOM = 7;
+/**
+ * Нижний зум обзора — и нижний зум карты вообще (build_overview.py MINZOOM).
+ * Ниже z4 тайлов нет ни у одного яруса; MapLibre растягивает z4 и рисует
+ * то, что есть, а фон и слои за краем пакета выглядят полосами (скрины
+ * владельца 05.09 на z3). Карта не уходит ниже: minZoom у VedarMap.
+ */
+export const OVERVIEW_MIN_ZOOM = 4;
 
 /**
  * Обещание, что обзорный пакет края лежит в хранилище. Ставится после
@@ -100,7 +107,12 @@ export const OVERVIEW_BUILT = true;
  */
 export const PACK_GLYPHS = {
   fontstack: 'Noto Sans Regular',
-  ranges: ['0-255', '1024-1279'],
+  // 8192-8447 (U+2000-20FF) — длинное тире имён маршрутов (§13: «Пиначево —
+  // Центральный»), 8448-8703 (U+2100-21FF) — знак номера. Снимки пакетов на
+  // раннере (05.09, прогон 5) показали через прокси три HTTP 403 ровно на
+  // эти два диапазона: MapLibre просил их для подписей, а в хранилище их не
+  // было, и тире в именах выпадало. Заливает map-glyphs-build.yml.
+  ranges: ['0-255', '1024-1279', '8192-8447', '8448-8703'],
   ready: true,
 } as const;
 
@@ -138,6 +150,138 @@ export function osmKey(region: PackRegionId, layer: OsmLayer): string {
  */
 export function vectorKey(region: PackRegionId): string {
   return `map-packs/${region}.vector.pmtiles`;
+}
+
+/**
+ * Места платформы (05.09) — свой слой, не OSM.
+ *
+ * Проверка хранилища после 112 клеток: у корякских клеток слои OSM «тропы»,
+ * «приюты», «посёлки» по 0.00 МБ — в OSM там пусто. Наши `places` (779 мест,
+ * у 763 профиль безопасности) есть и там, а на офлайн-карте их не было вовсе.
+ *
+ * Отдельный ключ и отдельный реестр — не прихоть: OSM_LAYERS трижды прибит
+ * к build_osm.py и к атрибуции OpenStreetMap (map-pack-osm.test.ts), а это
+ * НАШИ данные с нашей атрибуцией. Печёт map-places-build.yml одним прогоном
+ * на все пакеты (scripts/map-tiles/build-places.ts), не пересборкой пакетов.
+ */
+export function placesKey(region: PackRegionId): string {
+  return `map-packs/${region}.places.geojson`;
+}
+
+/** Атрибуция слоя — одна строка на эндпоинт (places-export) и на стиль. */
+export const PLACES_ATTRIBUTION = '© Ведар — места и профили безопасности платформы';
+
+/**
+ * Обещание, что `<region>.places.geojson` лежит в хранилище — того же рода,
+ * что VECTOR_BUILT_REGIONS: ставится ПОСЛЕ заливки прогоном, не до. Пока
+ * список пуст, карта слой не просит и ни один пакет не ждёт файла, которого
+ * нет. Проверка хранилища (verify-packs) читает этот же список.
+ */
+export const PLACES_BUILT: readonly PackRegionId[] = [
+  // Прогон map-places-build run 2 (33945055783, main, 05.09): 123 пакета
+  // залиты, отказов 0. Порядок — тот же, что у placesTargets(): обзор,
+  // 10 районов, 112 клеток. Новая клетка сюда попадает ПОСЛЕ своего прогона.
+  'krai-overview',
+  'avacha-group', 'paratunka', 'mutnovsky-gorely', 'nalychevo', 'central-volcanoes',
+  'klyuchevskoy', 'south-kamchatka', 'esso-bystrinsky', 'kronotsky', 'commander-islands',
+  'cell-52n157e', 'cell-51n156e', 'cell-51n157e', 'cell-51n158e', 'cell-52n156e',
+  'cell-52n158e', 'cell-53n155e', 'cell-53n156e', 'cell-53n157e', 'cell-53n158e',
+  'cell-53n159e', 'cell-54n156e', 'cell-54n157e', 'cell-54n158e', 'cell-54n159e',
+  'cell-54n160e', 'cell-54n161e', 'cell-54n162e', 'cell-54n166e', 'cell-54n167e',
+  'cell-54n155e', 'cell-55n155e', 'cell-55n156e', 'cell-55n157e', 'cell-55n158e',
+  'cell-55n159e', 'cell-55n160e', 'cell-55n161e', 'cell-55n166e', 'cell-56n155e',
+  'cell-56n156e', 'cell-56n157e', 'cell-56n158e', 'cell-56n159e', 'cell-56n160e',
+  'cell-56n161e', 'cell-56n162e', 'cell-56n163e', 'cell-57n156e', 'cell-57n157e',
+  'cell-57n158e', 'cell-57n159e', 'cell-57n160e', 'cell-57n161e', 'cell-57n162e',
+  'cell-57n163e', 'cell-58n158e', 'cell-58n160e', 'cell-58n161e', 'cell-58n162e',
+  'cell-58n159e', 'cell-58n163e', 'cell-58n164e', 'cell-59n159e', 'cell-59n160e',
+  'cell-59n161e', 'cell-59n162e', 'cell-59n163e', 'cell-59n164e', 'cell-59n166e',
+  'cell-60n161e', 'cell-60n162e', 'cell-60n163e', 'cell-60n164e', 'cell-60n165e',
+  'cell-60n166e', 'cell-60n167e', 'cell-60n168e', 'cell-60n169e', 'cell-60n170e',
+  'cell-60n171e', 'cell-61n162e', 'cell-61n163e', 'cell-61n164e', 'cell-61n165e',
+  'cell-61n166e', 'cell-61n167e', 'cell-61n168e', 'cell-61n169e', 'cell-61n170e',
+  'cell-61n171e', 'cell-61n172e', 'cell-61n173e', 'cell-61n174e', 'cell-62n162e',
+  'cell-62n163e', 'cell-62n164e', 'cell-62n165e', 'cell-62n166e', 'cell-62n167e',
+  'cell-62n168e', 'cell-62n169e', 'cell-62n170e', 'cell-62n171e', 'cell-62n172e',
+  'cell-62n173e', 'cell-62n174e', 'cell-63n162e', 'cell-63n163e', 'cell-63n164e',
+  'cell-63n165e', 'cell-63n166e', 'cell-63n167e', 'cell-63n168e', 'cell-63n169e',
+  'cell-64n162e', 'cell-64n163e', 'cell-64n164e', 'cell-64n165e', 'cell-64n166e',
+  'cell-64n167e', 'cell-64n168e',
+];
+
+/** Адрес слоя мест — одно правило на все три ветки resolvePackSource. */
+function placesUrlFor(region: PackRegionId, base: string): string | null {
+  return PLACES_BUILT.includes(region) ? `${base}/${placesKey(region)}` : null;
+}
+
+/**
+ * Паспорт пакета (05.09, lib/map/pack-manifest.ts): число объектов по слоям
+ * OSM, снятое с залитых файлов. По нему карта говорит словами «троп в OSM
+ * здесь нет», а не молчит, как при сбое загрузки. Ключ — рядом с пакетом.
+ */
+export function manifestKey(region: PackRegionId): string {
+  return `map-packs/${region}.manifest.json`;
+}
+
+/**
+ * Обещание, что паспорт лежит в хранилище — того же рода, что PLACES_BUILT:
+ * ставится ПОСЛЕ прогона build-manifests / заливки пакета. Нет паспорта —
+ * карта не просит его и не судит о покрытии: «не знаю», не «пусто».
+ */
+export const MANIFEST_BUILT: readonly PackRegionId[] = [
+  // Прогон map-pack-manifest run 1 (33952537390, 05.09): 122 паспорта записаны,
+  // отказов 0. Порядок — manifestTargets(): районы с OSM, затем все клетки.
+  'avacha-group', 'paratunka', 'mutnovsky-gorely', 'nalychevo', 'central-volcanoes',
+  'klyuchevskoy', 'south-kamchatka', 'esso-bystrinsky', 'kronotsky', 'commander-islands',
+  'cell-52n157e', 'cell-51n156e', 'cell-51n157e', 'cell-51n158e', 'cell-52n156e',
+  'cell-52n158e', 'cell-53n155e', 'cell-53n156e', 'cell-53n157e', 'cell-53n158e',
+  'cell-53n159e', 'cell-54n156e', 'cell-54n157e', 'cell-54n158e', 'cell-54n159e',
+  'cell-54n160e', 'cell-54n161e', 'cell-54n162e', 'cell-54n166e', 'cell-54n167e',
+  'cell-54n155e', 'cell-55n155e', 'cell-55n156e', 'cell-55n157e', 'cell-55n158e',
+  'cell-55n159e', 'cell-55n160e', 'cell-55n161e', 'cell-55n166e', 'cell-56n155e',
+  'cell-56n156e', 'cell-56n157e', 'cell-56n158e', 'cell-56n159e', 'cell-56n160e',
+  'cell-56n161e', 'cell-56n162e', 'cell-56n163e', 'cell-57n156e', 'cell-57n157e',
+  'cell-57n158e', 'cell-57n159e', 'cell-57n160e', 'cell-57n161e', 'cell-57n162e',
+  'cell-57n163e', 'cell-58n158e', 'cell-58n160e', 'cell-58n161e', 'cell-58n162e',
+  'cell-58n159e', 'cell-58n163e', 'cell-58n164e', 'cell-59n159e', 'cell-59n160e',
+  'cell-59n161e', 'cell-59n162e', 'cell-59n163e', 'cell-59n164e', 'cell-59n166e',
+  'cell-60n161e', 'cell-60n162e', 'cell-60n163e', 'cell-60n164e', 'cell-60n165e',
+  'cell-60n166e', 'cell-60n167e', 'cell-60n168e', 'cell-60n169e', 'cell-60n170e',
+  'cell-60n171e', 'cell-61n162e', 'cell-61n163e', 'cell-61n164e', 'cell-61n165e',
+  'cell-61n166e', 'cell-61n167e', 'cell-61n168e', 'cell-61n169e', 'cell-61n170e',
+  'cell-61n171e', 'cell-61n172e', 'cell-61n173e', 'cell-61n174e', 'cell-62n162e',
+  'cell-62n163e', 'cell-62n164e', 'cell-62n165e', 'cell-62n166e', 'cell-62n167e',
+  'cell-62n168e', 'cell-62n169e', 'cell-62n170e', 'cell-62n171e', 'cell-62n172e',
+  'cell-62n173e', 'cell-62n174e', 'cell-63n162e', 'cell-63n163e', 'cell-63n164e',
+  'cell-63n165e', 'cell-63n166e', 'cell-63n167e', 'cell-63n168e', 'cell-63n169e',
+  'cell-64n162e', 'cell-64n163e', 'cell-64n164e', 'cell-64n165e', 'cell-64n166e',
+  'cell-64n167e', 'cell-64n168e',
+];
+
+function manifestUrlFor(region: PackRegionId, base: string): string | null {
+  return MANIFEST_BUILT.includes(region) ? `${base}/${manifestKey(region)}` : null;
+}
+
+/**
+ * Океан обзорного яруса (05.09, build_ocean.py): bbox обзора минус полигоны
+ * суши OSM. Ложится поверх гипсометрии, чтобы дыры покрытия DEM посреди
+ * моря не читались сушей. Только у обзора: клетки читают DEM на полной
+ * сетке, и ноль высоты там — честное море.
+ */
+export function oceanKey(region: PackRegionId): string {
+  return `map-packs/${region}.ocean.geojson`;
+}
+
+/** Обещание, что океан обзора залит (map-overview-ocean.yml). Ставится ПОСЛЕ прогона. */
+// Прогон 1 (33952766081, 05.09) залил океан без ориентации колец, и на
+// телефоне владельца синим оказалась СУША (MapLibre судит «внешнее/дыра» по
+// знаку площади). Прогон 5 (33971618750) пересобрал с RFC 7946: 2 части,
+// 50 дыр. Кадры снимков (прогон 6, ветка map-snapshots) на z5 и z7
+// осмотрены глазами: море — море, суша — суша. Ниже z4 карта не уходит.
+export const OVERVIEW_OCEAN_BUILT = true;
+
+function oceanUrlFor(region: PackRegionId, base: string): string | null {
+  return isOverviewId(region) && OVERVIEW_OCEAN_BUILT ? `${base}/${oceanKey(region)}` : null;
 }
 
 /**
@@ -214,6 +358,12 @@ export type PackSource =
       osmUrls: Partial<Record<OsmLayer, string>>;
       /** Векторный пакет `pmtiles://…`; null — не собран (см. VECTOR_BUILT_REGIONS). */
       vectorUrl: string | null;
+      /** Места платформы, GeoJSON; null — слой не залит (см. PLACES_BUILT). */
+      placesUrl: string | null;
+      /** Паспорт пакета (число объектов по слоям OSM); null — не залит (см. MANIFEST_BUILT). */
+      manifestUrl: string | null;
+      /** Океан поверх гипсометрии, GeoJSON; только у обзора и только когда залит (OVERVIEW_OCEAN_BUILT). */
+      oceanUrl: string | null;
     }
   | { state: 'unconfigured'; reason: string }
   | { state: 'not_built'; reason: string };
@@ -256,6 +406,10 @@ export function resolvePackSource(
       glyphsFont: PACK_GLYPHS.fontstack,
       osmUrls: {},
       vectorUrl: null,
+      // Посёлки-ориентиры нужнее всего именно на обзоре (z4-7).
+      placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
     };
   }
   // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
@@ -273,6 +427,9 @@ export function resolvePackSource(
       glyphsFont: PACK_GLYPHS.fontstack,
       osmUrls: Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>,
       vectorUrl: `pmtiles://${base}/${vectorKey(region)}`,
+      placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
     };
   }
   if (!builtRegions.includes(region)) {
@@ -294,6 +451,9 @@ export function resolvePackSource(
       ? Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/${osmKey(region, l)}`])) as Partial<Record<OsmLayer, string>>
       : {},
     vectorUrl: VECTOR_BUILT_REGIONS.includes(region) ? `pmtiles://${base}/${vectorKey(region)}` : null,
+    placesUrl: placesUrlFor(region, base),
+    manifestUrl: manifestUrlFor(region, base),
+    oceanUrl: oceanUrlFor(region, base),
   };
 }
 
@@ -378,9 +538,7 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   'cell-53n158e',
   'cell-53n159e',
   // 03.09, волна 2 (прогоны 103-112) — широта 54°, от западного берега до
-  // Командорского направления. Обещание ставится по факту заливки, а не по
-  // факту запуска, поэтому клетки входили сюда двумя присестами.
-  // cell-54n155e (прогон 103) на 04.09 ещё строилась — её здесь нет.
+  // Командорского направления.
   'cell-54n156e',
   'cell-54n157e',
   'cell-54n158e',
@@ -390,4 +548,122 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   'cell-54n162e',
   'cell-54n166e',
   'cell-54n167e',
+  // 04.09, прогон 123: cell-54n155e (прогон 103) отменился по
+  // timeout-minutes=120 — OSM-шаг провисел 2 часа, первый такой случай за
+  // 122 прогона (вероятная причина — Overpass под нагрузкой десяти
+  // параллельных клеток волны 3). Пересобрана одна, без соседей — 5.5 мин.
+  'cell-54n155e',
+  // 04.09, волна 3 (прогоны 113-122) — широта 55-56°, центр полуострова.
+  'cell-55n155e',
+  'cell-55n156e',
+  'cell-55n157e',
+  'cell-55n158e',
+  'cell-55n159e',
+  'cell-55n160e',
+  'cell-55n161e',
+  'cell-55n166e',
+  'cell-56n155e',
+  'cell-56n156e',
+  // 04.09, волна 4 (прогоны 124-133) — широта 56-57°, восток-центр полуострова.
+  'cell-56n157e',
+  'cell-56n158e',
+  'cell-56n159e',
+  'cell-56n160e',
+  'cell-56n161e',
+  'cell-56n162e',
+  'cell-56n163e',
+  'cell-57n156e',
+  'cell-57n157e',
+  'cell-57n158e',
+  // 04.09, волна 5 (прогоны 134-143) — широта 57-58°, ближе к северу
+  // полуострова. cell-58n159e (прогон 140) ещё строилась на момент правки —
+  // войдёт отдельной строкой по факту заливки.
+  'cell-57n159e',
+  'cell-57n160e',
+  'cell-57n161e',
+  'cell-57n162e',
+  'cell-57n163e',
+  'cell-58n158e',
+  'cell-58n160e',
+  'cell-58n161e',
+  'cell-58n162e',
+  // cell-58n159e (прогон 140) провисела на OSM-шаге дольше 30 минут, но
+  // достроилась зелёной без вмешательства (Overpass под нагрузкой волны 5).
+  'cell-58n159e',
+  // 04.09, волна 6 (прогоны 144-152) — широта 58-59°, последняя на
+  // полуострове. С этой волной полуостров (lat < 60°, 60 клеток) закрыт
+  // целиком — дальше только Корякия (lat >= 60°, 52 клетки).
+  'cell-58n163e',
+  'cell-58n164e',
+  'cell-59n159e',
+  'cell-59n160e',
+  'cell-59n161e',
+  'cell-59n162e',
+  'cell-59n163e',
+  'cell-59n164e',
+  'cell-59n166e',
+  // 04.09, Корякия волна 1 (прогоны 153-162) — широта 60°, первая волна
+  // севернее полуострова (lat >= 60°).
+  'cell-60n161e',
+  'cell-60n162e',
+  'cell-60n163e',
+  'cell-60n164e',
+  'cell-60n165e',
+  'cell-60n166e',
+  'cell-60n167e',
+  'cell-60n168e',
+  'cell-60n169e',
+  'cell-60n170e',
+  // 04.09, Корякия волна 2 (прогоны 163-172) — замыкает широту 60° и
+  // открывает 61°.
+  'cell-60n171e',
+  'cell-61n162e',
+  'cell-61n163e',
+  'cell-61n164e',
+  'cell-61n165e',
+  'cell-61n166e',
+  'cell-61n167e',
+  'cell-61n168e',
+  'cell-61n169e',
+  'cell-61n170e',
+  // 04.09, Корякия волна 3 (прогоны 173-182) — замыкает широту 61° и
+  // открывает 62°.
+  'cell-61n171e',
+  'cell-61n172e',
+  'cell-61n173e',
+  'cell-61n174e',
+  'cell-62n162e',
+  'cell-62n163e',
+  'cell-62n164e',
+  'cell-62n165e',
+  'cell-62n166e',
+  'cell-62n167e',
+  // 04.09, Корякия волна 4 (прогоны 183-192) — широта 62° до конца,
+  // открывает 63°. Собраны СТАРЫМ кодировщиком (пропуск DEM = высота 0) —
+  // войдут в общую пересборку после починки NODATA_SENTINEL_M.
+  'cell-62n168e',
+  'cell-62n169e',
+  'cell-62n170e',
+  'cell-62n171e',
+  'cell-62n172e',
+  'cell-62n173e',
+  'cell-62n174e',
+  'cell-63n162e',
+  'cell-63n163e',
+  'cell-63n164e',
+  // 04.09, Корякия волна 5 (прогоны 193-204) — ПОСЛЕДНЯЯ: закрывает
+  // широты 63-64° и весь реестр 112/112. Собраны НОВЫМ кодировщиком
+  // (NODATA_SENTINEL_M) — пересборка им не нужна.
+  'cell-63n165e',
+  'cell-63n166e',
+  'cell-63n167e',
+  'cell-63n168e',
+  'cell-63n169e',
+  'cell-64n162e',
+  'cell-64n163e',
+  'cell-64n164e',
+  'cell-64n165e',
+  'cell-64n166e',
+  'cell-64n167e',
+  'cell-64n168e',
 ];

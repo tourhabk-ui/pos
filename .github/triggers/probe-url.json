@@ -1,22 +1,41 @@
 {
-  "note": "Проба реле разведчика (владелец 03.09: «проверь сейчас» после правки SCOUT_RELAY_BASE на Timeweb). GET /api/cron/scout-relay-check — только чтение: состояние реле словами и исход чтения трёх Telegram-превью через воркер. Ждём выката по маркеру probe (40-50 минут по опыту 01.09).",
+  "note": "Партия 1 по issue #1493. Снимаем с прода материал для решения владельца: осиротевшие места и живые маршруты-кандидаты к ним, с уликой у каждой пары (совпадение имени nameScore и расстояние distanceKm). Автомат тут запрещён правилом §4.1 — род связи выводить из близости к линии нельзя, — поэтому подсказчик только ГОТОВИТ пары, а решает человек. part=candidates: улики о вранье координат в этот прогон не берём, они отдельный разбор и в прошлые пробы съедали окно вывода. Дополнительно снимаем перепись маршрутов, чтобы цифра 255 в тексте задачи была подтверждена сегодняшним состоянием, а не пересказом от 01.09. Третьим адресом — дверь поставщика Trip.com: прогон 448 нашёл её в подвале главной, ссылка «Become a supplier» ведёт на /m/vbooking/home. Догадка /partners/supplier/ не подтвердилась: 200 там отдаёт та же страница affiliate-программы (тот же заголовок, тот же размер), то есть код ответа существование адреса не доказывает.",
   "urls": [
-    "https://vedarai.ru/api/cron/scout-relay-check"
+    "https://vedarai.ru/api/cron/place-link-suggest?scope=lost&part=candidates",
+    "https://vedarai.ru/api/cron/route-data-audit",
+    "https://www.trip.com/m/vbooking/home"
   ],
-  "post": [],
   "grep": [
-    "\"verdict\":\"works\"",
-    "\"verdict\":\"broken\"",
-    "\"verdict\":\"not_configured\"",
-    "\"relay\":\"on\"",
-    "\"relay\":\"bad_base\"",
-    "relay_unauthorized",
-    "relay_host_refused",
-    "not_relay"
+    "place_link_suggest_v6",
+    "with_candidates",
+    "orphans_total",
+    "navigability_reasons",
+    "link_kinds",
+    "vbooking",
+    "Affiliate Program",
+    "sign up",
+    "Sign Up",
+    "register",
+    "apply",
+    "contact us",
+    "activity",
+    "experiences"
   ],
-  "until": "scout_relay_check_v1",
-  "retries": 50,
+  "count": [
+    "\"placeId\"",
+    "\"routeId\"",
+    "\"nameScore\":1"
+  ],
+  "around": [
+    "link_kinds",
+    "navigability_reasons"
+  ],
+  "aroundBefore": 1,
+  "aroundLines": 10,
+  "aroundHits": 1,
+  "bytes": 9000,
+  "timeout": 60,
+  "retries": 2,
   "retryDelay": 60,
-  "bytes": 6000,
-  "timeout": 60
+  "expect": "От первого адреса нужен список items: место (имя, тип) и до четырёх маршрутов-кандидатов с nameScore и distanceKm — это и есть улика к паре. Пары со счётом имени 1.0 и малым расстоянием пойдут в партию первыми: там спорить не о чем. От второго — сегодняшние link_kinds и navigability_reasons: если «путевых точек меньше двух» уже не 255, задача изменилась, и партию надо собирать от новой цифры. Ответ 401 означал бы, что секрет не доехал, а не что данных нет."
 }

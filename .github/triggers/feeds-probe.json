@@ -1,0 +1,20 @@
+{
+  "note": "Маркер запуска feeds-probe.yml: правка этого файла в main опрашивает перечисленные адреса и печатает, лента там или страница. Только чтение.",
+  "run": 1,
+  "why": "06.09: тревога назвала мёртвые ленты разведки (kamgov.ru 404, visitkamchatka.ru — HTML). Ищем рабочие адреса и заодно проверяем четыре ленты travel_industry",
+  "urls": [
+    "https://www.kamgov.ru/news/rss",
+    "https://kamgov.ru/rss",
+    "https://www.kamgov.ru/rss",
+    "https://visitkamchatka.ru/rss",
+    "https://visitkamchatka.ru/feed",
+    "https://visitkamchatka.ru/news/rss",
+    "https://kamchatinfo.com/feed/",
+    "https://kam24.ru/rss/",
+    "https://rata-news.ru/feed/",
+    "https://www.tourprom.ru/news/rss/",
+    "https://ator.ru/rss.xml",
+    "https://www.atorus.ru/rss/news.xml",
+    "https://rustravelforum.com/feed"
+  ]
+}

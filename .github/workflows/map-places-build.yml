@@ -1,0 +1,123 @@
+name: Слой мест платформы во все пакеты карты
+
+# Места платформы (`places` + профиль безопасности) — свой слой офлайн-карты,
+# один прогон на ВСЕ пакеты (112 клеток, 10 районов, обзор), а не пересборка
+# пакетов: слой не зависит ни от DEM, ни от OSM, это один запрос к нашему
+# проду на пакет и один файл в бакет.
+#
+# Зачем (05.09): у корякских клеток слои OSM «тропы/приюты/посёлки» по 0.00 МБ
+# — в OSM там пусто. Наши места есть и там. Без этого слоя «клетка собрана»
+# означало «рельеф и больше ничего».
+#
+# Где что исполняется (§8): раннер спрашивает прод по HTTPS с CRON_SECRET
+# (до БД раннер не достаёт — файрвол Timeweb), заливает в хранилище своими
+# ключами S3; прод только читает бакет. Живого запроса из поля нет — офлайн.
+#
+# Ручной вход и файл-триггер — как у остальных сборок: интеграция Claude не
+# имеет права на workflow_dispatch (403, проверено 02.09).
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Заливать в хранилище (иначе только спросить и посчитать)'
+        type: boolean
+        default: false
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-places-build.json'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.upload }}" ]; then
+            UPLOAD="${{ inputs.upload }}"
+          else
+            UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-places-build.json')).get('upload',False)).lower())")
+          fi
+          WANT=$(python3 -c "import json;print(json.load(open('.github/triggers/map-places-build.json')).get('expect_v',1))")
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "expect_v=$WANT" >> "$GITHUB_OUTPUT"
+          echo "заливка: $UPLOAD, ждём версию эндпоинта: $WANT"
+
+      - name: Дождаться СВОЕГО кода на проде
+        run: |
+          set -euo pipefail
+          # Тот же приём, что у route-links-repair: эндпоинт кладёт `v` в тело
+          # 401, поэтому ожидание не требует секрета. Ждём КОНКРЕТНЫЙ номер, а
+          # не «эндпоинт существует»: мерж проходит минутой раньше, сборка
+          # Timeweb идёт десять минут, и прогон без своего кода — не ответ.
+          BASE="https://vedarai.ru/api/cron/places-export"
+          WANT="${{ steps.cfg.outputs.expect_v }}"
+          READY=""
+          for i in $(seq 1 30); do
+            V=$(curl -s --max-time 30 "$BASE" | python3 -c "import json,sys;print(json.load(sys.stdin).get('v',0))" 2>/dev/null || echo 0)
+            if [ "$V" -ge "$WANT" ] 2>/dev/null; then READY=1; echo "прод отдаёт экспорт мест версии $V (ждали $WANT)"; break; fi
+            echo "прод отдаёт версию $V, ждём $WANT — попытка $i/30"
+            sleep 60
+          done
+          if [ -z "$READY" ]; then
+            echo "::error::Прод так и не поднялся с экспортом мест версии $WANT за 30 минут."
+            exit 1
+          fi
+
+      - name: Спросить места по каждому пакету и залить
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан — экспорт мест не спросить."
+            exit 1
+          fi
+          mkdir -p .cache/places
+          FLAG=""
+          if [ "${{ steps.cfg.outputs.upload }}" != "true" ]; then FLAG="--dry-run"; fi
+          npx tsx scripts/map-tiles/build-places.ts $FLAG | tee .cache/places/build.log
+
+      - name: Итог — в сводку прогона
+        if: always()
+        run: |
+          {
+            echo '### Слой мест платформы'
+            echo
+            echo '```'
+            grep -E 'пакетов:|итого|пустых|залито пакетов|ОТКАЗ|сухой прогон' .cache/places/build.log || echo 'лог сборки не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-places-summary
+          path: .cache/places/summary.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Слой НЕ залит — сказать это громко
+        if: ${{ steps.cfg.outputs.upload != 'true' }}
+        run: |
+          echo "::warning::Сухой прогон: места посчитаны, в хранилище ничего не записано (upload=false)."

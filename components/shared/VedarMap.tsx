@@ -30,15 +30,18 @@
  * шумный датчик.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
-  buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex,
+  buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex, DETAIL_MIN_ZOOM,
   type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
+import { OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
+import { placeMarkerSvg, PLACE_MARKER_SIZE } from '@/lib/map/place-marker-icons';
+import { parsePlaceIconImageId, rasterizePlaceIcon, PLACE_ICON_PIXEL_RATIO } from '@/lib/map/place-icon-raster';
 import { Minus, Plus } from 'lucide-react';
 /**
  * Стили MapLibre обязательны, а не «для красоты»: именно они ставят
@@ -57,11 +60,33 @@ export interface VedarMapLine {
    * пунктиром; след — своя тонкая линия другого цвета. Если не задан,
    * выводится из connector/dashArray (совместимость).
    */
-  kind?: 'track' | 'sketch' | 'connector' | 'trail';
+  kind?: 'track' | 'sketch' | 'connector' | 'trail' | 'calculated';
   /** Построение (подход, связка) против снятого пути — §12. */
   connector?: boolean;
   /** Пунктир из lib/map/line-standard: набросок и импорт не сплошные. */
   dashArray?: string;
+}
+
+/**
+ * Точка на живой карте — концы рассчитанного автопути (05.09): «старт на
+ * дороге» и «цель на дороге» с расстоянием привязки. Подпись — свойством,
+ * рисует стиль (route-calculated-end).
+ */
+export interface VedarMapPoint {
+  /** [lng, lat] — порядок GeoJSON. */
+  coordinates: [number, number];
+  kind: 'calculated_end';
+  label: string;
+}
+
+/** Место платформы, отданное тапом — то, что уже лежит в свойствах точки слоя. */
+export interface VedarMapPlaceHit {
+  id: string;
+  lat: number;
+  lng: number;
+  name: string | null;
+  /** location_type — по нему решает LOCATION_TYPE_CONFIG вызывающего. */
+  kind: string | null;
 }
 
 interface VedarMapProps {
@@ -102,6 +127,42 @@ interface VedarMapProps {
    * накрывал нижний лист — скрин владельца 02.09 08:18.
    */
   showZoomButtons?: boolean;
+  /** Точки на живой карте — концы рассчитанного автопути. */
+  points?: VedarMapPoint[];
+  /**
+   * Тап по карте — как в навигаторе (владелец 05.09, «посмотри, как у
+   * референсов»): точка на карте открывает карточку места с координатами,
+   * прокладкой и передачей в навигатор. Карта лишь сообщает, куда ткнули.
+   *
+   * Вызывается, только когда тап НЕ попал в место платформы (см.
+   * `onPlaceClick`) — два коллбэка не стреляют на один тап одновременно.
+   */
+  onMapClick?: (p: { lat: number; lng: number }) => void;
+  /**
+   * Тап по своей синей точке — та же карточка для «я».
+   */
+  onUserClick?: () => void;
+  /**
+   * Тап по месту платформы — слой `vedar-places*` (lib/map/vedar-style.ts,
+   * §9 CLAUDE.md: точка — факт, не тур). Владелец 06.09, «замкнуть /map на
+   * VedarMap»: карта browse-режима отдаёт то, что уже несёт слой (id, имя,
+   * тип, координаты самой точки — не тапа), вызывающий рисует скелет
+   * карточки сразу, не дожидаясь /api/places/[id]. Проверка идёт ПЕРЕД
+   * generic `onMapClick` — попадание в кружок места важнее голой точки под
+   * ним.
+   */
+  onPlaceClick?: (place: VedarMapPlaceHit) => void;
+  /** Булавка выбранной точки; null — булавки нет. */
+  pin?: { lat: number; lng: number } | null;
+  /**
+   * Фильтр слоя мест по `location_type` (владелец 06.09, скрин /map:
+   * «нет точек мест» — фильтры-чипсы над картой считали свои числа из
+   * живого списка allRoutes, а сама карта рисовала vedar-places целиком и
+   * выбор фильтра никак её не касался). `null`/`undefined` — без фильтра,
+   * видны все места; строка — только места с этим `kind`. Действует на
+   * базовый слой и на все подложенные соседей, включая ещё не загруженные.
+   */
+  placesFilter?: string | null;
   /** Ручка управления наружу — для кнопок масштаба вне карты. null при размонтировании. */
   onControls?: (handle: VedarMapHandle | null) => void;
 }
@@ -109,6 +170,69 @@ interface VedarMapProps {
 export interface VedarMapHandle {
   zoomIn(): void;
   zoomOut(): void;
+  /** Текущий зум карты — для числа рядом с кнопками (владелец 05.09). */
+  getZoom(): number;
+  /** Подписка на смену зума; возвращает отписку. */
+  onZoom(cb: (zoom: number) => void): () => void;
+  /** Центр карты — для строки «Центр карты» в чипе координат (владелец 05.09). */
+  getCenter(): { lat: number; lng: number };
+  /** Подписка на конец сдвига карты (moveend); возвращает отписку. */
+  onMove(cb: (center: { lat: number; lng: number }) => void): () => void;
+  /** Подогнать вид под линию ([lng, lat]) — рассчитанный автопуть целиком в кадре. */
+  fitLine(coordinates: Array<[number, number]>): void;
+}
+
+/**
+ * Фильтр слоя мест — на базовый и на каждого подложенного соседа сразу:
+ * оба несут собственный ns в id (`vedar-places${ns}` / `vedar-place-labels${ns}`),
+ * второго списка id нигде не хранится, поэтому ищем по стилю целиком.
+ */
+function applyPlacesFilter(map: MLMap, filter: string | null | undefined): void {
+  const layers = map.getStyle()?.layers ?? [];
+  const expr = filter ? ['==', ['get', 'kind'], filter] : null;
+  for (const l of layers) {
+    if (!l.id.includes('vedar-place')) continue;
+    try { map.setFilter(l.id, expr as never); } catch { /* слоя ещё нет в эту миллисекунду — следующий вызов подхватит */ }
+  }
+}
+
+/**
+ * Одна ручка на оба места, где стоят кнопки: на самой карте и в приборном
+ * ряду снаружи. Второй объект с теми же методами разошёлся бы при следующей
+ * правке (§12 — про три экрана и три правила).
+ */
+function handleFor(map: MLMap): VedarMapHandle {
+  return {
+    zoomIn: () => map.zoomIn(),
+    zoomOut: () => map.zoomOut(),
+    getZoom: () => map.getZoom(),
+    onZoom: (cb) => {
+      const tick = () => cb(map.getZoom());
+      map.on('zoom', tick);
+      return () => { map.off('zoom', tick); };
+    },
+    getCenter: () => {
+      const c = map.getCenter();
+      return { lat: c.lat, lng: c.lng };
+    },
+    onMove: (cb) => {
+      // moveend, не move: по кадру при перетаскивании чип пересчитывал бы
+      // строку на каждый пиксель, а читать её человек будет, когда отпустит.
+      const tick = () => { const c = map.getCenter(); cb({ lat: c.lat, lng: c.lng }); };
+      map.on('moveend', tick);
+      return () => { map.off('moveend', tick); };
+    },
+    fitLine: (coordinates) => {
+      if (coordinates.length < 2) return;
+      let west = Infinity; let south = Infinity; let east = -Infinity; let north = -Infinity;
+      for (const [lng, lat] of coordinates) {
+        if (lng < west) west = lng; if (lng > east) east = lng;
+        if (lat < south) south = lat; if (lat > north) north = lat;
+      }
+      // Отступ снизу больше: нижний лист приборов накрывает треть экрана.
+      map.fitBounds([[west, south], [east, north]], { padding: { top: 80, left: 40, right: 40, bottom: 260 }, duration: 600, maxZoom: 14 });
+    },
+  };
 }
 
 /**
@@ -118,7 +242,7 @@ export interface VedarMapHandle {
  * него не за что. Основной район это не касается: его стиль грузит всё
  * сразу, как и прежде.
  */
-export const DETAIL_MIN_ZOOM = 10;
+export { DETAIL_MIN_ZOOM } from '@/lib/map/vedar-style';
 /**
  * Нижний зум пакета: рельеф (build_terrain.py MINZOOM) и векторные тайлы
  * (build_vector.sh --minimum-zoom) печатаются с 8. Мельче — тайлов нет по
@@ -132,21 +256,43 @@ export const PACK_MIN_ZOOM = 8;
  * навигатора. Действие — непрозрачное (§2).
  */
 export function VedarZoomButtons({ handle }: { handle: VedarMapHandle | null }) {
+  // Число зума под кнопками — просьба владельца 05.09 («чтоб отражался зум
+  // для инфы, рядом с + и −»). Читается с карты через ту же ручку, что и
+  // кнопки, — одно число на карте и в приборном ряду снаружи, второго
+  // хранилища нет. Событие zoom идёт покадрово при щипке; перерисовка —
+  // только когда меняется первый знак после запятой, ради тысячных незачем.
+  const [zoom, setZoom] = useState<number | null>(null);
+  useEffect(() => {
+    if (!handle) { setZoom(null); return; }
+    setZoom(handle.getZoom());
+    return handle.onZoom((z) => {
+      setZoom((prev) => (prev !== null && Math.round(prev * 10) === Math.round(z * 10) ? prev : z));
+    });
+  }, [handle]);
   if (!handle) return null;
+  const box = {
+    width: 44, borderRadius: 12,
+    background: 'var(--bg-card)', color: 'var(--text-primary)',
+    border: '1px solid var(--border)',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+  } as const;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {([['Приблизить', 1, Plus], ['Отдалить', -1, Minus]] as const).map(([label, dir, Icon]) => (
         <button key={label} type="button" aria-label={label}
           onClick={() => { if (dir > 0) handle.zoomIn(); else handle.zoomOut(); }}
-          style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: 'var(--bg-card)', color: 'var(--text-primary)',
-            border: '1px solid var(--border)', display: 'grid', placeItems: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-          }}>
+          style={{ ...box, height: 44, display: 'grid', placeItems: 'center' }}>
           <Icon className="w-5 h-5" />
         </button>
       ))}
+      {/* Показание, не действие: непрозрачное, как и кнопки (§2). */}
+      {zoom !== null && (
+        <div aria-label={`Зум ${zoom.toFixed(1)}`}
+          style={{ ...box, padding: '5px 0', textAlign: 'center', lineHeight: 1.1 }}>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: 0.3 }}>зум</div>
+          <div className="tabular-nums" style={{ fontSize: 13, fontWeight: 700 }}>{zoom.toFixed(1)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -181,6 +327,20 @@ export function packFileName(url: string): string {
  * Плюс отдельная пометка о повторе: «качаем заново» — это не тот же исход,
  * что «не пришло и не придёт», и ждать человек в этих случаях будет разное.
  */
+/**
+ * Повтор источника: у geojson это `setData(url)`, у тайловых поверх PMTiles
+ * (рельеф raster-dem, вектор) — `setUrl(url)`: тот же адрес заново, MapLibre
+ * снимает висящий запрос TileJSON и грузит его снова (setSourceProperty →
+ * load(true)). Проверка по форме, а не по классу: у карты источники нескольких
+ * классов, а вопрос один — «умеет ли он заказать себя заново».
+ */
+function hasSetData(src: unknown): src is { setData: (data: string) => unknown } {
+  return !!src && typeof (src as { setData?: unknown }).setData === 'function';
+}
+function hasSetUrl(src: unknown): src is { setUrl: (url: string) => unknown } {
+  return !!src && typeof (src as { setUrl?: unknown }).setUrl === 'function';
+}
+
 export function mapErrorText(input: {
   message?: string;
   sourceId?: string;
@@ -301,15 +461,29 @@ export default function VedarMap({
   center,
   zoom = 11,
   lines = [],
+  points = [],
   showUserLocation = false,
   height = '100%',
   onDiagnostic,
   packs = [],
   baseRegion,
   showZoomButtons = true,
+  onMapClick,
+  onUserClick,
+  onPlaceClick,
+  pin = null,
+  placesFilter = null,
   onControls,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const onMapClickRef = useRef(onMapClick);
+  onMapClickRef.current = onMapClick;
+  const onUserClickRef = useRef(onUserClick);
+  onUserClickRef.current = onUserClick;
+  const onPlaceClickRef = useRef(onPlaceClick);
+  onPlaceClickRef.current = onPlaceClick;
+  const placesFilterRef = useRef(placesFilter);
+  placesFilterRef.current = placesFilter;
   const mapRef = useRef<MLMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const autoCenterDoneRef = useRef(false);
@@ -423,21 +597,84 @@ export default function VedarMap({
         // стиля, которым карта создаётся: иначе он рассказывал бы о другом
         // наборе источников, чем тот, что реально просят с сети.
         fileBySourceRef.current = sourceUrlIndex(style.sources as Record<string, unknown>);
+        // Палитра ДЛЯ ЭТОГО инстанса карты — эффект пересоздаёт карту целиком
+        // при смене темы (зависимость [theme, ...] ниже), поэтому захват в
+        // замыкании не устаревает за жизнь инстанса.
+        const palette = vedarMapPalette(theme);
 
         const map = new maplibre.Map({
           container: containerRef.current,
           style: style as never,
           center: [center[1], center[0]], // [lng, lat] — порядок MapLibre
           zoom,
-          attributionControl: { compact: true },
+          // Ниже обзорного яруса тайлов нет ни у кого: z3 на телефоне владельца
+          // (05.09) был растянутым z4 с полосами за краем пакета. Край (14°
+          // широты) целиком помещается на экран и на z4.
+          minZoom: OVERVIEW_MIN_ZOOM,
+          // Дефолтный угол (bottom-right) здесь МЁРТВ: нижний лист приборов
+          // (_PlanningClient, fixed inset-x-0 bottom-0, минимум 32vh,
+          // непрозрачный) закрывает его НАВСЕГДА, при любой высоте листа.
+          // Атрибуция OSM/Copernicus лежала в источниках стиля честно, но
+          // человек её не видел ни разу (04.09, проверка владельца).
+          // Свой контрол — в top-right, тем же углом, что и зум-кнопки
+          // top-left (см. ниже): тот угол уже доказанно свободен в режиме
+          // «Карта» (showZoomButtons) — комментарий на кнопках объясняет,
+          // почему верх пуст именно там.
+          attributionControl: false,
           // Жестов вращения нет намеренно: на маршруте карта — прибор, а
           // случайно повёрнутый север сбивает сверку с компасом.
           pitchWithRotate: false,
           dragRotate: false,
           touchZoomRotate: true,
         });
+        map.addControl(new maplibre.AttributionControl({ compact: true }), 'top-right');
         map.touchZoomRotate.disableRotation();
         mapRef.current = map;
+        // Тап по карте — наружу, через ref: инлайновая стрелка вызывающего
+        // меняет identity каждый рендер, а карту пересоздавать из-за этого нельзя.
+        // Место платформы — первым: круг `vedar-places*` (базовый стиль и
+        // подложенные соседи несут разные ns) важнее голой точки под ним.
+        map.on('click', (e) => {
+          const hit = map.queryRenderedFeatures(e.point)
+            .find(f => typeof f.layer?.id === 'string' && f.layer.id.startsWith('vedar-places'));
+          const placeId = hit?.properties?.id;
+          const coords = hit?.geometry?.type === 'Point' ? hit.geometry.coordinates : null;
+          if (typeof placeId === 'string' && placeId && coords && onPlaceClickRef.current) {
+            onPlaceClickRef.current({
+              id: placeId,
+              lng: coords[0],
+              lat: coords[1],
+              name: typeof hit.properties?.name === 'string' ? hit.properties.name : null,
+              kind: typeof hit.properties?.kind === 'string' ? hit.properties.kind : null,
+            });
+            return;
+          }
+          onMapClickRef.current?.({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+        });
+
+        // Формы маркеров мест рисуются ПО ЗАПРОСУ, не впрок. Стиль называет
+        // иконку строкой (`place-icon-<hazard|normal>-<kind>`), сам растр не
+        // может собрать — он строится без DOM/canvas. Когда MapLibre впервые
+        // просит эту строку, styleimagemissing даёт нам шанс её нарисовать;
+        // растеризуется РОВНО столько форм×цветов, сколько реально видно на
+        // экране, а не все формы на 2 цвета сразу, даже если на карте одни
+        // вулканы (владелец 07.09, «геоточки были все со своими маркерами»).
+        const missingIconRequests = new Set<string>();
+        map.on('styleimagemissing', (e) => {
+          const id = (e as { id: string }).id;
+          if (missingIconRequests.has(id) || map.hasImage(id)) return;
+          const parsed = parsePlaceIconImageId(id);
+          if (!parsed) return;
+          missingIconRequests.add(id);
+          const hex = parsed.hazardous ? palette.cliff : palette.peak;
+          const svg = placeMarkerSvg(hex, parsed.kind);
+          rasterizePlaceIcon(svg, PLACE_MARKER_SIZE.width, PLACE_MARKER_SIZE.height)
+            .then((img) => {
+              if (cancelled || map.hasImage(id)) return;
+              map.addImage(id, img, { pixelRatio: PLACE_ICON_PIXEL_RATIO });
+            })
+            .catch((err) => console.error('[VedarMap] иконка места не собралась', id, err));
+        });
 
         map.on('load', () => { loaded = true; if (!cancelled) setReady(true); });
 
@@ -573,12 +810,24 @@ export default function VedarMap({
           // самой диагностики не должен стоить диагностики.
           try {
             if (sourceId && file && !retriedSources.has(sourceId)) {
-              const src = map.getSource(sourceId) as GeoJSONSource | undefined;
-              if (src && typeof src.setData === 'function') {
+              const src: unknown = map.getSource(sourceId);
+              if (hasSetData(src)) {
                 retriedSources.add(sourceId);
                 awaitingRetry = sourceId;
                 retrying = true;
                 src.setData(file);
+              } else if (hasSetUrl(src)) {
+                // 05.09: рельеф и вектор лежат в PMTiles, у их источников нет
+                // setData — и повтора у них не было ВОВСЕ. Первый скрин с
+                // поля («cell-53n158e.terrain.pmtiles: Failed to fetch») бил
+                // ровно сюда: файл в бакете цел (проверка 1882/1882), связь
+                // моргнула, а слой оставался мёртвым до пересоздания карты,
+                // хотя GeoJSON рядом заказывался заново. setUrl тем же адресом
+                // — тот же повтор, тот же бюджет: один на источник.
+                retriedSources.add(sourceId);
+                awaitingRetry = sourceId;
+                retrying = true;
+                src.setUrl(file);
               }
             }
           } catch (err) {
@@ -656,9 +905,24 @@ export default function VedarMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) { onControlsRef.current?.(null); return; }
-    onControlsRef.current?.({ zoomIn: () => map.zoomIn(), zoomOut: () => map.zoomOut() });
+    onControlsRef.current?.(handleFor(map));
     return () => onControlsRef.current?.(null);
   }, [ready]);
+  // Та же ручка для своих кнопок на карте (showZoomButtons): один объект на
+  // жизнь карты, иначе число зума переподписывалось бы каждый кадр.
+  const inlineHandle = useMemo(
+    () => (ready && mapRef.current ? handleFor(mapRef.current) : null),
+    [ready],
+  );
+
+  // ── Фильтр мест ──────────────────────────────────────────────────────────
+  // Отдельный эффект — не завязан на packs/эффект соседей: смена фильтра
+  // не должна ждать moveend и не должна перезаходить в перебор соседей.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    applyPlacesFilter(map, placesFilter);
+  }, [ready, placesFilter]);
 
   // ── Соседние районы — по видимой области ────────────────────────────────
   // Скрин владельца 02.09 08:21: при отдалении виден один пакет, остальные
@@ -722,6 +986,8 @@ export default function VedarMap({
             glyphsFont: pack.source.glyphsFont,
             osmUrls: pack.source.osmUrls,
             vectorUrl: pack.source.vectorUrl,
+            placesUrl: pack.source.placesUrl,
+            oceanUrl: pack.source.oceanUrl,
           }, region, tier);
           try {
             // Соседи попадают в индекс имён вместе со своими источниками:
@@ -742,6 +1008,10 @@ export default function VedarMap({
               const before = layer.type === 'fill' && map.getLayer(hill) ? hill : 'route-trail';
               map.addLayer(layer as never, map.getLayer(before) ? before : undefined);
             }
+            // Сосед мог принести свой слой мест — фильтр действующий на
+            // экране применяется сразу, а не только со следующей сменой
+            // фильтра (владелец 06.09, «нет точек мест»).
+            applyPlacesFilter(map, placesFilterRef.current);
           } catch (err) {
             // Не молчим: район, который не подложился, — это «не смог», а не
             // «соседей нет» (§4.0). Карта основного района при этом цела.
@@ -764,23 +1034,39 @@ export default function VedarMap({
     if (!src) return;
     src.setData({
       type: 'FeatureCollection',
-      features: lines
-        .filter(l => l.coordinates.length >= 2)
-        .map(l => ({
+      features: [
+        ...lines
+          .filter(l => l.coordinates.length >= 2)
+          .map(l => ({
+            type: 'Feature' as const,
+            properties: {
+              // Род линии — свойством, стиль его читает слоями (§12). Пунктир
+              // от line-standard означает «не снятый трек»: набросок или импорт.
+              // Первый живой рендер 02.09: без этого набросок подборки лёг
+              // веером толстых сплошных зелёных линий.
+              kind: l.kind ?? (l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track'),
+              connector: Boolean(l.connector),
+              dash: l.dashArray ?? null,
+            },
+            geometry: { type: 'LineString' as const, coordinates: l.coordinates },
+          })),
+        // Точки — в том же источнике: концы автопути живут вместе с его линией
+        // и снимаются с карты вместе с ней, одним setData.
+        ...points.map(pt => ({
           type: 'Feature' as const,
-          properties: {
-            // Род линии — свойством, стиль его читает слоями (§12). Пунктир
-            // от line-standard означает «не снятый трек»: набросок или импорт.
-            // Первый живой рендер 02.09: без этого набросок подборки лёг
-            // веером толстых сплошных зелёных линий.
-            kind: l.kind ?? (l.connector ? 'connector' : l.dashArray ? 'sketch' : 'track'),
-            connector: Boolean(l.connector),
-            dash: l.dashArray ?? null,
-          },
-          geometry: { type: 'LineString' as const, coordinates: l.coordinates },
+          properties: { kind: pt.kind, label: pt.label },
+          geometry: { type: 'Point' as const, coordinates: pt.coordinates },
         })),
+        // Булавка выбранной точки — тоже в источнике маршрута: один setData,
+        // стиль рисует её слоем route-pin.
+        ...(pin ? [{
+          type: 'Feature' as const,
+          properties: { kind: 'pin' },
+          geometry: { type: 'Point' as const, coordinates: [pin.lng, pin.lat] },
+        }] : []),
+      ],
     });
-  }, [lines, ready]);
+  }, [lines, points, pin, ready]);
 
   // ── Своё положение ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -802,7 +1088,11 @@ export default function VedarMap({
             'border:3px solid #fff;box-shadow:0 0 8px rgba(66,133,244,0.6);' +
             // Плавный проезд между фиксами вместо телепорта — та же правка,
             // что для синей точки Leaflet (владелец 31.08, GPS ±46 м).
-            'transition:transform 0.6s ease-out;';
+            'transition:transform 0.6s ease-out;cursor:pointer;';
+          // Тап по своей точке — карточка «я» с координатами (как тап по
+          // стрелке положения в навигаторе). stopPropagation — иначе тот же
+          // тап дошёл бы до карты и поставил булавку под ногами.
+          el.addEventListener('click', (ev) => { ev.stopPropagation(); onUserClickRef.current?.(); });
           marker = new maplibre.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
           userMarkerRef.current = marker;
           // Центрируем РОВНО ОДИН раз — «вот вы». Дальше камера человека.
@@ -865,10 +1155,7 @@ export default function VedarMap({
           что уже ловили с компасом (29.08). */}
       {ready && showZoomButtons && (
         <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 5 }}>
-          <VedarZoomButtons handle={{
-            zoomIn: () => { const m = mapRef.current; if (m) m.zoomIn(); },
-            zoomOut: () => { const m = mapRef.current; if (m) m.zoomOut(); },
-          }} />
+          <VedarZoomButtons handle={inlineHandle} />
         </div>
       )}
       {(mapError || diag) && (

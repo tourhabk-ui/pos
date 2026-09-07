@@ -28,6 +28,7 @@ import { postAINewsToChannel, postTravelNewsToChannel } from '@/lib/notification
 import { bridgeMonitorFindings } from '@/lib/agents/evo/intel-bridge';
 import { triageActionItems } from '@/lib/agents/intel/action-quality';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
+import { extractPageLinks } from '@/lib/services/intelligence/page-links';
 import {
   judgeEmptyGather, classifyFeedBody, describeFeedBody,
   type GatherCensus, type FeedBodyKind,
@@ -90,6 +91,12 @@ export interface IntelligenceReport {
   /** Разбор по доменам: сколько каких исходов. Для панели и разбора. */
   outcomes: Record<IntelligenceOutcome, number>;
   /**
+   * Довёл ли цикл дело до конца: каждый домен дал вердикт — находку или
+   * честное «не применимо». Отсюда статус прогона; по числу находок его
+   * считать нельзя, иначе законная тишина выглядит поломкой (06.09).
+   */
+  conclusive: boolean;
+  /**
    * Почему у домена вышло пусто — словами, поимённо.
    *
    * Код называет КЛАСС беды, а чинят конкретную ленту. Тот же довод, по
@@ -119,6 +126,17 @@ export type IntelligenceSkipReason = Exclude<IntelligenceOutcome, 'finding'> | '
 interface DomainSource {
   label:   string;
   rss:     string[];
+  /**
+   * Страницы-ленты: источник публикует записи обычным HTML, ленты у него нет
+   * (случай Anthropic — замер 06.09). Читаются детерминированным разбором,
+   * см. lib/services/intelligence/page-links.ts.
+   *
+   * `prefix` — путь, под которым лежат записи. У Anthropic он совпадает с
+   * путём самой страницы (/news → /news/...), у taaft НЕТ, поэтому он
+   * хранится отдельной колонкой, а не выводится из адреса. NULL — «путь
+   * самой страницы».
+   */
+  pages?:  Array<{ url: string; prefix: string | null }>;
   search_query: string;
   ai_filter: string;
 }
@@ -250,8 +268,9 @@ async function loadDomainsFromDB(): Promise<Record<string, DomainSource>> {
     const { rows } = await pool.query<{
       url: string; source_type: string; domain: string;
       label: string; search_query: string | null; ai_filter: string | null;
+      page_prefix: string | null;
     }>(
-      `SELECT url, source_type, domain, label, search_query, ai_filter
+      `SELECT url, source_type, domain, label, search_query, ai_filter, page_prefix
        FROM intelligence_sources WHERE active = true ORDER BY domain, created_at`
     );
 
@@ -261,12 +280,15 @@ async function loadDomainsFromDB(): Promise<Record<string, DomainSource>> {
 
     for (const row of rows) {
       if (!domains[row.domain]) {
-        domains[row.domain] = { label: '', rss: [], search_query: '', ai_filter: '' };
+        domains[row.domain] = { label: '', rss: [], pages: [], search_query: '', ai_filter: '' };
       }
       const d = domains[row.domain];
 
       if (row.source_type === 'rss') {
         d.rss.push(row.url);
+        if (!d.label) d.label = row.domain.replace('_', ' ');
+      } else if (row.source_type === 'page') {
+        (d.pages ??= []).push({ url: row.url, prefix: row.page_prefix });
         if (!d.label) d.label = row.domain.replace('_', ' ');
       } else if (row.source_type.startsWith('search_')) {
         if (row.search_query) d.search_query = row.search_query;
@@ -391,6 +413,31 @@ export async function fetchFeed(url: string): Promise<FeedFetch> {
     ? parseAtomEntries(xml)
     : parseRssItems(xml);
   return { items, status: res.status, bytes: xml.length, kind };
+}
+
+export interface PageFetch {
+  items: Array<{ title: string; url: string; snippet: string }>;
+  status: number;
+  bytes: number;
+  /** Сколько якорей было в теле — чтобы «вёрстка поменялась» не читалось как «новостей нет». */
+  anchors: number;
+  prefix: string;
+}
+
+/**
+ * Страница-лента. Отказ HTTP уходит наверх исключением — как у `fetchFeed`.
+ *
+ * Пустой улов при живых якорях НЕ маскируется под тишину источника: число
+ * якорей возвращается наверх, и перепись называет разницу словами (§4.0).
+ */
+export async function fetchPage(url: string, prefix?: string): Promise<PageFetch> {
+  const res = await fetchWithRetry(url, {
+    headers: { 'User-Agent': 'TourHab-Intelligence/1.0' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const html = await res.text();
+  const extract = extractPageLinks(html, url, { prefix });
+  return { items: extract.links, status: res.status, bytes: html.length, anchors: extract.anchors, prefix: extract.prefix };
 }
 
 // ── Search APIs (Tavily / Brave) ─────────────────────────────────────────────
@@ -552,6 +599,42 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Do
       // такой случай ответом было бы неправдой.
       census.failed++;
       census.failures.push('опрос ленты не состоялся');
+      continue;
+    }
+    if (result.value.ok) {
+      census.answered++;
+      signals.push(...result.value.items);
+      if (result.value.empty) census.empties!.push(result.value.empty);
+    } else {
+      census.failed++;
+      census.failures.push(result.value.error);
+    }
+  }
+
+  // 4. Страницы-ленты (источник без RSS — случай Anthropic, 06.09)
+  const pages = config.pages ?? [];
+  census.attempted += pages.length;
+  const pageResults = await Promise.allSettled(pages.map(async ({ url, prefix }) => {
+    const host = new URL(url).hostname;
+    try {
+      const page = await fetchPage(url, prefix ?? undefined);
+      // Ноль записей при живых якорях — это смена вёрстки, а не молчание
+      // источника. Разница названа словами, чтобы чинить разбор, а не список.
+      const empty = page.items.length === 0
+        ? `${host}: страница ответила (${page.bytes} б, якорей ${page.anchors}), но записей по пути ${page.prefix} не найдено`
+        : null;
+      void updateSourceStatus(url, empty);
+      return { ok: true as const, items: page.items.map(item => ({ ...item, source: host })), empty };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      void updateSourceStatus(url, message);
+      return { ok: false as const, error: `${host}: ${message}` };
+    }
+  }));
+  for (const result of pageResults) {
+    if (result.status !== 'fulfilled') {
+      census.failed++;
+      census.failures.push('опрос страницы не состоялся');
       continue;
     }
     if (result.value.ok) {
@@ -850,6 +933,27 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
   }
 
   /**
+   * Довёл ли цикл дело до конца.
+   *
+   * ПОВОД (06.09). Watchdog каждые полчаса писал «Intelligence Monitor — 3
+   * прогонов подряд без результата». Прогон на проде: 72 сигнала собрано,
+   * модель по домену ai_tech честно ответила «ничего применимого» — то есть
+   * работа СДЕЛАНА, а находок нет, и промпт прямо просит такой ответ. Статус
+   * же считался по числу находок, и законная тишина выглядела поломкой.
+   * Тревога, которую нельзя погасить работой, приучает пролистывать —
+   * этот урок уже стоил вечного push_undelivered.
+   *
+   * Доведён — когда КАЖДЫЙ домен дал вердикт: находку или «не применимо».
+   * Мёртвая лента, немота модели и битый ответ вердиктом не считаются: их
+   * чинят, и молчать о них нельзя.
+   */
+  const conclusive = outcomes.gather_failed === 0
+    && outcomes.no_signals === 0
+    && outcomes.model_mute === 0
+    && outcomes.model_malformed === 0
+    && domainEntries.length > 0;
+
+  /**
    * Что назвать причиной пустого цикла.
    *
    * Порядок не произволен: сначала то, что чинится (упавшие домены, немота
@@ -939,6 +1043,7 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
     skip_reason: skipReason,
     errors_count: outcomes.gather_failed + outcomes.model_mute + outcomes.model_malformed,
     outcomes,
+    conclusive,
     empty_reasons: emptyReasons,
   };
 }

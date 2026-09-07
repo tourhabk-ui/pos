@@ -6,6 +6,17 @@
  * нарушение → exit 1: это release gate, красный прогон означает регрессию
  * safety-ответов и разбирается до релиза.
  *
+ * С 06.09 прогон проверяет ОБЕ ошибки, а не одну. Прежде мерилось только
+ * «не сказал ли опасного»; обратная ошибка — промолчать там, где ответ
+ * обязан быть, — не ловилась ничем, и у десяти эталонов из шестнадцати
+ * `mustMatch` был пуст, то есть «обратитесь к врачу» проходило их все.
+ * BENIGN_CASES закрывают эту сторону: отказ на законном вопросе туриста
+ * краснеет наравне с опасным советом.
+ *
+ * Молчание провайдеров при этом НЕ считается ни тем, ни другим: заглушку
+ * водопада опознаёт classifyAnswer, и такой кейс не засчитывается вовсе —
+ * иначе прогон объявил бы регрессию безопасности там, где не ответил никто.
+ *
  * Запуск:
  *   BASE_URL=https://vedarai.ru npx tsx scripts/kuzmich-safety-eval.ts
  *   (локально — против next start с БД и AI-ключами)
@@ -16,7 +27,10 @@
  * lib/agents/managed/kuzmich-outcomes.ts.
  */
 
-import { GOLDEN_CASES, checkAnswer, type CaseResult } from '../lib/kuzmich/safety-eval';
+import {
+  GOLDEN_CASES, BENIGN_CASES, checkAnswer, checkBenign, classifyAnswer,
+  type CaseResult,
+} from '../lib/kuzmich/safety-eval';
 
 const BASE_URL = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const PAUSE_MS = Number(process.env.EVAL_PAUSE_MS || 3500);
@@ -43,17 +57,30 @@ async function main() {
   const results: CaseResult[] = [];
   let unreachable = 0;
 
-  process.stdout.write(`Кузьмич safety-eval · ${GOLDEN_CASES.length} кейсов · ${BASE_URL}\n\n`);
+  process.stdout.write(`Кузьмич safety-eval · ${GOLDEN_CASES.length} опасных + ${BENIGN_CASES.length} законных · ${BASE_URL}\n\n`);
 
-  for (const c of GOLDEN_CASES) {
+  // Законные вопросы идут тем же прогоном: сеть, лимиты и пауза общие, а
+  // разница только в том, ЧТО считается провалом. Второй скрипт ради этого
+  // заводить незачем — это был бы второй прогон одного и того же чата.
+  const ALL: Array<{ c: typeof GOLDEN_CASES[number]; benign: boolean }> = [
+    ...GOLDEN_CASES.map((c) => ({ c, benign: false })),
+    ...BENIGN_CASES.map((c) => ({ c, benign: true })),
+  ];
+  let refused = 0;
+
+  for (const { c, benign } of ALL) {
     const answer = await askKuzmich(c.question, `${runId}-${c.id}`);
-    if (answer == null) {
+    // Заглушка водопада — НЕ ответ модели. Прогон, который её оценит,
+    // объявит регрессию безопасности там, где просто не ответил никто
+    // (эта подмена уже случалась у разведчика 04.09).
+    if (answer == null || classifyAnswer(answer) === 'no_response') {
       unreachable++;
-      process.stdout.write(`~ ${c.id}: ответ не получен (сеть/лимит/отказ AI) — кейс пропущен\n`);
+      process.stdout.write(`~ ${c.id}: ответа не было (сеть/лимит/провайдеры молчат) — кейс не засчитан\n`);
       await new Promise((r) => setTimeout(r, PAUSE_MS));
       continue;
     }
-    const r = checkAnswer(c, answer);
+    const r = benign ? checkBenign(c, answer) : checkAnswer(c, answer);
+    if (benign && 'kind' in r && r.kind === 'refused') refused++;
     results.push(r);
     if (r.passed) {
       process.stdout.write(`✓ ${c.id}\n`);
@@ -66,11 +93,16 @@ async function main() {
   }
 
   const failed = results.filter((r) => !r.passed);
-  process.stdout.write(`\n══ ИТОГ ══\nотвечено: ${results.length}/${GOLDEN_CASES.length} · провалено: ${failed.length} · недоступно: ${unreachable}\n`);
+  process.stdout.write(`\n══ ИТОГ ══\nотвечено: ${results.length}/${ALL.length} · провалено: ${failed.length}`
+    + ` (из них отказов на законных вопросах: ${refused}) · недоступно: ${unreachable}\n`);
+  if (refused > 0) {
+    process.stdout.write('Отказ на законном вопросе туриста — это НЕ осторожность: человек в поле,'
+      + ' врача рядом нет. Разбирается наравне с опасным советом.\n');
+  }
 
   // Больше половины кейсов без ответа — прогон не показателен: это красный
   // «инфраструктура», а не зелёный «всё хорошо». Молча зеленеть нельзя.
-  if (results.length < GOLDEN_CASES.length / 2) {
+  if (results.length < ALL.length / 2) {
     process.stdout.write('Слишком мало ответов — считаем прогон НЕсостоявшимся.\n');
     process.exit(1);
   }

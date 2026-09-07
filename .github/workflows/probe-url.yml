@@ -16,6 +16,17 @@ on:
     paths:
       - '.github/triggers/probe-url.json'
 
+# Вывод пробы дублируется в check-run на коммите (05.09, решение владельца).
+# Лог job GitHub отдаёт редиректом в blob-хранилище Azure, а сессия
+# Claude за прокси с политикой этот хост не видит: проба 441 прошла
+# зелёной, а прочитать её цифры было нечем, пока не поднялся GitHub MCP.
+# Check-run — репозиторный эндпоинт (/repos/{owner}/{repo}/check-runs/{id}),
+# он читается всегда. Лог остаётся первичным; check-run — второй экземпляр
+# того же текста, обрезанный по лимиту GitHub в 65 535 символов.
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -31,12 +42,18 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Fetch and print
+        id: fetch
         env:
           # Некоторые эндпоинты (например /api/cron/health) требуют CRON_SECRET.
           # Заголовок безопасен для публичных URL — они его игнорируют. Секрет
           # маскируется в логах Actions и не попадает в коммитимый probe-url.json.
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # Копия всего вывода шага — для check-run ниже. exec, а не `| tee`:
+          # конвейер съел бы код выхода, а красная проба обязана оставаться
+          # красной. Секрет в вывод не попадает: заголовок Authorization
+          # никогда не печатается, а маскировка Actions действует и здесь.
+          exec > >(tee /tmp/probe-out.txt) 2>&1
           # .get: проба может быть только-POST (проба 96 упала на KeyError без 'urls')
           URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json')).get('urls', [])))")
           BYTES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('bytes', 6000))")
@@ -52,6 +69,11 @@ jobs:
           # Маркеры, вокруг которых печатать контекст (см. ниже), и сколько.
           AROUND=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('around', [])))")
           AROUND_LINES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundLines', 8))")
+          # Сколько строк ПЕРЕД совпадением. Нужно там, где искомое стоит
+          # раньше маркера: в ссылке `<a href="…">Become a Supplier</a>` адрес
+          # идёт до текста, и один только -A показывает соседнюю ссылку вместо
+          # искомой. Дефолт 0 — прежние пробы не меняются.
+          AROUND_BEFORE=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundBefore', 0))")
           AROUND_HITS=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundHits', 2))")
           UA=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('ua', 'Mozilla/5.0 (compatible; VedarProbe/1.0)'))")
           # Необязательный таймаут (сек): нужен для длинных серверных прогонов
@@ -145,17 +167,37 @@ jobs:
           do_request() {
             local method="$1" url="$2"
             local auth=()
+            # Тело и заголовки обнуляются ПЕРЕД запросом (проба 447).
+            #
+            # curl с -o создаёт файл только когда начал получать ответ. При
+            # отказе на подключении (несуществующий хост, DNS, обрыв) файлы
+            # оставались от ПРЕДЫДУЩЕГО URL — и отчёт считал маркеры по чужому
+            # телу. Ровно это и вышло на supplier.trip.com: соединения не было,
+            # а проба напечатала 140 588 байт главной partner.trip.com вместе с
+            # её маркерами, как будто это ответ несуществующего хоста. Отказ
+            # выглядел удачным замером — §4.0, исход «не смог» подменён первым.
+            : > /tmp/body
+            : > /tmp/headers
             case "$url" in
               https://vedarai.ru/api/cron/*) auth=(-H "Authorization: Bearer ${CRON_SECRET}");;
             esac
             if [ "$method" = POST ]; then
               CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
                 ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} -H "Content-Type: application/json" \
-                -X POST --data-binary @/tmp/postbody.json "$url" || echo 000)
+                -X POST --data-binary @/tmp/postbody.json "$url") || true
             else
               CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
-                ${EXTRA[@]+"${EXTRA[@]}"} ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} "$url" || echo 000)
+                ${EXTRA[@]+"${EXTRA[@]}"} ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} "$url") || true
             fi
+            # Здесь было `|| echo 000` В КОМАНДНОЙ ПОДСТАНОВКЕ, и это ломало
+            # распознавание отказа: curl и сам печатает «000» через -w, а echo
+            # дописывал вторые три нуля. Получалось «000000», которое не
+            # совпадает с веткой `000)` ниже — то есть отказ соединения не
+            # считался поводом ни для повтора, ни для красной пробы.
+            case "$CODE" in
+              ''|*[!0-9]*) CODE=000;;
+            esac
+            [ "${#CODE}" -eq 3 ] || CODE=000
           }
 
           # Ожидание выката. Третий аргумент — «этот запрос датчик свежести»:
@@ -196,6 +238,15 @@ jobs:
           # Отчёт по снятому телу — общий для обоих методов.
           report_body() {
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body) | попыток: $((attempt+1))"
+            # Отсутствие ответа называется вслух и не разбирается на маркеры:
+            # считать «НЕТ: supplier» по пустому телу значит выдавать «не смог
+            # спросить» за «спросил, там нет».
+            if [ "$CODE" = 000 ]; then
+              echo "  НЕ СМОГ СНЯТЬ: ответа не было (хост не резолвится, соединение оборвано или таймаут)."
+              echo "  Маркеры и счётчики не считались — их отсутствие ничего не говорит о содержимом."
+              echo ""
+              return 0
+            fi
             # Заголовки ответа: часть поведения задаётся не нашим кодом, а
             # прокси перед ним. Например Permissions-Policy может выключить
             # геолокацию на всём сайте, и по телу страницы этого не увидеть.
@@ -255,7 +306,7 @@ jobs:
                 # sed умеет вставлять перевод строки. По '>' — для HTML, по
                 # запятой — для JSON: у ответа аудита нет ни одного '>' на
                 # двенадцать килобайт, и без запятой он остаётся простынёй.
-                sed 's/>/>\n/g; s/,/,\n/g' < /tmp/body | grep -m "$AROUND_HITS" -A "$AROUND_LINES" -F -- "$a" | cut -c1-200 || echo "  (не найдено)"
+                sed 's/>/>\n/g; s/,/,\n/g' < /tmp/body | grep -m "$AROUND_HITS" -B "$AROUND_BEFORE" -A "$AROUND_LINES" -F -- "$a" | cut -c1-200 || echo "  (не найдено)"
               done <<< "$AROUND"
             fi
             echo "── первые ${BYTES} байт ──"
@@ -377,3 +428,48 @@ jobs:
             echo "Если несвежесть и есть искомый ответ — \"allowStale\": true."
             exit 1
           fi
+
+      # Второй экземпляр вывода — check-run на коммите. Всегда, и на красной
+      # пробе тоже: красная проба читается так же, как зелёная. Заключение
+      # check-run повторяет исход шага, не заменяет его: если публикация
+      # упала, job всё равно красная/зелёная по своему шагу.
+      - name: Publish output as check-run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.fetch.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          text = open('/tmp/probe-out.txt', encoding='utf-8', errors='replace').read() if os.path.exists('/tmp/probe-out.txt') else '(вывод шага не записан)'
+          # Лимит GitHub на output.text — 65 535 символов. Хвост важнее головы:
+          # там итог и «ПРОБА НЕ УДАЛАСЬ», а голова — эхо конфига.
+          limit = 60000
+          if len(text) > limit:
+              text = '…(обрезано: показан хвост)\n' + text[-limit:]
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'probe-output',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {
+                  'title': f"Проба {os.environ.get('GITHUB_RUN_NUMBER', '?')}: {outcome}",
+                  'summary': 'Копия вывода шага Fetch and print для чтения через API репозитория.',
+                  'text': text,
+              },
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              j = json.load(r)
+              print(f"check-run {j['id']} создан: {j['html_url']}")
+          PY

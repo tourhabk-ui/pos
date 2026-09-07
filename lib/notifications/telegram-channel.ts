@@ -13,6 +13,12 @@ import { validateRoutePost, validateTextPost, logValidationFailure, blockingText
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 import { stripTags } from '@/lib/html/text';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
+import { composePlacePost } from '@/lib/notifications/place-post';
+// Подпись к фото — через тот же срез, что и текст поста. Слепой slice(0, 1024)
+// рвал теги и оставлял голый `<`, а Bot API на такую подпись отвечает 400 —
+// и пост, у которого фото ЕСТЬ, уходил голым текстом.
+import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
+import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upload';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,16 +69,58 @@ async function tgPost(chatId: string, text: string, botToken?: string): Promise<
   return { ok: data.ok, error: data.description };
 }
 
-/** Одна попытка sendPhoto — БЕЗ фолбэка. Причина отказа возвращается наверх. */
+const tgApiBase = () => process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+
+/**
+ * Отправка формой: снимок уходит БАЙТАМИ, а не ссылкой.
+ *
+ * Пока мы даём ссылку, публикация зависит от того, дойдёт ли сервер Telegram
+ * до нашего хоста. 07.09 журнал показал, что не доходит: «failed to get HTTP
+ * URL content» и «WEBPAGE_CURL_FAILED» при живых снимках (перепись с прода:
+ * 200, image/jpeg, 68–214 КБ). Байты убирают это условие целиком.
+ */
+async function tgSendMultipart(method: string, token: string, form: FormData): Promise<{ ok: boolean; description?: string }> {
+  try {
+    const res = await fetch(`${tgApiBase()}/bot${token}/${method}`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(30000),
+    });
+    return await res.json() as { ok: boolean; description?: string };
+  } catch (err) {
+    return { ok: false, description: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Одна попытка sendPhoto — БЕЗ фолбэка на другое фото. Причина отказа
+ * возвращается наверх.
+ *
+ * Порядок попыток: сначала байтами (не зависит от достижимости нашего хоста
+ * снаружи), при неудаче СКАЧИВАНИЯ — ссылкой, как раньше. Ссылка осталась не
+ * из осторожности к правке, а потому что «мы не смогли скачать свой же файл»
+ * и «Telegram не смог скачать» — разные беды, и вторая ссылкой ещё может
+ * решиться.
+ */
 async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string, token: string): Promise<{ ok: boolean; error?: string }> {
+  const safeCaption = repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT);
+  const fetched = await fetchPhotoForUpload(photoUrl);
+
+  if (isFetched(fetched)) {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('caption', safeCaption);
+    form.append('parse_mode', 'HTML');
+    form.append('photo', fetched.blob, fetched.filename);
+    const data = await tgSendMultipart('sendPhoto', token, form);
+    if (data.ok) return { ok: true };
+    return { ok: false, error: `загрузкой: ${data.description ?? 'unknown'}` };
+  }
+
+  console.error('[tgSendPhotoOnce] свой снимок не скачался, пробуем ссылкой:', fetched.error, '| photo:', photoUrl);
   const data = await tgFetchWithRetry(
-    `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendPhoto`,
-    {
-      chat_id: chatId,
-      photo: photoUrl,
-      caption: caption.slice(0, 1024),
-      parse_mode: 'HTML',
-    },
+    `${tgApiBase()}/bot${token}/sendPhoto`,
+    { chat_id: chatId, photo: photoUrl, caption: safeCaption, parse_mode: 'HTML' },
   );
   return { ok: data.ok, error: data.description };
 }
@@ -111,13 +159,39 @@ export async function tgPostMediaGroup(
 
   const photos = photoUrls.slice(0, 10);
   if (photos.length > 1) {
+    const safeCaption = repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT);
+
+    // Альбом байтами: каждый кадр прикладывается файлом и назначается в media
+    // через attach://. Пока альбом ссылался на наши URL, Telegram отвечал
+    // WEBPAGE_CURL_FAILED — «не смог скачать» — при живых снимках.
+    const fetched = await Promise.all(photos.map((u) => fetchPhotoForUpload(u)));
+    const files = fetched.filter(isFetched);
+    if (files.length > 1) {
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('media', JSON.stringify(files.map((f, i) => (
+        i === 0
+          ? { type: 'photo', media: `attach://p${i}`, caption: safeCaption, parse_mode: 'HTML' }
+          : { type: 'photo', media: `attach://p${i}` }
+      ))));
+      files.forEach((f, i) => form.append(`p${i}`, f.blob, f.filename));
+      const uploaded = await tgSendMultipart('sendMediaGroup', token, form);
+      if (uploaded.ok) return { ok: true, sent: files.length };
+      console.error('[tgPostMediaGroup] альбом загрузкой не ушёл:', uploaded.description ?? 'unknown');
+    } else {
+      // Скачать свои же снимки не вышло — это НАША беда, и она называется
+      // отдельно от отказа Telegram.
+      const why = fetched.filter((f) => !isFetched(f)).map((f) => (f as { error: string }).error).slice(0, 3);
+      console.error('[tgPostMediaGroup] свои снимки не скачались:', why.join('; ') || 'unknown');
+    }
+
     const media = photos.map((url, i) => (
       i === 0
-        ? { type: 'photo', media: url, caption: caption.slice(0, 1024), parse_mode: 'HTML' }
+        ? { type: 'photo', media: url, caption: safeCaption, parse_mode: 'HTML' }
         : { type: 'photo', media: url }
     ));
     const data = await tgFetchWithRetry(
-      `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMediaGroup`,
+      `${tgApiBase()}/bot${token}/sendMediaGroup`,
       { chat_id: chatId, media },
     );
     if (data.ok) return { ok: true, sent: photos.length };
@@ -285,13 +359,33 @@ interface ChannelPost {
   photoUrls?: string[] | null;
 }
 
-async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Итог публикации, в котором у ФОТО свой исход.
+ *
+ * До 07.09 отправка возвращала `ok: true` и когда снимок ушёл, и когда он не
+ * ушёл, а текст ушёл: разные события под одним словом. Из-за этого «ни одной
+ * фотографии» прожило незамеченным — крон отвечал успехом, а канал молчал
+ * картинками, и увидеть разницу мог только человек, открывший канал (§4.0).
+ *
+ * `photo`: `sent` — снимок ушёл; `text_only` — снимок отвергнут, ушёл текст;
+ * `none` — снимка и не просили.
+ */
+export type PhotoOutcome = 'sent' | 'text_only' | 'none';
+export interface ChannelPostResult {
+  ok: boolean;
+  error?: string;
+  photo: PhotoOutcome;
+  /** Почему снимок не ушёл — при `text_only`. */
+  photoError?: string;
+}
+
+async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> {
   const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl, photoUrls } = post;
   const issue = blockingTextIssue(text);
   if (issue) {
     const error = `Публикация отменена: ${issue}`;
     console.error('[postToAllChannels]', error, `| текст: ${JSON.stringify(text.slice(0, 120))}`);
-    return { ok: false, error };
+    return { ok: false, error, photo: 'none' };
   }
 
   // Полная проверка текста: качество, запрещённое и ЖИВОСТЬ ВСЕХ ССЫЛОК.
@@ -305,7 +399,7 @@ async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; erro
     const error = `Публикация отменена: ${validation.errors.join('; ')}`;
     console.error('[postToAllChannels]', postType, error);
     await logValidationFailure(postType, validation);
-    return { ok: false, error };
+    return { ok: false, error, photo: 'none' };
   }
 
   const tgLink = process.env.TELEGRAM_CHANNEL_LINK ?? '';
@@ -335,7 +429,17 @@ async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; erro
     if (!r.ok) console.error('[postToAllChannels] MAX channel error:', r.error);
   }).catch(() => {});
 
-  return mainResult;
+  // Исход ФОТО отделён от исхода публикации: пост мог уйти, а снимок — нет,
+  // и раньше эти два случая были неразличимы снаружи.
+  const asked = Boolean((photoUrls && photoUrls.length > 0) || photoUrl);
+  const fellBack = 'fellBackToText' in mainResult && mainResult.fellBackToText === true;
+  const photo: PhotoOutcome = !asked ? 'none' : (mainResult.ok && !fellBack ? 'sent' : 'text_only');
+  return {
+    ok: mainResult.ok,
+    ...(mainResult.error ? { error: mainResult.error } : {}),
+    photo,
+    ...(photo === 'text_only' && mainResult.error ? { photoError: mainResult.error } : {}),
+  };
 }
 
 const LOCATION_LABELS: Record<string, string> = {
@@ -565,6 +669,34 @@ const FRIENDS: Record<string, FriendEntry> = {
 };
 
 /**
+ * Телефон подставляется ПОСЛЕ модели, а не отдаётся ей.
+ *
+ * Две причины, и обе весомее формальности. Первая: контакт живого человека в
+ * тексте промпта — трансграничная передача персональных данных, потому что
+ * промпт уходит зарубежному провайдеру (152-ФЗ, гард D1). Найдено 04.09
+ * расширенным сканером: прежний шаблон видел `.phone` и `.email`, но не видел
+ * `.contact`, и эта строка полтора месяца ездила в OpenRouter незамеченной.
+ *
+ * Вторая причина практическая и, пожалуй, важнее: модели ПЕРЕВИРАЮТ ЦИФРЫ.
+ * Неверный телефон в публичном посте про друга хуже, чем отсутствие поста:
+ * человек звонит не туда, а мы этого даже не узнаем. Подстановка на нашей
+ * стороне делает ошибку невозможной по построению.
+ *
+ * Модель не поставила метку — дописываем строку сами: пост без контактов
+ * бесполезен, а второй заход к модели стоил бы дороже и мог бы снова прийти
+ * без метки.
+ */
+export const CONTACT_PLACEHOLDER = 'КОНТАКТЫ_ЗДЕСЬ';
+
+export function withFriendContacts(text: string, friend: { contact: string; tg?: string }): string {
+  const line = friend.tg ? `${friend.contact}, ${friend.tg}` : friend.contact;
+  if (text.includes(CONTACT_PLACEHOLDER)) {
+    return text.split(CONTACT_PLACEHOLDER).join(line);
+  }
+  return `${text.trimEnd()}\n\n${line}`;
+}
+
+/**
  * AI генерирует пост в голосе Кузьмича про внешнего партнёра («друга»)
  * и публикует в канал.
  */
@@ -586,14 +718,16 @@ export async function postFriendToChannel(slug: string): Promise<{ ok: boolean; 
 - 60-100 слов, живой голос местного жителя, без рекламного пафоса
 - Немного иронии над городскими туристами которые сидят в гостиницах
 - Конкретно и по делу — что они делают, чем отличаются
-- В конце контакты: ${friend.contact}${friend.tg ? `, ${friend.tg}` : ''}
+- Последней строкой поставь ровно ${CONTACT_PLACEHOLDER} и больше ничего к ней не добавляй
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - Начни не с имени, а с наблюдения или ситуации
 ${KUZMICH_CHANNEL_VOICE}`;
 
-  const text = await callAIWithModelDirect([
+  const generated = await callAIWithModelDirect([
     { role: 'user', content: prompt },
   ], getModelForAgent('kuzmich'));
+
+  const text = withFriendContacts(generated, friend);
 
   return postToAllChannels({ channelId, postType: 'friend', text });
 }
@@ -606,121 +740,41 @@ interface KuzmichRouteRow {
   description: string | null;
   location_type: string | null;
   activity_type: string | null;
-  zone: string | null;
-  kuzmich_review: string | null;
-  lat: number | null;
-  lng: number | null;
   has_track: boolean;
 }
-
-// Куратор-фото по типу локации — РЕАЛЬНЫЕ снимки Камчатки из public/images.
-// Отдаются с нашего домена (Telegram/MAX точно загрузят) и НЕ являются
-// AI-пейзажем (решение владельца 2026-07-17: AI-картинки чужих мест не
-// показываем). Только файлы, которые реально лежат в public/images.
-const LOCATION_PHOTO: Record<string, string> = {
-  volcano:    '/images/categories/vulkany.jpg',
-  mountain:   '/images/categories/vulkany.jpg',
-  geyser:     '/images/bento/mutnovsky.jpg',
-  hot_spring: '/images/categories/termy.jpg',
-  thermal:    '/images/categories/termy.jpg',
-  lake:       '/images/bento/laguna.jpg',
-  river:      '/images/activities/rafting.jpg',
-  waterfall:  '/images/bento/laguna.jpg',
-  bay:        '/images/categories/morskie.jpg',
-  cape:       '/images/bento/cape.jpg',
-  island:     '/images/categories/morskie.jpg',
-  beach:      '/images/bento/khalaktyr.jpg',
-};
-
-// Карта activity_type → фото из public/images/activities/ (второй fallback)
-const ACTIVITY_PHOTO: Record<string, string> = {
-  trekking:    '/images/activities/volcanoes.jpg',
-  fishing:     '/images/activities/fishing.jpg',
-  helicopter:  '/images/activities/helicopter.jpg',
-  thermal:     '/images/activities/hotsprings.jpg',
-  boat_trip:   '/images/activities/sea.jpg',
-  snowmobile:  '/images/activities/snowmobile.jpg',
-  bears:       '/images/hero/bears-kurilskoye.jpg',
-};
 
 function publicAppUrl(): string {
   return getPublicBaseUrl();
 }
 
 /**
- * Гарантированно-достижимое честное фото для поста: куратор-снимок Камчатки
- * по типу локации/активности (с нашего домена), а карта — лишь крайний случай.
- * Порядок «фото раньше карты» специально: пост про озеро приходил с картой
- * (или вовсе текстом), а не с фото воды.
+ * Свой снимок места — единственное фото, с которым пост может выйти.
+ *
+ * До 05.09 здесь стоял каскад: свой снимок → куратор-фото Камчатки по типу
+ * локации с оговоркой «на фото не это место» → карта. Владелец снял пост про
+ * озеро Зелёное вместе с таким фото: оговорка честна, но читатель видит
+ * снимок над текстом и делает единственный вывод. Чужого снимка у поста о
+ * месте больше нет — место без своего фото не выбирается вовсе (условие в
+ * SQL ниже), а откат при отказе Telegram идёт в текст, не в чужую картинку.
+ * Свои снимки — только wikimedia и ручная загрузка, не AI-блобы.
  */
-export function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
-  const appUrl = publicAppUrl();
-  // 1. Реальное фото по типу локации
-  const locPhoto = LOCATION_PHOTO[r.location_type ?? ''];
-  if (locPhoto) return `${appUrl}${locPhoto}`;
-  // 2. Реальное фото по типу активности
-  const actPhoto = ACTIVITY_PHOTO[r.activity_type ?? ''];
-  if (actPhoto) return `${appUrl}${actPhoto}`;
-  // 3. Крайний случай — статичная карта Яндекса с точкой (честно показывает ГДЕ)
-  if (r.lat && r.lng) {
-    const ll = `${r.lng},${r.lat}`;
-    return `https://static-maps.yandex.ru/1.x/?ll=${ll}&z=11&size=650,400&pt=${ll},pm2rdm&l=map`;
-  }
-  return null;
+export const OWN_PHOTO_MODELS = ['wikimedia', 'manual-upload'] as const;
+
+function ownPhotoUrl(routeId: string): string {
+  return `${publicAppUrl()}/api/images/route/${routeId}`;
 }
 
 /**
- * Фото для поста Кузьмича — сначала РЕАЛЬНЫЙ снимок самого места (wikimedia /
- * ручная загрузка) через /api/images/route/[id]; если его нет — куратор-фото
- * Камчатки по типу локации с нашего домена (buildRoutePhotoUrl).
- *
- * Раньше здесь синхронно генерилась AI-картинка (Pollinations Flux, ~60с) —
- * ненадёжно из РФ (Timeweb) и вразрез с решением 2026-07-17 (AI-пейзажи не
- * показываем). Когда генерация зависала/падала, а фолбэк-карта не грузилась,
- * tgPostPhoto тихо откатывался на текст — пост уходил без фото (кейс владельца
- * «Большой Калыгирь»). Теперь путь детерминированный, без внешней генерации.
- */
-async function resolvePostPhotoUrl(
-  r: KuzmichRouteRow,
-): Promise<{ url: string | null; ofThisPlace: boolean }> {
-  // Реальное фото места (только wikimedia/ручная загрузка — не AI-блобы)
-  try {
-    const { rows } = await query(
-      `SELECT 1 FROM ai_route_images
-       WHERE route_id = $1 AND model IN ('wikimedia', 'manual-upload')
-       LIMIT 1`,
-      [r.id],
-    );
-    if (rows.length > 0) return { url: `${publicAppUrl()}/api/images/route/${r.id}`, ofThisPlace: true };
-  } catch {
-    // Нет доступа к БД — не блокируем пост, идём к куратор-фото
-  }
-  // Куратор-снимок — настоящая Камчатка, но НЕ это место.
-  return { url: buildRoutePhotoUrl(r), ofThisPlace: false };
-}
-
-/**
- * Подпись к чужому снимку.
- *
- * 19.08 владелец показал пост про маар «Медвежья чаша»: сверху — девушка в
- * купальнике у лестницы в бассейн, снизу — текст про тридцатиметровый кратер с
- * бирюзовой водой. Снимок настоящий и камчатский, но это НЕ маар: у места нет
- * своего фото, и подставился куратор-снимок по типу локации.
- *
- * Читатель не знает про каскад фолбэков. Он видит фото над текстом и делает
- * единственный возможный вывод: вот оно, это место. Снимок без оговорки —
- * такая же подмена, как рейтинг 4.5 у перевозчика, которого никто не оценивал.
- *
- * Дешевле всего сказать правду одной строкой: фото остаётся, ложь уходит.
- */
-const NOT_THIS_PLACE_NOTE = '\n\n<i>На фото — Камчатка, но не это место: своего снимка у нас пока нет.</i>';
-
-/**
- * Выбирает случайный маршрут, не постившийся последние 30 дней,
- * генерирует пост голосом Кузьмича и публикует в канал.
+ * Выбирает случайное место со СВОИМ фото, не постившееся последние 30 дней,
+ * собирает пост из его данных (composePlacePost — модели нет) и публикует.
  * Логирует в ai_actions_log.
+ *
+ * Решение владельца 05.09 после поста про озеро Зелёное: модель сочинила
+ * кратер, железо и тёплую воду, которых нет в данных, а фото было чужим.
+ * Промпт запрещал выдумывать — и не помог, как не помог 12.07 и 19.08.
+ * Сторож структурный: тексту неоткуда взять то, чего нет в записи.
  */
-export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: string; error?: string }> {
+export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: string; error?: string; photo?: PhotoOutcome; photoError?: string }> {
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
@@ -736,7 +790,6 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
     // не совпадало с содержимым страницы
     const pickResult = await query<KuzmichRouteRow>(`
       SELECT ark.id, ark.title, ark.description, ark.location_type, ark.activity_type,
-             ark.zone, ark.kuzmich_review, ark.lat, ark.lng,
              EXISTS (
                SELECT 1 FROM kamchatka_routes k
                WHERE k.geometry IS NOT NULL
@@ -746,6 +799,10 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
       FROM agent_route_knowledge ark
       WHERE ark.is_visible = TRUE
         AND ark.id::text <> ALL($1)
+        AND EXISTS (
+          SELECT 1 FROM ai_route_images i
+          WHERE i.route_id = ark.id AND i.model = ANY($2)
+        )
         AND ark.id::text NOT IN (
           SELECT metadata->>'route_id'
           FROM ai_actions_log
@@ -760,58 +817,26 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
                       OR k.metadata->>'place_ark_id' = ark.id::text)
              ) DESC, RANDOM()
       LIMIT 1
-    `, [rejectedIds]);
+    `, [rejectedIds, [...OWN_PHOTO_MODELS]]);
 
-    if (!pickResult.rows[0]) return { ok: false, error: 'Нет маршрутов для поста (все опубликованы в последние 30 дней)' };
+    if (!pickResult.rows[0]) return { ok: false, error: 'Нет мест для поста: со своим фото и не опубликованных за 30 дней не осталось' };
     const r = pickResult.rows[0];
 
     const locLabel = LOCATION_LABELS[r.location_type ?? ''] ?? r.location_type ?? '';
     const actLabel = ACTIVITY_LABELS[r.activity_type ?? ''] ?? r.activity_type ?? '';
     const appUrl   = getPublicBaseUrl();
 
-    const reviewCtx = r.kuzmich_review
-      ? `\nМои заметки об этом месте: "${r.kuzmich_review.slice(0, 280)}"`
-      : '';
+    // Текст — из записи, без модели. null — описания нет; такой кандидат
+    // отбраковывается ниже тем же путём, что и любой другой.
+    const text = composePlacePost(
+      { id: r.id, title: r.title, description: r.description, has_track: r.has_track },
+      { appUrl, locLabel, actLabel },
+    ) ?? '';
 
-    const prompt = `Ты — Кузьмич, камчадал в третьем поколении. Напиши короткий пост для Telegram-канала о конкретном месте.
-
-Место: ${r.title}
-Тип: ${locLabel || 'природный объект'}${actLabel ? ', ' + actLabel : ''}
-Описание: ${r.description?.slice(0, 300) ?? 'нет данных'}${reviewCtx}
-
-Требования:
-- 60-100 слов; если фактуры в данных мало — пиши короче (от 40 слов) и не
-  разбавляй общими словами настроения ("красиво", "впечатляет", "тест на
-  выносливость") — это не содержание, а его отсутствие
-- Конкретная деталь ИЗ ДАННЫХ ВЫШЕ: из описания или моих заметок. Не выдумывай
-  фактов, которых в них нет: ни находок, ни тайников, ни историй, ни цифр
-- Если детали в данных нет — пиши о том, что есть, короче. Пустая строка лучше
-  придуманной
-- НИКОГДА не советуй уходить с тропы, идти в сторону или искать что-либо вне
-  тропы
-- В конце обязательно ссылка: ${appUrl}/routes/${r.id}
-- Ссылку сопроводи ОДНОЙ СВОЕЙ фразой (не копируй формулировку из этой строки
-  инструкции дословно — придумай свою): ${r.has_track
-    ? 'дай понять, что на странице есть GPS-трек для похода'
-    : 'дай понять, что это карточка места — маршрута или трека там нет, только описание и карта'}
-- HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
-- Не начинай с "Привет" или своего имени
-${KUZMICH_CHANNEL_VOICE}`;
-
-    const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-
-    // Условие выше — строка в промпте, а её можно не выполнить: именно так
-    // 12.07 вышел пост про место без трека. Проверяем результат, а не надеемся
-    // на послушание модели (CLAUDE.md §8: инструмент вместо абзаца в промпте).
-    // Совет уйти с тропы — отказ БЕЗУСЛОВНЫЙ, вне зависимости от трека.
-    //
-    // 19.08 пост про маар «Медвежья чаша» предлагал идти «не по тропе, а чуть
-    // в сторону» за консервной банкой с запиской геологов, которой нет в
-    // данных. Требование промпта «секрет, который знают не все» вынуждало
-    // выдумать — а выдумка, за которой надо сойти с тропы на кромке
-    // тридцатиметрового кратера, отправляет человека искать несуществующее в
-    // опасном месте. Условие в промпте это не остановит: 12.07 уже доказало,
-    // что инструкция в промпте не гвард (§8).
+    // Проверки результата остаются и без модели: описание в базе — тоже текст,
+    // который кто-то написал, и совет уйти с тропы в нём так же недопустим, а
+    // упоминание маршрута у места без трека так же обещает лишнее (12.07,
+    // 19.08). Судим результат, а не источник.
     const leavesTrail = advisesLeavingTrail(text);
     if (leavesTrail || (!r.has_track && promisesRouteOrTrack(text))) {
       rejectedIds.push(r.id);
@@ -841,28 +866,24 @@ ${KUZMICH_CHANNEL_VOICE}`;
       continue;
     }
 
-    // Основное фото (реальный снимок места, если есть) + куратор-фолбэк:
-    // если Telegram не смог скачать основное (>5 МБ у wikimedia-оригинала,
-    // таймаут эндпоинта) — пост всё равно уйдёт с честным снимком Камчатки.
-    const photo = await resolvePostPhotoUrl(r);
-    const curatorUrl = buildRoutePhotoUrl(r);
-    // Оговорка добавляется, когда снимок не этого места. Она идёт в ТЕКСТ, а
-    // не в отдельное сообщение: подпись, оторванная от фото, читается как
-    // разговор о чём-то другом.
-    const body = photo.url && !photo.ofThisPlace ? `${text}${NOT_THIS_PLACE_NOTE}` : text;
+    // Свой снимок — он есть по условию выбора. Фолбэка на чужое фото нет:
+    // если Telegram не смог скачать наш кадр, пост уходит текстом с логом
+    // (tgPostPhoto), а не с картинкой другого места.
     const result = await postToAllChannels({
       channelId,
       postType: 'kuzmich_route',
-      text: body,
-      photoUrl: photo.url,
-      fallbackPhotoUrl: curatorUrl !== photo.url ? curatorUrl : null,
+      text,
+      photoUrl: ownPhotoUrl(r.id),
+      fallbackPhotoUrl: null,
     });
 
     if (result.ok) {
       try {
         await query(
           `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-          ['kuzmich_post', JSON.stringify({ route_id: r.id, route_title: r.title })]
+          // Исход снимка — в журнал: по нему видно, ушёл пост с фото или
+          // текстом, без чтения канала глазами.
+          ['kuzmich_post', JSON.stringify({ route_id: r.id, route_title: r.title, photo: result.photo, photo_error: result.photoError ?? null })]
         );
       } catch { /* таблица ещё не создана — не блокируем пост */ }
     }
@@ -952,128 +973,99 @@ ${KUZMICH_CHANNEL_VOICE}`;
 // бронируется. Владелец 24.08: «почему нет туров?» — дыра в дизайне, не баг
 // одной строчки: пайплайн писали для точек, тур как сущность в него не завели.
 
-interface TourProgramStep { title?: string; text?: string }
-
-interface KuzmichTourRow {
-  id: number;
-  title: string;
-  short_description: string | null;
-  description: string | null;
-  base_price: string | null;
-  duration_hours: number | null;
-  program: TourProgramStep[] | null;
-  included: string[] | null;
-  photos: string[] | null;
-  operator_name: string | null;
-}
+/**
+ * Пауза между повторами одного тура. Живых туров единицы (замер 23.08: 8),
+ * слот — ежедневный: при 8 турах каждый выходит раз в ~8 дней, и пауза
+ * нужна только от «тот же тур два дня подряд». Прежние 7 дней при пуле в 8
+ * оставляли слот пустым, как только все прошли круг.
+ */
+export const TOUR_REPEAT_MIN_GAP_DAYS = 2;
 
 /**
- * Не повторяем тур раньше N дней. 30, как у маршрутов, здесь не годится —
- * живых туров единицы (замер 23.08: 8), и такая пауза быстро оставила бы
- * пул пустым при посте через день. 7 дней даёт каждому туру пройти круг
- * примерно дважды в месяц при текущем размере пула.
+ * Ежедневный пост о туре: выбирает живой тур с фотографиями, который не
+ * постился дольше всех (ни разу — первым), и публикует его ТЕМ ЖЕ текстом,
+ * что и ручная публикация (buildTourPostText — только поля карточки, без
+ * модели) и теми же снимками оператора альбомом.
+ *
+ * До 05.09 текст писала модель по промпту «дай почувствовать сам тур» — то
+ * есть просила ощущений, которых в карточке нет. Владелец в тот же день снял
+ * пост о месте за выдуманную фактуру; у тура цена ошибки выше — это оферта.
+ * Решение владельца 05.09: вечерний слот — туры, не сезонные посты.
  */
-const TOUR_REPEAT_COOLDOWN_DAYS = 7;
-
-/**
- * Выбирает опубликованный тур, не постившийся последние
- * TOUR_REPEAT_COOLDOWN_DAYS дней, пишет пост голосом Кузьмича по РЕАЛЬНЫМ
- * полям тура (описание, программа дня, что включено, цена) и публикует.
- * Логирует в ai_actions_log — тем же способом, что и посты о маршрутах.
- */
-export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string }> {
+export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string; photo?: PhotoOutcome; photoError?: string }> {
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
-  const pickResult = await query<KuzmichTourRow>(`
-    SELECT ot.id, ot.title, ot.short_description, ot.description,
-           ot.base_price::text AS base_price, ot.duration_hours,
-           ot.program, ot.included, ot.photos,
-           p.name AS operator_name
+  // Динамический импорт: tour-channel-post сам импортирует отсюда tgPostMediaGroup.
+  const { buildTourPostText, tourPostHash } = await import('@/lib/notifications/tour-channel-post');
+  type TourPostRow = Parameters<typeof buildTourPostText>[0];
+
+  const pickResult = await query<TourPostRow & { last_posted_at: string | null }>(`
+    SELECT ot.id::text,
+           ot.title,
+           ot.short_description,
+           ot.base_price,
+           ot.price_unit,
+           ot.duration_hours,
+           ot.multi_day_count,
+           ot.max_participants,
+           ot.difficulty,
+           ot.activity_type,
+           ot.location_name AS location,
+           ot.photos,
+           COALESCE(p.company_name, p.name) AS operator_name,
+           lp.last_posted_at
       FROM operator_tours ot
       LEFT JOIN partners p ON p.id = ot.operator_id
+      LEFT JOIN LATERAL (
+        SELECT MAX(created_at) AS last_posted_at
+          FROM ai_actions_log
+         WHERE action_type IN ('kuzmich_tour_post', 'tour_channel_post')
+           AND metadata->>'tour_id' = ot.id::text
+      ) lp ON TRUE
      WHERE ot.is_published = TRUE AND ot.is_active = TRUE AND ot.deleted_at IS NULL
-       -- Тур без фотографий в канал не идёт ВООБЩЕ (правило владельца 05.08,
-       -- как у tour-channel-post): рисованной обложки у тура быть не может, а
-       -- голый текст продаёт хуже, чем не продаёт. Фильтр здесь, а не после
-       -- выбора: иначе бесфотный тур занял бы слот прогона и пост не вышел бы.
+       -- Тур без фотографий в канал не идёт ВООБЩЕ (правило владельца 05.08):
+       -- рисованной обложки у тура быть не может, а голый текст продаёт хуже,
+       -- чем не продаёт. Фильтр здесь, а не после выбора.
        AND COALESCE(array_length(ot.photos, 1), 0) > 0
-       AND ot.id::text NOT IN (
-         SELECT metadata->>'tour_id' FROM ai_actions_log
-          WHERE action_type = 'kuzmich_tour_post'
-            AND created_at > NOW() - INTERVAL '7 days'
-            AND metadata->>'tour_id' IS NOT NULL
-       )
-     ORDER BY COALESCE(array_length(ot.photos, 1), 0) DESC, RANDOM()
+       AND (lp.last_posted_at IS NULL OR lp.last_posted_at < NOW() - ($1::int * INTERVAL '1 day'))
+     ORDER BY lp.last_posted_at ASC NULLS FIRST,
+              COALESCE(array_length(ot.photos, 1), 0) DESC,
+              RANDOM()
      LIMIT 1
-  `);
+  `, [TOUR_REPEAT_MIN_GAP_DAYS]);
 
   const t = pickResult.rows[0];
   if (!t) {
     return {
       ok: false,
-      error: `Нет туров для поста (все с фото опубликованы в последние ${TOUR_REPEAT_COOLDOWN_DAYS} дней, либо активных туров с фотографиями нет)`,
+      error: `Нет туров для поста: живых туров с фотографиями, не публиковавшихся последние ${TOUR_REPEAT_MIN_GAP_DAYS} дн., не осталось`,
     };
   }
 
   const appUrl = getPublicBaseUrl();
-
-  const programCtx = (t.program ?? []).slice(0, 3)
-    .map((step) => [step.title, step.text?.slice(0, 150)].filter(Boolean).join(': '))
-    .filter(Boolean)
-    .join('\n');
-  const includedCtx = (t.included ?? []).slice(0, 5).join(', ');
-  const priceCtx = t.base_price && parseFloat(t.base_price) > 0
-    ? `от ${Math.round(parseFloat(t.base_price)).toLocaleString('ru-RU')} ₽`
-    : '';
-
-  const prompt = `Ты — Кузьмич, местный житель Камчатки. Напиши короткий пост для Telegram-канала о конкретном туре — реальном предложении, которое можно забронировать у оператора.
-
-Тур: ${t.title}
-Оператор: ${t.operator_name ?? 'неизвестен'}
-Описание: ${(t.short_description || t.description || '').slice(0, 300) || 'нет данных'}
-${programCtx ? `Программа дня:\n${programCtx}` : ''}
-${includedCtx ? `Включено: ${includedCtx}` : ''}
-${t.duration_hours ? `Длительность: ${t.duration_hours} ч` : ''}
-${priceCtx ? `Цена: ${priceCtx}` : ''}
-
-Требования:
-- 60-100 слов; если фактуры мало — короче, не разбавляй общими словами
-- Конкретная деталь ИЗ ДАННЫХ ВЫШЕ — из описания или программы дня. Не выдумывай
-  подробностей, которых там нет: ни маршрута, ни ощущений, которых нет в тексте
-- Дай почувствовать сам тур — что реально происходит в этот день, а не рекламный ярлык
-- Упомяни оператора по имени: это его тур, не наш
-- Цену указывай, только если она есть в данных выше, и ровно ту цифру
-- В конце — ссылка: ${appUrl}/marketplace/tours/${t.id}
-- HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
-- Не начинай с "Привет" или своего имени
-${KUZMICH_CHANNEL_VOICE}`;
-
-  const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-
-  // Настоящие снимки оператора, АЛЬБОМОМ (до 10) — тот же путь и та же
-  // абсолютизация URL, что у tour-channel-post: прежняя склейка
-  // `${appUrl}${photoRel}` ломала уже-абсолютные ссылки, и Telegram, не
-  // скачав битый URL, молча ронял пост тура в голый текст.
   const photoUrls = absolutePhotoUrls(t.photos, appUrl);
   if (photoUrls.length === 0) {
     // SQL выше такого не отдаёт; ветка — страховка от рассинхрона (§4.0):
     // тур без фото в канал не публикуется никогда, ни текстом, ни обложкой.
-    return { ok: false, tourId: t.id, error: `У тура ${t.id} нет пригодных фотографий — пост не публикуется` };
+    return { ok: false, tourId: Number(t.id), error: `У тура ${t.id} нет пригодных фотографий — пост не публикуется` };
   }
 
+  const text = buildTourPostText(t, appUrl);
   const result = await postToAllChannels({ channelId, postType: 'kuzmich_tour', text, photoUrls });
 
   if (result.ok) {
     try {
       await query(
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title })]
+        // Исход снимка — в журнал: по нему видно, ушёл пост с фото или
+        // текстом, без чтения канала глазами.
+        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title, text_hash: tourPostHash(text), photo: result.photo, photo_error: result.photoError ?? null })]
       );
     } catch { /* таблица ещё не создана — не блокируем пост */ }
   }
 
-  return { ...result, tourId: t.id };
+  return { ...result, tourId: Number(t.id) };
 }
 
 // ── AI News channel post ─────────────────────────────────────────────────────

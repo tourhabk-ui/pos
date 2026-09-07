@@ -356,6 +356,43 @@ export interface StripResult {
   dropped: string[];
   /** Утверждения, которых в тексте не нашлось: убрать не смогли. */
   unmatched: string[];
+  /** Разделы, оставшиеся без пунктов и потому убранные из выпуска. */
+  emptied: string[];
+}
+
+/**
+ * Раздел без пунктов убирается ЦЕЛИКОМ — заголовок вместе с пустотой.
+ *
+ * До 06.09 сюда подставлялась строка «Нет значимых сигналов за сегодня», и
+ * рассуждение было «читателю нужна строка, а не дыра». Но эта строка —
+ * УТВЕРЖДЕНИЕ о предмете раздела: она говорит, что за сутки по Камчатке
+ * ничего значимого не случилось. Проверить его нечем: в разделе «Камчатка»
+ * материал в тот день БЫЛ (safety-слой, три события), просто пункт про него
+ * не пережил фактчек. Читатель получал вывод о регионе там, где мы вычеркнули
+ * собственную строку.
+ *
+ * Отсутствие раздела утверждением не является — поэтому пустой раздел
+ * исчезает. Пустота при этом не пропадает из виду: имена убранных разделов
+ * возвращаются наверх и попадают в журнал прогона (§4.0 — «не знаю» должно
+ * быть слышно нам, а не выдаваться читателю за факт).
+ */
+export function dropEmptySections(lines: string[]): { lines: string[]; emptied: string[] } {
+  const isSection = (l: string) => /^<b>[^<]*<\/b>\s*$/.test(l.trim());
+  const out: string[] = [];
+  const emptied: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!isSection(lines[i]) || i === 0) { out.push(lines[i]); continue; }
+    let j = i + 1;
+    while (j < lines.length && lines[j].trim() === '') j++;
+    if (j >= lines.length || isSection(lines[j])) {
+      emptied.push(lines[i].replace(/<\/?b>/g, '').trim());
+      // Заголовок и пустые строки под ним не переносим.
+      i = j - 1;
+      continue;
+    }
+    out.push(lines[i]);
+  }
+  return { lines: out, emptied };
 }
 
 /** Порог совпадения значимых слов цитаты со строкой текста. */
@@ -420,26 +457,32 @@ export function stripUnsupported(text: string, claims: string[]): StripResult {
   }
 
   const kept = lines.filter((_, i) => !removed.has(i));
-  // Раздел, оставшийся без пунктов, не должен висеть пустым заголовком:
-  // читателю нужна строка, а не дыра. Та же формула, что у писателя.
-  const out: string[] = [];
-  for (let i = 0; i < kept.length; i++) {
-    out.push(kept[i]);
-    const isSection = /^<b>[^<]*<\/b>\s*$/.test(kept[i].trim()) && i > 0;
-    if (!isSection) continue;
-    let j = i + 1;
-    while (j < kept.length && kept[j].trim() === '') j++;
-    const nextIsHeaderOrEnd = j >= kept.length || /^<b>[^<]*<\/b>\s*$/.test(kept[j].trim());
-    if (nextIsHeaderOrEnd) out.push('- Нет значимых сигналов за сегодня');
-  }
-  return { text: out.join('\n').replace(/\n{3,}/g, '\n\n'), dropped, unmatched };
+  const { lines: out, emptied } = dropEmptySections(kept);
+  return { text: out.join('\n').replace(/\n{3,}/g, '\n\n'), dropped, unmatched, emptied };
 }
 
 /**
  * Осталось ли в тексте хоть что-то, кроме заголовков и строк «нет сигналов».
  * Выпуск, из которого вычеркнули всё, — не выпуск; публиковать его нельзя.
  */
+/**
+ * Убрать заглушки и опустевшие разделы из готового текста выпуска.
+ *
+ * Промпт с 06.09 просит модель не писать пустой раздел вовсе, но промпт — это
+ * просьба, а не гарантия: заглушка приходила от модели и раньше, и правило
+ * обязано держаться детерминированно. Поэтому строка «Нет значимых сигналов за
+ * сегодня» вычёркивается здесь, а оставшийся без пунктов заголовок исчезает
+ * вместе с ней.
+ */
+export function tidySections(text: string): { text: string; emptied: string[] } {
+  const kept = text.split('\n').filter((l) => !/Нет значимых сигналов за сегодня/.test(l));
+  const { lines, emptied } = dropEmptySections(kept);
+  return { text: lines.join('\n').replace(/\n{3,}/g, '\n\n').trim(), emptied };
+}
+
 export function hasSubstance(text: string): boolean {
+  // Строка-заглушка больше не ставится (06.09), но старые выпуски и ответы
+  // модели её ещё содержат — сущностью она не была и не станет.
   return text.split('\n').some(l =>
     !isHeaderLine(l) && !/Нет значимых сигналов за сегодня/.test(l) && l.trim().length > 0,
   );

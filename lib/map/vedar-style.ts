@@ -37,7 +37,70 @@
  * цифрой. Ровно этим карта и отличается от картинки.
  */
 
+import { PLACES_ATTRIBUTION, OVERVIEW_MAX_ZOOM, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
+import { calculatedCarLine } from '@/lib/map/line-standard';
+
+/**
+ * Верхний зум СЛОЁВ обзорного яруса (гипсометрия, тень, океан) — на единицу
+ * выше его последнего зума: у MapLibre `maxzoom` слоя исключающий, слой
+ * виден при zoom < 8.
+ *
+ * Без этого (снимки 05.09, прогоны 8-9) растровый источник обзора
+ * растягивался MapLibre и выше z7 — так растр устроен, overzoom не
+ * запрещён, — и его НЕПРОЗРАЧНАЯ гипсометрия ложилась поверх клетки на
+ * z10-12 везде, где у тайла z7 есть данные: кадр размывался прямоугольниками
+ * точно по границам тайлов z7, при том что архив клетки был полон, а все её
+ * тайлы — loaded. Ярусы не пересекаются по замыслу (pack-source,
+ * OVERVIEW_MAX_ZOOM): на любом зуме рельеф рисует ровно один из них — и это
+ * должно быть записано в слое, а не только в комментарии.
+ */
+export const OVERVIEW_LAYER_MAXZOOM = OVERVIEW_MAX_ZOOM + 1;
+
+/** Предел зума слоёв рельефа по ярусу источника: обзор кончается на z8, пакеты тянутся overzoom-ом. */
+function tierMaxzoom(sources: VedarStyleSources): number | undefined {
+  return sources.terrainMaxZoom <= OVERVIEW_MAX_ZOOM ? OVERVIEW_LAYER_MAXZOOM : undefined;
+}
+
+/**
+ * Нижний зум слоёв рельефа ПАКЕТА/КЛЕТКИ — зеркало tierMaxzoom (06.09,
+ * владелец: «z8 z7 z6 много ошибок»). До этой правки был закрыт только
+ * верхний край обзора (см. OVERVIEW_LAYER_MAXZOOM выше); нижний край пакета
+ * не был закрыт вовсе — у reliefLayer/hillshadeLayer пакета стоял только
+ * maxzoom (undefined = не ограничен), а minzoom не было НИКАКОГО.
+ *
+ * Пока клеток «Вся Камчатка» не было в builtRegionPacks(), это не давало о
+ * себе знать: на обзоре (z4-7) соседей-районов в кадре почти не оказывалось.
+ * После сетки 112 клеток на z6-z7 в видимую область обзора почти всегда
+ * попадает bbox нескольких клеток — их растровый источник рельефа не
+ * запрещает overzoom и в другую сторону: MapLibre тянет их САМЫЙ ГРУБЫЙ
+ * тайл (архив пакета начинается с z8) поверх обзорного рельефа ВНУТРИ
+ * bbox клетки — и это ровно та же болезнь, что чинилась выше, зеркально:
+ * прямоугольный шов точно по границе клетки, снимок krai-overview z7,
+ * прогон 16.
+ */
+function tierMinzoom(sources: VedarStyleSources): number | undefined {
+  return sources.terrainMaxZoom <= OVERVIEW_MAX_ZOOM ? undefined : OVERVIEW_LAYER_MAXZOOM;
+}
+
 export type VedarMapTheme = 'dark' | 'light';
+
+/**
+ * Сигнальная высота «нет данных» — то же число, что `NODATA_SENTINEL_M` в
+ * scripts/map-tiles/build_terrain.py (сторож — vedar-map-style.test.ts).
+ *
+ * Пропуск DEM (море Copernicus не покрывает целиком, дыра покрытия) раньше
+ * кодировался в terrain-RGB как высота 0.0 — БАЙТ В БАЙТ то же, что настоящая
+ * низкая суша на уровне моря. Клиент читает только байты пакета: ни
+ * hillshade, ни color-relief не видят происхождения нуля. Жалоба с поля
+ * 04.09 («не всё прорисовалось») была не про недостающие пакеты — про то,
+ * что дыра в данных и подтверждённая суша красились ОДНИМ цветом.
+ *
+ * Ступени `relief` ниже красят именно эту высоту в СВОЙ цвет — не воду и не
+ * сушу: «не знаю» не заполняется правдоподобной ложью (§4.0 CLAUDE.md).
+ */
+export const NODATA_SENTINEL_M = -500;
+/** Ступень дыры покрытия в гипсометрии — прозрачная, см. MapPalette.nodata. */
+export const NODATA_TRANSPARENT = 'rgba(0,0,0,0)';
 
 /**
  * Палитра карты по токенам §2. Держится здесь, а не читается из CSS:
@@ -47,6 +110,15 @@ export type VedarMapTheme = 'dark' | 'light';
 interface MapPalette {
   /** Фон под всем — там, где нет ни рельефа, ни воды. */
   background: string;
+  /**
+   * «Не знаю» — цвет дыры покрытия DEM. Лежит ФОНОМ карты, а не ступенью
+   * гипсометрии (05.09): пакеты соседей накладываются, и тайл z8 одной
+   * клетки заходит за её границу; если дыра красится непрозрачно, она
+   * закрывает данные соседа полосой в полтайла (скрин владельца 06:44,
+   * серая полоса на стыке клеток при z8-9). Ступень дыры прозрачна, и
+   * там, где данных нет НИ У КОГО, виден этот фон.
+   */
+  nodata: string;
   /** Тень склона и подсветка гребня — hillshade считается из высот. */
   shadow: string;
   highlight: string;
@@ -65,6 +137,10 @@ interface MapPalette {
   connector: string;
   /** Свой след — где человек был. Не маршрут: другой цвет, тонкая линия. */
   trail: string;
+  /** Рассчитанный автопуть по дорожной сети — сплошной синий (lib/map/line-standard, calculatedCarLine). */
+  calculated: string;
+  /** Булавка выбранной точки (тап по карте) — акцент лавы, --accent. */
+  pin: string;
   /** OSM (02.09): заливки и линии. Приглушённые — карта полевая, не городская. */
   water: string;
   waterway: string;
@@ -91,6 +167,11 @@ interface MapPalette {
    * Первая ступень — море: Copernicus DEM держит 0 над водой, и берег
    * рисуется без единого байта новых данных. Цена честности: пойма или
    * дельта на нуле высоты тоже выйдет водой.
+   *
+   * Своя, отдельная ступень стоит на NODATA_SENTINEL_M (04.09) — дыра
+   * покрытия красится в СВОЙ цвет, не в цвет воды из абзаца выше: до этой
+   * правки дыра и подтверждённое море были одним и тем же нулём, и «не
+   * знаю, что здесь» выглядело как уверенное «здесь море» (§4.0).
    */
   relief: ReadonlyArray<readonly [number, string]>;
   /**
@@ -115,6 +196,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   // контура»), так что это не новая эстетика, а продолжение принятой.
   dark: {
     background: '#0D1117',   // --bg-primary dark
+    nodata: '#3D3A35',
     shadow: '#05070A',
     // Первый живой рендер 02.09 (Авачинский перевал): рельеф «почти
     // чёрный» — подсветка гребня #2A3B33 от фона #0D1117 не отличалась.
@@ -132,6 +214,8 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     sketch: '#5E7A66',
     connector: '#8B949E',
     trail: '#00A8CC',       // --ocean dark; тот же голубой, что у следа на Leaflet
+    calculated: calculatedCarLine().style.color,
+    pin: '#E8734A',         // --accent dark
     // OSM: вода холодная, лес чуть теплее фона, ледник светлее гребня,
     // тропа — тёплая (как на референсе владельца 31.08), дорога — серая.
     water: '#12303F',
@@ -151,6 +235,12 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     // что у озёр (water), чтобы вода на карте была одного рода.
     relief: [
       [-10000, '#12303F'],
+      [NODATA_SENTINEL_M - 0.5, '#12303F'],
+      // Дыра покрытия — ПРОЗРАЧНАЯ, а «не знаю»-серый лежит фоном карты
+      // (nodata). См. NODATA_TRANSPARENT: дыра одного пакета не должна
+      // закрывать данные соседа.
+      [NODATA_SENTINEL_M, NODATA_TRANSPARENT],
+      [NODATA_SENTINEL_M + 0.5, NODATA_TRANSPARENT],
       [0.5, '#12303F'],
       [1, '#16261B'],
       [200, '#1B2E21'],
@@ -162,11 +252,20 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
       [3300, '#7E7C78'],
       [4800, '#A6A9AD'],
     ],
-    scrub: '#2C3A22',
-    wetland: '#1C3538',
-    sand: '#403B2A',
-    rock: '#41444A',
-    residential: '#332D2C',
+    // 06.09, владелец: «качество и детальность». Прежние тона (#2C3A22 и
+    // соседи) лежали в той же полосе, что гипсометрия НИЗКИХ высот
+    // (0-900 м: #16261B…#3A3A2C), да ещё под hillshade сверху — стланик и
+    // болото не читались вовсе поверх собственного склона, хотя это
+    // безопасность («от этого зависят жизни людей», см. LAYERS выше).
+    // Сдвиг — по НАСЫЩЕННОСТИ И ОТТЕНКУ от ближайшей ступени рельефа, не
+    // ярче фона платформы: стланик зеленее лесной ступени, болото —
+    // холоднее в бирюзу, песок — теплее в охру, скалы — холоднее в
+    // сине-серый, застройка — в тёплую терракоту.
+    scrub: '#3D6B35',
+    wetland: '#1F6B6E',
+    sand: '#8A7A4A',
+    rock: '#6B7280',
+    residential: '#5A4038',
     cliff: '#D2704A',
     spring: '#5FB3D6',
     hotSpring: '#E8734A',   // --accent dark
@@ -178,6 +277,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   // темнее фона — контраст растёт, а не падает.
   light: {
     background: '#F5F0EB',   // --bg-primary light
+    nodata: '#DAD5C9',
     shadow: '#6B6560',
     highlight: '#FFFFFF',
     accentShadow: '#8A7F72',
@@ -190,6 +290,8 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     sketch: '#6B8A74',
     connector: '#6B6560',
     trail: '#2568B0',       // --ocean light
+    calculated: calculatedCarLine().style.color,
+    pin: '#D44A0C',         // --accent light
     water: '#BFD9E8',
     waterway: '#4F88A8',
     wood: '#D9E4CC',
@@ -206,6 +308,10 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     // склонов, серые скалы, белый снег.
     relief: [
       [-10000, '#BFD9E8'],
+      [NODATA_SENTINEL_M - 0.5, '#BFD9E8'],
+      // Дыра покрытия — прозрачная, «не знаю» — фоном карты (nodata).
+      [NODATA_SENTINEL_M, NODATA_TRANSPARENT],
+      [NODATA_SENTINEL_M + 0.5, NODATA_TRANSPARENT],
       [0.5, '#BFD9E8'],
       [1, '#E3EBD3'],
       [200, '#D9E3C2'],
@@ -217,11 +323,12 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
       [3300, '#C9C6C2'],
       [4800, '#F4F4F4'],
     ],
-    scrub: '#D9E0BE',
-    wetland: '#C6DDD8',
-    sand: '#F0E6C4',
-    rock: '#D6D3CD',
-    residential: '#E6DAD2',
+    // Та же правка контраста 06.09, что в тёмной палитре — см. её комментарий.
+    scrub: '#8FAE5C',
+    wetland: '#5FA8AE',
+    sand: '#E8C468',
+    rock: '#8B94A0',
+    residential: '#C9A08C',
     cliff: '#9B4A26',
     spring: '#2F6F95',
     hotSpring: '#D44A0C',   // --accent light
@@ -271,6 +378,19 @@ export interface VedarStyleSources {
    * целиком. Нет — прежний путь по GeoJSON. Два пути живут ради перехода.
    */
   vectorUrl?: string | null;
+  /**
+   * Места платформы (05.09): `places` + профиль безопасности одним GeoJSON
+   * на пакет (`<region>.places.geojson`, реестр PLACES_BUILT). Свой слой, не
+   * OSM: у корякских клеток OSM-слои пусты, а наши места есть и там. null —
+   * файла нет, слоя нет; рисовать «по умолчанию» было бы обещанием.
+   */
+  placesUrl?: string | null;
+  /**
+   * Океан обзорного яруса (05.09): bbox минус полигоны суши OSM, поверх
+   * гипсометрии. Дыра покрытия DEM посреди моря иначе красится «не знаю»-
+   * серым и читается сушей. null — слоя нет; клеткам он не нужен.
+   */
+  oceanUrl?: string | null;
 }
 
 export type OsmLayer =
@@ -354,14 +474,23 @@ export function buildVedarStyle(
       route: { type: 'geojson', data: emptyFeatureCollection() },
       // Линии и площади: один векторный пакет либо GeoJSON по слоям.
       ...r.sources(),
+      ...vedarOceanSource(sources, ''),
+      ...vedarPlacesSource(sources, ''),
     },
     layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
+      // Фон — «не знаю»: сквозь прозрачные дыры покрытия и за краем пакетов
+      // виден он, а не цвет страницы.
+      { id: 'bg', type: 'background', paint: { 'background-color': p.nodata } },
       // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
-      reliefLayer(p, ''),
+      reliefLayer(p, '', tierMaxzoom(sources), tierMinzoom(sources)),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
       ...osmFillLayers(r, p, ''),
-      hillshadeLayer(theme, p, ''),
+      hillshadeLayer(theme, p, '', tierMaxzoom(sources), tierMinzoom(sources)),
+      // Океан — НАД тенью: море там, где берег OSM, а не там, где DEM дал
+      // ноль или промолчал. Над тенью, а не под ней: на стыках клеток DEM
+      // граница «ноль моря / нет данных» — обрыв в 500 м, и тень рисует его
+      // швом через всё море (кадры 05.09, z5).
+      ...vedarOceanLayers(sources, p, ''),
       ...contourLayers(r, p, glyphs, font, ''),
       // Реки, дороги, тропы — над горизонталями, под линией маршрута: путь
       // человека читается поверх карты, а не сквозь неё.
@@ -450,6 +579,65 @@ export function buildVedarStyle(
           'line-opacity': 0.8,
         },
       },
+      {
+        // Рассчитанный автопуть (05.09, «маршруты не прокладываются на
+        // карте»): до этого дня он жил на Leaflet-карточке в 220 пикселей
+        // рядом с большой картой. Вид — из line-standard (calculatedCarLine):
+        // сплошной синий, 4px — не зелёный трека и не серый построения; он
+        // идёт по дорожному графу, это не догадка и не прямая.
+        id: 'route-calculated',
+        type: 'line',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'calculated'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': p.calculated,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5],
+          'line-opacity': 0.9,
+        },
+      },
+      {
+        // Концы автопути — «старт на дороге» и «цель на дороге»: точка
+        // привязки к графу, не сама цель. Кольцо цвета линии на фоне карты.
+        id: 'route-calculated-end',
+        type: 'circle',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'calculated_end'],
+        paint: {
+          'circle-radius': 6,
+          'circle-color': p.contourLabelHalo,
+          'circle-stroke-color': p.calculated,
+          'circle-stroke-width': 3,
+        },
+      },
+      {
+        // Булавка точки, по которой ткнули (05.09, по образцу навигатора):
+        // кольцо акцента с белой каймой — над всеми линиями, под подписями.
+        id: 'route-pin',
+        type: 'circle',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'pin'],
+        paint: {
+          'circle-radius': 8,
+          'circle-color': p.pin,
+          'circle-stroke-color': p.contourLabelHalo,
+          'circle-stroke-width': 3,
+        },
+      },
+      ...(glyphs ? [{
+        id: 'route-calculated-end-label',
+        type: 'symbol',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'calculated_end'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-font': [font],
+          'text-size': 11,
+          'text-offset': [0, 1.2],
+          'text-anchor': 'top',
+        },
+        paint: { 'text-color': p.calculated, 'text-halo-color': p.contourLabelHalo, 'text-halo-width': 1.2 },
+      }] : []),
       // Имена воды — под символами: река подписывается вдоль себя, озеро
       // в своём пятне, и оба уступают место ориентирам.
       ...osmWaterLabelLayers(r, p, glyphs, font, ''),
@@ -460,6 +648,9 @@ export function buildVedarStyle(
       // Посёлки — самый верх: на обзорном виде это единственное, по чему
       // человек понимает, куда смотрит.
       ...osmPlaceLayers(r, p, glyphs, font, ''),
+      // Места платформы — над всем: ради них карту и открывают, а профиль
+      // безопасности точки — то, о чём человек в поле спрашивает первым.
+      ...vedarPlaceLayers(sources, p, glyphs, font, ''),
     ],
   };
 }
@@ -511,6 +702,15 @@ export function sourceUrlIndex(sources: Record<string, unknown>): Record<string,
 
 export type RegionTier = 'base' | 'detail';
 
+/**
+ * Ярус `detail` (горизонтали, OSM-заливки и линии) подкладывается соседям
+ * только с этого зума: ниже contour-minor всё равно не рисуется (minzoom 11),
+ * а обзорному виду хватает рельефа и вершин. Живёт здесь, а не в VedarMap:
+ * снимки на раннере (snapshot-packs) собирают подкладки тем же правилом, а
+ * компонент с CSS-импортом в tsx не грузится.
+ */
+export const DETAIL_MIN_ZOOM = 10;
+
 export interface RegionOverlay {
   sources: Record<string, unknown>;
   layers: Array<Record<string, unknown>>;
@@ -548,12 +748,16 @@ export function buildRegionOverlay(
       sources: {
         ...terrainSource(sources, ns),
         ...(r.vector ? r.sources() : osmSources(marks.osmUrls, ns)),
+        ...vedarOceanSource(sources, ns),
+        ...vedarPlacesSource(sources, ns),
       },
       layers: [
-        reliefLayer(p, ns),
-        hillshadeLayer(theme, p, ns),
+        reliefLayer(p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
+        hillshadeLayer(theme, p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
+        ...vedarOceanLayers(sources, p, ns),
         ...osmPeakLayers(r, p, glyphs, font, ns),
         ...osmPlaceLayers(r, p, glyphs, font, ns),
+        ...vedarPlaceLayers(sources, p, glyphs, font, ns),
       ] as Array<Record<string, unknown>>,
     };
   }
@@ -605,13 +809,15 @@ function contoursSource(sources: VedarStyleSources, ns: string): Record<string, 
  * Ни нового файла, ни пересборки пакета — те же байты, второе прочтение.
  * Ступени — из палитры темы (см. MapPalette.relief).
  */
-function reliefLayer(p: MapPalette, ns: string): Record<string, unknown> {
+function reliefLayer(p: MapPalette, ns: string, maxzoom?: number, minzoom?: number): Record<string, unknown> {
   const stops: Array<number | string> = [];
   for (const [m, color] of p.relief) stops.push(m, color);
   return {
     id: `relief${ns}`,
     type: 'color-relief',
     source: `terrain${ns}`,
+    ...(maxzoom !== undefined ? { maxzoom } : {}),
+    ...(minzoom !== undefined ? { minzoom } : {}),
     paint: {
       'color-relief-color': ['interpolate', ['linear'], ['elevation'], ...stops],
       'color-relief-opacity': 1,
@@ -619,11 +825,13 @@ function reliefLayer(p: MapPalette, ns: string): Record<string, unknown> {
   };
 }
 
-function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string): Record<string, unknown> {
+function hillshadeLayer(theme: VedarMapTheme, p: MapPalette, ns: string, maxzoom?: number, minzoom?: number): Record<string, unknown> {
   return {
     id: `hillshade${ns}`,
     type: 'hillshade',
     source: `terrain${ns}`,
+    ...(maxzoom !== undefined ? { maxzoom } : {}),
+    ...(minzoom !== undefined ? { minzoom } : {}),
     paint: {
       'hillshade-shadow-color': p.shadow,
       'hillshade-highlight-color': p.highlight,
@@ -730,12 +938,18 @@ function osmFillLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
   const out: unknown[] = [];
   // Покрытия — под лесом: лес в OSM часто лежит поверх стланика тем же
   // контуром, и лес честнее. Застройка — ниже всех: она самая грубая.
+  //
+  // Непрозрачность поднята 06.09 (владелец: «качество и детальность») вместе
+  // с цветом выше: слой рисуется РАНЬШЕ hillshade (см. порядок в
+  // buildVedarStyle/buildRegionOverlay) и тень поверх ещё гасит контраст —
+  // на снимках прогона 14 покрытия при 0.45-0.5 не читались вовсе поверх
+  // своего же склона, хотя опасность (стланик, болото) для того и рисуется.
   const fills: Array<[OsmLayer, string, number]> = [
-    ['residential', p.residential, 0.45],
-    ['rock', p.rock, 0.45],
-    ['sand', p.sand, 0.5],
-    ['scrub', p.scrub, 0.45],
-    ['wetland', p.wetland, 0.5],
+    ['residential', p.residential, 0.55],
+    ['rock', p.rock, 0.55],
+    ['sand', p.sand, 0.6],
+    ['scrub', p.scrub, 0.6],
+    ['wetland', p.wetland, 0.6],
   ];
   for (const [layer, color, opacity] of fills) {
     const ref = r.osm(layer);
@@ -924,6 +1138,135 @@ function osmPlaceLayers(
       },
       paint: {
         'text-color': p.place,
+        'text-halo-color': p.background,
+        'text-halo-width': 1.6,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Океан обзорного яруса — один GeoJSON, производный от OSM (полигоны суши),
+ * потому и атрибуция OSM. Нет адреса — нет ни источника, ни слоя.
+ */
+function vedarOceanSource(sources: VedarStyleSources, ns: string): Record<string, unknown> {
+  if (!sources.oceanUrl) return {};
+  return {
+    [`vedar-ocean${ns}`]: { type: 'geojson', data: sources.oceanUrl, attribution: OSM_ATTRIBUTION },
+  };
+}
+
+/**
+ * Заливка океана — цветом воды палитры, тем же, что у первой ступени
+ * гипсометрии: на стыке ярусов (z7 → z8, где океана уже нет и море красит
+ * DEM) цвет не меняется. Непрозрачная: под ней гипсометрия «не знаю»-серого
+ * и нулевой высоты, и обе должны уступить берегу OSM.
+ */
+function vedarOceanLayers(sources: VedarStyleSources, p: MapPalette, ns: string): unknown[] {
+  if (!sources.oceanUrl) return [];
+  return [{
+    id: `vedar-ocean${ns}`, type: 'fill', source: `vedar-ocean${ns}`,
+    // Только на обзорных зумах: с z8 клетка читает DEM на полной сетке, и
+    // берег в 200 м упрощения лёг бы поверх честного берега по высоте.
+    maxzoom: OVERVIEW_LAYER_MAXZOOM,
+    paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
+  }];
+}
+
+/**
+ * Источник слоя мест платформы — один GeoJSON на пакет, со своей атрибуцией
+ * (наши данные, не OpenStreetMap). Нет адреса — нет источника: слой без
+ * файла MapLibre честно не нарисует, но и просить файл, которого нет
+ * (PLACES_BUILT), карта не должна.
+ */
+function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<string, unknown> {
+  if (!sources.placesUrl) return {};
+  return {
+    [`vedar-places${ns}`]: { type: 'geojson', data: sources.placesUrl, attribution: PLACES_ATTRIBUTION },
+  };
+}
+
+/**
+ * Места платформы (05.09, форма — 07.09). Точка — факт географии (§9
+ * CLAUDE.md), и на карте она отвечает на два вопроса разом: «что здесь» и
+ * «чем опасно». Форма несёт первый ответ, цвет — второй:
+ *
+ *   - ФОРМА — по типу места (`kind`, тот же столбец, что и фильтр-чипсы):
+ *     вулкан — силуэт горы, источник — кружок с паром, гейзер — фонтаном,
+ *     и так у каждого типа (lib/map/place-marker-icons.ts, тот же
+ *     набор, что рисовала старая Leaflet-карта её divIcon-маркерами —
+ *     единый источник форм, не два разных набора на двух картах);
+ *   - ЦВЕТ — из ДАННЫХ профиля безопасности: место с записанными опасностями
+ *     (`hazard_types` не пуст) — цвет тревоги, тот же, что у обрыва; иначе —
+ *     цвет вершины, ориентира. Опасность красится по данным, не по типу:
+ *     вулкан без профиля не тревожный «на всякий случай» — это выдумка (§4.0).
+ *
+ * До этой правки была только вторая половина: все места — один кружок двух
+ * цветов. Владелец 07.09, после переезда `/map` на VedarMap: «геоточки были
+ * все со своими маркерами» — разница типов читалась с одного взгляда на
+ * старой карте и терялась на новой не по решению, а по недосмотру миграции.
+ *
+ * Стиль не может нарисовать растр сам (строится без DOM/canvas) — он лишь
+ * называет иконку строковым выражением `icon-image`, дальше её растеризует
+ * по требованию сам VedarMap (`styleimagemissing` → lib/map/place-icon-raster.ts).
+ * Имя иконки кодирует ОБА ответа разом: `place-icon-<hazard|normal>-<kind>`.
+ *
+ * `hazard_types` в свойствах — массив (эндпоинт отдаёт `?? []`); MapLibre
+ * держит вложенные значения GeoJSON как есть, и `length` по ним считается.
+ * `coalesce` с пустым литералом — на случай объекта без поля вовсе; `kind`
+ * тем же способом падает на `other`, если у места нет типа или он неизвестен
+ * набору форм (растеризатор сам подставляет форму `other`, а не пустоту).
+ *
+ * Иконка видна с самого нижнего зума карты (OVERVIEW_MIN_ZOOM, сейчас z4) —
+ * на /map это первый экран, который видит человек, и «Точек: 383» под ним
+ * не должно врать пустой картой (владелец 06.09, скрин: «точек мест нет»,
+ * зум 4.4). `icon-allow-overlap` — тем же способом, каким кружок раньше
+ * рисовался ВСЕГДА независимо от тесноты: без него MapLibre скрывал бы
+ * иконки при столкновении на обзоре, где 383 точки густо стоят на крае —
+ * это была бы новая, никем не просимая потеря точек. Подпись — с z9, когда
+ * есть глифы (383 имени на весь край читались бы кашей), и в вытеснении
+ * тревожная подпись идёт первой: она не должна проигрывать хутору.
+ */
+function vedarPlaceLayers(
+  sources: VedarStyleSources, p: MapPalette, glyphs: string | null, font: string, ns: string,
+): unknown[] {
+  if (!sources.placesUrl) return [];
+  const source = `vedar-places${ns}`;
+  const hazardous: unknown = ['>', ['length', ['coalesce', ['get', 'hazard_types'], ['literal', []]]], 0];
+  const color: unknown = ['case', hazardous, p.cliff, p.peak];
+  const iconImage: unknown = [
+    'concat', 'place-icon-',
+    ['case', hazardous, 'hazard-', 'normal-'],
+    ['coalesce', ['get', 'kind'], 'other'],
+  ];
+  const out: unknown[] = [{
+    id: `vedar-places${ns}`, type: 'symbol', source,
+    minzoom: OVERVIEW_MIN_ZOOM,
+    layout: {
+      'icon-image': iconImage,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], OVERVIEW_MIN_ZOOM, 0.32, 13, 0.9],
+      'icon-anchor': 'bottom',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+  }];
+  if (glyphs) {
+    out.push({
+      id: `vedar-place-labels${ns}`, type: 'symbol', source,
+      minzoom: 9,
+      layout: {
+        'text-font': [font],
+        'text-field': ['get', 'name'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 13, 13],
+        'text-offset': [0, 0.9],
+        'text-anchor': 'top',
+        'text-padding': 4,
+        'text-allow-overlap': false,
+        'symbol-sort-key': ['case', hazardous, 0, 2],
+      },
+      paint: {
+        'text-color': color,
         'text-halo-color': p.background,
         'text-halo-width': 1.6,
       },

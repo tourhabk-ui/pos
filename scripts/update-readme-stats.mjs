@@ -8,9 +8,16 @@
  *
  * Запуск:   node scripts/update-readme-stats.mjs
  * Проверка: node scripts/update-readme-stats.mjs --check   (exit 1, если отстал)
+ * Каталог:  node scripts/update-readme-stats.mjs --catalog /tmp/catalog.json
  *
- * Без сети и БД — только счёт файлов. Каталожные цифры (места/маршруты/гиды)
- * живут в БД и в этот блок НЕ входят (их сверяют через админку).
+ * Код-метрики считаются без сети и БД — только по файлам. Каталожные
+ * цифры (места/маршруты/гиды) живут в БД и до 04.09 писались в README
+ * рукой: с июля стояло «~415 мест, ~421 маршрут» при 379 и 288 по
+ * переписям. Теперь их снимает GET /api/cron/catalog-census на проде, а
+ * post-merge.yml передаёт ответ сюда через --catalog: блок между
+ * CATALOG:START/END переписывается вместе с датой замера. Без --catalog
+ * блок не трогается — прежние числа остаются со своей датой, и это честнее
+ * нуля. --check каталог не проверяет: у CI нет пути к БД.
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
@@ -18,6 +25,8 @@ import { join, extname } from 'path';
 
 const ROOT = process.cwd();
 const CHECK = process.argv.includes('--check');
+const catalogArg = process.argv.indexOf('--catalog');
+const CATALOG_PATH = catalogArg > -1 ? process.argv[catalogArg + 1] : null;
 
 /** Рекурсивно собрать файлы под dir, для которых pred(path) === true. */
 function walk(dir, pred, acc = []) {
@@ -86,7 +95,58 @@ if (!re.test(readme)) {
 }
 
 const block = `${START}\n${table}\n${END}`;
-const updated = readme.replace(re, block);
+let updated = readme.replace(re, block);
+
+/**
+ * Блок каталога — из ответа переписи, не из головы. Число null означает
+ * «не посчитано» и печатается словами: прежнее значение под новой датой
+ * было бы тем самым враньём, ради отлова которого блок и заведён.
+ */
+export function renderCatalogBlock(census) {
+  const day = String(census.measured_at ?? '').slice(0, 10) || 'дата не записана';
+  const cell = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : 'не посчитано');
+  const rows = [
+    ['Мест (`places`)', census.places_living],
+    ['Маршрутов (`kamchatka_routes`)', census.routes_living],
+    ['Гидов с действующей аттестацией', census.guides_certified],
+  ];
+  const defs = census.definitions ?? {};
+  return [
+    `**Каталог** — перепись \`GET /api/cron/catalog-census\` на проде, замер ${day}` +
+      ' (обновляется после каждого мержа; «живые» — видимые и не слитые):',
+    '',
+    '| Сущность | Живых |',
+    '|----------|-------|',
+    ...rows.map(([k, v]) => `| ${k} | ${cell(v)} |`),
+    '',
+    ...(Object.keys(defs).length
+      ? [`<sub>${Object.values(defs).join(' · ')}</sub>`]
+      : []),
+  ].join('\n');
+}
+
+const CAT_START = '<!-- CATALOG:START -->';
+const CAT_END = '<!-- CATALOG:END -->';
+const catRe = new RegExp(`${CAT_START}[\\s\\S]*?${CAT_END}`);
+
+if (CATALOG_PATH) {
+  let census;
+  try {
+    census = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'));
+  } catch (e) {
+    console.error(`--catalog: файл ${CATALOG_PATH} не прочитан (${e.message}) — блок каталога не тронут`);
+    process.exit(3);
+  }
+  if (census?.probe !== 'catalog_census_v1') {
+    console.error(`--catalog: это не ответ переписи (probe=${census?.probe ?? '—'}) — блок каталога не тронут`);
+    process.exit(3);
+  }
+  if (!catRe.test(updated)) {
+    console.error('README.md: не найдены маркеры CATALOG:START/CATALOG:END');
+    process.exit(2);
+  }
+  updated = updated.replace(catRe, `${CAT_START}\n${renderCatalogBlock(census)}\n${CAT_END}`);
+}
 
 if (updated === readme) {
   console.log('README актуален — цифры совпадают.');

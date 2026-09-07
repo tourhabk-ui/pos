@@ -105,6 +105,15 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<v
     if (!opRes.delivered) {
       console.error(`[notifyNewBooking] оператору ПД не доставлены (${opRes.channel}) — ${opRes.reason}`);
     }
+  } else {
+    // У ветки не было `else`, и это молчание стоило дороже сбоя доставки:
+    // оператор без единого адреса не получал заявку НИКОГДА, а в логе не было
+    // ни строки. Со стороны выглядело как «оператор видит бронь и не
+    // отвечает» — то есть вина уезжала на него, а чинить надо было у нас.
+    // Сколько таких операторов — считает GET /api/cron/operator-reach.
+    console.error(
+      `[notifyNewBooking] у оператора «${payload.operator_name}» нет ни MAX, ни Telegram — заявка #${payload.booking_id} до него не дойдёт`,
+    );
   }
 }
 

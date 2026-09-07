@@ -21,7 +21,9 @@
 import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
-import { packKey, glyphKey, osmKey, vectorKey, PACK_GLYPHS, OSM_LAYERS } from '@/lib/map/pack-source';
+import { packCacheControl } from '@/lib/map/pack-cache-policy';
+import { packKey, glyphKey, osmKey, vectorKey, manifestKey, PACK_GLYPHS, OSM_LAYERS, type OsmLayer } from '@/lib/map/pack-source';
+import { buildPackManifest, countGeoJsonFeatures } from '@/lib/map/pack-manifest';
 import { REGIONS, packRegionBbox, type PackRegionId } from '@/lib/geo/regions';
 
 /**
@@ -39,10 +41,14 @@ function countFeatures(body: Buffer): string {
 }
 
 async function main(): Promise<number> {
-  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix, vectorPath] = process.argv.slice(2);
+  // --terrain-only (05.09): пересборка рельефа с запасом DEM за границей
+  // пакета — один файл, без горизонталей, OSM, вектора и глифов. Остальное
+  // в хранилище остаётся прежним и меняться не должно.
+  const terrainOnly = process.argv.includes('--terrain-only');
+  const [region, terrainPath, contoursPath, glyphsDir, osmPrefix, vectorPath] = process.argv.slice(2).filter((a) => a !== '--terrain-only');
 
-  if (!region || !terrainPath || !contoursPath) {
-    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>] [<vector.pmtiles>]');
+  if (!region || !terrainPath || (!terrainOnly && !contoursPath)) {
+    console.error('Нужно: <region-id> <terrain.pmtiles> <contours.geojson> [<glyphs-dir>] [<osm-prefix>] [<vector.pmtiles>] | <region-id> <terrain.pmtiles> --terrain-only');
     return 2;
   }
   // Район реестра или клетка сетки (cell-52n157e) — одна проверка на оба.
@@ -58,7 +64,7 @@ async function main(): Promise<number> {
 
   const items: Array<{ kind: 'terrain' | 'contours'; path: string; type: string }> = [
     { kind: 'terrain', path: terrainPath, type: 'application/octet-stream' },
-    { kind: 'contours', path: contoursPath, type: 'application/geo+json' },
+    ...(terrainOnly ? [] : [{ kind: 'contours' as const, path: contoursPath, type: 'application/geo+json' }]),
   ];
 
   for (const it of items) {
@@ -70,8 +76,13 @@ async function main(): Promise<number> {
       return 1;
     }
     const key = packKey(region as PackRegionId, it.kind);
-    const res = await uploadToS3(key, readFileSync(it.path), it.type);
+    const res = await uploadToS3(key, readFileSync(it.path), it.type, packCacheControl(key));
     console.log(`${it.kind}: ${(size / 1024 / 1024).toFixed(2)} МБ -> ${res.url}`);
+  }
+
+  if (terrainOnly) {
+    console.log('только рельеф: горизонтали, OSM, вектор, глифы и паспорт не трогались.');
+    return 0;
   }
 
   // Глифы — общие для всех районов, потому не под ключом района. Каталог
@@ -97,7 +108,8 @@ async function main(): Promise<number> {
         console.error(`ПУСТОЙ файл глифов ${p} — прекращаю.`);
         return 1;
       }
-      const res = await uploadToS3(glyphKey(PACK_GLYPHS.fontstack, range), readFileSync(p), 'application/x-protobuf');
+      const gk = glyphKey(PACK_GLYPHS.fontstack, range);
+      const res = await uploadToS3(gk, readFileSync(p), 'application/x-protobuf', packCacheControl(gk));
       console.log(`глифы ${range}: ${(size / 1024).toFixed(0)} КБ -> ${res.url}`);
     }
   }
@@ -113,10 +125,14 @@ async function main(): Promise<number> {
       console.error(`Нет OSM-слоёв: ${missing.map((m) => m.layer).join(', ')} — прекращаю, OSM не залит.`);
       return 1;
     }
+    const counts: Partial<Record<OsmLayer, number>> = {};
     for (const f of files) {
       const size = statSync(f.path).size;
       const body = readFileSync(f.path);
-      const res = await uploadToS3(osmKey(region as PackRegionId, f.layer), body, 'application/geo+json');
+      const n = countGeoJsonFeatures(body.toString('utf-8'));
+      if (n !== null) counts[f.layer] = n;
+      const ok = osmKey(region as PackRegionId, f.layer);
+      const res = await uploadToS3(ok, body, 'application/geo+json', packCacheControl(ok));
       /**
        * ЧИСЛО ОБЪЕКТОВ, а не только килобайты (02.09). Слой из двух посёлков
        * весит 300 байт и печатался как «0 КБ» — тем же, чем и пустой. То есть
@@ -127,7 +143,14 @@ async function main(): Promise<number> {
        */
       console.log(`osm ${f.layer}: ${countFeatures(body)} объектов, ${size} Б -> ${res.url}`);
     }
-    console.log(`  3. внести '${region}' в OSM_BUILT_REGIONS (lib/map/pack-source.ts)`);
+    // Паспорт пакета (05.09): те же числа, что напечатаны выше, — рядом с
+    // пакетом, чтобы карта могла сказать «троп в OSM здесь нет» словами.
+    // Слой, который не разобрался, в паспорт не попадает: «не знаю» ≠ 0.
+    const manifest = buildPackManifest(region, counts);
+    const mk = manifestKey(region as PackRegionId);
+    const mres = await uploadToS3(mk, Buffer.from(JSON.stringify(manifest)), 'application/json', packCacheControl(mk));
+    console.log(`manifest: ${Object.keys(counts).length} из ${OSM_LAYERS.length} слоёв посчитано -> ${mres.url}`);
+    console.log(`  3. внести '${region}' в OSM_BUILT_REGIONS и MANIFEST_BUILT (lib/map/pack-source.ts)`);
   }
 
   // Векторный пакет (02.09): один PMTiles на все линии и площади района.
@@ -137,7 +160,8 @@ async function main(): Promise<number> {
       console.error(`ПУСТОЙ векторный пакет ${vectorPath} — прекращаю, не залит.`);
       return 1;
     }
-    const res = await uploadToS3(vectorKey(region as PackRegionId), readFileSync(vectorPath), 'application/octet-stream');
+    const vk = vectorKey(region as PackRegionId);
+    const res = await uploadToS3(vk, readFileSync(vectorPath), 'application/octet-stream', packCacheControl(vk));
     console.log(`vector: ${(size / 1024 / 1024).toFixed(2)} МБ -> ${res.url}`);
     console.log(`  4. внести '${region}' в VECTOR_BUILT_REGIONS (lib/map/pack-source.ts)`);
   }

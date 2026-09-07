@@ -14,8 +14,26 @@ on:
 jobs:
   debug:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 35, а не 10: шаг ожидания деплоя длится до 20 мин, а run 5 (04.09) был
+    # снят самим таймаутом задачи на 20-й попытке.
+    timeout-minutes: 35
     steps:
+      # checkout ради scripts/wait-for-deploy.sh: сам замер идёт на проде.
+      - uses: actions/checkout@v7
+
+      # Ждём НЕ любой рестарт, а СВОЮ сборку — по маркеру /version.json
+      # (commit + built_at, пишется scripts/write-version.js при сборке образа).
+      # Правило одно на все замеры — scripts/wait-for-deploy.sh; замер 05.09
+      # (prod-check run 8) показал, что штамп из next.config.js до обработчика
+      # маршрута не доходит: build_time был null, и ожидание отсиживало 25 мин
+      # впустую.
+      - name: Wait for fresh deploy
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
       - name: Debug waterfall
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}

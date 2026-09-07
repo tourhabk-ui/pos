@@ -15,6 +15,7 @@ import { query } from '@/lib/database';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
+import { countRoutesWithoutGeometry, type RouteGeometryGap } from '@/lib/services/routes/routes-geometry-health';
 
 export interface SafetyAlert {
   title: string;
@@ -68,7 +69,15 @@ export interface FeedItem { text: string }
 export interface Stat { value: string; label: string; href?: string }
 export interface Element { key: string; label: string; count: number; href: string }
 export interface Quake { magnitude: number; place: string; time: number; depth: number | null }
-export interface SeismicSnapshot { events: Quake[]; source: 'kbgsras' | 'usgs' | 'none'; updatedAt: string | null }
+/**
+ * Снимок сейсмики.
+ *
+ * `checkedAt` — когда мы В ПОСЛЕДНИЙ РАЗ спрашивали источник (прогон ingest
+ * у КБГС, время запроса у USGS). Именно он годится в строку «обновлено»:
+ * `updatedAt` — это момент сборки ответа, то есть всегда «только что», и
+ * показывать его читателю значит обещать свежесть, которой мы не проверяли.
+ */
+export interface SeismicSnapshot { events: Quake[]; source: 'kbgsras' | 'usgs' | 'none'; updatedAt: string | null; checkedAt: string | null }
 
 /** Один вулкан в «пульсе»: живая строка volcano_status, привязанная к месту. */
 export interface VolcanoPulseItem {
@@ -115,6 +124,11 @@ export interface HomeV8Data {
   feed: FeedItem[];
   stats: Stat[];
   elements: Element[];
+  /**
+   * Наличие линии у маршрутов для офлайн-карты (#1643). null — счётчик не
+   * выполнился: главная скажет «не посчитано», а не нарисует зелёную точку.
+   */
+  geometry: RouteGeometryGap | null;
 }
 
 // Центр радара по умолчанию — Петропавловск-Камчатский (клиент заменит на геолокацию).
@@ -283,12 +297,17 @@ function deriveElements(counts: PlatformCounts): Element[] {
   return groupPlacesByElement(counts.placesByType).elements;
 }
 
-function seismicSnapshot(events: SeismicEvent[], source: SeismicSnapshot['source'], updatedAt: string): SeismicSnapshot {
+function seismicSnapshot(
+  events: SeismicEvent[],
+  source: SeismicSnapshot['source'],
+  updatedAt: string,
+  checkedAt: string | null,
+): SeismicSnapshot {
   const list: Quake[] = events
     .filter((e) => Number.isFinite(e.magnitude) && e.magnitude > 0)
     .slice(0, 14) // для «пульса» нужно больше событий, чем для списка
     .map((e) => ({ magnitude: e.magnitude, place: e.place, time: e.time, depth: e.depth }));
-  return { events: list, source, updatedAt };
+  return { events: list, source, updatedAt, checkedAt };
 }
 
 function quakeLevel(m: number): HazardLevel {
@@ -495,13 +514,19 @@ async function fetchVolcanoPulse(): Promise<VolcanoSnapshot> {
 export async function getSafetyLiveData(): Promise<SafetyLiveData> {
   const [safety, feedResult, radarBase, reportHazards, volcanoes] = await Promise.all([
     fetchSafety(),
-    getSeismicFeed().catch(() => ({ events: [] as SeismicEvent[], source: 'none' as const, updatedAt: new Date().toISOString() })),
+    // `checkedAt: null` в откате — «не знаем, когда спрашивали»: лента не
+    // ответила вовсе, и ставить сюда время сборки значило бы обещать проверку,
+    // которой не было.
+    getSeismicFeed().catch(() => ({
+      events: [] as SeismicEvent[], source: 'none' as const,
+      updatedAt: new Date().toISOString(), checkedAt: null,
+    })),
     fetchRadarBase(),
     fetchReportHazards(),
     fetchVolcanoPulse(),
   ]);
 
-  const seismic = seismicSnapshot(feedResult.events, feedResult.source, feedResult.updatedAt);
+  const seismic = seismicSnapshot(feedResult.events, feedResult.source, feedResult.updatedAt, feedResult.checkedAt);
 
   const quakeHazards: Hazard[] = feedResult.events
     .filter((e) => e.lat != null && e.lng != null && Number.isFinite(e.magnitude) && e.magnitude > 0)
@@ -529,14 +554,16 @@ export async function getSafetyLiveData(): Promise<SafetyLiveData> {
 }
 
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [live, zones, plates, feedItems, counts] = await Promise.all([
+  const [live, zones, plates, feedItems, counts, geometry] = await Promise.all([
     getSafetyLiveData(),
     fetchZones(), fetchPlates(), fetchFeed(),
     getPlatformCounts().catch(() => null),
+    // Сам пишет в лог и отдаёт null при отказе — своего catch здесь не нужно.
+    countRoutesWithoutGeometry(),
   ]);
 
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'SAR' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, feed: feedItems, stats, elements };
+  return { ...live, zones, plates, feed: feedItems, stats, elements, geometry };
 }

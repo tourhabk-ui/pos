@@ -25,7 +25,8 @@ const ROOT = process.cwd();
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 const FACT = readFileSync(join(ROOT, 'lib/agents/fact-check.ts'), 'utf8');
 const DIGEST = strip(readFileSync(join(ROOT, 'lib/agents/scout-digest.ts'), 'utf8'));
-const ROUTE = strip(readFileSync(join(ROOT, 'app/api/cron/scout-digest/route.ts'), 'utf8'));
+// С 04.09 журнал пишет общий модуль (крон-роут, оркестратор, админка).
+const ROUTE = strip(readFileSync(join(ROOT, 'lib/agents/scout-digest-run.ts'), 'utf8'));
 
 const SAMPLE = [
   '<b>Дайджест 02.09.2026</b>',
@@ -73,12 +74,18 @@ describe('1. stripUnsupported исполняется', () => {
     expect(r.text).toBe(SAMPLE);
   });
 
-  it('заголовки не вычёркиваются, а опустевший раздел получает строку «нет сигналов»', () => {
+  it('опустевший раздел исчезает целиком и назван в emptied', () => {
+    // До 06.09 сюда подставлялась строка «Нет значимых сигналов за сегодня».
+    // Она УТВЕРЖДАЕТ, что по теме раздела за сутки ничего не случилось, а
+    // случилось ровно обратное: материал был, но пункт про него не пережил
+    // фактчек. Отсутствие раздела ничего не утверждает — поэтому раздел
+    // убирается, а его имя возвращается наверх, в журнал прогона.
     const r = stripUnsupported(SAMPLE, ['«Ростуризм сообщил о росте внутреннего турпотока летом»']);
-    expect(r.text).toContain('<b>Туриндустрия</b>');
-    expect(r.text).toMatch(/<b>Туриндустрия<\/b>\n- Нет значимых сигналов за сегодня/);
-    // Заголовок выпуска (первая строка) такой строки не получает.
-    expect(r.text).not.toMatch(/<b>Дайджест[^\n]*<\/b>\n- Нет значимых/);
+    expect(r.text).not.toContain('<b>Туриндустрия</b>');
+    expect(r.text).not.toMatch(/Нет значимых сигналов за сегодня/);
+    expect(r.emptied).toContain('Туриндустрия');
+    // Заголовок выпуска (первая строка) разделом не считается и не пропадает.
+    expect(r.text).toMatch(/<b>Дайджест/);
   });
 
   it('одна строка не вычёркивается дважды за две претензии', () => {

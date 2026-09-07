@@ -70,33 +70,45 @@ describe('совет уйти с тропы не публикуется', () => 
   });
 });
 
-describe('промпт не требует выдумывать', () => {
-  it('«секрет, который знают не все» из требований убран', () => {
-    // Требование, которое нечем выполнить, выполняется выдумкой.
-    expect(CHANNEL).not.toMatch(/секрет этого места, кот[а-яё]* знают не все/i);
+describe('у поста о месте нет модели — выдумывать некому (решение владельца 05.09)', () => {
+  // Третий случай подряд: 12.07 обещание трека, 19.08 «секрет» с уходом с
+  // тропы, 05.09 озеро Зелёное — «кратер грязевого вулкана», «растворённое
+  // железо», «вода тёплая на ощупь», которых нет в записи. Промпт запрещал
+  // выдумывать все три раза. Сторож структурный: текст собирает
+  // composePlacePost из полей записи, вызова модели в публикаторе нет.
+  const body = CHANNEL.match(/export async function postKuzmichRoute[\s\S]*?\n\}/)?.[0] ?? '';
+
+  it('публикатор найден', () => {
+    expect(body).not.toBe('');
   });
 
-  it('деталь берётся ИЗ ДАННЫХ, и выдумка запрещена прямо', () => {
-    expect(CHANNEL).toMatch(/Конкретная деталь ИЗ ДАННЫХ ВЫШЕ/);
-    expect(CHANNEL).toMatch(/Не выдумывай\s*\n?\s*фактов/);
+  it('текст собирается из данных, а не генерируется', () => {
+    expect(body).toMatch(/composePlacePost\(/);
+    expect(body).not.toMatch(/callAI|getModelForAgent|prompt/);
   });
 
-  it('пустота названа лучшим исходом, чем придуманное', () => {
-    // Без этой строки модель заполнит пробел сама — так и вышло.
-    expect(CHANNEL).toMatch(/Пустая строка лучше\s*\n?\s*придуманной/);
+  it('промпта о месте с «Ты — Кузьмич» больше нет', () => {
+    expect(CHANNEL).not.toMatch(/Напиши короткий пост для Telegram-канала о конкретном месте/);
   });
 });
 
-describe('чужой снимок назван чужим', () => {
-  it('фото сообщает, своё ли оно', () => {
-    expect(CHANNEL).toMatch(/ofThisPlace: boolean/);
-    expect(CHANNEL).toMatch(/ofThisPlace: true/);
-    expect(CHANNEL).toMatch(/ofThisPlace: false/);
+describe('чужого снимка у поста о месте нет (решение владельца 05.09)', () => {
+  // Оговорка «на фото не это место» была честной и не спасла: владелец снял
+  // пост вместе с фото. Место без своего снимка в канал не идёт.
+  const body = CHANNEL.match(/export async function postKuzmichRoute[\s\S]*?\n\}/)?.[0] ?? '';
+
+  it('кандидат выбирается только со своим фото — условие в SQL', () => {
+    expect(body).toMatch(/EXISTS \(\s*SELECT 1 FROM ai_route_images i\s*WHERE i\.route_id = ark\.id AND i\.model = ANY\(\$2\)/);
+    expect(CHANNEL).toMatch(/OWN_PHOTO_MODELS = \['wikimedia', 'manual-upload'\]/);
   });
 
-  it('оговорка добавляется к тексту, когда снимок не этого места', () => {
-    expect(CHANNEL).toMatch(/!photo\.ofThisPlace \? `\$\{text\}\$\{NOT_THIS_PLACE_NOTE\}`/);
-    expect(CHANNEL).toMatch(/не это место/);
+  it('фото поста — свой кадр, без фолбэка на чужой', () => {
+    expect(body).toMatch(/photoUrl: ownPhotoUrl\(r\.id\)/);
+    expect(body).toMatch(/fallbackPhotoUrl: null/);
+  });
+
+  it('куратор-каскада и оговорки в коде не осталось', () => {
+    expect(CHANNEL).not.toMatch(/NOT_THIS_PLACE_NOTE|buildRoutePhotoUrl|resolvePostPhotoUrl|LOCATION_PHOTO|ofThisPlace/);
   });
 });
 

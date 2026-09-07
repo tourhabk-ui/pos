@@ -1,0 +1,89 @@
+name: Перепись графа дорог на проде (реальные пары)
+
+# Отвечает ли свой роутер (/api/routing/path, дорожный граф из OSM) на
+# реальных парах «откуда → куда» — с прода, тем же адресом, что зовёт экран.
+# Владелец 05.09: «маршруты не прокладываются на карте». Граф залит 29.08
+# (import-road-graph run 8 зелёный), но «залит» и «отвечает ok на паре
+# Елизово → Петропавловск» — разные утверждения; второе из контейнера Claude
+# не проверить (§8: прод достаёт только раннер).
+#
+# Пары — в файле-триггере; у каждой ожидание: ok — дорога есть и путь
+# обязан найтись; not_found — дороги нет (Курильское озеро), и честный отказ
+# здесь ПРАВИЛЬНЫЙ ответ, а ok был бы ложью. Оба режима, car и foot: по foot
+# сервер сегодня отвечает unsupported экрану, но сам граф пеший режим умеет —
+# перепись показывает, что он дал бы.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/road-graph-census.json'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Перепись
+        env:
+          BASE: https://vedarai.ru
+        run: |
+          set -uo pipefail
+          python3 - <<'PY' | tee census.log
+          import json, os, time, urllib.request, urllib.parse
+          base = os.environ['BASE']
+          marker = json.load(open('.github/triggers/road-graph-census.json'))
+          pairs = marker['pairs']
+          rows = []
+          bad = 0
+          for p in pairs:
+              for mode in ('car', 'foot'):
+                  q = urllib.parse.urlencode({'from_lat': p['from'][0], 'from_lng': p['from'][1], 'to_lat': p['to'][0], 'to_lng': p['to'][1], 'mode': mode})
+                  url = f"{base}/api/routing/path?{q}"
+                  t0 = time.time()
+                  try:
+                      with urllib.request.urlopen(url, timeout=60) as r:
+                          body = json.loads(r.read().decode('utf-8'))
+                          code = r.status
+                  except urllib.error.HTTPError as e:
+                      code = e.code
+                      try: body = json.loads(e.read().decode('utf-8'))
+                      except Exception: body = {}
+                  except Exception as e:
+                      code = 0; body = {'reason': 'network', 'message': str(e)}
+                  dt = time.time() - t0
+                  ok = bool(body.get('ok'))
+                  status = 'ok' if ok else (body.get('reason') or f'HTTP {code}')
+                  detail = ''
+                  if ok:
+                      detail = f"{body.get('distance_m', 0)/1000:.1f} км, {body.get('duration_s', 0)/60:.0f} мин, снап {body.get('start_snap_m', 0):.0f}/{body.get('end_snap_m', 0):.0f} м"
+                  else:
+                      detail = (body.get('message') or '')[:120]
+                      g = body.get('graph')
+                      if g: detail += f" · граф: узлов {g.get('nodes')}, рёбер {g.get('edges')}"
+                  expected = p.get('expect', 'ok')
+                  # Ожидание относится к режиму car; foot — справочно.
+                  verdict = '' if mode == 'foot' else ('совпало' if (status == 'ok') == (expected == 'ok') else 'РАСХОЖДЕНИЕ')
+                  if verdict == 'РАСХОЖДЕНИЕ': bad += 1
+                  rows.append((p['name'], mode, status, detail, f'{dt:.1f} с', expected if mode == 'car' else '', verdict))
+          print('| пара | режим | ответ | детали | время | ожидание | вердикт |')
+          print('|---|---|---|---|---|---|---|')
+          for r in rows: print('| ' + ' | '.join(str(x).replace('|', '/') for x in r) + ' |')
+          print()
+          print(f'итого пар: {len(pairs)}, расхождений с ожиданием (car): {bad}')
+          raise SystemExit(1 if bad else 0)
+          PY
+          code=${PIPESTATUS[0]}
+          {
+            echo '### Перепись графа дорог на проде'
+            echo
+            cat census.log
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" != "0" ]; then echo "::error::Есть пары, где ответ графа расходится с ожиданием."; fi
+          exit $code

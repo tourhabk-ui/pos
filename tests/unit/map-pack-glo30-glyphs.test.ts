@@ -20,6 +20,7 @@ import {
   PACK_TERRAIN_MAXZOOM, PACK_GLYPHS, glyphKey, resolvePackSource,
 } from '@/lib/map/pack-source';
 import { buildVedarStyle } from '@/lib/map/vedar-style';
+import { packKeysToVerify } from '@/scripts/map-tiles/verify-packs';
 
 const ROOT = process.cwd();
 const PY = readFileSync(join(ROOT, 'scripts/map-tiles/build_terrain.py'), 'utf-8');
@@ -65,6 +66,29 @@ describe('глифы — свои, из одного места', () => {
   it('диапазоны — цифры со знаком градуса и кириллица', () => {
     expect(PACK_GLYPHS.ranges).toContain('0-255');
     expect(PACK_GLYPHS.ranges).toContain('1024-1279');
+  });
+
+  it('…и длинное тире с знаком номера (снимки 05.09: 403 на эти диапазоны)', () => {
+    // U+2014 «—» — стандарт имени маршрута §13 («Пиначево — Центральный»);
+    // U+2116 «№». Без этих диапазонов MapLibre молча рисовал имена без тире.
+    expect(PACK_GLYPHS.ranges).toContain('8192-8447');
+    expect(PACK_GLYPHS.ranges).toContain('8448-8703');
+  });
+
+  it('глифы заливаются отдельным прогоном и проверяются хранилищем', () => {
+    const wf = readFileSync(join(process.cwd(), '.github/workflows/map-glyphs-build.yml'), 'utf-8');
+    expect(wf).toContain('scripts/map-tiles/upload-glyphs.ts');
+    expect(wf).toContain('.github/triggers/map-glyphs-build.json');
+    const up = readFileSync(join(process.cwd(), 'scripts/map-tiles/upload-glyphs.ts'), 'utf-8');
+    // Тот же источник, что у шага «Глифы» сборки пакета — второго адреса нет.
+    expect(up).toContain('https://protomaps.github.io/basemaps-assets/fonts');
+    expect(readFileSync(join(process.cwd(), '.github/workflows/map-pack-build.yml'), 'utf-8'))
+      .toContain('https://protomaps.github.io/basemaps-assets/fonts');
+    const keys = packKeysToVerify();
+    for (const r of PACK_GLYPHS.ranges) {
+      const k = keys.find((x) => x.key === glyphKey(PACK_GLYPHS.fontstack, r));
+      expect(k?.kind, r).toBe('binary');
+    }
   });
 
   it('стиль просит именно наш шрифт, а не умолчальный Open Sans', () => {

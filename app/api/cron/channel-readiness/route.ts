@@ -28,72 +28,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { MIN_DESCRIPTION_CHARS, missingFields, SCHEMA_GAPS, type ReadinessRow } from '@/lib/tours/readiness';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
 /** Порог описания — тот же, по которому работает Editor. */
-export const MIN_DESCRIPTION_CHARS = 300;
-
-export interface ReadinessRow {
-  id: number;
-  title: string;
-  operator_id: string | null;
-  operator_name: string | null;
-  description_chars: number;
-  photo_count: number;
-  base_price: number | null;
-  duration_hours: number | null;
-  has_meeting_point: boolean;
-  /** Условия отмены записаны оператором (колонка с миграции 931). */
-  has_cancellation_policy: boolean;
-  has_coords: boolean;
-  has_operator_contact: boolean;
-  included_count: number;
-  program_steps: number;
-}
-
-/**
- * Чего не хватает конкретному туру. Пустой список — тур годен.
- *
- * ПРО `pickup` — поправка владельца 23.08. Первая версия называла это
- * «meeting_point» и считала пустое поле забывчивостью оператора. Это неверно:
- * операторы ЗАБИРАЮТ туристов сами, фиксированной точки сбора у таких туров
- * нет и быть не должно. Поэтому пустое поле здесь означает не «оператор не
- * заполнил», а «у нас не записано, КАК турист попадает на тур».
- *
- * Блокировать это всё равно приходится: чужая витрина обязана сказать
- * покупателю, ждать ли его у отеля или ехать самому, и «не знаю» тут не
- * публикуется. Но чинится оно не восемью письмами про точки сбора, а одной
- * фразой на оператора — где и в каких границах он забирает.
- */
-export function missingFields(r: ReadinessRow): string[] {
-  const missing: string[] = [];
-  if (!r.title.trim()) missing.push('title');
-  if (r.description_chars < MIN_DESCRIPTION_CHARS) missing.push('description');
-  if (r.photo_count < 1) missing.push('photos');
-  if (r.base_price === null || r.base_price <= 0) missing.push('base_price');
-  if (r.duration_hours === null) missing.push('duration_hours');
-  if (!r.has_meeting_point) missing.push('pickup');
-  // Условия отмены: покупатель на чужой витрине обязан знать, что будет с
-  // деньгами при отмене, и «не знаю» тут не публикуется. До 931 это был
-  // пробел схемы; теперь — пробел данных, чинится оператором в кабинете.
-  if (!r.has_cancellation_policy) missing.push('cancellation_policy');
-  if (!r.has_coords) missing.push('coordinates');
-  if (!r.has_operator_contact) missing.push('operator_contact');
-  return missing;
-}
-
-/**
- * Поля, которых нет НИ У ОДНОГО тура, потому что под них нет колонок.
- * Это факт о схеме, а не о данных: их нельзя «заполнить», их надо заводить.
- */
-export const SCHEMA_GAPS = [
-  { field: 'language',            note: 'язык проведения тура — колонки нет; для иностранной витрины это обычно обязательное поле' },
-  // 'cancellation_policy' снят 03.09: колонка заведена миграцией 931, поле
-  // переехало из пробелов схемы в пробелы данных (missingFields выше).
-  { field: 'instant_confirmation',note: 'подтверждается ли бронь мгновенно — колонки нет; у нас подтверждение делает оператор' },
-] as const;
+export {
+  MIN_DESCRIPTION_CHARS,
+  missingFields,
+  SCHEMA_GAPS,
+  type ReadinessRow,
+} from '@/lib/tours/readiness';
 
 export async function GET(req: NextRequest) {
   const secret = getCronSecret(req);
@@ -114,6 +60,8 @@ export async function GET(req: NextRequest) {
         COALESCE(ARRAY_LENGTH(ot.photos, 1), 0)             AS photo_count,
         ot.base_price,
         ot.duration_hours,
+        ot.pickup_type,
+        COALESCE(LENGTH(TRIM(ot.pickup_details)), 0)        AS pickup_details_chars,
         (ot.meeting_point IS NOT NULL AND LENGTH(TRIM(ot.meeting_point)) > 0) AS has_meeting_point,
         (ot.cancellation_policy IS NOT NULL AND LENGTH(TRIM(ot.cancellation_policy)) > 0) AS has_cancellation_policy,
         (ot.latitude IS NOT NULL AND ot.longitude IS NOT NULL)               AS has_coords,

@@ -183,6 +183,15 @@ const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c
 import { RadarScope, AlertsTicker, SeismicPulse, VolcanoPulse, SRC_LABEL, fmtAgo, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
 import type { SafetyLiveData } from '@/app/_home/data';
 
+/**
+ * Отметка обновления словами. Отсутствие отметки — не повод молчать: «время
+ * обновления неизвестно» и «обновлено только что» — разные вещи, и вторую
+ * читатель домысливает сам, если первую не сказать (§4.0).
+ */
+function stampLabel(at: string | null | undefined): string {
+  return at ? `обновлено ${fmtAgo(at)}` : 'время обновления неизвестно';
+}
+
 export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
   const [zones, setZones] = useState<ZoneData[]>([]);
   // Отдельно от самого списка: «зон нет» и «оценку не посчитали» — разные
@@ -201,23 +210,75 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   const [chatMessages, setChatMessages] = useState<RescueMsg[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [checkinState, setCheckinState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  /**
+   * Обновление данных руками.
+   *
+   * Четыре исхода, а не два: обновили, идёт, не смогли, сети нет. «Не смогли»
+   * и «сети нет» разведены намеренно — на маршруте это разные новости: первая
+   * значит «источник молчит, данные прежние», вторая «ты вне связи, и это
+   * нормально». Молча вернуть старые цифры со свежим временем было бы худшим
+   * из вариантов: человек принял бы решение по вчерашней сейсмике.
+   */
+  const [refreshState, setRefreshState] = useState<'idle' | 'loading' | 'done' | 'failed' | 'offline'>('idle');
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    void Promise.all([
-      fetch('/api/public/danger-summary')
-        .then(r => r.json())
+  /**
+   * Загрузка всех источников. `fresh` — кнопка «обновить»: она просит сервер
+   * пропустить кэш и сходить к источникам. Возвращает, удалось ли получить
+   * хоть один живой ответ: без этого кнопка не смогла бы отличить «обновили»
+   * от «все источники молчат».
+   */
+  const loadAll = useCallback(async (fresh = false): Promise<boolean> => {
+    // Значение подставляется, ПУТЬ остаётся буквальным: сторож публичных
+    // вызовов (public-fetch-edge) читает адреса статикой, и `${q}` сразу за
+    // именем роута превращало «/api/safety/seismic» в «/api/safety/seismicX» —
+    // непубличный путь, которого нет в реестре. Он поймал это сразу.
+    const q = fresh ? '1' : '0';
+    let any = false;
+    const ok = <T,>(p: Promise<T>) => p.then((v) => { any = true; return v; });
+    await Promise.all([
+      ok(fetch(`/api/public/danger-summary?fresh=${q}`).then(r => r.json()))
         .then((d: { ok?: boolean; zones?: ZoneData[] }) => {
           setZones(d.zones ?? []);
           // ok === false — оценка не посчиталась. Это не «зон нет».
           setZonesKnown(d.ok !== false);
         })
         .catch(() => setZonesKnown(false)),
-      fetch('/api/safety/seismic').then(r => r.json()).then((d: { events?: SeismicEvent[]; source?: string }) => { setSeismic(d.events ?? []); setSeismicSource(d.source ?? ''); }).catch(() => {}),
-      fetch('/api/safety/volcanic').then(r => r.json()).then((d: { events?: VolcanicEvent[] }) => setVolcanic(d.events ?? [])).catch(() => {}),
-      fetch('/api/safety/weather').then(r => r.json()).then((d: WeatherData) => setWeather(d.tempC ? d : null)).catch(() => {}),
-    ]).finally(() => setLoading(false));
+      ok(fetch(`/api/safety/seismic?fresh=${q}`).then(r => r.json()))
+        .then((d: { events?: SeismicEvent[]; source?: string; checkedAt?: string | null }) => {
+          setSeismic(d.events ?? []);
+          setSeismicSource(d.source ?? '');
+          if (d.checkedAt) setCheckedAt(new Date(d.checkedAt).getTime());
+        }).catch(() => {}),
+      ok(fetch(`/api/safety/volcanic?fresh=${q}`).then(r => r.json()))
+        .then((d: { events?: VolcanicEvent[] }) => setVolcanic(d.events ?? [])).catch(() => {}),
+      ok(fetch(`/api/safety/weather?fresh=${q}`).then(r => r.json()))
+        .then((d: WeatherData & { checked_at?: string }) => {
+          setWeather(d.tempC ? d : null);
+          if (d.checked_at) setCheckedAt((prev) => Math.max(prev ?? 0, new Date(d.checked_at as string).getTime()));
+        }).catch(() => {}),
+    ]);
+    return any;
   }, []);
+
+  useEffect(() => {
+    void loadAll().finally(() => setLoading(false));
+  }, [loadAll]);
+
+  const handleRefresh = useCallback(async () => {
+    if (refreshState === 'loading') return;
+    // Офлайн проверяется ДО запроса: на маршруте это обычное состояние, и
+    // крутить спиннер, чтобы через десять секунд сказать «не смогли», значит
+    // тратить батарею и время человека.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setRefreshState('offline');
+      return;
+    }
+    setRefreshState('loading');
+    const any = await loadAll(true);
+    setRefreshState(any ? 'done' : 'failed');
+  }, [loadAll, refreshState]);
 
   useEffect(() => {
     if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -371,7 +432,26 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
               {live.seismic.events.length > 0 && (
                 <SeismicPulse events={live.seismic.events} source={SRC_LABEL[live.seismic.source]} />
               )}
-              <div className="src">Источник: КВЕРТ · Камчатское УГМС · КБГС РАН / USGS{live.safety.updatedAt ? ` · обновлено ${fmtAgo(live.safety.updatedAt)}` : ''}</div>
+              {/*
+                Отметка времени принадлежит ТОМУ источнику, который её выдал.
+                До 07.09 здесь стояла одна цифра на четыре источника, и брали
+                её из `location_real_time_status` — таблицы о загруженности и
+                режиме работы МЕСТ, не имеющей отношения ни к КВЕРТ, ни к
+                КБГС, ни к USGS. Владелец увидел итог на экране: сильнейший
+                толчок «5 ч назад» под строкой «обновлено 9 ч назад». Данные
+                не могут быть новее собственной отметки обновления.
+
+                У вулканов честная отметка — время последнего наблюдения; у
+                сейсмики — `checkedAt`, время последнего ОПРОСА ленты (а не
+                `updatedAt`, который равен моменту сборки ответа и всегда
+                показывал бы «только что»). Нет отметки — так и говорим.
+              */}
+              <div className="src">
+                Источник: КВЕРТ (вулканы) — {stampLabel(live.volcanoes.updatedAt)}
+                {live.seismic.events.length > 0
+                  ? ` · ${SRC_LABEL[live.seismic.source]} (толчки) — ${stampLabel(live.seismic.checkedAt)}`
+                  : ''}
+              </div>
             </div>
           )}
         </section>
@@ -442,6 +522,44 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           })}
         </div>
       ) : null}
+
+      {/* Обновить данные. Рядом — время ПОСЛЕДНЕЙ ПРОВЕРКИ источников, а не
+          возраст события: на экране стояло «41 ч назад», и по этой строке
+          нельзя было понять, проверяли ли мы хоть что-то за эти сорок один
+          час. Толчков просто не было — но человек в поле читает такое как
+          «связи нет» и перестаёт верить экрану. */}
+      <button
+        onClick={handleRefresh}
+        disabled={refreshState === 'loading'}
+        className="ds-card"
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 12,
+          border: 'none', textAlign: 'left', cursor: refreshState === 'loading' ? 'default' : 'pointer',
+          opacity: refreshState === 'loading' ? 0.7 : 1,
+        }}
+      >
+        {/* Вращение — утилитой Tailwind: своих @keyframes в компонентах не
+            заводим (CLAUDE.md §3). */}
+        <RefreshCw
+          className={`w-5 h-5${refreshState === 'loading' ? ' animate-spin' : ''}`}
+          style={{
+            color: refreshState === 'failed' ? 'var(--warning)' : refreshState === 'offline' ? 'var(--text-muted)' : 'var(--ocean)',
+            flexShrink: 0,
+          }}
+        />
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+          {refreshState === 'loading' ? 'Спрашиваем источники...' : 'Обновить данные'}
+        </span>
+        <span style={{ fontSize: 11, color: refreshState === 'failed' ? 'var(--warning)' : 'var(--text-muted)', textAlign: 'right' }}>
+          {refreshState === 'offline'
+            ? 'Нет сети — показано сохранённое'
+            : refreshState === 'failed'
+              ? 'Источники не ответили'
+              : checkedAt
+                ? `Проверено ${fmtAgo(new Date(checkedAt).toISOString())}`
+                : 'Проверка ещё не удавалась'}
+        </span>
+      </button>
 
       {/* Чек-ин — мягкий сигнал, НЕ SOS. SOS — только EmergencyAction в шапке. */}
       <button

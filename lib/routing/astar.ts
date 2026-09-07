@@ -97,6 +97,55 @@ export function nearestNode(
   return best ? { node: best, distance_m: Math.round(bestD) } : null;
 }
 
+/**
+ * Ближайшие узлы в радиусе maxM — по возрастанию расстояния, не больше limit.
+ * Нужны привязке «к той же компоненте» (road-graph-route): один ближайший
+ * узел может стоять на изолированном обрывке (подъездная дорога, разорванная
+ * на импорте улица), и тогда честный disconnected прячет живую трассу в
+ * шестидесяти метрах. Перепись 05.09: Николаевка → Паратунка и
+ * Паратунка → Термальный отвечали disconnected при 17 тысячах узлов в окне —
+ * точка Паратунки садилась на обрывок.
+ */
+export function nearestNodesWithin(
+  nodes: Iterable<RoadNode>, lat: number, lng: number, allowed: Set<number>, maxM: number, limit: number,
+): Array<{ node: RoadNode; distance_m: number }> {
+  const out: Array<{ node: RoadNode; distance_m: number }> = [];
+  for (const n of nodes) {
+    if (!allowed.has(n.id)) continue;
+    const d = haversineM(lat, lng, n.lat, n.lng);
+    if (d <= maxM) out.push({ node: n, distance_m: Math.round(d) });
+  }
+  out.sort((a, b) => a.distance_m - b.distance_m);
+  return out.slice(0, limit);
+}
+
+/**
+ * Компонента связности каждого узла по режиму — union-find по проходимым
+ * рёбрам. Узлы без единого проходимого ребра в карте отсутствуют.
+ */
+export function componentIds(edges: RoadEdge[], mode: TravelMode): Map<number, number> {
+  const parent = new Map<number, number>();
+  const find = (x: number): number => {
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r) as number;
+    // Сжатие пути: следующий поиск по той же цепочке — за шаг.
+    let c = x;
+    while (parent.get(c) !== r) { const next = parent.get(c) as number; parent.set(c, r); c = next; }
+    return r;
+  };
+  for (const e of edges) {
+    if (!Number.isFinite(edgeCostSeconds(e, mode))) continue;
+    if (!parent.has(e.from)) parent.set(e.from, e.from);
+    if (!parent.has(e.to)) parent.set(e.to, e.to);
+    const a = find(e.from);
+    const b = find(e.to);
+    if (a !== b) parent.set(a, b);
+  }
+  const out = new Map<number, number>();
+  for (const id of parent.keys()) out.set(id, find(id));
+  return out;
+}
+
 /** Узлы, у которых есть хотя бы одно ребро, проходимое этим режимом. */
 export function routableNodes(edges: RoadEdge[], mode: TravelMode): Set<number> {
   const ids = new Set<number>();

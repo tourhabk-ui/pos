@@ -80,8 +80,15 @@ export async function createTicket(input: {
   channel?: string;
   subject: string;
   firstMessage: string;
+  /** Категория, выбранная человеком в форме; без неё — по тексту. */
+  category?: SupportCategory;
+  /** Имя и почта из веб-формы (миграция 698); из Telegram их нет. */
+  userName?: string | null;
+  userEmail?: string | null;
 }): Promise<SupportTicket> {
-  const { category, resident } = categorizeSupport(input.subject + ' ' + input.firstMessage);
+  const auto = categorizeSupport(input.subject + ' ' + input.firstMessage);
+  const category = input.category ?? auto.category;
+  const resident = auto.resident;
 
   const firstMsg: SupportMessage = {
     role: 'user',
@@ -91,8 +98,8 @@ export async function createTicket(input: {
 
   const res = await query<TicketRow>(
     `INSERT INTO support_tickets
-       (user_id, channel, category, subject, status, assigned_agent, messages)
-     VALUES ($1, $2, $3, $4, 'assigned', $5, $6::jsonb)
+       (user_id, channel, category, subject, status, assigned_agent, messages, user_name, user_email)
+     VALUES ($1, $2, $3, $4, 'assigned', $5, $6::jsonb, $7, $8)
      RETURNING *`,
     [
       input.userId,
@@ -101,6 +108,8 @@ export async function createTicket(input: {
       input.subject,
       resident,
       JSON.stringify([firstMsg]),
+      input.userName ?? null,
+      input.userEmail ?? null,
     ]
   );
 
@@ -186,6 +195,87 @@ export async function getOverdueTickets(): Promise<SupportTicket[]> {
      ORDER BY created_at ASC LIMIT 20`
   );
   return res.rows.map(normalizeRow);
+}
+
+/**
+ * Один тикет по id — для агента и админки. null — нет такого.
+ */
+export async function getTicketById(ticketId: string): Promise<SupportTicket | null> {
+  const res = await query<TicketRow>(
+    `SELECT st.*, u.name AS user_name, u.email AS user_email
+     FROM support_tickets st
+     LEFT JOIN users u ON u.id = st.user_id
+     WHERE st.id = $1 LIMIT 1`,
+    [ticketId]
+  );
+  return res.rows[0] ? normalizeRow(res.rows[0]) : null;
+}
+
+/**
+ * Тикет, если он принадлежит этому пользователю. Чужой тикет и
+ * несуществующий отвечают одинаково — null: по ответу нельзя перебрать
+ * чужие id.
+ */
+export async function getTicketForUser(ticketId: string, userId: string): Promise<SupportTicket | null> {
+  const res = await query<TicketRow>(
+    `SELECT id, user_id, user_name, user_email, channel, category, subject, status, assigned_agent, messages, resolution, escalated_at, resolved_at, created_at, updated_at
+     FROM support_tickets
+     WHERE id = $1 AND user_id = $2 LIMIT 1`,
+    [ticketId, userId]
+  );
+  return res.rows[0] ? normalizeRow(res.rows[0]) : null;
+}
+
+/**
+ * Все тикеты пользователя (экран поддержки в кабинете туриста, 04.09).
+ * В отличие от getUserOpenTickets — со всеми статусами: человек должен
+ * видеть и решённые, иначе «решили» неотличимо от «потеряли».
+ */
+export async function listUserTickets(
+  userId: string,
+  filter?: { status?: string; limit?: number },
+): Promise<SupportTicket[]> {
+  const params: unknown[] = [userId];
+  let where = 'WHERE user_id = $1';
+  if (filter?.status) {
+    params.push(filter.status);
+    where += ` AND status = $${params.length}`;
+  }
+  params.push(Math.min(Math.max(filter?.limit ?? 50, 1), 200));
+  const res = await query<TicketRow>(
+    `SELECT id, user_id, user_name, user_email, channel, category, subject, status, assigned_agent, messages, resolution, escalated_at, resolved_at, created_at, updated_at
+     FROM support_tickets
+     ${where}
+     ORDER BY created_at DESC LIMIT $${params.length}`,
+    params
+  );
+  return res.rows.map(normalizeRow);
+}
+
+/** Статусы и категории — ровно те, что разрешает CHECK миграции 078. */
+export const TICKET_STATUSES = ['open', 'assigned', 'in_progress', 'resolved', 'escalated', 'closed'] as const;
+export const TICKET_CATEGORIES = ['billing', 'booking', 'safety', 'content', 'technical', 'refund', 'operator', 'other'] as const;
+
+/**
+ * Правка агентом: статус, категория, назначенный Резидент. Только
+ * объявленные колонки; поля «priority», «tags» у тикета нет — и их нет здесь.
+ */
+export async function updateTicket(
+  ticketId: string,
+  patch: { status?: string; category?: string; assignedAgent?: string | null },
+): Promise<SupportTicket | null> {
+  const res = await query<TicketRow>(
+    `UPDATE support_tickets
+     SET status         = COALESCE($2, status),
+         category       = COALESCE($3, category),
+         assigned_agent = COALESCE($4, assigned_agent),
+         resolved_at    = CASE WHEN $2 = 'resolved' AND resolved_at IS NULL THEN NOW() ELSE resolved_at END,
+         updated_at     = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [ticketId, patch.status ?? null, patch.category ?? null, patch.assignedAgent ?? null]
+  );
+  return res.rows[0] ? normalizeRow(res.rows[0]) : null;
 }
 
 /**

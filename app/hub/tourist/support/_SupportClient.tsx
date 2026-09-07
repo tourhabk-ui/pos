@@ -7,23 +7,25 @@ import {
   Loader2, CheckCircle, AlertCircle, Clock, RotateCcw,
 } from 'lucide-react';
 
+// Модель — та же, что у админки и Telegram-бота (lib/support/ticket.service,
+// миграция 078): переписка лежит в самом тикете, статусы и категории — из
+// CHECK таблицы. До 04.09 экран ждал поля priority/description и статусы
+// КАПСОМ из «столпового» сервиса, которых в базе не было никогда.
+interface Message {
+  role: 'user' | 'agent' | 'system';
+  text: string;
+  ts: string;
+}
+
 interface Ticket {
   id: string;
   subject: string;
   status: string;
-  priority: string;
   category: string | null;
-  description: string;
+  messages: Message[];
+  resolution: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-interface Message {
-  id: string;
-  content: string;
-  senderId: string;
-  createdAt: string;
-  senderType?: string;
 }
 
 interface UserProfile {
@@ -33,23 +35,29 @@ interface UserProfile {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  BOOKING: 'Бронирование',
-  BILLING: 'Оплата',
-  TECHNICAL: 'Технический вопрос',
-  CANCELLATION: 'Отмена',
-  REFUND: 'Возврат',
-  FEEDBACK: 'Отзыв',
-  OTHER: 'Другое',
+  booking: 'Бронирование',
+  billing: 'Оплата',
+  refund: 'Возврат',
+  safety: 'Безопасность',
+  operator: 'Оператор или гид',
+  content: 'Маршруты и места',
+  technical: 'Технический вопрос',
+  other: 'Другое',
 };
 
 const STATUS_CONFIG: Record<string, { label: string; icon: typeof CheckCircle; className: string }> = {
-  OPEN: { label: 'Открыт', icon: AlertCircle, className: 'text-[var(--ocean)] bg-[var(--ocean)]/10' },
-  IN_PROGRESS: { label: 'В работе', icon: Clock, className: 'text-[var(--warning)] bg-[var(--warning)]/10' },
-  WAITING_CUSTOMER: { label: 'Ожидает ответа', icon: RotateCcw, className: 'text-[var(--accent)] bg-[var(--accent)]/10' },
-  RESOLVED: { label: 'Решён', icon: CheckCircle, className: 'text-[var(--success)] bg-[var(--success)]/10' },
-  CLOSED: { label: 'Закрыт', icon: X, className: 'text-[var(--text-muted)] bg-[var(--bg-hover)]' },
-  REOPENED: { label: 'Переоткрыт', icon: AlertCircle, className: 'text-[var(--danger)] bg-[var(--danger)]/10' },
+  open: { label: 'Открыта', icon: AlertCircle, className: 'text-[var(--ocean)] bg-[var(--ocean)]/10' },
+  assigned: { label: 'Назначена', icon: Clock, className: 'text-[var(--ocean)] bg-[var(--ocean)]/10' },
+  in_progress: { label: 'В работе', icon: Clock, className: 'text-[var(--warning)] bg-[var(--warning)]/10' },
+  escalated: { label: 'Передана выше', icon: RotateCcw, className: 'text-[var(--accent)] bg-[var(--accent)]/10' },
+  resolved: { label: 'Решена', icon: CheckCircle, className: 'text-[var(--success)] bg-[var(--success)]/10' },
+  closed: { label: 'Закрыта', icon: X, className: 'text-[var(--text-muted)] bg-[var(--bg-hover)]' },
 };
+
+/** Первое сообщение туриста — это и есть описание заявки. */
+function firstText(ticket: Ticket): string {
+  return ticket.messages?.find((m) => m.role === 'user')?.text ?? '';
+}
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? { label: status, icon: AlertCircle, className: 'text-[var(--text-muted)] bg-[var(--bg-hover)]' };
@@ -72,6 +80,8 @@ export default function SupportClient() {
   const [view, setView] = useState<View>('list');
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loadingTickets, setLoadingTickets] = useState(true);
+  // «Заявок нет» и «заявки не загрузились» — разные экраны (§4.0).
+  const [listError, setListError] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -83,7 +93,7 @@ export default function SupportClient() {
   const [form, setForm] = useState({
     subject: '',
     description: '',
-    category: 'OTHER',
+    category: 'other',
     customerName: '',
     customerEmail: '',
   });
@@ -94,14 +104,15 @@ export default function SupportClient() {
   const fetchTickets = useCallback(async () => {
     setLoadingTickets(true);
     try {
-      const res = await fetch('/api/support/tickets?limit=50&sortBy=createdAt&sortOrder=DESC');
+      const res = await fetch('/api/support/tickets?limit=50');
       const json = await res.json();
-      if (json.success !== false) {
-        const list = json.data ?? json.tickets ?? json ?? [];
-        setTickets(Array.isArray(list) ? list : (list.tickets ?? []));
+      if (json.success && Array.isArray(json.data)) {
+        setTickets(json.data as Ticket[]);
+      } else {
+        setListError(json.error ?? 'Не удалось загрузить заявки');
       }
     } catch {
-      // silent
+      setListError('Нет связи с сервером');
     } finally {
       setLoadingTickets(false);
     }
@@ -133,12 +144,10 @@ export default function SupportClient() {
     try {
       const res = await fetch(`/api/support/tickets/${ticket.id}/messages`);
       const json = await res.json();
-      if (json.success !== false) {
-        const list = json.data ?? json.messages ?? json ?? [];
-        setMessages(Array.isArray(list) ? list : (list.messages ?? []));
-      }
+      setMessages(json.success && Array.isArray(json.data) ? (json.data as Message[]) : ticket.messages ?? []);
     } catch {
-      setMessages([]);
+      // Переписка уже пришла вместе с тикетом — показываем её, не пустоту.
+      setMessages(ticket.messages ?? []);
     } finally {
       setLoadingMessages(false);
     }
@@ -170,7 +179,7 @@ export default function SupportClient() {
       await fetchTickets();
       setTimeout(() => {
         setFormSuccess(false);
-        setForm((f) => ({ ...f, subject: '', description: '', category: 'OTHER' }));
+        setForm((f) => ({ ...f, subject: '', description: '', category: 'other' }));
         setView('list');
       }, 1800);
     } catch {
@@ -238,10 +247,18 @@ export default function SupportClient() {
               <div className="flex justify-center py-16">
                 <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
               </div>
+            ) : listError ? (
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-10 text-center">
+                <AlertCircle className="w-10 h-10 mx-auto mb-3 text-[var(--danger)]" />
+                <p className="text-[var(--text-secondary)] mb-4">{listError}</p>
+                <button onClick={() => { setListError(''); fetchTickets(); }} className="ds-btn ds-btn-secondary">
+                  Повторить
+                </button>
+              </div>
             ) : tickets.length === 0 ? (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-10 text-center">
                 <LifeBuoy className="w-10 h-10 mx-auto mb-3 text-[var(--text-muted)]" />
-                <p className="text-[var(--text-secondary)] mb-4">Нет активных заявок</p>
+                <p className="text-[var(--text-secondary)] mb-4">Заявок пока нет</p>
                 <button
                   onClick={() => setView('create')}
                   className="ds-btn ds-btn-primary"
@@ -260,7 +277,7 @@ export default function SupportClient() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-[var(--text-primary)] truncate">{ticket.subject}</p>
-                        <p className="text-sm text-[var(--text-muted)] mt-0.5 truncate">{ticket.description}</p>
+                        <p className="text-sm text-[var(--text-muted)] mt-0.5 truncate">{firstText(ticket)}</p>
                         <div className="flex items-center gap-2 mt-2 flex-wrap">
                           <StatusBadge status={ticket.status} />
                           {ticket.category && (
@@ -394,7 +411,11 @@ export default function SupportClient() {
                   Создан {formatDate(selectedTicket.createdAt)}
                 </span>
               </div>
-              <p className="mt-3 text-sm text-[var(--text-secondary)]">{selectedTicket.description}</p>
+              {selectedTicket.resolution && (
+                <p className="mt-3 text-sm text-[var(--text-primary)]">
+                  <span className="font-medium">Решение: </span>{selectedTicket.resolution}
+                </p>
+              )}
             </div>
 
             {/* Messages */}
@@ -409,11 +430,11 @@ export default function SupportClient() {
                   <p className="text-sm text-[var(--text-secondary)]">Переписка пуста</p>
                 </div>
               ) : (
-                messages.map((msg) => {
-                  const isAgent = msg.senderType === 'AGENT' || msg.senderType === 'SYSTEM';
+                messages.map((msg, i) => {
+                  const isAgent = msg.role === 'agent' || msg.role === 'system';
                   return (
                     <div
-                      key={msg.id}
+                      key={`${msg.ts}-${i}`}
                       className={`rounded-lg p-4 ${isAgent
                         ? 'bg-[var(--bg-primary)] border border-[var(--border)]'
                         : 'bg-[var(--ocean)]/5 border border-[var(--ocean)]/20'
@@ -421,11 +442,11 @@ export default function SupportClient() {
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium text-[var(--text-secondary)]">
-                          {isAgent ? 'Служба поддержки' : 'Вы'}
+                          {msg.role === 'system' ? 'Система' : isAgent ? 'Служба поддержки' : 'Вы'}
                         </span>
-                        <span className="text-xs text-[var(--text-muted)]">{formatDate(msg.createdAt)}</span>
+                        <span className="text-xs text-[var(--text-muted)]">{formatDate(msg.ts)}</span>
                       </div>
-                      <p className="text-sm text-[var(--text-primary)]">{msg.content}</p>
+                      <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap">{msg.text}</p>
                     </div>
                   );
                 })

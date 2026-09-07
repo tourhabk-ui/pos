@@ -10,6 +10,7 @@ import { SosQrScanner } from '@/components/safety/SosQrScanner';
 import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -480,6 +481,11 @@ export default function SosPage() {
             из приложения в штатную камеру — а она ведёт в браузер, где нашей
             PWA может не быть, и офлайн страница эстафеты не откроется. */}
         <SosQrScanner />
+
+        {/* Подписка на предупреждения — здесь тоже (владелец 05.09: искал
+            «включить уведомления» на этом экране и не нашёл). Ниже сканера и
+            выше шагов: действие SOS первым, подписка — когда до неё дошли. */}
+        <PushSafetyOffer />
 
         {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
         <div style={{

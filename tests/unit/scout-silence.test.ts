@@ -113,6 +113,10 @@ describe('отказ судьи назван своей причиной', () =>
    */
   const FACT = read('lib/agents/fact-check.ts');
   const DIGEST = read('lib/agents/scout-digest.ts');
+  // Словарь причин с 04.09 живёт отдельным чистым модулем (его читает ещё и
+  // панель прогонов админки — scout-digest тянет пул БД и в клиент не идёт).
+  // Сторож смотрит туда, где слова лежат, а спрос с них прежний.
+  const LABELS = read('lib/agents/scout-skip-reasons.ts');
 
   it('судья отдаёт причину, а не только отказ', () => {
     expect(FACT).toMatch(/export type JudgeFailure/);
@@ -134,13 +138,13 @@ describe('отказ судьи назван своей причиной', () =>
 
   it('у каждой причины есть слова для человека', () => {
     for (const code of ['judge_silent', 'judge_unparseable', 'judge_bad_shape', 'judge_threw']) {
-      expect(DIGEST, code).toMatch(new RegExp(`${code}:`));
+      expect(LABELS, code).toMatch(new RegExp(`${code}:`));
     }
   });
 
   it('прежний код пропуска не удалён — он лежит в старых записях журнала', () => {
     // Записи до 18.08 несут factcheck_judge_mute; забыв его, монитор здоровья
     // печатал бы сырой код вместо слов.
-    expect(DIGEST).toMatch(/factcheck_judge_mute:/);
+    expect(LABELS).toMatch(/factcheck_judge_mute:/);
   });
 });

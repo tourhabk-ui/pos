@@ -22,8 +22,9 @@
  *   ok           — HTTP 200, тело целиком, JSON разобрался;
  *   truncated    — байт пришло меньше, чем обещал Content-Length;
  *   bad_json     — тело целое, но не разбирается (позиция и кусок текста);
- *   http         — код не 200/206 (403 бакета, 404 несобранного файла);
- *   unreachable  — запрос не состоялся вовсе (сеть, DNS, TLS).
+ *   http         — код 4xx (403 бакета, 404 несобранного файла): ответ о файле;
+ *   unreachable  — запрос не состоялся вовсе (сеть, DNS, TLS) либо хранилище
+ *                  ответило 5xx (05.09: серия 502 на целых файлах).
  *
  * Последний — это и есть «не знаю»: он не доказывает ни исправности файла,
  * ни его порчи, и потому не зелёный, но и не приговор пакету.
@@ -31,8 +32,18 @@
  * ── Что проверяется ───────────────────────────────────────────────────────
  *
  * Список ключей берётся ИЗ РЕЕСТРОВ (`BUILT_PACK_REGIONS`, `OSM_BUILT_REGIONS`,
- * `OSM_LAYERS`, `packKey`/`osmKey`), а не выписывается здесь второй раз:
- * свой список разошёлся бы с тем, что просит карта, и проверял бы не то.
+ * `OSM_LAYERS`, `BUILT_GRID_CELLS`, `OVERVIEW_BUILT`, `packKey`/`osmKey`/
+ * `vectorKey`), а не выписывается здесь второй раз: свой список разошёлся бы
+ * с тем, что просит карта, и проверял бы не то.
+ *
+ * 04.09: до этой правки список ограничивался `BUILT_PACK_REGIONS` — десятью
+ * именованными районами. Клетки сетки «вся Камчатка» (`BUILT_GRID_CELLS`,
+ * тем же конвейером — рельеф, горизонтали, семь слоёв OSM, вектор) и
+ * обзорный ярус края собирались и обещались отдельными реестрами, но эта
+ * проверка их не видела вовсе: отчёт о хранилище был неполным, а не пустым,
+ * и «всё цело» на деле означало «цело то немногое, что мы посмотрели». Скрин
+ * владельца из поля (cell-53n158e.terrain.pmtiles, Failed to fetch) пришёл
+ * бы по клетке, для которой этот сторож ни разу не заглянул в бакет.
  *
  * GeoJSON качается ЦЕЛИКОМ — иначе про обрыв в конце файла ничего не узнать.
  * Рельеф (PMTiles) читается первыми килобайтами Range-запросом: так его
@@ -45,8 +56,11 @@
  */
 
 import {
-  BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, packKey, osmKey,
+  BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
+  PLACES_BUILT, packKey, osmKey, vectorKey, placesKey, MANIFEST_BUILT, manifestKey,
+  OVERVIEW_OCEAN_BUILT, oceanKey, PACK_GLYPHS, glyphKey,
 } from '@/lib/map/pack-source';
+import { OVERVIEW_ID } from '@/lib/geo/regions';
 
 export type PackVerdict = 'ok' | 'truncated' | 'bad_json' | 'http' | 'unreachable';
 
@@ -59,14 +73,46 @@ export interface PackCheck {
   bytes: number | null;
 }
 
-/** Ключи всех файлов, которые карта просит у хранилища. Порядок — районами. */
-export function packKeysToVerify(): Array<{ key: string; kind: 'json' | 'archive' }> {
-  const out: Array<{ key: string; kind: 'json' | 'archive' }> = [];
+/** json — GeoJSON целиком; archive — заголовок PMTiles по Range; binary — PBF глифов целиком. */
+export type PackFileKind = 'json' | 'archive' | 'binary';
+
+/** Ключи всех файлов, которые карта просит у хранилища. Порядок — глифы, затем районами. */
+export function packKeysToVerify(): Array<{ key: string; kind: PackFileKind }> {
+  const out: Array<{ key: string; kind: PackFileKind }> = [];
+  // Глифы подписей (05.09): один набор на все пакеты. До этого дня их не
+  // проверял никто, и два недостающих диапазона нашлись только снимками.
+  if (PACK_GLYPHS.ready) {
+    for (const range of PACK_GLYPHS.ranges) out.push({ key: glyphKey(PACK_GLYPHS.fontstack, range), kind: 'binary' });
+  }
   for (const region of BUILT_PACK_REGIONS) {
     out.push({ key: packKey(region, 'terrain'), kind: 'archive' });
     out.push({ key: packKey(region, 'contours'), kind: 'json' });
     if (!OSM_BUILT_REGIONS.includes(region)) continue;
     for (const layer of OSM_LAYERS) out.push({ key: osmKey(region, layer), kind: 'json' });
+  }
+  // Клетка сетки собирается всем конвейером сразу (resolvePackSource,
+  // lib/map/pack-source.ts) — одно обещание, четыре рода файлов.
+  for (const cell of BUILT_GRID_CELLS) {
+    out.push({ key: packKey(cell, 'terrain'), kind: 'archive' });
+    out.push({ key: packKey(cell, 'contours'), kind: 'json' });
+    for (const layer of OSM_LAYERS) out.push({ key: osmKey(cell, layer), kind: 'json' });
+    out.push({ key: vectorKey(cell), kind: 'archive' });
+  }
+  // Обзорный ярус — только рельеф и (пустые) горизонтали, без OSM и вектора
+  // по замыслу (resolvePackSource).
+  if (OVERVIEW_BUILT) {
+    out.push({ key: packKey(OVERVIEW_ID, 'terrain'), kind: 'archive' });
+    out.push({ key: packKey(OVERVIEW_ID, 'contours'), kind: 'json' });
+    // Океан поверх гипсометрии (05.09) — только у обзора.
+    if (OVERVIEW_OCEAN_BUILT) out.push({ key: oceanKey(OVERVIEW_ID), kind: 'json' });
+  }
+  // Места платформы (05.09) — свой слой, не OSM: свой реестр и свой ключ.
+  for (const region of PLACES_BUILT) {
+    out.push({ key: placesKey(region), kind: 'json' });
+  }
+  // Паспорт пакета (05.09) — по нему карта говорит, чего в OSM нет.
+  for (const region of MANIFEST_BUILT) {
+    out.push({ key: manifestKey(region), kind: 'json' });
   }
   return out;
 }
@@ -92,6 +138,20 @@ export function jsonFailure(text: string): { detail: string } | null {
   }
 }
 
+/**
+ * Код не 2xx — два разных исхода (§4.0). 4xx — ответ О ФАЙЛЕ: его нет (404)
+ * или не дают (403), это «испорчено/не отдан». 5xx — хранилище НЕ ОТВЕТИЛО:
+ * прогон 11 (05.09) дал 30 подряд HTTP 502 на cell-60n169e/60n170e, файлы
+ * которых часом раньше были целы и в следующем прогоне целы снова. Это
+ * «не смог проверить», а не порча — и красным, но своим словом.
+ */
+function httpVerdict(key: string, status: number): PackCheck {
+  if (status >= 500) {
+    return { key, verdict: 'unreachable', detail: `HTTP ${status} — хранилище не ответило`, bytes: null };
+  }
+  return { key, verdict: 'http', detail: `HTTP ${status}`, bytes: null };
+}
+
 async function checkJson(url: string, key: string, fetchImpl: typeof fetch): Promise<PackCheck> {
   let res: Response;
   try {
@@ -100,9 +160,7 @@ async function checkJson(url: string, key: string, fetchImpl: typeof fetch): Pro
     const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     return { key, verdict: 'unreachable', detail: name.slice(0, 160), bytes: null };
   }
-  if (res.status !== 200) {
-    return { key, verdict: 'http', detail: `HTTP ${res.status}`, bytes: null };
-  }
+  if (res.status !== 200) return httpVerdict(key, res.status);
   const declared = Number(res.headers.get('content-length') ?? '0') || null;
   let buf: ArrayBuffer;
   try {
@@ -133,9 +191,7 @@ async function checkArchive(url: string, key: string, fetchImpl: typeof fetch): 
     const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     return { key, verdict: 'unreachable', detail: name.slice(0, 160), bytes: null };
   }
-  if (res.status !== 206 && res.status !== 200) {
-    return { key, verdict: 'http', detail: `HTTP ${res.status}`, bytes: null };
-  }
+  if (res.status !== 206 && res.status !== 200) return httpVerdict(key, res.status);
   const head = new Uint8Array(await res.arrayBuffer());
   const magic = new TextDecoder().decode(head.slice(0, 7));
   if (magic !== 'PMTiles') {
@@ -143,6 +199,32 @@ async function checkArchive(url: string, key: string, fetchImpl: typeof fetch): 
     return { key, verdict: 'bad_json', detail: `заголовок не PMTiles: ${JSON.stringify(magic)}`, bytes: head.length };
   }
   return { key, verdict: 'ok', detail: `HTTP ${res.status}, заголовок PMTiles на месте`, bytes: head.length };
+}
+
+/** Двоичный файл целиком (глифы PBF): код, полнота по Content-Length, непустое тело. */
+async function checkBinary(url: string, key: string, fetchImpl: typeof fetch): Promise<PackCheck> {
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { cache: 'no-store' });
+  } catch (err) {
+    const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return { key, verdict: 'unreachable', detail: name.slice(0, 160), bytes: null };
+  }
+  if (res.status !== 200) return httpVerdict(key, res.status);
+  const declared = Number(res.headers.get('content-length') ?? '0') || null;
+  let buf: ArrayBuffer;
+  try {
+    buf = await res.arrayBuffer();
+  } catch (err) {
+    const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return { key, verdict: 'truncated', detail: `тело оборвалось: ${name.slice(0, 120)}`, bytes: null };
+  }
+  const bytes = buf.byteLength;
+  if (declared !== null && bytes !== declared) {
+    return { key, verdict: 'truncated', bytes, detail: `Content-Length ${declared}, пришло ${bytes}` };
+  }
+  if (bytes < 1000) return { key, verdict: 'bad_json', detail: `файл подозрительно мал: ${bytes} байт`, bytes };
+  return { key, verdict: 'ok', detail: `${(bytes / 1024).toFixed(0)} КБ`, bytes };
 }
 
 /**
@@ -168,7 +250,9 @@ export async function verifyPacks(
     const url = packUrl(baseUrl, key);
     out.push(kind === 'json'
       ? await checkJson(url, key, fetchImpl)
-      : await checkArchive(url, key, fetchImpl));
+      : kind === 'binary'
+        ? await checkBinary(url, key, fetchImpl)
+        : await checkArchive(url, key, fetchImpl));
   }
   return out;
 }

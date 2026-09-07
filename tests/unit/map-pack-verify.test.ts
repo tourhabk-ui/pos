@@ -21,7 +21,10 @@ import { join } from 'node:path';
 import { sourceUrlIndex, buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
 import { mapErrorText } from '@/components/shared/VedarMap';
 import { packKeysToVerify, jsonFailure, verifyPacks, packUrl } from '@/scripts/map-tiles/verify-packs';
-import { BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS } from '@/lib/map/pack-source';
+import {
+  BUILT_PACK_REGIONS, OSM_BUILT_REGIONS, OSM_LAYERS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
+} from '@/lib/map/pack-source';
+import { OVERVIEW_ID } from '@/lib/geo/regions';
 
 const SOURCES = {
   terrainUrl: 'pmtiles://https://s3.example.ru/b/map-packs/avacha-group.terrain.pmtiles',
@@ -121,6 +124,15 @@ describe('оборванный слой заказывается заново �
     expect(SRC).toMatch(/src\.setData\(file\)/);
   });
 
+  it('05.09: у PMTiles-источников (рельеф, вектор) нет setData — повтор идёт setUrl тем же адресом', () => {
+    // Первый скрин с поля: «cell-53n158e.terrain.pmtiles: Failed to fetch» —
+    // файл в бакете цел, связь моргнула, а повтора у raster-dem не было вовсе.
+    // MapLibre 6.6: setUrl → setSourceProperty → load(true), TileJSON заново.
+    expect(SRC).toMatch(/function hasSetUrl\(src: unknown\)/);
+    expect(SRC).toMatch(/else if \(hasSetUrl\(src\)\)/);
+    expect(SRC).toMatch(/src\.setUrl\(file\)/);
+  });
+
   it('повтор ровно один на источник — бесконечные попытки на глухом канале жгут батарею', () => {
     expect(SRC).toMatch(/const retriedSources = new Set<string>\(\)/);
     expect(SRC).toMatch(/!retriedSources\.has\(sourceId\)/);
@@ -180,6 +192,34 @@ describe('проверка хранилища: список файлов — и�
     const kinds = new Map(packKeysToVerify().map(k => [k.key, k.kind]));
     expect(kinds.get(`map-packs/${BUILT_PACK_REGIONS[0]}.terrain.pmtiles`)).toBe('archive');
     expect(kinds.get(`map-packs/${BUILT_PACK_REGIONS[0]}.contours.geojson`)).toBe('json');
+  });
+
+  it('04.09: клетки сетки «вся Камчатка» проверяются тем же списком — рельеф, горизонтали, все слои OSM, вектор', () => {
+    // Скрин владельца из поля: cell-53n158e.terrain.pmtiles не пришёл. До этой
+    // правки packKeysToVerify() клеток не видел вовсе — прогон был бы зелёным
+    // и про эту клетку ничего бы не сказал.
+    expect(BUILT_GRID_CELLS.length).toBeGreaterThan(0);
+    const keys = packKeysToVerify().map(k => k.key);
+    const kinds = new Map(packKeysToVerify().map(k => [k.key, k.kind]));
+    for (const cell of BUILT_GRID_CELLS) {
+      expect(keys).toContain(`map-packs/${cell}.terrain.pmtiles`);
+      expect(keys).toContain(`map-packs/${cell}.contours.geojson`);
+      expect(keys).toContain(`map-packs/${cell}.vector.pmtiles`);
+      for (const layer of OSM_LAYERS) expect(keys).toContain(`map-packs/${cell}.osm.${layer}.geojson`);
+    }
+    expect(kinds.get(`map-packs/${BUILT_GRID_CELLS[0]}.terrain.pmtiles`)).toBe('archive');
+    expect(kinds.get(`map-packs/${BUILT_GRID_CELLS[0]}.vector.pmtiles`)).toBe('archive');
+    expect(kinds.get(`map-packs/${BUILT_GRID_CELLS[0]}.contours.geojson`)).toBe('json');
+  });
+
+  it('04.09: обзорный ярус края — только рельеф и горизонтали, если собран', () => {
+    const keys = packKeysToVerify().map(k => k.key);
+    if (OVERVIEW_BUILT) {
+      expect(keys).toContain(`map-packs/${OVERVIEW_ID}.terrain.pmtiles`);
+      expect(keys).toContain(`map-packs/${OVERVIEW_ID}.contours.geojson`);
+    }
+    expect(keys).not.toContain(`map-packs/${OVERVIEW_ID}.vector.pmtiles`);
+    expect(keys).not.toContain(`map-packs/${OVERVIEW_ID}.osm.paths.geojson`);
   });
 });
 
@@ -249,6 +289,16 @@ describe('verifyPacks: у каждого файла ровно один верд
     const out = await verifyPacks('https://s3.example.ru/b', fakeFetch(() =>
       new Response('', { status: 403 })));
     expect(out.find(c => c.key === ONE)!.verdict).toBe('http');
+  });
+
+  it('502 хранилища — «не смог проверить», а не «файл испорчен» (прогон 11, 05.09)', async () => {
+    const out = await verifyPacks('https://s3.example.ru/b', fakeFetch(() =>
+      new Response('', { status: 502 })));
+    const one = out.find(c => c.key === ONE)!;
+    expect(one.verdict).toBe('unreachable');
+    expect(one.detail).toMatch(/HTTP 502 — хранилище не ответило/);
+    const arch = out.find(c => c.key.endsWith('.terrain.pmtiles'))!;
+    expect(arch.verdict).toBe('unreachable');
   });
 
   it('запрос не состоялся — «не смог проверить», а не «цел»', async () => {

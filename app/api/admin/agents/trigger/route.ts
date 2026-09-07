@@ -37,8 +37,10 @@ export async function POST(request: NextRequest) {
       const { runEditor } = await import('@/lib/agents/editor');
       result = (await runEditor()) as unknown as Record<string, unknown>;
     } else if (agent_id === 'scout-digest') {
-      const { runScoutDigest } = await import('@/lib/agents/scout-digest');
-      result = (await runScoutDigest()) as unknown as Record<string, unknown>;
+      // С журналом (04.09): запуск из админки раньше в agent_run_history не
+      // попадал, и выпуск «ниоткуда» нельзя было отличить от штатного.
+      const { runScoutDigestJournaled } = await import('@/lib/agents/scout-digest-run');
+      result = (await runScoutDigestJournaled('admin')).result as unknown as Record<string, unknown>;
     } else if (agent_id === 'scout') {
       const { runScoutInnovator } = await import('@/lib/agents/scout-innovator');
       result = (await runScoutInnovator()) as unknown as Record<string, unknown>;

@@ -36,7 +36,8 @@ import {
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { builtRegionPacks, chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
-import { VedarZoomButtons, type VedarMapHandle, type VedarMapLine } from '@/components/shared/VedarMap';
+import { coverageNotice, parsePackManifest } from '@/lib/map/pack-manifest';
+import { VedarZoomButtons, type VedarMapHandle, type VedarMapLine, type VedarMapPoint } from '@/components/shared/VedarMap';
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
@@ -73,6 +74,7 @@ import { RecoveryCard } from '@/components/field/RecoveryCard';
 import { recoveryState } from '@/lib/on-route/recovery';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { FieldCompass } from '@/components/field/FieldCompass';
+import { PointCard, type PointCardRouteState } from '@/components/field/PointCard';
 import { alertGuidance, NO_GUIDANCE_TEXT } from '@/lib/safety/alert-guidance';
 import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
@@ -478,11 +480,33 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    */
   const [vedarDiag, setVedarDiag] = useState<string | null>(null);
   /**
+   * Покрытие пакета словами (05.09). Паспорт пакета (lib/map/pack-manifest)
+   * знает число объектов по слоям OSM; если троп и дорог там ноль, карта
+   * обязана сказать это САМА — иначе «данных нет» и «слой не пришёл»
+   * выглядят одинаково: рельеф есть, линий нет (§4.0). Нет паспорта — молчим:
+   * «не знаю» — не «пусто».
+   */
+  const [coverageNote, setCoverageNote] = useState<string | null>(null);
+  /**
    * Ручка своей карты — для кнопок масштаба в приборном ряду. Внутри карты
    * они стояли на середине высоты, и нижний лист их накрывал (скрин
    * владельца 02.09 08:18: тёмный квадрат торчал из-под карточки).
    */
   const [mapCtl, setMapCtl] = useState<VedarMapHandle | null>(null);
+  /**
+   * Карточка точки — как в навигаторе (владелец 05.09, «посмотри, как у
+   * референсов навигационных это работает»): тап по карте ставит булавку и
+   * открывает снизу карточку с координатами, «скопировать», «проложить
+   * сюда» и передачей в чужой навигатор; тап по своей синей точке — ту же
+   * карточку для «я». Первая редакция была коробкой координат поверх карты
+   * и владельцу не подошла — координаты в навигаторе принадлежат ТОЧКЕ, а
+   * не углу экрана.
+   */
+  const [pointCard, setPointCard] = useState<{ kind: 'pin' | 'me'; lat: number; lng: number } | null>(null);
+  /** Прокладка запущена С КАРТОЧКИ — тогда найденный автопуть открывается на карте сам, без списка вариантов. */
+  const cardBuildRef = useRef(false);
+  const [cardRoute, setCardRoute] = useState<PointCardRouteState>({ phase: 'idle' });
+  useEffect(() => { setCardRoute({ phase: 'idle' }); cardBuildRef.current = false; }, [pointCard]);
   /**
    * Все собранные пакеты — карта подкладывает соседние районы по видимой
    * области (скрин 08:21: «карты нет других районов»). Считается один раз
@@ -618,10 +642,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    * 28.08) — НЕ то же самое, что `travelMode` выше (тот выбирает пеший/
    * авто темп для уже идущей навигации по активному маршруту). Сервер 5B-1
    * подключает провайдера ТОЛЬКО для mode: 'car' — режим 'foot' остаётся
-   * честным unsupported до PR 5B-2. Дефолт 'foot' сохраняет прежнее
-   * поведение экрана для тех, кто ещё не тронул переключатель.
+   * честным unsupported до PR 5B-2. Дефолт — 'car' (владелец 05.09,
+   * «маршруты не прокладываются»): с дефолтом 'foot' экран отвечал
+   * «Построение пути пока недоступно» каждому, кто не тронул переключатель,
+   * то есть почти всем, — при живом дорожном графе за режимом 'car'.
    */
-  const [buildTravelMode, setBuildTravelMode] = useState<RouteBuildMode>('foot');
+  const [buildTravelMode, setBuildTravelMode] = useState<RouteBuildMode>('car');
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
   const previewCacheRef = useRef<Map<string, {
     wps: SavedWaypoint[]; grade: PassportGrade | null; navigability: PreviewNavigability | null;
@@ -973,7 +999,15 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             : [];
         setWaypoints(effective);
         try { localStorage.setItem(cacheKey, JSON.stringify({ title: data.title as string, waypoints: effective })); } catch { /* квота */ }
-        if (effective.length > 0) {
+        // Точка-сущность (гора, озеро, источник) не имеет ни route_waypoints,
+        // ни трека — effective пустой, и план молча не запрашивался никогда:
+        // кнопка «Сохранить полевой пакет» не появлялась для таких мест
+        // (скрин из поля 04.09, «Верхне-Опальские термальные источники»).
+        // /api/routes/[id]/offline-bundle умеет собрать пакет и по одним
+        // lat/lng места (bbox вокруг точки, без коридора) — здесь просто не
+        // спрашивали, если совпадала ещё и пустота waypoints.
+        const hasOwnCoords = typeof data.lat === 'number' && typeof data.lng === 'number';
+        if (effective.length > 0 || hasOwnCoords) {
           void loadMapPlan(routeId); // что уже скачано и сколько весит недостающее
         }
       })
@@ -1553,6 +1587,20 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     return chooseFieldBaseMap(p.lat, p.lng, mapPackBaseUrl);
   }, [coords, mapCenter, mapPackBaseUrl, track, waypoints, lastFix, isLoadingRoute]);
 
+  // Паспорт пакета — один маленький JSON на пакет; читается при смене пакета.
+  // Отказ сети (офлайн без кэша) — тишина, не приговор о покрытии.
+  const manifestUrl = fieldBaseMap.kind === 'vedar' ? fieldBaseMap.source.manifestUrl : null;
+  useEffect(() => {
+    let alive = true;
+    setCoverageNote(null);
+    if (!manifestUrl) return;
+    fetch(manifestUrl)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: unknown) => { if (alive) setCoverageNote(coverageNotice(parsePackManifest(body))); })
+      .catch(() => { /* нет паспорта — нет суждения */ });
+    return () => { alive = false; };
+  }, [manifestUrl]);
+
   /**
    * Те же линии, что у Leaflet, но в порядке GeoJSON ([lng, lat]).
    * Переворот делается ЗДЕСЬ, в одном месте — как и весь остальной обмен с
@@ -1578,8 +1626,69 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         dashArray: g.dashArray,
       });
     }
+    // Рассчитанный автопуть — на большой карте, а не только на Leaflet-
+    // карточке в 220 пикселей (владелец 05.09). Геометрия провайдера уже в
+    // порядке GeoJSON [lng, lat]; род — 'calculated', вид решает стиль (§12).
+    // mayDisplay проверен сервером (applySnapGuard), но здесь он спрашивается
+    // ещё раз: линия, которую показывать нельзя, не рисуется молча.
+    const calc = calculatedPreview?.route;
+    if (calc && calc.mayDisplay && calc.geometry.type === 'LineString' && calc.geometry.coordinates.length >= 2) {
+      out.push({ coordinates: calc.geometry.coordinates, kind: 'calculated' });
+    }
     return out;
-  }, [fieldBaseMap.kind, mapMarkers]);
+  }, [fieldBaseMap.kind, mapMarkers, calculatedPreview]);
+  /** Концы автопути на большой карте: точки привязки к графу с расстоянием привязки. */
+  const vedarPoints: VedarMapPoint[] = useMemo(() => {
+    const calc = calculatedPreview?.route;
+    if (fieldBaseMap.kind !== 'vedar' || !calc || !calc.mayDisplay) return [];
+    return [
+      { coordinates: [calc.originSnapped.lon, calc.originSnapped.lat], kind: 'calculated_end',
+        label: `Старт на дороге · ${Math.round(calc.originSnapped.snapDistanceM)} м` },
+      { coordinates: [calc.destinationSnapped.lon, calc.destinationSnapped.lat], kind: 'calculated_end',
+        label: `Цель на дороге · ${Math.round(calc.destinationSnapped.snapDistanceM)} м` },
+    ];
+  }, [fieldBaseMap.kind, calculatedPreview]);
+  // Новый автопуть — в кадр целиком, один раз на путь: дальше человек
+  // двигает карту сам, и дёргать её обратно нельзя.
+  useEffect(() => {
+    const calc = calculatedPreview?.route;
+    if (!mapCtl || !calc || !calc.mayDisplay) return;
+    mapCtl.fitLine(calc.geometry.coordinates);
+  }, [mapCtl, calculatedPreview]);
+  /**
+   * «Проложить сюда» с карточки точки: старт — мой фикс, цель — булавка,
+   * способ — автомобиль (граф дорог). Дальше работает та же машина
+   * состояний build(), что и в планировщике: второго пути к серверу нет.
+   */
+  const routeFromCard = useCallback(() => {
+    if (!pointCard || pointCard.kind !== 'pin' || !coords) return;
+    cardBuildRef.current = true;
+    setCardRoute({ phase: 'building' });
+    setBuildTravelMode('car');
+    setSelectedOrigin({ kind: 'current', lat: coords.lat, lon: coords.lng, accuracyM: coords.accuracy ?? undefined });
+    setSelectedDestination({ destination: { kind: 'coordinate', lat: pointCard.lat, lon: pointCard.lng, title: 'Точка на карте' }, routeOptions: [] });
+  }, [pointCard, coords]);
+  // Ответ build() для карточки: найденный автопуть открывается на карте
+  // сам (как в навигаторе — линия сразу, без списка), отказ — словами в
+  // карточке, теми же, что даёт сервер (§4.0: не выдумывать причину).
+  useEffect(() => {
+    if (!cardBuildRef.current || buildPhase.phase !== 'done') return;
+    const r = buildPhase.result;
+    if (r.status === 'found') {
+      const withLine = r.options.find(o => o.calculated);
+      if (withLine) {
+        openPreview(routeOptionToPreview(withLine));
+        setCardRoute({ phase: 'found' });
+      } else {
+        setCardRoute({ phase: 'failed', text: 'Готовые треки нашлись, а дороги по графу нет — откройте «Куда хотите пойти?»' });
+      }
+    } else {
+      setCardRoute({ phase: 'failed', text: r.status === 'failed' ? r.message : r.reason });
+    }
+    cardBuildRef.current = false;
+  // openPreview и routeOptionToPreview — функции компонента, стабильные по смыслу.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildPhase]);
   /**
    * Постоянная карта-фон (Шаг 1) видна ВСЕГДА, в т.ч. под приборной
    * колонкой, и должна быть спокойным задником, а не живым инструментом.
@@ -2418,9 +2527,22 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                        провайдера решены false: только информационный
                        автоподъезд, не инструмент полевой навигации. ── */
                     <div>
-                      <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
-                        <LeafletMap markers={calculatedPreviewMap.markers} center={calculatedPreviewMap.center} zoom={11} height="220px" showUserLocation />
-                      </div>
+                      {fieldBaseMap.kind === 'vedar' && mapCtl ? (
+                        /* Своя карта поднята — путь уже лежит на ней (vedarLines,
+                           kind 'calculated'), вторую карту в 220 пикселей рядом
+                           не рисуем (владелец 05.09). Кнопка закрывает лист и
+                           подводит кадр под линию. */
+                        <button type="button"
+                          onClick={() => { setShowRouteModal(false); mapCtl.fitLine(calculatedPreview.route.geometry.coordinates); }}
+                          className="w-full text-sm font-semibold px-4 py-3 rounded-lg mb-3 transition-all duration-200"
+                          style={{ background: 'color-mix(in srgb, var(--ocean) 12%, transparent)', color: 'var(--ocean)', border: '1px solid var(--ocean)' }}>
+                          Показать путь на карте
+                        </button>
+                      ) : (
+                        <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
+                          <LeafletMap markers={calculatedPreviewMap.markers} center={calculatedPreviewMap.center} zoom={11} height="220px" showUserLocation />
+                        </div>
+                      )}
                       <p className="text-sm font-medium text-[var(--text-primary)] mb-0.5">{calculatedPreview.title}</p>
                       {/* Подпись линии — НЕИЗМЕННА по контракту calculatedCarLine():
                           экран может дополнить фактами ниже, но не укоротить её. */}
@@ -3078,6 +3200,11 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               // Векторный пакет (02.09): когда собран — все линии и площади
               // из него, тайлами по кадру; иначе GeoJSON выше.
               vectorUrl: fieldBaseMap.source.vectorUrl,
+              // Места платформы (05.09): свой слой поверх OSM, по реестру
+              // PLACES_BUILT; null — слоя нет, и карта его не просит.
+              placesUrl: fieldBaseMap.source.placesUrl,
+              // Океан обзора (05.09): у пакета поля его нет (null), он у обзора.
+              oceanUrl: fieldBaseMap.source.oceanUrl,
               attribution: '© Copernicus DEM (ESA)',
             }}
             center={mapCenter ?? regionCenter(fieldBaseMap.region)}
@@ -3091,6 +3218,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             // В режиме «Карта» приборный столбец скрыт — тогда кнопки
             // масштаба рисует сама карта; иначе они в приборном ряду.
             showZoomButtons={showMap}
+            // Тап по карте — булавка и карточка точки; тап по своей точке —
+            // карточка «я» (по образцу навигатора, владелец 05.09).
+            onMapClick={p => setPointCard({ kind: 'pin', ...p })}
+            onUserClick={() => { if (coords) setPointCard({ kind: 'me', lat: coords.lat, lng: coords.lng }); }}
+            pin={pointCard?.kind === 'pin' ? { lat: pointCard.lat, lng: pointCard.lng } : null}
+            points={vedarPoints}
             onControls={setMapCtl}
           />
         ) : fieldBaseMap.kind === 'pending' ? (
@@ -3106,6 +3239,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             height="100dvh"
             showUserLocation
             autoPanDoneRef={autoPanDoneRef}
+            // Нижний лист приборов (ниже, fixed inset-x-0 bottom-0, минимум
+            // 32vh) держит bottomright навсегда закрытым — тот же разрыв
+            // «атрибуция есть в контроле, но её никто не видел», что нашёлся
+            // у VedarMap 04.09. Zoom-контрол Leaflet уже стоит в topright —
+            // topleft здесь его собственными оверлеями не занят.
+            attributionPosition="topleft"
           />
         )}
       </div>
@@ -3168,6 +3307,15 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                   и «не пришёл один слой» — разные беды, и решает это та
                   сторона, которая знает, поднялась ли карта. */}
               {vedarDiag}
+            </p>
+          )}
+
+          {/* Чего в пакете НЕТ — словами из паспорта пакета, не тишиной.
+              Цвет приглушённый, не тревожный: это факт о данных, не сбой. */}
+          {fieldBaseMap.kind === 'vedar' && coverageNote && (
+            <p className="px-3 pb-2 text-[11px] leading-snug"
+              style={{ color: 'var(--text-muted)' }}>
+              {coverageNote}
             </p>
           )}
 
@@ -3875,6 +4023,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             from={coords ? { lat: coords.lat, lng: coords.lng, name: 'Я' } : null}
             mode="car"
             title="Проложить дорогу до точки"
+            compact
           />
         </div>
       )}
@@ -4067,6 +4216,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           телефоне в поле. Здесь только фокус-режим: приборный столбец скрыт
           (класс hidden у z-10-обёртки), остаются только кнопка закрытия,
           пустая-карта подсказка и панель действий — поверх той же карты. */}
+      {/* Карточка точки (05.09, по образцу навигатора) — поверх карты, над
+          нижним листом: в режиме «Карта» у самого низа, иначе над потолком
+          листа (32vh / 60vh — те же числа, что у самого листа). */}
+      {pointCard && fieldBaseMap.kind === 'vedar' && (
+        <div className="fixed inset-x-3 z-30"
+          style={{ bottom: showMap ? 'calc(16px + env(safe-area-inset-bottom))' : `calc(${sheetOpen ? '60vh' : '32vh'} + 12px)` }}>
+          <PointCard kind={pointCard.kind} point={{ lat: pointCard.lat, lng: pointCard.lng }}
+            me={coords ? { lat: coords.lat, lng: coords.lng } : null}
+            route={cardRoute} onRoute={routeFromCard} onClose={() => setPointCard(null)} />
+        </div>
+      )}
       {showMap && (
         <div className="fixed inset-0 z-20 pointer-events-none">
           <button onClick={() => setShowMap(false)}

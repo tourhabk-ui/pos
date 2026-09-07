@@ -8,6 +8,7 @@ import {
   LLM_EGRESS_FILES,
   unregisteredHosts,
   extractLLMHosts,
+  NON_RECEIVER_HOSTS,
 } from '@/lib/agents/compliance/provider-registry';
 
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -243,5 +244,115 @@ describe('ПД через локальную переменную (дыра, н�
       'const prompt = `Запрос: ${safeComment}`;',
     ].join('\n');
     expect(scanSource('clean.ts', clean)).toEqual([]);
+  });
+});
+
+/**
+ * 04.09. Сканер D2 искал приёмники ПД по перечню знакомых брендов, и это была
+ * не осторожность, а слепота: провайдер, чьё имя в перечень не внесли, не
+ * попадал в выборку вовсе. Так мимо сторожа месяцами ходили шесть зарубежных
+ * приёмников — xAI, оба шлюза MiniMax, GLM, NVIDIA, Sakana, — а тест был
+ * зелёный. Правило инвертировано: незнакомый хост требует решения человека.
+ */
+describe('D2 — незнакомый хост ловится, а не игнорируется', () => {
+  it('выдуманный провайдер попадает в выборку и краснит реестр', () => {
+    const src = `const r = await fetch('https://api.newthing.example/v1/chat/completions', { body });`;
+    expect(extractLLMHosts(src)).toContain('api.newthing.example');
+    expect(unregisteredHosts(src)).toContain('api.newthing.example');
+  });
+
+  it('хосты, ходившие мимо брендового фильтра, теперь в реестре', () => {
+    const registered = new Set(LLM_ENDPOINTS.map((e) => e.host));
+    for (const h of ['api.x.ai', 'api.minimaxi.chat', 'api.minimax.chat', 'open.bigmodel.cn', 'integrate.api.nvidia.com', 'api.sakana.ai']) {
+      expect(registered.has(h), `${h} не внесён в реестр приёмников ПД`).toBe(true);
+    }
+  });
+
+  it('не-приёмник исключается поимённо и с причиной, а не молчанием', () => {
+    expect(extractLLMHosts(`fetch('https://vedarai.ru/api/health')`)).toEqual([]);
+    for (const e of NON_RECEIVER_HOSTS) expect(e.why.length).toBeGreaterThan(20);
+    // Список исключений — короткий по замыслу: он про наши же адреса.
+    expect(NON_RECEIVER_HOSTS.length).toBeLessThanOrEqual(5);
+  });
+
+  it('у каждой записи реестра есть юрисдикция, домашний сток по-прежнему один', () => {
+    for (const e of LLM_ENDPOINTS) expect(e.jurisdiction.length, e.host).toBeGreaterThan(2);
+    expect(LLM_ENDPOINTS.filter((e) => e.domestic).map((e) => e.host)).toEqual(['llm.api.cloud.yandex.net']);
+  });
+});
+
+/**
+ * 04.09, повод — разбор 152-ФЗ в собственном AI-дайджесте от 05.09: «ПД — любая
+ * информация, относящаяся к определяемому лицу, безопасный подход считать ПД
+ * максимум всего: имена, идентификаторы, почты».
+ *
+ * Проверка показала у сканера ту же слепоту, что днём раньше нашлась у сканера
+ * хостов D2: перечень знакомых НАПИСАНИЙ вместо правила. Шаблон требовал, чтобы
+ * имя поля НАЧИНАЛОСЬ с ключевого слова, и потому видел `.email` и `.phone`, но
+ * не видел `.user_email`, `.customer_email`, `.partner_email`, `.user_phone`,
+ * `.contact_phone` — те самые имена, которыми поля названы в нашей базе.
+ *
+ * Замер пробой до правки: из двенадцати выражений сканер видел два.
+ */
+describe('D1 — приставка в имени поля не прячет ПД', () => {
+  const inPrompt = (expr: string) => `
+    import { callAIFast } from '@/lib/ai/providers';
+    const prompt = \`Клиент \${${expr}} хочет тур\`;
+    await callAIFast([{ role: 'user', content: prompt }]);
+  `;
+
+  it('поля с приставкой видны так же, как без неё', () => {
+    for (const expr of [
+      'lead.phone', 'user.email',
+      'row.user_email', 'row.customer_email', 'row.partner_email',
+      'row.operator_email', 'row.user_phone', 'p.contact_phone',
+    ]) {
+      const f = scanSource('x.ts', inPrompt(expr));
+      expect(f.length, `${expr} проходит мимо гарда 152-ФЗ`).toBeGreaterThan(0);
+      expect(f[0].kind).toBe('contact');
+    }
+  });
+
+  it('идентификаторы и документы — тоже ПД', () => {
+    for (const expr of ['doc.passport_number', 'u.telegram_id', 'p.contacts', 'u.birth_date']) {
+      expect(scanSource('x.ts', inPrompt(expr)).length, `${expr} не считается ПД`).toBeGreaterThan(0);
+    }
+  });
+
+  it('не-ПД остаётся не-ПД: приставка не превращает отель в телефон', () => {
+    // `.hotel` кончается на `tel`, `email_template` начинается с `email` —
+    // обе ловушки проверены, потому что расширение шаблона их создаёт.
+    for (const expr of ['tour.hotel', 'r.hotel_name', 'p.email_template', 'route.title', 'place.description', 'tour.meeting_point']) {
+      expect(scanSource('x.ts', inPrompt(expr)), `ложное срабатывание на ${expr}`).toHaveLength(0);
+    }
+  });
+});
+
+/**
+ * Найденная этим расширением утечка: пост про «друга» отдавал модели живой
+ * телефон партнёра. Чинится не чисткой, а порядком действий — телефон
+ * подставляется ПОСЛЕ модели.
+ */
+describe('контакты друга не уходят модели', () => {
+  it('в промпте стоит метка, а не номер', () => {
+    const src = readFileSync(resolve(REPO_ROOT, 'lib/notifications/telegram-channel.ts'), 'utf8');
+    const fn = src.slice(src.indexOf('export async function postFriendToChannel'), src.indexOf('postToAllChannels({ channelId, postType: \'friend\''));
+    expect(fn, 'телефон друга снова уезжает в промпт').not.toMatch(/\$\{friend\.contact\}/);
+    expect(fn).toMatch(/CONTACT_PLACEHOLDER/);
+  });
+
+  it('подстановка на нашей стороне: модель не может переврать цифры', async () => {
+    const { withFriendContacts, CONTACT_PLACEHOLDER } = await import('@/lib/notifications/telegram-channel');
+    const friend = { contact: '+7 929 901-97-87 (WA)', tg: '@soulfulKamchatka' };
+    const out = withFriendContacts(`Текст поста.\n\n${CONTACT_PLACEHOLDER}`, friend);
+    expect(out).toContain('+7 929 901-97-87 (WA), @soulfulKamchatka');
+    expect(out).not.toContain(CONTACT_PLACEHOLDER);
+  });
+
+  it('модель забыла метку — строка дописывается, пост без контактов бесполезен', () => {
+    return import('@/lib/notifications/telegram-channel').then(({ withFriendContacts }) => {
+      const out = withFriendContacts('Текст без метки.', { contact: '+7 914 998-19-80' });
+      expect(out.trimEnd().endsWith('+7 914 998-19-80')).toBe(true);
+    });
   });
 });

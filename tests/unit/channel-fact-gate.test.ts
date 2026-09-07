@@ -254,8 +254,14 @@ describe('судья просит формат, а не уговаривает',
     expect(code, 'судья снова на быстрой ветке с её 20 секундами')
       .not.toMatch(/callAIFast/);
     expect(code, 'судья ушёл с качественного пути').toMatch(/callAIQualityOrNull\(/);
-    expect(providers, 'у качественного пути пропал предел в 45 секунд')
-      .toMatch(/timeoutMs: 45_000, label: 'deepseek:content'/);
+    // 04.09: предел вырос с 45 до 90 секунд вместе с включённым размышлением
+    // DeepSeek на этом пути (замечание владельца о поверхностных ответах).
+    // Сторож снова НЕ приколот к числу — он и написан против этого: важно, что
+    // предел судьи один и тот же с синтезом и что он не меньше прежних 45 с.
+    const qualityTimeout = /timeoutMs: (\d+)_000, label: 'deepseek:content'/.exec(providers);
+    expect(qualityTimeout, 'у качественного пути пропал предел ожидания').not.toBeNull();
+    expect(Number(qualityTimeout![1]), 'предел качественного пути стал меньше прежних 45 с')
+      .toBeGreaterThanOrEqual(45);
   });
 
   it('обрыв назван обрывом, а не прозой', () => {
@@ -271,7 +277,8 @@ describe('судья просит формат, а не уговаривает',
 
   it('улика доезжает до человека, а не гибнет в функции', () => {
     const digest = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
-    const route = readFileSync(join(process.cwd(), 'app/api/cron/scout-digest/route.ts'), 'utf-8');
+    // С 04.09 журнал пишет общий модуль (крон-роут, оркестратор, админка).
+    const route = readFileSync(join(process.cwd(), 'lib/agents/scout-digest-run.ts'), 'utf-8');
     // Код называет класс беды, строка ответа — саму беду. Без неё чинят наугад.
     expect(digest).toMatch(/digest_skip_detail/);
     expect(digest).toMatch(/verdict\.sample/);

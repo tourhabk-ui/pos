@@ -1,103 +1,69 @@
 /**
- * API: Get/Update Single Ticket
- * GET /api/support/tickets/[id] - get ticket details
- * PUT /api/support/tickets/[id] - update ticket
+ * API: один тикет поддержки.
+ * GET /api/support/tickets/[id] — карточка (турист видит только свои)
+ * PUT /api/support/tickets/[id] — статус / категория / Резидент (admin, agent)
+ *
+ * Единственный сервис — lib/support/ticket.service (см. ../route.ts, 04.09).
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { ticketService } from '@/lib/services'
-import { verifyAuth } from '@/lib/auth'
-import { z } from 'zod'
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { requireAuth } from '@/lib/auth/middleware';
+import {
+  getTicketById, getTicketForUser, updateTicket, TICKET_CATEGORIES, TICKET_STATUSES,
+} from '@/lib/support/ticket.service';
 
-const UpdateTicketSchema = z.object({
-  status: z.enum(['open', 'in_progress', 'resolved', 'closed']).optional(),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
-  assigneeId: z.string().optional(),
-  category: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-}).refine(
-  data => Object.values(data).some(v => v !== undefined),
-  'Необходимо указать хотя бы одно поле для обновления'
-)
+const UpdateSchema = z.object({
+  status: z.enum(TICKET_STATUSES).optional(),
+  category: z.enum(TICKET_CATEGORIES).optional(),
+  assignedAgent: z.string().trim().min(1).max(30).optional(),
+}).refine((d) => Object.values(d).some((v) => v !== undefined), 'Укажите хотя бы одно поле');
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  let ticketId = 'unknown'
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(request: NextRequest, { params }: Ctx) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+
   try {
-    const auth = await verifyAuth(request)
-    if (!auth.userId) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { id } = await params
-    ticketId = id
-    const isPrivilegedRole = auth.role === 'admin' || auth.role === 'agent'
-    const ticket = isPrivilegedRole
-      ? await ticketService.getTicket(id)
-      : await ticketService.getTicketForUser(id, auth.userId)
-    if (!ticket) {
-      return NextResponse.json({ success: false, error: 'Ticket not found' }, { status: 404 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: ticket,
-    })
+    const { id } = await params;
+    const isPrivileged = auth.role === 'admin' || auth.role === 'agent';
+    const ticket = isPrivileged ? await getTicketById(id) : await getTicketForUser(id, auth.userId);
+    if (!ticket) return NextResponse.json({ success: false, error: 'Заявка не найдена' }, { status: 404 });
+    return NextResponse.json({ success: true, data: ticket });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: (error as Error).message },
-      { status: 404 }
-    )
+    console.error('[support/tickets/id] не прочитан:', error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ success: false, error: 'Не удалось получить заявку' }, { status: 500 });
   }
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  let ticketId = 'unknown'
+export async function PUT(request: NextRequest, { params }: Ctx) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+
+  const isPrivileged = auth.role === 'admin' || auth.role === 'agent';
+  if (!isPrivileged) {
+    // Турист меняет тикет только сообщением в переписке: статус ведёт агент.
+    return NextResponse.json(
+      { success: false, error: 'Статус заявки меняет служба поддержки — напишите сообщение в заявку' },
+      { status: 403 },
+    );
+  }
+
   try {
-    const auth = await verifyAuth(request)
-    if (!auth.userId) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { id } = await params
-    ticketId = id
-    const isPrivilegedRole = auth.role === 'admin' || auth.role === 'agent'
-    const existingTicket = isPrivilegedRole
-      ? await ticketService.getTicket(id)
-      : await ticketService.getTicketForUser(id, auth.userId)
-    if (!existingTicket) {
-      return NextResponse.json({ success: false, error: 'Ticket not found' }, { status: 404 })
-    }
-
-    const data = await request.json()
-    const parsed = UpdateTicketSchema.safeParse(data)
+    const { id } = await params;
+    const parsed = UpdateSchema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' },
-        { status: 400 }
-      )
+        { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
+        { status: 400 },
+      );
     }
-    const updateData = parsed.data as Partial<{ status: string; priority: string; assigneeId: string; category: string; tags: string[] }>
-    const ticket = isPrivilegedRole
-      ? await ticketService.updateTicket(id, updateData as Record<string, unknown>)
-      : await ticketService.updateTicketForUser(id, auth.userId, updateData as Record<string, unknown>)
-    if (!ticket) {
-      return NextResponse.json({ success: false, error: 'Ticket not found' }, { status: 404 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: ticket,
-    })
+    const ticket = await updateTicket(id, parsed.data);
+    if (!ticket) return NextResponse.json({ success: false, error: 'Заявка не найдена' }, { status: 404 });
+    return NextResponse.json({ success: true, data: ticket });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: (error as Error).message },
-      { status: 400 }
-    )
+    console.error('[support/tickets/id] не обновлён:', error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ success: false, error: 'Не удалось обновить заявку' }, { status: 500 });
   }
 }
