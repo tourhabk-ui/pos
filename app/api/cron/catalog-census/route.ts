@@ -113,7 +113,57 @@ export async function GET(request: NextRequest) {
     errors.push(`geometry_by_source: ${message.slice(0, 120)}`);
   }
 
-  const body: CatalogCensus & { geometry_by_source: Record<string, number> | null } = {
+  // Чем ПОДПИСАНЫ живые записи (07.09). Заведено после негодного замера:
+  // миграцию 941 (чистка имени источника) пришли проверять этой переписью, а
+  // она про подпись не отвечает вовсе — только про геометрию. Метка геометрии
+  // при этом стала `external` ещё 17.08, то есть на вопрос «отработала ли 941»
+  // она отвечала бы «чисто» и ДО миграции. Свидетель, который не может
+  // различить два состояния, — не свидетель; §4.0 требует, чтобы такой ответ
+  // назывался «не проверено», а не «нарушений нет».
+  //
+  // Считается по обеим master-таблицам: 941 правит подпись и маршрутов, и мест.
+  // Значения не режутся по частоте — редкая подпись здесь как раз интересна.
+  // Запросы выписаны целиком по одному на таблицу: имя таблицы в SQL не
+  // подставляется даже из union-типа — правило репозитория «никакой
+  // конкатенации в SQL» стоит соблюдать буквально, иначе следующая правка
+  // подставит туда переменную пошире.
+  const SIGNATURE_SQL = {
+    kamchatka_routes:
+      `SELECT COALESCE(NULLIF(TRIM(source_name), ''), 'не записан') AS source_name, COUNT(*)::int AS n
+         FROM kamchatka_routes
+        WHERE is_visible = true AND merged_into_id IS NULL
+        GROUP BY 1 ORDER BY 2 DESC`,
+    places:
+      `SELECT COALESCE(NULLIF(TRIM(source_name), ''), 'не записан') AS source_name, COUNT(*)::int AS n
+         FROM places
+        WHERE is_visible = true AND merged_into_id IS NULL
+        GROUP BY 1 ORDER BY 2 DESC`,
+  } as const;
+
+  async function signatureOrNull(table: keyof typeof SIGNATURE_SQL): Promise<Record<string, number> | null> {
+    try {
+      const { rows } = await pool.query<{ source_name: string; n: number }>(SIGNATURE_SQL[table]);
+      return Object.fromEntries(rows.map((r) => [r.source_name, r.n]));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[catalog-census] signature_by_source_name.${table} не посчитан: ${message}`);
+      errors.push(`signature_by_source_name.${table}: ${message.slice(0, 120)}`);
+      return null;
+    }
+  }
+
+  const [routeSignature, placeSignature] = await Promise.all([
+    signatureOrNull('kamchatka_routes'),
+    signatureOrNull('places'),
+  ]);
+
+  const body: CatalogCensus & {
+    geometry_by_source: Record<string, number> | null;
+    signature_by_source_name: {
+      kamchatka_routes: Record<string, number> | null;
+      places: Record<string, number> | null;
+    };
+  } = {
     ok: true,
     probe: 'catalog_census_v1',
     measured_at: new Date().toISOString(),
@@ -123,6 +173,10 @@ export async function GET(request: NextRequest) {
     definitions: DEFINITIONS,
     errors,
     geometry_by_source: geometryBySource,
+    signature_by_source_name: {
+      kamchatka_routes: routeSignature,
+      places: placeSignature,
+    },
   };
   return NextResponse.json(body);
 }
