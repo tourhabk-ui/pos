@@ -1,9 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, RefreshCw, Search, MapPin, Calendar, Trash2, AlertTriangle, Zap } from 'lucide-react';
+import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, RefreshCw, Search, MapPin, Calendar, Trash2, AlertTriangle, Zap, List, Columns3 } from 'lucide-react';
 
 import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
+import { LeadsKanban } from './_LeadsKanban';
+
+type View = 'list' | 'kanban';
+const VIEW_STORAGE_KEY = 'leads-view';
 
 interface LeadSourceData {
   source?: string;
@@ -22,7 +26,7 @@ interface LeadSourceData {
   escalated_to_admin?: boolean;
 }
 
-interface Lead {
+export interface Lead {
   id: string;
   name: string;
   phone: string;
@@ -38,7 +42,7 @@ interface Lead {
   updated_at: string;
 }
 
-function ScoreBadge({ score }: { score: number | null }) {
+export function ScoreBadge({ score }: { score: number | null }) {
   if (score === null) return null;
   const color =
     score >= 70 ? 'var(--success)' :
@@ -59,7 +63,7 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
-const STATUS_META: Record<LeadStatus, { label: string; color: string }> = {
+export const STATUS_META: Record<LeadStatus, { label: string; color: string }> = {
   new:             { label: 'Новый',              color: 'bg-[var(--ocean)]/10 text-[var(--ocean)]' },
   contacted:       { label: 'Позвонили',          color: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
   qualified:       { label: 'Квалифицирован',     color: 'bg-[var(--accent)]/10 text-[var(--accent)]' },
@@ -110,7 +114,7 @@ const TABS: Array<{ key: LeadStatus | 'all'; label: string }> = [
 
 const PAGE_SIZE = 50;
 
-function formatDate(iso: string) {
+export function formatDate(iso: string) {
   return new Date(iso).toLocaleString('ru-RU', {
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   });
@@ -418,6 +422,19 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
 }
 
 export function LeadsClient() {
+  // Запоминаем выбор вида per-viewer (localStorage) — не критично, если
+  // недоступно (приватное окно и т.п.): молча остаёмся на списке по умолчанию.
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === 'undefined') return 'list';
+    try {
+      return localStorage.getItem(VIEW_STORAGE_KEY) === 'kanban' ? 'kanban' : 'list';
+    } catch { return 'list'; }
+  });
+  const setViewPersist = useCallback((v: View) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_STORAGE_KEY, v); } catch { /* приватное окно и т.п. — не критично */ }
+  }, []);
+
   const [tab, setTab]               = useState<LeadStatus | 'all'>('all');
   const [leads, setLeads]           = useState<Lead[]>([]);
   const [total, setTotal]           = useState(0);
@@ -517,9 +534,9 @@ export function LeadsClient() {
   const newCount = counts['new'] ?? 0;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className={`p-6 mx-auto ${view === 'kanban' ? 'max-w-full' : 'max-w-3xl'}`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="ds-h1">CRM — Лиды</h1>
           {newCount > 0 && (
@@ -527,6 +544,28 @@ export function LeadsClient() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Список / Канбан — только ручные статусы дают повод переключаться:
+              AI-статусы видны только в списке (вкладка «Все»). */}
+          <div className="flex items-center rounded-lg border border-[var(--border)] p-0.5">
+            <button
+              onClick={() => setViewPersist('list')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-sm transition-colors ${
+                view === 'list' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)]'
+              }`}
+              title="Список"
+            >
+              <List size={14} /> Список
+            </button>
+            <button
+              onClick={() => setViewPersist('kanban')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-sm transition-colors ${
+                view === 'kanban' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)]'
+              }`}
+              title="Канбан"
+            >
+              <Columns3 size={14} /> Канбан
+            </button>
+          </div>
           <button
             onClick={scoreLeads}
             disabled={scoringLeads || loading}
@@ -544,8 +583,10 @@ export function LeadsClient() {
         </div>
       </div>
 
+      {view === 'kanban' && <LeadsKanban />}
+
       {/* Error banner */}
-      {loadError && (
+      {view === 'list' && loadError && (
         <div
           className="flex flex-wrap items-start gap-3 mb-4 p-4 rounded-lg border"
           style={{
@@ -566,75 +607,79 @@ export function LeadsClient() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="relative mb-4">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Поиск по имени или телефону..."
-          className="ds-input w-full pl-9 text-sm"
-        />
-      </div>
+      {view === 'list' && (
+        <>
+          {/* Search */}
+          <div className="relative mb-4">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Поиск по имени или телефону..."
+              className="ds-input w-full pl-9 text-sm"
+            />
+          </div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-1 mb-4">
-        {TABS.map(t => {
-          const cnt = t.key !== 'all' ? (counts[t.key] ?? 0) : total;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`text-sm px-3 py-1.5 rounded-lg transition-all ${
-                tab === t.key
-                  ? 'bg-[var(--accent)] text-[var(--bg-card)] font-medium'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-              }`}
-            >
-              {t.label}
-              {cnt > 0 && (
-                <span className={`ml-1.5 text-xs ${tab === t.key ? 'opacity-80' : 'text-[var(--text-muted)]'}`}>
-                  {cnt}
-                </span>
+          {/* Tabs */}
+          <div className="flex flex-wrap gap-1 mb-4">
+            {TABS.map(t => {
+              const cnt = t.key !== 'all' ? (counts[t.key] ?? 0) : total;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`text-sm px-3 py-1.5 rounded-lg transition-all ${
+                    tab === t.key
+                      ? 'bg-[var(--accent)] text-[var(--bg-card)] font-medium'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  {t.label}
+                  {cnt > 0 && (
+                    <span className={`ml-1.5 text-xs ${tab === t.key ? 'opacity-80' : 'text-[var(--text-muted)]'}`}>
+                      {cnt}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* List */}
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => <div key={i} className="ds-skeleton h-20 rounded-lg" />)}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-16 text-[var(--text-muted)]">
+              <Clock size={32} className="mx-auto mb-3 opacity-40" />
+              <p>{search.trim() ? 'Ничего не найдено' : 'Лидов нет'}</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map(lead => (
+                <LeadCard key={lead.id} lead={lead} onUpdate={handleUpdate} onDelete={handleDelete} />
+              ))}
+
+              {/* Load more — only when not searching */}
+              {!search.trim() && leads.length < total && (
+                <button
+                  onClick={() => loadMore(tab, leads.length)}
+                  disabled={loadingMore}
+                  className="w-full ds-btn ds-btn-secondary text-sm"
+                >
+                  {loadingMore ? 'Загрузка…' : `Загрузить ещё (${total - leads.length})`}
+                </button>
               )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* List */}
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => <div key={i} className="ds-skeleton h-20 rounded-lg" />)}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-[var(--text-muted)]">
-          <Clock size={32} className="mx-auto mb-3 opacity-40" />
-          <p>{search.trim() ? 'Ничего не найдено' : 'Лидов нет'}</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map(lead => (
-            <LeadCard key={lead.id} lead={lead} onUpdate={handleUpdate} onDelete={handleDelete} />
-          ))}
-
-          {/* Load more — only when not searching */}
-          {!search.trim() && leads.length < total && (
-            <button
-              onClick={() => loadMore(tab, leads.length)}
-              disabled={loadingMore}
-              className="w-full ds-btn ds-btn-secondary text-sm"
-            >
-              {loadingMore ? 'Загрузка…' : `Загрузить ещё (${total - leads.length})`}
-            </button>
+              {!search.trim() && leads.length >= total && total > PAGE_SIZE && (
+                <p className="text-center text-xs text-[var(--text-muted)] py-2">
+                  Все {total} лидов загружены
+                </p>
+              )}
+            </div>
           )}
-          {!search.trim() && leads.length >= total && total > PAGE_SIZE && (
-            <p className="text-center text-xs text-[var(--text-muted)] py-2">
-              Все {total} лидов загружены
-            </p>
-          )}
-        </div>
+        </>
       )}
     </div>
   );

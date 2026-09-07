@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1110.0",
+    "@dnd-kit/core": "^6.3.1",
     "@huggingface/transformers": "^3.8.1",
     "@maxhub/max-bot-api": "^0.2.5",
     "@types/leaflet": "^1.9.22",
