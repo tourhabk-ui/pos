@@ -1,0 +1,81 @@
+name: Проба retrieval Кузьмича — что он на самом деле находит (вручную)
+
+# Прогон оценки 07.09 (/api/cron/kuzmich-eval?source=live) вернул context_len: 0
+# во ВСЕХ десяти живых вопросах, и судья по каждому написал одно: «контекст
+# пуст, retrieval ничего не нашёл». Ответы при этом были полными и уверенными
+# — включая живой факт безопасности «статус вулкана сейчас зелёный» при
+# нулевом контексте. По §8 такие факты берутся только из БД и инструментов.
+#
+# Разбор по коду говорит: поиск строит условие через plainto_tsquery, а он
+# соединяет ВСЕ слова через И — разговорный вопрос не совпадёт ни с чем
+# никогда. Но разбор по коду ещё не замер, и сегодня одна догадка уже
+# оказалась неверной (грешил на заглушки провайдеров — в логе их не было).
+#
+# Поэтому проба гоняет ОБА пути на одних вопросах и печатает, что вернул
+# каждый. Только чтение, ничего не решает.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/retrieval-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # Эндпоинт едет тем же коммитом, что и маркер (сторож
+      # tests/unit/marker-waits-for-deploy.test.ts).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Что находит поиск
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          # Живые вопросы из прогона оценки — те самые, что дали context_len 0.
+          Q1='Иду на Авачинский в сентябре один, из снаряжения кроссовки и ветровка. Нормально?'
+          Q2='Я иду по тропе и в 50 метрах впереди увидел медведя. Что делать?'
+          Q3='Зачем регистрировать маршрут в МЧС и как это сделать?'
+          CODE=$(curl -sS -o /tmp/retr.json -w '%{http_code}' --max-time 180 -G \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            --data-urlencode "q=$Q1" --data-urlencode "q=$Q2" --data-urlencode "q=$Q3" \
+            "https://vedarai.ru/api/cron/retrieval-probe")
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Проба не ответила — это «не смогли спросить», а не «поиск в порядке»."
+            cat /tmp/retr.json 2>/dev/null || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/retr.json'))
+          print('ВЕРДИКТ:', d.get('verdict'))
+          print('вопросов: %s | пусто сейчас: %s | запрос через ИЛИ находит: %s'
+                % (d.get('asked'), d.get('empty_now'), d.get('or_query_finds')))
+          print()
+          for i in d.get('items') or []:
+              n = i['now']
+              print('---')
+              print(' вопрос:', i['question'][:100])
+              print('  сейчас: места %d + маршруты %d + законы %d = %d симв.'
+                    % (n['place_len'], n['route_len'], n['legal_len'], n['total_len']))
+              oq = i['or_query']
+              if oq.get('error'):
+                  print('  через ИЛИ: НЕ СМОГЛИ СПРОСИТЬ —', oq['error'])
+              else:
+                  print('  через ИЛИ:', ', '.join(oq['hits']) or '(ничего)')
+          PY
