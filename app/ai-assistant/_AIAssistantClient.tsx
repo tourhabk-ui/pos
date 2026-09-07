@@ -13,6 +13,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import Link from 'next/link';
 import Image from 'next/image';
+import { paceIsShowable } from '@/lib/routes/route-contradiction';
 
 interface TourSuggestion {
   id: number;
@@ -79,6 +80,15 @@ const DIFFICULTY_LABELS: Record<string, string> = {
 };
 
 function RouteCard({ route }: { route: RouteRec }) {
+  const paceShowable = paceIsShowable({
+    title: route.title,
+    activityType: null,
+    season: null,
+    distanceKm: route.distanceKm ?? null,
+    durationHours: route.durationHours ?? null,
+    elevationGainM: null,
+    description: null,
+  });
   return (
     <Link
       href={`/routes/${route.id}`}
@@ -105,19 +115,37 @@ function RouteCard({ route }: { route: RouteRec }) {
           {route.difficulty && (
             <span>{DIFFICULTY_LABELS[route.difficulty] ?? route.difficulty}</span>
           )}
-          {route.durationHours && (
+          {/*
+            Пара «длина и время» показывается только если она возможна.
+            Разбор корпуса 07.09 нашёл пять карточек с темпом 12-20 км/ч
+            пешком; по такому числу человек планирует выход и не успевает
+            до темноты. Судья один — lib/routes/route-contradiction, своих
+            порогов здесь нет.
+          */}
+          {paceShowable ? (
+            <>
+              {route.durationHours && (
+                <>
+                  {route.difficulty && <span>•</span>}
+                  <span className="flex items-center gap-0.5">
+                    <Clock className="w-3 h-3" />{route.durationHours} ч
+                  </span>
+                </>
+              )}
+              {route.distanceKm && (
+                <>
+                  <span>•</span>
+                  <span className="flex items-center gap-0.5">
+                    <Ruler className="w-3 h-3" />{route.distanceKm} км
+                  </span>
+                </>
+              )}
+            </>
+          ) : (
             <>
               {route.difficulty && <span>•</span>}
-              <span className="flex items-center gap-0.5">
-                <Clock className="w-3 h-3" />{route.durationHours} ч
-              </span>
-            </>
-          )}
-          {route.distanceKm && (
-            <>
-              <span>•</span>
-              <span className="flex items-center gap-0.5">
-                <Ruler className="w-3 h-3" />{route.distanceKm} км
+              <span className="text-[var(--text-muted)]">
+                длина и время в записи не сходятся — не планируйте по ним
               </span>
             </>
           )}

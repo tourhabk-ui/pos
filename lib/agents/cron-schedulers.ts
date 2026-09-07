@@ -172,6 +172,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'route-lay-census':          { kind: 'manual', writes: false, note: 'перепись рода линий' },
   'route-link-suggest':        { kind: 'manual', writes: false, note: 'предложения связей маршрута' },
   'route-place-twins':         { kind: 'manual', writes: false, note: 'двойники маршрут/место' },
+  'route-sanity-census':       { kind: 'manual', writes: false, note: 'противоречия внутри записи: темп, сезон, описание против полей' },
   'route-title-census':        { kind: 'manual', writes: false, note: 'перепись имён маршрутов (§13)' },
   'route-translit-census':     { kind: 'manual', writes: false, note: 'перепись транслита' },
   'route-twins-enrich':        { kind: 'manual', writes: true,  note: 'обогащение двойников' },

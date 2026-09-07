@@ -7,7 +7,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIDecisionDetailed } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
+import { isCredibleFinding, verifyAgainstSource, verifyEvidence } from '@/lib/agents/evo/finding-guard';
 import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/evo/coverage-ledger';
 import { listRepoFiles, clientComponentPaths, getLastListSource, type RepoFilesSource } from '@/lib/agents/evo/repo-files';
 import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
@@ -490,7 +490,8 @@ export const REVIEW_SYSTEM_PROMPT = `Ты ведущий аудитор безо
 severity: critical = утечка данных/обход auth/инъекция/поломка платежей или SOS; high = потеря данных/падение под нагрузкой; medium = деградация/нарушение конвенций; low = косметика.
 
 Отвечай СТРОГО JSON-массивом без markdown:
-[{"file":"path","line":123,"title":"≤8 слов","description":"что сломано и при каком сценарии","severity":"critical|high|medium|low","suggestion":"какую конструкцию заменить и на что"}]
+[{"file":"path","line":123,"title":"≤8 слов","description":"что сломано и при каком сценарии","severity":"critical|high|medium|low","evidence":"дословная строка кода из файла, на которой держится претензия","suggestion":"какую конструкцию заменить и на что"}]
+Поле evidence обязательно и копируется ИЗ ФАЙЛА символ в символ. Находка, чью улику в файле не найти, отбрасывается целиком — пересказ своими словами не годится.
 Максимум 5 проблем. Только реально подтверждаемые — если файл чист, не выдумывай. Без слов "возможно/рекомендуется в целом" — только факт и следствие.
 
 Исключённые файлы (проверены вручную, НЕ репорти):
@@ -518,6 +519,8 @@ export interface RawReviewFinding {
   description: string;
   severity: string;
   suggestion: string;
+  /** Дословная строка из файла. Нет её или нет в файле — находка не идёт дальше. */
+  evidence?: string;
 }
 
 /** Снимает markdown-ограждение и парсит JSON-ответ решателя. Бросает при кривом ответе. */
@@ -559,6 +562,16 @@ export function filterAndMapReviewFindings(
     // в теле файла они ЕСТЬ — ложь (кейс booking-роута). Сверяем с исходником.
     verifyAgainstSource(
       { title: p.title, description: p.description, suggestion: p.suggestion },
+      fileContents.get(p.file),
+    ) === null &&
+    // Общее сито (08.09): находка обязана предъявить дословный кусок кода, и
+    // он обязан найтись в файле. Проверки выше перечисляют ИЗВЕСТНЫЕ врания и
+    // растут по одному случаю за инцидент; это закрывает весь класс
+    // «процитировал то, чего нет» — в том числе враньё, которого мы ещё не
+    // видели. Отсутствие цитаты — не приговор находке, но и не пропуск в
+    // GitHub Issues: человек пойдёт читать код, которого нет.
+    verifyEvidence(
+      { title: p.title, description: p.description, suggestion: p.suggestion, evidence: p.evidence },
       fileContents.get(p.file),
     ) === null,
   );
