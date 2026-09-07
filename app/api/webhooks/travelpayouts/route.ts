@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 
 const TP_WEBHOOK_TOKEN = process.env.TRAVELPAYOUTS_WEBHOOK_TOKEN || '';
 
@@ -21,8 +22,15 @@ const PayoutSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const signature = request.headers.get('X-Access-Token');
-  if (!TP_WEBHOOK_TOKEN || signature !== TP_WEBHOOK_TOKEN) {
+  // Сравнение по постоянному времени (разбор периметра 07.09). Было `!==`:
+  // обычное сравнение строк выходит на первом несовпавшем байте, и токен
+  // подбирается побайтно по времени ответа. Здесь это дорого не абстрактно —
+  // ниже INSERT в affiliate_payouts, то есть подделанный запрос заводит нам
+  // строку о выплате.
+  //
+  // Токена нет — отказ, а не пропуск: приём выплат без проверки хуже
+  // отсутствия приёма. Отдельная переменная, не общая с кроном.
+  if (!TP_WEBHOOK_TOKEN || !timingSafeCompare(request.headers.get('X-Access-Token'), TP_WEBHOOK_TOKEN)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

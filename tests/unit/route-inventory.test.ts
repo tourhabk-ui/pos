@@ -57,7 +57,6 @@ const NEEDS_REVIEW_FROZEN = [
   '/api/ai/deepseek',
   '/api/ai/smart-search',
   '/api/ai/vision',
-  '/api/bots/reposter/webhook',
   '/api/docs',
   '/api/geocode',
   '/api/kamchatka-routes',
@@ -65,7 +64,6 @@ const NEEDS_REVIEW_FROZEN = [
   '/api/safety/alerts',
   '/api/safety/visit',
   '/api/trip/plan',
-  '/api/webhooks/travelpayouts',
 ] as const;
 
 describe('перепись охватывает весь периметр', () => {

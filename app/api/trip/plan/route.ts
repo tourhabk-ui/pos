@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { callAIWaterfallOrNull } from '@/lib/ai/providers';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { config } from '@/lib/config';
@@ -651,34 +652,39 @@ function createFallbackPlan(
 /**
  * Вызов AI (DeepSeek как основной провайдер)
  */
+/**
+ * Вызов модели — через общий водопад платформы, а не свой.
+ *
+ * ── Что здесь стояло (разбор периметра 07.09) ─────────────────────────────
+ *
+ * Своя функция ходила ПРЯМО в DeepSeek: `fetch` на его /chat/completions с
+ * ключом из конфига. CLAUDE.md §4 это запрещает дословно — «прямые вызовы
+ * только в lib/ai/providers.ts и health-probe файлах», — и запрет не
+ * формальность:
+ *
+ *   - мимо водопада нет ни гонки провайдеров, ни отступления: не ответил
+ *     DeepSeek — не ответил никто, хотя рядом живут ещё пять стоков;
+ *   - мимо водопада нет учёта расхода, и этот путь не виден ни в одном
+ *     счётчике токенов;
+ *   - реестр провайдеров (D2 compliance) перечисляет хосты, куда уходят
+ *     данные. Свой fetch в обход реестра — трансграничная передача, о
+ *     которой реестр не знает.
+ *
+ * Плюс `catch (error) {}` без единой строки: отказ провайдера превращался в
+ * «все провайдеры недоступны» без причины. §4.0 запрещает молчать.
+ *
+ * Ответ водопада проверяется на заглушку: `callAIWaterfall` при общем отказе
+ * возвращает не исключение, а текст-заглушку, и отдать его пользователю как
+ * план поездки было бы хуже честной ошибки.
+ */
 async function callAI(systemPrompt: string, userPrompt: string): Promise<string> {
-  // Пробуем DeepSeek
-  if (config.ai.deepseek.apiKey) {
-    try {
-      const response = await fetch(`${config.ai.deepseek.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${config.ai.deepseek.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: config.ai.deepseek.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          max_tokens: config.ai.deepseek.maxTokens,
-          temperature: 0.7,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content;
-      }
-    } catch (error) {
-    }
+  const text = await callAIWaterfallOrNull([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ]);
+  if (text === null) {
+    console.error('[trip-plan] водопад не ответил ни одним провайдером');
+    throw new Error('All AI providers unavailable');
   }
-
-  throw new Error('All AI providers unavailable');
+  return text;
 }
