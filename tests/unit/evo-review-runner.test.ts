@@ -44,6 +44,9 @@ describe('filterAndMapReviewFindings: страж одинаков для про�
   const base: RawReviewFinding = {
     file: 'app/api/x/route.ts', title: 'SQL-инъекция', description: 'конкатенация строк вместо $1',
     severity: 'critical', suggestion: 'использовать $1',
+    // Улика дословно из тела файла выше: с 08.09 находка без неё дальше не
+    // идёт — человек по такой пойдёт читать код, которого нет.
+    evidence: '`"SELECT * FROM t WHERE id = " + id`',
   };
 
   it('находка по файлу, тело которого модель видела, — принята', () => {
@@ -51,6 +54,16 @@ describe('filterAndMapReviewFindings: страж одинаков для про�
     expect(mapped).toHaveLength(1);
     expect(mapped[0].model).toBe('anthropic/claude-opus-5');
     expect(mapped[0].category).toBe('bug');
+  });
+
+  it('находка без дословной улики — не идёт в issues', () => {
+    const { evidence: _drop, ...noEvidence } = base;
+    expect(filterAndMapReviewFindings([noEvidence], fileContents, null)).toEqual([]);
+  });
+
+  it('улика, которой в файле нет, — находка отброшена целиком', () => {
+    const invented = { ...base, evidence: '`WHERE id = ${tourId}`' };
+    expect(filterAndMapReviewFindings([invented], fileContents, null)).toEqual([]);
   });
 
   it('находка по файлу, которого модель не видела, — отброшена', () => {
@@ -114,7 +127,7 @@ describe('buildReviewResult (scripts/evo-review.ts): чистая сборка �
   });
 
   it('здоровый ответ — находки отфильтрованы и промаркированы моделью', () => {
-    const raw = JSON.stringify([{ file: 'a.ts', title: 'Проблема', description: 'описание', severity: 'medium', suggestion: 'исправить' }]);
+    const raw = JSON.stringify([{ file: 'a.ts', title: 'Проблема', description: 'описание', severity: 'medium', suggestion: 'исправить', evidence: '`const x = 1;`' }]);
     const result = buildReviewResult(raw, null, 'anthropic/claude-opus-5', [], fileContents, ['a.ts']);
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0].model).toBe('anthropic/claude-opus-5');

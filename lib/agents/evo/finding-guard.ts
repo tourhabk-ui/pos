@@ -24,6 +24,16 @@ export interface CandidateFinding {
   title: string;
   description: string;
   suggestion: string;
+  /**
+   * Дословный кусок кода из файла, на котором держится находка.
+   *
+   * Появилось 08.09 по решению владельца («такой принцип нужен и эволюции»):
+   * все проверки ниже — перечень ИЗВЕСТНЫХ враний, и каждое новое враньё
+   * приходится дописывать отдельным случаем. Требование цитаты — сито
+   * общего вида: оно не спрашивает, О ЧЁМ находка, а спрашивает, есть ли
+   * названное в файле вообще.
+   */
+  evidence?: string;
 }
 
 /** «X вместо X» / «заменить X на X» — предложение заменить токен на тот же токен. */
@@ -132,6 +142,68 @@ export function findingRejectionReason(f: CandidateFinding): string | null {
 
 export function isCredibleFinding(f: CandidateFinding): boolean {
   return findingRejectionReason(f) === null;
+}
+
+// ── Общее сито: улика обязана найтись в файле ────────────────────────────────
+//
+// Все проверки выше перечисляют ИЗВЕСТНЫЕ врания и растут по одному случаю за
+// инцидент. Здесь другое: находка обязана предъявить дословный кусок кода, и
+// этот кусок обязан найтись в теле файла. Такое сито не знает, о чём находка,
+// и потому закрывает разом весь класс «процитировал то, чего нет» — включая
+// врания, которых мы ещё не видели. Стоит ноль вызовов модели.
+
+/** Пробелы схлопнуты: перенос строки и отступ не должны решать судьбу улики. */
+const squash = (t: string) => t.replace(/\s+/g, ' ').trim();
+
+/**
+ * Куски, на которые распадается улика.
+ *
+ * Модель цитирует то в кавычках, то бэктиками, то просто строкой. Берём всё
+ * перечисленное, а если кавычек нет вовсе — судим по достаточно длинным
+ * строкам: короткий обрывок вроде `id` нашёлся бы в любом файле и ничего бы
+ * не доказывал.
+ */
+export function evidenceFragments(evidence: string): string[] {
+  const out: string[] = [];
+  for (const re of [/`([^`]{10,})`/g, /«([^»]{10,})»/g, /"([^"]{10,})"/g]) {
+    for (const m of evidence.matchAll(re)) out.push(m[1]);
+  }
+  if (out.length === 0) {
+    for (const line of evidence.split(/[\n;]/)) {
+      const t = line.trim();
+      if (t.length >= 16) out.push(t);
+    }
+  }
+  return out.map(squash).filter((t) => t.length >= 10);
+}
+
+/** Нашёлся ли хоть один кусок улики в теле файла. */
+export function evidenceIsQuoted(evidence: string, source: string): boolean {
+  const frags = evidenceFragments(evidence);
+  if (frags.length === 0) return false;
+  const haystack = squash(source);
+  return frags.some((f) => haystack.includes(f));
+}
+
+/**
+ * Судьба находки по её улике. `null` — улика найдена в файле.
+ *
+ * Три исхода, и третий не равен первому (§4.0):
+ *   null                     — процитированное в файле ЕСТЬ;
+ *   'evidence_not_in_source' — процитированного в файле НЕТ, находка ложна;
+ *   'evidence_missing'       — цитаты не дали, проверить нечем.
+ *
+ * «Нечем проверить» — не «ложь», но и не «правда»: в GitHub Issues такая
+ * находка не идёт, потому что человек по ней пойдёт читать выдуманный код.
+ */
+export function verifyEvidence(
+  f: CandidateFinding,
+  source: string | null | undefined,
+): string | null {
+  if (!source) return null; // тело файла не читали — судить не о чем, решает вызывающий
+  const evidence = (f.evidence ?? '').trim();
+  if (evidence === '') return 'evidence_missing';
+  return evidenceIsQuoted(evidence, source) ? null : 'evidence_not_in_source';
 }
 
 // ── Верификационный проход: сверка находки с телом файла ──────────────────────
