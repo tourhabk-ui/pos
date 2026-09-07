@@ -12,6 +12,7 @@
  */
 
 import { query } from '@/lib/database';
+import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
@@ -141,10 +142,10 @@ async function fetchSafety(): Promise<SafetySnapshot> {
     const [alertsRes, volcRes, freshRes] = await Promise.all([
       query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string; expires_at: string | null }>(
         // Лента безопасности = только actionable-типы, меняющие решение
-        // туриста сегодня (закрытия, вулканы, погода, стихии). Общие новости
-        // (статистика пожаров, пресс-релизы МЧС) в external_alerts не пускаем —
-        // им место в новостном блоке, не в сводке безопасности. Землетрясения
-        // тоже вне ленты: они отдельным блоком «Пульс полуострова».
+        // туриста сегодня (закрытия, вулканы, погода, стихии). Сам список —
+        // lib/services/safety/feed-types: по нему же судит перепись
+        // /api/cron/alerts-census, и своей копии здесь быть не должно —
+        // разошлись бы, и перепись отвечала бы про другую ленту.
         // DISTINCT ON (заголовок) — ingest иногда заводит один алерт дважды
         // (RSS без дедупа); показываем по одной строке на тему, самую свежую.
         // description несёт важную деталь (объезд, окна проезда по пропускам).
@@ -156,14 +157,12 @@ async function fetchSafety(): Promise<SafetySnapshot> {
                     title, description, alert_type, severity::int AS severity, created_at, expires_at
                FROM external_alerts
               WHERE expires_at > NOW()
-                AND alert_type IN (
-                  'road_closure', 'volcano', 'volcanic_eruption', 'ash_cloud',
-                  'tsunami_warning', 'flood', 'avalanche', 'landslide', 'weather'
-                )
+                AND alert_type = ANY($1::text[])
               ORDER BY lower(title), severity DESC, created_at DESC
            ) t
           ORDER BY severity DESC, created_at DESC
           LIMIT 5`,
+        [[...FEED_ALERT_TYPES]],
       ),
       query<{ name: string; acc: string }>(
         `SELECT p.name, vs.aviation_color_code AS acc

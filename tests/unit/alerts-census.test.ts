@@ -60,9 +60,23 @@ describe('список наполняющих агентов — из реест
 });
 
 describe('роут объявлен', () => {
-  it('перепись значится ручной и только читающей', () => {
-    expect(MANUAL_ENDPOINTS['alerts-census']).toBeTruthy();
-    expect(MANUAL_ENDPOINTS['alerts-census']!.writes).toBe(false);
+  // 07.09: у переписи появился свой workflow с маркером, и запускающий стал
+  // виден из .github/workflows. Объявление «ручная» после этого — второй ответ
+  // на один вопрос, и сторож cron-scheduler-declared его не терпит: одна
+  // истина, один источник. Поэтому проверяем не запись в реестре ручных, а то,
+  // чем эта запись была заменена.
+  it('запускающий назван: свой workflow и маркер', () => {
+    expect(MANUAL_ENDPOINTS['alerts-census']).toBeUndefined();
+    const wf = readFileSync(join(process.cwd(), '.github/workflows/alerts-census.yml'), 'utf-8');
+    expect(wf).toContain('.github/triggers/alerts-census.json');
+    expect(wf).toContain('/api/cron/alerts-census');
+    // Маркер едет тем же пушем, что и код переписи: без ожидания сборки
+    // прогон спросил бы вчерашний прод (сторож marker-waits-for-deploy).
+    expect(wf).toContain('run: bash scripts/wait-for-deploy.sh');
+  });
+
+  it('перепись только читает', () => {
+    expect(SRC).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/);
   });
 
   it('секрет сверяется до любого запроса к БД', () => {

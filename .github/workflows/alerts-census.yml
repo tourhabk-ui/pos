@@ -1,0 +1,76 @@
+name: Перепись тревог — что висит в ленте прямо сейчас (вручную)
+
+# Разбор 07.09: владелец прислал снимок главной, где в блоке предупреждений
+# стоял отчёт службы о собственной работе за сутки — «К тушению техногенных
+# пожаров сотрудники МЧС России привлекались один раз» и рядом её близнец с
+# отрицанием. Днём раньше жанр `service_statistics` был заведён и в
+# классификаторе приёма, и в чистке хранилища, а прогон приёма 05:18 UTC
+# ответил `pruned_genres: {checked: 12, removed: 0, service_statistics: 0}`.
+#
+# Два факта противоречат друг другу: строка жанра на экране есть, а страж
+# жанра не нашёл ни одной. Разрешить это можно только ТЕКСТОМ строки, и
+# гадать тут нельзя — из песочницы агента прод недостижим, а всякая догадка
+# в этом разборе уже трижды оказывалась неверной.
+#
+# Перепись отдаёт живые тревоги вместе с приговором того же стража по каждой
+# (`rejected_genre`) и признаком «попадает в ленту» (`in_feed`). Только чтение.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/alerts-census.json'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # Маркер едет в main тем же пушем, что и новая секция переписи, а Timeweb
+      # собирает образ 5–20 минут. Без ожидания первый же прогон спросил бы
+      # вчерашний прод и ответил бы про ленту без приговоров — сторож
+      # tests/unit/marker-waits-for-deploy.test.ts заведён ровно на это.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Перепись живых тревог
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          CODE=$(curl -sS -o /tmp/alerts.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/alerts-census")
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Перепись не ответила — это «не смогли спросить», а не «в ленте чисто»."
+            cat /tmp/alerts.json 2>/dev/null || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/alerts.json'))
+          live = d.get('live') or {}
+          print('ВЕРДИКТ ПОТОКА:', d.get('verdict', '(нет)'))
+          print('живых тревог:', live.get('total'), '| в ленте:', live.get('in_feed'),
+                '| отбраковал бы страж:', live.get('rejected_by_genre'))
+          print()
+          for a in live.get('alerts') or []:
+              print('---')
+              print(' тип:', a.get('alert_type'), '| в ленте:', a.get('in_feed'),
+                    '| жанр:', a.get('rejected_genre'), '| важность:', a.get('severity'))
+              print(' создана:', a.get('created_at'), '| до:', a.get('expires_at'))
+              print(' заголовок:', a.get('title'))
+              print(' тело (%d симв.):' % (a.get('description_len') or 0), a.get('description_head'))
+          PY
