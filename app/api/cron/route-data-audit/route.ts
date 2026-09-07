@@ -55,8 +55,11 @@ export const maxDuration = 120;
  *       и счёт тех, кто получил право вести по трём уликам без разметки
  *  13 — итог печатается В КОНЦЕ: разбор расхождений занимает полторы сотни
  *       строк, и до этого главные цифры были недостижимы из хвоста лога
+ *  18 — поимённый список тех, кого держит РОД связи, а не её отсутствие
+ *       (#1493): счёт 6 против 23 говорил «сколько», но размечают запись,
+ *       а не строку счёта
  */
-export const AUDIT_SHAPE_VERSION = 17;
+export const AUDIT_SHAPE_VERSION = 18;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
