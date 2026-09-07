@@ -21,6 +21,7 @@
 
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
+import { openRouterAttribution } from '@/lib/ai/attribution';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -122,8 +123,7 @@ export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult
       headers: {
         'Authorization':    `Bearer ${apiKey}`,
         'Content-Type':     'application/json',
-        'X-Title':          'KamchatourHub Agent SDK',
-        'HTTP-Referer':     'https://vedarai.ru',
+        ...openRouterAttribution('agent-sdk'),
       },
       body: JSON.stringify({
         model,

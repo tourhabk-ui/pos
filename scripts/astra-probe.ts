@@ -1,3 +1,4 @@
+import { openRouterAttribution } from '../lib/ai/attribution';
 /**
  * scripts/astra-probe.ts — очная ставка моделей на НАШЕЙ работе.
  *
@@ -102,8 +103,7 @@ async function ask(key: string, model: string): Promise<Answer> {
       headers: {
         'Content-Type': 'application/json',
         authorization: `Bearer ${key}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'TourHab model probe (runner)',
+        ...openRouterAttribution('model-probe'),
       },
       body: JSON.stringify({ model, messages, max_tokens: 1600, temperature: 0.5 }),
       signal: AbortSignal.timeout(180_000),

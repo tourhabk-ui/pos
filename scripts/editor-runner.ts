@@ -17,6 +17,7 @@
  * Использование: npx tsx scripts/editor-runner.ts <job.json> <result.json>
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { openRouterAttribution } from '../lib/ai/attribution';
 import {
   buildDescriptionMessages,
   pickDescriptionFromAnswer,
@@ -42,8 +43,7 @@ async function askOpenRouter(
       headers: {
         'Content-Type': 'application/json',
         authorization: `Bearer ${key}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'TourHab Editor (runner)',
+        ...openRouterAttribution('editor'),
       },
       body: JSON.stringify({ model, messages, max_tokens: 1600, temperature: 0.5 }),
       signal: AbortSignal.timeout(90_000),
