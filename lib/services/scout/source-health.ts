@@ -66,6 +66,17 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'tg_ru_rst',        label: 'РСТ (Telegram)',        maxSilenceHours: 168 },
   { key: 'tg_minec_tourism', label: 'Минэк — туризм',        maxSilenceHours: 168 },
   { key: 'tg_vibecoding',    label: 'Vibecoding (Telegram)', maxSilenceHours: 120 },
+  // Право и опасности (07.09). Пороги разные, потому что ритм разный:
+  // Правительство, Дума и Минтранс пишут ежедневно в будни — недели молчания
+  // им хватает с запасом на праздники; МЧС России публикует реже, но не
+  // месяцами. Камчатской погоде окно шире всех: канал региональный, зимой
+  // говорит каждый день, летом может замолкать надолго, и узкий порог давал
+  // бы ложную тревогу каждое лето — то есть учил бы не верить тревогам.
+  { key: 'tg_government_rus', label: 'Правительство России',         maxSilenceHours: 168 },
+  { key: 'tg_duma',           label: 'Госдума',                      maxSilenceHours: 168 },
+  { key: 'tg_mintrans',       label: 'Минтранс России',              maxSilenceHours: 168 },
+  { key: 'tg_mchs_official',  label: 'МЧС России',                   maxSilenceHours: 240 },
+  { key: 'tg_kammeteo',       label: 'Камчатка — погода (Telegram)', maxSilenceHours: 336 },
   // Safety-слой — не RSS: раздел «Камчатка» кормится из external_alerts
   // (собственный мониторинг: сейсмика КБГС, МЧС, дороги, пожары FIRMS).
   // Неделя без ЕДИНОГО события — это не «на Камчатке тихо», это сломанный
