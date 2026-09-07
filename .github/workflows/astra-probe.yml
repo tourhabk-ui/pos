@@ -1,0 +1,64 @@
+name: Проба моделей — очная ставка на работе Editor'а (с раннера)
+
+# Владелец 07.09: «astra доступна через опенроутер на гитхабе, давай протестим».
+#
+# Проба каталога (openrouter-models.yml, прогон 1) показала, что модель
+# существует: openai/gpt-6-astra, вход $10 / выход $50 за миллион токенов,
+# контекст 1 050 000. Существование — ещё не пригодность, и «попробовать»
+# осмысленно только на НАШЕЙ работе.
+#
+# Поэтому проба гоняет тот самый промпт, которым Editor пишет описания на
+# проде, и разбирает ответ тем же разбором. Модели называются в маркере —
+# чтобы спросить про новую, не трогая workflow.
+#
+# Зачем с раннера: с прода OpenRouter отвечает 403 и напрямую, и через релей
+# (замер 07.09). Раннер GitHub не в РФ и каталог достигает — тот же приём, что
+# у разбора находок, AI-ревью и Editor'а после #1678.
+#
+# Расход: два вызова по ~600 входных и ~500 выходных токенов. У Astra это
+# около четырёх рублей за вызов; точная цифра считается в прогоне из usage и
+# цены каталога, а не из памяти о прайсе.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/astra-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Очная ставка
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -uo pipefail
+          MODELS=$(python3 -c "
+          import json
+          try:
+              print(' '.join(json.load(open('.github/triggers/astra-probe.json')).get('models') or []))
+          except Exception:
+              print('')
+          ")
+          if [ -z "$MODELS" ]; then
+            echo "В маркере не названо ни одной модели — спрашивать нечего."
+            exit 1
+          fi
+          echo "модели: $MODELS"
+          npx tsx scripts/astra-probe.ts $MODELS
