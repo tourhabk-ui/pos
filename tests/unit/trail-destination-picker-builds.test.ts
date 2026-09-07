@@ -127,6 +127,22 @@ describe('компас и главная цифра — тот же расчёт
     expect(TRAIL).toContain('checkpoint={!calculatedPreview && waypoints.length > 1');
   });
 
+  it('«Сохранить карту» — быстрое действие, доступное без разворота листа (07.09: «нет кнопки сохранить маршрут»)', () => {
+    // Строка «Карта не сохранена — в поле не откроется» стоит наверху КАЖДОГО
+    // состояния экрана (FieldStatusStrip), а до этой правки нажать на неё
+    // было нечего без разворота листа и прокрутки до «Сохранить полевой
+    // пакет». Действие живёт в ТОЙ ЖЕ панели (fieldActions), которая видна
+    // всегда — панель просто прячет подписи в свёрнутом виде, а не саму кнопку.
+    const at = TRAIL.indexOf('if (hasRoute && mapPlan && !savedMap) {');
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n    }\n', at));
+    expect(body).toContain("id: 'save_pack'");
+    expect(body).toContain('onPress: () => { const id = crumbsRouteRef.current; if (id) void saveMap(id); }');
+    // Снимается САМО, как только карта сохранена — вторая копия «Сохранить»
+    // рядом с уже готовой картой спорила бы, какая из кнопок главная.
+    expect(TRAIL).toContain('if (hasRoute && mapPlan && !savedMap) {');
+  });
+
   it('«всего X км» — рядом с «до следующей точки», не взамен', () => {
     const total = [...TRAIL.matchAll(/totalLabel=\{waypoints\.length > 1 && progress\.totalKm > 0 \? `всего \$\{fmtKm\(progress\.totalKm\)\}` : null\}/g)];
     expect(total.length).toBeGreaterThanOrEqual(2);

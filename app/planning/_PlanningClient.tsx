@@ -3141,6 +3141,28 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     const list: FieldAction[] = [];
     const canGeo = typeof navigator !== 'undefined' && !!navigator.geolocation;
 
+    // Сохранить карту — первым и всегда на виду, не спрятанной под
+    // разворотом листа: строка «Карта не сохранена — в поле не откроется»
+    // (FieldStatusStrip) стоит наверху КАЖДОГО экрана, а нажать на неё было
+    // нечего без разворота листа и прокрутки — владелец 07.09, «нет кнопки
+    // сохранить маршрут». Готовый пакет (mapPlan) и не сохранённый —
+    // ровно то же условие, что и у полной кнопки ниже (§ «Карта офлайн»);
+    // как только savedMap появится, действие снимается — вторая копия
+    // «Сохранить» в двух местах экрана спорила бы, какая из них главная.
+    if (hasRoute && mapPlan && !savedMap) {
+      const downloading = tileDl !== null && tileDl.total > 0;
+      list.push({
+        id: 'save_pack',
+        label: 'Сохранить карту',
+        icon: <Download className="w-6 h-6" />,
+        busy: downloading,
+        hint: downloading
+          ? `${tileDl!.done}/${tileDl!.total}`
+          : (mapPlan.mb > 0 ? `${mapPlan.mb} МБ` : null),
+        onPress: () => { const id = crumbsRouteRef.current; if (id) void saveMap(id); },
+      });
+    }
+
     if (canGeo) {
       list.push({
         id: 'place',
@@ -3202,7 +3224,8 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     });
 
     return list;
-  }, [recorder, sendingTrack, stopAndSendTrack, activeRouteTitle, obsQueueLen, trackRefusal]);
+  }, [recorder, sendingTrack, stopAndSendTrack, activeRouteTitle, obsQueueLen, trackRefusal,
+    hasRoute, mapPlan, savedMap, tileDl, saveMap]);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -4174,7 +4197,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       {(hasRoute || isLoadingRoute) && (
         <div className="shrink-0 px-4 pt-2 pb-2 max-w-sm mx-auto w-full"
           style={{ borderTop: '1px solid var(--border)' }}>
-          <FieldActionBar actions={fieldActions} error={fieldBarError} />
+          {/* Свёрнутый лист — без подписей под кнопками (владелец 07.09,
+              «занимает очень много места карты»): кружки те же 56px под
+              палец, только текст под ними уходит вместе со сворачиванием
+              листа — human читает имя действия иконкой, а не подписью,
+              когда карта важнее. */}
+          <FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError} />
         </div>
       )}
       </div>
