@@ -83,6 +83,10 @@ const SIGNATURE_SIGNALS = [
   'createHmac', 'validateCloudPaymentsSignature', 'processCloudPaymentsWebhook',
   'verifySignature', 'checkSignature', 'verifyWebhook',
   'timingSafeEqual', 'timingSafeCompare',
+  // Общий секрет в заголовке — тоже проверка вызывающего. Заведён 07.09
+  // вместе с разбором /api/sales/campaign/*: там сверялся CRON_SECRET
+  // оператором `!==`, то есть и связывал несвязанное, и подбирался по времени.
+  'verifyCampaignSecret',
 ] as const;
 
 function hasAny(src: string, names: readonly string[]): boolean {

@@ -60,8 +60,6 @@ const NEEDS_REVIEW_FROZEN = [
   '/api/meta/catalog',
   '/api/safety/alerts',
   '/api/safety/visit',
-  '/api/sales/campaign/execute',
-  '/api/sales/campaign/launch',
   '/api/tourist/feedback/agent',
   '/api/trip/plan',
   '/api/webhooks/travelpayouts',
