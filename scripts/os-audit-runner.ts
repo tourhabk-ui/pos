@@ -137,6 +137,149 @@ function parseFindings(raw: string): { findings: Finding[]; note: string | null;
   return { findings: salvaged as Finding[], note: `ответ ОБОРВАН; спасено целых находок: ${salvaged.length}`, error: null };
 }
 
+/**
+ * Улика обязана НАЙТИСЬ в файле, на который ссылается находка.
+ *
+ * Владелец 08.09: «без уточнения первые ответы у моделей поверхностные и
+ * больше на предположениях строятся». Проверка существования пути этого не
+ * ловит: путь настоящий, а утверждение о его содержимом — пересказ по памяти.
+ *
+ * Поэтому из `evidence` вырезаются осмысленные куски (в кавычках, в обратных
+ * кавычках или просто длинные строки), и хотя бы один обязан встретиться в
+ * тексте одного из названных файлов ДОСЛОВНО — с точностью до схлопнутых
+ * пробелов. Пересказ такую проверку не проходит, цитата проходит.
+ *
+ * Это дёшево (ни одного вызова модели) и подделать это нечем.
+ */
+/**
+ * Файл, названный проверяющим как недостающий, — читаем с диска.
+ *
+ * Третий круг имеет смысл ТОЛЬКО если приносит новый материал: повторный
+ * вопрос без новых данных даёт тот же поверхностный ответ. Поэтому читаем
+ * ровно то, что второй круг назвал недостающим, и ничего сверх.
+ */
+function readIfExists(rel: string): string {
+  const full = join(process.cwd(), rel);
+  if (!existsSync(full) || !statSync(full).isFile()) return '';
+  return readFileSync(full, 'utf8');
+}
+
+/**
+ * Имена файлов репозитория, названные в тексте «чего не хватило».
+ *
+ * Проверяющий пишет по-русски; выцепляем то, что похоже на путь, и берём
+ * только реально существующее — выдуманный путь новым материалом не является.
+ */
+export function namedFiles(missing: string): string[] {
+  const out: string[] = [];
+  for (const m of missing.matchAll(/[\w./-]+\.(?:ts|tsx|md|sql|json|ya?ml)/g)) {
+    const rel = m[0].replace(/^\.\//, '');
+    if (existsSync(join(process.cwd(), rel))) out.push(rel);
+  }
+  return [...new Set(out)];
+}
+
+const VERIFY_SYSTEM = `Ты ПРОВЕРЯЕШЬ одно утверждение о коде, а не ищешь новые.
+
+Тебе выдан полный текст названных файлов и утверждение аудита.
+
+Работай в таком порядке, и это важнее вежливости:
+
+1. Сначала назови, ЧТО ДОЛЖНО БЫТЬ ВИДНО в выданном тексте, если утверждение верно, и что было бы видно, если оно неверно. Две разные приметы, а не одна.
+2. Потом найди в тексте ту или другую. Цитируй дословно.
+3. Только после этого выноси исход.
+
+Будь придирчив к правдоподобию. Утверждение, звучащее убедительно, но не следующее из выданного текста, — НЕ подтверждается. Общие рассуждения о том, как обычно бывает в таком коде, доказательством не являются.
+
+Три исхода, и третий обязателен:
+  confirmed   — примета «верно» найдена в тексте, цитата приведена;
+  refuted     — найдена примета «неверно»;
+  cannot_tell — ни одной приметы в выданном нет.
+
+«Не могу проверить» — это НЕ «подтверждается». Ставь его без стеснения.
+
+Если ставишь cannot_tell, обязательно скажи в поле missing, ЧЕГО КОНКРЕТНО не хватило: имя файла, которого нет в выданном, или то, что видно лишь во время работы (лог, ответ базы, замер). Пиши имя файла так, как оно выглядит в репозитории.
+
+Ответь СТРОГО одним JSON-объектом:
+{"verdict":"confirmed|refuted|cannot_tell","expect_if_true":"примета верности","expect_if_false":"примета неверности","why":"дословная цитата и вывод","missing":"чего не хватило (только для cannot_tell)"}`;
+
+interface Verdict { verdict?: string; why?: string; missing?: string }
+
+/**
+ * Второй заход по каждой находке — потому что первый ответ модели поверхностен.
+ *
+ * Владелец 08.09: «без уточнения первые ответы у моделей поверхностные и
+ * больше на предположениях строятся». Это подтвердилось на мне трижды за
+ * сутки: заглушки провайдеров, «И-семантика» запроса, «потерянный слот» —
+ * все три были первыми ответами и все три оказались неверны.
+ *
+ * Проверяющему НЕ показывают ни остальной набор, ни прочие находки: только
+ * названные файлы целиком и одно утверждение. Так он судит текст, а не
+ * связность рассказа.
+ */
+async function verifyFinding(
+  key: string, model: string, f: Finding, byPath: Map<string, string>, extra: string[] = [],
+): Promise<{ verdict: string; why: string; missing: string }> {
+  const paths = [...new Set([...(f.files ?? []), ...extra])];
+  const bundle = paths
+    .map((p) => `=== ФАЙЛ: ${p} ===\n${byPath.get(p) ?? readIfExists(p)}`)
+    .join('\n\n');
+  const claim = `Утверждение: ${f.what ?? ''}\nРод: ${f.kind ?? ''}\nУлика из аудита: ${f.evidence ?? ''}`;
+  try {
+    const res = await fetch(OPENROUTER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${key}`, ...openRouterAttribution('os audit verify') },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: VERIFY_SYSTEM },
+          { role: 'user', content: `${bundle}\n\n=== ПРОВЕРЯЕМОЕ ===\n${claim}` },
+        ],
+        max_tokens: 900,
+        temperature: 0,
+      }),
+      signal: AbortSignal.timeout(300_000),
+    });
+    if (!res.ok) return { verdict: 'cannot_tell', why: `проверяющий не ответил: HTTP ${res.status}`, missing: '' };
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = data.choices?.[0]?.message?.content ?? '';
+    const at = text.indexOf('{');
+    const to = text.lastIndexOf('}');
+    if (at < 0 || to <= at) return { verdict: 'cannot_tell', why: 'ответ проверяющего не разобран', missing: '' };
+    const v = JSON.parse(text.slice(at, to + 1)) as Verdict;
+    const verdict = v.verdict === 'confirmed' || v.verdict === 'refuted' ? v.verdict : 'cannot_tell';
+    return { verdict, why: v.why ?? '', missing: v.missing ?? '' };
+  } catch (err) {
+    // Отказ проверки — «не смог», а не «подтверждено» (§4.0).
+    return { verdict: 'cannot_tell', why: err instanceof Error ? err.message : String(err), missing: '' };
+  }
+}
+
+const squash = (t: string) => t.replace(/\s+/g, ' ').trim();
+
+export function evidenceFragments(evidence: string): string[] {
+  const out: string[] = [];
+  for (const re of [/«([^»]{12,})»/g, /"([^"]{12,})"/g, /`([^`]{12,})`/g]) {
+    for (const m of evidence.matchAll(re)) out.push(m[1]);
+  }
+  // Кавычек может не быть вовсе — тогда судим по длинным строкам.
+  if (out.length === 0) {
+    for (const line of evidence.split(/[\n;]/)) {
+      const t = line.trim();
+      if (t.length >= 20) out.push(t);
+    }
+  }
+  return out.map(squash).filter((t) => t.length >= 12);
+}
+
+/** Нашлась ли хоть одна улика в текстах названных файлов. */
+export function evidenceIsQuoted(evidence: string, texts: string[]): boolean {
+  const frags = evidenceFragments(evidence);
+  if (frags.length === 0) return false;
+  const haystacks = texts.map(squash);
+  return frags.some((f) => haystacks.some((h) => h.includes(f)));
+}
+
 async function main(): Promise<void> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) { console.error('OPENROUTER_API_KEY не задан — спросить некого.'); process.exit(1); }
@@ -197,33 +340,95 @@ async function main(): Promise<void> {
   }
 
   // Детерминированная проверка: путь вне набора — признак выдумки.
+  const byPath = new Map(files.map((f) => [f.path, f.text]));
   const good: Finding[] = [];
   let invented = 0;
+  let unquoted = 0;
   for (const f of findings) {
     const paths = Array.isArray(f.files) ? f.files : [];
     const real = paths.filter((p) => known.has(p));
     if (real.length === 0 || real.length !== paths.length) { invented += 1; continue; }
+    // Путь настоящий — этого мало: утверждение о содержимом может быть
+    // пересказом по памяти. Улика обязана найтись в файле дословно.
+    const texts = real.map((p) => byPath.get(p) ?? '');
+    if (!f.evidence || !evidenceIsQuoted(f.evidence, texts)) { unquoted += 1; continue; }
     good.push({ ...f, files: real });
   }
 
-  const rank = (s?: string) => (s === 'high' ? 0 : s === 'medium' ? 1 : 2);
-  good.sort((a, b) => rank(a.severity) - rank(b.severity));
-
-  console.log(`\nнаходок: ${good.length} принято, ${invented} выброшено (ссылки на файлы вне набора)\n`);
+  // Второй заход: каждую находку перепроверяем отдельно, показывая только её
+  // файлы. Первый ответ модели поверхностен — это правило, а не случай.
+  console.log(`\nперепроверяю каждую находку отдельным заходом (${good.length})...`);
+  const checked: Array<Finding & { verdict: string; why: string; missing: string; rounds: number }> = [];
+  let escalated = 0;
   for (const f of good) {
+    // eslint-disable-next-line no-await-in-loop
+    let v = await verifyFinding(key, model, f, byPath);
+    let rounds = 1;
+
+    // ── Третий круг: только с НОВЫМ материалом ─────────────────────────────
+    //
+    // Владелец 08.09: «иногда даже 3 ответ поверхностен, но это зависит от
+    // уточняющих вопросов». Повторить тот же вопрос — получить тот же
+    // поверхностный ответ; круг имеет смысл, лишь когда приносит то, чего в
+    // прошлый раз не было.
+    //
+    // Поэтому эскалация не по счётчику, а по УЛОВИЮ: второй круг сказал
+    // «не смог» И назвал недостающие файлы, И они существуют. Иначе
+    // «не смог» остаётся честным исходом, а не поводом спрашивать снова.
+    if (v.verdict === 'cannot_tell' && v.missing) {
+      const extra = namedFiles(v.missing).filter((p) => !(f.files ?? []).includes(p));
+      if (extra.length > 0) {
+        escalated += 1;
+        // eslint-disable-next-line no-await-in-loop
+        const again = await verifyFinding(key, model, f, byPath, extra);
+        rounds = 2;
+        v = { ...again, why: `${again.why} [с добавленными: ${extra.join(', ')}]` };
+      }
+    }
+    checked.push({ ...f, ...v, rounds });
+  }
+  const confirmed = checked.filter((f) => f.verdict === 'confirmed');
+  const refuted = checked.filter((f) => f.verdict === 'refuted').length;
+  const unclear = checked.filter((f) => f.verdict === 'cannot_tell');
+
+  const rank = (s?: string) => (s === 'high' ? 0 : s === 'medium' ? 1 : 2);
+  confirmed.sort((a, b) => rank(a.severity) - rank(b.severity));
+
+  console.log(`\nпосле детерминированной проверки: ${good.length} принято`
+    + ` · ${invented} с путями вне набора · ${unquoted} без дословной улики в названном файле\n`);
+  console.log(`после перепроверки: подтверждено ${confirmed.length}`
+    + ` · опровергнуто ${refuted} · не удалось проверить ${unclear.length}`
+    + ` (второй круг с новыми файлами: ${escalated})\n`);
+
+  for (const f of confirmed) {
     console.log('---');
     console.log(` [${f.severity ?? 'без важности'}] ${f.kind ?? 'род не назван'}`);
     for (const p of f.files ?? []) console.log(`   • ${p}`);
     console.log(` суть: ${f.what ?? '(не сказано)'}`);
     console.log(` улика: ${f.evidence ?? '(не приведена)'}`);
+    console.log(` проверка: ${f.why}`);
     console.log(` предложение: ${f.proposal ?? '(нет)'}`);
   }
 
-  if (good.length === 0) {
-    console.error('\nНи одной находки с уликой. «Всё чисто» и «модель не справилась» неразличимы — прогон красный.');
+  // «Не смог проверить» не прячем: это третий исход, а не отсутствие находки.
+  if (unclear.length > 0) {
+    console.log(`\nНЕ УДАЛОСЬ ПРОВЕРИТЬ (${unclear.length}) — судить по выданному нельзя, не значит «неверно»:`);
+    for (const f of unclear) {
+      console.log(`  • ${f.what ?? '(без сути)'} — ${f.why}`);
+      // Названное недостающее — это заявка на следующий замер, а не шум.
+      if (f.missing) console.log(`    не хватило: ${f.missing}`);
+    }
+  }
+
+  if (confirmed.length === 0) {
+    console.error('\nНи одной ПОДТВЕРЖДЁННОЙ находки. «Всё чисто» и «модель не справилась» неразличимы — прогон красный.');
     process.exit(1);
   }
   console.log('\nНичего не изменено: аудит только читает. Решает человек.');
 }
 
-void main();
+// Запускаемся только когда нас ПОЗВАЛИ. Сторож импортирует отсюда чистые
+// функции проверки улик, и без этого условия сам импорт запускал бы аудит:
+// проверка кода превращалась бы в вызов модели за деньги.
+const calledDirectly = (process.argv[1] ?? '').includes('os-audit-runner');
+if (calledDirectly) void main();
