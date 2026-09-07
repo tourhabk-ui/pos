@@ -440,6 +440,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   const [liveDataAt, setLiveDataAt] = useState<number | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   /**
+   * Отказ сервера при выборе маршрута — словами, а не тишиной. Владелец
+   * 08.09, «Сменить маршрут» → «Рекомендуемые» → тап «Начать»: экран
+   * закрывал модалку и оставался на СТАРОМ маршруте молча — `.then()` в
+   * fetchRouteWaypoints видел `success: false` и просто `return`ал,
+   * activeRouteTitle прежнего маршрута никуда не девался, и человеку
+   * казалось, что «Начать» ничего не делает. Третье состояние правила §4.0:
+   * «не смог загрузить» — не то же самое, что «маршрут не выбран».
+   */
+  const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
+  const lastRouteIdRef = useRef<string | null>(null);
+  /**
    * Последняя известная точка с диска (lib/offline/last-fix.ts). Нужна одному
    * решению — какую подложку открыть ПЕРВОЙ, пока нет ни фикса, ни маршрута.
    * `undefined` — ещё не читали (SSR/первый рендер), `null` — читали, нет.
@@ -907,10 +918,13 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     // это была ломаная через полуостров у маршрута длиной полтора километра.
     // Смена ключа — честный сброс: старое знание построено по правилам,
     // которых больше нет.
+    lastRouteIdRef.current = routeId;
+    setRouteLoadError(null);
     const cacheKey = `trail_route_wps_v2_${routeId}`;
     try { localStorage.removeItem(`trail_route_wps_${routeId}`); } catch { /* приватный режим */ }
 
     // 1. Мгновенно из кэша — работает офлайн
+    let hadCache = false;
     try {
       const raw = localStorage.getItem(cacheKey);
       if (raw) {
@@ -918,6 +932,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         if (Array.isArray(parsed.waypoints) && parsed.waypoints.length > 0) {
           setWaypoints(parsed.waypoints);
           setActiveRouteTitle(parsed.title);
+          hadCache = true;
         }
       }
     } catch { /* битый кэш — игнорируем */ }
@@ -927,7 +942,20 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     fetch(`/api/routes/${routeId}`)
       .then(r => r.json())
       .then((j: unknown) => {
-        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) {
+          // Кэш уже что-то показал — сеть просто не обновила его, это не
+          // тупик. Для НОВОГО маршрута (кэша нет) тишина здесь — ровно тот
+          // случай, что владелец увидел как «Начать» ничего не делает:
+          // модалка закрылась, а activeRouteTitle остался от ПРЕЖНЕГО
+          // маршрута, будто выбор не сработал вовсе.
+          if (!hadCache) {
+            const err = (j && typeof j === 'object' && typeof (j as Record<string, unknown>).error === 'string')
+              ? (j as Record<string, unknown>).error as string
+              : 'Сервер не смог отдать этот маршрут';
+            setRouteLoadError(err);
+          }
+          return;
+        }
         const data = (j as Record<string, unknown>).data as Record<string, unknown>;
         setActiveRouteTitle(data.title as string);
         // Рельеф приходит готовым; форму проверяем защитно — молчаливо
@@ -1017,12 +1045,19 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         // экран честно деградировал до наброска, теряя снятую линию,
         // которую человек видел при сохранении пакета.
         void loadFieldPack(routeId).then(pack => {
-          if (!pack || !pack.route.track || pack.route.track.length < 2) return;
+          if (!pack || !pack.route.track || pack.route.track.length < 2) {
+            // Новый маршрут (кэша не было) и пакета для него тоже нет —
+            // сети не дождались ни разу, показать нечего вовсе.
+            if (!hadCache) setRouteLoadError('Нет связи, а офлайн-пакет для этого маршрута ещё не сохранён');
+            return;
+          }
           setTrack(pack.route.track);
           setTrackDm(pack.route.trackDm);
           setGeometrySource(pack.route.geometrySource);
           setRouteVersion(pack.routeVersion);
-        }).catch(() => { /* пакета нет — остаёмся на кэше точек */ });
+        }).catch(() => {
+          if (!hadCache) setRouteLoadError('Нет связи, а офлайн-пакет для этого маршрута ещё не сохранён');
+        });
       })
       .finally(() => setIsLoadingRoute(false));
     // Состояние пакета — сразу из записи (и перепроверкой), не дожидаясь сети.
@@ -3535,6 +3570,22 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       {/* Тело листа — единственная прокручиваемая часть. */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
       <div className="px-4 pb-4 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
+
+        {/* Отказ загрузки выбранного маршрута — словами и с повтором, а не
+            тишиной поверх старой цели (владелец 08.09: «Сменить маршрут» →
+            «Начать» выглядело так, будто ничего не произошло). Наверху тела
+            листа — видна в любом его состоянии, свёрнутом и развёрнутом. */}
+        {routeLoadError && (
+          <div className="w-full px-3 py-2.5 rounded-lg flex items-center justify-between gap-3"
+            style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)' }}>
+            <p className="text-xs flex-1" style={{ color: 'var(--warning)' }}>{routeLoadError}</p>
+            <button type="button"
+              onClick={() => { const id = lastRouteIdRef.current; if (id) fetchRouteWaypoints(id); }}
+              className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
+              Повторить
+            </button>
+          </div>
+        )}
 
         {!hasRoute && !isLoadingRoute ? (
           /* Destination-first (UX-коррекция владельца 27.08): цель, не

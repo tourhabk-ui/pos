@@ -151,3 +151,47 @@ describe('компас и главная цифра — тот же расчёт
     expect(FD).toContain('{p.totalLabel && (');
   });
 });
+
+/**
+ * Владелец 08.09: «Сменить маршрут» → «Рекомендуемые» → тап «Начать» →
+ * ничего не происходит. Модалка закрывается (selectRoute), но
+ * fetchRouteWaypoints видел success:false от /api/routes/[id] и просто
+ * `return`ал — activeRouteTitle оставался от ПРЕЖНЕГО маршрута, и человеку
+ * казалось, что тап по «Начать» не сработал вовсе. Третье состояние по
+ * §4.0: «сервер отказал» — не то же самое, что «маршрут не выбран», и
+ * должно быть названо, а не спрятано за молчаливым return.
+ */
+describe('отказ загрузки маршрута — словами и с повтором, не тишиной (08.09)', () => {
+  it('fetchRouteWaypoints запоминает id и сбрасывает старый отказ на каждой попытке', () => {
+    const at = TRAIL.indexOf('const fetchRouteWaypoints = useCallback((routeId: string) => {');
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, at + 900);
+    expect(body).toContain('lastRouteIdRef.current = routeId;');
+    expect(body).toContain('setRouteLoadError(null);');
+  });
+
+  it('success:false от сервера для НОВОГО маршрута (без кэша) — честный routeLoadError, не тихий return', () => {
+    const at = TRAIL.indexOf("if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) {");
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n          return;\n        }', at));
+    expect(body).toContain('if (!hadCache)');
+    expect(body).toContain('setRouteLoadError(err)');
+  });
+
+  it('кэш ЕСТЬ (обновление существующего маршрута) — отказ сети не показывается: показывать нечего нового, а не поломку', () => {
+    // hadCache — единственное условие показа routeLoadError в обеих ветках
+    // (success:false и .catch сети): у уже открытого маршрута кэш уже на
+    // экране, и «не смог обновить» — не то же самое, что «ничего нет».
+    const occurrences = [...TRAIL.matchAll(/if \(!hadCache\)/g)];
+    expect(occurrences.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('банер отказа — вверху тела листа, видим в любом его состоянии, с кнопкой «Повторить»', () => {
+    const at = TRAIL.indexOf('{routeLoadError && (');
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, TRAIL.indexOf('\n        )}', at));
+    expect(body).toContain('{routeLoadError}');
+    expect(body).toContain("onClick={() => { const id = lastRouteIdRef.current; if (id) fetchRouteWaypoints(id); }}");
+    expect(body).toContain('Повторить');
+  });
+});
