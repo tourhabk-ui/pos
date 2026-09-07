@@ -153,7 +153,12 @@ export function buildFacts(route: RouteRow): string[] {
   return f;
 }
 
-async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
+/**
+ * Экспорт с 07.09: тот же отбор нужен эндпоинту, который отдаёт работу
+ * раннеру GitHub. Второй копии запроса быть не должно — иначе прод и раннер
+ * писали бы описания разным записям.
+ */
+export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
   // NULL-описания — всегда в приоритете (реальные пробелы важнее полировки).
   // Короткие (<300) берём только если их давно (>7 дней) никто не трогал —
   // иначе честно-короткие ответы циклятся каждый прогон (см. REATTEMPT_REST_DAYS).
@@ -209,7 +214,8 @@ const CATEGORY_LABELS: Record<string, string> = {
  * Подлиннее пишется только выдумкой. Наказывать за краткость там, где фактов
  * мало, значит требовать её восполнить.
  */
-const MIN_GENERATION_LENGTH = 40;
+/** Порог длины описания. Экспорт — приёмник результата раннера судит им же. */
+export const MIN_GENERATION_LENGTH = 40;
 
 export interface GenerationOutcome {
   text: string | null;
@@ -253,23 +259,18 @@ const SYSTEM_LEAN = `Ты эксперт по туризму на Камчатк
 - Фактически точный, спокойный, без рекламных штампов ("захватывающий", "незабываемый", "уникальный", "райский", "must-see").
 - Без emoji, без markdown, без списков — связный текст, 2–3 абзаца, 200–350 слов, на русском.`;
 
-export async function generateRouteDescription(
-  route: RouteRow,
-  variant: EditorPromptVariant = 'full',
-): Promise<GenerationOutcome> {
+/**
+ * Сообщения для модели — ЧИСТАЯ функция от записи.
+ *
+ * Вынесена 07.09: описания теперь может писать не только прод, но и раннер
+ * GitHub (OpenRouter с прода режется по сети — 403 и напрямую, и через релей).
+ * Промпт обязан быть один: две копии разойдутся, и половина описаний окажется
+ * написана по другим правилам, чем вторая.
+ */
+export function buildDescriptionMessages(route: RouteRow, variant: EditorPromptVariant = 'full'): ChatMessage[] {
   const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
-
-  // ТРЕТИЙ ИСХОД. Раньше их было два: «написал» и «провайдеры молчат». Записи,
-  // о которых в базе нет ничего, кроме названия, всё равно уходили в модель —
-  // и возвращались с текстом, взятым неоткуда. Теперь такая запись НЕ идёт в
-  // модель вовсе: это не ошибка генерации, а честное «источника нет».
-  // Заодно экономятся токены на самых бесполезных вызовах.
   const facts = buildFacts(route);
-  if (facts.length === 0 && !route.description) {
-    return { text: null, failReason: 'источника нет: в базе только название', noSource: true };
-  }
-
-  const messages: ChatMessage[] = [
+  return [
     {
       role: 'system',
       content: variant === 'lean' ? SYSTEM_LEAN : `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы TourHab. Главная задача платформы — безопасность туристов, поэтому каждое слово должно быть либо проверяемым фактом, либо честным обобщением без выдуманной конкретики.
@@ -305,7 +306,43 @@ ${route.description ? `\nИмеющееся описание (факты бер�
 ${verbalizedInstruction(3)}
 Каждый text — это готовое описание по правилам выше (те же запреты на выдуманную конкретику). Варианты должны отличаться подачей и акцентами, но все — фактически честные.`,
     },
-  ];
+];
+}
+
+/**
+ * Ответ модели → описание либо причина отказа. Тоже чистая и тоже общая:
+ * Verbalized Sampling, выбор наименее шаблонного варианта и порог длины
+ * применяются одинаково, кто бы ни звал модель.
+ */
+export function pickDescriptionFromAnswer(raw: string | null): GenerationOutcome {
+  const text = (raw ?? '').trim() || null;
+  if (!text) return { text: null, failReason: 'пустой ответ модели' };
+
+  const samples = parseVerbalizedSamples(text);
+  const picked = pickLeastTypical(samples, MIN_GENERATION_LENGTH);
+  const result = picked ?? (looksLikeVerbalizedJson(text) ? null : text);
+
+  if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
+  return { text: null, failReason: `${result ? describeShortText(result) : 'битый VS-JSON — не сохранён'}` };
+}
+
+export async function generateRouteDescription(
+  route: RouteRow,
+  variant: EditorPromptVariant = 'full',
+): Promise<GenerationOutcome> {
+  const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
+
+  // ТРЕТИЙ ИСХОД. Раньше их было два: «написал» и «провайдеры молчат». Записи,
+  // о которых в базе нет ничего, кроме названия, всё равно уходили в модель —
+  // и возвращались с текстом, взятым неоткуда. Теперь такая запись НЕ идёт в
+  // модель вовсе: это не ошибка генерации, а честное «источника нет».
+  // Заодно экономятся токены на самых бесполезных вызовах.
+  const facts = buildFacts(route);
+  if (facts.length === 0 && !route.description) {
+    return { text: null, failReason: 'источника нет: в базе только название', noSource: true };
+  }
+
+  const messages = buildDescriptionMessages(route, variant);
 
   try {
     // callAIQualityOrNull даёт null, когда не ответил НИ ОДИН провайдер. Раньше сюда
@@ -319,20 +356,12 @@ ${verbalizedInstruction(3)}
     if (answer === null) {
       return { text: null, failReason: 'все провайдеры отказали (DeepSeek/Qwen/waterfall) — ответа нет' };
     }
-    const raw = answer.trim() || null;
-    if (!raw) return { text: null, failReason: 'пустой ответ модели' };
-
-    // Verbalized Sampling: берём наименее шаблонный валидный вариант из распределения.
-    // Fallback на сырой ответ — ТОЛЬКО если это НЕ (битый) VS-JSON. Иначе рискуем
-    // сохранить сырой обрезанный массив как описание (реальный баг на проде:
-    // «Озеро Большой Калыгирь» показывало JSON [{probability,text},…]). Битый
-    // VS-JSON = провал генерации → text:null, старое описание сохраняется.
-    const samples = parseVerbalizedSamples(raw);
-    const picked = pickLeastTypical(samples, MIN_GENERATION_LENGTH);
-    const result = picked ?? (looksLikeVerbalizedJson(raw) ? null : raw);
-
-    if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
-    return { text: null, failReason: `${result ? describeShortText(result) : 'битый VS-JSON — не сохранён'}` };
+    // Разбор ответа — общий с раннером: Verbalized Sampling, выбор наименее
+    // шаблонного варианта и порог длины одинаковы, кто бы ни звал модель.
+    // Fallback на сырой ответ — ТОЛЬКО если это НЕ (битый) VS-JSON: иначе в
+    // описание уехал бы сырой массив (реальный баг: «Озеро Большой Калыгирь»
+    // показывало JSON [{probability,text},…]).
+    return pickDescriptionFromAnswer(answer);
   } catch (err) {
     return { text: null, failReason: `exception: ${err instanceof Error ? err.message : String(err)}` };
   }

@@ -1,0 +1,99 @@
+name: Editor — описания с раннера (без гео-блока)
+
+# Прод стоит на Timeweb в РФ, и OpenRouter оттуда недостижим: замер 07.09 дал
+# 403 и напрямую, и через релей, причём ответы совпали ДОСЛОВНО — значит режет
+# край сети по нашему адресу, и релей его не прячет. Поэтому `callAIQuality` на
+# проде намеренно ставит первым DeepSeek, а флагманы не берутся вовсе.
+#
+# Раннер GitHub не в РФ и OpenRouter достигает — тем же путём давно ходят
+# разбор находок (evo-judge) и AI-ревью Growth Scan (evo-review). Решение
+# владельца 07.09: «OpenRouter переключи на гитхаб».
+#
+# Разделение труда: СПИСОК записей выбирает прод (базу видит только он — раннер
+# упирается в файрвол БД Timeweb), модель зовёт раннер, готовый текст
+# возвращается на прод. Промпт и разбор ответа — общие функции, не копии.
+#
+# Прод-крон Editor'а (cron-editor.yml) НЕ отключён: он остаётся запасным путём
+# на DeepSeek, если раннер недоступен. Двойной записи не будет — оба берут
+# записи из одной очереди, и уже описанное из неё выбывает.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 21:40 UTC — до прод-крона Editor'а (22:00 UTC): раннер снимает верх
+    # очереди флагманом, проду остаётся хвост.
+    - cron: '40 21 * * *'
+  # Маркер: правка файла в main запускает прогон сейчас (workflow_dispatch
+  # через интеграцию отвечает 403 — у агента нет actions:write).
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/editor-runner.json'
+
+permissions:
+  contents: read
+
+jobs:
+  editor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Fetch job (очередь описаний от прода)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          CODE=$(curl -sS -o /tmp/editor-job.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/editor-job")
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Прод не отдал очередь (HTTP $CODE) — писать нечего, и это не «всё описано»."
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/editor-job.json'));print('в очереди:',d.get('queue_total'),'| взято:',len(d.get('routes',[])))"
+
+      - name: Написать описания (OpenRouter напрямую)
+        env:
+          # Ключ из секретов репозитория — он ОТДЕЛЬНЫЙ от ключа Timeweb
+          # (CLAUDE.md §8: граница проходит по тому, где исполняется вызов).
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: npx tsx scripts/editor-runner.ts /tmp/editor-job.json /tmp/editor-result.json
+
+      - name: Publish (запись в БД прода)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          jq '{model: .model, items: [.items[] | select(.description != null) | {id: .id, description: .description}]}' \
+            /tmp/editor-result.json > /tmp/editor-body.json
+          COUNT=$(jq '.items | length' /tmp/editor-body.json)
+          if [ "$COUNT" = "0" ]; then
+            echo "Описаний нет — публиковать нечего (шаг выше уже покраснел бы, если вход был непуст)."
+            exit 0
+          fi
+          CODE=$(curl -sS -o /tmp/editor-resp.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/editor-body.json \
+            "https://vedarai.ru/api/cron/editor-result")
+          echo "HTTP: $CODE"
+          cat /tmp/editor-resp.json
+          if [ "$CODE" != "200" ]; then
+            echo "Прод не принял описания (HTTP $CODE) — работа модели потеряна."
+            exit 1
+          fi
+          # Принято меньше отправленного — это не «успех с оговоркой».
+          WRITTEN=$(jq '.written' /tmp/editor-resp.json)
+          if [ "$WRITTEN" != "$COUNT" ]; then
+            echo "Записано $WRITTEN из $COUNT — причины отказа в поле rejected выше."
+            exit 1
+          fi
