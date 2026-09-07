@@ -33,7 +33,9 @@ const DEPLOY = readFileSync(join(process.cwd(), '.github/workflows/deploy.yml'),
 
 /** Тело развилки вердикта из workflow — проверяем поставляемый код, не копию. */
 function extractVerdict(): string {
-  const start = DEPLOY.indexOf('if [ -n "$SERVED_OK" ]; then');
+  // 07.09: свидетелей стало два (sha образа и время его сборки), поэтому
+  // SERVED_OK перестал быть флагом и называет СВИДЕТЕЛЯ: commit | built_at.
+  const start = DEPLOY.indexOf('if [ "$SERVED_OK" = "commit" ]; then');
   expect(start, 'развилки вердикта нет в deploy.yml').toBeGreaterThan(-1);
   const rest = DEPLOY.slice(start);
   const end = rest.indexOf('\n          fi');
@@ -54,9 +56,16 @@ function git(args: string[], cwd = repo): string {
 
 interface Outcome { code: number; out: string }
 
-/** Запускает развилку из workflow с заданным состоянием. */
+/**
+ * Запускает развилку из workflow с заданным состоянием.
+ *
+ * Нули у эпох — состояние «время сборки не установлено»: ровно так их
+ * инициализирует сам шаг, и именно в нём жил разобранный случай `unknown`.
+ * Оставлять их НЕзаданными нельзя: развилка сравнивает их как числа, и пустая
+ * строка дала бы не тот исход, что на проде, а ошибку разбора.
+ */
 function verdict(vars: Record<string, string>): Outcome {
-  const env = Object.entries(vars)
+  const env = Object.entries({ BUILT_EPOCH: '0', NEED_EPOCH: '0', ...vars })
     .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
     .join('\n');
   const script = `${env}\n${extractVerdict()}`;
@@ -93,9 +102,24 @@ afterAll(() => {
 
 describe('исход «подтверждено»', () => {
   it('сайт назвал наш коммит — зелёный и внятная формулировка', () => {
-    const r = verdict({ SERVED_OK: '1', SERVED: livingSha, REASON: 'ok', COMMIT: livingSha, EXPECTED_SHA: expectedSha });
+    const r = verdict({ SERVED_OK: 'commit', SERVED: livingSha, REASON: 'ok', COMMIT: livingSha, EXPECTED_SHA: expectedSha });
     expect(r.code).toBe(0);
     expect(r.out).toMatch(/Деплой подтверждён фактом/);
+  });
+
+  it('sha не назван, но образ моложе коммита — подтверждает время сборки', () => {
+    // Второй свидетель (07.09): built_at пишет сам образ на сборке, поэтому
+    // отвечает и там, где маркер молчит. Здоровый случай при сломанном
+    // маркере — зелёный, а не вечное предупреждение.
+    const r = verdict({
+      SERVED_OK: 'built_at', SERVED: 'unknown', REASON: 'no_git_head',
+      COMMIT: livingSha, EXPECTED_SHA: expectedSha,
+      BUILT_EPOCH: '1757250000', NEED_EPOCH: '1757240000',
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/Деплой подтверждён временем сборки/);
+    expect(r.out, 'поломка маркера не выдаётся за поломку деплоя').toMatch(/no_git_head/);
+    expect(r.out).not.toMatch(/::error::/);
   });
 });
 
@@ -148,6 +172,20 @@ describe('исход «не доехало» — строгость сохран
     expect(r.out).toMatch(/::error::/);
     expect(r.out, 'здесь утверждение о факте верно — сайт назвал живой чужой коммит')
       .toMatch(/Контейнер не переключился/);
+  });
+
+  it('образ старше нашего коммита — «не знаю» кончилось, даже без sha', () => {
+    // 07.09: прод отдавал built_at=10:55 при коммите в 11:30, а панель
+    // сообщала active на нашем sha через 33 секунды после запроса сборки.
+    // Время образа врать не может, поэтому здесь третьего состояния нет.
+    const r = verdict({
+      SERVED_OK: '', SERVED: 'unknown', REASON: 'no_git_head',
+      COMMIT: livingSha, EXPECTED_SHA: expectedSha,
+      BUILT_EPOCH: '1757240000', NEED_EPOCH: '1757250000',
+    });
+    expect(r.code, 'образ старше коммита — факт, а не незнание').toBe(1);
+    expect(r.out).toMatch(/::error::/);
+    expect(r.out).not.toMatch(/НЕ СМОГЛИ ПОДТВЕРДИТЬ/);
   });
 
   it('короткая форма sha судится как коммит, а не как «не знаю»', () => {
