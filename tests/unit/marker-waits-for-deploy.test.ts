@@ -39,9 +39,28 @@ const WF_DIR = join(process.cwd(), '.github/workflows');
 const files = readdirSync(WF_DIR).filter((f) => /\.ya?ml$/.test(f));
 const read = (f: string) => readFileSync(join(WF_DIR, f), 'utf8');
 
+/**
+ * Комментарии не в счёт: сторож ищет ВЫЗОВ прода, а не упоминание о нём.
+ *
+ * 07.09: сторож пометил timeweb-deploy-logs.yml, который к проду не ходит
+ * вовсе — он спрашивает api.timeweb.cloud. Слово `vedarai.ru` стояло у него в
+ * комментарии, объясняющем, ЗАЧЕМ понадобился маркерный запуск (застрявшая
+ * выкладка). Заставить такой прогон ждать сборку — значит заставить
+ * диагностику застрявшего деплоя ждать тот самый деплой, то есть выключить
+ * единственный инструмент разбора ровно в тот момент, когда он нужен.
+ *
+ * Правка делает сторожа ТОЧНЕЕ, а не мягче: настоящий curl к vedarai.ru
+ * ловится как прежде. Убирать слово из комментария вместо этого было бы
+ * подгонкой под проверку — и стёрло бы объяснение, ради которого оно там.
+ */
+function stripComments(src: string): string {
+  return src.replace(/^[ \t]*#.*$/gm, '');
+}
+
 /** Запускается маркером И зовёт прод. */
 function markerCallsProd(src: string): boolean {
-  return /triggers\/[\w-]+\.json/.test(src) && /vedarai\.ru/.test(src);
+  const code = stripComments(src);
+  return /triggers\/[\w-]+\.json/.test(code) && /vedarai\.ru/.test(code);
 }
 const waits = (src: string) => /run: bash scripts\/wait-for-deploy\.sh/.test(src);
 
