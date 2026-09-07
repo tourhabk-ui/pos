@@ -3326,7 +3326,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               // случай, calculatedPreview закрывается («К вариантам») —
               // заголовок сам возвращается к activeRouteTitle.
               routeTitle={calculatedPreview ? calculatedPreview.title : activeRouteTitle}
-              checkpoint={waypoints.length > 1
+              // Счёт «N из M» — про КАТАЛОЖНЫЙ маршрут (waypoints/
+              // currentWpIdx); пока на карте отдельно построенный автопуть,
+              // он называет чужую цель рядом с чужим именем — тот же
+              // разрыв, что чинился для routeTitle, тут же (владелец 07.09,
+              // «верх не меняется»).
+              checkpoint={!calculatedPreview && waypoints.length > 1
                 ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
                 : null}
               dataLine={savedMap

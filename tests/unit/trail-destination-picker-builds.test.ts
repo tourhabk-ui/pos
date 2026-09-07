@@ -123,6 +123,10 @@ describe('компас и главная цифра — тот же расчёт
     expect(TRAIL).toContain('caption="до цели"');
   });
 
+  it('«N из M» в шапке молчит, пока на карте расчётный автопуть — он про другой маршрут', () => {
+    expect(TRAIL).toContain('checkpoint={!calculatedPreview && waypoints.length > 1');
+  });
+
   it('«всего X км» — рядом с «до следующей точки», не взамен', () => {
     const total = [...TRAIL.matchAll(/totalLabel=\{waypoints\.length > 1 && progress\.totalKm > 0 \? `всего \$\{fmtKm\(progress\.totalKm\)\}` : null\}/g)];
     expect(total.length).toBeGreaterThanOrEqual(2);
