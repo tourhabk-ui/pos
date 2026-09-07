@@ -39,7 +39,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { pickFunnelFinding, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
+import { pickFunnelFinding, funnelSampleShortfall, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -73,25 +73,36 @@ export async function measure<T>(name: string, fn: () => Promise<T>): Promise<Me
  */
 export function verdictFrom(
   counts: Partial<Record<keyof FunnelCounts, number | null>>,
-): { verdict: ReturnType<typeof pickFunnelFinding>; unknown: string[] } {
+): {
+  verdict: ReturnType<typeof pickFunnelFinding>;
+  unknown: string[];
+  /** Выборки не хватило, чтобы судить — причина словами (иначе null). */
+  insufficient: string | null;
+} {
   const required: (keyof FunnelCounts)[] = [
     'visits', 'tour_views', 'booking_starts', 'leads', 'bookings', 'paid',
   ];
   const unknown = required.filter((k) => counts[k] === null || counts[k] === undefined);
-  if (unknown.length > 0) return { verdict: null, unknown };
+  if (unknown.length > 0) return { verdict: null, unknown, insufficient: null };
+
+  const full: FunnelCounts = {
+    visits:         counts.visits as number,
+    tour_views:     counts.tour_views as number,
+    booking_starts: counts.booking_starts as number,
+    leads:          counts.leads as number,
+    bookings:       counts.bookings as number,
+    paid:           counts.paid as number,
+    plan_views:     counts.plan_views ?? 0,
+    plan_to_tour:   counts.plan_to_tour ?? 0,
+  };
 
   return {
-    verdict: pickFunnelFinding({
-      visits:         counts.visits as number,
-      tour_views:     counts.tour_views as number,
-      booking_starts: counts.booking_starts as number,
-      leads:          counts.leads as number,
-      bookings:       counts.bookings as number,
-      paid:           counts.paid as number,
-      plan_views:     counts.plan_views ?? 0,
-      plan_to_tour:   counts.plan_to_tour ?? 0,
-    }),
+    verdict: pickFunnelFinding(full),
     unknown: [],
+    // Пустой вердикт бывает двух разных родов, и до 07.09 они выглядели
+    // одинаково: «поток есть» и «наблюдений слишком мало, чтобы судить».
+    // Второй — третий исход §4.0, и молчанием он быть не должен.
+    insufficient: funnelSampleShortfall(full),
   };
 }
 
@@ -212,7 +223,7 @@ export async function GET(req: NextRequest) {
     plan_to_tour:   views.value?.plan_to_tour ?? null,
   };
 
-  const { verdict, unknown } = verdictFrom(counts);
+  const { verdict, unknown, insufficient } = verdictFrom(counts);
 
   const failures = [
     views, starts, leadRows, bookingRows,
@@ -230,9 +241,15 @@ export async function GET(req: NextRequest) {
       ? { title: verdict.title, severity: verdict.severity, suggestion: verdict.suggestion }
       : null,
     // Пустой вердикт при известных входах — «поток до денег есть»; при
-    // неизвестных — «не смог проверить». Это разные ответы, и они названы.
-    verdict_state: unknown.length > 0 ? 'unknown' : (verdict ? 'broken_link' : 'no_broken_link'),
+    // неизвестных — «не смог проверить»; при известных, но крошечных —
+    // «судить рано» (07.09, случай #1689). Это три разных ответа, и они
+    // названы по отдельности: два первых уже стоили одной находки severity
+    // high, выехавшей на двух касаниях формы.
+    verdict_state: unknown.length > 0
+      ? 'unknown'
+      : (verdict ? 'broken_link' : (insufficient ? 'insufficient_sample' : 'no_broken_link')),
     unknown_inputs: unknown,
+    insufficient_sample: insufficient,
     failed_measures: [
       ['page_views', views], ['booking_start', starts], ['leads', leadRows],
       ['operator_bookings', bookingRows], ['page_views.alive', viewsAlive],
