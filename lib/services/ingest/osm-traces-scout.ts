@@ -19,7 +19,7 @@
 import { gunzipSync } from 'zlib';
 import { pool } from '@/lib/db-pool';
 import { parseGpx } from '@/lib/services/ingest/visitkamchatka-gpx-importer';
-import { matchTrackToPlace, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
+import { matchTrackToPlace, type PlaceRef } from '@/lib/services/ingest/track-place-match';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 const HEADERS = {

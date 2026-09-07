@@ -32,7 +32,7 @@ export type PassportGrade = 'surveyed' | 'sketch' | 'unknown' | 'points_only' | 
 
 export interface RoutePassport {
   grade: PassportGrade;
-  /** Записанный источник линии (idilesom/osm/gpx/…) или null. */
+  /** Записанный источник линии (external/osm/gpx/…) или null. */
   source: string | null;
   /** Редакция линии и точек (kamchatka_routes.route_version, миграция 863). */
   version: number;
