@@ -35,7 +35,7 @@ describe('watchdog сторожит доставку safety-пушей', () => {
     expect(fn).toContain("INTERVAL '30 minutes'");
     // Те же типы, что подлежат рассылке в кроне — иначе сторож и отправитель
     // разойдутся, и «недоставленным» будет считаться то, что и не слалось.
-    expect(fn).toContain("severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure')");
+    expect(fn).toContain("severity >= 2 OR alert_type = 'tsunami_warning'");
     // Окно 7 дней: древние алерты не держат алерт вечно.
     expect(fn).toContain("INTERVAL '7 days'");
   });
@@ -59,7 +59,7 @@ describe('watchdog сторожит доставку safety-пушей', () => {
   });
 
   it('критерий сторожа совпадает с критерием отправки в кроне', () => {
-    expect(CRON).toContain("severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure')");
+    expect(CRON).toContain("severity >= 2 OR alert_type = 'tsunami_warning'");
   });
 });
 

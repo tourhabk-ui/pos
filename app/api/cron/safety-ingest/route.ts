@@ -244,11 +244,14 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
     }>(`
       SELECT id, alert_type, magnitude, title, description
       FROM external_alerts
-      -- road_closure добавлен по issue #836: перекрытие подъезда приходит с
-      -- severity 1 и под общий порог >=2 не попадало — турист узнавал о
-      -- закрытой дороге, уже стоя перед шлагбаумом. Это единственный тип,
-      -- где решение «ехать/не ехать» принимается ДО выезда.
-      WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
+      -- road_closure убран из push (решение владельца 06.09, отменяет #836):
+      -- одно и то же ограничение приходит сразу с нескольких источников
+      -- (kamgov, Минтур, ВК МЧС) с чуть разным текстом, контент-дедуп
+      -- (seismic-parser.saveEvent) сверяет ДОСЛОВНО и разные формулировки не
+      -- ловит — турист получал 5-6 push об одном и том же перекрытии. Порог
+      -- «ехать/не ехать до выезда» не стоит риска, что людей раздражит спам
+      -- и они удалят PWA: severity 1 остаётся видимым на /safety, но не в push.
+      WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
         AND push_sent_at IS NULL
         -- Окно ретрая = срок действия алерта, а не произвольные 2 часа.
         -- Прежнее created_at > NOW() - '2 hours' создавало тупик с Watchdog
