@@ -66,14 +66,19 @@ function migrationSql(): string {
  * общем пространстве сделал бы соседний тест заложником порядка запуска —
  * то есть красным через раз и по чужой вине.
  *
+ * Схема задаётся ПАРАМЕТРОМ СОЕДИНЕНИЯ, а не `SET search_path` в сессии.
+ * Первая версия делала второе и упала в CI: после ожидаемой ошибки 42883 пул
+ * выдал другое соединение, `search_path` на нём был по умолчанию, и следующий
+ * запрос не нашёл представления. Локально то же самое прошло по удаче —
+ * ровно тот случай, когда «у меня работает» ничего не значит.
+ *
  * Только те колонки, которые представление действительно называет. `embedding`
  * объявлен текстом намеренно: представление его лишь пробрасывает, а тянуть
  * ради этого расширение pgvector в тестовую базу — лишняя зависимость.
  */
-const SCHEMA = `
-  CREATE SCHEMA IF NOT EXISTS kuz_retrieval_test;
-  SET search_path TO kuz_retrieval_test;
+const TEST_SCHEMA = 'kuz_retrieval_test';
 
+const SCHEMA = `
   DROP VIEW IF EXISTS agent_route_knowledge;
   DROP VIEW IF EXISTS v_kamchatka_routes_api;
   DROP TABLE IF EXISTS places;
@@ -142,16 +147,25 @@ withPg('поиск мест Кузьмича на настоящем PostgreSQL'
   let pool: Pool;
 
   beforeAll(async () => {
-    // Пул на одном соединении: search_path живёт в сессии, и на втором
-    // соединении представления бы просто не было видно.
-    pool = new Pool({ connectionString: PG_URL, max: 1 });
+    // Схему заводим отдельным соединением: указать её в параметрах можно
+    // только после того, как она существует.
+    const bootstrap = new Pool({ connectionString: PG_URL });
+    await bootstrap.query(`CREATE SCHEMA IF NOT EXISTS ${TEST_SCHEMA}`);
+    await bootstrap.end();
+
+    // `options` применяется к КАЖДОМУ соединению пула — в отличие от
+    // `SET search_path`, который живёт лишь до смены соединения.
+    pool = new Pool({
+      connectionString: PG_URL,
+      options: `-c search_path=${TEST_SCHEMA}`,
+    });
     await pool.query(SCHEMA);
     await pool.query(migrationSql());
     await pool.query(SEED);
   }, 60_000);
 
   afterAll(async () => {
-    await pool?.query('DROP SCHEMA IF EXISTS kuz_retrieval_test CASCADE');
+    await pool?.query(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await pool?.end();
   });
 
