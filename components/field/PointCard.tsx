@@ -38,6 +38,13 @@ export type PointCardRouteState =
 export interface PointCardProps {
   kind: 'pin' | 'me';
   point: LatLng;
+  /**
+   * Имя места платформы, если тапнули по нему (не по голой точке карты);
+   * null — координата ничем не названа. Заголовок и цель «Проложить сюда»
+   * несут его дальше, а не безликое «Точка на карте» (владелец 07.09,
+   * «Мишенная сопка»: тап по месту, а строится путь под чужим именем).
+   */
+  name?: string | null;
   /** Мой фикс; null — фикса нет (тогда ни расстояния, ни прокладки). */
   me: LatLng | null;
   route: PointCardRouteState;
@@ -63,7 +70,7 @@ function readFormat(): CoordFormat {
   try { return window.localStorage.getItem(FORMAT_KEY) === 'dms' ? 'dms' : 'dd'; } catch { return 'dd'; }
 }
 
-export function PointCard({ kind, point, me, route, onRoute, onClose }: PointCardProps) {
+export function PointCard({ kind, point, name, me, route, onRoute, onClose }: PointCardProps) {
   const [format, setFormat] = useState<CoordFormat>('dd');
   const [copied, setCopied] = useState(false);
   useEffect(() => { setFormat(readFormat()); }, []);
@@ -87,7 +94,7 @@ export function PointCard({ kind, point, me, route, onRoute, onClose }: PointCar
 
   const dist = kind === 'pin' && me ? distanceM(me, point) : null;
   const bearing = kind === 'pin' && me ? Math.round(bearingDeg(me, point)) : null;
-  const title = kind === 'me' ? 'Я' : 'Точка на карте';
+  const title = kind === 'me' ? 'Я' : (name ?? 'Точка на карте');
 
   return (
     <div className="fx-glass-dense rounded-2xl px-4 pt-3 pb-3 text-white" role="dialog" aria-label={title}>

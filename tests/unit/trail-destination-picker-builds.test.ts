@@ -71,3 +71,63 @@ describe('шапка называет то, что реально на карт�
     expect(body).toContain('setCalculatedPreview(null)');
   });
 });
+
+/**
+ * Владелец 07.09, «Мишенная сопка»: «шикарно рисуется маршрут, но не
+ * меняется название и не пересчитываются км из старой формы — видно, что
+ * это разные механизмы». Три отдельных находки:
+ *
+ *  1. Тап по МЕСТУ платформы на /planning шёл мимо onPlaceClick (проп не был
+ *     передан вовсе) и падал на голый onMapClick внутри VedarMap — цель
+ *     «Проложить сюда» строилась под именем «Точка на карте», даже когда
+ *     тапнули по подписанному месту.
+ *  2. Компас («на точку», азимут) и главная цифра/ETA внизу листа остаются
+ *     инструментами КАТАЛОЖНОГО маршрута (nextWp/waypoints) и не знают о
+ *     calculatedPreview вовсе — построенный автопуть рисуется на карте, а
+ *     приборы продолжают показывать старую цель.
+ *  3. «Всего X км» не было нигде — только «до следующей точки».
+ */
+describe('компас и главная цифра — тот же расчётный автопуть, что и на карте (07.09: "Мишенная сопка")', () => {
+  it('onPlaceClick передан VedarMap и несёт настоящее имя места в pointCard', () => {
+    expect(TRAIL).toContain("onPlaceClick={p => setPointCard({ kind: 'pin', lat: p.lat, lng: p.lng, name: p.name })}");
+  });
+
+  it('routeFromCard использует имя места, если оно известно, иначе честное «Точка на карте»', () => {
+    expect(TRAIL).toContain("title: pointCard.name ?? 'Точка на карте'");
+  });
+
+  it('PointCard получает имя и показывает его заголовком (не «Точка на карте» поверх настоящего места)', () => {
+    expect(TRAIL).toContain('name={pointCard.name ?? null}');
+    const CARD = readFileSync(join(process.cwd(), 'components/field/PointCard.tsx'), 'utf-8');
+    expect(CARD).toContain("const title = kind === 'me' ? 'Я' : (name ?? 'Точка на карте');");
+  });
+
+  it('калькулятор компаса/дистанции для calculatedPreview — геометрия (haversine/bearingDeg), не хожалый темп', () => {
+    expect(TRAIL).toContain('const calcDest = calculatedPreview?.route.destinationSnapped ?? null;');
+    expect(TRAIL).toContain('const calcDistKm = calcDest && coords ? haversine(coords.lat, coords.lng, calcDest.lat, calcDest.lon) : null;');
+    expect(TRAIL).toMatch(/const calcBearing = calcDest && coords && fixUsableForNavigation\(coords\.accuracy \?\? null\)/);
+    // ETA — durationS самого провайдера (то же число, что в карточке предпросмотра), не paceFromTrack.
+    expect(TRAIL).toContain("const calcEtaLabel = calculatedPreview ? `~${formatEta(calculatedPreview.route.durationS / 3600)}` : null;");
+  });
+
+  it('компас переключается на calcBearing, пока автопуть на карте', () => {
+    expect(TRAIL).toContain('targetBearing={calculatedPreview ? calcBearing : targetBearing}');
+  });
+
+  it('главная цифра (свёрнутый и развёрнутый лист) проверяет calculatedPreview ПЕРВЫМ — раньше dataConflict/isLoadingRoute/waypoints.length', () => {
+    // Оба места рендера (свёрнутый лист и развёрнутый) начинают ветку с
+    // calculatedPreview — старые ветки (isLoadingRoute, waypoints.length===0,
+    // approach?.dataConflict) остаются, просто уже не первыми в цепочке.
+    const occurrences = [...TRAIL.matchAll(/\{calculatedPreview \? \(/g)];
+    expect(occurrences.length).toBeGreaterThanOrEqual(2);
+    expect(TRAIL).toContain('caption="до цели"');
+  });
+
+  it('«всего X км» — рядом с «до следующей точки», не взамен', () => {
+    const total = [...TRAIL.matchAll(/totalLabel=\{waypoints\.length > 1 && progress\.totalKm > 0 \? `всего \$\{fmtKm\(progress\.totalKm\)\}` : null\}/g)];
+    expect(total.length).toBeGreaterThanOrEqual(2);
+    const FD = readFileSync(join(process.cwd(), 'components/field/FieldDistance.tsx'), 'utf-8');
+    expect(FD).toContain('totalLabel: string | null;');
+    expect(FD).toContain('{p.totalLabel && (');
+  });
+});
