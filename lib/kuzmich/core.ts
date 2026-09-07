@@ -572,12 +572,12 @@ export async function searchPlaceKnowledge(query: string): Promise<string> {
          (
            SELECT title, description, lat::text AS lat, lng::text AS lng, source_name,
                   ROW_NUMBER() OVER (
-                    ORDER BY ts_rank(to_tsvector('russian', search_text), plainto_tsquery('russian', $1)) DESC
+                    ORDER BY ts_rank(search_text, plainto_tsquery('russian', $1)) DESC
                   ) AS pos
            FROM agent_route_knowledge
-           WHERE to_tsvector('russian', search_text) @@ plainto_tsquery('russian', $1)
+           WHERE search_text @@ plainto_tsquery('russian', $1)
              AND lat IS NOT NULL AND lat != 0
-           ORDER BY ts_rank(to_tsvector('russian', search_text), plainto_tsquery('russian', $1)) DESC
+           ORDER BY ts_rank(search_text, plainto_tsquery('russian', $1)) DESC
            LIMIT 6
          )
          UNION ALL
@@ -644,7 +644,21 @@ export async function searchPlaceKnowledge(query: string): Promise<string> {
     }
 
     return `МЕСТА ПО ЗАПРОСУ (точные данные из базы):\n${lines.join('\n')}`;
-  } catch { return ''; }
+  } catch (err) {
+    // Пустой catch здесь стоил полутора месяцев немоты: запрос падал 42883 на
+    // КАЖДОМ вызове (to_tsvector от колонки типа tsvector), Кузьмич получал
+    // пустую строку и отвечал про безопасность по памяти модели. Отказ обязан
+    // называться отказом — и в логе, и В ПРОМПТЕ (§4.0).
+    const code = typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code: unknown }).code) : 'нет кода';
+    console.error('[kuzmich] поиск мест не выполнен', {
+      code,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    // Третий исход виден модели: «не нашлось» и «не смог посмотреть» — разные
+    // вещи, и во втором случае выдумывать координаты нельзя.
+    return 'СПРАВОЧНИК МЕСТ НЕДОСТУПЕН: свериться с базой не удалось. Не называй координаты, высоты и опасности по памяти — скажи, что не смог проверить, и предложи связаться с МЧС по 112.';
+  }
 }
 
 // ── Live Context: weather, news, MChS ────────────────────────────────────────
@@ -658,6 +672,24 @@ const WEATHER_TTL = 30 * 60 * 1000; // 30 min
 const NEWS_TTL = 60 * 60 * 1000;    // 1 hour
 
 /** Fetch weather for Petropavlovsk-Kamchatsky */
+/**
+ * Отказ живого контекста: ловить можно, молчать нельзя (§4.0).
+ *
+ * Четыре функции ниже — погода, внешние тревоги и две сводки — глушили
+ * исключение пустым `catch` и возвращали пустую строку. Для тревог это худший
+ * из возможных ответов: турист слышит тишину и читает её как «предупреждений
+ * нет». Имя источника и SQLSTATE обязаны попасть в лог, иначе поломка живёт
+ * незамеченной ровно столько, сколько прожил поиск мест.
+ */
+function logSwallowed(source: string, err: unknown): void {
+  const code = typeof err === 'object' && err !== null && 'code' in err
+    ? String((err as { code: unknown }).code) : 'нет кода';
+  console.error(`[kuzmich] ${source} не выполнен`, {
+    code,
+    message: err instanceof Error ? err.message : String(err),
+  });
+}
+
 async function fetchWeather(): Promise<string> {
   if (_weatherCache.text && Date.now() - _weatherCache.at < WEATHER_TTL) return _weatherCache.text;
   try {
@@ -682,7 +714,10 @@ async function fetchWeather(): Promise<string> {
     _weatherCache.text = `Петропавловск-Камчатский: ${sign(t)}C (ощущается ${sign(f)}C), ${desc}, ветер ${c.windspeedKmph} км/ч, влажность ${c.humidity}%`;
     _weatherCache.at = Date.now();
     return _weatherCache.text;
-  } catch { return ''; }
+  } catch (err) {
+    logSwallowed('прогноз погоды', err);
+    return 'ПОГОДА НЕДОСТУПНА: свериться с прогнозом не удалось — не называй погоду по памяти.';
+  }
 }
 
 /** Lightweight RSS parser — extracts title + pubDate from first N items */
@@ -780,7 +815,11 @@ async function loadExternalAlerts(): Promise<string> {
       return `[${level}] ${r.title}${zones}${desc}`;
     });
     return lines.join('\n');
-  } catch { return ''; }
+  } catch (err) {
+    logSwallowed('внешние тревоги', err);
+    // Худший ответ для тревог — тишина: её читают как «предупреждений нет».
+    return 'ТРЕВОГИ НЕДОСТУПНЫ: проверить активные предупреждения не удалось. Не утверждай, что их нет — скажи, что не смог проверить.';
+  }
 }
 
 /** Build full live context block */
@@ -835,7 +874,10 @@ async function loadDbIntel(): Promise<string> {
     );
     if (!rows.length) return '';
     return rows.map(r => `- ${r.value.summary?.slice(0, 300) ?? ''}`).join('\n');
-  } catch { return ''; }
+  } catch (err) {
+    logSwallowed('сводка из базы', err);
+    return '';
+  }
 }
 
 /** Load recent group/channel intelligence from agent_memory */
@@ -867,7 +909,10 @@ async function loadGroupIntel(): Promise<string> {
       }
     }
     return lines.slice(0, 10).join('\n');
-  } catch { return ''; }
+  } catch (err) {
+    logSwallowed('сводка по группам', err);
+    return '';
+  }
 }
 
 // ── Дата-парсер ───────────────────────────────────────────────────────────────

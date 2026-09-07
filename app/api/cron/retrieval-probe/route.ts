@@ -71,9 +71,9 @@ async function orSearch(question: string): Promise<{ query: string | null; hits:
   if (!q) return { query: null, hits: [], error: null };
   try {
     const { rows } = await pool.query<{ title: string; rank: number }>(
-      `SELECT title, ts_rank(to_tsvector('russian', search_text), to_tsquery('russian', $1)) AS rank
+      `SELECT title, ts_rank(search_text, to_tsquery('russian', $1)) AS rank
          FROM agent_route_knowledge
-        WHERE to_tsvector('russian', search_text) @@ to_tsquery('russian', $1)
+        WHERE search_text @@ to_tsquery('russian', $1)
           AND lat IS NOT NULL AND lat != 0
         ORDER BY rank DESC
         LIMIT 5`,
