@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyCampaignSecret } from '@/lib/sales/campaign-auth';
 import { launchSalesCampaign } from '@/lib/sales/bot-ceo';
 import { z } from 'zod';
 
@@ -16,10 +17,11 @@ const LaunchSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const secret = req.headers.get('X-CEO-Secret');
-    const cronSecret = process.env.CRON_SECRET;
-    if (!cronSecret || secret !== cronSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Свой секрет, сравнение по постоянному времени, и «не настроено»
+    // отличается от «неверно» (§4.0). Подробности — lib/sales/campaign-auth.
+    const auth = verifyCampaignSecret(req.headers);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     const parsed = LaunchSchema.safeParse(await req.json().catch(() => ({})));
@@ -46,10 +48,11 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/** Описание адреса — без схемы доступа (см. пояснение у execute). */
 export async function GET() {
   return NextResponse.json({
     message: 'CEO Sales Campaign API',
-    usage: 'POST with X-CEO-Secret header',
-    payload: { batch_size: 10 }
+    method: 'POST',
+    payload: { batch_size: 10 },
   });
 }

@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyCampaignSecret } from '@/lib/sales/campaign-auth';
 import { pool } from '@/lib/db-pool';
 import { generateMessage } from '@/lib/sales/messages';
 
@@ -33,10 +34,11 @@ const OPERATORS_TO_CONTACT: OperatorTarget[] = [
 
 export async function POST(req: NextRequest) {
   try {
-    const secret = req.headers.get('X-CEO-Secret');
-    const cronSecret = process.env.CRON_SECRET;
-    if (!cronSecret || secret !== cronSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Свой секрет, сравнение по постоянному времени, и «не настроено»
+    // отличается от «неверно» (§4.0). Подробности — lib/sales/campaign-auth.
+    const auth = verifyCampaignSecret(req.headers);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     // Create campaign record
@@ -102,11 +104,18 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * Описание адреса — БЕЗ схемы доступа.
+ *
+ * Здесь стояло «auth: X-CEO-Secret header (uses CRON_SECRET)»: незащищённый
+ * GET рассказывал, какой заголовок нужен и откуда берётся секрет. Тому, кто
+ * ищет вход, это половина работы; тому, кто имеет право, — не нужно вовсе,
+ * он и так знает. Назначение адреса остаётся: оно не секрет.
+ */
 export async function GET() {
   return NextResponse.json({
     endpoint: '/api/sales/campaign/execute',
     method: 'POST',
-    auth: 'X-CEO-Secret header (uses CRON_SECRET)',
-    purpose: 'Launch operator acquisition campaign'
+    purpose: 'Launch operator acquisition campaign',
   });
 }

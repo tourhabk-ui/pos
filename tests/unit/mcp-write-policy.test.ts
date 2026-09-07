@@ -80,15 +80,19 @@ describe('три исхода, и третий не равен первому', 
   });
 
   it('соли нет — считать нечем, и это тоже «не смог»', async () => {
+    // CRON_SECRET намеренно ОСТАВЛЕН заданным: с 07.09 откат на него убран, и
+    // проверяется именно это — своя переменная стала единственным источником.
     delete process.env.MCP_HASH_SALT;
-    const saved = process.env.CRON_SECRET;
-    delete process.env.CRON_SECRET;
-    try {
-      const v = await checkMcpWrite(base);
-      expect(v.decision).toBe('unknown');
-    } finally {
-      if (saved !== undefined) process.env.CRON_SECRET = saved;
-    }
+    process.env.CRON_SECRET = 'секрет-крона-который-НЕ-должен-подойти';
+    const v = await checkMcpWrite(base);
+    expect(v.decision).toBe('unknown');
+  });
+
+  it('CRON_SECRET солью больше не работает — откат убран', () => {
+    expect(
+      GUARD_SRC,
+      'откат на CRON_SECRET вернулся: общий секрет связывает поворот крона с окном лимита',
+    ).not.toMatch(/MCP_HASH_SALT\s*\|\|\s*process\.env\.CRON_SECRET/);
   });
 });
 
@@ -193,17 +197,11 @@ describe('согласие доезжает до лида обоими путя�
 describe('основание отказа настоящее, а не первое попавшееся', () => {
   it('без соли и без согласия отказ всё равно ПО СОГЛАСИЮ', async () => {
     delete process.env.MCP_HASH_SALT;
-    const saved = process.env.CRON_SECRET;
-    delete process.env.CRON_SECRET;
     poolQueryMock.mockResolvedValue({ rows: [] });
-    try {
-      const v = await checkMcpWrite({ ...base, consent: false });
-      expect(v.decision).toBe('deny');
-      expect(v.decision === 'deny' && v.outcome).toBe('no_consent');
-      expect(v.decision === 'deny' && v.message).toMatch(/consent: true/);
-    } finally {
-      if (saved !== undefined) process.env.CRON_SECRET = saved;
-    }
+    const v = await checkMcpWrite({ ...base, consent: false });
+    expect(v.decision).toBe('deny');
+    expect(v.decision === 'deny' && v.outcome).toBe('no_consent');
+    expect(v.decision === 'deny' && v.message).toMatch(/consent: true/);
   });
 });
 
@@ -290,7 +288,7 @@ describe('диагностика соли: имя и булево, не знач
     // раскрыть соль она не может. Раскрывает — интерполяция значения.
     const ALLOWED = [
       /!!process\.env\.MCP_HASH_SALT/,                                   // булево наличия
-      /process\.env\.MCP_HASH_SALT \|\| process\.env\.CRON_SECRET/,      // единственное чтение
+      /process\.env\.MCP_HASH_SALT \|\| null/,                            // единственное чтение
     ];
     for (const [name, src] of [['health', HEALTH], ['write-guard', GUARD_SRC]] as const) {
       const uses = src
