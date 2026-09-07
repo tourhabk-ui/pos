@@ -188,10 +188,27 @@ export function safeRepoPath(rel: string): string | null {
   return full;
 }
 
-function readIfExists(rel: string): string {
+/**
+ * Одно чтение на всё: сперва дверь, потом ПОПЫТКА, а не расспрос.
+ *
+ * Спрашивать `existsSync`, а читать следующей строкой — значит судить о
+ * файле по его прошлому: между вопросом и ответом он успевает исчезнуть,
+ * и вместо честного «не смог» прилетает исключение из середины разбора.
+ * Поэтому проверки существования нет вовсе: `null` — не прочли, и это
+ * ровно тот третий исход, которого требует §4.0.
+ */
+function tryReadRepoFile(rel: string): string | null {
   const full = safeRepoPath(rel);
-  if (full === null || !existsSync(full) || !statSync(full).isFile()) return '';
-  return readFileSync(full, 'utf8');
+  if (full === null) return null;
+  try {
+    return readFileSync(full, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function readIfExists(rel: string): string {
+  return tryReadRepoFile(rel) ?? '';
 }
 
 /**
@@ -207,8 +224,8 @@ export function namedFiles(missing: string): string[] {
   // ответ модели квадратично, а якорная проверка — нет.
   for (const token of missing.split(/[^\w./-]+/)) {
     const rel = token.replace(/^\.\//, '').replace(/\.+$/, '');
-    const full = safeRepoPath(rel);
-    if (full !== null && existsSync(full) && statSync(full).isFile()) out.push(rel);
+    // Существование доказывает удавшееся чтение, а не отдельный вопрос о нём.
+    if (tryReadRepoFile(rel) !== null) out.push(rel);
   }
   return [...new Set(out)];
 }
