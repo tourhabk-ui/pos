@@ -28,6 +28,7 @@
  * Использование: npx tsx scripts/route-analysis-runner.ts <corpus.json> [модель]
  */
 import { readFileSync } from 'node:fs';
+import { salvageTruncatedArray } from '../lib/ai/json-salvage';
 import { openRouterAttribution } from '../lib/ai/attribution';
 
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
@@ -76,19 +77,43 @@ const SYSTEM = `Ты разбираешь справочник туристич�
 Ответь СТРОГО одним JSON-объектом без пояснений вокруг:
 {"findings":[{"kind":"duplicate|same_waypoints|title_without_object|foreign_waypoint|contradiction","route_ids":["..."],"what":"суть одной фразой","evidence":"дословные значения из данных","proposal":"что предлагаешь сделать"}]}`;
 
-function parseFindings(raw: string): { findings: Finding[]; error: string | null } {
+function parseFindings(raw: string): { findings: Finding[]; error: string | null; note: string | null } {
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const body = (fence ? fence[1] : raw).trim();
   const start = body.indexOf('{');
+  if (start < 0) return { findings: [], error: 'в ответе нет JSON-объекта', note: null };
   const end = body.lastIndexOf('}');
-  if (start < 0 || end <= start) return { findings: [], error: 'в ответе нет JSON-объекта' };
-  try {
-    const parsed = JSON.parse(body.slice(start, end + 1)) as { findings?: unknown };
-    if (!Array.isArray(parsed.findings)) return { findings: [], error: 'в ответе нет массива findings' };
-    return { findings: parsed.findings as Finding[], error: null };
-  } catch (err) {
-    return { findings: [], error: err instanceof Error ? err.message : String(err) };
+  if (end > start) {
+    try {
+      const parsed = JSON.parse(body.slice(start, end + 1)) as { findings?: unknown };
+      if (Array.isArray(parsed.findings)) {
+        return { findings: parsed.findings as Finding[], error: null, note: null };
+      }
+    } catch {
+      // Ниже — спасение оборванного. Ошибку разбора здесь не возвращаем:
+      // она означает лишь, что целиком ответ не читается.
+    }
   }
+
+  // Ответ обрезан потолком токенов: закрывающей скобки нет, но объекты,
+  // написанные ДО обрыва, настоящие. Терять их — выбрасывать работу модели
+  // вместе с её обрывом (тот же приём и тот же модуль, что у изобретателя и
+  // линзы «ИИ-фичи»: правило одно, дом у него один).
+  //
+  // Прогон 2 (07.09) стоил ровно этого: Astra прочла 389 маршрутов за 1,2 с,
+  // нашла дубли с уликами — и весь ответ пропал, потому что не поместился в
+  // 8000 токенов, а спасения здесь не было.
+  const arrAt = body.indexOf('[', start);
+  if (arrAt < 0) return { findings: [], error: 'в ответе нет массива findings', note: null };
+  const salvaged = salvageTruncatedArray(body.slice(arrAt));
+  if (salvaged.length === 0) {
+    return { findings: [], error: 'ответ оборван, и ни одной целой находки из него не спасти', note: null };
+  }
+  return {
+    findings: salvaged as Finding[],
+    error: null,
+    note: `ответ ОБОРВАН на потолке токенов; спасено целых находок: ${salvaged.length}`,
+  };
 }
 
 async function main(): Promise<void> {
@@ -132,7 +157,10 @@ async function main(): Promise<void> {
           { role: 'system', content: SYSTEM },
           { role: 'user', content: JSON.stringify(routes) },
         ],
-        max_tokens: 8000,
+        // 8000 не хватило: прогон 2 оборвался на 389 маршрутах, и находки
+        // с уликами пропали. Улика — это дословные значения из данных, она
+        // длинная по существу, и на корпус её нужно много.
+        max_tokens: 32000,
         temperature: 0.2,
       }),
       signal: AbortSignal.timeout(600_000),
@@ -158,7 +186,8 @@ async function main(): Promise<void> {
 
   if (!text) { console.error('Ответ без содержимого.'); process.exit(1); }
 
-  const { findings, error } = parseFindings(text);
+  const { findings, error, note } = parseFindings(text);
+  if (note) console.log(`ВНИМАНИЕ: ${note}`);
   if (error) {
     console.error('Разбор ответа не удался:', error);
     console.error('--- начало ответа ---');

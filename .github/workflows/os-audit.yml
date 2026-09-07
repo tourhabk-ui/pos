@@ -1,0 +1,65 @@
+name: Аудит ОС и эволюции одним проходом (с раннера)
+
+# Владелец 08.09: «может Astra проведёт аудит ОС и эволюции, может мы тоже
+# упустили что-то».
+#
+# Мы судим платформу по кусочкам: сторож проверяет своё, перепись считает
+# своё, ревью смотрит диф. Никто не держит перед глазами ПРАВИЛА и
+# ИСПОЛНЕНИЕ одновременно — а расхождение живёт именно там. За один день
+# 07-08.09 нашлось четыре таких, и ни одно не поймал ни один сторож.
+#
+# Аудит НЕ ХОДИТ НА ПРОД вовсе: он читает репозиторий из своего же checkout.
+# Это сделано намеренно — весь день пробы упирались в незаехавшую выкладку,
+# а здесь ждать нечего.
+#
+# Только чтение. Находки печатаются с уликами; ссылка на файл вне выданного
+# набора считается выдумкой и выбрасывается.
+#
+# Расход: набор до 1,8 МБ ≈ 450 тыс. входных токенов ≈ 600 ₽ за проход.
+# Точная цифра печатается из usage. Это не ежедневный крон — только по маркеру.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/os-audit.json'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Аудит одним проходом
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -uo pipefail
+          MODEL=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.github/triggers/os-audit.json')).get('model') or '')
+          except Exception:
+              print('')
+          ")
+          TARGETS=$(python3 -c "
+          import json
+          try:
+              print(' '.join(json.load(open('.github/triggers/os-audit.json')).get('targets') or []))
+          except Exception:
+              print('')
+          ")
+          npx tsx scripts/os-audit-runner.ts $MODEL $TARGETS
