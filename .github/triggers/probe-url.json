@@ -1,27 +1,41 @@
 {
-  "note": "Trip.com, замер 2: где вход ПОСТАВЩИКА. Первая проба (447) ответила наполовину: www.trip.com/partners/ — это affiliate (заработок на приведённом трафике, слова supplier в теле нет ни разу), partner.trip.com отдаёт обычную главную, supplier.trip.com не резолвится вовсе. При этом в подвале главной есть текст со словом Supplier и оборот Become a — то есть вход существует, но по другому адресу. Здесь достаём сам адрес: печатаем строки ВОКРУГ маркера, включая предшествующие, потому что в ссылке href стоит раньше текста.",
+  "note": "Партия 1 по issue #1493. Снимаем с прода материал для решения владельца: осиротевшие места и живые маршруты-кандидаты к ним, с уликой у каждой пары (совпадение имени nameScore и расстояние distanceKm). Автомат тут запрещён правилом §4.1 — род связи выводить из близости к линии нельзя, — поэтому подсказчик только ГОТОВИТ пары, а решает человек. part=candidates: улики о вранье координат в этот прогон не берём, они отдельный разбор и в прошлые пробы съедали окно вывода. Дополнительно снимаем перепись маршрутов, чтобы цифра 255 в тексте задачи была подтверждена сегодняшним состоянием, а не пересказом от 01.09. Третьим адресом — дверь поставщика Trip.com: прогон 448 нашёл её в подвале главной, ссылка «Become a supplier» ведёт на /m/vbooking/home. Догадка /partners/supplier/ не подтвердилась: 200 там отдаёт та же страница affiliate-программы (тот же заголовок, тот же размер), то есть код ответа существование адреса не доказывает.",
   "urls": [
-    "https://www.trip.com/",
-    "https://www.trip.com/partners/supplier/"
+    "https://vedarai.ru/api/cron/place-link-suggest?scope=lost&part=candidates",
+    "https://vedarai.ru/api/cron/route-data-audit",
+    "https://www.trip.com/m/vbooking/home"
+  ],
+  "grep": [
+    "place_link_suggest_v6",
+    "with_candidates",
+    "orphans_total",
+    "navigability_reasons",
+    "link_kinds",
+    "vbooking",
+    "Affiliate Program",
+    "sign up",
+    "Sign Up",
+    "register",
+    "apply",
+    "contact us",
+    "activity",
+    "experiences"
+  ],
+  "count": [
+    "\"placeId\"",
+    "\"routeId\"",
+    "\"nameScore\":1"
   ],
   "around": [
-    "Supplier",
-    "Become a"
+    "link_kinds",
+    "navigability_reasons"
   ],
-  "aroundBefore": 6,
-  "aroundLines": 3,
-  "aroundHits": 3,
-  "grep": [
-    "supplier",
-    "Supplier",
-    "Become a",
-    "activities",
-    "experiences",
-    "Sign up",
-    "Register"
-  ],
-  "bytes": 300,
-  "timeout": 45,
-  "retries": 0,
-  "expect": "От первого адреса нужен href рядом со словом Supplier — это и есть искомый вход. Второй адрес — прямая проверка догадки о /partners/supplier/: 404 будет честным «не угадал», и это лучше, чем строить адаптер по памяти. Ничего не отправляем и не регистрируем, только чтение."
+  "aroundBefore": 1,
+  "aroundLines": 10,
+  "aroundHits": 1,
+  "bytes": 9000,
+  "timeout": 60,
+  "retries": 2,
+  "retryDelay": 60,
+  "expect": "От первого адреса нужен список items: место (имя, тип) и до четырёх маршрутов-кандидатов с nameScore и distanceKm — это и есть улика к паре. Пары со счётом имени 1.0 и малым расстоянием пойдут в партию первыми: там спорить не о чем. От второго — сегодняшние link_kinds и navigability_reasons: если «путевых точек меньше двух» уже не 255, задача изменилась, и партию надо собирать от новой цифры. Ответ 401 означал бы, что секрет не доехал, а не что данных нет."
 }
