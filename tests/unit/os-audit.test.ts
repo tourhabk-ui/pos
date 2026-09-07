@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { evidenceIsQuoted, evidenceFragments, namedFiles } from '../../scripts/os-audit-runner';
+import { evidenceIsQuoted, evidenceFragments, namedFiles, safeRepoPath } from '../../scripts/os-audit-runner';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/os-audit-runner.ts'), 'utf8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/os-audit.yml'), 'utf8');
@@ -211,5 +211,36 @@ describe('третий круг — только с новым материал�
 
   it('число эскалаций названо в итоге — видно, сколько кругов было полезно', () => {
     expect(SRC).toContain('второй круг с новыми файлами');
+  });
+});
+
+describe('путь, названный моделью, проходит через дверь', () => {
+  // Модель называет файлы сама, а мы их читаем и отправляем в чужую LLM.
+  // Значит имя — заявка, а не адрес: между ним и readFileSync обязана стоять
+  // проверка, иначе достаточно назвать `.env.local`.
+  it('выход за дерево репозитория не пропускается', () => {
+    expect(safeRepoPath('../../etc/passwd')).toBeNull();
+    expect(safeRepoPath('lib/../../etc/hosts')).toBeNull();
+    expect(safeRepoPath('/etc/passwd')).toBeNull();
+  });
+
+  it('секреты и скрытые файлы не пропускаются', () => {
+    expect(safeRepoPath('.env.local')).toBeNull();
+    expect(safeRepoPath('.env')).toBeNull();
+    expect(safeRepoPath('.git/config')).toBeNull();
+  });
+
+  it('расширение вне списка не пропускается', () => {
+    expect(safeRepoPath('scripts/deploy.sh')).toBeNull();
+    expect(safeRepoPath('public/images/logo.png')).toBeNull();
+  });
+
+  it('свой исходник и расписание крона — пропускаются', () => {
+    expect(safeRepoPath('lib/kuzmich/core.ts')).toContain('lib/kuzmich/core.ts');
+    expect(safeRepoPath('.github/workflows/cron-evo.yml')).toContain('cron-evo.yml');
+  });
+
+  it('namedFiles не пускает то, что дверь не пропустила', () => {
+    expect(namedFiles('смотри ../../etc/passwd и .env.local')).toEqual([]);
   });
 });

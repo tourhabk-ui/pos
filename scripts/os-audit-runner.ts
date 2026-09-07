@@ -35,7 +35,7 @@
  * Использование: npx tsx scripts/os-audit-runner.ts <модель> [<glob> ...]
  */
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { salvageTruncatedArray } from '../lib/ai/json-salvage';
 import { openRouterAttribution } from '../lib/ai/attribution';
 
@@ -69,8 +69,10 @@ function collect(targets: string[]): { files: Bundled[]; skipped: number; bytes:
   const root = process.cwd();
   const paths: string[] = [];
   for (const t of targets) {
-    const full = join(root, t);
-    if (!existsSync(full)) continue;
+    // Цель приходит из аргументов запуска — тоже снаружи. Читаем только то,
+    // что после нормализации осталось внутри дерева репозитория.
+    const full = resolve(root, t);
+    if (!full.startsWith(resolve(root) + sep) || !existsSync(full)) continue;
     if (statSync(full).isDirectory()) walk(full, paths);
     else paths.push(full);
   }
@@ -158,9 +160,37 @@ function parseFindings(raw: string): { findings: Finding[]; note: string | null;
  * вопрос без новых данных даёт тот же поверхностный ответ. Поэтому читаем
  * ровно то, что второй круг назвал недостающим, и ничего сверх.
  */
+/**
+ * Путь, названный МОДЕЛЬЮ, — заявка, а не адрес.
+ *
+ * Между «модель назвала файл» и «мы его прочли и отправили в чужую LLM»
+ * обязана стоять дверь: иначе достаточно назвать `.env.local`, и ключи
+ * уедут в OpenRouter вместе с находкой. Дверь одна на все чтения:
+ *
+ *   - форма имени: сегменты из букв, цифр, `-` и точек — значит `..` внутрь
+ *     не пройдёт и скрытые каталоги тоже (единственное исключение —
+ *     `.github/`, где живут расписания кронов, а секретов нет);
+ *   - расширение из списка: исходник, правило, миграция, конфиг;
+ *   - после нормализации путь обязан остаться ВНУТРИ дерева репозитория.
+ *
+ * Отказ — пустая строка: третий круг просто не получит нового материала.
+ */
+const SEGMENT = String.raw`[\w-]+(?:\.[\w-]+)*`;
+const SAFE_REL = new RegExp(`^(?:\\.github/)?${SEGMENT}(?:/${SEGMENT})*$`);
+const READABLE_EXT = /\.(?:ts|tsx|md|sql|json|ya?ml)$/;
+
+export function safeRepoPath(rel: string): string | null {
+  const t = rel.trim().replace(/^\.\//, '');
+  if (t === '' || !SAFE_REL.test(t) || !READABLE_EXT.test(t)) return null;
+  const root = resolve(process.cwd());
+  const full = resolve(root, t);
+  if (!full.startsWith(root + sep)) return null;
+  return full;
+}
+
 function readIfExists(rel: string): string {
-  const full = join(process.cwd(), rel);
-  if (!existsSync(full) || !statSync(full).isFile()) return '';
+  const full = safeRepoPath(rel);
+  if (full === null || !existsSync(full) || !statSync(full).isFile()) return '';
   return readFileSync(full, 'utf8');
 }
 
@@ -172,9 +202,13 @@ function readIfExists(rel: string): string {
  */
 export function namedFiles(missing: string): string[] {
   const out: string[] = [];
-  for (const m of missing.matchAll(/[\w./-]+\.(?:ts|tsx|md|sql|json|ya?ml)/g)) {
-    const rel = m[0].replace(/^\.\//, '');
-    if (existsSync(join(process.cwd(), rel))) out.push(rel);
+  // Разрезаем по всему, что путём быть не может, и судим КАЖДЫЙ кусок целиком:
+  // сканирующий поиск по классу, где точка и буква лежат вместе, перебирает
+  // ответ модели квадратично, а якорная проверка — нет.
+  for (const token of missing.split(/[^\w./-]+/)) {
+    const rel = token.replace(/^\.\//, '').replace(/\.+$/, '');
+    const full = safeRepoPath(rel);
+    if (full !== null && existsSync(full) && statSync(full).isFile()) out.push(rel);
   }
   return [...new Set(out)];
 }
