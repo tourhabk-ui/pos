@@ -60,10 +60,15 @@ function Skeleton() {
  * прятал «Навигация»/«Оффлайн». Раз SOS всегда есть снизу, здесь остаётся
  * только то, что PlaceSOS не делает — offset подобран под высоту PlaceSOS без
  * safe-area (см. её собственный комментарий), чтобы бары не перекрывались.
+ *
+ * «Навигация» отсюда убрана 07.09 (владелец, скрин: «почему 2 кнопки
+ * навигация?») — `PlaceActionBar` уже держит sticky «Навигация» с тем же
+ * geo:-адресом, и она видна на мобильном НАРАВНЕ с этим баром: до правки
+ * человек видел два одинаковых CTA на одном экране. `PlaceActionBar` не
+ * знает про Organic Maps deep link — «Оффлайн» остаётся только здесь.
  */
 function MobileBottomBar({ place }: { place: PlaceData }) {
   const orgMapsUrl = `om://map?v=1&ll=${place.lat},${place.lng}&n=${encodeURIComponent(place.name)}`;
-  const geoUrl = `geo:${place.lat},${place.lng}?q=${encodeURIComponent(place.name)}`;
 
   return (
     <div
@@ -72,18 +77,11 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
     >
       <div className="flex items-center gap-2 px-3 py-3 bg-[var(--bg-card)] border-t border-[var(--border)]">
         <a
-          href={geoUrl}
-          className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold text-white bg-[var(--accent)] rounded-xl py-3 hover:opacity-90 transition-opacity"
-        >
-          <Navigation className="w-4 h-4" />
-          Навигация
-        </a>
-        <a
           href={orgMapsUrl}
           className="flex-1 flex items-center justify-center gap-2 text-sm font-medium text-[var(--text-primary)] bg-[var(--bg-hover)] border border-[var(--border)] rounded-xl py-3 hover:border-[var(--accent)] transition-colors"
         >
           <Download className="w-4 h-4" />
-          Оффлайн
+          Оффлайн — Organic Maps
         </a>
       </div>
     </div>
