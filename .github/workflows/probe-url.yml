@@ -69,6 +69,11 @@ jobs:
           # Маркеры, вокруг которых печатать контекст (см. ниже), и сколько.
           AROUND=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('around', [])))")
           AROUND_LINES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundLines', 8))")
+          # Сколько строк ПЕРЕД совпадением. Нужно там, где искомое стоит
+          # раньше маркера: в ссылке `<a href="…">Become a Supplier</a>` адрес
+          # идёт до текста, и один только -A показывает соседнюю ссылку вместо
+          # искомой. Дефолт 0 — прежние пробы не меняются.
+          AROUND_BEFORE=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundBefore', 0))")
           AROUND_HITS=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundHits', 2))")
           UA=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('ua', 'Mozilla/5.0 (compatible; VedarProbe/1.0)'))")
           # Необязательный таймаут (сек): нужен для длинных серверных прогонов
@@ -162,17 +167,37 @@ jobs:
           do_request() {
             local method="$1" url="$2"
             local auth=()
+            # Тело и заголовки обнуляются ПЕРЕД запросом (проба 447).
+            #
+            # curl с -o создаёт файл только когда начал получать ответ. При
+            # отказе на подключении (несуществующий хост, DNS, обрыв) файлы
+            # оставались от ПРЕДЫДУЩЕГО URL — и отчёт считал маркеры по чужому
+            # телу. Ровно это и вышло на supplier.trip.com: соединения не было,
+            # а проба напечатала 140 588 байт главной partner.trip.com вместе с
+            # её маркерами, как будто это ответ несуществующего хоста. Отказ
+            # выглядел удачным замером — §4.0, исход «не смог» подменён первым.
+            : > /tmp/body
+            : > /tmp/headers
             case "$url" in
               https://vedarai.ru/api/cron/*) auth=(-H "Authorization: Bearer ${CRON_SECRET}");;
             esac
             if [ "$method" = POST ]; then
               CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
                 ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} -H "Content-Type: application/json" \
-                -X POST --data-binary @/tmp/postbody.json "$url" || echo 000)
+                -X POST --data-binary @/tmp/postbody.json "$url") || true
             else
               CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
-                ${EXTRA[@]+"${EXTRA[@]}"} ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} "$url" || echo 000)
+                ${EXTRA[@]+"${EXTRA[@]}"} ${HDR[@]+"${HDR[@]}"} ${auth[@]+"${auth[@]}"} "$url") || true
             fi
+            # Здесь было `|| echo 000` В КОМАНДНОЙ ПОДСТАНОВКЕ, и это ломало
+            # распознавание отказа: curl и сам печатает «000» через -w, а echo
+            # дописывал вторые три нуля. Получалось «000000», которое не
+            # совпадает с веткой `000)` ниже — то есть отказ соединения не
+            # считался поводом ни для повтора, ни для красной пробы.
+            case "$CODE" in
+              ''|*[!0-9]*) CODE=000;;
+            esac
+            [ "${#CODE}" -eq 3 ] || CODE=000
           }
 
           # Ожидание выката. Третий аргумент — «этот запрос датчик свежести»:
@@ -213,6 +238,15 @@ jobs:
           # Отчёт по снятому телу — общий для обоих методов.
           report_body() {
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body) | попыток: $((attempt+1))"
+            # Отсутствие ответа называется вслух и не разбирается на маркеры:
+            # считать «НЕТ: supplier» по пустому телу значит выдавать «не смог
+            # спросить» за «спросил, там нет».
+            if [ "$CODE" = 000 ]; then
+              echo "  НЕ СМОГ СНЯТЬ: ответа не было (хост не резолвится, соединение оборвано или таймаут)."
+              echo "  Маркеры и счётчики не считались — их отсутствие ничего не говорит о содержимом."
+              echo ""
+              return 0
+            fi
             # Заголовки ответа: часть поведения задаётся не нашим кодом, а
             # прокси перед ним. Например Permissions-Policy может выключить
             # геолокацию на всём сайте, и по телу страницы этого не увидеть.
@@ -272,7 +306,7 @@ jobs:
                 # sed умеет вставлять перевод строки. По '>' — для HTML, по
                 # запятой — для JSON: у ответа аудита нет ни одного '>' на
                 # двенадцать килобайт, и без запятой он остаётся простынёй.
-                sed 's/>/>\n/g; s/,/,\n/g' < /tmp/body | grep -m "$AROUND_HITS" -A "$AROUND_LINES" -F -- "$a" | cut -c1-200 || echo "  (не найдено)"
+                sed 's/>/>\n/g; s/,/,\n/g' < /tmp/body | grep -m "$AROUND_HITS" -B "$AROUND_BEFORE" -A "$AROUND_LINES" -F -- "$a" | cut -c1-200 || echo "  (не найдено)"
               done <<< "$AROUND"
             fi
             echo "── первые ${BYTES} байт ──"
