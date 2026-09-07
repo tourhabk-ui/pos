@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Маркер едет в main тем же пушем, что и новая секция переписи, а Timeweb
       # собирает образ 5–20 минут. Без ожидания первый же прогон спросил бы
