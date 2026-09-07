@@ -50,6 +50,10 @@
  * Использование: npx tsx scripts/source-discovery-runner.ts [модель]
  */
 import { openRouterAttribution } from '../lib/ai/attribution';
+// Правило возраста — из общего чистого модуля: второй реализации быть не
+// должно (§12). Модуль отселён от scout-digest именно затем, чтобы его мог
+// импортировать раннер, у которого базы нет.
+import { classifyItemAge } from '../lib/agents/scout-item-age';
 
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-6-astra';
@@ -181,7 +185,49 @@ export function filterCandidates(raw: unknown): FilterResult {
 }
 
 /** Приговор переписи по одному адресу. */
-export type CensusVerdict = 'feed_ok' | 'not_a_feed' | 'refused_here' | 'dead' | 'unreachable';
+export type CensusVerdict =
+  | 'feed_ok'       // отвечает и говорит недавно
+  | 'feed_stale'    // отвечает, но последний материал старый
+  | 'feed_undated'  // отвечает, а когда говорил последний раз — не установлено
+  | 'not_a_feed'
+  | 'refused_here'
+  | 'dead'
+  | 'unreachable';
+
+/**
+ * Окно жизни ИСТОЧНИКА — 30 дней, а не 14, как у отдельного материала.
+ *
+ * Материал судится строго: двухнедельная новость в сегодняшнем выпуске уже
+ * ложь. Источник — мягче: официальный канал может законно молчать неделями,
+ * и «замолчал» здесь не приговор, а СВЕДЕНИЕ для человека. Отсюда отдельный
+ * исход feed_stale вместо отбраковки: у опасностей молчание бывает сезонным
+ * (лавин нет в августе), и автоматически хоронить такой источник — та же
+ * ошибка, что считать его живым.
+ */
+export const SOURCE_ALIVE_WINDOW_DAYS = 30;
+
+/**
+ * Дата последнего поста в превью Telegram.
+ *
+ * Считать ПОСТЫ, как делала первая редакция этой переписи, недостаточно:
+ * канал с тремя сотнями постов может молчать с позапрошлого года, и счёт
+ * назовёт его живым. Ровно тот же дефект, что днём раньше нашёлся в самом
+ * дайджесте (архив под шапкой «сегодня»), — и я повторил его в собственной
+ * проверке через час.
+ */
+export function lastTelegramPost(html: string): string | null {
+  const stamps = [...html.matchAll(/datetime="([^"]+)"/g)].map(m => m[1]);
+  const valid = stamps.map(s => Date.parse(s)).filter(t => Number.isFinite(t));
+  return valid.length ? new Date(Math.max(...valid)).toISOString() : null;
+}
+
+/** Дата самого свежего элемента ленты: RSS, Atom и RDF-формы разом. */
+export function latestFeedDate(xml: string): string | null {
+  const stamps = [...xml.matchAll(/<(?:pubDate|published|updated|dc:date)[^>]*>([\s\S]*?)<\/(?:pubDate|published|updated|dc:date)>/gi)]
+    .map(m => m[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim());
+  const valid = stamps.map(s => Date.parse(s)).filter(t => Number.isFinite(t));
+  return valid.length ? new Date(Math.max(...valid)).toISOString() : null;
+}
 
 /**
  * Приговор по ответу сервера. Отдельный `refused_here` — не педантизм: раннер
@@ -189,7 +235,13 @@ export type CensusVerdict = 'feed_ok' | 'not_a_feed' | 'refused_here' | 'dead' |
  * Назвать это «лентой нет» значило бы похоронить живой источник по признаку
  * нашего местоположения — зеркало нашей же беды с t.me, закрытым с прода.
  */
-export function judgeCensus(status: number | null, contentType: string, bytes: number): CensusVerdict {
+export function judgeCensus(
+  status: number | null,
+  contentType: string,
+  bytes: number,
+  lastItem: string | null,
+  nowMs: number,
+): CensusVerdict {
   if (status === null) return 'unreachable';
   if (status === 403 || status === 451 || status === 401) return 'refused_here';
   if (status === 404 || status === 410) return 'dead';
@@ -201,7 +253,22 @@ export function judgeCensus(status: number | null, contentType: string, bytes: n
   if (!looksFeed) return 'not_a_feed';
   // Пустой XML — это страница-заглушка, а не лента: 200 сам по себе ничего не
   // обещает, и «лента есть» должно опираться на содержимое.
-  return bytes > 200 ? 'feed_ok' : 'not_a_feed';
+  if (bytes <= 200) return 'not_a_feed';
+  return ageVerdict(lastItem, nowMs);
+}
+
+/**
+ * Приговор по дате последнего материала. Отвечающий сервер — это ещё не живой
+ * источник: 200 говорит про сервер, а не про то, что там кто-то пишет.
+ */
+export function ageVerdict(lastItem: string | null, nowMs: number): CensusVerdict {
+  const age = classifyItemAge(lastItem ?? undefined, nowMs, SOURCE_ALIVE_WINDOW_DAYS);
+  if (age === 'fresh') return 'feed_ok';
+  if (age === 'stale') return 'feed_stale';
+  // Дата не установлена — это «не знаю», и оно не равно «живой». Прежняя
+  // редакция звала такое feed_ok и тем самым отвечала «хорошо» там, где не
+  // смогла проверить (§4.0).
+  return 'feed_undated';
 }
 
 async function census(url: string, isTelegram: boolean): Promise<{ verdict: CensusVerdict; detail: string }> {
@@ -212,15 +279,26 @@ async function census(url: string, isTelegram: boolean): Promise<{ verdict: Cens
     });
     const body = await res.text();
     const ct = res.headers.get('content-type') ?? '';
+    const now = Date.now();
     if (isTelegram) {
-      // У превью канала признак жизни — наличие постов в разметке.
       const posts = (body.match(/tgme_widget_message/g) ?? []).length;
-      return posts > 0
-        ? { verdict: 'feed_ok', detail: `превью канала, постов: ${posts}` }
-        : { verdict: 'not_a_feed', detail: `HTTP ${res.status}, постов в превью нет` };
+      if (posts === 0) return { verdict: 'not_a_feed', detail: `HTTP ${res.status}, постов в превью нет` };
+      // Счёт постов ничего не говорит о жизни канала: триста постов бывают и у
+      // молчащего с позапрошлого года. Решает ДАТА последнего.
+      const last = lastTelegramPost(body);
+      const days = last ? Math.floor((now - Date.parse(last)) / 86_400_000) : null;
+      return {
+        verdict: ageVerdict(last, now),
+        detail: `превью, постов ${posts}, последний ${last ? `${last.slice(0, 10)} (${days} дн. назад)` : 'без даты'}`,
+      };
     }
-    const verdict = judgeCensus(res.status, ct, body.length);
-    return { verdict, detail: `HTTP ${res.status}, ${ct || 'без типа'}, ${body.length} байт` };
+    const last = latestFeedDate(body);
+    const days = last ? Math.floor((now - Date.parse(last)) / 86_400_000) : null;
+    const verdict = judgeCensus(res.status, ct, body.length, last, now);
+    return {
+      verdict,
+      detail: `HTTP ${res.status}, ${ct || 'без типа'}, ${body.length} байт, свежайший ${last ? `${last.slice(0, 10)} (${days} дн. назад)` : 'без даты'}`,
+    };
   } catch (e) {
     return { verdict: 'unreachable', detail: (e as Error).message.slice(0, 120) };
   }
@@ -298,15 +376,21 @@ async function main(): Promise<void> {
   }
 
   const alive = verified.filter(v => v.verdict === 'feed_ok');
-  const recheck = verified.filter(v => v.verdict === 'refused_here');
+  const quiet = verified.filter(v => v.verdict === 'feed_stale' || v.verdict === 'feed_undated');
+  const recheck = verified.filter(v => v.verdict === 'refused_here' || v.verdict === 'unreachable');
 
   console.log(`\nЖИВЫЕ (можно вносить): ${alive.length}`);
   for (const a of alive) console.log(`  ${a.area}  ${a.name} — ${a.url}\n      ${a.why ?? ''}`);
 
-  console.log(`\nОТКАЗ С РАННЕРА, нужна проверка с прода: ${recheck.length}`);
+  console.log(`\nОТВЕЧАЮТ, НО МОЛЧАТ (решает человек — молчание бывает сезонным): ${quiet.length}`);
+  for (const q of quiet) console.log(`  ${q.verdict}  ${q.area}  ${q.url}  (${q.detail})`);
+
+  console.log(`\nНЕ ОТВЕТИЛИ РАННЕРУ, нужна проверка с прода: ${recheck.length}`);
   // Раннер вне РФ; для государственных сайтов это ожидаемый исход, и он НЕ
-  // означает, что ленты нет. Список печатается готовым к переписи с прода.
-  for (const r of recheck) console.log(`  ${r.area}  ${r.url}`);
+  // означает, что ленты нет. Сетевой отказ сюда включён намеренно: на уровне
+  // сокета гео-блок неотличим от мёртвого хоста, и звать это смертью — та же
+  // подмена «не смог» на «плохо», от которой §4.0.
+  for (const r of recheck) console.log(`  ${r.verdict}  ${r.area}  ${r.url}  (${r.detail})`);
 
   console.log('\nВ базу и в состав источников не записано ничего: вносит человек.');
 }

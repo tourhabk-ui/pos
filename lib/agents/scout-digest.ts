@@ -39,6 +39,9 @@ import {
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 import { repairTelegramHtml, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
+// Правило возраста используется здесь и переэкспортируется ниже: re-export
+// имя в область видимости НЕ вносит, поэтому импорт нужен отдельно.
+import { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
 
 // Словарь причин пропуска переехал в чистый модуль (клиентский компонент
 // не может импортировать этот файл — он тянет пул БД). Re-export держит
@@ -210,28 +213,13 @@ interface RssItem {
 }
 
 /**
- * Возраст элемента ленты — ТРИ исхода, а не два (§4.0).
- *
- * 07.09: в выпуск попал релиз DeepSeek R1 (январь 2025) — двадцатимесячная
- * новость под шапкой «AI-дайджест · 7 сентября» и с припиской «практикам
- * стоит отслеживать». Факты в ней верные; ложью была подача. Механизм
- * простой: разбор ленты брал у элемента ТОЛЬКО заголовок и ссылку, поэтому
- * архивная страница была неотличима от сегодняшней новости, и место, где
- * нельзя было сказать «не знаю, когда это вышло», заполнялось допущением
- * «раз в ленте — значит свежее».
- *
- * Отсюда асимметрия, которую важно не «упростить» потом: выбрасываем только
- * то, про что ЗНАЕМ, что оно старое. Дата не пришла или не разобралась —
- * элемент остаётся: у телеграм-превью и части фидов даты нет вовсе, и
- * отбрасывать по незнанию значило бы молча обезглавить эти источники.
- *
- * Дата из будущего доверия не заслуживает (кривой часовой пояс, опечатка в
- * фиде) — это тоже «не знаю», а не «самое свежее».
+ * Возраст материала переехал в чистый модуль scout-item-age (07.09): у правила
+ * появился второй читатель — перепись источников с раннера, а этот файл тянет
+ * пул БД и импортировать его оттуда нельзя. Приём тот же, что с
+ * scout-skip-reasons. Re-export держит прежние импорты рабочими.
  */
-export type ItemAge = 'fresh' | 'stale' | 'unknown';
-
-/** Окно свежести. Дайджест выходит дважды в сутки; две недели — запас для медленных блогов. */
-export const MAX_ITEM_AGE_DAYS = 14;
+export { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
+export type { ItemAge } from '@/lib/agents/scout-item-age';
 
 /**
  * Меньше этого числа свежих сигналов — выпуска нет.
@@ -242,18 +230,6 @@ export const MAX_ITEM_AGE_DAYS = 14;
  * молчание у этого агента уже стоило семнадцати дней тишины при зелёном кроне.
  */
 export const MIN_SIGNALS_FOR_DIGEST = 3;
-
-export function classifyItemAge(
-  publishedAt: string | undefined,
-  nowMs: number,
-  maxAgeDays: number = MAX_ITEM_AGE_DAYS,
-): ItemAge {
-  if (!publishedAt) return 'unknown';
-  const t = Date.parse(publishedAt);
-  if (!Number.isFinite(t)) return 'unknown';
-  if (t > nowMs + 3600_000) return 'unknown';
-  return nowMs - t <= maxAgeDays * 86_400_000 ? 'fresh' : 'stale';
-}
 
 type SourceCategory = 'ai' | 'travel' | 'kamchatka' | 'reference';
 
