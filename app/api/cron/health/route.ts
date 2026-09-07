@@ -474,6 +474,11 @@ export async function GET(request: NextRequest) {
       // иначе нечем, а снять откат вслепую значит остановить запись, если
       // переменная не доехала до контейнера.
       mcp_hash_salt: !!process.env.MCP_HASH_SALT,
+      // Секрет запуска рассылки кампании. Тоже булево и по той же причине:
+      // отличить «переменная доехала» от «не доехала» снаружи иначе нечем, а
+      // узнать об этом на первой рассылке значит узнать поздно — она честно
+      // ответит 503, но в тот момент, когда её уже запускали.
+      sales_campaign_secret: !!process.env.SALES_CAMPAIGN_SECRET,
     },
     operator_registration: regSpike,
     qwen_key_diag: qwenKeyDiag,

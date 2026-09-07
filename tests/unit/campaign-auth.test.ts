@@ -24,6 +24,7 @@ const ROOT = process.cwd();
 const EXECUTE = readFileSync(join(ROOT, 'app/api/sales/campaign/execute/route.ts'), 'utf-8');
 const LAUNCH = readFileSync(join(ROOT, 'app/api/sales/campaign/launch/route.ts'), 'utf-8');
 const AUTH = readFileSync(join(ROOT, 'lib/sales/campaign-auth.ts'), 'utf-8');
+const HEALTH = readFileSync(join(ROOT, 'app/api/cron/health/route.ts'), 'utf-8');
 
 const saved = process.env.SALES_CAMPAIGN_SECRET;
 afterEach(() => {
@@ -115,5 +116,27 @@ describe('GET не рассказывает схему доступа', () => {
       expect(get, `${name}: GET называет заголовок доступа`).not.toMatch(/X-CEO-Secret/);
       expect(get, `${name}: GET называет источник секрета`).not.toMatch(/CRON_SECRET|SALES_CAMPAIGN_SECRET/);
     }
+  });
+});
+
+
+/**
+ * Наличие секрета видно снаружи, значение — никогда.
+ *
+ * Та же схема, что у соли публичного MCP: «сохранил в панели» и «контейнер
+ * прочитал» — разные события, и различить их надо ДО первой рассылки, а не
+ * на ней. 503 честен, но приходит в момент, когда рассылку уже запускали.
+ */
+describe('диагностика секрета: имя и булево, не значение', () => {
+  it('health сообщает НАЛИЧИЕ секрета рассылки', () => {
+    expect(HEALTH).toMatch(/sales_campaign_secret:\s*!!process\.env\.SALES_CAMPAIGN_SECRET/);
+  });
+
+  it('значение секрета наружу не уходит', () => {
+    const uses = HEALTH
+      .split('\n')
+      .filter((l) => /process\.env\.SALES_CAMPAIGN_SECRET/.test(l))
+      .filter((l) => !/!!process\.env\.SALES_CAMPAIGN_SECRET/.test(l));
+    expect(uses, `секрет читается вне булева наличия: ${uses.join(' | ')}`).toEqual([]);
   });
 });
