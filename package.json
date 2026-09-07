@@ -54,8 +54,6 @@
     "geocode": "node scripts/geocode-routes.js",
     "geocode:dry": "node scripts/geocode-routes.js --dry-run",
     "geocode:stats": "node scripts/geocode-routes.js --stats",
-    "scrape:idilesom": "node scripts/scrape-idilesom-full.js",
-    "scrape:idilesom:dry": "node scripts/scrape-idilesom-full.js --dry-run",
     "ai:index-embeddings": "npx tsx scripts/index-route-embeddings.ts",
     "ai:index-embeddings:force": "npx tsx scripts/index-route-embeddings.ts --force",
     "security:audit": "bash scripts/security/audit.sh",
