@@ -667,7 +667,14 @@ export default function VedarMap({
           if (!parsed) return;
           missingIconRequests.add(id);
           const hex = parsed.hazardous ? palette.cliff : palette.peak;
-          const svg = placeMarkerSvg(hex, parsed.kind);
+          // Кромка — фон карты, не белый: белая кромка на светлой теме и
+          // тёплая заливка маркера на тёплой ступени гипсометрии — два
+          // независимых слияния, и оба дают один и тот же жалобный эффект
+          // «точку не видно на своей же горе» (владелец 07.09, «цвета
+          // геоточек не отличаются от цветов высот»). `p.background`
+          // гипсометрия не красит никогда — контраст гарантирован ступенью,
+          // а не подбором цвета на глаз.
+          const svg = placeMarkerSvg(hex, parsed.kind, palette.background);
           rasterizePlaceIcon(svg, PLACE_MARKER_SIZE.width, PLACE_MARKER_SIZE.height)
             .then((img) => {
               if (cancelled || map.hasImage(id)) return;

@@ -42,6 +42,12 @@ describe('VedarMap — styleimagemissing собирает иконку мест�
     expect(handlerBlock).toMatch(/map\.hasImage\(id\)/);
   });
 
+  it('кромка иконки — фон карты, не белая захардкоженная (07.09: точки сливались с гипсометрией)', () => {
+    const handlerAt = MAP.indexOf("map.on('styleimagemissing'");
+    const handlerBlock = MAP.slice(handlerAt, MAP.indexOf("map.on('load'", handlerAt));
+    expect(handlerBlock).toMatch(/placeMarkerSvg\(hex, parsed\.kind, palette\.background\)/);
+  });
+
   it('добавляет растр с тем же pixelRatio, каким он собран', () => {
     const handlerAt = MAP.indexOf("map.on('styleimagemissing'");
     const handlerBlock = MAP.slice(handlerAt, MAP.indexOf("map.on('load'", handlerAt));

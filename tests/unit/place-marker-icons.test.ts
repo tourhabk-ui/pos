@@ -89,6 +89,32 @@ describe('placeMarkerSvg', () => {
   it('размер маркера один на обе карты', () => {
     expect(PLACE_MARKER_SIZE).toEqual({ width: 24, height: 28 });
   });
+
+  /**
+   * Владелец 07.09: «цвета геоточек не отличаются от цветов высот» — заливка
+   * маркера (peak/cliff) и гипсометрия склона на VedarMap делят одну тёплую
+   * земляную гамму, а кромка была захардкожена в белый. Кромка кастомным
+   * цветом (VedarMap передаёт p.background) — единственное, что гарантирует
+   * контраст с ЛЮБОЙ ступенью рельефа, не подбором цвета заливки на глаз.
+   */
+  it('кромка — параметр, по умолчанию белая (не меняет LeafletMap)', () => {
+    const svg = placeMarkerSvg('#D44A0C', 'volcano');
+    expect(svg).toContain('stroke="#fff"');
+  });
+
+  it('кромка передаётся в SVG вместо белой, когда указана явно', () => {
+    const svg = placeMarkerSvg('#D44A0C', 'volcano', '#0D1117');
+    expect(svg).toContain('stroke="#0D1117"');
+    expect(svg).not.toContain('stroke="#fff"');
+  });
+
+  it('кромка не красит декоративные внутренние штрихи (пар, волна) — только внешний контур', () => {
+    // hot_spring: внешний контур (fill=hex) — кромка; внутренний штрих пара — всегда белый декор.
+    const svg = placeMarkerSvg('#D44A0C', 'hot_spring', '#0D1117');
+    const outerMatch = svg.match(/fill="#D44A0C" stroke="([^"]+)"/);
+    expect(outerMatch?.[1]).toBe('#0D1117');
+    expect(svg).toContain('stroke="#fff" stroke-width="1.5" stroke-linecap="round"');
+  });
 });
 
 describe('LeafletMap — использует общий источник форм, не свою копию', () => {
