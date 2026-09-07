@@ -47,6 +47,7 @@ const GUARD_SRC = readFileSync(join(ROOT, 'lib/mcp/write-guard.ts'), 'utf-8');
 const MIGRATION = readFileSync(join(ROOT, 'migrations/940_mcp_write_attempts.sql'), 'utf-8');
 const ROUTE = readFileSync(join(ROOT, 'app/api/mcp/route.ts'), 'utf-8');
 const TOOLS = readFileSync(join(ROOT, 'lib/mcp/public-tools.ts'), 'utf-8');
+const HEALTH = readFileSync(join(ROOT, 'app/api/cron/health/route.ts'), 'utf-8');
 
 const base = {
   ip: '203.0.113.7', userAgent: 'agent/1.0',
@@ -267,5 +268,46 @@ describe('долг по согласию назван долгом', () => {
     expect(GUARD_SRC).toMatch(/ставит АГЕНТ, а не человек/);
     expect(GUARD_SRC).toContain('issueMcpHandoff');
     expect(GUARD_SRC).toMatch(/закрыт НАПОЛОВИНУ/);
+  });
+});
+
+
+/**
+ * Наличие соли видно снаружи, значение — никогда.
+ *
+ * Убрать откат на CRON_SECRET можно только по факту, что своя соль доехала до
+ * контейнера. Отличить одно от другого снаружи иначе нечем, а снять откат
+ * вслепую значит остановить запись, если переменная не доехала.
+ */
+describe('диагностика соли: имя и булево, не значение', () => {
+  it('health сообщает НАЛИЧИЕ соли', () => {
+    expect(HEALTH).toMatch(/mcp_hash_salt:\s*!!process\.env\.MCP_HASH_SALT/);
+  });
+
+  it('само ЗНАЧЕНИЕ соли не читается нигде, кроме её чтения', () => {
+    // Проверяется употребление значения, а не упоминание имени: имя
+    // переменной в тексте отказа — подсказка человеку, что настроить, и
+    // раскрыть соль она не может. Раскрывает — интерполяция значения.
+    const ALLOWED = [
+      /!!process\.env\.MCP_HASH_SALT/,                                   // булево наличия
+      /process\.env\.MCP_HASH_SALT \|\| process\.env\.CRON_SECRET/,      // единственное чтение
+    ];
+    for (const [name, src] of [['health', HEALTH], ['write-guard', GUARD_SRC]] as const) {
+      const uses = src
+        .split('\n')
+        .filter((l) => /process\.env\.MCP_HASH_SALT/.test(l))
+        .filter((l) => !ALLOWED.some((re) => re.test(l)));
+      expect(uses, `${name}: значение соли читается вне разрешённых мест: ${uses.join(' | ')}`).toEqual([]);
+    }
+  });
+
+  it('соль не интерполируется в вывод', () => {
+    // `${s}` внутри hash — единственное законное употребление; в шаблон
+    // сообщения или лога значение попадать не должно.
+    const emitted = GUARD_SRC
+      .split('\n')
+      .filter((l) => /console\.|message:/.test(l))
+      .filter((l) => /\$\{s\}/.test(l));
+    expect(emitted, `соль в выводе: ${emitted.join(' | ')}`).toEqual([]);
   });
 });

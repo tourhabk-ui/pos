@@ -462,7 +462,19 @@ export async function GET(request: NextRequest) {
     ms: Date.now() - started,
     ai: { qwen: qwenOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     openrouter_key_diag: orKeyDiag,
-    integrations: { github_token: !!process.env.GITHUB_TOKEN },
+    integrations: {
+      github_token: !!process.env.GITHUB_TOKEN,
+      // Соль отпечатков публичного MCP (миграция 940). Отдаётся ТОЛЬКО
+      // булево — значение соли не должно покидать контейнер никогда, иначе
+      // отпечатки в журнале перестают быть необратимыми и адрес клиента
+      // восстанавливается перебором.
+      //
+      // Нужно это ровно затем, чтобы убрать откат на CRON_SECRET по ФАКТУ, а
+      // не по памяти: отличить «своя соль» от «работает откатом» снаружи
+      // иначе нечем, а снять откат вслепую значит остановить запись, если
+      // переменная не доехала до контейнера.
+      mcp_hash_salt: !!process.env.MCP_HASH_SALT,
+    },
     operator_registration: regSpike,
     qwen_key_diag: qwenKeyDiag,
     deepseek_key_diag: dsKeyDiag,
