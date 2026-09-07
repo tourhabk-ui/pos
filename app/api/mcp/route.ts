@@ -95,12 +95,26 @@ async function admitWrite(
   return buildConsentRecord(true, ctx.ip, 'mcp');
 }
 
+/**
+ * Отказ «поля нет» отличается от отказа «согласия нет», и это намеренно.
+ * Первый — про то, что клиент прислал запрос по старой схеме и должен
+ * перечитать `tools/list`; второй — про то, что человек согласия не давал.
+ * Одинаковый текст на два разных случая заставил бы агента чинить не то.
+ */
+const MISSING_CONSENT_FIELD =
+  'В запросе нет поля consent. Схема инструмента требует его: спросите у человека согласие '
+  + 'на обработку персональных данных (имя, телефон) и передайте consent: true.';
+
 const createLeadArgsSchema = z.object({
   name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
   phone: z.string().trim().min(5, 'Телефон обязателен — иначе менеджеру не с кем связаться').max(50),
   comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000),
   interest: z.string().trim().max(200).optional(),
-  consent: z.boolean().optional(),
+  // Обязателен и здесь, а не только в JSON Schema инструмента. Два источника
+  // правды путают ОСНОВАНИЕ отказа: агент, смотрящий схему, видит поле
+  // обязательным, а парсер роута пропускал бы его отсутствие дальше — и
+  // отказ «поля нет» становился неотличим от отказа «согласия нет».
+  consent: z.boolean({ error: MISSING_CONSENT_FIELD }),
 });
 
 // ── create_booking_request (Эволюция 3.0, п.4) ───────────────
@@ -116,7 +130,8 @@ const bookingRequestArgsSchema = z.object({
   name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50),
   comment: z.string().trim().max(2000).optional(),
-  consent: z.boolean().optional(),
+  // См. пояснение у createLeadArgsSchema: обязателен в обоих источниках.
+  consent: z.boolean({ error: MISSING_CONSENT_FIELD }),
 });
 
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {

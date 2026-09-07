@@ -87,18 +87,32 @@ describe('MCP create_lead', () => {
     expect(names).not.toContain('search_taaft');
   });
 
-  it('без согласия на обработку ПД заявка не создаётся', async () => {
+  const withoutConsent = {
+    name: 'Иван',
+    phone: '+7 900 000-00-00',
+    comment: 'Хотим на Толбачик в августе, двое взрослых',
+  };
+
+  it('поля consent нет — отказ говорит про СХЕМУ, клиент отстал от tools/list', async () => {
+    const res = await POST(rpc('tools/call', { name: 'create_lead', arguments: withoutConsent }));
+    const json = await res.json();
+    expect(json.result.isError).toBe(true);
+    expect(json.result.content[0].text).toContain('нет поля consent');
+    expect(createLeadMock).not.toHaveBeenCalled();
+  });
+
+  it('consent: false — отказ говорит про СОГЛАСИЕ, а не про схему', async () => {
+    // Два разных отказа намеренно различимы: «перечитай схему» и «спроси
+    // человека» — разные починки, и агент, которому сказали не то, будет
+    // повторять запрос, который не пройдёт никогда.
     const res = await POST(rpc('tools/call', {
       name: 'create_lead',
-      arguments: {
-        name: 'Иван',
-        phone: '+7 900 000-00-00',
-        comment: 'Хотим на Толбачик в августе, двое взрослых',
-      },
+      arguments: { ...withoutConsent, consent: false },
     }));
     const json = await res.json();
     expect(json.result.isError).toBe(true);
-    expect(json.result.content[0].text).toContain('согласия на обработку персональных данных');
+    expect(json.result.content[0].text).toContain('нет согласия на обработку персональных данных');
+    expect(json.result.content[0].text).not.toContain('нет поля consent');
     expect(createLeadMock).not.toHaveBeenCalled();
   });
 
