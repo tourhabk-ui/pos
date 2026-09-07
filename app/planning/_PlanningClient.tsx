@@ -1656,6 +1656,16 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     mapCtl.fitLine(calc.geometry.coordinates);
   }, [mapCtl, calculatedPreview]);
   /**
+   * Старт по умолчанию — живой фикс, если он есть. Общий кусок между
+   * «Проложить сюда» с карточки точки и выбором цели в «Сменить маршрут»
+   * (владелец 07.09: «по кнопке маршрут не строится, а по точке на карте
+   * строится» — разница была ровно в этом старте, см. confirmPick/«Места»
+   * ниже). Без фикса — честный null, а не выдуманная точка.
+   */
+  const currentOriginOrNull = useCallback((): Origin | null => (
+    coords ? { kind: 'current', lat: coords.lat, lon: coords.lng, accuracyM: coords.accuracy ?? undefined } : null
+  ), [coords]);
+  /**
    * «Проложить сюда» с карточки точки: старт — мой фикс, цель — булавка,
    * способ — автомобиль (граф дорог). Дальше работает та же машина
    * состояний build(), что и в планировщике: второго пути к серверу нет.
@@ -2012,6 +2022,10 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     try { localStorage.setItem('active_trail_route_id', r.id); } catch { /* ignore */ }
     setShowRouteModal(false);
     setPreview(null);
+    // Расчётный автопуть к отдельной точке (calculatedPreview) — с ДРУГОЙ
+    // карточки; без сброса шапка (см. FieldStatusStrip выше) продолжила бы
+    // называть его именем поверх только что выбранного каталожного маршрута.
+    setCalculatedPreview(null);
     setModalQuery('');
     setSelectedDestination(null);
     setSelectedOrigin(null);
@@ -2138,10 +2152,14 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         setSelectedOrigin({ kind: 'coordinate', lat, lon });
       } else {
         setSelectedDestination({ destination: { kind: 'coordinate', lat, lon }, routeOptions: [] });
-        // Новая цель — старый старт мог относиться к прежней карточке;
-        // тянуть его за собой значило бы приписать ему смысл, которого
-        // никто не выбирал.
-        setSelectedOrigin(null);
+        // Новая цель — старый старт мог относиться к прежней карточке, но
+        // обнулять его тут ВСЕГДА значило маршрут никогда не строился сам:
+        // build() ждёт origin И destination разом (эффект ниже), а второй,
+        // ничем не подсказанный тап на «Текущая позиция» — не то же самое,
+        // что «маршрут не строится» (владелец 07.09). Живой фикс — такой же
+        // безопасный дефолт, как в routeFromCard; старая координата-старт
+        // от прежней карточки по-прежнему не переносится.
+        setSelectedOrigin(currentOriginOrNull());
       }
       closePicker();
     }
@@ -2735,7 +2753,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                                       <div className="space-y-2">
                                         {destinations.map(d => (
                                           <button key={d.destination.kind === 'place' ? d.destination.id : `${d.destination.lat},${d.destination.lon}`}
-                                            onClick={() => { setSelectedDestination(d); setSelectedOrigin(null); }}
+                                            onClick={() => { setSelectedDestination(d); setSelectedOrigin(currentOriginOrNull()); }}
                                             className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
                                             style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
                                             <div className="flex-1 min-w-0">
@@ -3267,7 +3285,17 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             <FieldStatusStrip
               fixLabel={fix.state === 'live' && fix.accuracyM != null ? `GPS ±${Math.round(fix.accuracyM)} м` : fixLabel(fix)}
               fixLive={figuresLive}
-              routeTitle={activeRouteTitle}
+              // Пока на карте лежит расчётный автопуть до отдельно выбранной
+              // точки (calculatedPreview — «Проложить сюда»/«Сменить
+              // маршрут»), шапка обязана называть ЕГО, а не старый каталожный
+              // маршрут: activeRouteTitle остаётся титулом ЛИНИИ track/
+              // waypoints (её так подписывает computeRouteLineMarker) и
+              // трогать его здесь нельзя — иначе полотно каталожного
+              // маршрута осталось бы на карте под чужим именем. Владелец
+              // 07.09: «наверху конечная точка не меняется» — ровно этот
+              // случай, calculatedPreview закрывается («К вариантам») —
+              // заголовок сам возвращается к activeRouteTitle.
+              routeTitle={calculatedPreview ? calculatedPreview.title : activeRouteTitle}
               checkpoint={waypoints.length > 1
                 ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
                 : null}
