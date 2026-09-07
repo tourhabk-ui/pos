@@ -660,6 +660,22 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     tiles: number; mb: number; zooms: number[]; dropped: number[];
     coverage: 'corridor' | 'bbox'; bufferKm: number | null; urls: string[];
   } | null>(null);
+  /**
+   * Почему плана НЕТ — третье состояние (§4.0).
+   *
+   * Снимок владельца 07.09: на экране «На маршруте» строка «Карта не
+   * сохранена — в поле не откроется», и ни одной кнопки, которой это можно
+   * исправить. Причина была в коде: `loadMapPlan` глотал отказ дважды —
+   * `if (!res.ok || ...) return;` и пустой `catch`, — а блок сохранения
+   * рисуется только при `mapPlan`. То есть отказ сервера превращался в
+   * отсутствие действия, без единого слова.
+   *
+   * Комментарий у того `catch` гласил «план — удобство, а не условие
+   * выхода». В интерфейсе всё наоборот: без плана сохранить карту нечем, и
+   * человек уходит в поле без карты, прочитав предупреждение, на которое
+   * нельзя ответить.
+   */
+  const [mapPlanError, setMapPlanError] = useState<string | null>(null);
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -717,11 +733,29 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       const raw = localStorage.getItem(savedMapKey(routeId));
       setSavedMap(parseSavedMap(raw));
     } catch { /* хранилище может быть закрыто — не повод падать */ }
-    if (typeof navigator === 'undefined' || navigator.onLine === false) return;
+    if (typeof navigator === 'undefined') return;
+    if (navigator.onLine === false) {
+      // Связи нет — план посчитать нечем, и это НЕ «сохранять нечего».
+      setMapPlanError('Нет связи — размер пакета не посчитать. Подключитесь, пока не ушли в поле');
+      return;
+    }
     try {
       const res = await fetch(`/api/routes/${routeId}/offline-bundle`);
       const data = await res.json();
-      if (!res.ok || !Array.isArray(data.tile_urls) || data.tile_urls.length === 0) return;
+      if (!res.ok) {
+        const why = typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`;
+        console.error('[offline-bundle] план не посчитан:', why);
+        setMapPlanError(`Сервер не отдал план карты (${why})`);
+        return;
+      }
+      if (!Array.isArray(data.tile_urls) || data.tile_urls.length === 0) {
+        // Ноль тайлов при живом ответе — не «карта не нужна»: у маршрута
+        // нет линии или координат, и коридор построить не из чего.
+        console.error('[offline-bundle] план пуст: тайлов ноль');
+        setMapPlanError('Для этого маршрута карту нарезать не из чего: нет линии или координат');
+        return;
+      }
+      setMapPlanError(null);
       setMapPlan({
         tiles: Number(data.tile_count) || data.tile_urls.length,
         mb: Number(data.estimate_mb) || 0,
@@ -731,7 +765,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         bufferKm: typeof data.corridor_buffer_km === 'number' ? data.corridor_buffer_km : null,
         urls: data.tile_urls as string[],
       });
-    } catch { /* тихо: план — удобство, а не условие выхода */ }
+    } catch (err) {
+      // Молчать нельзя: без плана нет и кнопки сохранения.
+      const why = err instanceof Error ? err.message : String(err);
+      console.error('[offline-bundle] запрос плана не выполнен:', why);
+      setMapPlanError('Не смогли спросить сервер о карте — проверьте связь и повторите');
+    }
   }, []);
 
   /**
@@ -3903,7 +3942,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           Раньше строка появлялась только на время фоновой докачки, а
           проверить готовность было нечем: единственный момент, когда это
           выясняется, наступал уже без связи. */}
-      {hasRoute && (tileDl || savedMap || mapPlan) && (
+      {hasRoute && (tileDl || savedMap || mapPlan || mapPlanError) && (
         <div className="px-4 py-3 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid #21262d' }}>
           {tileDl && tileDl.total > 0 ? (
             <div className="flex items-center gap-2">
@@ -3986,6 +4025,26 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               {saveMapError && (
                 <span className="w-full" style={{ color: 'var(--warning)' }}>{saveMapError}</span>
               )}
+            </div>
+          ) : mapPlanError ? (
+            /* Плана нет — сказать ПОЧЕМУ и дать повторить. Прежде здесь
+               стоял немой null: строка «Карта не сохранена — в поле не
+               откроется» висела без единого действия рядом, и человек
+               уходил в поле, прочитав предупреждение, на которое нельзя
+               ответить (снимок владельца 07.09).
+               Непрозрачность, а не стекло: это предупреждение о готовности
+               к выходу — §2, «критичные приборы всегда непрозрачные». */
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="w-full" style={{ color: 'var(--warning)' }}>{mapPlanError}</span>
+              <button
+                type="button"
+                onClick={() => { const id = crumbsRouteRef.current; if (id) void loadMapPlan(id); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg"
+                style={{ color: 'var(--ocean)', border: '1px solid var(--border)' }}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Повторить
+              </button>
             </div>
           ) : null}
         </div>
