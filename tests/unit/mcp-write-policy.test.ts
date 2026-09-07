@@ -20,9 +20,23 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const poolQueryMock = vi.fn();
+// Решение считается и записывается ОДНОЙ транзакцией под advisory-замком
+// (гонка карантина, 07.09), поэтому мок обязан уметь connect: клиент
+// транзакции и есть то место, где теперь идёт счёт.
 vi.mock('@/lib/db-pool', () => ({
-  pool: { query: (...args: unknown[]) => poolQueryMock(...args) },
+  pool: {
+    query: (...args: unknown[]) => poolQueryMock(...args),
+    connect: async () => ({
+      query: (...args: unknown[]) => poolQueryMock(...args),
+      release: () => {},
+    }),
+  },
 }));
+
+/** Транзакционные команды и замок мок пропускает молча. */
+function txNoise(sql: string): boolean {
+  return /^(BEGIN|COMMIT|ROLLBACK)$/.test(sql.trim()) || /pg_advisory_xact_lock/.test(sql);
+}
 
 const {
   checkMcpWrite, CLIENT_MAX_PER_WINDOW, PHONE_MAX_PER_DAY,
@@ -52,13 +66,13 @@ beforeEach(() => {
 describe('три исхода, и третий не равен первому', () => {
   it('чисто — пускаем', async () => {
     poolQueryMock.mockImplementation((sql: string) =>
-      /SELECT/.test(sql) ? Promise.resolve(counts(0, 0, 0)) : Promise.resolve({ rows: [] }));
+      !txNoise(sql) && /COUNT\(\*\)/.test(sql) ? Promise.resolve(counts(0, 0, 0)) : Promise.resolve({ rows: [] }));
     expect((await checkMcpWrite(base)).decision).toBe('allow');
   });
 
   it('счёт не удался — «не смог», а НЕ «можно»', async () => {
     poolQueryMock.mockImplementation((sql: string) =>
-      /SELECT/.test(sql) ? Promise.reject(new Error('БД недоступна')) : Promise.resolve({ rows: [] }));
+      !txNoise(sql) && /COUNT\(\*\)/.test(sql) ? Promise.reject(new Error('БД недоступна')) : Promise.resolve({ rows: [] }));
     const v = await checkMcpWrite(base);
     expect(v.decision).toBe('unknown');
     expect(v.decision === 'unknown' && v.message).toMatch(/не удалось проверить/i);
@@ -104,14 +118,14 @@ describe('согласие спрашивается и объясняется', 
 describe('потоки останавливаются', () => {
   it('повтор телефона — карантин', async () => {
     poolQueryMock.mockImplementation((sql: string) =>
-      /SELECT/.test(sql) ? Promise.resolve(counts(0, 0, PHONE_MAX_PER_DAY)) : Promise.resolve({ rows: [] }));
+      !txNoise(sql) && /COUNT\(\*\)/.test(sql) ? Promise.resolve(counts(0, 0, PHONE_MAX_PER_DAY)) : Promise.resolve({ rows: [] }));
     const v = await checkMcpWrite(base);
     expect(v.decision === 'deny' && v.outcome).toBe('quarantined');
   });
 
   it('поток с адреса — ограничение частоты', async () => {
     poolQueryMock.mockImplementation((sql: string) =>
-      /SELECT/.test(sql) ? Promise.resolve(counts(CLIENT_MAX_PER_WINDOW, 0, 0)) : Promise.resolve({ rows: [] }));
+      !txNoise(sql) && /COUNT\(\*\)/.test(sql) ? Promise.resolve(counts(CLIENT_MAX_PER_WINDOW, 0, 0)) : Promise.resolve({ rows: [] }));
     const v = await checkMcpWrite(base);
     expect(v.decision === 'deny' && v.outcome).toBe('rate_limited');
   });
@@ -120,6 +134,7 @@ describe('потоки останавливаются', () => {
     const inserts: string[] = [];
     poolQueryMock.mockImplementation((sql: string) => {
       if (/INSERT/.test(sql)) { inserts.push(sql); return Promise.resolve({ rows: [] }); }
+      if (txNoise(sql)) return Promise.resolve({ rows: [] });
       return Promise.resolve(counts(CLIENT_MAX_PER_WINDOW, 0, 0));
     });
     await checkMcpWrite(base);
@@ -188,5 +203,69 @@ describe('основание отказа настоящее, а не перво
     } finally {
       if (saved !== undefined) process.env.CRON_SECRET = saved;
     }
+  });
+});
+
+/**
+ * Гонка на карантине (найдено внешним ревью 07.09).
+ *
+ * Первая редакция считала одним запросом, а писала следующим — то самое
+ * check-then-act, которое в этом репозитории уже чинили дважды
+ * (`recordPrEventOnce`, `idempotencyKey` у code-merge-task). Три
+ * параллельных `create_lead` с одним телефоном успевали посчитать ДО того,
+ * как хоть одна строка коммитилась, и все три видели ноль. Лимит «после
+ * факта» на параллели не работает, а поток именно так и выглядит.
+ *
+ * Свойство проверяется по форме, а не по поведению: гонку в юните не
+ * воспроизвести — она про изоляцию транзакций настоящего PostgreSQL.
+ * Поэтому здесь держится то, чем гонка закрыта.
+ */
+describe('счёт и запись — одна транзакция под замком', () => {
+  it('решение считается на клиенте транзакции, а не на пуле', async () => {
+    const seen: string[] = [];
+    poolQueryMock.mockImplementation((sql: string) => {
+      seen.push(sql.trim().split('\n')[0]);
+      if (txNoise(sql)) return Promise.resolve({ rows: [] });
+      if (/COUNT\(\*\)/.test(sql)) return Promise.resolve(counts(0, 0, 0));
+      return Promise.resolve({ rows: [] });
+    });
+    await checkMcpWrite(base);
+    expect(seen[0]).toBe('BEGIN');
+    expect(seen.some((q) => /pg_advisory_xact_lock/.test(q)), 'замок не взят').toBe(true);
+    expect(seen.includes('COMMIT'), 'транзакция не закрыта').toBe(true);
+    // Счёт и вставка обязаны стоять МЕЖДУ BEGIN и COMMIT.
+    const begin = seen.indexOf('BEGIN');
+    const commit = seen.indexOf('COMMIT');
+    const insert = seen.findIndex((q) => /INSERT INTO mcp_write_attempts/.test(q));
+    expect(insert).toBeGreaterThan(begin);
+    expect(insert).toBeLessThan(commit);
+  });
+
+  it('замки берутся в детерминированном порядке — иначе взаимная блокировка', () => {
+    // Два клиента с одним телефоном берут одни и те же два замка; без общего
+    // порядка это классический deadlock.
+    expect(GUARD_SRC).toMatch(/locks\.sort\(/);
+    expect(GUARD_SRC).toContain('LOCK_NS_CLIENT');
+    expect(GUARD_SRC).toContain('LOCK_NS_PHONE');
+  });
+
+  it('на ошибке — откат, а не полузаписанное состояние', () => {
+    const tx = GUARD_SRC.slice(GUARD_SRC.indexOf('await client.query(\'BEGIN\')'));
+    expect(tx).toContain("ROLLBACK");
+    expect(tx).toContain('client.release()');
+  });
+});
+
+describe('долг по согласию назван долгом', () => {
+  /**
+   * `consent: true` ставит агент, а не человек. Запись честно значит «агент
+   * утверждает, что согласие получено», и не значит «человек поставил
+   * галочку». Пункт закрыт наполовину, и в коде это должно быть написано —
+   * иначе через месяц он будет числиться закрытым целиком.
+   */
+  it('в модуле сказано, что согласие ставит агент, и назван мост', () => {
+    expect(GUARD_SRC).toMatch(/ставит АГЕНТ, а не человек/);
+    expect(GUARD_SRC).toContain('issueMcpHandoff');
+    expect(GUARD_SRC).toMatch(/закрыт НАПОЛОВИНУ/);
   });
 });

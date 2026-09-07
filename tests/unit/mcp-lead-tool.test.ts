@@ -50,12 +50,15 @@ vi.mock('@/lib/kuzmich/core', () => ({
 // Счётчик попыток записи живёт в базе (миграция 940). Здесь она пустая:
 // проверяем не пороги — их держит mcp-write-policy.test.ts, — а то, что
 // решение вообще спрашивается на живом пути.
-vi.mock('@/lib/db-pool', () => ({
-  pool: {
-    query: async (sql: string) =>
-      /SELECT/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] },
-  },
-}));
+// Решение о допуске считается ОДНОЙ транзакцией под advisory-замком, поэтому
+// мок обязан уметь connect: счёт идёт на клиенте транзакции, а не на пуле.
+// Фабрика vi.mock поднимается наверх файла — переменные из модуля ей
+// недоступны, поэтому запрос описан внутри неё.
+vi.mock('@/lib/db-pool', () => {
+  const q = async (sql: string) =>
+    /COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] };
+  return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
+});
 
 import { POST, GET } from '@/app/api/mcp/route';
 

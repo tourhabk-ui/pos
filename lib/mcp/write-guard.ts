@@ -18,6 +18,17 @@
  *      согласия это приём ПД без основания. Раньше MCP не записывал согласие
  *      ВООБЩЕ — `buildConsentRecord` честно возвращал null («не спрашивали»),
  *      и это было верно как факт, но негодно как позиция.
+ *
+ *      ЧТО ЗДЕСЬ ОСТАЁТСЯ ДОЛГОМ, И ЭТО НАДО НАЗЫВАТЬ ДОЛГОМ. `consent: true`
+ *      ставит АГЕНТ, а не человек: модель может прислать true, не показав
+ *      человеку ни текста, ни ссылки на политику. Значит запись честно
+ *      означает «агент утверждает, что согласие получено; версия текста
+ *      такая-то; источник mcp» — и НЕ означает «человек поставил галочку».
+ *      Для 152-ФЗ это основание слабее формы сайта. Закрывается это не
+ *      полем, а мостом: когда появится первый внешний клиент, заявка должна
+ *      уходить на страницу с той же галочкой, что на сайте, и согласие
+ *      писаться оттуда. Мост уже есть под другую задачу — `issueMcpHandoff`.
+ *      До тех пор пункт закрыт НАПОЛОВИНУ, и считать его закрытым нельзя.
  *   2. ЧАСТОТА С АДРЕСА. Поток заявок с одного клиента.
  *   3. ПОВТОР ТЕЛЕФОНА. Тот же номер с разных адресов — так выглядит и
  *      настоящая атака, и сломавшийся агент в цикле.
@@ -128,12 +139,35 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
     };
   }
 
-  let counts: Counts;
+  // ── Считаем и записываем ПОД ЗАМКОМ, одной транзакцией ──────────────────
+  //
+  // Первая редакция считала запросом, а писала следующим — то самое
+  // check-then-act, которое в этом репозитории уже чинили дважды
+  // (recordPrEventOnce, idempotencyKey у code-merge-task). Три параллельных
+  // create_lead с одним телефоном успевали посчитать ДО того, как хоть одна
+  // строка коммитилась, и все три видели ноль. Лимит «после факта» на
+  // параллели не работает вовсе, а именно параллелью и выглядит поток.
+  //
+  // Замки берутся в ОТСОРТИРОВАННОМ порядке: два клиента с одним телефоном
+  // берут одни и те же два замка, и без общего порядка это классическая
+  // взаимная блокировка. Пространства имён разные, чтобы отпечаток клиента
+  // и отпечаток телефона не столкнулись случайным совпадением чисел.
+  const locks: Array<[number, number]> = [[LOCK_NS_CLIENT, lockKey(clientKey)]];
+  if (phoneHash) locks.push([LOCK_NS_PHONE, lockKey(phoneHash)]);
+  locks.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+    for (const [ns, key] of locks) {
+      // xact-замок снимается коммитом или откатом сам — забыть его нельзя.
+      await client.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [ns, key]);
+    }
+
     // Приведения у параметров явные: форма «сравнение с колонкой внутри
     // FILTER» выводом типов не покрыта так же надёжно, как обычный WHERE,
     // а цена ошибки здесь — 42P08 на живом пути (случай 24.08 в CLAUDE.md).
-    const { rows } = await pool.query<{ a: string; b: string; c: string }>(
+    const { rows } = await client.query<{ a: string; b: string; c: string }>(
       `SELECT
          COUNT(*) FILTER (WHERE client_key = $1::char(64)
                             AND created_at > NOW() - (INTERVAL '1 minute' * $3::int))::text AS a,
@@ -143,12 +177,26 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
        WHERE created_at > NOW() - INTERVAL '24 hours'`,
       [clientKey, phoneHash, String(CLIENT_WINDOW_MINUTES)],
     );
-    counts = {
+    const counts: Counts = {
       by_client_window: Number(rows[0]?.a ?? 0),
       by_client_day: Number(rows[0]?.b ?? 0),
       by_phone_day: Number(rows[0]?.c ?? 0),
     };
+
+    const verdict = decide(counts);
+    // Пишется ВСЯКИЙ исход, включая отказ, и пишется в той же транзакции,
+    // что и счёт: иначе поток отказов не занимает слот и обходит лимит
+    // повторением того, что уже отвергли.
+    await client.query(
+      `INSERT INTO mcp_write_attempts (client_key, tool, phone_hash, outcome)
+       VALUES ($1::char(64), $2::varchar(64), $3::char(64), $4::varchar(16))`,
+      [clientKey, input.tool, phoneHash, verdict.outcome],
+    );
+    await client.query('COMMIT');
+    await sweepOld();
+    return verdict.decision;
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     // Молчать нельзя: отказ проверки, выданный за её прохождение, — ровно тот
     // дефект, ради которого §4.0 и написан.
     console.error('[mcp-write-guard] не смог посчитать поток:', err);
@@ -156,40 +204,72 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
       decision: 'unknown',
       message: 'Не удалось проверить ограничения — заявка не создана. Повторите позже.',
     };
+  } finally {
+    client.release();
   }
+}
 
+/** Разные пространства: отпечаток клиента и отпечаток телефона не сталкиваются. */
+const LOCK_NS_CLIENT = 1;
+const LOCK_NS_PHONE = 2;
+
+/** 32-разрядный ключ замка из отпечатка. Знак не важен — важна одинаковость. */
+function lockKey(hash: string): number {
+  return parseInt(hash.slice(0, 8), 16) | 0;
+}
+
+/** Решение по посчитанному. Отделено от ввода-вывода, чтобы читалось целиком. */
+function decide(counts: Counts): { outcome: WriteOutcome; decision: WriteDecision } {
   if (counts.by_phone_day >= PHONE_MAX_PER_DAY) {
-    await record(clientKey, input.tool, phoneHash, 'quarantined');
     return {
-      decision: 'deny',
       outcome: 'quarantined',
-      message:
-        `На этот номер уже ${counts.by_phone_day} заявки за сутки — новую не создаю. `
-        + 'Если заявка настоящая, менеджер свяжется по предыдущей.',
+      decision: {
+        decision: 'deny',
+        outcome: 'quarantined',
+        message:
+          `На этот номер уже ${counts.by_phone_day} заявки за сутки — новую не создаю. `
+          + 'Если заявка настоящая, менеджер свяжется по предыдущей.',
+      },
     };
   }
-
   if (counts.by_client_window >= CLIENT_MAX_PER_WINDOW || counts.by_client_day >= CLIENT_MAX_PER_DAY) {
-    await record(clientKey, input.tool, phoneHash, 'rate_limited');
     return {
-      decision: 'deny',
       outcome: 'rate_limited',
-      message: `Слишком много заявок подряд — подождите ${CLIENT_WINDOW_MINUTES} минут и повторите.`,
+      decision: {
+        decision: 'deny',
+        outcome: 'rate_limited',
+        message: `Слишком много заявок подряд — подождите ${CLIENT_WINDOW_MINUTES} минут и повторите.`,
+      },
     };
   }
-
-  await record(clientKey, input.tool, phoneHash, 'allowed');
-  return { decision: 'allow' };
+  return { outcome: 'allowed', decision: { decision: 'allow' } };
 }
 
 /**
- * Запись попытки. Пишутся ВСЕ исходы, включая отказы: иначе поток отказов не
- * считает сам себя, и ограничение обходится повторением того, что уже
- * отвергли.
+ * Уборка попутно и редко: счёт смотрит только на сутки, хранить год незачем,
+ * а отдельный крон ради одной таблицы — лишняя сущность в реестре. Раз в
+ * полсотни записей дешевле ежедневного прогона. Вне транзакции: замок под
+ * удаление старья держать незачем.
+ */
+async function sweepOld(): Promise<void> {
+  if (Math.random() >= 0.02) return;
+  try {
+    await pool.query(`DELETE FROM mcp_write_attempts WHERE created_at < NOW() - INTERVAL '30 days'`);
+  } catch (err) {
+    console.error('[mcp-write-guard] уборка журнала не прошла:', err);
+  }
+}
+
+/**
+ * Запись попытки ВНЕ транзакции решения — только для отказа по согласию.
  *
- * Отказ записи журнала не ломает решение — оно уже принято выше. Но и не
- * глушится: без строки в логе журнал, переставший писаться, выглядел бы как
- * «попыток не было».
+ * Остальные исходы пишутся внутри транзакции вместе со счётом: иначе отказ не
+ * занимает слот. Отказу по согласию сериализация не нужна — он не зависит от
+ * счёта и не может «проскочить» параллелью.
+ *
+ * Отказ самой записи не ломает решение — оно уже принято. Но и не глушится:
+ * без строки в логе журнал, переставший писаться, выглядел бы как «попыток
+ * не было».
  */
 async function record(
   clientKey: string,
@@ -203,12 +283,6 @@ async function record(
        VALUES ($1::char(64), $2::varchar(64), $3::char(64), $4::varchar(16))`,
       [clientKey, tool, phoneHash, outcome],
     );
-    // Уборка попутно и редко: счёт смотрит только на сутки, хранить год
-    // незачем, а отдельный крон ради одной таблицы — лишняя сущность в
-    // реестре. Раз в полсотни записей дешевле, чем ежедневный прогон.
-    if (Math.random() < 0.02) {
-      await pool.query(`DELETE FROM mcp_write_attempts WHERE created_at < NOW() - INTERVAL '30 days'`);
-    }
   } catch (err) {
     console.error('[mcp-write-guard] не смог записать попытку:', err);
   }
