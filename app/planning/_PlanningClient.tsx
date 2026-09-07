@@ -502,7 +502,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    * и владельцу не подошла — координаты в навигаторе принадлежат ТОЧКЕ, а
    * не углу экрана.
    */
-  const [pointCard, setPointCard] = useState<{ kind: 'pin' | 'me'; lat: number; lng: number } | null>(null);
+  const [pointCard, setPointCard] = useState<{ kind: 'pin' | 'me'; lat: number; lng: number; name?: string | null } | null>(null);
   /** Прокладка запущена С КАРТОЧКИ — тогда найденный автопуть открывается на карте сам, без списка вариантов. */
   const cardBuildRef = useRef(false);
   const [cardRoute, setCardRoute] = useState<PointCardRouteState>({ phase: 'idle' });
@@ -1676,7 +1676,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     setCardRoute({ phase: 'building' });
     setBuildTravelMode('car');
     setSelectedOrigin({ kind: 'current', lat: coords.lat, lon: coords.lng, accuracyM: coords.accuracy ?? undefined });
-    setSelectedDestination({ destination: { kind: 'coordinate', lat: pointCard.lat, lon: pointCard.lng, title: 'Точка на карте' }, routeOptions: [] });
+    setSelectedDestination({ destination: { kind: 'coordinate', lat: pointCard.lat, lon: pointCard.lng, title: pointCard.name ?? 'Точка на карте' }, routeOptions: [] });
   }, [pointCard, coords]);
   // Ответ build() для карточки: найденный автопуть открывается на карте
   // сам (как в навигаторе — линия сразу, без списка), отказ — словами в
@@ -1874,6 +1874,30 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     : distToNext < 1
     ? `${Math.round(distToNext * 1000)} м`
     : `${distToNext.toFixed(1)} км`;
+
+  /**
+   * Компас и главная цифра, пока на карте лежит расчётный автопуть
+   * (calculatedPreview) — тот же разрыв, что уже чинился для шапки
+   * (routeTitle), только этажом ниже. Владелец 07.09, «Мишенная сопка»:
+   * «шикарно рисуется маршрут, но не меняется название и не пересчитываются
+   * км — видно, что это разные механизмы». Прямая — точна ровно настолько
+   * же, насколько её уже честно показывает карточка точки («18.1 км от
+   * меня · азимут 167°»): тот же геометрический факт, а не оценка по
+   * непроверенной модели скорости road-graph (её trust — mayNavigate/
+   * mayPersist: false — здесь не трогается). ETA — тоже НЕ из хожалого
+   * темпа (paceFromTrack — для пешей тропы, к автопути не относится), а
+   * durationS самого провайдера — то же число, что в карточке предпросмотра
+   * («Рассчитан…»).
+   */
+  const calcDest = calculatedPreview?.route.destinationSnapped ?? null;
+  const calcDistKm = calcDest && coords ? haversine(coords.lat, coords.lng, calcDest.lat, calcDest.lon) : null;
+  const calcBearing = calcDest && coords && fixUsableForNavigation(coords.accuracy ?? null)
+    ? bearingDeg({ lat: coords.lat, lng: coords.lng }, { lat: calcDest.lat, lng: calcDest.lon })
+    : null;
+  const calcDistLabel = calcDistKm === null ? null
+    : calcDistKm < 1 ? `${Math.round(calcDistKm * 1000)} м`
+    : `${calcDistKm.toFixed(1)} км`;
+  const calcEtaLabel = calculatedPreview ? `~${formatEta(calculatedPreview.route.durationS / 3600)}` : null;
 
   // ─── Слой хода: осталось · когда придём · сколько прошли ───────────────────
   // Одна большая цифра «осталось» не отвечает на вопрос туриста в поле: идти
@@ -3239,6 +3263,12 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             // Тап по карте — булавка и карточка точки; тап по своей точке —
             // карточка «я» (по образцу навигатора, владелец 05.09).
             onMapClick={p => setPointCard({ kind: 'pin', ...p })}
+            // Тап по МЕСТУ платформы — та же карточка, но с настоящим именем:
+            // без onPlaceClick VedarMap падает на голый onMapClick (см. её
+            // обработчик клика), и «Проложить сюда» строило путь под именем
+            // «Точка на карте» даже когда тапнули по «Мишенная сопка» —
+            // владелец 07.09 увидел это как «название не меняется».
+            onPlaceClick={p => setPointCard({ kind: 'pin', lat: p.lat, lng: p.lng, name: p.name })}
             onUserClick={() => { if (coords) setPointCard({ kind: 'me', lat: coords.lat, lng: coords.lng }); }}
             pin={pointCard?.kind === 'pin' ? { lat: pointCard.lat, lng: pointCard.lng } : null}
             points={vedarPoints}
@@ -3404,7 +3434,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                 ширины и закрывали карту — «не юзабельно». 104 — как у
                 мокапа: азимут и стрелка читаются, карта под ним видна. */}
             <FieldCompass heading={effHeading} state={effCompassState}
-              targetBearing={targetBearing} headingSource={headingSource} size={104} />
+              targetBearing={calculatedPreview ? calcBearing : targetBearing} headingSource={headingSource} size={104} />
             {/* Лекарство — на самом приборе: кнопка в строке статуса от
                 мёртвого компаса жила в другом углу экрана, и их не связывали. */}
             {compassState === 'blocked' && (
@@ -3528,7 +3558,22 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
           <div className="w-full flex flex-col gap-3">
             <div className="w-full px-1 py-1 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                {isLoadingRoute ? (
+                {calculatedPreview ? (
+                  // Расчётный автопуть — своя, независимая пара «расстояние/
+                  // время» (см. calcDistLabel/calcEtaLabel выше), и проверяется
+                  // ПЕРВОЙ: пока он на карте, это и есть текущая цель человека,
+                  // даже если каталожного маршрута нет вовсе или его данные не
+                  // сходятся — те состояния к автопути отношения не имеют.
+                  <FieldDistance compact
+                    distanceLabel={calcDistLabel}
+                    live={figuresLive}
+                    caption="до цели"
+                    pointName={null}
+                    etaLabel={calcEtaLabel}
+                    ascentLabel={null}
+                    totalLabel={null}
+                  />
+                ) : isLoadingRoute ? (
                   <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Загружаем маршрут…</p>
                 ) : waypoints.length === 0 ? (
                   <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -3546,6 +3591,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                     pointName={null}
                     etaLabel={eta.hours !== null ? `~${formatEta(eta.hours)}` : null}
                     ascentLabel={ahead?.ascentM ? `+${Math.round(ahead.ascentM)} м` : null}
+                    totalLabel={waypoints.length > 1 && progress.totalKm > 0 ? `всего ${fmtKm(progress.totalKm)}` : null}
                   />
                 )}
               </div>
@@ -3592,7 +3638,23 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                     порядка при одной точке не печатается вовсе — «1 из 1»
                     рядом с «18.5 км» читалось как «вы пришли, идти ещё 18
                     километров» (скрин владельца 10.08). */}
-                {approach?.dataConflict ? (
+                {calculatedPreview ? (
+                  // Расчётный автопуть — своя пара «расстояние/время»,
+                  // проверяется ПЕРВОЙ: dataConflict и распад «из чего
+                  // сложилось число» ниже — про каталожный маршрут и трек,
+                  // к отдельно построенному автопути отношения не имеют
+                  // (владелец 07.09, «Мишенная сопка»: «шикарно рисуется
+                  // маршрут, но не пересчитываются км — разные механизмы»).
+                  <FieldDistance
+                    distanceLabel={calcDistLabel}
+                    live={figuresLive}
+                    caption="до цели"
+                    pointName={calculatedPreview.title}
+                    etaLabel={calcEtaLabel}
+                    ascentLabel={null}
+                    totalLabel={null}
+                  />
+                ) : approach?.dataConflict ? (
                   /* Данные маршрута не сходятся: точка из route_waypoints и
                      линия из geometry описывают разное. Мы не знаем даже, как
                      туда добираются — по воде, по другой дороге или никак.
@@ -3629,6 +3691,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                       pointName={nextWp?.name && nextWp.name !== activeRouteTitle ? nextWp.name : null}
                       etaLabel={eta.hours !== null ? `~${formatEta(eta.hours)}` : null}
                       ascentLabel={ahead?.ascentM ? `+${Math.round(ahead.ascentM)} м` : null}
+                      totalLabel={waypoints.length > 1 && progress.totalKm > 0 ? `всего ${fmtKm(progress.totalKm)}` : null}
                     />
                     {/* Из чего сложилось число. Подход и выход — прямые, и
                         выдавать их за путь по тропе нельзя: на камчатском
@@ -4251,6 +4314,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
         <div className="fixed inset-x-3 z-30"
           style={{ bottom: showMap ? 'calc(16px + env(safe-area-inset-bottom))' : `calc(${sheetOpen ? '60vh' : '32vh'} + 12px)` }}>
           <PointCard kind={pointCard.kind} point={{ lat: pointCard.lat, lng: pointCard.lng }}
+            name={pointCard.name ?? null}
             me={coords ? { lat: coords.lat, lng: coords.lng } : null}
             route={cardRoute} onRoute={routeFromCard} onClose={() => setPointCard(null)} />
         </div>
