@@ -27,7 +27,7 @@ export const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft']);
  */
 export const CREATE_LEAD_TOOL = {
   name: 'create_lead',
-  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Не бронь и не оплата — только заявка.',
+  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Не бронь и не оплата — только заявка. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -35,8 +35,9 @@ export const CREATE_LEAD_TOOL = {
       phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
       comment: { type: 'string', description: 'Запрос: даты, сколько человек, что интересует' },
       interest: { type: 'string', description: 'Название тура/маршрута, если уже выбран' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
-    required: ['name', 'phone', 'comment'],
+    required: ['name', 'phone', 'comment', 'consent'],
   },
 } as const;
 
@@ -52,7 +53,7 @@ export const CREATE_LEAD_TOOL = {
  */
 export const BOOKING_REQUEST_TOOL = {
   name: 'create_booking_request',
-  description: 'Заявка на бронь конкретного тура на дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — это не мгновенная бронь и не оплата. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты.',
+  description: 'Заявка на бронь конкретного тура на дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — это не мгновенная бронь и не оплата. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -62,8 +63,9 @@ export const BOOKING_REQUEST_TOOL = {
       name: { type: 'string', description: 'Имя туриста' },
       phone: { type: 'string', description: 'Телефон для подтверждения (обязателен)' },
       comment: { type: 'string', description: 'Пожелания, вопросы, состав группы' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
-    required: ['tour', 'date', 'name', 'phone'],
+    required: ['tour', 'date', 'name', 'phone', 'consent'],
   },
 } as const;
 
@@ -90,6 +92,6 @@ export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name)
 
 export const MCP_SERVER_INFO = {
   name: 'vedar-mcp',
-  version: '2.2.0',
+  version: '2.3.0',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи две: заявка на подбор (create_lead) и заявка на бронь тура на дату (create_booking_request) — обе подтверждает человек.',
 } as const;

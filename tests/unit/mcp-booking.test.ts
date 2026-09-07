@@ -44,7 +44,10 @@ describe('п.4: занятость тура — инструмент одног�
 describe('п.4: заявка на бронь — не бронь и не оплата', () => {
   it('create_booking_request объявлен и требует тур, дату, имя и телефон', () => {
     expect(PUBLIC_MCP_TOOL_NAMES.has('create_booking_request')).toBe(true);
-    expect([...BOOKING_REQUEST_TOOL.inputSchema.required]).toEqual(['tour', 'date', 'name', 'phone']);
+    // consent добавлен policy v3 (07.09): анонимный приём чужого телефона без
+    // явного согласия — приём ПД без основания. Список обязателен целиком,
+    // чтобы выпадение согласия из схемы краснило сборку.
+    expect([...BOOKING_REQUEST_TOOL.inputSchema.required]).toEqual(['tour', 'date', 'name', 'phone', 'consent']);
   });
 
   it('перед заявкой — реальная занятость; нет мест → отказ с ближайшими датами', () => {

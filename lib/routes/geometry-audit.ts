@@ -38,6 +38,7 @@ import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdi
 import { isNamesakeOfRoute } from '@/lib/routes/broken-links';
 import { isExtendedObject, type CoordSource } from '@/lib/places/coord-source';
 import { asLinkKind, isPathPoint, type LinkKind } from '@/lib/routes/link-kind';
+import { nameMatchScore } from '@/lib/routes/place-link';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
 import { routeTrustDecision } from '@/lib/routes/trust-decision';
 import { geometryFingerprint } from '@/lib/routes/track-reconcile';
@@ -295,6 +296,46 @@ export interface GeometryAudit {
    * было бы ровно тем, против чего §12.
    */
   navigable_ignoring_link_kind: number;
+  /**
+   * Те же маршруты ПОИМЁННО — материал для решения человека (#1493).
+   *
+   * Счёт отвечает «сколько», но разметку делают по записи, а не по строке
+   * счёта. Расхождение 6 против 23 значит: семнадцать маршрутов отделяет от
+   * права вести не отсутствие связей, а РОД уже существующих. Это самая
+   * короткая дорога — одно решение по паре переводит маршрут целиком, тогда
+   * как новая связь к маршруту без единой точки не даёт ничего (порог — две).
+   *
+   * Улика к каждой паре — совпадение имени места с названием маршрута
+   * (`nameScore`). Класс улики выбран не случайно: 238 связей рода
+   * `waypoint` заведены миграциями 653-657 ровно по совпадению имён, то есть
+   * это ТОТ ЖЕ признак происхождения, которым размечено всё остальное.
+   *
+   * Расстояния до линии здесь нет НАМЕРЕННО. §4.1: «Выводить род из близости
+   * к линии ЗАПРЕЩЕНО: тогда всё неудобное переименуется в „рядом“ и любой
+   * маршрут пройдёт черту — это выключение сигнализации, а не починка
+   * данных». Показать расстояние рядом с вопросом «путь это или рядом»
+   * значило бы подсказать запрещённый ответ.
+   *
+   * Список только читается. Ничего не размечает и не предлагает вердикта:
+   * решение — человека, партиями, поимённо.
+   */
+  link_kind_blocked: Array<{
+    id: string;
+    title: string;
+    /** Что черта говорит сейчас — с родом связи. */
+    verdict: NavigabilityVerdict;
+    /** Почему не пригоден сейчас. */
+    reason: string;
+    waypoints: Array<{
+      placeId: string;
+      title: string;
+      /** Род связи сейчас: `nearby` или `unknown` — иначе она бы уже считалась. */
+      kind: LinkKind;
+      type: string | null;
+      /** Совпадение имени места с названием маршрута, 0..1. */
+      nameScore: number;
+    }>;
+  }>;
   /**
    * Улики записи: сколько импортированных линий можно ДОКАЗАТЬ как снятые.
    *
@@ -833,6 +874,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   const navigableIds: string[] = [];
   /** Контрфакт «до 874»: см. navigable_ignoring_link_kind. */
   let navigableIgnoringLinkKind = 0;
+  /** Те же маршруты поимённо — материал для разметки (#1493). */
+  const linkKindBlocked: GeometryAudit['link_kind_blocked'] = [];
   /** Причины отказа поимённо: «ноль пригодных» без них ничего не объясняет. */
   const navReasons: Record<string, number> = {};
   /** Улики записи — считаются по СЫРОЙ геометрии: высота живёт третьим числом. */
@@ -958,6 +1001,29 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       evidence: evidenceVerdict,
     });
     if (navBeforeLinkKind.verdict === 'navigable') navigableIgnoringLinkKind += 1;
+
+    // Поимённо — те, кого держит РОД связи, а не её отсутствие (#1493).
+    // Условие ровно на расхождении двух вердиктов выше: своего правила и
+    // своего порога здесь нет, иначе перепись начала бы судить сама.
+    if (nav.verdict !== 'navigable' && navBeforeLinkKind.verdict === 'navigable') {
+      linkKindBlocked.push({
+        id: r.id,
+        title: r.title ?? '(без названия)',
+        verdict: nav.verdict,
+        reason: nav.reasons[0] ?? 'причина не названа',
+        // Точки рода `waypoint` в список не идут: они уже считаются, и
+        // решать по ним нечего. Остаются ровно те, чей род и есть вопрос.
+        waypoints: wps
+          .filter((w) => !isPathPoint(w.kind))
+          .map((w) => ({
+            placeId: w.id,
+            title: w.title,
+            kind: w.kind,
+            type: w.type,
+            nameScore: nameMatchScore(w.title, r.title ?? ''),
+          })),
+      });
+    }
 
     // Решение доверия: то же состояние, но с фактами, из которых оно собрано.
     // Донор считается подтверждённым, когда страница-источник записана у САМОЙ
@@ -1214,6 +1280,13 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     conflicts_only_reason: conflictCases.filter((c) => c.onlyReason).length,
     navigability: verdicts,
     navigable_ignoring_link_kind: navigableIgnoringLinkKind,
+    // Порядок детерминирован: разбирают партиями, и вторая партия обязана
+    // быть продолжением первой, а не новой выборкой. Сначала те, где
+    // решать меньше всего пар, потом по названию.
+    link_kind_blocked: linkKindBlocked.sort((a, b) =>
+      a.waypoints.length !== b.waypoints.length
+        ? a.waypoints.length - b.waypoints.length
+        : a.title.localeCompare(b.title, 'ru')),
     navigability_reasons: navReasons,
     track_evidence: evidence,
     track_evidence_reasons: evidenceReasons,

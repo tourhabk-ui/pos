@@ -5,7 +5,11 @@
  * - заявка идёт в общий createLead() (скоринг/дедуп/уведомление), не в свой SQL;
  * - телефон обязателен — заявка без контакта бесполезна менеджеру;
  * - невалидные аргументы дают isError-ответ, createLead не вызывается;
- * - квотные инструменты (search_kamchatka/search_taaft) наружу не отдаются.
+ * - квотные инструменты (search_kamchatka/search_taaft) наружу не отдаются;
+ * - без согласия на обработку ПД заявка НЕ создаётся (policy v3, 07.09):
+ *   анонимный клиент присылает чужие имя и телефон, и принимать их без
+ *   основания нельзя. Проверяется на живом пути роута, а не только в
+ *   сторожевом модуле: связка «схема → роут → createLead» рвётся тихо.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -43,6 +47,19 @@ vi.mock('@/lib/kuzmich/core', () => ({
   executeKuzmichTool: async () => 'ok',
 }));
 
+// Счётчик попыток записи живёт в базе (миграция 940). Здесь она пустая:
+// проверяем не пороги — их держит mcp-write-policy.test.ts, — а то, что
+// решение вообще спрашивается на живом пути.
+// Решение о допуске считается ОДНОЙ транзакцией под advisory-замком, поэтому
+// мок обязан уметь connect: счёт идёт на клиенте транзакции, а не на пуле.
+// Фабрика vi.mock поднимается наверх файла — переменные из модуля ей
+// недоступны, поэтому запрос описан внутри неё.
+vi.mock('@/lib/db-pool', () => {
+  const q = async (sql: string) =>
+    /COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] };
+  return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
+});
+
 import { POST, GET } from '@/app/api/mcp/route';
 
 function rpc(method: string, params?: Record<string, unknown>) {
@@ -55,6 +72,7 @@ function rpc(method: string, params?: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  process.env.MCP_HASH_SALT = 'соль-для-теста';
   createLeadMock.mockClear();
 });
 
@@ -69,6 +87,35 @@ describe('MCP create_lead', () => {
     expect(names).not.toContain('search_taaft');
   });
 
+  const withoutConsent = {
+    name: 'Иван',
+    phone: '+7 900 000-00-00',
+    comment: 'Хотим на Толбачик в августе, двое взрослых',
+  };
+
+  it('поля consent нет — отказ говорит про СХЕМУ, клиент отстал от tools/list', async () => {
+    const res = await POST(rpc('tools/call', { name: 'create_lead', arguments: withoutConsent }));
+    const json = await res.json();
+    expect(json.result.isError).toBe(true);
+    expect(json.result.content[0].text).toContain('нет поля consent');
+    expect(createLeadMock).not.toHaveBeenCalled();
+  });
+
+  it('consent: false — отказ говорит про СОГЛАСИЕ, а не про схему', async () => {
+    // Два разных отказа намеренно различимы: «перечитай схему» и «спроси
+    // человека» — разные починки, и агент, которому сказали не то, будет
+    // повторять запрос, который не пройдёт никогда.
+    const res = await POST(rpc('tools/call', {
+      name: 'create_lead',
+      arguments: { ...withoutConsent, consent: false },
+    }));
+    const json = await res.json();
+    expect(json.result.isError).toBe(true);
+    expect(json.result.content[0].text).toContain('нет согласия на обработку персональных данных');
+    expect(json.result.content[0].text).not.toContain('нет поля consent');
+    expect(createLeadMock).not.toHaveBeenCalled();
+  });
+
   it('валидная заявка уходит в общий createLead с source mcp', async () => {
     const res = await POST(rpc('tools/call', {
       name: 'create_lead',
@@ -77,6 +124,8 @@ describe('MCP create_lead', () => {
         phone: '+7 900 000-00-00',
         comment: 'Хотим на Толбачик в августе, двое взрослых',
         interest: 'Толбачик',
+        // policy v3 (07.09): без согласия на обработку ПД заявка не создаётся.
+        consent: true,
       },
     }));
     const json = await res.json();
