@@ -88,7 +88,10 @@ describe('runOsmGeometryImport (общий раннер admin-роута и /api
     await runOsmGeometryImport({ limit: 5, dryRun: true, offset: 12, delayMs: 0 });
 
     const select = mockQuery.mock.calls.find(([sql]) => String(sql).includes('SELECT kr.id, kr.title'));
-    expect(select?.[1]).toEqual([5, 12]);
+    // Третий параметр — перечень слогов, поверх которых OSM класть вправе:
+    // его даёт общее правило старшинства, а не переписанное здесь условие.
+    expect(select?.[1]?.slice(0, 2)).toEqual([5, 12]);
+    expect(Array.isArray(select?.[1]?.[2])).toBe(true);
   });
 
   it('маршрут без подходящего трека в OSM — skipped, без записи', async () => {

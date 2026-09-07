@@ -36,6 +36,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { overwritableSources, overwriteWhereSql, mayOverwrite } from '@/lib/routes/geometry-precedence';
 import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -148,8 +149,17 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** Источники, которые молча уступают настоящему треку — та же граница, что у route-family-merge. */
-const WEAK_SOURCES = new Set(['waypoints_synthetic', 'kml_inbox']);
+/*
+ * Своего списка «слабых источников» здесь больше нет.
+ *
+ * Стоял `WEAK_SOURCES = {waypoints_synthetic, kml_inbox}` с пометкой «та же
+ * граница, что у route-family-merge» — то есть ДВЕ копии одного правила, и
+ * замер 07.09 нашёл всего девять таких копий по репозиторию. Эта, к тому же,
+ * границу проводила неверно: снятый прибором трек уступал дорогу скрейпу
+ * (`external`) и построению по графу, хотя подтверждён лучше обоих.
+ *
+ * Правило одно — lib/routes/geometry-precedence.
+ */
 
 const ApplyBodySchema = z.object({
   id: z.string().uuid(),
@@ -244,13 +254,13 @@ export async function POST(request: NextRequest) {
     );
   }
   const target = routeRes.rows[0]!;
-  const targetIsStrong = target.geometry_source !== null && !WEAK_SOURCES.has(target.geometry_source);
-  if (targetIsStrong && !data.force) {
+  const precedence = mayOverwrite(target.geometry_source, 'gpx');
+  if (!precedence.allowed && !data.force) {
     return NextResponse.json(
       {
         success: false,
-        error: `У «${target.title}» уже стоит линия из источника «${target.geometry_source}» — не заменяем молча. `
-          + 'Если это правда нужно — передайте force: true',
+        error: `У «${target.title}» уже стоит линия из источника «${target.geometry_source}»: ${precedence.reason}. `
+          + 'Не заменяем молча — если это правда нужно, передайте force: true',
       },
       { status: 409 },
     );
@@ -339,14 +349,38 @@ export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(
-      `UPDATE kamchatka_routes
-       SET geometry = jsonb_build_object('type', 'LineString', 'coordinates', $1::jsonb, 'source', 'gpx'),
-           distance_km = $2,
-           updated_at = NOW()
-       WHERE id::text = $3`,
-      [JSON.stringify(coords), lengthKm, target.id],
-    );
+    // Условия здесь не было ВОВСЕ: принятый трек ложился поверх чего угодно.
+    // Для 'gpx' правило старшинства разрешает почти всё (снятый прибором путь
+    // — сильнейший источник), но «почти» решает правило, а не этот запрос:
+    // равного по силе соседа (osm_traces, field_track) трогать нельзя.
+    // Условие ставит общее правило. `force` его снимает — но только он:
+    // человек сказал явно и выше уже получил отказ с причиной.
+    const applied = data.force
+      ? await client.query(
+          `UPDATE kamchatka_routes
+           SET geometry = jsonb_build_object('type', 'LineString', 'coordinates', $1::jsonb, 'source', 'gpx'),
+               distance_km = $2,
+               updated_at = NOW()
+           WHERE id::text = $3`,
+          [JSON.stringify(coords), lengthKm, target.id],
+        )
+      : await client.query(
+          `UPDATE kamchatka_routes
+           SET geometry = jsonb_build_object('type', 'LineString', 'coordinates', $1::jsonb, 'source', 'gpx'),
+               distance_km = $2,
+               updated_at = NOW()
+           WHERE id::text = $3 AND ${overwriteWhereSql(4)}`,
+          [JSON.stringify(coords), lengthKm, target.id, overwritableSources('gpx')],
+        );
+    if (applied.rowCount === 0) {
+      // Гонка: линию заменили между проверкой и записью. Очередь не должна
+      // помечать применённым то, что не легло.
+      await client.query('ROLLBACK');
+      return NextResponse.json(
+        { success: false, applied: false, reason: `линия не заменена: ${precedence.reason}` },
+        { status: 409 },
+      );
+    }
     await client.query(
       `UPDATE route_track_imports SET status = 'applied' WHERE id::text = $1`,
       [data.id],

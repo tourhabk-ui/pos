@@ -69,8 +69,16 @@ describe('очередь загруженных треков — чтение', 
   });
 });
 
-/** Тело POST вместе со схемой тела запроса — от WEAK_SOURCES до конца файла. */
-const postBody = queue.slice(queue.indexOf('const WEAK_SOURCES'));
+/**
+ * Тело POST вместе со схемой тела запроса — от схемы до конца файла.
+ *
+ * Якорем стоял `const WEAK_SOURCES` — свой список слабых источников. 07.09 он
+ * убран (правило старшинства теперь одно, lib/routes/geometry-precedence), и
+ * срез стал пустым: восемь проверок ниже обрушились разом, хотя ни одна из
+ * них про этот список не была. Якорь взят по схеме тела запроса — она
+ * означает начало POST и переживает смену правил.
+ */
+const postBody = queue.slice(queue.indexOf('const ApplyBodySchema'));
 
 describe('очередь загруженных треков — применение (POST, 30.08)', () => {
   it('POST существует и защищён тем же секретом', () => {
@@ -113,8 +121,12 @@ describe('очередь загруженных треков — примене�
   });
 
   it('существующую сильную геометрию молча не заменяет — нужен force', () => {
-    expect(postBody).toMatch(/WEAK_SOURCES/);
-    expect(postBody).toMatch(/targetIsStrong && !data\.force/);
+    // Прежде здесь стоял свой WEAK_SOURCES = {waypoints_synthetic, kml_inbox},
+    // и границу он проводил НЕВЕРНО: снятый прибором трек уступал дорогу
+    // скрейпу и построению по графу, хотя подтверждён лучше обоих. Правило
+    // теперь общее, а `force` остаётся ручным исключением человека.
+    expect(postBody).toMatch(/mayOverwrite\(target\.geometry_source, 'gpx'\)/);
+    expect(postBody).toMatch(/!precedence\.allowed && !data\.force/);
   });
 
   it('запись в базу идёт транзакцией — geometry и статус очереди меняются вместе', () => {

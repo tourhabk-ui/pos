@@ -58,7 +58,11 @@ describe('runOsmGeometryImport — маркер источника', () => {
   it('пул выборки включает синтетику, реальные треки — нет', async () => {
     await runOsmGeometryImport({ limit: 8, dryRun: true, delayMs: 0 });
     const selectSql = queryMock.mock.calls.find(c => /SELECT kr\.id, kr\.title/.test(c[0] as string))?.[0] as string;
-    expect(selectSql).toMatch(/kr\.geometry IS NULL OR kr\.geometry->>'source' = 'waypoints_synthetic'/);
+    // Условие ставит общее правило (lib/routes/geometry-precedence): перечень
+    // слогов уходит параметром, а не вписывается в текст запроса. Прежняя
+    // проверка искала литерал 'waypoints_synthetic' в SQL — то есть требовала
+    // ровно ту копию правила, из-за которых девять писателей и разошлись.
+    expect(selectSql).toMatch(/kr\.geometry IS NULL OR kr\.geometry->>'source' = ANY\(\$3::text\[\]\)/);
     // Совсем без геометрии — первыми
     expect(selectSql).toMatch(/ORDER BY \(kr\.geometry IS NULL\) DESC/);
   });

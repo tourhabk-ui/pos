@@ -13,6 +13,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { overwritableSources, overwriteWhereSql } from '@/lib/routes/geometry-precedence';
 
 export interface ParsedKml {
   name: string;
@@ -315,9 +316,9 @@ export async function importKmlTrack(filename: string, xml: string): Promise<Kml
      ON CONFLICT (dedupe_key) DO UPDATE
        SET geometry = EXCLUDED.geometry,
            metadata = COALESCE(kamchatka_routes.metadata, '{}'::jsonb) || EXCLUDED.metadata
-       WHERE kamchatka_routes.geometry IS NULL
-          OR kamchatka_routes.geometry->>'source' IN ('kml_inbox', 'waypoints_synthetic')`,
-    [parsed.name, startLat, startLng, geojson, meta, `kml:${wanted}`],
+       WHERE ${overwriteWhereSql(7, 'kamchatka_routes.geometry')}`,
+    [parsed.name, startLat, startLng, geojson, meta, `kml:${wanted}`,
+     overwritableSources('kml_inbox')],
   );
   return {
     filename, track_name: parsed.name, status: 'created_hidden',

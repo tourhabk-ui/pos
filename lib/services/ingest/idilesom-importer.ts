@@ -16,6 +16,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { overwritableSources, overwriteWhereSql } from '@/lib/routes/geometry-precedence';
 import { createHash } from 'crypto';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
@@ -527,7 +528,8 @@ export async function importIdilesomPlaces(opts: {
           const geojson = JSON.stringify({
             type: 'LineString',
             coordinates: place.coordinates,
-            source: 'idilesom',
+            // Слог по миграции 871: 'idilesom' в базе больше не заводим.
+            source: 'external',
           });
           await pool.query(
             `INSERT INTO kamchatka_routes (
@@ -664,11 +666,18 @@ export async function backfillIdilesomTracks(limit = 10, offset = 0): Promise<Id
       const geojson = JSON.stringify({
         type: 'LineString',
         coordinates: scraped.coordinates,
-        source: 'idilesom',
+        // Слог по миграции 871: 'idilesom' в базе больше не заводим.
+        source: 'external',
       });
 
-      // UPSERT по dedupe_key: обновляем geometry, только если её нет или
-      // прежний трек тоже idilesom (OSM-треки не перетираем)
+      // UPSERT по dedupe_key: право на перезапись даёт общее правило
+      // старшинства (lib/routes/geometry-precedence), а не свой список.
+      //
+      // Прежнее условие сравнивало со слогом 'idilesom', а миграция 871
+      // переименовала его в базе в 'external'. То есть эта половина условия
+      // не совпадала НИ С ОДНОЙ из 252 живых линий скрейпа: запрос был жив,
+      // а ветка «обновить собственную линию» — мертва. Тот же класс, что
+      // стоил нам маяка воронки. Прежний слог правило знает и принимает.
       await pool.query(
         `INSERT INTO kamchatka_routes (
            category, title, description, lat, lng, geometry, metadata,
@@ -677,10 +686,10 @@ export async function backfillIdilesomTracks(limit = 10, offset = 0): Promise<Id
          ON CONFLICT (dedupe_key) DO UPDATE
            SET geometry = EXCLUDED.geometry,
                metadata = COALESCE(kamchatka_routes.metadata, '{}'::jsonb) || EXCLUDED.metadata
-           WHERE kamchatka_routes.geometry IS NULL
-              OR kamchatka_routes.geometry->>'source' = 'idilesom'`,
+           WHERE ${overwriteWhereSql(9, 'kamchatka_routes.geometry')}`,
         [scraped.title, scraped.description || null, scraped.lat, scraped.lng,
-         geojson, metadata, scraped.sourceUrl, `idilesom:${id}`],
+         geojson, metadata, scraped.sourceUrl, `idilesom:${id}`,
+         overwritableSources('external')],
       );
 
       tracksWritten++;

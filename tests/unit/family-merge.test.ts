@@ -68,7 +68,15 @@ describe('обещания эндпоинта', () => {
     expect(src).toContain('SET merged_into_id = $1');
   });
 
-  it('перенос трека повторяет правило переносимости и в SQL', () => {
-    expect(src).toContain("l.geometry IS NULL OR l.geometry->>'source' IN ('waypoints_synthetic', 'kml_inbox')");
+  it('перенос трека судит общим правилом старшинства, а не своим перечнем', () => {
+    // Прежде здесь был свой список ('waypoints_synthetic', 'kml_inbox') прямо
+    // в SQL — одна из девяти копий правила, разошедшихся между собой (замер
+    // 07.09). Здесь источник переносимой линии заранее не известен, поэтому
+    // сравнивать надо силу с силой, а не слог со списком.
+    expect(src).toContain('mayOverwrite(');
+    expect(src).toContain('normalizeGeometrySource(');
+    expect(src).not.toContain("l.geometry->>'source' IN (");
+    // Неизвестный слог переносимой линии — не повод её двигать (§4.0).
+    expect(src).toContain('слог переносимой линии неизвестен');
   });
 });
