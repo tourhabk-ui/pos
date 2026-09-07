@@ -51,6 +51,8 @@ export type RouteProtection =
   | 'signature'
   /** Объявлен публичным в реестре Edge — открыт намеренно. */
   | 'declared_public'
+  /** Все методы отвечают 410/501: адрес снят, поверхности нет вовсе. */
+  | 'deprecated_stub'
   /** Ничего из перечисленного не нашли. НЕ равно «открыт»: см. шапку. */
   | 'needs_review';
 
@@ -85,6 +87,40 @@ const SIGNATURE_SIGNALS = [
 
 function hasAny(src: string, names: readonly string[]): boolean {
   return names.some((n) => new RegExp(`\\b${n}\\b`).test(src));
+}
+
+/**
+ * Все объявленные методы отвечают 410 или 501 — и ничем больше.
+ *
+ * ── Почему считать вхождения нельзя ───────────────────────────────────────
+ *
+ * Первая редакция сравнивала ЧИСЛО вхождений «status: 410|501» с числом
+ * методов — и утащила в «снятые» живые роуты: у `/api/bookings` и
+ * `/api/p/[code]` есть свои 410 на частный случай («брони больше нет»), и
+ * этого хватало, чтобы перекрыть счёт. Живой роут, помеченный снятым,
+ * исчезает из-под надзора молча — ровно та ошибка, которую этот файл ловит
+ * у других.
+ *
+ * Поэтому смотрится ТЕЛО каждого метода: от его объявления до следующего.
+ * Снятый — тот, у кого в каждом теле есть 410/501 и нет обращения к базе:
+ * заглушка ничего не читает и не пишет по построению.
+ */
+export function isDeprecatedStub(src: string): boolean {
+  const starts = [...src.matchAll(/export\s+async\s+function\s+(?:GET|POST|PUT|PATCH|DELETE)\b/g)];
+  if (starts.length === 0) return false;
+  return starts.every((m, i) => {
+    const from = m.index ?? 0;
+    const to = i + 1 < starts.length ? (starts[i + 1].index ?? src.length) : src.length;
+    const body = src.slice(from, to).replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    // Снятый метод НИЧЕГО не делает: только отдаёт «адреса больше нет».
+    // Ни ожидания, ни ветвления — иначе это живой метод, у которого 410
+    // всего лишь один из исходов. На этом сгорели две прежние редакции:
+    // `/api/bookings` (живой GET, снятый POST) и
+    // `/api/octo/bookings/[uuid]/confirm` (410 в одной из веток) попадали
+    // в «снятые» и молча исчезали из-под надзора.
+    if (/\bawait\b/.test(body) || /\bif\s*\(/.test(body)) return false;
+    return /status:\s*(410|501)/.test(body);
+  });
 }
 
 /** Локальные модули, которые импортирует файл: '@/lib/x' → lib/x. */
@@ -131,7 +167,12 @@ export function inventoryRoutes(root: string): RouteRecord[] {
     const reach = [src, ...localImports(src).map((m) => readIfExists(root, m))].join('\n');
 
     let protection: RouteProtection;
-    if (hasAny(reach, AUTH_SIGNALS)) protection = 'guarded';
+    // Заглушка проверяется ПЕРВОЙ: у адреса, который на любой метод отвечает
+    // «снято», поверхности нет вовсе, и требовать от него проверки прав —
+    // шум, прячущий настоящие случаи. Удалять такие нельзя: 410 говорит
+    // старому клиенту «адреса больше нет», а 404 — «может, опечатался».
+    if (isDeprecatedStub(src)) protection = 'deprecated_stub';
+    else if (hasAny(reach, AUTH_SIGNALS)) protection = 'guarded';
     else if (hasAny(reach, SIGNATURE_SIGNALS)) protection = 'signature';
     else if (declared.some((d) => url === d || url.startsWith(d.replace(/\*$/, '')))) {
       protection = 'declared_public';
@@ -144,7 +185,7 @@ export function inventoryRoutes(root: string): RouteRecord[] {
 /** Сводка по родам — для отчёта и для сторожа. */
 export function summarize(records: RouteRecord[]): Record<RouteProtection, number> {
   const acc: Record<RouteProtection, number> = {
-    guarded: 0, signature: 0, declared_public: 0, needs_review: 0,
+    guarded: 0, signature: 0, declared_public: 0, deprecated_stub: 0, needs_review: 0,
   };
   for (const r of records) acc[r.protection] += 1;
   return acc;

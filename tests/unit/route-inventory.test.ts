@@ -13,11 +13,16 @@
  *
  * ── Почему список замораживается, а не чинится разом ──────────────────────
  *
- * Двадцать три случая разбираются глазами по одному: у каждого свой ответ.
- * `/api/geocode` и `/api/docs` открыты правильно и им место в реестре
- * публичных; `/api/engagement/messages/[id]` требует проверки владения;
- * `/api/webhooks/payments` отвечает 501 и его надо просто удалить. Чинить их
- * одним движком — значит выдумать общее правило там, где его нет.
+ * Восемнадцать случаев разбираются глазами по одному: у каждого свой ответ.
+ * `/api/geocode` и `/api/docs` похожи на намеренно открытые — им место в
+ * реестре публичных, но добавление туда СНИМАЕТ проверку Edge, поэтому
+ * решается по вызывающим, а не по виду. `/api/sales/campaign/*` шлёт
+ * рассылку и требует роли. Чинить их одним движком — значит выдумать общее
+ * правило там, где его нет.
+ *
+ * Про `engagement/*` первая редакция этого файла соврала: они названы были
+ * «настоящей дырой класса IDOR», а на деле все три — заглушки 410. Проверять
+ * надо было до того, как называть.
  *
  * Заморозка делает работу видимой: новый роут без видимой проверки и без
  * записи в реестр публичных красит сборку. Молчание тут не ответ (§4.0).
@@ -49,11 +54,7 @@ const NEEDS_REVIEW_FROZEN = [
   '/api/ai/smart-search',
   '/api/ai/vision',
   '/api/bots/reposter/webhook',
-  '/api/chat',
   '/api/docs',
-  '/api/engagement/conversations',
-  '/api/engagement/messages',
-  '/api/engagement/messages/[id]',
   '/api/geocode',
   '/api/kamchatka-routes',
   '/api/meta/catalog',
@@ -63,7 +64,6 @@ const NEEDS_REVIEW_FROZEN = [
   '/api/sales/campaign/launch',
   '/api/tourist/feedback/agent',
   '/api/trip/plan',
-  '/api/webhooks/payments',
   '/api/webhooks/travelpayouts',
 ] as const;
 
@@ -82,7 +82,8 @@ describe('перепись охватывает весь периметр', () =
 
   it('у каждой записи назван род защиты', () => {
     for (const r of records) {
-      expect(['guarded', 'signature', 'declared_public', 'needs_review']).toContain(r.protection);
+      expect(['guarded', 'signature', 'declared_public', 'deprecated_stub', 'needs_review'])
+        .toContain(r.protection);
     }
   });
 });
@@ -107,6 +108,33 @@ describe('«не нашли проверку» — список замороже
       'эти роуты уже не в needs_review — вычеркните их из NEEDS_REVIEW_FROZEN, '
       + 'иначе список перестанет что-либо значить',
     ).toEqual([]);
+  });
+});
+
+describe('снятый адрес отличается от живого', () => {
+  /**
+   * Род `deprecated_stub` заведён, чтобы пять заглушек не числились
+   * «проверки не нашли»: у адреса, отвечающего 410 на любой метод,
+   * поверхности нет вовсе, и требовать от него проверки прав — шум,
+   * прячущий настоящие случаи.
+   *
+   * Опаснее обратное, и на этом сгорели две редакции правила. Живой роут,
+   * помеченный снятым, исчезает из-под надзора МОЛЧА. Счёт вхождений
+   * «status: 410» утащил в снятые `/api/bookings` (живой GET, снятый POST)
+   * и `/api/octo/bookings/[uuid]/confirm`, где 410 — одна из веток.
+   */
+  it('роут с живым методом снятым не считается', () => {
+    for (const url of ['/api/bookings', '/api/octo/bookings/[uuid]/confirm', '/api/p/[code]']) {
+      const r = records.find((x) => x.url === url);
+      expect(r, `${url} исчез из переписи`).toBeDefined();
+      expect(r?.protection, `${url} помечен снятым, хотя у него есть живой метод`)
+        .not.toBe('deprecated_stub');
+    }
+  });
+
+  it('снятые действительно ничего не делают', () => {
+    expect(summary.deprecated_stub).toBeGreaterThan(0);
+    expect(summary.deprecated_stub).toBeLessThan(20);
   });
 });
 
