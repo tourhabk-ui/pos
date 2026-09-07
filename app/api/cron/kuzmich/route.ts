@@ -60,7 +60,10 @@ export async function GET(request: NextRequest) {
   const resolved = resolvePostType(searchParams.get('type'));
   const postType = resolved.type;
 
-  let result: { ok: boolean; error?: string; routeId?: string; tourId?: number };
+  // `photo` отдельно от `ok`: пост мог уйти, а снимок — нет. До 07.09 эти два
+  // случая были неразличимы снаружи, и «ни одной фотографии» жило незамеченным
+  // при зелёных прогонах крона (§4.0).
+  let result: { ok: boolean; error?: string; routeId?: string; tourId?: number; photo?: string; photoError?: string };
 
   if (postType === 'friend') {
     const slug = searchParams.get('slug') ?? '';
@@ -87,6 +90,8 @@ export async function GET(request: NextRequest) {
     requested: resolved.requested ?? null,
     routeId: result.routeId ?? null,
     tourId: result.tourId ?? null,
+    photo: result.photo ?? 'unknown',
+    photo_error: result.photoError ?? null,
     timestamp: new Date().toISOString(),
   });
 }

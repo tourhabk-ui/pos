@@ -290,13 +290,33 @@ interface ChannelPost {
   photoUrls?: string[] | null;
 }
 
-async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Итог публикации, в котором у ФОТО свой исход.
+ *
+ * До 07.09 отправка возвращала `ok: true` и когда снимок ушёл, и когда он не
+ * ушёл, а текст ушёл: разные события под одним словом. Из-за этого «ни одной
+ * фотографии» прожило незамеченным — крон отвечал успехом, а канал молчал
+ * картинками, и увидеть разницу мог только человек, открывший канал (§4.0).
+ *
+ * `photo`: `sent` — снимок ушёл; `text_only` — снимок отвергнут, ушёл текст;
+ * `none` — снимка и не просили.
+ */
+export type PhotoOutcome = 'sent' | 'text_only' | 'none';
+export interface ChannelPostResult {
+  ok: boolean;
+  error?: string;
+  photo: PhotoOutcome;
+  /** Почему снимок не ушёл — при `text_only`. */
+  photoError?: string;
+}
+
+async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> {
   const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl, photoUrls } = post;
   const issue = blockingTextIssue(text);
   if (issue) {
     const error = `Публикация отменена: ${issue}`;
     console.error('[postToAllChannels]', error, `| текст: ${JSON.stringify(text.slice(0, 120))}`);
-    return { ok: false, error };
+    return { ok: false, error, photo: 'none' };
   }
 
   // Полная проверка текста: качество, запрещённое и ЖИВОСТЬ ВСЕХ ССЫЛОК.
@@ -310,7 +330,7 @@ async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; erro
     const error = `Публикация отменена: ${validation.errors.join('; ')}`;
     console.error('[postToAllChannels]', postType, error);
     await logValidationFailure(postType, validation);
-    return { ok: false, error };
+    return { ok: false, error, photo: 'none' };
   }
 
   const tgLink = process.env.TELEGRAM_CHANNEL_LINK ?? '';
@@ -340,7 +360,17 @@ async function postToAllChannels(post: ChannelPost): Promise<{ ok: boolean; erro
     if (!r.ok) console.error('[postToAllChannels] MAX channel error:', r.error);
   }).catch(() => {});
 
-  return mainResult;
+  // Исход ФОТО отделён от исхода публикации: пост мог уйти, а снимок — нет,
+  // и раньше эти два случая были неразличимы снаружи.
+  const asked = Boolean((photoUrls && photoUrls.length > 0) || photoUrl);
+  const fellBack = 'fellBackToText' in mainResult && mainResult.fellBackToText === true;
+  const photo: PhotoOutcome = !asked ? 'none' : (mainResult.ok && !fellBack ? 'sent' : 'text_only');
+  return {
+    ok: mainResult.ok,
+    ...(mainResult.error ? { error: mainResult.error } : {}),
+    photo,
+    ...(photo === 'text_only' && mainResult.error ? { photoError: mainResult.error } : {}),
+  };
 }
 
 const LOCATION_LABELS: Record<string, string> = {
@@ -675,7 +705,7 @@ function ownPhotoUrl(routeId: string): string {
  * Промпт запрещал выдумывать — и не помог, как не помог 12.07 и 19.08.
  * Сторож структурный: тексту неоткуда взять то, чего нет в записи.
  */
-export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: string; error?: string }> {
+export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: string; error?: string; photo?: PhotoOutcome; photoError?: string }> {
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
@@ -782,7 +812,9 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
       try {
         await query(
           `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-          ['kuzmich_post', JSON.stringify({ route_id: r.id, route_title: r.title })]
+          // Исход снимка — в журнал: по нему видно, ушёл пост с фото или
+          // текстом, без чтения канала глазами.
+          ['kuzmich_post', JSON.stringify({ route_id: r.id, route_title: r.title, photo: result.photo, photo_error: result.photoError ?? null })]
         );
       } catch { /* таблица ещё не создана — не блокируем пост */ }
     }
@@ -891,7 +923,7 @@ export const TOUR_REPEAT_MIN_GAP_DAYS = 2;
  * пост о месте за выдуманную фактуру; у тура цена ошибки выше — это оферта.
  * Решение владельца 05.09: вечерний слот — туры, не сезонные посты.
  */
-export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string }> {
+export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string; photo?: PhotoOutcome; photoError?: string }> {
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
@@ -957,7 +989,9 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
     try {
       await query(
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title, text_hash: tourPostHash(text) })]
+        // Исход снимка — в журнал: по нему видно, ушёл пост с фото или
+        // текстом, без чтения канала глазами.
+        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title, text_hash: tourPostHash(text), photo: result.photo, photo_error: result.photoError ?? null })]
       );
     } catch { /* таблица ещё не создана — не блокируем пост */ }
   }
