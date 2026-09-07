@@ -47,6 +47,10 @@ const summary = summarize(records);
  * с объяснением в PR, а не способ погасить красный тест.
  */
 const NEEDS_REVIEW_FROZEN = [
+  // Разобран 07.09: закрыт список партнёрских хостов (нельзя одолжить наш
+  // маркер под любой адрес). Из списка НЕ вычеркнут намеренно — перепись
+  // спрашивает про проверку прав, а перечень назначений ею не является.
+  // Вычеркнуть можно будет, когда появится настоящая проверка вызывающего.
   '/api/affiliate/link',
   '/api/agent/plan',
   '/api/ai',
@@ -60,7 +64,6 @@ const NEEDS_REVIEW_FROZEN = [
   '/api/meta/catalog',
   '/api/safety/alerts',
   '/api/safety/visit',
-  '/api/tourist/feedback/agent',
   '/api/trip/plan',
   '/api/webhooks/travelpayouts',
 ] as const;
