@@ -36,7 +36,8 @@ permissions:
 jobs:
   editor:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 45: ожидание своей сборки (до 25 мин) плюс сам прогон.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
@@ -47,6 +48,21 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
+
+      # Ждём СВОЮ сборку — маркер едет вместе с кодом.
+      #
+      # Замер 07.09: маркер поднят в том же коммите, что и новые эндпоинты,
+      # прогон стартовал через 40 секунд и получил HTTP 404 — прода с этим
+      # кодом ещё не было. Красный был честным («писать нечего, и это не всё
+      # описано»), но работа не сделана. Только для запуска маркером: по
+      # расписанию head_commit пуст.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
 
       - name: Fetch job (очередь описаний от прода)
         env:
