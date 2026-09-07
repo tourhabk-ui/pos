@@ -61,10 +61,15 @@ const ENRICH_SQL = `
     r.zone,
     (r.geometry IS NOT NULL) AS has_line,
     r.geometry->>'source' AS geometry_source,
-    ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names,
-    ARRAY_AGG(p.id ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_ids,
-    ARRAY_AGG(p.lat ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lats,
-    ARRAY_AGG(p.lng ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lngs
+    -- link_kind = 'nearby' — «это рядом, загляните», НЕ точка пути (§4.1,
+    -- lib/routes/link-kind.ts). Без этого фильтра поиск по месту находил
+    -- чужой маршрут, к которому это место лежит просто близко, и открывал
+    -- ЕГО трек, выдавая за путь к месту, которое маршрут не посещает
+    -- (владелец 07.09: «Дикие озерки» открывали трек «Зеленовские озерки»).
+    ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_names,
+    ARRAY_AGG(p.id ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_ids,
+    ARRAY_AGG(p.lat ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_lats,
+    ARRAY_AGG(p.lng ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_lngs
   FROM kamchatka_routes r
   LEFT JOIN route_waypoints rw ON rw.route_id = r.id
   LEFT JOIN places p ON p.id = rw.place_id
@@ -130,10 +135,12 @@ export async function GET(req: NextRequest) {
          r.zone,
          (r.geometry IS NOT NULL) AS has_line,
          r.geometry->>'source' AS geometry_source,
-         ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names,
-         ARRAY_AGG(p.id ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_ids,
-         ARRAY_AGG(p.lat ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lats,
-         ARRAY_AGG(p.lng ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_lngs
+         -- link_kind = 'nearby' исключается тем же способом и по той же
+         -- причине, что в ENRICH_SQL выше — см. её комментарий.
+         ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_names,
+         ARRAY_AGG(p.id ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_ids,
+         ARRAY_AGG(p.lat ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_lats,
+         ARRAY_AGG(p.lng ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE AND COALESCE(rw.link_kind, 'unknown') <> 'nearby') AS waypoint_lngs
        FROM kamchatka_routes r
        LEFT JOIN route_waypoints rw ON rw.route_id = r.id
        LEFT JOIN places p ON p.id = rw.place_id
@@ -143,19 +150,25 @@ export async function GET(req: NextRequest) {
          AND (
            r.title ILIKE $1
            OR EXISTS (
+             -- Поиск ПО МЕСТУ находит маршрут, только если место — точка
+             -- ЕГО пути, а не просто соседствует с ним (см. комментарий выше).
              SELECT 1 FROM route_waypoints rw2
              JOIN places p2 ON p2.id = rw2.place_id
              WHERE rw2.route_id = r.id AND p2.is_visible = TRUE AND p2.name ILIKE $1
+               AND COALESCE(rw2.link_kind, 'unknown') <> 'nearby'
            )
          )
          -- Компактность вейпоинтов (bbox ≤ ~55 км) ЛИБО их отсутствие:
          -- мега-сборники «35 мест по всему краю» — не проходимые треки,
-         -- их синтетическая геометрия рисуется паутиной (полевой скрин 20.07)
+         -- их синтетическая геометрия рисуется паутиной (полевой скрин 20.07).
+         -- nearby-точки не входят в замер — иначе случайное «рядом» на другом
+         -- конце края расширило бы bbox маршрута, которого он не заслуживает.
          AND COALESCE(
            (SELECT (MAX(p3.lat) - MIN(p3.lat)) <= 0.5 AND (MAX(p3.lng) - MIN(p3.lng)) <= 0.8
             FROM route_waypoints rw3
             JOIN places p3 ON p3.id = rw3.place_id
-            WHERE rw3.route_id = r.id AND p3.lat IS NOT NULL AND p3.lng IS NOT NULL),
+            WHERE rw3.route_id = r.id AND p3.lat IS NOT NULL AND p3.lng IS NOT NULL
+              AND COALESCE(rw3.link_kind, 'unknown') <> 'nearby'),
            TRUE
          )
        GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.elevation_gain_m, r.zone
