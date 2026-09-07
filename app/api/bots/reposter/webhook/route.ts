@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { maxPostToChannel, maxPostPhotoToChannel } from '@/lib/notifications/max-channel';
 
 export const dynamic = 'force-dynamic';
@@ -105,13 +106,33 @@ function tgTextToMaxHtml(text: string): string {
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // 1. Проверка секрета (защита от спама)
+  // 1. Проверка секрета вызывающего.
+  //
+  // ── Что здесь было не так (разбор периметра 07.09) ──────────────────────
+  //
+  // Проверка стояла ВНУТРИ `if (secret)`: не задана переменная — и весь
+  // разбор пропускался, то есть адрес принимал что угодно от кого угодно.
+  // Это отказ в открытую сторону: защита исчезала ровно тогда, когда её
+  // настроить забыли, и заметить это было нечем — сервис отвечал 200.
+  //
+  // А принимает он обновление Telegram, из которого дальше собирается пост
+  // в канал. Подделанное обновление — чужой текст в нашем канале.
+  //
+  // Второе: сравнение `!==` подбирается по времени ответа. Теперь общее
+  // сравнение по постоянному времени.
+  //
+  // Секрета нет — отказ 503 «не настроено», и это ПРО НАС, а не про
+  // вызывающего (§4.0: «не смог проверить» не равно «проверил и отверг»).
   const secret = getWebhookSecret();
-  if (secret) {
-    const header = req.headers.get('X-Telegram-Bot-Api-Secret-Token') ?? '';
-    if (header !== secret) {
-      return NextResponse.json({ ok: false }, { status: 403 });
-    }
+  if (!secret) {
+    console.error('[reposter] REPOSTER_WEBHOOK_SECRET не задан — приём обновлений закрыт');
+    return NextResponse.json(
+      { ok: false, error: 'Приём не настроен: нет REPOSTER_WEBHOOK_SECRET' },
+      { status: 503 },
+    );
+  }
+  if (!timingSafeCompare(req.headers.get('X-Telegram-Bot-Api-Secret-Token'), secret)) {
+    return NextResponse.json({ ok: false }, { status: 403 });
   }
 
   let body: unknown;
