@@ -142,9 +142,6 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'elevation-backfill':        { kind: 'manual', writes: false, note: 'добор высот по точкам' },
   'explain-availability':      { kind: 'manual', writes: false, note: 'разбор занятости тура' },
   'hidden-tracks-census':      { kind: 'manual', writes: false, note: 'перепись скрытых треков' },
-  'idilesom-gap':              { kind: 'manual', writes: false, note: 'чего нет у нас против источника' },
-  'idilesom-name-gap':         { kind: 'manual', writes: false, note: 'расхождение имён с источником' },
-  'idilesom-scout':            { kind: 'manual', writes: false, note: 'разведка источника маршрутов' },
   'inspect-tour-card':         { kind: 'manual', writes: false, note: 'осмотр карточки тура' },
   'partner-candidates-census': { kind: 'manual', writes: false, note: 'перепись кандидатов в партнёры' },
   // Объявлено по шапке самого роута (23.08): правка координаты места партиями

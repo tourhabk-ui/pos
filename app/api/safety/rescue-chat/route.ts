@@ -12,6 +12,7 @@ import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { openRouterAttribution } from '@/lib/ai/attribution';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -168,7 +169,7 @@ export async function POST(req: NextRequest) {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://vedarai.ru',
+            ...openRouterAttribution('rescue-chat'),
           },
           body: JSON.stringify({
             model:      'openai/gpt-4o-mini',

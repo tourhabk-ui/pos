@@ -148,7 +148,11 @@ export function judgeAttachment(input: {
  * выдать догадку за измерение.
  */
 export async function runAttachmentAudit(
-  sources: string[] = ['idilesom', 'kml_inbox'],
+  // 'external' — тот же слог, что и раньше 'idilesom': миграция 941 убрала имя
+  // чужого сайта из метки источника, не тронув сами линии. Не поправить здесь
+  // значило бы оставить пересуд слепым: он искал бы метку, которой больше нет,
+  // и молча отчитывался «ноль треков» вместо честной работы.
+  sources: string[] = ['external', 'kml_inbox'],
 ): Promise<AttachmentAudit> {
   const startedAt = Date.now();
 

@@ -9,9 +9,20 @@
  * Сторож держит оба свойства сразу и ищет возврат второй копии.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTrackBlocks } from '@/lib/services/ingest/track-parse';
+
+/** Все исходники каталога — сторожу ниже нужен весь код, а не список имён. */
+function walk(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    if (name === 'node_modules' || name.startsWith('.')) continue;
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) walk(p, out);
+    else if (/\.(ts|tsx|js|mjs)$/.test(name)) out.push(p);
+  }
+  return out;
+}
 
 /** Настоящий трек Камчатки в порядке GeoJSON: [долгота, широта, высота]. */
 const geoJsonBlock = JSON.stringify(
@@ -64,20 +75,21 @@ describe('разбор трека со страницы источника', () 
   it('разбор живёт в одном месте — второй копии нет', () => {
     // Копии расходятся молча: у каждой из двух прежних был баг, вылеченный в
     // другой. Сторож ищет ту самую эвристику по ПЕРВОЙ точке.
-    const files = [
-      'lib/services/ingest/idilesom-importer.ts',
-      'scripts/import-idilesom-tracks.ts',
-    ];
+    //
+    // 07.09 оба прежних файла удалены вместе со скрейпером источника, и список
+    // имён стал списком призраков. Проверять по нему нечего — поэтому сторож
+    // теперь ищет эвристику ПО ВСЕМУ коду, кроме самого общего разбора. Так он
+    // ловит и копию, которую заведут завтра под другим именем: список имён
+    // защищал только от повторения ровно той же истории.
+    const files = walk(join(process.cwd(), 'lib'))
+      .concat(walk(join(process.cwd(), 'app')), walk(join(process.cwd(), 'scripts')))
+      .filter(f => !f.endsWith('lib/services/ingest/track-parse.ts'));
     for (const f of files) {
-      const src = readFileSync(join(process.cwd(), f), 'utf-8');
+      const src = readFileSync(f, 'utf-8');
       expect(
         /Math\.abs\(\s*first\[0\]/.test(src),
         `${f}: порядок осей снова решается по одной точке — разбор раздвоился`,
       ).toBe(false);
-      expect(
-        src.includes('parseTrackBlocks'),
-        `${f}: разбирает трек мимо общего правила`,
-      ).toBe(true);
     }
   });
 });

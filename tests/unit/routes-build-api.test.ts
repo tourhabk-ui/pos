@@ -125,6 +125,29 @@ describe('режим car — нормализует ответ провайде�
     expect(option.lineGrade).toBeNull();
     expect(option.calculated).toEqual(calcRoute);
     expect(option.distanceKm).toBeCloseTo(26.1085);
+    // Владелец 07.09, «Мишенная сопка»/«верх не меняется»: заголовок
+    // варианта обязан назвать РЕАЛЬНУЮ цель, не родовое «Путь на
+    // автомобиле» безусловно — иначе шапка экрана никогда не узнает,
+    // куда на самом деле построен путь.
+    expect(option.title).toBe('Вулкан Авачинский');
+  });
+
+  it('координата без имени (тап по голой карте) — родовой заголовок остаётся честным', async () => {
+    const calcRoute = {
+      kind: 'calculated_car',
+      geometry: { type: 'LineString', coordinates: [[158.45, 53.19], [158.65, 53.04]] },
+      distanceM: 26108.5,
+      durationS: 1830.8,
+      originSnapped: { lat: 53.19, lon: 158.45, snapDistanceM: 35 },
+      destinationSnapped: { lat: 53.04, lon: 158.65, snapDistanceM: 1.3 },
+      provider: 'fixture', builtAt: '2026-08-28T00:00:00.000Z', traffic: false,
+      mayDisplay: true, mayNavigate: false, mayPersist: false,
+    };
+    routeMock.mockResolvedValue({ status: 'found', route: calcRoute });
+    const NAMELESS = { kind: 'coordinate' as const, lat: 53.035, lon: 158.65 };
+    const res = await POST(req({ origin: PPK, destination: NAMELESS, mode: 'car' }));
+    const json = await res.json();
+    expect(json.result.options[0].title).toBe('Путь на автомобиле');
   });
 
   it('found с ненадёжной привязкой (снап > 1000 м) — эндпоинт понижает в not_found', async () => {

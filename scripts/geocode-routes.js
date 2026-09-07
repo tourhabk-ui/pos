@@ -175,11 +175,13 @@ async function main() {
      FROM agent_route_knowledge
      WHERE lat IS NULL
        AND source_name NOT LIKE 'openstreetmap%'
-     ORDER BY
-       CASE WHEN source_name = 'idilesom.com' THEN 0
-            WHEN source_name = 'kamchatintour.ru' THEN 1
-            ELSE 2 END,
-       title ASC
+     -- Порядок больше не решается именем поставщика (07.09). Прежде первыми
+     -- геокодировались записи конкурентов — просто потому, что их скачали
+     -- подробнее. После миграции 941 первое условие не совпало бы ни с чем, и
+     -- очередь молча возглавил бы второй конкурент. Партии режутся по LIMIT,
+     -- поэтому от порядка нужна только устойчивость между прогонами — её даёт
+     -- title.
+     ORDER BY title ASC
      LIMIT $1`,
     [LIMIT]
   );

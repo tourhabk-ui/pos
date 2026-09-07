@@ -28,6 +28,7 @@
  * Использование: npx tsx scripts/route-analysis-runner.ts <corpus.json> [модель]
  */
 import { readFileSync } from 'node:fs';
+import { openRouterAttribution } from '../lib/ai/attribution';
 
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-6-astra';
@@ -120,8 +121,10 @@ async function main(): Promise<void> {
       headers: {
         'Content-Type': 'application/json',
         authorization: `Bearer ${key}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'TourHab route corpus analysis (runner)',
+        // Подпись берётся из общего модуля: захардкоженный `vedarai.ru`
+        // делал витрину OpenRouter слепой к тому, кто жжёт токены — прод или
+        // раннер (случай 07.09, сторож ai-attribution).
+        ...openRouterAttribution('route corpus analysis'),
       },
       body: JSON.stringify({
         model,

@@ -47,6 +47,7 @@ import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
 import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key-identity';
+import { openRouterAttribution } from '@/lib/ai/attribution';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -402,8 +403,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'TourHab Kamchatka',
+          ...openRouterAttribution(),
         },
         body: JSON.stringify({
           model: id,
@@ -504,8 +504,7 @@ export async function callOpenRouterModel(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'Vedarai Kamchatka',
+        ...openRouterAttribution(),
       },
       body: JSON.stringify(body),
     }, { timeoutMs, label: `openrouter-model:${modelId}` });
@@ -577,8 +576,7 @@ export async function callOpenRouterWithTools(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'Vedarai Kamchatka',
+        ...openRouterAttribution(),
       },
       body: JSON.stringify({
         model: modelId,
@@ -1511,7 +1509,7 @@ export async function probeFlagshipRelay(): Promise<{
     try {
       const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey}`, 'HTTP-Referer': 'https://vedarai.ru', 'X-Title': 'Vedarai Kamchatka' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey}`, ...openRouterAttribution() },
         body: JSON.stringify({ model: flagshipModel, max_tokens: 16, messages: probeMsg }),
         signal: AbortSignal.timeout(15_000),
       });
@@ -2609,8 +2607,7 @@ export async function callGeminiVision(
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'Vedarai Kamchatka',
+          ...openRouterAttribution(),
         },
         body: JSON.stringify({
           model: 'google/gemini-2.0-flash-001',
@@ -2698,8 +2695,7 @@ export async function callGeminiTranscribe(
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'Vedarai Kamchatka',
+        ...openRouterAttribution(),
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-001',
@@ -2771,8 +2767,7 @@ export async function callGeminiPDF(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'Vedarai Kamchatka',
+        ...openRouterAttribution(),
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-001',
@@ -2926,8 +2921,7 @@ export async function preflightProviders(): Promise<{
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'TourHab Kamchatka',
+          ...openRouterAttribution(),
         },
         body: JSON.stringify({ model: 'openai/gpt-4o-mini', max_tokens: 5, messages: testMsg }),
         signal: AbortSignal.timeout(5000),
@@ -3601,8 +3595,7 @@ export async function callAIFast(
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'TourHab Kamchatka',
+          ...openRouterAttribution(),
         },
         body: JSON.stringify({
           model: 'deepseek/deepseek-chat-v3-0324',
@@ -3716,8 +3709,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${apiKey}`,
-              'HTTP-Referer': 'https://vedarai.ru',
-              'X-Title': 'Vedarai Kamchatka',
+              ...openRouterAttribution(),
             },
             body: JSON.stringify({ model: id, temperature: 0.4, max_tokens: 200, messages: payload }),
             signal: AbortSignal.timeout(timeout),

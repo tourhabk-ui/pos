@@ -12,7 +12,7 @@
  * положении, — но и не выдаёт её за текущую: цвет уходит в приглушённый.
  */
 
-import { Binoculars, Clock, Mountain } from 'lucide-react';
+import { Binoculars, Clock, Mountain, Route } from 'lucide-react';
 
 export interface FieldDistanceProps {
   /** Готовая подпись расстояния («1,8 км»); null — считать нечего. */
@@ -26,6 +26,12 @@ export interface FieldDistanceProps {
   etaLabel: string | null;
   /** Набор высоты впереди («+110 м»); null — высот в данных нет. */
   ascentLabel: string | null;
+  /**
+   * Весь маршрут целиком («всего 18.2 км»); null — точка одна, «до точки» и
+   * есть весь путь, второе число только спорило бы с первым (владелец 07.09:
+   * «нужно не только до следующей точки, но и всего сколько км»).
+   */
+  totalLabel: string | null;
   /**
    * Свёрнутый лист (02.09, карт-бланш владельца): цифра в одну строку с
    * чипами, карта видна на большей части экрана. Кегль меньше, но всё ещё
@@ -61,6 +67,11 @@ export function FieldDistance(p: FieldDistanceProps) {
         {p.ascentLabel && (
           <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--ocean)' }}>
             <Mountain className="w-3.5 h-3.5 shrink-0" />{p.ascentLabel}
+          </span>
+        )}
+        {p.totalLabel && (
+          <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <Route className="w-3.5 h-3.5 shrink-0" />{p.totalLabel}
           </span>
         )}
       </div>

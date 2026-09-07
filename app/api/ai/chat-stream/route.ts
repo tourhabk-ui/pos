@@ -41,6 +41,7 @@ import {
 } from '@/lib/ai/user-memory';
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
 import { detectEmergency, buildSosBlock } from '@/lib/safety/sos-detector';
+import { openRouterAttribution } from '@/lib/ai/attribution';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -129,8 +130,7 @@ async function streamViaOpenRouter(messages: ChatMessage[]): Promise<Response | 
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'TourHab Chat Stream',
+        ...openRouterAttribution('chat-stream'),
       },
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',

@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { openRouterAttribution } from '@/lib/ai/attribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,8 +74,7 @@ export async function GET(req: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'TourHab Kamchatka',
+        ...openRouterAttribution('admin-test'),
       },
       body: JSON.stringify({
         model,

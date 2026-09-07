@@ -42,9 +42,19 @@ export interface FieldActionBarProps {
   actions: FieldAction[];
   /** Отказ последнего действия — словами. */
   error?: string | null;
+  /**
+   * Свёрнутый лист «На маршруте» (владелец 07.09, третий раунд той же
+   * жалобы — «занимает очень много места карты», после 60vh→45vh→32vh):
+   * панель одна на оба состояния листа (форма 02.09), и подпись+счётчик под
+   * каждой кнопкой стабильно добавляли ~35px высоты, которых карте не
+   * доставалось. Кружок-кнопка НЕ меняет размер — 56px, «под палец в
+   * перчатке», трогать нельзя ни в каком виде; уходит только текст под
+   * ним, а имя действия остаётся доступным экранным читалкам aria-label'ом.
+   */
+  compact?: boolean;
 }
 
-export function FieldActionBar({ actions, error }: FieldActionBarProps) {
+export function FieldActionBar({ actions, error, compact }: FieldActionBarProps) {
   if (actions.length === 0) return null;
 
   return (
@@ -57,8 +67,9 @@ export function FieldActionBar({ actions, error }: FieldActionBarProps) {
             onClick={a.onPress}
             disabled={a.busy}
             aria-pressed={a.active ? true : undefined}
+            aria-label={compact ? a.label : undefined}
             className="flex flex-col items-center gap-1.5 shrink-0"
-            style={{ width: 84 }}
+            style={compact ? undefined : { width: 84 }}
           >
             <span
               className="relative flex items-center justify-center rounded-2xl"
@@ -84,11 +95,13 @@ export function FieldActionBar({ actions, error }: FieldActionBarProps) {
                 </span>
               )}
             </span>
-            <span className="text-[11.5px] leading-tight text-center"
-              style={{ color: 'var(--text-secondary)' }}>
-              {a.label}
-            </span>
-            {a.hint && (
+            {!compact && (
+              <span className="text-[11.5px] leading-tight text-center"
+                style={{ color: 'var(--text-secondary)' }}>
+                {a.label}
+              </span>
+            )}
+            {!compact && a.hint && (
               <span className="text-[11px] leading-tight text-center tabular-nums"
                 style={{ color: a.active ? 'var(--accent)' : 'var(--text-muted)' }}>
                 {a.hint}

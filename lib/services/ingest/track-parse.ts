@@ -112,20 +112,8 @@ export function parseTrackBlocks(html: string): ParsedTrack {
   };
 }
 
-/**
- * В каком порядке записаны оси — по ВСЕМУ блоку, а не по первой точке.
- *
- * Нужна осмотру страницы (`inspectIdilesomShape`), который смотрит на сырые
- * блоки и отвечает на вопрос «есть ли у источника высоты вообще». Осмотр
- * намеренно ничего не фильтрует — но и врать о порядке осей не должен:
- * у профиля высот первое число меньше 90, и прежний ответ «lat-first» был
- * не наблюдением, а той же ошибочной догадкой.
- *
- * `null` — ни одно прочтение не даёт точек Камчатки: это не координаты.
- */
-export function axisOrder(pairs: number[][]): 'lng-first' | 'lat-first' | null {
-  if (!Array.isArray(pairs) || pairs.length === 0) return null;
-  if (allOnMap(readAs(pairs, true))) return 'lng-first';
-  if (allOnMap(readAs(pairs, false))) return 'lat-first';
-  return null;
-}
+// `axisOrder` жила здесь ради осмотра страниц источника (`inspectIdilesomShape`)
+// и вместе с ним удалена 07.09: скрейпер вычищен, звать её стало некому. Само
+// правило никуда не делось — тот же вопрос решает `parseTrackBlocks` выше через
+// readAs/allOnMap; понадобится отдельный ответ о порядке осей — это пять строк
+// поверх тех же помощников, а не оживление мёртвого экспорта.
