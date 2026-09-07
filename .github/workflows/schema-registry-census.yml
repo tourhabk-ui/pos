@@ -45,7 +45,7 @@ jobs:
     # исход снова становится неразличим.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Состояние каждого пункта списка #1304 на проде
         env:
