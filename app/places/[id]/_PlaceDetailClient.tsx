@@ -31,6 +31,7 @@ const PlaceFieldReports     = dynamic(() => import('@/components/places/PlaceFie
 const PhotoUpload           = dynamic(() => import('@/components/places/PhotoUpload').then(m => ({ default: m.PhotoUpload })), { ssr: false });
 const PlaceUserPhotos       = dynamic(() => import('@/components/places/PlaceUserPhotos'),       { ssr: false });
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
+const PlaceOwnRoute         = dynamic(() => import('@/components/places/PlaceOwnRoute').then(m => ({ default: m.PlaceOwnRoute })), { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
 const NavigateTo            = dynamic(() => import('@/components/shared/NavigateTo'),            { ssr: false });
 
@@ -216,6 +217,15 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
       {/* Action bar: navigate, bookmark, share, weather */}
       <PlaceActionBar lat={place.lat} lng={place.lng} placeId={place.id} name={place.name} />
+
+      {/* Свой рассчитанный автопуть (владелец 07.09: «добавить свой трек на
+          место») — сразу под шапкой, не в конце страницы: до этой правки
+          НИ ОДНА ссылка навигации на карточке не вела на платформу, обе
+          уходили во внешние навигаторы (осознанное решение 11.08), а свой
+          роутер (roadGraphCarProvider) был подключён только в /planning. */}
+      <div className="max-w-3xl mx-auto px-4 pt-3">
+        <PlaceOwnRoute lat={place.lat} lng={place.lng} name={place.name} />
+      </div>
 
       {/* Offline cache notice */}
       {fromCache && (
