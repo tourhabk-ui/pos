@@ -18,6 +18,7 @@ import { composePlacePost } from '@/lib/notifications/place-post';
 // рвал теги и оставлял голый `<`, а Bot API на такую подпись отвечает 400 —
 // и пост, у которого фото ЕСТЬ, уходил голым текстом.
 import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
+import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upload';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -68,16 +69,58 @@ async function tgPost(chatId: string, text: string, botToken?: string): Promise<
   return { ok: data.ok, error: data.description };
 }
 
-/** Одна попытка sendPhoto — БЕЗ фолбэка. Причина отказа возвращается наверх. */
+const tgApiBase = () => process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+
+/**
+ * Отправка формой: снимок уходит БАЙТАМИ, а не ссылкой.
+ *
+ * Пока мы даём ссылку, публикация зависит от того, дойдёт ли сервер Telegram
+ * до нашего хоста. 07.09 журнал показал, что не доходит: «failed to get HTTP
+ * URL content» и «WEBPAGE_CURL_FAILED» при живых снимках (перепись с прода:
+ * 200, image/jpeg, 68–214 КБ). Байты убирают это условие целиком.
+ */
+async function tgSendMultipart(method: string, token: string, form: FormData): Promise<{ ok: boolean; description?: string }> {
+  try {
+    const res = await fetch(`${tgApiBase()}/bot${token}/${method}`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(30000),
+    });
+    return await res.json() as { ok: boolean; description?: string };
+  } catch (err) {
+    return { ok: false, description: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Одна попытка sendPhoto — БЕЗ фолбэка на другое фото. Причина отказа
+ * возвращается наверх.
+ *
+ * Порядок попыток: сначала байтами (не зависит от достижимости нашего хоста
+ * снаружи), при неудаче СКАЧИВАНИЯ — ссылкой, как раньше. Ссылка осталась не
+ * из осторожности к правке, а потому что «мы не смогли скачать свой же файл»
+ * и «Telegram не смог скачать» — разные беды, и вторая ссылкой ещё может
+ * решиться.
+ */
 async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string, token: string): Promise<{ ok: boolean; error?: string }> {
+  const safeCaption = repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT);
+  const fetched = await fetchPhotoForUpload(photoUrl);
+
+  if (isFetched(fetched)) {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('caption', safeCaption);
+    form.append('parse_mode', 'HTML');
+    form.append('photo', fetched.blob, fetched.filename);
+    const data = await tgSendMultipart('sendPhoto', token, form);
+    if (data.ok) return { ok: true };
+    return { ok: false, error: `загрузкой: ${data.description ?? 'unknown'}` };
+  }
+
+  console.error('[tgSendPhotoOnce] свой снимок не скачался, пробуем ссылкой:', fetched.error, '| photo:', photoUrl);
   const data = await tgFetchWithRetry(
-    `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendPhoto`,
-    {
-      chat_id: chatId,
-      photo: photoUrl,
-      caption: repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT),
-      parse_mode: 'HTML',
-    },
+    `${tgApiBase()}/bot${token}/sendPhoto`,
+    { chat_id: chatId, photo: photoUrl, caption: safeCaption, parse_mode: 'HTML' },
   );
   return { ok: data.ok, error: data.description };
 }
@@ -116,13 +159,39 @@ export async function tgPostMediaGroup(
 
   const photos = photoUrls.slice(0, 10);
   if (photos.length > 1) {
+    const safeCaption = repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT);
+
+    // Альбом байтами: каждый кадр прикладывается файлом и назначается в media
+    // через attach://. Пока альбом ссылался на наши URL, Telegram отвечал
+    // WEBPAGE_CURL_FAILED — «не смог скачать» — при живых снимках.
+    const fetched = await Promise.all(photos.map((u) => fetchPhotoForUpload(u)));
+    const files = fetched.filter(isFetched);
+    if (files.length > 1) {
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('media', JSON.stringify(files.map((f, i) => (
+        i === 0
+          ? { type: 'photo', media: `attach://p${i}`, caption: safeCaption, parse_mode: 'HTML' }
+          : { type: 'photo', media: `attach://p${i}` }
+      ))));
+      files.forEach((f, i) => form.append(`p${i}`, f.blob, f.filename));
+      const uploaded = await tgSendMultipart('sendMediaGroup', token, form);
+      if (uploaded.ok) return { ok: true, sent: files.length };
+      console.error('[tgPostMediaGroup] альбом загрузкой не ушёл:', uploaded.description ?? 'unknown');
+    } else {
+      // Скачать свои же снимки не вышло — это НАША беда, и она называется
+      // отдельно от отказа Telegram.
+      const why = fetched.filter((f) => !isFetched(f)).map((f) => (f as { error: string }).error).slice(0, 3);
+      console.error('[tgPostMediaGroup] свои снимки не скачались:', why.join('; ') || 'unknown');
+    }
+
     const media = photos.map((url, i) => (
       i === 0
-        ? { type: 'photo', media: url, caption: repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT), parse_mode: 'HTML' }
+        ? { type: 'photo', media: url, caption: safeCaption, parse_mode: 'HTML' }
         : { type: 'photo', media: url }
     ));
     const data = await tgFetchWithRetry(
-      `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMediaGroup`,
+      `${tgApiBase()}/bot${token}/sendMediaGroup`,
       { chat_id: chatId, media },
     );
     if (data.ok) return { ok: true, sent: photos.length };
