@@ -1,0 +1,33 @@
+/**
+ * lib/services/safety/feed-types.ts
+ *
+ * Какие типы тревог попадают в ленту безопасности (главная и /safety).
+ *
+ * Список живёт отдельно от запроса, потому что его должен видеть не только
+ * тот, кто РИСУЕТ ленту, но и тот, кто её ПРОВЕРЯЕТ. Перепись, отвечающая на
+ * вопрос «почему эта строка висит на главной», обязана судить ровно тот
+ * набор, который главная и показывает: своя копия списка ответила бы про
+ * другую ленту и звучала бы при этом убедительно.
+ *
+ * Отбор — «меняет решение туриста сегодня»: закрытия, вулканы, стихии,
+ * погода. Общие новости и сводки (`info`, `fire_danger`) сюда не входят —
+ * им место в новостном блоке. Землетрясения идут отдельным блоком «Пульс
+ * полуострова», а не лентой.
+ */
+export const FEED_ALERT_TYPES = [
+  'road_closure',
+  'volcano',
+  'volcanic_eruption',
+  'ash_cloud',
+  'tsunami_warning',
+  'flood',
+  'avalanche',
+  'landslide',
+  'weather',
+] as const;
+
+export type FeedAlertType = (typeof FEED_ALERT_TYPES)[number];
+
+export function isFeedAlertType(type: string | null): boolean {
+  return type != null && (FEED_ALERT_TYPES as readonly string[]).includes(type);
+}

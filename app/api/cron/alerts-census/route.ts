@@ -33,6 +33,8 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
+import { rejectedGenre } from '@/lib/services/safety/alert-prune';
+import { isFeedAlertType } from '@/lib/services/safety/feed-types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -49,6 +51,11 @@ const INGEST_AGENTS = CRON_REGISTRY
   .map((e) => e.agentId as string);
 
 interface TypeRow { alert_type: string | null; n: number; newest_age_min: number | null }
+interface LiveRow {
+  id: string; title: string | null; description: string | null;
+  alert_type: string | null; severity: number | null;
+  created_at: string; expires_at: string | null;
+}
 interface RunRow { agent_id: string; status: string; started_at: string; age_min: number }
 
 export async function GET(request: NextRequest) {
@@ -78,6 +85,49 @@ export async function GET(request: NextRequest) {
     );
     const w = window[0] ?? { last_25h: 0, last_7d: 0, newest_age_min: null };
 
+    // ── Что именно висит СЕЙЧАС ────────────────────────────────────────────
+    //
+    // Счётчиков по типам мало для вопроса «почему на главной стоит эта
+    // строка». 07.09 владелец прислал снимок с отчётом службы о собственной
+    // работе («…привлекались один раз») в блоке предупреждений, а чистка
+    // жанров в том же прогоне отвечала `service_statistics: 0`. Два факта
+    // противоречат друг другу, и разрешить их можно только текстом строки:
+    // либо страж её не узнаёт (тогда виден повод — вот он, дословно), либо
+    // она приходит не оттуда, где страж стоит.
+    //
+    // Поэтому перепись отдаёт живые тревоги вместе с ПРИГОВОРОМ стража по
+    // каждой (`rejected_genre`) и признаком «эта строка попадает в ленту»
+    // (`in_feed`, по общему списку типов). Догадок не остаётся: расхождение
+    // либо видно в этих полях, либо его нет.
+    const { rows: live } = await pool.query<LiveRow>(
+      `SELECT id::text, title, description, alert_type, severity::int AS severity,
+              created_at::text, expires_at::text
+         FROM external_alerts
+        WHERE expires_at IS NULL OR expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 60`,
+    );
+    const live_alerts = live.map((r) => {
+      const text = `${r.title ?? ''} ${r.description ?? ''}`.trim();
+      return {
+        id: r.id,
+        alert_type: r.alert_type,
+        severity: r.severity,
+        created_at: r.created_at,
+        expires_at: r.expires_at,
+        in_feed: isFeedAlertType(r.alert_type),
+        // Приговор ТОГО ЖЕ стража, что чистит хранилище каждые пять минут.
+        // null здесь при жанровом тексте на экране = страж его не узнаёт.
+        rejected_genre: text === '' ? null : rejectedGenre(text),
+        title: r.title,
+        // Тело целиком раздуло бы ответ (дорожные сводки идут абзацами), но и
+        // молчать о нём нельзя: жанр виден по глаголу, а глагол бывает только
+        // в теле. Отдаём начало и длину — по ним видно, что читал страж.
+        description_head: (r.description ?? '').slice(0, 300),
+        description_len: (r.description ?? '').length,
+      };
+    });
+
     // Ходил ли тот, кто наполняет таблицу. Без этого «тревог нет» неотличимо
     // от «некому было их записать».
     const { rows: runs } = await pool.query<RunRow>(
@@ -104,6 +154,15 @@ export async function GET(request: NextRequest) {
         last_7d: w.last_7d,
         newest_age_min: w.newest_age_min,
         by_type: byType,
+      },
+      live: {
+        total: live_alerts.length,
+        in_feed: live_alerts.filter((a) => a.in_feed).length,
+        // Сколько живых записей сегодняшний страж жанров не пропустил бы.
+        // Больше нуля — чистка не доехала; ноль при жанровой строке на
+        // экране — страж её не узнаёт, и в `alerts` ниже видно, какую.
+        rejected_by_genre: live_alerts.filter((a) => a.rejected_genre !== null).length,
+        alerts: live_alerts,
       },
       // Пусто — ни один из наполняющих агентов не отметился за неделю. Это
       // не «агентов нет», а «телеметрии нет»: имена ниже названы явно.
