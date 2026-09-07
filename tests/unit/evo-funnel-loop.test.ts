@@ -16,7 +16,13 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { pickFunnelFinding, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
+import {
+  pickFunnelFinding,
+  funnelSampleShortfall,
+  MIN_UPSTREAM_FOR_VERDICT,
+  type FunnelCounts,
+} from '@/lib/agents/evo/growth-agent';
+import { verdictFrom } from '@/app/api/cron/funnel-census/route';
 import { OUTWARD_CATEGORIES } from '@/lib/agents/evo/issue-reporter';
 
 const ROOT = process.cwd();
@@ -43,16 +49,16 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
   });
 
   it('туры смотрят, форму не трогают и заявок нет → карточка не конвертит', () => {
-    expect(pickFunnelFinding(counts({ visits: 12, tour_views: 9 }))?.title).toBe('Воронка: карточка тура не конвертит');
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: 12 }))?.title).toBe('Воронка: карточка тура не конвертит');
   });
 
   it('форму трогают, но ни брони, ни заявки → бросают', () => {
-    expect(pickFunnelFinding(counts({ visits: 12, tour_views: 9, booking_starts: 3 }))?.title)
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: 30, booking_starts: 12 }))?.title)
       .toBe('Воронка: бронь начинают и бросают');
   });
 
   it('брони без оплат → платёжный путь', () => {
-    const f = pickFunnelFinding(counts({ visits: 12, tour_views: 9, booking_starts: 3, bookings: 2 }));
+    const f = pickFunnelFinding(counts({ visits: 40, tour_views: 30, booking_starts: 12, bookings: 2 }));
     expect(f?.title).toBe('Воронка: брони есть, оплат нет');
     expect(f?.severity).toBe('high');
   });
@@ -61,15 +67,15 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
     // Заявок 2, форм брони никто не трогал: карточка КОНВЕРТИТ (в лида) —
     // находки «не конвертит» быть не должно; следующее звено (брони без оплат
     // при 0 броней) тоже не сломано → воронка живая, находка не нужна.
-    expect(pickFunnelFinding(counts({ visits: 12, tour_views: 9, leads: 2 }))).toBeNull();
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: 30, leads: 2 }))).toBeNull();
   });
 
   it('поток до оплаты есть → находки нет', () => {
-    expect(pickFunnelFinding(counts({ visits: 12, tour_views: 9, booking_starts: 3, bookings: 2, paid: 1 }))).toBeNull();
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: 30, booking_starts: 12, bookings: 2, paid: 1 }))).toBeNull();
   });
 
   it('планы смотрят, в туры не переходят → находка канала (П-8)', () => {
-    const healthy = { visits: 12, tour_views: 9, booking_starts: 3, bookings: 2, paid: 1 };
+    const healthy = { visits: 40, tour_views: 30, booking_starts: 12, bookings: 2, paid: 1 };
     const f = pickFunnelFinding(counts({ ...healthy, plan_views: 25, plan_to_tour: 0 }));
     expect(f?.title).toBe('Воронка: планы смотрят, в туры не переходят');
     // Канал жив → находки нет; мало просмотров → рано судить, тоже нет
@@ -85,6 +91,62 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
   it('цифры планов видны в описании каждой находки', () => {
     const f = pickFunnelFinding(counts({ plan_views: 7, plan_to_tour: 2 }));
     expect(f?.description).toContain('планы: просмотров 7, переходов в туры 2');
+  });
+
+  /**
+   * Случай #1689 (07.09): «бронь начинают и бросают», severity high, на ДВУХ
+   * начатых бронях. За неделю: 82 визита, 7 просмотров тура, 2 касания формы,
+   * 0 заявок, 0 броней.
+   *
+   * Ноль из двух не отличает сломанную форму от «двое передумали»: при
+   * здоровой конверсии в 20% ноль из двух выпадает в 64 случаях из ста.
+   * Проверка без порога выборки утверждала о туристах то, что было фактом
+   * о нашей арифметике, — тот же класс, что `rating: 4.5` у неоценённого
+   * перевозчика (§4.0).
+   *
+   * Сторож держит ОБА свойства: приговора нет, и молчание не выдаётся за
+   * здоровье — причина названа словами.
+   */
+  it('#1689: два касания формы — не улика, приговора нет', () => {
+    const real = counts({ visits: 82, tour_views: 7, booking_starts: 2 });
+    expect(pickFunnelFinding(real)).toBeNull();
+
+    const why = funnelSampleShortfall(real);
+    expect(why, 'третий исход обязан называться словами, а не пустотой').not.toBeNull();
+    // Звено названо то самое, о котором была находка: касания формы → бронь.
+    expect(why).toContain('форма брони → бронь или заявка');
+    expect(why).toContain('наблюдений 2 из 10');
+    expect(why).toContain('судить рано');
+  });
+
+  it('порог берётся из одной константы, а не из трёх чисел по месту', () => {
+    const n = MIN_UPSTREAM_FOR_VERDICT;
+    // На единицу ниже порога — молчим; на пороге — судим.
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: n - 1 }))).toBeNull();
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: n }))?.title)
+      .toBe('Воронка: карточка тура не конвертит');
+
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: 30, booking_starts: n - 1 }))).toBeNull();
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: 30, booking_starts: n }))?.title)
+      .toBe('Воронка: бронь начинают и бросают');
+  });
+
+  it('«нет визитов» порогом не гасится — это самостоятельный факт', () => {
+    // Ноль визитов не про выборку: верх воронки пуст, и это измерено.
+    expect(funnelSampleShortfall(counts({}))).toBeNull();
+    expect(pickFunnelFinding(counts({}))?.title).toBe('Воронка: нет визитов');
+  });
+
+  it('«судить рано» и «поток есть» — разные ответы переписи', () => {
+    const thin = { visits: 82, tour_views: 7, booking_starts: 2, leads: 0, bookings: 0, paid: 0 };
+    const alive = { visits: 40, tour_views: 30, booking_starts: 12, leads: 0, bookings: 2, paid: 1 };
+    expect(verdictFrom(thin).insufficient).not.toBeNull();
+    expect(verdictFrom(thin).verdict).toBeNull();
+    expect(verdictFrom(alive).insufficient).toBeNull();
+    expect(verdictFrom(alive).verdict).toBeNull();
+    // Перепись обязана печатать различие наружу, иначе оно живёт только в коде.
+    const CENSUS = readFileSync(join(ROOT, 'app/api/cron/funnel-census/route.ts'), 'utf-8');
+    expect(CENSUS).toContain('insufficient_sample');
   });
 
   it('находка детерминированная, сразу suggested и с цифрами недели', () => {

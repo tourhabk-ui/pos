@@ -750,6 +750,61 @@ export interface FunnelCounts {
   plan_to_tour?: number;
 }
 
+/**
+ * Сколько наблюдений должно быть у ВЕРХНЕГО звена, чтобы ноль у нижнего
+ * считался поломкой.
+ *
+ * Порог заведён 07.09 по случаю #1689. Находка «бронь начинают и бросают»
+ * (severity high) выехала на двух начатых бронях: за неделю было 82 визита,
+ * 7 просмотров тура, 2 касания формы, 0 заявок. Ноль из двух не отличает
+ * сломанную форму от «двое посмотрели и передумали»: при здоровой конверсии
+ * в 20% ноль из двух выпадает в 64 случаях из ста, из десяти — в одиннадцати,
+ * из двадцати — в одном. То есть на двух касаниях утверждение «форма не
+ * доводит до конца» — не измерение, а совпадение, поданное как факт.
+ *
+ * Десять, а не двадцать (как у канала планов ниже): двадцать касаний формы
+ * при нынешнем трафике набираются кварталами, и настоящая поломка ждала бы
+ * приговора до зимы. У планов порог выше, потому что просмотр страницы —
+ * событие куда более частое, чем касание формы брони.
+ *
+ * Что происходит при нехватке выборки: находки НЕТ, но молчание не выдаётся
+ * за здоровье — `funnelSampleShortfall` называет звено и цифры, и перепись
+ * `GET /api/cron/funnel-census` печатает это отдельным полем (§4.0: третий
+ * исход «не смог судить» не равен первому «всё хорошо»).
+ */
+export const MIN_UPSTREAM_FOR_VERDICT = 10;
+
+/** Порог канала планов — просмотры страниц частотнее касаний формы. */
+export const MIN_PLAN_VIEWS_FOR_VERDICT = 20;
+
+/**
+ * Третий исход воронки: судить не о чем.
+ *
+ * Возвращает человеческую причину, если ВЕРХНЕЕ звено той проверки, которая
+ * сейчас была бы вынесена, не набрало выборки. `null` — выборки хватает
+ * (или ломаться нечему: поток есть).
+ */
+export function funnelSampleShortfall(c: FunnelCounts): string | null {
+  const short = (stage: string, have: number) =>
+    `${stage}: наблюдений ${have} из ${MIN_UPSTREAM_FOR_VERDICT} — судить рано, это не «всё хорошо»`;
+
+  if (c.visits === 0) return null;                 // «нет визитов» — самостоятельный факт
+  if (c.tour_views === 0) {
+    return c.visits >= MIN_UPSTREAM_FOR_VERDICT ? null : short('визиты → просмотры тура', c.visits);
+  }
+  if (c.booking_starts === 0 && c.leads === 0) {
+    return c.tour_views >= MIN_UPSTREAM_FOR_VERDICT
+      ? null
+      : short('просмотры тура → форма брони', c.tour_views);
+  }
+  if (c.bookings === 0 && c.leads === 0) {
+    return c.booking_starts >= MIN_UPSTREAM_FOR_VERDICT
+      ? null
+      : short('форма брони → бронь или заявка', c.booking_starts);
+  }
+  return null;
+}
+
 /** Чистая: самое верхнее сломанное звено воронки → находка (или null). */
 export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
   const numbers =
@@ -758,6 +813,10 @@ export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
     `планы: просмотров ${c.plan_views ?? 0}, переходов в туры ${c.plan_to_tour ?? 0}. ` +
     `Источник — page_views (своя метрика) + funnel_events + leads + operator_bookings (факты, не чтение кода).`;
   const base = { category: 'funnel' as const, model: 'deterministic', status: 'suggested' as const };
+
+  // Выборки не хватает — приговор не выносится вовсе. Причина не теряется:
+  // её называет funnelSampleShortfall, и перепись печатает её отдельно.
+  if (funnelSampleShortfall(c) !== null) return null;
 
   if (c.visits === 0) {
     return {
@@ -803,7 +862,7 @@ export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
   // здоровой основной цепи (принцип «одна находка — самое верхнее сломанное
   // звено» сохранён): планы смотрят, но ни один просмотр не привёл к туру —
   // канал не работает как канал.
-  if ((c.plan_views ?? 0) >= 20 && (c.plan_to_tour ?? 0) === 0) {
+  if ((c.plan_views ?? 0) >= MIN_PLAN_VIEWS_FOR_VERDICT && (c.plan_to_tour ?? 0) === 0) {
     return {
       ...base, severity: 'medium',
       title: 'Воронка: планы смотрят, в туры не переходят',
