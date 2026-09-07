@@ -205,6 +205,44 @@ interface RssItem {
   title: string;
   url: string;
   source: string;
+  /** Когда вышло, по данным ленты. Нет поля — лента не сказала (не «сегодня»). */
+  publishedAt?: string;
+}
+
+/**
+ * Возраст элемента ленты — ТРИ исхода, а не два (§4.0).
+ *
+ * 07.09: в выпуск попал релиз DeepSeek R1 (январь 2025) — двадцатимесячная
+ * новость под шапкой «AI-дайджест · 7 сентября» и с припиской «практикам
+ * стоит отслеживать». Факты в ней верные; ложью была подача. Механизм
+ * простой: разбор ленты брал у элемента ТОЛЬКО заголовок и ссылку, поэтому
+ * архивная страница была неотличима от сегодняшней новости, и место, где
+ * нельзя было сказать «не знаю, когда это вышло», заполнялось допущением
+ * «раз в ленте — значит свежее».
+ *
+ * Отсюда асимметрия, которую важно не «упростить» потом: выбрасываем только
+ * то, про что ЗНАЕМ, что оно старое. Дата не пришла или не разобралась —
+ * элемент остаётся: у телеграм-превью и части фидов даты нет вовсе, и
+ * отбрасывать по незнанию значило бы молча обезглавить эти источники.
+ *
+ * Дата из будущего доверия не заслуживает (кривой часовой пояс, опечатка в
+ * фиде) — это тоже «не знаю», а не «самое свежее».
+ */
+export type ItemAge = 'fresh' | 'stale' | 'unknown';
+
+/** Окно свежести. Дайджест выходит дважды в сутки; две недели — запас для медленных блогов. */
+export const MAX_ITEM_AGE_DAYS = 14;
+
+export function classifyItemAge(
+  publishedAt: string | undefined,
+  nowMs: number,
+  maxAgeDays: number = MAX_ITEM_AGE_DAYS,
+): ItemAge {
+  if (!publishedAt) return 'unknown';
+  const t = Date.parse(publishedAt);
+  if (!Number.isFinite(t)) return 'unknown';
+  if (t > nowMs + 3600_000) return 'unknown';
+  return nowMs - t <= maxAgeDays * 86_400_000 ? 'fresh' : 'stale';
 }
 
 type SourceCategory = 'ai' | 'travel' | 'kamchatka' | 'reference';
@@ -406,8 +444,21 @@ function parseRssItems(xml: string, label: string): RssItem[] {
       ?? /<guid[^>]*>(https?[^<]+)<\/guid>/i.exec(block)?.[1]   // fallback
       ?? ''
     ).trim();
+    // Дата выпуска: RSS — <pubDate> (RFC 822), Atom — <published>/<updated>,
+    // RDF-ленты — <dc:date> (ISO). Не разобралась — поля просто нет, и это
+    // честное «лента не сказала», а не подставленное «сейчас».
+    const rawDate = (
+      /<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i.exec(block)?.[1]
+      ?? /<published[^>]*>([\s\S]*?)<\/published>/i.exec(block)?.[1]
+      ?? /<updated[^>]*>([\s\S]*?)<\/updated>/i.exec(block)?.[1]
+      ?? /<dc:date[^>]*>([\s\S]*?)<\/dc:date>/i.exec(block)?.[1]
+      ?? ''
+    ).trim();
+    const parsedDate = rawDate ? Date.parse(rawDate.replace(/<!\[CDATA\[|\]\]>/g, '').trim()) : NaN;
+    const publishedAt = Number.isFinite(parsedDate) ? new Date(parsedDate).toISOString() : undefined;
+
     if (title && title.length > 5) {
-      items.push({ title, url: link, source: label });
+      items.push({ title, url: link, source: label, ...(publishedAt ? { publishedAt } : {}) });
     }
   }
   return items;
@@ -867,8 +918,22 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
   // Collect signals in parallel — RSS плюс safety-слой, с честным статусом каждого
   const fetched = await Promise.all([...RSS_SOURCES.map(fetchSource), fetchSafetyLayerSource()]);
+  // Отсев старья идёт ЗДЕСЬ, а не внутри fetchSource: там считается rawItems
+  // здоровья источника, и фид, отдавший десять архивных записей, обязан
+  // числиться живым, а не «пустым». Иначе починка гналась бы за призраком
+  // мёртвой ленты вместо настоящей причины.
+  const nowMs = Date.now();
   const allItems: RssItem[] = [];
-  for (const f of fetched) allItems.push(...f.items);
+  const staleDropped: Record<string, number> = {};
+  for (const f of fetched) {
+    for (const item of f.items) {
+      if (classifyItemAge(item.publishedAt, nowMs) === 'stale') {
+        staleDropped[f.label] = (staleDropped[f.label] ?? 0) + 1;
+        continue;
+      }
+      allItems.push(item);
+    }
+  }
 
   // Здоровье источников: делает «нет сигналов» диагностируемым (живой фид без
   // новостей vs мёртвый фид) и алертит про молчащие. До любых ранних выходов.
@@ -883,6 +948,11 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // строку, а не гадали (03.09: третий прогон подряд с bad_base после
     // «поправили переменную»).
     relay_detail: relayBaseProblem(),
+    // Что выброшено как старьё и у кого — иначе отсев молчит, а молчащий
+    // фильтр неотличим от неработающего. Пусто — сегодня старья не было;
+    // это законный ноль, а не «не считали».
+    stale_dropped: staleDropped,
+    stale_window_days: MAX_ITEM_AGE_DAYS,
     // Линза «ИИ-фичи для Ведара» (03.09, слово владельца: «меня интересуют от
     // разведчика именно ИИ-фичи для проекта»). Идёт ДО ворот выпуска и своей
     // памятью отсеивает уже виденные статьи, поэтому живёт рядом со здоровьем
