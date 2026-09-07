@@ -1,0 +1,72 @@
+name: OpenRouter — какие модели есть на самом деле (с раннера)
+
+# Прод спросить не может: OpenRouter отвечает ему 403 и напрямую, и через
+# релей (замер 07.09). Раннер GitHub не в РФ и каталог видит.
+#
+# Зачем отдельная проба: id модели НЕ ВЫДУМЫВАЮТ. Неверный id — это не «модель
+# не отвечает», а тихий отказ на каждом вызове; в CLAUDE.md §8 это правило уже
+# записано для решателя эволюции («без привязки к id, спрашивать /v1/models»).
+# Здесь то же самое, только для выбора модели Editor'у.
+#
+# Только чтение каталога: ни одного запроса к модели, ни рубля расхода.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/openrouter-models.json'
+
+permissions:
+  contents: read
+
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Спросить каталог
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY не задан в секретах — каталог не спрошен."
+            exit 1
+          fi
+          CODE=$(curl -sS -o /tmp/models.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+            https://openrouter.ai/api/v1/models)
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Каталог не отдан (HTTP $CODE)."
+            head -c 500 /tmp/models.json
+            exit 1
+          fi
+
+      # Что ищем — из маркера, чтобы не править workflow ради каждого вопроса.
+      - name: Показать найденное и цену
+        run: |
+          PATTERN=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.github/triggers/openrouter-models.json')).get('match') or 'gpt')
+          except Exception:
+              print('gpt')
+          ")
+          echo "ищем: $PATTERN"
+          python3 - "$PATTERN" <<'PY'
+          import json, re, sys
+          pat = re.compile(sys.argv[1], re.I)
+          data = json.load(open('/tmp/models.json')).get('data', [])
+          print(f'всего моделей в каталоге: {len(data)}')
+          hits = [m for m in data if pat.search(m.get('id', '')) or pat.search(m.get('name', ''))]
+          if not hits:
+              # Пусто — это ответ «такого id нет», а не «проба не сработала».
+              print('СОВПАДЕНИЙ НЕТ: модели с таким именем в каталоге не существует.')
+              sys.exit(0)
+          for m in sorted(hits, key=lambda x: x.get('id', '')):
+              p = m.get('pricing', {}) or {}
+              print(f"{m.get('id')}  |  {m.get('name')}  |  вход {p.get('prompt')} / выход {p.get('completion')} за токен  |  контекст {m.get('context_length')}")
+          PY
