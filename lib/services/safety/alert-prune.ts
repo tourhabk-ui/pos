@@ -35,9 +35,9 @@
  * глаголов пополняется в одном месте, и хранилище догоняет само.
  */
 
-import { isDailyBulletin, isRescueOperationReport } from '@/lib/services/safety/seismic-parser';
+import { isDailyBulletin, isRescueOperationReport, isServiceStatistics } from '@/lib/services/safety/seismic-parser';
 
-export type RejectedGenre = 'daily_bulletin' | 'rescue_report';
+export type RejectedGenre = 'daily_bulletin' | 'rescue_report' | 'service_statistics';
 
 /**
  * Какой жанр отбраковал бы текст сегодня. `null` — запись законная.
@@ -49,6 +49,9 @@ export type RejectedGenre = 'daily_bulletin' | 'rescue_report';
 export function rejectedGenre(text: string): RejectedGenre | null {
   if (isDailyBulletin(text)) return 'daily_bulletin';
   if (isRescueOperationReport(text)) return 'rescue_report';
+  // 07.09: отчёт службы о собственной работе за сутки. На главной висели
+  // «привлекались один раз» и «…два раза» — счёт выездов там, где стоят угрозы.
+  if (isServiceStatistics(text)) return 'service_statistics';
   return null;
 }
 
@@ -80,7 +83,7 @@ export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> 
     [],
   );
 
-  const by_genre: Record<RejectedGenre, number> = { daily_bulletin: 0, rescue_report: 0 };
+  const by_genre: Record<RejectedGenre, number> = { daily_bulletin: 0, rescue_report: 0, service_statistics: 0 };
   const doomedIds: string[] = [];
   const doomedTitles: string[] = [];
 

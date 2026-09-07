@@ -69,7 +69,9 @@ describe('чистка хранилища', () => {
     const r = await pruneRejectedGenres(q);
     expect(r.checked).toBe(3);
     expect(r.removed).toBe(2);
-    expect(r.by_genre).toEqual({ daily_bulletin: 1, rescue_report: 1 });
+    // service_statistics добавлен 07.09 — счётчик жанра есть всегда, даже
+    // когда жанр не встретился: ноль и отсутствие ключа читаются по-разному.
+    expect(r.by_genre).toEqual({ daily_bulletin: 1, rescue_report: 1, service_statistics: 0 });
 
     const del = calls.find((c) => /DELETE FROM external_alerts/i.test(c.sql));
     expect(del).toBeDefined();
@@ -179,5 +181,16 @@ describe('чистка жанров не может уронить сейсмо-
     // GET дёргает супервизор start.js, POST — воркфлоу. Защита одного входа
     // оставила бы второй с прежним дефектом: одно правило в двух местах.
     expect(src.match(/safely\('prune'/g)?.length).toBe(2);
+  });
+});
+
+describe('отчёт службы снимается наравне с прочими жанрами (07.09)', () => {
+  it('строка с экрана владельца распознана и убрана', async () => {
+    const line = 'К тушению техногенных пожаров сотрудники МЧС России привлекались один раз';
+    expect(rejectedGenre(line)).toBe('service_statistics');
+    const { q } = fakeDb([{ id: 'b1', title: line, description: null }]);
+    const r = await pruneRejectedGenres(q);
+    expect(r.removed).toBe(1);
+    expect(r.by_genre.service_statistics).toBe(1);
   });
 });
