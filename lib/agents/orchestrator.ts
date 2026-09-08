@@ -87,10 +87,18 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
     return null;
   }
 
+  const rescue = unwrap(rescueRes, 'RescueScan');
+  // Стадия может «выполниться» и при упавших проверках внутри: скан ловит
+  // их сам и возвращает список (находка аудита 08.09). Молча пропустить его
+  // здесь значило бы снова выдать отказ за чистый результат.
+  for (const failed of rescue?.failed_checks ?? []) {
+    errors.push(`RescueScan: проверка не отработала — ${failed}`);
+  }
+
   return {
     scan: unwrap(scanRes, 'GrowthScan'),
     evolution: evoResult,
-    rescue: unwrap(rescueRes, 'RescueScan'),
+    rescue,
     evolver: unwrap(evolverRes, 'EvolverAnalysis'),
     intel: unwrap(intelRes, 'IntelBridge'),
     models: unwrap(modelsRes, 'ModelWatcher'),

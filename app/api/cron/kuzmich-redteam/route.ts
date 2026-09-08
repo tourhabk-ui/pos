@@ -39,7 +39,11 @@ export async function GET(request: NextRequest) {
 
     void logAgentRun({
       agent_id: 'kuzmich-redteam',
-      status: report.failed_core > 0 ? 'failed' : (report.evaluated < report.asked ? 'partial' : 'success'),
+      // Ноль оценённых при непустом наборе — отказ прогона, а не «частично»
+      // (§4.0): разобрано 0 из N обязано краснеть.
+      status: report.failed_core > 0 || (report.asked > 0 && report.evaluated === 0)
+        ? 'failed'
+        : (report.evaluated < report.asked ? 'partial' : 'success'),
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
       items_processed: report.asked,
@@ -48,6 +52,7 @@ export async function GET(request: NextRequest) {
         passed: report.passed,
         failed_core: report.failed_core,
         failed_stretch: report.failed_stretch,
+        unevaluated: report.unevaluated,
         alerts_sent: report.alerts_sent,
       },
     });

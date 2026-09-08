@@ -31,9 +31,33 @@ const SIGNAL_PATTERNS: Record<GroundingSignal, RegExp> = {
 // (lib/safety/sos-detector.ts, промпт), а не выдумка модели.
 const EMERGENCY_PHONES_RE = /(?<!\d)112(?!\d)|23-53-62|30-10-50|41-27-30/;
 
+/**
+ * Три исхода, а не два (§4.0).
+ *
+ * `unknown` — телеметрия вызовов не пришла: чем заземлён ответ, неизвестно.
+ * Это НЕ `grounded`. Находка аудита 08.09: при отсутствии `toolsRan` грейдер
+ * писал `ungrounded: false`, то есть отвечал «заземлено» на вопрос, которого
+ * не проверял. Место, где нельзя сказать «не знаю», заполняется враньём.
+ */
+export type GroundingVerdict = 'grounded' | 'ungrounded' | 'unknown';
+
 export interface GroundingAssessment {
-  ungrounded: boolean;
+  verdict: GroundingVerdict;
   signals: GroundingSignal[];
+  /** Почему так решено — для строки в отчёте и в логе. */
+  reason: string;
+}
+
+/**
+ * Один вызов инструмента и его исход.
+ *
+ * Имя — не доказательство: инструмент мог выполниться и вернуть «ничего не
+ * найдено», а ответ всё равно назвал цену. Заземляет только вызов, который
+ * ПРИНЁС ДАННЫЕ.
+ */
+export interface ToolRun {
+  name: string;
+  producedData: boolean;
 }
 
 /** Какие сигналы «конкретных фактов» есть в ответе. Экспортирован для тестов. */
@@ -51,18 +75,40 @@ export function detectFactSignals(answer: string): GroundingSignal[] {
   return signals;
 }
 
-/** Был ли среди выполненных инструментов хотя бы один «данных». */
-export function ranDataTool(toolsRan: readonly string[]): boolean {
-  return toolsRan.some((name) => DATA_TOOL_PREFIXES.some((p) => name.startsWith(p)));
+/** Принёс ли данные хотя бы один инструмент «данных». */
+export function ranDataTool(runs: readonly ToolRun[]): boolean {
+  return runs.some(
+    (r) => r.producedData && DATA_TOOL_PREFIXES.some((p) => r.name.startsWith(p)),
+  );
 }
 
 /**
- * Ответ с конкретикой (цены/телефоны/наличие) без единого вызова
- * инструмента данных — незаземлён: факты взяты не из БД платформы.
+ * Ответ с конкретикой (цены/телефоны/наличие) без единого инструмента данных,
+ * принёсшего результат, — незаземлён: факты взяты не из БД платформы.
+ *
+ * `runs === undefined` — телеметрии нет. Тогда исход `unknown`: судить не о
+ * чем, и молча записывать «заземлено» нельзя.
  */
-export function assessGrounding(answer: string, toolsRan: readonly string[]): GroundingAssessment {
+export function assessGrounding(
+  answer: string,
+  runs: readonly ToolRun[] | undefined,
+): GroundingAssessment {
   const signals = detectFactSignals(answer);
-  if (signals.length === 0) return { ungrounded: false, signals: [] };
-  if (ranDataTool(toolsRan)) return { ungrounded: false, signals };
-  return { ungrounded: true, signals };
+  if (signals.length === 0) {
+    return { verdict: 'grounded', signals: [], reason: 'конкретики в ответе нет — заземлять нечего' };
+  }
+  if (runs === undefined) {
+    return {
+      verdict: 'unknown',
+      signals,
+      reason: 'конкретика есть, а список вызовов инструментов не передан — проверить заземление не на чем',
+    };
+  }
+  if (ranDataTool(runs)) {
+    return { verdict: 'grounded', signals, reason: 'инструмент данных отработал и вернул результат' };
+  }
+  const tried = runs.length === 0
+    ? 'инструменты не вызывались'
+    : `инструменты вызывались (${runs.map((r) => r.name).join(', ')}), но данных не принесли`;
+  return { verdict: 'ungrounded', signals, reason: `конкретика без данных платформы: ${tried}` };
 }

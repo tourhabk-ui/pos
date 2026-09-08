@@ -51,7 +51,7 @@ import {
   markUnready,
   recordPrEventOnce,
 } from '@/lib/agents/kernel/adapters/code-merge-task';
-import { appendEvent } from '@/lib/agents/kernel';
+import { appendEvent, TERMINAL_STATES } from '@/lib/agents/kernel';
 import { pool } from '@/lib/db-pool';
 
 export const VOLCANO_CARD_MARKER = '<!-- volcano-decision-card -->';
@@ -308,7 +308,16 @@ export interface GateOutcome {
     | 'unready'
     | 'waiting_ci'
     /** GitHub был недостижим после retry — НЕ решение против PR (P0, ревью 28.08). */
-    | 'github_unavailable';
+    | 'github_unavailable'
+    /**
+     * PR закрыт, а задачу замкнуть НЕ УДАЛОСЬ: переход отвергнут ядром.
+     * Находка аудита 08.09 — раньше такой исход печатался как
+     * `completed_closed`, и задача, оставшаяся в running навсегда,
+     * выглядела завершённой в каждом получасовом sweep.
+     */
+    | 'completion_refused'
+    /** Оценить PR не смогли: исключение, не относящееся к доступности GitHub. */
+    | 'evaluation_failed';
   detail?: string;
   taskId?: string;
 }
@@ -329,6 +338,22 @@ export async function evaluatePr(repo: string, prNumber: number): Promise<GateOu
       repo, pr: prNumber, head_sha: pr.head_sha,
     });
     await removeLabel(repo, prNumber, DECISION_LABEL);
+
+    // Замкнули или уже было замкнуто — это завершение. Отказ перехода —
+    // НЕ завершение, как бы ни выглядел закрытый PR: задача осталась жить.
+    const closedOut = done.changed || TERMINAL_STATES.has(done.state);
+    if (!closedOut) {
+      const reason = done.reason ?? 'причина не названа';
+      console.error('[merge-gate] задачу не удалось замкнуть', {
+        repo, pr: prNumber, task: task.id, state: done.state, reason,
+      });
+      return {
+        pr: prNumber,
+        action: 'completion_refused',
+        taskId: task.id,
+        detail: `PR закрыт, задача осталась в ${done.state}: ${reason}`,
+      };
+    }
     return {
       pr: prNumber,
       action: pr.merged ? 'completed_merged' : 'completed_closed',
@@ -407,7 +432,11 @@ export async function sweepAgentPrs(repo: string): Promise<GateOutcome[]> {
         outcomes.push({ pr: n, action: 'github_unavailable', detail: err.message });
         continue;
       }
-      outcomes.push({ pr: n, action: 'waiting_ci', detail: `ошибка оценки: ${err instanceof Error ? err.message : String(err)}` });
+      // Не 'waiting_ci': это состояние означает «PR в порядке, ждём CI».
+      // Исключение означает «мы не знаем» — третий исход, и он свой (§4.0).
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[merge-gate] PR не оценён', { repo, pr: n, message });
+      outcomes.push({ pr: n, action: 'evaluation_failed', detail: `ошибка оценки: ${message}` });
     }
   }
   return outcomes;

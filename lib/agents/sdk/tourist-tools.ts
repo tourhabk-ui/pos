@@ -11,6 +11,8 @@
 import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
 import { composeTrip } from '@/lib/planner/compose';
+import { fetchWeatherForecast } from '@/lib/planner/intelligence';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
@@ -321,29 +323,98 @@ const compareTours: SDKTool = {
 
 // ── Get Weather ───────────────────────────────────────────────────
 
+/**
+ * Координаты живой точки по её имени. Ровно тот предикат живости, что у
+ * переписей: скрытые и слитые записи не считаются местом.
+ */
+async function resolvePlaceCoords(
+  name: string,
+): Promise<{ name: string; lat: number; lng: number } | null> {
+  const { rows } = await pool.query<{ name: string; lat: number; lng: number }>(
+    `SELECT name, lat::float AS lat, lng::float AS lng
+       FROM places
+      WHERE name ILIKE $1
+        AND lat IS NOT NULL AND lng IS NOT NULL
+        AND is_visible = true AND merged_into_id IS NULL
+      ORDER BY length(name) ASC
+      LIMIT 1`,
+    [`%${name}%`],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Погода МЕСТА, а не города по умолчанию.
+ *
+ * Находка аудита 08.09: инструмент объявлял аргумент `location` (и звал в
+ * пример «Мутновский»), а `execute` не принимал аргументов вовсе и читал
+ * `weather_cache` с жёстким `location = 'petropavlovsk'`. Турист спрашивал
+ * про перевал, получал город — и ниоткуда не мог этого узнать: имени места
+ * в ответе не было. Между Петропавловском и Мутновским тридцать километров
+ * по прямой и километр по высоте; погода там не одна и та же, а решение
+ * «идти сегодня» человек принимает по ней.
+ *
+ * Хуже того, `weather_cache` не заводится ни одной миграцией и не пишется ни
+ * одной строкой кода — читать было нечего в принципе. Источник прогноза на
+ * платформе один (Open-Meteo через `lib/planner/intelligence`), и второго
+ * тут не заводится (§12).
+ *
+ * Третий исход назван вслух: «не смог» — не «погода хорошая».
+ */
 const getWeather: SDKTool = {
   name: 'get_weather',
-  description: 'Получить текущую погоду и прогноз для Камчатки. Полезно при планировании тура.',
+  description: 'Прогноз погоды на ближайшие дни для места на Камчатке. Без указания места — Петропавловск-Камчатский.',
   parameters: {
     type: 'object',
     properties: {
       location: { type: 'string', description: 'Место (например "Петропавловск-Камчатский", "Мутновский")' },
     },
   },
-  execute: async () => {
+  execute: async (args) => {
+    const asked = typeof args.location === 'string' ? args.location.trim() : '';
     try {
-      const result = await pool.query(`
-        SELECT data, updated_at FROM weather_cache
-        WHERE location = 'petropavlovsk'
-        AND updated_at > NOW() - INTERVAL '3 hours'
-        LIMIT 1
-      `);
-      if (result.rows.length > 0) {
-        return JSON.stringify(result.rows[0].data);
+      let place = { name: 'Петропавловск-Камчатский', lat: 53.02, lng: 158.65 };
+      if (asked) {
+        const found = await resolvePlaceCoords(asked);
+        if (!found) {
+          return JSON.stringify({
+            location_requested: asked,
+            status: 'место_не_найдено',
+            message: `Места «${asked}» нет в справочнике платформы — прогноз именно для него дать не могу. Погоду по другому месту не выдавай за его погоду.`,
+          });
+        }
+        place = found;
       }
-      return JSON.stringify({ message: 'Данные о погоде временно недоступны. Рекомендуем проверить weather.gc.ca или yr.no' });
-    } catch {
-      return JSON.stringify({ message: 'Не удалось получить прогноз погоды' });
+
+      const forecast = await fetchWeatherForecast(place.lat, place.lng, 3);
+      if (forecast.length === 0) {
+        return JSON.stringify({
+          location: place.name,
+          status: 'не_смог',
+          message: 'Прогноз получить не удалось. Не называй погоду по памяти — скажи, что проверить не смог.',
+        });
+      }
+
+      return JSON.stringify({
+        location: place.name,
+        coords: [place.lat, place.lng],
+        status: 'ок',
+        days: forecast.map((d) => ({
+          date: d.date,
+          temp_max: d.tempMax,
+          temp_min: d.tempMin,
+          precip_mm: d.precipMm,
+          wind_kmh: d.windKmh,
+          description: d.description,
+        })),
+      });
+    } catch (err) {
+      logSwallowedFailure('tourist-tools', `прогноз погоды (${asked || 'по умолчанию'})`, err);
+      return JSON.stringify({
+        location_requested: asked || 'Петропавловск-Камчатский',
+        status: 'не_смог',
+        message: 'Прогноз получить не удалось. Не называй погоду по памяти — скажи, что проверить не смог.',
+      });
     }
   },
 };
