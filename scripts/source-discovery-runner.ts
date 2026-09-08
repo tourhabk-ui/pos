@@ -390,6 +390,44 @@ async function census(
  * не подставляем правдоподобное имя: угаданный id провайдер отвергнет, и
  * разбираться придётся с несуществующей моделью.
  */
+/**
+ * Потолок ответа для рассуждающей модели.
+ *
+ * Прогон 2 (08.09) упал так: `deepseek-v4-pro`, `max_tokens: 4000`,
+ * `completion_tokens: 4000`, из них `reasoning_tokens: 4000`. Весь потолок
+ * ушёл в РАССУЖДЕНИЕ, на сам ответ не осталось ни одного токена — и скрипт
+ * сказал «модель ответила не-JSON», то есть позвал чинить промпт при
+ * совершенно исправной модели.
+ *
+ * У рассуждающих моделей потолок делится между размышлением и ответом, и
+ * размышление берёт своё первым. Значит потолок надо ставить не «сколько
+ * нужно на ответ», а «сколько нужно на ответ ПЛЮС размышление о нём».
+ */
+const DEEPSEEK_MAX_TOKENS = 16000;
+
+interface DeepSeekUsage {
+  completion_tokens?: number;
+  completion_tokens_details?: { reasoning_tokens?: number };
+}
+
+/**
+ * Почему ответ пуст — рассуждение съело потолок или что-то другое.
+ *
+ * Отдельная чистая функция, потому что разница здесь между «чинить у нас» и
+ * «чинить в промпте», и спутать их стоит дня. Пустой ответ при
+ * `reasoning ≈ completion ≈ потолок` — это НАШ недосмотр в настройке, а не
+ * поведение модели.
+ */
+export function explainEmptyAnswer(usage: DeepSeekUsage | null, cap: number): string {
+  const completion = usage?.completion_tokens ?? null;
+  const reasoning = usage?.completion_tokens_details?.reasoning_tokens ?? null;
+  if (completion !== null && reasoning !== null && reasoning > 0 && completion >= cap) {
+    return `потолок ${cap} токенов целиком ушёл в рассуждение (${reasoning}), на ответ не осталось ничего — поднимай потолок, промпт тут ни при чём`;
+  }
+  if (completion === 0) return 'модель не выдала ни одного токена';
+  return 'ответ пуст, а причина по счётчикам не читается';
+}
+
 async function proposeWithDeepSeek(system: string, user: string): Promise<{ answer: string; model: string; usage: unknown }> {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) throw new Error('DEEPSEEK_API_KEY не задан — спрашивать нечем. Это не «источников не нашлось».');
@@ -411,13 +449,19 @@ async function proposeWithDeepSeek(system: string, user: string): Promise<{ answ
       model,
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       temperature: 0.3,
-      max_tokens: 4000,
+      max_tokens: DEEPSEEK_MAX_TOKENS,
     }),
-    signal: AbortSignal.timeout(300_000),
+    signal: AbortSignal.timeout(600_000),
   });
   if (!res.ok) throw new Error(`DeepSeek ответил HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
-  const json = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
-  return { answer: json.choices?.[0]?.message?.content ?? '', model, usage: json.usage };
+  const json = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: DeepSeekUsage };
+  const answer = json.choices?.[0]?.message?.content ?? '';
+  // Пустой ответ разбирается ЗДЕСЬ, где ещё видны счётчики. Дальше по потоку
+  // он неотличим от «модель ответила прозой», и разбираться пошли бы в промпт.
+  if (!answer.trim()) {
+    throw new Error(`DeepSeek (${model}) вернул пустой ответ: ${explainEmptyAnswer(json.usage ?? null, DEEPSEEK_MAX_TOKENS)}`);
+  }
+  return { answer, model, usage: json.usage };
 }
 
 async function main(): Promise<void> {
