@@ -11,7 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIQualityOrNull } from '@/lib/ai/providers';
+import { callAIQualityOrNull, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
@@ -317,6 +317,16 @@ ${verbalizedInstruction(3)}
 export function pickDescriptionFromAnswer(raw: string | null): GenerationOutcome {
   const text = (raw ?? '').trim() || null;
   if (!text) return { text: null, failReason: 'пустой ответ модели' };
+
+  // Отказ ВСЕХ провайдеров приходит строкой, а не исключением. Судить о нём
+  // длиной нельзя: «Извините, сервис временно недоступен. Попробуйте позже.»
+  // — пятьдесят четыре символа при пороге сорок, то есть заглушка проходила
+  // и сохранялась туристу как описание маршрута (находка аудита 08.09).
+  // Реестр заглушек на платформе один (`isWaterfallErrorResponse`), и его
+  // шапка прямо требует сверяться с ним; здесь этого не делали.
+  if (isWaterfallErrorResponse(text)) {
+    return { text: null, failReason: 'заглушка водопада: все провайдеры отказали' };
+  }
 
   const samples = parseVerbalizedSamples(text);
   const picked = pickLeastTypical(samples, MIN_GENERATION_LENGTH);

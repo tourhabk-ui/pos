@@ -11,7 +11,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { callAIFastMock } = vi.hoisted(() => ({ callAIFastMock: vi.fn() }));
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
-vi.mock('@/lib/ai/providers', () => ({
+vi.mock('@/lib/ai/providers', async (importOriginal) => ({
+  // Реестр заглушек берётся НАСТОЯЩИЙ: Editor обязан сверяться с ним,
+  // а не с длиной (находка аудита 08.09). Повторить его здесь значило бы
+  // завести четвёртую копию знания о строке-извинении.
+  ...(await importOriginal<typeof import('@/lib/ai/providers')>()),
   callAIFast: (...a: unknown[]) => callAIFastMock(...a),
   AI_FAST_UNAVAILABLE: 'Сервис временно недоступен.',
   // Editor опрашивает провайдеров через callAIFastOrNull: отказ ВСЕХ = null.

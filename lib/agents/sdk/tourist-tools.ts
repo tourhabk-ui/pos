@@ -11,6 +11,7 @@
 import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
 import { composeTrip } from '@/lib/planner/compose';
+import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { fetchWeatherForecast } from '@/lib/planner/intelligence';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
@@ -135,7 +136,12 @@ const searchTours: SDKTool = {
           difficulty: r.difficulty,
           location: r.location_name,
           group: `${r.min_participants}-${r.max_participants} чел.`,
-          slots: r.available_slots ? `${r.available_slots} мест` : 'уточняйте',
+          // НЕ «свободно»: available_slots — денормализованная вместимость
+          // тура, с бронями её никто не сверяет. Занятость даёт только
+          // check_availability (расчёт планера). Обещать места отсюда —
+          // ровно то, за что находка аудита 08.09 поймала соседний инструмент.
+          capacity_hint: r.available_slots ? `вместимость ${r.available_slots}` : 'уточняйте',
+          free_places: 'не проверено — спроси check_availability',
           next_date: r.next_available_date ?? 'уточняйте',
           operator: r.operator_name,
           rating: r.avg_rating ? `${r.avg_rating}/5 (${r.review_count} отзывов)` : 'нет отзывов',
@@ -193,7 +199,8 @@ const getTourDetails: SDKTool = {
         not_included: t.not_included,
         what_to_bring: t.what_to_bring,
         group: `${t.min_participants}-${t.max_participants} чел.`,
-        slots: t.available_slots ? `${t.available_slots} свободных мест` : 'уточните у оператора',
+        capacity_hint: t.available_slots ? `вместимость ${t.available_slots}` : 'уточните у оператора',
+        free_places: 'не проверено — спроси check_availability',
         next_date: t.next_available_date ?? 'уточните у оператора',
         season: t.season_start ? `${t.season_start} — ${t.season_end}` : 'круглый год',
         operator: t.operator_name,
@@ -223,13 +230,7 @@ const checkAvailability: SDKTool = {
   execute: async (args) => {
     try {
       const result = await pool.query(`
-        SELECT t.id, t.title, t.available_slots, t.next_available_date,
-               t.max_participants, t.season_start, t.season_end,
-               t.base_price,
-               (SELECT COUNT(*) FROM operator_bookings ob
-                WHERE ob.operator_tour_id = t.id
-                  AND ob.booking_status NOT IN ('cancelled','rejected','cancelled_by_tourist')
-                  AND ob.booking_date >= CURRENT_DATE) AS active_bookings
+        SELECT t.id, t.title, t.season_start, t.season_end, t.base_price
         FROM operator_tours t
         WHERE t.id = $1 AND t.is_published = true
       `, [Number(args.tour_id)]);
@@ -239,30 +240,50 @@ const checkAvailability: SDKTool = {
       }
 
       const t = result.rows[0] as Record<string, unknown>;
-      const slots     = Number(t.available_slots ?? t.max_participants ?? 0);
-      const booked    = Number(t.active_bookings ?? 0);
-      const freeSlots = Math.max(0, slots - booked);
 
-      const today = new Date();
+      // Занятость — ТОЛЬКО общим расчётом планера: тот же, что у гейта брони,
+      // share-API плана и инструмента Кузьмича. Своя арифметика здесь и
+      // стояла (находка аудита 08.09), и врала в обе стороны сразу.
+      const today = new Date().toISOString().slice(0, 10);
+      const to = new Date(Date.parse(today) + 29 * 86400000).toISOString().slice(0, 10);
+      const slots = await fetchAvailabilityForTour(String(t.id), today, to, createPlannerCache());
+
       const seasonEnd = t.season_end ? new Date(t.season_end as string) : null;
-      const inSeason  = !seasonEnd || seasonEnd >= today;
+      const inSeason = !seasonEnd || seasonEnd >= new Date();
 
+      if (slots.length === 0) {
+        return JSON.stringify({
+          available: false,
+          tour_id: t.id,
+          title: t.title,
+          price: `${t.base_price} руб.`,
+          in_season: inSeason,
+          window: `${today} — ${to}`,
+          message: 'В ближайшие 30 дней свободных дат нет. Это реальная занятость по броням — не обещай места на эти даты.',
+        });
+      }
+
+      const nearest = slots[0];
       return JSON.stringify({
-        available: freeSlots > 0 && inSeason,
+        available: inSeason,
         tour_id: t.id,
         title: t.title,
         price: `${t.base_price} руб.`,
-        slots_total: slots,
-        slots_free: freeSlots,
-        next_date: t.next_available_date ?? 'по запросу',
-        season: t.season_start ? `${t.season_start} — ${t.season_end}` : 'круглый год',
         in_season: inSeason,
-        message: freeSlots > 0
-          ? `Свободно ${freeSlots} из ${slots} мест. Ближайшая дата: ${t.next_available_date ?? 'уточните у оператора'}.`
-          : 'Мест нет или тур не в сезоне. Уточните у оператора.',
+        window: `${today} — ${to}`,
+        next_date: nearest.date,
+        slots_free_on_next_date: nearest.remaining,
+        dates: slots.slice(0, 10).map((sl) => ({ date: sl.date, free: sl.remaining })),
+        message: `Ближайшая свободная дата ${nearest.date}: мест ${nearest.remaining}. `
+          + 'Число относится к КОНКРЕТНОЙ дате, а не к туру вообще.',
       });
-    } catch {
-      return JSON.stringify({ error: 'Ошибка проверки доступности' });
+    } catch (err) {
+      logSwallowedFailure('tourist-tools', `доступность тура ${String(args.tour_id)}`, err);
+      return JSON.stringify({
+        available: null,
+        status: 'не_смог',
+        message: 'Проверить занятость не удалось. Не говори «места есть» и не говори «мест нет» — скажи, что проверить не смог.',
+      });
     }
   },
 };
@@ -310,12 +331,14 @@ const compareTours: SDKTool = {
           activity: t.activity_type,
           location: t.location_name,
           operator: t.operator_name,
-          slots: t.available_slots ?? 'уточните',
+          capacity_hint: t.available_slots ?? 'уточните',
+          free_places: 'не проверено — спроси check_availability',
           rating: t.avg_rating ? `${t.avg_rating}/5 (${t.review_count})` : 'нет отзывов',
           included: t.included,
         })),
       });
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('tourist-tools', 'сравнение туров', err);
       return JSON.stringify({ error: 'Ошибка сравнения' });
     }
   },

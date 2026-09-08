@@ -19,7 +19,11 @@ const callAIFastMock = vi.fn<(...args: unknown[]) => Promise<string | null>>();
 // Мок повторяет реальный контракт: заглушка → null.
 const AI_FAST_UNAVAILABLE = 'Сервис временно недоступен.';
 
-vi.mock('@/lib/ai/providers', () => ({
+vi.mock('@/lib/ai/providers', async (importOriginal) => ({
+  // Реестр заглушек берётся НАСТОЯЩИЙ: Editor обязан сверяться с ним,
+  // а не с длиной (находка аудита 08.09). Повторить его здесь значило бы
+  // завести четвёртую копию знания о строке-извинении.
+  ...(await importOriginal<typeof import('@/lib/ai/providers')>()),
   callAIFast: (...args: unknown[]) => callAIFastMock(...args),
   AI_FAST_UNAVAILABLE: 'Сервис временно недоступен.',
   callAIFastOrNull: async (...args: unknown[]) => {
