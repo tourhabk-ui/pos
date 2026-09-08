@@ -56,13 +56,26 @@ describe('Watchdog: «молчит» и «не доходило» — разны
     expect(code).toMatch(/r\.telegram_chat_id \|\| r\.max_chat_id/);
   });
 
-  it('недостижимому оператору в Brain пишется НЕ «без ответа»', () => {
-    expect(code).toMatch(/заявок НЕ ДОСТАВЛЕНО/);
-    expect(code).toMatch(/пробел платформы, не молчание оператора/);
+  it('паттерн поведения пишется ТОЛЬКО тому, до кого заявка дошла', () => {
+    // Запись «бронирований без ответа» — факт о поведении оператора. Для
+    // недостижимого это факт о нас, записанный как факт о нём.
+    const at = code.indexOf('for (const row of reachable)');
+    expect(at, 'разбор перестал делить операторов на достижимых и нет').toBeGreaterThan(0);
+    const body = code.slice(at, at + 900);
+    expect(body).toMatch(/бронирований без ответа/);
+    expect(body).toMatch(/knowledgeBase\.upsert/);
+    // У недостижимых — свой цикл, и записи в Brain там нет.
+    const un = code.indexOf('for (const row of unreachable)');
+    expect(un).toBeGreaterThan(0);
+    expect(code.slice(un, un + 600)).not.toMatch(/knowledgeBase\.upsert/);
   });
 
-  it('тревога называет недостижимых поимённо и говорит, где чинить', () => {
-    expect(code).toMatch(/НЕДОСТИЖИМЫ/);
-    expect(code).toMatch(/Это чинится у нас, а не у них/);
+  it('след недоставки остаётся, и назван нашими словами', () => {
+    expect(code).toMatch(/недоставка платформы, не молчание оператора/);
+  });
+
+  it('тревога называет недоставку недоставкой', () => {
+    expect(code).toMatch(/НЕ ДОШЛИ/);
+    expect(code).toMatch(/наша недоставка/);
   });
 });

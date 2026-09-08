@@ -14,6 +14,7 @@ import {
   type CronOutcomeRow,
 } from '@/lib/agents/cron-fruitless';
 import type { CronEntry } from '@/lib/agents/cron-registry';
+import { SKIP_REASON_LABELS } from '@/lib/agents/scout-skip-reasons';
 
 const DAY = 86_400_000;
 const NOW = Date.parse('2026-08-23T09:00:00Z');
@@ -49,7 +50,9 @@ describe('findFruitlessCrons: щель между «сделал работу» 
     expect(found[0].runs).toBe(22);
     expect(found[0].daysSinceSuccess).toBe(22);
     expect(found[0].dominantReason).toBe('judge_unavailable');
-    expect(formatFruitlessCrons(found)).toContain('judge_unavailable');
+    // В строке для человека код переводится словарём (08.09): голый
+    // `judge_unavailable` в Telegram значит столько же, сколько молчание.
+    expect(formatFruitlessCrons(found)).toContain(SKIP_REASON_LABELS.judge_unavailable);
     expect(formatFruitlessCrons(found)).toContain('22');
   });
 

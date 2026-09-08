@@ -22,8 +22,8 @@
  *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default: авторезолв из /v1/models)
  *   EVO_DECISION_QWEN_MODEL — фоллбэк-решатель (Qwen, default qwen-max-latest)
  *   QWEN_MODEL              — override модели Qwen. Без него callQwen резолвит
- *                             сильнейшую из /v1/models; tools-цикл Кузьмича
- *                             остаётся на быстром тире (см. callQwenWithTools).
+ *                             сильнейшую из /v1/models. Tools-цикл Кузьмича
+ *                             через Qwen не идёт с 08.09 (решение владельца).
  *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
  *                             (по умолчанию https://openrouter.ai/api/v1)
  *   ANTHROPIC_BASE_URL      — необязательно: релей вне РФ для api.anthropic.com
@@ -699,58 +699,16 @@ export async function callDeepSeekWithTools(
   }
 }
 
-// Qwen tool-calling (OpenAI-совместимый, Alibaba DashScope). Первичный
-// провайдер tools-цикла: доступен из РФ (китайский, как DeepSeek), сильный
-// агентный function-calling. База/модель — из env.
+// Qwen tool-calling здесь БЫЛ и снят 08.09 решением владельца («qwen не
+// используем»). Функция удалена, а не оставлена «на всякий случай»: ключ
+// DashScope отвергнут в обоих регионах, вызывать её было неоткуда, и
+// экспортируемая функция, которую никто не зовёт, — забытая работа с виду
+// живого пути (перепись экспортов её и поймала).
 //
-// Модель здесь СОЗНАТЕЛЬНО не резолвится через /v1/models, в отличие от
-// callQwen: это живой путь Кузьмича, где ответа ждёт человек — в поле, иногда
-// на плохой связи. Резолв добавил бы сетевой round-trip на холодном кэше, а
-// сильная модель ещё и отвечает дольше. Качество ответа здесь вытягивают
-// инструменты и заземление в БД, а не тир модели. Нужен другой тир — QWEN_MODEL.
-export async function callQwenWithTools(
-  messages: ToolMsg[],
-  tools: ToolDefinition[],
-  timeoutMs = 25_000,
-): Promise<ToolsCallResult | null> {
-  const { apiKey, base, model } = getQwenConfig();
-  if (!apiKey) return null;
-
-  try {
-    const res = await fetchWithRetry(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.3,
-        max_tokens: 1000,
-        messages,
-        tools,
-        tool_choice: 'auto',
-      }),
-    }, { timeoutMs, label: `qwen-tools:${model}` });
-
-    if (!res.ok) return null;
-
-    const data = await res.json() as {
-      choices?: Array<{
-        message?: { content?: string | null; tool_calls?: ToolCall[] };
-      }>;
-    };
-    const msg = data?.choices?.[0]?.message;
-    if (!msg) return null;
-
-    return {
-      content: msg.content ?? null,
-      tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
-    };
-  } catch {
-    return null;
-  }
-}
+// Зрение (qwen-vl) на том же ключе ОСТАЛОСЬ и живёт отдельно — в загрузке
+// снимков и в разборе фото чата. Замены ему с прода нет: Gemini
+// гео-блокируется из РФ, Anthropic отвечает «credit balance is too low».
+// Текст и зрение — разные решения, и снятие первого не снимает второе.
 
 /** Первый непустой результат из списка попыток; поздние не зовём после успеха. */
 export async function firstNonNullTool(
@@ -763,17 +721,28 @@ export async function firstNonNullTool(
   return null;
 }
 
-// Водопад инструментов: Qwen (первичный — качество + доступен из РФ) → DeepSeek
-// (рабочий фоллбэк) → OpenRouter (последний шанс, авто-восстановление если
-// разблокируют). Раньше tools-цикл Кузьмича висел только на OpenRouter — при
-// регион-блоке инструменты отваливались, чат жил без tools.
+// Водопад инструментов: DeepSeek (первичный — доступен из РФ) → OpenRouter
+// (последний шанс, авто-восстановление если разблокируют). Раньше tools-цикл
+// Кузьмича висел только на OpenRouter — при регион-блоке инструменты
+// отваливались, чат жил без tools.
+//
+// Qwen стоял здесь ПЕРВЫМ и снят 08.09 решением владельца («qwen не
+// используем»). Цена промедления была не абстрактной: ступени идут
+// ПОСЛЕДОВАТЕЛЬНО, а ключ DashScope отвергнут в обоих регионах — значит на
+// каждое сообщение Кузьмичу мы сперва ходили к провайдеру, который заведомо
+// ответит отказом, и только потом к живому. Ждёт этого человек в поле, иногда
+// на плохой связи.
+//
+// Зрение (qwen-vl) на Qwen ОСТАЛОСЬ и снято отсюда быть не может: Gemini
+// гео-блокируется из РФ, Anthropic с прода отвечает «credit balance is too
+// low», и другого достижимого зрения у нас нет. Текст и зрение здесь — разные
+// решения, а не одно.
 export async function callToolsWaterfall(
   messages: ToolMsg[],
   tools: ToolDefinition[],
 ): Promise<ToolsCallResult | null> {
   return firstNonNullTool([
-    () => callQwenWithTools(messages, tools),        // первичный: качество + доступен из РФ
-    () => callDeepSeekWithTools(messages, tools),    // фоллбэк
+    () => callDeepSeekWithTools(messages, tools),    // первичный: доступен из РФ
     () => callOpenRouterWithTools(messages, tools),  // последний шанс (авто-восстановление если разблокируют)
   ]);
 }
@@ -1582,13 +1551,16 @@ export async function probeFlagshipRelay(): Promise<{
  *
  * Последний путь, где id ещё был прибит: `QWEN_MODEL || 'qwen-plus'` — средний
  * тир, тогда как решатель и контент рядом уже брали сильнейшее из /v1/models.
- * Значение имело: на callQwen висит первая фаза scout-innovator, которая рождает
- * предложения эволюции, — там качество модели превращается в качество задач.
+ * Значение имело: на callQwen висела первая фаза scout-innovator, которая
+ * рождает предложения эволюции, — там качество модели превращалось в качество
+ * задач. С 08.09 та фаза идёт мимо Qwen (решение владельца), и единственный
+ * оставшийся вызов callQwen — проба ключа DashScope в health-кроне: на том же
+ * ключе стоит зрение (qwen-vl), которому замены с прода нет.
  *
  * Назначение 'chat' — свой ключ кэша, чтобы override одного пути не протекал в
  * другой. Override сохранён прежним (`QWEN_MODEL`): у кого он выставлен, ничего
- * не меняется. Живой tools-цикл Кузьмича сюда НЕ подключён сознательно —
- * см. комментарий над callQwenWithTools.
+ * не меняется. Живой tools-цикл Кузьмича сюда НЕ подключён сознательно: там
+ * ждёт человек, а резолв — лишний round-trip на холодном кэше.
  */
 export async function resolveChatModel(provider: 'deepseek' | 'qwen'): Promise<string> {
   return resolveBestModel(provider, 'chat', provider === 'deepseek'
@@ -2217,6 +2189,35 @@ export function explainOpenRouterFailure(probe: {
   }
   if (probe.http_status === null) return probe.detail;
   return `HTTP ${probe.http_status} через ${probe.route_host}: ${probe.detail.slice(0, 120)}`;
+}
+
+/**
+ * Это ТОТ САМЫЙ отказ, который владелец принял, — или новость?
+ *
+ * Принято ровно одно положение дел: OpenRouter закрыт для прода по региону
+ * (403), ключ при этом на месте и цел, а работа, которой OpenRouter нужен,
+ * решением владельца 07.09 переехала на раннер GitHub, где он достижим.
+ * Повторять о таком каждые полчаса — учить пролистывать сводку.
+ *
+ * Всё остальное новостью остаётся и обязано будить: 401 — ключ отвергнут,
+ * ключа нет вовсе, форма ключа испорчена, сеть не дошла (`http_status: null`),
+ * любой другой код. Признак принятого — только 403 при целом ключе, и
+ * специально НЕ «ключ на месте, что-то не работает»: широкий предикат здесь
+ * означал бы выключенную сигнализацию, а не убранный шум.
+ *
+ * Форму не измерили (`key_shape === null`) — это «не знаю» (§4.0), и оно не
+ * принимается: судить о принятости нечем, значит будим.
+ */
+export function isAcceptedOpenRouterGeoBlock(probe: {
+  key_source: 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null;
+  http_status: number | null;
+  key_shape: { key_len: number; key_prefix_ok: boolean; key_had_outer_space: boolean; key_has_inner_space: boolean } | null;
+} | null): boolean {
+  if (!probe || !probe.key_source) return false;
+  const sh = probe.key_shape;
+  if (!sh) return false;
+  if (!sh.key_prefix_ok || sh.key_had_outer_space || sh.key_has_inner_space) return false;
+  return probe.http_status === 403;
 }
 
 /**

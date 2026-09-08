@@ -22,6 +22,7 @@
  * Чистая функция: тестируется без БД и без сети.
  */
 import type { CronEntry } from './cron-registry';
+import { SKIP_REASON_LABELS } from './scout-skip-reasons';
 
 /** Строка истории: чем закончился прогон и когда. */
 export interface CronOutcomeRow {
@@ -150,9 +151,13 @@ export function formatFruitlessCrons(list: readonly FruitlessCron[]): string {
       const since = c.daysSinceSuccess === null
         ? 'успеха не было за всё окно'
         : `последний выпуск ${c.daysSinceSuccess} дн назад`;
+      // Код причины переводится на человеческий, если он назван в словаре.
+      // Голый `pass_rate_below_threshold` в Telegram значит для читателя
+      // столько же, сколько молчание: чтобы понять, надо лезть в исходник.
+      // Неизвестный код показывается как есть — сырой код честнее «неизвестно».
       const why = c.dominantReason === null
         ? 'причина пропуска не записана'
-        : `чаще всего: ${c.dominantReason}`;
+        : `чаще всего: ${SKIP_REASON_LABELS[c.dominantReason] ?? c.dominantReason}`;
       // Имя молчащего источника — то, ради чего алерт читают. Без него
       // «no_signals» отправляет разбираться во всю разведку сразу.
       const what = c.detail ? ` (${c.detail})` : '';

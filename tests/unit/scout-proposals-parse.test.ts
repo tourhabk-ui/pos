@@ -45,11 +45,15 @@ describe('оборванный по потолку токенов массив (
     expect(diag).toMatch(/JSON\.parse упал/);
   });
 
-  it('потолок токенов поднят явно и у Qwen, и у запасного пути', () => {
+  it('потолок токенов поднят явно у того, кто отвечает', () => {
     // Обрыв на позиции ~2440 — это 800 токенов кириллического JSON. Прогон
     // 390: Qwen отказал по квоте, запасной голый водопад оборвался там же —
     // потолок обязан быть у того, кто отвечает, а не только у первого.
-    expect(INNOVATOR).toMatch(/callQwen\(messages, \{ maxTokens: \d{4} \}\)/);
+    //
+    // 08.09 первая ступень (Qwen) снята решением владельца: она не отвечала
+    // вовсе — ключ DashScope отвергнут в обоих регионах. Требование к потолку
+    // от этого не ослабло, а сузилось до единственного оставшегося пути.
+    expect(INNOVATOR).not.toMatch(/callQwen\(/);
     expect(INNOVATOR).toMatch(/callAIQualityOrNull\(messages, \{ maxTokens: \d{4} \}\)/);
     expect(INNOVATOR).not.toMatch(/callAIWaterfallOrNull\(messages\)/);
     expect(PROVIDERS).toMatch(/max_tokens: maxTokens/);
