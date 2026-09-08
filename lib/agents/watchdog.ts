@@ -28,6 +28,7 @@ import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
+import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
 import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
@@ -131,54 +132,15 @@ export interface WatchdogResult {
 }
 
 /**
- * Отправка тревоги. Возвращает исход, а не void.
+ * Отправка тревоги — общая для платформы (`lib/notifications/tg-send.ts`).
  *
- * До 30.08 здесь стоял `catch { // Silent fail }`, и ответ Telegram не
- * читался вовсе. Тревога могла собраться и не уйти — без строки в логе, без
- * отметки в результате, при зелёном прогоне. Сторож без исправного рупора
- * неотличим от сторожа, которому не о чем доложить, и это худший вид тишины
- * в контуре, где висят SOS и мёртвый сейсмо-приём.
- *
- * Отказ по-прежнему НЕ бросает исключение (крон не должен падать из-за
- * Telegram), но теперь он назван: в логе и в `WatchdogResult.delivery`.
+ * Правило «читать ответ, а не отправлять вслепую» выведено здесь 30.08, но
+ * жило только здесь: евалы Кузьмича и сканер противоречий слали вслепую и
+ * записывали решение тревожить как факт доставки (находка аудита 08.09).
+ * Реализация вынесена, чтобы правило было одно (§12).
  */
-type TgSendOutcome = { ok: true } | { ok: false; reason: string };
-
 async function tgSend(text: string): Promise<TgSendOutcome> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) {
-    // Раньше здесь стоял голый `return`: ненастроенный канал выглядел как
-    // отсутствие тревог. Молчание по этой причине — тоже недоставка.
-    const reason = 'TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы';
-    console.error(`[watchdog] tgSend: ${reason} — тревога никуда не ушла`);
-    return { ok: false, reason };
-  }
-  try {
-    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      }),
-    });
-    // HTTP 200 — единственное доказательство доставки, которое у нас есть.
-    // Не читать его значило принимать 403 «bot was blocked» за успех.
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const reason = `Telegram ответил ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`;
-      console.error(`[watchdog] tgSend: ${reason}`);
-      return { ok: false, reason };
-    }
-    return { ok: true };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.error(`[watchdog] tgSend: ${reason}`);
-    return { ok: false, reason };
-  }
+  return tgSendShared('watchdog', text);
 }
 
 async function checkUnconfirmedBookings(): Promise<CheckResult> {

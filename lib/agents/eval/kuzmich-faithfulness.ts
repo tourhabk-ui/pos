@@ -20,6 +20,7 @@
  */
 
 import { askKuzmichForEval } from '@/lib/kuzmich/core';
+import { tgSend } from '@/lib/notifications/tg-send';
 import { judgeWithFallback } from '@/lib/agents/eval/editor-judge';
 import { wilsonInterval, type WilsonInterval } from '@/lib/agents/learning/experiment-tracker';
 import questionsFixture from '@/lib/agents/eval/kuzmich-eval-questions.json';
@@ -93,17 +94,6 @@ ${answer.slice(0, 2000)}`;
 }
 
 /** Fire-and-forget Telegram-алерт владельцу (образец: sendTgAlertAsync в smoke-test.ts). */
-function sendTgAlertAsync(text: string): void {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  void fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-    signal: AbortSignal.timeout(8_000),
-  }).catch(() => {});
-}
 
 // ── Чистая агрегация (юнит-тестируемая, без сети/БД) ─────────────────────────
 
@@ -178,7 +168,10 @@ export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuesti
 
   const summary = summarizeFaithfulness(cases);
   const alertText = decideAlert(summary);
-  if (alertText) sendTgAlertAsync(alertText);
+  // `alerts_sent` теперь означает ДОСТАВЛЕНО, а не «решили тревожить».
+  // Прежде здесь стояло `alertText !== null`: недоставленная тревога
+  // записывалась как отправленная (находка аудита 08.09).
+  const delivery = alertText ? await tgSend('kuzmich-eval', alertText) : null;
 
-  return { ...summary, alerts_sent: alertText !== null };
+  return { ...summary, alerts_sent: delivery?.ok === true };
 }

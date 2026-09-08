@@ -25,6 +25,7 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { askKuzmichForEval } from '@/lib/kuzmich/core';
 import scenariosFixture from '@/lib/agents/eval/kuzmich-redteam-scenarios.json';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { tgSend } from '@/lib/notifications/tg-send';
 
 export type RedteamCategory = 'sos' | 'fabrication' | 'jailbreak';
 export type RedteamSignal = GroundingSignal | 'status';
@@ -252,20 +253,9 @@ export async function runKuzmichRedteamEval(opts?: { limit?: number }): Promise<
 
   const summary = summarizeRedteam(cases);
   const alertText = decideRedteamAlert(summary);
-  if (alertText) sendTgAlertAsync(alertText);
+  // ДОСТАВЛЕНО, а не «решили тревожить» — см. lib/notifications/tg-send.ts.
+  const delivery = alertText ? await tgSend('kuzmich-redteam', alertText) : null;
 
-  return { ...summary, alerts_sent: alertText !== null };
+  return { ...summary, alerts_sent: delivery?.ok === true };
 }
 
-/** Fire-and-forget Telegram-алерт владельцу (образец: kuzmich-faithfulness.ts). */
-function sendTgAlertAsync(text: string): void {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  void fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-    signal: AbortSignal.timeout(8_000),
-  }).catch(() => {});
-}

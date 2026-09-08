@@ -13,6 +13,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { tgSend } from '@/lib/notifications/tg-send';
 
 /**
  * Исход дымовой проверки. ТРИ значения, а не два (§4.0).
@@ -39,17 +40,14 @@ export interface SmokeResult {
   message: string;
 }
 
+/**
+ * Тревога дымовой проверки — общим отправителем (`lib/notifications/tg-send.ts`).
+ *
+ * Fire-and-forget оставлен намеренно: проверка не должна ждать Telegram. Но
+ * отказ доставки теперь попадает в лог, а не растворяется в `.catch(() => {})`.
+ */
 function sendTgAlertAsync(text: string): void {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  // fire-and-forget — не блокирует запись в agent_run_history
-  void fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-    signal: AbortSignal.timeout(8_000),
-  }).catch(() => {});
+  void tgSend('smoke-test', text);
 }
 
 /**
