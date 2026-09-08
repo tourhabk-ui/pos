@@ -19,7 +19,6 @@ import { ALLOWED_TRANSITIONS, isTransitionAllowed } from '@/lib/agents/kernel/ty
 
 const GATE = readFileSync('lib/agents/volcano/merge-gate.ts', 'utf8');
 const RESCUE = readFileSync('lib/agents/evo/rescue-agent.ts', 'utf8');
-const ORCH = readFileSync('lib/agents/orchestrator.ts', 'utf8');
 
 describe('merge-gate: отказ замыкания не выдаётся за завершение', () => {
   it('исход «не смогли замкнуть» существует отдельным именем', () => {
@@ -103,8 +102,13 @@ describe('rescue-agent: упавшая проверка называется у�
     expect(RESCUE).toContain('тишина здесь не значит «безопасно»');
   });
 
-  it('оркестратор переносит отказ проверки в свои ошибки', () => {
-    expect(ORCH).toMatch(/rescue\?\.failed_checks \?\? \[\]/);
-    expect(ORCH).toContain('RescueScan: проверка не отработала');
+  it('запускающий переносит отказ проверки в статус прогона', () => {
+    // Переехало 08.09 из оркестратора в крон-роут: Rescue вынут из эволюции
+    // (issue #1725), и единственный оставшийся запускающий — свой крон.
+    // Честность обязана была переехать вместе с ним, а не пропасть.
+    const route = readFileSync('app/api/cron/rescue/route.ts', 'utf-8');
+    expect(route).toMatch(/result\.failed_checks \?\? \[\]/);
+    expect(route).toMatch(/failed\.length > 0/);
+    expect(route).toContain('проверки не отработали');
   });
 });

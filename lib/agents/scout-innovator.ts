@@ -21,6 +21,7 @@ import { jaccardSimilarity } from '@/lib/utils/text-similarity';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { repairTelegramHtml } from '@/lib/notifications/telegram-html';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 interface StructuredProposal {
   title: string;
@@ -360,14 +361,33 @@ function formatTelegramMessage(
   return lines.join('\n');
 }
 
-interface CriticVerdict { approved: boolean; reason: string }
+/**
+ * Три исхода ревью, а не два (issue #1724).
+ *
+ * Fail-open остаётся политикой: гейт не имеет права обнулить выдачу, когда
+ * критик молчит. Но «одобрено» и «не смог оценить» приходили вызывающему
+ * ОДИНАКОВЫМ `approved: true`, и разница жила в строке reason, которую никто
+ * не разбирал. Issue по неоценённому предложению выглядел точно так же, как
+ * прошедший ревью, и человек в очереди этой разницы не видел.
+ *
+ * Соседний scout-ai-features уже считает `criticSilent` и различает
+ * critic_unavailable от critic_rejected_all — здесь то же самое.
+ */
+export type CriticVerdict =
+  | { verdict: 'approved'; reason: string }
+  | { verdict: 'rejected'; reason: string }
+  /** Критик не ответил или ответил неразбираемым — предложение НЕ проверено. */
+  | { verdict: 'unknown'; reason: string };
+
+/** Пропускаем всё, кроме явного отказа: политика fail-open не меняется. */
+export function criticPasses(v: CriticVerdict): boolean {
+  return v.verdict !== 'rejected';
+}
 
 /**
  * Critic-gate (Roitman §24.6.2 reflection / §24.8.5 против amplification):
  * дешёвая вторая пара глаз ПЕРЕД созданием Issue. Отсеивает предложения,
  * нарушающие жёсткие правила CLAUDE.md или уже реализованные.
- * Fail-open: при любом сбое AI/парсинга → approved (поток не блокируется,
- * гейт никогда не обнуляет выдачу — только убирает явно плохое).
  */
 export async function criticReviewProposal(
   p: StructuredProposal,
@@ -405,14 +425,22 @@ ${libFilesList.slice(0, 1500)}
   try {
     const raw = await callAIFast([{ role: 'user' as const, content: prompt }]);
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return { approved: true, reason: 'critic: нет JSON, fail-open' };
+    if (!m) {
+      logSwallowedFailure('scout-innovator', 'критик вернул не JSON', new Error(raw.slice(0, 200)));
+      return { verdict: 'unknown', reason: 'критик ответил не JSON' };
+    }
     const parsed = JSON.parse(m[0]) as { approved?: unknown; reason?: unknown };
-    return {
-      approved: parsed.approved !== false, // отклоняет только явное false
-      reason: typeof parsed.reason === 'string' ? parsed.reason : '',
-    };
-  } catch {
-    return { approved: true, reason: 'critic: ошибка, fail-open' };
+    const reason = typeof parsed.reason === 'string' ? parsed.reason : '';
+    // Только явное false — отказ. Всё прочее (включая отсутствующее поле)
+    // означает, что вердикта не было: это не одобрение.
+    if (parsed.approved === false) return { verdict: 'rejected', reason };
+    if (parsed.approved === true) return { verdict: 'approved', reason };
+    logSwallowedFailure('scout-innovator', 'критик не вернул approved', new Error(m[0].slice(0, 200)));
+    return { verdict: 'unknown', reason: 'критик не назвал вердикт' };
+  } catch (err) {
+    // Немота критика (провайдер лёг, ключ кончился) раньше не попадала никуда.
+    logSwallowedFailure('scout-innovator', 'критик предложений', err);
+    return { verdict: 'unknown', reason: err instanceof Error ? err.message : 'ошибка вызова' };
   }
 }
 
@@ -454,12 +482,22 @@ async function saveProposalLocks(titles: string[]): Promise<void> {
   }
 }
 
-async function createGitHubIssue(p: StructuredProposal, dateKey: string): Promise<string | null> {
+async function createGitHubIssue(
+  p: StructuredProposal,
+  dateKey: string,
+  /** Критик не смог оценить предложение — причина. null — оценил. */
+  uncheckedReason: string | null = null,
+): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
   const repo = 'tourhabk-ui/pos';
   if (!token) return null;
 
   const body = [
+    // Непроверенное предложение обязано выглядеть иначе, чем прошедшее ревью:
+    // человек в очереди читает первым делом верх тела.
+    uncheckedReason
+      ? `> **Критик НЕ СМОГ оценить это предложение:** ${uncheckedReason}. Задача заведена (гейт не обнуляет выдачу), но вторых глаз у неё не было — проверь сам.\n`
+      : null,
     `## Зачем (Scout-Innovator ${dateKey})`,
     p.why,
     '',
@@ -473,7 +511,7 @@ async function createGitHubIssue(p: StructuredProposal, dateKey: string): Promis
     p.acceptance_criteria.map(c => `- [ ] ${c}`).join('\n'),
     '',
     '---',
-    `*Scout-Innovator ${dateKey} · Сложность: ${p.complexity} · Категория: ${p.category}*`,
+    `*Scout-Innovator ${dateKey} · Сложность: ${p.complexity} · Категория: ${p.category}${uncheckedReason ? ' · БЕЗ РЕВЬЮ КРИТИКА' : ''}*`,
     '',
     '---',
     '',
@@ -481,7 +519,7 @@ async function createGitHubIssue(p: StructuredProposal, dateKey: string): Promis
 Definition of done — все критерии приёмки из этой задачи выполнены и проверяемы.
 Обязательно по CLAUDE.md: TypeScript strict (unknown + type guards, без any), все цвета — CSS vars, SQL только параметризованный ($1,$2) и import { pool } from '@/lib/db-pool', таблицы operator_bookings (booking_status) / operator_tours / v_kamchatka_routes_api (не устаревшие bookings и tours, не прямой выбор из kamchatka_routes), Zod-валидация входных данных API и JWT на защищённых роутах, AI только через callAIWaterfall/callAIFast, без отладочного console-вывода в продакшн-коде, без эмодзи в коде/UI/логах, новая миграция — следующий свободный номер, идемпотентная.
 Перед завершением: npx tsc --noEmit (0 ошибок) и npx vitest run (зелёные). Оформи изменения как PR, не пушь напрямую в main.`,
-  ].join('\n');
+  ].filter((x): x is string => x !== null).join('\n');
 
   try {
     const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
@@ -667,10 +705,19 @@ export async function runScoutInnovator(
   const verdicts = await Promise.all(
     deduped.map((p) => criticReviewProposal(p, codebaseRules, closedIssues ?? '', libFilesList)),
   );
-  const proposals = deduped.filter((_, i) => verdicts[i].approved);
+  const passing = deduped
+    .map((p, i) => ({ p, v: verdicts[i] }))
+    .filter(({ v }) => criticPasses(v));
+  const proposals = passing.map(({ p }) => p);
+  // Непроверенность едет ВМЕСТЕ с предложением до самого тела issue: там её
+  // и увидит человек, разбирающий очередь.
+  const uncheckedReason = new Map<string, string>();
+  for (const { p, v } of passing) {
+    if (v.verdict === 'unknown') uncheckedReason.set(p.title, v.reason);
+  }
   const skipped_by_critic = deduped.length - proposals.length;
   verdicts.forEach((v, i) => {
-    if (!v.approved) console.error(`[scout-innovator] critic отклонил: ${deduped[i].title} — ${v.reason}`);
+    if (v.verdict === 'rejected') console.error(`[scout-innovator] critic отклонил: ${deduped[i].title} — ${v.reason}`);
   });
 
   if (proposals.length === 0) {
@@ -718,7 +765,7 @@ export async function runScoutInnovator(
   const createdTitles: string[] = [];
 
   for (const p of proposals) {
-    const url = await createGitHubIssue(p, dateKey);
+    const url = await createGitHubIssue(p, dateKey, uncheckedReason.get(p.title) ?? null);
     if (url) {
       issueUrls.push(url);
       createdTitles.push(p.title);
