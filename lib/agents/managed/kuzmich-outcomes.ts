@@ -11,6 +11,7 @@ import { pool } from '@/lib/db-pool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { callAIFast } from '@/lib/ai/providers';
 import { assessGrounding, type ToolRun } from '@/lib/agents/eval/grounding';
+import { detectRefusal } from '@/lib/safety/refusal-detector';
 
 interface OutcomeResult {
   score: number;       // 0–10
@@ -65,6 +66,65 @@ export interface AnswerProvenance {
   toolsOffered?: string[];
 }
 
+/**
+ * Чем произведён ответ — одним куском для обоих путей записи (оценка судьёй и
+ * детерминированный отказ). Отсутствующее поле пишется как null: «не
+ * записано» отличается от «не было» (§4.0).
+ *
+ * Без этого «Кузьмич стал отвечать хуже» не разложить на «сменился
+ * провайдер», «поправили промпт» и «инструментов не дали»: водопад меняет
+ * провайдера молча, а промпт правится со временем.
+ */
+function buildProvenance(
+  opts: ({ toolRuns?: ToolRun[] } & AnswerProvenance) | undefined,
+  grounding: string,
+  refusal: { refused: boolean; markers: string[] },
+): Record<string, unknown> {
+  return {
+    prompt_fingerprint: opts?.promptFingerprint ?? null,
+    provider:           opts?.provider ?? null,
+    answer_path:        opts?.answerPath ?? null,
+    tools_offered:      opts?.toolsOffered ?? null,
+    tools_ran:          opts?.toolRuns?.map(r => r.name) ?? null,
+    grounding,
+    refused:            refusal.refused,
+    refusal_markers:    refusal.markers.length ? refusal.markers : null,
+  };
+}
+
+/**
+ * Запись исхода — ОДНА на оба пути.
+ *
+ * Своя копия вставки у ветки отказа разошлась бы с веткой оценки ровно так
+ * же, как разошлись две копии создания брони (08.09): сначала незаметно,
+ * потом дорого.
+ */
+async function saveOutcome(input: {
+  chatId: number;
+  userText: string;
+  botResponse: string;
+  score: number;
+  issues: string[];
+  provenance: Record<string, unknown>;
+}): Promise<void> {
+  const slug = `outcome_kuz_${input.chatId}_${Date.now() % 1000000}`;
+  const summary = input.issues.length > 0
+    ? `Оценка ${input.score}/10. Проблемы: ${input.issues.join('; ')}`
+    : `Оценка ${input.score}/10. Хороший ответ.`;
+
+  await pool.query(
+    `INSERT INTO agent_knowledge(slug, type, title, compiled_truth, metadata, agent_id, edit_count, created_at, updated_at)
+     VALUES($1, 'outcome', $2, $3, $4::jsonb, 'kuzmich', 0, NOW(), NOW())
+     ON CONFLICT(slug) DO NOTHING`,
+    [
+      slug,
+      `Оценка ответа: ${input.score}/10`,
+      `Вопрос: ${input.userText.slice(0, 150)}\nОтвет: ${input.botResponse.slice(0, 300)}\n\n${summary}`,
+      JSON.stringify(input.provenance),
+    ],
+  );
+}
+
 export async function gradeKuzmichResponse(
   userText: string,
   botResponse: string,
@@ -73,8 +133,22 @@ export async function gradeKuzmichResponse(
 ): Promise<void> {
   // Грейдим только содержательные вопросы о Камчатке
   if (!isGradableQuestion(userText)) return;
-  // Пропускаем очень короткие ответы (ошибки, перебои)
-  if (botResponse.length < 50) return;
+
+  // ОТКАЗ — отдельный исход, а не отсутствие ответа (issue #1730).
+  //
+  // Порог ниже заводился против обрывов связи, и для них он верен. Но отказ
+  // короток по природе («не могу помочь с этим вопросом» — меньше пятидесяти
+  // знаков), и порог глотал его целиком: ни балла, ни записи, ни следа.
+  // Отказ был неотличим от того, что ответа не было.
+  //
+  // Для советника по безопасности это дорого именно темами: законные вопросы
+  // про медведя рядом, фальшфейер, травму и переохлаждение лежат ровно там,
+  // где модели отказывают темой целиком. Своего списка запретных тем у нас
+  // нет — отказ выносит провайдер, а водопад меняет его молча.
+  const refusal = detectRefusal(botResponse);
+
+  // Пропускаем очень короткие ответы (ошибки, перебои) — но НЕ отказы.
+  if (botResponse.length < 50 && !refusal.refused) return;
 
   // Детерминированная метрика заземления (grounding.ts): конкретика
   // (цены/телефоны/наличие мест), за которой не стоит инструмент, ПРИНЁСШИЙ
@@ -84,6 +158,22 @@ export async function gradeKuzmichResponse(
   // (§4.0). Прежде здесь стояло `{ ungrounded: false }`: грейдер отвечал
   // «заземлено» на вопрос, которого не проверял (находка аудита 08.09).
   const grounding = assessGrounding(botResponse, opts?.toolRuns);
+
+  // Отказ судить моделью незачем и вредно: судья поставит низкий балл за
+  // бесполезность и запишет это как качество ответа, тогда как причина
+  // другая — провайдер отказался отвечать по теме. Записываем детерминированно
+  // и без вызова AI: балл 0 с явной причиной честнее выдуманной оценки.
+  if (refusal.refused) {
+    await saveOutcome({
+      chatId,
+      userText,
+      botResponse,
+      score: 0,
+      issues: [`ОТКАЗ МОДЕЛИ (${refusal.markers.join(', ')}): провайдер не стал отвечать по существу`],
+      provenance: buildProvenance(opts, grounding.verdict, { refused: true, markers: refusal.markers }),
+    });
+    return;
+  }
 
   try {
     const raw = await callAIFast([{
@@ -111,36 +201,14 @@ export async function gradeKuzmichResponse(
       result.issues.push(`ЗАЗЕМЛЕНИЕ НЕ ПРОВЕРЕНО (${grounding.signals.join(', ')}): ${grounding.reason}`);
     }
 
-    const slug = `outcome_kuz_${chatId}_${Date.now() % 1000000}`;
-    const summary = result.issues.length > 0
-      ? `Оценка ${result.score}/10. Проблемы: ${result.issues.join('; ')}`
-      : `Оценка ${result.score}/10. Хороший ответ.`;
-
-    // Чем произведён ответ — рядом с оценкой, а не в другом месте и не
-    // задним числом. Без этого «Кузьмич стал отвечать хуже» не разложить на
-    // «сменился провайдер», «поправили промпт» и «инструментов не дали»:
-    // водопад меняет провайдера молча, а промпт правится со временем.
-    // Отсутствующее поле пишется как null — «не записано», не «не было».
-    const provenance = {
-      prompt_fingerprint: opts?.promptFingerprint ?? null,
-      provider:           opts?.provider ?? null,
-      answer_path:        opts?.answerPath ?? null,
-      tools_offered:      opts?.toolsOffered ?? null,
-      tools_ran:          opts?.toolRuns?.map(r => r.name) ?? null,
-      grounding:          grounding.verdict,
-    };
-
-    await pool.query(
-      `INSERT INTO agent_knowledge(slug, type, title, compiled_truth, metadata, agent_id, edit_count, created_at, updated_at)
-       VALUES($1, 'outcome', $2, $3, $4::jsonb, 'kuzmich', 0, NOW(), NOW())
-       ON CONFLICT(slug) DO NOTHING`,
-      [
-        slug,
-        `Оценка ответа: ${result.score}/10`,
-        `Вопрос: ${userText.slice(0, 150)}\nОтвет: ${botResponse.slice(0, 300)}\n\n${summary}`,
-        JSON.stringify(provenance),
-      ],
-    );
+    await saveOutcome({
+      chatId,
+      userText,
+      botResponse,
+      score: result.score,
+      issues: result.issues,
+      provenance: buildProvenance(opts, grounding.verdict, { refused: false, markers: [] }),
+    });
   } catch (err) {
     // Fire-and-forget — ошибка оценки не должна влиять на пользователя.
     // Но молчать нельзя (§4.0): без строки в логе сломанный грейдер
@@ -155,6 +223,17 @@ export interface OutcomeSummary {
   low_quality_count: number;
   /** Ответы с конкретикой (цены/телефоны/наличие) без вызова инструментов данных. */
   ungrounded_count: number;
+  /**
+   * Отказы модели — отдельно от низких баллов (issue #1730).
+   *
+   * Отказ входит и в `low_quality_count` (балл 0), но смешивать их нельзя:
+   * низкий балл значит «ответили плохо», отказ — «не стали отвечать», и
+   * чинятся они в разных местах. Первое — промптом и данными, второе — только
+   * сменой провайдера или политикой.
+   */
+  refused_count: number;
+  /** Провайдеры, чьи отказы попали в выборку, с числом отказов у каждого. */
+  refusals_by_provider: Record<string, number>;
   recent_issues: string[];
 }
 
@@ -164,6 +243,8 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
     avg_score: string;
     low_count: string;
     ungrounded_count: string;
+    refused_count: string;
+    refusal_providers: string[];
     issues: string[];
   }>(
     `SELECT
@@ -180,6 +261,17 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
        COUNT(*) FILTER (
          WHERE compiled_truth LIKE '%НЕЗАЗЕМЛЁННЫЕ ФАКТЫ%'
        ) AS ungrounded_count,
+       -- Отказ читается из metadata, а не из текста: текст пишет судья, а
+       -- metadata — детерминированный детектор, и второму верить надёжнее.
+       COUNT(*) FILTER (
+         WHERE metadata->>'refused' = 'true'
+       ) AS refused_count,
+       -- Провайдер отказавшего: без него «отказы участились» не разложить на
+       -- «сменился провайдер» и «изменилась политика прежнего».
+       ARRAY_AGG(
+         COALESCE(metadata->>'provider', 'не записан')
+         ORDER BY created_at DESC
+       ) FILTER (WHERE metadata->>'refused' = 'true') AS refusal_providers,
        ARRAY_AGG(
          CASE
            WHEN compiled_truth LIKE '%Проблемы:%'
@@ -195,11 +287,17 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
   );
 
   const row = rows[0];
+  const byProvider: Record<string, number> = {};
+  for (const p of row?.refusal_providers ?? []) {
+    byProvider[p] = (byProvider[p] ?? 0) + 1;
+  }
   return {
     total_graded: parseInt(row?.total ?? '0'),
     avg_score: parseFloat(row?.avg_score ?? '0'),
     low_quality_count: parseInt(row?.low_count ?? '0'),
     ungrounded_count: parseInt(row?.ungrounded_count ?? '0'),
+    refused_count: parseInt(row?.refused_count ?? '0'),
+    refusals_by_provider: byProvider,
     recent_issues: (row?.issues ?? []).filter(Boolean).slice(0, 5),
   };
 }
