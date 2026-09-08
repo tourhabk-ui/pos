@@ -757,11 +757,48 @@ export type FeedOutcome =
   | { state: 'empty' }
   | { state: 'no_feeds'; tried: number };
 
+/**
+ * Отказ лент помнится КОРОТКО — и это не про аккуратность, а про ожидание
+ * человека в поле.
+ *
+ * Кэш здесь держит только удачу (`NEWS_TTL`, час), а неудача не держалась
+ * вовсе: писать пустую строку смысла нет, её всё равно отсекает проверка
+ * истинности. Следствие — на КАЖДОЕ сообщение туриста мы заново стучимся в
+ * мёртвые ленты: два таймаута по 8 секунд у новостей плюс два по 6 у МЧС, до
+ * 28 секунд ожидания перед ответом. А ленты МЧС с прода могут быть
+ * гео-закрыты, то есть это не редкий край, а состояние по умолчанию.
+ *
+ * Пять минут — намеренно мало. Долгий отрицательный кэш был бы ХУЖЕ
+ * отсутствующего: ожившая лента не доехала бы до человека целый час, и
+ * настоящее предупреждение МЧС опоздало бы ровно на столько же.
+ */
+const FEED_FAIL_TTL = 5 * 60 * 1000;
+
+/** Последний неудачный исход ленты: что именно и когда. */
+interface FailMemo { outcome: FeedOutcome | null; at: number }
+const _newsFail: FailMemo = { outcome: null, at: 0 };
+const _mchsFail: FailMemo = { outcome: null, at: 0 };
+
+/** Свежий отказ, если он ещё в силе. Иначе null — идём в сеть заново. */
+function recentFailure(memo: FailMemo): FeedOutcome | null {
+  if (!memo.outcome) return null;
+  return Date.now() - memo.at < FEED_FAIL_TTL ? memo.outcome : null;
+}
+
+/** Запомнить отказ. Удачу сюда не кладём — у неё свой кэш и свой срок. */
+function rememberFailure(memo: FailMemo, outcome: FeedOutcome): FeedOutcome {
+  memo.outcome = outcome;
+  memo.at = Date.now();
+  return outcome;
+}
+
 /** Fetch Kamchatka news headlines from RSS */
 async function fetchKamchatkaNews(): Promise<FeedOutcome> {
   if (_newsCache.text && Date.now() - _newsCache.at < NEWS_TTL) {
     return { state: 'ok', text: _newsCache.text };
   }
+  const failed = recentFailure(_newsFail);
+  if (failed) return failed;
   const feeds = [
     'https://kamchatka.aif.ru/rss/all.php',
     'https://www.kamgov.ru/news/rss',
@@ -783,8 +820,12 @@ async function fetchKamchatkaNews(): Promise<FeedOutcome> {
   }
   if (!headlines.length) {
     // Кэш пустой строкой не портится (проверено: чтение идёт через
-    // `if (_newsCache.text && …)`), но и смысла в нём нет — не пишем.
-    return answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' };
+    // `if (_newsCache.text && …)`), поэтому в него не пишем. Но исход помним
+    // отдельно и коротко — иначе каждое сообщение туриста снова ждёт таймауты.
+    return rememberFailure(
+      _newsFail,
+      answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' },
+    );
   }
   const lines = headlines.slice(0, 6).map(h => `- ${h.date ? h.date + ': ' : ''}${h.title}`);
   _newsCache.text = lines.join('\n');
@@ -797,6 +838,8 @@ async function fetchMchsAlerts(): Promise<FeedOutcome> {
   if (_mchsCache.text && Date.now() - _mchsCache.at < NEWS_TTL) {
     return { state: 'ok', text: _mchsCache.text };
   }
+  const failed = recentFailure(_mchsFail);
+  if (failed) return failed;
   const feeds = [
     'https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/rss',
     'https://www.mchs.gov.ru/rss',
@@ -817,7 +860,10 @@ async function fetchMchsAlerts(): Promise<FeedOutcome> {
     } catch (err) { logSwallowed(`лента МЧС ${url}`, err); }
   }
   if (!items.length) {
-    return answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' };
+    return rememberFailure(
+      _mchsFail,
+      answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' },
+    );
   }
   const lines = items.slice(0, 5).map(h => `- ${h.date ? h.date + ': ' : ''}${h.title}`);
   _mchsCache.text = lines.join('\n');

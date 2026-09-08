@@ -1,0 +1,81 @@
+name: Находка не чинится дважды
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# 08.09 четыре находки (#1722-#1725) чинились ДВАЖДЫ параллельно, двумя
+# исполнителями, и обе работы дошли до готовых PR: #1728 успел в main первым,
+# #1727 остался с конфликтом. Совпали не только правки — совпало имя
+# созданного файла. Цена: двойная работа за день плюс разбор конфликта.
+#
+# Первая линия защиты — заявка комментарием в самой находке (CLAUDE.md §8).
+# Она дешевле и работает ДО работы. Эта проверка — вторая линия: она видит
+# столкновение уже после того, как работа сделана, но всё же ДО мержа, когда
+# ещё можно договориться, а не разбирать конфликт в main.
+#
+# Проверка НЕ блокирует: два PR на одну находку бывают законно (разные части
+# большой задачи, замена заброшенной работы). Решает человек — задача
+# проверки в том, чтобы он узнал.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Другой открытый PR на ту же находку
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Номера находок из заголовка и тела ЭТОГО пулла.
+          MINE=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" \
+            | grep -oE '#[0-9]{3,6}' | tr -d '#' | sort -u || true)
+          if [ -z "$MINE" ]; then
+            echo "PR не ссылается ни на одну находку — сверять нечего."
+            exit 0
+          fi
+          echo "Этот PR ссылается на: $(echo "$MINE" | tr '\n' ' ')"
+
+          # Открытые пуллы, кроме своего. Тело берём тем же запросом.
+          OTHERS=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/pulls?state=open&per_page=100")
+
+          CLASH=0
+          for N in $MINE; do
+            HITS=$(echo "$OTHERS" | jq -r --arg n "#$N" --argjson me "$PR_NUMBER" '
+              .[] | select(.number != $me)
+                  | select(((.title // "") + " " + (.body // "")) | contains($n))
+                  | "#\(.number) \(.title)"')
+            if [ -n "$HITS" ]; then
+              CLASH=1
+              echo "::warning::Находка #$N упомянута и в другом открытом PR:"
+              echo "$HITS" | while read -r L; do echo "::warning::  $L"; done
+            fi
+          done
+
+          if [ "$CLASH" = "1" ]; then
+            {
+              echo "## Находка чинится дважды"
+              echo ""
+              echo "Другой открытый PR ссылается на ту же находку. Это не обязательно ошибка —"
+              echo "но решать, какая из работ едет в main, надо СЕЙЧАС, а не после мержа."
+              echo ""
+              echo "Как этого избежать в следующий раз: заявка комментарием в находке ДО начала"
+              echo "работы (CLAUDE.md §8, правило 08.09)."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Столкновений нет: ни одна находка этого PR не занята другим открытым пуллом."
+          fi
