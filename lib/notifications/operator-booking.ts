@@ -43,10 +43,40 @@ export interface BookingNotifyPayload {
   operator_name: string;
   operator_telegram_chat_id?: string;
   operator_max_chat_id?: string | number | null;
+  /**
+   * Телефон и почта оператора из `partners.contacts` — на случай, когда
+   * канала у него нет вовсе. Тогда заявку до него доносит человек, и ему
+   * нужно, ЧЕМ доносить (см. notifyNewBooking ниже).
+   */
+  operator_phone?: string | null;
+  operator_email?: string | null;
   via?: string; // 'website' | 'direct_contact' | 'api'
 }
 
-export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<void> {
+/** Чем кончилась доставка заявки оператору — три исхода, не два (§4.0). */
+export type OperatorDeliveryOutcome =
+  /** Ушло в канал оператора. */
+  | { state: 'delivered'; channel: string }
+  /** Канал есть, но доставка не удалась — оператор не виноват, чинить связь. */
+  | { state: 'failed'; channel: string; reason: string }
+  /** Канала нет вовсе: заявка не дойдёт никогда, пока не появится адрес. */
+  | { state: 'no_channel' };
+
+/**
+ * Заявка оператору. Возвращает ИСХОД доставки, а не void.
+ *
+ * Находка эволюции 08.09 (issue #1719): у обоих операторов с живыми турами не
+ * было ни MAX, ни Telegram — 12 живых туров, и заявка по любому из них
+ * создавалась в базе и никуда не уезжала. Через 48 часов Watchdog записывал
+ * это как «оператор игнорирует бронь»: наш пробел уезжал в вину оператору.
+ *
+ * Лог о таком случае здесь уже стоял. Лога мало: строка в консоли не создаёт
+ * ни задачи, ни адресата. Поэтому «канала нет» — теперь ОТДЕЛЬНЫЙ исход,
+ * который: уходит админу платформы как работа для человека (с телефоном и
+ * почтой оператора из профиля — чтобы было чем звонить), и возвращается
+ * вызывающему, чтобы тот не выдавал недоставленное за доставленное.
+ */
+export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<OperatorDeliveryOutcome> {
   const priceStr = payload.final_price
     ? `${payload.final_price.toLocaleString('ru-RU')} ₽`
     : 'не указана';
@@ -104,17 +134,38 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<v
     });
     if (!opRes.delivered) {
       console.error(`[notifyNewBooking] оператору ПД не доставлены (${opRes.channel}) — ${opRes.reason}`);
+      return { state: 'failed', channel: opRes.channel, reason: opRes.reason ?? 'причина не названа' };
     }
-  } else {
-    // У ветки не было `else`, и это молчание стоило дороже сбоя доставки:
-    // оператор без единого адреса не получал заявку НИКОГДА, а в логе не было
-    // ни строки. Со стороны выглядело как «оператор видит бронь и не
-    // отвечает» — то есть вина уезжала на него, а чинить надо было у нас.
-    // Сколько таких операторов — считает GET /api/cron/operator-reach.
-    console.error(
-      `[notifyNewBooking] у оператора «${payload.operator_name}» нет ни MAX, ни Telegram — заявка #${payload.booking_id} до него не дойдёт`,
-    );
+    return { state: 'delivered', channel: opRes.channel };
   }
+
+  // Канала нет. Это не сбой доставки, а её отсутствие: заявка не дойдёт ни
+  // сейчас, ни завтра. Значит её доносит человек — и ему отправляется задача,
+  // а не запись в лог.
+  const opContacts = [
+    payload.operator_phone ? `Телефон: ${esc(payload.operator_phone)}` : null,
+    payload.operator_email ? `Почта: ${esc(payload.operator_email)}` : null,
+  ].filter(Boolean) as string[];
+  const handoff = [
+    `<b>Заявка не дойдёт до оператора — нет канала</b>`,
+    `Оператор: ${esc(payload.operator_name)}`,
+    `Бронь #${payload.booking_id}, тур: ${esc(payload.tour_title)}`,
+    `Дата: ${payload.booking_date}, участников: ${payload.participants}`,
+    '',
+    opContacts.length > 0
+      ? 'Свяжитесь с оператором сами:'
+      : 'Контактов оператора в профиле тоже нет — заявку донести нечем, нужен разбор.',
+    ...opContacts,
+    '',
+    'Чтобы это перестало повторяться: оператор пишет боту Кузьмича в MAX слово',
+    '«партнер» и почту из профиля — бот запишет его чат сам.',
+  ].join('\n');
+  const handoffRes = await sendPdAlert({ text: handoff, stub: handoff, buttons: [link] });
+  console.error(
+    `[notifyNewBooking] у оператора «${payload.operator_name}» нет ни MAX, ни Telegram — заявка #${payload.booking_id} до него не дойдёт` +
+    (handoffRes.delivered ? '; задача передана админу' : `; АДМИНУ ТОЖЕ НЕ УШЛО (${handoffRes.channel}) — ${handoffRes.reason}`),
+  );
+  return { state: 'no_channel' };
 }
 
 export async function notifyBookingPaid(

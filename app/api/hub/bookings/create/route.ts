@@ -194,8 +194,15 @@ export async function POST(req: NextRequest) {
     // Уведомление оператору + U-ON sync — fire-and-forget, не блокирует ответ
     void (async () => {
       try {
-        const opRow = await pool.query<{ name: string; telegram_chat_id: string | null; max_chat_id: number | null; uon_api_key: string | null }>(
-          `SELECT name, telegram_chat_id, max_chat_id, uon_api_key FROM partners WHERE id = $1 LIMIT 1`,
+        const opRow = await pool.query<{
+          name: string; telegram_chat_id: string | null; max_chat_id: number | null;
+          uon_api_key: string | null; phone: string | null; email: string | null;
+        }>(
+          // Телефон и почта — на случай, когда канала у оператора нет: тогда
+          // заявку доносит человек, и ему нужно, чем звонить (issue #1719).
+          `SELECT name, telegram_chat_id, max_chat_id, uon_api_key,
+                  contacts->>'phone' AS phone, contacts->>'email' AS email
+             FROM partners WHERE id = $1 LIMIT 1`,
           [result.tour.operator_id],
         );
         const op = opRow.rows[0];
@@ -244,6 +251,8 @@ export async function POST(req: NextRequest) {
           operator_name:             op?.name ?? 'Оператор',
           operator_telegram_chat_id: op?.telegram_chat_id ?? undefined,
           operator_max_chat_id:      op?.max_chat_id ?? undefined,
+          operator_phone:            op?.phone ?? null,
+          operator_email:            op?.email ?? null,
           via:                       'website',
         });
       } catch (err) {

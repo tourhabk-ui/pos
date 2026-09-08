@@ -50,8 +50,13 @@ export function trackLeadEvent(event: LeadEvent) {
     });
   }
 
-  // Локальный логинг
-  console.debug('[Lead Tracking]', event);
+  // Отладочный вывод жил здесь безусловно и уезжал в прод (находка судьи
+  // эволюции 08.09): CLAUDE.md запрещает console.log в продакшн-коде, а
+  // событие лида несёт ещё и источник с маршрутом. В разработке он полезен —
+  // поэтому не удалён, а поставлен под условие.
+  if (process.env.NODE_ENV !== 'production') {
+    console.debug('[Lead Tracking]', event);
+  }
 }
 
 /**

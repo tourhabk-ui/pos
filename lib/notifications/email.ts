@@ -3,6 +3,7 @@
 // Kamchatour Hub - Email Notification Service
 // =============================================
 
+import { escapeHtml as e, telHref, safeSubject } from '@/lib/text/escape-html';
 import nodemailer from 'nodemailer';
 
 interface EmailMessage {
@@ -75,7 +76,7 @@ export class EmailNotificationService {
     driverPhone: string;
     meetingPoint: string;
   }): Promise<EmailResponse> {
-    const subject = `[✓] Подтверждение бронирования трансфера #${booking.confirmationCode}`;
+    const subject = safeSubject(`[✓] Подтверждение бронирования трансфера #${booking.confirmationCode}`);
     
     const html = `
       <!DOCTYPE html>
@@ -107,19 +108,19 @@ export class EmailNotificationService {
             
             <div class="booking-details">
               <h3>Детали поездки</h3>
-              <p><strong>Код бронирования:</strong> ${booking.confirmationCode}</p>
-              <p><strong>Маршрут:</strong> ${booking.route}</p>
-              <p><strong>Дата:</strong> ${booking.date}</p>
-              <p><strong>Время:</strong> ${booking.time}</p>
-              <p><strong>Количество пассажиров:</strong> ${booking.passengers}</p>
-              <p><strong>Цена:</strong> ${booking.price} ₽</p>
-              <p><strong>Место встречи:</strong> ${booking.meetingPoint}</p>
+              <p><strong>Код бронирования:</strong> ${e(booking.confirmationCode)}</p>
+              <p><strong>Маршрут:</strong> ${e(booking.route)}</p>
+              <p><strong>Дата:</strong> ${e(booking.date)}</p>
+              <p><strong>Время:</strong> ${e(booking.time)}</p>
+              <p><strong>Количество пассажиров:</strong> ${e(booking.passengers)}</p>
+              <p><strong>Цена:</strong> ${e(booking.price)} ₽</p>
+              <p><strong>Место встречи:</strong> ${e(booking.meetingPoint)}</p>
             </div>
             
             <div class="driver-info">
               <h3>Информация о водителе</h3>
-              <p><strong>Имя:</strong> ${booking.driverName}</p>
-              <p><strong>Телефон:</strong> <a href="tel:${booking.driverPhone}">${booking.driverPhone}</a></p>
+              <p><strong>Имя:</strong> ${e(booking.driverName)}</p>
+              <p><strong>Телефон:</strong> <a href="tel:${telHref(booking.driverPhone)}">${e(booking.driverPhone)}</a></p>
             </div>
             
             <p>Если у вас есть вопросы, свяжитесь с нами по телефону или email.</p>
@@ -171,7 +172,7 @@ export class EmailNotificationService {
     passengerPhone: string;
     meetingPoint: string;
   }): Promise<EmailResponse> {
-    const subject = `  Назначение на поездку - ${assignment.route}`;
+    const subject = safeSubject(`  Назначение на поездку - ${assignment.route}`);
     
     const html = `
       <!DOCTYPE html>
@@ -202,17 +203,17 @@ export class EmailNotificationService {
             
             <div class="assignment-details">
               <h3>Детали поездки</h3>
-              <p><strong>Маршрут:</strong> ${assignment.route}</p>
-              <p><strong>Дата:</strong> ${assignment.date}</p>
-              <p><strong>Время:</strong> ${assignment.time}</p>
-              <p><strong>Количество пассажиров:</strong> ${assignment.passengers}</p>
-              <p><strong>Место встречи:</strong> ${assignment.meetingPoint}</p>
+              <p><strong>Маршрут:</strong> ${e(assignment.route)}</p>
+              <p><strong>Дата:</strong> ${e(assignment.date)}</p>
+              <p><strong>Время:</strong> ${e(assignment.time)}</p>
+              <p><strong>Количество пассажиров:</strong> ${e(assignment.passengers)}</p>
+              <p><strong>Место встречи:</strong> ${e(assignment.meetingPoint)}</p>
             </div>
             
             <div class="passenger-info">
               <h3>Информация о пассажире</h3>
-              <p><strong>Имя:</strong> ${assignment.passengerName}</p>
-              <p><strong>Телефон:</strong> <a href="tel:${assignment.passengerPhone}">${assignment.passengerPhone}</a></p>
+              <p><strong>Имя:</strong> ${e(assignment.passengerName)}</p>
+              <p><strong>Телефон:</strong> <a href="tel:${telHref(assignment.passengerPhone)}">${e(assignment.passengerPhone)}</a></p>
             </div>
             
             <p>Пожалуйста, подтвердите получение назначения в мобильном приложении.</p>
@@ -247,7 +248,7 @@ export class EmailNotificationService {
     }>;
     features: string[];
   }): Promise<EmailResponse> {
-    const subject = `  Детали маршрута - ${route.name}`;
+    const subject = safeSubject(`  Детали маршрута - ${route.name}`);
     
     const html = `
       <!DOCTYPE html>
@@ -275,26 +276,26 @@ export class EmailNotificationService {
           
           <div class="content">
             <div class="route-details">
-              <h3>${route.name}</h3>
-              <p><strong>Откуда:</strong> ${route.from}</p>
-              <p><strong>Куда:</strong> ${route.to}</p>
-              <p><strong>Расстояние:</strong> ${route.distance} км</p>
-              <p><strong>Время в пути:</strong> ${route.duration} минут</p>
+              <h3>${e(route.name)}</h3>
+              <p><strong>Откуда:</strong> ${e(route.from)}</p>
+              <p><strong>Куда:</strong> ${e(route.to)}</p>
+              <p><strong>Расстояние:</strong> ${e(route.distance)} км</p>
+              <p><strong>Время в пути:</strong> ${e(route.duration)} минут</p>
             </div>
             
             <div class="stops">
               <h3>Остановки</h3>
               ${route.stops.map(stop => `
-                <p><strong>${stop.name}</strong><br>
-                ${stop.address}<br>
-                <em>Время: ${stop.time}</em></p>
+                <p><strong>${e(stop.name)}</strong><br>
+                ${e(stop.address)}<br>
+                <em>Время: ${e(stop.time)}</em></p>
               `).join('')}
             </div>
             
             <div class="features">
               <h3>Особенности маршрута</h3>
               <ul>
-                ${route.features.map(feature => `<li>${feature}</li>`).join('')}
+                ${route.features.map(feature => `<li>${e(feature)}</li>`).join('')}
               </ul>
             </div>
             
@@ -322,7 +323,7 @@ export class EmailNotificationService {
     refundAmount?: number;
     refundMethod?: string;
   }): Promise<EmailResponse> {
-    const subject = `[✗] Отмена поездки - ${cancellation.route}`;
+    const subject = safeSubject(`[✗] Отмена поездки - ${cancellation.route}`);
     
     const html = `
       <!DOCTYPE html>
@@ -353,16 +354,16 @@ export class EmailNotificationService {
             
             <div class="cancellation-details">
               <h3>Детали отмены</h3>
-              <p><strong>Маршрут:</strong> ${cancellation.route}</p>
-              <p><strong>Дата:</strong> ${cancellation.date}</p>
-              <p><strong>Причина:</strong> ${cancellation.reason}</p>
+              <p><strong>Маршрут:</strong> ${e(cancellation.route)}</p>
+              <p><strong>Дата:</strong> ${e(cancellation.date)}</p>
+              <p><strong>Причина:</strong> ${e(cancellation.reason)}</p>
             </div>
             
             ${cancellation.refundAmount ? `
             <div class="refund-info">
               <h3>Возврат средств</h3>
-              <p><strong>Сумма возврата:</strong> ${cancellation.refundAmount} ₽</p>
-              <p><strong>Способ возврата:</strong> ${cancellation.refundMethod || 'На карту'}</p>
+              <p><strong>Сумма возврата:</strong> ${e(cancellation.refundAmount)} ₽</p>
+              <p><strong>Способ возврата:</strong> ${e(cancellation.refundMethod || 'На карту')}</p>
               <p>Возврат будет обработан в течение 3-5 рабочих дней.</p>
             </div>
             ` : ''}
@@ -397,7 +398,7 @@ export class EmailNotificationService {
       bookings: number;
     }>;
   }): Promise<EmailResponse> {
-    const subject = `  Еженедельная статистика - ${stats.week}`;
+    const subject = safeSubject(`  Еженедельная статистика - ${stats.week}`);
     
     const html = `
       <!DOCTYPE html>
@@ -426,23 +427,23 @@ export class EmailNotificationService {
           
           <div class="content">
             <p>Здравствуйте!</p>
-            <p>Ваша статистика за неделю ${stats.week}:</p>
+            <p>Ваша статистика за неделю ${e(stats.week)}:</p>
             
             <div class="stats-grid">
               <div class="stat-card">
-                <div class="stat-number">${stats.totalBookings}</div>
+                <div class="stat-number">${e(stats.totalBookings)}</div>
                 <div>Всего заявок</div>
               </div>
               <div class="stat-card">
-                <div class="stat-number">${stats.completedTrips}</div>
+                <div class="stat-number">${e(stats.completedTrips)}</div>
                 <div>Выполнено поездок</div>
               </div>
               <div class="stat-card">
-                <div class="stat-number">${stats.totalRevenue} ₽</div>
+                <div class="stat-number">${e(stats.totalRevenue)} ₽</div>
                 <div>Общий доход</div>
               </div>
               <div class="stat-card">
-                <div class="stat-number">${stats.averageRating}</div>
+                <div class="stat-number">${e(stats.averageRating)}</div>
                 <div>Средний рейтинг</div>
               </div>
             </div>
@@ -450,7 +451,7 @@ export class EmailNotificationService {
             <div class="top-routes">
               <h3>Популярные маршруты</h3>
               ${stats.topRoutes.map(route => `
-                <p><strong>${route.route}</strong> - ${route.bookings} заявок</p>
+                <p><strong>${e(route.route)}</strong> - ${e(route.bookings)} заявок</p>
               `).join('')}
             </div>
             
