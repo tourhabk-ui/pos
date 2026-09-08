@@ -60,6 +60,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'data-repair': ['db_read', 'db_write', 'net_out'],
   'deepseek-model-probe': ['db_read', 'db_write', 'net_out', 'ai'],
   'dem-elevations': ['db_read', 'db_write'],
+  'db-size-census': ['db_read'],
   'digest': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money', 'pd_direct'],
   'document-expiry': ['db_read', 'db_write', 'net_out', 'telegram'],
   'duplicate-routes-audit': ['db_read', 'db_write'],
