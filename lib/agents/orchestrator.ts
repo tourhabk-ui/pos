@@ -14,6 +14,14 @@
  * рассинхронизированных, токены тратятся по одному расписанию, а не по
  * N подряд не связанных.
  *
+ * Rescue вынесен ОТСЮДА 08.09 (issue #1725) — обратным ходом к той же
+ * консолидации, и по той же причине, по которой 05.09 вынули Scout Digest.
+ * Он шёл двумя расписаниями сразу: свой крон каждые 30 минут (safety-tier, с
+ * арендой окна) и ещё три раза в сутки здесь, БЕЗ аренды — то есть аренда
+ * его не останавливала. Работа делалась заново, тревоги дублировались,
+ * бюджет эволюции тратился впустую. Остался свой крон: погодные угрозы
+ * ближайшим турам — safety, им место каждые полчаса, а не трижды в сутки.
+ *
  * Scout Digest вынесен ОБРАТНО в свой крон 05.09 (решение владельца). Замер
  * прогона 389: весь evo.run 321 с, из них дайджест — 321 с; прочие стадии
  * вместе меньше 30 с. Роут живёт с maxDuration = 300, и три прогона подряд
@@ -25,7 +33,6 @@
 
 import { runGrowthScan } from '@/lib/agents/evo/growth-agent';
 import { runEvolutionLoop } from '@/lib/agents/evo/evolution-loop';
-import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
 import { runEvolverAnalysis } from '@/lib/agents/evo/evolver-analysis';
 import { bridgeScoutIntel } from '@/lib/agents/evo/intel-bridge';
 import { runModelWatcher } from '@/lib/agents/evo/model-watcher';
@@ -55,9 +62,19 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   // Phase 1: параллельно — диагностика (внутрь) + безопасность + анализ логов +
   // мост разведки (наружу): дайджест Scout → находки 'intel' в общий пул +
   // четыре бывших отдельных crona (см. комментарий файла).
-  const [scanRes, rescueRes, evolverRes, intelRes, modelsRes, scoutInnovatorRes, industryIntelRes, memoryReflectorRes] = await Promise.allSettled([
+  const [scanRes, evolverRes, intelRes, modelsRes, scoutInnovatorRes, industryIntelRes, memoryReflectorRes] = await Promise.allSettled([
     runGrowthScan(scanType),
-    runRescueScan(),
+    // Rescue здесь НЕ идёт с 08.09 (issue #1725). Он шёл двумя расписаниями
+    // сразу: свой крон каждые 30 минут (cron-rescue.yml, safety-tier, с
+    // арендой окна claimCronWindow) и ещё три раза в сутки отсюда — а этот
+    // путь звал функцию напрямую, аренду не брал, и остановить его было
+    // нечем. Итог: до 51 прогона в сутки вместо 48, из них три могли лечь
+    // через минуту после планового, с дублирующимися тревогами в Telegram,
+    // и бюджет эволюции тратился на только что сделанную работу — ровно та
+    // болезнь, из-за которой 05.09 отсюда вынули Scout Digest.
+    //
+    // Оставлен свой крон: Rescue в safety-tier, и погодные угрозы ближайшим
+    // турам проверяются каждые полчаса, а не трижды в сутки.
     runEvolverAnalysis(),
     bridgeScoutIntel(),
     runModelWatcher(),
@@ -87,7 +104,6 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
     return null;
   }
 
-  const rescue = unwrap(rescueRes, 'RescueScan');
   const reflector = unwrap(memoryReflectorRes, 'MemoryReflector');
   // Стадия «выполнилась», а работа пропала: рефлектор мог получить инсайты и
   // не записать ни одного. Раньше это выглядело отсюда как чистый прогон
@@ -99,17 +115,12 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   } else if (reflector?.verdict === 'unknown') {
     errors.push(`MemoryReflector: работу выполнить не смог (${reflector.reason ?? 'причина не названа'})`);
   }
-  // Стадия может «выполниться» и при упавших проверках внутри: скан ловит
-  // их сам и возвращает список (находка аудита 08.09). Молча пропустить его
-  // здесь значило бы снова выдать отказ за чистый результат.
-  for (const failed of rescue?.failed_checks ?? []) {
-    errors.push(`RescueScan: проверка не отработала — ${failed}`);
-  }
-
   return {
     scan: unwrap(scanRes, 'GrowthScan'),
     evolution: evoResult,
-    rescue,
+    // Честная отметка вместо результата — как у scoutDigest ниже: стадии
+    // здесь больше нет, и молчания на её месте быть не должно.
+    rescue: { skipped: true, rescue_skip_reason: 'own_cron' },
     evolver: unwrap(evolverRes, 'EvolverAnalysis'),
     intel: unwrap(intelRes, 'IntelBridge'),
     models: unwrap(modelsRes, 'ModelWatcher'),

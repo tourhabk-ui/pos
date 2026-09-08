@@ -565,13 +565,13 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 | Агент | Тип | Что делает |
 |-------|-----|------------|
 | **Watchdog** | Cron 30 мин | **Единственный сторож** операционной безопасности: SOS-таймаут >15 мин (координаты + 112), брони без подтверждения >24ч, операторы игнорируют бронь >48ч, лиды >2ч, брони жилья >24ч, сейсмо-крон мёртв >15 мин, любой safety-крон из реестра мёртв (liveness по `lib/agents/cron-registry`), платежи удерживаются после срока релиза >6ч (след молчащего `/api/cron/payouts`), крон идёт и не доводит дело до конца >3 прогонов подряд (`lib/agents/cron-fruitless`). Алерты в Telegram. Отказ ЛЮБОЙ проверки пишется в лог — «не смог» не выдаётся за «нарушений нет» (§4.0, сторож `watchdog-checks-wired`). |
-| **Rescue** | В Evo (3× off-peak) | Только то, чего нет у Watchdog: погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS/брони сюда НЕ возвращать — дубль (EVO-3). |
+| **Rescue** | Свой крон `cron-rescue.yml`, каждые 30 мин (safety-tier, аренда окна) | Только то, чего нет у Watchdog: погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS/брони сюда НЕ возвращать — дубль (EVO-3). До 08.09 эта строка говорила «в Evo (3× off-peak)», а в реестре и workflow стоял крон каждые полчаса: Rescue шёл ДВУМЯ расписаниями, и путь через эволюцию звал функцию напрямую, мимо аренды окна. Одно из двух описаний было неверным всегда (issue #1725); оставлен свой крон, из оркестратора стадия убрана. |
 | **Editor** | Cron 22:00 UTC (off-peak) | Туры с описанием <300 символов → AI переписывает → `route_description_cache`. |
 | **Scout Digest** | Свой крон `cron-scout-digest.yml`, 2×/сутки 07/17 UTC (решение владельца 05.09: с 29.08 был стадией `evo.run` и один съедал весь его бюджет — замер 389: 321 с из 300; три прогона эволюции подряд умерли без ответа); ручной прогон — маркер `.github/triggers/scout-digest.json`; журнал — `lib/agents/scout-digest-run.ts` | 15 источников + safety-слой: RSS (Habr AI, лаборатории OpenAI/Google/DeepMind, Турпром, RATA, Skift и др.) + Telegram-превью (РСТ, Минэк-туризм, Vibecoding) → AI-синтез → дайджест в Telegram. Гео-закрытые для РФ (t.me, openai.com) — через реле Cloudflare `infra/safety-relay` (`SCOUT_RELAY_BASE`); проверка реле с прода — `GET /api/cron/scout-relay-check`. Kamgov снят 01.08 — лента умерла. |
 | **Kuzmich** | Мультиканальный | Telegram, MAX, Web, Widget. Общий мозг: `lib/kuzmich/core.ts` |
 
 Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`, `evo/rescue-agent.ts`
-GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-evo.yml` (эволюция, `13 17,20,23 * * *` — окно скидки DeepSeek off-peak)
+GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-rescue.yml` (`15,45 * * * *`), `cron-evo.yml` (эволюция, `13 17,20,23 * * *` — окно скидки DeepSeek off-peak)
 
 ### Система принятия решений AI (июль 2026) — Claude в репо должен это знать
 

@@ -111,13 +111,22 @@ export async function POST(req: NextRequest) {
     // Уведомление оператору + U-ON sync — fire-and-forget, не блокирует ответ
     void (async () => {
       try {
-        // Адрес оператора — через общий модуль: он смотрит ОБЕ колонки.
-        // Раньше здесь читался только partners.telegram_chat_id, и оператор,
-        // у которого адрес записан в аккаунте человека, был для этого роута
-        // «неподключённым», хотя бронь из чата Кузьмича до него доезжала.
+        // Адрес оператора — через общий модуль: он смотрит ОБЕ колонки
+        // (partners.telegram_chat_id и users.telegram_id). Раньше здесь
+        // читалась только первая, и оператор, у которого адрес записан в
+        // аккаунте человека, был для этого роута «неподключённым», хотя бронь
+        // из чата Кузьмича до него доезжала.
+        //
+        // Телефон и почта — на случай, когда канала у оператора нет вовсе:
+        // тогда заявку доносит человек, и ему нужно, чем звонить (issue #1719).
         const [opRow, reach] = await Promise.all([
-          pool.query<{ name: string; uon_api_key: string | null }>(
-            `SELECT name, uon_api_key FROM partners WHERE id = $1 LIMIT 1`,
+          pool.query<{
+            name: string; uon_api_key: string | null;
+            phone: string | null; email: string | null;
+          }>(
+            `SELECT name, uon_api_key,
+                    contacts->>'phone' AS phone, contacts->>'email' AS email
+               FROM partners WHERE id = $1 LIMIT 1`,
             [result.operatorId],
           ),
           reachForPartner(result.operatorId),
@@ -168,6 +177,8 @@ export async function POST(req: NextRequest) {
           operator_name:             op?.name ?? 'Оператор',
           operator_telegram_chat_id: reach?.telegramChatId ?? undefined,
           operator_max_chat_id:      reach?.maxChatId ?? undefined,
+          operator_phone:            op?.phone ?? null,
+          operator_email:            op?.email ?? null,
           via:                       'website',
         });
 

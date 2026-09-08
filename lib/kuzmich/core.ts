@@ -109,9 +109,9 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
   ЭКСТРЕННЫЙ ТРИГГЕР: если в сообщении есть признаки ЧП (потерялся, травма, кровь, не вернулась группа, медведь рядом, проваливается лёд, нет связи, застигла погода) — первым делом дай: SOS vedarai.ru, телефон 112 (работает без баланса и SIM, переключит на МЧС/спасателей). Региональные номера туристу не диктуй — только 112. Без художественных вставок, без допвопросов, коротко и по делу.
 
 2. ЗНАТОК МЕСТА
-  Ты знаешь не только GPS-координаты. Ты знаешь что ительмены называли Авачинскую бухту "Аваача", почему коряки обходили Корякский вулкан в определённые месяцы, когда медведи выходят к рекам и почему.
+  Ты говоришь о месте как человек, который там бывал: не перечнем полей, а связно и по существу.
   Это знание делает тебя другим — не справочником, а живой памятью места.
-  Когда рассказываешь о месте — добавь один факт который турист не найдёт в путеводителе.
+  Подробности о месте бери ТОЛЬКО из данных ниже и из инструментов. Нечего добавить — не добавляй ничего: короткий честный ответ лучше красивого выдуманного.
 
 3. НАВИГАТОР ПО ТУРАМ И МАРШРУТАМ
   Помогаешь выбрать маршрут по сезону, уровню подготовки, интересам.
@@ -167,7 +167,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 Цель: дать полную картину места, чтобы человек не пропустил главное из-за незнания. Не навязывай — именно задай вопрос. Один вопрос — строго (см. правило выше).
 
 ПРИОРИТЕТ РОЛЕЙ: безопасность всегда выше истории и выше продаж. Один факт-изюминку (роль 2) и проактивный допвопрос добавляй ТОЛЬКО когда место в зелёном статусе и нет признаков риска. Если статус жёлтый/красный или есть опасность — никаких лирических вставок и допвопросов, сначала риск и действие.
-СТРУКТУРА ОТВЕТА ПРО МЕСТО ИЛИ МАРШРУТ: сначала статус и ключевая опасность, затем что делать (как снизить риск, нужен ли гид, регистрация МЧС), затем коротко суть места, и только потом — при уместности — один факт и один допвопрос. Всё обычным текстом, без списков.
+СТРУКТУРА ОТВЕТА ПРО МЕСТО ИЛИ МАРШРУТ: сначала статус и ключевая опасность, затем что делать (как снизить риск, нужен ли гид, регистрация МЧС), затем коротко суть места, и только потом — при уместности — один факт ИЗ ДАННЫХ (нет такого — пропусти) и один допвопрос. Всё обычным текстом, без списков.
 СТИЛЬ: спокойный, конкретный, коротко. Как опытный камчадал разговаривает с гостем — без суеты и без продаж. Без markdown-разметки (* ** # _).
 ЯЗЫК: отвечай на языке собеседника. RU / EN / ZH / JA / KO / DE / FR / ES.`;
 
@@ -753,52 +753,91 @@ function parseRssHeadlines(xml: string, limit = 5): Array<{ title: string; date:
   return items;
 }
 
+/**
+ * Чем кончилось чтение лент — три исхода, а не два (§4.0, issue #1722).
+ *
+ *   ok       — строки есть;
+ *   empty    — лента ответила, свежих сообщений нет. Это факт о мире;
+ *   no_feeds — НИ ОДНА лента не ответила. Это факт о нас, и он не равен
+ *              «сообщений нет»: ленты МЧС (41.mchs.gov.ru) с прода могут быть
+ *              гео-закрыты, о чём в этом файле стоял комментарий, — то есть
+ *              состояние не гипотетическое, а вероятное по умолчанию.
+ *
+ * Раньше все три отдавались пустой строкой, и раздел просто не попадал в
+ * промпт: Кузьмич отвечал туристу так, будто предупреждений МЧС нет. Молчание
+ * на месте раздела безопасности — обещание, которого мы не выполняли.
+ */
+export type FeedOutcome =
+  | { state: 'ok'; text: string }
+  | { state: 'empty' }
+  | { state: 'no_feeds'; tried: number };
+
 /** Fetch Kamchatka news headlines from RSS */
-async function fetchKamchatkaNews(): Promise<string> {
-  if (_newsCache.text && Date.now() - _newsCache.at < NEWS_TTL) return _newsCache.text;
+async function fetchKamchatkaNews(): Promise<FeedOutcome> {
+  if (_newsCache.text && Date.now() - _newsCache.at < NEWS_TTL) {
+    return { state: 'ok', text: _newsCache.text };
+  }
   const feeds = [
     'https://kamchatka.aif.ru/rss/all.php',
     'https://www.kamgov.ru/news/rss',
   ];
   const headlines: Array<{ title: string; date: string }> = [];
+  let answered = 0;
   for (const url of feeds) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        logSwallowed(`лента новостей ${url}`, new Error(`HTTP ${res.status}`));
+        continue;
+      }
+      answered++;
       const xml = await res.text();
       headlines.push(...parseRssHeadlines(xml, 4));
-    } catch { /* feed unavailable */ }
+    } catch (err) { logSwallowed(`лента новостей ${url}`, err); }
     if (headlines.length >= 6) break;
   }
-  if (!headlines.length) { _newsCache.text = ''; _newsCache.at = Date.now(); return ''; }
+  if (!headlines.length) {
+    // Кэш пустой строкой не портится (проверено: чтение идёт через
+    // `if (_newsCache.text && …)`), но и смысла в нём нет — не пишем.
+    return answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' };
+  }
   const lines = headlines.slice(0, 6).map(h => `- ${h.date ? h.date + ': ' : ''}${h.title}`);
   _newsCache.text = lines.join('\n');
   _newsCache.at = Date.now();
-  return _newsCache.text;
+  return { state: 'ok', text: _newsCache.text };
 }
 
 /** Fetch MChS Kamchatka alerts (may be geo-blocked outside Russia) */
-async function fetchMchsAlerts(): Promise<string> {
-  if (_mchsCache.text && Date.now() - _mchsCache.at < NEWS_TTL) return _mchsCache.text;
+async function fetchMchsAlerts(): Promise<FeedOutcome> {
+  if (_mchsCache.text && Date.now() - _mchsCache.at < NEWS_TTL) {
+    return { state: 'ok', text: _mchsCache.text };
+  }
   const feeds = [
     'https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/rss',
     'https://www.mchs.gov.ru/rss',
   ];
   const items: Array<{ title: string; date: string }> = [];
+  let answered = 0;
   for (const url of feeds) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        logSwallowed(`лента МЧС ${url}`, new Error(`HTTP ${res.status}`));
+        continue;
+      }
+      answered++;
       const xml = await res.text();
       items.push(...parseRssHeadlines(xml, 4));
       if (items.length >= 4) break;
-    } catch { /* feed unavailable, likely geo-blocked */ }
+    } catch (err) { logSwallowed(`лента МЧС ${url}`, err); }
   }
-  if (!items.length) { _mchsCache.text = ''; _mchsCache.at = Date.now(); return ''; }
+  if (!items.length) {
+    return answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' };
+  }
   const lines = items.slice(0, 5).map(h => `- ${h.date ? h.date + ': ' : ''}${h.title}`);
   _mchsCache.text = lines.join('\n');
   _mchsCache.at = Date.now();
-  return _mchsCache.text;
+  return { state: 'ok', text: _mchsCache.text };
 }
 
 /** Load active seismic/safety alerts from external_alerts DB table */
@@ -855,12 +894,21 @@ async function loadLiveContext(): Promise<string> {
     blocks.push(`ПОГОДА СЕЙЧАС:\n${weather}`);
   }
 
-  if (mchs) {
-    blocks.push(`МЧС КАМЧАТКА (последние сообщения):\n${mchs}`);
+  // Ленты МЧС — единственный блок, чьё МОЛЧАНИЕ читается как «тревог нет».
+  // Поэтому недостижимость лент говорится вслух: пустое место здесь — это
+  // обещание безопасности, которого мы не давали (issue #1722).
+  if (mchs.state === 'ok') {
+    blocks.push(`МЧС КАМЧАТКА (последние сообщения):\n${mchs.text}`);
+  } else if (mchs.state === 'no_feeds') {
+    blocks.push(
+      'МЧС КАМЧАТКА: СВОДКА НЕДОСТУПНА — ни одна лента не ответила. ' +
+      'Это НЕ значит «предупреждений нет»: скажи прямо, что проверить сводку МЧС ' +
+      'сейчас не удалось, и предложи туристу свериться самому (112, сайт МЧС).',
+    );
   }
 
-  if (news) {
-    blocks.push(`НОВОСТИ КАМЧАТКИ (свежие заголовки):\n${news}`);
+  if (news.state === 'ok') {
+    blocks.push(`НОВОСТИ КАМЧАТКИ (свежие заголовки):\n${news.text}`);
   }
 
   if (groupIntel) {

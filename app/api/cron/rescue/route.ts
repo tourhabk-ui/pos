@@ -37,11 +37,22 @@ export async function GET(request: NextRequest) {
   try {
     const result = await runRescueScan();
 
+    // Скан может «выполниться» и при упавших проверках внутри: он ловит их
+    // сам и возвращает списком. Прогон, у которого часть проверок не
+    // отработала, не 'success' — иначе отказ снова выдаётся за чистый
+    // результат (§4.0). До 08.09 это переносил в свои ошибки оркестратор
+    // эволюции; Rescue из него убран (issue #1725), и честность переезжает
+    // сюда, к единственному оставшемуся запускающему.
+    const failed = result.failed_checks ?? [];
     void logAgentRun({
       agent_id: 'rescue',
-      status: result.alerts.some(a => a.severity === 'critical') ? 'partial' : 'success',
+      status: failed.length > 0 || result.alerts.some(a => a.severity === 'critical')
+        ? 'partial'
+        : 'success',
       started_at: startedAt,
       duration_ms: Date.now() - startedAt.getTime(),
+      errors_count: failed.length,
+      error_msg: failed.length > 0 ? `проверки не отработали: ${failed.join('; ')}` : undefined,
       metadata: result as unknown as Record<string, unknown>,
     });
 
