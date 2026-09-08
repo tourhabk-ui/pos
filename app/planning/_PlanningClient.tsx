@@ -1692,6 +1692,34 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    * контрактами GeoJSON на платформе. Род линии едет свойством `connector`,
    * а не отдельным цветом: вид решает стиль по §12.
    */
+  /**
+   * Только что рассчитанный путь ложится НА ФОНОВУЮ КАРТУ сразу.
+   *
+   * Жалоба владельца 08.09: «когда выбираешь точку на карте, маршрут
+   * строится, а когда из списка — нет». Разбор показал две разные причины,
+   * и обе настоящие:
+   *
+   *  1. с карточки точки найденный путь открывался превью сам
+   *     (`cardBuildRef` ниже), а из списка ложился строкой «Автомобильный
+   *     путь от вашего старта», которую надо заметить и нажать;
+   *  2. фоновая карта рисовала рассчитанный путь ТОЛЬКО у своей карты
+   *     (`vedarLines`), а на Leaflet — подложке всего края, кроме
+   *     Авачинской группы, — не рисовала вовсе.
+   *
+   * Открывать превью самому нельзя: оно закрывает список готовых треков, а
+   * платформа предпочитает снятый трек рассчитанному подъезду. Поэтому
+   * линия идёт на фоновую карту (обе подложки), а лист остаётся списком:
+   * человек видит путь и продолжает выбирать.
+   */
+  const autoBuiltRoute = useMemo(() => {
+    if (cardBuildRef.current) return null;
+    if (buildPhase.phase !== 'done' || buildPhase.result.status !== 'found') return null;
+    return buildPhase.result.options.find(o => o.calculated)?.calculated ?? null;
+  }, [buildPhase]);
+
+  /** Что рисовать на фоновой карте: выбранное человеком превью важнее авто-линии. */
+  const mapCalculated = calculatedPreview?.route ?? autoBuiltRoute;
+
   const vedarLines: VedarMapLine[] = useMemo(() => {
     if (fieldBaseMap.kind !== 'vedar') return [];
     const out: VedarMapLine[] = [];
@@ -1716,15 +1744,15 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     // порядке GeoJSON [lng, lat]; род — 'calculated', вид решает стиль (§12).
     // mayDisplay проверен сервером (applySnapGuard), но здесь он спрашивается
     // ещё раз: линия, которую показывать нельзя, не рисуется молча.
-    const calc = calculatedPreview?.route;
+    const calc = mapCalculated;
     if (calc && calc.mayDisplay && calc.geometry.type === 'LineString' && calc.geometry.coordinates.length >= 2) {
       out.push({ coordinates: calc.geometry.coordinates, kind: 'calculated' });
     }
     return out;
-  }, [fieldBaseMap.kind, mapMarkers, calculatedPreview]);
+  }, [fieldBaseMap.kind, mapMarkers, mapCalculated]);
   /** Концы автопути на большой карте: точки привязки к графу с расстоянием привязки. */
   const vedarPoints: VedarMapPoint[] = useMemo(() => {
-    const calc = calculatedPreview?.route;
+    const calc = mapCalculated;
     if (fieldBaseMap.kind !== 'vedar' || !calc || !calc.mayDisplay) return [];
     return [
       { coordinates: [calc.originSnapped.lon, calc.originSnapped.lat], kind: 'calculated_end',
@@ -1732,14 +1760,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       { coordinates: [calc.destinationSnapped.lon, calc.destinationSnapped.lat], kind: 'calculated_end',
         label: `Цель на дороге · ${Math.round(calc.destinationSnapped.snapDistanceM)} м` },
     ];
-  }, [fieldBaseMap.kind, calculatedPreview]);
+  }, [fieldBaseMap.kind, mapCalculated]);
   // Новый автопуть — в кадр целиком, один раз на путь: дальше человек
   // двигает карту сам, и дёргать её обратно нельзя.
   useEffect(() => {
-    const calc = calculatedPreview?.route;
+    const calc = mapCalculated;
     if (!mapCtl || !calc || !calc.mayDisplay) return;
     mapCtl.fitLine(calc.geometry.coordinates);
-  }, [mapCtl, calculatedPreview]);
+  }, [mapCtl, mapCalculated]);
   /**
    * Старт по умолчанию — живой фикс, если он есть. Общий кусок между
    * «Проложить сюда» с карточки точки и выбором цели в «Сменить маршрут»
@@ -1809,8 +1837,29 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     const routeLine = computeRouteLineMarker(
       track, waypoints, activeRouteTitle, approach?.dataConflict === true, lineFidelity,
     );
-    return routeLine ? [routeLine] : [];
-  }, [track, waypoints, activeRouteTitle, approach?.dataConflict, lineFidelity]);
+    const out = routeLine ? [routeLine] : [];
+    // Рассчитанный путь — и на Leaflet тоже. До 08.09 он попадал только на
+    // свою карту (vedarLines), а её пакет собран лишь для Авачинской группы:
+    // во всём остальном крае человек выбирал цель, путь СЧИТАЛСЯ, а на карте
+    // не появлялось ничего — ровно то, что владелец назвал «из списка не
+    // строится». Линия — общим стандартом (calculatedCarLine + явный
+    // конвертер порядка координат), не сборкой стиля руками (§12).
+    const calc = mapCalculated;
+    if (calc && calc.mayDisplay) {
+      const leafletLine = calculatedCarToLeafletCoordinates(calc);
+      if (leafletLine) {
+        const line = calculatedCarLine();
+        out.push({
+          coords: leafletLine[Math.floor(leafletLine.length / 2)],
+          title: line.title,
+          color: 'teal',
+          type: MarkerType.POI,
+          geometry: { type: 'polyline', coordinates: leafletLine, ...line.style } as MapMarkerGeometry,
+        });
+      }
+    }
+    return out;
+  }, [track, waypoints, activeRouteTitle, approach?.dataConflict, lineFidelity, mapCalculated]);
   /**
    * Пина на мини-карте пикера точки (правка 30.08, «точка прилипла к
    * карте») — своим useMemo, а не инлайн-массивом в JSX: инлайн-литерал
@@ -2548,6 +2597,18 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       setCalculatedPreview({ title: r.title, route: r.calculated });
       return;
     }
+    // Одно превью за раз. Рассчитанный путь стоит в рендере ПЕРВЫМ
+    // (`calculatedPreview && calculatedPreviewMap ? … : previewMap ? …`), и
+    // пока он выставлен, каталожное превью не показалось бы вовсе.
+    //
+    // Сегодня оба одновременно не выставляются (превью рассчитанного
+    // закрывает список, а «К вариантам» его снимает) — это проверено, и
+    // строка ниже ничего не чинит прямо сейчас. Она держит взаимное
+    // исключение там, где оно только подразумевалось порядком экранов:
+    // приоритет в рендере есть, а снимал состояние один-единственный
+    // обработчик кнопки.
+    setCalculatedPreview(null);
+    setCalculatedPreviewError(null);
     const cached = previewCacheRef.current.get(r.id);
     if (cached) {
       setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade, navigability: cached.navigability });
