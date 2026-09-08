@@ -1690,6 +1690,22 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     if (!mapCtl || !calc || !calc.mayDisplay) return;
     mapCtl.fitLine(calc.geometry.coordinates);
   }, [mapCtl, calculatedPreview]);
+  // Новый КАТАЛОЖНЫЙ маршрут — тем же приёмом, что и автопуть выше: линия
+  // рисуется корректно (mapMarkers/vedarLines), но без подведения кадра
+  // оставалась там, где стоял человек. Владелец 08.09, «Авачинский перевал»:
+  // маршрут выбрался (заголовок, «1 из 2», расстояние — всё сменилось), а на
+  // карте не видно НИЧЕГО — линия была в 15+ км от текущей позиции, за
+  // кадром. Трек — приоритетнее наброска по waypoints (тот же порядок
+  // источника, что у самой линии в computeRouteLineMarker).
+  useEffect(() => {
+    if (!mapCtl) return;
+    const line: Array<[number, number]> | null =
+      track && track.length >= 2 ? track
+      : waypoints.length >= 2 ? waypoints.map(w => [w.lat, w.lng] as [number, number])
+      : null;
+    if (!line) return;
+    mapCtl.fitLine(line.map(([lat, lng]) => [lng, lat]));
+  }, [mapCtl, track, waypoints]);
   /**
    * Старт по умолчанию — живой фикс, если он есть. Общий кусок между
    * «Проложить сюда» с карточки точки и выбором цели в «Сменить маршрут»
