@@ -31,6 +31,11 @@ on:
 
 permissions:
   contents: read
+  # actions: read нужен download-artifact, когда артефакт берётся из ДРУГОГО
+  # прогона (режим verify_findings_run). Без него шаг отвечает 403 — и ровно
+  # тот путь, ради которого находки сохраняются, оказался бы закрыт в момент,
+  # когда он понадобится.
+  actions: read
 
 jobs:
   audit:
