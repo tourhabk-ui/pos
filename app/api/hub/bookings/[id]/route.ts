@@ -1,14 +1,30 @@
 /**
- * GET /api/hub/bookings/[id]
- * Публичный эндпоинт для страницы подтверждения бронирования.
- * Возвращает основные данные брони по числовому ID.
- * Персональные данные туриста (phone, email) — не возвращаются (ФЗ-152).
+ * GET /api/hub/bookings/[id]?token=<ключ брони>
+ *
+ * Страница подтверждения гостевой брони. Вход не требуется по устройству
+ * (бронь оформляют без регистрации), но НОМЕРА БРОНИ НЕДОСТАТОЧНО.
+ *
+ * ── Что здесь было не так (08.09) ─────────────────────────────────────────
+ *
+ * `id` — BIGSERIAL, роут в реестре публичных, владения не проверял вовсе.
+ * Перебор 1, 2, 3 отдавал имя туриста, дату, цену и статус оплаты чужой
+ * заявки. Шапка при этом обещала «ПД туриста не возвращаются (ФЗ-152)» —
+ * обещание неточное: имя тоже персональные данные.
+ *
+ * Хуже: ответ содержал `pdf_token` — HMAC, задуманный как защита PDF ОТ
+ * ПЕРЕБОРА НОМЕРОВ. Замок выдавался тому, от кого он защищал, а PDF по нему
+ * отдаёт договор с телефоном и почтой. Токен из ответа убран: ключ доступа
+ * к PDF теперь тот же самый, что открывает эту страницу, и приходит он
+ * только тому, кто бронь создал.
+ *
+ * Чужой или отсутствующий ключ — 404, а не 403: 403 подтвердил бы, что
+ * бронь с таким номером есть, и вернул бы перебору половину добычи.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
-import { makePdfToken } from '@/lib/pdf/pdf-token';
 import { paymentAvailability } from '@/lib/payments/availability';
+import { bookingTokenFrom, verifyBookingAccess } from '@/lib/bookings/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +35,21 @@ export async function GET(
   const id = parseInt(params.id, 10);
   if (isNaN(id) || id <= 0) {
     return NextResponse.json({ error: 'Неверный ID' }, { status: 400 });
+  }
+
+  const access = await verifyBookingAccess(
+    id,
+    bookingTokenFrom(new URL(_req.url), _req.headers),
+  );
+  if (access.state === 'unknown') {
+    // Третий исход: проверить не смогли. Это не «доступ есть» и не «нет».
+    return NextResponse.json(
+      { error: 'Не удалось проверить доступ к брони. Попробуйте позже.' },
+      { status: 503 },
+    );
+  }
+  if (access.state === 'denied') {
+    return NextResponse.json({ error: 'Бронирование не найдено' }, { status: 404 });
   }
 
   const r = await query<{
@@ -94,7 +125,12 @@ export async function GET(
       /** Готова ли оплата по QR СБП. Раньше вкладка СБП была заперта внутри
        *  проверки ключа CloudPayments — настроенная Точка не спасала. */
       sbp_available: pay.sbp,
-      pdf_token: makePdfToken(row.id),
+      /**
+       * `pdf_token` отсюда УБРАН намеренно (08.09). Он был HMAC от номера
+       * брони и выдавался анониму по этому же номеру — то есть замок
+       * вручался взломщику. PDF открывается тем же ключом брони, что и эта
+       * страница; отдельного токена больше нет.
+       */
     },
   });
 }

@@ -38,6 +38,8 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
   const [err,   setErr]   = useState('');
   const [done,  setDone]  = useState(false);
   const [bookingId, setBookingId] = useState<number | null>(null);
+  /** Ключ брони: номер её больше не открывает (миграция 943). */
+  const [accessToken, setAccessToken] = useState('');
 
   const minDate = new Date();
   minDate.setDate(minDate.getDate() + 1);
@@ -60,11 +62,12 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
           booking_date: date,
         }),
       });
-      const json = await res.json() as { id?: number; error?: string };
+      const json = await res.json() as { id?: number; access_token?: string; error?: string };
       if (!res.ok) throw new Error(json.error ?? 'Ошибка сервера');
       const id = json.id!;
       setDone(true);
       setBookingId(id);
+      setAccessToken(json.access_token ?? '');
       onDone(id);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Попробуйте позже');
@@ -80,7 +83,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
           <CheckCircle size={14} />
           Бронирование #{bookingId} создано
         </div>
-        <a href={`/booking-success/${bookingId}`} target="_blank" rel="noopener noreferrer"
+        <a href={`/booking-success/${bookingId}?t=${encodeURIComponent(accessToken)}`} target="_blank" rel="noopener noreferrer"
           className="text-xs text-center py-2 rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity">
           Перейти к оплате
         </a>

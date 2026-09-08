@@ -149,13 +149,13 @@ export async function POST(req: NextRequest) {
 
       const total_price = Number(tour.base_price) * data.participants_count;
 
-      const bookingResult = await client.query<{ id: number }>(
+      const bookingResult = await client.query<{ id: number; access_token: string }>(
         `INSERT INTO operator_bookings (
            operator_tour_id, tourist_name, tourist_email, tourist_phone,
            participants, booking_date, special_requests, booking_status,
            base_total_price, final_price, created_via, user_id
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'new', $8, $8, 'website', $9)
-         RETURNING id`,
+         RETURNING id, access_token::text AS access_token`,
         [
           data.tour_id,
           data.tourist_name,
@@ -170,7 +170,10 @@ export async function POST(req: NextRequest) {
       );
 
       const bookingId = bookingResult.rows[0]!.id;
-      return { bookingId, total_price, tour };
+      // Ключ доступа отдаётся ОДИН раз — тому, кто бронь создал. Номер брони
+      // больше не открывает ни подтверждение, ни PDF (миграция 943).
+      const accessToken = bookingResult.rows[0]!.access_token;
+      return { bookingId, accessToken, total_price, tour };
     });
 
     // Турист узнаёт, что заявка дошла. Раньше уведомление шло только
@@ -269,7 +272,7 @@ export async function POST(req: NextRequest) {
           <p><strong>Сумма к оплате:</strong> ${result.total_price.toLocaleString('ru-RU')} ₽</p>
           <p><strong>Номер заявки:</strong> ${result.bookingId}</p>
           <p>Для завершения бронирования перейдите по ссылке ниже и оплатите тур:</p>
-          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}">Оплатить тур</a></p>
+          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Оплатить тур</a></p>
           <p>Оператор также получил уведомление о вашей заявке и может связаться с вами.</p>
         `,
       }).catch((err: unknown) => {
@@ -285,9 +288,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      id:          result.bookingId,
-      booking_id:  result.bookingId,
-      total_price: result.total_price,
+      id:           result.bookingId,
+      booking_id:   result.bookingId,
+      access_token: result.accessToken,
+      total_price:  result.total_price,
       message:     'Заявка создана. Перед оплатой проверьте детали и условия тура.',
     });
 
