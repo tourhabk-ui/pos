@@ -132,6 +132,7 @@ export async function runRescueScan(): Promise<RescueScanResult> {
 
 async function checkWeatherThreats(): Promise<CheckResult> {
   const alerts: RescueAlert[] = [];
+  const unassessed: string[] = [];
 
   // Получаем ближайшие активные бронирования (следующие 3 дня)
   try {
@@ -158,7 +159,13 @@ async function checkWeatherThreats(): Promise<CheckResult> {
     for (const booking of bookings) {
       const location = booking.location_name ?? '';
       const coords = findClosestZone(location);
-      if (!coords) continue;
+      if (!coords) {
+        // Место не опознано — погоду этой брони НИКТО не смотрел. Раньше
+        // сюда подставлялся Петропавловск, и непроверенное выглядело
+        // проверенным.
+        unassessed.push(`бронь #${booking.id} (${location || 'место не указано'})`);
+        continue;
+      }
 
       const daysAhead = daysUntil(booking.booking_date);
       if (daysAhead < 0 || daysAhead > 5) continue;
@@ -183,6 +190,18 @@ async function checkWeatherThreats(): Promise<CheckResult> {
   } catch (err) {
     logSwallowedFailure('rescue', 'погодные угрозы ближайшим турам', err);
     return { alerts, failure: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (unassessed.length > 0) {
+    // Не провал проверки, но и не «угроз нет»: по этим броням погоду не
+    // смотрели вовсе, и молчать об этом нельзя.
+    alerts.push({
+      type: 'check_failed',
+      severity: 'info',
+      title: `Погода не проверена: ${unassessed.length} брон.`,
+      body: unassessed.slice(0, 5).join('; '),
+      action: 'Место брони не сопоставлено ни с одной зоной. Прогноза по ним нет — тишина здесь не значит «безопасно».',
+    });
   }
 
   return { alerts, failure: null };
@@ -310,15 +329,29 @@ async function sendCriticalAlerts(alerts: RescueAlert[]): Promise<void> {
   } catch { /* silent */ }
 }
 
+/**
+ * Зона брони по названию места — или НИЧЕГО.
+ *
+ * Вторая половина находки аудита 08.09 про подмену погодой Петропавловска.
+ * Здесь стояло «по умолчанию — Петропавловск», и пустое или незнакомое
+ * название молча проверялось по координатам города. Для брони под
+ * Ключевским это погода за пятьсот шестьдесят километров и в другом
+ * климате — а ответ «угроз не выявлено» выглядел так же уверенно, как
+ * настоящий.
+ *
+ * Тип возврата УЖЕ допускал `null`, и вызывающий его обрабатывал: третий
+ * исход был проложен, просто им никто не пользовался. Теперь пользуется.
+ * Неузнанные брони не пропадают в тишину — их считают и называют числом.
+ */
 function findClosestZone(locationName: string): [number, number] | null {
   const lower = locationName.toLowerCase();
+  if (lower.includes('петропавл') || lower.includes('petropavl')) return ZONE_COORDS.petropavlovsk;
   if (lower.includes('паратун') || lower.includes('paratun')) return ZONE_COORDS.paratunka;
   if (lower.includes('налыч') || lower.includes('nalych')) return ZONE_COORDS.nalychevo;
   if (lower.includes('мутн') || lower.includes('mutn')) return ZONE_COORDS.mutnovsky;
   if (lower.includes('курил') || lower.includes('kuril')) return ZONE_COORDS.kurilskoe;
   if (lower.includes('ключ') || lower.includes('klyuch')) return ZONE_COORDS.klyuchevskoy;
-  // По умолчанию — Петропавловск
-  return ZONE_COORDS.petropavlovsk;
+  return null;
 }
 
 function daysUntil(dateStr: string): number {

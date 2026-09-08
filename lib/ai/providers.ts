@@ -178,6 +178,41 @@ export function recentProviderFailures(maxAgeMs = 10 * 60_000): Record<string, s
  * максимум ~1.5с сверх timeoutMs, что укладывается в ~1.5x даже для самых
  * коротких таймаутов в waterfall-цепочке (12с у openai/gpt-4o-mini).
  */
+function hostOf(url: string): string | null {
+  try { return new URL(url).host; } catch { return null; }
+}
+
+/**
+ * Хосты НАШЕГО релея — единственные, кому положен секрет.
+ *
+ * Находка аудита 08.09. Здесь стоял ЗАПРЕТИТЕЛЬНЫЙ список из двух имён
+ * («всем, кроме openrouter.ai и api.anthropic.com»), а комментарий выше
+ * обещал обратное: «на прямой адрес апстрима секрет не уходит». Обещание и
+ * код разошлись, и разошлись в дорогую сторону: `fetchModelIds` ходит этой
+ * же дорогой на ПРЯМЫЕ адреса чужих провайдеров —
+ * `https://api.x.ai/v1/models`, `https://api.deepseek.com/models`,
+ * `${MOONSHOT_BASE}/models`, `${base}/models` резолвера, — и каждому из них
+ * уходил заголовок `X-Relay-Secret`. Секрет, которым релей отличает нас от
+ * посторонних, лежал в логах четырёх посторонних.
+ *
+ * Запретительный список тут не чинится добавлением имён: чужих хостов
+ * столько, сколько провайдеров, и следующий появится без нас. Своих же
+ * ровно столько, сколько мы НАСТРОИЛИ, и они известны поимённо — отсюда
+ * разрешительный список, выведенный из конфигурации: хост попадает в него
+ * только если база задана переменной и увела нас с домашнего адреса
+ * провайдера. Ничего не настроено — множество пусто, секрет не уходит
+ * никому.
+ */
+const RELAY_HOSTS: ReadonlySet<string> = new Set(
+  ([
+    [OPENROUTER_BASE, OPENROUTER_DIRECT],
+    [ANTHROPIC_BASE, 'https://api.anthropic.com'],
+  ] as const)
+    .filter(([base, direct]) => base !== direct)
+    .map(([base]) => hostOf(base))
+    .filter((h): h is string => h !== null && h !== 'openrouter.ai' && h !== 'api.anthropic.com'),
+);
+
 /**
  * Секрет релея — ТОЛЬКО когда мы действительно идём через релей.
  *
@@ -193,13 +228,13 @@ export function recentProviderFailures(maxAgeMs = 10 * 60_000): Record<string, s
  * `{"success":false,"error":"Access denied by security policy."}`, из-за
  * которого весь этот разбор и затевался.
  *
- * На ПРЯМОЙ адрес апстрима секрет не уходит: он там не нужен и делиться им
- * с посторонним хостом незачем.
+ * Кому НЕ уходит — решает RELAY_HOSTS выше. Прежняя редакция этой строки
+ * обещала «на прямой адрес апстрима секрет не уходит», а код обещание не
+ * выполнял: список был запретительный из двух имён.
  */
 function withRelaySecret(url: string, headers: HeadersInit | undefined): HeadersInit | undefined {
-  let host: string | null = null;
-  try { host = new URL(url).host; } catch { return headers; }
-  if (host === 'openrouter.ai' || host === 'api.anthropic.com') return headers;
+  const host = hostOf(url);
+  if (host === null || !RELAY_HOSTS.has(host)) return headers;
 
   const secret = process.env.RELAY_SECRET?.trim();
   if (!secret) return headers;

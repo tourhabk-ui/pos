@@ -86,6 +86,23 @@ describe('rescue-agent: упавшая проверка называется у�
     expect(RESCUE).toContain('не читать тишину как «спокойно»');
   });
 
+  it('незнакомое место брони НЕ подменяется Петропавловском', () => {
+    // Вторая половина находки про погоду: «по умолчанию — Петропавловск»
+    // означало прогноз за сотни километров, поданный как прогноз брони.
+    expect(RESCUE).not.toMatch(/\/\/ По умолчанию — Петропавловск\s*\n\s*return ZONE_COORDS\.petropavlovsk;/);
+    const at = RESCUE.indexOf('function findClosestZone');
+    const body = RESCUE.slice(at, at + 900);
+    expect(body).toContain('return null;');
+    // Сам Петропавловск при этом опознаётся по имени, а не достаётся молча.
+    expect(body).toMatch(/includes\('петропавл'\)/);
+  });
+
+  it('непроверенные брони называются числом, а не пропадают в тишину', () => {
+    expect(RESCUE).toContain('unassessed.push(');
+    expect(RESCUE).toContain('Погода не проверена');
+    expect(RESCUE).toContain('тишина здесь не значит «безопасно»');
+  });
+
   it('оркестратор переносит отказ проверки в свои ошибки', () => {
     expect(ORCH).toMatch(/rescue\?\.failed_checks \?\? \[\]/);
     expect(ORCH).toContain('RescueScan: проверка не отработала');
