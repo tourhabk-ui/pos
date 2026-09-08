@@ -18,6 +18,7 @@
  */
 
 import { z } from 'zod';
+import { tgSend } from '@/lib/notifications/tg-send';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { callAIWaterfallOrNull } from '@/lib/ai/providers';
@@ -83,16 +84,15 @@ const SCAN_PROMPT = `Ты — аудитор безопасности турис
 Верни ТОЛЬКО JSON-массив (пустой [], если противоречий нет):
 [{"subject":"что","statement_a":"...","statement_b":"...","severity":"low|medium|high","why":"кратко"}]`;
 
-async function tgAlert(text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  await fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-    signal: AbortSignal.timeout(8_000),
-  }).catch(() => {});
+/**
+ * Тревога о противоречии — общим отправителем, который читает ответ.
+ *
+ * Здесь стоял `.catch(() => {})` без проверки `res.ok`: алерт про «тропа
+ * закрыта против тропа открыта» мог не дойти совершенно молча. Для сканера,
+ * чья объявленная цель — БЕЗОПАСНОСТЬ, это худший вид тишины.
+ */
+async function tgAlert(text: string): Promise<boolean> {
+  return (await tgSend('memory-contradiction', text)).ok;
 }
 
 // ── Оркестратор ──────────────────────────────────────────────────────────────

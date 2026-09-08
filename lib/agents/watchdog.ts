@@ -27,7 +27,8 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
-import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame } from '@/lib/agents/cron-blame';
+import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
+import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
 import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
@@ -131,54 +132,15 @@ export interface WatchdogResult {
 }
 
 /**
- * Отправка тревоги. Возвращает исход, а не void.
+ * Отправка тревоги — общая для платформы (`lib/notifications/tg-send.ts`).
  *
- * До 30.08 здесь стоял `catch { // Silent fail }`, и ответ Telegram не
- * читался вовсе. Тревога могла собраться и не уйти — без строки в логе, без
- * отметки в результате, при зелёном прогоне. Сторож без исправного рупора
- * неотличим от сторожа, которому не о чем доложить, и это худший вид тишины
- * в контуре, где висят SOS и мёртвый сейсмо-приём.
- *
- * Отказ по-прежнему НЕ бросает исключение (крон не должен падать из-за
- * Telegram), но теперь он назван: в логе и в `WatchdogResult.delivery`.
+ * Правило «читать ответ, а не отправлять вслепую» выведено здесь 30.08, но
+ * жило только здесь: евалы Кузьмича и сканер противоречий слали вслепую и
+ * записывали решение тревожить как факт доставки (находка аудита 08.09).
+ * Реализация вынесена, чтобы правило было одно (§12).
  */
-type TgSendOutcome = { ok: true } | { ok: false; reason: string };
-
 async function tgSend(text: string): Promise<TgSendOutcome> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) {
-    // Раньше здесь стоял голый `return`: ненастроенный канал выглядел как
-    // отсутствие тревог. Молчание по этой причине — тоже недоставка.
-    const reason = 'TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы';
-    console.error(`[watchdog] tgSend: ${reason} — тревога никуда не ушла`);
-    return { ok: false, reason };
-  }
-  try {
-    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      }),
-    });
-    // HTTP 200 — единственное доказательство доставки, которое у нас есть.
-    // Не читать его значило принимать 403 «bot was blocked» за успех.
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const reason = `Telegram ответил ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`;
-      console.error(`[watchdog] tgSend: ${reason}`);
-      return { ok: false, reason };
-    }
-    return { ok: true };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.error(`[watchdog] tgSend: ${reason}`);
-    return { ok: false, reason };
-  }
+  return tgSendShared('watchdog', text);
 }
 
 async function checkUnconfirmedBookings(): Promise<CheckResult> {
@@ -870,15 +832,19 @@ async function checkIgnoredSOS(): Promise<CheckResult> {
  */
 async function readCronWitness(): Promise<CronWitness | null> {
   try {
+    // Свидетелем годится не всякий агент: в историю пишут и прогоны, начатые
+    // человеком из админки (admin-JWT, не CRON_SECRET). Отбор — по реестру.
+    const eligible = witnessEligibleAgentIds(CRON_REGISTRY);
+    if (eligible.length === 0) return null;
     const { rows } = await pool.query<{ agent_id: string; min_ago: string }>(`
       SELECT agent_id,
              EXTRACT(EPOCH FROM (NOW() - MAX(ended_at))) / 60 AS min_ago
         FROM agent_run_history
-       WHERE ended_at IS NOT NULL
+       WHERE ended_at IS NOT NULL AND agent_id = ANY($1)
        GROUP BY agent_id
        ORDER BY MAX(ended_at) DESC
        LIMIT 1
-    `);
+    `, [eligible]);
     const r = rows[0];
     if (!r) return null;
     return { agentId: r.agent_id, minutesAgo: Math.max(0, Math.round(Number(r.min_ago))) };
@@ -1141,6 +1107,48 @@ async function checkDeadSafetyCrons(): Promise<CheckResult> {
 }
 
 /**
+ * История прогонов — ОТДЕЛЬНОЕ окно на каждого агента.
+ *
+ * Находка аудита 08.09. Все три проверки кронов (idle, failing, fruitless)
+ * брали историю одним запросом с общим `ORDER BY ended_at DESC LIMIT N`, где
+ * N считался как «число агентов × порог × запас». Комментарий над каждым
+ * обещал «с запасом ПО ПРОГОНАМ НА АГЕНТА» — а SQL брал верхние N по ВСЕМ
+ * агентам сразу.
+ *
+ * Разница не косметическая, и смещена она ровно в опасную сторону. Крон,
+ * идущий каждые полчаса, кладёт 48 строк в сутки; суточный safety-крон — одну.
+ * В общем окне частые вытесняют редких, у редкого остаётся меньше `threshold`
+ * строк, а все три чистые функции короткую историю МОЛЧА ПРОПУСКАЮТ
+ * («предмет liveness, не этой проверки»). То есть чем реже крон — тем вернее
+ * он выпадал из наблюдения, а редкие у нас как раз safety.
+ *
+ * `ROW_NUMBER() OVER (PARTITION BY agent_id ...)` нумерует внутри агента, и
+ * отсечка идёт по этому номеру: каждому достаётся своё окно, независимо от
+ * соседей. Та же форма, что в починке сводки SOS: отбор ДО ограничения.
+ *
+ * `projection` и `extraWhere` — константы из кода этого файла, не данные
+ * запроса; значения по-прежнему идут параметрами $1/$2.
+ */
+async function fetchPerAgentHistory<T extends import('pg').QueryResultRow>(
+  projection: string,
+  extraWhere: string,
+  ids: string[],
+  perAgent: number,
+): Promise<T[]> {
+  const { rows } = await pool.query<T>(
+    `SELECT ${projection}
+       FROM (
+         SELECT *, ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY ended_at DESC) AS rn
+           FROM agent_run_history
+          WHERE agent_id = ANY($1) AND ended_at IS NOT NULL ${extraWhere}
+       ) h
+      WHERE h.rn <= $2`,
+    [ids, perAgent],
+  );
+  return rows;
+}
+
+/**
  * Кроны, которые запускаются и ничего не делают. Второй вопрос после «жив ли»:
  * liveness видит только факт запуска, а KVERT в день выброса Шивелуча был жив,
  * зелен и слеп. Судим лишь там, где ноль объявлен ненормальным, и лишь по серии
@@ -1151,14 +1159,13 @@ async function checkIdleCrons(): Promise<CheckResult> {
     const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
     if (ids.length === 0) return null;
 
-    // Берём с запасом по прогонам на агента: окно среза — в чистой функции.
-    const { rows } = await pool.query<CronRunRow>(
-      `SELECT agent_id, items_processed AS items, ended_at::text AS ended_at
-         FROM agent_run_history
-        WHERE agent_id = ANY($1) AND status = 'success' AND ended_at IS NOT NULL
-        ORDER BY ended_at DESC
-        LIMIT $2`,
-      [ids, ids.length * IDLE_RUNS_THRESHOLD * 4],
+    // Окно НА КАЖДОГО агента (см. fetchPerAgentHistory): общий LIMIT давал
+    // редким safety-кронам выпасть из наблюдения целиком.
+    const rows = await fetchPerAgentHistory<CronRunRow>(
+      'agent_id, items_processed AS items, ended_at::text AS ended_at',
+      "AND status = 'success'",
+      ids,
+      IDLE_RUNS_THRESHOLD * 4,
     );
 
     const idle = findIdleCrons(CRON_REGISTRY, rows);
@@ -1192,14 +1199,12 @@ async function checkFailingCrons(): Promise<CheckResult> {
     const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
     if (ids.length === 0) return null;
 
-    // Статус берём вместе со строкой: срез окна — в чистой функции.
-    const { rows } = await pool.query<CronStatusRow>(
-      `SELECT agent_id, status, ended_at::text AS ended_at, error_msg AS error
-         FROM agent_run_history
-        WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
-        ORDER BY ended_at DESC
-        LIMIT $2`,
-      [ids, ids.length * FAILING_RUNS_THRESHOLD * 4],
+    // Статус берём вместе со строкой; окно — НА КАЖДОГО агента отдельно.
+    const rows = await fetchPerAgentHistory<CronStatusRow>(
+      'agent_id, status, ended_at::text AS ended_at, error_msg AS error',
+      '',
+      ids,
+      FAILING_RUNS_THRESHOLD * 4,
     );
 
     const failing = findFailingCrons(CRON_REGISTRY, rows);
@@ -1253,18 +1258,16 @@ async function checkFruitlessCrons(): Promise<CheckResult> {
     // не попадал по построению, и 23.08 тревога так и сказала про Intelligence
     // Monitor — «причина пропуска не записана». Исторический ключ разведчика
     // оставлен вторым: в уже записанных прогонах лежит он.
-    const { rows } = await pool.query<CronOutcomeRow>(
-      `SELECT agent_id, status, ended_at::text AS ended_at,
-              COALESCE(metadata->>'skip_reason', metadata->>'digest_skip_reason') AS skip_reason,
-              -- Первая названная причина пустоты: разведка кладёт сюда
-              -- «домен: N из M лент ответили и пусты, K отказали: имена».
-              -- Без неё алерт называет класс беды, а чинят конкретную ленту.
-              NULLIF(metadata->'empty_reasons'->>0, '') AS detail
-         FROM agent_run_history
-        WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
-        ORDER BY ended_at DESC
-        LIMIT $2`,
-      [ids, ids.length * FRUITLESS_RUNS_THRESHOLD * 8],
+    const rows = await fetchPerAgentHistory<CronOutcomeRow>(
+      `agent_id, status, ended_at::text AS ended_at,
+       COALESCE(metadata->>'skip_reason', metadata->>'digest_skip_reason') AS skip_reason,
+       -- Первая названная причина пустоты: разведка кладёт сюда
+       -- «домен: N из M лент ответили и пусты, K отказали: имена».
+       -- Без неё алерт называет класс беды, а чинят конкретную ленту.
+       NULLIF(metadata->'empty_reasons'->>0, '') AS detail`,
+      '',
+      ids,
+      FRUITLESS_RUNS_THRESHOLD * 8,
     );
 
     const fruitless = findFruitlessCrons(CRON_REGISTRY, rows, Date.now());

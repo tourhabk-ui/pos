@@ -16,6 +16,8 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/ingest/legislation-importer';
@@ -682,12 +684,7 @@ const NEWS_TTL = 60 * 60 * 1000;    // 1 hour
  * незамеченной ровно столько, сколько прожил поиск мест.
  */
 function logSwallowed(source: string, err: unknown): void {
-  const code = typeof err === 'object' && err !== null && 'code' in err
-    ? String((err as { code: unknown }).code) : 'нет кода';
-  console.error(`[kuzmich] ${source} не выполнен`, {
-    code,
-    message: err instanceof Error ? err.message : String(err),
-  });
+  logSwallowedFailure('kuzmich', source, err);
 }
 
 async function fetchWeather(): Promise<string> {
@@ -1096,7 +1093,7 @@ export async function getTourDetails(query: string): Promise<string> {
     // get_tour_availability и handoff-ссылок): одна мера в одном месте,
     // иначе «детали» и «даты» могут ответить про разные туры.
     const resolved = await resolveTourByQuery(q);
-    if (!resolved) return `По запросу "${q}" тур на платформе не найден. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
+    if (!resolved) return noTourFound(q);
 
     const { rows } = await pool.query<{
       id: number;
@@ -1119,7 +1116,7 @@ export async function getTourDetails(query: string): Promise<string> {
       [resolved.id],
     );
     const t = rows[0];
-    if (!t) return `По запросу "${q}" тур на платформе не найден. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
+    if (!t) return noTourFound(q);
 
     const parts: string[] = [`ТУР: "${t.title}" (ID${t.id})`];
     if (t.location_name) parts.push(`Локация: ${t.location_name}`);
@@ -1722,6 +1719,49 @@ type ToolMsg =
   | { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
   | { role: 'tool'; content: string; tool_call_id: string };
 
+/**
+ * Ответы инструментов, означающие «данных нет».
+ *
+ * Находка аудита 08.09: метрика заземления (`lib/agents/eval/grounding.ts`)
+ * считала доказательством ИМЯ выполненного инструмента. Но поиск, вернувший
+ * «ничего не найдено», выполнился — и ответ с ценой, взятой из головы, после
+ * него числился заземлённым. Заземляет не вызов, а принесённые данные.
+ *
+ * Реестр держится рядом с самими возвратами, чтобы судья и текст не разошлись
+ * (§12). У двух ответов внутри запрос человека — у них вынесена неизменная
+ * голова, и судят по ней, а не по прозе целиком.
+ *
+ * Предел назван вслух: инструменты, чей текст собирает другой модуль
+ * (жильё, трансферы, снаряжение, статус безопасности, taaft), отсюда не
+ * судятся и считаются принёсшими данные. Это ошибка в мягкую сторону —
+ * лишний раз не обвинить, — и она честнее выдуманной уверенности.
+ */
+const NO_DATA_TEXTS: readonly string[] = [
+  'Поиск не дал результатов.',
+  'Туры не найдены.',
+  'Не удалось получить детали тура.',
+  'Погода временно недоступна.',
+  'Данные о месте не найдены в системе. Попробую поискать через другие источники.',
+  'Неизвестный инструмент.',
+  'Ошибка при выполнении запроса.',
+];
+
+const NO_TOUR_HEAD = 'Тур на платформе не найден.';
+const NO_PLACE_HEAD = 'Места нет в справочнике платформы.';
+
+const noTourFound = (q: string) =>
+  `${NO_TOUR_HEAD} По запросу "${q}" ничего нет. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
+const noPlaceInBase = (n: string) =>
+  `${NO_PLACE_HEAD} По запросу "${n}" ничего нет.`;
+
+/** Принёс ли вызов инструмента данные. Экспортирован для метрики заземления. */
+export function toolOutputHasData(content: string): boolean {
+  if (content.trim() === '') return false;
+  if (NO_DATA_TEXTS.includes(content)) return false;
+  if (content.startsWith(NO_TOUR_HEAD) || content.startsWith(NO_PLACE_HEAD)) return false;
+  return true;
+}
+
 async function executeTool(name: string, args: Record<string, string>): Promise<string> {
   try {
     if (name === 'search_kamchatka') {
@@ -1775,7 +1815,7 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
         ...kr.rows.map(k => `${k.title}: ${k.compiled_truth}`),
       ];
       if (lines.length > 0) return lines.join('\n\n');
-      return await searchWeb(placeName) || `Информация о "${placeName}" не найдена в базе.`;
+      return await searchWeb(placeName) || noPlaceInBase(placeName);
     }
     if (name === 'get_guardian_context') {
       const { getGuardianContext } = await import('@/lib/kuzmich/guardian-context');
@@ -1834,10 +1874,11 @@ export async function aiChatAgentLoop(
   systemContent: string,
   history: ChatMessage[],
   extraUserMsg: ChatMessage[],
-  // Наружный аккумулятор реально ВЫПОЛНЕННЫХ инструментов хода — для метрики
-  // заземления (grounding.ts): ответ с ценами/наличием без вызова инструментов
-  // данных означает, что факты взяты не из БД. Опционален, callers не ломаются.
-  usedTools?: Set<string>,
+  // Наружный журнал вызовов хода — для метрики заземления (grounding.ts):
+  // ответ с ценами/наличием, за которым не стоит инструмент, ПРИНЁСШИЙ данные,
+  // означает, что факты взяты не из БД. Пишется имя И исход: имя само по себе
+  // ничего не доказывает (аудит 08.09). Опционален, callers не ломаются.
+  toolRuns?: ToolRun[],
 ): Promise<string | null> {
   const msgs: ToolMsg[] = [
     { role: 'system', content: systemContent },
@@ -1860,7 +1901,7 @@ export async function aiChatAgentLoop(
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
     const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool, validateToolArgs);
     for (const o of outcomes) {
-      if (o.executed) usedTools?.add(o.name);
+      if (o.executed) toolRuns?.push({ name: o.name, producedData: toolOutputHasData(o.content) });
       // В диалог — обёрнутый untrusted-вывод (анти-prompt-injection); наш
       // short-circuit дублей не оборачиваем. В KB ниже идёт СЫРОЙ результат.
       const msgContent = o.executed ? wrapToolOutput(o.name, o.content) : o.content;
@@ -1934,10 +1975,15 @@ export async function aiChat(opts: {
     : [];
 
   // ── Level 2: Agent loop with tools (primary path) ────────────────────────
-  const usedTools = new Set<string>();
-  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, usedTools)
+  const toolRuns: ToolRun[] = [];
+  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
     .catch(() => '');
+
+  // Ответ ли это агентного цикла — от этого зависит, заземляют ли его вызовы
+  // инструментов. Запасной путь идёт БЕЗ них, и приписывать ему чужие вызовы
+  // нельзя: заземление считалось бы по отброшенной попытке.
+  const usedAgentLoopAnswer = answer !== '';
 
   // ── Fallback: waterfall without tools ───────────────────────────────────
   if (!answer) {
@@ -1990,7 +2036,11 @@ export async function aiChat(opts: {
 
   // Fire-and-forget: Outcomes grader — оцениваем качество ответа асинхронно.
   // toolsRan — для метрики заземления: конкретика без инструментов = выдумка.
-  void gradeKuzmichResponse(text, answer, chatId, { toolsRan: [...usedTools] });
+  // Ответ мог прийти запасным путём БЕЗ инструментов — тогда вызовы прошлой,
+  // отброшенной попытки его не заземляют: журнал для грейдера пуст.
+  void gradeKuzmichResponse(text, answer, chatId, {
+    toolRuns: usedAgentLoopAnswer ? toolRuns : [],
+  });
 
   // Fire-and-forget: обновляем долгосрочную память бота
   if (platform) {

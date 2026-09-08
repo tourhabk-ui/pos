@@ -356,7 +356,14 @@ export const CRON_REGISTRY: CronEntry[] = [
     // видно отдельно.
     description: 'Описания флагманом с раннера GitHub (OpenRouter напрямую); прод отдаёт очередь и принимает текст.',
     workflow: 'editor-runner.yml', cron: '40 21 * * *', schedule: 'ежедневно · 21:40 UTC (перед прод-кроном)',
-    everyMin: DAY, tier: 'content', agentId: 'editor', triggerable: true,
+    // agentId СВОЙ (было 'editor', как у прод-крона — находка аудита 08.09).
+    // При общем идентификаторе живость раннера читалась по прогонам прода, и
+    // объявленная строкой выше цель — «молчание любой из них видно отдельно»
+    // — была недостижима по построению. Строку под этим именем пишет
+    // POST /api/cron/editor-result: единственная отметка раннера в проде.
+    // triggerable: false — руками его не запускают, а значит он ещё и годится
+    // в свидетели CRON_SECRET (см. lib/agents/cron-blame.ts).
+    everyMin: DAY, tier: 'content', agentId: 'editor-runner', triggerable: false,
   },
   {
     key: 'enrich-routes', label: 'Enrich Routes',

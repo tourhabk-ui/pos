@@ -44,19 +44,30 @@ export async function GET(req: Request) {
     // DB-запись всегда, независимо от результата Telegram (он уже ушёл выше как void)
     void logAgentRun({
       agent_id: 'editor',
-      status: smoke.passed ? 'success' : 'failed',
+      // Три исхода, а не два (§4.0). Прежде здесь стояло smoke.passed, и
+      // отказ БД, непроверяемое заявление и полный провал генерации все
+      // записывались как 'success' — а эта же строка кормит проверки
+      // Watchdog, так что сломанный Editor выглядел работающим до конца пути.
+      status: smoke.verdict === 'passed' ? 'success'
+        : smoke.verdict === 'unknown' ? 'partial'
+        : 'failed',
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
       items_processed: result.processed,
       items_created: result.improved,
-      error_msg: smoke.passed ? undefined : smoke.message,
+      error_msg: smoke.verdict === 'passed' ? undefined : smoke.message,
       metadata: { ...result as unknown as Record<string, unknown>, smoke_kind: smoke.kind } as Record<string, unknown>,
       prompt_tokens: usage.prompt_tokens,
       completion_tokens: usage.completion_tokens,
       llm_calls: usage.llm_calls,
       estimated_cost_usd: usage.estimated_cost_usd,
     });
-    return Response.json({ success: true, smoke: smoke.kind, ...result });
+    return Response.json({
+      success: smoke.verdict !== 'failed',
+      smoke: smoke.kind,
+      smoke_verdict: smoke.verdict,
+      ...result,
+    });
   } catch (err) {
     void logAgentRun({
       agent_id: 'editor',

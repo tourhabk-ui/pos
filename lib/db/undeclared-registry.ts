@@ -112,7 +112,11 @@ export const UNDECLARED_TABLES = [
   // Согласия и аудит согласий (152-ФЗ) — тем более странно не иметь схемы.
   'user_agreements', 'agreement_audit_log', 'content_consents',
   // Прочее.
-  'agents', 'operator_reviews', 'tour_images', 'weather_cache',
+  // weather_cache вычеркнута 08.09: её не заводила ни одна миграция и не
+  // писала ни одна строка кода — читал её только SDK-инструмент погоды,
+  // и теперь он берёт прогноз из единственного источника платформы.
+  // Список может только сокращаться; это сокращение.
+  'agents', 'operator_reviews', 'tour_images',
 ] as const;
 
 export type UndeclaredTable = (typeof UNDECLARED_TABLES)[number];

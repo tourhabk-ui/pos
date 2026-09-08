@@ -310,8 +310,25 @@ export function clampForReview(text: string): string {
  *  3) сам isReviewableSourcePath — теперь ЗДЕСЬ, а не только при составлении
  *     списка: точка чтения не доверяет вызывающему.
  */
-export function containedReviewPath(relPath: string, root: string, path: typeof import('path')): string | null {
-  if (!isReviewableSourcePath(relPath)) return null;
+export function containedReviewPath(
+  relPath: string,
+  root: string,
+  path: typeof import('path'),
+  /**
+   * Правило допуска ДЛЯ ЭТОГО потребителя.
+   *
+   * Барьер соединял два разных вопроса: «безопасно ли читать этот путь» и
+   * «этому ли потребителю положен этот файл». Из-за слияния мок-сканер, чьи
+   * цели — только `.tsx`, ходил читать через правило AI-ревью, где первой
+   * строкой стоит `if (!p.endsWith('.ts')) return false`. Он не находил
+   * ничего и не мог найти по построению (находка аудита 08.09).
+   *
+   * Правило остаётся В ТОЧКЕ ЧТЕНИЯ — «не доверять вызывающему» никуда не
+   * девается, — но какое именно правило, называет вызывающий.
+   */
+  allow: (p: string) => boolean = isReviewableSourcePath,
+): string | null {
+  if (!allow(relPath)) return null;
   if (relPath.includes('\\') || path.isAbsolute(relPath)) return null;
   const segments = relPath.split('/');
   if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
@@ -322,9 +339,12 @@ export function containedReviewPath(relPath: string, root: string, path: typeof 
 
 // Прод — standalone-образ без исходников .ts, поэтому диск -> фоллбэк на
 // GitHub raw (репо публичный). Без содержимого файл не ревьюится вовсе.
-async function readFileForReview(relPath: string): Promise<string | null> {
+async function readFileForReview(
+  relPath: string,
+  allow: (p: string) => boolean = isReviewableSourcePath,
+): Promise<string | null> {
   const [fs, path] = await Promise.all([import('fs'), import('path')]);
-  const full = containedReviewPath(relPath, process.cwd(), path);
+  const full = containedReviewPath(relPath, process.cwd(), path, allow);
   if (!full) return null;
 
   try {
@@ -369,6 +389,26 @@ export function isReviewableSourcePath(p: string): boolean {
   if (!p.endsWith('.ts')) return false;
   if (p.endsWith('.d.ts') || p.includes('.test.') || p.includes('__tests__')) return false;
   if (!(p.startsWith('app/api/') || p.startsWith('lib/'))) return false;
+  if (AI_EXCLUDED_FILES.has(p) || ACCEPTED_RISKS.has(p)) return false;
+  return true;
+}
+
+/**
+ * Что вправе читать МОК-СКАНЕР: клиентские компоненты.
+ *
+ * Отдельное правило, а не расширение предыдущего, и это существенно.
+ * `isReviewableSourcePath` кормит ещё и список файлов для AI-ревью (строки
+ * 418 и 455) — расширь его до `.tsx`, и в платный проход разом уедут все
+ * клиентские компоненты. Задача была починить сканер, а не втрое увеличить
+ * счёт за ревью.
+ *
+ * Набор совпадает с целями `clientComponentPaths`: `.tsx` под `app/` и
+ * `components/`, без тестов. Исключения ревью соблюдаются и здесь.
+ */
+export function isScannableClientPath(p: string): boolean {
+  if (!p.endsWith('.tsx')) return false;
+  if (p.includes('.test.') || p.includes('__tests__')) return false;
+  if (!(p.startsWith('app/') || p.startsWith('components/'))) return false;
   if (AI_EXCLUDED_FILES.has(p) || ACCEPTED_RISKS.has(p)) return false;
   return true;
 }
@@ -1162,10 +1202,18 @@ async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> 
   const issues: GrowthIssue[] = [];
   const reviewed: string[] = [];
   const findingsByFile: Record<string, number> = {};
+  const unread: string[] = [];
   for (const f of targets) {
-    const content = await readFileForReview(f);
+    const content = await readFileForReview(f, isScannableClientPath);
+    if (!content) {
+      // Непрочитанный файл НЕ помечается разобранным. Прежде `reviewed.push`
+      // стоял до этой проверки, и журнал покрытия записывал как разобранные
+      // все цели подряд — включая те, которых сканер не открывал ни разу
+      // (находка аудита 08.09). Попытка — не покрытие.
+      unread.push(f);
+      continue;
+    }
     reviewed.push(f);
-    if (!content) continue;
     const found = detectMockPatterns(f, content);
     for (const it of found) {
       issues.push(it);
@@ -1173,6 +1221,21 @@ async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> 
     }
   }
   await recordReviewed(pool, findingsByFile, reviewed).catch(() => {});
+
+  // Ноль разобранных при непустом наборе целей — отказ прогона, а не чистый
+  // результат (§4.0). Именно так сканер и молчал: все цели отвергались
+  // правилом чтения, и «мок-паттернов не найдено» означало «ни один файл не
+  // открыли».
+  if (reviewed.length === 0 && targets.length > 0) {
+    console.error('[growth-scan] мок-сканер не прочитал НИ ОДНОЙ цели', {
+      targets: targets.length, examples: unread.slice(0, 3),
+    });
+  } else if (unread.length > 0) {
+    console.error('[growth-scan] мок-сканер: часть целей не прочитана', {
+      unread: unread.length, of: targets.length, examples: unread.slice(0, 3),
+    });
+  }
+
   return { issues, scanned: reviewed.length };
 }
 

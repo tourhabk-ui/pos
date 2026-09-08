@@ -25,9 +25,10 @@ import { fetchWeatherForecast } from '@/lib/planner/intelligence';
 import {
   ZONES, ZONE_NAMES, getZoneAssessment, getFullDangerSummary,
 } from '@/lib/agents/agencies/danger-analyst-agency';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export interface RescueAlert {
-  type: 'weather_threat' | 'operator_no_response' | 'zone_danger';
+  type: 'weather_threat' | 'operator_no_response' | 'zone_danger' | 'check_failed';
   severity: 'critical' | 'warning' | 'info';
   title: string;
   body: string;
@@ -36,7 +37,24 @@ export interface RescueAlert {
 
 export interface RescueScanResult {
   alerts: RescueAlert[];
+  /**
+   * Проверки, которые НЕ отработали. Третий исход скана (§4.0).
+   *
+   * Находка аудита 08.09: обе проверки — погодные угрозы и отток операторов —
+   * глушили исключение пустым `catch` и возвращали пустой список тревог.
+   * Наверху это неотличимо от «угроз нет»: оркестратор видел стадию
+   * выполненной (`Promise.allSettled` → fulfilled), потому что отказ до него
+   * не доходил. Скан, у которого упали две проверки из трёх, отчитывался как
+   * чистый.
+   */
+  failed_checks: string[];
   scan_duration_ms: number;
+}
+
+/** Результат одной проверки: тревоги ИЛИ честное «не смог». */
+interface CheckResult {
+  alerts: RescueAlert[];
+  failure: string | null;
 }
 
 // Координаты основных зон для проверки погоды
@@ -72,30 +90,49 @@ const WEATHER_LABELS: Record<number, string> = {
 export async function runRescueScan(): Promise<RescueScanResult> {
   const start = Date.now();
   const alerts: RescueAlert[] = [];
+  const failed_checks: string[] = [];
+
+  const take = (name: string, r: CheckResult): void => {
+    alerts.push(...r.alerts);
+    if (r.failure !== null) failed_checks.push(`${name}: ${r.failure}`);
+  };
 
   // Погодные угрозы для ближайших туров (уникально для Rescue).
-  alerts.push(...await checkWeatherThreats());
+  take('погодные угрозы', await checkWeatherThreats());
 
   // Операторы без бронирований >7 дней — сигнал оттока (severity info).
   // NB: это НЕ то же, что Watchdog.checkOperatorNoResponse (там оператор
   // игнорирует конкретную бронь >48ч) — здесь про тишину/отток.
-  alerts.push(...await checkOperatorResponse());
+  take('отток операторов', await checkOperatorResponse());
 
   // Опасность по зонам — то, ради чего крон danger-analysis считает.
   alerts.push(...await checkZoneDanger());
+
+  // Отказ проверки виден там же, где были бы её тревоги: иначе «не смотрели»
+  // сольётся с «угроз нет» ровно в том месте, где это решает человек.
+  for (const failure of failed_checks) {
+    alerts.push({
+      type: 'check_failed',
+      severity: 'warning',
+      title: 'Проверка не отработала',
+      body: failure,
+      action: 'Обстановку по этой линии сейчас никто не оценивал — не читать тишину как «спокойно».',
+    });
+  }
 
   // SOS и брони >24ч сюда НЕ возвращать — их сторожит Watchdog (см. заголовок).
   if (alerts.some(a => a.severity === 'critical')) {
     void sendCriticalAlerts(alerts.filter(a => a.severity === 'critical'));
   }
 
-  return { alerts, scan_duration_ms: Date.now() - start };
+  return { alerts, failed_checks, scan_duration_ms: Date.now() - start };
 }
 
 // ── Weather Threat Check ──────────────────────────────────────────────────
 
-async function checkWeatherThreats(): Promise<RescueAlert[]> {
+async function checkWeatherThreats(): Promise<CheckResult> {
   const alerts: RescueAlert[] = [];
+  const unassessed: string[] = [];
 
   // Получаем ближайшие активные бронирования (следующие 3 дня)
   try {
@@ -122,7 +159,13 @@ async function checkWeatherThreats(): Promise<RescueAlert[]> {
     for (const booking of bookings) {
       const location = booking.location_name ?? '';
       const coords = findClosestZone(location);
-      if (!coords) continue;
+      if (!coords) {
+        // Место не опознано — погоду этой брони НИКТО не смотрел. Раньше
+        // сюда подставлялся Петропавловск, и непроверенное выглядело
+        // проверенным.
+        unassessed.push(`бронь #${booking.id} (${location || 'место не указано'})`);
+        continue;
+      }
 
       const daysAhead = daysUntil(booking.booking_date);
       if (daysAhead < 0 || daysAhead > 5) continue;
@@ -144,16 +187,29 @@ async function checkWeatherThreats(): Promise<RescueAlert[]> {
         });
       }
     }
-  } catch {
-    // Ошибка — не критично
+  } catch (err) {
+    logSwallowedFailure('rescue', 'погодные угрозы ближайшим турам', err);
+    return { alerts, failure: err instanceof Error ? err.message : String(err) };
   }
 
-  return alerts;
+  if (unassessed.length > 0) {
+    // Не провал проверки, но и не «угроз нет»: по этим броням погоду не
+    // смотрели вовсе, и молчать об этом нельзя.
+    alerts.push({
+      type: 'check_failed',
+      severity: 'info',
+      title: `Погода не проверена: ${unassessed.length} брон.`,
+      body: unassessed.slice(0, 5).join('; '),
+      action: 'Место брони не сопоставлено ни с одной зоной. Прогноза по ним нет — тишина здесь не значит «безопасно».',
+    });
+  }
+
+  return { alerts, failure: null };
 }
 
 // ── Operator Response Check ───────────────────────────────────────────────
 
-async function checkOperatorResponse(): Promise<RescueAlert[]> {
+async function checkOperatorResponse(): Promise<CheckResult> {
   const alerts: RescueAlert[] = [];
 
   try {
@@ -185,11 +241,15 @@ async function checkOperatorResponse(): Promise<RescueAlert[]> {
         });
       }
     }
-  } catch {
-    // Таблица может не существовать
+  } catch (err) {
+    // Прежний комментарий здесь гласил «таблица может не существовать» —
+    // это была ДОГАДКА о причине, записанная вместо самой причины. Теперь
+    // причина попадает в лог и наверх, и гадать не нужно.
+    logSwallowedFailure('rescue', 'отток операторов', err);
+    return { alerts, failure: err instanceof Error ? err.message : String(err) };
   }
 
-  return alerts;
+  return { alerts, failure: null };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -269,15 +329,29 @@ async function sendCriticalAlerts(alerts: RescueAlert[]): Promise<void> {
   } catch { /* silent */ }
 }
 
+/**
+ * Зона брони по названию места — или НИЧЕГО.
+ *
+ * Вторая половина находки аудита 08.09 про подмену погодой Петропавловска.
+ * Здесь стояло «по умолчанию — Петропавловск», и пустое или незнакомое
+ * название молча проверялось по координатам города. Для брони под
+ * Ключевским это погода за пятьсот шестьдесят километров и в другом
+ * климате — а ответ «угроз не выявлено» выглядел так же уверенно, как
+ * настоящий.
+ *
+ * Тип возврата УЖЕ допускал `null`, и вызывающий его обрабатывал: третий
+ * исход был проложен, просто им никто не пользовался. Теперь пользуется.
+ * Неузнанные брони не пропадают в тишину — их считают и называют числом.
+ */
 function findClosestZone(locationName: string): [number, number] | null {
   const lower = locationName.toLowerCase();
+  if (lower.includes('петропавл') || lower.includes('petropavl')) return ZONE_COORDS.petropavlovsk;
   if (lower.includes('паратун') || lower.includes('paratun')) return ZONE_COORDS.paratunka;
   if (lower.includes('налыч') || lower.includes('nalych')) return ZONE_COORDS.nalychevo;
   if (lower.includes('мутн') || lower.includes('mutn')) return ZONE_COORDS.mutnovsky;
   if (lower.includes('курил') || lower.includes('kuril')) return ZONE_COORDS.kurilskoe;
   if (lower.includes('ключ') || lower.includes('klyuch')) return ZONE_COORDS.klyuchevskoy;
-  // По умолчанию — Петропавловск
-  return ZONE_COORDS.petropavlovsk;
+  return null;
 }
 
 function daysUntil(dateStr: string): number {

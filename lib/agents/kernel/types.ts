@@ -58,7 +58,14 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<string, readonly TaskState[]>>
   proposed:          ['queued', 'rejected'],
   awaiting_approval: ['queued', 'rejected', 'cancelled'], // legacy-строки, новые не создаются
   queued:            ['running', 'cancelled'],
-  running:           ['succeeded', 'awaiting_merge', 'failed_retryable', 'failed_terminal', 'cancelled'],
+  // running → rejected добавлен 08.09 по находке аудита. Из running был
+  // разрешён `succeeded` (PR влит), но не `rejected` (PR закрыт без merge) —
+  // хотя оба исхода приходят из ОДНОЙ функции `completePr` и означают одно:
+  // человек решил. Асимметрия запирала задачу: PR, закрытый пока задача ещё
+  // в running, не мог замкнуться никогда, sweep подбирал его каждые полчаса,
+  // а merge-gate при этом рапортовал `completed_closed`. Застрявшее
+  // выглядело завершённым.
+  running:           ['succeeded', 'rejected', 'awaiting_merge', 'failed_retryable', 'failed_terminal', 'cancelled'],
   // awaiting_merge → running: новый commit в готовый PR снимает readiness —
   // агент снова дорабатывает; label и уведомление вернутся после зелёного CI.
   awaiting_merge:    ['running', 'succeeded', 'rejected', 'cancelled'],

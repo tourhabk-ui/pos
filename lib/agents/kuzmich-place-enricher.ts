@@ -15,7 +15,8 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWaterfall } from '@/lib/ai/providers';
+import { callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -148,9 +149,20 @@ ${descSnippet}
     const result = await callAIWaterfall(messages);
     const trimmed = result?.trim();
     if (!trimmed || trimmed.length < 30) return null;
+    // Отказ ВСЕХ провайдеров приходит СТРОКОЙ, а не исключением, и длиннее
+    // тридцати символов: «Извините, сервис временно недоступен. Попробуйте
+    // позже.» — пятьдесят четыре. Проверка одной длиной её пропускала, и
+    // заглушка сохранялась туристу как заметка Кузьмича о месте (находка
+    // аудита 08.09). Реестр заглушек на платформе один и требует, чтобы им
+    // пользовались, — им и пользуемся.
+    if (isWaterfallErrorResponse(trimmed)) {
+      console.error('[kuzmich-place-enricher] заглушка водопада вместо заметки — не сохраняем');
+      return null;
+    }
     // Обрезаем до 400 символов на случай если AI переборщил
     return trimmed.length > 400 ? trimmed.slice(0, 397) + '...' : trimmed;
-  } catch {
+  } catch (err) {
+    logSwallowedFailure('kuzmich-place-enricher', 'заметка о месте', err);
     return null;
   }
 }

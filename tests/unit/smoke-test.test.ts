@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { smokeTestEditorWrites } from '@/lib/agents/smoke-test';
 
 const mockPoolQuery = vi.fn();
@@ -53,14 +54,19 @@ describe('smokeTestEditorWrites', () => {
     const result = await smokeTestEditorWrites(0, [], 0, 0);
 
     expect(result.passed).toBe(true);
+    expect(result.verdict).toBe('passed');
     expect(result.kind).toBe('zero_processed');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('all errors: processed=5 but improved=0 → all_errors warning + Telegram', async () => {
+  // Прежде здесь стояло expect(result.passed).toBe(true) — тест закреплял
+  // находку аудита 08.09: прогон, где обработано 5 и улучшено 0, уходил в
+  // agent_run_history со статусом 'success'.
+  it('all errors: processed=5 but improved=0 → провал прогона + Telegram', async () => {
     const result = await smokeTestEditorWrites(0, [], 5, 5);
 
-    expect(result.passed).toBe(true);
+    expect(result.passed).toBe(false);
+    expect(result.verdict).toBe('failed');
     expect(result.kind).toBe('all_errors');
     expect(fetchSpy).toHaveBeenCalled();
     const [url] = fetchSpy.mock.calls[0] as [string, ...unknown[]];
@@ -77,5 +83,47 @@ describe('smokeTestEditorWrites', () => {
     expect(result.actual).toBe(6); // 3 from places + 3 from kamchatka_routes
     expect(result.claimed).toBe(5);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Третий исход дымовой проверки — находка аудита 08.09.
+ *
+ * `passed` было булевым, и `true` возвращалось при отказе БД, при
+ * непроверяемом заявлении без ID и при полном провале генерации. Дальше в
+ * `app/api/cron/editor/route.ts` стояло `status: smoke.passed ? 'success' :
+ * 'failed'`, и все три случая записывались в историю прогонов УСПЕХОМ — а та
+ * же история кормит проверки Watchdog. Сломанный Editor выглядел работающим
+ * на всём пути от базы до сторожа.
+ */
+describe('дымовая проверка Editor: три исхода, а не два', () => {
+  it('нет ID при заявленных улучшениях — «не знаю», не «прошло»', async () => {
+    const result = await smokeTestEditorWrites(7, [], 7, 0);
+    expect(result.verdict).toBe('unknown');
+    expect(result.kind).toBe('skip');
+    expect(result.passed).toBe(false);
+    expect(result.message).toContain('проверить заявление нечем');
+  });
+
+  it('роут различает три исхода, а не булево', () => {
+    const ROUTE = readFileSync('app/api/cron/editor/route.ts', 'utf8');
+    expect(ROUTE).toMatch(/smoke\.verdict === 'passed' \? 'success'/);
+    expect(ROUTE).toMatch(/smoke\.verdict === 'unknown' \? 'partial'/);
+    expect(ROUTE).not.toMatch(/status: smoke\.passed \?/);
+  });
+
+  it('отказ базы — «не проверено», и он попадает в лог', () => {
+    const SRC = readFileSync('lib/agents/smoke-test.ts', 'utf8');
+    expect(SRC).toMatch(/verdict: 'unknown', kind: 'db_error'/);
+    expect(SRC).toContain("logSwallowedFailure('smoke-test'");
+    // Прежняя форма — отказ базы как успех — запрещена как КОД.
+    expect(SRC).not.toMatch(/passed: true, kind: 'db_error'/);
+  });
+
+  it('частичная запись больше не считается полным успехом', () => {
+    const SRC = readFileSync('lib/agents/smoke-test.ts', 'utf8');
+    expect(SRC).toMatch(/if \(written < ids\.length\)/);
+    expect(SRC).toMatch(/if \(actual < claimed\)/);
+    expect(SRC).toContain("kind: 'partial_write'");
   });
 });

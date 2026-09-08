@@ -28,7 +28,19 @@ import { parseProposalsResponse } from '@/lib/agents/scout-innovator';
 
 const ROOT = process.cwd();
 
-/** Замороженный долг на 04.09. Только сокращать. */
+/**
+ * Замороженный долг на 04.09. Только сокращать.
+ *
+ * 08.09: вычеркнут `lib/agents/kuzmich-place-enricher.ts` — заметка Кузьмича
+ * о месте сохранялась туристу при отказе всех провайдеров, потому что там
+ * проверялась только длина (`< 30`), а длинная заглушка — 54 символа.
+ *
+ * Предел самого реестра назван вслух: он ищет `callAIWaterfall(`. Тот же
+ * дефект в `lib/agents/editor.ts` он не видел, потому что Editor зовёт
+ * `callAIQualityOrNull` — другое имя, та же строка-извинение на выходе.
+ * Расширять предикат сейчас не стал: это перепись по другому основанию, и
+ * делать её вслепую значит заморозить новый долг, не глядя на него.
+ */
 const UNCHECKED_CALLERS: readonly string[] = [
   'app/api/agents/rescue-briefing/route.ts',
   'app/api/agents/rescue-consult/route.ts',
@@ -39,7 +51,6 @@ const UNCHECKED_CALLERS: readonly string[] = [
   'app/api/telegram/kuzmich/route.ts',
   'app/api/tools/equipment/route.ts',
   'lib/agents/execution/handlers/code-change-executor.ts',
-  'lib/agents/kuzmich-place-enricher.ts',
   'lib/import/passport-enrich-runner.ts',
   'lib/import/route-endpoints-runner.ts',
   'lib/kuzmich/operator-chat.ts',

@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { evidenceIsQuoted, evidenceFragments, namedFiles, safeRepoPath } from '../../scripts/os-audit-runner';
+import { evidenceIsQuoted, evidenceFragments, namedFiles, safeRepoPath, journalOverlap } from '../../scripts/os-audit-runner';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/os-audit-runner.ts'), 'utf8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/os-audit.yml'), 'utf8');
@@ -280,5 +280,163 @@ describe('круг проверки не голодает и не врёт пр�
     const wf = readFileSync('.github/workflows/os-audit.yml', 'utf8');
     expect(wf).toContain("get('verify_model')");
     expect(wf).toContain('export AUDIT_VERIFY_MODEL');
+  });
+});
+
+describe('оплаченный проход переживает прогон', () => {
+  const WF = readFileSync('.github/workflows/os-audit.yml', 'utf8');
+
+  it('находки сохраняются ДО проверки и независимо от её исхода', () => {
+    // Проход стоит ~751 ₽. Терять его результат оттого, что на проверку не
+    // хватило денег, — ровно та потеря, из-за которой режим и заведён.
+    const save = SRC.indexOf('writeFileSync(FINDINGS_OUT');
+    const verify = SRC.indexOf('await verifyAndReport(key, model, good, byPath');
+    expect(save).toBeGreaterThan(0);
+    expect(save).toBeLessThan(verify);
+  });
+
+  it('неудача сохранения названа вслух, а не проглочена', () => {
+    expect(SRC).toContain('Находки не сохранены:');
+  });
+
+  it('есть режим «проверить сохранённое» без нового прохода', () => {
+    expect(SRC).toContain('AUDIT_FINDINGS_IN');
+    expect(SRC).toMatch(/if \(FINDINGS_IN\) \{[\s\S]{0,120}verifyOnly/);
+  });
+
+  it('пустой файл находок — отказ, а не «всё чисто»', () => {
+    expect(SRC).toContain('проверять нечего. Это отказ, а не «всё чисто»');
+  });
+
+  it('расхождение коммитов видно: улика могла не найтись из-за правки файла', () => {
+    expect(SRC).toContain('проверка идёт на ДРУГОМ коммите');
+    expect(SRC).toMatch(/файл изменился/);
+  });
+
+  it('workflow кладёт находки артефактом даже при красном прогоне', () => {
+    expect(WF).toContain('upload-artifact');
+    expect(WF).toMatch(/name: Сохранить находки прохода[\s\S]{0,80}if: always\(\)/);
+  });
+
+  it('workflow умеет проверять находки прошлого прогона', () => {
+    expect(WF).toContain('verify_findings_run');
+    expect(WF).toContain('download-artifact');
+    expect(WF).toContain('AUDIT_FINDINGS_IN: audit-findings.json');
+  });
+
+  it('проход и проверка взаимоисключающи — иначе снова заплатим за оба', () => {
+    expect(WF).toMatch(/name: Аудит одним проходом\n\s+if: inputs\.verify_findings_run == ''/);
+  });
+});
+
+describe('смена модели не ломает прогон и не выдумывает цену', () => {
+  it('temperature шлётся только тем, кто её принимает', () => {
+    // У Claude 4.6+ сэмплирование снято: temperature даёт 400, и прогон упал
+    // бы, не начавшись. Проверяем ОБА места — проход и круг проверки.
+    const sends = SRC.match(/modelProfile\((?:model)\)\.sampling \? \{ temperature/g) ?? [];
+    expect(sends.length).toBe(2);
+    expect(SRC).not.toMatch(/^\s+temperature: 0(\.\d+)?,$/m);
+  });
+
+  it('у anthropic-моделей сэмплирование выключено по умолчанию', () => {
+    expect(SRC).toMatch(/sampling: !model\.startsWith\('anthropic\/'\)/);
+  });
+
+  it('неизвестной модели цена НЕ приписывается', () => {
+    // Прежде цена считалась константой Astra с подписью «прайс Astra» — под
+    // другой моделью это было бы уверенное неверное число (§4.0).
+    expect(SRC).toContain('тариф модели');
+    expect(SRC).toContain('не записан в MODEL_PROFILES');
+    // Запрещена КОНСТРУКЦИЯ, а не слово: объяснять историю в комментарии
+    // нужно, а считать цену чужим зашитым тарифом — нельзя. Первая версия
+    // этой проверки ловила фразу и споткнулась о собственное объяснение.
+    expect(SRC).not.toMatch(/;\s*\/\/\s*прайс \w+ из каталога/);
+  });
+
+  it('цена считается по тарифу профиля, а не по зашитой константе', () => {
+    expect(SRC).toMatch(/price\.usdPerMTokIn !== null && price\.usdPerMTokOut !== null/);
+    expect(SRC).not.toMatch(/inTok \* 1e-5 \+ outTok \* 5e-5/);
+    // Цена названа оценкой: через OpenRouter возможна своя наценка поверх
+    // каталожного тарифа, и выдавать оценку за факт нельзя.
+    expect(SRC).toMatch(/оценка по §8/);
+  });
+
+  it('модель маркера имеет профиль — иначе цену никто не посчитает', () => {
+    const marker = JSON.parse(readFileSync('.github/triggers/os-audit.json', 'utf8'));
+    expect(SRC).toContain(`'${marker.model}':`);
+  });
+});
+
+describe('одно и то же не проверяется по второму разу', () => {
+  const JOURNAL = JSON.parse(readFileSync('.github/audit-journal.json', 'utf8'));
+
+  it('журнал есть и у каждой записи сказано, ЧЕМ кончилось и почему', () => {
+    expect(Array.isArray(JOURNAL.resolved)).toBe(true);
+    expect(JOURNAL.resolved.length).toBeGreaterThan(0);
+    for (const e of JOURNAL.resolved) {
+      expect(e.files?.length, `у записи «${e.what}» нет файлов`).toBeGreaterThan(0);
+      expect(e.decision, `у записи «${e.what}» нет решения`).toBeTruthy();
+      // Без «почему» запись через месяц неотличима от отговорки.
+      expect(e.note?.length ?? 0, `у записи «${e.what}» нет причины`).toBeGreaterThan(20);
+    }
+  });
+
+  it('журнал уходит в промпт: модель знает, что уже разобрано', () => {
+    expect(SRC).toContain('УЖЕ РАЗОБРАНО РАНЬШЕ');
+    expect(SRC).toMatch(/journalBlock\(journal\)/);
+  });
+
+  it('пересечение по файлам находит запись', () => {
+    const j = [{ files: ['lib/agents/agencies/rescue-agency.ts'], what: 'x', decision: 'fixed' }];
+    expect(journalOverlap(['lib/agents/agencies/rescue-agency.ts'], j)).not.toBeNull();
+    expect(journalOverlap(['lib/kuzmich/core.ts'], j)).toBeNull();
+    expect(journalOverlap([], j)).toBeNull();
+  });
+
+  it('CLAUDE.md тождества НЕ доказывает — иначе «разобрано» будет у всего', () => {
+    // Правила стоят почти в каждой находке и пересекаются со всем подряд.
+    const j = [{ files: ['CLAUDE.md', 'AGENTS.md'], what: 'x', decision: 'fixed' }];
+    expect(journalOverlap(['CLAUDE.md', 'lib/новое.ts'], j)).toBeNull();
+  });
+
+  it('совпавшая находка НЕ выбрасывается, а уходит в конец очереди', () => {
+    // Глушить по догадке значило бы прятать регрессию там, где уже чинили.
+    expect(SRC).toContain('не отброшены — совпадение по файлу не доказывает тождества');
+    expect(SRC).toMatch(/good = \[\.\.\.fresh, \.\.\.seen\]/);
+  });
+
+  it('подтверждённая находка по разобранному месту помечена вслух', () => {
+    expect(SRC).toContain('починка не удержалась');
+  });
+});
+
+describe('аудит предлагает усиление, а не только чинит', () => {
+  it('промпт просит предложения и требует у них улику', () => {
+    expect(SRC).toContain('УСИЛЕНИЕ:');
+    expect(SRC).toContain('Предложение без улики — фантазия');
+    expect(SRC).toContain('strengthening');
+  });
+
+  it('промпт называет, чего в предложениях НЕ надо', () => {
+    // Иначе это генератор списка желаний, а не аудит.
+    expect(SRC).toContain('добавить мониторинг');
+    expect(SRC).toMatch(/нельзя проверить кодом или замером/);
+  });
+
+  it('предложения НЕ идут через «подтверждено/опровергнуто»', () => {
+    // Проверяющий отвечает «есть ли названное в файле»; предложение
+    // утверждает то, чего ещё нет, и такой вердикт ничего не решает.
+    expect(SRC).toMatch(/const proposals = good\.filter\(\(f\) => f\.kind === 'strengthening'\)/);
+    expect(SRC).toMatch(/const defects = good\.filter\(\(f\) => f\.kind !== 'strengthening'\)/);
+    expect(SRC).toContain('утверждают то, чего ещё НЕТ');
+  });
+
+  it('предложения печатаются своим разделом с уликой', () => {
+    expect(SRC).toContain('ПРЕДЛОЖЕНИЯ УСИЛЕНИЯ');
+    expect(SRC).toContain('от чего отталкиваемся');
+  });
+
+  it('пустой разбор — отказ, а не «платформа безупречна»', () => {
+    expect(SRC).toContain('Это отказ разбора, а не «платформа безупречна»');
   });
 });

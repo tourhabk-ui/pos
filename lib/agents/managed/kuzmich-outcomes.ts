@@ -7,8 +7,9 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { callAIFast } from '@/lib/ai/providers';
-import { assessGrounding } from '@/lib/agents/eval/grounding';
+import { assessGrounding, type ToolRun } from '@/lib/agents/eval/grounding';
 
 interface OutcomeResult {
   score: number;       // 0–10
@@ -39,7 +40,7 @@ export async function gradeKuzmichResponse(
   userText: string,
   botResponse: string,
   chatId: number,
-  opts?: { toolsRan?: string[] },
+  opts?: { toolRuns?: ToolRun[] },
 ): Promise<void> {
   // Грейдим только содержательные вопросы о Камчатке
   if (!isGradableQuestion(userText)) return;
@@ -47,11 +48,13 @@ export async function gradeKuzmichResponse(
   if (botResponse.length < 50) return;
 
   // Детерминированная метрика заземления (grounding.ts): конкретика
-  // (цены/телефоны/наличие мест) без вызова инструментов данных — факты
-  // взяты не из БД. Не зависит от AI-судьи, считается всегда.
-  const grounding = opts?.toolsRan
-    ? assessGrounding(botResponse, opts.toolsRan)
-    : { ungrounded: false, signals: [] as string[] };
+  // (цены/телефоны/наличие мест), за которой не стоит инструмент, ПРИНЁСШИЙ
+  // данные, — факты взяты не из БД. Не зависит от AI-судьи, считается всегда.
+  //
+  // Журнал вызовов не передан — исход `unknown`, и он НЕ равен «заземлено»
+  // (§4.0). Прежде здесь стояло `{ ungrounded: false }`: грейдер отвечал
+  // «заземлено» на вопрос, которого не проверял (находка аудита 08.09).
+  const grounding = assessGrounding(botResponse, opts?.toolRuns);
 
   try {
     const raw = await callAIFast([{
@@ -68,11 +71,15 @@ export async function gradeKuzmichResponse(
     if (typeof result.score !== 'number') return;
 
     // Сохраняем проблемные (score < 7), незаземлённые и случайные выборки (каждый 10-й)
-    const shouldSave = result.score < 7 || grounding.ungrounded || Math.random() < 0.1;
+    // Непроверенность сохраняется тоже: её нельзя ни зачесть в нарушения, ни
+    // спрятать — иначе «не смотрели» опять сольётся с «нарушений нет».
+    const shouldSave = result.score < 7 || grounding.verdict !== 'grounded' || Math.random() < 0.1;
     if (!shouldSave) return;
 
-    if (grounding.ungrounded) {
-      result.issues.push(`НЕЗАЗЕМЛЁННЫЕ ФАКТЫ (${grounding.signals.join(', ')}): конкретика без вызова инструментов данных`);
+    if (grounding.verdict === 'ungrounded') {
+      result.issues.push(`НЕЗАЗЕМЛЁННЫЕ ФАКТЫ (${grounding.signals.join(', ')}): ${grounding.reason}`);
+    } else if (grounding.verdict === 'unknown') {
+      result.issues.push(`ЗАЗЕМЛЕНИЕ НЕ ПРОВЕРЕНО (${grounding.signals.join(', ')}): ${grounding.reason}`);
     }
 
     const slug = `outcome_kuz_${chatId}_${Date.now() % 1000000}`;
@@ -90,8 +97,11 @@ export async function gradeKuzmichResponse(
         `Вопрос: ${userText.slice(0, 150)}\nОтвет: ${botResponse.slice(0, 300)}\n\n${summary}`,
       ],
     );
-  } catch {
-    // Fire-and-forget — ошибка оценки не должна влиять на пользователя
+  } catch (err) {
+    // Fire-and-forget — ошибка оценки не должна влиять на пользователя.
+    // Но молчать нельзя (§4.0): без строки в логе сломанный грейдер
+    // неотличим от грейдера, которому нечего сказать.
+    logSwallowedFailure('kuzmich-outcomes', 'оценка ответа', err);
   }
 }
 

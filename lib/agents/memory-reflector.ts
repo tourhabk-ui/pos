@@ -17,6 +17,7 @@
  */
 
 import { z } from 'zod';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { agentMemory, type MemoryEntry } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { callAIWaterfallOrNull } from '@/lib/ai/providers';
@@ -38,8 +39,24 @@ export type InsightDraft = z.infer<typeof InsightSchema>;
 
 export interface ReflectorResult {
   episodes_read: number;
+  /** Сколько инсайтов РЕАЛЬНО записано. */
   consolidated: number;
+  /**
+   * Сколько инсайтов модель дала на запись. Без этого числа нельзя отличить
+   * «нечего было писать» от «писали и не записалось» — а разница ровно та,
+   * ради которой прогон краснеет (§4.0).
+   */
+  attempted: number;
   smoke_passed: boolean;
+  /**
+   * Чем кончился прогон. `failed` — работа была и пропала; `unknown` —
+   * проверить не смогли; `passed` — либо записали, либо честно нечего было.
+   *
+   * Находка аудита 08.09: при отказе ВСЕХ записей `consolidated` становился
+   * нулём, дымовая проверка с claimed=0 отвечала «сверять нечего», и прогон
+   * уходил наверх успешным. Полная потеря работы выглядела как её отсутствие.
+   */
+  verdict: 'passed' | 'failed' | 'unknown';
   reason?: string;
 }
 
@@ -114,12 +131,12 @@ export async function runMemoryReflector(): Promise<ReflectorResult> {
 
   const episodes = await agentMemory.recallShared('intelligence', MAX_EPISODES);
   if (episodes.length < MIN_EPISODES) {
-    return { episodes_read: episodes.length, consolidated: 0, smoke_passed: true, reason: 'insufficient_episodes' };
+    return { episodes_read: episodes.length, consolidated: 0, attempted: 0, smoke_passed: true, verdict: 'passed', reason: 'insufficient_episodes' };
   }
 
   const corpus = formatEpisodesForSynthesis(episodes);
   if (!corpus.trim()) {
-    return { episodes_read: episodes.length, consolidated: 0, smoke_passed: true, reason: 'empty_corpus' };
+    return { episodes_read: episodes.length, consolidated: 0, attempted: 0, smoke_passed: true, verdict: 'passed', reason: 'empty_corpus' };
   }
 
   const messages: ChatMessage[] = [
@@ -133,13 +150,18 @@ export async function runMemoryReflector(): Promise<ReflectorResult> {
     // null — не ответил никто; строка-заглушка сюда больше не доезжает.
     if (answer === null) throw new Error('waterfall_unavailable');
     raw = answer;
-  } catch {
-    return { episodes_read: episodes.length, consolidated: 0, smoke_passed: true, reason: 'ai_unavailable' };
+  } catch (err) {
+    // Провайдеры молчат — работу сделать не смогли. Это не успех прогона.
+    logSwallowedFailure('memory-reflector', 'синтез инсайтов', err);
+    return {
+      episodes_read: episodes.length, consolidated: 0, attempted: 0,
+      smoke_passed: false, verdict: 'unknown', reason: 'ai_unavailable',
+    };
   }
 
   const insights = parseInsights(raw);
   if (insights.length === 0) {
-    return { episodes_read: episodes.length, consolidated: 0, smoke_passed: true, reason: 'no_insights' };
+    return { episodes_read: episodes.length, consolidated: 0, attempted: 0, smoke_passed: true, verdict: 'passed', reason: 'no_insights' };
   }
 
   const dateKey = startedAt.toISOString().slice(0, 10);
@@ -157,7 +179,30 @@ export async function runMemoryReflector(): Promise<ReflectorResult> {
     if (page) consolidated++;
   }
 
-  const smoke = await smokeTestKnowledgeWrites(AGENT_ID, consolidated, startedAt);
+  // Сверяем по ЗАЯВЛЕННОМУ модели, а не по записанному: при полном отказе
+  // записи `consolidated` равен нулю, и проверка с claimed=0 отвечала
+  // «сверять нечего» — то есть отключала сама себя ровно в том случае, ради
+  // которого её заводили (находка аудита 08.09).
+  const smoke = await smokeTestKnowledgeWrites(AGENT_ID, insights.length, startedAt);
 
-  return { episodes_read: episodes.length, consolidated, smoke_passed: smoke.passed };
+  const verdict: ReflectorResult['verdict'] =
+    smoke.verdict === 'unknown' ? 'unknown'
+      : consolidated === 0 ? 'failed'
+      : consolidated < insights.length ? 'failed'
+      : 'passed';
+
+  if (verdict === 'failed') {
+    console.error('[memory-reflector] инсайты потеряны при записи', {
+      attempted: insights.length, consolidated,
+    });
+  }
+
+  return {
+    episodes_read: episodes.length,
+    consolidated,
+    attempted: insights.length,
+    smoke_passed: smoke.verdict === 'passed',
+    verdict,
+    reason: verdict === 'failed' ? 'insights_not_written' : undefined,
+  };
 }

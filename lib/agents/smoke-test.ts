@@ -12,26 +12,42 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { tgSend } from '@/lib/notifications/tg-send';
+
+/**
+ * Исход дымовой проверки. ТРИ значения, а не два (§4.0).
+ *
+ * Находка аудита 08.09: `passed` было булевым, и `true` возвращалось при
+ * отказе БД (`db_error`), при непроверяемом заявлении без ID (`skip`) и при
+ * полном провале генерации (`all_errors`). Отсюда это уезжало в
+ * `app/api/cron/editor/route.ts`, где `status: smoke.passed ? 'success' :
+ * 'failed'` записывало прогон УСПЕШНЫМ — и дальше та же строка кормила
+ * проверки Watchdog. Сломанный Editor выглядел работающим на всём пути.
+ *
+ * `unknown` — «проверить не смог»: не повод краснеть, но и не успех.
+ */
+export type SmokeVerdict = 'passed' | 'failed' | 'unknown';
 
 export interface SmokeResult {
+  /** Проверка пройдена ДОКАЗАННО. Не путать с «не нашли проблем». */
   passed: boolean;
-  kind: 'ok' | 'silent_fail' | 'under_spec' | 'all_errors' | 'zero_processed' | 'skip' | 'db_error';
+  verdict: SmokeVerdict;
+  kind: 'ok' | 'silent_fail' | 'partial_write' | 'under_spec' | 'all_errors'
+      | 'zero_processed' | 'skip' | 'db_error';
   claimed: number;
   actual: number;
   message: string;
 }
 
+/**
+ * Тревога дымовой проверки — общим отправителем (`lib/notifications/tg-send.ts`).
+ *
+ * Fire-and-forget оставлен намеренно: проверка не должна ждать Telegram. Но
+ * отказ доставки теперь попадает в лог, а не растворяется в `.catch(() => {})`.
+ */
 function sendTgAlertAsync(text: string): void {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  // fire-and-forget — не блокирует запись в agent_run_history
-  void fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-    signal: AbortSignal.timeout(8_000),
-  }).catch(() => {});
+  void tgSend('smoke-test', text);
 }
 
 /**
@@ -51,7 +67,7 @@ export async function smokeTestEditorWrites(
 ): Promise<SmokeResult> {
   // Честный ноль: агент не нашёл маршрутов без описания
   if (processed === 0) {
-    return { passed: true, kind: 'zero_processed', claimed: 0, actual: 0, message: 'Очередь пуста — нечего обрабатывать' };
+    return { passed: true, verdict: 'passed', kind: 'zero_processed', claimed: 0, actual: 0, message: 'Очередь пуста — нечего обрабатывать' };
   }
 
   // Подозрительный ноль: обработал N, но не улучшил ни одного (все errors)
@@ -67,12 +83,19 @@ export async function smokeTestEditorWrites(
       `${causes}\n` +
       `Диагностика провайдеров: GET /api/ai/debug-waterfall?secret=CRON_SECRET (включая Fugu/GLM/NVIDIA).`;
     sendTgAlertAsync(msg);
-    return { passed: true, kind: 'all_errors', claimed: 0, actual: 0, message: msg };
+    // Обработал N, улучшил 0 — это провал прогона, а не успех: раньше
+    // отсюда уходило passed: true, и прогон записывался как 'success'.
+    return { passed: false, verdict: 'failed', kind: 'all_errors', claimed: 0, actual: 0, message: msg };
   }
 
   // Основная проверка: claimed > 0 — мерим конкретные строки по ID
   if (ids.length === 0) {
-    return { passed: true, kind: 'skip', claimed: improved, actual: -1, message: 'IDs не переданы — пропуск проверки по строкам' };
+    // Агент заявил улучшения и не назвал ни одной строки: проверить нечем.
+    // Это «не знаю», а не «хорошо».
+    return {
+      passed: false, verdict: 'unknown', kind: 'skip', claimed: improved, actual: -1,
+      message: `Агент заявил ${improved} улучшений и не передал ни одного ID — проверить заявление нечем`,
+    };
   }
 
   // Два порога вместо одного «>= 100»:
@@ -112,7 +135,7 @@ export async function smokeTestEditorWrites(
         `Реально в БД (places + kamchatka_routes по этим ID): <b>0</b> строк с описанием\n` +
         `Описания НЕ записаны. Проверь триггер ark_view_update и editor.ts.`;
       sendTgAlertAsync(msg);  // fire-and-forget
-      return { passed: false, kind: 'silent_fail', claimed: improved, actual: 0, message: msg };
+      return { passed: false, verdict: 'failed', kind: 'silent_fail', claimed: improved, actual: 0, message: msg };
     }
 
     // Записано, но часть описаний короче контракта 300 — под-спек (не блокер, но сигнал)
@@ -122,11 +145,25 @@ export async function smokeTestEditorWrites(
         `Записано ${written}/${ids.length} строк, но контракту (>= ${GOAL_MIN} симв) удовлетворяют только <b>${goalMet}</b>.\n` +
         `Короткие описания будут снова выбраны на следующем прогоне. Проверь промпт/обрезку в editor.ts.`;
       sendTgAlertAsync(msg);
-      return { passed: true, kind: 'under_spec', claimed: improved, actual: written, message: msg };
+      return { passed: true, verdict: 'passed', kind: 'under_spec', claimed: improved, actual: written, message: msg };
+    }
+
+    // Часть строк не записалась. Прежде эта ветка не проверялась вовсе:
+    // сравнивали goalMet с written, но не written с числом заявленных ID, —
+    // и «записано 1 из 20» возвращалось как kind 'ok' с passed: true.
+    if (written < ids.length) {
+      const msg =
+        `<b>SMOKE FAIL: Editor — записалось не всё</b>\n` +
+        `Агент заявил ${improved} улучшений (ID: ${ids.length}), реально с описанием ` +
+        `в БД: <b>${written}</b>. Потеряно ${ids.length - written}.\n` +
+        `Проверь триггер ark_view_update и ветку записи в editor.ts.`;
+      sendTgAlertAsync(msg);
+      return { passed: false, verdict: 'failed', kind: 'partial_write', claimed: improved, actual: written, message: msg };
     }
 
     return {
       passed: true,
+      verdict: 'passed',
       kind: 'ok',
       claimed: improved,
       actual: written,
@@ -134,7 +171,13 @@ export async function smokeTestEditorWrites(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { passed: true, kind: 'db_error', claimed: improved, actual: -1, message: `Smoke test skipped (DB error): ${msg}` };
+    // Проверка НЕ ВЫПОЛНИЛАСЬ. Раньше отсюда уходило passed: true, то есть
+    // отказ базы записывался как успешный прогон Editor.
+    logSwallowedFailure('smoke-test', 'сверка записей Editor', err);
+    return {
+      passed: false, verdict: 'unknown', kind: 'db_error', claimed: improved, actual: -1,
+      message: `Сверку выполнить не удалось (БД): ${msg}. Это не «записалось», а «не проверено».`,
+    };
   }
 }
 
@@ -154,7 +197,8 @@ export async function smokeTestMemoryWrites(
   memoryType?: string,
 ): Promise<SmokeResult> {
   if (claimed === 0) {
-    return { passed: true, kind: 'skip', claimed: 0, actual: 0, message: 'Claimed 0 — skip' };
+    // Заявлено ноль — сверять нечего, и это честный ноль, а не отказ.
+    return { passed: true, verdict: 'passed', kind: 'skip', claimed: 0, actual: 0, message: 'Заявлено 0 — сверять нечего' };
   }
 
   try {
@@ -175,13 +219,26 @@ export async function smokeTestMemoryWrites(
         `с ${startedAt.toISOString().slice(0, 16)})\n` +
         `Тихая ошибка — данные НЕ сохранены.`;
       sendTgAlertAsync(msg);
-      return { passed: false, kind: 'silent_fail', claimed, actual: 0, message: msg };
+      return { passed: false, verdict: 'failed', kind: 'silent_fail', claimed, actual: 0, message: msg };
     }
 
-    return { passed: true, kind: 'ok', claimed, actual, message: `OK: claimed ${claimed}, actual ${actual}` };
+    // Записалось МЕНЬШЕ заявленного — тоже провал: часть записей потеряна.
+    // Прежде сравнивали только с нулём, и «заявил 20, записал 1» проходило.
+    if (actual < claimed) {
+      const msg =
+        `<b>SMOKE FAIL: ${agentId} — записалось не всё</b>\n` +
+        `Заявлено ${claimed}, реально записано ${actual}. Потеряно ${claimed - actual}.`;
+      sendTgAlertAsync(msg);
+      return { passed: false, verdict: 'failed', kind: 'partial_write', claimed, actual, message: msg };
+    }
+    return { passed: true, verdict: 'passed', kind: 'ok', claimed, actual, message: `OK: заявлено ${claimed}, записано ${actual}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { passed: true, kind: 'db_error', claimed, actual: -1, message: `Smoke test skipped: ${msg}` };
+    logSwallowedFailure('smoke-test', `сверка записей ${agentId}`, err);
+    return {
+      passed: false, verdict: 'unknown', kind: 'db_error', claimed, actual: -1,
+      message: `Сверку выполнить не удалось (БД): ${msg}. Это не «записалось», а «не проверено».`,
+    };
   }
 }
 
@@ -194,7 +251,8 @@ export async function smokeTestKnowledgeWrites(
   startedAt: Date,
 ): Promise<SmokeResult> {
   if (claimed === 0) {
-    return { passed: true, kind: 'skip', claimed: 0, actual: 0, message: 'Claimed 0 — skip' };
+    // Заявлено ноль — сверять нечего, и это честный ноль, а не отказ.
+    return { passed: true, verdict: 'passed', kind: 'skip', claimed: 0, actual: 0, message: 'Заявлено 0 — сверять нечего' };
   }
 
   try {
@@ -213,12 +271,25 @@ export async function smokeTestKnowledgeWrites(
         `Реально записано: <b>0</b> (agent_knowledge с ${startedAt.toISOString().slice(0, 16)})\n` +
         `Тихая ошибка — знания НЕ сохранены.`;
       sendTgAlertAsync(msg);
-      return { passed: false, kind: 'silent_fail', claimed, actual: 0, message: msg };
+      return { passed: false, verdict: 'failed', kind: 'silent_fail', claimed, actual: 0, message: msg };
     }
 
-    return { passed: true, kind: 'ok', claimed, actual, message: `OK: claimed ${claimed}, actual ${actual}` };
+    // Записалось МЕНЬШЕ заявленного — тоже провал: часть записей потеряна.
+    // Прежде сравнивали только с нулём, и «заявил 20, записал 1» проходило.
+    if (actual < claimed) {
+      const msg =
+        `<b>SMOKE FAIL: ${agentId} — записалось не всё</b>\n` +
+        `Заявлено ${claimed}, реально записано ${actual}. Потеряно ${claimed - actual}.`;
+      sendTgAlertAsync(msg);
+      return { passed: false, verdict: 'failed', kind: 'partial_write', claimed, actual, message: msg };
+    }
+    return { passed: true, verdict: 'passed', kind: 'ok', claimed, actual, message: `OK: заявлено ${claimed}, записано ${actual}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { passed: true, kind: 'db_error', claimed, actual: -1, message: `Smoke test skipped: ${msg}` };
+    logSwallowedFailure('smoke-test', `сверка записей ${agentId}`, err);
+    return {
+      passed: false, verdict: 'unknown', kind: 'db_error', claimed, actual: -1,
+      message: `Сверку выполнить не удалось (БД): ${msg}. Это не «записалось», а «не проверено».`,
+    };
   }
 }

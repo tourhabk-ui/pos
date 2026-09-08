@@ -14,6 +14,7 @@ import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
 import { executeGovernedAction, hashInput } from '@/lib/agents/kernel';
 import { checkPriceMove } from '@/lib/agents/kernel/guardrails';
+import { redactPII } from '@/lib/security/pii-redact';
 
 /**
  * Ключ идемпотентности мутации на ИНВОКАЦИЮ: seed приходит от запроса
@@ -124,7 +125,7 @@ const tourBookings: SDKTool = {
     else if (period === 'week') conditions.push(`ob.created_at >= CURRENT_DATE - INTERVAL '7 days'`);
     else if (period === 'month') conditions.push(`ob.created_at >= CURRENT_DATE - INTERVAL '30 days'`);
 
-    const res = await pool.query(
+    const res = await pool.query<BookingRow>(
       `SELECT ob.id, ot.title AS tour_title, ob.tourist_name, ob.tourist_email,
               ob.booking_date::text, ob.participants, ob.final_price,
               ob.booking_status, ob.payment_status, ob.special_requests
@@ -135,9 +136,61 @@ const tourBookings: SDKTool = {
        LIMIT 20`,
       params,
     );
-    return JSON.stringify({ bookings: res.rows, count: res.rowCount });
+    // `res.rows` целиком отсюда НЕ уходит: строка брони несёт имя, почту и
+    // свободный текст пожеланий (см. bookingForModel).
+    return JSON.stringify({ bookings: res.rows.map(bookingForModel), count: res.rowCount });
   },
 };
+
+interface BookingRow {
+  id: number;
+  tour_title: string;
+  tourist_name: string | null;
+  tourist_email: string | null;
+  booking_date: string | null;
+  participants: number | null;
+  final_price: string | number | null;
+  booking_status: string | null;
+  payment_status: string | null;
+  special_requests: string | null;
+}
+
+/**
+ * Бронь в том виде, в каком её можно показать модели.
+ *
+ * Находка аудита 08.09: инструмент возвращал `res.rows` ЦЕЛИКОМ, а строка
+ * брони несёт `tourist_name`, `tourist_email` и свободный текст
+ * `special_requests`. Результат инструмента уходит обратно в модель, а
+ * модель у нас зарубежная (OpenRouter) — то есть это трансграничная
+ * передача персональных данных, §8 и 152-ФЗ.
+ *
+ * Гард D1 (`pii-flow-scanner`) этого не видел и увидеть не мог: он ищет ПД,
+ * ВПИСАННЫЕ в текст промпта, а здесь они приезжают результатом инструмента.
+ * Дыра не в его настройке, а в том, что путь другой.
+ *
+ * Что остаётся: номер брони. Именно им её и находят — тот же выбор уже
+ * сделан в алертах спасателя («имя туриста в алерт не идёт: находят бронь по
+ * номеру»). Оператор видит полные данные в карточке брони, где он и должен
+ * их видеть — под своей аутентификацией, а не в чужой LLM.
+ *
+ * Пожелания не выбрасываются: они бывают про безопасность (аллергия, рост,
+ * опыт), и модели они нужны. Но это свободный текст, куда турист сам мог
+ * вписать телефон, — поэтому через `redactPII`.
+ */
+function bookingForModel(r: BookingRow): Record<string, unknown> {
+  return {
+    booking_id: r.id,
+    tour: r.tour_title,
+    // Имя и почта намеренно НЕ отдаются: бронь опознаётся номером.
+    guest: r.tourist_name ? 'указан' : 'не указан',
+    date: r.booking_date,
+    participants: r.participants,
+    price: r.final_price,
+    booking_status: r.booking_status,
+    payment_status: r.payment_status,
+    special_requests: redactPII(r.special_requests),
+  };
+}
 
 // ── Revenue ───────────────────────────────────────────────────
 
