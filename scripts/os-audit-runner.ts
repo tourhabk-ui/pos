@@ -383,6 +383,9 @@ interface ModelProfile {
 }
 
 const MODEL_PROFILES: Record<string, ModelProfile> = {
+  // Anthropic напрямую — голое имя модели. Сэмплирование у этого поколения
+  // снято (400), поэтому sampling: false.
+  'claude-fable-5-1': { usdPerMTokIn: 10, usdPerMTokOut: 50, sampling: false },
   // Тариф из каталога поставщика; через OpenRouter возможна своя наценка,
   // поэтому число названо ОЦЕНКОЙ и здесь, и в выводе.
   'openai/gpt-6-astra': { usdPerMTokIn: 10, usdPerMTokOut: 50, sampling: true },
@@ -542,71 +545,24 @@ async function verifyOnly(key: string, path: string): Promise<void> {
   });
 }
 
-async function main(): Promise<void> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) { console.error('OPENROUTER_API_KEY не задан — спросить некого.'); process.exit(1); }
-  const model = process.argv[2] || 'openai/gpt-6-astra';
-  const targets = process.argv.length > 3 ? process.argv.slice(3) : DEFAULT_TARGETS;
 
-  if (FINDINGS_IN) {
-    await verifyOnly(key, FINDINGS_IN);
-    return;
-  }
 
-  const { files, skipped, bytes } = collect(targets);
-  if (files.length === 0) {
-    console.error('Набор пуст — читать нечего. Это отказ, а не «нарушений нет».');
-    process.exit(1);
-  }
-  console.log(`набор: ${files.length} файлов, ${(bytes / 1024).toFixed(0)} КБ` + (skipped ? ` (не вместилось: ${skipped})` : ''));
-  console.log(`модель: ${model}`);
-
-  const known = new Set(files.map((f) => f.path));
+/**
+ * Разбор ответа модели — ОДИН на оба пути (Anthropic напрямую и OpenRouter).
+ *
+ * Пути к модели разные, а правила к её ответу одни: путь вне выданного набора
+ * — выдумка, утверждение без дословной улики — пересказ по памяти, находки
+ * сохраняются до круга проверки. Держать это в двух местах значило бы завести
+ * два разных аудита (§12).
+ */
+async function handleAnswer(
+  key: string,
+  model: string,
+  text: string,
+  known: Set<string>,
+  files: Array<{ path: string; text: string }>,
+): Promise<void> {
   const journal = readJournal();
-  if (journal.length > 0) console.log(`уже разобрано раньше: ${journal.length} записей — не повторяем`);
-  const payload = files.map((f) => `=== ФАЙЛ: ${f.path} ===\n${f.text}`).join('\n\n')
-    + journalBlock(journal);
-
-  const started = Date.now();
-  let res: Response;
-  try {
-    res = await fetch(OPENROUTER, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${key}`, ...openRouterAttribution('os audit') },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: payload }],
-        max_tokens: 32000,
-        // `temperature` шлём только тем, кто её принимает: у Claude 4.6+ она
-        // снята и даёт 400 — прогон упал бы, не начавшись.
-        ...(modelProfile(model).sampling ? { temperature: 0.2 } : {}),
-      }),
-      signal: AbortSignal.timeout(900_000),
-    });
-  } catch (err) {
-    console.error('Модель не ответила:', err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  }
-  if (!res.ok) { console.error(`HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`); process.exit(1); }
-
-  const data = await res.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
-  const text = data.choices?.[0]?.message?.content ?? null;
-  const inTok = data.usage?.prompt_tokens ?? null;
-  const outTok = data.usage?.completion_tokens ?? null;
-  console.log(`ответ за ${((Date.now() - started) / 1000).toFixed(1)} с, токенов: вход ${inTok ?? '?'} / выход ${outTok ?? '?'}`);
-  const price = modelProfile(model);
-  if (inTok !== null && outTok !== null && price.usdPerMTokIn !== null && price.usdPerMTokOut !== null) {
-    const usd = (inTok * price.usdPerMTokIn + outTok * price.usdPerMTokOut) / 1e6;
-    console.log(`цена прохода: $${usd.toFixed(3)} (~${(usd * RUB_PER_USD).toFixed(0)} ₽, оценка по §8)`);
-  } else {
-    // Тариф не записан — молчать нельзя, но и выдумывать нечего.
-    console.log(`цена прохода не посчитана: тариф модели ${model} не записан в MODEL_PROFILES`);
-  }
-  if (!text) { console.error('Ответ без содержимого.'); process.exit(1); }
-
   const { findings, note, error } = parseFindings(text);
   if (note) console.log(`ВНИМАНИЕ: ${note}`);
   if (error) {
@@ -650,6 +606,235 @@ async function main(): Promise<void> {
   }
 
   await verifyAndReport(key, model, good, byPath, { invented, unquoted }, journal);
+}
+
+// ── Проход через Anthropic напрямую ──────────────────────────────────────────
+//
+// Прогон 5 (08.09) сгорел впустую на 1324 ₽ и научил трём вещам сразу.
+//
+// 1. ПОТОЛОК ВЫХОДА БЫЛ ЗАНИЖЕН. Ответ пришёл ровно на 32000 токенов — в
+//    точности наш `max_tokens` — и с ПУСТЫМ полем содержимого. У этого
+//    поколения моделей рассуждение включено всегда и считается в тот же
+//    бюджет выхода; 32000 ушли на него, и до ответа очередь не дошла.
+//    Модель держит до 128K выхода, но такой потолок требует streaming —
+//    иначе запрос упирается в HTTP-таймаут раньше, чем в лимит.
+//
+// 2. ГЛУБИНА ДУМАНИЯ ЗАДАЁТСЯ НЕ БЮДЖЕТОМ ТОКЕНОВ, А `effort`. Попытка
+//    выставить бюджет вернула бы 400: параметр снят у этого поколения.
+//
+// 3. РАННЕР НЕ СМОГ НАЗВАТЬ ПРИЧИНУ СОБСТВЕННОГО ОТКАЗА. Он напечатал
+//    «Ответ без содержимого» и вышел — ни `stop_reason`, ни разбивки токенов.
+//    Это ровно тот дефект, который аудит находит у других: третий исход есть,
+//    а имени у него нет.
+//
+// Отсюда смета ДО траты: `count_tokens` не запускает модель, поэтому точный
+// размер входа и потолок цены известны заранее. Не влезли в бюджет — не
+// начинаем. Дешёвая проба формы запроса идёт перед дорогим проходом: 400 на
+// незнакомом параметре стоит копейки, а вот успешный пустой ответ — тысячу
+// рублей.
+const ANTHROPIC_MAX_OUTPUT = 64000;
+
+interface PassResult {
+  text: string | null;
+  inTok: number | null;
+  outTok: number | null;
+}
+
+/** Модель Anthropic зовётся голым именем; через OpenRouter — с поставщиком. */
+function isAnthropicDirect(model: string): boolean {
+  return !model.includes('/');
+}
+
+function usdOf(model: string, inTok: number, outTok: number): number | null {
+  const p = modelProfile(model);
+  if (p.usdPerMTokIn === null || p.usdPerMTokOut === null) return null;
+  return (inTok * p.usdPerMTokIn + outTok * p.usdPerMTokOut) / 1e6;
+}
+
+async function runAnthropicPass(model: string, payload: string): Promise<PassResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) {
+    console.error('ANTHROPIC_API_KEY не задан — проход через Anthropic невозможен.');
+    process.exit(1);
+  }
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey });
+
+  // Тип берём у SDK, а не переописываем: своя копия разошлась бы с ним молча.
+  const messages: import('@anthropic-ai/sdk').Anthropic.MessageParam[] = [
+    { role: 'user', content: payload },
+  ];
+
+  // ── Смета до траты ────────────────────────────────────────────────────────
+  let inTokPlanned: number;
+  try {
+    const counted = await client.messages.countTokens({ model, system: SYSTEM, messages });
+    inTokPlanned = counted.input_tokens;
+  } catch (err) {
+    console.error('Смету посчитать не удалось:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  const worstUsd = usdOf(model, inTokPlanned, ANTHROPIC_MAX_OUTPUT);
+  console.log(`смета: вход ${inTokPlanned} токенов, потолок выхода ${ANTHROPIC_MAX_OUTPUT}`);
+  if (worstUsd !== null) {
+    console.log(`потолок цены прохода: $${worstUsd.toFixed(2)} (~${(worstUsd * RUB_PER_USD).toFixed(0)} ₽)`);
+  }
+  const budget = Number(process.env.AUDIT_BUDGET_USD ?? '');
+  if (Number.isFinite(budget) && worstUsd !== null && worstUsd > budget) {
+    console.error(
+      `ОТКАЗ ДО ТРАТЫ: потолок $${worstUsd.toFixed(2)} больше бюджета $${budget.toFixed(2)}. ` +
+      'Сузить набор (targets) или поднять бюджет — но не платить вслепую.',
+    );
+    process.exit(1);
+  }
+
+  // ── Дешёвая проба формы ───────────────────────────────────────────────────
+  // Те же параметры, крошечный вход. Если форма запроса неверна — узнаём это
+  // за копейки, а не за тысячу рублей.
+  try {
+    const probe = await client.messages.create({
+      model,
+      max_tokens: 64,
+      output_config: { effort: 'low' },
+      messages: [{ role: 'user', content: 'Ответь одним словом: готов' }],
+    });
+    const probeText = probe.content.find((b) => b.type === 'text');
+    if (!probeText) {
+      console.error(
+        `ПРОБА НЕ ДАЛА ТЕКСТА (stop_reason=${probe.stop_reason}). Дорогой проход не начинаем.`,
+      );
+      process.exit(1);
+    }
+    console.log(`проба формы: ответ есть (${probe.usage.output_tokens} токенов выхода)`);
+  } catch (err) {
+    console.error('ПРОБА УПАЛА:', err instanceof Error ? err.message : String(err));
+    console.error('Дорогой проход не начинаем — сначала чиним форму запроса.');
+    process.exit(1);
+  }
+
+  // ── Сам проход ────────────────────────────────────────────────────────────
+  // Streaming обязателен при таком потолке выхода. `thinking` не шлём вовсе:
+  // у этого поколения оно включено всегда, а любая явная настройка — 400.
+  const stream = client.messages.stream({
+    model,
+    max_tokens: ANTHROPIC_MAX_OUTPUT,
+    output_config: { effort: 'high' },
+    system: SYSTEM,
+    messages,
+  });
+  const msg = await stream.finalMessage();
+
+  const inTok = msg.usage.input_tokens;
+  const outTok = msg.usage.output_tokens;
+  const textBlocks = msg.content.filter((b) => b.type === 'text');
+  const thinkingBlocks = msg.content.filter((b) => b.type === 'thinking');
+  const text = textBlocks.map((b) => (b as { text: string }).text).join('').trim() || null;
+
+  // Разбор отказа — поимённо. Именно этого не хватило 08.09.
+  console.log(
+    `остановка: ${msg.stop_reason}` +
+    ` · блоков текста ${textBlocks.length}, блоков рассуждения ${thinkingBlocks.length}`,
+  );
+  if (msg.stop_reason === 'refusal') {
+    console.error(`МОДЕЛЬ ОТКАЗАЛАСЬ отвечать (категория: ${msg.stop_details?.category ?? 'не названа'}).`);
+  }
+  if (msg.stop_reason === 'max_tokens' && text === null) {
+    console.error(
+      `ОТВЕТ НЕ УМЕСТИЛСЯ: весь бюджет выхода (${outTok}) ушёл на рассуждение, текста не осталось. ` +
+      'Поднять ANTHROPIC_MAX_OUTPUT или понизить effort — но НЕ повторять как есть.',
+    );
+  }
+  return { text, inTok, outTok };
+}
+
+async function main(): Promise<void> {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) { console.error('OPENROUTER_API_KEY не задан — спросить некого.'); process.exit(1); }
+  const model = process.argv[2] || 'openai/gpt-6-astra';
+  const targets = process.argv.length > 3 ? process.argv.slice(3) : DEFAULT_TARGETS;
+
+  if (FINDINGS_IN) {
+    await verifyOnly(key, FINDINGS_IN);
+    return;
+  }
+
+  const { files, skipped, bytes } = collect(targets);
+  if (files.length === 0) {
+    console.error('Набор пуст — читать нечего. Это отказ, а не «нарушений нет».');
+    process.exit(1);
+  }
+  console.log(`набор: ${files.length} файлов, ${(bytes / 1024).toFixed(0)} КБ` + (skipped ? ` (не вместилось: ${skipped})` : ''));
+  console.log(`модель: ${model}`);
+
+  const known = new Set(files.map((f) => f.path));
+  const journal = readJournal();
+  if (journal.length > 0) console.log(`уже разобрано раньше: ${journal.length} записей — не повторяем`);
+  const payload = files.map((f) => `=== ФАЙЛ: ${f.path} ===\n${f.text}`).join('\n\n')
+    + journalBlock(journal);
+
+  const started = Date.now();
+
+  // Развилка поставщика. Голое имя модели — Anthropic напрямую: там есть
+  // смета до траты, streaming и внятный stop_reason. Имя с поставщиком —
+  // OpenRouter, как было.
+  if (isAnthropicDirect(model)) {
+    const pass = await runAnthropicPass(model, payload);
+    console.log(
+      `ответ за ${((Date.now() - started) / 1000).toFixed(1)} с, ` +
+      `токенов: вход ${pass.inTok ?? '?'} / выход ${pass.outTok ?? '?'}`,
+    );
+    const usd = pass.inTok !== null && pass.outTok !== null
+      ? usdOf(model, pass.inTok, pass.outTok) : null;
+    if (usd !== null) {
+      console.log(`цена прохода: $${usd.toFixed(3)} (~${(usd * RUB_PER_USD).toFixed(0)} ₽, оценка по §8)`);
+    } else {
+      console.log(`цена прохода не посчитана: тариф модели ${model} не записан в MODEL_PROFILES`);
+    }
+    if (!pass.text) { console.error('Ответ без содержимого — причина названа выше.'); process.exit(1); }
+    await handleAnswer(key, model, pass.text, known, files);
+    return;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(OPENROUTER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${key}`, ...openRouterAttribution('os audit') },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: payload }],
+        max_tokens: 32000,
+        // `temperature` шлём только тем, кто её принимает: у Claude 4.6+ она
+        // снята и даёт 400 — прогон упал бы, не начавшись.
+        ...(modelProfile(model).sampling ? { temperature: 0.2 } : {}),
+      }),
+      signal: AbortSignal.timeout(900_000),
+    });
+  } catch (err) {
+    console.error('Модель не ответила:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  if (!res.ok) { console.error(`HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`); process.exit(1); }
+
+  const data = await res.json() as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const text = data.choices?.[0]?.message?.content ?? null;
+  const inTok = data.usage?.prompt_tokens ?? null;
+  const outTok = data.usage?.completion_tokens ?? null;
+  console.log(`ответ за ${((Date.now() - started) / 1000).toFixed(1)} с, токенов: вход ${inTok ?? '?'} / выход ${outTok ?? '?'}`);
+  const price = modelProfile(model);
+  if (inTok !== null && outTok !== null && price.usdPerMTokIn !== null && price.usdPerMTokOut !== null) {
+    const usd = (inTok * price.usdPerMTokIn + outTok * price.usdPerMTokOut) / 1e6;
+    console.log(`цена прохода: $${usd.toFixed(3)} (~${(usd * RUB_PER_USD).toFixed(0)} ₽, оценка по §8)`);
+  } else {
+    // Тариф не записан — молчать нельзя, но и выдумывать нечего.
+    console.log(`цена прохода не посчитана: тариф модели ${model} не записан в MODEL_PROFILES`);
+  }
+  if (!text) { console.error('Ответ без содержимого.'); process.exit(1); }
+
+  await handleAnswer(key, model, text, known, files);
 }
 
 /**
