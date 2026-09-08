@@ -6,6 +6,7 @@
  * Evolver подхватывает записи с низким score на следующем cron/evo цикле.
  */
 
+import { createHash } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { callAIFast } from '@/lib/ai/providers';
@@ -36,11 +37,39 @@ function isGradableQuestion(text: string): boolean {
   return keywords.some(k => lower.includes(k));
 }
 
+/**
+ * Отпечаток промпта — 8 hex от SHA-256.
+ *
+ * Сам промпт в оценку не пишется: он длинный, меняется целиком и в базе
+ * знаний не нужен. Нужен ответ на один вопрос — «тот же самый промпт или уже
+ * другой», — и отпечаток на него отвечает точно. Тот же приём, что у
+ * опознания ключей провайдеров (lib/ai/key-identity).
+ */
+export function fingerprintPrompt(prompt: string): string {
+  return createHash('sha256').update(prompt).digest('hex').slice(0, 8);
+}
+
+/**
+ * Чем произведён ответ. Всё поля необязательны и по отдельности допускают
+ * `null` — «не записано» отличается от «не было» (§4.0): запасной путь идёт
+ * без инструментов, а при немоте всех провайдеров имени нет вовсе.
+ */
+export interface AnswerProvenance {
+  /** Отпечаток системного промпта на момент ответа. */
+  promptFingerprint?: string;
+  /** Кто ответил: deepseek / openrouter / yandex / … либо null. */
+  provider?: string | null;
+  /** Каким путём: цикл инструментов или запасной водопад. */
+  answerPath?: 'tools' | 'waterfall' | null;
+  /** Какие инструменты БЫЛИ ПРЕДЛОЖЕНЫ модели (не какие сработали). */
+  toolsOffered?: string[];
+}
+
 export async function gradeKuzmichResponse(
   userText: string,
   botResponse: string,
   chatId: number,
-  opts?: { toolRuns?: ToolRun[] },
+  opts?: { toolRuns?: ToolRun[] } & AnswerProvenance,
 ): Promise<void> {
   // Грейдим только содержательные вопросы о Камчатке
   if (!isGradableQuestion(userText)) return;
@@ -87,14 +116,29 @@ export async function gradeKuzmichResponse(
       ? `Оценка ${result.score}/10. Проблемы: ${result.issues.join('; ')}`
       : `Оценка ${result.score}/10. Хороший ответ.`;
 
+    // Чем произведён ответ — рядом с оценкой, а не в другом месте и не
+    // задним числом. Без этого «Кузьмич стал отвечать хуже» не разложить на
+    // «сменился провайдер», «поправили промпт» и «инструментов не дали»:
+    // водопад меняет провайдера молча, а промпт правится со временем.
+    // Отсутствующее поле пишется как null — «не записано», не «не было».
+    const provenance = {
+      prompt_fingerprint: opts?.promptFingerprint ?? null,
+      provider:           opts?.provider ?? null,
+      answer_path:        opts?.answerPath ?? null,
+      tools_offered:      opts?.toolsOffered ?? null,
+      tools_ran:          opts?.toolRuns?.map(r => r.name) ?? null,
+      grounding:          grounding.verdict,
+    };
+
     await pool.query(
-      `INSERT INTO agent_knowledge(slug, type, title, compiled_truth, agent_id, edit_count, created_at, updated_at)
-       VALUES($1, 'outcome', $2, $3, 'kuzmich', 0, NOW(), NOW())
+      `INSERT INTO agent_knowledge(slug, type, title, compiled_truth, metadata, agent_id, edit_count, created_at, updated_at)
+       VALUES($1, 'outcome', $2, $3, $4::jsonb, 'kuzmich', 0, NOW(), NOW())
        ON CONFLICT(slug) DO NOTHING`,
       [
         slug,
         `Оценка ответа: ${result.score}/10`,
         `Вопрос: ${userText.slice(0, 150)}\nОтвет: ${botResponse.slice(0, 300)}\n\n${summary}`,
+        JSON.stringify(provenance),
       ],
     );
   } catch (err) {

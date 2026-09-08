@@ -589,6 +589,13 @@ export interface ToolCall {
 export interface ToolsCallResult {
   content: string | null;
   tool_calls: ToolCall[] | null;
+  /**
+   * Кто ответил. Ставится водопадом инструментов, а не самими вызовами:
+   * знание «чей это ответ» терялось ровно здесь. `undefined` — вызов пришёл
+   * не через водопад (прямой callDeepSeekWithTools в пробе), и это честное
+   * «не записано», а не «никто».
+   */
+  provider?: string;
 }
 
 type ToolMsg =
@@ -711,12 +718,29 @@ export async function callDeepSeekWithTools(
 // Текст и зрение — разные решения, и снятие первого не снимает второе.
 
 /** Первый непустой результат из списка попыток; поздние не зовём после успеха. */
+/**
+ * Первый непустой ответ по очереди.
+ *
+ * Обёртка над помеченной версией: имя не передано — в результате его не
+ * будет, и это честное «не записано». Свой цикл здесь разошёлся бы с тем,
+ * что ниже, — та же болезнь, что две копии создания брони (08.09).
+ */
 export async function firstNonNullTool(
   attempts: Array<() => Promise<ToolsCallResult | null>>,
 ): Promise<ToolsCallResult | null> {
-  for (const attempt of attempts) {
-    const r = await attempt();
-    if (r) return r;
+  const r = await firstNonNullToolLabelled(attempts.map(run => ({ provider: '', run })));
+  if (!r) return null;
+  const { provider: _unnamed, ...rest } = r;
+  return rest;
+}
+
+/** То же по очереди, но помнит имя ответившего. */
+export async function firstNonNullToolLabelled(
+  attempts: Array<{ provider: string; run: () => Promise<ToolsCallResult | null> }>,
+): Promise<ToolsCallResult | null> {
+  for (const { provider, run } of attempts) {
+    const r = await run();
+    if (r) return { ...r, provider };
   }
   return null;
 }
@@ -741,9 +765,9 @@ export async function callToolsWaterfall(
   messages: ToolMsg[],
   tools: ToolDefinition[],
 ): Promise<ToolsCallResult | null> {
-  return firstNonNullTool([
-    () => callDeepSeekWithTools(messages, tools),    // первичный: доступен из РФ
-    () => callOpenRouterWithTools(messages, tools),  // последний шанс (авто-восстановление если разблокируют)
+  return firstNonNullToolLabelled([
+    { provider: 'deepseek',   run: () => callDeepSeekWithTools(messages, tools) },   // первичный: доступен из РФ
+    { provider: 'openrouter', run: () => callOpenRouterWithTools(messages, tools) }, // последний шанс (авто-восстановление если разблокируют)
   ]);
 }
 
@@ -3360,13 +3384,31 @@ export async function preflightProviders(): Promise<{
 
 // ── Race Helper: first non-empty result from parallel calls ──────
 async function raceProviders(calls: Promise<string | null>[]): Promise<string | null> {
-  return new Promise<string | null>((resolve) => {
-    let pending = calls.length;
+  return (await raceProvidersLabelled(calls.map(call => ({ provider: 'unknown', call }))))?.text ?? null;
+}
+
+/** Победитель гонки вместе с именем провайдера. */
+interface RaceWinner { provider: string; text: string }
+
+/**
+ * Та же гонка, но помнит, КТО ответил.
+ *
+ * Без этого вызывающий получал строку и не знал, чей это ответ: водопад
+ * молча меняет провайдера — в этом его смысл, — и «Кузьмич стал отвечать
+ * хуже» невозможно было разложить на «сменился провайдер», «поправили
+ * промпт» и «инструмент не ответил». Имя победителя стоит ноль запросов:
+ * оно уже известно в момент вызова, его просто теряли.
+ */
+async function raceProvidersLabelled(
+  entries: Array<{ provider: string; call: Promise<string | null> }>,
+): Promise<RaceWinner | null> {
+  return new Promise<RaceWinner | null>((resolve) => {
+    let pending = entries.length;
     if (pending === 0) { resolve(null); return; }
     let settled = false;
-    calls.forEach(p =>
-      p.then(result => {
-        if (!settled && result?.trim()) { settled = true; resolve(result); }
+    entries.forEach(({ provider, call }) =>
+      call.then(result => {
+        if (!settled && result?.trim()) { settled = true; resolve({ provider, text: result }); }
       }).catch(() => {}).finally(() => {
         pending--;
         if (pending === 0 && !settled) resolve(null);
@@ -3459,24 +3501,56 @@ export async function callFugu(messages: ChatMessage[]): Promise<string | null> 
 // гонку почти всегда, но деньги списываются каждый раз. Fugu используется
 // точечно там, где задержка не важна: lib/agents/editor.ts (A/B вариант B,
 // прямой callFugu()) и app/api/admin/test-fugu (ручная проверка).
+/**
+ * Чем произведён ответ водопада.
+ *
+ * `provider` — кто ответил на самом деле; `tier` — какой эшелон, то есть
+ * отвечал ли первый выбор или его пришлось заменять. `null` в обоих полях
+ * значит «не ответил никто» и идёт вместе с `failed: true`.
+ *
+ * Модели здесь НЕТ намеренно. Провайдерские вызовы её не возвращают, и
+ * выводить её из имени провайдера значило бы записать догадку рядом с
+ * фактами (§4.0). Понадобится — придётся вернуть её из самих вызовов, а не
+ * дорисовать здесь.
+ */
+export interface WaterfallOutcome {
+  text: string;
+  provider: string | null;
+  tier: 1 | 2 | 3 | null;
+  /** Ответ — фолбэк-строка о недоступности, а не ответ модели. */
+  failed: boolean;
+}
+
 export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> {
+  return (await callAIWaterfallDetailed(messages)).text;
+}
+
+/**
+ * Тот же водопад, но говорит, кто ответил.
+ *
+ * Реализация ОДНА: `callAIWaterfall` — обёртка над этой функцией. Вторая
+ * копия водопада разошлась бы с первой ровно так же, как разошлись две копии
+ * создания брони (08.09), и разница была бы не видна до дня, когда она
+ * дорого стоит.
+ */
+export async function callAIWaterfallDetailed(messages: ChatMessage[]): Promise<WaterfallOutcome> {
   // Tier 1: race all primary providers simultaneously.
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал
   // (health WARN), а в гонке он лишь тратил соединение и шумел в мониторинге.
   // Если MiMo снова понадобится — вернуть через OpenRouter (модель-id в OR_MODELS),
   // а не прямым вызовом Xiaomi. Функция callMiMo оставлена для этого.
-  const tier1 = await raceProviders([
-    callOpenrouter(messages),
-    callDeepSeek(messages),
-    callGeminiDirect(messages),
-    callGLM(messages),
-    callNvidia(messages),    // NVIDIA NIM: Llama 3.3-70B бесплатно (NVIDIA_API_KEY)
-    callGroq(messages),      // Groq: Llama 3.3-70B бесплатно (GROQ_API_KEY, US — проверить geo)
-    callCerebras(messages),  // Cerebras: Llama 3.3-70B бесплатно (CEREBRAS_API_KEY, US — проверить geo)
-    callMistral(messages),   // Mistral: mistral-small бесплатно (MISTRAL_API_KEY, EU — проверить geo)
-    callMuseSpark(messages), // активируется когда Meta откроет API (MUSE_SPARK_API_KEY)
+  const tier1 = await raceProvidersLabelled([
+    { provider: 'openrouter', call: callOpenrouter(messages) },
+    { provider: 'deepseek',   call: callDeepSeek(messages) },
+    { provider: 'gemini',     call: callGeminiDirect(messages) },
+    { provider: 'glm',        call: callGLM(messages) },
+    { provider: 'nvidia',     call: callNvidia(messages) },    // NVIDIA NIM: Llama 3.3-70B бесплатно
+    { provider: 'groq',       call: callGroq(messages) },      // Groq: Llama 3.3-70B бесплатно (US — проверить geo)
+    { provider: 'cerebras',   call: callCerebras(messages) },  // Cerebras: Llama 3.3-70B бесплатно (US — проверить geo)
+    { provider: 'mistral',    call: callMistral(messages) },   // Mistral: mistral-small бесплатно (EU — проверить geo)
+    { provider: 'muse_spark', call: callMuseSpark(messages) }, // активируется когда Meta откроет API
   ]);
-  if (tier1) return tier1;
+  if (tier1) return { text: tier1.text, provider: tier1.provider, tier: 1, failed: false };
 
   // Tier 2: race mid-tier fallbacks
   //
@@ -3485,16 +3559,16 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
   // числился мёртвым. Здесь берётся быстрая модель каталога (13 с по замеру),
   // а не флагман (43 с): во втором эшелоне ждёт человек, которому первый
   // эшелон уже не ответил.
-  const tier2 = await raceProviders([
-    callYandexGPT(messages),
-    callMiniMax(messages),
-    callXai(messages, { purpose: 'fast' }),
+  const tier2 = await raceProvidersLabelled([
+    { provider: 'yandex',  call: callYandexGPT(messages) },
+    { provider: 'minimax', call: callMiniMax(messages) },
+    { provider: 'xai',     call: callXai(messages, { purpose: 'fast' }) },
   ]);
-  if (tier2) return tier2;
+  if (tier2) return { text: tier2.text, provider: tier2.provider, tier: 2, failed: false };
 
   // Tier 3: sequential fallback (rarely reached)
   const anthropic = await callAnthropic(messages);
-  if (anthropic) return anthropic;
+  if (anthropic) return { text: anthropic, provider: 'anthropic', tier: 3, failed: false };
 
   // All providers failed — log for Timeweb server diagnostics
   console.error('[AI] All providers failed. Configured keys:', {
@@ -3509,7 +3583,13 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     // Без этого на вопрос «баланс на месте, почему недоступен» ответить нечем.
     failures: recentProviderFailures(),
   });
-  return 'Извините, сервис временно недоступен. Попробуйте позже.';
+  // Не ответил никто: провайдер и эшелон — null, и это не «ответил кто-то
+  // безымянный». Флаг failed отличает фолбэк-строку от настоящего ответа для
+  // тех вызывающих, кто не сверяет текст с isWaterfallErrorResponse.
+  return {
+    text: 'Извините, сервис временно недоступен. Попробуйте позже.',
+    provider: null, tier: null, failed: true,
+  };
 }
 
 // Sentinel-строки фолбэков waterfall/fast: при отказе всех провайдеров
