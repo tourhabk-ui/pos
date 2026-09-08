@@ -10,8 +10,8 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
-import { getModelForAgent } from '@/lib/ai/agent-models';
+import { callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 // Локальные типы — избегаем циклического импорта из initiative-executor
@@ -79,8 +79,17 @@ async function extractOperatorsFromContent(content: string, sourceName: string):
     },
   ];
 
-  const model = getModelForAgent('intelligence');
-  const raw = await callAIWithModelDirect(messages, model);
+  // Водопад, а не единственный провайдер (находка судьи эволюции 08.09):
+  // прежний прямой вызов не имел фолбэка, и отказ одной модели ронял
+  // разбор RSS-источника целиком — то есть очередь операторов молча
+  // недосчитывалась ленты. CLAUDE.md прямо это запрещает: прямые вызовы
+  // живут только в providers.ts и health-пробах.
+  const raw = await callAIFast(messages);
+  if (!raw || isWaterfallErrorResponse(raw)) {
+    logSwallowedFailure('operator-outreach', `разбор ленты ${sourceName}`,
+      new Error(raw ? raw.slice(0, 200) : 'пустой ответ водопада'));
+    return [];
+  }
 
   // Парсим JSON-ответ
   const jsonMatch = raw.match(/\[[\s\S]*\]/);
