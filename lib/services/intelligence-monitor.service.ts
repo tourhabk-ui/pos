@@ -580,7 +580,22 @@ async function gatherDomain(domainKey: string, config: DomainSource): Promise<Do
       const empty = feed.items.length === 0
         ? describeFeedBody(host, feed.status, feed.bytes, feed.kind)
         : null;
-      void updateSourceStatus(url, empty && feed.kind !== 'rss' && feed.kind !== 'atom' ? empty : null);
+      const notAFeed = feed.items.length === 0 && feed.kind !== 'rss' && feed.kind !== 'atom';
+      void updateSourceStatus(url, notAFeed ? empty : null);
+
+      // Тело НЕ ленты — это отказ источника, а не «лента ответила и пуста».
+      //
+      // 08.09, тревога Watchdog по домену competitors: единственная его лента
+      // отдаёт HTTP 200 и девять килобайт HTML. Код засчитывал это ответом, и
+      // вердикт выходил `no_signals` — «источники живы, новостей нет». То есть
+      // мёртвая лента приходила владельцу как спокойная сводка о рынке.
+      //
+      // Разница не косметическая: `no_signals` чинить нечего, а `gather_failed`
+      // с именем ленты говорит, что источник пора менять. Живая, но пустая
+      // лента (kind rss/atom, ноль записей) ответом остаётся — это законная
+      // тишина, и путать её с этим случаем нельзя.
+      if (notAFeed) return { ok: false, error: empty as string };
+
       return { ok: true, items: feed.items.map(item => ({ ...item, source: host })), empty };
     }).catch((err): FeedResult => {
       const message = err instanceof Error ? err.message : String(err);

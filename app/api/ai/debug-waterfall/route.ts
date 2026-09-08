@@ -26,6 +26,7 @@ import { callAIWaterfallDebug } from '@/lib/ai/providers';
 import { getSystemPrompt } from '@/lib/ai/prompts';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { keyIdentity, runPlace } from '@/lib/ai/key-identity';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,8 +70,26 @@ export async function GET(request: NextRequest) {
   const working = results.filter(r => r.status === 'success');
   const failed = results.filter(r => r.status !== 'success');
 
-  const envKeys: Record<string, boolean> = {};
-  for (const k of PROVIDER_KEYS) envKeys[k] = !!process.env[k];
+  /**
+   * Не «задан ли ключ», а КАКОЙ ключ.
+   *
+   * 08.09, слово владельца: «уже сменил, а он всё равно это пишет». Ответить
+   * на это булевым `true` нельзя по построению: и старый отвергнутый ключ, и
+   * новый дают одно и то же «задан». А вопрос стоит ровно о том, доехала ли
+   * замена до контейнера — ключей у нас ДВА комплекта (секреты GitHub для
+   * раннера, переменные Timeweb для прода, §8), и правка одного не меняет
+   * другой.
+   *
+   * Отпечаток отвечает: не совпал с прежним — новый ключ на месте и отвергнут
+   * по-настоящему; совпал — замена сюда не дошла, чинить надо доставку, а не
+   * ключ. Восстановить ключ по отпечатку нельзя (8 hex от SHA-256), хвост не
+   * показывается — сторож ai-key-identity это держит.
+   */
+  const envKeys: Record<string, { present: boolean; fingerprint: string | null; format: string | null; length: number }> = {};
+  for (const k of PROVIDER_KEYS) {
+    const id = keyIdentity(process.env[k]);
+    envKeys[k] = { present: id.present, fingerprint: id.fingerprint, format: id.format, length: id.length };
+  }
 
   return NextResponse.json({
     success: true,
@@ -83,6 +102,8 @@ export async function GET(request: NextRequest) {
       failed: failed.length,
     },
     results,
+    // Где считалось: тот же ответ с раннера и с прода описывает РАЗНЫЕ ключи.
+    place: runPlace(),
     env_keys: envKeys,
   });
 }

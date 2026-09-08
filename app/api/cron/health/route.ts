@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -54,8 +54,28 @@ async function probeAI(fn: (m: ChatMessage[]) => Promise<string | null>): Promis
 
 // ── DB checks ─────────────────────────────────────────────────────────────────
 
+/**
+ * Уровень находки health-крона.
+ *
+ * `known` заведён 08.09 и означает не «хорошо», а **измеренную плохость,
+ * которую владелец принял решением**. Повод конкретный: OpenRouter с прода
+ * закрыт гео-блоком, работа, которой он нужен, решением владельца переехала на
+ * раннер GitHub, — и при этом каждые полчаса в Telegram уходило «OpenRouter
+ * недоступен с прода». Предупреждение о принятом положении дел — не сигнал, а
+ * шум, и шум опаснее молчания: он учит пролистывать сводку, в которой рядом
+ * стоят настоящие тревоги.
+ *
+ * Граница жёсткая. `known` НЕ значит «замяли»: находка остаётся в теле ответа
+ * (`known_states`), её видно на `/hub/admin/health`, и она перестаёт быть
+ * `known`, как только меняется ПРИЧИНА. Гео-блок принят; 401, кончившиеся
+ * кредиты, испорченная форма ключа — это news, и они по-прежнему `warn`.
+ * Иначе получилась бы ровно та подмена «не смотрим» на «всё в порядке»,
+ * которую запрещает §4.0.
+ */
+type HealthLevel = 'known' | 'warn' | 'crit';
+
 interface HealthIssue {
-  level: 'warn' | 'crit';
+  level: HealthLevel;
   text: string;
 }
 
@@ -377,6 +397,22 @@ export async function GET(request: NextRequest) {
     //   поэтому это проблема, только если и OpenRouter лёг
     // Причина — в текст алерта, а не только в JSON: qwen_key_diag собирался и
     // раньше, но в Telegram уходил перечень гипотез вместо готового ответа.
+    // Qwen 08.09 снят с ТЕКСТОВЫХ путей решением владельца («qwen не
+    // используем»): из водопада инструментов Кузьмича и из первой фазы
+    // scout-innovator. Поэтому «Qwen недоступен» — больше не то предупреждение,
+    // которое нужно писать: провайдер, которым мы не пользуемся, недоступным
+    // быть не может, а строка про него полтора месяца приходила владельцу
+    // каждые полчаса и учила пролистывать сводку целиком.
+    //
+    // Молчать при этом нельзя: ОДНО применение осталось, и оно единственное в
+    // своём роде. Зрение (qwen-vl, разбор фото в чате и в загрузке снимков)
+    // живёт на том же ключе DashScope, а замены ему с прода нет — Gemini
+    // гео-блокируется из РФ, Anthropic отвечает «credit balance is too low».
+    // Ключ отвергнут — значит Кузьмич не видит присланное фото, и это факт о
+    // работе платформы, а не о составе провайдеров.
+    //
+    // Проба текстовая, а проверяет она ПРИЁМ КЛЮЧА — то самое, на чём стоит
+    // зрение. Разными были бы вердикты про модель; отказ ключа общий.
     if (process.env.DASHSCOPE_API_KEY && !qwenOk) {
       // На 401/403 однобазовая проба даёт лишь подсказку «проверь регион».
       // У DashScope два независимых шлюза, и ключ из одного отвечает такой же
@@ -386,7 +422,10 @@ export async function GET(request: NextRequest) {
         const regions = await probeQwenRegions().catch(() => null);
         if (regions) why = `: ${regions.verdict}`;
       }
-      issues.push({ level: 'warn', text: `Qwen недоступен${why}` });
+      issues.push({
+        level: 'warn',
+        text: `Зрение Кузьмича не работает — ключ DashScope не принят${why}. Текстовые пути Qwen не используют, разбирать фото с прода больше нечем`,
+      });
     }
     // DeepSeek — первичный решатель эволюции. Молчим, если ключ просто не
     // задан (как для Qwen/Fugu/Anthropic: не настроен ≠ сбой), а если задан —
@@ -407,10 +446,16 @@ export async function GET(request: NextRequest) {
     // Слово без места превращает «здесь не работает» в «не работает вообще» —
     // ровно та подмена, которую §4.0 запрещает. Раннерный путь этой пробой не
     // измеряется, и молчать об этом нельзя: молчание читается как «проверено».
+    //
+    // 08.09: гео-блок 403 при целом ключе переведён в `known`. Владелец на это
+    // предупреждение ОТВЕТИЛ делом — «поменяли площадку, вернули в гитхаб»: то,
+    // чему нужен OpenRouter, считается на раннере. Значит положение измерено,
+    // объяснено и принято, и будить им каждые полчаса больше нечем. Всё прочее
+    // (401, нет ключа, битая форма, сеть не дошла) остаётся warn — это news.
     if (!openrouterOk) {
       const why = orKeyDiag ? ` — ${explainOpenRouterFailure(orKeyDiag)}` : ' (диагностика не собралась)';
       issues.push({
-        level: 'warn',
+        level: isAcceptedOpenRouterGeoBlock(orKeyDiag) ? 'known' : 'warn',
         text: `OpenRouter недоступен с прода${why}. Путь с раннера GitHub этой пробой не проверялся`,
       });
     }
@@ -449,11 +494,17 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Отправить алерт если есть проблемы
-  if (issues.length > 0) {
-    const crits = issues.filter(i => i.level === 'crit');
-    const warns = issues.filter(i => i.level === 'warn');
+  // Отправить алерт если есть проблемы.
+  //
+  // `known` в Telegram не уходит — но и не пропадает: он в теле ответа ниже,
+  // отдельным списком `known_states`. Разница между «не шумим» и «не знаем»
+  // должна быть видна глазами, иначе принятое положение через месяц станет
+  // забытым (§4.0).
+  const crits = issues.filter(i => i.level === 'crit');
+  const warns = issues.filter(i => i.level === 'warn');
+  const known = issues.filter(i => i.level === 'known');
 
+  if (crits.length > 0 || warns.length > 0) {
     const lines: string[] = [
       crits.length > 0
         ? '<b>TourHab ALERT</b> — критические проблемы'
@@ -470,8 +521,12 @@ export async function GET(request: NextRequest) {
 
   recordCronRun('health', started, 'success', { items: issues.length });
   return NextResponse.json({
-    ok: issues.filter(i => i.level === 'crit').length === 0,
+    ok: crits.length === 0,
     ms: Date.now() - started,
+    // Принятые положения дел — отдельным списком, а не растворённые в общем
+    // счёте. Их не видно в Telegram, и единственное место, где их можно
+    // пересмотреть, — здесь.
+    known_states: known.map(i => i.text),
     ai: { qwen: qwenOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     openrouter_key_diag: orKeyDiag,
     integrations: {
