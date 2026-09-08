@@ -105,6 +105,29 @@ const SYSTEM = `Ты проводишь аудит платформы «Веда
 5. Проверка с двумя исходами там, где нужен третий — «не смог проверить» (правило §4.0 «третьего состояния»).
 6. Заявленное расписание или поведение агента не подтверждается кодом.
 
+И ОТДЕЛЬНО — второй род работы, не менее важный, чем первый.
+
+УСИЛЕНИЕ: чего платформе не хватает, чтобы быть лучшей в своём деле.
+Не дефект, а следующий шаг: механизм, которого нет, но который здесь
+напрашивается — потому что рядом уже есть половина, или потому что правило
+записано, а инструмента под него нет, или потому что похожая задача в
+соседнем месте решена сильнее.
+
+Предложение подчиняется той же дисциплине, что и находка: оно обязано
+опираться на ДОСЛОВНУЮ улику из выданных файлов — что именно уже есть, от
+чего отталкиваемся. Предложение без улики — фантазия, и оно будет отброшено
+тем же ситом, что и выдуманная находка.
+
+Чего в предложениях НЕ надо:
+- общих слов «добавить мониторинг», «улучшить архитектуру», «внедрить ИИ»;
+- переписывания того, что работает, ради красоты;
+- чужих модных практик без связи с тем, что здесь уже есть;
+- предложений, которые нельзя проверить кодом или замером.
+
+Хорошее предложение звучит так: «здесь уже есть X (цитата), рядом в Y это
+решено сильнее (цитата) — перенести приём» или «правило Z записано в
+CLAUDE.md (цитата), но инструмента под него нет ни одного».
+
 ЖЁСТКИЕ ПРАВИЛА (нарушение делает находку бесполезной):
 - Ссылайся ТОЛЬКО на пути файлов из выданного набора. Не сочиняй путей.
 - В evidence приводи ДОСЛОВНЫЕ фрагменты кода или текста из выданных файлов.
@@ -113,7 +136,9 @@ const SYSTEM = `Ты проводишь аудит платформы «Веда
 - Лучше десять находок с уликами, чем сто догадок.
 
 Ответь СТРОГО одним JSON-объектом:
-{"findings":[{"severity":"high|medium|low","kind":"rule_not_enforced|rule_duplicated|guard_toothless|failure_swallowed|missing_third_state|declared_not_real","files":["путь"],"what":"суть одной фразой","evidence":"дословно из файлов","proposal":"что делать"}]}`;
+{"findings":[{"severity":"high|medium|low","kind":"rule_not_enforced|rule_duplicated|guard_toothless|failure_swallowed|missing_third_state|declared_not_real|strengthening","files":["путь"],"what":"суть одной фразой","evidence":"дословно из файлов","proposal":"что делать"}]}
+
+Род \`strengthening\` — для предложений усиления. Остальные шесть — для дефектов.`;
 
 interface Finding {
   severity?: string; kind?: string; files?: string[];
@@ -287,7 +312,7 @@ async function verifyFinding(
           { role: 'user', content: `${bundle}\n\n=== ПРОВЕРЯЕМОЕ ===\n${claim}` },
         ],
         max_tokens: 900,
-        temperature: 0,
+        ...(modelProfile(model).sampling ? { temperature: 0 } : {}),
       }),
       signal: AbortSignal.timeout(300_000),
     });
@@ -332,6 +357,122 @@ export function evidenceFragments(evidence: string): string[] {
     }
   }
   return out.map(squash).filter((t) => t.length >= 12);
+}
+
+/**
+ * Что мы знаем о модели: тариф и принимает ли она параметры сэмплирования.
+ *
+ * Заведено при переходе с Astra на Fable 5.1 (решение владельца 08.09), когда
+ * выяснилось, что смена одного идентификатора ломает прогон дважды:
+ *
+ *   1. `temperature` у семейства Claude 4.6+ СНЯТА и даёт 400 — запрос упал бы
+ *      сразу, и в обоих местах: и в проходе, и в круге проверки;
+ *   2. цена считалась константой Astra с подписью «прайс Astra из каталога».
+ *      Под другой моделью это печатало бы уверенное НЕВЕРНОЕ число — то самое
+ *      «обязательное поле заполняется выдумкой» из §4.0.
+ *
+ * Поэтому у тарифа есть исход «не знаю»: неизвестной модели цена не
+ * приписывается, а говорится, что тариф не записан.
+ */
+interface ModelProfile {
+  /** Доллары за миллион токенов; null — тариф не записан, выдумывать нельзя. */
+  usdPerMTokIn: number | null;
+  usdPerMTokOut: number | null;
+  /** Принимает ли `temperature`. У Claude 4.6+ снята: 400. */
+  sampling: boolean;
+}
+
+const MODEL_PROFILES: Record<string, ModelProfile> = {
+  // Тариф из каталога поставщика; через OpenRouter возможна своя наценка,
+  // поэтому число названо ОЦЕНКОЙ и здесь, и в выводе.
+  'openai/gpt-6-astra': { usdPerMTokIn: 10, usdPerMTokOut: 50, sampling: true },
+  'anthropic/claude-fable-5-1': { usdPerMTokIn: 10, usdPerMTokOut: 50, sampling: false },
+};
+
+/**
+ * Профиль модели. Неизвестной — честное «не знаю» про цену.
+ *
+ * Про сэмплирование умолчание разное по семействам, и это не придирка: у
+ * Claude 4.6+ `temperature` снята целиком, поэтому для `anthropic/` умолчание
+ * «не слать». Для прочих сохраняется нынешнее поведение — оно работает.
+ */
+function modelProfile(model: string): ModelProfile {
+  const known = MODEL_PROFILES[model];
+  if (known) return known;
+  return {
+    usdPerMTokIn: null,
+    usdPerMTokOut: null,
+    sampling: !model.startsWith('anthropic/'),
+  };
+}
+
+/**
+ * Журнал разобранного: что уже смотрели и чем кончилось.
+ *
+ * Владелец 08.09: «аудит не должен по второму разу проверять одно и то же».
+ * И правда: прогоны 2, 3 и 4 находили одни и те же дефекты разными словами,
+ * и круг проверки тратился на уже известное вместо нового.
+ *
+ * ── Почему журнал НЕ ГЛУШИТ находки ───────────────────────────────────────
+ *
+ * Совпадение по файлам — догадка о тождестве, а не доказательство. В одном
+ * файле живут и разобранный дефект, и новый: `rescue-agency.ts` за три
+ * прогона дал и «активные теряются за LIMIT», и «выдуманное нулевое среднее
+ * время реагирования» — разные вещи в одном месте. Глушить по такой догадке
+ * значило бы прятать регрессию ровно там, где её уже один раз чинили.
+ *
+ * Поэтому журнал меняет ПОРЯДОК, а не истину: совпавшая находка помечается
+ * «возможно уже разобрано», уходит в конец очереди проверки и получает
+ * бюджет последней. Новому материалу — первым.
+ */
+interface JournalEntry {
+  files?: string[];
+  what?: string;
+  decision?: string;
+  date?: string;
+  note?: string;
+}
+
+const JOURNAL_PATH = '.github/audit-journal.json';
+
+function readJournal(): JournalEntry[] {
+  try {
+    const raw = JSON.parse(readFileSync(JOURNAL_PATH, 'utf8')) as { resolved?: JournalEntry[] };
+    return Array.isArray(raw.resolved) ? raw.resolved : [];
+  } catch (err) {
+    // Журнала может не быть — это не ошибка. Но и молчать нельзя: без него
+    // аудит будет предлагать разобранное, и человек не поймёт почему.
+    console.log(`журнал разобранного не прочитан (${JOURNAL_PATH}):`,
+      err instanceof Error ? err.message : String(err));
+    return [];
+  }
+}
+
+/** Запись журнала, чьи файлы пересекаются с находкой. `null` — пересечений нет. */
+export function journalOverlap(
+  files: string[] | undefined,
+  journal: JournalEntry[],
+): JournalEntry | null {
+  const mine = new Set(files ?? []);
+  if (mine.size === 0) return null;
+  for (const e of journal) {
+    // CLAUDE.md стоит почти в каждой находке и пересекается со всем подряд —
+    // по нему тождество не судим, иначе «уже разобрано» будет у всего.
+    const theirs = (e.files ?? []).filter((f) => f !== 'CLAUDE.md' && f !== 'AGENTS.md');
+    if (theirs.some((f) => mine.has(f))) return e;
+  }
+  return null;
+}
+
+/** Что сказать модели про уже разобранное, чтобы она не несла это снова. */
+function journalBlock(journal: JournalEntry[]): string {
+  if (journal.length === 0) return '';
+  const lines = journal.map((e) =>
+    `- ${(e.files ?? []).join(', ')}: ${e.what ?? ''} — ${e.decision ?? 'решение не записано'}`
+    + (e.note ? ` (${e.note})` : ''));
+  return '\n\nУЖЕ РАЗОБРАНО РАНЬШЕ — не повторяй, если код не разошёлся с записью.\n'
+    + 'Если по этому месту у тебя НОВОЕ наблюдение, а не то же самое, скажи прямо, чем оно отличается.\n'
+    + lines.join('\n');
 }
 
 /** Нашлась ли хоть одна улика в текстах названных файлов. */
@@ -421,7 +562,10 @@ async function main(): Promise<void> {
   console.log(`модель: ${model}`);
 
   const known = new Set(files.map((f) => f.path));
-  const payload = files.map((f) => `=== ФАЙЛ: ${f.path} ===\n${f.text}`).join('\n\n');
+  const journal = readJournal();
+  if (journal.length > 0) console.log(`уже разобрано раньше: ${journal.length} записей — не повторяем`);
+  const payload = files.map((f) => `=== ФАЙЛ: ${f.path} ===\n${f.text}`).join('\n\n')
+    + journalBlock(journal);
 
   const started = Date.now();
   let res: Response;
@@ -433,7 +577,9 @@ async function main(): Promise<void> {
         model,
         messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: payload }],
         max_tokens: 32000,
-        temperature: 0.2,
+        // `temperature` шлём только тем, кто её принимает: у Claude 4.6+ она
+        // снята и даёт 400 — прогон упал бы, не начавшись.
+        ...(modelProfile(model).sampling ? { temperature: 0.2 } : {}),
       }),
       signal: AbortSignal.timeout(900_000),
     });
@@ -451,9 +597,13 @@ async function main(): Promise<void> {
   const inTok = data.usage?.prompt_tokens ?? null;
   const outTok = data.usage?.completion_tokens ?? null;
   console.log(`ответ за ${((Date.now() - started) / 1000).toFixed(1)} с, токенов: вход ${inTok ?? '?'} / выход ${outTok ?? '?'}`);
-  if (inTok !== null && outTok !== null) {
-    const usd = inTok * 1e-5 + outTok * 5e-5; // прайс Astra из каталога
+  const price = modelProfile(model);
+  if (inTok !== null && outTok !== null && price.usdPerMTokIn !== null && price.usdPerMTokOut !== null) {
+    const usd = (inTok * price.usdPerMTokIn + outTok * price.usdPerMTokOut) / 1e6;
     console.log(`цена прохода: $${usd.toFixed(3)} (~${(usd * RUB_PER_USD).toFixed(0)} ₽, оценка по §8)`);
+  } else {
+    // Тариф не записан — молчать нельзя, но и выдумывать нечего.
+    console.log(`цена прохода не посчитана: тариф модели ${model} не записан в MODEL_PROFILES`);
   }
   if (!text) { console.error('Ответ без содержимого.'); process.exit(1); }
 
@@ -499,7 +649,7 @@ async function main(): Promise<void> {
     console.error('Находки не сохранены:', err instanceof Error ? err.message : String(err));
   }
 
-  await verifyAndReport(key, model, good, byPath, { invented, unquoted });
+  await verifyAndReport(key, model, good, byPath, { invented, unquoted }, journal);
 }
 
 /**
@@ -515,8 +665,32 @@ async function verifyAndReport(
   good: Finding[],
   byPath: Map<string, string>,
   counts: { invented: number; unquoted: number },
+  journal: JournalEntry[] = [],
 ): Promise<void> {
   const { invented, unquoted } = counts;
+
+  // Предложения усиления проверке «подтверждено / опровергнуто» НЕ подлежат.
+  //
+  // Проверяющий отвечает на вопрос «есть ли названное в файле». Для дефекта
+  // это и есть суть. Для предложения — нет: там утверждается, чего НЕТ, и
+  // «не нашёл» не значит ни «верно», ни «неверно». Прогонять их тем же
+  // рубрикатором значило бы тратить бюджет и получать исход, который ничего
+  // не решает. Предложения печатаются отдельно, вместе с уликой, и их
+  // взвешивает человек.
+  const proposals = good.filter((f) => f.kind === 'strengthening');
+  const defects = good.filter((f) => f.kind !== 'strengthening');
+
+  // Очередь проверки: сначала НОВОЕ, потом пересекающееся с разобранным.
+  // Порядок решает, кому достанется бюджет, если он кончится на середине.
+  const overlap = new Map<Finding, JournalEntry | null>();
+  for (const f of defects) overlap.set(f, journalOverlap(f.files, journal));
+  const fresh = defects.filter((f) => overlap.get(f) === null);
+  const seen = defects.filter((f) => overlap.get(f) !== null);
+  if (seen.length > 0) {
+    console.log(`\nв конец очереди проверки: ${seen.length} находок пересекаются с уже разобранным`
+      + ' (не отброшены — совпадение по файлу не доказывает тождества)');
+  }
+  good = [...fresh, ...seen];
   // Второй заход: каждую находку перепроверяем отдельно, показывая только её
   // файлы. Первый ответ модели поверхностен — это правило, а не случай.
   //
@@ -585,7 +759,7 @@ async function verifyAndReport(
   const rank = (s?: string) => (s === 'high' ? 0 : s === 'medium' ? 1 : 2);
   confirmed.sort((a, b) => rank(a.severity) - rank(b.severity));
 
-  console.log(`\nпосле детерминированной проверки: ${good.length} принято`
+  console.log(`\nпосле детерминированной проверки: ${defects.length} находок · ${proposals.length} предложений усиления`
     + ` · ${invented} с путями вне набора · ${unquoted} без дословной улики в названном файле\n`);
   console.log(`после перепроверки: подтверждено ${confirmed.length}`
     + ` · опровергнуто ${refuted} · не удалось проверить ${unclear.length}`
@@ -609,6 +783,32 @@ async function verifyAndReport(
     console.log(` улика: ${f.evidence ?? '(не приведена)'}`);
     console.log(` проверка: ${f.why}`);
     console.log(` предложение: ${f.proposal ?? '(нет)'}`);
+    const was = journalOverlap(f.files, journal);
+    if (was) {
+      console.log(` ВНИМАНИЕ: по этим файлам уже было решение (${was.decision ?? 'без решения'},`
+        + ` ${was.date ?? 'без даты'}): ${was.what ?? ''}.`
+        + ' Либо это ДРУГОЙ дефект, либо починка не удержалась — разобрать глазами.');
+    }
+  }
+
+  // ── Предложения усиления ───────────────────────────────────────────────
+  //
+  // Отдельным разделом и без вердикта: здесь не «правда или ложь», а «стоит
+  // или не стоит», и это решает человек. Улика приводится, чтобы было видно,
+  // от чего предложение отталкивается, — предложение без опоры в коде ничем
+  // не лучше выдумки и отсеивается тем же ситом.
+  if (proposals.length > 0) {
+    console.log(`\n\nПРЕДЛОЖЕНИЯ УСИЛЕНИЯ (${proposals.length}) — не дефекты; проверке`
+      + ' «подтверждено/опровергнуто» не подлежат, потому что утверждают то, чего ещё НЕТ:');
+    const rankP = (x?: string) => (x === 'high' ? 0 : x === 'medium' ? 1 : 2);
+    for (const f of [...proposals].sort((a, b) => rankP(a.severity) - rankP(b.severity))) {
+      console.log('---');
+      console.log(` [${f.severity ?? 'без важности'}] усиление`);
+      for (const p of f.files ?? []) console.log(`   • ${p}`);
+      console.log(` суть: ${f.what ?? '(не сказано)'}`);
+      console.log(` от чего отталкиваемся: ${f.evidence ?? '(улика не приведена)'}`);
+      console.log(` что сделать: ${f.proposal ?? '(нет)'}`);
+    }
   }
 
   // «Не смог проверить» не прячем: это третий исход, а не отсутствие находки.
@@ -621,8 +821,12 @@ async function verifyAndReport(
     }
   }
 
-  if (confirmed.length === 0) {
-    console.error('\nНи одной ПОДТВЕРЖДЁННОЙ находки. «Всё чисто» и «модель не справилась» неразличимы — прогон красный.');
+  if (confirmed.length === 0 && defects.length > 0) {
+    console.error('\nНи одной ПОДТВЕРЖДЁННОЙ находки при непустом списке. «Всё чисто» и «модель не справилась» неразличимы — прогон красный.');
+    process.exit(1);
+  }
+  if (confirmed.length === 0 && defects.length === 0 && proposals.length === 0) {
+    console.error('\nНи находок, ни предложений. Это отказ разбора, а не «платформа безупречна».');
     process.exit(1);
   }
   console.log('\nНичего не изменено: аудит только читает. Решает человек.');
