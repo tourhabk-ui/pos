@@ -11,7 +11,7 @@
 import { readFile, readdir } from 'fs/promises';
 import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { join } from 'path';
-import { callQwen, callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
@@ -284,23 +284,25 @@ ${gitSection}
   try {
     // Opus (anthropic/*) недоступен из РФ: прод-крон (Timeweb) бил в
     // заблокированный OpenRouter/Anthropic-роут, вызов падал — эволюция
-    // переставала рождать предложения. Идём через подтверждённо-живой из РФ
-    // Qwen (DashScope), а водопад (DeepSeek/GLM, тоже доступны из РФ) — fallback.
+    // переставала рождать предложения. Отсюда путь через достижимых из РФ.
+    //
+    // Первой ступенью здесь стоял Qwen (DashScope). Снят 08.09 решением
+    // владельца («qwen не используем»): ключ отвергнут в ОБОИХ регионах
+    // DashScope, и с 05.09 эта ступень не отвечала ни разу — прогон 390 показал
+    // отказ по квоте, а не редкий сбой. Ступень, которая всегда возвращает
+    // null, — не запас, а лишний круг перед тем, кто и так отвечает.
+    //
     // 3000 токенов, а не умолчание 800 (05.09): три предложения с шагами и
     // критериями по-русски — это 2500-4000 знаков JSON, и на 800 токенах
     // ответ рвался на позиции ~2440 (прогон 389: «JSON.parse упал: Expected
-    // ',' or '}'»). Обрыв — не ошибка модели, а наш потолок.
-    const qwen = await callQwen(messages, { maxTokens: 3000 });
-    // Отказ водопада приходит null, а не строкой-извинением: иначе он уезжает
-    // в разбор и превращается в «нет JSON-массива» (экран владельца 04.09).
+    // ',' or '}'»). Обрыв — не ошибка модели, а наш потолок. Потолок обязан
+    // стоять у того, кто РЕАЛЬНО отвечает: когда он был поднят только у Qwen,
+    // запасной путь всё равно рвался на позиции 2437 (прогон 390).
     //
-    // Качественный путь с явным потолком, а не голый водопад (05.09, прогон
-    // 390): Qwen отказал по квоте, запасной путь ушёл в callAIWaterfall без
-    // опций — и там свои 600-800 токенов на ногу. Ответ снова оборвался на
-    // позиции 2437, из массива спасся один элемент. Потолок, поднятый только
-    // у Qwen, не поднят у того, кто отвечает вместо него.
-    const raw = qwen?.trim() ? qwen : await callAIQualityOrNull(messages, { maxTokens: 3000 });
-    const model_used = qwen?.trim() ? 'qwen' : 'quality';
+    // Отказ приходит null, а не строкой-извинением: иначе он уезжает в разбор
+    // и превращается в «нет JSON-массива» (экран владельца 04.09).
+    const raw = await callAIQualityOrNull(messages, { maxTokens: 3000 });
+    const model_used = 'quality';
     if (raw === null) {
       const why = describeRecentAiFailures() ?? 'причины не записаны';
       console.error(`[scout-innovator] Phase 1 (модель=${model_used}): провайдеры отказали — ${why}`);
