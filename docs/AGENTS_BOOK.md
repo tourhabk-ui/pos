@@ -43,7 +43,7 @@
    - [Health](#27-health--проверка-здоровья)
    - [LLM Budget Check](#28-llm-budget-check--бюджет-ai)
    - [Telegram Webhook Watchdog](#29-telegram-webhook-watchdog--watchdog-вебхука)
-   - [Memory Bridge](#30-memory-bridge--мост-памяти)
+   - [Memory Bridge — снят](#30-memory-bridge--снят-08092026)
 7. [Часть VI — Эволюция](#часть-vi)
    - [Evo System](#31-evo-system--система-эволюции)
    - [Growth Agent](#32-growth-agent)
@@ -1039,7 +1039,7 @@ ORDER BY created_at DESC;
 3. Claude оценивает совпадение (0–10)
 4. При score ≥ 7: отправляет персонализированное предложение
 
-Использует данные из Memory Bridge (каждые 6ч синхронизирует `user_ai_memory → agent_memory`).
+Читает `user_ai_memory` напрямую — посредника между ним и предпочтениями нет.
 
 ---
 
@@ -1145,22 +1145,27 @@ CRON_SECRET=<секрет>
 
 ---
 
-### 30. Memory Bridge — Мост памяти
+### 30. Memory Bridge — снят 08.09.2026
 
-**Файл:** `app/api/cron/memory-bridge/route.ts`  
-**Расписание:** каждые 6 часов
+Мост складывал агрегат спроса туристов из `user_ai_memory` в `agent_memory`
+каждые шесть часов — под четырьмя адресатами: `planning`, `hacker`, `content`,
+`admin`. Все четверо удалены вместе с советом директоров ещё в апреле, то есть
+крон полгода раскладывал один и тот же снимок по несуществующим адресам, и
+четыре копии в базе выглядели работой четырёх агентов.
 
-#### Что делает
+Читателя у снимка не было ни одного: поиск по репозиторию не находит ни
+`demand_snapshot`, ни `tourist_demand_30d` за пределами самого писателя. Живой
+канал памяти читается по типу `intelligence` (`recallShared`), а тип у снимка
+был другой.
 
-Синхронизирует пользовательские предпочтения между таблицами:
+Утверждение прежней редакции этой главы — «обеспечивает, что Smart Notify и
+Кузьмич используют актуальные предпочтения» — было неверно: Smart Notify читает
+`user_ai_memory` напрямую (`app/api/cron/smart-notify/route.ts`), моста он не
+касался никогда.
 
-```
-user_ai_memory (предпочтения пользователя)
-         ↓  syncUserDemandToAgentMemory()
-agent_memory (Planning, Hacker, Content агенты)
-```
-
-Обеспечивает что умные уведомления (Smart Notify) и Kuzmich используют актуальные предпочтения.
+Снято 08.09.2026: workflow, роут, модуль и запись в реестре живости. Агрегат
+считается из `user_ai_memory` в любой момент, код достаётся из истории — когда
+появится, кому его читать.
 
 ---
 
@@ -1485,7 +1490,6 @@ CLOUDPAYMENTS_SECRET=
 | Health | `0 * * * *` | каждый час | |
 | Checkin Watchdog | `0 * * * *` | каждый час | + warmup |
 | Intelligence | `0 */6 * * *` | каждые 6ч | |
-| Memory Bridge | `0 */6 * * *` | каждые 6ч | |
 | Support Escalate | `0 */6 * * *` | каждые 6ч | |
 | Evo System | `0 */6 * * *` | каждые 6ч | |
 | Scout Digest | `0 7 * * *` | 07:00 | дайджест |
@@ -1535,7 +1539,7 @@ CLOUDPAYMENTS_SECRET=
 | `lead_followups` | followups |
 | `agent_route_knowledge` | editor, places-enricher, import-routes, enrich-routes |
 | `agent_knowledge` | scout-digest, scout-innovator, kb-gap |
-| `agent_memory` | scout-digest, memory-bridge, group-scout |
+| `agent_memory` | scout-digest, group-scout |
 | `tour_payments` | payouts |
 | `external_alerts` | safety-ingest |
 | `location_real_time_status` | safety-ingest |

@@ -16,6 +16,15 @@
  *              называться так вслух (CLAUDE.md §4.0). Для `payouts` цена
  *              незнания — удержанные платежи оператору, которые никто не
  *              отпускает.
+ *   stage    — работу делает стадия оркестратора эволюции, а роут остался
+ *              входом для ручного прогона. Расписания у самого роута нет и
+ *              быть не должно: он не забыт, у него другой хозяин. Род заведён
+ *              08.09 после находки аудита: `industry-intel` и `memory-reflect`
+ *              числились внешними («1-2 раза в день», «раз в сутки») с 29.08,
+ *              когда оба переехали стадиями в `runEvoOrchestrator`. Это не
+ *              мелочь в словах: «внешнее» значит «идёт ли — не знаю», и панель
+ *              звала проверять чужую панель cron-job.org вместо того, чтобы
+ *              смотреть на пульс эволюции, который у нас измеряется.
  *   manual   — перепись, разбор или починка, которую человек зовёт по адресу.
  *              Живёт под `/api/cron/`, потому что `CRON_SECRET` сужен на этот
  *              префикс (09.08, после утечки секрета на сторонний хост).
@@ -26,7 +35,7 @@
  * такого не было: либо workflow, либо строка здесь. Молчание — не ответ.
  */
 
-export type SchedulerKind = 'workflow' | 'external' | 'manual' | 'undeclared';
+export type SchedulerKind = 'workflow' | 'stage' | 'external' | 'manual' | 'undeclared';
 
 export interface SchedulerDeclaration {
   kind: 'external' | 'manual';
@@ -35,6 +44,38 @@ export interface SchedulerDeclaration {
   /** Меняет ли данные. Ручной пишущий разбор опаснее ручной переписи. */
   writes: boolean;
 }
+
+export interface StageDeclaration {
+  kind: 'stage';
+  /**
+   * Функция, которую зовут ОБА: и оркестратор стадией, и роут по адресу.
+   * Названа поимённо, потому что ею сторож и проверяет, что объявление не
+   * протухло: работа одна, а не две разошедшиеся копии.
+   */
+  entry: string;
+  /** Чей прогон несёт стадию — по нему и меряется живость. */
+  host: string;
+  note: string;
+  writes: boolean;
+}
+
+export type AnyDeclaration = SchedulerDeclaration | StageDeclaration;
+
+/**
+ * Стадии оркестратора эволюции. Живость меряется не здесь: она равна живости
+ * прогона-хозяина (`evo` в `cron-registry`). Отдельного расписания у роута нет
+ * намеренно — второе расписание означало бы вторую работу.
+ */
+export const ORCHESTRATOR_STAGES: Record<string, StageDeclaration> = {
+  'industry-intel': {
+    kind: 'stage', writes: true, entry: 'scanIndustryChannels', host: 'evo',
+    note: 'стадия runEvoOrchestrator с 29.08: отраслевые TG-каналы → agent_memory; роут остался входом для ручного прогона',
+  },
+  'memory-reflect': {
+    kind: 'stage', writes: true, entry: 'runMemoryReflector', host: 'evo',
+    note: 'стадия runEvoOrchestrator с 29.08: эпизоды разведки → durable-инсайты в agent_knowledge; роут остался входом для ручного прогона',
+  },
+};
 
 /**
  * Расписание заявлено, планировщик снаружи репозитория.
@@ -56,14 +97,6 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
   'legislation-sync': {
     kind: 'external', writes: false,
     note: 'шапка: «раз в сутки/неделю» — Firecrawl → legislation_docs',
-  },
-  'industry-intel': {
-    kind: 'external', writes: false,
-    note: 'шапка: «1-2 раза в день»',
-  },
-  'memory-reflect': {
-    kind: 'external', writes: false,
-    note: 'шапка: «раз в сутки»',
   },
   'memory-contradiction': {
     kind: 'external', writes: false,
@@ -187,9 +220,10 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'web-routes-census':         { kind: 'manual', writes: false, note: 'перепись веб-маршрутов' },
 };
 
-export const DECLARED: Record<string, SchedulerDeclaration> = {
+export const DECLARED: Record<string, AnyDeclaration> = {
   ...EXTERNAL_SCHEDULE,
   ...MANUAL_ENDPOINTS,
+  ...ORCHESTRATOR_STAGES,
 };
 
 /**
@@ -205,6 +239,7 @@ export function schedulerOf(endpoint: string, workflowDriven: ReadonlySet<string
 /** Человеческое имя рода — для панели и логов. */
 export const SCHEDULER_LABELS: Record<SchedulerKind, string> = {
   workflow: 'GitHub Actions',
+  stage: 'стадия оркестратора эволюции',
   external: 'планировщик снаружи — подтвердить нечем',
   manual: 'вручную по адресу',
   undeclared: 'не объявлено',

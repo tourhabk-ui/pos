@@ -15,10 +15,37 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
-import { DECLARED, EXTERNAL_SCHEDULE, MANUAL_ENDPOINTS, schedulerOf } from '@/lib/agents/cron-schedulers';
+import { DECLARED, EXTERNAL_SCHEDULE, MANUAL_ENDPOINTS, ORCHESTRATOR_STAGES, schedulerOf } from '@/lib/agents/cron-schedulers';
 
 const WF_DIR = join(process.cwd(), '.github', 'workflows');
 const CRON_DIR = join(process.cwd(), 'app', 'api', 'cron');
+const ORCHESTRATOR = join(process.cwd(), 'lib', 'agents', 'orchestrator.ts');
+
+/**
+ * Что файл ЗОВЁТ из общих модулей: имена, ввезённые из `@/lib/...` и
+ * употреблённые как вызов. Сравнение по именам, а не по расстоянию или
+ * похожести: стадия и роут делают одну работу тогда и только тогда, когда
+ * зовут одну функцию.
+ */
+function entryCalls(file: string): Set<string> {
+  const src = readFileSync(file, 'utf8');
+  const imported = new Set<string>();
+  for (const m of src.matchAll(/import\s*\{([^}]+)\}\s*from\s*'@\/lib\/[^']+'/g)) {
+    for (const raw of m[1].split(',')) {
+      const name = raw.trim().split(/\s+as\s+/).pop()?.trim();
+      if (name) imported.add(name);
+    }
+  }
+  const called = new Set<string>();
+  for (const name of imported) {
+    if (new RegExp(`\\b${name}\\s*\\(`).test(src)) called.add(name);
+  }
+  return called;
+}
+
+function routeFile(endpoint: string): string {
+  return join(CRON_DIR, endpoint, 'route.ts');
+}
 
 function endpointsOnDisk(): string[] {
   return readdirSync(CRON_DIR)
@@ -86,6 +113,43 @@ describe('cron: у каждого эндпоинта назван запуска
   it('external и manual не пересекаются', () => {
     const both = Object.keys(EXTERNAL_SCHEDULE).filter((k) => k in MANUAL_ENDPOINTS);
     expect(both).toEqual([]);
+  });
+
+  it('объявленная стадия действительно идёт в оркестраторе и делает ту же работу', () => {
+    // Объявление, которое никто не сверяет, протухает молча — этим и была
+    // находка 08.09. Сверяем поимённо: функция стадии зовётся И оркестратором,
+    // И самим роутом. Разошлись — либо стадию убрали, либо роут переписали на
+    // вторую реализацию той же работы; оба случая надо увидеть сразу.
+    const orchestrator = entryCalls(ORCHESTRATOR);
+    for (const [endpoint, d] of Object.entries(ORCHESTRATOR_STAGES)) {
+      expect(
+        orchestrator.has(d.entry),
+        `${endpoint}: объявлено стадией, но lib/agents/orchestrator.ts не зовёт ${d.entry}()`,
+      ).toBe(true);
+      expect(
+        entryCalls(routeFile(endpoint)).has(d.entry),
+        `${endpoint}: роут не зовёт ${d.entry}() — это уже вторая реализация той же работы, а не тот же вход`,
+      ).toBe(true);
+    }
+  });
+
+  it('роут, чью работу делает оркестратор, не объявлен внешним расписанием', () => {
+    // Тот самый дефект: `industry-intel` и `memory-reflect` с 29.08 шли
+    // стадиями `runEvoOrchestrator`, а реестр звал их «внешним расписанием» —
+    // то есть «идёт ли, не знаю». Сторож дублей этого не видел: он сравнивает
+    // только адреса из workflow, а у стадии адреса нет вовсе.
+    const orchestrator = entryCalls(ORCHESTRATOR);
+    const misdeclared: string[] = [];
+    for (const [endpoint, d] of Object.entries(DECLARED)) {
+      if (d.kind === 'stage') continue;
+      const shared = [...entryCalls(routeFile(endpoint))].filter((n) => orchestrator.has(n));
+      if (shared.length > 0) misdeclared.push(`${endpoint} (${d.kind}, общая работа: ${shared.join(', ')})`);
+    }
+    expect(
+      misdeclared,
+      'работу роута делает стадия оркестратора — объявляй kind: \'stage\', а не external/manual: ' +
+      misdeclared.join('; '),
+    ).toEqual([]);
   });
 
   it('`payouts` числится внешним: деньги, чьё расписание нам не видно', () => {
