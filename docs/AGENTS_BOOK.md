@@ -21,7 +21,7 @@
    - [Editor](#8-editor--редактор-маршрутов)
    - [Import Routes](#9-import-routes--импорт-маршрутов)
    - [Enrich Routes](#10-enrich-routes--обогащение-маршрутов)
-   - [Places Enricher](#11-places-enricher--обогащение-точек)
+   - [Places Enricher — снят](#11-places-enricher--снят-08092026)
    - [Kuzmich Place Enricher](#12-kuzmich-place-enricher--рецензии-кузьмича)
    - [Routes Cache Refresh](#13-routes-cache-refresh--кеш-маршрутов)
 4. [Часть III — Разведка и анализ](#часть-iii)
@@ -466,7 +466,7 @@ WHERE description IS NULL OR LENGTH(description) < 300;
 2. Для каждого нового: читает полный паспорт (PDF или HTML)
 3. AI-нормализует данные (длина, сложность, сезон)
 4. INSERT в `agent_route_knowledge`, `places` (новые точки)
-5. Запускает `places-enricher` для новых точек
+5. (до 08.09 запускал `places-enricher` — снят, см. главу 11)
 6. Batch: 20–30 маршрутов за запуск
 
 #### Настройка
@@ -510,37 +510,27 @@ CRON_SECRET=<секрет>
 
 ---
 
-### 11. Places Enricher — Обогащение точек
+### 11. Places Enricher — снят 08.09.2026
 
-**Файл:** `lib/agents/places-enricher.ts`  
-**Вызывается:** из `import-routes` или вручную  
-**Расписание:** по триггеру
+Обогатитель ходил на три чужих сайта (`extraguide.ru`, `tur-ray.ru`,
+`spkam.com`), забирал оттуда описания природных объектов, прогонял через
+модель «своими словами» и клал результат на наши карточки мест.
 
-#### Что делает
+Снят по решению владельца — то же решение, что по idilesom 07.09: чужой труд,
+переодетый в наш. Удалены модуль, режим `?source=places` у крон-роута импорта
+и оба его теста; сторож `tests/unit/places-enricher-purged.test.ts` держит
+машину удалённой и запрещает обращения к этим хостам.
 
-Скрейпит 3 Камчатских travel-сайта и обновляет описания точек в БД:
+Уже написанные им описания ОСТАВЛЕНЫ: как и с idilesom, убрана машина, а не
+скачанное — снос текста оставил бы карточки пустыми.
 
-```
-extraguide.ru   — путеводитель по Камчатке
-tur-ray.ru      — туристические маршруты
-spkam.com       — Сейшелы Камчатки (неформальный гид)
-```
+Чего мы не знаем: какие именно описания написал он. Обогатитель сохранял их
+без `source_url` и не писал строку в `description_provenance`, поэтому подписи,
+которую у idilesom чистила миграция 941, здесь не существует вовсе. «Сколько
+карточек несут переписанный чужой текст» — честное «не знаю», а не ноль.
 
-Алгоритм:
-1. Для каждой точки в `agent_route_knowledge` без описания — нормализует название
-2. Ищет на сайтах по нормализованному названию (Jaccard similarity ≥ 0.65)
-3. При совпадении: скрейпит текст страницы (JSDOM)
-4. AI-переписывает под стиль платформы
-5. UPDATE `agent_route_knowledge.description`
-6. Задержка 500мс между запросами (rate limiting)
-
-**Batch:** 30 точек за запуск.
-
-#### Настройка
-
-```env
-ANTHROPIC_API_KEY=<ключ Claude>
-```
+Описания мест и маршрутов пишет Editor (глава 12), и он помечает свою работу в
+`description_provenance`.
 
 ---
 
@@ -1537,7 +1527,7 @@ CLOUDPAYMENTS_SECRET=
 |---------|-------------|
 | `operator_bookings` | abandoned-bookings, payouts, tour-reminder |
 | `lead_followups` | followups |
-| `agent_route_knowledge` | editor, places-enricher, import-routes, enrich-routes |
+| `agent_route_knowledge` | editor, import-routes, enrich-routes |
 | `agent_knowledge` | scout-digest, scout-innovator, kb-gap |
 | `agent_memory` | scout-digest, group-scout |
 | `tour_payments` | payouts |
