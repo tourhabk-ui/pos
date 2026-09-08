@@ -1,0 +1,118 @@
+name: DeepSeek — замер модели-кандидата с прода
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# 08.09 DeepSeek стал ПЕРВИЧНЫМ в водопаде инструментов Кузьмича — на месте
+# снятого Qwen. В тот же день открылось внутреннее тестирование промежуточной
+# версии (`deepseek-v4.1-flash-expires-on-0910`): по анонсу та же цена и около
+# 400 tok/s. Речь о скорости ровно там, где ответа ждёт человек в поле.
+#
+# Анонс — не замер: 400 tok/s измерены не у нас, не с нашего прода и не на
+# наших промптах, а между нами и DeepSeek лежит сеть из РФ. Переключать живой
+# путь по чужой цифре нельзя (§4.0).
+#
+# Мерить надо С ПРОДА, а не с раннера: раннер стоит вне РФ, и его задержка до
+# api.deepseek.com про наш путь не говорит ничего. Поэтому здесь workflow
+# только зовёт прод-эндпоинт и печатает вердикт.
+#
+# Имя кандидата приходит ПАРАМЕТРОМ и лежит в маркере, а не в коде: оно
+# содержит дату протухания (`...-expires-on-0910`), и прибитый в исходник id
+# стал бы ложью 10.09 (плюс §8: не хардкодить id моделей).
+#
+# Секреты: CRON_SECRET. Ключ DeepSeek берётся на проде из переменных Timeweb —
+# сюда он не приезжает.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: 'id модели-кандидата (например deepseek-v4.1-flash-expires-on-0910)'
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/deepseek-model-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    # 40, а не 5: ожидание своей сборки (до 25 мин) плюс сам замер.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      # Замер по ЧУЖОМУ контейнеру уже стоил неверных выводов в соседней пробе
+      # (anthropic-path-probe, прогоны 6 и 8). Ждём СВОЮ сборку по маркеру
+      # /version.json, а не любой рестарт. Только для запуска маркером: при
+      # workflow_dispatch head_commit пуст, и шаг отсиживал бы 25 минут зря.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: С ПРОДА — замер кандидата против базы
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INPUT_CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — прод не ответит."
+            exit 1
+          fi
+
+          # Кандидат: из ручного запуска, иначе из маркера. Пусто — тоже
+          # законный прогон: тогда меряется только база, и это ответ на другой
+          # вопрос («жив ли живой путь»), а не пустой прогон.
+          CAND="${INPUT_CANDIDATE:-}"
+          if [ -z "$CAND" ]; then
+            CAND=$(python3 -c "import json; print(json.load(open('.github/triggers/deepseek-model-probe.json')).get('candidate',''))")
+          fi
+          echo "Кандидат: ${CAND:-<не задан>}"
+
+          CODE=$(curl -s -o /tmp/probe.json -w '%{http_code}' --max-time 180 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/deepseek-model-probe?candidate=${CAND}&runs=2")
+          echo "HTTP $CODE"
+          jq '.' /tmp/probe.json || cat /tmp/probe.json
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Прод не ответил на пробу (HTTP $CODE)."
+            exit 1
+          fi
+
+          OK=$(jq -r '.ok // false' /tmp/probe.json)
+          if [ "$OK" != "true" ]; then
+            echo "::error::Проба не состоялась: $(jq -r '.error // "причина не названа"' /tmp/probe.json)"
+            exit 1
+          fi
+
+          echo "## Вердикт" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "$(jq -r '.verdict' /tmp/probe.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          jq '{place, candidate, candidate_rejected, candidate_in_catalog, baseline, best}' /tmp/probe.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          # Прогон КРАСНЫЙ только тогда, когда мерить не удалось вовсе.
+          # Медленный кандидат — законный результат замера, а не поломка:
+          # красить его в красный значило бы учить читать вердикт как аварию.
+          BASE_OUT=$(jq -r '.best.baseline.outcome // "none"' /tmp/probe.json)
+          if [ "$BASE_OUT" != "ok" ]; then
+            echo "::error::База сравнения не ответила ($BASE_OUT) — сравнивать не с чем, это не вывод о кандидате."
+            exit 1
+          fi
+
+          # Кандидата не нашлось в каталоге — это ответ, а не ошибка: модель
+          # внутреннего тестирования может быть невидима нашему ключу.
+          if [ -n "$CAND" ] && [ "$(jq -r '.candidate_in_catalog' /tmp/probe.json)" = "false" ]; then
+            echo "::warning::Кандидата $CAND нет в каталоге нашего ключа — замер по нему говорит только о доступе, не о модели."
+          fi
