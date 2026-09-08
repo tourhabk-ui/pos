@@ -11,12 +11,12 @@
 import { pool } from '@/lib/db-pool';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { reachForTour } from '@/lib/partners/reach';
-import { callAIWaterfall, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
-import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
+import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
@@ -2011,6 +2011,10 @@ export async function aiChatAgentLoop(
   // означает, что факты взяты не из БД. Пишется имя И исход: имя само по себе
   // ничего не доказывает (аудит 08.09). Опционален, callers не ломаются.
   toolRuns?: ToolRun[],
+  // Наружная отметка «кто ответил»: водопад инструментов молча меняет
+  // провайдера, и без неё «Кузьмич стал отвечать хуже» не разложить на
+  // «сменился провайдер» и «поправили промпт». Опциональна, как и журнал выше.
+  provenance?: { provider?: string },
 ): Promise<string | null> {
   const msgs: ToolMsg[] = [
     { role: 'system', content: systemContent },
@@ -2023,6 +2027,7 @@ export async function aiChatAgentLoop(
   for (let turn = 0; turn < 4; turn++) {
     const result = await callToolsWaterfall(msgs, KUZMICH_TOOLS);
     if (!result) return null;
+    if (provenance && result.provider) provenance.provider = result.provider;
 
     if (!result.tool_calls?.length) {
       return result.content; // final answer
@@ -2108,7 +2113,10 @@ export async function aiChat(opts: {
 
   // ── Level 2: Agent loop with tools (primary path) ────────────────────────
   const toolRuns: ToolRun[] = [];
-  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns)
+  // Чем произведён ответ: провайдер и путь. Записывается там, где известно, а
+  // не выводится потом из текста.
+  const provenance: { provider?: string; path?: 'tools' | 'waterfall' } = {};
+  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns, provenance)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
     .catch(() => '');
 
@@ -2116,6 +2124,7 @@ export async function aiChat(opts: {
   // инструментов. Запасной путь идёт БЕЗ них, и приписывать ему чужие вызовы
   // нельзя: заземление считалось бы по отброшенной попытке.
   const usedAgentLoopAnswer = answer !== '';
+  if (usedAgentLoopAnswer) provenance.path = 'tools';
 
   // ── Fallback: waterfall without tools ───────────────────────────────────
   if (!answer) {
@@ -2132,7 +2141,12 @@ export async function aiChat(opts: {
       ...extraUserMsg,
     ];
 
-    const response = await callAIWaterfall(fallbackMessages);
+    const fallback = await callAIWaterfallDetailed(fallbackMessages);
+    provenance.path = 'waterfall';
+    // Провайдер запасного пути перебивает отметку цикла инструментов: ответ
+    // туристу произвёл ОН, а не тот, чью попытку отбросили.
+    provenance.provider = fallback.provider ?? undefined;
+    const response = fallback.text;
     answer = response?.trim() ? cleanAIResponse(response.trim()) : 'Что-то с сигналом... Попробуй ещё раз.';
 
     // Level 1: reactive fallback if waterfall still doesn't know
@@ -2145,8 +2159,11 @@ export async function aiChat(opts: {
           ...history,
           ...extraUserMsg,
         ];
-        const retry = await callAIWaterfall(retryMessages);
-        if (retry?.trim()) answer = cleanAIResponse(retry.trim());
+        const retry = await callAIWaterfallDetailed(retryMessages);
+        if (retry.text.trim()) {
+          answer = cleanAIResponse(retry.text.trim());
+          provenance.provider = retry.provider ?? undefined;
+        }
       }
     }
   }
@@ -2172,6 +2189,13 @@ export async function aiChat(opts: {
   // отброшенной попытки его не заземляют: журнал для грейдера пуст.
   void gradeKuzmichResponse(text, answer, chatId, {
     toolRuns: usedAgentLoopAnswer ? toolRuns : [],
+    // Чем произведён ответ. Без этого оценка «стало хуже» несравнима между
+    // днями: промпт правится, водопад меняет провайдера, инструменты то есть,
+    // то нет — и разложить падение не на что.
+    promptFingerprint: fingerprintPrompt(KUZMICH_SYSTEM),
+    provider: provenance.provider ?? null,
+    answerPath: provenance.path ?? null,
+    toolsOffered: KUZMICH_TOOLS.map(t => t.function.name),
   });
 
   // Fire-and-forget: обновляем долгосрочную память бота
