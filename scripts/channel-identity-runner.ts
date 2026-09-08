@@ -171,6 +171,12 @@ async function main(): Promise<void> {
       model,
       messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
       temperature: 0.1,
+      // Потолок ответа назван явно. Без него OpenRouter резервирует ВЕСЬ
+      // контекст модели и требует кредитов под него: прогон 1 получил
+      // «requires more credits... you requested up to 65536 tokens, but can
+      // only afford 25835» — при том что ответ здесь это JSON в пять полей.
+      // Отказ был не в деньгах, а в незаданном потолке.
+      max_tokens: 700,
     }),
     signal: AbortSignal.timeout(180_000),
   });

@@ -334,6 +334,10 @@ async function main(): Promise<void> {
       model,
       messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
       temperature: 0.3,
+      // Потолок назван явно — см. разбор в channel-identity-runner: без него
+      // резервируется весь контекст модели, и запрос упирается в кредиты.
+      // Здесь ответ длиннее (дюжина кандидатов), но не безграничен.
+      max_tokens: 4000,
     }),
     signal: AbortSignal.timeout(300_000),
   });
