@@ -1,14 +1,31 @@
 /**
- * GET /api/hub/bookings/[id]/pdf?type=contract|voucher
- * Скачать Договор или Ваучер по бронированию.
- * Публичный — доступен по ID брони (как receipt по invoice ID).
+ * GET /api/hub/bookings/[id]/pdf?type=contract|voucher&token=<ключ брони>
+ *
+ * Договор или ваучер гостевой брони. Документ содержит ТЕЛЕФОН И ПОЧТУ
+ * туриста, поэтому ключ здесь обязателен и проверяется по базе.
+ *
+ * ── Почему сменился замок (08.09) ─────────────────────────────────────────
+ *
+ * Прежний `verifyPdfToken` был HMAC от номера брони и задумывался ровно как
+ * защита от перебора этих номеров. Замысел разрушал соседний роут: JSON
+ * подтверждения выдавал тот же токен любому анониму, назвавшему номер. То
+ * есть защита от перебора вручалась перебору.
+ *
+ * Теперь ключ один на оба роута — `operator_bookings.access_token` (миграция
+ * 943), случайный UUID, который получает только создатель брони. Отдельного
+ * HMAC-токена больше нет; модуль lib/pdf/pdf-token.ts удалён вместе с его
+ * запасным значением секрета `'no-secret'`, при котором токен был
+ * предсказуем.
+ *
+ * Отказ — 404, а не 403: существование брони с этим номером не
+ * подтверждается.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { generateContractPDF, type ContractData } from '@/lib/pdf/contract-generator';
 import { generateVoucherPDF, type VoucherData } from '@/lib/pdf/voucher-generator';
-import { verifyPdfToken } from '@/lib/pdf/pdf-token';
+import { bookingTokenFrom, verifyBookingAccess } from '@/lib/bookings/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +35,7 @@ export async function GET(
 ) {
   const id    = parseInt(params.id, 10);
   const type  = req.nextUrl.searchParams.get('type') ?? 'voucher';
-  const token = req.nextUrl.searchParams.get('token') ?? '';
+  const token = bookingTokenFrom(req.nextUrl, req.headers);
 
   if (isNaN(id) || id <= 0) {
     return NextResponse.json({ error: 'Неверный ID' }, { status: 400 });
@@ -26,8 +43,16 @@ export async function GET(
   if (type !== 'contract' && type !== 'voucher') {
     return NextResponse.json({ error: 'type должен быть contract или voucher' }, { status: 400 });
   }
-  if (!verifyPdfToken(id, token)) {
-    return NextResponse.json({ error: 'Доступ запрещён' }, { status: 403 });
+
+  const access = await verifyBookingAccess(id, token);
+  if (access.state === 'unknown') {
+    return NextResponse.json(
+      { error: 'Не удалось проверить доступ к брони. Попробуйте позже.' },
+      { status: 503 },
+    );
+  }
+  if (access.state === 'denied') {
+    return NextResponse.json({ error: 'Документ не найден' }, { status: 404 });
   }
 
   try {
@@ -114,6 +139,7 @@ export async function GET(
     } else {
       const data: VoucherData = {
         bookingId:     r.id,
+        accessToken:   token,
         issueDate:     today,
         touristName:   r.tourist_name,
         touristPhone:  r.tourist_phone,

@@ -1145,21 +1145,31 @@ export class BookingError extends Error {
   }
 }
 
+/** Что вернула удавшаяся бронь: номер для человека и ключ для ссылки. */
+export interface CreatedBooking {
+  id: number;
+  /** operator_bookings.access_token — только им открывается подтверждение и ваучер. */
+  accessToken: string;
+}
+
 export async function createBooking(
   b: Required<Omit<PendingBooking, 'step' | 'started_at'>>,
   createdVia: string,
   tgChatId?: number,
   platform?: 'tg' | 'max',
-): Promise<number | null> {
+): Promise<CreatedBooking | null> {
   const total = b.tour.base_price * b.participants;
   const meta = (tgChatId != null)
     ? JSON.stringify({ tg_chat_id: tgChatId, platform: platform ?? 'tg' })
     : null;
 
-  let bookingId: number | null = null;
+  // Возвращается не только номер: ключ доступа к брони (миграция 943) —
+  // единственное, чем турист откроет подтверждение и ваучер. Номер брони
+  // больше не открывает ничего.
+  let created: CreatedBooking | null = null;
 
   try {
-    bookingId = await transaction(async (client) => {
+    created = await transaction(async (client) => {
       // Lock the tour row — serialises concurrent booking attempts.
       const tourLockResult = await client.query<{ max_participants: number | null }>(
         `SELECT max_participants
@@ -1196,16 +1206,17 @@ export async function createBooking(
         }
       }
 
-      const { rows } = await client.query<{ id: number }>(
+      const { rows } = await client.query<{ id: number; access_token: string }>(
         `INSERT INTO operator_bookings
            (operator_tour_id, tourist_name, tourist_phone,
             participants, booking_date, booking_status,
             base_total_price, final_price, created_via, metadata)
          VALUES ($1,$2,$3,$4,$5,'pending_payment',$6,$6,$7,$8::jsonb)
-         RETURNING id`,
+         RETURNING id, access_token::text AS access_token`,
         [b.tour.id, b.name, b.phone, b.participants, b.date, total, createdVia, meta],
       );
-      return rows[0]?.id ?? null;
+      const row = rows[0];
+      return row ? { id: row.id, accessToken: row.access_token } : null;
     });
   } catch (err) {
     // Surface diagnostic info to logs — silent failure made debugging impossible
@@ -1219,12 +1230,12 @@ export async function createBooking(
   }
 
   // Fire-and-forget side effects — outside transaction by design (failure must not affect booking)
-  if (bookingId) {
-    void notifyOperatorNewBooking(bookingId, b, total);
-    void recordBookingPatternInBrain(bookingId, b, total, platform);
+  if (created) {
+    void notifyOperatorNewBooking(created.id, created.accessToken, b, total);
+    void recordBookingPatternInBrain(created.id, b, total, platform);
   }
 
-  return bookingId;
+  return created;
 }
 
 async function recordBookingPatternInBrain(
@@ -1257,6 +1268,7 @@ async function recordBookingPatternInBrain(
 
 async function notifyOperatorNewBooking(
   bookingId: number,
+  accessToken: string,
   b: Required<Omit<PendingBooking, 'step' | 'started_at'>>,
   total: number,
 ): Promise<void> {
@@ -1283,7 +1295,9 @@ async function notifyOperatorNewBooking(
       ? new Date(b.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       : 'не указана';
     const priceStr = total.toLocaleString('ru-RU') + ' ₽';
-    const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}`;
+    // Ссылка с ключом брони: без него страница подтверждения отвечает 404
+    // всем, включая самого туриста (миграция 943).
+    const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}?t=${accessToken}`;
 
     const common = [
       `<b>Новое бронирование #${bookingId}</b>`,
@@ -1539,9 +1553,9 @@ export async function handleBookingStep(
       return true;
     }
 
-    let bookingId: number | null = null;
+    let created: CreatedBooking | null = null;
     try {
-      bookingId = await createBooking(
+      created = await createBooking(
         b as Required<Omit<PendingBooking, 'step' | 'started_at'>>,
         createdVia,
         chatId,
@@ -1558,14 +1572,15 @@ export async function handleBookingStep(
     }
     await deleteBookingFlow(chatId, mode, pending);
 
-    if (!bookingId) {
+    if (!created) {
       await reply(chatId, 'Не удалось создать бронирование. Попробуйте позже или позвоните оператору напрямую.');
       return true;
     }
+    const bookingId = created.id;
 
     const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     const totalStr = (b.tour!.base_price * b.participants!).toLocaleString('ru-RU');
-    const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}`;
+    const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}?t=${created.accessToken}`;
     await reply(chatId, [
       `Бронирование принято! Номер: <b>#${bookingId}</b>`,
       '',

@@ -125,3 +125,62 @@ describe('contains_expected — поведение, а не текст', () => {
     expect(containsExpected(descendant.slice(0, 12))).toBe(true);
   });
 });
+
+/**
+ * Окно ожидания сборки не может быть меньше измеренной длительности сборки,
+ * а потолок задачи — меньше суммы окон внутри неё.
+ *
+ * 07.09: прогон 1609 попросил сборку 63a1ab0 в 13:17 UTC, ждал рабочего
+ * состояния 40 опросов по 30 секунд и в 13:39 объявил «Сборка не дошла до
+ * рабочего состояния. Прод остаётся на прежнем контейнере». Панель Timeweb
+ * по тому же коммиту показывает «Успешно», а /version.json прода отвечает
+ * built_at=13:43:16Z: сборка шла 26 минут и закончилась успехом. Workflow
+ * разминулся с ней на четыре минуты и покрасил живой выкат в провал.
+ *
+ * Цена записана в шапке самого deploy.yml: ложная тревога здесь неотличима
+ * от настоящего «автодеплой не сработал», и следующая настоящая будет
+ * прочитана как шум.
+ *
+ * Отдельная половина сторожа — про `timeout-minutes`. Потолок задачи,
+ * меньший суммы окон, и ЕСТЬ настоящее окно, а цифры внутри становятся
+ * украшением: до правки стояло 25 минут при двух окнах по 20.
+ */
+describe('окно ожидания сборки покрывает измеренную длительность', () => {
+  const num = (re: RegExp): number => {
+    const m = DEPLOY.match(re);
+    expect(m, `не нашли ${re} в deploy.yml`).not.toBeNull();
+    return Number(m![1]);
+  };
+
+  /** Измерено 07.09 по built_at прода против времени просьбы о сборке. */
+  const MEASURED_BUILD_MINUTES = 26;
+
+  it('фаза 2 ждёт дольше, чем шла настоящая сборка', () => {
+    const attempts = num(/BUILD_ATTEMPTS=(\d+)/);
+    const sleep = num(/^\s*SLEEP=(\d+)/m);
+    const windowMinutes = (attempts * sleep) / 60;
+    expect(
+      windowMinutes,
+      `окно фазы 2 — ${windowMinutes} мин, а сборка 07.09 шла ${MEASURED_BUILD_MINUTES}`,
+    ).toBeGreaterThan(MEASURED_BUILD_MINUTES);
+  });
+
+  it('счётчик фазы 2 отдельный: он не должен быть общим с фазой 1', () => {
+    // Общий счётчик означал бы, что расширение окна сборки заодно растягивает
+    // ожидание «Timeweb взял коммит», где двадцати минут хватало всегда.
+    expect(DEPLOY).toMatch(/for i in \$\(seq 1 \$BUILD_ATTEMPTS\); do/);
+    expect(DEPLOY).toMatch(/for i in \$\(seq 1 \$ATTEMPTS\); do/);
+  });
+
+  it('потолок задачи больше суммы окон внутри неё', () => {
+    const timeout = num(/timeout-minutes:\s*(\d+)/);
+    const phase1 = (num(/^\s*ATTEMPTS=(\d+)/m) * num(/^\s*SLEEP=(\d+)/m)) / 60;
+    const phase2 = (num(/BUILD_ATTEMPTS=(\d+)/) * num(/^\s*SLEEP=(\d+)/m)) / 60;
+    // Сверка ответа сайта: 20 попыток по 15 секунд.
+    const served = 5;
+    expect(
+      timeout,
+      `потолок ${timeout} мин меньше суммы окон ${phase1 + phase2 + served} — он и есть настоящее окно`,
+    ).toBeGreaterThanOrEqual(phase1 + phase2 + served);
+  });
+});

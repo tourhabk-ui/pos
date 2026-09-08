@@ -25,7 +25,7 @@ interface PerTourForm {
 }
 
 type TourResult =
-  | { status: 'ok'; bookingId: string | number }
+  | { status: 'ok'; bookingId: string | number; accessToken: string }
   | { status: 'error'; message: string };
 
 function formatPrice(p: number): string {
@@ -83,7 +83,9 @@ export default function CheckoutClient() {
     // Снимок списка: remove() меняет items по ходу цикла
     const queue = [...pendingItems];
     let successCount = doneCount;
-    const sessionOk: Array<{ tourId: number; bookingId: string | number }> = [];
+    // Ключ брони запоминается рядом с номером: без него ссылка на
+    // подтверждение отвечает 404 даже своему туристу (миграция 943).
+    const sessionOk: Array<{ tourId: number; bookingId: string | number; accessToken: string }> = [];
 
     for (const item of queue) {
       const form = getForm(item.tourId);
@@ -116,8 +118,9 @@ export default function CheckoutClient() {
         const data: unknown = await res.json();
         if (res.ok && typeof data === 'object' && data !== null && 'booking_id' in data) {
           const bookingId = (data as Record<string, unknown>).booking_id as string | number;
-          setResults(prev => ({ ...prev, [item.tourId]: { status: 'ok', bookingId } }));
-          sessionOk.push({ tourId: item.tourId, bookingId });
+          const accessToken = String((data as Record<string, unknown>).access_token ?? '');
+          setResults(prev => ({ ...prev, [item.tourId]: { status: 'ok', bookingId, accessToken } }));
+          sessionOk.push({ tourId: item.tourId, bookingId, accessToken });
           remove(item.tourId);
           successCount++;
         } else {
@@ -139,12 +142,12 @@ export default function CheckoutClient() {
 
     // Единственный тур оформлен → сразу на привычную страницу успеха
     if (queue.length === 1 && doneCount === 0 && sessionOk.length === 1) {
-      router.push(`/booking-success/${sessionOk[0].bookingId}`);
+      router.push(`/booking-success/${sessionOk[0].bookingId}?t=${encodeURIComponent(sessionOk[0].accessToken)}`);
     }
   };
 
   const okEntries = Object.entries(results).filter(([, r]) => r.status === 'ok') as
-    Array<[string, { status: 'ok'; bookingId: string | number }]>;
+    Array<[string, { status: 'ok'; bookingId: string | number; accessToken: string }]>;
 
   // Всё из корзины оформлено
   if (pendingItems.length === 0 && okEntries.length > 0) {
@@ -160,7 +163,7 @@ export default function CheckoutClient() {
             {okEntries.map(([tourId, r]) => (
               <Link
                 key={tourId}
-                href={`/booking-success/${r.bookingId}`}
+                href={`/booking-success/${r.bookingId}?t=${encodeURIComponent(r.accessToken)}`}
                 className="block rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--ocean)] hover:border-[var(--success)] transition-colors"
               >
                 Заявка №{r.bookingId} →
@@ -208,7 +211,7 @@ export default function CheckoutClient() {
             {okEntries.map(([tourId, r]) => (
               <Link
                 key={tourId}
-                href={`/booking-success/${r.bookingId}`}
+                href={`/booking-success/${r.bookingId}?t=${encodeURIComponent(r.accessToken)}`}
                 className="flex items-center gap-2 rounded-lg border border-[var(--success)] bg-[var(--bg-card)] px-4 py-2.5 text-sm text-[var(--success)]"
               >
                 <CheckCircle className="w-4 h-4 shrink-0" />

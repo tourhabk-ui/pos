@@ -170,9 +170,19 @@ describe('Чекаут корзины', () => {
     expect(JSON.parse(localStorage.getItem('tourhab_cart') ?? '[]').map((i: { tourId: number }) => i.tourId)).toEqual([2]);
   });
 
-  it('единственный тур в корзине → редирект на /booking-success', async () => {
+  /**
+   * Ссылка на подтверждение обязана нести КЛЮЧ брони, а не только номер.
+   * До 08.09 адрес /booking-success/401 открывался кем угодно: номер
+   * порядковый, а роут отдавал имя туриста и токен на PDF с телефоном
+   * (миграция 943). Проверяем именно ключ в ссылке, иначе редирект уводит
+   * туриста на страницу, где его же бронь не найдена.
+   */
+  it('единственный тур в корзине → редирект на /booking-success с ключом брони', async () => {
     localStorage.setItem('tourhab_cart', JSON.stringify([CART[0]]));
-    createHandler = () => Promise.resolve({ status: 200, json: { booking_id: 401 } });
+    createHandler = () => Promise.resolve({
+      status: 200,
+      json: { booking_id: 401, access_token: '11111111-2222-3333-4444-555555555555' },
+    });
 
     await fillFormAndDates();
 
@@ -181,7 +191,9 @@ describe('Чекаут корзины', () => {
     fireEvent.click(submit);
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith('/booking-success/401');
+      expect(pushMock).toHaveBeenCalledWith(
+        '/booking-success/401?t=11111111-2222-3333-4444-555555555555',
+      );
     });
   });
 });
