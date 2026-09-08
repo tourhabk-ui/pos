@@ -85,6 +85,14 @@ jobs:
         if: inputs.verify_findings_run == ''
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Ключ Anthropic — для прохода голым именем модели (там смета до
+          # траты, streaming и внятный stop_reason). Круг проверки всё равно
+          # идёт через OpenRouter дешёвой моделью.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Потолок цены ОДНОГО прохода. Смета считается до запуска модели;
+          # не влезли — отказ без траты. Прогон 5 сгорел на 1324 ₽ именно
+          # потому, что такой границы не было.
+          AUDIT_BUDGET_USD: ${{ vars.AUDIT_BUDGET_USD || '15' }}
         run: |
           set -uo pipefail
           # Модель круга проверки — своя. Задача там узкая (найти дословную

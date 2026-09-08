@@ -440,3 +440,74 @@ describe('аудит предлагает усиление, а не только
     expect(SRC).toContain('Это отказ разбора, а не «платформа безупречна»');
   });
 });
+
+/**
+ * Уроки прогона 5 (08.09), который сгорел впустую на 1324 ₽.
+ *
+ * Ответ пришёл ровно на 32000 токенов — в точности наш `max_tokens` — и с
+ * ПУСТЫМ полем содержимого. У этого поколения моделей рассуждение включено
+ * всегда и считается в тот же бюджет выхода: он ушёл на думание, до ответа
+ * очередь не дошла. Раннер при этом напечатал «Ответ без содержимого» и
+ * вышел — ни `stop_reason`, ни разбивки токенов, то есть не смог назвать
+ * причину собственного отказа.
+ *
+ * Три правила, которые теперь держит сторож: смета ДО траты, дешёвая проба
+ * формы перед дорогим проходом, и потолок выхода, при котором обязателен
+ * streaming.
+ */
+describe('проход через Anthropic: платим только после сметы', () => {
+  const SRC = readFileSync('scripts/os-audit-runner.ts', 'utf8');
+
+  it('размер входа считается до запуска модели', () => {
+    expect(SRC).toMatch(/client\.messages\.countTokens\(/);
+    const at = SRC.indexOf('client.messages.countTokens(');
+    const streamAt = SRC.indexOf('client.messages.stream(');
+    expect(at, 'смета обязана считаться раньше прохода').toBeLessThan(streamAt);
+  });
+
+  it('превышение бюджета — отказ БЕЗ траты', () => {
+    expect(SRC).toContain('AUDIT_BUDGET_USD');
+    expect(SRC).toContain('ОТКАЗ ДО ТРАТЫ');
+  });
+
+  it('перед дорогим проходом идёт дешёвая проба формы', () => {
+    const probeAt = SRC.indexOf('проба формы');
+    const streamAt = SRC.indexOf('client.messages.stream(');
+    expect(probeAt).toBeGreaterThan(0);
+    expect(probeAt, 'проба обязана идти до прохода').toBeLessThan(streamAt);
+    expect(SRC).toContain('ПРОБА НЕ ДАЛА ТЕКСТА');
+  });
+
+  it('проход идёт стримом: при таком потолке иначе таймаут', () => {
+    expect(SRC).toMatch(/client\.messages\.stream\(\{/);
+    // Потолок должен быть заметно выше того, чего не хватило в прогоне 5
+    // (32000), и не выше того, что модель вообще держит (128000).
+    const cap = Number(SRC.match(/const ANTHROPIC_MAX_OUTPUT = (\d+);/)?.[1]);
+    expect(cap).toBeGreaterThan(32000);
+    expect(cap).toBeLessThanOrEqual(128000);
+  });
+
+  it('глубина думания задаётся effort, а не бюджетом токенов', () => {
+    expect(SRC).toMatch(/output_config: \{ effort: 'high' \}/);
+    // budget_tokens и явный thinking у этого поколения дают 400.
+    expect(SRC).not.toMatch(/budget_tokens/);
+    expect(SRC).not.toMatch(/thinking: \{ type:/);
+  });
+
+  it('отказ называется поимённо: stop_reason и разбивка блоков', () => {
+    expect(SRC).toMatch(/остановка: \$\{msg\.stop_reason\}/);
+    expect(SRC).toContain('блоков рассуждения');
+    expect(SRC).toContain('ОТВЕТ НЕ УМЕСТИЛСЯ');
+    expect(SRC).toContain('МОДЕЛЬ ОТКАЗАЛАСЬ');
+  });
+
+  it('разбор ответа — ОДИН на оба пути, а не копия на каждый', () => {
+    expect(SRC).toMatch(/async function handleAnswer\(/);
+    const calls = SRC.match(/await handleAnswer\(/g) ?? [];
+    expect(calls.length, 'оба пути обязаны звать общий разбор').toBe(2);
+  });
+
+  it('поставщик выбирается по форме имени модели', () => {
+    expect(SRC).toMatch(/function isAnthropicDirect\(model: string\): boolean \{\s*\n\s*return !model\.includes\('\/'\);/);
+  });
+});
