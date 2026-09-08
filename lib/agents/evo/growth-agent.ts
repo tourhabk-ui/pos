@@ -5,6 +5,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { partnerReachCensus } from '@/lib/partners/reach';
 import { callAIDecisionDetailed } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding, verifyAgainstSource, verifyEvidence } from '@/lib/agents/evo/finding-guard';
@@ -979,7 +980,7 @@ export function pickMoneyPathFindings(f: MoneyPathFacts): GrowthIssue[] {
       description:
         `У ${f.unreachable_operators.length} из ${f.operators_with_live_tours} операторов с живыми турами нет ни MAX, ни Telegram: ${names}. ` +
         `За ними ${tours} живых туров. Заявка по такому туру создаётся в базе и никуда не уезжает, а Watchdog через 48 часов запишет это как «оператор игнорирует бронь». ` +
-        'Источник — partners.max_chat_id / telegram_chat_id и operator_tours.is_active (факты, не чтение кода).',
+        'Источник — тот же модуль достижимости, которым уходит уведомление (lib/partners/reach): MAX плюс Telegram из ОБЕИХ колонок — partners.telegram_chat_id и users.telegram_id через partners.user_id. Факты, не чтение кода.',
       suggestion:
         'Оператор пишет боту Кузьмича в MAX «партнер» и свою почту из профиля — бот сам запишет чат в профиль партнёра. Одно сообщение с телефона оператора; со стороны кода делать нечего.',
     });
@@ -1004,17 +1005,17 @@ export function pickMoneyPathFindings(f: MoneyPathFacts): GrowthIssue[] {
 async function scanMoneyPath(): Promise<GrowthIssue[]> {
   // Оба chat_id — BIGINT (миграции 077 и 145): «есть канал» это NOT NULL,
   // TRIM() тут падал на проде (урок 04.09).
-  const { rows } = await pool.query<{ name: string; live_tours: number; reachable: boolean }>(
-    `SELECT p.name,
-            COUNT(t.id)::int AS live_tours,
-            (p.telegram_chat_id IS NOT NULL OR p.max_chat_id IS NOT NULL) AS reachable
-       FROM partners p
-       JOIN operator_tours t ON t.operator_id = p.id AND t.is_active = true
-      GROUP BY p.id, p.name, p.telegram_chat_id, p.max_chat_id`,
-  );
+  // Достижимость спрашивается ТЕМ ЖЕ модулем, которым уходит уведомление.
+  // Прежний запрос читал только partners.telegram_chat_id и объявлял
+  // недостижимыми операторов, чей адрес записан в аккаунте человека
+  // (users.telegram_id) — тех самых, до кого бронь из чата Кузьмича
+  // доезжала. Находка судила по одной колонке из двух.
+  const census = await partnerReachCensus();
   return pickMoneyPathFindings({
-    unreachable_operators: rows.filter((r) => !r.reachable).map((r) => ({ name: r.name, live_tours: r.live_tours })),
-    operators_with_live_tours: rows.length,
+    unreachable_operators: census
+      .filter((r) => !r.has_telegram && !r.has_max)
+      .map((r) => ({ name: r.name, live_tours: r.live_tours })),
+    operators_with_live_tours: census.length,
     no_payment_way: paymentAvailability().none,
   });
 }

@@ -22,6 +22,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
@@ -202,23 +203,29 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       operator_id: string;
       partner_slug: string | null;
       partner_name: string | null;
-      telegram_chat_id: string | null;
       count: string;
       oldest: string;
-    }>(
+    } & PartnerReachRow>(
+      // Адрес — общим выражением: сторож молчал про операторов, у которых
+      // он записан в аккаунте человека, а не в профиле партнёра, и выдавал
+      // это за «оператор не подключён к боту».
       `SELECT ot.operator_id::text,
               p.slug AS partner_slug,
               COALESCE(p.company_name, p.name) AS partner_name,
               p.telegram_chat_id,
+              u_reach.telegram_id AS user_telegram_id,
+              p.max_chat_id,
               COUNT(*)::text AS count,
               MIN(ob.created_at)::date::text AS oldest
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id
        LEFT JOIN partners p ON p.id = ot.operator_id
+       LEFT JOIN users u_reach ON u_reach.id = p.user_id
        WHERE ob.booking_status = 'new'
          AND ob.created_at < NOW() - INTERVAL '48 hours'
          AND ob.deleted_at IS NULL
-       GROUP BY ot.operator_id, p.slug, p.company_name, p.name, p.telegram_chat_id`,
+       GROUP BY ot.operator_id, p.slug, p.company_name, p.name,
+                p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
 
@@ -237,9 +244,10 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       }).then(() => knowledgeBase.appendTimeline(slug, entry)).catch(() => {});
 
       // Пишем оператору напрямую если зарегистрирован
-      if (row.telegram_chat_id && row.partner_name) {
+      const reach = reachFrom(row);
+      if (reach.telegramChatId && row.partner_name) {
         notifyOperatorDirectly(
-          row.telegram_chat_id,
+          reach.telegramChatId,
           row.partner_name,
           parseInt(row.count, 10),
           row.oldest,
@@ -247,7 +255,7 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       }
     }
 
-    const notified = rows.filter(r => r.telegram_chat_id).length;
+    const notified = rows.filter(r => reachFrom(r).telegramChatId).length;
     return {
       type: 'operator_no_response',
       count: rows.length,
@@ -292,30 +300,34 @@ async function checkUnconfirmedStayBookings(): Promise<CheckResult> {
     const { rows } = await pool.query<{
       partner_id: string | null;
       owner_name: string | null;
-      telegram_chat_id: string | null;
       count: string;
       oldest: string;
-    }>(
+    } & PartnerReachRow>(
       `SELECT a.partner_id::text,
               COALESCE(p.company_name, p.name) AS owner_name,
               p.telegram_chat_id,
+              u_reach.telegram_id AS user_telegram_id,
+              p.max_chat_id,
               COUNT(*)::text AS count,
               MIN(b.created_at)::date::text AS oldest
        FROM accommodation_bookings b
        JOIN accommodations a ON a.id = b.accommodation_id
        LEFT JOIN partners p ON p.id = a.partner_id
+       LEFT JOIN users u_reach ON u_reach.id = p.user_id
        WHERE b.status = 'pending'
          AND b.created_at < NOW() - INTERVAL '24 hours'
-       GROUP BY a.partner_id, p.company_name, p.name, p.telegram_chat_id`,
+       GROUP BY a.partner_id, p.company_name, p.name,
+                p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
 
     let total = 0;
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
-      if (row.telegram_chat_id && row.owner_name) {
+      const reach = reachFrom(row);
+      if (reach.telegramChatId && row.owner_name) {
         notifyStayOwnerDirectly(
-          row.telegram_chat_id,
+          reach.telegramChatId,
           row.owner_name,
           parseInt(row.count, 10),
           row.oldest,
@@ -323,7 +335,7 @@ async function checkUnconfirmedStayBookings(): Promise<CheckResult> {
       }
     }
 
-    const notified = rows.filter(r => r.telegram_chat_id).length;
+    const notified = rows.filter(r => reachFrom(r).telegramChatId).length;
     return {
       type: 'unconfirmed_stay_booking',
       count: total,
@@ -369,29 +381,32 @@ async function checkPendingGearRentals(): Promise<CheckResult> {
     // висеть в pending неделями, и никто об этом не узнавал.
     const { rows } = await pool.query<{
       partner_name: string | null;
-      telegram_chat_id: string | null;
       count: string;
       oldest: string;
-    }>(
+    } & PartnerReachRow>(
       `SELECT COALESCE(p.company_name, p.name) AS partner_name,
               p.telegram_chat_id,
+              u_reach.telegram_id AS user_telegram_id,
+              p.max_chat_id,
               COUNT(*)::text AS count,
               MIN(gr.created_at)::date::text AS oldest
        FROM gear_rentals gr
        JOIN gear_items gi ON gi.id = gr.gear_id
        LEFT JOIN partners p ON p.id = gi.partner_id
+       LEFT JOIN users u_reach ON u_reach.id = p.user_id
        WHERE gr.status = 'pending'
          AND gr.created_at < NOW() - INTERVAL '24 hours'
-       GROUP BY p.company_name, p.name, p.telegram_chat_id`,
+       GROUP BY p.company_name, p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
 
     let total = 0;
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
-      if (row.telegram_chat_id && row.partner_name) {
+      const reach = reachFrom(row);
+      if (reach.telegramChatId && row.partner_name) {
         notifyGearPartnerDirectly(
-          row.telegram_chat_id,
+          reach.telegramChatId,
           row.partner_name,
           parseInt(row.count, 10),
           row.oldest,
@@ -547,30 +562,33 @@ async function checkPendingTransferBookings(): Promise<CheckResult> {
     // `partners`; сущности больше нет — нет и склейки по совпадению почты.
     const { rows } = await pool.query<{
       operator_name: string | null;
-      telegram_chat_id: string | null;
       count: string;
       oldest: string;
-    }>(
+    } & PartnerReachRow>(
       `SELECT p.name AS operator_name,
               p.telegram_chat_id,
+              u_reach.telegram_id AS user_telegram_id,
+              p.max_chat_id,
               COUNT(*)::text AS count,
               MIN(sb.created_at)::date::text AS oldest
        FROM transfer_seat_bookings sb
        JOIN transfer_trips t ON t.id = sb.trip_id
        JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
        JOIN partners p ON p.id = v.partner_id
+       LEFT JOIN users u_reach ON u_reach.id = p.user_id
        WHERE sb.status = 'requested'
          AND sb.created_at < NOW() - INTERVAL '24 hours'
-       GROUP BY p.name, p.telegram_chat_id`,
+       GROUP BY p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
 
     let total = 0;
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
-      if (row.telegram_chat_id && row.operator_name) {
+      const reach = reachFrom(row);
+      if (reach.telegramChatId && row.operator_name) {
         notifyTransferOperatorDirectly(
-          row.telegram_chat_id,
+          reach.telegramChatId,
           row.operator_name,
           parseInt(row.count, 10),
           row.oldest,

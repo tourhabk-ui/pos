@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
+import { reachForPartner } from '@/lib/partners/reach';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
@@ -110,10 +111,17 @@ export async function POST(req: NextRequest) {
     // Уведомление оператору + U-ON sync — fire-and-forget, не блокирует ответ
     void (async () => {
       try {
-        const opRow = await pool.query<{ name: string; telegram_chat_id: string | null; max_chat_id: number | null; uon_api_key: string | null }>(
-          `SELECT name, telegram_chat_id, max_chat_id, uon_api_key FROM partners WHERE id = $1 LIMIT 1`,
-          [result.operatorId],
-        );
+        // Адрес оператора — через общий модуль: он смотрит ОБЕ колонки.
+        // Раньше здесь читался только partners.telegram_chat_id, и оператор,
+        // у которого адрес записан в аккаунте человека, был для этого роута
+        // «неподключённым», хотя бронь из чата Кузьмича до него доезжала.
+        const [opRow, reach] = await Promise.all([
+          pool.query<{ name: string; uon_api_key: string | null }>(
+            `SELECT name, uon_api_key FROM partners WHERE id = $1 LIMIT 1`,
+            [result.operatorId],
+          ),
+          reachForPartner(result.operatorId),
+        ]);
         const op = opRow.rows[0];
 
         // U-ON sync: if operator has API key, create request in their CRM
@@ -158,10 +166,20 @@ export async function POST(req: NextRequest) {
           participants:              data.participants_count,
           final_price:               result.totalPrice,
           operator_name:             op?.name ?? 'Оператор',
-          operator_telegram_chat_id: op?.telegram_chat_id ?? undefined,
-          operator_max_chat_id:      op?.max_chat_id ?? undefined,
+          operator_telegram_chat_id: reach?.telegramChatId ?? undefined,
+          operator_max_chat_id:      reach?.maxChatId ?? undefined,
           via:                       'website',
         });
+
+        // Адреса нет ни одного — заявка легла в базу и никуда не поехала.
+        // Молчать об этом нельзя: Watchdog через 48 часов запишет это как
+        // «оператор игнорирует бронь», хотя оператору никто не писал (§4.0).
+        if (reach && !reach.reachable) {
+          console.error(
+            '[bookings/create] у оператора нет ни Telegram, ни MAX — заявка не отправлена, бронь',
+            String(result.bookingId),
+          );
+        }
       } catch (err) {
         // Не фатально для брони — она уже в базе, — но и не бесследно.
         // Пустой catch здесь означал: заявка есть, оператор о ней не знает, и

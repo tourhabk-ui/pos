@@ -10,6 +10,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
+import { reachForTour } from '@/lib/partners/reach';
 import { callAIWaterfall, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -1293,17 +1294,14 @@ async function notifyOperatorNewBooking(
     // partners.id (operator_tours_operator_id_fkey). Прежний
     // `JOIN users u ON u.id = ot.operator_id` сравнивал id партнёра с id
     // пользователя и не совпадал никогда — оператор не получал уведомления
-    // о своей же броне. Контакт человека берём через partners.user_id.
-    const { rows } = await pool.query<{ telegram_id: string | null; max_chat_id: string | null }>(
-      `SELECT u.telegram_id, p.max_chat_id::text AS max_chat_id
-       FROM operator_tours ot
-       JOIN partners p ON p.id = ot.operator_id
-       LEFT JOIN users u ON u.id = p.user_id
-       WHERE ot.id = $1 LIMIT 1`,
-      [b.tour.id],
-    );
-    const operatorTgId = rows[0]?.telegram_id ?? null;
-    const operatorMaxId = rows[0]?.max_chat_id ?? null;
+    // о своей же броне.
+    //
+    // Адрес берёт общий модуль: здесь читался ТОЛЬКО users.telegram_id, а
+    // веб-роут брони — только partners.telegram_chat_id. Оператор с адресом
+    // в одной колонке был достижим для одного пути и недостижим для другого.
+    const reach = await reachForTour(b.tour.id);
+    const operatorTgId = reach?.telegramChatId ?? null;
+    const operatorMaxId = reach?.maxChatId ?? null;
 
     const dateStr = b.date
       ? new Date(b.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -1342,8 +1340,19 @@ async function notifyOperatorNewBooking(
       if (!opRes.delivered) {
         console.error(`[notifyOperatorNewBooking] оператору ПД не доставлены (${opRes.channel}) — ${opRes.reason}`);
       }
+    } else {
+      // Ни одного адреса. Заявка есть, оператор о ней не знает — и это не то
+      // же самое, что «знает и молчит»: Watchdog через 48 часов запишет
+      // второе. Первое чиним мы, второе — оператор (§4.0).
+      console.error(
+        `[notifyOperatorNewBooking] у оператора нет ни Telegram, ни MAX — бронь ${bookingId} не отправлена` +
+        (reach === null ? ' (адреса прочитать не удалось)' : ''),
+      );
     }
-  } catch { /* не блокируем */ }
+  } catch (err) {
+    // Пустой catch тут означал: уведомления нет и следа нет.
+    console.error(`[notifyOperatorNewBooking] бронь ${bookingId}:`, err instanceof Error ? err.message : err);
+  }
 }
 
 // ── Cleanup для pending Maps ──────────────────────────────────────────────────
