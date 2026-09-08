@@ -52,7 +52,10 @@ describe('agent tool scope (#327)', () => {
   });
 
   it('вызов внутри scope выполняется штатно', async () => {
-    const res = await executeBoardTool('quality-agency', 'runDiagnosticQuery', ['SELECT 1', 'test']);
+    // Агентство берётся ЖИВОЕ. Прежде здесь стояло 'quality-agency',
+    // удалённое вместе с советом директоров ещё в апреле, — и тест держал
+    // мёртвую запись в реестре прав живой (находка аудита 08.09).
+    const res = await executeBoardTool('rescue-agency', 'runDiagnosticQuery', ['SELECT 1', 'test']);
     expect(res.success).toBe(true);
   });
 });

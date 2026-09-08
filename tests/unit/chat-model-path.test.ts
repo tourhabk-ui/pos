@@ -41,7 +41,12 @@ describe('callQwen берёт сильнейшую доступную модел
 });
 
 describe('живой tools-цикл Кузьмича остаётся на быстром пути', () => {
-  const body = bodyOf('callQwenWithTools');
+  // Сторожил это `callQwenWithTools`, снятый 08.09 вместе с Qwen с текстовых
+  // путей. Решение, которое он охранял, при этом НЕ отменено: в цикле, где
+  // ответа ждёт человек в поле, резолва модели через /v1/models нет — он стоит
+  // лишний сетевой round-trip на холодном кэше. Теперь первичный там DeepSeek,
+  // и требование переезжает на него, а не исчезает вместе с прежним первым.
+  const body = bodyOf('callDeepSeekWithTools');
 
   it('функция найдена', () => {
     expect(body).not.toBe('');
@@ -50,7 +55,6 @@ describe('живой tools-цикл Кузьмича остаётся на бы�
   it('резолв туда НЕ подключён — там ждёт человек', () => {
     expect(body).not.toContain('resolveChatModel');
     expect(body).not.toContain('resolveContentModel');
-    expect(body).toContain('getQwenConfig()');
   });
 });
 

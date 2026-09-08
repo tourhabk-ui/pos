@@ -3,8 +3,13 @@
  * Импорт знаний о маршрутах и местах Камчатки из открытых источников.
  *
  * ?source=visitkamchatka  — паспорта маршрутов (visitkamchatka.ru)
- * ?source=kamchatkaland   — тематические статьи о местах (kamchatkaland.ru)
+ * ?source=kamchatkaland   — тематические статьи (kamchatkaland.ru) → раздел
+ *                           статей `articles`, НЕ справочник маршрутов (08.09)
  * ?source=all             — оба источника (по умолчанию)
+ *
+ * `?source=places` больше нет: обогатитель описаний мест скрейпил чужие сайты
+ * (extraguide.ru, tur-ray.ru, spkam.com) и удалён 08.09 — решение владельца,
+ * то же, что по idilesom. Сторож: tests/unit/places-enricher-purged.test.ts
  * ?batch=N                — размер батча (default 20)
  *
  * Auth: Bearer CRON_SECRET
@@ -14,7 +19,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { runVisitKamchatkaImporter } from '@/lib/agents/visitkamchatka-importer';
 import { runKamchatkalandImporter } from '@/lib/agents/kamchatkaland-importer';
-import { runPlacesEnricher } from '@/lib/agents/places-enricher';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -38,9 +42,6 @@ export async function GET(request: NextRequest) {
     }
     if (source === 'kamchatkaland' || source === 'all') {
       results.kamchatkaland = await runKamchatkalandImporter(Math.ceil(batch / 2));
-    }
-    if (source === 'places' || source === 'all') {
-      results.places = await runPlacesEnricher(batch);
     }
 
     return NextResponse.json({ success: true, ...results });

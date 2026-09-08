@@ -78,7 +78,13 @@ function uncheckedCallers(): string[] {
       const rel = relative(ROOT, file).split('\\').join('/');
       if (rel === 'lib/ai/providers.ts') continue;
       const code = stripComments(readFileSync(file, 'utf-8'));
-      if (!/\bcallAIWaterfall\(/.test(code)) continue;
+      // Ищем ОБА имени, которыми доезжает та же строка-извинение.
+      //
+      // Прежде предикат знал только прямой вызов водопада, и путь через
+      // callAIWithModel был реестру не виден. Именно там 08.09 нашлась
+      // заглушка, сохранённая как заключение по зоне для оперативного штаба:
+      // реестр «долга» молчал, потому что смотрел не на ту дорогу.
+      if (!/\bcallAIWaterfall\(/.test(code) && !/\bcallAIWithModel\(/.test(code)) continue;
       if (code.includes('isWaterfallErrorResponse')) continue;
       found.push(rel);
     }

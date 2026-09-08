@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -41,7 +41,8 @@ import { VedarZoomButtons, type VedarMapHandle, type VedarMapLine, type VedarMap
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
-  calculatedCarToLeafletCoordinates, type CalculatedCarRoute,
+  calculatedCarToLeafletCoordinates, carRouteReach, carApproachGapM, formatApproachGap,
+  type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
 import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
@@ -375,7 +376,7 @@ function computeRouteLineMarker(
   };
 }
 
-function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
+function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | null; topInset: number }) {
   const [heading, setHeading] = useState(0);
   // Земной источник азимута, увиденный хоть раз, отменяет относительный
   // навсегда — см. подписку на события ниже.
@@ -1387,8 +1388,19 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   /** Одна строка — самое важное действие сейчас. Всё хорошо — строки нет. */
   const status = useMemo((): { tone: 'warn' | 'info'; text: string; cta?: 'compass' } | null => {
     if (gpsError) return { tone: 'warn', text: 'Геолокация запрещена — включите её в настройках браузера' };
-    if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
+    // Порядок этих двух веток важен, и до 08.09 он был обратным.
+    //
+    // `gpsMessage` ставится ровно тогда, когда датчик ОТВЕТИЛ отказом:
+    // таймаут (30 с) или «позиция недоступна». Если фикса не было ни разу,
+    // `fix.state` при этом остаётся 'none' — и прежний порядок отдавал
+    // «Ищем спутники…», то есть сообщение об отказе было недостижимо ровно
+    // в том случае, для которого написано. Замер 08.09: браузер вернул
+    // код 3 на 30-й секунде, а экран говорил «ищем» и на 60-й.
+    //
+    // «Ищем» и «не отвечает» — разные решения человека: первое значит
+    // подождать, второе — что ждать нечего (§4.0).
     if (gpsMessage) return { tone: 'warn', text: gpsMessage };
+    if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
     if (fix.state === 'dead' || fix.state === 'stale') return { tone: 'warn', text: fixLabel(fix) };
     // Ступень связи, а не только режим. Прежняя строка сообщала «офлайн» и
     // безусловно обещала, что карты и точки доступны, — хотя карта лежит в
@@ -1681,6 +1693,39 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
    * контрактами GeoJSON на платформе. Род линии едет свойством `connector`,
    * а не отдельным цветом: вид решает стиль по §12.
    */
+  /**
+   * Только что рассчитанный путь ложится НА ФОНОВУЮ КАРТУ сразу.
+   *
+   * Жалоба владельца 08.09: «когда выбираешь точку на карте, маршрут
+   * строится, а когда из списка — нет». Разбор показал две разные причины,
+   * и обе настоящие:
+   *
+   *  1. ГЛАВНАЯ: линия ложилась на фоновую карту только из ОТКРЫТОГО превью
+   *     (`calculatedPreview`). С карточки точки превью открывалось само
+   *     (`cardBuildRef` ниже) — линия появлялась; из списка результат
+   *     ложился строкой «Автомобильный путь от вашего старта», которую надо
+   *     заметить и нажать, и до нажатия на карте не было ничего. Это верно
+   *     для ОБЕИХ подложек, своей и Leaflet;
+   *  2. вдобавок фоновый Leaflet не рисовал рассчитанный путь вовсе — у него
+   *     этой ветки не было. Своя карта (`vedarLines`) её имела. Leaflet
+   *     сегодня — запасная подложка (пакеты собраны на все десять районов и
+   *     сетку клеток), но он остаётся там, где адрес хранилища не настроен
+   *     или точка вне собранного, и молчать там тоже нельзя.
+   *
+   * Открывать превью самому нельзя: оно закрывает список готовых треков, а
+   * платформа предпочитает снятый трек рассчитанному подъезду. Поэтому
+   * линия идёт на фоновую карту (обе подложки), а лист остаётся списком:
+   * человек видит путь и продолжает выбирать.
+   */
+  const autoBuiltRoute = useMemo(() => {
+    if (cardBuildRef.current) return null;
+    if (buildPhase.phase !== 'done' || buildPhase.result.status !== 'found') return null;
+    return buildPhase.result.options.find(o => o.calculated)?.calculated ?? null;
+  }, [buildPhase]);
+
+  /** Что рисовать на фоновой карте: выбранное человеком превью важнее авто-линии. */
+  const mapCalculated = calculatedPreview?.route ?? autoBuiltRoute;
+
   const vedarLines: VedarMapLine[] = useMemo(() => {
     if (fieldBaseMap.kind !== 'vedar') return [];
     const out: VedarMapLine[] = [];
@@ -1705,15 +1750,15 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     // порядке GeoJSON [lng, lat]; род — 'calculated', вид решает стиль (§12).
     // mayDisplay проверен сервером (applySnapGuard), но здесь он спрашивается
     // ещё раз: линия, которую показывать нельзя, не рисуется молча.
-    const calc = calculatedPreview?.route;
+    const calc = mapCalculated;
     if (calc && calc.mayDisplay && calc.geometry.type === 'LineString' && calc.geometry.coordinates.length >= 2) {
       out.push({ coordinates: calc.geometry.coordinates, kind: 'calculated' });
     }
     return out;
-  }, [fieldBaseMap.kind, mapMarkers, calculatedPreview]);
+  }, [fieldBaseMap.kind, mapMarkers, mapCalculated]);
   /** Концы автопути на большой карте: точки привязки к графу с расстоянием привязки. */
   const vedarPoints: VedarMapPoint[] = useMemo(() => {
-    const calc = calculatedPreview?.route;
+    const calc = mapCalculated;
     if (fieldBaseMap.kind !== 'vedar' || !calc || !calc.mayDisplay) return [];
     return [
       { coordinates: [calc.originSnapped.lon, calc.originSnapped.lat], kind: 'calculated_end',
@@ -1721,14 +1766,14 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       { coordinates: [calc.destinationSnapped.lon, calc.destinationSnapped.lat], kind: 'calculated_end',
         label: `Цель на дороге · ${Math.round(calc.destinationSnapped.snapDistanceM)} м` },
     ];
-  }, [fieldBaseMap.kind, calculatedPreview]);
+  }, [fieldBaseMap.kind, mapCalculated]);
   // Новый автопуть — в кадр целиком, один раз на путь: дальше человек
   // двигает карту сам, и дёргать её обратно нельзя.
   useEffect(() => {
-    const calc = calculatedPreview?.route;
+    const calc = mapCalculated;
     if (!mapCtl || !calc || !calc.mayDisplay) return;
     mapCtl.fitLine(calc.geometry.coordinates);
-  }, [mapCtl, calculatedPreview]);
+  }, [mapCtl, mapCalculated]);
   /**
    * Старт по умолчанию — живой фикс, если он есть. Общий кусок между
    * «Проложить сюда» с карточки точки и выбором цели в «Сменить маршрут»
@@ -1798,8 +1843,28 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
     const routeLine = computeRouteLineMarker(
       track, waypoints, activeRouteTitle, approach?.dataConflict === true, lineFidelity,
     );
-    return routeLine ? [routeLine] : [];
-  }, [track, waypoints, activeRouteTitle, approach?.dataConflict, lineFidelity]);
+    const out = routeLine ? [routeLine] : [];
+    // Рассчитанный путь — и на Leaflet тоже. У своей карты эта ветка была
+    // (vedarLines), у запасной не было ни одной: там, где пакет не собран
+    // или не настроен адрес хранилища, путь считался и не рисовался никогда.
+    // Линия — общим стандартом (calculatedCarLine + явный конвертер порядка
+    // координат), не сборкой стиля руками (§12).
+    const calc = mapCalculated;
+    if (calc && calc.mayDisplay) {
+      const leafletLine = calculatedCarToLeafletCoordinates(calc);
+      if (leafletLine) {
+        const line = calculatedCarLine();
+        out.push({
+          coords: leafletLine[Math.floor(leafletLine.length / 2)],
+          title: line.title,
+          color: 'teal',
+          type: MarkerType.POI,
+          geometry: { type: 'polyline', coordinates: leafletLine, ...line.style } as MapMarkerGeometry,
+        });
+      }
+    }
+    return out;
+  }, [track, waypoints, activeRouteTitle, approach?.dataConflict, lineFidelity, mapCalculated]);
   /**
    * Пина на мини-карте пикера точки (правка 30.08, «точка прилипла к
    * карте») — своим useMemo, а не инлайн-массивом в JSX: инлайн-литерал
@@ -2444,13 +2509,21 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   // группы мест и плоский список рекомендуемых.
   //
   // Расчётный автопуть (r.calculated) — отдельная ветка вывода (владелец
-  // 28.08): без GradeChip и без lineGrade, вместо них «Путь на автомобиле»,
-  // приблизительные км/мин и бейдж «Рассчитан сейчас» — план запрещает
-  // показывать расчёт так, будто это проверенная запись каталога.
+  // 28.08): без GradeChip и без lineGrade, приблизительные км/мин и бейдж
+  // «Рассчитан сейчас» — план запрещает показывать расчёт так, будто это
+  // проверенная запись каталога.
+  //
+  // Заголовок берётся из ОТВЕТА СЕРВЕРА. Здесь стояло «Путь на автомобиле»
+  // константой, и она перекрывала всё: сервер называет цель, а когда дорога
+  // до цели не доходит — говорит «Подъезд к „X“ — дальше 3.4 км пешком».
+  // Константа съедала и то и другое, и человек видел одно и то же слово,
+  // куда бы ни ехал (тот же род дефекта, что владелец 07.09 назвал «наверху
+  // конечная точка не меняется», только строкой ниже).
   function renderPathRow(r: RoutePreview) {
     if (r.calculated) {
       const km = (r.calculated.distanceM / 1000).toFixed(1);
       const min = Math.round(r.calculated.durationS / 60);
+      const gapM = carApproachGapM(r.calculated);
       return (
         <div key={r.id}>
           <button onClick={() => openPreview(r)}
@@ -2458,7 +2531,9 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
-                <p className="text-sm font-medium text-[var(--text-primary)] truncate">Путь на автомобиле</p>
+                <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                  {r.title || 'Путь на автомобиле'}
+                </p>
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
                   style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)' }}>
                   Рассчитан сейчас
@@ -2466,6 +2541,7 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
               </div>
               <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
                 ≈ {km} км · ≈ {min} мин
+                {gapM > 0 && ` · дальше пешком ${formatApproachGap(gapM)}`}
               </p>
             </div>
             <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>На карте</span>
@@ -2537,6 +2613,18 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
       setCalculatedPreview({ title: r.title, route: r.calculated });
       return;
     }
+    // Одно превью за раз. Рассчитанный путь стоит в рендере ПЕРВЫМ
+    // (`calculatedPreview && calculatedPreviewMap ? … : previewMap ? …`), и
+    // пока он выставлен, каталожное превью не показалось бы вовсе.
+    //
+    // Сегодня оба одновременно не выставляются (превью рассчитанного
+    // закрывает список, а «К вариантам» его снимает) — это проверено, и
+    // строка ниже ничего не чинит прямо сейчас. Она держит взаимное
+    // исключение там, где оно только подразумевалось порядком экранов:
+    // приоритет в рендере есть, а снимал состояние один-единственный
+    // обработчик кнопки.
+    setCalculatedPreview(null);
+    setCalculatedPreviewError(null);
     const cached = previewCacheRef.current.get(r.id);
     if (cached) {
       setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade, navigability: cached.navigability });
@@ -2665,6 +2753,18 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
                       <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
                         {calculatedPreviewMap.caption}
                       </p>
+                      {/* Дорога кончается раньше цели — это говорится ЗДЕСЬ,
+                          рядом с линией, а не только в заголовке варианта:
+                          линия обрывается там, где кончается дорожная сеть, и
+                          человек обязан знать, сколько ему идти дальше (§4.0
+                          — подъезд не выдаётся за путь до цели). */}
+                      {carRouteReach(calculatedPreview.route) === 'approach' && (
+                        <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                          style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', color: 'var(--text-primary)' }}>
+                          Дорога кончается за {formatApproachGap(carApproachGapM(calculatedPreview.route))} до цели —
+                          дальше пешком. Линия показывает подъезд, не путь до самой точки.
+                        </p>
+                      )}
                       {/* Три факта под картой — план §4: дата расчёта, трафик,
                           провайдер. Длительность с трафиком читается как
                           ориентировочная на момент расчёта, не как обещание. */}
@@ -3390,6 +3490,14 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             // у VedarMap 04.09. Zoom-контрол Leaflet уже стоит в topright —
             // topleft здесь его собственными оверлеями не занят.
             attributionPosition="topleft"
+            // Сверху лежит липкая полоса вкладок. Без этого отступа контролы
+            // карты честно существовали и были недостижимы: замер 08.09 —
+            // «+» целиком под полосой, «−» наполовину, атрибуция
+            // OpenStreetMap (перенесённая сюда 04.09 из мёртвого низа) в
+            // (0,0,263×17), то есть тоже под ней. Высота полосы меряется, а
+            // не вписывается числом: она зависит от шрифта и отступов, и
+            // застывшая копия разошлась бы с ней при первой же правке.
+            topInset={topInset}
           />
         )}
       </div>
@@ -4938,6 +5046,27 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
     } catch { /* URL не обновился — не повод ломать переключение */ }
   }
 
+  /**
+   * Высота полосы вкладок — меряется, а не берётся числом.
+   *
+   * Полоса лежит ПОВЕРХ карты полевого экрана (карта — fixed inset-0 z-0), и
+   * под ней оказывались контролы масштаба и атрибуция OpenStreetMap. Отступ
+   * для карты равен высоте полосы, а высота зависит от шрифта и отступов
+   * кнопок: вписанное число разошлось бы с ней при первой же правке вёрстки.
+   */
+  const tabBarRef = useRef<HTMLDivElement | null>(null);
+  const [tabBarH, setTabBarH] = useState(0);
+  useLayoutEffect(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    const measure = () => setTabBarH(el.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tab]);
+
   function handleStartTrail(routeId: string) {
     try { localStorage.setItem('active_trail_route_id', routeId); } catch { /* ignore */ }
     switchTab('trail');
@@ -4948,7 +5077,7 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
       {tab === 'planning' && <Header />}
 
       {/* Tab bar */}
-      <div className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
+      <div ref={tabBarRef} className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
         style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
         <div className="max-w-2xl mx-auto px-4 flex gap-0">
           <button
@@ -4975,7 +5104,7 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
       </div>
 
       {tab === 'planning' && <PlanningTab onStartTrail={handleStartTrail} />}
-      {tab === 'trail' && <OnTrailTab mapPackBaseUrl={mapPackBaseUrl} />}
+      {tab === 'trail' && <OnTrailTab mapPackBaseUrl={mapPackBaseUrl} topInset={tabBarH} />}
     </div>
   );
 }

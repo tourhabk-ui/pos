@@ -21,7 +21,7 @@
    - [Editor](#8-editor--редактор-маршрутов)
    - [Import Routes](#9-import-routes--импорт-маршрутов)
    - [Enrich Routes](#10-enrich-routes--обогащение-маршрутов)
-   - [Places Enricher](#11-places-enricher--обогащение-точек)
+   - [Places Enricher — снят](#11-places-enricher--снят-08092026)
    - [Kuzmich Place Enricher](#12-kuzmich-place-enricher--рецензии-кузьмича)
    - [Routes Cache Refresh](#13-routes-cache-refresh--кеш-маршрутов)
 4. [Часть III — Разведка и анализ](#часть-iii)
@@ -43,7 +43,7 @@
    - [Health](#27-health--проверка-здоровья)
    - [LLM Budget Check](#28-llm-budget-check--бюджет-ai)
    - [Telegram Webhook Watchdog](#29-telegram-webhook-watchdog--watchdog-вебхука)
-   - [Memory Bridge](#30-memory-bridge--мост-памяти)
+   - [Memory Bridge — снят](#30-memory-bridge--снят-08092026)
 7. [Часть VI — Эволюция](#часть-vi)
    - [Evo System](#31-evo-system--система-эволюции)
    - [Growth Agent](#32-growth-agent)
@@ -466,7 +466,7 @@ WHERE description IS NULL OR LENGTH(description) < 300;
 2. Для каждого нового: читает полный паспорт (PDF или HTML)
 3. AI-нормализует данные (длина, сложность, сезон)
 4. INSERT в `agent_route_knowledge`, `places` (новые точки)
-5. Запускает `places-enricher` для новых точек
+5. (до 08.09 запускал `places-enricher` — снят, см. главу 11)
 6. Batch: 20–30 маршрутов за запуск
 
 #### Настройка
@@ -510,37 +510,27 @@ CRON_SECRET=<секрет>
 
 ---
 
-### 11. Places Enricher — Обогащение точек
+### 11. Places Enricher — снят 08.09.2026
 
-**Файл:** `lib/agents/places-enricher.ts`  
-**Вызывается:** из `import-routes` или вручную  
-**Расписание:** по триггеру
+Обогатитель ходил на три чужих сайта (`extraguide.ru`, `tur-ray.ru`,
+`spkam.com`), забирал оттуда описания природных объектов, прогонял через
+модель «своими словами» и клал результат на наши карточки мест.
 
-#### Что делает
+Снят по решению владельца — то же решение, что по idilesom 07.09: чужой труд,
+переодетый в наш. Удалены модуль, режим `?source=places` у крон-роута импорта
+и оба его теста; сторож `tests/unit/places-enricher-purged.test.ts` держит
+машину удалённой и запрещает обращения к этим хостам.
 
-Скрейпит 3 Камчатских travel-сайта и обновляет описания точек в БД:
+Уже написанные им описания ОСТАВЛЕНЫ: как и с idilesom, убрана машина, а не
+скачанное — снос текста оставил бы карточки пустыми.
 
-```
-extraguide.ru   — путеводитель по Камчатке
-tur-ray.ru      — туристические маршруты
-spkam.com       — Сейшелы Камчатки (неформальный гид)
-```
+Чего мы не знаем: какие именно описания написал он. Обогатитель сохранял их
+без `source_url` и не писал строку в `description_provenance`, поэтому подписи,
+которую у idilesom чистила миграция 941, здесь не существует вовсе. «Сколько
+карточек несут переписанный чужой текст» — честное «не знаю», а не ноль.
 
-Алгоритм:
-1. Для каждой точки в `agent_route_knowledge` без описания — нормализует название
-2. Ищет на сайтах по нормализованному названию (Jaccard similarity ≥ 0.65)
-3. При совпадении: скрейпит текст страницы (JSDOM)
-4. AI-переписывает под стиль платформы
-5. UPDATE `agent_route_knowledge.description`
-6. Задержка 500мс между запросами (rate limiting)
-
-**Batch:** 30 точек за запуск.
-
-#### Настройка
-
-```env
-ANTHROPIC_API_KEY=<ключ Claude>
-```
+Описания мест и маршрутов пишет Editor (глава 12), и он помечает свою работу в
+`description_provenance`.
 
 ---
 
@@ -1039,7 +1029,7 @@ ORDER BY created_at DESC;
 3. Claude оценивает совпадение (0–10)
 4. При score ≥ 7: отправляет персонализированное предложение
 
-Использует данные из Memory Bridge (каждые 6ч синхронизирует `user_ai_memory → agent_memory`).
+Читает `user_ai_memory` напрямую — посредника между ним и предпочтениями нет.
 
 ---
 
@@ -1145,22 +1135,27 @@ CRON_SECRET=<секрет>
 
 ---
 
-### 30. Memory Bridge — Мост памяти
+### 30. Memory Bridge — снят 08.09.2026
 
-**Файл:** `app/api/cron/memory-bridge/route.ts`  
-**Расписание:** каждые 6 часов
+Мост складывал агрегат спроса туристов из `user_ai_memory` в `agent_memory`
+каждые шесть часов — под четырьмя адресатами: `planning`, `hacker`, `content`,
+`admin`. Все четверо удалены вместе с советом директоров ещё в апреле, то есть
+крон полгода раскладывал один и тот же снимок по несуществующим адресам, и
+четыре копии в базе выглядели работой четырёх агентов.
 
-#### Что делает
+Читателя у снимка не было ни одного: поиск по репозиторию не находит ни
+`demand_snapshot`, ни `tourist_demand_30d` за пределами самого писателя. Живой
+канал памяти читается по типу `intelligence` (`recallShared`), а тип у снимка
+был другой.
 
-Синхронизирует пользовательские предпочтения между таблицами:
+Утверждение прежней редакции этой главы — «обеспечивает, что Smart Notify и
+Кузьмич используют актуальные предпочтения» — было неверно: Smart Notify читает
+`user_ai_memory` напрямую (`app/api/cron/smart-notify/route.ts`), моста он не
+касался никогда.
 
-```
-user_ai_memory (предпочтения пользователя)
-         ↓  syncUserDemandToAgentMemory()
-agent_memory (Planning, Hacker, Content агенты)
-```
-
-Обеспечивает что умные уведомления (Smart Notify) и Kuzmich используют актуальные предпочтения.
+Снято 08.09.2026: workflow, роут, модуль и запись в реестре живости. Агрегат
+считается из `user_ai_memory` в любой момент, код достаётся из истории — когда
+появится, кому его читать.
 
 ---
 
@@ -1485,7 +1480,6 @@ CLOUDPAYMENTS_SECRET=
 | Health | `0 * * * *` | каждый час | |
 | Checkin Watchdog | `0 * * * *` | каждый час | + warmup |
 | Intelligence | `0 */6 * * *` | каждые 6ч | |
-| Memory Bridge | `0 */6 * * *` | каждые 6ч | |
 | Support Escalate | `0 */6 * * *` | каждые 6ч | |
 | Evo System | `0 */6 * * *` | каждые 6ч | |
 | Scout Digest | `0 7 * * *` | 07:00 | дайджест |
@@ -1533,9 +1527,9 @@ CLOUDPAYMENTS_SECRET=
 |---------|-------------|
 | `operator_bookings` | abandoned-bookings, payouts, tour-reminder |
 | `lead_followups` | followups |
-| `agent_route_knowledge` | editor, places-enricher, import-routes, enrich-routes |
+| `agent_route_knowledge` | editor, import-routes, enrich-routes |
 | `agent_knowledge` | scout-digest, scout-innovator, kb-gap |
-| `agent_memory` | scout-digest, memory-bridge, group-scout |
+| `agent_memory` | scout-digest, group-scout |
 | `tour_payments` | payouts |
 | `external_alerts` | safety-ingest |
 | `location_real_time_status` | safety-ingest |

@@ -22,8 +22,8 @@
  *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default: авторезолв из /v1/models)
  *   EVO_DECISION_QWEN_MODEL — фоллбэк-решатель (Qwen, default qwen-max-latest)
  *   QWEN_MODEL              — override модели Qwen. Без него callQwen резолвит
- *                             сильнейшую из /v1/models; tools-цикл Кузьмича
- *                             остаётся на быстром тире (см. callQwenWithTools).
+ *                             сильнейшую из /v1/models. Tools-цикл Кузьмича
+ *                             через Qwen не идёт с 08.09 (решение владельца).
  *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
  *                             (по умолчанию https://openrouter.ai/api/v1)
  *   ANTHROPIC_BASE_URL      — необязательно: релей вне РФ для api.anthropic.com
@@ -699,58 +699,16 @@ export async function callDeepSeekWithTools(
   }
 }
 
-// Qwen tool-calling (OpenAI-совместимый, Alibaba DashScope). Первичный
-// провайдер tools-цикла: доступен из РФ (китайский, как DeepSeek), сильный
-// агентный function-calling. База/модель — из env.
+// Qwen tool-calling здесь БЫЛ и снят 08.09 решением владельца («qwen не
+// используем»). Функция удалена, а не оставлена «на всякий случай»: ключ
+// DashScope отвергнут в обоих регионах, вызывать её было неоткуда, и
+// экспортируемая функция, которую никто не зовёт, — забытая работа с виду
+// живого пути (перепись экспортов её и поймала).
 //
-// Модель здесь СОЗНАТЕЛЬНО не резолвится через /v1/models, в отличие от
-// callQwen: это живой путь Кузьмича, где ответа ждёт человек — в поле, иногда
-// на плохой связи. Резолв добавил бы сетевой round-trip на холодном кэше, а
-// сильная модель ещё и отвечает дольше. Качество ответа здесь вытягивают
-// инструменты и заземление в БД, а не тир модели. Нужен другой тир — QWEN_MODEL.
-export async function callQwenWithTools(
-  messages: ToolMsg[],
-  tools: ToolDefinition[],
-  timeoutMs = 25_000,
-): Promise<ToolsCallResult | null> {
-  const { apiKey, base, model } = getQwenConfig();
-  if (!apiKey) return null;
-
-  try {
-    const res = await fetchWithRetry(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.3,
-        max_tokens: 1000,
-        messages,
-        tools,
-        tool_choice: 'auto',
-      }),
-    }, { timeoutMs, label: `qwen-tools:${model}` });
-
-    if (!res.ok) return null;
-
-    const data = await res.json() as {
-      choices?: Array<{
-        message?: { content?: string | null; tool_calls?: ToolCall[] };
-      }>;
-    };
-    const msg = data?.choices?.[0]?.message;
-    if (!msg) return null;
-
-    return {
-      content: msg.content ?? null,
-      tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
-    };
-  } catch {
-    return null;
-  }
-}
+// Зрение (qwen-vl) на том же ключе ОСТАЛОСЬ и живёт отдельно — в загрузке
+// снимков и в разборе фото чата. Замены ему с прода нет: Gemini
+// гео-блокируется из РФ, Anthropic отвечает «credit balance is too low».
+// Текст и зрение — разные решения, и снятие первого не снимает второе.
 
 /** Первый непустой результат из списка попыток; поздние не зовём после успеха. */
 export async function firstNonNullTool(
@@ -763,17 +721,28 @@ export async function firstNonNullTool(
   return null;
 }
 
-// Водопад инструментов: Qwen (первичный — качество + доступен из РФ) → DeepSeek
-// (рабочий фоллбэк) → OpenRouter (последний шанс, авто-восстановление если
-// разблокируют). Раньше tools-цикл Кузьмича висел только на OpenRouter — при
-// регион-блоке инструменты отваливались, чат жил без tools.
+// Водопад инструментов: DeepSeek (первичный — доступен из РФ) → OpenRouter
+// (последний шанс, авто-восстановление если разблокируют). Раньше tools-цикл
+// Кузьмича висел только на OpenRouter — при регион-блоке инструменты
+// отваливались, чат жил без tools.
+//
+// Qwen стоял здесь ПЕРВЫМ и снят 08.09 решением владельца («qwen не
+// используем»). Цена промедления была не абстрактной: ступени идут
+// ПОСЛЕДОВАТЕЛЬНО, а ключ DashScope отвергнут в обоих регионах — значит на
+// каждое сообщение Кузьмичу мы сперва ходили к провайдеру, который заведомо
+// ответит отказом, и только потом к живому. Ждёт этого человек в поле, иногда
+// на плохой связи.
+//
+// Зрение (qwen-vl) на Qwen ОСТАЛОСЬ и снято отсюда быть не может: Gemini
+// гео-блокируется из РФ, Anthropic с прода отвечает «credit balance is too
+// low», и другого достижимого зрения у нас нет. Текст и зрение здесь — разные
+// решения, а не одно.
 export async function callToolsWaterfall(
   messages: ToolMsg[],
   tools: ToolDefinition[],
 ): Promise<ToolsCallResult | null> {
   return firstNonNullTool([
-    () => callQwenWithTools(messages, tools),        // первичный: качество + доступен из РФ
-    () => callDeepSeekWithTools(messages, tools),    // фоллбэк
+    () => callDeepSeekWithTools(messages, tools),    // первичный: доступен из РФ
     () => callOpenRouterWithTools(messages, tools),  // последний шанс (авто-восстановление если разблокируют)
   ]);
 }
@@ -1582,13 +1551,16 @@ export async function probeFlagshipRelay(): Promise<{
  *
  * Последний путь, где id ещё был прибит: `QWEN_MODEL || 'qwen-plus'` — средний
  * тир, тогда как решатель и контент рядом уже брали сильнейшее из /v1/models.
- * Значение имело: на callQwen висит первая фаза scout-innovator, которая рождает
- * предложения эволюции, — там качество модели превращается в качество задач.
+ * Значение имело: на callQwen висела первая фаза scout-innovator, которая
+ * рождает предложения эволюции, — там качество модели превращалось в качество
+ * задач. С 08.09 та фаза идёт мимо Qwen (решение владельца), и единственный
+ * оставшийся вызов callQwen — проба ключа DashScope в health-кроне: на том же
+ * ключе стоит зрение (qwen-vl), которому замены с прода нет.
  *
  * Назначение 'chat' — свой ключ кэша, чтобы override одного пути не протекал в
  * другой. Override сохранён прежним (`QWEN_MODEL`): у кого он выставлен, ничего
- * не меняется. Живой tools-цикл Кузьмича сюда НЕ подключён сознательно —
- * см. комментарий над callQwenWithTools.
+ * не меняется. Живой tools-цикл Кузьмича сюда НЕ подключён сознательно: там
+ * ждёт человек, а резолв — лишний round-trip на холодном кэше.
  */
 export async function resolveChatModel(provider: 'deepseek' | 'qwen'): Promise<string> {
   return resolveBestModel(provider, 'chat', provider === 'deepseek'
@@ -2220,6 +2192,35 @@ export function explainOpenRouterFailure(probe: {
 }
 
 /**
+ * Это ТОТ САМЫЙ отказ, который владелец принял, — или новость?
+ *
+ * Принято ровно одно положение дел: OpenRouter закрыт для прода по региону
+ * (403), ключ при этом на месте и цел, а работа, которой OpenRouter нужен,
+ * решением владельца 07.09 переехала на раннер GitHub, где он достижим.
+ * Повторять о таком каждые полчаса — учить пролистывать сводку.
+ *
+ * Всё остальное новостью остаётся и обязано будить: 401 — ключ отвергнут,
+ * ключа нет вовсе, форма ключа испорчена, сеть не дошла (`http_status: null`),
+ * любой другой код. Признак принятого — только 403 при целом ключе, и
+ * специально НЕ «ключ на месте, что-то не работает»: широкий предикат здесь
+ * означал бы выключенную сигнализацию, а не убранный шум.
+ *
+ * Форму не измерили (`key_shape === null`) — это «не знаю» (§4.0), и оно не
+ * принимается: судить о принятости нечем, значит будим.
+ */
+export function isAcceptedOpenRouterGeoBlock(probe: {
+  key_source: 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null;
+  http_status: number | null;
+  key_shape: { key_len: number; key_prefix_ok: boolean; key_had_outer_space: boolean; key_has_inner_space: boolean } | null;
+} | null): boolean {
+  if (!probe || !probe.key_source) return false;
+  const sh = probe.key_shape;
+  if (!sh) return false;
+  if (!sh.key_prefix_ok || sh.key_had_outer_space || sh.key_has_inner_space) return false;
+  return probe.http_status === 403;
+}
+
+/**
  * Причина падения Qwen — человеком, в текст алерта.
  *
  * Диагностика qwen_key_diag лежала в JSON health с самого начала, но в
@@ -2707,9 +2708,28 @@ export async function callGeminiVision(
   return null;
 }
 
-// ── Gemini Audio Transcription via OpenRouter ──────────────────
-// Поддерживает: audio/ogg, audio/mp3, audio/wav, audio/m4a (Telegram шлёт ogg)
-// Фразы-признаки того что модель не смогла обработать аудио (не реальная транскрипция)
+// ── Распознавание речи ─────────────────────────────────────────
+//
+// Голосовые Кузьмичу шлют из Telegram и MAX (ogg/opus). До 08.09 путь был
+// ОДИН — Gemini через OpenRouter, а OpenRouter с прода отвечает 403 и
+// напрямую, и через релей (замер 07.09, ответы совпали дословно). То есть на
+// проде не расшифровывалось НИ ОДНО голосовое, и человек в поле получал
+// «Не разобрал голосовое» — фразу про свою дикцию вместо правды о том, что
+// распознавание недоступно вовсе.
+//
+// Два исхода отказа теперь РАЗНЫЕ (§4.0). «Расслышал, но не понял» —
+// свойство записи, человеку стоит повторить. «Некому было слушать» —
+// свойство платформы, и повторять бессмысленно. Одна фраза на оба случая
+// заставляла человека переговаривать в пустоту.
+//
+// Фолбэка на китайского провайдера здесь НЕТ намеренно, в отличие от зрения
+// (§ callGeminiVision, приоритет 3 — Qwen-VL). Есть ли у DashScope модель
+// распознавания речи, доступная нашему ключу, я не проверял, а вписать
+// правдоподобный id значит завести ветку, которая выглядит запасным путём и
+// не является им. Каталог спрашивается переписью `GET /api/cron/ai-models`;
+// пока ответа нет, отказ хотя бы назван вслух и виден в следе.
+
+/** Фразы, которыми модель сообщает, что не смогла обработать аудио. */
 const TRANSCRIBE_FAIL_PATTERNS = [
   /не могу обработать/i, /cannot process/i, /unable to process/i,
   /audio file/i, /аудиофайл/i, /не поддерживает/i, /не поддерживаю/i,
@@ -2717,43 +2737,127 @@ const TRANSCRIBE_FAIL_PATTERNS = [
   /audio content/i, /audio data/i,
 ];
 
+/** Модель расслышала запись, но речь неразборчива — так просит отвечать промпт. */
+const TRANSCRIBE_UNINTELLIGIBLE = /^\(?неразборчиво\)?[.!]?$/i;
+
+const TRANSCRIBE_PROMPT =
+  'Это голосовое сообщение на русском языке. Транскрибируй дословно. ' +
+  'Только текст без пояснений. Если неразборчиво — "(неразборчиво)".';
+
+export type TranscribeOutcome =
+  | { ok: true; text: string }
+  /** Речь не разобрана — свойство записи. Повтор осмыслен. */
+  | { ok: false; reason: 'unintelligible'; detail: string }
+  /** Распознавать было некому — свойство платформы. Повтор бесполезен. */
+  | { ok: false; reason: 'unavailable'; detail: string };
+
+/** Что вернула ступень: текст, «неразборчиво» или отказ с причиной. */
+type LegResult =
+  | { kind: 'text'; text: string }
+  | { kind: 'unintelligible' }
+  | { kind: 'failed'; reason: string };
+
+function readTranscript(raw: string | undefined): LegResult {
+  const text = raw?.trim();
+  if (!text) return { kind: 'failed', reason: 'пустой ответ' };
+  if (TRANSCRIBE_UNINTELLIGIBLE.test(text)) return { kind: 'unintelligible' };
+  // Отказ модели обработать аудио — не транскрипция; показывать его человеку
+  // как расшифровку его же слов нельзя.
+  if (TRANSCRIBE_FAIL_PATTERNS.some((p) => p.test(text))) {
+    return { kind: 'failed', reason: 'модель не обработала аудио' };
+  }
+  return { kind: 'text', text };
+}
+
 export async function callGeminiTranscribe(
   audioBase64: string,
   mimeType: string = 'audio/ogg',
-): Promise<string | null> {
-  const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
+): Promise<TranscribeOutcome> {
+  const failures: string[] = [];
+  const note = (leg: string, reason: string): void => {
+    failures.push(`${leg}: ${reason}`);
+    recordAiLegFailure(`transcribe:${leg}`, reason);
+  };
 
-  try {
-    const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        ...openRouterAttribution(),
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
-        max_tokens: 400,
-        messages: [{
-          role: 'user',
-          content: [
-            // Gemini принимает аудио через image_url с audio MIME-type
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${audioBase64}` } },
-            { type: 'text', text: 'Это голосовое сообщение на русском языке. Транскрибируй дословно. Только текст без пояснений. Если неразборчиво — "(неразборчиво)".' },
-          ],
-        }],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const text: string | undefined = data?.choices?.[0]?.message?.content;
-    if (!text?.trim()) return null;
-    // Если модель вернула отказ обработать аудио — не показываем мусор пользователю
-    if (TRANSCRIBE_FAIL_PATTERNS.some(p => p.test(text))) return null;
-    return text.trim();
-  } catch { return null; }
+  // Ступень 1: нативный Gemini. generateContent принимает аудио тем же
+  // inline_data, что и картинку с PDF; модель — резолвом, без хардкода id
+  // (тот же урок, что у зрения: gemini-2.0-flash отвечает 404 «no longer
+  // available» с 04.09).
+  const geminiKey = getGeminiKey();
+  const model = geminiKey ? await resolveGeminiModel() : null;
+  if (!geminiKey) note('gemini', 'no_key');
+  else if (!model) note('gemini', 'каталог моделей недоступен');
+  else {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: mimeType, data: audioBase64 } },
+                { text: TRANSCRIBE_PROMPT },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 400 },
+          }),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      if (!res.ok) {
+        note('gemini', httpFailureReason(res.status, await res.text().catch(() => '')));
+      } else {
+        const data = await res.json();
+        const leg = readTranscript(data?.candidates?.[0]?.content?.parts?.[0]?.text);
+        if (leg.kind === 'text') return { ok: true, text: leg.text };
+        if (leg.kind === 'unintelligible') return { ok: false, reason: 'unintelligible', detail: 'gemini' };
+        note('gemini', leg.reason);
+      }
+    } catch (e) { note('gemini', errorFailureReason(e)); }
+  }
+
+  // Ступень 2: тот же Gemini через OpenRouter. С прода закрыт гео-блоком, с
+  // раннера и в разработке — рабочий путь.
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) note('openrouter', 'no_key');
+  else {
+    try {
+      const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          ...openRouterAttribution(),
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-001',
+          max_tokens: 400,
+          messages: [{
+            role: 'user',
+            content: [
+              // Gemini принимает аудио через image_url с audio MIME-type
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${audioBase64}` } },
+              { type: 'text', text: TRANSCRIBE_PROMPT },
+            ],
+          }],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        note('openrouter', httpFailureReason(res.status, await res.text().catch(() => '')));
+      } else {
+        const data = await res.json();
+        const leg = readTranscript(data?.choices?.[0]?.message?.content);
+        if (leg.kind === 'text') return { ok: true, text: leg.text };
+        if (leg.kind === 'unintelligible') return { ok: false, reason: 'unintelligible', detail: 'openrouter' };
+        note('openrouter', leg.reason);
+      }
+    } catch (e) { note('openrouter', errorFailureReason(e)); }
+  }
+
+  return { ok: false, reason: 'unavailable', detail: failures.join('; ') || 'ступеней не осталось' };
 }
 
 // ── Gemini PDF Extraction via OpenRouter ──────────────────────

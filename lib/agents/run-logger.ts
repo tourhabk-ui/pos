@@ -12,7 +12,7 @@ import { pool } from '@/lib/db-pool';
 
 export interface RunLogParams {
   agent_id: string;
-  status: 'success' | 'partial' | 'failed';
+  status: RunStatus;
   started_at: Date;
   duration_ms: number;
   items_processed?: number;
@@ -26,6 +26,24 @@ export interface RunLogParams {
   llm_calls?: number;
   estimated_cost_usd?: number;
 }
+
+/**
+ * Чем может кончиться прогон агента. ЕДИНСТВЕННЫЙ словарь.
+ *
+ * Находка аудита 08.09: брифинг агентов и админский «мозг» считали «ошибок
+ * за 24 часа» условием `status = 'error'` — статуса, которого нет в этом
+ * перечне и которого не пишет НИКТО. Цифра была вечным нулём и читалась как
+ * «ошибок нет». Та же болезнь уже описана в feedback-loop: «Исправлено» на
+ * дашборде было вечным нулём по той же причине.
+ *
+ * Сторож `tests/unit/run-status-vocabulary.test.ts` требует: любой SQL-литерал
+ * статуса рядом с agent_run_history обязан входить сюда.
+ */
+export const RUN_STATUSES = ['success', 'partial', 'failed'] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/** Прогон закончился НЕ успехом. Именно это считают счётчики ошибок. */
+export const RUN_STATUSES_BAD: readonly RunStatus[] = ['failed', 'partial'];
 
 /** true — итог записан в agent_run_history; false — запись не удалась (в логе есть причина). */
 export async function logAgentRun(params: RunLogParams): Promise<boolean> {

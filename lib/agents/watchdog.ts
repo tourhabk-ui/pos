@@ -23,6 +23,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
+import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
@@ -30,6 +31,7 @@ import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
 import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
+import { maxSendDm } from '@/lib/notifications/max-channel';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
 import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
@@ -171,30 +173,58 @@ async function checkUnconfirmedBookings(): Promise<CheckResult> {
   }
 }
 
+/**
+ * Напоминание оператору — в тот канал, где он ЕСТЬ.
+ *
+ * Раньше напоминание умело только в Telegram, а основной канал операторов у
+ * платформы — MAX (в него им и велят написать боту Кузьмича, чтобы завести
+ * адрес). Оператор, у которого есть MAX и нет Telegram, не получал ничего и
+ * при этом числился «не подключённым к боту».
+ *
+ * Возвращает канал доставки или null — вызывающему нужно знать, ушло ли,
+ * а не только что мы попытались.
+ */
 async function notifyOperatorDirectly(
-  chatId: string,
+  to: { maxChatId: string | null; telegramChatId: string | null },
   partnerName: string,
   count: number,
   oldest: string,
-): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return;
+): Promise<'max' | 'telegram' | null> {
   const appUrl = getPublicBaseUrl();
-  const text = [
+  const bookingsUrl = `${appUrl}/hub/operator/bookings`;
+  const body = [
     `<b>Привет, ${partnerName}!</b>`,
     '',
     `У тебя ${count} ${count === 1 ? 'бронирование ожидает' : 'бронирований ожидают'} ответа уже больше 48 часов.`,
     `Самое раннее — ${oldest}.`,
-    '',
-    `Посмотри и подтверди или отклони: <a href="${appUrl}/hub/operator/bookings">Мои бронирования</a>`,
   ].join('\n');
+
+  if (to.maxChatId) {
+    const res = await maxSendDm(to.maxChatId, body, {
+      buttons: [{ text: 'Мои бронирования', url: bookingsUrl }],
+    }).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : 'MAX error' }));
+    if (res.ok) return 'max';
+    console.error(`[watchdog] напоминание оператору «${partnerName}» не ушло в MAX: ${res.error ?? 'причина не названа'}`);
+  }
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !to.telegramChatId) return null;
+  const text = `${body}\n\nПосмотри и подтверди или отклони: <a href="${bookingsUrl}">Мои бронирования</a>`;
   try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: to.telegramChatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
     });
-  } catch { /* не блокируем */ }
+    if (!res.ok) {
+      console.error(`[watchdog] напоминание оператору «${partnerName}» не ушло в Telegram: HTTP ${res.status}`);
+      return null;
+    }
+    return 'telegram';
+  } catch (e) {
+    console.error(`[watchdog] напоминание оператору «${partnerName}» не ушло в Telegram: ${e instanceof Error ? e.message : 'fetch error'}`);
+    return null;
+  }
 }
 
 async function checkOperatorNoResponse(): Promise<CheckResult> {
@@ -206,9 +236,14 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       count: string;
       oldest: string;
     } & PartnerReachRow>(
-      // Адрес — общим выражением: сторож молчал про операторов, у которых
-      // он записан в аккаунте человека, а не в профиле партнёра, и выдавал
-      // это за «оператор не подключён к боту».
+      // `max_chat_id` спрашивается наравне с телеграмным (08.09, issue #1719).
+      // Прежде достижимость мерялась ОДНИМ телеграмом, тогда как основной
+      // канал операторов у платформы — MAX. Оператор с MAX и без Telegram
+      // выходил «не подключённым к боту» и не получал напоминания вовсе.
+      //
+      // И телеграмных колонок ДВЕ: profile партнёра и аккаунт человека
+      // (lib/partners/reach). Сторож читал первую и молчал про операторов, у
+      // которых адрес во второй, — тех самых, до кого бронь из чата доезжала.
       `SELECT ot.operator_id::text,
               p.slug AS partner_slug,
               COALESCE(p.company_name, p.name) AS partner_name,
@@ -230,8 +265,16 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
     if (rows.length === 0) return null;
 
     const dateStr = new Date().toISOString().slice(0, 10);
-    for (const row of rows) {
-      // Пишем паттерн в Brain
+    // Две разные беды с одинаковым видом в базе (issue #1719). Заявка по туру
+    // оператора без единого адреса создаётся и НИКУДА НЕ УЕЗЖАЕТ — а через 48
+    // часов эта проверка записывала оператору «не ответил на бронирование».
+    // Вина уезжала на него за нашу недоставку, и запись оставалась в Brain
+    // паттерном ЕГО поведения: факт о нас, записанный как факт о нём.
+    const unreachable = rows.filter(r => !reachFrom(r).reachable);
+    const reachable = rows.filter(r => reachFrom(r).reachable);
+
+    for (const row of reachable) {
+      // Паттерн поведения пишется ТОЛЬКО тому, до кого заявка дошла.
       const slug = `patterns/operators/${row.partner_slug ?? row.operator_id}`;
       const entry = `${dateStr}: ${row.count} бронирований без ответа >48ч`;
       knowledgeBase.upsert({
@@ -243,23 +286,39 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
         agent_id: 'watchdog',
       }).then(() => knowledgeBase.appendTimeline(slug, entry)).catch(() => {});
 
-      // Пишем оператору напрямую если зарегистрирован
       const reach = reachFrom(row);
-      if (reach.telegramChatId && row.partner_name) {
+      if (row.partner_name) {
         notifyOperatorDirectly(
-          reach.telegramChatId,
+          { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
           row.partner_name,
           parseInt(row.count, 10),
           row.oldest,
-        ).catch(() => {});
+        ).catch(() => null);
       }
     }
 
-    const notified = rows.filter(r => reachFrom(r).telegramChatId).length;
+    for (const row of unreachable) {
+      // След остаётся — но НАШ, и назван нашими словами. Без него недоставка
+      // была бы просто вычеркнута из отчёта, а это второй способ соврать.
+      const name = row.partner_name ?? row.partner_slug ?? row.operator_id;
+      console.error(
+        `[watchdog] у оператора «${name}» нет ни MAX, ни Telegram — ${row.count} заявок (с ${row.oldest}) до него не дошли; это недоставка платформы, не молчание оператора`,
+      );
+    }
+
+    const details = [
+      reachable.length > 0
+        ? `${reachable.length} оператор(ов) не ответили на бронирование > 48ч.`
+        : null,
+      unreachable.length > 0
+        ? `${unreachable.length} оператор(ов) без MAX и Telegram — их заявки до них НЕ ДОШЛИ, это наша недоставка (подробности: GET /api/cron/operator-reach).`
+        : null,
+    ].filter(Boolean).join(' ');
+
     return {
       type: 'operator_no_response',
       count: rows.length,
-      details: `${rows.length} оператор(ов) не ответили на бронирование > 48ч.${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Операторы не подключены к боту.'}`,
+      details,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -800,7 +859,7 @@ async function checkIgnoredSOS(): Promise<CheckResult> {
       SELECT id, lat, lng, origin_class,
              ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_min
       FROM sos_events
-      WHERE status NOT IN ('resolved', 'false_alarm')
+      WHERE ${SOS_ACTIVE_SQL}
         AND created_at < NOW() - INTERVAL '15 minutes'
       ORDER BY created_at ASC
     `);

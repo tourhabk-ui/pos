@@ -16,7 +16,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { canDispatchIntent, allowedIntentsForRole } from '../../lib/agents/permissions';
+import {
+  canDispatchIntent, allowedIntentsForRole, ADMIN_ONLY_INTENTS, NON_ADMIN_ROLES,
+} from '../../lib/agents/permissions';
 
 const AGENT = readFileSync('lib/agents/platform-agent.ts', 'utf8');
 
@@ -80,5 +82,72 @@ describe('сама матрица: кому что положено', () => {
   it('админу открыто всё', () => {
     expect(canDispatchIntent('admin', 'rescue_sos_stats')).toBe(true);
     expect(canDispatchIntent('admin', 'channel_post_route')).toBe(true);
+  });
+});
+
+
+/**
+ * Мёртвая ветка маршрутизатора — находка аудита 08.09, и она о ЦЕНЕ
+ * предыдущей починки.
+ *
+ * Гейт `canDispatchIntent` поставили накануне. До того он не вызывался ни
+ * разу, матрица была украшением, и никто не замечал, что она никогда не
+ * сверялась с `route()`. Стоило гейту заработать — и стало видно: из
+ * двадцати двух веток маршрутизатора двенадцать недостижимы никому, кроме
+ * админа со звёздочкой, и пять из них — своё агентство гида, включая
+ * `guide_route_preflight`, проверку маршрута перед выходом.
+ *
+ * Живой аварии не случилось: `dispatch` сегодня зовут только с ролями
+ * `admin` и `operator`, а функции гида живут обычными роутами мимо агента.
+ * Но скрытое расхождение стало закреплённым, и следующий, кто заведёт путь
+ * гида, получил бы тихий `unknown` вместо ответа.
+ *
+ * Отсюда правило: ветка, которую маршрутизатор умеет обрабатывать, обязана
+ * быть достижима хоть кем-то, кроме админа, — либо ЯВНО объявлена админской.
+ * Состояния «просто забыли» тут быть не должно.
+ */
+describe('мёртвых веток маршрутизатора нет', () => {
+  const ROUTED = [...AGENT.matchAll(/^\s*case '([a-z_]+)':/gm)]
+    .map((m) => m[1])
+    .filter((i) => i !== 'unknown');
+
+  it('ветки вообще нашлись — сторожу есть что сторожить', () => {
+    expect(ROUTED.length).toBeGreaterThan(15);
+  });
+
+  it('у каждой ветки есть роль, которая до неё доходит', () => {
+    const orphan = ROUTED.filter(
+      (intent) =>
+        !ADMIN_ONLY_INTENTS.includes(intent) &&
+        !NON_ADMIN_ROLES.some((r) => canDispatchIntent(r, intent)),
+    );
+    expect(
+      orphan,
+      `маршрутизатор их обрабатывает, но позвать не может никто: ${orphan.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('админские по замыслу названы явно, а не молчанием', () => {
+    // Список существует затем, чтобы «решили не давать» не сливалось с
+    // «забыли дать»: молчание этих двух вещей не различает.
+    for (const intent of ADMIN_ONLY_INTENTS) {
+      expect(
+        NON_ADMIN_ROLES.some((r) => canDispatchIntent(r, intent)),
+        `${intent} объявлен админским, но выдан роли`,
+      ).toBe(false);
+    }
+  });
+
+  it('предполётная проверка маршрута доступна гиду', () => {
+    // Ради неё платформа и существует: гид смотрит маршрут перед выходом.
+    expect(canDispatchIntent('guide', 'guide_route_preflight')).toBe(true);
+    expect(canDispatchIntent('guide', 'guide_status')).toBe(true);
+  });
+
+  it('расширение матрицы не открыло чужого', () => {
+    expect(canDispatchIntent('guide', 'op_revenue')).toBe(false);
+    expect(canDispatchIntent('tourist', 'guide_route_preflight')).toBe(false);
+    expect(canDispatchIntent('anonymous', 'guide_route_preflight')).toBe(false);
+    expect(canDispatchIntent('guide', 'channel_post_route')).toBe(false);
   });
 });

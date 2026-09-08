@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { callAIWithModel } from '@/lib/ai/providers';
+import { callAIWithModel, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { query } from '@/lib/database';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getModelForAgent } from '@/lib/ai/agent-models';
@@ -52,6 +52,12 @@ ${leads.map((l, i) => `${i + 1}. "${redactPII(l.comment || 'без коммен�
     `;
 
     const { text: response } = await callAIWithModel([{ role: 'user', content: prompt }] as ChatMessage[], getModelForAgent('legal'));
+    // Заглушка отказа не разбирается как JSON и рапортовала бы «ошибка
+    // разбора» — то есть виноватой оказывалась модель, а молчали провайдеры.
+    if (isWaterfallErrorResponse(response)) {
+      console.error('[lead-agency] квалификация не выполнена: провайдеры молчат');
+      return { success: false, error: 'Провайдеры не ответили — лиды не квалифицированы' };
+    }
 
     try {
       const parsed = JSON.parse(response);
@@ -107,6 +113,10 @@ ${leads.map((l, i) => `${i + 1}. "${redactPII(l.comment || 'без коммен�
     `;
 
     const { text: response } = await callAIWithModel([{ role: 'user', content: prompt }] as ChatMessage[], getModelForAgent('legal'));
+    if (isWaterfallErrorResponse(response)) {
+      console.error('[lead-agency] подбор не выполнен: провайдеры молчат');
+      return { success: false, error: 'Провайдеры не ответили — подбор не сделан' };
+    }
     try {
       const parsed = JSON.parse(response);
       return { success: true, suggestions: parsed.tours };

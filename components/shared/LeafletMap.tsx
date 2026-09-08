@@ -29,6 +29,22 @@ interface LeafletMapProps {
    * «здесь низ занят», не трогая остальные семь поверхностей с Leaflet.
    */
   attributionPosition?: 'topleft' | 'topright' | 'bottomleft' | 'bottomright';
+  /**
+   * Сколько пикселей сверху занято чужой панелью, лежащей ПОВЕРХ карты.
+   *
+   * Тот же род поправки, что `attributionPosition`, только про верх. На
+   * экране «На маршруте» карта растянута `fixed inset-0 z-0`, а над ней
+   * висит липкая полоса вкладок (z-40, 47 px). Замер 08.09: кнопка «+»
+   * лежала в y 12–42 — то есть целиком под полосой, и приблизить карту
+   * кнопкой было нельзя вовсе; «−» закрыта наполовину. Атрибуция
+   * OpenStreetMap, перенесённая 04.09 из мёртвого низа в topleft, оказалась
+   * в (0,0,263×17) — под той же полосой: elementFromPoint в её точке
+   * возвращает полосу вкладок. Условие CC-BY-SA при этом требует, чтобы
+   * ссылка была ВИДНА.
+   *
+   * Отступ задаёт вызывающий, потому что только он знает, что у него сверху.
+   */
+  topInset?: number;
   onMarkerClick?: (id: string) => void;
   /**
    * Тап по свободной точке карты — сырые координаты под пальцем, не
@@ -162,6 +178,7 @@ export default function LeafletMap({
   // иначе (не через это проп).
   attribution = true,
   attributionPosition,
+  topInset = 0,
   onMarkerClick,
   onMapClick,
   showUserLocation = false,
@@ -381,6 +398,20 @@ export default function LeafletMap({
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
       L.control.zoom({ position: 'topright' }).addTo(map);
 
+      // Верх занят чужой панелью — сдвигаем ОБА верхних угла Leaflet вниз.
+      // Иначе контролы честно существуют и честно недостижимы: замер 08.09
+      // на «На маршруте» — «+» целиком под полосой вкладок, атрибуция тоже
+      // (см. topInset в пропсах). Padding на угловом контейнере, а не
+      // margin на кнопках: угол один, а контролов в нём может быть сколько
+      // угодно, и следующий добавленный получит отступ сам.
+      if (topInset > 0) {
+        const root = map.getContainer();
+        for (const sel of ['.leaflet-top.leaflet-left', '.leaflet-top.leaflet-right']) {
+          const corner = root.querySelector(sel);
+          if (corner instanceof HTMLElement) corner.style.paddingTop = `${topInset}px`;
+        }
+      }
+
       // Свой угол атрибуции (см. attributionPosition выше) — заменяет
       // отключённый встроенный контрол, тем же текстом.
       if (attribution !== false && attributionPosition) {
@@ -420,7 +451,19 @@ export default function LeafletMap({
           tileLayer.setUrl(TILE_URLS[sourceIdx]);
           return;
         }
-        // Все источники исчерпаны — оверлей (GPS всё равно работает).
+        // Все источники исчерпаны — оверлей о ТАЙЛАХ.
+        //
+        // Он говорит только о том, что знает сам: подложка не пришла, а
+        // точки и линии рисуются не из неё. Про GPS здесь не сказано ни
+        // слова, и это правка 08.09: прежний текст безусловно утверждал
+        // «GPS работает — координаты активны», ничего о геолокации не зная.
+        // Замер того же дня на полевом экране с ЗАПРЕЩЁННОЙ геолокацией дал
+        // три несовместимых утверждения разом: этот оверлей — «GPS
+        // работает», строка приборов — «Ищем спутники…», карточка — «Своё
+        // положение не определено». Человек в поле решает по ним, верить ли
+        // стрелке (§4.0 CLAUDE.md: место, где нельзя сказать «не знаю»,
+        // заполняется враньём).
+        //
         // Код стадии — тот же язык диагностики, что у leaflet_import/
         // cluster_import/map_init (M0-4): это четвёртая, отдельная причина
         // «карта не загрузилась», не смешанная с остальными тремя.
@@ -434,7 +477,7 @@ export default function LeafletMap({
           errorOverlay.innerHTML =
             '<div style="text-align:center;padding:20px;color:#8b949e">' +
             '<div style="font-size:13px;font-weight:700;color:#f0f6fc;margin-bottom:6px">Карта недоступна</div>' +
-            '<div style="font-size:12px;line-height:1.5">GPS работает — координаты активны.<br>Тайлы карты не загружаются.</div>' +
+            '<div style="font-size:12px;line-height:1.5">Подложка не загрузилась ни с одного источника.<br>Точки и линии маршрута остаются на месте — они не из тайлов.</div>' +
             '</div>';
           containerRef.current.style.position = 'relative';
           containerRef.current.appendChild(errorOverlay);

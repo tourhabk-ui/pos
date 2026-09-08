@@ -11,7 +11,7 @@ import { join } from 'node:path';
 const src = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
 const fn = src.slice(
   src.indexOf('export async function callGeminiVision'),
-  src.indexOf('// ── Gemini Audio Transcription'),
+  src.indexOf('// ── Распознавание речи'),
 );
 
 describe('зрение Кузьмича — RF-фолбэк', () => {

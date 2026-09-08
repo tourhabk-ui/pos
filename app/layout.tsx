@@ -47,6 +47,16 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  /**
+   * Цвет строки состояния. Место у него ровно одно — здесь.
+   *
+   * До 08.09 он был задан ДВАЖДЫ и оба раза мимо: `themeColor` в объекте
+   * metadata (Next 15 такое поле там не поддерживает и на каждой загрузке
+   * страницы пишет об этом в консоль) и ручной <meta> в <head>. Ручной тег
+   * работал, предупреждение шло — и разбирающий консоль видел шум, за
+   * которым легко пропустить настоящую ошибку.
+   */
+  themeColor: '#0f172a',
 };
 
 export const metadata: Metadata = {
@@ -126,7 +136,6 @@ export const metadata: Metadata = {
     },
   },
   manifest: '/manifest.json',
-  themeColor: '#0f172a',
   applicationName: 'Ведар',
   appleWebApp: {
     capable: true,
@@ -181,7 +190,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="shortcut icon" href="/favicon.ico" />
-        <meta name="theme-color" content="#0f172a" />
       </head>
       <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable} ${manrope.variable} ${jetbrainsMono.variable} ${unbounded.variable}`}>
         <Providers>

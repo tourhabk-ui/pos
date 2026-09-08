@@ -5,7 +5,6 @@
  * Агенты больше не просто "разговаривают" — они действуют.
  *
  * Инструменты:
- *  - fixSQLColumnErrors   — патчит неправильные имена колонок в agency-файлах
  *  - runDiagnosticQuery   — выполняет безопасный SELECT для самодиагностики
  *  - applySchemaFix       — применяет SQL-патч к БД (только DDL/safe DML)
  *  - sendBoardAlert       — Telegram-уведомление администратору о действии агента
@@ -71,71 +70,52 @@ export const COLUMN_PATCH_MAP: Record<string, string> = {
 };
 
 // Agency-файлы с известными ошибками
+/**
+ * Файлы, которые перепись читает.
+ *
+ * Было одиннадцать, из них девять удалены вместе с советом директоров ещё в
+ * апреле. Перепись молча пропускала несуществующие (`existsSync` → continue),
+ * поэтому список выглядел живым, а смотрел в пустоту.
+ */
 const AGENCY_FILES = [
   'rescue-agency.ts',
-  'eco-agency.ts',
-  'security-agency.ts',
-  'legal-agency.ts',
-  'hacker-agency.ts',
-  'admin-agency.ts',
   'operator-agency.ts',
-  'planning-agency.ts',
-  'quality-agency.ts',
-  'evolution-agency.ts',
-  'content-auditor-agency.ts',
+  'guide-agency.ts',
+  'danger-analyst-agency.ts',
+  'lead-agency.ts',
+  'marketing-agency.ts',
+  'tourist-agency.ts',
 ] as const;
 
 const AGENCIES_DIR = path.join(process.cwd(), 'lib', 'agents', 'agencies');
 
 /**
- * Применяет патчи колонок к SQL-строкам в указанном agency-файле.
+ * fixSQLColumnErrors УДАЛЁН 08.09 по находке аудита.
+ *
+ * Он переписывал ИСХОДНИКИ на проде подстрочной заменой и сохранял результат
+ * на диск. Три довода, каждого хватило бы:
+ *
+ * 1. Это прямо запрещено ядром — `lib/agents/kernel/policy.ts`:
+ *    «правка кода на проде мимо PR запрещена: код меняется только draft PR +
+ *    merge человека». Запрет стоял на пути ядра, а `executeBoardTool` его не
+ *    спрашивал: дверь заперли, окно оставили.
+ *
+ * 2. Замена шла БЕЗ ГРАНИЦ СЛОВА. В карте есть «WHERE status NOT IN» →
+ *    «WHERE booking_status NOT IN», а в rescue-agency этой формой отбираются
+ *    АКТИВНЫЕ SOS из `sos_events`, где колонки `booking_status` нет вовсе.
+ *    Инструмент сломал бы сводку SOS целиком — тот самый запрос, который
+ *    накануне чинили, чтобы живой сигнал перестал теряться. Там же
+ *    «status = 'confirmed'» превратило бы уже правильное
+ *    `b.booking_status` в `b.booking_booking_status`.
+ *
+ * 3. Девять из одиннадцати файлов, которые он «чинил», удалены вместе с
+ *    советом директоров ещё в апреле. Из выживших двух один — rescue-agency.
+ *
+ * И сверх того: в standalone-образе Timeweb исходников `.ts` нет, так что
+ * работать это не могло и по построению.
+ *
+ * `scanSQLErrors` оставлен как ПЕРЕПИСЬ — он только читает и ничего не пишет.
  */
-export async function fixSQLColumnErrors(agencyFileName?: string): Promise<ToolResult> {
-  const targets = agencyFileName ? [agencyFileName] : [...AGENCY_FILES];
-  const changes: string[] = [];
-  const errors: string[] = [];
-
-  for (const fileName of targets) {
-    const filePath = path.join(AGENCIES_DIR, fileName);
-    if (!fs.existsSync(filePath)) {
-      errors.push(`Файл не найден: ${fileName}`);
-      continue;
-    }
-
-    let content = fs.readFileSync(filePath, 'utf8');
-    let fileChanged = false;
-    const fileChanges: string[] = [];
-
-    for (const [wrong, correct] of Object.entries(COLUMN_PATCH_MAP)) {
-      if (content.includes(wrong)) {
-        const before = content;
-        content = content.split(wrong).join(correct);
-        if (content !== before) {
-          fileChanges.push(`  ${wrong} → ${correct}`);
-          fileChanged = true;
-        }
-      }
-    }
-
-    if (fileChanged) {
-      fs.writeFileSync(filePath, content, 'utf8');
-      changes.push(`[${fileName}] исправлено ${fileChanges.length} паттернов:`);
-      changes.push(...fileChanges);
-    }
-  }
-
-  await logToolAction('sql_column_fix', { files_patched: changes.length, changes, errors });
-
-  if (errors.length > 0 && changes.length === 0) {
-    return { success: false, message: `Ошибки: ${errors.join(', ')}`, details: { errors } };
-  }
-
-  const msg = changes.length > 0
-    ? `Исправлено SQL в ${targets.length} файлах. Изменений: ${changes.length} строк.`
-    : 'SQL-ошибок не обнаружено, все колонки корректны.';
-
-  return { success: true, message: msg, details: { changes, errors } };
-}
 
 /** Потолок строк диагностики: инструмент для взгляда, а не для выгрузки. */
 export const DIAGNOSTIC_ROW_LIMIT = 20;
@@ -325,7 +305,6 @@ export function scanSQLErrors(): { file: string; issues: string[] }[] {
 // admin/evolution/quality.
 
 export const BOARD_TOOLS = [
-  'fixSQLColumnErrors',
   'runDiagnosticQuery',
   'applySchemaFix',
   'sendBoardAlert',
@@ -338,26 +317,24 @@ export type BoardToolName = (typeof BOARD_TOOLS)[number];
 const READONLY_SCOPE: BoardToolName[] = ['runDiagnosticQuery', 'scanSQLErrors', 'sendBoardAlert'];
 
 export const AGENCY_TOOL_SCOPE: Record<string, BoardToolName[]> = {
-  // Полный доступ — только инфраструктурные агентства.
-  'admin-agency': [...BOARD_TOOLS],
-  'evolution-agency': [...BOARD_TOOLS],
-  // Может чинить SQL в файлах и диагностировать, но не менять схему БД.
-  'quality-agency': ['fixSQLColumnErrors', 'runDiagnosticQuery', 'scanSQLErrors', 'sendBoardAlert'],
-  // Безопасность/аудит: сканирование + диагностика, без записи.
-  'security-agency': ['scanSQLErrors', 'runDiagnosticQuery', 'sendBoardAlert'],
-  'hacker-agency': ['scanSQLErrors', 'runDiagnosticQuery'],
-  'content-auditor-agency': ['scanSQLErrors', 'runDiagnosticQuery', 'sendBoardAlert'],
-  // Доменные агентства — только чтение + алерт (rescue не пишет в БД/файлы).
+  // Только существующие агентства (находка аудита 08.09).
+  //
+  // Здесь стояли шесть удалённых вместе с советом директоров ещё в апреле —
+  // admin, evolution, security, hacker, content-auditor, transfer, — и первым
+  // двум был выписан ПОЛНЫЙ доступ, включая applySchemaFix, то есть правку
+  // схемы прода мимо миграций. Права мёртвых не безобидны: имя агентства
+  // приходит строкой, и любой, кто её подставит, получает то, чего никто
+  // живой не имеет.
+  //
+  // Сторож `tests/unit/no-source-rewrite-on-prod.test.ts` держит правило:
+  // каждое агентство реестра существует на диске.
   'rescue-agency': READONLY_SCOPE,
   'guide-agency': READONLY_SCOPE,
-  'transfer-agency': READONLY_SCOPE,
+  'danger-analyst-agency': READONLY_SCOPE,
+  'operator-agency': READONLY_SCOPE,
   'lead-agency': READONLY_SCOPE,
   'marketing-agency': READONLY_SCOPE,
   'tourist-agency': READONLY_SCOPE,
-  'eco-agency': READONLY_SCOPE,
-  'legal-agency': READONLY_SCOPE,
-  'operator-agency': READONLY_SCOPE,
-  'planning-agency': READONLY_SCOPE,
 };
 
 /** true, если агентству разрешён инструмент. Неизвестное агентство → запрет. */
@@ -388,8 +365,6 @@ export async function executeBoardTool(
   }
 
   switch (tool) {
-    case 'fixSQLColumnErrors':
-      return fixSQLColumnErrors(args[0] as string | undefined);
     case 'runDiagnosticQuery':
       return runDiagnosticQuery(args[0] as string, args[1] as string | undefined);
     case 'applySchemaFix':

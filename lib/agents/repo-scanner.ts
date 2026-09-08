@@ -11,6 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 
@@ -117,7 +118,11 @@ export async function scanRepoTree(): Promise<{ summary: string; filesFound: num
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const url = `${GITHUB_API}/repos/${GITHUB_REPO}/git/trees/main?recursive=1`;
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+    // githubFetch, а не голый: с прода в РФ api.github.com может не достаться,
+    // и тогда весь прочёс молча схлопывается в ноль — брифинг агентов уходит
+    // без дерева репозитория и выглядит так же, как «в репозитории пусто»
+    // (находка аудита 08.09). Релей и токен подставляются сами.
+    const res = await githubFetch(url, { headers, signal: AbortSignal.timeout(15_000) });
     if (!res.ok) {
       return { summary: `GitHub tree API: ${res.status} ${res.statusText}`, filesFound: 0 };
     }

@@ -367,17 +367,23 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     const audioAtt = attachments.find(a => a.type === 'audio');
     if (audioAtt?.payload?.url) {
       await maxReply(chatId, 'Слушаю...');
+      // Те же два отказа и те же две фразы, что в Telegram (см. там же).
       let transcription: string | undefined;
+      let voiceFailure: 'unintelligible' | 'unavailable' = 'unavailable';
       try {
         const mediaData = await downloadMedia(audioAtt.payload.url);
         if (mediaData) {
           const { callGeminiTranscribe } = await import('@/lib/ai/providers');
-          transcription = await callGeminiTranscribe(mediaData.base64, mediaData.mimeType) ?? undefined;
+          const outcome = await callGeminiTranscribe(mediaData.base64, mediaData.mimeType);
+          if (outcome.ok) transcription = outcome.text;
+          else voiceFailure = outcome.reason;
         }
       } catch { /* не критично */ }
 
       if (!transcription) {
-        await maxReply(chatId, 'Не разобрал голосовое. Напишите текстом?');
+        await maxReply(chatId, voiceFailure === 'unintelligible'
+          ? 'Не разобрал голосовое. Напишите текстом?'
+          : 'Распознавание речи сейчас недоступно — напишите, пожалуйста, текстом.');
         return;
       }
 

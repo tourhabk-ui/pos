@@ -150,16 +150,42 @@ describe('режим car — нормализует ответ провайде�
     expect(json.result.options[0].title).toBe('Путь на автомобиле');
   });
 
-  it('found с ненадёжной привязкой (снап > 1000 м) — эндпоинт понижает в not_found', async () => {
-    // Реальная межрегиональная проба владельца: провайдер честно ответил
-    // Ok/found, снап цели — 8.8 км. Guard обязан не пропустить это к экрану.
+  it('дорога не доходит до цели — это подъезд, и он назван подъездом', async () => {
+    // Правка 08.09. Прежде здесь стоял not_found на любой дальний снап, и
+    // это било по обычному случаю: цель из списка — МЕСТО (вершина, озеро,
+    // источник), дороги до него нет почти никогда. Тап по карте попадал
+    // рядом с дорогой и работал — та самая разница «с карты строится, из
+    // списка нет».
+    const calcRoute = {
+      kind: 'calculated_car',
+      geometry: { type: 'LineString', coordinates: [[158.45, 53.19], [158.72, 53.32]] },
+      distanceM: 42000,
+      durationS: 4200,
+      originSnapped: { lat: 53.19, lon: 158.45, snapDistanceM: 1.3 },
+      destinationSnapped: { lat: 53.30, lon: 158.70, snapDistanceM: 3400 },
+      provider: 'fixture', builtAt: '2026-08-28T00:00:00.000Z', traffic: false,
+      mayDisplay: true, mayNavigate: false, mayPersist: false,
+    };
+    routeMock.mockResolvedValue({ status: 'found', route: calcRoute });
+    const res = await POST(req({ origin: PPK, destination: AVACHA, mode: 'car' }));
+    const json = await res.json();
+    expect(json.result.status).toBe('found');
+    // Заголовок обязан сказать, что путь НЕ доходит, и назвать остаток.
+    expect(json.result.options[0].title).toMatch(/Подъезд/);
+    expect(json.result.options[0].title).toMatch(/3\.4 км/);
+    expect(json.result.options[0].title).toMatch(/пешком/);
+  });
+
+  it('не привязан САМ СТАРТ — по-прежнему not_found', async () => {
+    // Ехать не с чего: линия, начинающаяся неизвестно где, — то самое
+    // враньё, ради которого порог заводился.
     const calcRoute = {
       kind: 'calculated_car',
       geometry: { type: 'LineString', coordinates: [[158.45, 53.19], [37.62, 55.75]] },
       distanceM: 109602.1,
       durationS: 8077.5,
-      originSnapped: { lat: 53.19, lon: 158.45, snapDistanceM: 1.3 },
-      destinationSnapped: { lat: 55.75, lon: 37.62, snapDistanceM: 8804.39108 },
+      originSnapped: { lat: 53.19, lon: 158.45, snapDistanceM: 8804.39108 },
+      destinationSnapped: { lat: 55.75, lon: 37.62, snapDistanceM: 1.3 },
       provider: 'fixture', builtAt: '2026-08-28T00:00:00.000Z', traffic: false,
       mayDisplay: true, mayNavigate: false, mayPersist: false,
     };

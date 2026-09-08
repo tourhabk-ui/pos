@@ -34,6 +34,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { applySnapGuard } from '@/lib/on-route/route-provider';
 import { roadGraphCarProvider } from '@/lib/on-route/road-graph-car-provider';
 import type { RouteBuildResult } from '@/lib/on-route/route-build';
+import { carRouteReach, carApproachGapM, formatApproachGap } from '@/lib/on-route/calculated-route';
 import type { RouteOption } from '@/lib/on-route/destination';
 import {
   KRAI_LAT_MIN, KRAI_LAT_MAX, KRAI_LNG_MIN, KRAI_LNG_MAX,
@@ -117,6 +118,14 @@ export async function POST(request: NextRequest) {
       result = { status: 'not_found', reason: providerResult.reason };
       break;
     case 'found': {
+      // Дорога может не доходить до цели — тогда это ПОДЪЕЗД, и он назван
+      // подъездом. Остаток до самой цели несёт сама геометрия
+      // (destinationSnapped.snapDistanceM), экран показывает его словами:
+      // выдавать подъезд за путь до вершины нельзя, но и молчать о нём —
+      // значит отвечать «пути нет» там, где люди ездят каждый день.
+      const reach = carRouteReach(providerResult.route);
+      const gap = carApproachGapM(providerResult.route);
+      const target = destination.title ?? 'Путь на автомобиле';
       const option: RouteOption = {
         id: 'calculated-car',
         // Имя цели, если оно есть (место из поиска/тапа по карте) —
@@ -127,7 +136,9 @@ export async function POST(request: NextRequest) {
         // не меняется» даже после починки самого экрана (title всегда
         // приходил одним и тем же словом). У координаты без имени title
         // не задан вовсе (Zod-схема) — тогда родовое имя остаётся честным.
-        title: destination.title ?? 'Путь на автомобиле',
+        title: reach === 'approach'
+          ? `Подъезд к «${target}» — дальше ${formatApproachGap(gap)} пешком`
+          : target,
         distanceKm: providerResult.route.distanceM / 1000,
         // Намеренно null — см. lib/on-route/destination.ts: посчитанный
         // путь не снятый трек, приписывать ему грейд нельзя (§12).

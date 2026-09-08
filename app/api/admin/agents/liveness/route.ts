@@ -13,7 +13,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { CRON_REGISTRY, entriesByTier, type CronTier } from '@/lib/agents/cron-registry';
 import { computeLiveness, overallPosture, type LivenessStatus } from '@/lib/agents/cron-liveness';
-import { EXTERNAL_SCHEDULE, MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
+import { EXTERNAL_SCHEDULE, MANUAL_ENDPOINTS, ORCHESTRATOR_STAGES } from '@/lib/agents/cron-schedulers';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,6 +114,16 @@ export async function GET(request: NextRequest) {
       writes: d.writes,
       // Подтвердить исполнение из репозитория нечем — так и говорим.
       liveness: 'unverifiable' as const,
+    })),
+    // Стадии оркестратора — единственные из «вне GitHub Actions», чья живость
+    // ИЗМЕРИМА: она равна живости прогона-хозяина. Отдаём их отдельно от
+    // external, чтобы «идёт с эволюцией» не смешивалось с «не знаю».
+    stages: Object.entries(ORCHESTRATOR_STAGES).map(([endpoint, d]) => ({
+      endpoint: `/api/cron/${endpoint}`,
+      note: d.note,
+      writes: d.writes,
+      liveness_via: d.host,
+      liveness: items.find((i) => i.key === d.host)?.liveness ?? ('unknown' as const),
     })),
     manual_count: Object.keys(MANUAL_ENDPOINTS).length,
   };

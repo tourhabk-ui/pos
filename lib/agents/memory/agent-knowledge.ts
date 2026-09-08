@@ -11,6 +11,18 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+
+/*
+ * Отказы БД здесь ГЛУШИЛИСЬ ЦЕЛИКОМ (находка аудита 08.09): семь пустых
+ * catch возвращали null, пустой список или false. Соседний AgentMemory при
+ * этом логировал — то есть правило на платформе было, а половина хранилища
+ * его не исполняла.
+ *
+ * Цена: потребители (хранение выпуска разведки, предохранитель повторов,
+ * мост находок) не могли отличить «знаний нет» от «база упала». Первое —
+ * рабочее состояние, второе — авария, и выглядели они одинаково.
+ */
 
 export interface KnowledgePage {
   id: number;
@@ -86,7 +98,8 @@ export class KnowledgeBase {
         ]
       );
       return rows[0] ?? null;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'upsert', err);
       return null;
     }
   }
@@ -104,7 +117,8 @@ export class KnowledgeBase {
         [slug]
       );
       return rows[0] ?? null;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'get', err);
       return null;
     }
   }
@@ -156,7 +170,8 @@ export class KnowledgeBase {
       }
 
       return rows;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'search', err);
       return [];
     }
   }
@@ -195,7 +210,8 @@ export class KnowledgeBase {
         params
       );
       return rows;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'list', err);
       return [];
     }
   }
@@ -215,7 +231,8 @@ export class KnowledgeBase {
         [slug, line]
       );
       return (result.rowCount ?? 0) > 0;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'appendTimeline', err);
       return false;
     }
   }
@@ -232,7 +249,8 @@ export class KnowledgeBase {
         [fromSlug, toSlug, linkType, context ?? '']
       );
       return true;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'link', err);
       return false;
     }
   }
@@ -250,7 +268,8 @@ export class KnowledgeBase {
         [slug]
       );
       return rows;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'getLinks', err);
       return [];
     }
   }
@@ -267,7 +286,8 @@ export class KnowledgeBase {
         type ? [type] : []
       );
       return parseInt(rows[0]?.cnt ?? '0', 10);
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('agent-knowledge', 'count', err);
       return 0;
     }
   }

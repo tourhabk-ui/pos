@@ -67,6 +67,49 @@ export function withinSnapTolerance(
 }
 
 /**
+ * Чем кончился расчёт для ЦЕЛИ — три исхода, а не два (§4.0).
+ *
+ *   reaches  — дорога доходит до цели: обе привязки в пределах порога;
+ *   approach — до цели дороги нет, но подъезд есть: старт привязан, цель нет.
+ *              Это ПУТЬ, который существует, и он ровно тот, каким люди
+ *              ездят: до ближайшей дороги, дальше пешком. Отказывать в нём
+ *              значит молчать о том, что мы знаем;
+ *   unusable — не привязан САМ СТАРТ: ехать не с чего, показывать нечего.
+ *
+ * Разбор 08.09. Порог привязки — 1 км, а цели в списке это места: вершины,
+ * озёра, источники. До вершины Горелого дороги нет ни одной, и прежняя
+ * политика («любая привязка дальше порога — not_found») отвечала «путь не
+ * найден» на КАЖДУЮ такую цель. Тап по карте при этом попадал рядом с
+ * дорогой и путь строился — отсюда и жалоба владельца «с карты строится, из
+ * списка нет».
+ *
+ * Опасность, от которой ставился порог, остаётся закрытой: подъезд НЕ
+ * выдаётся за путь до цели — остаток называется числом (`carApproachGapM`)
+ * и показывается рядом с линией.
+ */
+export type CarRouteReach = 'reaches' | 'approach' | 'unusable';
+
+export function carRouteReach(
+  route: Pick<CalculatedCarRoute, 'originSnapped' | 'destinationSnapped'>,
+): CarRouteReach {
+  if (route.originSnapped.snapDistanceM > MAX_CAR_SNAP_M) return 'unusable';
+  return route.destinationSnapped.snapDistanceM <= MAX_CAR_SNAP_M ? 'reaches' : 'approach';
+}
+
+/** Сколько остаётся от конца дороги до самой цели, метры. 0 — дорога доходит. */
+export function carApproachGapM(
+  route: Pick<CalculatedCarRoute, 'originSnapped' | 'destinationSnapped'>,
+): number {
+  return carRouteReach(route) === 'approach' ? route.destinationSnapped.snapDistanceM : 0;
+}
+
+/** Человеческий остаток: «ещё 3.4 км» / «ещё 700 м». */
+export function formatApproachGap(gapM: number): string {
+  if (!Number.isFinite(gapM) || gapM <= 0) return '';
+  return gapM >= 1000 ? `${(gapM / 1000).toFixed(1)} км` : `${Math.round(gapM)} м`;
+}
+
+/**
  * Единственная граница, где `[lng, lat]` (GeoJSON, RFC 7946) становится
  * `[lat, lng]` (Leaflet). Порядок осей ФИКСИРОВАН по контракту типа —
  * функция не угадывает его по диапазону значений: угадывание по диапазону

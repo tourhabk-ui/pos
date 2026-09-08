@@ -9,9 +9,10 @@
  */
 
 import { readFile, readdir } from 'fs/promises';
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { join } from 'path';
-import { callQwen, callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
@@ -109,11 +110,20 @@ async function scanLibFiles(): Promise<string> {
   }
 }
 
-async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
+/**
+ * Список задач с GitHub. `null` — ПРОЧИТАТЬ НЕ СМОГЛИ (§4.0).
+ *
+ * Раньше отказ возвращался пустой строкой, неотличимой от «открытых задач
+ * нет», и дедуп предложений по заголовкам молча выключался: агент заводил
+ * задачу, которая уже открыта. С прода в РФ api.github.com к тому же может
+ * не достаться вовсе — голый fetch давал пусто НА КАЖДОМ прогоне
+ * (находка аудита 08.09).
+ */
+async function readGitHubIssues(state: 'open' | 'closed'): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
-  if (!token) return '';
+  if (!token) return null;
   try {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/repos/tourhabk-ui/pos/issues?state=${state}&labels=agent-proposal&per_page=15`,
       {
         headers: {
@@ -124,12 +134,19 @@ async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
         signal: AbortSignal.timeout(10_000),
       },
     );
-    if (!res.ok) return '';
+    if (!res.ok) {
+      console.error('[scout-innovator] список задач не прочитан:', res.status);
+      return null;
+    }
     const issues = await res.json() as Array<{ title: string; created_at: string }>;
+    // Пустой список — настоящий ответ «открытых задач нет», и он НЕ равен
+    // отказу чтения. Именно это различие и было потеряно.
     if (!issues.length) return '';
     return issues.map(i => `- ${i.title}`).join('\n');
-  } catch {
-    return '';
+  } catch (err) {
+    console.error('[scout-innovator] список задач не прочитан:',
+      err instanceof Error ? err.message : String(err));
+    return null;
   }
 }
 
@@ -284,23 +301,25 @@ ${gitSection}
   try {
     // Opus (anthropic/*) недоступен из РФ: прод-крон (Timeweb) бил в
     // заблокированный OpenRouter/Anthropic-роут, вызов падал — эволюция
-    // переставала рождать предложения. Идём через подтверждённо-живой из РФ
-    // Qwen (DashScope), а водопад (DeepSeek/GLM, тоже доступны из РФ) — fallback.
+    // переставала рождать предложения. Отсюда путь через достижимых из РФ.
+    //
+    // Первой ступенью здесь стоял Qwen (DashScope). Снят 08.09 решением
+    // владельца («qwen не используем»): ключ отвергнут в ОБОИХ регионах
+    // DashScope, и с 05.09 эта ступень не отвечала ни разу — прогон 390 показал
+    // отказ по квоте, а не редкий сбой. Ступень, которая всегда возвращает
+    // null, — не запас, а лишний круг перед тем, кто и так отвечает.
+    //
     // 3000 токенов, а не умолчание 800 (05.09): три предложения с шагами и
     // критериями по-русски — это 2500-4000 знаков JSON, и на 800 токенах
     // ответ рвался на позиции ~2440 (прогон 389: «JSON.parse упал: Expected
-    // ',' or '}'»). Обрыв — не ошибка модели, а наш потолок.
-    const qwen = await callQwen(messages, { maxTokens: 3000 });
-    // Отказ водопада приходит null, а не строкой-извинением: иначе он уезжает
-    // в разбор и превращается в «нет JSON-массива» (экран владельца 04.09).
+    // ',' or '}'»). Обрыв — не ошибка модели, а наш потолок. Потолок обязан
+    // стоять у того, кто РЕАЛЬНО отвечает: когда он был поднят только у Qwen,
+    // запасной путь всё равно рвался на позиции 2437 (прогон 390).
     //
-    // Качественный путь с явным потолком, а не голый водопад (05.09, прогон
-    // 390): Qwen отказал по квоте, запасной путь ушёл в callAIWaterfall без
-    // опций — и там свои 600-800 токенов на ногу. Ответ снова оборвался на
-    // позиции 2437, из массива спасся один элемент. Потолок, поднятый только
-    // у Qwen, не поднят у того, кто отвечает вместо него.
-    const raw = qwen?.trim() ? qwen : await callAIQualityOrNull(messages, { maxTokens: 3000 });
-    const model_used = qwen?.trim() ? 'qwen' : 'quality';
+    // Отказ приходит null, а не строкой-извинением: иначе он уезжает в разбор
+    // и превращается в «нет JSON-массива» (экран владельца 04.09).
+    const raw = await callAIQualityOrNull(messages, { maxTokens: 3000 });
+    const model_used = 'quality';
     if (raw === null) {
       const why = describeRecentAiFailures() ?? 'причины не записаны';
       console.error(`[scout-innovator] Phase 1 (модель=${model_used}): провайдеры отказали — ${why}`);
@@ -611,6 +630,25 @@ export async function runScoutInnovator(
     };
   }
 
+  // Список открытых задач НЕ ПРОЧИТАН — дедуп сделать не из чего.
+  //
+  // Раньше отказ приходил пустой строкой и был неотличим от «открытых задач
+  // нет»: дедуп молча выключался, и агент заводил то, что уже открыто
+  // (находка аудита 08.09). Заводить вслепую хуже, чем пропустить прогон:
+  // мусор в трекере разгребает человек.
+  if (openIssues === null) {
+    console.error('[scout-innovator] дедуп не выполнен: список открытых задач недоступен');
+    return {
+      proposals_count: 0,
+      skipped_duplicates: 0,
+      sent_to_tg: false,
+      intel_entries: allPages.length,
+      duration_ms: Date.now() - start,
+      issues_created: [],
+      phase1_diag: `${phase1Diag}; список открытых задач НЕДОСТУПЕН — дедуп не выполнен, issue не создавались`,
+    };
+  }
+
   // Code-level dedup: filter proposals similar to existing open GitHub Issues.
   // Prompt says "don't repeat" but LLM isn't reliable — code decides.
   const openTitles = openIssues
@@ -629,7 +667,7 @@ export async function runScoutInnovator(
 
   // Critic-gate: вторая пара глаз перед созданием Issue (fail-open, параллельно)
   const verdicts = await Promise.all(
-    deduped.map((p) => criticReviewProposal(p, codebaseRules, closedIssues, libFilesList)),
+    deduped.map((p) => criticReviewProposal(p, codebaseRules, closedIssues ?? '', libFilesList)),
   );
   const proposals = deduped.filter((_, i) => verdicts[i].approved);
   const skipped_by_critic = deduped.length - proposals.length;

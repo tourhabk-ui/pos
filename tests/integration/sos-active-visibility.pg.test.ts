@@ -17,6 +17,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool } from 'pg';
+import { SOS_ACTIVE_SQL } from '../../lib/safety/sos-status';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -39,7 +40,17 @@ function liveActiveSql(): string {
   const open = src.indexOf('`', at);
   const close = src.indexOf('`', open + 1);
   if (open < 0 || close < 0) throw new Error('запрос активных SOS не в шаблонной строке');
-  return src.slice(open + 1, close);
+  const raw = src.slice(open + 1, close);
+
+  // Условие «сигнал висит» подставляется из единственного словаря
+  // (lib/safety/sos-status.ts), поэтому в исходнике стоит подстановка.
+  // Разворачиваем ЕЮ ЖЕ, а не переписанной копией: копия разошлась бы с
+  // оригиналом и тест охранял бы сам себя.
+  const expanded = raw.split('${SOS_ACTIVE_SQL}').join(SOS_ACTIVE_SQL);
+  if (expanded.includes('${')) {
+    throw new Error(`в запросе осталась неразвёрнутая подстановка: ${expanded}`);
+  }
+  return expanded;
 }
 
 /** Форма до починки: ограничение раньше фильтра. Здесь она нужна как эталон дефекта. */
