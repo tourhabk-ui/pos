@@ -204,13 +204,18 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       partner_slug: string | null;
       partner_name: string | null;
       telegram_chat_id: string | null;
+      max_chat_id: string | null;
       count: string;
       oldest: string;
     }>(
+      // max_chat_id спрашивается наравне с telegram: до 08.09 виден был только
+      // Telegram, и оператор, подключённый ТОЛЬКО к MAX, числился «не
+      // подключённым к боту» — при том, что заявки к нему доходили.
       `SELECT ot.operator_id::text,
               p.slug AS partner_slug,
               COALESCE(p.company_name, p.name) AS partner_name,
               p.telegram_chat_id,
+              p.max_chat_id::text AS max_chat_id,
               COUNT(*)::text AS count,
               MIN(ob.created_at)::date::text AS oldest
        FROM operator_bookings ob
@@ -219,21 +224,33 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
        WHERE ob.booking_status = 'new'
          AND ob.created_at < NOW() - INTERVAL '48 hours'
          AND ob.deleted_at IS NULL
-       GROUP BY ot.operator_id, p.slug, p.company_name, p.name, p.telegram_chat_id`,
+       GROUP BY ot.operator_id, p.slug, p.company_name, p.name, p.telegram_chat_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
 
     const dateStr = new Date().toISOString().slice(0, 10);
+    // «Молчит» и «до него не доходило» — разные вещи, и до 08.09 они были
+    // одной (issue #1719). У оператора без единого канала заявка не уезжает
+    // никуда: через 48 часов он попадал в Brain записью «бронирований без
+    // ответа», то есть НАШ пробел записывался в его репутацию, а починка
+    // искалась не там.
+    const reachable = rows.filter(r => r.telegram_chat_id || r.max_chat_id);
+    const unreachable = rows.filter(r => !r.telegram_chat_id && !r.max_chat_id);
+
     for (const row of rows) {
-      // Пишем паттерн в Brain
+      const canReach = Boolean(row.telegram_chat_id || row.max_chat_id);
       const slug = `patterns/operators/${row.partner_slug ?? row.operator_id}`;
-      const entry = `${dateStr}: ${row.count} бронирований без ответа >48ч`;
+      // Формулировка — по факту, а не по подозрению: одна говорит о поведении
+      // оператора, другая о состоянии платформы.
+      const entry = canReach
+        ? `${dateStr}: ${row.count} бронирований без ответа >48ч`
+        : `${dateStr}: ${row.count} заявок НЕ ДОСТАВЛЕНО — у оператора нет ни MAX, ни Telegram (пробел платформы, не молчание оператора)`;
       knowledgeBase.upsert({
         slug,
         type: 'pattern',
         title: `Паттерн оператора: ${row.partner_slug ?? row.operator_id}`,
         compiled_truth: entry,
-        metadata: { last_checked: dateStr, pending_count: Number(row.count) },
+        metadata: { last_checked: dateStr, pending_count: Number(row.count), delivered: canReach },
         agent_id: 'watchdog',
       }).then(() => knowledgeBase.appendTimeline(slug, entry)).catch(() => {});
 
@@ -249,10 +266,20 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
     }
 
     const notified = rows.filter(r => r.telegram_chat_id).length;
+    const lostCount = unreachable.reduce((n, r) => n + parseInt(r.count, 10), 0);
+    const details = [
+      reachable.length > 0
+        ? `${reachable.length} оператор(ов) не ответили на бронирование > 48ч.${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ''}`
+        : null,
+      unreachable.length > 0
+        ? `${unreachable.length} оператор(ов) НЕДОСТИЖИМЫ (нет ни MAX, ни Telegram) — ${lostCount} заявок до них не дошло: ` +
+          `${unreachable.map(r => r.partner_name ?? r.operator_id).join(', ')}. Это чинится у нас, а не у них.`
+        : null,
+    ].filter(Boolean).join(' ');
     return {
       type: 'operator_no_response',
       count: rows.length,
-      details: `${rows.length} оператор(ов) не ответили на бронирование > 48ч.${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Операторы не подключены к боту.'}`,
+      details,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
