@@ -480,7 +480,11 @@ describe('проход через Anthropic: платим только посл�
 
   it('проход идёт стримом: при таком потолке иначе таймаут', () => {
     expect(SRC).toMatch(/client\.messages\.stream\(\{/);
-    expect(SRC).toMatch(/const ANTHROPIC_MAX_OUTPUT = 64000;/);
+    // Потолок должен быть заметно выше того, чего не хватило в прогоне 5
+    // (32000), и не выше того, что модель вообще держит (128000).
+    const cap = Number(SRC.match(/const ANTHROPIC_MAX_OUTPUT = (\d+);/)?.[1]);
+    expect(cap).toBeGreaterThan(32000);
+    expect(cap).toBeLessThanOrEqual(128000);
   });
 
   it('глубина думания задаётся effort, а не бюджетом токенов', () => {
