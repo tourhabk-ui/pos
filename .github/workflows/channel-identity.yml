@@ -1,0 +1,82 @@
+name: Опознание Telegram-канала по его содержимому
+
+# Подбор источников нашёл живой t.me/s/kammeteo и предположил, что это
+# Камчатское УГМС. Перепись доказала, что канал жив, — и ничего про то, ЧЕЙ он.
+# Внести лавинный бюллетень «неизвестно от кого» в источники безопасности хуже,
+# чем не внести никакого: турист поверит подписи, а не нашей осторожности.
+#
+# Раннер, а не прод: t.me с прода закрыт, а с раннера читается напрямую; ключ
+# OpenRouter для раннера живёт в секретах репозитория (§8).
+#
+# Модель судит ТОЛЬКО скачанное — заголовок, описание, тексты постов, — а
+# вердикт принимается лишь с уликой, которая дословно есть в этом тексте.
+# Пересказ своими словами отбрасывается вместе с вердиктом: он неотличим от
+# выдумки, а спрашивать про малоизвестный региональный канал по памяти —
+# заказывать её.
+#
+# Ничего не пишет: печатает вердикт, подпись источника меняет человек.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Имя канала без @ (например kammeteo)'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/channel-identity.json'
+
+permissions:
+  contents: read
+
+jobs:
+  identify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Ожидания сборки нет намеренно: прогон не зовёт прод вовсе — только
+      # t.me и OpenRouter (сторож tests/unit/marker-waits-for-deploy).
+      - name: Опознать канал
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          INPUT_CHANNEL: ${{ github.event.inputs.channel || '' }}
+        run: |
+          set -uo pipefail
+          CH="$INPUT_CHANNEL"
+          if [ -z "$CH" ]; then
+            CH=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.github/triggers/channel-identity.json')).get('channel') or '')
+          except Exception:
+              print('')
+          ")
+          fi
+          if [ -z "$CH" ]; then
+            echo "::error::Канал не назван ни во входе, ни в маркере — опознавать нечего."
+            exit 1
+          fi
+          npx tsx scripts/channel-identity-runner.ts "$CH" | tee /tmp/identity.txt
+
+      - name: Итог в сводку прогона
+        if: always()
+        run: |
+          {
+            echo "## Опознание канала"
+            echo
+            echo '```'
+            cat /tmp/identity.txt 2>/dev/null || echo 'вывода нет'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
