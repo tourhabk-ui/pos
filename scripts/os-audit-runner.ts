@@ -270,7 +270,7 @@ interface Verdict { verdict?: string; why?: string; missing?: string }
  */
 async function verifyFinding(
   key: string, model: string, f: Finding, byPath: Map<string, string>, extra: string[] = [],
-): Promise<{ verdict: string; why: string; missing: string }> {
+): Promise<{ verdict: string; why: string; missing: string; outOfFunds?: boolean }> {
   const paths = [...new Set([...(f.files ?? []), ...extra])];
   const bundle = paths
     .map((p) => `=== ФАЙЛ: ${p} ===\n${byPath.get(p) ?? readIfExists(p)}`)
@@ -291,7 +291,18 @@ async function verifyFinding(
       }),
       signal: AbortSignal.timeout(300_000),
     });
-    if (!res.ok) return { verdict: 'cannot_tell', why: `проверяющий не ответил: HTTP ${res.status}`, missing: '' };
+    if (!res.ok) {
+      // 402 — не «не смог проверить эту находку», а «денег больше нет ни на
+      // одну». Различать обязательно: иначе раннер тринадцать раз подряд
+      // ходит за одним и тем же отказом и печатает тринадцать одинаковых
+      // строк, из которых не видно, что случилось на самом деле.
+      return {
+        verdict: 'cannot_tell',
+        why: `проверяющий не ответил: HTTP ${res.status}`,
+        missing: '',
+        outOfFunds: res.status === 402,
+      };
+    }
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     const text = data.choices?.[0]?.message?.content ?? '';
     const at = text.indexOf('{');
@@ -408,12 +419,41 @@ async function main(): Promise<void> {
 
   // Второй заход: каждую находку перепроверяем отдельно, показывая только её
   // файлы. Первый ответ модели поверхностен — это правило, а не случай.
-  console.log(`\nперепроверяю каждую находку отдельным заходом (${good.length})...`);
+  //
+  // Модель проверки — СВОЯ и по умолчанию дешевле основной.
+  //
+  // Два прогона подряд (2 и 3, ~1500 ₽) кончились одинаково: основной проход
+  // съедал баланс, а круг проверки упирался в 402, и тринадцать находок из
+  // девятнадцати оставались с исходом «не смог». Платить третий раз значило
+  // бы перетасовать список, а не добить его: проверка идёт по порядку, пока
+  // есть деньги, и какие находки успеют — дело очереди.
+  //
+  // Задача проверки узкая: дан текст файлов и одно утверждение, надо найти
+  // дословную примету и выбрать один из трёх исходов. Флагман здесь не нужен;
+  // к тому же ОТДЕЛЬНЫЙ судья независимее того же самого, что находку и
+  // написал. Ошибка дешёвой модели в сторону `cannot_tell` безопасна — это
+  // третий исход, а не ложное подтверждение.
+  const verifyModel = process.env.AUDIT_VERIFY_MODEL?.trim() || model;
+  console.log(`\nперепроверяю каждую находку отдельным заходом (${good.length}), модель: ${verifyModel}`);
   const checked: Array<Finding & { verdict: string; why: string; missing: string; rounds: number }> = [];
   let escalated = 0;
+  let outOfFunds = false;
   for (const f of good) {
+    if (outOfFunds) {
+      // Денег нет — дальше не ходим. Молча пропустить нельзя, поэтому исход
+      // называется своими словами, а не общим «HTTP 402».
+      checked.push({
+        ...f,
+        verdict: 'cannot_tell',
+        why: 'до этой находки проверка не дошла: на круге проверки кончился баланс',
+        missing: '',
+        rounds: 0,
+      });
+      continue;
+    }
     // eslint-disable-next-line no-await-in-loop
-    let v = await verifyFinding(key, model, f, byPath);
+    let v = await verifyFinding(key, verifyModel, f, byPath);
+    if (v.outOfFunds) outOfFunds = true;
     let rounds = 1;
 
     // ── Третий круг: только с НОВЫМ материалом ─────────────────────────────
@@ -431,7 +471,7 @@ async function main(): Promise<void> {
       if (extra.length > 0) {
         escalated += 1;
         // eslint-disable-next-line no-await-in-loop
-        const again = await verifyFinding(key, model, f, byPath, extra);
+        const again = await verifyFinding(key, verifyModel, f, byPath, extra);
         rounds = 2;
         v = { ...again, why: `${again.why} [с добавленными: ${extra.join(', ')}]` };
       }
@@ -450,6 +490,16 @@ async function main(): Promise<void> {
   console.log(`после перепроверки: подтверждено ${confirmed.length}`
     + ` · опровергнуто ${refuted} · не удалось проверить ${unclear.length}`
     + ` (второй круг с новыми файлами: ${escalated})\n`);
+  if (outOfFunds) {
+    // «Не смог по существу» и «не хватило денег» — разные вещи, и слитые в
+    // одно они врут дважды: скрывают причину и выдают недосмотренное за
+    // досмотренное. Пусть это будет видно ОТДЕЛЬНОЙ строкой.
+    const notReached = checked.filter((f) => f.rounds === 0).length;
+    console.log(`ВНИМАНИЕ: на круге проверки кончился баланс OpenRouter.`
+      + ` До ${notReached} находок проверка не дошла вовсе — это не «неверно»`
+      + ` и не «проверено». Повторный полный прогон список не добьёт, а`
+      + ` перетасует: дешевле поставить AUDIT_VERIFY_MODEL.\n`);
+  }
 
   for (const f of confirmed) {
     console.log('---');
