@@ -38,6 +38,7 @@ const JSON_ROUTE = read('app/api/hub/bookings/[id]/route.ts');
 const PDF_ROUTE  = read('app/api/hub/bookings/[id]/pdf/route.ts');
 const CREATE     = read('app/api/hub/bookings/create/route.ts');
 const ACCESS     = read('lib/bookings/access.ts');
+const RESERVE    = read('lib/bookings/reserve.ts');
 const MIGRATION  = read('migrations/943_operator_bookings_access_token.sql');
 const SUCCESS    = read('app/booking-success/[id]/_BookingSuccessClient.tsx');
 
@@ -105,8 +106,11 @@ describe('отказ не подтверждает существование б
 });
 
 describe('ключ доезжает до туриста ровно один раз', () => {
-  it('create возвращает access_token из RETURNING, а не выдумывает', () => {
-    expect(CREATE).toMatch(/RETURNING id, access_token/);
+  it('ключ берётся из RETURNING в общем модуле, а не выдумывается', () => {
+    // Вставка переехала в lib/bookings/reserve.ts — единственное место, где
+    // заводится бронь (веб-форма и Кузьмич зовут его оба). Свойство осталось
+    // тем же: ключ приходит из базы, роут только передаёт его дальше.
+    expect(RESERVE).toMatch(/RETURNING id, access_token/);
     expect(CREATE).toMatch(/access_token:\s*result\.accessToken/);
   });
 

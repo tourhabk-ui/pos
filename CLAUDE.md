@@ -17,7 +17,8 @@
 | Deploy | Timeweb Cloud — приложение **Tourhab**, id `198048` (репо: `tourhabk-ui/pos`) |
 | CI/CD | push в `tourhabk-ui/pos main` → Timeweb автодеплой |
 
-**Масштаб:** 210 стр / 756 API routes / 173 компонентов / 458 миграций
+**Масштаб** (порядок величины, не замер; точные цифры — командами, не отсюда):
+210 стр / 756 API routes / 173 компонентов / ~460 миграций
 
 **Ключевые файлы перед стартом:**
 - `lib/db-pool.ts` — `import { pool } from` (named, не default)
@@ -517,7 +518,7 @@ nearby places within 15km*), а платформа читала их как «м
 
 ```bash
 npx tsc --noEmit      # 0 ошибок
-npx vitest run        # 214 тестов зелёные
+npx vitest run        # весь набор зелёный (число растёт — сверяться с прогоном, не с этой строкой)
 git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 ```
 
@@ -549,7 +550,9 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
   в приёмниках быть не должно. Сторож: `tests/unit/commission-all-receivers.test.ts`
   (приёмники находит по коду — роут, пишущий `paid_at` броне, обязан начислить комиссию)
 - `app/api/safety/sos` — SOS (только через staging)
-- Миграции 001-049 — только добавлять новые (следующая: `050_`)
+- Миграции — только вперёд: следующая = max + 1 (`ls migrations | tail -1`). Прежняя
+  редакция этой строки называла «следующей `050_`» и пролежала так до 943-й:
+  замороженное число в правиле устаревает молча и учит не доверять правилу целиком
 
 ---
 
@@ -790,7 +793,8 @@ only» / «Stop when free quota is exhausted». Ставится на модел
 
 ## Database Migrations
 
-- Миграции лежат в `migrations/`, формат `NNN_name.sql` (128 файлов)
+- Миграции лежат в `migrations/`, формат `NNN_name.sql` (сколько их — `ls migrations/*.sql | wc -l`;
+  замороженное здесь число расходилось с репозиторием втрое)
 - Tracking: таблица `_migrations` (name UNIQUE, applied_at)
 - Применение: `npm run migrate` (запускает `lib/database/migrate.ts`)
   - Локально: `DATABASE_URL=<local> npm run migrate`

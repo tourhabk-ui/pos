@@ -4,8 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { transaction } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
+import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
@@ -19,13 +19,13 @@ export const dynamic = 'force-dynamic';
 
 const bookingCreateLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
-const BOOKING_ERROR_MESSAGES: Record<string, string> = {
-  NOT_FOUND:    'Тур не найден или больше не доступен. Попробуйте выбрать другой тур.',
-  DATE_PAST:    'Выбранная дата уже прошла. Укажите будущую дату.',
-  DATE_BLOCKED: 'Оператор закрыл бронирование на эту дату. Выберите другую дату.',
-  NO_SLOTS:     'На выбранную дату нет свободных мест. Выберите другую дату или свяжитесь с оператором.',
-  MAX_EXCEEDED: 'Превышено максимальное число участников для этого тура.',
-};
+/**
+ * Дата в прошлом — единственная проверка, которая остаётся здесь: она о ФОРМЕ
+ * запроса, а не о занятости тура. Все отказы по существу (нет тура, дата
+ * закрыта оператором, мест не осталось) формулирует `reserveBooking` — там же,
+ * где они устанавливаются, одинаково для формы и для Кузьмича.
+ */
+const DATE_PAST_MESSAGE = 'Выбранная дата уже прошла. Укажите будущую дату.';
 
 const BookingSchema = z.object({
   tour_id:            z.number().positive({ message: 'Укажите тур' }),
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   const data = parsed.data;
 
   if (new Date(data.booking_date) < new Date(new Date().toISOString().slice(0, 10))) {
-    return NextResponse.json({ error: BOOKING_ERROR_MESSAGES.DATE_PAST }, { status: 422 });
+    return NextResponse.json({ error: DATE_PAST_MESSAGE }, { status: 422 });
   }
 
   // Гостевой чек-аут остаётся рабочим — авторизация опциональна (fail-open).
@@ -75,105 +75,21 @@ export async function POST(req: NextRequest) {
   const userId = authedUser?.userId ?? null;
 
   try {
-    const result = await transaction(async (client) => {
-      const tourResult = await client.query<{
-        operator_id: string;
-        title: string;
-        base_price: number;
-        max_participants: number | null;
-        available_slots: number | null;
-      }>(
-        `SELECT ot.operator_id, ot.title, ot.base_price, ot.max_participants, ot.available_slots
-         FROM operator_tours ot
-         WHERE ot.id = $1 AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL FOR UPDATE`,
-        [data.tour_id],
-      );
-
-      if (tourResult.rows.length === 0) {
-        throw Object.assign(new Error(BOOKING_ERROR_MESSAGES.NOT_FOUND), { code: 'NOT_FOUND' });
-      }
-
-      const tour = tourResult.rows[0]!;
-
-      // Календарь оператора (tour_availability) — опционален: нет строки на
-      // дату = дата свободна (большинство операторов календарём не пользуются).
-      // Но ЯВНАЯ блокировка (is_cancelled) или лимит слотов на дату должны
-      // уважаться — раньше гейткипер календарь вообще не читал и принимал
-      // брони на закрытые оператором даты.
-      const calendarResult = await client.query<{ available_slots: number; is_cancelled: boolean }>(
-        `SELECT available_slots, is_cancelled FROM tour_availability
-         WHERE operator_tour_id = $1 AND date = $2 AND deleted_at IS NULL
-         LIMIT 1`,
-        [data.tour_id, data.booking_date],
-      );
-      const calendarRow = calendarResult.rows[0] ?? null;
-
-      if (calendarRow?.is_cancelled) {
-        throw Object.assign(new Error(BOOKING_ERROR_MESSAGES.DATE_BLOCKED), { code: 'DATE_BLOCKED' });
-      }
-
-      // Эффективный лимит на дату: пересечение лимита тура и лимита календаря
-      const capacityCap: number | null = calendarRow
-        ? Math.min(tour.max_participants ?? calendarRow.available_slots, calendarRow.available_slots)
-        : tour.max_participants;
-
-      if (capacityCap != null && data.participants_count > capacityCap) {
-        throw Object.assign(
-          new Error(`${BOOKING_ERROR_MESSAGES.MAX_EXCEEDED} (максимум: ${capacityCap})`),
-          { code: 'MAX_EXCEEDED' },
-        );
-      }
-
-      // Count actual confirmed bookings for this date within the same transaction.
-      // FOR UPDATE on the tour row above serialises concurrent requests, so this
-      // read is consistent: no other booking for this tour can commit until we do.
-      const slotCheckResult = await client.query<{ already_booked: string }>(
-        `SELECT COALESCE(SUM(participants), 0) AS already_booked
-         FROM operator_bookings
-         WHERE operator_tour_id = $1
-           AND booking_date = $2
-           AND booking_status NOT IN ('cancelled', 'rejected')`,
-        [data.tour_id, data.booking_date],
-      );
-      const alreadyBooked = parseInt(slotCheckResult.rows[0]!.already_booked, 10);
-
-      if (capacityCap != null && alreadyBooked + data.participants_count > capacityCap) {
-        const remaining = capacityCap - alreadyBooked;
-        throw Object.assign(
-          new Error(remaining <= 0
-            ? BOOKING_ERROR_MESSAGES.NO_SLOTS
-            : `Недостаточно мест на эту дату. Доступно: ${remaining}, запрашивается: ${data.participants_count}`),
-          { code: 'NO_SLOTS' },
-        );
-      }
-
-      const total_price = Number(tour.base_price) * data.participants_count;
-
-      const bookingResult = await client.query<{ id: number; access_token: string }>(
-        `INSERT INTO operator_bookings (
-           operator_tour_id, tourist_name, tourist_email, tourist_phone,
-           participants, booking_date, special_requests, booking_status,
-           base_total_price, final_price, created_via, user_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'new', $8, $8, 'website', $9)
-         RETURNING id, access_token::text AS access_token`,
-        [
-          data.tour_id,
-          data.tourist_name,
-          data.tourist_email ?? null,
-          data.tourist_phone,
-          data.participants_count,
-          data.booking_date,
-          data.special_requests ?? '',
-          total_price,
-          userId,
-        ],
-      );
-
-      const bookingId = bookingResult.rows[0]!.id;
-      // Ключ доступа отдаётся ОДИН раз — тому, кто бронь создал. Номер брони
-      // больше не открывает ни подтверждение, ни PDF (миграция 943).
-      const accessToken = bookingResult.rows[0]!.access_token;
-      return { bookingId, accessToken, total_price, tour };
+    // Бронь заводит общий модуль — тот же самый, которым бронирует Кузьмич.
+    // Раньше здесь лежала своя копия транзакции, и копии разошлись: чат не
+    // читал календарь оператора и писал другой статус. Ключ доступа
+    // (миграция 943) отдаётся ОДИН раз — тому, кто бронь создал; номер брони
+    // больше не открывает ни подтверждение, ни PDF.
+    const result = await reserveBooking({
+      tourId:          data.tour_id,
+      touristName:     data.tourist_name,
+      touristPhone:    data.tourist_phone,
+      touristEmail:    data.tourist_email ?? null,
+      participants:    data.participants_count,
+      date:            data.booking_date,
+      specialRequests: data.special_requests ?? '',
+      createdVia:      'website',
+      userId,
     });
 
     // Турист узнаёт, что заявка дошла. Раньше уведомление шло только
@@ -184,10 +100,10 @@ export async function POST(req: NextRequest) {
     if (userId !== null) {
       notifyTouristBookingCreated(userId, {
         id: String(result.bookingId),
-        tourTitle: String(result.tour.title),
+        tourTitle: String(result.tourTitle),
         date: new Date(data.booking_date),
         participants: data.participants_count,
-        totalAmount: result.total_price,
+        totalAmount: result.totalPrice,
       });
     }
 
@@ -196,7 +112,7 @@ export async function POST(req: NextRequest) {
       try {
         const opRow = await pool.query<{ name: string; telegram_chat_id: string | null; max_chat_id: number | null; uon_api_key: string | null }>(
           `SELECT name, telegram_chat_id, max_chat_id, uon_api_key FROM partners WHERE id = $1 LIMIT 1`,
-          [result.tour.operator_id],
+          [result.operatorId],
         );
         const op = opRow.rows[0];
 
@@ -204,15 +120,15 @@ export async function POST(req: NextRequest) {
         if (op?.uon_api_key) {
           try {
             const uonId = await createUonRequest(op.uon_api_key, {
-              tour_title:       result.tour.title,
+              tour_title:       result.tourTitle,
               booking_date:     data.booking_date,
               participants:     data.participants_count,
-              total_price:      result.total_price,
+              total_price:      result.totalPrice,
               tourist_name:     data.tourist_name,
               tourist_phone:    data.tourist_phone,
               tourist_email:    data.tourist_email,
               special_requests: data.special_requests,
-              operator_id:      result.tour.operator_id,
+              operator_id:      result.operatorId,
               booking_id:       String(result.bookingId),
             });
             if (uonId != null) {
@@ -234,13 +150,13 @@ export async function POST(req: NextRequest) {
 
         await notifyNewBooking({
           booking_id:                String(result.bookingId),
-          tour_title:                result.tour.title,
+          tour_title:                result.tourTitle,
           tourist_name:              data.tourist_name,
           tourist_phone:             data.tourist_phone,
           tourist_email:             data.tourist_email,
           booking_date:              data.booking_date,
           participants:              data.participants_count,
-          final_price:               result.total_price,
+          final_price:               result.totalPrice,
           operator_name:             op?.name ?? 'Оператор',
           operator_telegram_chat_id: op?.telegram_chat_id ?? undefined,
           operator_max_chat_id:      op?.max_chat_id ?? undefined,
@@ -263,13 +179,13 @@ export async function POST(req: NextRequest) {
     if (data.tourist_email) {
       void emailService.sendEmail({
         to: data.tourist_email,
-        subject: `Заявка принята: ${result.tour.title} — Ведар`,
+        subject: `Заявка принята: ${result.tourTitle} — Ведар`,
         html: `
           <h2>Ваша заявка принята!</h2>
-          <p><strong>Тур:</strong> ${result.tour.title}</p>
+          <p><strong>Тур:</strong> ${result.tourTitle}</p>
           <p><strong>Дата:</strong> ${data.booking_date}</p>
           <p><strong>Участники:</strong> ${data.participants_count}</p>
-          <p><strong>Сумма к оплате:</strong> ${result.total_price.toLocaleString('ru-RU')} ₽</p>
+          <p><strong>Сумма к оплате:</strong> ${result.totalPrice.toLocaleString('ru-RU')} ₽</p>
           <p><strong>Номер заявки:</strong> ${result.bookingId}</p>
           <p>Для завершения бронирования перейдите по ссылке ниже и оплатите тур:</p>
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Оплатить тур</a></p>
@@ -291,18 +207,24 @@ export async function POST(req: NextRequest) {
       id:           result.bookingId,
       booking_id:   result.bookingId,
       access_token: result.accessToken,
-      total_price:  result.total_price,
+      total_price:  result.totalPrice,
       message:     'Заявка создана. Перед оплатой проверьте детали и условия тура.',
     });
 
   } catch (err) {
-    if (err instanceof Error) {
-      const code = (err as NodeJS.ErrnoException & { code?: string }).code;
-      if (code && BOOKING_ERROR_MESSAGES[code]) {
-        const status = code === 'NOT_FOUND' ? 404 : 422;
-        return NextResponse.json({ error: err.message }, { status });
-      }
+    // Отказ по существу: тур снят, дата закрыта, мест нет. Текст приходит из
+    // общего модуля — тот же самый, что услышит турист в чате у Кузьмича.
+    if (err instanceof ReserveError) {
+      return NextResponse.json(
+        { error: err.message },
+        { status: err.code === 'NOT_FOUND' ? 404 : 422 },
+      );
     }
+    console.error(
+      '[bookings/create] бронь не заведена, тур',
+      String(data.tour_id),
+      err instanceof Error ? err.message : err,
+    );
     return NextResponse.json(
       { error: 'Не удалось создать бронирование. Попробуйте позже или свяжитесь с оператором напрямую.' },
       { status: 500 },
