@@ -92,7 +92,12 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         ? (data as Record<string, unknown>).booking_id
         : null;
       if (!id) throw new Error('Бронирование создано, но ID не получен. Проверьте раздел «Бронирования».');
-      router.push(`/booking-success/${id}`);
+      // Ключ брони приходит один раз и живёт только в этой ссылке: номер
+      // брони подтверждения больше не открывает (миграция 943).
+      const token = typeof data === 'object' && data !== null && 'access_token' in data
+        ? String((data as Record<string, unknown>).access_token)
+        : '';
+      router.push(`/booking-success/${id}?t=${encodeURIComponent(token)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
     } finally {

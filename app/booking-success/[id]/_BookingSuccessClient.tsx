@@ -25,7 +25,6 @@ interface BookingData {
   operator_telegram: string | null;
   cp_public_id: string;
   sbp_available: boolean;
-  pdf_token: string;
 }
 
 declare global {
@@ -45,6 +44,20 @@ declare global {
 export default function BookingSuccessClient() {
   const params    = useParams();
   const bookingId = parseInt(params.id as string, 10);
+  /**
+   * Ключ брони из ссылки (`?t=`). Номер брони сам по себе больше ничего не
+   * открывает: до 08.09 по нему перебором доставались имя туриста, цена и
+   * токен на PDF с телефоном и почтой (миграция 943).
+   *
+   * Читается из window, а не из серверных searchParams: страница клиентская,
+   * а ключ не должен попасть ни в кэш, ни в разметку.
+   */
+  const [accessToken, setAccessToken] = useState('');
+  useEffect(() => {
+    try {
+      setAccessToken(new URLSearchParams(window.location.search).get('t') ?? '');
+    } catch { /* ключа нет — ниже будет честное «не найдено» */ }
+  }, []);
 
   const [booking,  setBooking]  = useState<BookingData | null>(null);
   const [loading,  setLoading]  = useState(true);
@@ -55,16 +68,26 @@ export default function BookingSuccessClient() {
   const [payMethod, setPayMethod] = useState<'card' | 'sbp'>('card');
 
   useEffect(() => {
+    if (!accessToken) return;   // без ключа спрашивать нечего — роут ответит 404
     void (async () => {
       try {
-        const res  = await fetch(`/api/hub/bookings/${bookingId}`);
+        const res  = await fetch(`/api/hub/bookings/${bookingId}?token=${encodeURIComponent(accessToken)}`);
         const json = await res.json() as { success: boolean; data: BookingData };
         if (json.success) setBooking(json.data);
       } finally {
         setLoading(false);
       }
     })();
-  }, [bookingId]);
+  }, [bookingId, accessToken]);
+
+  // Ссылку без ключа не крутим бесконечно: показываем то же, что увидел бы
+  // посторонний, — «не найдено», а не вечный скелетон.
+  useEffect(() => {
+    if (accessToken === '') {
+      const t = setTimeout(() => setLoading(false), 0);
+      return () => clearTimeout(t);
+    }
+  }, [accessToken]);
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(String(bookingId));
@@ -266,7 +289,7 @@ export default function BookingSuccessClient() {
                       {/* Telegram WebView warning */}
                       {isInTgWebView && (
                         <a
-                          href={`https://vedarai.ru/booking-success/${booking.id}`}
+                          href={`https://vedarai.ru/booking-success/${booking.id}?t=${encodeURIComponent(accessToken)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] transition-colors"
@@ -346,7 +369,7 @@ export default function BookingSuccessClient() {
         {booking && (
           <div className="flex gap-3 mb-3">
             <a
-              href={`/api/hub/bookings/${booking.id}/pdf?type=voucher&token=${booking.pdf_token}`}
+              href={`/api/hub/bookings/${booking.id}/pdf?type=voucher&token=${encodeURIComponent(accessToken)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
@@ -355,7 +378,7 @@ export default function BookingSuccessClient() {
               Ваучер (PDF)
             </a>
             <a
-              href={`/api/hub/bookings/${booking.id}/pdf?type=contract&token=${booking.pdf_token}`}
+              href={`/api/hub/bookings/${booking.id}/pdf?type=contract&token=${encodeURIComponent(accessToken)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"

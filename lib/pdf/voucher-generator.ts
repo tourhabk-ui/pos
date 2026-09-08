@@ -9,6 +9,12 @@ import { getPublicBaseUrl } from '@/lib/config';
 
 export interface VoucherData {
   bookingId: number;
+  /**
+   * Ключ брони для ссылки внизу ваучера. Без него адрес
+   * /booking-success/<номер> отвечает 404 всем, включая владельца ваучера
+   * (миграция 943): номер брони перестал быть пропуском.
+   */
+  accessToken?: string;
   issueDate: string;
   touristName: string;
   touristPhone: string;
@@ -163,7 +169,11 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     divider(doc, LINE, W);
     doc.moveDown(0.4);
     doc.fontSize(9).font('Helvetica').fillColor(MUTED).text(
-      `Детали бронирования: ${getPublicBaseUrl().replace(/^https?:\/\//, '')}/booking-success/${data.bookingId}`,
+      data.accessToken
+        ? `Детали бронирования: ${getPublicBaseUrl().replace(/^https?:\/\//, '')}/booking-success/${data.bookingId}?t=${data.accessToken}`
+        // Ключа не передали — печатать мёртвую ссылку хуже, чем не печатать:
+        // человек по ней придёт и увидит «не найдено».
+        : `Бронь №${data.bookingId} · ссылку на детали ищите в письме или чате`,
       { align: 'center', width: W }
     );
     doc.moveDown(0.3);
