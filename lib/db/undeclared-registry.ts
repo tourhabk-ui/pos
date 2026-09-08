@@ -106,7 +106,12 @@ export const UNDECLARED_TABLES = [
   // Турист: профиль, документы, поездки, достижения, списки.
   // tourist_documents объявлена миграцией 903 (22.08.2026): форма собрана по
   // живому коду, который с ней работает. Образец закрытия захватом DDL.
-  'tourist_profiles', 'tourist_trips', 'trip_bookings',
+  // tourist_profiles объявлена миграцией 943 (08.09.2026) тем же способом —
+  // и не ради чистоты списка: Watchdog принёс от крона Document Expiry
+  // дословное «relation tourist_profiles does not exist» при нуле успешных
+  // прогонов за всю историю. Таблицы не было на проде, и напоминания об
+  // истечении документов туриста не работали ни разу.
+  'tourist_trips', 'trip_bookings',
   'tourist_achievements', 'tourist_reviews', 'tourist_wishlist',
   'tourist_checklists', 'tourist_notification_preferences',
   // Согласия и аудит согласий (152-ФЗ) — тем более странно не иметь схемы.
