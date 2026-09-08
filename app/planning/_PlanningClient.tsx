@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -375,7 +375,7 @@ function computeRouteLineMarker(
   };
 }
 
-function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
+function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | null; topInset: number }) {
   const [heading, setHeading] = useState(0);
   // Земной источник азимута, увиденный хоть раз, отменяет относительный
   // навсегда — см. подписку на события ниже.
@@ -1387,8 +1387,19 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
   /** Одна строка — самое важное действие сейчас. Всё хорошо — строки нет. */
   const status = useMemo((): { tone: 'warn' | 'info'; text: string; cta?: 'compass' } | null => {
     if (gpsError) return { tone: 'warn', text: 'Геолокация запрещена — включите её в настройках браузера' };
-    if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
+    // Порядок этих двух веток важен, и до 08.09 он был обратным.
+    //
+    // `gpsMessage` ставится ровно тогда, когда датчик ОТВЕТИЛ отказом:
+    // таймаут (30 с) или «позиция недоступна». Если фикса не было ни разу,
+    // `fix.state` при этом остаётся 'none' — и прежний порядок отдавал
+    // «Ищем спутники…», то есть сообщение об отказе было недостижимо ровно
+    // в том случае, для которого написано. Замер 08.09: браузер вернул
+    // код 3 на 30-й секунде, а экран говорил «ищем» и на 60-й.
+    //
+    // «Ищем» и «не отвечает» — разные решения человека: первое значит
+    // подождать, второе — что ждать нечего (§4.0).
     if (gpsMessage) return { tone: 'warn', text: gpsMessage };
+    if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
     if (fix.state === 'dead' || fix.state === 'stale') return { tone: 'warn', text: fixLabel(fix) };
     // Ступень связи, а не только режим. Прежняя строка сообщала «офлайн» и
     // безусловно обещала, что карты и точки доступны, — хотя карта лежит в
@@ -3390,6 +3401,14 @@ function OnTrailTab({ mapPackBaseUrl }: { mapPackBaseUrl: string | null }) {
             // у VedarMap 04.09. Zoom-контрол Leaflet уже стоит в topright —
             // topleft здесь его собственными оверлеями не занят.
             attributionPosition="topleft"
+            // Сверху лежит липкая полоса вкладок. Без этого отступа контролы
+            // карты честно существовали и были недостижимы: замер 08.09 —
+            // «+» целиком под полосой, «−» наполовину, атрибуция
+            // OpenStreetMap (перенесённая сюда 04.09 из мёртвого низа) в
+            // (0,0,263×17), то есть тоже под ней. Высота полосы меряется, а
+            // не вписывается числом: она зависит от шрифта и отступов, и
+            // застывшая копия разошлась бы с ней при первой же правке.
+            topInset={topInset}
           />
         )}
       </div>
@@ -4938,6 +4957,27 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
     } catch { /* URL не обновился — не повод ломать переключение */ }
   }
 
+  /**
+   * Высота полосы вкладок — меряется, а не берётся числом.
+   *
+   * Полоса лежит ПОВЕРХ карты полевого экрана (карта — fixed inset-0 z-0), и
+   * под ней оказывались контролы масштаба и атрибуция OpenStreetMap. Отступ
+   * для карты равен высоте полосы, а высота зависит от шрифта и отступов
+   * кнопок: вписанное число разошлось бы с ней при первой же правке вёрстки.
+   */
+  const tabBarRef = useRef<HTMLDivElement | null>(null);
+  const [tabBarH, setTabBarH] = useState(0);
+  useLayoutEffect(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    const measure = () => setTabBarH(el.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tab]);
+
   function handleStartTrail(routeId: string) {
     try { localStorage.setItem('active_trail_route_id', routeId); } catch { /* ignore */ }
     switchTab('trail');
@@ -4948,7 +4988,7 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
       {tab === 'planning' && <Header />}
 
       {/* Tab bar */}
-      <div className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
+      <div ref={tabBarRef} className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
         style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
         <div className="max-w-2xl mx-auto px-4 flex gap-0">
           <button
@@ -4975,7 +5015,7 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
       </div>
 
       {tab === 'planning' && <PlanningTab onStartTrail={handleStartTrail} />}
-      {tab === 'trail' && <OnTrailTab mapPackBaseUrl={mapPackBaseUrl} />}
+      {tab === 'trail' && <OnTrailTab mapPackBaseUrl={mapPackBaseUrl} topInset={tabBarH} />}
     </div>
   );
 }
