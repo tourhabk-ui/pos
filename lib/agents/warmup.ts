@@ -132,7 +132,11 @@ export async function writeDailyBriefing(gitLog?: string): Promise<void> {
         SELECT
           (SELECT COUNT(*)::text FROM agent_memory) AS memory_total,
           (SELECT COUNT(*)::text FROM agent_run_history WHERE started_at > NOW() - INTERVAL '24h') AS runs_24h,
-          (SELECT COUNT(*)::text FROM agent_run_history WHERE status = 'error' AND started_at > NOW() - INTERVAL '24h') AS errors_24h
+          -- Статуса 'error' не пишет никто: прогон кончается success,
+          -- partial или failed (RUN_STATUSES). Цифра была вечным нулём
+          -- и читалась как «ошибок нет» (находка аудита 08.09).
+          (SELECT COUNT(*)::text FROM agent_run_history
+            WHERE status IN ('failed', 'partial') AND started_at > NOW() - INTERVAL '24h') AS errors_24h
       `),
       runRepoScan(gitLog).catch(() => null),
     ]);
