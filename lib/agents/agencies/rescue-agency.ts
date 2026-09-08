@@ -8,7 +8,8 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWithModel } from '@/lib/ai/providers';
+import { callAIWithModel, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import type { AgentContext } from '../context-hub';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -103,13 +104,33 @@ export class RescueAgency {
         total_30d: string;
         active: string;
         resolved: string;
-        avg_resolve_min: string;
+        /** NULL — мерить было нечего. Это НЕ ноль (§4.0). */
+        avg_resolve_min: string | null;
+        measured_on: string;
       }>(`
         SELECT
           COUNT(*)::text                                                        AS total_30d,
           COUNT(*) FILTER (WHERE status NOT IN ('resolved','false_alarm'))::text AS active,
           COUNT(*) FILTER (WHERE status = 'resolved')::text                    AS resolved,
-          '0'::text                                                             AS avg_resolve_min
+          -- Среднее время реагирования считается, а не объявляется.
+          --
+          -- Здесь стояло '0'::text — литеральный ноль, который печатался
+          -- строкой «Среднее время реагирования: 0 мин.» и читался как
+          -- «реагируем мгновенно» (находка аудита 08.09). В контуре, где
+          -- висят живые сигналы, это худший вид выдумки: обязательное число
+          -- заполнено враньём (§4.0).
+          --
+          -- Считаем ТОЛЬКО по сигналам, которые человек действительно
+          -- разрешил. Исход unknown_no_response — это «сутки никто не
+          -- ответил, что с человеком, неизвестно»; включить его во «время
+          -- реагирования» значило бы выдать молчание за ответ. Исход
+          -- false_alarm реагирования не требовал.
+          ROUND(
+            AVG(EXTRACT(EPOCH FROM (outcome_at - created_at)) / 60)
+              FILTER (WHERE outcome = 'resolved_by_human' AND outcome_at IS NOT NULL)
+          )::text                                                               AS avg_resolve_min,
+          COUNT(*) FILTER (WHERE outcome = 'resolved_by_human' AND outcome_at IS NOT NULL)::text
+                                                                                AS measured_on
         FROM sos_events
         WHERE created_at >= NOW() - INTERVAL '30 days'
       `),
@@ -129,7 +150,10 @@ export class RescueAgency {
       `Всего сигналов: ${s.total_30d}`,
       `Активных: ${s.active}`,
       `Разрешено: ${s.resolved}`,
-      `Среднее время реагирования: ${s.avg_resolve_min} мин.`,
+      // Не измерено — так и говорим. Ноль тут читался бы как «мгновенно».
+      s.avg_resolve_min !== null
+        ? `Среднее время реагирования: ${s.avg_resolve_min} мин. (по ${s.measured_on} разрешённым человеком)`
+        : 'Среднее время реагирования: не измерено — за 30 дней ни один сигнал не был разрешён человеком.',
     ];
 
     if (activeTotal > 0) {
@@ -285,8 +309,15 @@ export class RescueAgency {
       const fullPrompt = this.briefing ? `${this.briefing}\n\n${prompt}` : prompt;
       const messages: ChatMessage[] = [{ role: 'user', content: fullPrompt }];
       const { text } = await callAIWithModel(messages, this.preferredModel);
+      // Заглушка отказа — не разбор обстановки. Раньше она уходила прямо в
+      // сводку строкой рядом с активными сигналами (аудит 08.09).
+      if (!text || isWaterfallErrorResponse(text)) {
+        console.error('[rescue-agency] разбор не получен: провайдеры молчат');
+        return null;
+      }
       return text;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('rescue-agency', 'разбор обстановки', err);
       return null;
     }
   }

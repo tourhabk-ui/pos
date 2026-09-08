@@ -11,7 +11,6 @@
  *   ui_copy_change        — переписать описания туров с низким рейтингом (AI)
  *   price_change          — создать A/B эксперимент по ценам
  *   commission_change     — обновить настройки комиссий оператора
- *   sql_query_fix         — самоисцеление SQL-ошибок в agency-файлах
  *   booking_rule_change   — обновить политику отмены оператора
  */
 
@@ -48,7 +47,6 @@ export const AUTO_EXECUTE_TYPES = new Set([
   'send_notification',   // любой: Telegram-уведомление
   'ui_copy_change',      // content: переписать описания туров (AI)
   'price_change',        // hacker: создать A/B эксперимент (только запись, цены не меняет)
-  'sql_query_fix',       // evo: самоисцеление SQL-ошибок
   'booking_rule_change', // legal: обновить политику отмены оператора
   'code_change',         // vibe_coder: ЭКСПЕРИМЕНТ — AI создаёт GitHub PR без одобрения
   'ab_scale_winner',     // hacker: применить победителя A/B теста
@@ -74,7 +72,6 @@ const EXECUTORS: Record<string, (task: ExecutionTask) => Promise<ExecutionResult
   ui_copy_change:      executeTourDescriptionRewrite,
   price_change:        executeABTestSetup,
   commission_change:   executeCommissionUpdate,
-  sql_query_fix:       executeSQLQueryFix,
   booking_rule_change: executeCancellationPolicyUpdate,
   code_change:         executeCodeChange,
   ab_scale_winner:     executeABScaleWinner,
@@ -398,61 +395,22 @@ async function executeCommissionUpdate(task: ExecutionTask): Promise<ExecutionRe
 }
 
 // ═══════════════════════════════════════════════════════════════
-// EXECUTOR 6: SQL SELF-HEALING (Evolution Agent)
+// EXECUTOR 6 УДАЛЁН 08.09: самоисцеление SQL правило исходники на проде
 // ═══════════════════════════════════════════════════════════════
-async function executeSQLQueryFix(task: ExecutionTask): Promise<ExecutionResult> {
-  const changes: string[] = [];
-  const errors: string[] = [];
-
-  try {
-    const { fixSQLColumnErrors, scanSQLErrors } = await import('@/lib/agents/tools/board-executor-tools');
-
-    const beforeScan  = scanSQLErrors();
-    const totalIssues = beforeScan.reduce((s, f) => s + f.issues.length, 0);
-
-    if (totalIssues === 0) {
-      return {
-        success: true,
-        changes_made: ['SQL-ошибок не обнаружено — система в норме'],
-        errors: [],
-        rollback_available: false,
-        verification_passed: true,
-      };
-    }
-
-    changes.push(`Обнаружено ${totalIssues} SQL-ошибок в ${beforeScan.length} файлах`);
-
-    const agencyFile = typeof task.context.agency_file === 'string' ? task.context.agency_file : undefined;
-    const result = await fixSQLColumnErrors(agencyFile);
-
-    if (!result.success) {
-      errors.push(result.message);
-    } else {
-      changes.push(result.message);
-      if (Array.isArray(result.details?.changes)) {
-        for (const c of result.details.changes as string[]) changes.push(c);
-      }
-    }
-
-    const afterScan       = scanSQLErrors();
-    const remainingIssues = afterScan.reduce((s, f) => s + f.issues.length, 0);
-    const fixed           = totalIssues - remainingIssues;
-
-    changes.push(`Исправлено: ${fixed}/${totalIssues}`);
-    if (remainingIssues > 0) errors.push(`Осталось: ${remainingIssues}`);
-
-    return {
-      success: fixed > 0,
-      changes_made: changes,
-      errors,
-      rollback_available: false,
-      verification_passed: remainingIssues === 0,
-    };
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
-    return { success: false, changes_made: [], errors, rollback_available: false, verification_passed: false };
-  }
-}
+//
+// Он звал fixSQLColumnErrors, который переписывал .ts-файлы подстрочной
+// заменой и сохранял их на диск. Ядро это уже запрещало — policy.ts:
+// «правка кода на проде мимо PR запрещена: код меняется только draft PR +
+// merge человека», — но запрет стоял на пути ядра, а этот путь его не
+// спрашивал.
+//
+// Цена была не теоретической: в карте замен стоит «WHERE status NOT IN» →
+// «WHERE booking_status NOT IN», а в rescue-agency этой формой отбираются
+// АКТИВНЫЕ SOS из sos_events, где такой колонки нет. Инструмент сломал бы
+// сводку SOS — ровно тот запрос, который накануне чинили, чтобы живой
+// сигнал перестал теряться.
+//
+// scanSQLErrors остаётся: он только читает.
 
 // ═══════════════════════════════════════════════════════════════
 // EXECUTOR 7: CANCELLATION POLICY UPDATE (Legal Agent)
