@@ -10,32 +10,33 @@
  * кого» в источники безопасности хуже, чем не внести никакого: турист поверит
  * подписи, а не нашей осторожности.
  *
- * ── Почему модель, и почему ей всё равно нельзя верить ─────────────────────
+ * ── Почему без модели ──────────────────────────────────────────────────────
  *
- * Владелец: «выполняй или заставь астру». Опознание организации по стилю,
- * терминологии и самоназванию — работа для модели. Но спрашивать её ПО ПАМЯТИ
- * бессмысленно: про малоизвестный региональный канал она вспомнит что угодно,
- * и это будет звучать уверенно.
+ * Первая редакция звала сюда Astra. Прогон 1 показал, что звать некого:
+ * вопрос «чей это канал» решил ЗАГОЛОВОК СТРАНИЦЫ — «Александр Колесов.
+ * О погоде в Петербурге» — и описание со ссылкой на meteo.nw.ru. Модель в это
+ * время отвечала HTTP 402 и не сказала ничего.
  *
- * Поэтому здесь она судит ТОЛЬКО скачанное: заголовок канала, описание и
- * тексты последних постов. А приговор проверяется детерминированно — улика
- * обязана дословно встречаться в скачанном тексте. Придуманная цитата
- * отбрасывается вместе с вердиктом, и это считается числом.
+ * Вывод владельца по итогам дня: «я понял что астра бесполезна». Уточнение,
+ * которое важно для кода: бесполезна КАК ИСТОЧНИК УТВЕРЖДЕНИЙ. Из двенадцати
+ * её предложений в подборе источников четыре канала не существовали, один был
+ * мёртв с 2022 года, один дублировал уже собираемое, а kammeteo — «приоритетный
+ * кандидат на лавинные бюллетени Камчатки» — оказался питерским блогером.
+ * Полезными стали четыре, и каждое стало полезным не от её слов, а от того,
+ * что перепись потом сходила по адресу.
  *
- * Приём тот же, что у finding-guard в Growth Scan и у разбора справочника
- * маршрутов: модель предлагает, машина проверяет.
+ * Здесь проверять нечем: «этот канал принадлежит такой-то службе» машиной не
+ * подтверждается. Место, где модель нельзя проверить, — не её место. Поэтому
+ * скрипт просто ПОКАЗЫВАЕТ скачанное: заголовок, описание, даты, тексты
+ * постов. Читает человек, и в случае kammeteo ему хватило одной строки.
  *
- * Ничего не пишет: печатает вердикт и улику, решение за человеком.
+ * Ничего не пишет и никуда не ходит, кроме самого канала. Ключей не просит.
  *
- * Использование: npx tsx scripts/channel-identity-runner.ts <канал> [модель]
+ * Использование: npx tsx scripts/channel-identity-runner.ts <канал>
  */
-import { openRouterAttribution } from '../lib/ai/attribution';
 import { lastTelegramPost } from './source-discovery-runner';
 import { htmlToText } from '../lib/html/text';
 import { decodeHtmlEntities } from '../lib/html/entities';
-
-const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'openai/gpt-6-astra';
 
 /** Снятая со страницы фактура канала — только то, что реально прислал сервер. */
 export interface ChannelContent {
@@ -80,55 +81,15 @@ export function parseChannel(html: string, maxPosts = 15): ChannelContent {
   };
 }
 
-export interface Verdict {
-  org?: string | null;
-  confident?: boolean;
-  evidence?: string;
-  publishes_hazard?: boolean;
-  note?: string;
-}
-
-/** Нормализация для сверки улики: регистр и пробелы не должны решать. */
-function norm(s: string): string {
-  return s.toLowerCase().replace(/\s+/g, ' ').replace(/[«»"'`]/g, '').trim();
-}
-
-/**
- * Улика обязана дословно быть в скачанном тексте. Пересказ своими словами не
- * годится: он неотличим от выдумки, а проверяем мы именно её отсутствие.
- */
-export function evidenceHolds(v: Verdict, content: ChannelContent): boolean {
-  const ev = norm(String(v.evidence ?? ''));
-  if (ev.length < 8) return false;
-  const haystack = norm([content.title ?? '', content.description ?? '', ...content.posts].join(' \n '));
-  return haystack.includes(ev);
-}
-
-const SYSTEM = `Ты определяешь, КОМУ принадлежит Telegram-канал, по его собственному содержимому.
-
-Тебе дают заголовок канала, описание и тексты последних постов. Больше ничего у тебя нет, и догадываться по памяти ЗАПРЕЩЕНО: канал может быть малоизвестным, и уверенный вымысел здесь опаснее честного «не установлено».
-
-Ответ — СТРОГО JSON:
-{"org": "название организации или null", "confident": true|false, "evidence": "ДОСЛОВНАЯ цитата из присланного текста, подтверждающая вывод", "publishes_hazard": true|false, "note": "одна фраза"}
-
-Правила:
-- evidence — только дословный фрагмент присланного текста. Пересказ не принимается: он будет отброшен машинной сверкой, и вердикт вместе с ним.
-- confident=false, если содержимое не позволяет назвать владельца. Это нормальный ответ, а не поражение.
-- publishes_hazard=true, если канал публикует предупреждения об опасностях: лавины, штормы, метели, паводки, циклоны, ЧС.`;
-
 async function main(): Promise<void> {
   const channel = (process.argv[2] || '').trim();
   if (!channel) {
-    console.error('Не назван канал. Использование: npx tsx scripts/channel-identity-runner.ts <канал> [модель]');
+    console.error('Не назван канал. Использование: npx tsx scripts/channel-identity-runner.ts <канал>');
     process.exit(1);
   }
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) {
-    console.error('OPENROUTER_API_KEY не задан — судить нечем. Это не «канал не опознан».');
-    process.exit(1);
-  }
-  const model = (process.argv[3] || '').trim() || DEFAULT_MODEL;
 
+  // Ключей не спрашиваем: ходим только в сам канал. Прогон, которому нечего
+  // просить, не может упасть на чужом балансе — прогон 1 упал именно так.
   const url = `https://t.me/s/${channel}`;
   const res = await fetch(url, {
     headers: { 'User-Agent': 'TourHab/1.0 (channel identity)' },
@@ -152,66 +113,13 @@ async function main(): Promise<void> {
   console.log('\nПервые три поста для глаз человека:');
   for (const p of content.posts.slice(0, 3)) console.log(`  · ${p.slice(0, 200)}`);
 
-  const user = [
-    `Заголовок канала: ${content.title ?? 'не указан'}`,
-    `Описание: ${content.description ?? 'не указано'}`,
-    '',
-    'Последние посты:',
-    ...content.posts.map((p, i) => `${i + 1}. ${p.slice(0, 600)}`),
-  ].join('\n');
+  console.log('\nВсе прочитанные посты:');
+  for (const p of content.posts) console.log(`  · ${p.slice(0, 400)}`);
 
-  const r = await fetch(OPENROUTER, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      ...openRouterAttribution('channel-identity'),
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
-      temperature: 0.1,
-    }),
-    signal: AbortSignal.timeout(180_000),
-  });
-  if (!r.ok) {
-    console.error(`OpenRouter ответил HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
-    process.exit(1);
-  }
-  const json = await r.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const answer = json.choices?.[0]?.message?.content ?? '';
-
-  let v: Verdict;
-  try {
-    v = JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()) as Verdict;
-  } catch {
-    console.error('\nМодель ответила не-JSON — вердикта нет. Ответ:');
-    console.error(answer.slice(0, 400));
-    process.exit(1);
-  }
-
-  const holds = evidenceHolds(v, content);
-  console.log('\n── Вердикт ──');
-  console.log(`Организация: ${v.org ?? 'не установлена'}`);
-  console.log(`Уверенность модели: ${v.confident ? 'да' : 'нет'}`);
-  console.log(`Публикует предупреждения об опасностях: ${v.publishes_hazard ? 'да' : 'нет'}`);
-  console.log(`Улика: ${v.evidence ?? 'нет'}`);
-  console.log(`Улика найдена в скачанном тексте: ${holds ? 'ДА' : 'НЕТ'}`);
-  if (v.note) console.log(`Замечание модели: ${v.note}`);
-
-  if (!holds) {
-    // Вердикт без улики — это ответ по памяти, а мы спрашивали по тексту.
-    console.log('\nВЕРДИКТ ОТБРОШЕН: улика не встречается в скачанном тексте дословно.');
-    console.log('Это не «канал чужой» — это «модель не подтвердила присланным». Подпись остаётся прежней.');
-    return;
-  }
-  if (!v.confident || !v.org) {
-    console.log('\nСодержимое не позволяет назвать владельца. Подпись остаётся нейтральной — и это честный исход.');
-    return;
-  }
-  console.log(`\nОПОЗНАН: ${v.org}. Улика дословно есть в канале — подпись источника можно уточнить.`);
+  // Вердикта здесь нет намеренно. «Канал принадлежит такой-то службе» —
+  // утверждение, которое машина подтвердить не может, а модель на нём уже
+  // ошиблась: kammeteo был назван камчатским, оказавшись питерским. Читает
+  // человек, и решение принимает он.
+  console.log('\nВердикта нет: чей это канал, решает человек по тексту выше.');
 }
 
-if (require.main === module) {
-  main().catch((e) => { console.error('Опознание упало:', (e as Error).message); process.exit(1); });
-}
