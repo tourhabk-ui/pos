@@ -11,6 +11,7 @@ import { pool } from '@/lib/db-pool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { callAIFast } from '@/lib/ai/providers';
 import { assessGrounding, type ToolRun } from '@/lib/agents/eval/grounding';
+import { classifyResponse } from '@/lib/kuzmich/refusal-detector';
 
 interface OutcomeResult {
   score: number;       // 0–10
@@ -65,6 +66,55 @@ export interface AnswerProvenance {
   toolsOffered?: string[];
 }
 
+/**
+ * Записать ОТКАЗ модели — отдельным исходом, с именем провайдера.
+ *
+ * Балла здесь нет и быть не может: оценивать нечего, модель не отвечала на
+ * вопрос. Ставить условную единицу значило бы смешать отказ с плохим ответом
+ * в одной средней — а чинятся они в разных местах: плохой ответ в промпте и
+ * данных, отказ у провайдера или сменой провайдера.
+ *
+ * Провайдер пишется рядом (метаданные из #1729) и ради него всё и затевалось:
+ * водопад меняет провайдера молча, и без имени «Кузьмич иногда отказывает»
+ * останется наблюдением, а не находкой.
+ */
+async function recordRefusal(
+  userText: string,
+  botResponse: string,
+  chatId: number,
+  signals: string[],
+  opts?: { toolRuns?: ToolRun[] } & AnswerProvenance,
+): Promise<void> {
+  try {
+    const slug = `outcome_kuz_refusal_${chatId}_${Date.now() % 1000000}`;
+    const provider = opts?.provider ?? 'провайдер не записан';
+    await pool.query(
+      `INSERT INTO agent_knowledge(slug, type, title, compiled_truth, metadata, agent_id, edit_count, created_at, updated_at)
+       VALUES($1, 'outcome', $2, $3, $4::jsonb, 'kuzmich', 0, NOW(), NOW())
+       ON CONFLICT(slug) DO NOTHING`,
+      [
+        slug,
+        `ОТКАЗ МОДЕЛИ (${provider})`,
+        `Вопрос: ${userText.slice(0, 150)}\nОтвет: ${botResponse.slice(0, 300)}\n\n`
+        + `ОТКАЗ МОДЕЛИ. Признаки: ${signals.join(', ')}. Балла нет: модель не отвечала на вопрос.`,
+        JSON.stringify({
+          outcome_kind:       'refusal',
+          refusal_signals:    signals,
+          prompt_fingerprint: opts?.promptFingerprint ?? null,
+          provider:           opts?.provider ?? null,
+          answer_path:        opts?.answerPath ?? null,
+          tools_offered:      opts?.toolsOffered ?? null,
+          tools_ran:          opts?.toolRuns?.map(r => r.name) ?? null,
+        }),
+      ],
+    );
+  } catch (err) {
+    // Молчать нельзя (§4.0): иначе сломанная запись отказов неотличима от
+    // того, что отказов не было — ровно та беда, которую этот код и чинит.
+    logSwallowedFailure('kuzmich-outcomes', 'запись отказа модели', err);
+  }
+}
+
 export async function gradeKuzmichResponse(
   userText: string,
   botResponse: string,
@@ -73,7 +123,35 @@ export async function gradeKuzmichResponse(
 ): Promise<void> {
   // Грейдим только содержательные вопросы о Камчатке
   if (!isGradableQuestion(userText)) return;
-  // Пропускаем очень короткие ответы (ошибки, перебои)
+
+  // Чем оказался ответ — РАНЬШЕ порога длины (issue #1730).
+  //
+  // Порог «короче 50 знаков — не грейдим» заводился против обрывов и перебоев,
+  // и для них он верен. Но отказ модели короток ПО ПРИРОДЕ: «не могу помочь с
+  // этим вопросом» — 32 знака. Значит отказ не попадал в оценку вообще: ни
+  // балла, ни записи, ни следа, — и был неотличим от обрыва связи.
+  //
+  // Своего списка запрещённых тем у платформы нет, то есть отказ выносит
+  // ПРОВАЙДЕР, а водопад меняет провайдера молча. Кузьмич при этом советник по
+  // безопасности в поле, и наши законные вопросы лежат ровно в темах, по
+  // которым модели отказывают целиком: медведь и чем его отпугнуть, кровь,
+  // переохлаждение, оружие в разрешённом промысловом районе.
+  const kind = classifyResponse(botResponse);
+
+  // Отказ — самостоятельный исход, а не «плохой ответ» и не «нет ответа».
+  // Судить его рубрикой нечем: оценивать нечего, и AI-судья тут лишний вызов.
+  if (kind.kind === 'refusal') {
+    await recordRefusal(userText, botResponse, chatId, kind.signals, opts);
+    return;
+  }
+
+  // Обрыв и заглушка водопада — по-прежнему мимо оценки: это факт о сети и
+  // ключах, чинится в другом месте. Складывать его с отказом значит потерять
+  // оба (тот же урок, что у судьи фактчека 22.08).
+  if (kind.kind === 'outage') return;
+
+  // Пропускаем очень короткие ответы (ошибки, перебои). Отказ сюда уже не
+  // доедет — он разобран выше и записан.
   if (botResponse.length < 50) return;
 
   // Детерминированная метрика заземления (grounding.ts): конкретика
@@ -155,6 +233,14 @@ export interface OutcomeSummary {
   low_quality_count: number;
   /** Ответы с конкретикой (цены/телефоны/наличие) без вызова инструментов данных. */
   ungrounded_count: number;
+  /**
+   * Отказы модели — СЧИТАЮТСЯ ОТДЕЛЬНО от низких баллов (issue #1730).
+   *
+   * Сложить их значило бы усреднить две разные беды: плохой ответ чинится в
+   * промпте и данных, отказ — у провайдера или сменой провайдера. И отказ не
+   * входит в `total_graded`: он не оценивался, оценивать было нечего.
+   */
+  refusal_count: number;
   recent_issues: string[];
 }
 
@@ -164,10 +250,14 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
     avg_score: string;
     low_count: string;
     ungrounded_count: string;
+    refusal_count: string;
     issues: string[];
   }>(
     `SELECT
-       COUNT(*) AS total,
+       -- Оценённые — только те, у кого есть балл. Отказ баллом не обладает, и
+       -- считать его «оценённым» значило бы завысить объём проверки ровно на
+       -- те случаи, которые никто не проверял (§4.0).
+       COUNT(*) FILTER (WHERE compiled_truth ~ 'Оценка (\\d+)/10') AS total,
        AVG(
          CASE
            WHEN compiled_truth ~ 'Оценка (\\d+)/10'
@@ -180,6 +270,9 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
        COUNT(*) FILTER (
          WHERE compiled_truth LIKE '%НЕЗАЗЕМЛЁННЫЕ ФАКТЫ%'
        ) AS ungrounded_count,
+       COUNT(*) FILTER (
+         WHERE metadata->>'outcome_kind' = 'refusal'
+       ) AS refusal_count,
        ARRAY_AGG(
          CASE
            WHEN compiled_truth LIKE '%Проблемы:%'
@@ -200,6 +293,7 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
     avg_score: parseFloat(row?.avg_score ?? '0'),
     low_quality_count: parseInt(row?.low_count ?? '0'),
     ungrounded_count: parseInt(row?.ungrounded_count ?? '0'),
+    refusal_count: parseInt(row?.refusal_count ?? '0'),
     recent_issues: (row?.issues ?? []).filter(Boolean).slice(0, 5),
   };
 }
