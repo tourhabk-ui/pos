@@ -3,7 +3,8 @@
  * Импорт знаний о маршрутах и местах Камчатки из открытых источников.
  *
  * ?source=visitkamchatka  — паспорта маршрутов (visitkamchatka.ru)
- * ?source=kamchatkaland   — тематические статьи о местах (kamchatkaland.ru)
+ * ?source=kamchatkaland   — тематические статьи (kamchatkaland.ru) → раздел
+ *                           статей `articles`, НЕ справочник маршрутов (08.09)
  * ?source=all             — оба источника (по умолчанию)
  * ?batch=N                — размер батча (default 20)
  *

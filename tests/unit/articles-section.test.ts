@@ -178,3 +178,50 @@ describe('раздел виден поиску', () => {
     expect(src).toMatch(/articlePages[\s\S]{0,600}catch/);
   });
 });
+
+/**
+ * Импортёр статей пишет в раздел статей.
+ *
+ * Находка аудита 08.09: импортёр kamchatkaland писал статьи в
+ * `kamchatka_routes` видимыми записями — «История Камчатки» предлагалась
+ * туристу как маршрут. Это замыкало круг с шагом ремонта `source_note`:
+ * ремонт переносил такие записи в `articles` и удалял из справочника, а
+ * импортёр ежедневно тянул их обратно, потому что «что уже есть» спрашивал у
+ * справочника маршрутов и после уборки всегда видел пустоту.
+ *
+ * Проверяется не намерение, а текст запроса: куда именно пишет и у кого
+ * спрашивает.
+ */
+describe('импортёр статей: полка одна', () => {
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(process.cwd(), 'lib/agents/kamchatkaland-importer.ts'), 'utf-8',
+  ) as string;
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('пишет в articles, а не в справочник маршрутов', () => {
+    expect(code).toMatch(/INSERT INTO articles/);
+    expect(code).not.toMatch(/INSERT INTO kamchatka_routes/);
+  });
+
+  it('«что уже есть» спрашивает там же, где пишет', () => {
+    // Иначе после каждой уборки импортёр видит пустоту и тянет всё заново.
+    expect(code).not.toMatch(/FROM kamchatka_routes/);
+    expect(code).toMatch(/FROM articles/);
+  });
+
+  it('чужой текст по совпавшему адресу не переписывается', () => {
+    // Адрес в разделе один на всех, статьи приходят и из ремонта маршрутов.
+    expect(code).toMatch(/WHERE articles\.source_name = EXCLUDED\.source_name/);
+  });
+
+  it('род операции спрашивается у базы, а не угадывается по rowCount', () => {
+    // UPSERT возвращает единицу и на вставке, и на обновлении: ветка
+    // «обновлено» при счёте по rowCount недостижима, и отчёт врёт.
+    for (const file of ['lib/agents/kamchatkaland-importer.ts', 'lib/agents/visitkamchatka-importer.ts']) {
+      const s = require('node:fs').readFileSync(require('node:path').join(process.cwd(), file), 'utf-8') as string;
+      const body = s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      expect(body, `${file}: род операции не спрошен у базы`).toMatch(/RETURNING \(xmax = 0\) AS inserted/);
+      expect(body, `${file}: род операции угадывается по rowCount`).not.toMatch(/rowCount \?\? 0\) > 0 \? 'inserted'/);
+    }
+  });
+});

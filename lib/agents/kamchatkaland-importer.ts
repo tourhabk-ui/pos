@@ -1,17 +1,49 @@
 /**
  * lib/agents/kamchatkaland-importer.ts
  *
- * Импортирует тематические статьи о природных местах Камчатки
- * с kamchatkaland.ru/note/
+ * Тематические статьи о природе Камчатки с kamchatkaland.ru/note/ —
+ * 27 текстов по 1200-4500 слов: вулканы, источники, гейзеры, озёра, реки,
+ * водопады, бухты, животные, растения, парки, посёлки, история.
  *
- * 27 статей по 1200-4500 слов: вулканы, источники, гейзеры, озёра,
- * реки, водопады, бухты, животные, растения, парки...
+ * Каждая статья → строка в `articles`, то есть в СВОЙ раздел (/articles,
+ * миграция 848). Кузьмич берёт их оттуда же как справочный контекст.
  *
- * Каждая статья → запись в agent_route_knowledge (kind='article').
- * Kuzmich использует как RAG-контекст при вопросах о природе Камчатки.
+ * ── Что здесь было до 08.09 и почему это был замкнутый круг ────────────────
+ *
+ * Импортёр писал статьи в `kamchatka_routes` видимыми записями. То есть
+ * «История Камчатки» и «Когда лучше ехать на Камчатку» предлагались туристу
+ * как МАРШРУТ — как то, по чему можно пойти. Шапка при этом обещала
+ * `agent_route_knowledge (kind='article')`, чего код не делал никогда: три
+ * разных ответа на вопрос «где живёт статья» — в шапке, в коде и в §4.1.
+ *
+ * Круг замыкался так. Шаг ремонта `source_note` (lib/services/data-repair.ts)
+ * находит записи с адресом источника вида `/note`, переносит текст в
+ * `articles` и убирает строку из справочника маршрутов. Импортёр же искал
+ * «что уже есть» в `kamchatka_routes` — и после каждой уборки видел пустоту и
+ * затягивал все 27 обратно. Уборщик и загрязнитель ходили по расписанию:
+ * ремонт по кнопке, импорт ежедневно в 00:00 UTC.
+ *
+ * Поэтому исправлен ИСТОЧНИК, а не последствие: статья пишется сразу туда,
+ * куда её потом всё равно перенесёт ремонт, и «что уже есть» спрашивается
+ * там же.
+ *
+ * ── Счётчики ──────────────────────────────────────────────────────────────
+ *
+ * Прежний код возвращал 'inserted' при любом ненулевом rowCount, а UPSERT
+ * даёт rowCount = 1 и на вставке, и на обновлении: ветка 'updated' была
+ * недостижима, и отчёт сообщал вставки там, где шли обновления. Теперь род
+ * операции спрашивается у самой базы — `RETURNING (xmax = 0)`: у вставленной
+ * строки xmax нулевой, у обновлённой конфликтом — нет.
+ *
+ * ── Чужой адрес занят ─────────────────────────────────────────────────────
+ *
+ * `articles.slug` уникален на весь раздел, а в нём уже лежат статьи, которые
+ * ремонт перенёс из маршрутов (источник visitkamchatka). Совпадение адреса
+ * при РАЗНЫХ источниках — не повод переписать чужой текст своим: обновление
+ * ограничено условием на источник, а такая статья считается пропущенной и
+ * называется в ответе отдельным числом, а не растворяется в skipped.
  */
 
-import { createHash } from 'crypto';
 import { pool } from '@/lib/db-pool';
 
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
@@ -24,39 +56,52 @@ export interface KamchatkalandResult {
   inserted: number;
   updated: number;
   skipped: number;
+  /** Адрес занят статьёй ДРУГОГО источника — чужой текст не переписан. */
+  taken_by_other_source: number;
   errors: number;
   duration_ms: number;
 }
 
-// Все известные статьи + их категории
-const ARTICLES: Array<{ slug: string; category: string; activity_type: string; location_type: string }> = [
-  { slug: 'vulkany-kamchatki',              category: 'vulkani',              activity_type: 'volcano',    location_type: 'volcano'    },
-  { slug: 'dolina-gejzerov',                category: 'geyzery',              activity_type: 'helicopter', location_type: 'geyser'     },
-  { slug: 'goryachie-istochniki',           category: 'termalnye_istochniki', activity_type: 'thermal',    location_type: 'hot_spring' },
-  { slug: 'ozera',                          category: 'lakes',                activity_type: 'eco',        location_type: 'lake'       },
-  { slug: 'reki',                           category: 'rivers',               activity_type: 'fishing',    location_type: 'river'      },
-  { slug: 'reka-kamchatka',                 category: 'rivers',               activity_type: 'fishing',    location_type: 'river'      },
-  { slug: 'vodopady',                       category: 'trekking',             activity_type: 'trekking',   location_type: 'waterfall'  },
-  { slug: 'buhty',                          category: 'morskie_progulki',     activity_type: 'boat_trip',  location_type: 'bay'        },
-  { slug: 'parki',                          category: 'eco',                  activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'zhivotnye',                      category: 'medvedi',              activity_type: 'bears',      location_type: 'other'      },
-  { slug: 'morskoj-mir-kamchatki',          category: 'morskie_progulki',     activity_type: 'boat_trip',  location_type: 'bay'        },
-  { slug: 'rasteniya',                      category: 'eco',                  activity_type: 'eco',        location_type: 'forest'     },
-  { slug: 'flora',                          category: 'eco',                  activity_type: 'eco',        location_type: 'forest'     },
-  { slug: 'derevya-kamchatki',              category: 'eco',                  activity_type: 'eco',        location_type: 'forest'     },
-  { slug: 'relef-kamchatki',                category: 'trekking',             activity_type: 'trekking',   location_type: 'mountain'   },
-  { slug: 'territoriya-kamchatki',          category: 'ekskursii',            activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'goroda-poselenija',              category: 'ekskursii',            activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'esso',                           category: 'ekskursii',            activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'poselok-klyuchi',                category: 'ekskursii',            activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'nizhnekamchatsk',                category: 'ekskursii',            activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'ozero-azhabachje',               category: 'lakes',                activity_type: 'eco',        location_type: 'lake'       },
-  { slug: 'zima',                           category: 'trekking',             activity_type: 'winter_hiking', location_type: 'other'  },
-  { slug: 'kogda-luchshe-ehat-na-kamchatku', category: 'ekskursii',           activity_type: 'eco',        location_type: 'other'     },
-  { slug: 'istoriya',                       category: 'ekskursii',            activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'ekologicheskie-problemyi-kamchatki', category: 'eco',              activity_type: 'eco',        location_type: 'other'     },
-  { slug: 'raznoe',                         category: 'ekskursii',            activity_type: 'eco',        location_type: 'other'      },
-  { slug: 'ug',                             category: 'trekking',             activity_type: 'trekking',   location_type: 'other'      },
+/**
+ * Статьи и рубрика раздела.
+ *
+ * Рубрика взята из ТЕМЫ самого заголовка, а не из прежней колонки `category`
+ * (`trekking`, `ekskursii`, `medvedi`). Та категория выбиралась под строку
+ * МАРШРУТА — она отвечала на вопрос «каким видом активности туда идут», и в
+ * читательском разделе «Водопады Камчатки» под рубрикой «треккинг» были бы
+ * выдуманной рубрикой, а не переводом существующей.
+ *
+ * У «Разного о Камчатке» темы нет намеренно: `null` собирается в «Разное»
+ * (lib/articles/queries.ts), и это честнее приписанной наугад рубрики.
+ */
+const ARTICLES: Array<{ slug: string; topic: string | null }> = [
+  { slug: 'vulkany-kamchatki',                  topic: 'Вулканы и гейзеры' },
+  { slug: 'dolina-gejzerov',                    topic: 'Вулканы и гейзеры' },
+  { slug: 'goryachie-istochniki',               topic: 'Вулканы и гейзеры' },
+  { slug: 'ozera',                              topic: 'Вода' },
+  { slug: 'reki',                               topic: 'Вода' },
+  { slug: 'reka-kamchatka',                     topic: 'Вода' },
+  { slug: 'vodopady',                           topic: 'Вода' },
+  { slug: 'buhty',                              topic: 'Вода' },
+  { slug: 'ozero-azhabachje',                   topic: 'Вода' },
+  { slug: 'parki',                              topic: 'Природа' },
+  { slug: 'zhivotnye',                          topic: 'Природа' },
+  { slug: 'morskoj-mir-kamchatki',              topic: 'Природа' },
+  { slug: 'rasteniya',                          topic: 'Природа' },
+  { slug: 'flora',                              topic: 'Природа' },
+  { slug: 'derevya-kamchatki',                  topic: 'Природа' },
+  { slug: 'relef-kamchatki',                    topic: 'Природа' },
+  { slug: 'ekologicheskie-problemyi-kamchatki', topic: 'Природа' },
+  { slug: 'territoriya-kamchatki',              topic: 'Край и посёлки' },
+  { slug: 'goroda-poselenija',                  topic: 'Край и посёлки' },
+  { slug: 'esso',                               topic: 'Край и посёлки' },
+  { slug: 'poselok-klyuchi',                    topic: 'Край и посёлки' },
+  { slug: 'nizhnekamchatsk',                    topic: 'Край и посёлки' },
+  { slug: 'ug',                                 topic: 'Край и посёлки' },
+  { slug: 'zima',                               topic: 'Сезон и поездка' },
+  { slug: 'kogda-luchshe-ehat-na-kamchatku',    topic: 'Сезон и поездка' },
+  { slug: 'istoriya',                           topic: 'История' },
+  { slug: 'raznoe',                             topic: null },
 ];
 
 // ── Заголовки статей для читаемых title ────────────────────────────
@@ -124,72 +169,75 @@ async function fetchArticle(slug: string): Promise<string | null> {
   }
 }
 
-// ── Upsert статьи в БД ─────────────────────────────────────────────
+// ── Запись статьи в раздел статей ──────────────────────────────────
+
+type UpsertOutcome = 'inserted' | 'updated' | 'taken_by_other_source';
 
 async function upsertArticle(
   slug: string,
-  description: string,
+  body: string,
   meta: typeof ARTICLES[number],
-): Promise<'inserted' | 'updated' | 'skipped'> {
-  const dedupeKey = `kl_${slug}`;
+): Promise<UpsertOutcome> {
   const title = ARTICLE_TITLES[slug] ?? slug.replace(/-/g, ' ');
   const url = `${BASE}/note/${slug}`;
-  const sourceHash = createHash('md5').update(description).digest('hex');
 
-  const metadata = JSON.stringify({
-    location_type: meta.location_type,
-    source_hash: sourceHash,
-    source: SOURCE_NAME,
-  });
-  const routeSlug = dedupeKey.replace(/[^a-z0-9-]+/g, '-');
-
-  const { rowCount } = await pool.query(
-    `INSERT INTO kamchatka_routes
-       (id, dedupe_key, slug, title, description, category, activity_type,
-        source_url, source_name, metadata, is_visible, created_at, updated_at)
-     VALUES (
-       gen_random_uuid(), $1, $2, $3, $4, $5, $6,
-       $7, $8, $9::jsonb, true, NOW(), NOW()
-     )
-     ON CONFLICT (dedupe_key) DO UPDATE SET
-       description = COALESCE(EXCLUDED.description, kamchatka_routes.description),
-       metadata    = EXCLUDED.metadata,
-       updated_at  = NOW()`,
-    [dedupeKey, routeSlug, title, description, meta.category, meta.activity_type,
-     url, SOURCE_NAME, metadata],
+  // Род операции спрашивается у базы: xmax = 0 у вставленной строки, ненулевой
+  // у обновлённой по конфликту. Считать по rowCount нельзя — он равен единице
+  // в обоих случаях, и прежний отчёт поэтому не знал ни одного обновления.
+  //
+  // Условие на источник в DO UPDATE защищает чужой текст: адрес в разделе один
+  // на всех, а статьи туда попадают ещё и из ремонта справочника маршрутов.
+  const { rows } = await pool.query<{ inserted: boolean }>(
+    `INSERT INTO articles (slug, title, body, topic, source_url, source_name)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (slug) DO UPDATE SET
+       title       = EXCLUDED.title,
+       body        = COALESCE(EXCLUDED.body, articles.body),
+       topic       = COALESCE(EXCLUDED.topic, articles.topic),
+       source_url  = COALESCE(EXCLUDED.source_url, articles.source_url),
+       updated_at  = NOW()
+     WHERE articles.source_name = EXCLUDED.source_name
+     RETURNING (xmax = 0) AS inserted`,
+    [slug, title, body, meta.topic, url, SOURCE_NAME],
   );
 
-  return (rowCount ?? 0) > 0 ? 'inserted' : 'skipped';
+  const row = rows[0];
+  if (!row) return 'taken_by_other_source';
+  return row.inserted ? 'inserted' : 'updated';
 }
 
 // ── Главная функция ────────────────────────────────────────────────
 
 export async function runKamchatkalandImporter(batchSize = 10): Promise<KamchatkalandResult> {
   const start = Date.now();
-  let inserted = 0, updated = 0, skipped = 0, errors = 0;
+  let inserted = 0, updated = 0, skipped = 0, takenByOther = 0, errors = 0;
 
-  // Найти статьи, которых нет или которые устарели
-  const existingKeys = await pool.query<{ k: string }>(
-    `SELECT dedupe_key AS k FROM kamchatka_routes WHERE source_name = $1`,
+  // «Что уже есть» спрашивается в разделе статей — там же, где статья и живёт.
+  // Пока этот вопрос задавался справочнику маршрутов, ответ был всегда «ничего
+  // нет»: ремонт уносил строки оттуда, и импортёр тянул все 27 заново.
+  const { rows: existingRows } = await pool.query<{ slug: string }>(
+    `SELECT slug FROM articles WHERE source_name = $1`,
     [SOURCE_NAME],
   );
-  const existing = new Set(existingKeys.rows.map(r => r.k));
+  const existing = new Set(existingRows.map((r) => r.slug));
 
-  const toProcess = ARTICLES.filter(a => !existing.has(`kl_${a.slug}`))
-    .slice(0, batchSize);
+  const toProcess = ARTICLES.filter((a) => !existing.has(a.slug)).slice(0, batchSize);
 
   for (const article of toProcess) {
-    const description = await fetchArticle(article.slug);
-    if (!description) {
+    const body = await fetchArticle(article.slug);
+    if (!body) {
       console.error(`  fetch returned null for ${article.slug}`);
       errors++;
       continue;
     }
     try {
-      const result = await upsertArticle(article.slug, description, article);
+      const result = await upsertArticle(article.slug, body, article);
       if (result === 'inserted') inserted++;
       else if (result === 'updated') updated++;
-      else skipped++;
+      else {
+        takenByOther++;
+        console.error(`  адрес /articles/${article.slug} занят статьёй другого источника — не переписываем`);
+      }
     } catch (e) {
       console.error(`  upsert error for ${article.slug}:`, e instanceof Error ? e.message : e);
       errors++;
@@ -197,5 +245,14 @@ export async function runKamchatkalandImporter(batchSize = 10): Promise<Kamchatk
     await new Promise(r => setTimeout(r, 400));
   }
 
-  return { inserted, updated, skipped, errors, duration_ms: Date.now() - start };
+  // skipped — статьи, до которых не дошла очередь этой партии: не отказ и не
+  // работа, но и не ноль, иначе размер партии выглядел бы полным охватом.
+  skipped = Math.max(0, ARTICLES.length - existing.size - toProcess.length);
+
+  return {
+    inserted, updated, skipped,
+    taken_by_other_source: takenByOther,
+    errors,
+    duration_ms: Date.now() - start,
+  };
 }
