@@ -20,6 +20,10 @@ name: Аудит ОС и эволюции одним проходом (с ран
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_findings_run:
+        description: 'ID прогона, чьи находки проверить (без нового прохода)'
+        required: false
   push:
     branches: [main]
     paths:
@@ -43,7 +47,37 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
+      # ── Режим «проверить сохранённое» ─────────────────────────────────
+      #
+      # Проверка находок, за которые уже заплачено проходом. Стоит копейки:
+      # короткие заходы по одному файлу дешёвой моделью, без набора в 1,7 МБ.
+      - name: Взять находки прошлого прогона
+        if: inputs.verify_findings_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: audit-findings
+          run-id: ${{ inputs.verify_findings_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Проверить сохранённые находки
+        if: inputs.verify_findings_run != ''
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AUDIT_FINDINGS_IN: audit-findings.json
+        run: |
+          set -uo pipefail
+          AUDIT_VERIFY_MODEL=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.github/triggers/os-audit.json')).get('verify_model') or '')
+          except Exception:
+              print('')
+          ")
+          export AUDIT_VERIFY_MODEL
+          npx tsx scripts/os-audit-runner.ts
+
       - name: Аудит одним проходом
+        if: inputs.verify_findings_run == ''
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
@@ -74,3 +108,18 @@ jobs:
               print('')
           ")
           npx tsx scripts/os-audit-runner.ts $MODEL $TARGETS
+
+      # Находки оплаченного прохода переживают прогон — даже красный.
+      #
+      # Четыре прогона подряд теряли их вместе с процессом: проход стоит
+      # ~751 ₽ и съедает баланс, круг проверки получает 402, и доплата
+      # покупает не проверку, а НОВЫЙ проход. Теперь находки можно проверить
+      # позже и почти даром: workflow_dispatch с verify_findings_run.
+      - name: Сохранить находки прохода
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-findings
+          path: audit-findings.json
+          if-no-files-found: warn
+          retention-days: 30

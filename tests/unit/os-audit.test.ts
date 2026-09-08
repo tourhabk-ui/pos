@@ -282,3 +282,49 @@ describe('круг проверки не голодает и не врёт пр�
     expect(wf).toContain('export AUDIT_VERIFY_MODEL');
   });
 });
+
+describe('оплаченный проход переживает прогон', () => {
+  const WF = readFileSync('.github/workflows/os-audit.yml', 'utf8');
+
+  it('находки сохраняются ДО проверки и независимо от её исхода', () => {
+    // Проход стоит ~751 ₽. Терять его результат оттого, что на проверку не
+    // хватило денег, — ровно та потеря, из-за которой режим и заведён.
+    const save = SRC.indexOf('writeFileSync(FINDINGS_OUT');
+    const verify = SRC.indexOf('await verifyAndReport(key, model, good, byPath');
+    expect(save).toBeGreaterThan(0);
+    expect(save).toBeLessThan(verify);
+  });
+
+  it('неудача сохранения названа вслух, а не проглочена', () => {
+    expect(SRC).toContain('Находки не сохранены:');
+  });
+
+  it('есть режим «проверить сохранённое» без нового прохода', () => {
+    expect(SRC).toContain('AUDIT_FINDINGS_IN');
+    expect(SRC).toMatch(/if \(FINDINGS_IN\) \{[\s\S]{0,120}verifyOnly/);
+  });
+
+  it('пустой файл находок — отказ, а не «всё чисто»', () => {
+    expect(SRC).toContain('проверять нечего. Это отказ, а не «всё чисто»');
+  });
+
+  it('расхождение коммитов видно: улика могла не найтись из-за правки файла', () => {
+    expect(SRC).toContain('проверка идёт на ДРУГОМ коммите');
+    expect(SRC).toMatch(/файл изменился/);
+  });
+
+  it('workflow кладёт находки артефактом даже при красном прогоне', () => {
+    expect(WF).toContain('upload-artifact');
+    expect(WF).toMatch(/name: Сохранить находки прохода[\s\S]{0,80}if: always\(\)/);
+  });
+
+  it('workflow умеет проверять находки прошлого прогона', () => {
+    expect(WF).toContain('verify_findings_run');
+    expect(WF).toContain('download-artifact');
+    expect(WF).toContain('AUDIT_FINDINGS_IN: audit-findings.json');
+  });
+
+  it('проход и проверка взаимоисключающи — иначе снова заплатим за оба', () => {
+    expect(WF).toMatch(/name: Аудит одним проходом\n\s+if: inputs\.verify_findings_run == ''/);
+  });
+});

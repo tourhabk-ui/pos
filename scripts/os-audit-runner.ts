@@ -34,7 +34,7 @@
  *
  * Использование: npx tsx scripts/os-audit-runner.ts <модель> [<glob> ...]
  */
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { salvageTruncatedArray } from '../lib/ai/json-salvage';
 import { openRouterAttribution } from '../lib/ai/attribution';
@@ -342,11 +342,75 @@ export function evidenceIsQuoted(evidence: string, texts: string[]): boolean {
   return frags.some((f) => haystacks.some((h) => h.includes(f)));
 }
 
+/**
+ * Куда положить находки основного прохода и откуда их взять для проверки.
+ *
+ * ── Зачем разделять ───────────────────────────────────────────────────────
+ *
+ * Четыре прогона подряд кончились одинаково: основной проход стоит ~751 ₽ и
+ * съедает баланс целиком, после чего круг проверки получает 402 на ПЕРВОЙ же
+ * находке. Прогон 4 это показал начисто — дешёвый проверяющий
+ * (`deepseek/deepseek-chat`) был выбран правильно и не получил ни одного
+ * шанса: денег не осталось.
+ *
+ * Пока проход и проверка неразделимы, доплата не добивает список, а покупает
+ * НОВЫЙ проход: находки живут только внутри одного запуска и умирают вместе с
+ * ним. Отсюда разделение: проход сохраняет находки файлом, проверка умеет
+ * работать по сохранённому — без модели, без набора, без 751 ₽.
+ */
+const FINDINGS_OUT = process.env.AUDIT_FINDINGS_OUT?.trim() || 'audit-findings.json';
+const FINDINGS_IN = process.env.AUDIT_FINDINGS_IN?.trim() || '';
+
+/**
+ * Проверить находки, сохранённые прошлым прогоном, — без модели и без набора.
+ *
+ * Тексты файлов берутся из checkout'а (`readIfExists` внутри `verifyFinding`),
+ * поэтому сохранять их вместе с находками не нужно: репозиторий и есть набор.
+ * Единственное условие — проверять по тому же коммиту, на котором проход
+ * находки и получил; иначе улика может не найтись не потому, что выдумана, а
+ * потому, что файл с тех пор изменился.
+ */
+async function verifyOnly(key: string, path: string): Promise<void> {
+  let saved: { commit?: string; good?: Finding[]; invented?: number; unquoted?: number };
+  try {
+    saved = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    console.error(`Сохранённые находки не прочитаны (${path}):`,
+      err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  const good = Array.isArray(saved.good) ? saved.good : [];
+  if (good.length === 0) {
+    console.error('В сохранённом файле нет находок — проверять нечего. Это отказ, а не «всё чисто».');
+    process.exit(1);
+  }
+  console.log(`проверяю сохранённые находки: ${good.length} из ${path}`);
+  const now = process.env.GITHUB_SHA ?? null;
+  if (saved.commit) console.log(`проход был на коммите ${saved.commit}`);
+  if (saved.commit && now && saved.commit !== now) {
+    // Расхождение коммитов НЕ ошибка, но и не пустяк: улика может не найтись
+    // оттого, что файл с тех пор изменился, а выглядеть это будет как
+    // «выдумала». Пусть человек видит это до того, как поверит исходу.
+    console.log(`ВНИМАНИЕ: проверка идёт на ДРУГОМ коммите (${now}).`
+      + ` Не найденная улика здесь может значить «файл изменился», а не «выдумана».`);
+  }
+  const model = process.argv[2] || 'openai/gpt-6-astra';
+  await verifyAndReport(key, model, good, new Map(), {
+    invented: saved.invented ?? 0,
+    unquoted: saved.unquoted ?? 0,
+  });
+}
+
 async function main(): Promise<void> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) { console.error('OPENROUTER_API_KEY не задан — спросить некого.'); process.exit(1); }
   const model = process.argv[2] || 'openai/gpt-6-astra';
   const targets = process.argv.length > 3 ? process.argv.slice(3) : DEFAULT_TARGETS;
+
+  if (FINDINGS_IN) {
+    await verifyOnly(key, FINDINGS_IN);
+    return;
+  }
 
   const { files, skipped, bytes } = collect(targets);
   if (files.length === 0) {
@@ -417,6 +481,42 @@ async function main(): Promise<void> {
     good.push({ ...f, files: real });
   }
 
+  // Находки сохраняем ДО проверки и независимо от её исхода: проход уже
+  // оплачен, и терять его результат оттого, что на проверку не хватило
+  // денег, — ровно та потеря, из-за которой этот режим и заведён.
+  try {
+    writeFileSync(FINDINGS_OUT, JSON.stringify({
+      commit: process.env.GITHUB_SHA ?? null,
+      model,
+      good,
+      invented,
+      unquoted,
+    }, null, 2));
+    console.log(`находки сохранены: ${FINDINGS_OUT} (${good.length})`);
+  } catch (err) {
+    // Не смогли сохранить — говорим вслух: иначе проверка «по сохранённому»
+    // потом не найдёт файла и это будет выглядеть как «находок не было».
+    console.error('Находки не сохранены:', err instanceof Error ? err.message : String(err));
+  }
+
+  await verifyAndReport(key, model, good, byPath, { invented, unquoted });
+}
+
+/**
+ * Круг проверки и печать итога — общие для обоих способов запуска.
+ *
+ * Вызывается и после основного прохода, и в режиме «проверить сохранённое»
+ * (`AUDIT_FINDINGS_IN`). Второй способ нужен потому, что проход и проверка
+ * стоят разных денег и в один баланс не помещаются: см. FINDINGS_OUT.
+ */
+async function verifyAndReport(
+  key: string,
+  model: string,
+  good: Finding[],
+  byPath: Map<string, string>,
+  counts: { invented: number; unquoted: number },
+): Promise<void> {
+  const { invented, unquoted } = counts;
   // Второй заход: каждую находку перепроверяем отдельно, показывая только её
   // файлы. Первый ответ модели поверхностен — это правило, а не случай.
   //
@@ -527,6 +627,8 @@ async function main(): Promise<void> {
   }
   console.log('\nНичего не изменено: аудит только читает. Решает человек.');
 }
+
+
 
 // Запускаемся только когда нас ПОЗВАЛИ. Сторож импортирует отсюда чистые
 // функции проверки улик, и без этого условия сам импорт запускал бы аудит:
