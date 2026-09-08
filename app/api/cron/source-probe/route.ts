@@ -39,9 +39,43 @@ const CANDIDATES: ReadonlyArray<{ url: string; why: string }> = [
   { url: 'https://www.kscnet.ru/ivs/kvert/van/rss.php', why: 'KVERT — вулканические бюллетени (VONA у нас уже есть, лента была бы вторым путём)' },
 ];
 
-interface ProbeResult {
-  url: string;
-  why: string;
+/**
+ * Два обличья запроса.
+ *
+ * 08.09: publication.pravo.gov.ru не ответил ни раннеру (вне РФ), ни проду
+ * (в РФ) — причём не ответил даже КОРЕНЬ сайта, не только предполагаемая
+ * лента. Это сняло версию про гео-блок: раз обе точки зрения дают одно и то
+ * же, дело не в том, откуда мы смотрим.
+ *
+ * Осталась вторая правдоподобная причина, и её надо не предполагать, а
+ * замерить: государственные порталы часто закрываются от машинных клиентов —
+ * по User-Agent, по отсутствию Accept-Language, по «слишком голому» набору
+ * заголовков. Поэтому каждый адрес спрашивается ДВАЖДЫ, и ответ становится
+ * различающим:
+ *
+ *   оба обличья молчат            — адрес недостижим отсюда вообще;
+ *   бот молчит, браузер отвечает  — нас отсекают по виду клиента;
+ *   оба отвечают                  — адрес живой, вопрос закрыт.
+ *
+ * Браузерное обличье — это НЕ обход защиты: мы не подделываем сессию, не
+ * обходим капчу и не притворяемся человеком в интерфейсе. Мы читаем публичную
+ * страницу и называем в заголовках то, что назвал бы обычный читатель.
+ * Значения строго ASCII: кириллица в заголовке ломает undici.
+ */
+const PERSONAS = {
+  bot: {
+    'User-Agent': 'TourHab/1.0 (source probe)',
+  },
+  browser: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+  },
+} as const;
+
+type Persona = keyof typeof PERSONAS;
+
+interface Attempt {
   /** Что ответил сервер: код, либо null — не дошли вовсе. */
   status: number | null;
   content_type: string | null;
@@ -52,14 +86,19 @@ interface ProbeResult {
   error: string | null;
 }
 
-async function probe(c: { url: string; why: string }): Promise<ProbeResult> {
-  const base: ProbeResult = {
-    url: c.url, why: c.why,
-    status: null, content_type: null, bytes: null, looks_like_feed: null, error: null,
-  };
+interface ProbeResult {
+  url: string;
+  why: string;
+  /** Ответ на запрос нашим агентом и браузерным — по отдельности. */
+  attempts: Record<Persona, Attempt>;
+  /** Вывод из пары попыток, словами: он и есть смысл двойного запроса. */
+  verdict: 'открыт' | 'отсекают по виду клиента' | 'недостижим' | 'ответил только боту';
+}
+
+async function attempt(url: string, persona: Persona): Promise<Attempt> {
   try {
-    const res = await fetch(c.url, {
-      headers: { 'User-Agent': 'TourHab/1.0 (source probe)' },
+    const res = await fetch(url, {
+      headers: PERSONAS[persona],
       signal: AbortSignal.timeout(15_000),
       redirect: 'follow',
     });
@@ -67,20 +106,38 @@ async function probe(c: { url: string; why: string }): Promise<ProbeResult> {
     const ct = res.headers.get('content-type');
     const head = body.slice(0, 400).toLowerCase();
     return {
-      ...base,
       status: res.status,
       content_type: ct,
       bytes: body.length,
       looks_like_feed:
         (ct ?? '').toLowerCase().includes('xml')
         || head.includes('<rss') || head.includes('<feed') || head.includes('<rdf'),
+      error: null,
     };
   } catch (err) {
     // Отказ называется вслух: молчащая проба неотличима от пройденной.
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[source-probe] ${c.url}: ${message}`);
-    return { ...base, error: message.slice(0, 160) };
+    console.error(`[source-probe] ${url} (${persona}): ${message}`);
+    return { status: null, content_type: null, bytes: null, looks_like_feed: null, error: message.slice(0, 160) };
   }
+}
+
+/** Ответил ли сервер хоть что-то осмысленное. 4xx/5xx ответом не считаем. */
+function answered(a: Attempt): boolean {
+  return a.status !== null && a.status < 400;
+}
+
+async function probe(c: { url: string; why: string }): Promise<ProbeResult> {
+  const bot = await attempt(c.url, 'bot');
+  const browser = await attempt(c.url, 'browser');
+
+  const verdict: ProbeResult['verdict'] =
+    answered(browser) && answered(bot) ? 'открыт'
+    : answered(browser) ? 'отсекают по виду клиента'
+    : answered(bot) ? 'ответил только боту'
+    : 'недостижим';
+
+  return { url: c.url, why: c.why, attempts: { bot, browser }, verdict };
 }
 
 export async function GET(request: NextRequest) {
@@ -101,7 +158,7 @@ export async function GET(request: NextRequest) {
     vantage: 'prod',
     // Смысл замера — в сравнении с раннером, поэтому он назван прямо в ответе:
     // одно и то же «не ответил» с двух точек значит разное.
-    note: 'Прод стоит в РФ. Ответ отсюда при отказе раннеру означает гео-блок, а не отсутствие ленты; отказ с обеих точек — что адреса, скорее всего, нет.',
+    note: 'Прод стоит в РФ, раннер — вне. Ответ отсюда при отказе раннеру означает гео-блок; отказ с обеих точек снимает эту версию. Каждый адрес спрашивается двумя обличьями: наш агент и браузерный — «отсекают по виду клиента» и «недостижим» это разные беды с разной починкой.',
     results,
   });
 }
