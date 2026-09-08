@@ -146,8 +146,12 @@ describe('перепроверка каждой находки отдельны�
   it('у проверки три исхода, и третий не равен первому', () => {
     expect(SRC).toContain('cannot_tell');
     expect(SRC).toMatch(/«Не могу проверить» — это НЕ «подтверждается»/);
-    // Отказ самой проверки тоже «не смог», а не «подтверждено».
-    expect(SRC).toContain("verdict: 'cannot_tell', why: `проверяющий не ответил");
+    // Отказ самой проверки тоже «не смог», а не «подтверждено». Форму
+    // ответа переписали, когда 402 стали отличать от прочих отказов, —
+    // свойство держим по СМЫСЛУ, а не по точной строке.
+    const httpFail = SRC.slice(SRC.indexOf('if (!res.ok)'), SRC.indexOf('if (!res.ok)') + 600);
+    expect(httpFail).toContain("verdict: 'cannot_tell'");
+    expect(httpFail).toContain('проверяющий не ответил');
   });
 
   it('печатаются только подтверждённые, а непроверенные названы отдельно', () => {
@@ -242,5 +246,39 @@ describe('путь, названный моделью, проходит чере
 
   it('namedFiles не пускает то, что дверь не пропустила', () => {
     expect(namedFiles('смотри ../../etc/passwd и .env.local')).toEqual([]);
+  });
+});
+
+describe('круг проверки не голодает и не врёт про причину', () => {
+  it('у проверки своя модель, по умолчанию — основная', () => {
+    // Два прогона подряд кончились одинаково: основной проход съедал баланс,
+    // проверка упиралась в 402. Задача проверки узкая — флагман ей не нужен.
+    expect(SRC).toContain('AUDIT_VERIFY_MODEL');
+    expect(SRC).toMatch(/verifyModel = process\.env\.AUDIT_VERIFY_MODEL\?\.trim\(\) \|\| model/);
+  });
+
+  it('проверка зовётся моделью проверки, а не основной', () => {
+    expect(SRC).toMatch(/verifyFinding\(key, verifyModel, f, byPath\)/);
+    expect(SRC).not.toMatch(/verifyFinding\(key, model, f, byPath\)/);
+  });
+
+  it('402 отличается от прочих отказов: денег нет — дальше не ходим', () => {
+    expect(SRC).toContain('outOfFunds: res.status === 402');
+    expect(SRC).toMatch(/if \(outOfFunds\) \{/);
+  });
+
+  it('недошедшая находка называется своими словами, а не «HTTP 402»', () => {
+    expect(SRC).toContain('до этой находки проверка не дошла');
+  });
+
+  it('нехватка денег печатается ОТДЕЛЬНОЙ строкой от «не смог по существу»', () => {
+    expect(SRC).toContain('ВНИМАНИЕ: на круге проверки кончился баланс');
+    expect(SRC).toContain('перетасует');
+  });
+
+  it('маркер умеет задавать модель проверки', () => {
+    const wf = readFileSync('.github/workflows/os-audit.yml', 'utf8');
+    expect(wf).toContain("get('verify_model')");
+    expect(wf).toContain('export AUDIT_VERIFY_MODEL');
   });
 });

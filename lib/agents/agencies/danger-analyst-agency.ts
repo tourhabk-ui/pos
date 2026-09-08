@@ -19,6 +19,9 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
 import { standDownCopy } from '@/lib/services/safety/push-copy';
+import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
+import { computeLiveness, type LivenessStatus } from '@/lib/agents/cron-liveness';
+import { lastIngestAt, INGEST_AGENT_ID } from '@/lib/safety/ingest-run';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -165,6 +168,31 @@ export function isStandDownTransition(
 ): boolean {
   if (previous === null) return false;
   return ELEVATED.includes(previous) && !ELEVATED.includes(current);
+}
+
+/**
+ * Можно ли по ПУСТОЙ выборке событий говорить «спокойно».
+ *
+ * Находка аудита 08.09: пустая выборка трактовалась как спокойная обстановка
+ * и могла вызвать отбой тревоги (`stand-down push`) при прежнем high или
+ * critical — даже если событий нет оттого, что приём тревог мёртв. Проверки
+ * работоспособности источника на этом пути не было ни одной.
+ *
+ * Асимметрия здесь резкая, и она решает вид правила. Не отправить отбой —
+ * оставить человека с устаревшим «уходите»: неприятно. Отправить ложный
+ * отбой — сказать «можно возвращаться» тому, кто стоит под вулканом. Поэтому
+ * пустоте верим ТОЛЬКО при живом источнике; `late`, `dead`, `never` и
+ * `unknown` права говорить «спокойно» не дают.
+ *
+ * Если события ЕСТЬ — данные настоящие, и свежесть приёма к ним отношения не
+ * имеет: судим как обычно.
+ *
+ * Живость берётся у `cron-liveness` — своего механизма здесь нет и заводить
+ * его нельзя (§12: правило, написанное дважды, разойдётся).
+ */
+export function calmIsTrustworthy(status: LivenessStatus, hasEvents: boolean): boolean {
+  if (hasEvents) return true;
+  return status === 'alive';
 }
 
 /**
@@ -331,9 +359,35 @@ export async function runDangerAnalysis(): Promise<{
   const errors: string[] = [];
   const standDownZones: Zone[] = [];
 
+  // Жив ли приём тревог — спрашивается ОДИН раз на прогон: ответ общий для
+  // всех зон, а четыре одинаковых запроса были бы четырьмя шансами разойтись.
+  const ingestEntry = CRON_REGISTRY.find(e => e.agentId === INGEST_AGENT_ID);
+  const lastIngest = await lastIngestAt();
+  const ingest = computeLiveness(
+    ingestEntry ?? { everyMin: 5, tier: 'safety', agentId: INGEST_AGENT_ID },
+    lastIngest ? Date.parse(lastIngest) : null,
+    Date.now(),
+  );
+
   for (const zone of ZONES) {
     try {
       const data = await loadZoneData(zone);
+      const hasEvents = data.seismic_events.length > 0 || data.volcanic_alerts.length > 0;
+
+      // Пустая выборка при неживом приёме — это «не знаем», а не «спокойно».
+      //
+      // Зону пропускаем ЦЕЛИКОМ, а не только отбой: записать сейчас risk_level
+      // 'low' значило бы съесть переход high→low навсегда (он считается ровно
+      // один раз), и настоящий отбой потом уже не отправился бы никогда.
+      // Прошлая оценка остаётся крайней — она устарела, но не выдумана.
+      if (!calmIsTrustworthy(ingest.status, hasEvents)) {
+        const ago = ingest.minutesSince === null ? 'ни разу' : `${ingest.minutesSince} мин назад`;
+        const why = `зона ${zone}: обстановка не оценена — приём тревог ${ingest.status} (${ago}), а событий нет; пустота при неживом источнике «спокойно» не значит`;
+        errors.push(why);
+        console.error('[danger-analyst]', why);
+        continue;
+      }
+
       const quickScore = quickRiskScore(data);
       const level = riskLevel(quickScore);
       // Перед вставкой новой оценки — снимок предыдущей: она уедет со
@@ -365,7 +419,7 @@ export async function runDangerAnalysis(): Promise<{
         threat_types: threatTypes,
         tourists_at_risk: level === 'low' ? 0 : data.tourists_in_zone,
         active_tours_count: data.active_tours,
-        confidence: data.seismic_events.length > 0 || data.volcanic_alerts.length > 0 ? 0.85 : 0.60,
+        confidence: hasEvents ? 0.85 : 0.60,
         similar_event: null,
         recommended_action: recommendedAction(level),
         analysis_text: analysisText,

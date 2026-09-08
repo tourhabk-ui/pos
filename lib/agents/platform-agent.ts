@@ -19,6 +19,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { agentMemory } from './memory/agent-memory';
 import { ExperimentTracker } from './learning/experiment-tracker';
 import { getModelForAgent } from '@/lib/ai/agent-models';
+import { canDispatchIntent } from '@/lib/agents/permissions';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -139,6 +140,31 @@ class PlatformAgentClass {
     // AI fallback для сложных сообщений с неопределённым намерением
     if (intent === 'unknown' && params.message.length > 20) {
       intent = await this.classifyWithAI(params.message, params.role);
+    }
+
+    // Матрица прав спрашивается об УСТОЯВШЕМСЯ интенте — как бы он ни был
+    // получен.
+    //
+    // Находка аудита 08.09 (подтверждена уликой): `canDispatchIntent`
+    // существовал в permissions.ts, но здесь не вызывался ни разу. Ключевой
+    // классификатор роль учитывает сам, а ветка `classifyWithAI` — нет: её
+    // единственная проверка это `VALID_INTENTS.includes(cleaned)`, то есть
+    // «такой интент вообще бывает», а не «этой роли он положен». Стоило
+    // модели вернуть туристу `rescue_sos_stats` — и маршрутизатор шёл в
+    // RescueAgency с `FROM sos_events`; на `channel_post_route` —
+    // публиковал в канал.
+    //
+    // Роль модели не доверяем принципиально: согласие модели с инструкцией —
+    // не проверка прав, а вежливость. Проверка обязана быть
+    // детерминированной и стоять между классификацией и маршрутизацией.
+    if (intent !== 'unknown' && !canDispatchIntent(params.role, intent)) {
+      // Отказ не глушится (§4.0): в ответе его не видно — туда уходит общая
+      // ветка, — значит он обязан быть в логе поимённо.
+      console.error('[platform-agent] интент не положен роли', {
+        role: params.role ?? 'anonymous',
+        intent,
+      });
+      intent = 'unknown';
     }
 
     const context = await this.contextHub.build(

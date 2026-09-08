@@ -25,7 +25,19 @@ interface SosEventRow {
   status: string;
   created_at: string;
   age_minutes: number;
+  /** Сколько активных ВСЕГО — считается до LIMIT, поэтому усечение видно. */
+  active_total: number;
 }
+
+/**
+ * Сколько активных инцидентов показывать списком.
+ *
+ * Ограничение только на ПОКАЗ: счёт берётся до него (`COUNT(*) OVER ()`), и
+ * если список усечён, это говорится вслух. Прежний код ограничивал ВЫБОРКУ,
+ * а фильтр активных применял уже к ней — двадцать свежих закрытых сигналов
+ * вытесняли старый активный, и сводка печатала «Активных нет».
+ */
+const ACTIVE_LIST_LIMIT = 50;
 
 interface WeatherRiskRow {
   tour_id: number;
@@ -67,7 +79,11 @@ export class RescueAgency {
       } catch { /* tool failure is non-blocking */ }
     }
 
-    const [recent, stats] = await Promise.all([
+    const [active, stats] = await Promise.all([
+      // Активные — СВОИМ запросом: фильтр стоит до ограничения, а окна по
+      // времени нет вовсе. Неразрешённый сигнал не перестаёт быть
+      // неразрешённым на тридцать первый день; наоборот, чем он старше, тем
+      // тревожнее, а прежний тридцатидневный отбор прятал такие насовсем.
       pool.query<SosEventRow>(`
         SELECT
           id,
@@ -76,12 +92,13 @@ export class RescueAgency {
           lng::float,
           status,
           created_at::text,
-          ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_minutes
+          ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_minutes,
+          COUNT(*) OVER ()::int AS active_total
         FROM sos_events
-        WHERE created_at >= NOW() - INTERVAL '30 days'
+        WHERE status NOT IN ('resolved', 'false_alarm')
         ORDER BY created_at DESC
-        LIMIT 20
-      `),
+        LIMIT $1
+      `, [ACTIVE_LIST_LIMIT]),
       pool.query<{
         total_30d: string;
         active: string;
@@ -99,7 +116,12 @@ export class RescueAgency {
     ]);
 
     const s = stats.rows[0];
-    const activeEvents = recent.rows.filter(r => !['resolved', 'false_alarm'].includes(r.status));
+    const activeEvents = active.rows;
+    // Счёт до LIMIT: список может быть усечён, число — никогда.
+    const activeTotal = activeEvents[0]?.active_total ?? 0;
+    // Активные старше тридцати дней в статистику окна не попадают вовсе —
+    // именно они и пропадали раньше. Число называем отдельно.
+    const activeOlderThanWindow = Math.max(0, activeTotal - Number(s.active ?? 0));
 
     const lines: string[] = [
       '<b>SOS-мониторинг (30 дней)</b>',
@@ -110,18 +132,24 @@ export class RescueAgency {
       `Среднее время реагирования: ${s.avg_resolve_min} мин.`,
     ];
 
-    if (activeEvents.length > 0) {
-      lines.push('', `<b>АКТИВНЫЕ ИНЦИДЕНТЫ (${activeEvents.length}):</b>`);
+    if (activeTotal > 0) {
+      lines.push('', `<b>АКТИВНЫЕ ИНЦИДЕНТЫ (${activeTotal}):</b>`);
+      if (activeOlderThanWindow > 0) {
+        lines.push(`Из них старше 30 дней: ${activeOlderThanWindow} — в статистику выше не вошли.`);
+      }
       for (const e of activeEvents) {
         const location = e.lat && e.lng
           ? `[${e.lat.toFixed(4)}, ${e.lng.toFixed(4)}]`
           : 'координаты не получены';
         lines.push(`• SOS #${e.id} — ${location} | ${e.age_minutes} мин. назад | статус: ${e.status}`);
       }
+      if (activeTotal > activeEvents.length) {
+        lines.push(`Показаны первые ${activeEvents.length} из ${activeTotal}.`);
+      }
 
       // Notify via SOS alert tool when active incidents exist
-      if (this.tools.sendSosAlert && activeEvents.length > 0) {
-        this.tools.sendSosAlert(`${activeEvents.length} active SOS`).catch(() => {});
+      if (this.tools.sendSosAlert) {
+        this.tools.sendSosAlert(`${activeTotal} active SOS`).catch(() => {});
       }
     } else {
       lines.push('', 'Активных SOS-инцидентов нет.');
@@ -131,7 +159,10 @@ export class RescueAgency {
       lines.push('', incidentContext);
     }
 
-    return { response: lines.join('\n'), data: { stats: s, active_events: activeEvents } };
+    return {
+      response: lines.join('\n'),
+      data: { stats: s, active_events: activeEvents, active_total: activeTotal },
+    };
   }
 
   /** Анализ погодных рисков для активных туров */

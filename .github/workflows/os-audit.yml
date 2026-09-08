@@ -48,6 +48,17 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -uo pipefail
+          # Модель круга проверки — своя. Задача там узкая (найти дословную
+          # примету и выбрать один из трёх исходов), флагман не нужен, а
+          # отдельный судья независимее того, кто находку и написал.
+          AUDIT_VERIFY_MODEL=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.github/triggers/os-audit.json')).get('verify_model') or '')
+          except Exception:
+              print('')
+          ")
+          export AUDIT_VERIFY_MODEL
           MODEL=$(python3 -c "
           import json
           try:
