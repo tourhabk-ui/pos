@@ -154,3 +154,46 @@ describe('рассчитанный путь на фоновой карте', () 
     expect(open).toMatch(/setCalculatedPreview\(null\)/);
   });
 });
+
+/**
+ * Цель, до которой нет дороги, — это подъезд, а не отказ.
+ *
+ * Порог привязки к дорожному графу — 1 км, а цели в списке это МЕСТА:
+ * вершины, озёра, источники. До вершины Горелого дороги нет ни одной, и
+ * прежняя политика («любая привязка дальше порога — not_found») отвечала
+ * «путь не найден» на каждую такую цель. Тап по карте попадал рядом с
+ * дорогой и работал — ровно та разница, на которую жаловался владелец.
+ *
+ * Опасность, ради которой ставился порог (провайдер молча снапит далёкую
+ * точку и рисует путь туда, где дороги нет), закрыта не отказом, а ИМЕНЕМ:
+ * подъезд назван подъездом, остаток до цели — числом.
+ */
+describe('подъезд к цели без дороги', () => {
+  const src = strip(CLIENT);
+  const API = strip(read('app/api/routes/build/route.ts'));
+  const PROVIDER = strip(read('lib/on-route/route-provider.ts'));
+
+  it('отказ остался только для непривязанного СТАРТА', () => {
+    expect(PROVIDER).toMatch(/carRouteReach\(result\.route\) === 'unusable'/);
+    expect(PROVIDER).not.toMatch(/if \(withinSnapTolerance\(result\.route\)\) return result;/);
+  });
+
+  it('сервер называет подъезд подъездом и говорит остаток', () => {
+    expect(API).toMatch(/reach === 'approach'/);
+    expect(API).toMatch(/Подъезд к/);
+    expect(API).toMatch(/formatApproachGap\(gap\)/);
+  });
+
+  it('экран показывает заголовок СЕРВЕРА, а не свою константу', () => {
+    // Константа «Путь на автомобиле» перекрывала и имя цели, и предупреждение
+    // о том, что дорога до цели не доходит.
+    expect(src).toMatch(/\{r\.title \|\| 'Путь на автомобиле'\}/);
+    expect(src).not.toMatch(/truncate">Путь на автомобиле</);
+  });
+
+  it('остаток пути пешком назван и в строке, и рядом с линией', () => {
+    expect(src).toMatch(/дальше пешком \$\{formatApproachGap\(gapM\)\}/);
+    expect(src).toMatch(/Дорога кончается за/);
+    expect(src).toMatch(/carRouteReach\(calculatedPreview\.route\) === 'approach'/);
+  });
+});

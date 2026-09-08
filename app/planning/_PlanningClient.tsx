@@ -41,7 +41,8 @@ import { VedarZoomButtons, type VedarMapHandle, type VedarMapLine, type VedarMap
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
-  calculatedCarToLeafletCoordinates, type CalculatedCarRoute,
+  calculatedCarToLeafletCoordinates, carRouteReach, carApproachGapM, formatApproachGap,
+  type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
 import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
@@ -2508,13 +2509,21 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // группы мест и плоский список рекомендуемых.
   //
   // Расчётный автопуть (r.calculated) — отдельная ветка вывода (владелец
-  // 28.08): без GradeChip и без lineGrade, вместо них «Путь на автомобиле»,
-  // приблизительные км/мин и бейдж «Рассчитан сейчас» — план запрещает
-  // показывать расчёт так, будто это проверенная запись каталога.
+  // 28.08): без GradeChip и без lineGrade, приблизительные км/мин и бейдж
+  // «Рассчитан сейчас» — план запрещает показывать расчёт так, будто это
+  // проверенная запись каталога.
+  //
+  // Заголовок берётся из ОТВЕТА СЕРВЕРА. Здесь стояло «Путь на автомобиле»
+  // константой, и она перекрывала всё: сервер называет цель, а когда дорога
+  // до цели не доходит — говорит «Подъезд к „X“ — дальше 3.4 км пешком».
+  // Константа съедала и то и другое, и человек видел одно и то же слово,
+  // куда бы ни ехал (тот же род дефекта, что владелец 07.09 назвал «наверху
+  // конечная точка не меняется», только строкой ниже).
   function renderPathRow(r: RoutePreview) {
     if (r.calculated) {
       const km = (r.calculated.distanceM / 1000).toFixed(1);
       const min = Math.round(r.calculated.durationS / 60);
+      const gapM = carApproachGapM(r.calculated);
       return (
         <div key={r.id}>
           <button onClick={() => openPreview(r)}
@@ -2522,7 +2531,9 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
-                <p className="text-sm font-medium text-[var(--text-primary)] truncate">Путь на автомобиле</p>
+                <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                  {r.title || 'Путь на автомобиле'}
+                </p>
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
                   style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)' }}>
                   Рассчитан сейчас
@@ -2530,6 +2541,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               </div>
               <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
                 ≈ {km} км · ≈ {min} мин
+                {gapM > 0 && ` · дальше пешком ${formatApproachGap(gapM)}`}
               </p>
             </div>
             <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>На карте</span>
@@ -2741,6 +2753,18 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                       <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
                         {calculatedPreviewMap.caption}
                       </p>
+                      {/* Дорога кончается раньше цели — это говорится ЗДЕСЬ,
+                          рядом с линией, а не только в заголовке варианта:
+                          линия обрывается там, где кончается дорожная сеть, и
+                          человек обязан знать, сколько ему идти дальше (§4.0
+                          — подъезд не выдаётся за путь до цели). */}
+                      {carRouteReach(calculatedPreview.route) === 'approach' && (
+                        <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                          style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', color: 'var(--text-primary)' }}>
+                          Дорога кончается за {formatApproachGap(carApproachGapM(calculatedPreview.route))} до цели —
+                          дальше пешком. Линия показывает подъезд, не путь до самой точки.
+                        </p>
+                      )}
                       {/* Три факта под картой — план §4: дата расчёта, трафик,
                           провайдер. Длительность с трафиком читается как
                           ориентировочная на момент расчёта, не как обещание. */}

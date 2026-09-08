@@ -26,7 +26,7 @@
  */
 
 import {
-  MAX_CAR_SNAP_M, withinSnapTolerance,
+  MAX_CAR_SNAP_M, withinSnapTolerance, carRouteReach,
   type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
 
@@ -57,20 +57,33 @@ export const notWiredCarRouteProvider: CarRouteProvider = {
 };
 
 export const SNAP_TOO_FAR_REASON =
-  `Ближайшая дорога дальше ${MAX_CAR_SNAP_M} м от точки — привязка ненадёжна, путь не строится.`;
+  `Ближайшая дорога дальше ${MAX_CAR_SNAP_M} м от ТОЧКИ СТАРТА — ехать не с чего, путь не строится.`;
 
 /**
  * Центральная политика, ОДНА на все будущие адаптеры (не копия в каждом
- * провайдере): найденный путь с ненадёжной привязкой понижается в
- * `not_found`, а не рисуется как есть. Без этого гейта провайдер вроде
- * OSRM молча снапит далёкую точку на ближайшую дорогу (проба 28.08: 8.8 км
- * без ограничения радиуса, честный NoSegment при radius=1000) — платформа
- * тогда обещала бы путь туда, где дороги на самом деле нет.
+ * провайдере).
+ *
+ * Её смысл прежний: провайдер вроде OSRM молча снапит далёкую точку на
+ * ближайшую дорогу (проба 28.08: 8.8 км без ограничения радиуса, честный
+ * NoSegment при radius=1000), и платформа обещала бы путь туда, где дороги
+ * нет. Обещать нельзя.
+ *
+ * Но до 08.09 из этого следовал отказ ЦЕЛИКОМ, и он бил по обычному случаю:
+ * цели в списке — это места (вершины, озёра, источники), дороги до них нет
+ * почти никогда, и на каждую такую цель приходило «путь не найден». Тап по
+ * карте попадал рядом с дорогой и работал — ровно та разница, на которую
+ * жаловался владелец.
+ *
+ * Теперь отказ — только когда не привязан САМ СТАРТ (ехать не с чего).
+ * Далёкая цель даёт ПОДЪЕЗД: настоящий путь до ближайшей дороги, с честно
+ * названным остатком (carApproachGapM) — это и есть то, как туда ездят.
  */
 export function applySnapGuard(result: CarRouteProviderResult): CarRouteProviderResult {
   if (result.status !== 'found') return result;
-  if (withinSnapTolerance(result.route)) return result;
-  return { status: 'not_found', reason: SNAP_TOO_FAR_REASON };
+  if (carRouteReach(result.route) === 'unusable') {
+    return { status: 'not_found', reason: SNAP_TOO_FAR_REASON };
+  }
+  return result;
 }
 
 // ─── Тестовые адаптеры (владелец 28.08) — НЕ подключены к /api/routes/build ──
