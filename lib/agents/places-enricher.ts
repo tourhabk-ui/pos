@@ -8,13 +8,34 @@
  * 2. Извлекает пары (название → описание)
  * 3. Сопоставляет с записями в agent_route_knowledge по заголовку
  * 4. Каждое описание прогоняет через AI-рерайт (сохранить факты, свои слова)
- * 5. Сохраняет БЕЗ source_url (нет ссылок на источники)
+ * 5. Пишет описание и строку происхождения в `description_provenance`
  *
  * Источники: extraguide.ru, tur-ray.ru, spkam.com, bolshayastrana.com
+ *
+ * ── Разбор 08.09: второй писатель жил слабее первого ───────────────────────
+ *
+ * Описания мест пишут двое — Editor (маршруты и места) и этот обогатитель, — и
+ * второй делал ту же работу по худшим правилам:
+ *
+ *   • звал `callAIFast` — гонку, где побеждает самая быстрая мелкая модель.
+ *     В шапке `providers.ts` этот случай уже описан: так публичные тексты
+ *     писала мелкая модель. Теперь тот же `callAIQualityOrNull`, что у Editor;
+ *   • не писал происхождение: «сколько описаний сочинено и откуда» по местам
+ *     ответить было нечем, хотя ради этого ответа заведена таблица
+ *     `description_provenance` (миграция 911). Теперь пишет — вместе с
+ *     адресом страницы-источника;
+ *   • сопоставлял имена своей меркой (`includes` → 0.85, порог 0.65). Чужой
+ *     текст на карточке места опаснее пустой карточки: платформа о
+ *     безопасности, и описание не того объекта — это ложь о местности.
+ *     Мерка теперь общая с привязкой мест к маршрутам
+ *     (`nameMatchScore`, `lib/routes/place-link.ts`) и строгая: см. ниже;
+ *   • глушил отказ каждого скрейпера. Теперь каждый назван поимённо.
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIQualityOrNull, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { nameMatchScore } from '@/lib/routes/place-link';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -32,6 +53,15 @@ export interface PlacesEnricherResult {
 interface PlaceDesc {
   title: string;
   description: string;
+  /** Адрес страницы, с которой взят текст, — для строки происхождения. */
+  sourceUrl: string;
+  sourceName: string;
+}
+
+/** Скрейпер вместе со своим именем: отказ обязан называть, КТО не ответил. */
+interface Scraper {
+  name: string;
+  run: () => Promise<PlaceDesc[]>;
 }
 
 // ── Скрейп источников ─────────────────────────────────────────────
@@ -45,8 +75,12 @@ async function fetchPage(url: string): Promise<string> {
   return res.text();
 }
 
+const EXTRAGUIDE_URL = 'https://extraguide.ru/russia/kamchatka/sights/';
+const TURRAY_URL = 'https://tur-ray.ru/dostoprimechatelnosti-kamchatki.html';
+const SPKAM_URL = 'https://spkam.com/stati-o-kamchatke/dostoprimechatelnosti/';
+
 async function scrapeExtraguide(): Promise<PlaceDesc[]> {
-  const html = await fetchPage('https://extraguide.ru/russia/kamchatka/sights/');
+  const html = await fetchPage(EXTRAGUIDE_URL);
   const dom = new JSDOM(html);
   const doc = dom.window.document;
   const results: PlaceDesc[] = [];
@@ -65,7 +99,7 @@ async function scrapeExtraguide(): Promise<PlaceDesc[]> {
       next = next.nextElementSibling;
     }
     if (paragraphs.length > 0) {
-      results.push({ title, description: paragraphs.join(' ') });
+      results.push({ title, description: paragraphs.join(' '), sourceUrl: EXTRAGUIDE_URL, sourceName: 'extraguide.ru' });
     }
   });
 
@@ -73,7 +107,7 @@ async function scrapeExtraguide(): Promise<PlaceDesc[]> {
 }
 
 async function scrapeTurRay(): Promise<PlaceDesc[]> {
-  const html = await fetchPage('https://tur-ray.ru/dostoprimechatelnosti-kamchatki.html');
+  const html = await fetchPage(TURRAY_URL);
   const dom = new JSDOM(html);
   const doc = dom.window.document;
   const results: PlaceDesc[] = [];
@@ -91,7 +125,7 @@ async function scrapeTurRay(): Promise<PlaceDesc[]> {
       next = next.nextElementSibling;
     }
     if (paragraphs.length > 0) {
-      results.push({ title, description: paragraphs.join(' ') });
+      results.push({ title, description: paragraphs.join(' '), sourceUrl: TURRAY_URL, sourceName: 'tur-ray.ru' });
     }
   });
 
@@ -99,7 +133,7 @@ async function scrapeTurRay(): Promise<PlaceDesc[]> {
 }
 
 async function scrapeSpkam(): Promise<PlaceDesc[]> {
-  const html = await fetchPage('https://spkam.com/stati-o-kamchatke/dostoprimechatelnosti/');
+  const html = await fetchPage(SPKAM_URL);
   const dom = new JSDOM(html);
   const doc = dom.window.document;
   const results: PlaceDesc[] = [];
@@ -117,7 +151,7 @@ async function scrapeSpkam(): Promise<PlaceDesc[]> {
       next = next.nextElementSibling;
     }
     if (paragraphs.length > 0) {
-      results.push({ title, description: paragraphs.join(' ') });
+      results.push({ title, description: paragraphs.join(' '), sourceUrl: SPKAM_URL, sourceName: 'spkam.com' });
     }
   });
 
@@ -126,25 +160,33 @@ async function scrapeSpkam(): Promise<PlaceDesc[]> {
 
 // ── Нечёткое сопоставление названий ──────────────────────────────
 
-function normalizeTitle(t: string): string {
-  return t.toLowerCase()
-    .replace(/вулкан\s+|гора\s+|озеро\s+|река\s+|мыс\s+|бухта\s+|природный\s+парк\s+/gi, '')
-    .replace(/[^\wа-яё\s]/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+/**
+ * Сходство имён — общей меркой платформы (`nameMatchScore`), а не своей.
+ *
+ * Мерка направленная: она считает, какая доля значимых слов ОДНОГО имени
+ * нашлась в другом. Здесь спрашивается в обе стороны и берётся худший ответ:
+ * односторонняя проверка объявила бы «Ключевской вулкан» совпадением с
+ * «Ключевская сопка (маршрут через Апахончич)» и приписала бы месту чужой
+ * текст.
+ *
+ * Прежняя мерка жила здесь своя: `includes` давал 0.85, порог стоял 0.65 — то
+ * есть достаточно было ОДНОГО общего длинного слова из двух. Родовые слова
+ * («вулкан», «источники», «долина») при этом отсекались списком из семи штук,
+ * тогда как у общей мерки их полсотни.
+ */
+export function bidirectionalNameScore(a: string, b: string): number {
+  return Math.min(nameMatchScore(a, b), nameMatchScore(b, a));
 }
 
-function titleSimilarity(a: string, b: string): number {
-  const na = normalizeTitle(a);
-  const nb = normalizeTitle(b);
-  if (na === nb) return 1.0;
-  if (na.includes(nb) || nb.includes(na)) return 0.85;
-  const wordsA = new Set(na.split(' ').filter(w => w.length > 3));
-  const wordsB = new Set(nb.split(' ').filter(w => w.length > 3));
-  const common = [...wordsA].filter(w => wordsB.has(w)).length;
-  const total = Math.max(wordsA.size, wordsB.size);
-  return total > 0 ? common / total : 0;
-}
+/**
+ * Порог: совпасть должны ВСЕ значимые слова с обеих сторон.
+ *
+ * Строгость выбрана ценой ошибки, а не вкусом. Пропущенное место остаётся без
+ * описания — его допишет Editor или человек. Приписанный чужой текст читается
+ * туристом как правда о местности, по которой он пойдёт, и обнаружить подмену
+ * ему нечем: описание выглядит связным и уверенным.
+ */
+export const NAME_MATCH_MIN = 1;
 
 // ── AI-рерайт описания ─────────────────────────────────────────────
 
@@ -175,7 +217,11 @@ ${verbalizedInstruction(3)}
     },
   ];
   try {
-    const raw = (await callAIFast(messages))?.trim() ?? null;
+    // Качественный водопад, а не гонка: текст читают люди, и читают его как
+    // правду о месте. `callAIFast` побеждает самой быстрой мелкой моделью —
+    // ровно тот случай, что описан в шапке providers.ts.
+    const answer = await callAIQualityOrNull(messages, { maxTokens: 1600 });
+    const raw = answer && !isWaterfallErrorResponse(answer) ? answer.trim() : null;
     if (!raw) return null;
     // Verbalized Sampling: наименее шаблонный валидный вариант. Fallback на сырой
     // ответ — ТОЛЬКО если это НЕ (битый) VS-JSON, иначе сохранили бы сырой
@@ -194,11 +240,13 @@ ${verbalizedInstruction(3)}
 interface DBPlace {
   id: string;
   title: string;
+  /** Сколько символов было до правки. NULL — описания не было вовсе. */
+  prev_chars: number | null;
 }
 
 async function loadPlacesNeedingDesc(limit: number): Promise<DBPlace[]> {
   const { rows } = await pool.query<DBPlace>(
-    `SELECT id, title FROM agent_route_knowledge
+    `SELECT id, title, LENGTH(description) AS prev_chars FROM agent_route_knowledge
      WHERE kind = 'place'
        AND (description IS NULL OR LENGTH(description) < 300)
        AND title NOT ILIKE '%экскурси%'
@@ -217,11 +265,41 @@ async function loadPlacesNeedingDesc(limit: number): Promise<DBPlace[]> {
 
 // ── Сохранить описание в БД ────────────────────────────────────────
 
-async function saveDescription(id: string, description: string): Promise<void> {
+interface DescriptionSource {
+  title: string;
+  url: string;
+  name: string;
+  nameScore: number;
+}
+
+/**
+ * Описание и строка происхождения.
+ *
+ * Происхождение — отдельным запросом и с собственным `catch`: отказ журнала не
+ * отменяет уже записанное описание, но и не молчит (тот же порядок, что у
+ * Editor). Без этой строки на вопрос «откуда взялся текст на карточке места»
+ * ответить нечем — ни для сверки факта, ни для авторских прав.
+ */
+async function saveDescription(
+  place: DBPlace,
+  description: string,
+  previousChars: number | null,
+  source: DescriptionSource,
+): Promise<void> {
   await pool.query(
     `UPDATE agent_route_knowledge SET description = $1 WHERE id = $2`,
-    [description, id],
+    [description, place.id],
   );
+  try {
+    await pool.query(
+      `INSERT INTO description_provenance
+         (entity_id, entity_kind, entity_title, written_by, facts_given, facts_count, chars, previous_chars)
+       VALUES ($1, 'place', $2, 'places-enricher', $3::jsonb, 1, $4, $5)`,
+      [place.id, place.title, JSON.stringify([source]), description.length, previousChars],
+    );
+  } catch (err) {
+    logSwallowedFailure('places-enricher', `происхождение «${place.title}»`, err);
+  }
 }
 
 // ── Главная функция ────────────────────────────────────────────────
@@ -232,12 +310,20 @@ export async function runPlacesEnricher(batchSize = 30): Promise<PlacesEnricherR
 
   // 1. Загрузить описания из источников
   const sourceDescs: PlaceDesc[] = [];
-  for (const scraper of [scrapeExtraguide, scrapeTurRay, scrapeSpkam]) {
+  const scrapers: Scraper[] = [
+    { name: 'extraguide.ru', run: scrapeExtraguide },
+    { name: 'tur-ray.ru', run: scrapeTurRay },
+    { name: 'spkam.com', run: scrapeSpkam },
+  ];
+  for (const scraper of scrapers) {
     try {
-      const items = await scraper();
+      const items = await scraper.run();
+      // Ноль записей при успешном ответе — тоже отказ: страница жива, а
+      // разметка сменилась, и молчание тут неотличимо от «нечего брать».
+      if (items.length === 0) console.error(`[places-enricher] ${scraper.name}: страница отдана, записей не извлечено`);
       sourceDescs.push(...items);
-    } catch {
-      // не критично — продолжаем
+    } catch (err) {
+      logSwallowedFailure('places-enricher', `источник ${scraper.name}`, err);
     }
   }
 
@@ -253,12 +339,12 @@ export async function runPlacesEnricher(batchSize = 30): Promise<PlacesEnricherR
   for (const place of dbPlaces) {
     if (processed >= batchSize) break;
 
-    // Найти лучшее совпадение в источниках
+    // Найти совпадение в источниках: общей меркой, в обе стороны, строго.
     let bestMatch: PlaceDesc | null = null;
     let bestScore = 0;
     for (const src of sourceDescs) {
-      const score = titleSimilarity(place.title, src.title);
-      if (score > bestScore && score >= 0.65) {
+      const score = bidirectionalNameScore(place.title, src.title);
+      if (score > bestScore && score >= NAME_MATCH_MIN) {
         bestScore = score;
         bestMatch = src;
       }
@@ -279,9 +365,15 @@ export async function runPlacesEnricher(batchSize = 30): Promise<PlacesEnricherR
         skipped++;
         continue;
       }
-      await saveDescription(place.id, rewritten);
+      await saveDescription(place, rewritten, place.prev_chars, {
+        title: bestMatch.title,
+        url: bestMatch.sourceUrl,
+        name: bestMatch.sourceName,
+        nameScore: bestScore,
+      });
       enriched++;
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('places-enricher', `описание «${place.title}»`, err);
       errors++;
     }
 

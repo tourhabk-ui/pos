@@ -635,17 +635,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const fileId = msg.voice?.file_id ?? msg.video_note?.file_id ?? '';
       await tgReply(chatId, 'Слушаю...');
 
+      // Два отказа — две разные фразы. «Не разобрал» — про дикцию, и повторить
+      // осмысленно; «распознавание недоступно» — про нас, и повторять
+      // бессмысленно. Одна фраза на оба случая с 07.09 заставляла человека
+      // переговаривать в пустоту: OpenRouter с прода отвечает 403, и голос не
+      // расшифровывался вовсе (§4.0 — «не смог» не выдаётся за «плохо слышно»).
       let transcription: string | undefined;
+      let voiceFailure: 'unintelligible' | 'unavailable' = 'unavailable';
       try {
         const fileData = await downloadTgFile(fileId);
         if (fileData) {
           const { callGeminiTranscribe } = await import('@/lib/ai/providers');
-          transcription = await callGeminiTranscribe(fileData.base64, fileData.mimeType) ?? undefined;
+          const outcome = await callGeminiTranscribe(fileData.base64, fileData.mimeType);
+          if (outcome.ok) transcription = outcome.text;
+          else voiceFailure = outcome.reason;
         }
       } catch { /* не критично */ }
 
       if (!transcription) {
-        await tgReply(chatId, 'Не разобрал голосовое. Напишите текстом?');
+        await tgReply(chatId, voiceFailure === 'unintelligible'
+          ? 'Не разобрал голосовое. Напишите текстом?'
+          : 'Распознавание речи сейчас недоступно — напишите, пожалуйста, текстом.');
         return NextResponse.json({ ok: true });
       }
 

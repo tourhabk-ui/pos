@@ -7,10 +7,15 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Модель зовётся качественным водопадом, а не гонкой `callAIFast`: текст
+// читают люди (правка 08.09, см. шапку places-enricher).
 const { callAIFastMock } = vi.hoisted(() => ({ callAIFastMock: vi.fn() }));
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
-vi.mock('@/lib/ai/providers', () => ({ callAIFast: (...a: unknown[]) => callAIFastMock(...a) }));
+vi.mock('@/lib/ai/providers', () => ({
+  callAIQualityOrNull: (...a: unknown[]) => callAIFastMock(...a),
+  isWaterfallErrorResponse: () => false,
+}));
 
 import { rewriteDescription } from '@/lib/agents/places-enricher';
 
