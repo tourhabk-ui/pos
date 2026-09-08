@@ -32,6 +32,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -70,15 +71,20 @@ export async function GET(req: NextRequest) {
       tourist_name: string;
       final_price: number;
       created_at: Date;
-      telegram_id: string | null;
-      max_chat_id: string | null;
-    }>(`
+    } & PartnerReachRow>(`
+      -- Адрес читается ОБЕИМИ колонками, а решает reachFrom: раньше здесь
+      -- была только users.telegram_id, и оператор с адресом в профиле
+      -- партнёра напоминания не получал. Прежний INNER JOIN users вдобавок
+      -- выбрасывал из выборки партнёров без аккаунта целиком: напоминание не
+      -- уходило даже туда, где адрес в MAX был записан.
       SELECT ob.id, ob.tourist_name, ob.final_price, ob.created_at,
-             u.telegram_id, p.max_chat_id::text AS max_chat_id
+             p.telegram_chat_id,
+             u_reach.telegram_id AS user_telegram_id,
+             p.max_chat_id
       FROM operator_bookings ob
       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
       JOIN partners p         ON p.id  = ot.operator_id
-      JOIN users u            ON u.id  = p.user_id
+      LEFT JOIN users u_reach ON u_reach.id = p.user_id
       WHERE ob.booking_status = 'pending_payment'
         AND ob.created_at < NOW() - INTERVAL '2 hours'
         AND ob.created_at > NOW() - INTERVAL '24 hours'
@@ -86,7 +92,8 @@ export async function GET(req: NextRequest) {
     `);
 
     for (const row of remindRows) {
-      if (!row.telegram_id && !row.max_chat_id) {
+      const reach = reachFrom(row);
+      if (!reach.reachable) {
         noTelegram++;
         continue;
       }
@@ -113,7 +120,7 @@ export async function GET(req: NextRequest) {
         text,
         stub,
         buttons: [{ text: 'Открыть бронирования', url: `${getPublicBaseUrl()}/hub/operator/bookings` }],
-        to: { maxChatId: row.max_chat_id, telegramChatId: row.telegram_id },
+        to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
       });
       if (!res.delivered) {
         console.error(`[cron/abandoned-bookings] бронь ${row.id}: ПД не доставлены (${res.channel}) — ${res.reason}`);

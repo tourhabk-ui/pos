@@ -5,6 +5,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { partnerReachCensus } from '@/lib/partners/reach';
 import { callAIDecisionDetailed } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding, verifyAgainstSource, verifyEvidence } from '@/lib/agents/evo/finding-guard';
@@ -855,6 +856,19 @@ export function funnelSampleShortfall(c: FunnelCounts): string | null {
       ? null
       : short('форма брони → бронь или заявка', c.booking_starts);
   }
+  // ПОРОГ НЕ ПРИМЕНЯЕТСЯ К НЕОПЛАЧЕННЫМ БРОНЯМ, и это решение, а не пропуск.
+  //
+  // Неоплаченная бронь — именованный объект, а не статистическая выборка.
+  // Одна неоплаченная бронь — это конкретный турист, который не оплатил, а не
+  // шум в данных: у него есть номер, дата и тур, его можно открыть и
+  // посмотреть. Порог выборки нужен там, где ноль из двух неотличим от
+  // совпадения (касания формы, просмотры) — здесь же ждать десяти таких
+  // туристов, чтобы заметить неработающую оплату, значит потерять девять.
+  //
+  // Решение владельца 08.09. Аудит Fable 5.1 в тот же день назвал отсутствие
+  // порога здесь дефектом — и был прав в одном: довод жил в голове автора, а
+  // не в коде, поэтому следующий читатель принял бы изъятие за недосмотр.
+  // Теперь он записан.
   return null;
 }
 
@@ -966,7 +980,7 @@ export function pickMoneyPathFindings(f: MoneyPathFacts): GrowthIssue[] {
       description:
         `У ${f.unreachable_operators.length} из ${f.operators_with_live_tours} операторов с живыми турами нет ни MAX, ни Telegram: ${names}. ` +
         `За ними ${tours} живых туров. Заявка по такому туру создаётся в базе и никуда не уезжает, а Watchdog через 48 часов запишет это как «оператор игнорирует бронь». ` +
-        'Источник — partners.max_chat_id / telegram_chat_id и operator_tours.is_active (факты, не чтение кода).',
+        'Источник — тот же модуль достижимости, которым уходит уведомление (lib/partners/reach): MAX плюс Telegram из ОБЕИХ колонок — partners.telegram_chat_id и users.telegram_id через partners.user_id. Факты, не чтение кода.',
       suggestion:
         'Оператор пишет боту Кузьмича в MAX «партнер» и свою почту из профиля — бот сам запишет чат в профиль партнёра. Одно сообщение с телефона оператора; со стороны кода делать нечего.',
     });
@@ -991,17 +1005,17 @@ export function pickMoneyPathFindings(f: MoneyPathFacts): GrowthIssue[] {
 async function scanMoneyPath(): Promise<GrowthIssue[]> {
   // Оба chat_id — BIGINT (миграции 077 и 145): «есть канал» это NOT NULL,
   // TRIM() тут падал на проде (урок 04.09).
-  const { rows } = await pool.query<{ name: string; live_tours: number; reachable: boolean }>(
-    `SELECT p.name,
-            COUNT(t.id)::int AS live_tours,
-            (p.telegram_chat_id IS NOT NULL OR p.max_chat_id IS NOT NULL) AS reachable
-       FROM partners p
-       JOIN operator_tours t ON t.operator_id = p.id AND t.is_active = true
-      GROUP BY p.id, p.name, p.telegram_chat_id, p.max_chat_id`,
-  );
+  // Достижимость спрашивается ТЕМ ЖЕ модулем, которым уходит уведомление.
+  // Прежний запрос читал только partners.telegram_chat_id и объявлял
+  // недостижимыми операторов, чей адрес записан в аккаунте человека
+  // (users.telegram_id) — тех самых, до кого бронь из чата Кузьмича
+  // доезжала. Находка судила по одной колонке из двух.
+  const census = await partnerReachCensus();
   return pickMoneyPathFindings({
-    unreachable_operators: rows.filter((r) => !r.reachable).map((r) => ({ name: r.name, live_tours: r.live_tours })),
-    operators_with_live_tours: rows.length,
+    unreachable_operators: census
+      .filter((r) => !r.has_telegram && !r.has_max)
+      .map((r) => ({ name: r.name, live_tours: r.live_tours })),
+    operators_with_live_tours: census.length,
     no_payment_way: paymentAvailability().none,
   });
 }

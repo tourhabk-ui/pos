@@ -63,14 +63,20 @@ export const FOREIGN_LLM_CALLERS = [
  * лицу, и безопасный подход считать ПД идентификаторы тоже. Отсюда паспорт,
  * ИНН, СНИЛС, адрес, дата рождения и идентификатор Telegram.
  */
-const CONTACT_WORD = 'telegram_id|telegram_username|chat_id|phone_number|phonenumber|passport_number'
+/**
+ * Экспортируется 08.09: тот же список слов читает перепись возможностей
+ * крон-роутов (`lib/agents/cron-capabilities`). Скопировать его туда значило
+ * бы завести второй ответ на вопрос «что здесь персональные данные» — и
+ * второй разошёлся бы с первым молча (§12).
+ */
+export const CONTACT_WORD = 'telegram_id|telegram_username|chat_id|phone_number|phonenumber|passport_number'
   + '|passport|birth_date|birthday|whatsapp|telegram|address|snils|inn|phone|email|e_mail|mobile|tel|contacts?';
 const CONTACT_FIELD = new RegExp(`\\.\\s*(?:[a-z0-9$]+_)*(?:${CONTACT_WORD})s?\\b`, 'i');
 
 /** Явные персональные имена (не «название вулкана»): по полю или по владельцу. */
-const PERSONAL_NAME_FIELD =
+export const PERSONAL_NAME_FIELD =
   /\b(customer|client|full|first|last|user|guest|traveler|traveller|tourist|contact|passenger|buyer|payer)_name\b/i;
-const PERSONAL_OWNER_NAME =
+export const PERSONAL_OWNER_NAME =
   /\b(lead|leads|l|booking|bookings|b|user|users|u|member|members|m|guest|guests|g|client|customer|traveler|traveller|tourist|passenger|buyer|payer)\s*\.\s*name\b/i;
 
 /**

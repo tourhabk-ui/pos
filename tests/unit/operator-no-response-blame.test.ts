@@ -45,7 +45,10 @@ const CHECK = SRC.slice(
 
 describe('достижимость меряется обоими каналами', () => {
   it('max_chat_id спрашивается у базы', () => {
-    expect(CHECK).toMatch(/p\.max_chat_id::text AS max_chat_id/);
+    // Приведение к тексту переехало в общий модуль достижимости
+    // (lib/partners/reach): BIGINT приходит из pg то строкой, то числом, и
+    // приводится в одном месте. У запроса остаётся сама колонка.
+    expect(CHECK).toMatch(/p\.max_chat_id/);
   });
 
   it('и участвует в группировке — иначе строка развалится на дубли', () => {
@@ -53,8 +56,13 @@ describe('достижимость меряется обоими каналам�
   });
 
   it('недостижим — только тот, у кого НЕТ обоих', () => {
-    expect(CHECK).toMatch(/unreachable = rows\.filter\(r => !r\.telegram_chat_id && !r\.max_chat_id\)/);
-    expect(CHECK).toMatch(/reachable = rows\.filter\(r => r\.telegram_chat_id \|\| r\.max_chat_id\)/);
+    // Правило «есть хотя бы один канал» живёт в reachFrom и одинаково у всех
+    // читателей: 08.09 нашлась ВТОРАЯ телеграмная колонка (users.telegram_id
+    // через partners.user_id), и своя копия условия здесь снова разошлась бы
+    // с доставкой. Само правило проверяет tests/unit/partner-reach.test.ts.
+    expect(CHECK).toMatch(/unreachable = rows\.filter\(r => !reachFrom\(r\)\.reachable\)/);
+    expect(CHECK).toMatch(/reachable = rows\.filter\(r => reachFrom\(r\)\.reachable\)/);
+    expect(CHECK).toMatch(/u_reach\.telegram_id AS user_telegram_id/);
   });
 });
 

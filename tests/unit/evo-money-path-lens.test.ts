@@ -71,9 +71,15 @@ describe('находки идут наружу и не исполняются р
 });
 
 describe('объектив в петле', () => {
-  it('зарегистрирован под честным именем и читает BIGINT-колонки как NOT NULL', () => {
+  it('зарегистрирован под честным именем и спрашивает достижимость общим модулем', () => {
     expect(GROWTH).toMatch(/lens\(lenses, 'путь денег', scanMoneyPath/);
-    expect(GROWTH).toMatch(/p\.telegram_chat_id IS NOT NULL OR p\.max_chat_id IS NOT NULL/);
+    // 08.09: свой запрос читал ОДНУ колонку из двух (partners.telegram_chat_id)
+    // и объявлял недостижимыми операторов, чей адрес лежит в users.telegram_id
+    // — тех самых, до кого бронь из чата Кузьмича доезжала. Достижимость
+    // теперь спрашивает тот же модуль, которым уходит уведомление.
+    expect(GROWTH).toMatch(/partnerReachCensus\(\)/);
+    expect(GROWTH).not.toMatch(/p\.telegram_chat_id IS NOT NULL OR p\.max_chat_id IS NOT NULL/);
+    // Урок 04.09 остаётся в силе там, где выражение теперь живёт.
     expect(GROWTH).not.toMatch(/TRIM\(p\.(telegram|max)_chat_id\)/);
   });
 

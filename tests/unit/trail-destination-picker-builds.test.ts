@@ -186,6 +186,20 @@ describe('отказ загрузки маршрута — словами и с 
     expect(occurrences.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('карта подводит кадр под новый каталожный маршрут — тем же приёмом, что и у расчётного автопути', () => {
+    // Владелец 08.09, «Авачинский перевал»: маршрут выбрался (заголовок,
+    // счёт точек, расстояние — всё сменилось), а на карте не видно ничего —
+    // линия рисуется корректно, но остаётся за кадром той точки, где стоял
+    // человек, если её никто не подвёл. Без mapCtl.fitLine() это выглядит
+    // как «трек не строится», хотя данные пришли.
+    const at = TRAIL.indexOf('// Новый КАТАЛОЖНЫЙ маршрут');
+    expect(at).toBeGreaterThan(0);
+    const body = TRAIL.slice(at, TRAIL.indexOf('}, [mapCtl, track, waypoints]);', at));
+    expect(body).toContain('mapCtl.fitLine(line.map(([lat, lng]) => [lng, lat]));');
+    expect(body).toContain('track && track.length >= 2 ? track');
+    expect(body).toContain('waypoints.length >= 2 ? waypoints.map(w => [w.lat, w.lng] as [number, number])');
+  });
+
   it('банер отказа — вверху тела листа, видим в любом его состоянии, с кнопкой «Повторить»', () => {
     const at = TRAIL.indexOf('{routeLoadError && (');
     expect(at).toBeGreaterThan(0);

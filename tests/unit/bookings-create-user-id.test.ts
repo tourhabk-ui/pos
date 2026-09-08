@@ -86,6 +86,34 @@ const VALID_BODY = {
   booking_date: '2099-01-01',
 };
 
+
+/**
+ * Значение колонки `user_id` в вызове INSERT — по имени колонки, не по месту
+ * в массиве. Позиция параметра менялась (последним стал metadata), и проверка
+ * «последний параметр» ловила бы не то поле, продолжая при этом зеленеть.
+ */
+function insertedValueOf(column: string): unknown {
+  const call = clientQueryMock.mock.calls.find(([sql]) =>
+    String(sql).includes('INSERT INTO operator_bookings'));
+  expect(call, 'INSERT в operator_bookings не вызван').toBeTruthy();
+  const [sql, params] = call as [string, unknown[]];
+
+  const columns = /INSERT INTO operator_bookings\s*\(([^)]*)\)/i.exec(sql)?.[1];
+  const values  = /VALUES\s*\(([^)]*)\)/i.exec(sql)?.[1];
+  expect(columns, 'не разобран список колонок INSERT').toBeTruthy();
+  expect(values, 'не разобран список значений INSERT').toBeTruthy();
+
+  const names  = columns!.split(',').map(s => s.trim());
+  const slots  = values!.split(',').map(s => s.trim());
+  expect(names.length, 'колонок и значений разное число').toBe(slots.length);
+
+  const at = names.indexOf(column);
+  expect(at, `колонки ${column} нет в INSERT`).toBeGreaterThanOrEqual(0);
+  const n = Number(/^\$(\d+)/.exec(slots[at]!)?.[1]);
+  expect(Number.isFinite(n), `значение ${column} — не параметр: ${slots[at]}`).toBe(true);
+  return params[n - 1];
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   rateCheckMock.mockReturnValue(true);
@@ -99,11 +127,7 @@ describe('POST /api/hub/bookings/create — user_id linkage', () => {
     const res = await POST(postReq(VALID_BODY, { Authorization: 'Bearer faketoken' }));
     expect(res.status).toBe(200);
 
-    const insertCall = clientQueryMock.mock.calls.find(([sql]) =>
-      String(sql).includes('INSERT INTO operator_bookings'));
-    expect(insertCall).toBeTruthy();
-    const [, params] = insertCall as [string, unknown[]];
-    expect(params[params.length - 1]).toBe('user-123');
+    expect(insertedValueOf('user_id')).toBe('user-123');
   });
 
   it('гость без токена → user_id = null, бронь всё равно создаётся', async () => {
@@ -112,11 +136,7 @@ describe('POST /api/hub/bookings/create — user_id linkage', () => {
     const res = await POST(postReq(VALID_BODY));
     expect(res.status).toBe(200);
 
-    const insertCall = clientQueryMock.mock.calls.find(([sql]) =>
-      String(sql).includes('INSERT INTO operator_bookings'));
-    expect(insertCall).toBeTruthy();
-    const [, params] = insertCall as [string, unknown[]];
-    expect(params[params.length - 1]).toBeNull();
+    expect(insertedValueOf('user_id')).toBeNull();
   });
 
   it('невалидный/просроченный/отозванный токен → user_id = null (fail-open, не 401)', async () => {
@@ -128,9 +148,6 @@ describe('POST /api/hub/bookings/create — user_id linkage', () => {
     const res = await POST(postReq(VALID_BODY, { Authorization: 'Bearer expired' }));
     expect(res.status).toBe(200);
 
-    const insertCall = clientQueryMock.mock.calls.find(([sql]) =>
-      String(sql).includes('INSERT INTO operator_bookings'));
-    const [, params] = insertCall as [string, unknown[]];
-    expect(params[params.length - 1]).toBeNull();
+    expect(insertedValueOf('user_id')).toBeNull();
   });
 });

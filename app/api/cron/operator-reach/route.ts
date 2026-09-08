@@ -14,23 +14,29 @@
  *
  * Считаются только операторы, у которых есть что продавать: партнёр без живых
  * туров недостижим безобидно — ему и присылать нечего.
+ *
+ * ПОПРАВКА 08.09 (владелец: «есть у них и тг и макс»). До этого дня перепись
+ * читала ОДНУ колонку — `partners.telegram_chat_id` — и объявляла оператора
+ * недостижимым, когда его адрес записан во второй: `users.telegram_id` через
+ * `partners.user_id`. Колонки заполняются разными путями (вход через Telegram
+ * и `/start link_…`, причём вторая запись сделана под `.catch(() => null)`), и
+ * половина живого кода читала одну, половина другую. Теперь адрес спрашивает
+ * общий модуль `lib/partners/reach`, тот же самый, которым уходит уведомление:
+ * иначе перепись отвечает не про доставку, а про свою колонку.
+ *
+ * Отсюда третье поле в ответе — `telegram_only_in_user_account`: адрес есть,
+ * но не там, где его искала половина платформы. Это не недостижимость, это
+ * расхождение колонок, и чинится оно иначе.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { pool } from '@/lib/db-pool';
+import { partnerReachCensus } from '@/lib/partners/reach';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-interface Row {
-  id: number;
-  name: string;
-  live_tours: number;
-  has_telegram: boolean;
-  has_max: boolean;
-}
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
@@ -39,26 +45,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { rows } = await pool.query<Row>(
-      // Оба chat_id — BIGINT (миграции 077 и 145), не текст. Первая редакция
-      // обернула telegram_chat_id в TRIM(), и прод ответил
-      // «function pg_catalog.btrim(bigint) does not exist»: перепись упала
-      // целиком. Пустой строки у BIGINT не бывает — «есть канал» это просто
-      // NOT NULL. Тип колонки читается из миграции, а не предполагается по
-      // имени.
-      `SELECT p.id,
-              p.name,
-              COUNT(t.id)::int              AS live_tours,
-              (p.telegram_chat_id IS NOT NULL) AS has_telegram,
-              (p.max_chat_id IS NOT NULL)      AS has_max
-         FROM partners p
-         JOIN operator_tours t ON t.operator_id = p.id AND t.is_active = true
-        GROUP BY p.id, p.name, p.telegram_chat_id, p.max_chat_id
-        ORDER BY COUNT(t.id) DESC`,
-    );
+    // Оба chat_id — BIGINT (миграции 077 и 145), не текст. Первая редакция
+    // обернула telegram_chat_id в TRIM(), и прод ответил «function
+    // pg_catalog.btrim(bigint) does not exist»: перепись упала целиком.
+    // Пустой строки у BIGINT не бывает — «есть канал» это просто NOT NULL.
+    const rows = (await partnerReachCensus()).sort((a, b) => b.live_tours - a.live_tours);
 
     const unreachable = rows.filter((r) => !r.has_telegram && !r.has_max);
     const reachable = rows.length - unreachable.length;
+    const onlyInUserAccount = rows.filter((r) => r.telegram_source === 'user');
 
     return NextResponse.json({
       probe: 'operator_reach_v1',
@@ -70,7 +65,13 @@ export async function GET(request: NextRequest) {
       // такому туру создаётся и никуда не едет.
       tours_behind_unreachable: unreachable.reduce((s, r) => s + r.live_tours, 0),
       unreachable_operators: unreachable.map((r) => ({
-        id: r.id, name: r.name, live_tours: r.live_tours,
+        name: r.name, live_tours: r.live_tours,
+      })),
+      // Адрес есть, но записан только в аккаунте человека: для брони из чата
+      // Кузьмича такой оператор достижим, для брони с сайта до 08.09 не был.
+      // Это отдельное состояние, а не «достижим» и не «недостижим».
+      telegram_only_in_user_account: onlyInUserAccount.map((r) => ({
+        name: r.name, live_tours: r.live_tours,
       })),
       verdict: rows.length === 0
         ? 'no_operators'

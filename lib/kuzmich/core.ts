@@ -9,13 +9,14 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { transaction } from '@/lib/database';
-import { callAIWaterfall, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
+import { reachForTour } from '@/lib/partners/reach';
+import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
-import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
+import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
@@ -300,24 +301,38 @@ async function loadUserSituation(chatId: number): Promise<string> {
     if (rows.length) {
       parts.push('Заявки: ' + rows.map(r => `${r.route_title ?? 'тур'} (${r.status})`).join(', '));
     }
-  } catch { /* skip */ }
-  // Брони — через users.telegram_id → operator_bookings → operator_tours
+  } catch (err) {
+    // Пустой catch превращал отказ запроса в «заявок нет» — а это разные
+    // вещи: во втором случае Кузьмич уверенно говорит человеку неправду (§4.0).
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[kuzmich:situation] заявки не прочитаны, SQLSTATE ${code}:`, err);
+  }
+  // Брони — по аккаунту (users.telegram_id) ЛИБО по метке канала в metadata.
+  //
+  // Раньше был только левый путь, и бронь из чата в него не попадала: у неё
+  // не было ни user_id, ни статуса из списка. Кузьмич принимал бронь — и через
+  // минуту отвечал, что броней нет. Метка канала осталась вторым путём и после
+  // починки user_id: у MAX сопоставления с аккаунтом нет вовсе, а старые брони
+  // из чата так и лежат без user_id.
   try {
     const { rows } = await pool.query<{ title: string; booking_status: string }>(
       `SELECT t.title, b.booking_status
        FROM operator_bookings b
-       JOIN users u ON u.id = b.user_id
        JOIN operator_tours t ON t.id = b.operator_tour_id
-       WHERE u.telegram_id = $1
+       LEFT JOIN users u ON u.id = b.user_id
+       WHERE (u.telegram_id = $1 OR b.metadata->>'tg_chat_id' = $2)
          AND b.booking_status IN ('new','confirmed')
          AND b.deleted_at IS NULL
        ORDER BY b.created_at DESC LIMIT 3`,
-      [chatId],
+      [chatId, String(chatId)],
     );
     if (rows.length) {
       parts.push('Брони: ' + rows.map(r => `${r.title} — ${r.booking_status}`).join('; '));
     }
-  } catch { /* skip */ }
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[kuzmich:situation] брони не прочитаны, SQLSTATE ${code}:`, err);
+  }
   if (!parts.length) return '';
   return `=== СИТУАЦИЯ ТУРИСТА (учитывай в ответе, не выдумывай сверх этого) ===\n${parts.join('\n')}`;
 }
@@ -757,11 +772,48 @@ export type FeedOutcome =
   | { state: 'empty' }
   | { state: 'no_feeds'; tried: number };
 
+/**
+ * Отказ лент помнится КОРОТКО — и это не про аккуратность, а про ожидание
+ * человека в поле.
+ *
+ * Кэш здесь держит только удачу (`NEWS_TTL`, час), а неудача не держалась
+ * вовсе: писать пустую строку смысла нет, её всё равно отсекает проверка
+ * истинности. Следствие — на КАЖДОЕ сообщение туриста мы заново стучимся в
+ * мёртвые ленты: два таймаута по 8 секунд у новостей плюс два по 6 у МЧС, до
+ * 28 секунд ожидания перед ответом. А ленты МЧС с прода могут быть
+ * гео-закрыты, то есть это не редкий край, а состояние по умолчанию.
+ *
+ * Пять минут — намеренно мало. Долгий отрицательный кэш был бы ХУЖЕ
+ * отсутствующего: ожившая лента не доехала бы до человека целый час, и
+ * настоящее предупреждение МЧС опоздало бы ровно на столько же.
+ */
+const FEED_FAIL_TTL = 5 * 60 * 1000;
+
+/** Последний неудачный исход ленты: что именно и когда. */
+interface FailMemo { outcome: FeedOutcome | null; at: number }
+const _newsFail: FailMemo = { outcome: null, at: 0 };
+const _mchsFail: FailMemo = { outcome: null, at: 0 };
+
+/** Свежий отказ, если он ещё в силе. Иначе null — идём в сеть заново. */
+function recentFailure(memo: FailMemo): FeedOutcome | null {
+  if (!memo.outcome) return null;
+  return Date.now() - memo.at < FEED_FAIL_TTL ? memo.outcome : null;
+}
+
+/** Запомнить отказ. Удачу сюда не кладём — у неё свой кэш и свой срок. */
+function rememberFailure(memo: FailMemo, outcome: FeedOutcome): FeedOutcome {
+  memo.outcome = outcome;
+  memo.at = Date.now();
+  return outcome;
+}
+
 /** Fetch Kamchatka news headlines from RSS */
 async function fetchKamchatkaNews(): Promise<FeedOutcome> {
   if (_newsCache.text && Date.now() - _newsCache.at < NEWS_TTL) {
     return { state: 'ok', text: _newsCache.text };
   }
+  const failed = recentFailure(_newsFail);
+  if (failed) return failed;
   const feeds = [
     'https://kamchatka.aif.ru/rss/all.php',
     'https://www.kamgov.ru/news/rss',
@@ -783,8 +835,12 @@ async function fetchKamchatkaNews(): Promise<FeedOutcome> {
   }
   if (!headlines.length) {
     // Кэш пустой строкой не портится (проверено: чтение идёт через
-    // `if (_newsCache.text && …)`), но и смысла в нём нет — не пишем.
-    return answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' };
+    // `if (_newsCache.text && …)`), поэтому в него не пишем. Но исход помним
+    // отдельно и коротко — иначе каждое сообщение туриста снова ждёт таймауты.
+    return rememberFailure(
+      _newsFail,
+      answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' },
+    );
   }
   const lines = headlines.slice(0, 6).map(h => `- ${h.date ? h.date + ': ' : ''}${h.title}`);
   _newsCache.text = lines.join('\n');
@@ -797,6 +853,8 @@ async function fetchMchsAlerts(): Promise<FeedOutcome> {
   if (_mchsCache.text && Date.now() - _mchsCache.at < NEWS_TTL) {
     return { state: 'ok', text: _mchsCache.text };
   }
+  const failed = recentFailure(_mchsFail);
+  if (failed) return failed;
   const feeds = [
     'https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/rss',
     'https://www.mchs.gov.ru/rss',
@@ -817,7 +875,10 @@ async function fetchMchsAlerts(): Promise<FeedOutcome> {
     } catch (err) { logSwallowed(`лента МЧС ${url}`, err); }
   }
   if (!items.length) {
-    return answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' };
+    return rememberFailure(
+      _mchsFail,
+      answered === 0 ? { state: 'no_feeds', tried: feeds.length } : { state: 'empty' },
+    );
   }
   const lines = items.slice(0, 5).map(h => `- ${h.date ? h.date + ': ' : ''}${h.title}`);
   _mchsCache.text = lines.join('\n');
@@ -1187,7 +1248,10 @@ export async function getTourDetails(query: string): Promise<string> {
 }
 
 export class BookingError extends Error {
-  constructor(message: string, public readonly code: 'NO_SLOTS' | 'NOT_FOUND' | 'DB_ERROR') {
+  constructor(
+    message: string,
+    public readonly code: ReserveErrorCode | 'DB_ERROR',
+  ) {
     super(message);
     this.name = 'BookingError';
   }
@@ -1200,77 +1264,74 @@ export interface CreatedBooking {
   accessToken: string;
 }
 
+/**
+ * Аккаунт платформы по чату Telegram — если он вообще есть.
+ *
+ * Без него бронь из чата не находилась ни «ситуацией туриста», ни личным
+ * кабинетом: `user_id` оставался пустым. Ищем ТОЛЬКО для Telegram —
+ * `users.telegram_id` уникален и заполняется входом через Telegram. Для MAX
+ * такого сопоставления по chat_id нет, и выдумывать его нельзя: связь
+ * невпопад привяжет чужую бронь к чужому аккаунту. Нет совпадения — null,
+ * честное «не знаем», а бронь всё равно найдётся по метке канала.
+ */
+async function resolvePlatformUserId(
+  tgChatId: number | undefined,
+  platform: 'tg' | 'max' | undefined,
+): Promise<string | null> {
+  if (tgChatId == null || platform === 'max') return null;
+  try {
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM users WHERE telegram_id = $1 LIMIT 1`,
+      [tgChatId],
+    );
+    return rows[0]?.id ?? null;
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[kuzmich:createBooking] не смог сопоставить чат с аккаунтом, SQLSTATE ${code}:`, err);
+    return null;
+  }
+}
+
 export async function createBooking(
   b: Required<Omit<PendingBooking, 'step' | 'started_at'>>,
   createdVia: string,
   tgChatId?: number,
   platform?: 'tg' | 'max',
 ): Promise<CreatedBooking | null> {
-  const total = b.tour.base_price * b.participants;
   const meta = (tgChatId != null)
-    ? JSON.stringify({ tg_chat_id: tgChatId, platform: platform ?? 'tg' })
+    ? { tg_chat_id: tgChatId, platform: platform ?? 'tg' }
     : null;
+
+  const userId = await resolvePlatformUserId(tgChatId, platform);
 
   // Возвращается не только номер: ключ доступа к брони (миграция 943) —
   // единственное, чем турист откроет подтверждение и ваучер. Номер брони
   // больше не открывает ничего.
   let created: CreatedBooking | null = null;
+  let total = b.tour.base_price * b.participants;
 
   try {
-    created = await transaction(async (client) => {
-      // Lock the tour row — serialises concurrent booking attempts.
-      const tourLockResult = await client.query<{ max_participants: number | null }>(
-        `SELECT max_participants
-         FROM operator_tours
-         WHERE id = $1 AND is_active = true AND is_published = true AND deleted_at IS NULL
-         FOR UPDATE`,
-        [b.tour.id],
-      );
-      if (tourLockResult.rows.length === 0) {
-        throw new BookingError('Тур больше недоступен. Свяжитесь с оператором.', 'NOT_FOUND');
-      }
-      const maxParticipants = tourLockResult.rows[0]!.max_participants;
-
-      // Count confirmed bookings on the requested date.
-      // The FOR UPDATE above ensures this read is consistent under concurrency.
-      if (maxParticipants != null) {
-        const slotResult = await client.query<{ already_booked: string }>(
-          `SELECT COALESCE(SUM(participants), 0) AS already_booked
-           FROM operator_bookings
-           WHERE operator_tour_id = $1
-             AND booking_date = $2
-             AND booking_status NOT IN ('cancelled', 'rejected')`,
-          [b.tour.id, b.date],
-        );
-        const alreadyBooked = parseInt(slotResult.rows[0]!.already_booked, 10);
-        if (alreadyBooked + b.participants > maxParticipants) {
-          const remaining = maxParticipants - alreadyBooked;
-          throw new BookingError(
-            remaining <= 0
-              ? 'На эту дату нет свободных мест. Выберите другую дату.'
-              : `Доступно только ${remaining} мест на эту дату, запрашивается ${b.participants}.`,
-            'NO_SLOTS',
-          );
-        }
-      }
-
-      const { rows } = await client.query<{ id: number; access_token: string }>(
-        `INSERT INTO operator_bookings
-           (operator_tour_id, tourist_name, tourist_phone,
-            participants, booking_date, booking_status,
-            base_total_price, final_price, created_via, metadata)
-         VALUES ($1,$2,$3,$4,$5,'pending_payment',$6,$6,$7,$8::jsonb)
-         RETURNING id, access_token::text AS access_token`,
-        [b.tour.id, b.name, b.phone, b.participants, b.date, total, createdVia, meta],
-      );
-      const row = rows[0];
-      return row ? { id: row.id, accessToken: row.access_token } : null;
+    // Бронь заводит общий модуль — тот же, которым бронирует веб-форма.
+    // Своя копия здесь не читала календарь оператора (бронь принималась на
+    // закрытую дату) и ставила статус `pending_payment`, которого не знает
+    // ни `loadUserSituation`, ни кабинет оператора.
+    const reserved = await reserveBooking({
+      tourId:       b.tour.id,
+      touristName:  b.name,
+      touristPhone: b.phone,
+      participants: b.participants,
+      date:         b.date,
+      createdVia,
+      userId,
+      metadata:     meta,
     });
+    total = reserved.totalPrice;
+    created = { id: reserved.bookingId, accessToken: reserved.accessToken };
   } catch (err) {
     // Surface diagnostic info to logs — silent failure made debugging impossible
-    if (err instanceof BookingError) {
+    if (err instanceof ReserveError) {
       console.warn(`[kuzmich:createBooking] ${err.code}: ${err.message} (tour=${b.tour.id} date=${b.date} participants=${b.participants})`);
-      throw err; // bubble up — caller renders the message to user
+      throw new BookingError(err.message, err.code); // bubble up — caller renders the message to user
     }
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[kuzmich:createBooking] DB error:', msg, { tourId: b.tour.id, date: b.date });
@@ -1327,17 +1388,14 @@ async function notifyOperatorNewBooking(
     // partners.id (operator_tours_operator_id_fkey). Прежний
     // `JOIN users u ON u.id = ot.operator_id` сравнивал id партнёра с id
     // пользователя и не совпадал никогда — оператор не получал уведомления
-    // о своей же броне. Контакт человека берём через partners.user_id.
-    const { rows } = await pool.query<{ telegram_id: string | null; max_chat_id: string | null }>(
-      `SELECT u.telegram_id, p.max_chat_id::text AS max_chat_id
-       FROM operator_tours ot
-       JOIN partners p ON p.id = ot.operator_id
-       LEFT JOIN users u ON u.id = p.user_id
-       WHERE ot.id = $1 LIMIT 1`,
-      [b.tour.id],
-    );
-    const operatorTgId = rows[0]?.telegram_id ?? null;
-    const operatorMaxId = rows[0]?.max_chat_id ?? null;
+    // о своей же броне.
+    //
+    // Адрес берёт общий модуль: здесь читался ТОЛЬКО users.telegram_id, а
+    // веб-роут брони — только partners.telegram_chat_id. Оператор с адресом
+    // в одной колонке был достижим для одного пути и недостижим для другого.
+    const reach = await reachForTour(b.tour.id);
+    const operatorTgId = reach?.telegramChatId ?? null;
+    const operatorMaxId = reach?.maxChatId ?? null;
 
     const dateStr = b.date
       ? new Date(b.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -1376,8 +1434,19 @@ async function notifyOperatorNewBooking(
       if (!opRes.delivered) {
         console.error(`[notifyOperatorNewBooking] оператору ПД не доставлены (${opRes.channel}) — ${opRes.reason}`);
       }
+    } else {
+      // Ни одного адреса. Заявка есть, оператор о ней не знает — и это не то
+      // же самое, что «знает и молчит»: Watchdog через 48 часов запишет
+      // второе. Первое чиним мы, второе — оператор (§4.0).
+      console.error(
+        `[notifyOperatorNewBooking] у оператора нет ни Telegram, ни MAX — бронь ${bookingId} не отправлена` +
+        (reach === null ? ' (адреса прочитать не удалось)' : ''),
+      );
     }
-  } catch { /* не блокируем */ }
+  } catch (err) {
+    // Пустой catch тут означал: уведомления нет и следа нет.
+    console.error(`[notifyOperatorNewBooking] бронь ${bookingId}:`, err instanceof Error ? err.message : err);
+  }
 }
 
 // ── Cleanup для pending Maps ──────────────────────────────────────────────────
@@ -1942,6 +2011,10 @@ export async function aiChatAgentLoop(
   // означает, что факты взяты не из БД. Пишется имя И исход: имя само по себе
   // ничего не доказывает (аудит 08.09). Опционален, callers не ломаются.
   toolRuns?: ToolRun[],
+  // Наружная отметка «кто ответил»: водопад инструментов молча меняет
+  // провайдера, и без неё «Кузьмич стал отвечать хуже» не разложить на
+  // «сменился провайдер» и «поправили промпт». Опциональна, как и журнал выше.
+  provenance?: { provider?: string },
 ): Promise<string | null> {
   const msgs: ToolMsg[] = [
     { role: 'system', content: systemContent },
@@ -1954,6 +2027,7 @@ export async function aiChatAgentLoop(
   for (let turn = 0; turn < 4; turn++) {
     const result = await callToolsWaterfall(msgs, KUZMICH_TOOLS);
     if (!result) return null;
+    if (provenance && result.provider) provenance.provider = result.provider;
 
     if (!result.tool_calls?.length) {
       return result.content; // final answer
@@ -2039,7 +2113,10 @@ export async function aiChat(opts: {
 
   // ── Level 2: Agent loop with tools (primary path) ────────────────────────
   const toolRuns: ToolRun[] = [];
-  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns)
+  // Чем произведён ответ: провайдер и путь. Записывается там, где известно, а
+  // не выводится потом из текста.
+  const provenance: { provider?: string; path?: 'tools' | 'waterfall' } = {};
+  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns, provenance)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
     .catch(() => '');
 
@@ -2047,6 +2124,7 @@ export async function aiChat(opts: {
   // инструментов. Запасной путь идёт БЕЗ них, и приписывать ему чужие вызовы
   // нельзя: заземление считалось бы по отброшенной попытке.
   const usedAgentLoopAnswer = answer !== '';
+  if (usedAgentLoopAnswer) provenance.path = 'tools';
 
   // ── Fallback: waterfall without tools ───────────────────────────────────
   if (!answer) {
@@ -2063,7 +2141,12 @@ export async function aiChat(opts: {
       ...extraUserMsg,
     ];
 
-    const response = await callAIWaterfall(fallbackMessages);
+    const fallback = await callAIWaterfallDetailed(fallbackMessages);
+    provenance.path = 'waterfall';
+    // Провайдер запасного пути перебивает отметку цикла инструментов: ответ
+    // туристу произвёл ОН, а не тот, чью попытку отбросили.
+    provenance.provider = fallback.provider ?? undefined;
+    const response = fallback.text;
     answer = response?.trim() ? cleanAIResponse(response.trim()) : 'Что-то с сигналом... Попробуй ещё раз.';
 
     // Level 1: reactive fallback if waterfall still doesn't know
@@ -2076,8 +2159,11 @@ export async function aiChat(opts: {
           ...history,
           ...extraUserMsg,
         ];
-        const retry = await callAIWaterfall(retryMessages);
-        if (retry?.trim()) answer = cleanAIResponse(retry.trim());
+        const retry = await callAIWaterfallDetailed(retryMessages);
+        if (retry.text.trim()) {
+          answer = cleanAIResponse(retry.text.trim());
+          provenance.provider = retry.provider ?? undefined;
+        }
       }
     }
   }
@@ -2103,6 +2189,13 @@ export async function aiChat(opts: {
   // отброшенной попытки его не заземляют: журнал для грейдера пуст.
   void gradeKuzmichResponse(text, answer, chatId, {
     toolRuns: usedAgentLoopAnswer ? toolRuns : [],
+    // Чем произведён ответ. Без этого оценка «стало хуже» несравнима между
+    // днями: промпт правится, водопад меняет провайдера, инструменты то есть,
+    // то нет — и разложить падение не на что.
+    promptFingerprint: fingerprintPrompt(KUZMICH_SYSTEM),
+    provider: provenance.provider ?? null,
+    answerPath: provenance.path ?? null,
+    toolsOffered: KUZMICH_TOOLS.map(t => t.function.name),
   });
 
   // Fire-and-forget: обновляем долгосрочную память бота
