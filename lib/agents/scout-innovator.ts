@@ -9,6 +9,7 @@
  */
 
 import { readFile, readdir } from 'fs/promises';
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { join } from 'path';
 import { callQwen, callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
@@ -109,11 +110,20 @@ async function scanLibFiles(): Promise<string> {
   }
 }
 
-async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
+/**
+ * Список задач с GitHub. `null` — ПРОЧИТАТЬ НЕ СМОГЛИ (§4.0).
+ *
+ * Раньше отказ возвращался пустой строкой, неотличимой от «открытых задач
+ * нет», и дедуп предложений по заголовкам молча выключался: агент заводил
+ * задачу, которая уже открыта. С прода в РФ api.github.com к тому же может
+ * не достаться вовсе — голый fetch давал пусто НА КАЖДОМ прогоне
+ * (находка аудита 08.09).
+ */
+async function readGitHubIssues(state: 'open' | 'closed'): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
-  if (!token) return '';
+  if (!token) return null;
   try {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/repos/tourhabk-ui/pos/issues?state=${state}&labels=agent-proposal&per_page=15`,
       {
         headers: {
@@ -124,12 +134,19 @@ async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
         signal: AbortSignal.timeout(10_000),
       },
     );
-    if (!res.ok) return '';
+    if (!res.ok) {
+      console.error('[scout-innovator] список задач не прочитан:', res.status);
+      return null;
+    }
     const issues = await res.json() as Array<{ title: string; created_at: string }>;
+    // Пустой список — настоящий ответ «открытых задач нет», и он НЕ равен
+    // отказу чтения. Именно это различие и было потеряно.
     if (!issues.length) return '';
     return issues.map(i => `- ${i.title}`).join('\n');
-  } catch {
-    return '';
+  } catch (err) {
+    console.error('[scout-innovator] список задач не прочитан:',
+      err instanceof Error ? err.message : String(err));
+    return null;
   }
 }
 
@@ -611,6 +628,25 @@ export async function runScoutInnovator(
     };
   }
 
+  // Список открытых задач НЕ ПРОЧИТАН — дедуп сделать не из чего.
+  //
+  // Раньше отказ приходил пустой строкой и был неотличим от «открытых задач
+  // нет»: дедуп молча выключался, и агент заводил то, что уже открыто
+  // (находка аудита 08.09). Заводить вслепую хуже, чем пропустить прогон:
+  // мусор в трекере разгребает человек.
+  if (openIssues === null) {
+    console.error('[scout-innovator] дедуп не выполнен: список открытых задач недоступен');
+    return {
+      proposals_count: 0,
+      skipped_duplicates: 0,
+      sent_to_tg: false,
+      intel_entries: allPages.length,
+      duration_ms: Date.now() - start,
+      issues_created: [],
+      phase1_diag: `${phase1Diag}; список открытых задач НЕДОСТУПЕН — дедуп не выполнен, issue не создавались`,
+    };
+  }
+
   // Code-level dedup: filter proposals similar to existing open GitHub Issues.
   // Prompt says "don't repeat" but LLM isn't reliable — code decides.
   const openTitles = openIssues
@@ -629,7 +665,7 @@ export async function runScoutInnovator(
 
   // Critic-gate: вторая пара глаз перед созданием Issue (fail-open, параллельно)
   const verdicts = await Promise.all(
-    deduped.map((p) => criticReviewProposal(p, codebaseRules, closedIssues, libFilesList)),
+    deduped.map((p) => criticReviewProposal(p, codebaseRules, closedIssues ?? '', libFilesList)),
   );
   const proposals = deduped.filter((_, i) => verdicts[i].approved);
   const skipped_by_critic = deduped.length - proposals.length;

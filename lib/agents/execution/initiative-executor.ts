@@ -39,32 +39,20 @@ export interface ExecutionResult {
   verification_passed: boolean;
 }
 
-// Типы которые выполняются автоматически после approve (без ручного триггера)
-// safe  — не требуют одобрения, исполняются сразу при создании совещанием
-// review — требуют approve, но после клика исполняются без лишнего шага
-export const AUTO_EXECUTE_TYPES = new Set([
-  'archive_sos',         // rescue: архивировать зависшие SOS
-  'send_notification',   // любой: Telegram-уведомление
-  'ui_copy_change',      // content: переписать описания туров (AI)
-  'price_change',        // hacker: создать A/B эксперимент (только запись, цены не меняет)
-  'booking_rule_change', // legal: обновить политику отмены оператора
-  'code_change',         // vibe_coder: ЭКСПЕРИМЕНТ — AI создаёт GitHub PR без одобрения
-  'ab_scale_winner',     // hacker: применить победителя A/B теста
-  'operator_outreach',   // intelligence: найти операторов и отправить приглашения
-  'new_page_create',     // vibe_coder/intelligence: создать новую страницу через GitHub PR
-  'bulk_notify',         // admin: массовые уведомления туристам по лидам
-  'schedule_suggest',    // LEGACY: до 27.08 так назывался tour_create_draft из
-                         // чата оператора; новые записи под этим именем не
-                         // создаются (approval-required), executor оставлен
-                         // только для старых assigned-строк в БД
-  'prompt_optimize',     // evo: AI-анализ и оптимизация промптов агентов
-  // ── New action types (июнь 2026) ──
-  'tour_suspend',        // quality: приостановить тур с плохими отзывами
-  'operator_warning',    // quality: предупреждение оператору через Telegram
-  'security_block',      // security: блокировка IP/пользователя
-  'zone_capacity',       // eco: лимиты на зоны
-  'flag_payment',        // finance: пометить подозрительный платёж
-]);
+// AUTO_EXECUTE_TYPES УДАЛЁН 08.09 по находке аудита.
+//
+// Список объявлял «типы, которые выполняются автоматически после approve» —
+// и пять из семнадцати его записей политика ядра прямо ЗАПРЕЩАЕТ:
+// archive_sos («SOS-эффекты исключены из автономии, решение владельца
+// 27.08»), security_block, flag_payment, ab_scale_winner, operator_outreach.
+//
+// Читателей у списка не было НИ ОДНОГО: он ничего не разрешал технически, но
+// утверждал обратное тому, что решил владелец. Реестр, который ничего не
+// делает и при этом врёт, опаснее отсутствующего — следующий, кто станет
+// заводить автономию, прочтёт его как разрешение.
+//
+// Источник правды один: FORBIDDEN_CAPABILITIES в lib/agents/kernel/policy.ts.
+// Сторож tests/unit/autonomy-registries-agree.test.ts не даёт завести второй.
 
 const EXECUTORS: Record<string, (task: ExecutionTask) => Promise<ExecutionResult>> = {
   archive_sos:         executeArchiveSOS,

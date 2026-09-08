@@ -8,6 +8,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { callAIWithModel, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import type { AgentContext } from '../context-hub';
@@ -96,7 +97,7 @@ export class RescueAgency {
           ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_minutes,
           COUNT(*) OVER ()::int AS active_total
         FROM sos_events
-        WHERE status NOT IN ('resolved', 'false_alarm')
+        WHERE ${SOS_ACTIVE_SQL}
         ORDER BY created_at DESC
         LIMIT $1
       `, [ACTIVE_LIST_LIMIT]),
@@ -110,7 +111,7 @@ export class RescueAgency {
       }>(`
         SELECT
           COUNT(*)::text                                                        AS total_30d,
-          COUNT(*) FILTER (WHERE status NOT IN ('resolved','false_alarm'))::text AS active,
+          COUNT(*) FILTER (WHERE ${SOS_ACTIVE_SQL})::text                        AS active,
           COUNT(*) FILTER (WHERE status = 'resolved')::text                    AS resolved,
           -- Среднее время реагирования считается, а не объявляется.
           --

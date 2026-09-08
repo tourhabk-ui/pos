@@ -26,16 +26,19 @@ const DANGER = readFileSync('lib/agents/agencies/danger-analyst-agency.ts', 'utf
 
 describe('активные SOS: фильтр до ограничения, а не после', () => {
   it('запрос активных отбирает по статусу, а не по последним двадцати', () => {
-    expect(RESCUE).toMatch(/WHERE status NOT IN \('resolved', 'false_alarm'\)/);
+    // Проверяем ПРАВИЛО, а не буквальную строку: условие «сигнал висит»
+    // теперь собрано из единственного словаря (lib/safety/sos-status.ts),
+    // потому что написанное словами оно разошлось в четырёх местах и ни одно
+    // не знало про статус 'archived'.
+    expect(RESCUE).toContain('${SOS_ACTIVE_SQL}');
+    expect(RESCUE).toContain("from '@/lib/safety/sos-status'");
   });
 
   it('тридцатидневного окна у активных нет: старый неразрешённый не прячется', () => {
     // Окно осталось только у статистики. У активных его быть не должно:
     // сигнал не перестаёт быть неразрешённым на тридцать первый день.
-    const activeQuery = RESCUE.slice(
-      RESCUE.indexOf("WHERE status NOT IN ('resolved', 'false_alarm')") - 700,
-      RESCUE.indexOf("WHERE status NOT IN ('resolved', 'false_alarm')") + 200,
-    );
+    const at = RESCUE.indexOf('WHERE ${SOS_ACTIVE_SQL}');
+    const activeQuery = RESCUE.slice(Math.max(0, at - 700), at + 200);
     expect(activeQuery).not.toMatch(/INTERVAL '30 days'/);
   });
 
