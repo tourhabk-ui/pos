@@ -14,7 +14,7 @@
  */
 
 import { query } from '@/lib/database';
-import { callAIWithModel } from '@/lib/ai/providers';
+import { callAIWithModel, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
@@ -22,6 +22,7 @@ import { standDownCopy } from '@/lib/services/safety/push-copy';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness, type LivenessStatus } from '@/lib/agents/cron-liveness';
 import { lastIngestAt, INGEST_AGENT_ID } from '@/lib/safety/ingest-run';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -262,7 +263,7 @@ function recommendedAction(level: 'low' | 'moderate' | 'high' | 'critical'): str
 
 // ── AI-анализ зоны ────────────────────────────────────────────────────────
 
-async function analyzeZoneWithAI(data: ZoneRawData, quickScore: number): Promise<string> {
+async function analyzeZoneWithAI(data: ZoneRawData, quickScore: number): Promise<string | null> {
   const hasEvents = data.seismic_events.length > 0 || data.volcanic_alerts.length > 0;
   if (!hasEvents) {
     return `Зона "${ZONE_NAMES[data.zone]}": сейсмическая и вулканическая обстановка спокойная. ` +
@@ -308,6 +309,12 @@ async function analyzeZoneWithAI(data: ZoneRawData, quickScore: number): Promise
   ];
 
   const { text } = await callAIWithModel(messages, getModelForAgent('rescue'));
+  // Отказ ВСЕХ провайдеров приходит строкой, а не исключением, и раньше
+  // сохранялся в analysis_text как заключение по зоне — то есть штаб читал
+  // «сервис временно недоступен» там, где ждал обстановку (аудит 08.09).
+  // Реестр заглушек на платформе один; путь через callAIWithModel ему был
+  // не виден, потому что искал только прямой вызов водопада.
+  if (!text || isWaterfallErrorResponse(text)) return null;
   return text;
 }
 
@@ -395,11 +402,24 @@ export async function runDangerAnalysis(): Promise<{
       const previousLevel = await getPreviousRiskLevel(zone);
 
       // AI-анализ для зон с ненулевым риском
+      // Разбор словами может не состояться. Тогда в оценке остаётся честный
+      // детерминированный счёт И прямая оговорка, что обстановку никто не
+      // описывал: молчание модели не должно выглядеть как её заключение.
+      const noAnalysis =
+        `Зона ${ZONE_NAMES[zone]}: автоматическая оценка риска ${quickScore}/100. ` +
+        'Разбор моделью НЕ ПОЛУЧЕН — обстановку словами никто не описывал.';
       let analysisText: string;
       try {
-        analysisText = await analyzeZoneWithAI(data, quickScore);
-      } catch {
-        analysisText = `Зона ${ZONE_NAMES[zone]}: автоматическая оценка риска ${quickScore}/100.`;
+        const ai = await analyzeZoneWithAI(data, quickScore);
+        if (ai === null) {
+          console.error('[danger-analyst] разбор зоны не получен: провайдеры молчат', { zone });
+          analysisText = noAnalysis;
+        } else {
+          analysisText = ai;
+        }
+      } catch (err) {
+        logSwallowedFailure('danger-analyst', `разбор зоны ${zone}`, err);
+        analysisText = noAnalysis;
       }
 
       const threatTypes: string[] = [];

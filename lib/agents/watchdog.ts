@@ -22,6 +22,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
@@ -782,7 +783,7 @@ async function checkIgnoredSOS(): Promise<CheckResult> {
       SELECT id, lat, lng, origin_class,
              ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_min
       FROM sos_events
-      WHERE status NOT IN ('resolved', 'false_alarm')
+      WHERE ${SOS_ACTIVE_SQL}
         AND created_at < NOW() - INTERVAL '15 minutes'
       ORDER BY created_at ASC
     `);

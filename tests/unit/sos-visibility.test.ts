@@ -26,16 +26,19 @@ const DANGER = readFileSync('lib/agents/agencies/danger-analyst-agency.ts', 'utf
 
 describe('активные SOS: фильтр до ограничения, а не после', () => {
   it('запрос активных отбирает по статусу, а не по последним двадцати', () => {
-    expect(RESCUE).toMatch(/WHERE status NOT IN \('resolved', 'false_alarm'\)/);
+    // Проверяем ПРАВИЛО, а не буквальную строку: условие «сигнал висит»
+    // теперь собрано из единственного словаря (lib/safety/sos-status.ts),
+    // потому что написанное словами оно разошлось в четырёх местах и ни одно
+    // не знало про статус 'archived'.
+    expect(RESCUE).toContain('${SOS_ACTIVE_SQL}');
+    expect(RESCUE).toContain("from '@/lib/safety/sos-status'");
   });
 
   it('тридцатидневного окна у активных нет: старый неразрешённый не прячется', () => {
     // Окно осталось только у статистики. У активных его быть не должно:
     // сигнал не перестаёт быть неразрешённым на тридцать первый день.
-    const activeQuery = RESCUE.slice(
-      RESCUE.indexOf("WHERE status NOT IN ('resolved', 'false_alarm')") - 700,
-      RESCUE.indexOf("WHERE status NOT IN ('resolved', 'false_alarm')") + 200,
-    );
+    const at = RESCUE.indexOf('WHERE ${SOS_ACTIVE_SQL}');
+    const activeQuery = RESCUE.slice(Math.max(0, at - 700), at + 200);
     expect(activeQuery).not.toMatch(/INTERVAL '30 days'/);
   });
 
@@ -114,5 +117,67 @@ describe('правило перехода осталось чистым', () => 
     expect(isStandDownTransition('moderate', 'low')).toBe(false);
     // Оценок не было — переход посчитать не из чего, это не «спокойно».
     expect(isStandDownTransition(null, 'low')).toBe(false);
+  });
+});
+
+/**
+ * Две находки прогона 6 (08.09) по тем же файлам — и обе ДРУГИЕ, чем та,
+ * что чинилась накануне. Журнал разобранного пометил совпадение по файлу и
+ * отправил их в конец очереди, а не заглушил; глаза показали, что это новое.
+ *
+ *   1. «Среднее время реагирования» в сводке SOS было ЛИТЕРАЛЬНЫМ НУЛЁМ:
+ *      `'0'::text AS avg_resolve_min`. Печаталось строкой «Среднее время
+ *      реагирования: 0 мин.» и читалось как «реагируем мгновенно». В контуре,
+ *      где висят живые сигналы, обязательное число было заполнено выдумкой.
+ *
+ *   2. Заглушка отказа провайдеров («сервис временно недоступен») уходила в
+ *      сводку и сохранялась как заключение по зоне для оперативного штаба.
+ */
+describe('время реагирования считается, а не объявляется', () => {
+  it('литерального нуля в запросе больше нет', () => {
+    expect(RESCUE).not.toMatch(/'0'::text\s+AS avg_resolve_min/);
+  });
+
+  it('среднее берётся из настоящих отметок исхода', () => {
+    expect(RESCUE).toMatch(/AVG\(EXTRACT\(EPOCH FROM \(outcome_at - created_at\)\) \/ 60\)/);
+  });
+
+  it('считается ТОЛЬКО по разрешённым человеком', () => {
+    // unknown_no_response — «сутки никто не ответил». Включить его во время
+    // реагирования значило бы выдать молчание за ответ.
+    expect(RESCUE).toMatch(/FILTER \(WHERE outcome = 'resolved_by_human' AND outcome_at IS NOT NULL\)/);
+  });
+
+  it('нечего мерить — так и сказано, а не ноль', () => {
+    expect(RESCUE).toContain('не измерено');
+    expect(RESCUE).toMatch(/avg_resolve_min: string \| null/);
+  });
+
+  it('названо, по скольким сигналам посчитано', () => {
+    // Среднее по одному сигналу и по сотне — разной цены утверждения.
+    expect(RESCUE).toContain('measured_on');
+  });
+});
+
+describe('заглушка отказа не выдаётся за разбор обстановки', () => {
+  it('сводка спасателя сверяется с реестром заглушек', () => {
+    expect(RESCUE).toContain('isWaterfallErrorResponse');
+    expect(RESCUE).toContain("logSwallowedFailure('rescue-agency'");
+  });
+
+  it('оценка зоны не сохраняет заглушку как заключение', () => {
+    expect(DANGER).toMatch(/if \(!text \|\| isWaterfallErrorResponse\(text\)\) return null;/);
+  });
+
+  it('когда разбора нет — это сказано словами, а счёт остаётся честным', () => {
+    // Детерминированный балл остаётся: он настоящий. Врёт не он, а молчание,
+    // выданное за заключение модели.
+    expect(DANGER).toContain('Разбор моделью НЕ ПОЛУЧЕН');
+    expect(DANGER).toContain('автоматическая оценка риска');
+  });
+
+  it('отказ разбора пишется в лог, а не глотается', () => {
+    expect(DANGER).toContain("logSwallowedFailure('danger-analyst'");
+    expect(DANGER).toContain('провайдеры молчат');
   });
 });

@@ -19,6 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
 
     const { rows: totals } = await pool.query<{ total: string; open: string }>(
       `SELECT COUNT(*)::text AS total,
-              COUNT(*) FILTER (WHERE status NOT IN ('resolved', 'false_alarm'))::text AS open
+              COUNT(*) FILTER (WHERE ${SOS_ACTIVE_SQL})::text AS open
          FROM sos_events
         WHERE created_at > NOW() - ($1::int * INTERVAL '1 day')`,
       [days],

@@ -6,7 +6,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWithModel } from '@/lib/ai/providers';
+import { callAIWithModel, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { AgentContext } from '../context-hub';
 
 export interface AgencyResult {
@@ -139,7 +139,14 @@ export class MarketingAgency {
     let plan = 'Контент-план временно недоступен.';
     try {
       const { text: aiResult } = await callAIWithModel([{ role: 'user', content: prompt }], this.preferredModel);
-      if (aiResult) plan = aiResult.trim();
+      // Заглушка отказа — не контент-план. Без этой проверки владелец получил
+      // бы «Извините, сервис временно недоступен» в графе плана и решил бы,
+      // что план такой.
+      if (aiResult && isWaterfallErrorResponse(aiResult)) {
+        console.error('[MarketingAgency] контент-план не составлен: провайдеры молчат');
+      } else if (aiResult) {
+        plan = aiResult.trim();
+      }
     } catch (err) {
       // Отказ не глушится (§4.0) — пустой catch превращал сбой AI в
       // неотличимое от «текст пуст» состояние, диагностировать было нечем.

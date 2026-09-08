@@ -180,7 +180,12 @@ describe('адрес хранилища приходит с сервера, а �
   it('проп доходит до экрана «На маршруте», а не теряется в обёртке', () => {
     // Первая правка легла в PlanningClient, а карта живёт в OnTrailTab —
     // tsc это поймал, но сторож нужен и на будущее.
-    expect(CLIENT).toMatch(/<OnTrailTab mapPackBaseUrl=\{mapPackBaseUrl\} \/>/);
-    expect(CLIENT).toMatch(/function OnTrailTab\(\{ mapPackBaseUrl \}/);
+    //
+    // Проверяем СВОЙСТВО (проп передан и принят), а не дословный список
+    // пропсов: 08.09 к OnTrailTab добавился второй проп (отступ сверху для
+    // контролов карты), и сторож покраснел на верной правке. Тест, который
+    // ломается от соседнего проп, сторожит вёрстку, а не смысл.
+    expect(CLIENT).toMatch(/<OnTrailTab[^>]*\bmapPackBaseUrl=\{mapPackBaseUrl\}/);
+    expect(CLIENT).toMatch(/function OnTrailTab\(\{[^}]*\bmapPackBaseUrl\b/);
   });
 });

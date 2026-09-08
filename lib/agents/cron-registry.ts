@@ -316,12 +316,6 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: WEEK, tier: 'growth', agentId: null, triggerable: false,
   },
   {
-    key: 'memory-bridge', label: 'Memory Bridge',
-    description: 'Синхронизация предпочтений пользователей в память агентов.',
-    workflow: 'cron-memory-bridge.yml', cron: '0 1,7,13,19 * * *', schedule: 'каждые 6 ч',
-    everyMin: 360, tier: 'growth', agentId: null, triggerable: false,
-  },
-  {
     key: 'engagement', label: 'Engagement',
     description: 'Реэнгейджмент туристов Кузьмичом.',
     workflow: 'cron-engagement.yml', cron: '0 10 * * *', schedule: 'ежедневно · 10:00 UTC',
@@ -517,7 +511,6 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // ПОДРЯД судит scout-silence (silent_runs), а не этот счётчик.
   'scout-digest': 'unknown',
   'group-scout': 'unknown',
-  'memory-bridge': 'unknown',
   'engagement': 'unknown',
   'smart-notify': 'unknown',
   // OSM с Timeweb недоступен — ноль здесь известен и объяснён внешней

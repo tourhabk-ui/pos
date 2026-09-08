@@ -223,7 +223,7 @@ async function upsertRoute(p: RoutePassport): Promise<'inserted' | 'updated' | '
     source: SOURCE_NAME,
   });
 
-  const { rowCount } = await pool.query(
+  const { rows } = await pool.query<{ inserted: boolean }>(
     `INSERT INTO kamchatka_routes
        (id, dedupe_key, slug, title, description, category, activity_type,
         lat, lng, source_url, source_name, metadata, is_visible, created_at, updated_at)
@@ -238,12 +238,17 @@ async function upsertRoute(p: RoutePassport): Promise<'inserted' | 'updated' | '
        lat           = COALESCE(EXCLUDED.lat, kamchatka_routes.lat),
        lng           = COALESCE(EXCLUDED.lng, kamchatka_routes.lng),
        metadata      = EXCLUDED.metadata,
-       updated_at    = NOW()`,
+       updated_at    = NOW()
+     RETURNING (xmax = 0) AS inserted`,
     [dk, slug, p.title, p.description, p.category, p.activity_type,
      p.lat, p.lng, p.url, SOURCE_NAME, metadata],
   );
 
-  return (rowCount ?? 0) > 0 ? 'inserted' : 'skipped';
+  // Род операции спрашивается у базы. Прежнее `rowCount > 0 ? 'inserted'`
+  // было неверно по построению: UPSERT возвращает единицу и на вставке, и на
+  // обновлении, поэтому ветка 'updated' не достигалась никогда, а отчёт
+  // сообщал вставку каждый раз, когда паспорт всего лишь обновился.
+  return rows[0]?.inserted ? 'inserted' : 'updated';
 }
 
 // ── Главная функция ────────────────────────────────────────────────

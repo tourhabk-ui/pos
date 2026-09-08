@@ -59,7 +59,11 @@ export async function GET(request: NextRequest) {
         (SELECT COUNT(*)::int FROM agent_memory) AS memory_total,
         (SELECT COUNT(*)::int FROM agent_memory WHERE expires_at IS NOT NULL AND expires_at > NOW()) AS memory_active,
         (SELECT COUNT(*)::int FROM agent_run_history WHERE started_at > NOW() - INTERVAL '24h') AS runs_24h,
-        (SELECT COUNT(*)::int FROM agent_run_history WHERE status = 'error' AND started_at > NOW() - INTERVAL '24h') AS errors_24h
+        -- Статуса 'error' не пишет никто: прогон кончается success,
+          -- partial или failed (RUN_STATUSES). Цифра была вечным нулём
+          -- и читалась как «ошибок нет» (находка аудита 08.09).
+          (SELECT COUNT(*)::int FROM agent_run_history
+            WHERE status IN ('failed', 'partial') AND started_at > NOW() - INTERVAL '24h') AS errors_24h
     `);
 
     // 5. Top memory topics by type

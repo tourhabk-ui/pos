@@ -2707,9 +2707,28 @@ export async function callGeminiVision(
   return null;
 }
 
-// ── Gemini Audio Transcription via OpenRouter ──────────────────
-// Поддерживает: audio/ogg, audio/mp3, audio/wav, audio/m4a (Telegram шлёт ogg)
-// Фразы-признаки того что модель не смогла обработать аудио (не реальная транскрипция)
+// ── Распознавание речи ─────────────────────────────────────────
+//
+// Голосовые Кузьмичу шлют из Telegram и MAX (ogg/opus). До 08.09 путь был
+// ОДИН — Gemini через OpenRouter, а OpenRouter с прода отвечает 403 и
+// напрямую, и через релей (замер 07.09, ответы совпали дословно). То есть на
+// проде не расшифровывалось НИ ОДНО голосовое, и человек в поле получал
+// «Не разобрал голосовое» — фразу про свою дикцию вместо правды о том, что
+// распознавание недоступно вовсе.
+//
+// Два исхода отказа теперь РАЗНЫЕ (§4.0). «Расслышал, но не понял» —
+// свойство записи, человеку стоит повторить. «Некому было слушать» —
+// свойство платформы, и повторять бессмысленно. Одна фраза на оба случая
+// заставляла человека переговаривать в пустоту.
+//
+// Фолбэка на китайского провайдера здесь НЕТ намеренно, в отличие от зрения
+// (§ callGeminiVision, приоритет 3 — Qwen-VL). Есть ли у DashScope модель
+// распознавания речи, доступная нашему ключу, я не проверял, а вписать
+// правдоподобный id значит завести ветку, которая выглядит запасным путём и
+// не является им. Каталог спрашивается переписью `GET /api/cron/ai-models`;
+// пока ответа нет, отказ хотя бы назван вслух и виден в следе.
+
+/** Фразы, которыми модель сообщает, что не смогла обработать аудио. */
 const TRANSCRIBE_FAIL_PATTERNS = [
   /не могу обработать/i, /cannot process/i, /unable to process/i,
   /audio file/i, /аудиофайл/i, /не поддерживает/i, /не поддерживаю/i,
@@ -2717,43 +2736,127 @@ const TRANSCRIBE_FAIL_PATTERNS = [
   /audio content/i, /audio data/i,
 ];
 
+/** Модель расслышала запись, но речь неразборчива — так просит отвечать промпт. */
+const TRANSCRIBE_UNINTELLIGIBLE = /^\(?неразборчиво\)?[.!]?$/i;
+
+const TRANSCRIBE_PROMPT =
+  'Это голосовое сообщение на русском языке. Транскрибируй дословно. ' +
+  'Только текст без пояснений. Если неразборчиво — "(неразборчиво)".';
+
+export type TranscribeOutcome =
+  | { ok: true; text: string }
+  /** Речь не разобрана — свойство записи. Повтор осмыслен. */
+  | { ok: false; reason: 'unintelligible'; detail: string }
+  /** Распознавать было некому — свойство платформы. Повтор бесполезен. */
+  | { ok: false; reason: 'unavailable'; detail: string };
+
+/** Что вернула ступень: текст, «неразборчиво» или отказ с причиной. */
+type LegResult =
+  | { kind: 'text'; text: string }
+  | { kind: 'unintelligible' }
+  | { kind: 'failed'; reason: string };
+
+function readTranscript(raw: string | undefined): LegResult {
+  const text = raw?.trim();
+  if (!text) return { kind: 'failed', reason: 'пустой ответ' };
+  if (TRANSCRIBE_UNINTELLIGIBLE.test(text)) return { kind: 'unintelligible' };
+  // Отказ модели обработать аудио — не транскрипция; показывать его человеку
+  // как расшифровку его же слов нельзя.
+  if (TRANSCRIBE_FAIL_PATTERNS.some((p) => p.test(text))) {
+    return { kind: 'failed', reason: 'модель не обработала аудио' };
+  }
+  return { kind: 'text', text };
+}
+
 export async function callGeminiTranscribe(
   audioBase64: string,
   mimeType: string = 'audio/ogg',
-): Promise<string | null> {
-  const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
+): Promise<TranscribeOutcome> {
+  const failures: string[] = [];
+  const note = (leg: string, reason: string): void => {
+    failures.push(`${leg}: ${reason}`);
+    recordAiLegFailure(`transcribe:${leg}`, reason);
+  };
 
-  try {
-    const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        ...openRouterAttribution(),
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
-        max_tokens: 400,
-        messages: [{
-          role: 'user',
-          content: [
-            // Gemini принимает аудио через image_url с audio MIME-type
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${audioBase64}` } },
-            { type: 'text', text: 'Это голосовое сообщение на русском языке. Транскрибируй дословно. Только текст без пояснений. Если неразборчиво — "(неразборчиво)".' },
-          ],
-        }],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const text: string | undefined = data?.choices?.[0]?.message?.content;
-    if (!text?.trim()) return null;
-    // Если модель вернула отказ обработать аудио — не показываем мусор пользователю
-    if (TRANSCRIBE_FAIL_PATTERNS.some(p => p.test(text))) return null;
-    return text.trim();
-  } catch { return null; }
+  // Ступень 1: нативный Gemini. generateContent принимает аудио тем же
+  // inline_data, что и картинку с PDF; модель — резолвом, без хардкода id
+  // (тот же урок, что у зрения: gemini-2.0-flash отвечает 404 «no longer
+  // available» с 04.09).
+  const geminiKey = getGeminiKey();
+  const model = geminiKey ? await resolveGeminiModel() : null;
+  if (!geminiKey) note('gemini', 'no_key');
+  else if (!model) note('gemini', 'каталог моделей недоступен');
+  else {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: mimeType, data: audioBase64 } },
+                { text: TRANSCRIBE_PROMPT },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 400 },
+          }),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      if (!res.ok) {
+        note('gemini', httpFailureReason(res.status, await res.text().catch(() => '')));
+      } else {
+        const data = await res.json();
+        const leg = readTranscript(data?.candidates?.[0]?.content?.parts?.[0]?.text);
+        if (leg.kind === 'text') return { ok: true, text: leg.text };
+        if (leg.kind === 'unintelligible') return { ok: false, reason: 'unintelligible', detail: 'gemini' };
+        note('gemini', leg.reason);
+      }
+    } catch (e) { note('gemini', errorFailureReason(e)); }
+  }
+
+  // Ступень 2: тот же Gemini через OpenRouter. С прода закрыт гео-блоком, с
+  // раннера и в разработке — рабочий путь.
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) note('openrouter', 'no_key');
+  else {
+    try {
+      const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          ...openRouterAttribution(),
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-001',
+          max_tokens: 400,
+          messages: [{
+            role: 'user',
+            content: [
+              // Gemini принимает аудио через image_url с audio MIME-type
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${audioBase64}` } },
+              { type: 'text', text: TRANSCRIBE_PROMPT },
+            ],
+          }],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        note('openrouter', httpFailureReason(res.status, await res.text().catch(() => '')));
+      } else {
+        const data = await res.json();
+        const leg = readTranscript(data?.choices?.[0]?.message?.content);
+        if (leg.kind === 'text') return { ok: true, text: leg.text };
+        if (leg.kind === 'unintelligible') return { ok: false, reason: 'unintelligible', detail: 'openrouter' };
+        note('openrouter', leg.reason);
+      }
+    } catch (e) { note('openrouter', errorFailureReason(e)); }
+  }
+
+  return { ok: false, reason: 'unavailable', detail: failures.join('; ') || 'ступеней не осталось' };
 }
 
 // ── Gemini PDF Extraction via OpenRouter ──────────────────────
