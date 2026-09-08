@@ -67,27 +67,44 @@ export default function BookingSuccessClient() {
   const [paid,     setPaid]     = useState(false);
   const [payMethod, setPayMethod] = useState<'card' | 'sbp'>('card');
 
+  /**
+   * Почему исходов ТРИ, а не два (аудит 08.09, находка missing_third_state).
+   *
+   * Сервер различает 404 «ключ не подошёл» и 503 «не смог проверить доступ»
+   * (отказ базы). Экран до этой правки схлопывал оба в одну надпись «Не
+   * удалось загрузить данные» — и турист с ВЕРНОЙ ссылкой при сбое базы
+   * видел ровно то же, что посторонний с чужим номером. Ему при этом не
+   * доставалось единственного, что здесь помогает: «попробуйте позже».
+   *
+   * `unknown` — сетевой отказ или неожиданный код: тоже не «не найдено».
+   */
+  const [failure, setFailure] = useState<'not_found' | 'unavailable' | 'unknown' | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
-    if (!accessToken) return;   // без ключа спрашивать нечего — роут ответит 404
+    if (!accessToken) { setFailure('not_found'); setLoading(false); return; }  // без ключа роут ответит 404
     void (async () => {
       try {
         const res  = await fetch(`/api/hub/bookings/${bookingId}?token=${encodeURIComponent(accessToken)}`);
-        const json = await res.json() as { success: boolean; data: BookingData };
-        if (json.success) setBooking(json.data);
+        const json = await res.json().catch(() => null) as { success?: boolean; data?: BookingData } | null;
+        if (res.ok && json?.success && json.data) {
+          setBooking(json.data);
+          setFailure(null);
+        } else if (res.status === 503) {
+          setFailure('unavailable');
+        } else if (res.status === 404) {
+          setFailure('not_found');
+        } else {
+          setFailure('unknown');
+        }
+      } catch {
+        // Сети не было вовсе — это не «брони нет».
+        setFailure('unknown');
       } finally {
         setLoading(false);
       }
     })();
-  }, [bookingId, accessToken]);
-
-  // Ссылку без ключа не крутим бесконечно: показываем то же, что увидел бы
-  // посторонний, — «не найдено», а не вечный скелетон.
-  useEffect(() => {
-    if (accessToken === '') {
-      const t = setTimeout(() => setLoading(false), 0);
-      return () => clearTimeout(t);
-    }
-  }, [accessToken]);
+  }, [bookingId, accessToken, attempt]);
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(String(bookingId));
@@ -180,9 +197,27 @@ export default function BookingSuccessClient() {
               <Loader2 className="w-6 h-6 animate-spin text-[var(--accent)]" />
             </div>
           ) : !booking ? (
-            <div className="flex items-center gap-3 text-[var(--text-secondary)]">
-              <AlertCircle className="w-5 h-5 shrink-0" />
-              <span className="text-sm">Не удалось загрузить данные. Номер: <b>#{bookingId}</b></span>
+            /* Три исхода различимы человеком, а не только сервером. */
+            <div className="flex flex-col gap-3 text-[var(--text-secondary)]">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <span className="text-sm">
+                  {failure === 'unavailable'
+                    ? <>Не удалось проверить доступ к брони — попробуйте через минуту. Номер: <b>#{bookingId}</b></>
+                    : failure === 'unknown'
+                      ? <>Не дозвонились до сервера. Проверьте связь и повторите. Номер: <b>#{bookingId}</b></>
+                      : <>Бронирование не найдено. Откройте ссылку из письма или из чата — по одному номеру бронь не открывается.</>}
+                </span>
+              </div>
+              {failure !== 'not_found' && (
+                <button
+                  type="button"
+                  onClick={() => { setLoading(true); setAttempt((n) => n + 1); }}
+                  className="ds-btn ds-btn-secondary self-start text-sm"
+                >
+                  Повторить
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-4">

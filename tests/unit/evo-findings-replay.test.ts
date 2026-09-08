@@ -26,6 +26,10 @@ import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding
 const ROOT = process.cwd();
 const BOOKING_SRC = readFileSync(join(ROOT, 'app/api/hub/bookings/create/route.ts'), 'utf-8');
 const KUZMICH_SRC = readFileSync(join(ROOT, 'lib/kuzmich/core.ts'), 'utf-8');
+// Сама вставка брони (лок, счёт занятости, INSERT) с 08.09 живёт здесь:
+// у веб-формы и Кузьмича она одна на двоих. Находки про гонку при
+// бронировании судятся по этому файлу — по тому, где свойство реально есть.
+const RESERVE_SRC = readFileSync(join(ROOT, 'lib/bookings/reserve.ts'), 'utf-8');
 
 interface Case {
   issue: string;
@@ -41,7 +45,7 @@ const FALSE_FINDINGS: Case[] = [
     title: 'Потенциальная race condition при создании бронирования',
     description: 'Если несколько запросов одновременно пытаются забронировать последнее место на тур, возможна ситуация двойного бронирования из-за отсутствия блокировки или транзакционной изоляции.',
     suggestion: 'Добавить пессимистичную блокировку строки: SELECT ... FOR UPDATE',
-    source: BOOKING_SRC,
+    source: RESERVE_SRC,
   },
   {
     issue: '#758',
@@ -119,7 +123,7 @@ describe('ложные находки Growth Scan не проходят стра
     // Тест держится на свойствах реального файла. Если их не станет, находки
     // выше перестанут быть ложными — и об этом надо узнать здесь, а не из
     // молчаливо прошедшего issue.
-    expect(BOOKING_SRC, 'пропала блокировка').toMatch(/FOR\s+UPDATE/i);
+    expect(RESERVE_SRC, 'пропала блокировка').toMatch(/FOR\s+UPDATE/i);
     expect(BOOKING_SRC, 'пропал try/catch').toMatch(/\btry\s*\{/);
     expect(BOOKING_SRC, 'пропала проверка токена').toMatch(/verifyToken|extractToken/);
   });

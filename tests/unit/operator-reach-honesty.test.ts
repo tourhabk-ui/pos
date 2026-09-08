@@ -52,8 +52,16 @@ describe('Watchdog: «молчит» и «не доходило» — разны
 
   it('MAX спрашивается наравне с Telegram', () => {
     // Оператор, подключённый только к MAX, числился «не подключённым к боту».
-    expect(code).toMatch(/p\.max_chat_id::text AS max_chat_id/);
-    expect(code).toMatch(/r\.telegram_chat_id \|\| r\.max_chat_id/);
+    // Приведение к тексту переехало в общий модуль достижимости
+    // (lib/partners/reach): BIGINT приходит из pg то строкой, то числом.
+    // У запроса осталась сама колонка — и рядом ВТОРАЯ телеграмная
+    // (users.telegram_id через partners.user_id), найденная 08.09.
+    expect(code).toMatch(/p\.max_chat_id/);
+    expect(code).toMatch(/u_reach\.telegram_id AS user_telegram_id/);
+    // «Есть хотя бы один канал» решает reachFrom — одинаково у всех
+    // читателей платформы: своя копия условия здесь разошлась бы с
+    // доставкой, что и было причиной обеих правок 08.09.
+    expect(code).toMatch(/reachable = rows\.filter\(r => reachFrom\(r\)\.reachable\)/);
   });
 
   it('паттерн поведения пишется ТОЛЬКО тому, до кого заявка дошла', () => {

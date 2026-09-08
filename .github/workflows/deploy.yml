@@ -233,23 +233,44 @@ jobs:
           fi
 
           # Фаза 2: сборка этого коммита дошла до конца.
+          #
+          # Отказ API отличается от провала сборки (аудит 08.09,
+          # missing_third_state). `poll || true` оставляет ПРЕЖНИЙ статус, и
+          # если панель не ответила ни разу, цикл истощался, а итог краснел
+          # словами «сборка не дошла» — приговор сборке по молчанию панели.
+          # Для сайта третий исход в этом же файле давно есть («НЕ СМОГЛИ
+          # ПОДТВЕРДИТЬ фактом сайта»), а для панели не было.
+          POLL_FAILS=0
           for i in $(seq 1 $BUILD_ATTEMPTS); do
             case "$STATUS" in
               deploy|build|building|deploying|pending|created)
                 echo "[сборка $i/$BUILD_ATTEMPTS] status=$STATUS"
                 sleep $SLEEP
-                poll || true
+                if poll; then POLL_FAILS=0; else POLL_FAILS=$((POLL_FAILS+1)); fi
                 continue
                 ;;
             esac
             break
           done
 
+          # Панель молчит подряд — судить сборку по её молчанию нельзя.
+          # Пять отказов выбраны как «не разовая сетевая икота»: при паузе в
+          # 30 секунд это две с половиной минуты подряд без единого ответа.
+          if [ "$POLL_FAILS" -ge 5 ]; then
+            echo "::warning::НЕ СМОГЛИ ПОДТВЕРДИТЬ панелью: последние $POLL_FAILS опросов API Timeweb не ответили. Это не приговор сборке — судит проверка сайта ниже."
+            STATUS="unknown_api"
+          fi
+
           echo "Итог: status=$STATUS commit=${COMMIT:0:7} ожидался ${EXPECTED_SHA:0:7}"
           echo "Сайт: https://vedarai.ru"
 
           case "$STATUS" in
             started|running|deployed|active|ok)
+              ;;
+            unknown_api)
+              # Третий исход: панель не отвечала. Идём к проверке сайта —
+              # она судит по факту того, что отдаёт прод, а не по мнению API.
+              echo "Статус сборки НЕИЗВЕСТЕН: панель молчала. Последнее слово — за сайтом."
               ;;
             *)
               echo "::error::Сборка не дошла до рабочего состояния: status=$STATUS. Прод остаётся на прежнем контейнере."

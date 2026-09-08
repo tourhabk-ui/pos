@@ -84,7 +84,13 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/cron': ['GET', 'POST'],      // cron jobs — дополнительная защита через CRON_SECRET внутри
   '/api/octo': 'ALL',               // OCTO API — авторизация через Bearer token внутри
   '/api/hub/marketplace/tours': ['GET'], // публичный каталог туров маршрутплейса
-  '/api/hub/bookings': ['GET'],           // booking-success страница (без персональных данных, ФЗ-152 ок)
+  // Гостевая бронь: подтверждение и PDF открываются ТОЛЬКО по ключу брони
+  // (`access_token`, миграция 943), сам номер не открывает ничего. Прежний
+  // комментарий здесь обещал «без персональных данных, ФЗ-152 ок» — это было
+  // неправдой дважды: роут отдавал имя туриста, а префикс покрывает и
+  // `/pdf`, где лежат телефон и почта. Проверку держит lib/bookings/access.ts,
+  // сторож — tests/unit/booking-access.test.ts.
+  '/api/hub/bookings': ['GET'],
   '/api/places': ['GET'],                 // карточка точки/локации (публичная)
   '/api/places/*/safety-report': ['GET', 'POST'], // UGC safety report (анонимный POST)
   '/api/trips/share': ['GET'],            // публичный просмотр маршрута по share_token

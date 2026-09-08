@@ -24,6 +24,10 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const CREATE = read('app/api/hub/bookings/create/route.ts');
 const NOTIFY = read('lib/notifications/operator-booking.ts');
 const REACH = read('app/api/cron/operator-reach/route.ts');
+// Сам запрос переписи с 08.09 живёт в общем модуле достижимости: адрес
+// оператора лежит в ДВУХ колонках, и перепись, читавшая одну, объявляла
+// недостижимыми тех, до кого бронь из чата доезжала.
+const REACH_SQL = read('lib/partners/reach.ts');
 
 describe('создание брони: отказ уведомления не глушится', () => {
   it('catch вокруг уведомления оператору пишет в лог', () => {
@@ -59,7 +63,8 @@ describe('оператор без канала связи назван вслу�
 
 describe('перепись достижимости считает то, что продаётся', () => {
   it('берёт только операторов с живыми турами', () => {
-    expect(REACH).toMatch(/JOIN operator_tours t ON t\.operator_id = p\.id AND t\.is_active = true/);
+    expect(REACH_SQL).toMatch(/JOIN operator_tours t ON t\.operator_id = p\.id AND t\.is_active = true/);
+    expect(REACH).toMatch(/partnerReachCensus\(\)/);
   });
 
   it('chat_id читается как BIGINT, а не как текст', () => {
@@ -67,9 +72,12 @@ describe('перепись достижимости считает то, что 
     // типе. Прод ответил «function pg_catalog.btrim(bigint) does not exist»,
     // перепись упала целиком. Колонки BIGINT (миграции 077 и 145): пустой
     // строки не бывает, «есть канал» — это NOT NULL.
-    expect(REACH).not.toMatch(/TRIM\(p\.telegram_chat_id\)/);
-    expect(REACH).toMatch(/p\.telegram_chat_id IS NOT NULL/);
-    expect(REACH).toMatch(/p\.max_chat_id IS NOT NULL/);
+    expect(REACH_SQL).not.toMatch(/TRIM\(p\.(telegram_chat_id|max_chat_id)\)/);
+    // «Есть канал» решается в TypeScript (reachFrom), а не выражением в SQL:
+    // колонок две, и правило старшинства между ними — не дело запроса.
+    expect(REACH_SQL).toMatch(/p\.telegram_chat_id,/);
+    expect(REACH_SQL).toMatch(/u_reach\.telegram_id AS user_telegram_id/);
+    expect(REACH_SQL).toMatch(/reachFrom\(/);
   });
 
   it('называет цену молчания — туры за недостижимыми операторами', () => {
