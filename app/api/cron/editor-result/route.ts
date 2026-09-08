@@ -22,6 +22,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { findRoutesNeedingDescription, buildFacts, MIN_GENERATION_LENGTH, type RouteRow } from '@/lib/agents/editor';
+import { logAgentRun } from '@/lib/agents/run-logger';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -52,6 +53,8 @@ export async function POST(req: NextRequest) {
   // Очередь — она же список разрешённых к записи. Раннер получил её из
   // editor-job; здесь проверяем заново, потому что между запросом и ответом
   // прошло время, а доверять присланному id нельзя.
+  const started_at = new Date();
+
   let queue: RouteRow[];
   try {
     queue = await findRoutesNeedingDescription();
@@ -105,6 +108,32 @@ export async function POST(req: NextRequest) {
     }
     written += 1;
   }
+
+  // Прогон раннера обязан оставить СВОЮ строку в истории.
+  //
+  // Находка аудита 08.09: у записи `editor-runner` в реестре кронов стоял
+  // `agentId: 'editor'` — тот же, что у прод-крона. Комментарий там прямо
+  // объявлял цель: «молчание любой из них должно быть видно отдельно», — но
+  // при общем идентификаторе живость раннера читалась по прогонам ПРОДА.
+  // Раннер мог молчать неделями, а сторож видел зелёное. Своей строки он при
+  // этом не писал вовсе: единственная его отметка в проде — вот этот запрос.
+  void logAgentRun({
+    agent_id: 'editor-runner',
+    // Отвергнутое — не «немного мусора»: это работа модели, которую не
+    // приняли. Ноль записанных при непустом ответе — отказ, а не успех.
+    status: written === 0 && items.length > 0 ? 'failed'
+      : rejected.length > 0 ? 'partial'
+      : 'success',
+    started_at,
+    duration_ms: Date.now() - started_at.getTime(),
+    items_processed: items.length,
+    items_created: written,
+    errors_count: rejected.length,
+    error_msg: rejected.length > 0
+      ? `отвергнуто ${rejected.length}: ${rejected.slice(0, 3).map((r) => r.reason).join('; ')}`
+      : undefined,
+    metadata: { model, queue_len: queue.length, rejected: rejected.slice(0, 10) },
+  });
 
   return NextResponse.json({
     ok: true,

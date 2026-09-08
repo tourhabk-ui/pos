@@ -88,6 +88,17 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   }
 
   const rescue = unwrap(rescueRes, 'RescueScan');
+  const reflector = unwrap(memoryReflectorRes, 'MemoryReflector');
+  // Стадия «выполнилась», а работа пропала: рефлектор мог получить инсайты и
+  // не записать ни одного. Раньше это выглядело отсюда как чистый прогон
+  // (находка аудита 08.09).
+  if (reflector?.verdict === 'failed') {
+    errors.push(
+      `MemoryReflector: инсайты потеряны при записи — получено ${reflector.attempted}, записано ${reflector.consolidated}`,
+    );
+  } else if (reflector?.verdict === 'unknown') {
+    errors.push(`MemoryReflector: работу выполнить не смог (${reflector.reason ?? 'причина не названа'})`);
+  }
   // Стадия может «выполниться» и при упавших проверках внутри: скан ловит
   // их сам и возвращает список (находка аудита 08.09). Молча пропустить его
   // здесь значило бы снова выдать отказ за чистый результат.
@@ -111,7 +122,7 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
     },
     scoutInnovator: unwrap(scoutInnovatorRes, 'ScoutInnovator'),
     industryIntel: unwrap(industryIntelRes, 'IndustryIntel'),
-    memoryReflector: unwrap(memoryReflectorRes, 'MemoryReflector'),
+    memoryReflector: reflector,
     duration_ms: Date.now() - start,
     errors,
   };
