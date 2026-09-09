@@ -41,11 +41,17 @@ describe('saveEvent не плодит строки с одинаковым со�
   it('повтор текста ПРОДЛЕВАЕТ срок оригинала, а не теряется', () => {
     // «Сохраняется риск» назавтра — подтверждение угрозы. Молча пропустить
     // повтор = дать оригиналу истечь, пока угроза реально действует.
-    expect(body).toMatch(/GREATEST\(expires_at,\s*\$4\)/);
+    // Колонка КВАЛИФИЦИРОВАНА (`external_alerts.expires_at`): с 09.09 в
+    // запросе есть `FROM (...) prev` со своей expires_at, и голое имя даёт
+    // 42702 «ambiguous» на настоящем сервере — так конвейер и стоял 20 часов.
+    // Голую форму сторож больше НЕ принимает: она компилируется в моках и
+    // падает на проде.
+    expect(body).toMatch(/GREATEST\(external_alerts\.expires_at,\s*\$4\)/);
+    expect(body).not.toMatch(/GREATEST\(expires_at,/);
   });
 
   it('дедуп срабатывает ДО вставки и завершает сохранение как skipped', () => {
-    const dedupAt = body.indexOf('GREATEST(expires_at');
+    const dedupAt = body.indexOf('GREATEST(external_alerts.expires_at');
     const insertAt = body.indexOf('INSERT INTO external_alerts');
     expect(dedupAt).toBeGreaterThan(-1);
     expect(insertAt).toBeGreaterThan(dedupAt);

@@ -423,9 +423,19 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     // `prev.expires_at` — старое значение, а `external_alerts.expires_at` в
     // RETURNING — новое. Без этой пары «продлили» и «перечитали то же самое»
     // неразличимы, а различать их обязательно: второе не событие.
+    //
+    // `external_alerts.expires_at` в SET КВАЛИФИЦИРОВАН, и это не стиль.
+    // 09.09 в 02:37 сюда уехала редакция с голым `GREATEST(expires_at, $4)`:
+    // при `FROM (...) prev` в области видимости ДВЕ колонки с этим именем, и
+    // PostgreSQL отвечает 42702 «column reference is ambiguous» — на КАЖДЫЙ
+    // пост каждого источника. Двадцать часов конвейер безопасности не
+    // сохранил ни одного алерта; ошибка лежала в журнале (fetch_failed, 1031
+    // строка), но читать его пришли только на следующий вечер. Моки этого не
+    // ловят — вывод имён делает сервер; сторож — tests/integration/
+    // alert-dedup.pg.test.ts на настоящем PostgreSQL.
     const dup = await query(
       `UPDATE external_alerts
-       SET expires_at = GREATEST(expires_at, $4)
+       SET expires_at = GREATEST(external_alerts.expires_at, $4)
        FROM (
          SELECT id, expires_at
            FROM external_alerts
