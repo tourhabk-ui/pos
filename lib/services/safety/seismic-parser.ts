@@ -373,6 +373,24 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
 // снаружи, «настоящий Авачинский» и «fallback по умолчанию» неразличимы.
 // Выдумывать различие, которого нет в данных, запрещает §4.0 — emit только
 // geo_matched, честно не претендуя на «unmatched».
+//
+// ЖУРНАЛ ПИШЕТСЯ О СОБЫТИЯХ, А ПЕРЕЧИТАННАЯ ЛЕНТА — НЕ СОБЫТИЕ (09.09).
+//
+// Первая редакция эмитила всю цепочку ДО того, как узнавала, новый ли item:
+// четыре строки на каждый разобранный пост, каждый прогон. Ингест идёт раз в
+// пять минут, ленты отдают одни и те же посты сутками — и замер темпа
+// (`db-size-census`, prod-check run 43) показал цену: 60 251 строка и 28,0 МБ
+// в сутки, 274 МБ за десять дней, треть всей базы. Записывалось при этом
+// одно и то же: «мы снова посмотрели, и снова ничего не изменилось».
+//
+// Теперь цепочка пишется только для НОВОГО сигнала, а повтор — только если
+// он что-то изменил (сдвинул `expires_at`). Порядок: контентный дедуп →
+// сверка по `external_id` → и лишь потом события.
+//
+// Что при этом НЕ потеряно: «мы смотрели» по-прежнему записывается —
+// `source_observed` в safety-ingest, одна строка на источник на прогон
+// (route.ts:54). Живость конвейера видна там, где ей место, и стоит
+// двухсотой доли прежнего объёма.
 export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
   const payloadHash = hashPayload({
     alert_type: event.alert_type,
@@ -380,35 +398,6 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     description: event.description,
     source_id: event.source_id,
   });
-  const normalized = await appendSafetyEvent({
-    entityId: null,
-    eventType: 'signal_normalized',
-    actorType: 'source',
-    actorId: event.source_id,
-    sourceUrl: event.source_url,
-    sourcePublishedAt: event.published_at,
-    payloadHash,
-    details: { title: event.title },
-  });
-  await appendSafetyEvent({
-    entityId: null,
-    eventType: 'risk_classified',
-    actorType: 'system',
-    actorId: 'seismic-parser.saveEvent',
-    payloadHash,
-    priorEventId: normalized.id,
-    details: { alert_type: event.alert_type, severity: event.severity, expires_hours: event.expires_hours },
-  });
-  await appendSafetyEvent({
-    entityId: null,
-    eventType: 'geo_matched',
-    actorType: 'system',
-    actorId: 'seismic-parser.saveEvent',
-    payloadHash,
-    priorEventId: normalized.id,
-    details: { affected_zones: event.affected_zones },
-  });
-
   try {
     const expiresAt = new Date(event.published_at);
     expiresAt.setHours(expiresAt.getHours() + event.expires_hours);
@@ -430,29 +419,85 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     // 5-6 отдельных строк и 5-6 push. lower+trim+схлопнутые пробелы ловит
     // разницу в оформлении, но не путает РАЗНЫЕ события: заголовок остаётся
     // единственным ключом, полное текстовое совпадение по-прежнему не требуется.
+    // Подзапрос `prev` читает строку ДО записи (снимок транзакции), поэтому
+    // `prev.expires_at` — старое значение, а `external_alerts.expires_at` в
+    // RETURNING — новое. Без этой пары «продлили» и «перечитали то же самое»
+    // неразличимы, а различать их обязательно: второе не событие.
     const dup = await query(
       `UPDATE external_alerts
        SET expires_at = GREATEST(expires_at, $4)
-       WHERE alert_type = $1
-         AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
-         AND regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g')
-         AND expires_at > NOW()
-       RETURNING id`,
+       FROM (
+         SELECT id, expires_at
+           FROM external_alerts
+          WHERE alert_type = $1
+            AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
+            AND regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g')
+            AND expires_at > NOW()
+       ) prev
+       WHERE external_alerts.id = prev.id
+       RETURNING external_alerts.id,
+                 (external_alerts.expires_at IS DISTINCT FROM prev.expires_at) AS extended`,
       [event.alert_type, event.title, event.description, expiresAt]
     );
     if ((dup.rowCount ?? 0) > 0) {
-      await appendSafetyEvent({
-        entityId: dup.rows[0]?.id != null ? String(dup.rows[0].id) : null,
-        eventType: 'dedup_skipped',
-        actorType: 'system',
-        actorId: 'seismic-parser.saveEvent',
-        payloadHash,
-        priorEventId: normalized.id,
-        decisionReason: 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
-        details: { extended_expires_at: expiresAt.toISOString() },
-      });
+      // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
+      // тот же пост каждые пять минут, и `GREATEST` в 287 случаях из 288
+      // возвращает прежнее значение: ничего не произошло, писать нечего.
+      if (dup.rows[0]?.extended) {
+        await appendSafetyEvent({
+          entityId: dup.rows[0]?.id != null ? String(dup.rows[0].id) : null,
+          eventType: 'dedup_skipped',
+          actorType: 'system',
+          actorId: 'seismic-parser.saveEvent',
+          payloadHash,
+          decisionReason: 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
+          details: { extended_expires_at: expiresAt.toISOString() },
+        });
+      }
       return 'skipped';
     }
+
+    // Тот же САМЫЙ пост, виденный раньше (сверка по external_id, а не по
+    // тексту). Сюда попадает всё, чей алерт уже истёк: контентный дедуп выше
+    // требует `expires_at > NOW()`, а пост в ленте живёт дольше алерта — и
+    // каждые пять минут доходил до INSERT, где его гасил ON CONFLICT.
+    // Проверка нужна не ради вставки (её и так держит ON CONFLICT), а ради
+    // журнала: перечитать известный пост — не событие.
+    const known = await query(
+      `SELECT 1 FROM external_alerts WHERE external_id = $1 LIMIT 1`,
+      [event.source_id]
+    );
+    if ((known.rowCount ?? 0) > 0) return 'skipped';
+
+    // Дальше — только НОВЫЙ сигнал, и цепочка пишется целиком.
+    const normalized = await appendSafetyEvent({
+      entityId: null,
+      eventType: 'signal_normalized',
+      actorType: 'source',
+      actorId: event.source_id,
+      sourceUrl: event.source_url,
+      sourcePublishedAt: event.published_at,
+      payloadHash,
+      details: { title: event.title },
+    });
+    await appendSafetyEvent({
+      entityId: null,
+      eventType: 'risk_classified',
+      actorType: 'system',
+      actorId: 'seismic-parser.saveEvent',
+      payloadHash,
+      priorEventId: normalized.id,
+      details: { alert_type: event.alert_type, severity: event.severity, expires_hours: event.expires_hours },
+    });
+    await appendSafetyEvent({
+      entityId: null,
+      eventType: 'geo_matched',
+      actorType: 'system',
+      actorId: 'seismic-parser.saveEvent',
+      payloadHash,
+      priorEventId: normalized.id,
+      details: { affected_zones: event.affected_zones },
+    });
 
     const result = await query(
       `INSERT INTO external_alerts (

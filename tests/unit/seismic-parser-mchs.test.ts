@@ -290,10 +290,11 @@ describe('ingestMaxItems — раннер шлёт посты MAX, classifyMchsI
   });
 
   it('реальная угроза классифицируется и сохраняется (source max_mchs)', async () => {
-    // saveEvent двухшаговый (контент-дедуп 01.08): UPDATE-проверка дубля
-    // должна ответить «дубля нет», иначе вставка честно скипается.
+    // saveEvent ТРЁХшаговый: контент-дедуп (01.08) → сверка по external_id
+    // (09.09) → INSERT. Обе проверки должны ответить «такого нет», иначе
+    // вставка честно скипается.
     querySpy.mockImplementation((sql: string) =>
-      Promise.resolve(/^\s*UPDATE external_alerts/.test(sql)
+      Promise.resolve(/^\s*(UPDATE external_alerts|SELECT 1 FROM external_alerts)/.test(sql)
         ? { rowCount: 0, rows: [] }
         : { rowCount: 1, rows: [{ id: 1 }] }));
     const r = await ingestMaxItems([
@@ -310,13 +311,17 @@ describe('ingestMaxItems — раннер шлёт посты MAX, classifyMchsI
     expect(r.events[0].alert_type).toBe('road_closure');
     expect(r.events[0].source_id).toMatch(/^max_mchs\/\d{4}-\d{2}-\d{2}\/t/);
     expect(r.events[0].source_url).toBe('https://max.ru/id4101120929_gos/11');
-    // 2 запроса на событие: дедуп-UPDATE + INSERT (контент-дедуп 01.08).
-    expect(querySpy).toHaveBeenCalledTimes(2);
+    // 3 запроса на событие: дедуп-UPDATE (01.08) + сверка по external_id
+    // (09.09) + INSERT. Третий добавлен ради ЖУРНАЛА, а не ради вставки —
+    // её и так держит ON CONFLICT. Без него истёкший алерт, чей пост живёт в
+    // ленте дольше срока, каждые пять минут доходил до INSERT и писал в
+    // safety_decision_events четыре строки о том, что ничего не произошло.
+    expect(querySpy).toHaveBeenCalledTimes(3);
   });
 
   it('без даты берётся текущее время, без link — дефолтный URL канала', async () => {
     querySpy.mockImplementation((sql: string) =>
-      Promise.resolve(/^\s*UPDATE external_alerts/.test(sql)
+      Promise.resolve(/^\s*(UPDATE external_alerts|SELECT 1 FROM external_alerts)/.test(sql)
         ? { rowCount: 0, rows: [] }
         : { rowCount: 1, rows: [{ id: 2 }] }));
     const r = await ingestMaxItems([
