@@ -15,10 +15,13 @@ import {
   tripKindFromDates,
   buildEscalationMessage,
   formatPositionText,
+  formatKamchatkaTime,
 } from '@/lib/safety/checkin-escalation';
 import type { EscalationStep } from '@/lib/safety/checkin-escalation';
 
 export const dynamic = 'force-dynamic';
+
+const SITE_BASE = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
 
 interface RegRow {
   id: string;
@@ -28,6 +31,7 @@ interface RegRow {
   expected_return_at: Date | null;
   trip_kind: 'day' | 'multi';
   checkin_confirmed_at: Date | null;
+  mchs_informed_at: Date | null;
   last_position_lat: string | null;
   last_position_lng: string | null;
   leader_name: string;
@@ -78,7 +82,12 @@ function stepToNum(step: EscalationStep): number {
   return step === 'soft' ? 1 : step === 'hard' ? 2 : 3;
 }
 
-function buildMessage(reg: RegRow, step: EscalationStep, hoursOverdue: number): string {
+function buildMessage(
+  reg: RegRow,
+  step: EscalationStep,
+  hoursOverdue: number,
+  hoursSinceConfirm: number | null,
+): string {
   return buildEscalationMessage(
     {
       routeName: reg.route_name,
@@ -87,7 +96,13 @@ function buildMessage(reg: RegRow, step: EscalationStep, hoursOverdue: number): 
       emergencyContactName: reg.emergency_contact_name,
       emergencyContactPhone: reg.emergency_contact_phone,
       positionText: formatPositionText(reg.last_position_lat, reg.last_position_lng),
-      returnUrl: `https://vedarai.ru/return?id=${reg.id}`,
+      returnUrl: `${SITE_BASE}/return?id=${reg.id}`,
+      // Вторая ссылка — для живой группы, которая просто задерживается. Без
+      // неё единственным способом снять тревогу была отметка о ВОЗВРАТЕ, то
+      // есть ложь, выключающая сторожа.
+      checkinUrl: `${SITE_BASE}/checkin-ok?id=${reg.id}`,
+      hoursSinceConfirm,
+      mchsInformedText: reg.mchs_informed_at ? formatKamchatkaTime(new Date(reg.mchs_informed_at)) : null,
     },
     step,
     hoursOverdue,
@@ -117,6 +132,7 @@ export async function GET(req: Request) {
       r.expected_return_at,
       COALESCE(r.trip_kind, 'day') AS trip_kind,
       r.checkin_confirmed_at,
+      r.mchs_informed_at,
       r.last_position_lat::text,
       r.last_position_lng::text,
       r.leader_name,
@@ -167,8 +183,8 @@ export async function GET(req: Request) {
     const decision = decideEscalation(controlTime, tripKind, alreadySent, confirmedAt, now);
     if (!decision) continue;
 
-    const { step, hoursOverdue } = decision;
-    const msg = buildMessage(reg, step, hoursOverdue);
+    const { step, hoursOverdue, hoursSinceConfirm } = decision;
+    const msg = buildMessage(reg, step, hoursOverdue, hoursSinceConfirm);
 
     // Уведомление в зависимости от шага.
     // Важно: recordNotification вызывается ВСЕГДА — иначе шаг не записывается
