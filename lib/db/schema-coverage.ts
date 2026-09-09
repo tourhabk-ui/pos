@@ -105,7 +105,13 @@ export function usedTables(root = process.cwd()): Map<string, Set<string>> {
       })
       .join('\n');
     const locals = cteNames(txt);
-    for (const m of txt.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_][a-z0-9_]{2,})\b/g)) {
+    // `IS [NOT] DISTINCT FROM x` — оператор сравнения, а не обращение к
+    // таблице: слово FROM в нём часть трёхсловной конструкции. Без этого
+    // отсечения сторож поднимал тревогу на обычном SQL (`external_alerts.
+    // expires_at IS DISTINCT FROM prev.expires_at` дало «таблицу prev»), а
+    // сторож, поднимающий ложную тревогу, перестаёт читаться — ровно то, о
+    // чём предупреждает комментарий выше.
+    for (const m of txt.matchAll(/\b(?<!DISTINCT\s)(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_][a-z0-9_]{2,})\b/g)) {
       const t = m[1].toLowerCase();
       if (NOT_A_TABLE.has(t) || SYSTEM_PREFIX.test(t) || locals.has(t)) continue;
       const set = used.get(t) ?? new Set<string>();

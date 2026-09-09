@@ -56,7 +56,7 @@ beforeEach(() => {
   // затем INSERT — вставка удаётся. Единый rowCount:1 на всё превращал
   // дедуп-проверку в «дубль найден», и вставки честно скипались.
   queryMock.mockImplementation((sql: string) =>
-    Promise.resolve(/^\s*UPDATE external_alerts/.test(sql)
+    Promise.resolve(/^\s*(UPDATE external_alerts|SELECT 1 FROM external_alerts)/.test(sql)
       ? { rows: [], rowCount: 0 }
       : { rows: [{ id: 1 }], rowCount: 1 }));
 });
