@@ -1,0 +1,61 @@
+name: Каталог моделей с ценами — на прод (с раннера)
+
+# Прод не видит каталог OpenRouter: 403 и напрямую, и через релей (замер
+# 07.09). Значит «актуальные цены в админке» — это не «прод спросил», а
+# «раннер привёз»: то же разделение труда, что у editor-runner.
+#
+# Отличие от openrouter-models.yml: тот ПЕЧАТАЕТ ответ на разовый вопрос по
+# маркеру, этот КЛАДЁТ каталог в базу для админского раздела. Одна публичная
+# ручка, два потребителя; сливать их значило бы, что разовый вопрос каждый раз
+# переписывает боевые данные.
+#
+# Только чтение каталога: ни одного запроса к модели, ни рубля расхода.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 04:10 UTC — до судьи (06:20) и до ревью (05:50): если цена поменялась,
+    # админка увидит новую в тот же день, что и прогоны на ней.
+    - cron: '10 4 * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/model-catalog.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-catalog
+  cancel-in-progress: false
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Маркер едет вместе с кодом: прогон по маркеру ждёт СВОЮ сборку, иначе
+      # упрётся в 404 на эндпоинте, которого на проде ещё нет.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Привезти каталог
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: npx tsx scripts/model-catalog-runner.ts

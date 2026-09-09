@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Coins, RefreshCw, Cpu, Sparkles } from 'lucide-react';
+import { Coins, RefreshCw, Cpu, Sparkles, Tags } from 'lucide-react';
 import KuzmichAnalyticsClient from './_KuzmichAnalyticsClient';
+import ModelCatalogClient from './_ModelCatalogClient';
 
 /**
- * Две вкладки на одной таблице (перепись админ-панели 03.09).
+ * Три вкладки на одном вопросе «во что нам обходится AI» (03.09, +09.09).
  *
  * «Расходы AI» и «AI Кузьмич» читали один и тот же журнал ai_actions_log с
  * двух страниц в разных разделах меню: первая — сколько и каким провайдером,
@@ -14,11 +15,15 @@ import KuzmichAnalyticsClient from './_KuzmichAnalyticsClient';
  * берётся из адреса (?tab=kuzmich), чтобы старые ссылки и редирект со
  * снятого /hub/admin/ai-analytics открывали именно её.
  */
-type UsageTab = 'usage' | 'kuzmich';
+// Третья вкладка (09.09) — цены моделей. Здесь же, а не отдельной страницей:
+// «сколько потратили» и «сколько стоит» — один вопрос, и разведённый по двум
+// разделам меню он читался бы как два разных инструмента (§12).
+type UsageTab = 'usage' | 'kuzmich' | 'models';
 
 function tabFromLocation(): UsageTab {
   if (typeof window === 'undefined') return 'usage';
-  return new URLSearchParams(window.location.search).get('tab') === 'kuzmich' ? 'kuzmich' : 'usage';
+  const t = new URLSearchParams(window.location.search).get('tab');
+  return t === 'kuzmich' || t === 'models' ? t : 'usage';
 }
 
 interface AiUsageData {
@@ -38,8 +43,8 @@ export default function AdminAiUsagePage() {
     setTab(next);
     try {
       const url = new URL(window.location.href);
-      if (next === 'kuzmich') url.searchParams.set('tab', 'kuzmich');
-      else url.searchParams.delete('tab');
+      if (next === 'usage') url.searchParams.delete('tab');
+      else url.searchParams.set('tab', next);
       window.history.replaceState(null, '', url.toString());
     } catch { /* адрес не обновился — переключение всё равно состоялось */ }
   };
@@ -77,6 +82,7 @@ export default function AdminAiUsagePage() {
   const tabs: Array<{ id: UsageTab; label: string; Icon: typeof Coins }> = [
     { id: 'usage', label: 'Расходы', Icon: Coins },
     { id: 'kuzmich', label: 'Кузьмич', Icon: Sparkles },
+    { id: 'models', label: 'Модели и цены', Icon: Tags },
   ];
 
   return (
@@ -116,7 +122,9 @@ export default function AdminAiUsagePage() {
         ))}
       </div>
 
-      {tab === 'kuzmich' ? (
+      {tab === 'models' ? (
+        <ModelCatalogClient />
+      ) : tab === 'kuzmich' ? (
         <KuzmichAnalyticsClient />
       ) : (
       <>
