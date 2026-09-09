@@ -154,3 +154,42 @@ describe('API кокпита журнала: только чтение', () => {
     expect(code).not.toMatch(/INSERT\s+INTO|UPDATE\s+safety|DELETE\s+FROM/i);
   });
 });
+
+describe('журнал пишет о событиях, а перечитанная лента — не событие', () => {
+  /** Код без комментариев: судим употребление, а не рассказ о нём. */
+  const c = SEISMIC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const body = c.slice(c.indexOf('export async function saveEvent'));
+
+  it('цепочка пишется ПОСЛЕ обеих проверок на повтор, а не до них', () => {
+    // Первая редакция эмитила четыре строки на каждый разобранный пост, ещё
+    // не зная, новый ли он. Ингест идёт раз в пять минут, ленты отдают те же
+    // посты сутками — замер дал 60 251 строку и 28 МБ в сутки.
+    const contentDedup = body.indexOf('UPDATE external_alerts');
+    const knownCheck   = body.indexOf('WHERE external_id = $1');
+    const chainStart   = body.indexOf("eventType: 'signal_normalized'");
+    expect(contentDedup, 'контентного дедупа нет').toBeGreaterThan(0);
+    expect(knownCheck, 'сверки по external_id нет — истёкшие алерты снова зальют журнал').toBeGreaterThan(0);
+    expect(chainStart, 'цепочки нет вовсе').toBeGreaterThan(0);
+    expect(chainStart).toBeGreaterThan(contentDedup);
+    expect(chainStart).toBeGreaterThan(knownCheck);
+  });
+
+  it('повтор пишется только если срок ДЕЙСТВИТЕЛЬНО сдвинулся', () => {
+    // GREATEST возвращает прежнее значение в 287 случаях из 288: ничего не
+    // произошло, писать нечего. Старое значение берётся снимком строки до
+    // записи (FROM external_alerts o), иначе «продлили» и «перечитали»
+    // неразличимы.
+    expect(body).toMatch(/SELECT id, expires_at\s*\n\s*FROM external_alerts/);
+    expect(body).toMatch(/external_alerts\.expires_at IS DISTINCT FROM prev\.expires_at\) AS extended/);
+    const extendedCheck = body.indexOf('.extended');
+    const dedupEmit = body.indexOf("eventType: 'dedup_skipped'");
+    expect(extendedCheck).toBeGreaterThan(0);
+    expect(extendedCheck, 'dedup_skipped пишется без проверки, сдвинулся ли срок').toBeLessThan(dedupEmit);
+  });
+
+  it('«мы смотрели» не потеряно: source_observed на источник за прогон', () => {
+    // Живость конвейера обязана остаться видимой — но одной строкой на
+    // источник, а не четырьмя на каждый неизменившийся item.
+    expect(INGEST_ROUTE).toMatch(/eventType: 'source_observed'/);
+  });
+});
