@@ -77,7 +77,13 @@ describe('исходы', () => {
     expect(WF).toMatch(/if \[ "\$code" = "1" \]/);
     expect(WF).toMatch(/elif \[ "\$code" = "3" \]/);
     expect(WF).toMatch(/elif \[ "\$code" = "2" \]/);
-    expect(WF).toMatch(/upload-artifact@v4\n\s+if: always\(\)/);
+    // Мажор действия НЕ закрепляем: сторож про то, что артефакт кладётся
+    // ВСЕГДА, а не про версию upload-artifact. Закреплённый `@v4` покраснел
+    // на подъёме группы actions до v7 (#1716) — по причине, к предмету
+    // проверки не относящейся, и уронил main вместе с деплоем. Ровно тот
+    // случай, что записан в §7: замороженное число в правиле устаревает
+    // молча и учит не доверять правилу целиком.
+    expect(WF).toMatch(/upload-artifact@v\d+\n\s+if: always\(\)/);
     expect(WF).toContain('.github/triggers/map-pack-snapshot.json');
   });
 });
