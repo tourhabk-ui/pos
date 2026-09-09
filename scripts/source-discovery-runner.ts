@@ -57,6 +57,7 @@ import { openRouterAttribution } from '../lib/ai/attribution';
 // должно (§12). Модуль отселён от scout-digest именно затем, чтобы его мог
 // импортировать раннер, у которого базы нет.
 import { classifyItemAge } from '../lib/agents/scout-item-age';
+import { RSS_SOURCES } from '../lib/agents/scout-sources';
 // Выбор модели — общим резолвером, а не своим правилом: §8 запрещает
 // хардкодить id, и второе правило выбора разошлось бы с первым (§12).
 import { pickBestModel } from '../lib/ai/model-resolver';
@@ -127,14 +128,21 @@ export interface FilterResult {
 }
 
 /** Адреса, уже стоящие в разведке: сравниваем по хосту с путём, без схемы и хвостов. */
-const EXISTING_URLS = [
-  'simonwillison.net/atom/everything/', 'huggingface.co/blog/feed.xml',
-  'marktechpost.com/feed/', 'hnrss.org/newest', 'habr.com/ru/rss/hub/artificial_intelligence/all/',
-  'openai.com/news/rss.xml', 'blog.google/technology/ai/rss/', 'deepmind.google/blog/rss.xml',
-  'skift.com/feed/', 'producthunt.com/feed',
-  'tourprom.ru/feed/rss.xml', 'ratanews.ru/rss.xml',
-  't.me/s/ru_rst', 't.me/s/minec_tourism', 't.me/s/vibecoding_tg',
-];
+/**
+ * Что уже стоит в разведке — ВЫВОДИТСЯ из самого состава, не переписывается.
+ *
+ * Здесь лежала копия списка адресов, и она разошлась с оригиналом за сутки:
+ * 07.09 в разведку добавили четыре государственных канала, в копию их не
+ * внесли — и прогон 4 предложил три из них заново, а перепись честно назвала
+ * их живыми. Отчёт сказал «нашли восемь новых источников», из которых три уже
+ * стояли в составе.
+ *
+ * Список, поддерживаемый в двух местах, расходится всегда (§12). Поэтому
+ * состав вынесен в чистый модуль `lib/agents/scout-sources` — без пула и сети,
+ * так что раннер может его импортировать, — и копии больше нет.
+ */
+const EXISTING_URLS = RSS_SOURCES.map(s => s.url);
+
 
 function normalizeUrl(raw: string): string {
   return raw.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').toLowerCase();
