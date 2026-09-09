@@ -12,6 +12,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const SCOUT = readFileSync(resolve(__dirname, '../../lib/agents/scout-digest.ts'), 'utf8');
+// Состав источников переехал в чистый модуль 08.09 (§12: копия списка в
+// раннере подбора разошлась с оригиналом за сутки). Утверждения прежние —
+// сменился файл, где они проверяются.
+const ROSTER = readFileSync(resolve(__dirname, '../../lib/agents/scout-sources.ts'), 'utf8');
 const BRIDGE = readFileSync(resolve(__dirname, '../../lib/agents/evo/intel-bridge.ts'), 'utf8');
 
 describe('Scout: источники-референсы заведены', () => {
@@ -19,13 +23,13 @@ describe('Scout: источники-референсы заведены', () => 
     // Проверяем наличие фидов подстрокой (не regex): CodeQL «missing anchor»
     // срабатывает на любом RegExp-литерале с host-подобным `.com`, а тут это
     // просто grep исходника, не валидация URL.
-    expect(SCOUT).toContain('https://skift.com/feed');
-    expect(SCOUT).toContain('https://www.producthunt.com/feed');
-    expect(SCOUT).toMatch(/category:\s*'reference'/);
+    expect(ROSTER).toContain('https://skift.com/feed');
+    expect(ROSTER).toContain('https://www.producthunt.com/feed');
+    expect(ROSTER).toMatch(/category:\s*'reference'/);
   });
 
   it('категория reference добавлена в тип источника', () => {
-    expect(SCOUT).toMatch(/type SourceCategory =[^;]*'reference'/);
+    expect(ROSTER).toMatch(/type SourceCategory =[^;]*'reference'/);
   });
 
   it('в синтезе дайджеста появился раздел «Референсы»', () => {
