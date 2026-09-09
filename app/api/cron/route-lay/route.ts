@@ -70,7 +70,6 @@ export async function POST(request: NextRequest) {
 
   try {
     for (const routeId of data.ids) {
-      // eslint-disable-next-line no-await-in-loop
       const wpRes = await pool.query<{ name: string; lat: number; lng: number; geometry_present: boolean; title: string }>(
         `SELECT p.name, p.lat, p.lng, (r.geometry IS NOT NULL) AS geometry_present, r.title
          FROM kamchatka_routes r
@@ -98,7 +97,6 @@ export async function POST(request: NextRequest) {
 
       for (let i = 0; i < wps.length - 1 && !failed; i++) {
         const a = wps[i], b = wps[i + 1];
-        // eslint-disable-next-line no-await-in-loop
         const { nodes, edges } = await loadSubgraph(a.lat, a.lng, b.lat, b.lng);
         if (nodes.size === 0 || edges.length === 0) {
           legs.push({ fromWp: a.name, toWp: b.name, ok: false, reason: 'empty_graph' });
@@ -136,7 +134,6 @@ export async function POST(request: NextRequest) {
       if (!data.dry_run) {
         // [lng, lat] — порядок GeoJSON; запись только в пустоту.
         const coords = fullLine.map(([lat, lng]) => [lng, lat]);
-        // eslint-disable-next-line no-await-in-loop
         const upd = await pool.query(
           `UPDATE kamchatka_routes
            SET geometry = jsonb_build_object(

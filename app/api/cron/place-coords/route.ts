@@ -155,7 +155,6 @@ export async function POST(request: NextRequest) {
 
     const applied: PlanItem[] = [];
     for (const p of plan) {
-      // eslint-disable-next-line no-await-in-loop
       const res = await pool.query(
         `UPDATE places
             SET lat = $2, lng = $3, updated_at = NOW()

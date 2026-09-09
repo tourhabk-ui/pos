@@ -151,7 +151,6 @@ export async function POST(request: NextRequest) {
     const linked: PlanItem[] = [];
     for (const p of plan) {
       if (p.alreadyLinked) continue;
-      // eslint-disable-next-line no-await-in-loop
       const res = await pool.query(
         `INSERT INTO route_waypoints (route_id, place_id, position, link_kind, link_kind_at)
          SELECT r.id, pl.id,

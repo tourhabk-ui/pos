@@ -114,7 +114,6 @@ describe('словарь топонимов строгий по замыслу',
 });
 
 function readSrc(): string {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { readFileSync } = require('node:fs') as typeof import('node:fs');
   const { join } = require('node:path') as typeof import('node:path');
   return readFileSync(join(process.cwd(), 'scripts/source-discovery-runner.ts'), 'utf-8');

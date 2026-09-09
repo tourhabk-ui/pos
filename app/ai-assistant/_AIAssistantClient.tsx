@@ -263,7 +263,6 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   // запрос уезжал за экран («чат открылся сверху, запрос не попал»).
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'auto' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

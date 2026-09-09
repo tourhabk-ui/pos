@@ -129,7 +129,6 @@ export async function POST(request: NextRequest) {
 
     const results: Array<Record<string, unknown>> = [];
     for (const p of plan) {
-      // eslint-disable-next-line no-await-in-loop
       const client = await pool.connect();
       try {
         await client.query('BEGIN');

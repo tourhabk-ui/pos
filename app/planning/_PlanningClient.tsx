@@ -1832,7 +1832,6 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     }
     cardBuildRef.current = false;
   // openPreview и routeOptionToPreview — функции компонента, стабильные по смыслу.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildPhase]);
   /**
    * Постоянная карта-фон (Шаг 1) видна ВСЕГДА, в т.ч. под приборной
@@ -2621,7 +2620,6 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       setCalculatedPreviewError(null);
       if (!calculatedCarToLeafletCoordinates(r.calculated)) {
         setCalculatedPreviewError('Провайдер вернул непригодную геометрию пути — карту показать нельзя.');
-        // eslint-disable-next-line no-console
         console.error('calculated_car: непригодная геометрия', r.calculated.provider, r.calculated.geometry);
         return;
       }

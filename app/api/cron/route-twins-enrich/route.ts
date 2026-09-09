@@ -166,7 +166,6 @@ export async function POST(request: NextRequest) {
     for (const item of items) {
       if (!item.willWriteDistance && !item.willLinkPlace) continue;
       const row = chosen.find(r => r.id === item.id)!;
-      // eslint-disable-next-line no-await-in-loop
       await transaction(async (client) => {
         if (item.willWriteDistance) {
           const upd = await client.query(

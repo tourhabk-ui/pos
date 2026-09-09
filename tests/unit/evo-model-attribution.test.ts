@@ -163,8 +163,16 @@ describe('немота решателя приходит с причиной (01
   it('нераспарсенный ответ сохраняет атрибуцию модели', () => {
     // Раньше parse-ошибка глоталась общим catch и терялась даже модель —
     // немота и кривой ответ выглядели одинаково.
-    expect(GROWTH).toMatch(/не распарсился/);
-    expect(GROWTH).toMatch(/model: decisionModel \?\? null,\s*\n\s*decisionError/);
+    //
+    // Сторож переставлен 09.09 на раннер: в growth-agent эта ветка жила
+    // внутри мёртвого прод-фоллбэка aiCodeReview, который не звал никто.
+    // Требование не ослаблено — оно перенесено туда, где сегодня разбирают
+    // ответ модели (§8, scripts/evo-review.ts).
+    const runner = read('scripts/evo-review.ts');
+    expect(runner).toMatch(/не распарсился/);
+    expect(runner, 'модель теряется на кривом ответе — немота и мусор снова неразличимы')
+      .toMatch(/decision_error: `ответ \$\{decisionModel \?\? '\?'\} не распарсился/);
+    expect(runner).toMatch(/issues: \[\], static_issues: staticIssues, review_files: reviewFiles, model: decisionModel,/);
   });
 });
 

@@ -18,7 +18,6 @@ const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
 
 if (!PG_URL) {
-  // eslint-disable-next-line no-console
   console.warn('[safety-ledger.pg] KERNEL_PG_TEST_URL не задан — интеграционные тесты пропущены (не прогнаны, а не зелёные)');
 }
 

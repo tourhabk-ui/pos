@@ -390,7 +390,6 @@ async function applyPlan(
 ): Promise<Array<{ keep: string; merge: string; warning?: string }>> {
   const merged: Array<{ keep: string; merge: string; warning?: string }> = [];
   for (const p of plan) {
-    // eslint-disable-next-line no-await-in-loop
     await transaction(async client => {
       if (p.keepArk && p.mergeArk) {
         await client.query(

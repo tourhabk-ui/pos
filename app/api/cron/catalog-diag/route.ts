@@ -174,7 +174,6 @@ export async function GET(request: NextRequest) {
 
   for (const step of STEPS) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       const res = await pool.query(step.sql);
       results.push({ step: step.name, ok: true, rows: res.rowCount ?? 0 });
     } catch (err) {
@@ -186,7 +185,6 @@ export async function GET(request: NextRequest) {
   // Ветка карточки маршрута — независимо от того, что стало с каталогом.
   for (const step of DETAIL_STEPS) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       const res = await pool.query(step.sql);
       results.push({
         step: step.name,
@@ -224,7 +222,6 @@ export async function GET(request: NextRequest) {
 
   for (const call of CATALOG_CALLS) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       const res = await queryCatalog(call.filters as never);
       results.push({ step: call.name, ok: true, rows: res.items.length });
     } catch (err) {

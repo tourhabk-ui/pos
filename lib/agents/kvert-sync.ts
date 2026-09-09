@@ -191,7 +191,6 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
     // Управляющие символы схлопываем, чтобы строка читалась в логе.
     result.source_sample = text
       .slice(0, 300)
-      // eslint-disable-next-line no-control-regex
       .replace(/[\u0000-\u001f\u007f]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
