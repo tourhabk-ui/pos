@@ -47,16 +47,24 @@
  * зеркало нашей же беды с t.me, который закрыт с прода. Такой исход называется
  * `refused_here`, а не `dead`, и требует второй проверки с прода.
  *
- * Использование: npx tsx scripts/source-discovery-runner.ts [модель]
+ * Использование:
+ *   npx tsx scripts/source-discovery-runner.ts            — DeepSeek (по умолчанию)
+ *   npx tsx scripts/source-discovery-runner.ts deepseek    — то же явно
+ *   npx tsx scripts/source-discovery-runner.ts <модель-OR> — прежний путь через OpenRouter
  */
 import { openRouterAttribution } from '../lib/ai/attribution';
 // Правило возраста — из общего чистого модуля: второй реализации быть не
 // должно (§12). Модуль отселён от scout-digest именно затем, чтобы его мог
 // импортировать раннер, у которого базы нет.
 import { classifyItemAge } from '../lib/agents/scout-item-age';
+// Выбор модели — общим резолвером, а не своим правилом: §8 запрещает
+// хардкодить id, и второе правило выбора разошлось бы с первым (§12).
+import { pickBestModel } from '../lib/ai/model-resolver';
+import { htmlToText } from '../lib/partners/prospect-parse';
 
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'openai/gpt-6-astra';
+const DEEPSEEK = 'https://api.deepseek.com/v1/chat/completions';
+const DEEPSEEK_MODELS = 'https://api.deepseek.com/models';
 const RUB_PER_USD = 135; // §8
 
 /** Что уже стоит в разведке — чтобы модель не предлагала то же самое. */
@@ -96,6 +104,7 @@ HTML-страницы, требующие разбора вёрстки, API с 
 
 area="law" — законодательство и регулирование туризма в РФ: тексты и проекты нормативных актов, официальные публикации, реестры туроператоров, требования к перевозке и размещению, надзор. Нам важен первоисточник, а не пересказ отраслевой ленты — пересказы у нас уже есть.
 
+area="region" — НОВОСТИ КАМЧАТСКОГО КРАЯ: краевые и городские издания, официальные каналы правительства края и Петропавловска, отраслевые краевые ленты (туризм, транспорт, ЖКХ, природа). Это самый большой пробел: живых новостных источников о крае у нас не осталось НИ ОДНОГО — kamgov и 41.mchs сняли RSS 01.08, kamchatka.aif.ru отдаёт HTML вместо ленты (замер 08.09, три адреса подряд). Раздел «Камчатка» в дайджесте наполняется федеральными новостями про Дальний Восток, что и есть подмена региона соседним.
 area="hazard" — наблюдаемые опасности Камчатки и Дальнего Востока: лавинная опасность, штормовые предупреждения, гидрометеорология, сейсмика, вулканическая активность, паводки, пожары. Особо нужна ЛАВИННАЯ опасность: у нас нет ни одного источника лавинных наблюдений.
 
 ЧЕСТНОСТЬ ВАЖНЕЕ ПОЛНОТЫ. Не выдумывай адреса. Если ты не уверен, что лента существует по этому точному адресу, всё равно предложи её, но поставь confidence="guess" — её проверят запросом. Выдуманный адрес с confidence="known" хуже пропущенного источника: он тратит проверку и подрывает доверие ко всему списку.
@@ -146,14 +155,37 @@ export function filterCandidates(raw: unknown): FilterResult {
 
   for (const item of list) {
     const c = (item ?? {}) as Candidate;
-    const url = typeof c.url === 'string' ? c.url.trim() : '';
+    // `let`, а не `const`: схема может быть поднята ниже, и дальше по функции
+    // (проверка формы t.me, дедуп, сам возврат) должен идти УЖЕ поднятый
+    // адрес. Прежде подъём писался в `c.url`, а возвращался этот `url` —
+    // правка не доезжала до переписи вовсе.
+    let url = typeof c.url === 'string' ? c.url.trim() : '';
     const label = url || String(c.name ?? 'без адреса');
 
     if (!url) { dropped.push({ url: label, why: 'адреса нет вовсе' }); continue; }
 
     let parsed: URL;
     try { parsed = new URL(url); } catch { dropped.push({ url: label, why: 'адрес не разбирается' }); continue; }
-    if (parsed.protocol !== 'https:') { dropped.push({ url: label, why: 'не https' }); continue; }
+
+    // http:// — ПОДНИМАЕМ до https, а не выбрасываем (прогон 3, 08.09).
+    //
+    // Тот прогон отбросил восемь кандидатов из двадцати пяти ровно по этой
+    // причине, и среди них были настоящие: kamchatinfo.com — камчатское
+    // агентство, emsd.ru — Камчатский филиал Геофизической службы, то есть
+    // первоисточник по сейсмике. Почти любой живой сайт отвечает по https на
+    // том же адресе, и выбрасывать кандидата за схему значит терять годного
+    // по формальности.
+    //
+    // Проверять от этого мы меньше не стали: поднятый адрес идёт в ту же
+    // перепись и получает тот же приговор от сервера. Если https там нет —
+    // это скажет запрос, а не наш фильтр.
+    if (parsed.protocol === 'http:') {
+      parsed.protocol = 'https:';
+      url = parsed.toString();
+    } else if (parsed.protocol !== 'https:') {
+      dropped.push({ url: label, why: `схема ${parsed.protocol} — читать не умеем` });
+      continue;
+    }
 
     if (c.kind !== 'rss' && c.kind !== 'telegram') {
       dropped.push({ url: label, why: `вид источника «${String(c.kind)}» мы читать не умеем` });
@@ -165,7 +197,7 @@ export function filterCandidates(raw: unknown): FilterResult {
       dropped.push({ url: label, why: 'Telegram не в форме t.me/s/<канал> — закрытый или приглашение' });
       continue;
     }
-    if (c.area !== 'law' && c.area !== 'hazard') {
+    if (c.area !== 'law' && c.area !== 'hazard' && c.area !== 'region') {
       dropped.push({ url: label, why: `область «${String(c.area)}» не запрашивалась` });
       continue;
     }
@@ -271,7 +303,68 @@ export function ageVerdict(lastItem: string | null, nowMs: number): CensusVerdic
   return 'feed_undated';
 }
 
-async function census(url: string, isTelegram: boolean): Promise<{ verdict: CensusVerdict; detail: string }> {
+/**
+ * Топонимы края. Список короткий и намеренно СТРОГИЙ: сюда входит только то,
+ * что не встречается за пределами Камчатки в другом смысле.
+ *
+ * «Дальний Восток», «ДФО» и «Приморье» сюда НЕ входят — именно на них вчера и
+ * прокололся раздел «Камчатка» в дайджесте: федеральная новость про округ
+ * попала в краевой раздел и читалась как событие в крае.
+ */
+const KAMCHATKA_WORDS = [
+  'камчат', 'петропавловск-камчат', 'елизово', 'вилючинск', 'мильково',
+  'усть-камчатск', 'эссо', 'ключи', 'паратунк', 'авачинск', 'корякск',
+  'мутновск', 'горелый', 'толбачик', 'шивелуч', 'ключевск', 'налычев',
+  'курильское озеро', 'долина гейзеров', 'кроноцк', 'командорск',
+];
+
+/** Заголовки материалов ленты — из RSS, Atom и Telegram-превью разом. */
+export function extractTitles(body: string, isTelegram: boolean): string[] {
+  // Снятие тегов — ОБЩИМ разбором (`lib/partners/prospect-parse`), а не своей
+  // регуляркой. Правило держит сторож `html-text`, и он поймал здесь ровно
+  // такую копию: два разбора HTML расходятся молча, и расходятся они на
+  // краевых случаях, где как раз и нужен верный ответ (§12).
+  if (isTelegram) {
+    return [...body.matchAll(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/g)]
+      .map(m => htmlToText(m[1]).slice(0, 300))
+      .filter(Boolean);
+  }
+  return [...body.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/gi)]
+    .map(m => htmlToText(m[1].replace(/<!\[CDATA\[|\]\]>/g, '')))
+    .filter(Boolean)
+    // Первый <title> у RSS — название САМОЙ ленты, а не материала. Оно почти
+    // всегда содержит имя издания и потому давало бы ложное «региональна».
+    .slice(1);
+}
+
+/**
+ * Про край ли эта лента — ТРИ исхода.
+ *
+ * Повод (08.09): лента может быть живой, свежей и при этом не о Камчатке.
+ * Именно так раздел «Камчатка» получил федеральную новость про ДФО. Живость
+ * и региональность — разные вопросы, и «отвечает» не значит «про нас».
+ *
+ * `unknown` — заголовков не разобрали, судить не по чему. Это не «не про
+ * край»: молча записать ленту в чужие значило бы отбросить годный источник
+ * по признаку нашего неумения его прочитать (§4.0).
+ */
+export function regionality(titles: string[]): { verdict: 'regional' | 'not_regional' | 'unknown'; hits: number; total: number } {
+  if (titles.length === 0) return { verdict: 'unknown', hits: 0, total: 0 };
+  const hits = titles.filter(t => {
+    const low = t.toLowerCase();
+    return KAMCHATKA_WORDS.some(w => low.includes(w));
+  }).length;
+  // Порог низкий намеренно: краевое издание пишет и о стране тоже, и
+  // требовать края в каждом заголовке значило бы отбросить настоящие
+  // региональные ленты. Одна пятая — признак, что край для ленты свой.
+  return { verdict: hits / titles.length >= 0.2 ? 'regional' : 'not_regional', hits, total: titles.length };
+}
+
+async function census(
+  url: string,
+  isTelegram: boolean,
+  checkRegion: boolean,
+): Promise<{ verdict: CensusVerdict; detail: string }> {
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'TourHab/1.0 (Scout source census)' },
@@ -282,35 +375,139 @@ async function census(url: string, isTelegram: boolean): Promise<{ verdict: Cens
     const now = Date.now();
     if (isTelegram) {
       const posts = (body.match(/tgme_widget_message/g) ?? []).length;
-      if (posts === 0) return { verdict: 'not_a_feed', detail: `HTTP ${res.status}, постов в превью нет` };
+      // Ноль постов при HTTP 200 — почти всегда НЕСУЩЕСТВУЮЩИЙ канал, а не
+      // молчащий: t.me отдаёт 200 и обычную страницу на любое имя. Прогон 3
+      // дал такой исход у всех пяти предложенных каналов сразу, включая
+      // «канал губернатора», — то есть модель сочинила имена, а вердикт
+      // «not_a_feed» читался как «канал есть, постов нет».
+      //
+      // Отличаем по признаку самой страницы: у живого канала есть заголовок
+      // превью, у выдуманного — только форма поиска.
+      if (posts === 0) {
+        const looksLikeChannel = /tgme_page_title|tgme_channel_info/.test(body);
+        return {
+          verdict: 'not_a_feed',
+          detail: looksLikeChannel
+            ? `HTTP ${res.status}, канал есть, но постов в превью нет`
+            : `HTTP ${res.status}, ТАКОГО КАНАЛА НЕТ (t.me отдаёт 200 на любое имя)`,
+        };
+      }
       // Счёт постов ничего не говорит о жизни канала: триста постов бывают и у
       // молчащего с позапрошлого года. Решает ДАТА последнего.
       const last = lastTelegramPost(body);
       const days = last ? Math.floor((now - Date.parse(last)) / 86_400_000) : null;
+      const reg = checkRegion ? regionality(extractTitles(body, true)) : null;
       return {
         verdict: ageVerdict(last, now),
-        detail: `превью, постов ${posts}, последний ${last ? `${last.slice(0, 10)} (${days} дн. назад)` : 'без даты'}`,
+        detail: `превью, постов ${posts}, последний ${last ? `${last.slice(0, 10)} (${days} дн. назад)` : 'без даты'}`
+          + (reg ? `, край: ${reg.verdict} (${reg.hits}/${reg.total})` : ''),
       };
     }
     const last = latestFeedDate(body);
     const days = last ? Math.floor((now - Date.parse(last)) / 86_400_000) : null;
     const verdict = judgeCensus(res.status, ct, body.length, last, now);
+    const reg = checkRegion ? regionality(extractTitles(body, false)) : null;
     return {
       verdict,
-      detail: `HTTP ${res.status}, ${ct || 'без типа'}, ${body.length} байт, свежайший ${last ? `${last.slice(0, 10)} (${days} дн. назад)` : 'без даты'}`,
+      detail: `HTTP ${res.status}, ${ct || 'без типа'}, ${body.length} байт, свежайший ${last ? `${last.slice(0, 10)} (${days} дн. назад)` : 'без даты'}`
+        + (reg ? `, край: ${reg.verdict} (${reg.hits}/${reg.total})` : ''),
     };
   } catch (e) {
     return { verdict: 'unreachable', detail: (e as Error).message.slice(0, 120) };
   }
 }
 
-async function main(): Promise<void> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) {
-    console.error('OPENROUTER_API_KEY не задан — спрашивать нечем. Это не «источников не нашлось».');
-    process.exit(1);
+/**
+ * Спросить DeepSeek напрямую (решение владельца 08.09: «дай задание внешнему
+ * агенту дипсику»).
+ *
+ * Прямой api.deepseek.com, а не через OpenRouter: DeepSeek достижим и из РФ,
+ * и с раннера, лишний посредник тут ничего не добавляет и добавляет отказ.
+ *
+ * Модель НЕ прибита: берётся сильнейшая из `/models` (§8 — не хардкодить id).
+ * Каталог не ответил — это «не смогли выбрать», и мы говорим об этом вслух, а
+ * не подставляем правдоподобное имя: угаданный id провайдер отвергнет, и
+ * разбираться придётся с несуществующей моделью.
+ */
+/**
+ * Потолок ответа для рассуждающей модели.
+ *
+ * Прогон 2 (08.09) упал так: `deepseek-v4-pro`, `max_tokens: 4000`,
+ * `completion_tokens: 4000`, из них `reasoning_tokens: 4000`. Весь потолок
+ * ушёл в РАССУЖДЕНИЕ, на сам ответ не осталось ни одного токена — и скрипт
+ * сказал «модель ответила не-JSON», то есть позвал чинить промпт при
+ * совершенно исправной модели.
+ *
+ * У рассуждающих моделей потолок делится между размышлением и ответом, и
+ * размышление берёт своё первым. Значит потолок надо ставить не «сколько
+ * нужно на ответ», а «сколько нужно на ответ ПЛЮС размышление о нём».
+ */
+const DEEPSEEK_MAX_TOKENS = 16000;
+
+interface DeepSeekUsage {
+  completion_tokens?: number;
+  completion_tokens_details?: { reasoning_tokens?: number };
+}
+
+/**
+ * Почему ответ пуст — рассуждение съело потолок или что-то другое.
+ *
+ * Отдельная чистая функция, потому что разница здесь между «чинить у нас» и
+ * «чинить в промпте», и спутать их стоит дня. Пустой ответ при
+ * `reasoning ≈ completion ≈ потолок` — это НАШ недосмотр в настройке, а не
+ * поведение модели.
+ */
+export function explainEmptyAnswer(usage: DeepSeekUsage | null, cap: number): string {
+  const completion = usage?.completion_tokens ?? null;
+  const reasoning = usage?.completion_tokens_details?.reasoning_tokens ?? null;
+  if (completion !== null && reasoning !== null && reasoning > 0 && completion >= cap) {
+    return `потолок ${cap} токенов целиком ушёл в рассуждение (${reasoning}), на ответ не осталось ничего — поднимай потолок, промпт тут ни при чём`;
   }
-  const model = (process.argv[2] || '').trim() || DEFAULT_MODEL;
+  if (completion === 0) return 'модель не выдала ни одного токена';
+  return 'ответ пуст, а причина по счётчикам не читается';
+}
+
+async function proposeWithDeepSeek(system: string, user: string): Promise<{ answer: string; model: string; usage: unknown }> {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error('DEEPSEEK_API_KEY не задан — спрашивать нечем. Это не «источников не нашлось».');
+
+  const catalog = await fetch(DEEPSEEK_MODELS, {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!catalog.ok) throw new Error(`каталог моделей DeepSeek ответил HTTP ${catalog.status} — выбрать модель не из чего`);
+  const ids = ((await catalog.json() as { data?: Array<{ id?: unknown }> }).data ?? [])
+    .map(m => m.id).filter((x): x is string => typeof x === 'string');
+  const model = pickBestModel(ids);
+  if (!model) throw new Error(`в каталоге DeepSeek нет пригодной модели (всего id: ${ids.length})`);
+
+  const res = await fetch(DEEPSEEK, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      temperature: 0.3,
+      max_tokens: DEEPSEEK_MAX_TOKENS,
+    }),
+    signal: AbortSignal.timeout(600_000),
+  });
+  if (!res.ok) throw new Error(`DeepSeek ответил HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  const json = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: DeepSeekUsage };
+  const answer = json.choices?.[0]?.message?.content ?? '';
+  // Пустой ответ разбирается ЗДЕСЬ, где ещё видны счётчики. Дальше по потоку
+  // он неотличим от «модель ответила прозой», и разбираться пошли бы в промпт.
+  if (!answer.trim()) {
+    throw new Error(`DeepSeek (${model}) вернул пустой ответ: ${explainEmptyAnswer(json.usage ?? null, DEEPSEEK_MAX_TOKENS)}`);
+  }
+  return { answer, model, usage: json.usage };
+}
+
+async function main(): Promise<void> {
+  // Кто предлагает: deepseek (решение владельца 08.09) либо прежний путь через
+  // OpenRouter с явным именем модели.
+  const arg = (process.argv[2] || '').trim();
+  const useDeepSeek = arg === '' || arg === 'deepseek';
 
   const user = [
     'СЕЙЧАС В РАЗВЕДКЕ (не предлагай это снова):',
@@ -319,43 +516,59 @@ async function main(): Promise<void> {
     'УЖЕ ПРОВЕРЕНО И МЕРТВО (не предлагай это, мы измеряли):',
     ...GRAVEYARD.map(s => `- ${s}`),
     '',
-    'Нужны источники областей law и hazard. Лавинная опасность — самый нужный пробел.',
+    'Пробелы по убыванию нужды:',
+    '1. region — новостей о Камчатском крае у нас нет НИ ОДНОЙ живой ленты. Это главная дыра.',
+    '2. hazard — лавинных наблюдений нет ни одного источника.',
+    '3. law — правового первоисточника нет, только отраслевые пересказы.',
+    '',
+    'Предлагай ШИРОКО: лучше двадцать кандидатов, из которых выживут три, чем три осторожных.',
+    'Отвергнутый проверкой адрес нам ничего не стоит, а ненайденный источник стоит дыры в разведке.',
   ].join('\n');
 
   const started = Date.now();
-  const res = await fetch(OPENROUTER, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      ...openRouterAttribution('source-discovery'),
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
-      temperature: 0.3,
-      // Потолок назван явно — см. разбор в channel-identity-runner: без него
-      // резервируется весь контекст модели, и запрос упирается в кредиты.
-      // Здесь ответ длиннее (дюжина кандидатов), но не безграничен.
-      max_tokens: 4000,
-    }),
-    signal: AbortSignal.timeout(300_000),
-  });
+  let answer = '';
+  let model = '';
+  let usage: unknown = null;
 
-  if (!res.ok) {
-    console.error(`OpenRouter ответил HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  try {
+    if (useDeepSeek) {
+      const r = await proposeWithDeepSeek(SYSTEM, user);
+      answer = r.answer; model = r.model; usage = r.usage;
+    } else {
+      const key = process.env.OPENROUTER_API_KEY;
+      if (!key) throw new Error('OPENROUTER_API_KEY не задан — спрашивать нечем');
+      model = arg;
+      const res = await fetch(OPENROUTER, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          ...openRouterAttribution('source-discovery'),
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
+          temperature: 0.3,
+          // Потолок назван явно — см. разбор в channel-identity-runner: без него
+          // резервируется весь контекст модели, и запрос упирается в кредиты.
+          max_tokens: 4000,
+        }),
+        signal: AbortSignal.timeout(300_000),
+      });
+      if (!res.ok) throw new Error(`OpenRouter ответил HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
+      const json = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+      answer = json.choices?.[0]?.message?.content ?? '';
+      usage = json.usage;
+    }
+  } catch (e) {
+    // «Спросить не смогли» — не «источников нет». Разные беды, и вторая
+    // закрыла бы поиск выводом, которого никто не делал (§4.0).
+    console.error(`Подбор НЕ СОСТОЯЛСЯ: ${(e as Error).message}`);
     process.exit(1);
   }
 
-  const json = await res.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
-  const answer = json.choices?.[0]?.message?.content ?? '';
-  console.log(`Модель: ${model}, ответ за ${((Date.now() - started) / 1000).toFixed(1)} с`);
-  if (json.usage) {
-    console.log(`Токены: вход ${json.usage.prompt_tokens ?? '?'}, выход ${json.usage.completion_tokens ?? '?'} (цена — по прайсу модели × ${RUB_PER_USD})`);
-  }
+  console.log(`Предлагал: ${useDeepSeek ? 'DeepSeek' : 'OpenRouter'}, модель ${model}, ответ за ${((Date.now() - started) / 1000).toFixed(1)} с`);
+  if (usage) console.log(`Токены: ${JSON.stringify(usage)} (цена — по прайсу модели × ${RUB_PER_USD})`);
 
   let parsed: unknown;
   try {
@@ -373,7 +586,7 @@ async function main(): Promise<void> {
   console.log('\n── Перепись: приговор выносит сервер, а не модель ──');
   const verified: Array<Candidate & { verdict: CensusVerdict; detail: string }> = [];
   for (const c of kept) {
-    const r = await census(c.url as string, c.kind === 'telegram');
+    const r = await census(c.url as string, c.kind === 'telegram', c.area === 'region');
     verified.push({ ...c, ...r });
     console.log(`  ${r.verdict.padEnd(13)} ${c.area}  ${c.url}  (${r.detail})`);
     await new Promise(r2 => setTimeout(r2, 400));
