@@ -236,22 +236,27 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
             </div>
           </div>
           
-          {/* Кнопка бронирования */}
-          <button
+          {/* Кнопка бронирования.
+              Не кнопка и не своя ссылка: вся карточка уже обёрнута в
+              <Link href={`/accommodations/${id}`}> (строка 92), и клик сюда
+              ведёт ровно туда же. Раньше здесь стоял <button>, который делал
+              e.preventDefault() и уводил на ТОТ ЖЕ адрес через
+              window.location.href — то есть отменял клиентский переход и
+              заменял его полной перезагрузкой страницы к тому же URL. Строго
+              хуже, чем не делать ничего.
+              Заодно ушла вложенность <button> внутрь <a>: она невалидна по
+              HTML и давала второй таб-стоп, который по Enter не делал ничего. */}
+          <span
             className="
-              w-full mt-4 py-3 px-4 rounded-lg
+              block w-full mt-4 py-3 px-4 rounded-lg text-center
               bg-[var(--accent)] text-[var(--bg-card)] font-bold
-              hover:bg-[var(--accent)]/90 transition-all duration-200
-              hover:shadow-lg hover:shadow-[var(--accent)]/30
-              active:scale-95
+              transition-all duration-200
+              group-hover:bg-[var(--accent)]/90
+              group-hover:shadow-lg group-hover:shadow-[var(--accent)]/30
             "
-            onClick={(e) => {
-              e.preventDefault();
-              window.location.href = `/accommodations/${id}`;
-            }}
           >
             Забронировать
-          </button>
+          </span>
         </div>
       </div>
     </Link>
