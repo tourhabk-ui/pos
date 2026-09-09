@@ -155,14 +155,37 @@ export function filterCandidates(raw: unknown): FilterResult {
 
   for (const item of list) {
     const c = (item ?? {}) as Candidate;
-    const url = typeof c.url === 'string' ? c.url.trim() : '';
+    // `let`, а не `const`: схема может быть поднята ниже, и дальше по функции
+    // (проверка формы t.me, дедуп, сам возврат) должен идти УЖЕ поднятый
+    // адрес. Прежде подъём писался в `c.url`, а возвращался этот `url` —
+    // правка не доезжала до переписи вовсе.
+    let url = typeof c.url === 'string' ? c.url.trim() : '';
     const label = url || String(c.name ?? 'без адреса');
 
     if (!url) { dropped.push({ url: label, why: 'адреса нет вовсе' }); continue; }
 
     let parsed: URL;
     try { parsed = new URL(url); } catch { dropped.push({ url: label, why: 'адрес не разбирается' }); continue; }
-    if (parsed.protocol !== 'https:') { dropped.push({ url: label, why: 'не https' }); continue; }
+
+    // http:// — ПОДНИМАЕМ до https, а не выбрасываем (прогон 3, 08.09).
+    //
+    // Тот прогон отбросил восемь кандидатов из двадцати пяти ровно по этой
+    // причине, и среди них были настоящие: kamchatinfo.com — камчатское
+    // агентство, emsd.ru — Камчатский филиал Геофизической службы, то есть
+    // первоисточник по сейсмике. Почти любой живой сайт отвечает по https на
+    // том же адресе, и выбрасывать кандидата за схему значит терять годного
+    // по формальности.
+    //
+    // Проверять от этого мы меньше не стали: поднятый адрес идёт в ту же
+    // перепись и получает тот же приговор от сервера. Если https там нет —
+    // это скажет запрос, а не наш фильтр.
+    if (parsed.protocol === 'http:') {
+      parsed.protocol = 'https:';
+      url = parsed.toString();
+    } else if (parsed.protocol !== 'https:') {
+      dropped.push({ url: label, why: `схема ${parsed.protocol} — читать не умеем` });
+      continue;
+    }
 
     if (c.kind !== 'rss' && c.kind !== 'telegram') {
       dropped.push({ url: label, why: `вид источника «${String(c.kind)}» мы читать не умеем` });
@@ -352,7 +375,23 @@ async function census(
     const now = Date.now();
     if (isTelegram) {
       const posts = (body.match(/tgme_widget_message/g) ?? []).length;
-      if (posts === 0) return { verdict: 'not_a_feed', detail: `HTTP ${res.status}, постов в превью нет` };
+      // Ноль постов при HTTP 200 — почти всегда НЕСУЩЕСТВУЮЩИЙ канал, а не
+      // молчащий: t.me отдаёт 200 и обычную страницу на любое имя. Прогон 3
+      // дал такой исход у всех пяти предложенных каналов сразу, включая
+      // «канал губернатора», — то есть модель сочинила имена, а вердикт
+      // «not_a_feed» читался как «канал есть, постов нет».
+      //
+      // Отличаем по признаку самой страницы: у живого канала есть заголовок
+      // превью, у выдуманного — только форма поиска.
+      if (posts === 0) {
+        const looksLikeChannel = /tgme_page_title|tgme_channel_info/.test(body);
+        return {
+          verdict: 'not_a_feed',
+          detail: looksLikeChannel
+            ? `HTTP ${res.status}, канал есть, но постов в превью нет`
+            : `HTTP ${res.status}, ТАКОГО КАНАЛА НЕТ (t.me отдаёт 200 на любое имя)`,
+        };
+      }
       // Счёт постов ничего не говорит о жизни канала: триста постов бывают и у
       // молчащего с позапрошлого года. Решает ДАТА последнего.
       const last = lastTelegramPost(body);
