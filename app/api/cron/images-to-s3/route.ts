@@ -71,6 +71,81 @@ function extFor(mime: string): string {
   return 'jpg';
 }
 
+/**
+ * GET — только ПЛАН, без единой записи.
+ *
+ * Заведён потому, что доставка на прод (`prod-check.yml`) умеет один GET и
+ * тела не шлёт, а сухой прогон по природе своей чтение: он отвечает «что
+ * переехало бы», ничего не трогая. Причина (`reason`) здесь не спрашивается
+ * намеренно — требовать обоснование за просмотр значит приучать писать его
+ * не думая, и к боевому прогону оно обесценится.
+ *
+ * Боевой перенос остаётся POST'ом с обязательной причиной. Разделение по
+ * методу, а не по флагу в теле: GET, который пишет, — ровно та ловушка, от
+ * которой защищает само различение методов.
+ */
+export async function GET(req: NextRequest) {
+  const secret = getCronSecret(req);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const { plan, pending, pendingMb } = await collectPlan(MAX_BATCH);
+    return NextResponse.json({
+      ok: true,
+      probe: 'images_to_s3_v1',
+      dry_run: true,
+      method: 'GET',
+      pending,
+      pending_mb: pendingMb,
+      would_move: plan,
+      note: 'только план: GET ничего не пишет. Боевой перенос — POST с обязательной причиной',
+    });
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[images-to-s3] план не собран, SQLSTATE ${code}:`, err);
+    return NextResponse.json(
+      { ok: false, probe: 'images_to_s3_v1', error: 'план не собран', sqlstate: code },
+      { status: 503 },
+    );
+  }
+}
+
+/**
+ * Что переехало бы и сколько осталось — ОДИН сбор на оба метода.
+ * Своя копия у GET разошлась бы с POST: план показывал бы одно, перенос
+ * трогал другое, и заметили бы это уже по результату.
+ */
+async function collectPlan(limit: number) {
+  const { rows } = await pool.query<Row>(
+    `SELECT id::text, route_id::text, mime_type, image_data,
+            OCTET_LENGTH(image_data)::text AS size_bytes
+       FROM ai_route_images
+      WHERE s3_key IS NULL AND image_data IS NOT NULL
+      ORDER BY OCTET_LENGTH(image_data) DESC
+      LIMIT $1`,
+    [limit],
+  );
+  const { rows: leftRows } = await pool.query<{ pending: string; pending_mb: string }>(
+    `SELECT COUNT(*)::text AS pending,
+            ROUND(COALESCE(SUM(OCTET_LENGTH(image_data)), 0) / 1048576.0, 1)::text AS pending_mb
+       FROM ai_route_images
+      WHERE s3_key IS NULL AND image_data IS NOT NULL`,
+  );
+  const plan = rows.map((r) => ({
+    id: r.id,
+    route_id: r.route_id,
+    size_kb: Math.round(Number(r.size_bytes) / 1024),
+    key: `places/${r.route_id}/${r.id}.${extFor(r.mime_type ?? 'image/jpeg')}`,
+  }));
+  return {
+    rows,
+    plan,
+    pending: Number(leftRows[0]?.pending ?? '0'),
+    pendingMb: Number(leftRows[0]?.pending_mb ?? '0'),
+  };
+}
+
 export async function POST(req: NextRequest) {
   const secret = getCronSecret(req);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
@@ -91,30 +166,8 @@ export async function POST(req: NextRequest) {
   const { reason, limit, dry_run } = parsed.data;
 
   try {
-    const { rows } = await pool.query<Row>(
-      `SELECT id::text, route_id::text, mime_type, image_data,
-              OCTET_LENGTH(image_data)::text AS size_bytes
-         FROM ai_route_images
-        WHERE s3_key IS NULL AND image_data IS NOT NULL
-        ORDER BY OCTET_LENGTH(image_data) DESC
-        LIMIT $1`,
-      [limit],
-    );
-
-    // Осталось всего — чтобы по ответу было видно, сколько ещё прогонов.
-    const { rows: leftRows } = await pool.query<{ pending: string; pending_mb: string }>(
-      `SELECT COUNT(*)::text AS pending,
-              ROUND(COALESCE(SUM(OCTET_LENGTH(image_data)), 0) / 1048576.0, 1)::text AS pending_mb
-         FROM ai_route_images
-        WHERE s3_key IS NULL AND image_data IS NOT NULL`,
-    );
-
-    const plan = rows.map((r) => ({
-      id: r.id,
-      route_id: r.route_id,
-      size_kb: Math.round(Number(r.size_bytes) / 1024),
-      key: `places/${r.route_id}/${r.id}.${extFor(r.mime_type ?? 'image/jpeg')}`,
-    }));
+    // Тот же сбор, что у GET: план и перенос обязаны смотреть на одно.
+    const { rows, plan, pending, pendingMb } = await collectPlan(limit);
 
     if (dry_run) {
       return NextResponse.json({
@@ -122,8 +175,8 @@ export async function POST(req: NextRequest) {
         probe: 'images_to_s3_v1',
         dry_run: true,
         reason,
-        pending: Number(leftRows[0]?.pending ?? '0'),
-        pending_mb: Number(leftRows[0]?.pending_mb ?? '0'),
+        pending,
+        pending_mb: pendingMb,
         would_move: plan,
       });
     }
@@ -181,7 +234,7 @@ export async function POST(req: NextRequest) {
       freed_kb: moved.reduce((s, m) => s + m.size_kb, 0),
       moved,
       failed,
-      pending_before: Number(leftRows[0]?.pending ?? '0'),
+      pending_before: pending,
     });
   } catch (err) {
     const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
