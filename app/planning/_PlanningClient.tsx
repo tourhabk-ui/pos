@@ -3359,8 +3359,16 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         // маршрута, здесь — полевая находка. Разные вещи, разные слова.
         label: 'Сообщить о месте',
         icon: <MapPinPlus className="w-6 h-6" />,
-        // Жёсткий переход, не Link: полевой контур живёт без гидрации.
-        // Форма находки на /field-check открывается сразу (?place=1).
+        // ЖЁСТКИЙ переход, не Link и не router.push. Это не небрежность —
+        // единственное, что работает без сети, и проверено по public/sw.js:
+        // service worker кладёт в прекэш ДОКУМЕНТ '/field-check' (FIELD_URLS,
+        // с повторами — «один промах прекэша стоит всего выхода») и отдаёт
+        // его офлайн (OFFLINE_CAPABLE_ROUTES). Клиентский переход Next вместо
+        // документа просит RSC-полезную нагрузку по другому адресу
+        // (/field-check?_rsc=...) — её в кэше нет, и на перевале человек
+        // получил бы пустоту вместо формы находки.
+        // Связку «жёсткий переход ↔ прекэш» держит tests/unit/field-nav-hard.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         onPress: () => { window.location.assign('/field-check?place=1'); },
       });
       list.push({
