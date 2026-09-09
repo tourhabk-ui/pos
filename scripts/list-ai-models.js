@@ -111,7 +111,6 @@ async function listOne(p) {
   console.log('Актуальные model-id провайдеров (поле id — точное значение для env):');
   for (const p of targets) {
     // Последовательно, чтобы вывод не мешался
-    // eslint-disable-next-line no-await-in-loop
     await listOne(p);
   }
   console.log('');

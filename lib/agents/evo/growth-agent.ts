@@ -6,15 +6,12 @@
 
 import { pool } from '@/lib/db-pool';
 import { partnerReachCensus } from '@/lib/partners/reach';
-import { callAIDecisionDetailed } from '@/lib/ai/providers';
-import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding, verifyAgainstSource, verifyEvidence } from '@/lib/agents/evo/finding-guard';
 import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/evo/coverage-ledger';
 import { listRepoFiles, clientComponentPaths, getLastListSource, type RepoFilesSource } from '@/lib/agents/evo/repo-files';
 import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
-import { loadLearnedLessons, lessonsPromptBlock } from '@/lib/agents/evo/learned-lessons';
 import { runStaticChecks } from '@/lib/agents/evo/static-checks';
 import { locateFailure } from '@/lib/agents/evo/failure-taxonomy';
 import { readFile } from 'node:fs/promises';
@@ -463,21 +460,6 @@ async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]>
   }
 }
 
-interface CodeReviewResult {
-  issues: GrowthIssue[];
-  /** Детерминированные находки по тем же телам файлов — без лишних запросов. */
-  staticIssues: GrowthIssue[];
-  listed: number;
-  reviewed: number;
-  source: RepoFilesSource;
-  /** Модель, ответившая на ревью (null — не отвечал никто). */
-  model?: string | null;
-  /** Причина немоты или кривого ответа решателя; null — здоровое ревью. */
-  decisionError?: string | null;
-  /** Ступени waterfall до выбранной модели (пакет D) — при любом исходе. */
-  provenance?: string[] | null;
-}
-
 /**
  * Список файлов на ревью + откуда взят перечень кода (леджер покрытия —
  * систематический прочёс всей платформы, а не 2 ядровых файла).
@@ -630,91 +612,23 @@ export function filterAndMapReviewFindings(
   }));
 }
 
-/**
- * Прод-фоллбэк: полный цикл ревью (выбор файлов → диск/GitHub-фоллбэк →
- * AI-вызов → фильтр) НА ЭТОМ сервере. С §8 (эволюция AI-вызова на раннер
- * GitHub) плановый скан (`runGrowthScan('full')`) эту функцию БОЛЬШЕ НЕ
- * зовёт — AI-вызов уезжает на раннер (scripts/evo-review.ts, гео-блока там
- * нет), а прод только отдаёт список файлов (`computeReviewFileList`,
- * `GET /api/cron/evo-review-job`) и принимает готовые находки
- * (`POST /api/cron/evo-findings`). Функция остаётся: ручной триггер
- * (`type=review`) и smoke-проверка, что прод-путь по-прежнему живой сам по
- * себе, без раннера.
- */
-async function aiCodeReview(): Promise<CodeReviewResult> {
-  const { reviewFiles, source, listed } = await computeReviewFileList();
-
-  const messages: ChatMessage[] = [{ role: 'system', content: REVIEW_SYSTEM_PROMPT }];
-
-  // Содержимое файлов ОБЯЗАТЕЛЬНО: до 12.07 модель получала только имена
-  // и выдумывала «проблемы» («import pool from '@/lib/db' строка 60»,
-  // «callDeepSeek без try/catch» — ничего из этого в коде не было)
-  const fileBlocks: string[] = [];
-  // Держим содержимое по пути — для верификационного прохода (сверка находки
-  // «отсутствует X» с реальным телом файла).
-  const fileContents = new Map<string, string>();
-  for (const f of reviewFiles) {
-    const content = await readFileForReview(f);
-    if (content) {
-      fileBlocks.push(`━━━ ${f} ━━━\n${content}`);
-      fileContents.set(f, content);
-    }
-  }
-  const staticIssues = buildStaticIssuesForFiles(fileContents);
-
-  if (fileBlocks.length === 0) {
-    return { issues: [], staticIssues, listed, reviewed: 0, source };
-  }
-
-  // Петля знаний: выученное на прошлых вердиктах приезжает В КАЖДЫЙ прогон.
-  // До 31.07 уроки писались (feedback-loop) и не читались никем — сканер
-  // каждый раз начинал с нуля и повторял уже отвергнутые претензии.
-  // Блок собирается из данных и сам сжимается; пусто → ничего не добавляем.
-  const learned = lessonsPromptBlock(
-    await loadLearnedLessons().catch(() => ({ strategy: null, lessons: [], rejectedDigest: [] })),
-  );
-
-  messages.push({ role: 'user', content: buildReviewUserMessage(fileBlocks, learned) });
-
-  try {
-    // Сильный решатель: Timeweb-шлюз/флагман-релей → Anthropic напрямую →
-    // DeepSeek → Qwen (§8). На проде это по-прежнему может съехать на
-    // фоллбэк из-за гео-блока — именно поэтому плановый скан вызов сюда
-    // больше не делает, см. докстринг функции.
-    const { text: result, model: decisionModel, error: decisionError, provenance } = await callAIDecisionDetailed(messages);
-    if (!result) {
-      // Немота решателя — с причиной по ступеням waterfall (01.08: баланс
-      // DeepSeek был жив, а прогоны молчали — без причины это не чинится).
-      return { issues: [], staticIssues, listed, reviewed: fileBlocks.length, source, decisionError: decisionError ?? null, provenance: provenance ?? null };
-    }
-
-    let parsed: RawReviewFinding[];
-    try {
-      parsed = parseAiReviewJson(result);
-    } catch (e) {
-      // Ответ пришёл, но не парсится: раньше это глоталось общим catch и
-      // терялась даже атрибуция модели — немота и кривой ответ выглядели
-      // одинаково. Модель называем, причину фиксируем.
-      return {
-        issues: [], staticIssues, listed, reviewed: fileBlocks.length, source,
-        model: decisionModel ?? null,
-        decisionError: `ответ ${decisionModel ?? '?'} не распарсился: ${(e as Error).message.slice(0, 120)}`,
-        provenance: provenance ?? null,
-      };
-    }
-
-    const mapped = filterAndMapReviewFindings(parsed, fileContents, decisionModel ?? null);
-
-    // Фиксируем покрытие: какие файлы посмотрели и сколько находок каждый дал.
-    const findingsByFile: Record<string, number> = {};
-    for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
-    await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
-
-    return { issues: mapped, staticIssues, listed, reviewed: fileBlocks.length, source, model: decisionModel ?? null, decisionError: null, provenance: provenance ?? null };
-  } catch {
-    return { issues: [], staticIssues, listed, reviewed: fileBlocks.length, source };
-  }
-}
+// Прод-фоллбэк aiCodeReview() удалён 09.09 — он был мёртв.
+//
+// Его докстрока обещала два пути: ручной триггер `type=review` и smoke-
+// проверку, что прод зовёт модель сам, без раннера. Первого пути нет:
+// EVO_SCAN_TYPES — ['full','code','security','performance'], и роут отвечает
+// на `review` кодом 400. Второго тоже: функцию не звал никто, ни одной
+// ссылки во всём репозитории. То есть обещанная страховка «прод-путь жив
+// сам по себе» не выполнялась ни разу с переезда AI-ревью на раннер (§8),
+// а комментарий про неё три недели читался как факт.
+//
+// Возвращать её как smoke-проверку смысла нет: прод в РФ упирается в
+// гео-блок Cloudflare по пути к флагману — ровно поэтому вызов и уехал на
+// раннер. Проба ответила бы «не дошли» при каждом запуске.
+//
+// Живой путь: computeReviewFileList (прод отдаёт файлы) → scripts/evo-review.ts
+// (раннер зовёт модель) → POST /api/cron/evo-findings (прод принимает).
+// parseAiReviewJson и filterAndMapReviewFindings остаются — их зовёт раннер.
 
 /**
  * Мок-детектор: детерминированный прочёс клиент-компонентов на фейк-витрины
@@ -1436,10 +1350,15 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   const coverage: ScanCoverage = {
     source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0,
   };
-  // Кто думал в этом прогоне. null — ревью не запускалось или никто не ответил.
-  let decisionModel: string | null = null;
-  let decisionError: string | null = null;
-  let decisionProvenance: string[] | null = null;
+  // Кто думал в этом прогоне. Здесь — НИКТО, и это не заглушка, а факт: с
+  // переездом AI-ревью на раннер GitHub (см. ниже, ветка scanType === 'full')
+  // прод модель не зовёт вовсе. Поэтому `const`, а не `let`: присвоить сюда
+  // нечего, и `let` три недели изображал, будто значение где-то появляется.
+  // Раннер отдаёт свою атрибуцию отдельным прогоном через
+  // `POST /api/cron/evo-findings` — там она и живёт.
+  const decisionModel: string | null = null;
+  const decisionError: string | null = null;
+  const decisionProvenance: string[] | null = null;
 
   // Перепись объективов прогона: кто отработал, кто упал, кого нет вовсе.
   const lenses: LensOutcome[] = [];

@@ -918,7 +918,6 @@ async function verifyAndReport(
       });
       continue;
     }
-    // eslint-disable-next-line no-await-in-loop
     let v = await verifyFinding(key, verifyModel, f, byPath);
     if (v.outOfFunds) outOfFunds = true;
     let rounds = 1;
@@ -937,7 +936,6 @@ async function verifyAndReport(
       const extra = namedFiles(v.missing).filter((p) => !(f.files ?? []).includes(p));
       if (extra.length > 0) {
         escalated += 1;
-        // eslint-disable-next-line no-await-in-loop
         const again = await verifyFinding(key, verifyModel, f, byPath, extra);
         rounds = 2;
         v = { ...again, why: `${again.why} [с добавленными: ${extra.join(', ')}]` };

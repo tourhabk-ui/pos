@@ -19,7 +19,6 @@ vi.mock('@/lib/database', () => ({
 }));
 
 vi.mock('next/image', () => ({
-  // eslint-disable-next-line @next/next/no-img-element
   default: (props: { src: string; alt: string }) => React.createElement('img', { src: props.src, alt: props.alt }),
 }));
 

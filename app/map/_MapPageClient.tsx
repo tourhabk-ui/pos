@@ -357,7 +357,6 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filters = isOffline ? OFFLINE_FILTERS : LOCATION_FILTERS;

@@ -5,7 +5,6 @@
 
 import { describe, it, expect } from 'vitest';
 // CJS-модуль без зависимостей — общий для раннера и тестов
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { buildGraph, haversineM, chunk } = require('../../scripts/road-graph-builder.js');
 
 type OsmWay = {

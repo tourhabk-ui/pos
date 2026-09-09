@@ -159,7 +159,6 @@ export async function POST(request: NextRequest) {
     // не могли — там keep ещё был пуст.
     const transferSkipped: string[] = [];
     for (const p of plan) {
-      // eslint-disable-next-line no-await-in-loop
       await transaction(async (client) => {
         if (p.adoptGeometry) {
           await client.query(

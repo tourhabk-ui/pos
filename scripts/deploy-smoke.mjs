@@ -194,7 +194,6 @@ async function checkNavigableShare() {
   const navigable = [];
 
   for (const r of sample) {
-    // eslint-disable-next-line no-await-in-loop
     const { status: s, body: b } = await getJson(`${BASE}/api/routes/${r.id}`);
     if (s !== 200 || b?.success !== true) continue;
     const wps = Array.isArray(b.data?.waypoints) ? b.data.waypoints : [];
