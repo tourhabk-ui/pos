@@ -481,10 +481,14 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // В callback-апдейте chat_id берётся из message.recipient.chat_id
     const callbackChatId: number | null | undefined = update.message?.recipient.chat_id;
 
-    // Подтверждаем получение
-    await api.answerOnCallback(update.callback.callback_id, {
-      notification: '',
-    }).catch(() => {});
+    // Подтверждаем получение. Без второго аргумента намеренно: раньше сюда
+    // передавалось `notification: ''` — пустое всплывающее уведомление, то
+    // есть «показать ничего». В @maxhub/max-bot-api 0.3.0 поле `notification`
+    // из AnswerOnCallbackExtra УДАЛЕНО, и обновление до 0.3.1 (PR #1715)
+    // упиралось ровно в эту строку: 19 пакетов ждали одного поля, которого
+    // больше нет. Вызов без extra делает то же самое — подтверждает callback
+    // и ничего не показывает — и компилируется в обеих версиях.
+    await api.answerOnCallback(update.callback.callback_id).catch(() => {});
 
     // callbackChatId may be null if callback update has no message — fall back to user_id (DM = user_id in MAX)
     const resolvedChatId = callbackChatId ?? update.callback.user.user_id;

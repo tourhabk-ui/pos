@@ -163,9 +163,7 @@ describe('прежний формат не сломан', () => {
 });
 
 function readSync(): string {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { readFileSync } = require('node:fs') as typeof import('node:fs');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { join } = require('node:path') as typeof import('node:path');
   return readFileSync(join(process.cwd(), 'lib/agents/kvert-sync.ts'), 'utf-8');
 }

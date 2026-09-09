@@ -84,11 +84,24 @@ describe('петля знаний подключена в исходниках',
   const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
   const code = (src: string) => src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 
-  it('growth-agent читает выученное перед ревью', () => {
-    const src = code(read('lib/agents/evo/growth-agent.ts'));
+  it('прод читает выученное и кладёт в задание раннеру', () => {
+    // Сторож переставлен 09.09 вместе с удалением мёртвого прод-фоллбэка
+    // aiCodeReview: раньше он смотрел в growth-agent, но ревью там больше не
+    // делается — с §8 (переезд AI-вызова на раннер GitHub) прод отдаёт
+    // задание, а модель зовёт scripts/evo-review.ts. Сторож обязан смотреть
+    // туда, где решение принимается СЕЙЧАС: проверка живого пути по мёртвому
+    // файлу зеленеет ровно тогда, когда петля знаний отвалилась.
+    const src = code(read('app/api/cron/evo-review-job/route.ts'));
     expect(src, 'сканер снова начинает с чистого листа — чтение уроков отвалилось')
       .toMatch(/loadLearnedLessons/);
     expect(src).toMatch(/lessonsPromptBlock/);
+    expect(src, 'блок уроков не кладётся в задание — раннер получит пустой промпт')
+      .toMatch(/learned_lessons_block/);
+  });
+
+  it('раннер доносит блок уроков до промпта, а не роняет по дороге', () => {
+    const src = code(read('scripts/evo-review.ts'));
+    expect(src).toMatch(/learned_lessons_block/);
   });
 
   it('feedback-loop извлекает уроки решателем, а не захардкоженным gemini', () => {

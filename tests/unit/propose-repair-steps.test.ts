@@ -5,7 +5,6 @@
 
 import { describe, it, expect } from 'vitest';
 // CJS-скрипт раннера — импортируется как модуль
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { buildProposal, outlierRoute } = require('../../scripts/propose-repair-steps.js');
 
 const wp = (place: string, km: number, route: string) => ({

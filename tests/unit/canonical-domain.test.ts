@@ -16,7 +16,6 @@ import { join } from 'node:path';
 const CANONICAL = 'vedarai.ru';
 const LEGACY = 'tourhab.ru';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const config = require(join(process.cwd(), 'next.config.js')) as {
   redirects: () => Promise<Array<{
     source: string;

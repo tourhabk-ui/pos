@@ -101,7 +101,6 @@ describe('roadGraphCarProvider — not_found', () => {
     ];
     for (const r of reasons) {
       mockRoadGraphRoute.mockResolvedValue(r);
-      // eslint-disable-next-line no-await-in-loop
       const result = await roadGraphCarProvider.route(QUERY);
       expect(result, r.reason).toEqual({ status: 'not_found', reason: r.message });
     }
