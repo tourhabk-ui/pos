@@ -117,7 +117,7 @@ describe('правила приёма засечки', () => {
   });
 
   it('дрожь стоящего не копится в путь', () => {
-    let st = acceptFix(emptyRecorder(), fix(53, 158, 5, 0)).state;
+    const st = acceptFix(emptyRecorder(), fix(53, 158, 5, 0)).state;
     // Сдвиг меньше минимального шага — отброшен.
     const r = acceptFix(st, fix(53.00002, 158, 5, 10_000));
     expect(r.accepted).toBe(false);
@@ -126,14 +126,14 @@ describe('правила приёма засечки', () => {
   });
 
   it('настоящий шаг принимается и меряется', () => {
-    let st = acceptFix(emptyRecorder(), fix(53, 158, 5, 0)).state;
+    const st = acceptFix(emptyRecorder(), fix(53, 158, 5, 0)).state;
     const r = acceptFix(st, fix(53.0005, 158, 5, 30_000));
     expect(r.accepted).toBe(true);
     expect(r.state.lengthM).toBeGreaterThan(MIN_STEP_M);
   });
 
   it('прыжок приёмника отбрасывается', () => {
-    let st = acceptFix(emptyRecorder(), fix(53, 158, 5, 0)).state;
+    const st = acceptFix(emptyRecorder(), fix(53, 158, 5, 0)).state;
     const r = acceptFix(st, fix(54, 158, 5, 1000));
     expect(r.reason).toBe('jump');
   });

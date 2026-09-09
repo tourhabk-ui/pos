@@ -1436,10 +1436,15 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   const coverage: ScanCoverage = {
     source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0,
   };
-  // Кто думал в этом прогоне. null — ревью не запускалось или никто не ответил.
-  let decisionModel: string | null = null;
-  let decisionError: string | null = null;
-  let decisionProvenance: string[] | null = null;
+  // Кто думал в этом прогоне. Здесь — НИКТО, и это не заглушка, а факт: с
+  // переездом AI-ревью на раннер GitHub (см. ниже, ветка scanType === 'full')
+  // прод модель не зовёт вовсе. Поэтому `const`, а не `let`: присвоить сюда
+  // нечего, и `let` три недели изображал, будто значение где-то появляется.
+  // Раннер отдаёт свою атрибуцию отдельным прогоном через
+  // `POST /api/cron/evo-findings` — там она и живёт.
+  const decisionModel: string | null = null;
+  const decisionError: string | null = null;
+  const decisionProvenance: string[] | null = null;
 
   // Перепись объективов прогона: кто отработал, кто упал, кого нет вовсе.
   const lenses: LensOutcome[] = [];

@@ -59,7 +59,7 @@ describe('окно держит положение', () => {
   });
 
   it('без окна тот же дрейф даёт скачок на километры', () => {
-    let st = seed(ON_WAY_OUT);
+    const st = seed(ON_WAY_OUT);
     const withWindow = advanceAlong({ lat: 53.007, lng: 158.0006 }, RADIAL, st)!;
     const globalOnly = advanceAlong({ lat: 53.007, lng: 158.0006 }, RADIAL, null)!;
     expect(Math.abs(withWindow.alongM - st.alongM)).toBeLessThan(WINDOW_M);
