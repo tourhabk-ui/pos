@@ -1,0 +1,194 @@
+name: Снимки мест — пережать снятое, удалить сгенерированное (вручную)
+
+# Актуатор двух пишущих разборов ai_route_images (решение владельца 09.09 по
+# переписи: «реальные пережать, сгенерированные удалить»).
+#
+#   recompress — POST /api/cron/images-recompress: снятые снимки тяжелее
+#                порога прогоняются через тот же sharp, что и у писателей
+#                (1280x720, mozjpeg q85, БЕЗ кадрирования). Генерации не
+#                касается вовсе.
+#   generated  — POST /api/cron/images-generated: удаление сгенерированных
+#                картинок. Род берётся из замороженного списка В КОДЕ, а не
+#                из тела запроса, — опечаткой нельзя стереть фотографию.
+#
+# Почему workflow, а не маркер prod-check: тот умеет один GET и тела не шлёт,
+# а оба разбора — POST с обязательной причиной. Без актуатора работа была бы
+# написана и неисполнима.
+#
+# Почему раннер: прод из среды разработчика недостижим (403 на CONNECT).
+# Почему маркер: workflow_dispatch через интеграцию отвечает 403.
+#
+# Умолчание маркера без `mode` — dry: файл, забытый в репозитории, не должен
+# однажды уехать боевой партией.
+#
+# ПАРТИЯ ПО 10 СОХРАНЕНА, но цикл идёт до конца в ОДНОМ прогоне. Правило
+# владельца про десятку — про размер одной записи, а не про то, сколько раз
+# человек нажмёт кнопку: 173 сгенерированных картинки потребовали бы 18
+# отдельных мержей, и разбор не доехал бы до конца никогда.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/images-repack.json'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry — сухой прогон; apply — боевые партии'
+        required: true
+        default: dry
+        type: choice
+        options: [dry, apply]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-repack
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Параметры — из ввода или из маркера
+        env:
+          IN_MODE: ${{ inputs.mode || '' }}
+        run: |
+          set -u
+          python3 - <<'PY'
+          import json, os, sys
+          with open('.github/triggers/images-repack.json') as f:
+              marker = json.load(f)
+          mode = (os.environ.get('IN_MODE') or marker.get('mode') or 'dry').strip()
+          if mode not in ('dry', 'apply'):
+              print(f'::error::mode должен быть dry или apply, а не {mode!r}')
+              sys.exit(1)
+          tasks = marker.get('tasks') or ['recompress', 'generated']
+          bad = [t for t in tasks if t not in ('recompress', 'generated')]
+          if bad:
+              print(f'::error::неизвестная задача: {bad}')
+              sys.exit(1)
+          reason = (marker.get('reason') or '').strip()
+          if len(reason) < 10:
+              print('::error::reason обязателен и не короче 10 знаков — роуты его требуют')
+              sys.exit(1)
+          min_bytes = marker.get('min_bytes')
+          if 'recompress' in tasks and not isinstance(min_bytes, int):
+              print('::error::для recompress нужен min_bytes (целое): порог называет человек, не код')
+              sys.exit(1)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'MODE={mode}\n')
+              env.write(f'TASKS={",".join(tasks)}\n')
+              env.write(f'REASON={reason}\n')
+              env.write(f'MIN_BYTES={min_bytes if isinstance(min_bytes, int) else 0}\n')
+          print(f'режим {mode}, задачи {tasks}, порог {min_bytes}')
+          PY
+
+      # Маркер уезжает в main тем же мержем, что и сами роуты. Без ожидания
+      # своей сборки первый же прогон постучался бы в прод, где этих адресов
+      # ещё нет, и получил бы 404 — «разбор не работает» вместо «сборка ещё
+      # идёт». Правило одно на все замеры — scripts/wait-for-deploy.sh.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Прогон
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE: https://vedarai.ru
+        run: |
+          set -u
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo '::error::CRON_SECRET не задан в секретах репозитория'
+            exit 1
+          fi
+
+          # Одна партия. Печатает тело, возвращает остаток отдельной строкой.
+          call() {
+            local path="$1" body="$2" out="$3"
+            local code
+            code=$(curl -s -o "$out" -w '%{http_code}' --max-time 300 \
+              -X POST "$BASE$path" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H 'Content-Type: application/json' \
+              -d "$body" || echo 000)
+            echo "$code"
+          }
+
+          SUMMARY=/tmp/summary.md
+          : > "$SUMMARY"
+
+          for TASK in ${TASKS//,/ }; do
+            if [ "$TASK" = 'recompress' ]; then
+              PATH_="/api/cron/images-recompress"
+              EXTRA="\"min_bytes\": $MIN_BYTES,"
+              LEFT_KEY='pending'
+            else
+              PATH_="/api/cron/images-generated"
+              EXTRA=""
+              LEFT_KEY='remaining'
+            fi
+
+            if [ "$MODE" = 'dry' ]; then
+              BODY="{$EXTRA\"reason\": \"$REASON\", \"dry_run\": true}"
+              CODE=$(call "$PATH_" "$BODY" /tmp/out.json)
+              echo "### $TASK — сухой прогон (HTTP $CODE)" >> "$SUMMARY"
+              echo '```json' >> "$SUMMARY"
+              python3 -m json.tool /tmp/out.json 2>/dev/null | head -c 8000 >> "$SUMMARY" || head -c 8000 /tmp/out.json >> "$SUMMARY"
+              echo '' >> "$SUMMARY"; echo '```' >> "$SUMMARY"
+              [ "$CODE" = '200' ] || { echo "::error::$TASK ответил $CODE"; exit 1; }
+              continue
+            fi
+
+            # Боевой режим: партии по 10, пока есть что разбирать.
+            TOTAL_OK=0; TOTAL_FAIL=0; ROUND=0
+            while [ "$ROUND" -lt 25 ]; do
+              ROUND=$((ROUND + 1))
+              BODY="{$EXTRA\"reason\": \"$REASON\", \"dry_run\": false, \"limit\": 10}"
+              CODE=$(call "$PATH_" "$BODY" /tmp/out.json)
+              if [ "$CODE" != '200' ]; then
+                echo "::error::$TASK партия $ROUND ответила $CODE"
+                head -c 2000 /tmp/out.json
+                exit 1
+              fi
+              read -r DID FAILED LEFT < <(python3 - "$LEFT_KEY" <<'PY'
+          import json, sys
+          key = sys.argv[1]
+          a = json.load(open('/tmp/out.json'))
+          did = a.get('recompressed_count', a.get('deleted_count', 0))
+          print(did, a.get('failed_count', 0), a.get(f'{key}_before', 0))
+          PY
+              )
+              TOTAL_OK=$((TOTAL_OK + DID)); TOTAL_FAIL=$((TOTAL_FAIL + FAILED))
+              echo "$TASK партия $ROUND: сделано $DID, не смог $FAILED, было до партии $LEFT"
+              # Ни одной обработанной строки — разбор встал: либо кончилось,
+              # либо каждая партия падает. Крутить дальше бессмысленно.
+              [ "$DID" -gt 0 ] || break
+            done
+            {
+              echo "### $TASK — боевой прогон"
+              echo "- сделано: **$TOTAL_OK**"
+              echo "- не смог: **$TOTAL_FAIL**"
+              echo "- партий: $ROUND"
+              echo ''
+              echo 'Последний ответ:'
+              echo '```json'
+              python3 -m json.tool /tmp/out.json 2>/dev/null | head -c 6000 || head -c 6000 /tmp/out.json
+              echo ''
+              echo '```'
+            } >> "$SUMMARY"
+          done
+
+          cat "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+          # В аннотацию — чтобы ответ дошёл до читателя без доступа к логам
+          # Actions (они закрыты прокси песочницы агента, замер 08.09).
+          BODY=$(head -c 3000 "$SUMMARY" | python3 -c 'import sys;print(sys.stdin.read().replace(chr(10), "%0A"))')
+          echo "::notice title=images-repack ($MODE)::$BODY"
