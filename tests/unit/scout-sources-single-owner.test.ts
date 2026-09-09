@@ -54,8 +54,14 @@ describe('состав живёт в одном месте', () => {
 
   it('копии адресов в раннере не осталось', () => {
     // Признак прежней копии — адреса источников прямо в файле раннера.
-    expect(RUNNER).not.toMatch(/simonwillison\.net/);
-    expect(RUNNER).not.toMatch(/t\.me\/s\/ru_rst/);
+    //
+    // Сверяем ПОДСТРОКОЙ, а не регуляркой: CodeQL справедливо не отличает
+    // grep исходника от валидации URL и на любом RegExp с host-подобным
+    // `.net`/`.com` требует якорей («missing anchor»). Тот же обход уже
+    // записан в scout-reference-intel — правило одно, и второго способа
+    // обходить одну и ту же придирку заводить незачем.
+    expect(RUNNER).not.toContain('simonwillison.net');
+    expect(RUNNER).not.toContain('t.me/s/ru_rst');
   });
 });
 
