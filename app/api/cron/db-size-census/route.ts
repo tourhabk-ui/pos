@@ -104,6 +104,66 @@ export async function GET(req: NextRequest) {
     const dbBytes = dbRows[0]?.db_bytes ?? '0';
     const journalMb = tables.filter(t => t.journal).reduce((s, t) => s + t.total_mb, 0);
 
+    // ТЕМП РОСТА журнальных таблиц.
+    //
+    // Замер 08.09 показал, что из четырёх «растущих» растёт ОДНА:
+    // safety_decision_events — 272 МБ на 586 тысяч строк, тогда как три
+    // остальные вместе меньше девяти мегабайт. Вес отвечает «сколько
+    // сейчас», темп — «сколько будет», и решение о сроке хранения
+    // принимается по второму.
+    //
+    // Запрос ЛИТЕРАЛЬНЫЙ, с именами таблиц в тексте, а не подставленными.
+    // Имя таблицы параметром не передаётся, и интерполяция была бы
+    // неотличима от конкатенации — того самого, что запрещено в SQL по всему
+    // проекту. Список закрытый: новая журнальная таблица вносится сюда руками.
+    //
+    // Края диапазона берутся индексом, число строк — оценка планировщика;
+    // точного COUNT на боевой базе ради диагностики здесь нет.
+    //
+    // Отдельный try: отказ этого замера НЕ должен ронять перепись веса. Не
+    // смог посчитать темп — так и сказано, вес при этом остаётся.
+    let growth: Array<Record<string, unknown>> = [];
+    let growthNote: string | null = null;
+    try {
+      const { rows: growthRows } = await pool.query<{ table_name: string; first_at: string | null; last_at: string | null; days: string | null }>(
+        `SELECT 'agent_knowledge' AS table_name, MIN(created_at)::text AS first_at, MAX(created_at)::text AS last_at,
+                (EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 86400.0)::text AS days
+           FROM agent_knowledge
+         UNION ALL
+         SELECT 'agent_events', MIN(created_at)::text, MAX(created_at)::text,
+                (EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 86400.0)::text
+           FROM agent_events
+         UNION ALL
+         SELECT 'agent_effects', MIN(created_at)::text, MAX(created_at)::text,
+                (EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 86400.0)::text
+           FROM agent_effects
+         UNION ALL
+         SELECT 'safety_decision_events', MIN(created_at)::text, MAX(created_at)::text,
+                (EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 86400.0)::text
+           FROM safety_decision_events`,
+      );
+      const byName = new Map(tables.map(t => [t.table, t]));
+      growth = growthRows.map((g) => {
+        const t = byName.get(g.table_name);
+        const days = Number(g.days ?? '0');
+        // Меньше суток истории — темпа ещё нет. Делить на околоноль и
+        // выдавать частное за скорость роста нельзя (§4.0).
+        const measurable = days >= 1 && t != null && t.rows_estimate > 0;
+        return {
+          table: g.table_name,
+          first_at: g.first_at,
+          last_at:  g.last_at,
+          rows_per_day: measurable ? Math.round(t!.rows_estimate / days) : null,
+          mb_per_day:   measurable ? Math.round(t!.total_mb / days * 10) / 10 : null,
+          note: measurable ? null : 'истории меньше суток либо таблицы нет в срезе — темп не считается',
+        };
+      });
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+      console.error(`[cron/db-size-census] темп роста не посчитан, SQLSTATE ${code}:`, err);
+      growthNote = `темп не посчитан: SQLSTATE ${code}`;
+    }
+
     return NextResponse.json({
       ok: true,
       probe: 'db_size_census_v1',
@@ -121,6 +181,11 @@ export async function GET(req: NextRequest) {
         ? Math.round(journalMb / mb(dbBytes) * 1000) / 10
         : null,
       tables,
+      // Темп роста журналов: «сколько будет», а не «сколько сейчас».
+      // Пустой список с заполненным growth_note — это «не смог посчитать»,
+      // а не «журналы не растут».
+      journal_growth: growth,
+      growth_note: growthNote,
       rows_note: 'rows_estimate — оценка планировщика (pg_stat_user_tables.n_live_tup), не COUNT(*)',
       // Ноль таблиц — отказ переписи, а не «база пуста» (§4.0).
       meaningful: tableRows.length > 0,

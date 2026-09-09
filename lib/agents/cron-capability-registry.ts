@@ -96,6 +96,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'intel-note': ['db_read', 'db_write'],
   'intelligence': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kb-gap': ['db_read', 'db_write', 'net_out', 'ai'],
+  'images-to-s3': ['db_read', 'db_write', 'net_out'],
   'kernel-worker': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kml-inbox': ['db_read', 'db_write'],
   'kuzmich': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],

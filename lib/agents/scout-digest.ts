@@ -231,151 +231,18 @@ export type { ItemAge } from '@/lib/agents/scout-item-age';
  */
 export const MIN_SIGNALS_FOR_DIGEST = 3;
 
-type SourceCategory = 'ai' | 'travel' | 'kamchatka' | 'reference';
+import {
+  RSS_SOURCES,
+  SAFETY_LAYER_SOURCE,
+  type ScoutSource,
+  type SourceCategory,
+} from '@/lib/agents/scout-sources';
 
-/**
- * Род источника: RSS/Atom-лента (по умолчанию) или публичное превью
- * Telegram-канала (`t.me/s/<канал>`, разбор — lib/agents/scout-telegram).
- */
-export type SourceKind = 'rss' | 'telegram';
-
-export interface ScoutSource {
-  key: string;
-  url: string;
-  label: string;
-  category: SourceCategory;
-  kind?: SourceKind;
-}
-
-/** Экспортирован ради инвариант-теста: каждый фид обязан сторожиться. */
-export const RSS_SOURCES: ScoutSource[] = [
-  // AI & Tech — фронтир (англоязычные практические источники для тех, кто строит с LLM/агентами)
-  { key: 'simonwillison', url: 'https://simonwillison.net/atom/everything/', label: 'Simon Willison', category: 'ai' },
-  { key: 'huggingface',   url: 'https://huggingface.co/blog/feed.xml',       label: 'Hugging Face',   category: 'ai' },
-  { key: 'marktechpost',  url: 'https://www.marktechpost.com/feed/',         label: 'MarkTechPost',   category: 'ai' },
-  { key: 'hackernews',    url: 'https://hnrss.org/newest?q=LLM+OR+agent+OR+Claude+OR+Cursor', label: 'Hacker News', category: 'ai' },
-  // AI & Tech — русский слой
-  { key: 'habr_ai',       url: 'https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru', label: 'Habr AI', category: 'ai' },
-  // AI & Tech — первоисточники лабораторий (добавлены 03.09 по слову владельца:
-  // «внешние ресурсы, которые были недоступны из РФ»). openai.com отвечает 403
-  // российским адресам, поэтому раньше в списке его не было; теперь фолбэк на
-  // реле Cloudflare (lib/agents/scout-relay) читает его с края. Адреса и
-  // природа ответа ПРОВЕРЕНЫ переписью /census с края Cloudflare (run 4,
-  // 03.09): все три — ленты (<rss/<feed), OpenAI 706 КБ, Google AI 32 КБ,
-  // DeepMind 72 КБ. У Anthropic ленты нет: /rss.xml, /news/rss.xml и
-  // /feed.xml — 404, поэтому её здесь нет, а не «подставим похожий адрес».
-  // Читается ли каждая из них с прода напрямую — покажет `via` в отчёте.
-  { key: 'openai',        url: 'https://openai.com/news/rss.xml',           label: 'OpenAI',       category: 'ai' },
-  { key: 'google_ai',     url: 'https://blog.google/technology/ai/rss/',    label: 'Google AI',    category: 'ai' },
-  { key: 'deepmind',      url: 'https://deepmind.google/blog/rss.xml',      label: 'DeepMind',     category: 'ai' },
-  // Референсы и рынок — передовые travel-tech продукты и новинки, откуда берём
-  // фичи/паттерны «сделать у себя». Раньше жили только в intelligence-monitor и
-  // упирались в каналы — в эволюцию (evo_growth_issues) не доходили.
-  { key: 'skift',         url: 'https://skift.com/feed/',            label: 'Skift',        category: 'reference' },
-  { key: 'producthunt',   url: 'https://www.producthunt.com/feed',   label: 'Product Hunt', category: 'reference' },
-
-  // Туриндустрия РФ — возвращение 08.08. Оба источника были сняты 01.08 как
-  // мёртвые (сайты убили старые ленты), из-за чего раздел «Туриндустрия» жил
-  // на одном международном Skift, а категория 'travel' не имела ни одного
-  // источника. Издания пережили редизайн, фиды вернулись на НОВЫХ адресах —
-  // найдены в HTML главных и проверены пробой с раннера (run 31239764170:
-  // живой RSS 2.0 со свежими item). Раздел «Камчатка» кормится не отсюда,
-  // а из собственного safety-слоя — см. SAFETY_LAYER_SOURCE ниже.
-  { key: 'tourprom', url: 'https://www.tourprom.ru/feed/rss.xml', label: 'Турпром',   category: 'travel' },
-  { key: 'ratanews', url: 'https://ratanews.ru/rss.xml',          label: 'RATA News', category: 'travel' },
-
-  // Telegram-каналы — по слову владельца 03.09 («добавь в разведку»). Читается
-  // публичное превью t.me/s/<канал>; с прода t.me закрыт, поэтому эти
-  // источники живут на реле вне РФ (scout-relay) и без него честно
-  // отчитаются отказом. Ссылка-приглашение t.me/+ll3pbl442dNkZmYy из того же
-  // сообщения НЕ добавлена: это закрытый чат без превью, читать его нельзя
-  // по построению (см. isTelegramInvite). Сайт РСТ rostourunion.ru проверен
-  // переписью /census с края Cloudflare (safety-relay-deploy run 6, 03.09):
-  // /rss/, /rss.xml, /news/rss/, /feed/ — 404, корень — HTML. Ленты у сайта
-  // нет, в источники он не внесён; новости РСТ идут из канала tg_ru_rst.
-  { key: 'tg_ru_rst',        url: 'https://t.me/s/ru_rst',        label: 'РСТ (Telegram)',        category: 'travel', kind: 'telegram' },
-  { key: 'tg_minec_tourism', url: 'https://t.me/s/minec_tourism', label: 'Минэк — туризм',        category: 'travel', kind: 'telegram' },
-  { key: 'tg_vibecoding',    url: 'https://t.me/s/vibecoding_tg', label: 'Vibecoding (Telegram)', category: 'ai',     kind: 'telegram' },
-
-  // ── ПРАВО: первоисточник, а не пересказ (07.09) ──────────────────────────
-  //
-  // Вопрос владельца про состав разведки вскрыл дыру: все четыре туристических
-  // источника — отраслевые пересказы, и о законе мы узнавали тогда, когда о
-  // нём напишет лента, и в её формулировке. Для платформы, чьи операторы под
-  // 132-ФЗ, электронной путёвкой и реестром, этого мало.
-  //
-  // Внесены только те, кого перепись застала ГОВОРЯЩИМИ: у всех трёх
-  // последний пост в день замера (source-discovery, прогон 2). Предложенный
-  // тем же прогоном rospotrebnadzor_official отвергнут переписью — 13 постов,
-  // последний 1 ноября 2022 года; предложенные kvert, primgidromet,
-  // mchskamchatka, sakhmeteo отдают страницу без единого поста, каналов по
-  // этим именам нет. Список поэтому короче, чем хотелось: вносится
-  // проверенное, а не правдоподобное.
-  { key: 'tg_government_rus', url: 'https://t.me/s/government_rus',  label: 'Правительство России', category: 'travel', kind: 'telegram' },
-  { key: 'tg_duma',           url: 'https://t.me/s/duma_gov_ru',     label: 'Госдума',              category: 'travel', kind: 'telegram' },
-  { key: 'tg_mintrans',       url: 'https://t.me/s/Mintrans_Russia', label: 'Минтранс России',      category: 'travel', kind: 'telegram' },
-
-  // ── ОПАСНОСТИ: лавины, погода, ЧС ───────────────────────────────────────
-  //
-  // Лавинная опасность была объявлена и никогда не наблюдалась: тип
-  // alert_type='avalanche' есть в feed-types, для него написан текст пуша, он
-  // стоит в геофенсе, SOS-детекторе и фильтре хаба безопасности — и НИ ОДИН
-  // источник его не писал. Лавины у нас выводились из типа активности и
-  // сезона, то есть были свойством занятия, а не наблюдением за склоном.
-  //
-  // Личность канала kammeteo перепись подтвердить НЕ может: она доказала, что
-  // канал жив (305 постов, последний в день замера), но не то, что это
-  // Камчатское УГМС. Поэтому подпись нейтральная — обещать источнику звание,
-  // которого мы не проверяли, нельзя, а лавинный бюллетень «неизвестно от
-  // кого» опаснее его отсутствия. Проверить личность — глазами, минута.
-  // kammeteo УБРАН 08.09, через несколько часов после внесения. Опознание по
-  // скачанному содержимому (channel-identity, прогон 1) прочитало его
-  // заголовок: «Александр Колесов. О погоде в Петербурге», описание —
-  // «официальный прогноз по Санкт-Петербургу и Ленинградской области».
-  // Это личный канал метеоролога о ПИТЕРСКОЙ погоде: совпало имя, а не место.
-  //
-  // Подбор предложил его как «предполагаемое Камчатское УГМС», перепись
-  // подтвердила ровно одно — что канал жив, — и этого хватило, чтобы он попал
-  // в раздел ОПАСНОСТЕЙ Камчатки. Ошибка моя: нейтральной подписи мало, нельзя
-  // вносить источник безопасности, чьё происхождение не установлено. Питерские
-  // циклоны в камчатском разделе — это не шум, а ложная тревога о погоде там,
-  // куда человек выходит на маршрут.
-  //
-  // Вносить обратно только после проверки СОДЕРЖИМОГО, а не имени.
-  { key: 'tg_mchs_official', url: 'https://t.me/s/mchs_official', label: 'МЧС России',                   category: 'kamchatka', kind: 'telegram' },
-  // USGS сюда НЕ вносится, хотя перепись застала его живым: землетрясения уже
-  // тянет seismic-parser напрямую, и вторая дорога дала бы их в выпуске
-  // дважды. Отбраковка подбора этого не поймала — она сверялась только с
-  // RSS_SOURCES и про safety-приёмку не знает.
-
-  // ── УДАЛЕНЫ 01.08 как мёртвые (диагноз по полю error прогона 09:10 UTC) ──
-  // Поле error (появилось в #916) дало точную причину, а не «молчит»:
-  //   rata     — fetch failed: хост rata-news.ru не отвечает (DNS/блок/лёг);
-  //   tourprom — HTTP 404: tourprom.ru/rss снят;
-  //   ator     — HTTP 404: atorus.ru/rss/news.xml снят;
-  //   kamgov   — HTTP 404: kamgov.ru/rss снят;
-  //   mchs_rss — HTTP 404: 41.mchs.gov.ru/rss снят (гос-CMS ушла с RSS).
-  // Все 4 «404» — это сами сайты сняли ленты, а не переехали: гадать новый
-  // URL нечего, ленты нет. КАМЧАТСКИЕ safety-данные при этом НЕ потеряны —
-  // МЧС и kamgov идут живым путём через safety-ingest (seismic-parser:
-  // t.me / vk_mchs / max_mchs / kamgov-XML), независимо от этого RSS.
-  // Замена travel-лент на живые — отдельным PR, когда подтвердится рабочий
-  // URL из РФ (из песочницы домены отдают 403, проверить нельзя — не выдумываю).
-];
-
-/**
- * Safety-слой как источник раздела «Камчатка» (решение владельца 08.08:
- * «делай камчатку из safety-слоя»). Регион остался без RSS: kamgov снят 01.08
- * (ленты нет), а WAF режет даже раннеры. При этом собственный мониторинг —
- * сейсмика КБГС, МЧС (t.me/vk/max), kamgov-XML, пожары FIRMS — уже складывает
- * события в external_alerts. Дайджест читает СВОЮ БД, а не чужую ленту:
- * этот источник не может «снять RSS» или закрыться WAF'ом.
- */
-export const SAFETY_LAYER_SOURCE = {
-  key: 'safety_layer',
-  label: 'Safety-слой',
-  category: 'kamchatka' as SourceCategory,
-};
+// Реэкспорт для прежних читателей: состав переехал в чистый модуль (§12,
+// разбор 08.09 — копия списка в раннере подбора разошлась с оригиналом за
+// сутки), но импорты из дайджеста ломать незачем.
+export { RSS_SOURCES, SAFETY_LAYER_SOURCE };
+export type { ScoutSource, SourceCategory };
 
 /** Потолок сигналов safety-слоя за прогон — раздел, а не сводка МЧС целиком. */
 const SAFETY_ALERTS_LIMIT = 8;

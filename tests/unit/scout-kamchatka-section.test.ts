@@ -39,6 +39,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SRC = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+// Состав переехал в чистый модуль 08.09 (§12: копия списка в раннере подбора
+// разошлась с оригиналом за сутки). Утверждения про разметку источников
+// остаются теми же — меняется только файл, где их проверять.
+const ROSTER = readFileSync(join(process.cwd(), 'lib/agents/scout-sources.ts'), 'utf-8');
 
 /** Системный промпт синтеза — судим его, а не комментарии вокруг. */
 const PROMPT = SRC.slice(
@@ -77,12 +81,12 @@ describe('источники камчатской категории — то, �
   it('федеральные каналы заведены как travel, а не как камчатские', () => {
     // Разметка верная, и менять её нельзя: новость Правительства не становится
     // камчатской оттого, что нам нужен раздел.
-    expect(SRC).toMatch(/key: 'tg_government_rus'[^}]*category: 'travel'/);
-    expect(SRC).toMatch(/key: 'tg_mintrans'[^}]*category: 'travel'/);
+    expect(ROSTER).toMatch(/key: 'tg_government_rus'[^}]*category: 'travel'/);
+    expect(ROSTER).toMatch(/key: 'tg_mintrans'[^}]*category: 'travel'/);
   });
 
   it('свой safety-слой остаётся камчатским источником', () => {
     // Единственный источник в этом разделе, который правда о крае и правда наш.
-    expect(SRC).toMatch(/SAFETY_LAYER_SOURCE[\s\S]{0,200}category: 'kamchatka'/);
+    expect(ROSTER).toMatch(/SAFETY_LAYER_SOURCE[\s\S]{0,200}category: 'kamchatka'/);
   });
 });
