@@ -130,18 +130,23 @@ function flagshipTier(id: string): number {
   if (/(^|[-_/])(pro|max|ultra)(\b|[-_]|$)/.test(s)) return 5; // gpt-5-pro, gemini-ultra
   if (/sonnet/.test(s)) return 4;
   if (/(mini|nano|flash|lite|haiku|small|tiny)/.test(s)) return 2;
+  // «air» — облегчённая линейка z.ai (glm-4.6-air и подобные). Отдельным
+  // правилом, а не словом в списке выше: подстрока «air» встречается внутри
+  // обычных имён (airoboros), и слитая проверка понизила бы полноценную
+  // модель. Здесь она отделена дефисом/подчёркиванием с обеих сторон.
+  if (/[-_/]air(\b|[-_]|$)/.test(s)) return 2;
   return 3;
 }
 
 /**
  * Версия флагмана как major.minor сразу после имени линейки:
- *   claude-opus-5 → 5.0 · claude-opus-4-5 → 4.5 · gpt-5 → 5.0.
+ *   claude-opus-5 → 5.0 · claude-opus-4-5 → 4.5 · gpt-5 → 5.0 · glm-4.6 → 4.6.
  * Дата-снапшот (…-20260701) игнорируется: минор берём только 1-2 цифры,
  * за которыми НЕ идёт ещё цифра (иначе это дата/большой номер).
  */
 export function flagshipVersion(id: string): number {
   const m = id.toLowerCase().match(
-    /(?:opus|sonnet|haiku|gpt|grok|gemini|mistral|llama)[-_ ]?(\d+)(?:[-_.](\d{1,2})(?!\d))?/,
+    /(?:opus|sonnet|haiku|gpt|grok|gemini|mistral|llama|glm)[-_ ]?(\d+)(?:[-_.](\d{1,2})(?!\d))?/,
   );
   if (m) return Number(m[1]) + (m[2] ? Number(m[2]) / 10 : 0);
   return versionScore(id);
