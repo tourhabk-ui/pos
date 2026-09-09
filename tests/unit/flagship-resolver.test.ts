@@ -14,6 +14,33 @@ describe('flagshipVersion — разбор версии Claude/GPT', () => {
     expect(flagshipVersion('claude-sonnet-4-5')).toBe(4.5);
   });
 
+  /**
+   * z.ai (GLM). Проверка появилась 09.09, когда владелец спросил про перевод
+   * решателя на GLM ради экономии: до неё `glm` не значился в разборе версии
+   * вовсе, а «облегчённая» линейка `-air` не считалась слабой. Обе дыры
+   * дают одну и ту же беду и молча: «переключили на GLM» превратилось бы в
+   * «переключили на её младшую модель», и заметить это было бы нечем —
+   * решатель молчания не производит, он производит ответы похуже.
+   */
+  it('версии GLM разбираются как у прочих линеек', () => {
+    expect(flagshipVersion('z-ai/glm-4.6')).toBe(4.6);
+    expect(flagshipVersion('glm-5.1')).toBe(5.1);
+    expect(flagshipVersion('z-ai/glm-5')).toBe(5);
+  });
+
+  it('облегчённая линейка -air не выдаёт себя за флагмана', () => {
+    const ids = ['z-ai/glm-4.6', 'z-ai/glm-4.6-air'];
+    expect(pickBestFlagship(ids, 'z-ai/')).toBe('z-ai/glm-4.6');
+    // Даже когда «air» СТАРШЕ по версии: тир весит тысячу, версия — десятки.
+    expect(pickBestFlagship(['z-ai/glm-4.6', 'z-ai/glm-5-air'], 'z-ai/')).toBe('z-ai/glm-4.6');
+  });
+
+  it('«air» внутри обычного имени моделью-заглушкой не считается', () => {
+    // Подстрочная проверка понизила бы airoboros и любую модель со словом
+    // внутри; правило отделяет суффикс дефисом с обеих сторон.
+    expect(pickBestFlagship(['jondurbin/airoboros-70b'], 'jondurbin/')).toBe('jondurbin/airoboros-70b');
+  });
+
   it('дата-снапшот в хвосте игнорируется', () => {
     expect(flagshipVersion('claude-opus-5-20260701')).toBe(5);
     expect(flagshipVersion('claude-opus-4-1-20250805')).toBe(4.1);
