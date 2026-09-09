@@ -77,7 +77,11 @@ describe('исходы', () => {
     expect(WF).toMatch(/if \[ "\$code" = "1" \]/);
     expect(WF).toMatch(/elif \[ "\$code" = "3" \]/);
     expect(WF).toMatch(/elif \[ "\$code" = "2" \]/);
-    expect(WF).toMatch(/upload-artifact@v4\n\s+if: always\(\)/);
+    // Версия action НЕ проверяется: сторож держит «артефакт кладётся всегда»,
+    // а не «upload-artifact@v4». Прибитый к номеру, он покраснел на бампе
+    // dependabot (#1716, v4 → v7) и сделал main красным — на верной правке,
+    // которую сам же и не должен был судить.
+    expect(WF).toMatch(/upload-artifact@v\d+\n\s+if: always\(\)/);
     expect(WF).toContain('.github/triggers/map-pack-snapshot.json');
   });
 });
