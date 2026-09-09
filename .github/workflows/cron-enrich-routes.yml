@@ -2,7 +2,7 @@ name: Cron — Enrich Routes
 
 on:
   schedule:
-    - cron: '0 23 * * *'  # 23:00 UTC — DeepSeek off-peak window
+    - cron: '0 23 * * *'  # 23:00 UTC — off-peak DeepSeek; окна пика — lib/ai/deepseek-peak.ts
   workflow_dispatch:
   # Запуск мержем в main (у Claude-интеграции нет actions:write, а мерж PR
   # есть) — паттерн import-osm-geometry-prod.yml

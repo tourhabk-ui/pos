@@ -94,6 +94,26 @@ const COST_PER_1K: Record<string, number> = {
   'mistral-small-latest':                      0,        // Mistral free tier
 };
 
+/**
+ * Кто ОТВЕТИЛ, а не кого мы просили.
+ *
+ * OpenAI-совместимые ответы несут поле `model`, и оно может отличаться от
+ * запрошенного: DeepSeek с 10.09 04:00 UTC отдаёт V4.1 Flash на ЛЮБОЙ запрос
+ * к Pro и биллит по Flash (уведомление 09.09). Журнал, пишущий запрошенное
+ * имя, с этого момента называет модель, которая не отвечала, — и делает это
+ * ровно в той таблице, поверх которой строится админка с ценами.
+ *
+ * Поле отсутствует или пустое — остаётся запрошенное имя: это честное «не
+ * сказали», а не подмена.
+ */
+function answeredModel(requested: string, data: unknown): string {
+  if (data && typeof data === 'object' && 'model' in data) {
+    const m = (data as { model?: unknown }).model;
+    if (typeof m === 'string' && m.trim()) return m.trim();
+  }
+  return requested;
+}
+
 function logLLMUsage(model: string, usage: ProviderUsage | undefined): void {
   if (!usage) return;
   const prompt = usage.prompt_tokens ?? 0;
@@ -463,7 +483,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
       };
       const text: string | undefined = data?.choices?.[0]?.message?.content;
       if (text?.trim()) {
-        logLLMUsage(id, data.usage);
+        logLLMUsage(answeredModel(id, data), data.usage);
         return text;
       }
       // No valid content — try next model
@@ -1142,7 +1162,7 @@ export async function callDeepSeek(
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
-      logLLMUsage(model, data.usage);
+      logLLMUsage(answeredModel(model, data), data.usage);
       return text;
     }
     recordAiLegFailure('deepseek', `empty (${model}): ${describeEmptyCompletion(data)}`);
@@ -1205,7 +1225,7 @@ export async function callKimi(
     }
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
     const text = data?.choices?.[0]?.message?.content;
-    if (text?.trim()) { logLLMUsage(`kimi:${model}`, data.usage); return text; }
+    if (text?.trim()) { logLLMUsage(`kimi:${answeredModel(model, data)}`, data.usage); return text; }
     recordAiLegFailure('kimi', 'empty');
     return null;
   } catch (e) { recordAiLegFailure('kimi', errorFailureReason(e)); return null; }
@@ -1262,7 +1282,7 @@ export async function callQwen(
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
-      logLLMUsage(`qwen:${model}`, data.usage);
+      logLLMUsage(`qwen:${answeredModel(model, data)}`, data.usage);
       return text;
     }
     return null;
@@ -1917,7 +1937,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
           if (text?.trim()) {
-            logLLMUsage(xaiModel, data.usage);
+            logLLMUsage(answeredModel(xaiModel, data), data.usage);
             return { text, model: `xai:${xaiModel}`, provenance: why.slice() };
           }
           why.push(`xai(${xaiModel}): пустой ответ — ${describeEmptyCompletion(data)}`);
@@ -1959,7 +1979,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         if (res.ok) {
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
-          if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model, provenance: why.slice() }; }
+          if (text?.trim()) { logLLMUsage(answeredModel(model, data), data.usage); return { text, model: answeredModel(model, data), provenance: why.slice() }; }
           why.push(`deepseek(${model}): пустой ответ — ${describeEmptyCompletion(data)}`);
           continue; // пустой body — беда конкретной модели, пробуем следующую
         }
@@ -2367,7 +2387,7 @@ export async function callGroq(messages: ChatMessage[]): Promise<string | null> 
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
-      logLLMUsage(GROQ_MODEL, data.usage);
+      logLLMUsage(answeredModel(GROQ_MODEL, data), data.usage);
       return text.trim();
     }
     return null;
@@ -2404,7 +2424,7 @@ export async function callCerebras(messages: ChatMessage[]): Promise<string | nu
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
-      logLLMUsage(CEREBRAS_MODEL, data.usage);
+      logLLMUsage(answeredModel(CEREBRAS_MODEL, data), data.usage);
       return text.trim();
     }
     return null;
@@ -2441,7 +2461,7 @@ export async function callMistral(messages: ChatMessage[]): Promise<string | nul
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
-      logLLMUsage(MISTRAL_MODEL, data.usage);
+      logLLMUsage(answeredModel(MISTRAL_MODEL, data), data.usage);
       return text.trim();
     }
     return null;
@@ -3659,7 +3679,7 @@ export async function callAIQuality(
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
         if (text?.trim()) {
-          logLLMUsage(model, data.usage);
+          logLLMUsage(answeredModel(model, data), data.usage);
           return text;
         }
         recordAiLegFailure('deepseek:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
@@ -3684,7 +3704,7 @@ export async function callAIQuality(
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
         if (text?.trim()) {
-          logLLMUsage(model, data.usage);
+          logLLMUsage(answeredModel(model, data), data.usage);
           return text;
         }
         recordAiLegFailure('qwen:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
