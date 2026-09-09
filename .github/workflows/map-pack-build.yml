@@ -50,7 +50,7 @@ jobs:
     # наша работа.
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Параметры — из ввода или из файла-триггера
         id: cfg
@@ -69,11 +69,11 @@ jobs:
           echo "terrain_only=${TERRAIN_ONLY:-false}" >> "$GITHUB_OUTPUT"
           echo "район: $REGION · заливка: $UPLOAD · только рельеф: ${TERRAIN_ONLY:-false} · ref: $GITHUB_REF_NAME"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
@@ -85,7 +85,7 @@ jobs:
       # tippecanoe — нарезка векторных тайлов (02.09). Собранный бинарник
       # кэшируется по версии: сборка из исходников — три минуты на каждый
       # прогон, а прогонов по десять за вечер.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: tippecanoe
         with:
           path: .cache/tippecanoe-bin
@@ -132,7 +132,7 @@ jobs:
       # Кэш ответов Overpass по клеткам — между прогонами. Прогон 9 (02.09)
       # снял шесть клеток из двенадцати и упал на седьмой; без кэша прогон 10
       # спрашивал бы те же шесть заново у тех же перегруженных узлов.
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         if: ${{ steps.cfg.outputs.terrain_only != 'true' }}
         with:
           path: .cache/osm
@@ -152,7 +152,7 @@ jobs:
       # Сохранить снятые клетки ПРИ ЛЮБОМ исходе — и при отмене по потолку
       # времени: прогон 10 снял 11 клеток из 12 и потерял все, потому что
       # post-шаг actions/cache при отмене не выполняется.
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v6
         if: ${{ always() && steps.cfg.outputs.terrain_only != 'true' }}
         with:
           path: .cache/osm
@@ -213,7 +213,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: map-pack-${{ steps.cfg.outputs.region }}
           path: .cache/packs/
