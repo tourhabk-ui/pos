@@ -1,7 +1,8 @@
 /**
  * Лестница эскалации возврата с маршрута: решение шага (буферы, идемпотентность,
- * гашение подтверждением) и тексты уведомлений — все шаги уходят экстренному
- * контакту, обращение честное, в каждом сообщении есть ссылка «Я вернулся».
+ * ОТСРОЧКА подтверждением — не отмена) и тексты уведомлений. Все шаги уходят
+ * экстренному контакту, обращение честное, в каждом сообщении есть обе отметки:
+ * «я вернулся» (закрывает маршрут) и «мы в порядке» (только отодвигает шаг).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -13,6 +14,7 @@ import {
   tripKindFromDates,
   buildEscalationMessage,
   formatPositionText,
+  formatKamchatkaTime,
   type EscalationMessageInput,
 } from '@/lib/safety/checkin-escalation';
 
@@ -41,10 +43,65 @@ describe('decideEscalation', () => {
     expect(decideEscalation(T0, 'day', ['soft'], null, hoursAfter(1.5))).toBeNull();
   });
 
-  it('подтверждение ПОСЛЕ контрольного времени гасит тревогу, старое — нет', () => {
-    expect(decideEscalation(T0, 'day', [], hoursAfter(0.2), hoursAfter(2))).toBeNull();
+  /**
+   * Отметка «я в порядке» ОТОДВИГАЕТ лестницу, но не отменяет её.
+   *
+   * Раньше здесь стоял `return null`: одно подтверждение снимало тревогу
+   * навсегда, включая шаг МЧС. Ветка была мёртвой (писать
+   * `checkin_confirmed_at` было некому) и потому безобидной — ровно до дня,
+   * когда появилась кнопка «мы в порядке». Тогда это стало дырой в том
+   * самом месте, ради которого платформа существует: группа отмечается
+   * «идём, задерживаемся», через час с ней случается беда, и сторож молчит
+   * до конца времён.
+   */
+  it('свежее подтверждение отодвигает следующий шаг на буфер, а не отменяет лестницу', () => {
+    const confirm = hoursAfter(1.2);
+    // Сразу после отметки — тихо.
+    expect(decideEscalation(T0, 'day', ['soft'], confirm, hoursAfter(2))).toBeNull();
+    // Через буфер hard (3ч) от ОТМЕТКИ, а не от контрольного времени — шаг идёт.
+    expect(decideEscalation(T0, 'day', ['soft'], confirm, hoursAfter(3.5))).toBeNull();
+    expect(decideEscalation(T0, 'day', ['soft'], confirm, hoursAfter(4.5))?.step).toBe('hard');
+    // И до МЧС лестница доходит: подтверждение не выключает её насовсем.
+    expect(decideEscalation(T0, 'day', ['soft', 'hard'], confirm, hoursAfter(10))?.step).toBe('mchs');
+  });
+
+  it('старое подтверждение (до контрольного времени) не отодвигает ничего', () => {
     const stale = new Date(T0.getTime() - 3_600_000);
     expect(decideEscalation(T0, 'day', [], stale, hoursAfter(1.5))?.step).toBe('soft');
+  });
+
+  it('просрочка считается от контрольного времени, а часы с отметки — отдельно', () => {
+    const d = decideEscalation(T0, 'day', ['soft'], hoursAfter(1.2), hoursAfter(4.5));
+    // Правда о просрочке не должна уезжать из-за отметки: контакту важно
+    // знать, что группа опаздывает 4.5 ч, а не 3.3.
+    expect(d?.hoursOverdue).toBeCloseTo(4.5, 5);
+    expect(d?.hoursSinceConfirm).toBeCloseTo(3.3, 5);
+    expect(decideEscalation(T0, 'day', [], null, hoursAfter(1.5))?.hoursSinceConfirm).toBeNull();
+  });
+
+  /**
+   * Пороги многодневки — перенесены из второго набора тестов того же модуля
+   * (`lib/safety/checkin-escalation.test.ts`, удалён 09.09).
+   *
+   * Наборов было ДВА, и они разошлись ровно там, где это опаснее всего: про
+   * подтверждение один говорил «гасит тревогу навсегда», другой — «отодвигает
+   * шаг». Правило, записанное дважды, — это два правила (§12); в сторожах цена
+   * та же, что в коде.
+   */
+  it('многодневка: soft после 3ч, hard после 6ч, mchs после 18ч', () => {
+    expect(decideEscalation(T0, 'multi', [], null, hoursAfter(2))).toBeNull();
+    expect(decideEscalation(T0, 'multi', [], null, hoursAfter(3))?.step).toBe('soft');
+    expect(decideEscalation(T0, 'multi', ['soft'], null, hoursAfter(6))?.step).toBe('hard');
+    expect(decideEscalation(T0, 'multi', ['soft', 'hard'], null, hoursAfter(18))?.step).toBe('mchs');
+  });
+
+  it('однодневка и многодневка на одном часе дают разные шаги', () => {
+    expect(decideEscalation(T0, 'day', [], null, hoursAfter(3.5))?.step).toBe('hard');
+    expect(decideEscalation(T0, 'multi', [], null, hoursAfter(3.5))?.step).toBe('soft');
+  });
+
+  it('все шаги пройдены — тишина', () => {
+    expect(decideEscalation(T0, 'day', ['soft', 'hard', 'mchs'], null, hoursAfter(10))).toBeNull();
   });
 
   it('resolveControlTime: без expected_return_at — end_date 20:00', () => {
@@ -68,11 +125,44 @@ describe('buildEscalationMessage', () => {
     }
   });
 
+  it('soft и hard дают вторую ссылку — «мы в пути, всё в порядке»', () => {
+    // Без неё снять тревогу можно было только отметкой о ВОЗВРАТЕ, то есть
+    // соврав и выключив сторожа.
+    const withCheckin = { ...msgInput, checkinUrl: 'https://vedarai.ru/checkin-ok?id=abc-123' };
+    for (const step of ['soft', 'hard'] as const) {
+      const m = buildEscalationMessage(withCheckin, step, 2);
+      expect(m).toContain(withCheckin.checkinUrl);
+      expect(m).toContain('номер телефона руководителя');
+    }
+  });
+
+  it('часы с последней отметки называются, когда отметка была', () => {
+    const m = buildEscalationMessage({ ...msgInput, hoursSinceConfirm: 3.2 }, 'hard', 5);
+    expect(m).toContain('3.2 ч назад');
+    expect(buildEscalationMessage(msgInput, 'hard', 5)).not.toContain('всё в порядке» —');
+  });
+
+  it('шаг МЧС предупреждает о дубле, но остаётся тревогой', () => {
+    const m = buildEscalationMessage({ ...msgInput, mchsInformedText: '19.07 21:30 (камч.)' }, 'mchs', 9);
+    expect(m).toContain('19.07 21:30');
+    expect(m).toContain('не дублируйте');
+    // Самоотчёт человека — не подтверждение приёма заявки: тревога не снимается.
+    expect(m).toContain('ЭКСТРЕННАЯ СИТУАЦИЯ');
+    expect(m).toContain('112');
+  });
+
   it('soft адресован экстренному контакту, а не туристу (реальный получатель)', () => {
     const soft = buildEscalationMessage(msgInput, 'soft', 1.5);
     expect(soft).not.toContain('Вы зарегистрировали');
     expect(soft).toContain('Свяжитесь с руководителем');
     expect(soft).toContain(msgInput.leaderPhone);
+  });
+
+  it('время по Камчатке считается сдвигом, а не локалью рантайма', () => {
+    // На урезанной сборке ICU `toLocaleString` молча отдаёт UTC — время
+    // звонка в 112 уехало бы на двенадцать часов, и никто бы не заметил.
+    expect(formatKamchatkaTime(new Date('2026-07-19T09:30:00Z'))).toBe('19.07 21:30 (камч.)');
+    expect(formatKamchatkaTime(new Date('2026-07-19T13:00:00Z'))).toBe('20.07 01:00 (камч.)');
   });
 
   it('hard и mchs содержат позицию и 112; mchs — данные экстренного контакта', () => {

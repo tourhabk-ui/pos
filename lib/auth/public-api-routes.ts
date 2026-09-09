@@ -145,6 +145,11 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/geofence-zones': ['GET'],// геозоны безопасности
   '/api/safety/return': ['GET', 'POST'],// отметка о возвращении — проверка внутри хендлера
   '/api/safety/checkin': ['POST'],      // «я в порядке» — анонимно, как safety/reports (issue #1420)
+  // Отметки на КОНКРЕТНОЙ регистрации маршрута. Публичны по той же причине,
+  // что и сама регистрация: тревога уходит экстренному контакту, аккаунта у
+  // него нет. Внутри — rate-limit и второй ключ (номер руководителя).
+  '/api/safety/route-checkin': ['POST'], // «мы ещё в пути, всё в порядке» — отодвигает шаг лестницы
+  '/api/safety/mchs-informed': ['POST'], // «в МЧС сообщили сами» — не гасит шаг МЧС, предупреждает о дубле
   '/api/analytics/dwell': ['POST'],     // маяк времени на странице (Zod + rate-limit)
   '/api/analytics/affiliate-clicks': ['POST'], // маяк партнёрских кликов (Zod + rate-limit)
   '/api/pwa/install': ['POST'],         // учёт установок PWA (client_id, не ПД, rate-limit)
