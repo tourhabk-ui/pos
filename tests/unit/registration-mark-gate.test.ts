@@ -138,7 +138,7 @@ describe('отметка «сообщил в МЧС»', () => {
   });
 
   it('колонка заведена миграцией', () => {
-    const mig = read('migrations/944_route_registrations_mchs_informed.sql');
+    const mig = read('migrations/945_route_registrations_mchs_informed.sql');
     expect(mig).toContain('ADD COLUMN IF NOT EXISTS mchs_informed_at');
   });
 });
