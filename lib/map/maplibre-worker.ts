@@ -39,7 +39,7 @@
  * Сторож сверяет её с установленной: обновили пакет — обязаны перенести
  * воркер заново, иначе карта молчит с новой сборки.
  */
-export const MAPLIBRE_VENDOR_VERSION = '6.6.0';
+export const MAPLIBRE_VENDOR_VERSION = '6.7.0';
 
 /** Файлы, которые обязаны лежать рядом: воркер и его общий модуль. */
 export const MAPLIBRE_WORKER_FILES = ['maplibre-gl-worker.mjs', 'maplibre-gl-shared.mjs'] as const;
