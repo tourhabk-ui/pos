@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
-import { sourceReport, TRIGGER_LABEL, type IngestTrigger } from '@/lib/services/safety/ingest-outcome';
+import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
@@ -523,11 +523,30 @@ function logHeartbeat(
   // принципе: строки одинаковые. А это и есть тот вопрос, задержку которого
   // мы весь день не видели — узнали о ней случайно, разбирая другой сбой.
   trigger: IngestTrigger,
+  // Чем закончился прогон — по своим источникам (#1759). Здесь стояло
+  // `'success'` безусловно: двадцать часов отказов на каждом прогоне, и
+  // сторожа серии молчали, потому что читали этот статус. Теперь тот же
+  // heartbeat говорит «частично» и «не смог», а cron-failing / cron-fruitless
+  // ловят серию без единой новой проверки.
+  status: IngestRunStatus,
+  detail: readonly string[],
 ): void {
   pool.query(
     `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, items_created, metadata)
-     VALUES ('safety-ingest', 'success', $1, NOW(), $2, $3, $4)`,
-    [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched, trigger })],
+     VALUES ('safety-ingest', $5, $1, NOW(), $2, $3, $4)`,
+    [
+      startedAt,
+      durationMs,
+      totalInserted,
+      JSON.stringify({
+        push_dispatched: pushDispatched,
+        trigger,
+        // Ключи те же, что читает алерт cron-fruitless: skip_reason — класс,
+        // empty_reasons[0] — адрес починки словами.
+        ...(status === 'success' ? {} : { skip_reason: 'fetch_failed', empty_reasons: detail }),
+      }),
+      status,
+    ],
   ).catch((e: unknown) => {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[safety-ingest] heartbeat НЕ записан:', msg.slice(0, 200));
@@ -593,7 +612,24 @@ export async function GET(req: Request) {
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
-  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'heartbeat_get');
+  // Статус — по источникам, которыми владеет heartbeat (см. записи здоровья
+  // ниже): kbgsras/eqkam сюда НЕ входят, t.me с хостинга гео-закрыт, и по ним
+  // GET был бы «частичным» вечно.
+  const getSources: RunSource[] = [
+    { label: 'МЧС RSS (41.mchs)', errors: ingestResult.mchs.errors, inserted: ingestResult.mchs.inserted },
+    { label: 'USGS', errors: ingestResult.usgs.errors, inserted: ingestResult.usgs.inserted },
+    { label: 'новостные ленты', errors: ingestResult.news.errors, inserted: ingestResult.news.inserted },
+    ...(process.env.VK_SERVICE_TOKEN
+      ? [{ label: 'VK — МЧС Камчатки', errors: ingestResult.vk.errors, inserted: ingestResult.vk.inserted }]
+      : []),
+    ...(process.env.FIRMS_MAP_KEY
+      ? [{ label: 'NASA FIRMS (пожары)', errors: firmsResult.errors, inserted: firmsResult.inserted }]
+      : []),
+  ];
+  logHeartbeat(
+    startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'heartbeat_get',
+    ingestRunStatus(getSources), ingestRunDetail(getSources),
+  );
   // kbgsras и eqkam здесь НЕ пишутся. t.me для хостинга гео-закрыт — heartbeat
   // их получить не может по построению, и его запись «пусто» каждые пять минут
   // делала канал вечно свежим на вид независимо от того, доставил воркфлоу или
@@ -736,7 +772,17 @@ export async function POST(req: Request) {
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
-  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'workflow_post');
+  // Статус — по источникам, которые приносит воркфлоу (те же, что в записях
+  // здоровья ниже). Делегированные heartbeat'у сюда не входят по построению.
+  const postSources: RunSource[] = [
+    { label: 'КБГС РАН (сейсмо)', errors: telegramResult.kbgsras.errors, inserted: telegramResult.kbgsras.inserted },
+    { label: 'EMSD/EQKam (сейсмо)', errors: telegramResult.eqkam.errors, inserted: telegramResult.eqkam.inserted },
+    ...(maxResult ? [{ label: 'MAX — МЧС Камчатки', errors: maxResult.errors, inserted: maxResult.inserted }] : []),
+  ];
+  logHeartbeat(
+    startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'workflow_post',
+    ingestRunStatus(postSources), ingestRunDetail(postSources),
+  );
   // ЛОВУШКА из #883, решённая ПО ПОСТРОЕНИЮ: делегированные источники
   // (vk_mchs, mchs_rss, firms) здесь НЕ упоминаются вовсе — ни ok, ни
   // not_fetched. Отсутствие записи не трогает их строку в
