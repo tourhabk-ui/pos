@@ -301,7 +301,13 @@ jobs:
           # (исход 2). Здесь его не было, и два места, решающие один вопрос,
           # расходились — та самая болезнь, ради которой писался §12.
           NEED_EPOCH=$(git show -s --format=%ct "$EXPECTED_SHA" 2>/dev/null || echo 0)
-          echo "Наш коммит ${EXPECTED_SHA:0:7} создан в epoch $NEED_EPOCH — образ старше этого времени нашего кода не содержит."
+          # Запас на время сборки — тот же, что в scripts/wait-for-deploy.sh
+          # (#1762, 10.09): образ ПРЕДЫДУЩЕГО коммита, собранный после нашего
+          # пуша, тоже новее пуша, и без запаса он сходит за свежий. Меньше
+          # десяти минут сборка не длилась ни разу; число держит сторож
+          # wait-for-deploy-strict вместе со скриптом.
+          MIN_BUILD_SECONDS=600
+          echo "Наш коммит ${EXPECTED_SHA:0:7} создан в epoch $NEED_EPOCH — образ старше этого времени нашего кода не содержит; свежим считается built_at не раньше чем через ${MIN_BUILD_SECONDS}с."
 
           SERVED_OK=""
           SERVED=""
@@ -318,9 +324,10 @@ jobs:
             # многострочная программа с отступами от нулевой колонки обрывает
             # его молча (проверено 07.09 — файл перестал разбираться как YAML).
             BUILT_EPOCH=$(python3 -c "import json,datetime;b=json.load(open('/tmp/served.json')).get('built_at');print(int(datetime.datetime.fromisoformat(str(b).replace('Z','+00:00')).timestamp()) if b else 0)" 2>/dev/null || echo 0)
-            echo "[$i/20] сайт отдаёт ${SERVED:0:7}${REASON:+ (reason=$REASON)}, built_at epoch $BUILT_EPOCH"
+            AHEAD=$((BUILT_EPOCH - NEED_EPOCH))
+            echo "[$i/20] сайт отдаёт ${SERVED:0:7}${REASON:+ (reason=$REASON)}, built_at epoch $BUILT_EPOCH, built_at минус пуш = ${AHEAD}с"
             if contains_expected "$SERVED"; then SERVED_OK=commit; break; fi
-            if [ "$BUILT_EPOCH" -gt 0 ] && [ "$NEED_EPOCH" -gt 0 ] && [ "$BUILT_EPOCH" -ge "$NEED_EPOCH" ]; then
+            if [ "$BUILT_EPOCH" -gt 0 ] && [ "$NEED_EPOCH" -gt 0 ] && [ "$AHEAD" -ge "$MIN_BUILD_SECONDS" ]; then
               SERVED_OK=built_at; break
             fi
             sleep 15
@@ -349,7 +356,7 @@ jobs:
           if [ "$SERVED_OK" = "commit" ]; then
             echo "Деплой подтверждён фактом: vedarai.ru отдаёт ${SERVED:0:7}, он содержит ${EXPECTED_SHA:0:7}."
           elif [ "$SERVED_OK" = "built_at" ]; then
-            echo "Деплой подтверждён временем сборки: образ собран в epoch $BUILT_EPOCH, не раньше нашего коммита ($NEED_EPOCH) — значит содержит его. Sha образ не назвал (reason='${REASON:-не указана}'), и это отдельная поломка маркера, а не деплоя."
+            echo "Деплой подтверждён временем сборки: образ собран в epoch $BUILT_EPOCH, на $((BUILT_EPOCH - NEED_EPOCH))с позже нашего коммита ($NEED_EPOCH) при запасе ${MIN_BUILD_SECONDS:-600}с — значит содержит его. Sha образ не назвал (reason='${REASON:-не указана}'), и это отдельная поломка маркера, а не деплоя."
           elif [ "$BUILT_EPOCH" -gt 0 ] && [ "$NEED_EPOCH" -gt 0 ] && [ "$BUILT_EPOCH" -lt "$NEED_EPOCH" ]; then
             # Здесь «не знаю» кончается: даже без sha образ САМ назвал время
             # своей сборки, и оно раньше, чем наш коммит появился на свет.
@@ -357,6 +364,12 @@ jobs:
             # она отвечает за свой запрос, а не за то, что отдаёт сайт.
             echo "::error::Прод отдаёт образ, собранный РАНЬШЕ нашего коммита: built_at epoch $BUILT_EPOCH < $NEED_EPOCH (${EXPECTED_SHA:0:7}). Наш код на прод не доехал, миграции этого деплоя не накатывались. Панель Timeweb при этом сообщает ${COMMIT:0:7} — её поле commit отражает ЗАПРОС на сборку, а не работающий контейнер."
             exit 1
+          elif [ "$BUILT_EPOCH" -gt 0 ] && [ "$NEED_EPOCH" -gt 0 ]; then
+            # Образ новее пуша, но меньше чем на время сборки (#1762): столько
+            # сборка не длится, и это, скорее всего, образ ПРЕДЫДУЩЕГО коммита,
+            # собранный после нашего пуша. Не «доехало» и не «не доехало» —
+            # «не знаю»: свой коммит образ не назвал, а время его не доказывает.
+            echo "::warning::НЕ СМОГЛИ ПОДТВЕРДИТЬ: образ новее нашего коммита лишь на $((BUILT_EPOCH - NEED_EPOCH))с при запасе ${MIN_BUILD_SECONDS:-600}с — столько сборка не длится, скорее всего это образ ПРЕДЫДУЩЕГО коммита, собранный после нашего пуша. Sha образ не назвал (reason='${REASON:-не указана}'). Панель Timeweb сообщает ${COMMIT:0:7}; работоспособность проверяет смоук ниже."
           elif ! printf '%s' "$SERVED" | grep -Eq '^[0-9a-f]{7,40}$'; then
             echo "::warning::НЕ СМОГЛИ ПОДТВЕРДИТЬ фактом сайта: /version.json не назвал ни коммит (commit='${SERVED:-пусто}', reason='${REASON:-не указана}'), ни время сборки. Оба свидетеля молчат — это «не знаю», а не «доехало»: панель Timeweb сообщает ${COMMIT:0:7}, работоспособность проверяет смоук ниже. Причины по reason (scripts/write-version.js): no_git_head — .git не попал в контекст сборки; ref_and_packed_missing / ref_not_in_packed — попал без ссылок; head_unrecognized — HEAD не опознан."
           elif ! git cat-file -e "${SERVED}^{commit}" 2>/dev/null; then
