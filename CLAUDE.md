@@ -21,6 +21,8 @@
 210 стр / 756 API routes / 173 компонентов / ~460 миграций
 
 **Ключевые файлы перед стартом:**
+- `docs/DEVELOPER_GUIDE.md` — единый вход: запуск, карта репозитория, неочевидные механизмы, отладка
+- `docs/DB_SCHEMA.md` — схема БД с настоящего PostgreSQL (`npm run db:schema-doc`)
 - `lib/db-pool.ts` — `import { pool } from` (named, не default)
 - `lib/types/db-rows.ts` — все интерфейсы строк БД
 - `lib/auth/middleware.ts` — requireAuth / requireAdmin / requireRole
