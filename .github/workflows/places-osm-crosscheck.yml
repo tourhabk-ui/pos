@@ -65,10 +65,14 @@ jobs:
               marker = json.load(f)
           min_sim = os.environ.get('IN_MIN_SIM') or str(marker.get('min_sim') or '0.3')
           part = os.environ.get('IN_PART') or marker.get('part') or 'both'
+          limit = str(marker.get('limit') or 100)
+          offset = str(marker.get('offset') or 0)
           with open(os.environ['GITHUB_ENV'], 'a') as env:
               env.write(f'MIN_SIM={min_sim}\n')
               env.write(f'PART={part}\n')
-          print(f'min_sim={min_sim} part={part}')
+              env.write(f'LIMIT={limit}\n')
+              env.write(f'OFFSET={offset}\n')
+          print(f'min_sim={min_sim} part={part} limit={limit} offset={offset}')
           PY
 
       # Маркер едет в main тем же пушем, что и роут /api/cron/places-osm-crosscheck,
@@ -91,25 +95,29 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -u
-          URL="https://vedarai.ru/api/cron/places-osm-crosscheck?part=${PART}&min_sim=${MIN_SIM}"
+          URL="https://vedarai.ru/api/cron/places-osm-crosscheck?part=${PART}&min_sim=${MIN_SIM}&limit=${LIMIT}&offset=${OFFSET}"
           RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 150 "$URL") || RESP=""
           echo "$RESP" | python3 -c "
           import json, sys
           d = json.load(sys.stdin)
           print(json.dumps({k: d.get(k) for k in (
-              'success', 'bbox', 'name_sim_floor', 'checked_places_total',
-              'osm_features_total', 'items_with_candidates_total',
-              'items_without_candidates_total', 'items_dropped',
+              'success', 'probe', 'bbox', 'name_sim_floor', 'strong_sim',
+              'checked_places_total', 'osm_features_total',
+              'items_with_candidates_total', 'items_strong_total',
+              'items_weak_only_total', 'items_without_candidates_total',
+              'items_offset', 'items_limit', 'items_dropped',
           )}, ensure_ascii=False))
           " || { echo "$RESP" | head -c 800; exit 1; }
-          echo "── Кандидаты, худшее расстояние первым ──"
+          echo "── Ближайший одноимённый объект OSM (sim >= strong_sim), самые дальние первыми ──"
           echo "$RESP" | python3 -c "
           import json, sys
           d = json.load(sys.stdin)
           for it in d.get('items') or []:
               top = (it.get('candidates') or [{}])[0]
               ext = ' [протяжённый]' if it.get('isExtendedObject') else ''
-              print(f\"{it.get('worstDistanceKm')} км — {it.get('name')}{ext} -> {top.get('osmName')} ({top.get('matchedTag')}, sim={top.get('nameSim')})\")
+              ns = it.get('nearestStrongKm')
+              key = f'{ns} км' if ns is not None else 'только слабые'
+              print(f\"{key} | {it.get('name')}{ext} [{it.get('placeId')}] @ {it.get('ourLat')},{it.get('ourLng')} -> {top.get('osmName')} @ {top.get('osmLat')},{top.get('osmLng')} ({top.get('matchedTag')}, sim={top.get('nameSim')}, {top.get('distanceKm')} км)\")
           "
           {
             echo "## places-osm-crosscheck — min_sim=$MIN_SIM part=$PART"

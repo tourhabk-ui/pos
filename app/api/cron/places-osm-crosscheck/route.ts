@@ -25,12 +25,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runOsmCrosscheck } from '@/lib/geo/osm-crosscheck-runner';
+import { STRONG_SIM } from '@/lib/geo/osm-crosscheck';
 import { KAMCHATKA_BOUNDS } from '@/lib/services/routes/geocode';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-const ITEMS_PAGE = 30;
+const ITEMS_PAGE_DEFAULT = 30;
+const ITEMS_PAGE_MAX = 100;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
@@ -47,24 +49,33 @@ export async function GET(request: NextRequest) {
   const minSimRaw = Number(request.nextUrl.searchParams.get('min_sim') ?? '0.3');
   const minSim = Number.isFinite(minSimRaw) && minSimRaw >= 0 && minSimRaw <= 1 ? minSimRaw : 0.3;
 
+  const limitRaw = Number(request.nextUrl.searchParams.get('limit') ?? String(ITEMS_PAGE_DEFAULT));
+  const limit = Number.isFinite(limitRaw) && limitRaw >= 1
+    ? Math.min(ITEMS_PAGE_MAX, Math.floor(limitRaw))
+    : ITEMS_PAGE_DEFAULT;
+
   try {
     const result = await runOsmCrosscheck({ minSim });
 
     return NextResponse.json({
       success: true,
-      probe: 'places_osm_crosscheck_v1',
+      probe: 'places_osm_crosscheck_v2',
       part,
       bbox: KAMCHATKA_BOUNDS,
       name_sim_floor: minSim,
+      strong_sim: STRONG_SIM,
       checked_places_total: result.checkedPlacesTotal,
       osm_features_total: result.osmFeaturesTotal,
       items_with_candidates_total: result.items.length,
+      items_strong_total: result.itemsStrongTotal,
+      items_weak_only_total: result.itemsWeakOnlyTotal,
       items_without_candidates_total: result.itemsWithoutCandidatesTotal,
       items_offset: offset,
-      items: part === 'summary' ? undefined : result.items.slice(offset, offset + ITEMS_PAGE),
+      items_limit: limit,
+      items: part === 'summary' ? undefined : result.items.slice(offset, offset + limit),
       items_dropped: part === 'summary'
         ? undefined
-        : Math.max(0, result.items.length - (offset + ITEMS_PAGE)),
+        : Math.max(0, result.items.length - (offset + limit)),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка сверки с OSM';

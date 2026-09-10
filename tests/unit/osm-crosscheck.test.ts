@@ -100,10 +100,43 @@ describe('сборка кандидатов — сегодняшние (10.09) �
     expect(sivuchiItem!.candidates[0].distanceKm).toBeGreaterThan(500);
   });
 
-  it('сортировка по убыванию макс. расстояния: дальнее — первым, честное совпадение — в хвосте', () => {
+  it('порядок — по расстоянию до ближайшего СИЛЬНОГО совпадения: дальнее первым, честное — в хвосте', () => {
     const { items } = buildCrosscheckItems(places, features, simRows);
     expect(items.map(i => i.placeId)).toEqual(['sivuchi', 'golubye', 'sinichkino']);
-    expect(items[items.length - 1].worstDistanceKm).toBeLessThan(1);
+    expect(items[0].nearestStrongKm).toBeGreaterThan(500);
+    expect(items[items.length - 1].nearestStrongKm).toBeLessThan(1);
+  });
+
+  it('слабое совпадение не выдаёт себя за находку: уходит в хвост с nearestStrongKm=null', () => {
+    // Урок run 3 (10.09): «Водопад Ольга» → пик «Водопадная» за 1357 км при
+    // sim 0.39 стоял ВЫШЕ настоящих ошибок. Слабый кандидат виден, но не
+    // ранжирует место как улику.
+    const olga: PlaceInput = { id: 'olga', name: 'Водопад Ольга', locationType: 'waterfall', lat: 52.5, lng: 158.0 };
+    const vodopadnaya: OsmFeature = { id: 400, kind: 'node', name: 'Водопадная', lat: 64.0, lng: 166.0, matchedTag: 'natural=peak' };
+    const { items, itemsStrongTotal, itemsWeakOnlyTotal } = buildCrosscheckItems(
+      [...places, olga], [...features, vodopadnaya],
+      [...simRows, { placeId: 'olga', osmId: 400, osmKind: 'node', sim: 0.39 }],
+    );
+    expect(items.map(i => i.placeId)).toEqual(['sivuchi', 'golubye', 'sinichkino', 'olga']);
+    const olgaItem = items[3];
+    expect(olgaItem.nearestStrongKm).toBeNull();
+    expect(olgaItem.candidates[0].distanceKm).toBeGreaterThan(1000);
+    expect(itemsStrongTotal).toBe(3);
+    expect(itemsWeakOnlyTotal).toBe(1);
+  });
+
+  it('внутри места кандидаты идут по похожести, при равной — ближайший первым', () => {
+    const far: OsmFeature = { id: 101, kind: 'node', name: 'Голубые озёра', lat: 60.0, lng: 165.0, matchedTag: 'natural=water' };
+    const { items } = buildCrosscheckItems(
+      [golubyeOzera], [golubyeOsm, far],
+      [
+        { placeId: 'golubye', osmId: 100, osmKind: 'way', sim: 1.0 },
+        { placeId: 'golubye', osmId: 101, osmKind: 'node', sim: 1.0 },
+      ],
+    );
+    expect(items[0].candidates.map(c => c.osmId)).toEqual([100, 101]);
+    // Ближайший сильный — 17 км, а не 800: улика считается по ближайшему.
+    expect(items[0].nearestStrongKm).toBeLessThan(20);
   });
 
   it('места без кандидата выше порога — в itemsWithoutCandidatesTotal, не путаются с находками', () => {

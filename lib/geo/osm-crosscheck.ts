@@ -135,6 +135,21 @@ export interface CrosscheckCandidate {
   matchedTag: string;
 }
 
+/**
+ * Порог, с которого совпадение имени считается СИЛЬНЫМ.
+ *
+ * Первый боевой прогон (10.09, run 3) показал цену его отсутствия: при
+ * пороге выборки 0.3 верх списка заняли «Водопад Ольга» → пик «Водопадная»
+ * за 1357 км (sim 0.39) и «Голая» → река «Горелая» за 1281 км (sim 0.40) —
+ * однокоренной шум, а не находки. Настоящие ошибки того же дня имели
+ * sim 0.71 (Лежбище сивучей → мыс Сивучий) и 1.0 (Голубые озёра).
+ *
+ * Порог НЕ отсекает слабые совпадения из ответа — они остаются отдельной
+ * группой в хвосте. Он решает только, по какому кандидату считать
+ * расстояние-улику.
+ */
+export const STRONG_SIM = 0.5;
+
 export interface CrosscheckItem {
   placeId: string;
   name: string;
@@ -142,13 +157,25 @@ export interface CrosscheckItem {
   isExtendedObject: boolean;
   ourLat: number;
   ourLng: number;
-  /** Наибольшее расстояние среди кандидатов места — по нему сортируется список. */
+  /** Лучшая похожесть имени среди кандидатов. */
+  bestSim: number;
+  /**
+   * Расстояние до БЛИЖАЙШЕГО кандидата с сильным именем (sim ≥ STRONG_SIM),
+   * км. Это и есть улика: «ближайший объект OSM, который правдоподобно и есть
+   * это место, стоит вот настолько далеко». null — сильных совпадений нет.
+   */
+  nearestStrongKm: number | null;
+  /** Наибольшее расстояние среди показанных кандидатов — для полноты картины. */
   worstDistanceKm: number | null;
   candidates: CrosscheckCandidate[];
 }
 
 export interface CrosscheckResult {
   items: CrosscheckItem[];
+  /** Мест с хотя бы одним сильным совпадением имени. */
+  itemsStrongTotal: number;
+  /** Мест, у которых совпадения только слабые (sim < STRONG_SIM). */
+  itemsWeakOnlyTotal: number;
   itemsWithoutCandidatesTotal: number;
 }
 
@@ -159,6 +186,12 @@ export interface CrosscheckResult {
  * отделяющего ошибку данных от однофамильца, не существует (сегодняшние
  * находки лежат на 17, ~20-25 и 506 км одновременно с честными совпадениями
  * на единицы метров) — решение остаётся за человеком, читающим список.
+ *
+ * Порядок: сначала места с сильным совпадением имени, по убыванию
+ * `nearestStrongKm` (чем дальше ближайший одноимённый объект, тем громче
+ * улика); затем места только со слабыми совпадениями, по убыванию bestSim.
+ * Внутри места кандидаты идут по убыванию похожести, при равной — ближайший
+ * первым: так первая строка отвечает «что это, скорее всего, и где оно».
  */
 export function buildCrosscheckItems(
   places: PlaceInput[],
@@ -179,6 +212,8 @@ export function buildCrosscheckItems(
 
   const items: CrosscheckItem[] = [];
   let withoutCandidates = 0;
+  let strongTotal = 0;
+  let weakOnlyTotal = 0;
 
   for (const place of places) {
     const rows = simByPlace.get(place.id) ?? [];
@@ -203,9 +238,15 @@ export function buildCrosscheckItems(
       continue;
     }
 
-    // Худший (самый дальний) кандидат — первым и внутри списка, и как ключ
-    // сортировки самих мест: он говорит громче всего о возможной ошибке.
-    candidates.sort((a, b) => (b.distanceKm ?? -1) - (a.distanceKm ?? -1));
+    candidates.sort((a, b) => (b.nameSim - a.nameSim)
+      || ((a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY)));
+
+    const nearestStrong = candidates.reduce<number | null>((acc, c) => {
+      if (c.nameSim < STRONG_SIM || c.distanceKm == null) return acc;
+      return acc == null ? c.distanceKm : Math.min(acc, c.distanceKm);
+    }, null);
+    if (nearestStrong == null) weakOnlyTotal += 1; else strongTotal += 1;
+
     const top = candidates.slice(0, limit);
     const worst = top.reduce<number | null>((acc, c) => (
       c.distanceKm == null ? acc : (acc == null ? c.distanceKm : Math.max(acc, c.distanceKm))
@@ -215,12 +256,25 @@ export function buildCrosscheckItems(
       placeId: place.id, name: place.name, locationType: place.locationType,
       isExtendedObject: isExtendedObject(place.locationType),
       ourLat: place.lat ?? NaN, ourLng: place.lng ?? NaN,
+      bestSim: candidates[0].nameSim,
+      nearestStrongKm: nearestStrong,
       worstDistanceKm: worst,
       candidates: top,
     });
   }
 
-  items.sort((a, b) => (b.worstDistanceKm ?? -1) - (a.worstDistanceKm ?? -1));
+  items.sort((a, b) => {
+    const as = a.nearestStrongKm, bs = b.nearestStrongKm;
+    if (as != null && bs != null) return bs - as;
+    if (as != null) return -1;
+    if (bs != null) return 1;
+    return b.bestSim - a.bestSim;
+  });
 
-  return { items, itemsWithoutCandidatesTotal: withoutCandidates };
+  return {
+    items,
+    itemsStrongTotal: strongTotal,
+    itemsWeakOnlyTotal: weakOnlyTotal,
+    itemsWithoutCandidatesTotal: withoutCandidates,
+  };
 }

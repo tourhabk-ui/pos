@@ -29,6 +29,6 @@ describe('places-osm-crosscheck — только чтение', () => {
   });
 
   it('маркер версии для workflow есть', () => {
-    expect(SRC).toContain('places_osm_crosscheck_v1');
+    expect(SRC).toMatch(/places_osm_crosscheck_v\d+/);
   });
 });
