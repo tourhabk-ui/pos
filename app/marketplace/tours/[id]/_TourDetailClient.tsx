@@ -17,6 +17,7 @@ import { photoSrc } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
 import { detectFishSpecies } from '@/lib/fish-species';
@@ -500,28 +501,38 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
         )}
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(8,11,14,.55) 0%, rgba(8,11,14,0) 26%, rgba(8,11,14,0) 42%, rgba(8,11,14,.82) 100%)' }} />
 
-        {/* Статус дня — живой сигнал безопасности поверх фото (стекло разрешено) */}
-        {dayStatus && (
-          <div className="absolute top-4 left-4 right-4 flex items-start gap-2 z-[2]">
-            <Link
-              href="/safety"
-              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
-              style={{ fontFamily: FM, minHeight: 44 }}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}
-              />
-              {/* Подпись именно «в крае»: индикатор отражает обстановку по
-                  Камчатке целиком, а не по этому туру. Без такой подписи точка
-                  читалась бы как оценка безопасности конкретной поездки. */}
-              Обстановка в крае
-            </Link>
+        {/* Верхняя полоса героя: статус дня (стекло разрешено — это контекст)
+            и SOS (непрозрачный — это действие, §2 контракт стекла). Карточка
+            тура не несёт общей шапки, поэтому SOS стоит здесь сам, а не
+            только при наличии статуса дня: до 10.09 на карточке тура SOS не
+            было вовсе (#1775). Своей кнопки нет — общий EmergencyAction. */}
+        <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-2 z-[2]">
+          <div className="flex items-start gap-2">
+            {dayStatus && (
+              <Link
+                href="/safety"
+                className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
+                style={{ fontFamily: FM, minHeight: 44 }}
+              >
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ background: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}
+                />
+                {/* Подпись именно «в крае»: индикатор отражает обстановку по
+                    Камчатке целиком, а не по этому туру. Без такой подписи точка
+                    читалась бы как оценка безопасности конкретной поездки. */}
+                Обстановка в крае
+              </Link>
+            )}
             {/* Пилюли сезона здесь НЕТ: сезон уже стоит в полосе фактов внизу
                 героя. Два одинаковых «Июн — Сен» на одном экране в 300 px друг
                 от друга — не акцент, а небрежность. */}
           </div>
-        )}
+          <EmergencyAction
+            className="inline-flex items-center justify-center rounded-full px-4 text-[11px] font-bold uppercase tracking-wider text-white bg-[var(--danger)] shadow-md transition-colors hover:brightness-110"
+            style={{ fontFamily: FM, minHeight: 44, minWidth: 44, textDecoration: 'none' }}
+          />
+        </div>
 
         {/* Заголовок конкретного события здесь НЕ печатаем. /api/public/safety-status
             отдаёт максимальный по краю алерт без привязки к географии тура: на

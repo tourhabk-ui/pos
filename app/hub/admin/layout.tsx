@@ -72,6 +72,10 @@ const SIDEBAR_ITEMS = [
   // агент». Старый адрес — редирект в next.config.
   { href: '/hub/admin/volcano', label: 'Работа Volcano OS', icon: Gauge, section: 'AI' },
   { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
+  // 10.09: владелец искал «Кузьмич AI и чаты» и не нашёл — вкладка внутри
+  // «Расходов AI» по названию раздела не угадывается. Отдельный пункт ведёт
+  // на ту же страницу с открытой вкладкой: страницы две не заводим.
+  { href: '/hub/admin/ai-usage?tab=kuzmich', label: 'Кузьмич и чаты', icon: MessageCircle, section: 'AI' },
   // 03.09: «Модели эволюции» (/hub/admin/evo/models) стали вкладкой
   // Health-метрик — та же проба провайдеров, другим взглядом. Редирект в next.config.
   // 03.09: «Разведка» (/hub/admin/intelligence) стала вкладкой Brain — обе

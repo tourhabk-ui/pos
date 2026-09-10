@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { permanentRedirect } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { query } from '@/lib/database';
 import PlaceDetailClient from './_PlaceDetailClient';
 import PlaceSOS from '@/components/places/PlaceSOS';
@@ -72,6 +72,12 @@ export default async function PlaceDetailPage({ params }: Props) {
   // по slug. Пришли по UUID, а slug есть → 301 на ЧПУ.
   let arkId = id;
   let slug: string | null = null;
+  // Три исхода резолва (§4.0): нашли / не нашли / не смогли спросить. Только
+  // второй — настоящий 404; при отказе БД страница рисуется как раньше и
+  // клиент сам покажет свою ошибку. До 10.09 несуществующее место отдавало
+  // HTTP 200 с надписью «не найдено» (#1776) — поисковики и мониторинг
+  // читали это как живую страницу.
+  let found: boolean | null = null;
   try {
     const ref = await query(
       `SELECT ark_id::text AS ark_id, slug FROM places
@@ -82,8 +88,16 @@ export default async function PlaceDetailPage({ params }: Props) {
     if (ref.rows[0]) {
       arkId = (ref.rows[0].ark_id as string) ?? id;
       slug = (ref.rows[0].slug as string | null) ?? null;
+      found = true;
+    } else {
+      found = false;
     }
-  } catch { /* резолв не критичен — работаем по исходному id */ }
+  } catch (err) {
+    console.error('[places/page] резолв места не удался', {
+      id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
   // Место слито в другое → 301 туда. Раньше публичная сторона про
   // merged_into_id не знала вовсе (его уважали только админка и кроны дедупа),
   // и слитая запись открывалась отдельной карточкой: турист видел две страницы
@@ -94,6 +108,7 @@ export default async function PlaceDetailPage({ params }: Props) {
   if (mergedTo) {
     permanentRedirect(`/places/${mergedTo.canonical}`);
   }
+  if (found === false) notFound();
   if (isUuid(id) && slug && slug !== id) {
     permanentRedirect(`/places/${slug}`);
   }
