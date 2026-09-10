@@ -113,6 +113,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'legacy-tours-cleanup': ['db_write'],
   'legislation-sync': ['db_read', 'db_write', 'net_out', 'ai'],
   'llm-budget-check': ['db_read', 'db_write', 'net_out', 'telegram'],
+  // Только запись привезённого раннером каталога цен: наружу этот роут не
+  // ходит (прод OpenRouter не видит — 403), модель не зовёт, ПД не касается.
+  'model-catalog': ['db_write'],
   'locked-out-partners': ['db_read'],
   'max-webhook': ['net_out'],
   'memory-contradiction': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],

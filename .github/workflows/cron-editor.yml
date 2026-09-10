@@ -2,7 +2,7 @@ name: Cron — Editor
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # 22:00 UTC — DeepSeek off-peak window (16:30-00:30 UTC)
+    - cron: '0 22 * * *'  # 22:00 UTC — off-peak DeepSeek; окна пика — lib/ai/deepseek-peak.ts, не повторять здесь
   workflow_dispatch:
 
 jobs:

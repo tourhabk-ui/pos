@@ -19,8 +19,7 @@ import {
   sourceReport,
   OUTCOME_LABEL,
   TRIGGER_LABEL,
-  type IngestOutcome,
-} from '@/lib/services/safety/ingest-outcome';
+  type IngestOutcome, ingestRunStatus, ingestRunDetail } from '@/lib/services/safety/ingest-outcome';
 
 /** Прогон, где источник впервые принёс события и они записались. */
 const FIRST_RUN = {
@@ -172,5 +171,49 @@ describe('словарь исходов полон', () => {
   it('оба планировщика названы — иначе отчёт нечитаем', () => {
     expect(TRIGGER_LABEL.heartbeat_get).toMatch(/start\.js/);
     expect(TRIGGER_LABEL.workflow_post).toMatch(/GitHub Actions/);
+  });
+});
+
+/**
+ * Статус ПРОГОНА — по своим источникам (#1759).
+ *
+ * Двадцать часов 09.09 каждый источник падал на 42702, а heartbeat писал
+ * «success» безусловно; сторожа серии читали его и молчали по построению.
+ * Здесь держится правило, которое делает их снова зрячими.
+ */
+describe('ingestRunStatus — прогон не отчитывается успехом, когда не смог', () => {
+  const ok = { label: 'A', errors: [], inserted: 2 };
+  const okEmpty = { label: 'B', errors: [], inserted: 0 };
+  const broken = { label: 'C', errors: ['42702 column reference "expires_at" is ambiguous'], inserted: 0 };
+
+  it('без ошибок — success, даже если вставлять было нечего', () => {
+    expect(ingestRunStatus([ok, okEmpty])).toBe('success');
+    expect(ingestRunStatus([okEmpty])).toBe('success');
+  });
+
+  it('все источники упали и ничего не вставлено — failed', () => {
+    // Ровно случай 09.09: cron-failing ловит такую серию за два прогона.
+    expect(ingestRunStatus([broken, { ...broken, label: 'D' }])).toBe('failed');
+  });
+
+  it('часть упала, часть чиста — partial (серию ловит cron-fruitless)', () => {
+    expect(ingestRunStatus([ok, broken])).toBe('partial');
+    expect(ingestRunStatus([okEmpty, broken])).toBe('partial');
+  });
+
+  it('упал, но что-то вставил — partial, а не failed', () => {
+    expect(ingestRunStatus([{ label: 'E', errors: ['x'], inserted: 1 }])).toBe('partial');
+  });
+
+  it('пустой список источников — failed: ноль результатов при нулевом входе — отказ', () => {
+    expect(ingestRunStatus([])).toBe('failed');
+  });
+
+  it('деталь называет упавший источник и первую ошибку, режет длину', () => {
+    const long = { label: 'F', errors: ['э'.repeat(500), 'вторая'], inserted: 0 };
+    const d = ingestRunDetail([ok, broken, long]);
+    expect(d).toHaveLength(2);
+    expect(d[0]).toMatch(/^C: 42702/);
+    expect(d[1].length).toBeLessThanOrEqual('F: '.length + 160);
   });
 });

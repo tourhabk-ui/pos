@@ -56,10 +56,14 @@ describe('замеры ждут СВОЮ сборку одним правило�
   ];
   const script = stripSh(read('scripts/wait-for-deploy.sh'));
 
-  it('скрипт спрашивает /version.json и принимает точный sha ЛИБО сборку новее коммита', () => {
+  it('скрипт спрашивает /version.json и принимает точный sha ЛИБО сборку новее коммита с запасом', () => {
     expect(script).toMatch(/\/version\.json/);
     expect(script).toMatch(/\$\{SERVED:0:7\}" = "\$\{WANT_SHA:0:7\}/);
-    expect(script).toMatch(/\[ "\$BT" -ge "\$NEED" \]/);
+    // Не голое `BT >= NEED`: образ предыдущего коммита, собранный после
+    // пуша, тоже новее пуша (#1762). Правило запаса держит wait-for-deploy-strict.
+    expect(script).toMatch(/AHEAD=\$\(\(BT - NEED\)\)/);
+    expect(script).toMatch(/\[ "\$AHEAD" -ge "\$MIN_BUILD_SECONDS" \]/);
+    expect(script).not.toMatch(/\[ "\$BT" -ge "\$NEED" \]/);
     expect(script).toMatch(/built_at/);
     expect(script).not.toMatch(/api\/health/);
   });

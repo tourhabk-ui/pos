@@ -73,3 +73,42 @@ describe('abandoned-bookings: часы не переставляет тот, к�
     expect(/\.catch\(\(\)\s*=>\s*\{\s*\}\)/.test(src)).toBe(false);
   });
 });
+
+/**
+ * safety-ingest пишет heartbeat не через recordCronRun, а своим INSERT — и
+ * потому проверка выше его не видела. 09.09 (#1759) он двадцать часов писал
+ * 'success' безусловно при отказе на каждом прогоне; сторожа серии читали
+ * этот статус и молчали. Правило то же, адресат другой.
+ */
+describe('safety-ingest: heartbeat не пишет success безусловно (#1759)', () => {
+  const SRC = readFileSync(join(CRON_DIR, 'safety-ingest/route.ts'), 'utf8');
+  // Тело logHeartbeat целиком — от объявления до перехвата ошибки записи:
+  // фиксированная длина среза красна на верной правке формы.
+  const start = SRC.indexOf('function logHeartbeat(');
+  const insert = SRC.slice(start, SRC.indexOf('.catch(', start));
+
+  it("статус — параметр запроса, а не литерал 'success'", () => {
+    expect(insert).not.toMatch(/VALUES \('safety-ingest', 'success'/);
+    expect(insert).toMatch(/VALUES \('safety-ingest', \$5/);
+  });
+
+  it('статус считается общей функцией по своим источникам в обоих запусках', () => {
+    // GET и POST владеют разными источниками: считать GET по t.me значило бы
+    // вечный partial (гео-блок с хостинга) и вечную ложную тревогу.
+    expect((SRC.match(/ingestRunStatus\(/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(SRC).toMatch(/getSources: RunSource\[\]/);
+    expect(SRC).toMatch(/postSources: RunSource\[\]/);
+    const getBlock = SRC.slice(SRC.indexOf('const getSources'), SRC.indexOf("'heartbeat_get'"));
+    expect(getBlock).not.toMatch(/kbgsras|eqkam/);
+  });
+
+  it('неуспех оставляет в metadata класс и адрес починки — их читает алерт', () => {
+    expect(insert).toMatch(/skip_reason: 'fetch_failed'/);
+    expect(insert).toMatch(/empty_reasons: detail/);
+  });
+
+  it('у класса fetch_failed есть подпись словами', () => {
+    const labels = readFileSync(join(process.cwd(), 'lib/agents/scout-skip-reasons.ts'), 'utf8');
+    expect(labels).toMatch(/fetch_failed: '/);
+  });
+});

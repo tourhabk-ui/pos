@@ -73,7 +73,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Подписка, а не API-ключ (владелец 10.09: «сделал claude_code_oauth_token»).
+          # ANTHROPIC_API_KEY с 09.09 отвечал 401 «API key is invalid» — обе руки
+          # стояли мёртвыми на одном секрете. Один источник авторизации, тот же, на
+          # котором идут сессии Claude Code Remote; второй рядом не держим, чтобы
+          # отказ был читаемым, а не «какой из двух».
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # То же, что у issue-triage: прогон от переводчика инициирует
           # github-actions. Разрешён именно он, не '*'.
           allowed_bots: github-actions

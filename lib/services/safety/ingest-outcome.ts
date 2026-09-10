@@ -145,3 +145,55 @@ export function sourceReport(input: OutcomeInput): SourceReport {
     errors: r?.errors ?? [],
   };
 }
+
+/**
+ * Чем закончился ПРОГОН — по источникам, которыми этот запуск владеет.
+ *
+ * Повод — #1759. С 02:37 до ~23:50 09.09 каждый пост каждого источника падал
+ * на 42702 (#1745), `fetch_failed` в журнале решений вырос с 20 до 1031 — а
+ * heartbeat все двадцать часов писал `'success'` безусловно. Сторожа серии
+ * (`cron-fruitless` меряет `status !== 'success'`, `cron-failing` — `failed`)
+ * читали ложь и молчали ПО ПОСТРОЕНИЮ. Третий исход §4.0, выданный за первый,
+ * ровно в самом чувствительном месте.
+ *
+ * Правило:
+ *   failed   — ни один источник запуска не отработал без ошибки и ничего не
+ *              вставлено; пустой список источников — тоже failed: «ноль
+ *              результатов при нулевом входе — отказ, а не успех»;
+ *   partial  — ошибки были, но что-то вставилось или часть источников чиста;
+ *   success  — ошибок нет.
+ *
+ * Считать ТОЛЬКО по своим источникам обязательно: heartbeat-GET не может
+ * достать t.me (гео-закрыт с хостинга), и если судить его по kbgsras/eqkam,
+ * каждый GET станет `partial` навсегда — вечная ложная тревога, которую
+ * начнут обходить. Владение источниками — то же, что у записей здоровья.
+ */
+export type IngestRunStatus = 'success' | 'partial' | 'failed';
+
+export interface RunSource {
+  label: string;
+  errors: readonly string[];
+  inserted: number;
+}
+
+export function ingestRunStatus(sources: readonly RunSource[]): IngestRunStatus {
+  if (sources.length === 0) return 'failed';
+  const failed = sources.filter((s) => s.errors.length > 0);
+  if (failed.length === 0) return 'success';
+  const anyClean = sources.some((s) => s.errors.length === 0);
+  const anyInserted = sources.some((s) => s.inserted > 0);
+  return anyClean || anyInserted ? 'partial' : 'failed';
+}
+
+/**
+ * Что именно упало — поимённо, для строки алерта.
+ *
+ * Читается `formatFruitlessCrons` из `metadata.empty_reasons[0]`: без адреса
+ * тревога называет класс беды, а чинят конкретный источник и конкретную
+ * ошибку. Текст ошибки режется — в нём бывает эхо запроса.
+ */
+export function ingestRunDetail(sources: readonly RunSource[]): string[] {
+  return sources
+    .filter((s) => s.errors.length > 0)
+    .map((s) => `${s.label}: ${s.errors[0].slice(0, 160)}`);
+}

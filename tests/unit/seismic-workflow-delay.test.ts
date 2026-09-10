@@ -88,9 +88,14 @@ describe('различать GET и POST стало возможно', () => {
   it('heartbeat помечает, кто отработал', () => {
     // Без метки строки журнала одинаковы, и вопрос «когда воркфлоу последний
     // раз доставил» неотвечаем в принципе.
-    expect(INGEST).toMatch(/trigger\s*\}\)\]/);
-    expect(INGEST).toMatch(/pushResult\.dispatched, 'heartbeat_get'\)/);
-    expect(INGEST).toMatch(/pushResult\.dispatched, 'workflow_post'\)/);
+    // Намерение, не форма: с 10.09 (#1759) metadata собирается многострочно —
+    // рядом с trigger легли статус и адрес починки, — и прибитая к `trigger })]`
+    // проверка покраснела на верной правке. Держим ровно то, ради чего она
+    // писалась: trigger уходит в metadata, и оба запуска его называют.
+    const body = INGEST.slice(INGEST.indexOf('function logHeartbeat('), INGEST.indexOf('.catch(', INGEST.indexOf('function logHeartbeat(')));
+    expect(body).toMatch(/JSON\.stringify\(\{[\s\S]{0,400}?\btrigger\b/);
+    expect(INGEST).toMatch(/logHeartbeat\([\s\S]{0,300}?'heartbeat_get'/);
+    expect(INGEST).toMatch(/logHeartbeat\([\s\S]{0,300}?'workflow_post'/);
   });
 
   it('тип метки берётся из общего IngestTrigger, а не заводится свой', () => {

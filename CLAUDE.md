@@ -604,7 +604,7 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 | **Kuzmich** | Мультиканальный | Telegram, MAX, Web, Widget. Общий мозг: `lib/kuzmich/core.ts` |
 
 Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`, `evo/rescue-agent.ts`
-GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-rescue.yml` (`15,45 * * * *`), `cron-evo.yml` (эволюция, `13 17,20,23 * * *` — окно скидки DeepSeek off-peak)
+GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-rescue.yml` (`15,45 * * * *`), `cron-evo.yml` (эволюция, `13 17,20,23 * * *` — вне пика DeepSeek; окна пика записаны ОДИН раз в `lib/ai/deepseek-peak.ts`: 1:00–4:00 и 6:00–10:00 UTC по будням, уведомление 09.09; прежняя запись «16:30–00:30» стояла в четырёх файлах и устарела разом)
 
 ### Система принятия решений AI (июль 2026) — Claude в репо должен это знать
 

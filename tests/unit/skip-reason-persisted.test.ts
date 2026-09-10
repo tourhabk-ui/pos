@@ -114,7 +114,8 @@ describe('запись heartbeat не молчит о своём провале'
   it('но наверх не бросает: сбой журнала не имеет права уронить приём', () => {
     // Обратная ошибка того же места — уже пройдена (тревога 3805 минут).
     const src = SRC('app/api/cron/safety-ingest/route.ts');
-    expect(src).toMatch(/logHeartbeat\(startedAt, durationMs/);
+    // Перенос после скобки — не отмена вызова (аргументов стало больше, #1759).
+    expect(src).toMatch(/logHeartbeat\(\s*startedAt, durationMs/);
     expect(src).not.toMatch(/await logHeartbeat\(/);
   });
 });
