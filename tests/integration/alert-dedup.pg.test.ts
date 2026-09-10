@@ -75,11 +75,19 @@ function externalAlertsDdl(): string {
   return `${block[0]}\n${m687}`;
 }
 
+// Даты — ОТНОСИТЕЛЬНО «сейчас», не литералом. Первая редакция (09.09) ставила
+// published_at = 2026-09-09T10:00Z при expires_hours 24: дедуп ищет живой
+// оригинал (`expires_at > NOW()`), и на следующий день после 10:00 UTC все
+// три проверки покраснели сами по себе — kernel-pg на main лёг без единой
+// правки кода (10.09). Тест с зашитой датой — бомба с часовым механизмом.
+const HOUR = 3_600_000;
+const PUBLISHED_AT = new Date(Date.now() - 3 * HOUR);
+
 function sampleEvent(overrides: Partial<SeismicEvent> = {}): SeismicEvent {
   return {
     source_id: 't.me/kbgsras/pg-test-1',
     source_url: 'https://t.me/kbgsras/pg-test-1',
-    published_at: new Date('2026-09-09T10:00:00Z'),
+    published_at: PUBLISHED_AT,
     alert_type: 'earthquake',
     severity: 1,
     title: 'Землетрясение магнитудой 4.2 в 90 км от Петропавловска',
@@ -158,7 +166,7 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
 
     const later = sampleEvent({
       source_id: 't.me/kbgsras/pg-test-3',
-      published_at: new Date('2026-09-09T20:00:00Z'),
+      published_at: new Date(PUBLISHED_AT.getTime() + 10 * HOUR),
     });
     expect(await parser.saveEvent(later)).toBe('skipped');
 
