@@ -15,10 +15,13 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tourId = parseInt(params.id, 10);
+    // Next 15: params — Promise; синхронное чтение предупреждает сейчас и
+    // ломается в следующей мажорной (#1780).
+    const { id } = await params;
+    const tourId = parseInt(id, 10);
     if (!tourId) return NextResponse.json({ success: false, error: 'Invalid id' }, { status: 400 });
 
     const { rows } = await pool.query(

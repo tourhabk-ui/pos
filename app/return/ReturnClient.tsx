@@ -139,6 +139,40 @@ export default function ReturnClient() {
     );
   }
 
+  // Без параметра это не «не найден», а экран, открытый не по той ссылке:
+  // объясняем, что он делает и откуда берётся ссылка (#1780).
+  if (!registrationId) {
+    return (
+      <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
+        <div className="max-w-md w-full text-center">
+          <CheckCircle className="w-16 h-16 text-[var(--ocean)] mx-auto mb-4" />
+          <h1 className="font-playfair text-2xl font-bold mb-2">Отметка о возвращении</h1>
+          <p className="text-[var(--text-secondary)] mb-3">
+            Этот экран закрывает зарегистрированный маршрут: вы вернулись, спасателей искать не нужно.
+          </p>
+          <p className="text-sm text-[var(--text-muted)] mb-6">
+            Откройте его по ссылке из подтверждения регистрации маршрута — в ней есть номер заявки.
+            Если маршрут ещё не зарегистрирован, начните с регистрации.
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => router.push('/register')}
+              className="w-full py-3 rounded-lg bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
+            >
+              Зарегистрировать маршрут
+            </button>
+            <button
+              onClick={() => router.push('/map')}
+              className="w-full py-3 rounded-lg border border-[var(--border)] text-[var(--text-primary)] font-semibold text-sm hover:bg-[var(--bg-hover)]"
+            >
+              К карте
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!route) {
     return (
       <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">

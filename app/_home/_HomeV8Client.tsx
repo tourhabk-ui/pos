@@ -938,7 +938,7 @@ const CSS = `
    вторую строку). flex:0 1 auto и min-width:0 — чтобы ужаться могла именно
    она, а не зоны нажатия (те держат flex:none, #893); текст — в .pt с
    многоточием: у анонимного текстового флекс-ребёнка обрезки нет. */
-.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:30px;padding:0 9px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
+.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:44px;padding:0 9px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
 .v7 .pill i{width:7px;height:7px;border-radius:50%;flex:none}
 .v7 .pill-calm i{background:var(--success)}
 /* Незнание — не спокойствие: приглушённый серый, а не зелёный. */

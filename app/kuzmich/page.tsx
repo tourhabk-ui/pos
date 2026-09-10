@@ -3,7 +3,7 @@ import { Header } from '@/components/layout/Header';
 import KuzmichClient from './_KuzmichClient';
 
 export const metadata: Metadata = {
-  title: 'Кузьмич — AI-помощник по турам Камчатки | Kamchatour Hub',
+  title: 'Кузьмич — AI-помощник по турам Камчатки',
   description: 'Опишите мечту — AI-оператор Кузьмич подберёт лучший тур. Рыбалка, вулканы, медведи, горячие источники.',
   robots: 'index, follow',
 };

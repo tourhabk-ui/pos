@@ -14,7 +14,7 @@ export default function Logo({ size = 36, className }: LogoProps) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
-      aria-label="Kamchatour Hub"
+      aria-label="Ведар"
     >
       {/* Main mountain range */}
       <polyline

@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import Logo from '@/components/shared/Logo';
 import { Eye, EyeOff, User, Briefcase, Check } from 'lucide-react';
 import { useAuth, MfaRequiredError } from '@/contexts/AuthContext';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
@@ -31,6 +31,12 @@ export default function AuthPageClient() {
   const { signIn, completeMfaSignIn } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
+  // /auth/login?mode=register — прямая дорога к регистрации аккаунта (с
+  // /register, где регистрируют маршрут в МЧС, #1780). Читается после
+  // монтирования, чтобы не тянуть useSearchParams и Suspense на страницу входа.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('mode') === 'register') setMode('register');
+  }, []);
   const [userType, setUserType] = useState<UserType>('tourist');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -244,10 +250,12 @@ export default function AuthPageClient() {
       <div className="max-w-md mx-auto">
         {/* Header */}
         <div className="text-center mb-6">
-          <Link href="/" className="inline-block mb-3">
-            <Image src="/logo-kamchatka.svg" alt="Kamchatour Hub" width={48} height={48} />
+          {/* Бренд — тот же, что в шапке платформы: «Ведар» и логотип-хребет.
+              Старое имя и старый логотип на входе читались как чужой сайт (#1780). */}
+          <Link href="/" className="inline-flex items-center justify-center mb-3 text-[var(--text-primary)]" aria-label="Ведар — на главную">
+            <Logo size={40} />
           </Link>
-          <h1 className="text-xl font-semibold text-[var(--text-primary)]">Kamchatour Hub</h1>
+          <h1 className="font-playfair text-2xl font-bold text-[var(--text-primary)]">Ведар</h1>
           <p className="text-sm text-[var(--text-muted)] mt-1">Туристическая платформа Камчатки</p>
         </div>
 
