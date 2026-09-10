@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `945_route_registrations_mchs_informed.sql`.
+> Снято 2026-09-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `946_model_catalog.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 237 |
+| Таблиц | 238 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3150 |
+| Колонок | 3159 |
 | Внешних ключей | 255 |
-| Таблиц без единого FK в обе стороны | 69 |
+| Таблиц без единого FK в обе стороны | 70 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -32,6 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
+| [Прочее](#прочее) | 1 | `model_catalog` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -1279,6 +1280,12 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **_migrations** · 3 кол. · PK id · индексов 2
 
 `id integer!=` `name varchar!` `applied_at timestamp!=`
+
+## Прочее
+
+**model_catalog** · 9 кол. · PK model_id · индексов 3
+
+`model_id text!` `vendor text!` `display_name text` `usd_per_mtok_in numeric` `usd_per_mtok_out numeric` `context_length integer` `source text!=` `last_seen_at timestamptz!` `updated_at timestamptz!=`
 
 ## Представления (VIEW)
 
