@@ -76,7 +76,7 @@ export class EmailNotificationService {
     driverPhone: string;
     meetingPoint: string;
   }): Promise<EmailResponse> {
-    const subject = safeSubject(`[✓] Подтверждение бронирования трансфера #${booking.confirmationCode}`);
+    const subject = safeSubject(`Подтверждение бронирования трансфера #${booking.confirmationCode}`);
     
     const html = `
       <!DOCTYPE html>
@@ -332,7 +332,7 @@ export class EmailNotificationService {
     refundAmount?: number;
     refundMethod?: string;
   }): Promise<EmailResponse> {
-    const subject = safeSubject(`[✗] Отмена поездки - ${cancellation.route}`);
+    const subject = safeSubject(`Отмена поездки - ${cancellation.route}`);
     
     const html = `
       <!DOCTYPE html>
