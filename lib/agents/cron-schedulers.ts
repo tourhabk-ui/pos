@@ -134,6 +134,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'beacon-check':              { kind: 'manual', writes: false, note: 'способен ли приёмник маяка записать событие: тот же INSERT в транзакции с гарантированным откатом' },
   'scout-relay-check':         { kind: 'manual', writes: false, note: 'читает ли прод источники разведчика через реле Cloudflare: только чтение, без модели и публикации' },
   'sql-shape-check':           { kind: 'manual', writes: false, note: 'разбираются ли запросы формы INSERT ... SELECT $n ... WHERE NOT EXISTS: PREPARE без выполнения' },
+  'build-sha-probe':           { kind: 'manual', writes: false, note: 'знает ли прод, каким коммитом он собран, и есть ли sha в его окружении: маркер version.json + ИМЕНА переменных со sha-образным значением (без значений). Из репозитория не видно, даёт ли Timeweb sha сборке, — а без sha проверка деплоя судит по built_at и принимает старый образ за свежий (#1762)' },
   'booking-attempts':          { kind: 'manual', writes: false, note: 'сколько броней создано, сколько не дошло до денег, сколько сорвалось пятисоткой; попытки-касания — только с починки маяка' },
   'locked-out-partners':       { kind: 'manual', writes: false, note: 'аккаунт есть, партнёрского профиля нет: точный счёт потерь на запертой двери регистрации' },
   'backfill-partner-profile':  { kind: 'manual', writes: true,  note: 'создаёт недостающий партнёрский профиль через ensurePartnerForRole — возврат тех, кого заперла регистрация' },
