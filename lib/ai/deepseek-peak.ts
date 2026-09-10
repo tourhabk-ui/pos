@@ -27,7 +27,8 @@ export const DEEPSEEK_PEAK_WINDOWS_UTC: ReadonlyArray<readonly [number, number]>
 
 /** Источник и дата — чтобы через полгода было видно, чему верить. */
 export const DEEPSEEK_PEAK_SOURCE =
-  'уведомление DeepSeek об изменении тарифа V4.1 Flash, 09.09.2026, в силе с 10.09.2026 04:00 UTC';
+  'уведомления DeepSeek 09.09 и 10.09.2026: тариф V4.1 Flash с окнами пика в силе с 10.09.2026 04:00 UTC; '
+  + 'V4 Pro отключается 14.09.2026 04:00 UTC (перенос с 10.09), запросы к Pro пойдут в V4.1 Flash по цене Flash';
 
 /**
  * Пик ли сейчас у DeepSeek. Считается по UTC-часу и дню недели:
