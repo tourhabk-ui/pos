@@ -75,11 +75,23 @@ function externalAlertsDdl(): string {
   return `${block[0]}\n${m687}`;
 }
 
+/**
+ * Время публикации — относительно «сейчас», а не календарная дата. Первая
+ * редакция зашила `2026-09-09T10:00Z` при TTL 24 ч: до 10:00 UTC 10.09 тест
+ * был зелёным, после — оригинал переставал быть «живым», дедуп честно
+ * вставлял вторую строку, и три проверки покраснели на main без единой
+ * правки в коде дедупа. Сторож, который протухает по часам, судит не код,
+ * а дату прогона.
+ */
+const HOUR_MS = 3_600_000;
+const PUBLISHED_AT = new Date(Date.now() - 2 * HOUR_MS);
+const PUBLISHED_LATER = new Date(Date.now() - 1 * HOUR_MS);
+
 function sampleEvent(overrides: Partial<SeismicEvent> = {}): SeismicEvent {
   return {
     source_id: 't.me/kbgsras/pg-test-1',
     source_url: 'https://t.me/kbgsras/pg-test-1',
-    published_at: new Date('2026-09-09T10:00:00Z'),
+    published_at: PUBLISHED_AT,
     alert_type: 'earthquake',
     severity: 1,
     title: 'Землетрясение магнитудой 4.2 в 90 км от Петропавловска',
@@ -158,7 +170,7 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
 
     const later = sampleEvent({
       source_id: 't.me/kbgsras/pg-test-3',
-      published_at: new Date('2026-09-09T20:00:00Z'),
+      published_at: PUBLISHED_LATER,
     });
     expect(await parser.saveEvent(later)).toBe('skipped');
 
