@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `948_hide_sivuchi_wrong_coords.sql`.
+> Снято 2026-09-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `949_tourist_wishlist_and_notification_preferences.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 238 |
+| Таблиц | 240 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3159 |
-| Внешних ключей | 255 |
+| Колонок | 3190 |
+| Внешних ключей | 257 |
 | Таблиц без единого FK в обе стороны | 70 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 1 | `model_catalog` |
+| [Прочее](#прочее) | 3 | `model_catalog` `tourist_notification_preferences` `tourist_wishlist` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -743,7 +743,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `tourist_id uuid!` `document_type varchar!` `document_number text` `issuing_country varchar` `issuing_authority text` `issue_date date` `expiry_date date` `file_url text` `file_name text` `file_size bigint` `notes text` `reminder_sent boolean=` `created_at timestamptz=` `updated_at timestamptz=`
 
-**tourist_profiles** · 36 кол. · PK id · user_id → users.id · индексов 2
+**tourist_profiles** · 36 кол. · PK id · user_id → users.id · на неё ссылаются: tourist_notification_preferences, tourist_wishlist · индексов 2
 
 `id uuid!=` `user_id uuid!` `full_name text` `date_of_birth text` `gender text` `nationality text` `phone text` `avatar_url text` `bio text` `languages text[]` `interests text[]` `fitness_level text` `experience_level text` `preferred_group_size text` `budget_range text` `preferred_seasons text[]` `dietary_restrictions text[]` `medical_conditions text` `allergies text` `emergency_contact_name text` `emergency_contact_phone text` `emergency_contact_relation text` `home_address text` `home_city text` `home_country text` `home_postal_code text` `travel_insurance_provider text` `travel_insurance_policy text` `travel_insurance_expiry text` `total_trips integer!=` `total_spent numeric!=` `loyalty_points integer!=` `preferences jsonb!=` `settings jsonb!=` `created_at timestamptz!=` `updated_at timestamptz!=`
 
@@ -1286,6 +1286,14 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **model_catalog** · 9 кол. · PK model_id · индексов 3
 
 `model_id text!` `vendor text!` `display_name text` `usd_per_mtok_in numeric` `usd_per_mtok_out numeric` `context_length integer` `source text!=` `last_seen_at timestamptz!` `updated_at timestamptz!=`
+
+**tourist_notification_preferences** · 21 кол. · PK id · tourist_id → tourist_profiles.id · индексов 2
+
+`id uuid!=` `tourist_id uuid!` `email_booking_confirmation boolean!=` `email_booking_reminder boolean!=` `email_booking_changes boolean!=` `email_payment_receipts boolean!=` `email_promotions boolean!=` `email_newsletters boolean!=` `email_recommendations boolean!=` `email_reviews_requests boolean!=` `sms_booking_confirmation boolean!=` `sms_booking_reminder boolean!=` `sms_emergency_alerts boolean!=` `push_booking_updates boolean!=` `push_messages boolean!=` `push_promotions boolean!=` `push_recommendations boolean!=` `language varchar!=` `timezone varchar!=` `created_at timestamptz!=` `updated_at timestamptz!=`
+
+**tourist_wishlist** · 10 кол. · PK id · tourist_id → tourist_profiles.id · индексов 3
+
+`id uuid!=` `tourist_id uuid!` `item_type varchar!` `item_id text!` `priority varchar!=` `notes text` `notify_on_discount boolean!=` `notify_on_availability boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=`
 
 ## Представления (VIEW)
 

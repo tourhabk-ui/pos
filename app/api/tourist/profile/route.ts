@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
-import { getTouristProfile, getTouristTravelStats } from '@/lib/auth/tourist-helpers';
+import { getTouristProfile } from '@/lib/auth/tourist-helpers';
+import { touristTravelStats, touristAchievements } from '@/lib/tourist/cabinet';
 
 const UpdateProfileSchema = z.object({
   full_name: z.string().min(1, 'Имя не может быть пустым').optional(),
@@ -57,24 +58,23 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const stats = await getTouristTravelStats(userOrResponse.userId);
-
-    const achievementsResult = await query(
-      `SELECT id, tourist_id, achievement_type, earned_at, metadata FROM tourist_achievements WHERE tourist_id = $1 ORDER BY earned_at DESC`,
-      [profile.id]
-    );
+    // До 10.09 достижения читались из tourist_achievements — таблицы, которой
+    // нет ни в одной миграции (issue #1771): профиль отвечал 500 всегда.
+    // Теперь — эко-реестр (user_achievements) и сводка по настоящим броням.
+    const [stats, achievements] = await Promise.all([
+      touristTravelStats(userOrResponse.userId, typeof profile.id === 'string' ? profile.id : null),
+      touristAchievements(userOrResponse.userId),
+    ]);
 
     return NextResponse.json({
       success: true,
-      data: {
-        profile,
-        stats,
-        achievements: achievementsResult.rows
-      }
+      data: { profile, stats, achievements },
     } as ApiResponse<unknown>);
   } catch (error) {
+    const e = error as Error & { code?: string };
+    console.error('[tourist/profile] отказ базы', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
-      { success: false, error: 'Ошибка при получении профиля' } as ApiResponse<null>,
+      { success: false, error: 'Не удалось загрузить профиль. Попробуйте обновить страницу.' } as ApiResponse<null>,
       { status: 500 }
     );
   }
