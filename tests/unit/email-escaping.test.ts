@@ -104,6 +104,15 @@ describe('шаблоны писем', () => {
     }
   });
 
+  it('темы писем без маркеров [✓]/[✗] (владелец 10.09)', () => {
+    // Псевдоиконки в теме читаются в почтовике как мусор и режутся спам-фильтрами;
+    // смысл темы несут слова «Подтверждение» и «Отмена».
+    const src = readFileSync(join(process.cwd(), 'lib/notifications/email.ts'), 'utf-8');
+    const subjects = src.match(/safeSubject\([^)]*\)/g) ?? [];
+    expect(subjects.length).toBeGreaterThan(0);
+    for (const s of subjects) expect(s, s).not.toMatch(/\[[✓✗]\]/);
+  });
+
   it('все темы писем проходят через safeSubject', () => {
     const subjects = SRC.match(/const subject = [^;]+;/g) ?? [];
     expect(subjects.length).toBeGreaterThanOrEqual(5);
