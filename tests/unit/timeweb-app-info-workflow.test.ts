@@ -25,11 +25,13 @@ const WF = readFileSync(
   'utf-8',
 );
 
-describe('спрашивается вручную и только вручную', () => {
-  it('единственный триггер — workflow_dispatch', () => {
+describe('спрашивается по руке или по маркеру, без расписания', () => {
+  it('триггеры — workflow_dispatch и маркер; расписания нет', () => {
+    // Маркер (10.09, #1762): из песочницы workflow_dispatch не дёрнуть, а
+    // ответ «есть ли у сборки переменная с SHA» нужен из API, не из памяти.
     expect(WF).toMatch(/workflow_dispatch:/);
     expect(WF).not.toMatch(/^\s*schedule:/m);
-    expect(WF).not.toMatch(/^\s*push:/m);
+    expect(WF).toMatch(/push:\n\s+branches: \[main\]\n\s+paths:\n\s+- '\.github\/triggers\/timeweb-app-info\.json'/);
   });
 
   it('только чтение: один GET, ничего не запускается', () => {
@@ -60,6 +62,18 @@ describe('в лог уходит белый список полей, а не в�
     // и при этом ничего не раскроют.
     expect(WF).toMatch(/только имена, значения не выводятся/);
     expect(WF).toMatch(/', '\.join\(rest\)/);
+  });
+
+  it('переменные окружения — только имена, только похожие на коммит/сборку (#1762)', () => {
+    expect(WF).toMatch(/envs = app\.get\('envs'\)/);
+    expect(WF).toMatch(/re\.search\(r'commit\|sha\|git\|rev\|build\|version', n, re\.I\)/);
+    // Значения не печатаются ни в какой форме.
+    expect(WF).not.toMatch(/envs\[/);
+    expect(WF).not.toMatch(/\.get\('value'\)/);
+    expect(WF).not.toMatch(/print\(envs\)/);
+    expect(WF).not.toMatch(/print\(names\)/);
+    // Неизвестная форма поля называется вслух, а не молчит (§4.0).
+    expect(WF).toMatch(/неожиданную форму/);
   });
 });
 
