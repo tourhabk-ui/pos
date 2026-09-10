@@ -22,7 +22,7 @@
  * записи «16:30–00:30».
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPeakCronSlot } from '@/lib/ai/deepseek-peak';
 import { CRON_CAPABILITIES } from '@/lib/agents/cron-capability-registry';
@@ -84,8 +84,15 @@ function cronEndpoints(src: string): string[] {
   };
   addFrom(src);
   for (const m of src.matchAll(/scripts\/[A-Za-z0-9._/-]+/g)) {
-    const p = join(process.cwd(), m[0]);
-    if (existsSync(p) && statSync(p).isFile()) addFrom(readFileSync(p, 'utf8'));
+    // Читается сразу, без exists/stat перед чтением (CodeQL: гонка между
+    // проверкой и чтением). Нет файла или это каталог — не скрипт, идём дальше.
+    let body: string | null = null;
+    try {
+      body = readFileSync(join(process.cwd(), m[0]), 'utf8');
+    } catch {
+      body = null;
+    }
+    if (body !== null) addFrom(body);
   }
   return [...names];
 }
