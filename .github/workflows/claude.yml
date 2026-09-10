@@ -67,7 +67,12 @@ jobs:
       - name: Run Claude
         uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636 # v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Подписка, а не API-ключ (владелец 10.09: «сделал claude_code_oauth_token»).
+          # ANTHROPIC_API_KEY с 09.09 отвечал 401 «API key is invalid» — обе руки
+          # стояли мёртвыми на одном секрете. Один источник авторизации, тот же, на
+          # котором идут сессии Claude Code Remote; второй рядом не держим, чтобы
+          # отказ был читаемым, а не «какой из двух».
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --max-turns 60, как у ночного триажа (решение владельца 06.09).
           # Прогон 550 без потолка ушёл на 70 ходов; у соседних рук потолки
           # стояли с самого начала, у этой не было. Потолок может обрезать
