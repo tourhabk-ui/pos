@@ -36,10 +36,19 @@ on:
 permissions:
   contents: read
 
+# Новый прогон отменяет старый: сверка только читает, и две одновременные
+# копии лишь дважды нагружают Overpass ради одного и того же ответа.
+concurrency:
+  group: places-osm-crosscheck
+  cancel-in-progress: true
+
 jobs:
   crosscheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Ожидание своей сборки (scripts/wait-for-deploy.sh) — до 35 минут;
+    # 07.09 выкладка Timeweb шла 26. Пятнадцати минут не хватило бы по
+    # построению: job отменила бы себя раньше, чем прод обновился.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
