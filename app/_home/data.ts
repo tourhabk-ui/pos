@@ -16,6 +16,7 @@ import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
+import { plural } from '@/lib/home/data-freshness';
 import { countRoutesWithoutGeometry, type RouteGeometryGap } from '@/lib/services/routes/routes-geometry-health';
 
 export interface SafetyAlert {
@@ -283,12 +284,15 @@ async function fetchFeed(): Promise<FeedItem[]> {
 
 // «В цифрах» и «Стихии» — из ЕДИНОГО источника (lib/stats/platform-counts),
 // того же, что кормит StatsBand и /routes-листинг. Чистые деривации.
+// Подписи склоняются по числу («5 маршрутов», «421 локация», «1 маршрут»),
+// а не стоят одной формой на все числа; «рег. МЧС» и «SAR» раскрыты словами —
+// прогулка 10.09 (#1780) не смогла понять, что это.
 function deriveStats(counts: PlatformCounts): Stat[] {
   return [
-    { value: counts.routes.toLocaleString('ru-RU'),     label: 'маршрута', href: '/routes' },
-    { value: counts.places.toLocaleString('ru-RU'),     label: 'локация',  href: '/routes?kind=place' },
-    { value: counts.mchsRoutes.toLocaleString('ru-RU'), label: 'рег. МЧС' },
-    { value: '24/7', label: 'SAR' },
+    { value: counts.routes.toLocaleString('ru-RU'),     label: plural(counts.routes, 'маршрут', 'маршрута', 'маршрутов'), href: '/routes' },
+    { value: counts.places.toLocaleString('ru-RU'),     label: plural(counts.places, 'локация', 'локации', 'локаций'),  href: '/routes?kind=place' },
+    { value: counts.mchsRoutes.toLocaleString('ru-RU'), label: `${plural(counts.mchsRoutes, 'маршрут', 'маршрута', 'маршрутов')} с регистрацией МЧС` },
+    { value: '24/7', label: 'мониторинг угроз' },
   ];
 }
 
@@ -561,7 +565,7 @@ export async function getHomeV8Data(): Promise<HomeV8Data> {
     countRoutesWithoutGeometry(),
   ]);
 
-  const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'SAR' }];
+  const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
   return { ...live, zones, plates, feed: feedItems, stats, elements, geometry };

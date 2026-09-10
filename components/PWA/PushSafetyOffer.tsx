@@ -48,7 +48,7 @@ export function PushSafetyOffer({ className }: { className?: string }) {
           Цунами, сейсмо, вулканы, перекрытия дорог — сразу на телефон, даже когда сайт закрыт.
         </p>
       </div>
-      <PushSubscribeButton />
+      <PushSubscribeButton audience="tourist" />
     </div>
   );
 }

@@ -54,7 +54,14 @@ function urlB64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
  */
 type State = 'loading' | 'unsupported' | 'unconfigured' | 'denied' | 'subscribed' | 'unsubscribed' | 'failed';
 
-export function PushSubscribeButton() {
+/**
+ * `audience`: кому показывается кнопка. `settings` (по умолчанию) — экран
+ * настроек, там «не настроено на сервере» — диагноз, который должен быть виден.
+ * `tourist` — предложение на /sos и экранах подготовки: человеку в беде
+ * серверная конфигурация не нужна и не понятна (#1779), состояние уходит в
+ * консоль, а не на экран. Не молча (§4.0) — предупреждение в лог пишется.
+ */
+export function PushSubscribeButton({ audience = 'settings' }: { audience?: 'settings' | 'tourist' } = {}) {
   const [state, setState] = useState<State>('loading');
   const [vapidKey, setVapidKey] = useState<string | null>(null);
 
@@ -144,6 +151,10 @@ export function PushSubscribeButton() {
   }
 
   if (state === 'unconfigured') {
+    if (audience === 'tourist') {
+      console.warn('[PushSubscribeButton] push не настроен на сервере (VAPID) — предложение туристу скрыто');
+      return null;
+    }
     return (
       <div className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-[var(--warning)] bg-[var(--bg-card)] border border-[var(--border)]">
         <AlertTriangle size={15} />

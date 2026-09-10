@@ -10,9 +10,11 @@ import Logo from '@/components/shared/Logo';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
+// 44px — минимальная тач-цель DS (§10 vedar-design); 32 px в шапке были
+// ниже правила и промахивались пальцем в перчатке (#1780).
 const iconBtnBase: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
+  width: '44px',
+  height: '44px',
   borderRadius: '50%',
   border: 'none',
   background: 'transparent',
@@ -36,8 +38,13 @@ export function Header() {
 
   React.useEffect(() => {
     let alive = true;
-    fetch('/api/auth/me', { credentials: 'include' })
-      .then(r => { if (alive) setAuthed(r.ok); })
+    // /api/auth/state, а не /api/auth/me: у гостя «me» отвечает 401 и красит
+    // консоль на каждом экране (#1780); «state» отдаёт 200 с флагом.
+    fetch('/api/auth/state', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { data?: { authenticated?: boolean } } | null) => {
+        if (alive && typeof d?.data?.authenticated === 'boolean') setAuthed(d.data.authenticated);
+      })
       .catch(() => { /* связи нет — состояние остаётся «не знаю» */ });
     return () => { alive = false; };
   }, []);

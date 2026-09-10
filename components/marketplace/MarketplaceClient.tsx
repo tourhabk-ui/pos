@@ -50,6 +50,7 @@ interface Tour {
  */
 import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
+import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
@@ -163,7 +164,7 @@ function TourCardSkeleton() {
 
 /* ─── Hero Section ─── */
 
-function HeroSection() {
+function HeroSection({ toursTotal }: { toursTotal: number | null }) {
   return (
     <div className="relative -mx-4 sm:-mx-6 lg:-mx-8 mb-10 overflow-hidden rounded-none sm:rounded-lg">
       <div className="relative h-[320px] sm:h-[380px] lg:h-[420px]">
@@ -184,10 +185,14 @@ function HeroSection() {
               <TrendingUp className="w-3 h-3" />
               {getSeasonLabel()} 2026
             </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 text-white text-xs font-medium ">
-              <Mountain className="w-3 h-3" />
-              13 туров
-            </span>
+            {/* Живое число, не константа: «13 туров» в герое при 8 живых
+                внизу (#1780). Пока не посчитано — бейджа нет. */}
+            {toursTotal != null && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 text-white text-xs font-medium ">
+                <Mountain className="w-3 h-3" />
+                {toursTotal} {plural(toursTotal, 'тур', 'тура', 'туров')}
+              </span>
+            )}
           </div>
 
           <h1
@@ -224,14 +229,22 @@ function HeroSection() {
 
 /* ─── Stats Bar ─── */
 
-function StatsBar() {
+/**
+ * Сводка каталога по ЖИВЫМ турам (facets из полного списка), а не по константам
+ * «8 направлений · 2+ операторов · 100 % проверенные» (#1780). Пока список не
+ * пришёл — прочерк, не выдуманное число (§4.0).
+ */
+interface CatalogFacets { directions: number; operators: number; tours: number }
+
+function StatsBar({ facets }: { facets: CatalogFacets | null }) {
+  const n = (v: number | undefined) => (v == null ? '—' : String(v));
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
       {[
-        { icon: Mountain, label: 'Направлений', value: '8', color: 'text-[var(--accent)]' },
+        { icon: Mountain, label: 'Направлений', value: n(facets?.directions), color: 'text-[var(--accent)]' },
         { icon: Calendar, label: 'Сезон', value: getSeasonLabel(), color: 'text-[var(--success)]' },
-        { icon: Users, label: 'Операторов', value: '2+', color: 'text-[var(--ocean)]' },
-        { icon: Star, label: 'Проверенные', value: '100%', color: 'text-[var(--warning)]' },
+        { icon: Users, label: 'Операторов', value: n(facets?.operators), color: 'text-[var(--ocean)]' },
+        { icon: Star, label: 'Туров в продаже', value: n(facets?.tours), color: 'text-[var(--warning)]' },
       ].map((stat, i) => (
         <div
           key={i}
@@ -464,6 +477,31 @@ export default function MarketplaceClient({
 
   const [tours, setTours] = useState<Tour[]>(initialTours ?? []);
   const [total, setTotal] = useState(initialTotal);
+  // Полный список живых туров — один раз, без фильтров: из него считаются
+  // сводка (направления, операторы) и счётчики плиток направлений. Отказ —
+  // null, и витрина показывает прочерк, а не старые константы (#1780).
+  const [allTours, setAllTours] = useState<Tour[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/hub/marketplace/tours?limit=100')
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { tours?: Tour[] } | null) => { if (alive && Array.isArray(d?.tours)) setAllTours(d.tours); })
+      .catch(err => console.error('[catalog] полный список туров не загружен', err instanceof Error ? err.message : err));
+    return () => { alive = false; };
+  }, []);
+  const facets = useMemo<CatalogFacets | null>(() => {
+    if (!allTours) return null;
+    return {
+      tours: allTours.length,
+      directions: new Set(allTours.map(t => t.activity_type).filter(Boolean)).size,
+      operators: new Set(allTours.map(t => t.operator_id).filter(Boolean)).size,
+    };
+  }, [allTours]);
+  const countByActivity = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of allTours ?? []) m.set(t.activity_type, (m.get(t.activity_type) ?? 0) + 1);
+    return m;
+  }, [allTours]);
   const [loading, setLoading] = useState(initialKey === null);
   const [error, setError] = useState('');
 
@@ -610,10 +648,10 @@ export default function MarketplaceClient({
   return (
     <div className="ds-page pb-20">
       {/* ─── Hero ─── */}
-      <HeroSection />
+      <HeroSection toursTotal={facets?.tours ?? null} />
 
       {/* ─── Stats ─── */}
-      <StatsBar />
+      <StatsBar facets={facets} />
 
       {/* ─── Visual Category Grid ─── */}
       <div className="mb-8">
@@ -632,16 +670,32 @@ export default function MarketplaceClient({
           )}
         </div>
         <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
-          {CATEGORY_DATA.map(cat => (
+          {CATEGORY_DATA.map(cat => {
+            // Плитка живёт по факту наличия туров (#1780): направление без
+            // единого тура — приглушено и не нажимается, с турами — несёт
+            // число. Пока полный список не пришёл — все плитки активны.
+            const cnt = allTours ? (countByActivity.get(cat.key) ?? 0) : null;
+            const empty = cnt === 0;
+            return (
             <button
               key={cat.key}
               onClick={() => setActivityFilter(activityFilter === cat.key ? '' : cat.key)}
-              className={`group flex flex-col items-center gap-2 py-4 px-2 rounded-lg border transition-all duration-300 ${
+              disabled={empty}
+              aria-disabled={empty}
+              title={empty ? 'Пока нет туров в этом направлении' : undefined}
+              className={`group relative flex flex-col items-center gap-2 py-4 px-2 rounded-lg border transition-all duration-300 ${
                 activityFilter === cat.key
                   ? `bg-gradient-to-b ${cat.color} border-transparent ring-2 ${cat.ring} ring-offset-2 ring-offset-[var(--bg-page)] scale-[1.02]`
-                  : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-strong)] hover:scale-[1.03] hover:shadow-md'
+                  : empty
+                    ? 'border-[var(--border)] bg-[var(--bg-card)] opacity-40 cursor-not-allowed'
+                    : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-strong)] hover:scale-[1.03] hover:shadow-md'
               }`}
             >
+              {cnt != null && cnt > 0 && activityFilter !== cat.key && (
+                <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--bg-hover)] text-[10px] font-bold text-[var(--text-secondary)] flex items-center justify-center">
+                  {cnt}
+                </span>
+              )}
               <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${
                 activityFilter === cat.key
                   ? `bg-gradient-to-b ${cat.color} ${cat.iconColor}`
@@ -662,7 +716,8 @@ export default function MarketplaceClient({
                 </div>
               )}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 

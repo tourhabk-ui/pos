@@ -135,6 +135,16 @@ async function getRouteRaw(idOrSlug: string) {
 /** Один запрос на рендер, не два — см. комментарий у getRouteRaw(). */
 const getRoute = cache(getRouteRaw);
 
+/**
+ * Сегмент пути приходит percent-encoded: кириллический slug без декодирования
+ * не совпадёт ни с одной строкой и даст «Маршрут не найден» (#1780). На проде
+ * slug транслитерированы, поэтому пока не стреляло. Битая последовательность
+ * (`%E0` без пары) — оставляем как есть: decodeURIComponent бросает.
+ */
+function decodeSlug(raw: string): string {
+  try { return decodeURIComponent(raw); } catch { return raw; }
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
 
@@ -158,7 +168,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   // Individual route metadata — id может быть UUID или slug
-  const route = await getRoute(id);
+  const route = await getRoute(decodeSlug(id));
   if (!route) return { title: 'Маршрут не найден' };
   // Канонический URL — всегда по slug (если он есть), даже если пришли по UUID
   const canonicalId = route.slug ?? id;
@@ -252,7 +262,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
   // ── Individual route page (id = UUID или slug) ─────────────
   if (!id) notFound();
 
-  const route = await getRoute(id);
+  const route = await getRoute(decodeSlug(id));
   if (!route) notFound();
 
   // Точки маршрута по порядку — для itinerary в JSON-LD: без ItemList с
