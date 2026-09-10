@@ -7,7 +7,12 @@
  * evo-оркестрации, и он ещё пишет оператору напрямую. Держать те же проверки
  * в двух агентах = двойные алерты владельцу об одном событии. Rescue оставляет
  * за собой то, чего у Watchdog нет:
- *   1. Погодные угрозы для ближайших туров (Open-Meteo по зоне бронирования)
+ *   1. Погодные угрозы для ближайших туров (Open-Meteo по зоне бронирования).
+ *      С 10.09 рядом с детерминированным прогнозом считается согласие
+ *      ансамбля WeatherNext 2 (#1787): тревога называет уверенность, а
+ *      расхождение — когда один прогон спокоен, а половина членов ансамбля
+ *      видит опасность — стало отдельной тревогой. Прежде такой день был
+ *      неотличим от безоблачного.
  *   2. Операторы без бронирований >7 дней (сигнал оттока, severity info)
  *   3. Опасность по зонам — оценки крона danger-analysis (с 22.08.2026)
  *
@@ -26,6 +31,10 @@ import {
   ZONES, ZONE_NAMES, getZoneAssessment, getFullDangerSummary,
 } from '@/lib/agents/agencies/danger-analyst-agency';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { DANGEROUS_WMO_CODES, wmoHazardLabel } from '@/lib/weather/wmo-hazard';
+import {
+  fetchEnsembleOutlook, ensembleDayFor, describeEnsembleDay, hazardBreakdown,
+} from '@/lib/weather/ensemble';
 
 export interface RescueAlert {
   type: 'weather_threat' | 'operator_no_response' | 'zone_danger' | 'check_failed';
@@ -67,22 +76,16 @@ const ZONE_COORDS: Record<string, [number, number]> = {
   klyuchevskoy:  [56.05, 160.65],
 };
 
-// WMO коды опасной погоды
-const DANGEROUS_WEATHER = new Set([
-  63, 65,  // дождь
-  73, 75,  // снег
-  80, 81, 82,  // ливень
-  85, 86,  // снегопад
-  95, 96, 99,  // гроза
-]);
+// Коды опасной погоды и их названия переехали 10.09 в lib/weather/wmo-hazard:
+// тот же список читает вероятностный прогноз (lib/weather/ensemble), а список
+// в двух файлах — два списка, и они расходятся (§12).
 
-const WEATHER_LABELS: Record<number, string> = {
-  63: 'дождь', 65: 'сильный дождь',
-  73: 'снег', 75: 'сильный снег',
-  80: 'ливень', 81: 'сильный ливень', 82: 'шквал',
-  85: 'снегопад', 86: 'сильный снегопад',
-  95: 'гроза', 96: 'гроза с градом', 99: 'сильная гроза',
-};
+/**
+ * Доля членов ансамбля, при которой стоит сказать оператору о расхождении
+ * прогнозов. Половина — намеренно высоко: тревога, которая приходит на
+ * каждое «трое из шестидесяти трёх», перестаёт читаться.
+ */
+const DIVERGENCE_SHARE = 0.5;
 
 /**
  * Главный скан спасателя.
@@ -173,9 +176,17 @@ async function checkWeatherThreats(): Promise<CheckResult> {
       const forecast = await fetchWeatherForecast(coords[0], coords[1], 3);
       if (forecast.length <= daysAhead) continue;
 
+      // Вероятностный прогноз того же дня: ансамбль WeatherNext 2 (#1787).
+      // Он не заменяет детерминированный, а называет уверенность — и умеет
+      // сказать «не знаю» там, где один прогон говорит «дождя нет».
+      // Кэш внутри модуля: двадцать броней одной зоны — один запрос.
+      const outlook = await fetchEnsembleOutlook(coords[0], coords[1], 5);
+      const ensembleDay = ensembleDayFor(outlook, booking.booking_date);
+      const confidence = describeEnsembleDay(ensembleDay);
+
       const dayWeather = forecast[daysAhead];
-      if (DANGEROUS_WEATHER.has(dayWeather.weatherCode)) {
-        const weatherLabel = WEATHER_LABELS[dayWeather.weatherCode] ?? 'опасная погода';
+      if (DANGEROUS_WMO_CODES.has(dayWeather.weatherCode)) {
+        const weatherLabel = wmoHazardLabel(dayWeather.weatherCode) ?? 'опасная погода';
         alerts.push({
           type: 'weather_threat',
           severity: 'warning',
@@ -183,7 +194,26 @@ async function checkWeatherThreats(): Promise<CheckResult> {
           // Имя туриста в алерт не идёт: алерт уходит в Telegram, а находят
           // бронь по номеру. Оператору его достаточно, чтобы открыть карточку.
           body: `${booking.tour_title} — бронь #${booking.id} (${booking.participants} чел.)`,
-          action: `Предложить альтернативу или перенести. ${weatherLabel}, ветер ${dayWeather.windKmh} км/ч.`,
+          action: `Предложить альтернативу или перенести. ${weatherLabel}, `
+            + `ветер ${dayWeather.windKmh} км/ч. ${confidence}.`,
+        });
+        continue;
+      }
+
+      // Расхождение: основной прогон спокоен, а половина ансамбля и больше
+      // видит опасность. Раньше такой день был неотличим от безоблачного —
+      // угроза с вероятностью 0.6 доходила как «угроз нет».
+      if (ensembleDay && ensembleDay.share !== null
+          && ensembleDay.share >= DIVERGENCE_SHARE) {
+        const kinds = hazardBreakdown(ensembleDay);
+        alerts.push({
+          type: 'weather_threat',
+          severity: 'warning',
+          title: `Погода: прогнозы расходятся на ${formatDate(booking.booking_date)}`,
+          body: `${booking.tour_title} — бронь #${booking.id} (${booking.participants} чел.)`,
+          action: `Основной прогноз спокоен (${dayWeather.description}), но ${confidence}`
+            + `${kinds.length ? `. Виды угроз: ${kinds.join('; ')}` : ''}`
+            + '. Проверить план и запасной вариант с оператором.',
         });
       }
     }
