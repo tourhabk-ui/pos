@@ -28,6 +28,8 @@ export interface PushCopy {
   body: string;
 }
 
+import { alertGuidance } from '@/lib/safety/alert-guidance';
+
 /** Обрезка описания до размера, который переживёт уведомление на телефоне. */
 function short(text: string | null | undefined, limit = 100): string {
   const t = (text ?? '').trim();
@@ -113,6 +115,16 @@ export function pushCopy(params: {
         body: `${title}. Обойдите склон, не вставайте лагерем под ним.`,
       };
 
+    case 'bear':
+      // Инструкция — из alert-guidance, не своя: медвежья доктрина у платформы
+      // одна (tests/unit/bear-protocol-unified.test.ts), и второй экземпляр
+      // разошёлся бы с первой. Берём первый шаг: он про дистанцию, и это
+      // единственное, что помещается в пуш и не требует контекста.
+      return {
+        title: 'Медведи у людей — Камчатка',
+        body: `${title}. ${alertGuidance('bear').steps[0]}`,
+      };
+
     default:
       // Ни слова об инструкции. Мы не знаем, что это за опасность, и
       // придумывать действие человеку в поле не имеем права.
@@ -155,4 +167,5 @@ export function standDownCopy(zoneHumanName: string): PushCopy {
 export const PUSH_TYPES_WITH_INSTRUCTION = [
   'tsunami_warning', 'earthquake', 'volcanic_eruption', 'ash_cloud',
   'weather', 'flood', 'fire_danger', 'road_closure', 'avalanche', 'landslide',
+  'bear',
 ] as const;
