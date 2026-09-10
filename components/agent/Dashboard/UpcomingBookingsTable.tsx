@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { LoadingSpinner } from '../../admin/shared/LoadingSpinner';
 import { StatusBadge } from '../../admin/shared/StatusBadge';
 
@@ -84,12 +85,12 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
     return (
       <div className="text-center py-10">
         <p className="text-[var(--text-muted)] mb-4">Нет предстоящих бронирований</p>
-        <button
-          onClick={() => window.location.href = '/hub/agent/bookings'}
-          className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--bg-card)] font-bold rounded-lg transition-colors"
+        <Link
+          href="/hub/agent/bookings"
+          className="inline-block px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--bg-card)] font-bold rounded-lg transition-colors"
         >
           Создать бронирование
-        </button>
+        </Link>
       </div>
     );
   }
@@ -154,12 +155,12 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
       </div>
 
       <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--bg-card)]">
-        <button
-          onClick={() => window.location.href = '/hub/agent/bookings'}
+        <Link
+          href="/hub/agent/bookings"
           className="text-[var(--accent)] hover:text-[var(--accent)]/80 text-sm font-medium transition-colors"
         >
           Посмотреть все бронирования →
-        </button>
+        </Link>
       </div>
     </div>
   );

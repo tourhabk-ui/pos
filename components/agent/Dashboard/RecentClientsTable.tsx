@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { LoadingSpinner } from '../../admin/shared/LoadingSpinner';
 import { StatusBadge } from '../../admin/shared/StatusBadge';
 
@@ -79,12 +80,12 @@ export function RecentClientsTable({ limit = 5 }: RecentClientsTableProps) {
     return (
       <div className="text-center py-10">
         <p className="text-[var(--text-muted)] mb-4">У вас пока нет клиентов</p>
-        <button
-          onClick={() => window.location.href = '/hub/agent/clients'}
-          className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--bg-card)] font-bold rounded-lg transition-colors"
+        <Link
+          href="/hub/agent/clients"
+          className="inline-block px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--bg-card)] font-bold rounded-lg transition-colors"
         >
           Добавить первого клиента
-        </button>
+        </Link>
       </div>
     );
   }
@@ -150,12 +151,12 @@ export function RecentClientsTable({ limit = 5 }: RecentClientsTableProps) {
       </div>
 
       <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--bg-card)]">
-        <button
-          onClick={() => window.location.href = '/hub/agent/clients'}
+        <Link
+          href="/hub/agent/clients"
           className="text-[var(--accent)] hover:text-[var(--accent)]/80 text-sm font-medium transition-colors"
         >
           Посмотреть всех клиентов →
-        </button>
+        </Link>
       </div>
     </div>
   );

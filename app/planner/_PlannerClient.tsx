@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import dynamic from 'next/dynamic';
 import { Reorder, useDragControls } from 'framer-motion';
@@ -869,6 +869,7 @@ const MOOD_PRESETS: Record<string, { activities: string[]; places: string[] }> =
 
 export function PlannerClient({ initialUserId }: { initialUserId?: string | null }) {
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // Interest + date
   const [places, setPlaces]         = useState<string[]>(() => {
@@ -1018,7 +1019,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Save / update trip in DB (requires auth)
   const saveTrip = useCallback(async () => {
     if (!initialUserId) {
-      window.location.href = `/auth/login?from=/planner`;
+      router.push(`/auth/login?from=/planner`);
       return;
     }
     if (days.length === 0) return;
@@ -1067,10 +1068,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
-  }, [initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId]);
+  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId]);
 
   const shareTrip = useCallback(async () => {
-    if (!initialUserId) { window.location.href = `/auth/login?from=/planner`; return; }
+    if (!initialUserId) { router.push(`/auth/login?from=/planner`); return; }
     if (!tripId) { await saveTrip(); return; }
     setShareStatus('loading');
     try {
@@ -1083,7 +1084,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setShareStatus('error');
       setTimeout(() => setShareStatus('idle'), 3000);
     }
-  }, [initialUserId, tripId, saveTrip]);
+  }, [router, initialUserId, tripId, saveTrip]);
 
   const handleShareCopy = useCallback(async () => {
     if (!shareUrl) return;
