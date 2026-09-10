@@ -74,7 +74,9 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tour_id: tourId,
+          // id тура приходит из базы строкой (bigint); сервер тоже приводит,
+          // но форма обязана слать число сама (issue #1769).
+          tour_id: Number(tourId),
           ...formData,
           participants_count: participants,
         }),
@@ -82,9 +84,13 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
 
       const data: unknown = await res.json();
       if (!res.ok) {
-        const msg = typeof data === 'object' && data !== null && 'error' in data
+        const raw = typeof data === 'object' && data !== null && 'error' in data
           ? String((data as Record<string, unknown>).error)
-          : 'Не удалось создать бронирование';
+          : '';
+        // Туристу — только русский текст. Служебные сообщения валидатора
+        // (английские) заменяем на понятное, а причину оставляем консоли.
+        const msg = /[А-Яа-яЁё]/.test(raw) ? raw : 'Не удалось отправить заявку. Проверьте поля и попробуйте ещё раз.';
+        if (!/[А-Яа-яЁё]/.test(raw)) console.error('[BookingForm] отказ сервера', res.status, raw);
         throw new Error(msg);
       }
 
@@ -231,10 +237,14 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
               {formatPrice(totalPrice)}
             </p>
           </div>
+          {/* Без даты кнопка выключена — и обязана ВЫГЛЯДЕТЬ выключенной и
+              говорить почему: прогулка 10.09 нашла её оранжевой и молчащей
+              (issue #1780), человек жал и не понимал, что не так. */}
           <button
             type="submit"
             disabled={loading || !formData.booking_date}
-            className="ds-btn ds-btn-primary flex items-center gap-2 px-6"
+            aria-describedby={!formData.booking_date ? 'booking-submit-hint' : undefined}
+            className="ds-btn ds-btn-primary flex items-center gap-2 px-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
           >
             {loading ? (
               <span className="animate-spin rounded-full h-4 w-4 border border-white border-t-transparent" />
@@ -246,9 +256,15 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             )}
           </button>
         </div>
-        <p className="text-xs text-[var(--text-muted)]">
-          После создания заявки откроется страница бронирования с дальнейшими шагами. Оператор получит уведомление автоматически.
-        </p>
+        {!formData.booking_date ? (
+          <p id="booking-submit-hint" className="text-xs text-[var(--warning)]">
+            Сначала выберите дату заезда в календаре выше.
+          </p>
+        ) : (
+          <p className="text-xs text-[var(--text-muted)]">
+            После создания заявки откроется страница бронирования с дальнейшими шагами. Оператор получит уведомление автоматически.
+          </p>
+        )}
       </div>
     </form>
   );

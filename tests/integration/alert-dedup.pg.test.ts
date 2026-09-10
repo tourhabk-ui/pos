@@ -75,17 +75,13 @@ function externalAlertsDdl(): string {
   return `${block[0]}\n${m687}`;
 }
 
-/**
- * Время публикации — относительно «сейчас», а не календарная дата. Первая
- * редакция зашила `2026-09-09T10:00Z` при TTL 24 ч: до 10:00 UTC 10.09 тест
- * был зелёным, после — оригинал переставал быть «живым», дедуп честно
- * вставлял вторую строку, и три проверки покраснели на main без единой
- * правки в коде дедупа. Сторож, который протухает по часам, судит не код,
- * а дату прогона.
- */
-const HOUR_MS = 3_600_000;
-const PUBLISHED_AT = new Date(Date.now() - 2 * HOUR_MS);
-const PUBLISHED_LATER = new Date(Date.now() - 1 * HOUR_MS);
+// Даты — ОТНОСИТЕЛЬНО «сейчас», не литералом. Первая редакция (09.09) ставила
+// published_at = 2026-09-09T10:00Z при expires_hours 24: дедуп ищет живой
+// оригинал (`expires_at > NOW()`), и на следующий день после 10:00 UTC все
+// три проверки покраснели сами по себе — kernel-pg на main лёг без единой
+// правки кода (10.09). Тест с зашитой датой — бомба с часовым механизмом.
+const HOUR = 3_600_000;
+const PUBLISHED_AT = new Date(Date.now() - 3 * HOUR);
 
 function sampleEvent(overrides: Partial<SeismicEvent> = {}): SeismicEvent {
   return {
@@ -170,7 +166,7 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
 
     const later = sampleEvent({
       source_id: 't.me/kbgsras/pg-test-3',
-      published_at: PUBLISHED_LATER,
+      published_at: new Date(PUBLISHED_AT.getTime() + 10 * HOUR),
     });
     expect(await parser.saveEvent(later)).toBe('skipped');
 

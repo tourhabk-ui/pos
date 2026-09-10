@@ -132,8 +132,8 @@ type DifficultyValue = '' | 'easy' | 'medium' | 'hard';
 type KindValue      = 'place' | 'route';
 
 const KIND_TABS: { value: KindValue; label: string; desc: string }[] = [
-  { value: 'place', label: 'Места',    desc: 'природных мест и достопримечательностей' },
   { value: 'route', label: 'Маршруты', desc: 'пеших и автомобильных маршрутов' },
+  { value: 'place', label: 'Места',    desc: 'природных мест и достопримечательностей' },
 ];
 
 interface RoutesPageClientProps {
@@ -158,7 +158,8 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [kind, setKind] = useState<KindValue>(() => {
     if (lockedKind) return lockedKind;
     const k = searchParams.get('kind');
-    return (k === 'place' || k === 'route') ? k : 'place';
+    // Умолчание — маршруты, как и на сервере (app/routes/page.tsx, #1780).
+    return (k === 'place' || k === 'route') ? k : 'route';
   });
   const [query,        setQuery]        = useState(searchParams.get('q') ?? '');
   const [activityType, setActivityType] = useState(searchParams.get('activity_type') ?? '');
@@ -326,7 +327,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   // ── Sync URL ─────────────────────────────────────────────────
   useEffect(() => {
     const p = new URLSearchParams();
-    if (kind !== 'place')  p.set('kind', kind);
+    if (kind !== 'route')  p.set('kind', kind);
     if (query)             p.set('q', query);
     if (kind === 'route' && activityType) p.set('activity_type', activityType);
     if (kind === 'place' && locationType) p.set('location_type', locationType);
@@ -346,7 +347,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   // остаёмся в SPA-режиме без перезагрузки.
   const pageHref = (pg: number) => {
     const p = new URLSearchParams();
-    if (kind !== 'place')  p.set('kind', kind);
+    if (kind !== 'route')  p.set('kind', kind);
     if (query)             p.set('q', query);
     if (kind === 'route' && activityType) p.set('activity_type', activityType);
     if (kind === 'place' && locationType) p.set('location_type', locationType);

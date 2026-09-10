@@ -52,8 +52,10 @@ function first(v: string | string[] | undefined): string {
 export default async function RoutesPage({ searchParams }: PageProps) {
   const sp = await searchParams;
 
+  // По умолчанию — маршруты: адрес говорит /routes, а открывалась вкладка
+  // «Места» (#1780). Места — явным ?kind=place (так на них и ссылаются).
   const kindRaw = first(sp.kind);
-  const kind: 'place' | 'route' = kindRaw === 'route' ? 'route' : 'place';
+  const kind: 'place' | 'route' = kindRaw === 'place' ? 'place' : 'route';
   const q = first(sp.q).slice(0, 200);
   const activityType = kind === 'route' ? first(sp.activity_type).slice(0, 60) : '';
   const locationType = kind === 'place' ? first(sp.location_type).slice(0, 60) : '';

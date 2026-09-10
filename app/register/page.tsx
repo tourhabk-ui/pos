@@ -342,6 +342,18 @@ export default function RegisterRoutePage() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-6">
+        {/* Адрес /register читается как «регистрация аккаунта», а это заявка
+            маршрута в МЧС; турист, искавший вход, попадал сюда (#1780).
+            Говорим прямо и даём дорогу к аккаунту одним касанием. */}
+        {step === 1 && (
+          <p className="mb-5 text-xs text-[var(--text-secondary)] leading-relaxed">
+            Здесь регистрируют <span className="font-semibold text-[var(--text-primary)]">маршрут в МЧС</span> перед
+            выходом в поле. Нужен аккаунт на платформе?{' '}
+            <a href="/auth/login?mode=register" className="text-[var(--ocean)] underline underline-offset-2">
+              Регистрация аккаунта — на странице входа
+            </a>.
+          </p>
+        )}
         {/* Шаг 1: Маршрут */}
         {step === 1 && (
           <div className="space-y-4">

@@ -40,102 +40,6 @@ export async function getTouristProfile(userId: string): Promise<Record<string, 
 }
 
 /**
- * Update tourist statistics
- */
-export async function updateTouristStats(userId: string): Promise<void> {
-  try {
-    await query(
-      `UPDATE tourist_profiles tp
-       SET 
-         total_trips = (
-           SELECT COUNT(*) FROM tourist_trips WHERE tourist_id = tp.id AND status = 'completed'
-         ),
-         total_spent = (
-           SELECT COALESCE(SUM(COALESCE(b.final_price, b.base_total_price)), 0)
-           FROM operator_bookings b
-           JOIN tourist_trips tt ON tt.id = ANY(
-             SELECT trip_id FROM trip_bookings WHERE booking_id = b.id
-           )
-           WHERE tt.tourist_id = tp.id AND b.booking_status = 'confirmed' AND b.deleted_at IS NULL
-         )
-       WHERE tp.user_id = $1`,
-      [userId]
-    );
-  } catch (error) {
-  }
-}
-
-/**
- * Award achievement to tourist
- */
-export async function awardAchievement(
-  userId: string,
-  achievementType: string,
-  achievementName: string,
-  achievementDescription: string,
-  pointsEarned: number,
-  metadata: Record<string, unknown> = {}
-): Promise<boolean> {
-  try {
-    const profile = await getTouristProfile(userId);
-    if (!profile) return false;
-
-    await query(
-      `INSERT INTO tourist_achievements (tourist_id, achievement_type, achievement_name, achievement_description, points_earned, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (tourist_id, achievement_type) DO NOTHING`,
-      [profile.id, achievementType, achievementName, achievementDescription, pointsEarned, JSON.stringify(metadata)]
-    );
-
-    await query(
-      `UPDATE tourist_profiles
-       SET loyalty_points = loyalty_points + $1
-       WHERE id = $2`,
-      [pointsEarned, profile.id]
-    );
-
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
- * Check and award trip-based achievements
- */
-export async function checkTripAchievements(userId: string): Promise<void> {
-  try {
-    const profile = await getTouristProfile(userId);
-    if (!profile) return;
-
-    const tripCount = Number(profile.total_trips ?? 0);
-
-    const achievements = [
-      { type: 'first_trip', name: 'Первая поездка', description: 'Совершили первую поездку на Камчатку', threshold: 1, points: 100 },
-      { type: 'trips_5', name: '5 поездок', description: 'Совершили 5 поездок', threshold: 5, points: 500 },
-      { type: 'trips_10', name: '10 поездок', description: 'Совершили 10 поездок', threshold: 10, points: 1000 },
-      { type: 'trips_25', name: '25 поездок', description: 'Совершили 25 поездок', threshold: 25, points: 2500 },
-      { type: 'trips_50', name: '50 поездок', description: 'Совершили 50 поездок', threshold: 50, points: 5000 },
-      { type: 'trips_100', name: '100 поездок', description: 'Совершили 100 поездок', threshold: 100, points: 10000 }
-    ];
-
-    for (const achievement of achievements) {
-      if (tripCount >= achievement.threshold) {
-        await awardAchievement(
-          userId,
-          achievement.type,
-          achievement.name,
-          achievement.description,
-          achievement.points,
-          { trips_count: tripCount }
-        );
-      }
-    }
-  } catch (error) {
-  }
-}
-
-/**
  * Get expiring documents
  */
 export async function getExpiringDocuments(userId: string, daysBeforeExpiry: number = 30): Promise<Record<string, unknown>[]> {
@@ -207,83 +111,14 @@ export async function markDocumentReminderSent(documentId: string): Promise<void
 // лягут в реестр рядом с эко-стоками, а не константой в утилите профиля.
 
 /**
- * Get tourist travel stats
+ * getTouristTravelStats удалена 10.09.2026 вместе с updateTouristStats,
+ * awardAchievement, checkTripAchievements и validateTripData: все они стояли
+ * на tourist_trips / tourist_reviews / tourist_achievements — таблицах,
+ * которых нет ни в одной миграции и не было на проде (issue #1771), а их
+ * единственный читатель /api/tourist/trips не звался ни с одного экрана.
+ * Сводка кабинета теперь — lib/tourist/cabinet (настоящие таблицы, тест на
+ * настоящем PostgreSQL); эко-достижения — user_achievements, баллы — lib/eco.
  */
-export async function getTouristTravelStats(userId: string): Promise<Record<string, unknown> | null> {
-  try {
-    const profile = await getTouristProfile(userId);
-    if (!profile) return null;
-
-    const result = await query(
-      `SELECT
-        COUNT(DISTINCT tt.id) as total_trips,
-        COUNT(DISTINCT CASE WHEN tt.status = 'completed' THEN tt.id END) as completed_trips,
-        COUNT(DISTINCT CASE WHEN tt.status = 'upcoming' THEN tt.id END) as upcoming_trips,
-        COUNT(DISTINCT CASE WHEN tt.status = 'active' THEN tt.id END) as active_trips,
-        COALESCE(SUM(tt.actual_spent), 0) as total_spent,
-        COUNT(DISTINCT tr.id) as total_reviews,
-        COALESCE(AVG(tr.rating), 0) as average_rating_given,
-        COUNT(DISTINCT ta.id) as total_achievements,
-        COALESCE(SUM(ta.points_earned), 0) as total_points_earned,
-        COUNT(DISTINCT tw.id) as wishlist_count
-       FROM tourist_profiles tp
-       LEFT JOIN tourist_trips tt ON tt.tourist_id = tp.id
-       LEFT JOIN tourist_reviews tr ON tr.tourist_id = tp.id
-       LEFT JOIN tourist_achievements ta ON ta.tourist_id = tp.id
-       LEFT JOIN tourist_wishlist tw ON tw.tourist_id = tp.id
-       WHERE tp.user_id = $1
-       GROUP BY tp.id`,
-      [userId]
-    );
-
-    return result.rows[0];
-  } catch (error) {
-    return null;
-  }
-}
-
-/**
- * Validate trip data
- */
-export function validateTripData(data: {
-  tripName: string;
-  destination: string;
-  startDate: string;
-  endDate: string;
-  participants: number;
-}): { valid: boolean; errors: string[] } {
-  const errors: string[] = [];
-
-  if (!data.tripName || data.tripName.length < 3) {
-    errors.push('Укажите название поездки (минимум 3 символа)');
-  }
-
-  if (!data.destination || data.destination.length < 2) {
-    errors.push('Укажите место назначения');
-  }
-
-  const startDate = new Date(data.startDate);
-  const endDate = new Date(data.endDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  if (endDate < startDate) {
-    errors.push('Дата окончания должна быть позже даты начала');
-  }
-
-  if (!data.participants || data.participants < 1) {
-    errors.push('Укажите количество участников (минимум 1)');
-  }
-
-  if (data.participants > 50) {
-    errors.push('Максимальное количество участников: 50');
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors
-  };
-}
 
 /**
  * Validate document data

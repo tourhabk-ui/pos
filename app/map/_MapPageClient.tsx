@@ -653,19 +653,23 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             {/* Инлайн-панель экстренных номеров — офлайн-ветка единой кнопки:
                 без сети навигации не происходит вовсе, номера видны сразу. */}
             <EmergencyAction onOfflineFallback={() => setShowSos(true)} />
-            <button onClick={toggleTheme} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
+            {/* Зона нажатия 44px (DS §10): иконка 20px без поля — промах пальцем (#1780). */}
+            <button onClick={toggleTheme} className="w-11 h-11 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <Link href="/profile" className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" aria-label="Личный кабинет">
+            <Link href="/profile" className="w-11 h-11 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors" aria-label="Личный кабинет">
               <User size={20} />
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Фильтры по типу локации (ГДЕ) — z-[600] чтобы быть поверх Leaflet карты */}
-      <div className="relative z-[600] px-4 py-3 overflow-x-auto bg-[var(--bg-primary)]">
-        <div className="flex flex-wrap gap-2">
+      {/* Фильтры по типу локации (ГДЕ) — z-[600] чтобы быть поверх Leaflet карты.
+          На телефоне — одна прокручиваемая строка: двенадцать чипов в перенос
+          занимали 60 % первого экрана, карте оставалась треть (#1780); на
+          планшете и шире — перенос как раньше. Чипы не ниже 44px (DS §10). */}
+      <div className="relative z-[600] px-4 py-2 md:py-3 overflow-x-auto bg-[var(--bg-primary)]">
+        <div className="flex flex-nowrap md:flex-wrap gap-2 pb-1 md:pb-0">
           {LOCATION_FILTERS.map(f => {
             const cnt = countFor(f.id);
             if (f.id !== 'all' && cnt === 0) return null;
@@ -673,7 +677,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               <button
                 key={f.id}
                 onClick={() => setActiveFilter(f.id)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+                className={`min-h-[44px] px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap shrink-0 ${
                   activeFilter === f.id
                     ? 'bg-[var(--accent)] text-white'
                     : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border)]'

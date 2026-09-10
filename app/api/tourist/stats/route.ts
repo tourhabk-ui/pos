@@ -1,100 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
-import { getTouristProfile, getTouristTravelStats } from '@/lib/auth/tourist-helpers';
+import { getTouristProfile } from '@/lib/auth/tourist-helpers';
 import { getBalance } from '@/lib/eco/ledger';
+import {
+  touristTravelStats, tripsTimeline, categoryStats, recentReviews, upcomingTrips,
+} from '@/lib/tourist/cabinet';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/tourist/stats - Get comprehensive tourist statistics
+ * GET /api/tourist/stats — сводка кабинета туриста.
+ *
+ * До 10.09 читала tourist_trips и tourist_reviews — таблицы, которых нет ни в
+ * одной миграции и не было на проде: 500 на каждый вызов, а дашборд рисовал
+ * на 500 пустой кабинет (issue #1771). Теперь всё из настоящих таблиц через
+ * lib/tourist/cabinet; форма ответа сохранена — дашборд читает
+ * profile_summary / trips_timeline / category_stats / recent_reviews /
+ * upcoming_trips как раньше.
  */
 export async function GET(request: NextRequest) {
+  const userOrResponse = await requireAuth(request);
+  if (userOrResponse instanceof NextResponse) return userOrResponse;
+  const userId = userOrResponse.userId;
+
   try {
-    const userOrResponse = await requireAuth(request);
-    if (userOrResponse instanceof NextResponse) {
-      return userOrResponse;
-    }
+    const profile = await getTouristProfile(userId);
+    const profileId = profile && typeof profile.id === 'string' ? profile.id : null;
 
-    const profile = await getTouristProfile(userOrResponse.userId);
-    if (!profile) {
-      return NextResponse.json(
-        { success: false, error: 'Профиль не найден' } as ApiResponse<null>,
-        { status: 404 }
-      );
-    }
+    const [overview, timeline, categories, reviews, upcoming] = await Promise.all([
+      touristTravelStats(userId, profileId),
+      tripsTimeline(userId),
+      categoryStats(userId),
+      recentReviews(userId),
+      upcomingTrips(userId),
+    ]);
 
-    const travelStats = await getTouristTravelStats(userOrResponse.userId);
-
-    const tripsTimeline = await query(
-      `SELECT 
-        DATE_TRUNC('month', start_date) as month,
-        COUNT(*) as trips_count,
-        SUM(actual_spent) as total_spent
-       FROM tourist_trips
-       WHERE tourist_id = $1 AND status = 'completed'
-       GROUP BY DATE_TRUNC('month', start_date)
-       ORDER BY month DESC
-       LIMIT 12`,
-      [profile.id]
-    );
-
-    const categoryStats = await query(
-      `SELECT 
-        trip_type,
-        COUNT(*) as count,
-        AVG(actual_spent) as avg_spent
-       FROM tourist_trips
-       WHERE tourist_id = $1 AND status = 'completed'
-       GROUP BY trip_type
-       ORDER BY count DESC`,
-      [profile.id]
-    );
-
-    const recentReviews = await query(
-      `SELECT id, tourist_id, tour_id, rating, title, content, status, created_at, updated_at
-       FROM tourist_reviews WHERE tourist_id = $1 ORDER BY created_at DESC LIMIT 5`,
-      [profile.id]
-    );
-
-    const upcomingTrips = await query(
-      `SELECT id, trip_name, destination, start_date, end_date,
-              trip_type, budget, participants, notes, is_public, status, created_at
-       FROM tourist_trips WHERE tourist_id = $1 AND status IN ('planning', 'upcoming')
-       ORDER BY start_date ASC LIMIT 5`,
-      [profile.id]
-    );
-
-    // Эко — из реестра, а не из tourist_profiles.loyalty_points. Этот столбец
-    // оказался ЧЕТВЁРТЫМ независимым счётчиком баллов (после eco_ledger,
-    // loyalty_transactions и user_eco_points, сведённых 25.07): его копил
-    // awardAchievement своим UPDATE ... + N мимо правил эмиссии и лимитов.
-    // Витрина обязана показывать то же число, что кошелёк (/api/eco/wallet).
-    const ecoBalance = await getBalance(userOrResponse.userId).catch(() => 0);
+    // Эко — из реестра, а не из tourist_profiles.loyalty_points: витрина
+    // обязана показывать то же число, что кошелёк (/api/eco/wallet).
+    const ecoBalance = await getBalance(userId).catch(() => 0);
 
     return NextResponse.json({
       success: true,
       data: {
-        overview: travelStats,
+        overview,
         profile_summary: {
-          loyalty_tier: profile.loyalty_tier,
+          loyalty_tier: null,
           loyalty_points: ecoBalance,
-          total_trips: profile.total_trips,
-          total_spent: profile.total_spent,
-          average_rating: profile.average_rating,
-          member_since: profile.created_at
+          total_trips: overview.completed_trips,
+          total_spent: overview.total_spent,
+          average_rating: overview.average_rating_given,
+          member_since: profile?.created_at ?? null,
         },
-        trips_timeline: tripsTimeline.rows,
-        category_stats: categoryStats.rows,
-        recent_reviews: recentReviews.rows,
-        upcoming_trips: upcomingTrips.rows
-      }
+        trips_timeline: timeline,
+        category_stats: categories,
+        recent_reviews: reviews,
+        upcoming_trips: upcoming,
+      },
     } as ApiResponse<unknown>);
   } catch (error) {
+    const e = error as Error & { code?: string };
+    console.error('[tourist/stats] отказ базы', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
-      { success: false, error: 'Ошибка при получении статистики' } as ApiResponse<null>,
-      { status: 500 }
+      { success: false, error: 'Не удалось собрать статистику. Попробуйте обновить страницу.' } as ApiResponse<null>,
+      { status: 500 },
     );
   }
 }
