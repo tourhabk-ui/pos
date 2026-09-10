@@ -164,6 +164,11 @@ export default function TouristDashboardClient() {
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendedTour[]>([]);
+  // Отказ API и пустой ответ — разные состояния (§4.0): 500 на /api/bookings/my
+  // полтора месяца рисовался как «Бронирований пока нет» (#1770), а 500
+  // рекомендаций — как «появятся после первого бронирования» (#1772).
+  const [bookingsFailed, setBookingsFailed] = useState(false);
+  const [recsFailed, setRecsFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recsLoading, setRecsLoading] = useState(true);
   // Активная поездка — ТОТ ЖЕ источник, что у главной (auth-scoped
@@ -185,8 +190,15 @@ export default function TouristDashboardClient() {
       if (d.success) setStats(d.data);
     }
     if (bookingsRes.status === 'fulfilled') {
-      const d = await bookingsRes.value.json();
-      if (d.success) setBookings(d.data?.bookings?.slice(0, 5) ?? []);
+      const d = await bookingsRes.value.json().catch(() => null);
+      if (d?.success) {
+        setBookings(d.data?.bookings?.slice(0, 5) ?? []);
+        setBookingsFailed(false);
+      } else {
+        setBookingsFailed(true);
+      }
+    } else {
+      setBookingsFailed(true);
     }
     if (weatherRes.status === 'fulfilled') {
       const d = await weatherRes.value.json();
@@ -200,8 +212,15 @@ export default function TouristDashboardClient() {
     try {
       const res = await fetch('/api/tourist/recommendations?limit=6');
       const d = await res.json();
-      if (d.success) setRecommendations(d.data);
-    } catch { /* ignore */ }
+      if (d.success) {
+        setRecommendations(d.data);
+        setRecsFailed(false);
+      } else {
+        setRecsFailed(true);
+      }
+    } catch {
+      setRecsFailed(true);
+    }
     setRecsLoading(false);
   }, []);
 
@@ -375,7 +394,15 @@ export default function TouristDashboardClient() {
             Все <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        {bookings.length === 0 ? (
+        {bookingsFailed ? (
+          <div className="px-5 py-12 text-center">
+            <Calendar className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
+            <p className="text-sm text-[var(--danger)] mb-2">Не удалось загрузить бронирования</p>
+            <button type="button" onClick={() => { fetchAll(); }} className="text-sm text-[var(--accent)] hover:underline font-medium">
+              Попробовать снова
+            </button>
+          </div>
+        ) : bookings.length === 0 ? (
           <div className="px-5 py-12 text-center">
             <Calendar className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
             <p className="text-sm text-[var(--text-muted)] mb-2">Бронирований пока нет</p>
@@ -447,6 +474,8 @@ export default function TouristDashboardClient() {
               <RecommendationCard key={tour.id} tour={tour} />
             ))}
           </div>
+        ) : recsFailed ? (
+          <p className="text-sm text-[var(--danger)] py-8 text-center">Не удалось загрузить рекомендации</p>
         ) : (
           <p className="text-sm text-[var(--text-muted)] py-8 text-center">Рекомендации появятся после первого бронирования</p>
         )}

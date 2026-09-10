@@ -29,7 +29,9 @@ const bookingCreateLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 const DATE_PAST_MESSAGE = 'Выбранная дата уже прошла. Укажите будущую дату.';
 
 const BookingSchema = z.object({
-  tour_id:            z.number().positive({ message: 'Укажите тур' }),
+  // coerce: id тура — bigint, и pg отдаёт его строкой; форма шлёт то, что
+  // получила (#1769: 400 «expected number, received string» у всех заявок).
+  tour_id:            z.coerce.number().int().positive({ message: 'Укажите тур' }),
   tourist_name:       z.string().min(2, 'Имя: минимум 2 символа').max(255),
   tourist_email:      z.string().email('Неверный формат email').optional(),
   tourist_phone:      z.string().min(10, 'Телефон слишком короткий').max(20),
@@ -55,8 +57,13 @@ export async function POST(req: NextRequest) {
   const parsed = BookingSchema.safeParse(body);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
+    // Свои сообщения — русские; у ошибок типа Zod пишет по-английски, и
+    // турист видел «Invalid input: expected number…» (§4: понятные сообщения).
+    const message = first && first.code === 'invalid_type'
+      ? `Поле «${String(first.path?.[0] ?? '')}» заполнено неверно`
+      : first?.message ?? 'Неверные данные формы';
     return NextResponse.json(
-      { error: first?.message ?? 'Неверные данные формы', field: first?.path?.[0] },
+      { error: message, field: first?.path?.[0] },
       { status: 400 },
     );
   }
