@@ -19,8 +19,14 @@ const WF = readFileSync(join(process.cwd(), '.github/workflows/cron-scout-digest
 const EVO_WF = readFileSync(join(process.cwd(), '.github/workflows/cron-evo.yml'), 'utf-8');
 
 describe('у дайджеста своё расписание', () => {
-  it('workflow идёт по schedule', () => {
-    expect(WF).toMatch(/^\s+schedule:\n\s+- cron: '0 7,17 \* \* \*'/m);
+  it('workflow идёт по schedule: два прогона в сутки с интервалом 12 часов', () => {
+    // Часы не пишутся буквально: 10.09 утренний слот уведён из пика DeepSeek
+    // (07:00 → 05:03), и пиновать цифру значило бы краснеть на каждом таком
+    // переносе. Смысл решения 05.09 — «своё расписание, дважды в сутки».
+    const m = WF.match(/^\s+schedule:\n(?:\s*#[^\n]*\n)*\s+- cron: '(\d+) (\d+),(\d+) \* \* \*'/m);
+    expect(m, 'schedule с двумя часами не найден').not.toBeNull();
+    const [h1, h2] = [Number(m![2]), Number(m![3])];
+    expect(Math.abs(h2 - h1)).toBe(12);
   });
 
   it('ожидание своей сборки — только у запуска маркером', () => {
