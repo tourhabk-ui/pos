@@ -606,7 +606,15 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 | **Kuzmich** | Мультиканальный | Telegram, MAX, Web, Widget. Общий мозг: `lib/kuzmich/core.ts` |
 
 Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`, `evo/rescue-agent.ts`
-GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-rescue.yml` (`15,45 * * * *`), `cron-evo.yml` (эволюция, `13 17,20,23 * * *` — вне пика DeepSeek; окна пика записаны ОДИН раз в `lib/ai/deepseek-peak.ts`: 1:00–4:00 и 6:00–10:00 UTC по будням, уведомление 09.09; прежняя запись «16:30–00:30» стояла в четырёх файлах и устарела разом)
+GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-rescue.yml` (`15,45 * * * *`), `cron-evo.yml` (эволюция, `13 17,20,23 * * *` — вне пика DeepSeek; окна пика записаны ОДИН раз в `lib/ai/deepseek-peak.ts`: 1:00–4:00 и 6:00–10:00 UTC по будням, уведомление 09.09; прежняя запись «16:30–00:30» стояла в четырёх файлах и устарела разом).
+**Плановые AI-кроны стоят вне пика (10.09):** `cron-intelligence` (4,10,16,22),
+`cron-kuzmich-places` (00:33), `cron-scout-digest` (05:03/17:00), `evo-judge` (10:20),
+`eval-kuzmich` (пн 10:37) уведены из окон; в пике остаются только те, кому час
+диктует не цена — получасовые safety/очереди (`danger-analysis`, `leads`, `rescue`,
+`kernel-worker`, `health`, `tg-watchdog`) и посты с временем аудитории Камчатки
+(`tour-reminder` 06:00, `kuzmich` tour 07:23 / route 09:00 — по одной генерации).
+Сторож `tests/unit/cron-off-peak.test.ts`: новый AI-крон в пике краснеет, пока не
+внесён в список исключений с причиной; список может только сокращаться
 
 ### Система принятия решений AI (июль 2026) — Claude в репо должен это знать
 
