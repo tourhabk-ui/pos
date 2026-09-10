@@ -39,7 +39,9 @@ describe('у дайджеста своё расписание', () => {
     const entry = CRON_REGISTRY.find((e) => e.key === 'scout-digest');
     expect(entry).toBeTruthy();
     expect(entry!.workflow).toBe('cron-scout-digest.yml');
-    expect(entry!.cron).toBe('0 7,17 * * *');
+    // Выражение не пинуется: паритет реестра с workflow держит cron-registry-honesty,
+    // а интервал 12 часов — тест выше.
+    expect(entry!.cron).toMatch(/^\d+ \d+,\d+ \* \* \*$/);
     // agent_run_history пишет runScoutDigestJournaled под этим id — liveness честный.
     expect(entry!.agentId).toBe('scout-digest');
     expect(CRON_IDLE_MEANING['scout-digest']).toBe('unknown');

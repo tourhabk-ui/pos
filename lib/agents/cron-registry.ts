@@ -260,7 +260,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     // В прод ходит только за находками (evo-issues), сам ничего не пишет.
     key: 'evo-judge', label: 'Evo Judge',
     description: 'Разбор находок эволюции сильной моделью на раннере.',
-    workflow: 'evo-judge.yml', cron: '20 6 * * *', schedule: 'ежедневно · 06:20 UTC',
+    workflow: 'evo-judge.yml', cron: '20 10 * * *', schedule: 'ежедневно · 10:20 UTC',
     everyMin: DAY, tier: 'quality', agentId: null, triggerable: false,
   },
   {
@@ -290,7 +290,7 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'intelligence', label: 'Intelligence Monitor',
     description: 'Сигналы AI/тревел/конкуренты из RSS и поиска → Brain.',
-    workflow: 'cron-intelligence.yml', cron: '0 3,9,15,21 * * *', schedule: 'каждые 6 ч · 3/9/15/21 UTC',
+    workflow: 'cron-intelligence.yml', cron: '3 4,10,16,22 * * *', schedule: 'каждые 6 ч · 4/10/16/22 UTC',
     everyMin: 360, tier: 'growth', agentId: 'intelligence', triggerable: true,
   },
   // Scout-Innovator снят отсюда 29.08 (решение владельца): стадия переехала
@@ -306,7 +306,7 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'scout-digest', label: 'Scout Digest',
     description: '16 источников + safety-слой → AI-синтез → дайджест и пост в ИИ-канал.',
-    workflow: 'cron-scout-digest.yml', cron: '0 7,17 * * *', schedule: '2× в сутки · 07/17 UTC',
+    workflow: 'cron-scout-digest.yml', cron: '3 5,17 * * *', schedule: '2× в сутки · 05/17 UTC',
     everyMin: 720, tier: 'growth', agentId: 'scout-digest', triggerable: true,
   },
   {
@@ -374,7 +374,7 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'kuzmich-places', label: 'Kuzmich Place Reviews',
     description: 'Рецензии Кузьмича для мест (20/запуск).',
-    workflow: 'cron-kuzmich-places.yml', cron: '0 3 * * *', schedule: 'ежедневно · 03:00 UTC',
+    workflow: 'cron-kuzmich-places.yml', cron: '33 0 * * *', schedule: 'ежедневно · 00:33 UTC',
     everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
   },
   {
