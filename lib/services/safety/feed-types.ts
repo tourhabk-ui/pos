@@ -24,6 +24,10 @@ export const FEED_ALERT_TYPES = [
   'avalanche',
   'landslide',
   'weather',
+  // Медведи у людей (10.09, #1792). Раньше шли типом `info` и в ленту не
+  // попадали — при том, что это единственная тревога, которую турист на
+  // Камчатке встречает чаще, чем все остальные из этого списка вместе.
+  'bear',
 ] as const;
 
 export type FeedAlertType = (typeof FEED_ALERT_TYPES)[number];

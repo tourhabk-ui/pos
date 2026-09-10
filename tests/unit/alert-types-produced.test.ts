@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { classifyMchsItem } from '@/lib/services/safety/seismic-parser';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import { PUSH_TYPES_WITH_INSTRUCTION, pushCopy } from '@/lib/services/safety/push-copy';
+import { alertGuidance } from '@/lib/safety/alert-guidance';
 
 const classify = (text: string, title = '') =>
   classifyMchsItem('mchs/a', title, text, '2026-11-20T06:00:00Z', 'https://t.me/mchs41', 'tg_mchs');
@@ -83,6 +84,41 @@ describe('сход грунта без вулкана — landslide', () => {
     // слова «сель»; медвежья сводка остаётся тем, чем была.
     const ev = classify(VILLAGE);
     expect(ev?.alert_type).not.toBe('landslide');
+  });
+});
+
+// ── Медведи (10.09, #1792) ──────────────────────────────────────────────────
+// Дайджест 10.09: «В Петропавловске-Камчатском введён режим повышенной
+// готовности из-за участившихся выходов медведей». До этого дня ветка отдавала
+// `info` со severity 1 — до карточек доезжало, в ленту и пуш нет, а инструкция
+// для медведей из alert-guidance по типу `info` не подключалась.
+const BEAR_REGIME = `В Петропавловске-Камчатском введён режим повышенной готовности в связи с участившимися выходами медведей в городскую черту. Жителям и гостям города не подходить к животным, не кормить, о встречах сообщать по телефону 112.`;
+
+const BEAR_SIGHTING = `В районе Халактырского пляжа замечен медведь. Отдыхающим быть внимательными.`;
+
+describe('медведи у людей — свой тип, а не info', () => {
+  it('режим повышенной готовности — bear, severity 2: это решение властей о территории', () => {
+    const ev = classify(BEAR_REGIME);
+    expect(ev).not.toBeNull();
+    expect(ev!.alert_type).toBe('bear');
+    expect(ev!.severity, 'ниже двойки нет ни пуша, ни красного статуса').toBe(2);
+  });
+
+  it('одиночный выход — bear, severity 1: карточка предупредит, пуш на весь район не нужен', () => {
+    const ev = classify(BEAR_SIGHTING);
+    expect(ev!.alert_type).toBe('bear');
+    expect(ev!.severity).toBe(1);
+  });
+
+  it('тип доходит до ленты и до пуша', () => {
+    expect(FEED_ALERT_TYPES as readonly string[]).toContain('bear');
+    expect(PUSH_TYPES_WITH_INSTRUCTION as readonly string[]).toContain('bear');
+  });
+
+  it('пуш берёт инструкцию из alert-guidance, а не свою — доктрина одна', () => {
+    const copy = pushCopy({ alertType: 'bear', title: 'Медведи в городе' });
+    expect(copy.body).toContain(alertGuidance('bear').steps[0]);
+    expect(alertGuidance('bear').known).toBe(true);
   });
 });
 

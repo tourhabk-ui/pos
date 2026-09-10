@@ -21,7 +21,7 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
@@ -1129,10 +1129,23 @@ export function classifyMchsItem(
     severity = detectRoadRestriction(text)!.severity;
     expires_hours = 24 * 7;
   } else if (/медвед/.test(text) && /выход|вышел|вышли|замечен|населённ|населен|повышенн[а-яё]* готовност/.test(text)) {
-    // Медведи у людей — камчатская опасность номер один без своей категории:
-    // сводка Минтура 06.08 («в с. Соболево режим повышенной готовности в связи
-    // с выходом медведей в населённый пункт») не ловилась ни одной веткой.
-    alert_type = 'info'; severity = 1; expires_hours = 72;
+    // Медведи у людей — камчатская опасность номер один. До 10.09 ветка
+    // отдавала `info` со severity 1: сводка Минтура 06.08 («в с. Соболево
+    // режим повышенной готовности в связи с выходом медведей») доезжала до
+    // карточек маршрутов — и больше никуда. `info` не входит в ленту
+    // безопасности, пуша ниже двойки нет, а инструкция для медведей, давно
+    // написанная в lib/safety/alert-guidance.ts (`bear:`), по типу `info`
+    // не подключалась. Потребители были, производитель отдавал не тот тип —
+    // тот же провод в никуда, что у лавин (#1763). Живой случай — дайджест
+    // 10.09: режим повышенной готовности в Петропавловске (#1792).
+    //
+    // Severity: официальный РЕЖИМ повышенной готовности — 2 (это решение
+    // властей о территории, а не одиночная встреча; ниже двойки нет ни пуша,
+    // ни красного статуса). Одиночный выход или «замечен» — 1: карточка
+    // предупредит, будить пушем весь район из-за одного зверя не надо.
+    alert_type = 'bear';
+    severity = /повышенн[а-яё]* готовност/.test(text) ? 2 : 1;
+    expires_hours = 72;
   } else if (
     /вулкан/.test(text) &&
     // «не рекомендуется посещать вулканы …» и «передвижение в районах вулканов
