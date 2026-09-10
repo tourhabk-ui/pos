@@ -45,10 +45,11 @@ concurrency:
 jobs:
   crosscheck:
     runs-on: ubuntu-latest
-    # Ожидание своей сборки (scripts/wait-for-deploy.sh) — до 35 минут;
-    # 07.09 выкладка Timeweb шла 26. Пятнадцати минут не хватило бы по
-    # построению: job отменила бы себя раньше, чем прод обновился.
-    timeout-minutes: 45
+    # Ожидание своей сборки (scripts/wait-for-deploy.sh) — до 55 минут
+    # (ATTEMPTS ниже). 10.09 run 2 отсидел штатные 35 и не дождался: две
+    # сборки Timeweb встали в очередь подряд. Пятнадцати минут не хватило бы
+    # по построению: job отменила бы себя раньше, чем прод обновился.
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v7
 
@@ -82,6 +83,7 @@ jobs:
           WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           REQUIRE_FRESH: '1'
+          ATTEMPTS: '110'
         run: bash scripts/wait-for-deploy.sh
 
       - name: Сверка
