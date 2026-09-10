@@ -1,8 +1,9 @@
 {
-  "note": "Владелец 10.09: кроме Голубых озёр, в черте Петропавловска ещё озеро Синичкино стоит не на месте. place-audit по префиксу «Синич» (percent-encoded, урок пробы 461 — сырая кириллица даёт HTTP 400).",
+  "note": "Продолжение пробы 464: place-audit нашёл 'Озеро Синичкино' на 53.0814810,158.6914700 (описание: полчаса от города на машине, пресное, дно илистое, лес к воде). Независимая проверка через Nominatim — координата действительно рядом с Петропавловском?",
   "urls": [
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%A1%D0%B8%D0%BD%D0%B8%D1%87"
+    "https://nominatim.openstreetmap.org/search?q=%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%20%D0%A1%D0%B8%D0%BD%D0%B8%D1%87%D0%BA%D0%B8%D0%BD%D0%BE%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0&format=jsonv2&limit=10&addressdetails=1"
   ],
-  "bytes": 20000,
-  "timeout": 60
+  "ua": "Mozilla/5.0 (compatible; VedarPlaceCoordCheck/1.0; contact tourhabk@gmail.com)",
+  "bytes": 12000,
+  "timeout": 30
 }
