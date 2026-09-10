@@ -1,11 +1,8 @@
 {
-  "note": "Продолжение пробы 462: place-audit нашёл 'Голубые озёра' (lake) на 53.18919330,158.38225360 — это 0.42 км от центра Елизово, а не удалённое горное озеро (характер места по описанию: тропа на плато, бирюзовые чаши, осадок кальцита). 'Вид на долину Голубых озёр' (viewpoint) стоит в 17 км от этой точки на 53.16913750,158.12891320 — сам по себе координата правдоподобнее (запад от Елизово, в сторону вулканов), но без независимого источника это тоже не факт. Ищем независимую правду через OSM (Overpass — прямой запрос к БД OSM по имени в границах Камчатского края, не геокодер по названию) и Nominatim как перекрёстную проверку. Ничего не пишет, только читает.",
+  "note": "Владелец 10.09: кроме Голубых озёр, в черте Петропавловска ещё озеро Синичкино стоит не на месте. place-audit по префиксу «Синич» (percent-encoded, урок пробы 461 — сырая кириллица даёт HTTP 400).",
   "urls": [
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%0Aarea%5B%22name%22%3D%22%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BA%D1%80%D0%B0%D0%B9%22%5D-%3E.a%3B%0A%28%0A%20%20node%5B%22name%22~%22%D0%93%D0%BE%D0%BB%D1%83%D0%B1%22%5D%28area.a%29%3B%0A%20%20way%5B%22natural%22%3D%22water%22%5D%5B%22name%22~%22%D0%93%D0%BE%D0%BB%D1%83%D0%B1%22%5D%28area.a%29%3B%0A%20%20relation%5B%22natural%22%3D%22water%22%5D%5B%22name%22~%22%D0%93%D0%BE%D0%BB%D1%83%D0%B1%22%5D%28area.a%29%3B%0A%29%3B%0Aout%20center%2030%3B",
-    "https://nominatim.openstreetmap.org/search?q=%D0%93%D0%BE%D0%BB%D1%83%D0%B1%D1%8B%D0%B5%20%D0%BE%D0%B7%D1%91%D1%80%D0%B0%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0&format=jsonv2&limit=10&addressdetails=1",
-    "https://ru.wikipedia.org/w/index.php?search=%D0%93%D0%BE%D0%BB%D1%83%D0%B1%D1%8B%D0%B5+%D0%BE%D0%B7%D1%91%D1%80%D0%B0+%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0&fulltext=1"
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%A1%D0%B8%D0%BD%D0%B8%D1%87"
   ],
-  "ua": "Mozilla/5.0 (compatible; VedarPlaceCoordCheck/1.0; contact tourhabk@gmail.com)",
-  "bytes": 12000,
-  "timeout": 30
+  "bytes": 20000,
+  "timeout": 60
 }
