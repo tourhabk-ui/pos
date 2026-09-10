@@ -69,7 +69,7 @@ async function getSimilarUsersRecommendations(
                                 AND b3.booking_status IN ('confirmed', 'completed')
                                 AND b3.deleted_at IS NULL
        JOIN operator_tours t ON t.id = b3.operator_tour_id
-                            AND t.id != ALL($2::text[])
+                            AND t.id != ALL($2::bigint[])
                             AND t.is_active = true
                             AND t.deleted_at IS NULL
                             AND ($4::text IS NULL OR t.activity_type = $4)
@@ -127,7 +127,7 @@ async function getContentBasedRecommendations(
          MODE() WITHIN GROUP (ORDER BY activity_type)            AS top_category,
          MODE() WITHIN GROUP (ORDER BY difficulty)               AS top_difficulty
        FROM operator_tours
-       WHERE id = ANY($1::text[])
+       WHERE id = ANY($1::bigint[])
          AND deleted_at IS NULL`,
       [bookedTourIds]
     );
@@ -149,7 +149,7 @@ async function getContentBasedRecommendations(
          rating,
          photos AS images
        FROM operator_tours
-       WHERE id != ALL($1::text[])
+       WHERE id != ALL($1::bigint[])
          AND is_active = true
          AND deleted_at IS NULL
          AND (
@@ -173,6 +173,10 @@ async function getContentBasedRecommendations(
       strategyLabel: STRATEGY_LABELS.TOUR_CONTENT,
     }));
   } catch (err) {
+    // Ловим, но не молчим (§4.0): text[] против bigint падало на каждом вызове.
+    console.error('[tour-recommend] TOUR_CONTENT не выполнен:',
+      err instanceof Error ? err.message : err,
+      (err as { code?: string })?.code ?? '');
     return [];
   }
 }
@@ -195,7 +199,7 @@ async function getEcoOptimizedRecommendations(
     let categoryFilter = '';
     if (bookedTourIds.length > 0) {
       const cats = await query<{ category: string }>(
-        `SELECT DISTINCT activity_type AS category FROM operator_tours WHERE id = ANY($1::text[]) AND activity_type IS NOT NULL AND deleted_at IS NULL LIMIT 3`,
+        `SELECT DISTINCT activity_type AS category FROM operator_tours WHERE id = ANY($1::bigint[]) AND activity_type IS NOT NULL AND deleted_at IS NULL LIMIT 3`,
         [bookedTourIds]
       );
       if (cats.rows.length > 0) {
@@ -216,7 +220,7 @@ async function getEcoOptimizedRecommendations(
          rating,
          photos AS images, eco_points_reward
        FROM operator_tours
-       WHERE id != ALL($1::text[])
+       WHERE id != ALL($1::bigint[])
          AND is_active = true
          AND deleted_at IS NULL
          AND eco_points_reward IS NOT NULL
@@ -252,8 +256,11 @@ export async function getRecommendations(
   category?: string
 ): Promise<RecommendedTour[]> {
   // Получаем последние 5 бронирований пользователя
+  // operator_tour_id, не tour_id: колонки tour_id у operator_bookings нет, и
+  // рекомендации падали до первой стратегии (#1772). Id — bigint, pg отдаёт
+  // строкой; ниже он всегда приводится к bigint[], не к text[].
   const bookingsResult = await query<{ tour_id: string }>(
-    `SELECT tour_id FROM operator_bookings
+    `SELECT operator_tour_id AS tour_id FROM operator_bookings
      WHERE user_id = $1
        AND booking_status IN ('confirmed', 'completed')
        AND deleted_at IS NULL

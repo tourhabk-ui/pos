@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       pool.query<CategoryRow>(
         `SELECT category, count(*)::text AS cnt
          FROM external_tools WHERE verified = TRUE
-         GROUP BY category ORDER BY cnt::int DESC`,
+         GROUP BY category ORDER BY count(*) DESC`,
       ),
     ]);
 
@@ -63,6 +63,13 @@ export async function GET(request: NextRequest) {
       categories: catsRes.rows.map(r => ({ category: r.category, count: parseInt(r.cnt, 10) })),
     });
   } catch (error) {
+    // ORDER BY по псевдониму агрегата падал на каждом вызове, а молчащий
+    // catch выдавал это за отказ каталога (#1773). Имя и SQLSTATE — в лог.
+    console.error(
+      '[tools] запрос не выполнен:',
+      (error as { code?: string })?.code ?? '',
+      error instanceof Error ? error.message : error,
+    );
     return NextResponse.json(
       { error: 'Ошибка загрузки инструментов' },
       { status: 500 }
