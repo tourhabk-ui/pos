@@ -1,0 +1,6 @@
+{
+  "note": "Маркер запускает places-osm-crosscheck.yml при пуше в main. min_sim — порог pg_trgm.similarity() (0..1), part — summary|items|both. Меняйте run, чтобы прогон был новым.",
+  "run": 1,
+  "min_sim": 0.3,
+  "part": "both"
+}
