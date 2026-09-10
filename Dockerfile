@@ -53,6 +53,25 @@ ENV WEBPACK_PARALLELISM=1
 # Сборка идёт с веткой — в HEAD `ref: refs/heads/main`, sha не находился, и
 # маркер был `unknown` ВСЕГДА. Из-за этого шаг «Verify deploy reached
 # production» падал на каждом деплое, а «доехало ли» оставалось неизвестным.
+#
+# 10.09 (#1762): на проде маркер по-прежнему отвечает `no_git_head` — значит
+# `.git` не доезжает до `COPY . .` вовсе (контекст сборки Timeweb — архив, а
+# не клон), и обе прежние починки к этому отношения не имеют. Поэтому sha
+# спрашивается сперва у ОКРУЖЕНИЯ сборки: переменная переживает и архив.
+#
+# Внутрь сборки Docker передаёт только объявленные ARG — необъявленный
+# --build-arg молча игнорируется. Отсюда список ниже: имена те же, что в
+# SHA_ENV_NAMES (scripts/write-version.js), паритет держит сторож
+# tests/unit/build-sha-source.test.ts. Незаданный ARG — просто пустая
+# переменная, сборку он не ломает; какие ПРИШЛИ, видно в env_probe маркера.
+ARG BUILD_COMMIT_SHA
+ARG SOURCE_COMMIT
+ARG GIT_COMMIT
+ARG COMMIT_SHA
+ARG GIT_SHA
+ARG VCS_REF
+ARG CI_COMMIT_SHA
+ARG GITHUB_SHA
 RUN node scripts/write-version.js
 
 # Вызываем локальный бинарь next напрямую, а НЕ через npx: npx при неполном
