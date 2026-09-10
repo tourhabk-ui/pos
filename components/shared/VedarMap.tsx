@@ -40,7 +40,7 @@ import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
-import { placeMarkerSvg, PLACE_MARKER_SIZE } from '@/lib/map/place-marker-icons';
+import { placeMarkerSvg, PLACE_MARKER_SIZE, PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
 import { parsePlaceIconImageId, rasterizePlaceIcon, PLACE_ICON_PIXEL_RATIO } from '@/lib/map/place-icon-raster';
 import { Minus, Plus } from 'lucide-react';
 /**
@@ -666,15 +666,18 @@ export default function VedarMap({
           const parsed = parsePlaceIconImageId(id);
           if (!parsed) return;
           missingIconRequests.add(id);
-          const hex = parsed.hazardous ? palette.cliff : palette.peak;
-          // Кромка — фон карты, не белый: белая кромка на светлой теме и
-          // тёплая заливка маркера на тёплой ступени гипсометрии — два
-          // независимых слияния, и оба дают один и тот же жалобный эффект
-          // «точку не видно на своей же горе» (владелец 07.09, «цвета
-          // геоточек не отличаются от цветов высот»). `p.background`
-          // гипсометрия не красит никогда — контраст гарантирован ступенью,
-          // а не подбором цвета на глаз.
-          const svg = placeMarkerSvg(hex, parsed.kind, palette.background);
+          // Заливка — по КАТЕГОРИИ места (владелец 10.09: «разделять
+          // цветами по фильтрам»), один источник на обе карты
+          // (lib/map/place-marker-icons.ts, PLACE_KIND_COLOR). Опасность
+          // (`hazard_types` не пуст) теперь красит не заливку, а КРОМКУ —
+          // иначе вулкан с записанным профилем терял бы свой
+          // «вулканический» цвет и становился неотличим от источника.
+          const hex = PLACE_KIND_COLOR[parsed.kind] ?? PLACE_KIND_COLOR.other;
+          // Некритичная кромка — фон карты (контраст с любой ступенью
+          // гипсометрии, владелец 07.09: «цвета геоточек не отличаются от
+          // цветов высот»); опасная — цвет тревоги, тот же, что у обрыва.
+          const halo = parsed.hazardous ? palette.cliff : palette.background;
+          const svg = placeMarkerSvg(hex, parsed.kind, halo);
           rasterizePlaceIcon(svg, PLACE_MARKER_SIZE.width, PLACE_MARKER_SIZE.height)
             .then((img) => {
               if (cancelled || map.hasImage(id)) return;

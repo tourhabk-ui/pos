@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { placeMarkerSvg, PLACE_MARKER_KINDS, PLACE_MARKER_SIZE } from '@/lib/map/place-marker-icons';
+import { placeMarkerSvg, PLACE_MARKER_KINDS, PLACE_MARKER_SIZE, PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
 
 const LEAFLET = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf-8');
 const MAP_CLIENT = readFileSync(join(process.cwd(), 'app/map/_MapPageClient.tsx'), 'utf-8');
@@ -59,16 +59,21 @@ describe('placeMarkerSvg', () => {
    * settlement, valley и cave были подписаны словом в обоих словарях, но
    * падали на общую форму — сторож ловит эту рассинхронизацию впредь,
    * читая ключи прямо из словарей, а не переписывая их список руками.
+   *
+   * LOCATION_TYPE_CONFIG (/map) убран 10.09 — стал мёртвым кодом после
+   * удаления панели «Маршрут», которая была единственным его читателем.
+   * Реестр категорий фильтра теперь только один — LOCATION_FILTERS.
    */
-  it('каждый ключ LOCATION_TYPE_CONFIG (/map) имеет свою форму', () => {
+  it('каждый location_type-фильтр LOCATION_FILTERS (/map) имеет свою форму', () => {
     const block = MAP_CLIENT.slice(
-      MAP_CLIENT.indexOf('const LOCATION_TYPE_CONFIG'),
-      MAP_CLIENT.indexOf('};', MAP_CLIENT.indexOf('const LOCATION_TYPE_CONFIG')),
+      MAP_CLIENT.indexOf('const LOCATION_FILTERS'),
+      MAP_CLIENT.indexOf('];', MAP_CLIENT.indexOf('const LOCATION_FILTERS')),
     );
-    const keys = [...block.matchAll(/^\s*(\w+):\s*\{ label:/gm)].map((m) => m[1]);
-    expect(keys.length).toBeGreaterThan(10);
-    for (const kind of keys) {
-      if (kind === 'other') continue;
+    const ids = [...block.matchAll(/id:\s*'([\w:]+)',\s*label:/g)]
+      .map((m) => m[1])
+      .filter((id) => id !== 'all' && !id.startsWith('activity:'));
+    expect(ids.length).toBeGreaterThan(10);
+    for (const kind of ids) {
       expect(PLACE_MARKER_KINDS, kind).toContain(kind);
     }
   });
@@ -125,5 +130,35 @@ describe('LeafletMap — использует общий источник фор
 
   it('своей копии набора иконок больше нет', () => {
     expect(LEAFLET).not.toMatch(/function markerSvgIcons/);
+  });
+});
+
+/**
+ * PLACE_KIND_COLOR — владелец 10.09: «разделять цветами места по фильтрам».
+ * Единый источник заливки на обе карты (см. vedar-map-place-icons.test.ts
+ * для VedarMap; LeafletMap получает готовый hex через marker.color, собранный
+ * в app/map/_MapPageClient.tsx).
+ */
+describe('PLACE_KIND_COLOR — заливка по категории', () => {
+  const PRIMARY_FILTER_KINDS = [
+    'volcano', 'hot_spring', 'bay', 'lake', 'mountain', 'river', 'geyser',
+    'waterfall', 'viewpoint', 'rock', 'island', 'beach', 'forest', 'museum',
+    'historical',
+  ];
+
+  it('у каждой из 15 категорий фильтра /map есть свой hex', () => {
+    for (const kind of PRIMARY_FILTER_KINDS) {
+      expect(PLACE_KIND_COLOR[kind], kind).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    }
+  });
+
+  it('15 категорий фильтра — 15 РАЗНЫХ цветов, иначе «разделять цветами» не читается глазом', () => {
+    const colors = PRIMARY_FILTER_KINDS.map((k) => PLACE_KIND_COLOR[k]);
+    expect(new Set(colors).size).toBe(PRIMARY_FILTER_KINDS.length);
+  });
+
+  it('неизвестная категория — падает на other, не на undefined', () => {
+    expect(PLACE_KIND_COLOR.other).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    expect(PLACE_KIND_COLOR['бигфут']).toBeUndefined();
   });
 });

@@ -31,7 +31,11 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
     return this.props.children;
   }
 }
-import { Sun, Moon, User, X, ArrowRight, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle } from 'lucide-react';
+import {
+  Sun, Moon, User, X, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle,
+  Sparkles, Flame, Droplet, Anchor, Waves, Mountain, Droplets, Zap, CloudRain, Binoculars, Gem,
+  Palmtree, Umbrella, TreePine, Landmark, History, Home,
+} from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
 import Logo from '@/components/shared/Logo';
@@ -39,6 +43,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
+import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
 import type { VedarMapPlaceHit } from '@/components/shared/VedarMap';
 import { trackLine } from '@/lib/map/line-standard';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
@@ -64,60 +69,44 @@ const VedarMap = dynamic(() => import('@/components/shared/VedarMap'), {
 const PlaceMapSheet = dynamic(() => import('@/components/map/PlaceMapSheet').then(m => ({ default: m.PlaceMapSheet })), { ssr: false });
 const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip').then(m => ({ default: m.MapWeatherChip })), { ssr: false });
 
-// ГДЕ — типы локаций с цветами и иконками на карте
-const LOCATION_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
-  volcano:      { label: 'Вулканы',       color: 'orange' },
-  geyser:       { label: 'Гейзеры',       color: 'green' },
-  hot_spring:   { label: 'Источники',     color: 'red' },
-  lake:         { label: 'Озёра',         color: 'lightBlue' },
-  mountain:     { label: 'Горы',          color: 'darkBlue' },
-  river:        { label: 'Реки',          color: 'teal' },
-  bay:          { label: 'Океан',         color: 'darkCyan' },
-  waterfall:    { label: 'Водопады',      color: 'blue' },
-  cape:         { label: 'Мысы',          color: 'gray' },
-  island:       { label: 'Острова',       color: 'purple' },
-  rock:         { label: 'Скалы',         color: 'brown' },
-  forest:       { label: 'Леса и парки',  color: 'darkGreen' },
-  beach:        { label: 'Пляжи',         color: 'orange' },
-  viewpoint:    { label: 'Смотровые',     color: 'cyan' },
-  settlement:   { label: 'Сёла',          color: 'gray' },
-  museum:       { label: 'Музеи',         color: 'purple' },
-  historical:   { label: 'История',       color: 'brown' },
-  other:        { label: 'Прочее',        color: 'gray' },
-};
-
-// Основные фильтры для UI (без мусорных типов)
-// id начинающийся с 'activity:' — фильтр по activity_type
+// Основные фильтры для UI (без мусорных типов). id начинающийся с
+// 'activity:' — фильтр по activity_type, не по location_type.
+//
+// Своя иконка на чипсе (владелец 10.09: «сделать для каждой группы мест
+// свою иконку») — до этой правки все 15 категорий делили один MapPin, и
+// фильтр-панель не отличалась от списка ссылок. Цвет группы — на самой
+// карте (lib/map/place-marker-icons.ts, PLACE_KIND_COLOR), здесь остаётся
+// форма: другой набор виджетов, тот же принцип «своё лицо на категорию».
 const LOCATION_FILTERS = [
   { id: 'all',                  label: 'Все',            icon: Target },
-  { id: 'activity:esoteric',    label: 'Места силы',     icon: MapPin },
-  { id: 'volcano',              label: 'Вулканы',        icon: MapPin },
-  { id: 'hot_spring',           label: 'Источники',      icon: MapPin },
-  { id: 'bay',                  label: 'Океан',          icon: MapPin },
-  { id: 'lake',                 label: 'Озёра',          icon: MapPin },
-  { id: 'mountain',             label: 'Горы',           icon: MapPin },
-  { id: 'river',                label: 'Реки',           icon: MapPin },
-  { id: 'geyser',               label: 'Гейзеры',        icon: MapPin },
-  { id: 'waterfall',            label: 'Водопады',       icon: MapPin },
-  { id: 'viewpoint',            label: 'Смотровые',      icon: MapPin },
-  { id: 'rock',                 label: 'Скалы',          icon: MapPin },
-  { id: 'island',               label: 'Острова',        icon: MapPin },
-  { id: 'beach',                label: 'Пляжи',          icon: MapPin },
-  { id: 'forest',               label: 'Леса и парки',   icon: MapPin },
-  { id: 'museum',               label: 'Музеи',          icon: MapPin },
-  { id: 'historical',           label: 'История',        icon: MapPin },
+  { id: 'activity:esoteric',    label: 'Места силы',     icon: Sparkles },
+  { id: 'volcano',              label: 'Вулканы',        icon: Flame },
+  { id: 'hot_spring',           label: 'Источники',      icon: Droplet },
+  { id: 'bay',                  label: 'Океан',          icon: Anchor },
+  { id: 'lake',                 label: 'Озёра',          icon: Waves },
+  { id: 'mountain',             label: 'Горы',           icon: Mountain },
+  { id: 'river',                label: 'Реки',           icon: Droplets },
+  { id: 'geyser',                label: 'Гейзеры',       icon: Zap },
+  { id: 'waterfall',            label: 'Водопады',       icon: CloudRain },
+  { id: 'viewpoint',            label: 'Смотровые',      icon: Binoculars },
+  { id: 'rock',                 label: 'Скалы',          icon: Gem },
+  { id: 'island',               label: 'Острова',        icon: Palmtree },
+  { id: 'beach',                label: 'Пляжи',          icon: Umbrella },
+  { id: 'forest',               label: 'Леса и парки',   icon: TreePine },
+  { id: 'museum',               label: 'Музеи',          icon: Landmark },
+  { id: 'historical',           label: 'История',        icon: History },
 ];
 
 // Фильтры для офлайн-режима (только критичные для безопасности)
 const OFFLINE_FILTERS = [
   { id: 'all',        label: 'Все',          icon: Target },
-  { id: 'settlement', label: 'Посёлки',      icon: MapPin },
-  { id: 'hot_spring', label: 'Источники',    icon: MapPin },
-  { id: 'volcano',    label: 'Вулканы',      icon: MapPin },
-  { id: 'river',      label: 'Реки',         icon: MapPin },
-  { id: 'lake',       label: 'Озёра',        icon: MapPin },
-  { id: 'mountain',   label: 'Горы',         icon: MapPin },
-  { id: 'forest',     label: 'Лес',          icon: MapPin },
+  { id: 'settlement', label: 'Посёлки',      icon: Home },
+  { id: 'hot_spring', label: 'Источники',    icon: Droplet },
+  { id: 'volcano',    label: 'Вулканы',      icon: Flame },
+  { id: 'river',      label: 'Реки',         icon: Droplets },
+  { id: 'lake',       label: 'Озёра',        icon: Waves },
+  { id: 'mountain',   label: 'Горы',         icon: Mountain },
+  { id: 'forest',     label: 'Лес',          icon: TreePine },
 ];
 
 // Module-level constants — stable references across renders, never trigger LeafletMap useEffect
@@ -192,7 +181,6 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   const [allRoutes, setAllRoutes] = useState<RoutePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   // Место, открытое тапом по своей карте (владелец 06.09, «замкнуть /map на
   // VedarMap»): своя карта отдаёт готовое место слоем vedar-places, а не id
@@ -229,24 +217,15 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   // tel: ссылки работают через мобильную сеть, интернет НЕ нужен.
   const SOS_CONTACTS = EMERGENCY_NUMBERS;
 
-  const selectedRoute = selectedId ? allRoutes.find(r => r.id === selectedId) ?? null : null;
   const selectedPlaceData = selectedPlaceId ? allRoutes.find(r => r.id === selectedPlaceId) ?? null : null;
 
-  // Stable ref so handleMarkerClick never changes identity — prevents LeafletMap from
-  // tearing down and recreating the map whenever allRoutes updates (chunked tile loading
-  // would be interrupted, leaving 0 markers visible).
-  const allRoutesRef = useRef(allRoutes);
-  useEffect(() => { allRoutesRef.current = allRoutes; }, [allRoutes]);
-
+  // Владелец 10.09: «никаких активностей маршрутов и туров на этой карте» —
+  // /map зовёт /api/routes?kind=place, значит каждая точка здесь ЕСТЬ место
+  // (locationType, при отсутствии типа — 'other', не «неизвестная сущность»).
+  // Прежняя ветка «нет типа → это маршрут» открывала панель «Маршрут» со
+  // ссылкой на /routes/[id] для id МЕСТА — тот же id, только не туда.
   const handleMarkerClick = useCallback((id: string) => {
-    const point = allRoutesRef.current.find(r => r.id === id);
-    if (point && point.locationType && point.locationType !== 'other') {
-      setSelectedPlaceId(id);
-      setSelectedId(null);
-    } else {
-      setSelectedId(id);
-      setSelectedPlaceId(null);
-    }
+    setSelectedPlaceId(id);
   }, []);
 
   // Ref for throttling userPos updates — only update state if moved >10m
@@ -396,10 +375,9 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
 
   // Маркеры с расстояниями (в офлайн-режиме)
   const mapMarkers = useMemo(() => filtered.map(r => {
-    const cfg = LOCATION_TYPE_CONFIG[r.locationType ?? 'other'] ?? LOCATION_TYPE_CONFIG.other;
     const baseColor = r.locationType === 'volcano' && r.volcanoStatus
-      ? (VOLCANO_STATUS_COLOR[r.volcanoStatus] ?? cfg.color)
-      : cfg.color;
+      ? (VOLCANO_STATUS_COLOR[r.volcanoStatus] ?? PLACE_KIND_COLOR.volcano)
+      : (PLACE_KIND_COLOR[r.locationType ?? 'other'] ?? PLACE_KIND_COLOR.other);
     const color = (activeFilter === 'activity:esoteric' && r.activityType === 'esoteric')
       ? 'purple'
       : baseColor;
@@ -648,68 +626,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           />
         )}
 
-        {/* Панель выбранного маршрута */}
         {/* Геофенс-предупреждение */}
         {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
         {/* UGC-геотриггер: отчёт о безопасности от туриста у точки */}
         {!breach && nearbyPlace && (
           <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />
-        )}
-
-        {selectedRoute && (
-          <div
-            className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/80  border border-white/20 shadow-2xl"
-            style={{ animation: 'slideUp 0.2s ease-out' }}
-          >
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-[var(--accent)]" />
-                    <span className="text-[10px] text-white/50 uppercase tracking-wide">
-                      {LOCATION_TYPE_CONFIG[selectedRoute.locationType ?? 'other']?.label ?? 'Маршрут'}
-                    </span>
-                  </div>
-                  <h3 className="font-semibold text-white leading-snug"
-                      style={{ fontFamily: 'var(--font-playfair)' }}>
-                    {selectedRoute.title}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setSelectedId(null)}
-                  className="flex-shrink-0 p-1 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Расстояние от пользователя */}
-              {userPos && (
-                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-white/5">
-                  <Navigation className="w-4 h-4 text-[var(--ocean)]" />
-                  <span className="text-sm text-white font-bold">
-                    {formatDistance(haversineDistance(userPos.lat, userPos.lng, selectedRoute.lat, selectedRoute.lng))}
-                  </span>
-                  <span className="text-xs text-white/40">от вас</span>
-                </div>
-              )}
-
-              {selectedRoute.description && (
-                <p className="text-sm text-white/60 leading-relaxed line-clamp-3 mb-4">
-                  {selectedRoute.description.split('\n')[0]}
-                </p>
-              )}
-
-              <Link
-                href={`/routes/${selectedRoute.id}`}
-                className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg
-                  bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                Открыть маршрут
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-          </div>
         )}
       </div>
     );
@@ -897,67 +818,6 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             : null
           }
         />
-      )}
-
-      {/* ── Панель маршрута ─────────────────────────────────────────────── */}
-      {selectedRoute && (
-        <div
-          className="fixed bottom-[5.5rem] left-2 right-2 rounded-xl md:bottom-4 md:right-4 md:left-auto md:w-96 z-[500]
-            bg-[var(--bg-card)] border border-[var(--border)] shadow-2xl"
-          style={{ animation: 'slideUp 0.2s ease-out' }}
-        >
-          <div className="p-4">
-            {/* Шапка */}
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-[var(--accent)]" />
-                  <span className="text-xs text-[var(--text-muted)] uppercase tracking-wide">
-                    {LOCATION_TYPE_CONFIG[selectedRoute.locationType ?? 'other']?.label ?? 'Маршрут'}
-                  </span>
-                </div>
-                <h3 className="font-semibold text-[var(--text-primary)] leading-snug"
-                    style={{ fontFamily: 'var(--font-playfair)' }}>
-                  {selectedRoute.title}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedId(null)}
-                className="flex-shrink-0 p-1 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Расстояние */}
-            {userPos && (
-              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
-                <Navigation className="w-4 h-4 text-[var(--ocean)]" />
-                <span className="text-sm font-bold text-[var(--text-primary)]">
-                  {formatDistance(haversineDistance(userPos.lat, userPos.lng, selectedRoute.lat, selectedRoute.lng))}
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">от вас</span>
-              </div>
-            )}
-
-            {/* Описание */}
-            {selectedRoute.description && (
-              <p className="text-sm text-[var(--text-secondary)] leading-relaxed line-clamp-4 mb-4">
-                {selectedRoute.description.split('\n')[0]}
-              </p>
-            )}
-
-            {/* Кнопка */}
-            <Link
-              href={`/routes/${selectedRoute.id}`}
-              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg
-                bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
-            >
-              Открыть маршрут
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-        </div>
       )}
 
       {/* Геофенс-предупреждение */}

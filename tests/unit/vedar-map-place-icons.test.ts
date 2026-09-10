@@ -18,7 +18,7 @@ describe('VedarMap — styleimagemissing собирает иконку мест�
   it('слушает styleimagemissing и разбирает имя общим модулем', () => {
     expect(MAP).toContain("map.on('styleimagemissing'");
     expect(MAP).toMatch(/import \{ parsePlaceIconImageId, rasterizePlaceIcon, PLACE_ICON_PIXEL_RATIO \} from '@\/lib\/map\/place-icon-raster'/);
-    expect(MAP).toMatch(/import \{ placeMarkerSvg, PLACE_MARKER_SIZE \} from '@\/lib\/map\/place-marker-icons'/);
+    expect(MAP).toMatch(/import \{ placeMarkerSvg, PLACE_MARKER_SIZE, PLACE_KIND_COLOR \} from '@\/lib\/map\/place-marker-icons'/);
   });
 
   it('чужое имя (не наш спрайт) — parsePlaceIconImageId вернёт null, обработчик не полезет рисовать', () => {
@@ -27,13 +27,11 @@ describe('VedarMap — styleimagemissing собирает иконку мест�
     expect(handlerBlock).toMatch(/if \(!parsed\) return;/);
   });
 
-  it('цвет иконки — из палитры ЭТОГО инстанса (той же темы, что у карты)', () => {
+  it('заливка иконки — по категории (PLACE_KIND_COLOR), не по опасности (владелец 10.09)', () => {
     const handlerAt = MAP.indexOf("map.on('styleimagemissing'");
     const handlerBlock = MAP.slice(handlerAt, MAP.indexOf("map.on('load'", handlerAt));
-    expect(handlerBlock).toMatch(/parsed\.hazardous \? palette\.cliff : palette\.peak/);
-    // palette собран из ТОГО ЖЕ theme, которым строится style этого инстанса,
-    // а не пропа, снятого в другой момент жизни компонента.
-    expect(MAP).toMatch(/const palette = vedarMapPalette\(theme\);/);
+    expect(handlerBlock).toMatch(/PLACE_KIND_COLOR\[parsed\.kind\] \?\? PLACE_KIND_COLOR\.other/);
+    expect(MAP).toMatch(/import \{ placeMarkerSvg, PLACE_MARKER_SIZE, PLACE_KIND_COLOR \} from '@\/lib\/map\/place-marker-icons'/);
   });
 
   it('не рисует иконку, которая уже есть в спрайте (hasImage — стража от повторной работы)', () => {
@@ -42,10 +40,19 @@ describe('VedarMap — styleimagemissing собирает иконку мест�
     expect(handlerBlock).toMatch(/map\.hasImage\(id\)/);
   });
 
-  it('кромка иконки — фон карты, не белая захардкоженная (07.09: точки сливались с гипсометрией)', () => {
+  /**
+   * Владелец 10.09: «цвет — по категории, опасность — только контуром».
+   * Заливка (см. тест выше) больше не зависит от hazard_types; кромка —
+   * единственное место, где опасность теперь видна на иконке.
+   */
+  it('кромка — по опасности: фон карты в норме, цвет тревоги у опасных мест', () => {
     const handlerAt = MAP.indexOf("map.on('styleimagemissing'");
     const handlerBlock = MAP.slice(handlerAt, MAP.indexOf("map.on('load'", handlerAt));
-    expect(handlerBlock).toMatch(/placeMarkerSvg\(hex, parsed\.kind, palette\.background\)/);
+    expect(handlerBlock).toMatch(/parsed\.hazardous \? palette\.cliff : palette\.background/);
+    expect(handlerBlock).toMatch(/placeMarkerSvg\(hex, parsed\.kind, halo\)/);
+    // palette собран из ТОГО ЖЕ theme, которым строится style этого инстанса,
+    // а не пропа, снятого в другой момент жизни компонента.
+    expect(MAP).toMatch(/const palette = vedarMapPalette\(theme\);/);
   });
 
   it('добавляет растр с тем же pixelRatio, каким он собран', () => {
