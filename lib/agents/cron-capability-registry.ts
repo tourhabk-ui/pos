@@ -46,6 +46,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'beacon-check': ['db_read', 'db_write'],
   'booking-attempts': ['db_read'],
   'booking-stall-alert': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
+  // Пустой перечень — не пропуск переписи, а факт: проба читает файл маркера
+  // и имена собственных переменных, больше ничего. Ни базы, ни сети, ни модели.
+  'build-sha-probe': [],
   'catalog-census': ['db_read'],
   'catalog-diag': ['db_read'],
   'channel-photo-check': ['db_read'],
