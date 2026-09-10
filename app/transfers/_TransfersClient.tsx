@@ -18,7 +18,6 @@ import Link from 'next/link';
 import { Bus, CalendarDays, Users, AlertCircle, Loader2, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
-import EmergencyAction from '@/components/shared/EmergencyAction';
 import SbpQrPayment from '@/components/marketplace/SbpQrPayment';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -135,16 +134,14 @@ export default function TransfersClient() {
     <div className="ds-page" style={{ paddingBottom: 96 }}>
       <Header />
       <main className="mx-auto max-w-2xl px-5 pt-6">
-        <div className="flex items-start justify-between gap-3 mb-6">
-          <div>
-            <p className="ds-label mb-2">Перевозчики</p>
-            <h1 className="ds-h1 mb-2">Места в поездках</h1>
-            <p className="text-sm text-[var(--text-secondary)] max-w-md">
-              Джипы и вахтовки идут под заказ. Когда места остаются, перевозчик выставляет их сюда.
-              Место занимается только после его подтверждения.
-            </p>
-          </div>
-          <EmergencyAction />
+        {/* SOS — в общей шапке (Header, §2), своей копии рядом с заголовком нет. */}
+        <div className="mb-6">
+          <p className="ds-label mb-2">Перевозчики</p>
+          <h1 className="ds-h1 mb-2">Места в поездках</h1>
+          <p className="text-sm text-[var(--text-secondary)] max-w-md">
+            Джипы и вахтовки идут под заказ. Когда места остаются, перевозчик выставляет их сюда.
+            Место занимается только после его подтверждения.
+          </p>
         </div>
 
         {/* Поиск */}

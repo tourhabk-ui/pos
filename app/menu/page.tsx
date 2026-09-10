@@ -14,7 +14,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
-import EmergencyAction from '@/components/shared/EmergencyAction';
+import SignOutButton from '@/components/auth/SignOutButton';
 import { PLATFORM_SECTIONS } from '@/lib/navigation/platform-links';
 
 export const metadata: Metadata = {
@@ -29,17 +29,14 @@ export default function MenuPage() {
       <Header />
 
       <main className="mx-auto max-w-2xl px-5 pt-6">
-        {/* SOS — общий EmergencyAction рядом с заголовком, как на /safety:
-            своей кнопки у экрана нет (#887, сторож sos-always-reachable). */}
-        <div className="flex items-start justify-between gap-3 mb-8">
-          <div>
-            <p className="ds-label mb-2">Ведар</p>
-            <h1 className="ds-h1 mb-2">Вся платформа</h1>
-            <p className="text-sm text-[var(--text-secondary)] max-w-md">
-              Всё, что не поместилось в таб-бар. Разделы те же, что в подвале на компьютере.
-            </p>
-          </div>
-          <EmergencyAction />
+        {/* SOS — в общей шапке (Header, §2); своей кнопки у экрана нет
+            (#887, сторож sos-always-reachable). */}
+        <div className="mb-8">
+          <p className="ds-label mb-2">Ведар</p>
+          <h1 className="ds-h1 mb-2">Вся платформа</h1>
+          <p className="text-sm text-[var(--text-secondary)] max-w-md">
+            Всё, что не поместилось в таб-бар. Разделы те же, что в подвале на компьютере.
+          </p>
         </div>
 
         <div className="flex flex-col gap-6">
@@ -66,6 +63,10 @@ export default function MenuPage() {
             </section>
           ))}
         </div>
+
+        {/* «Выйти» — только вошедшему (#1778: у туриста не было выхода ни в
+            кабинете, ни в профиле, ни здесь). Компонент сам молчит для гостя. */}
+        <SignOutButton className="ds-btn ds-btn-secondary mt-8 w-full" />
 
         <p className="text-xs text-[var(--text-muted)] mt-8">
           Экстренная помощь всегда рядом: красная кнопка SOS в шапке на каждом экране.

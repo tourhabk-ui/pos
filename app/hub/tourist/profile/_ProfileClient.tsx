@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Protected } from '@/components/auth/Protected';
+import SignOutButton from '@/components/auth/SignOutButton';
 import { User, Loader2, Save, Lock, AlertCircle, CheckCircle, Send, ExternalLink } from 'lucide-react';
 
 const INPUT_CLASS =
@@ -208,9 +209,13 @@ export default function ProfileClient() {
   return (
     <Protected roles={['tourist', 'admin']}>
       <div className="max-w-5xl mx-auto px-4 py-6 lg:py-8">
-        <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)] mb-6">
-          Профиль
-        </h1>
+        <div className="flex items-start justify-between gap-3 mb-6">
+          <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">
+            Профиль
+          </h1>
+          {/* Выход из аккаунта живёт в профиле (#1778). */}
+          <SignOutButton className="ds-btn ds-btn-secondary" />
+        </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

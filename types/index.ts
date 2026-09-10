@@ -143,12 +143,14 @@ export interface Weather {
   feelsLike: number; // Ощущается как
   condition: string;
   conditionText: string; // Описание на русском
-  humidity: number;
+  // null — провайдер этого не отдал (§4.0: тип обязан допускать отсутствие;
+  // `number` принуждал писать 60 % и 10 км там, где данных не было, #1774).
+  humidity: number | null;
   windSpeed: number;
   windDirection: number;
   windGust?: number; // Порывы ветра
   pressure: number;
-  visibility: number;
+  visibility: number | null; // км; null — провайдер не отдал
   uvIndex: number;
   cloudCover: number; // Облачность %
   dewPoint?: number; // Точка росы
@@ -177,7 +179,7 @@ export interface WeatherForecast {
   precipitation: number;
   precipitationProbability: number; // Вероятность осадков %
   windSpeed: number;
-  humidity: number;
+  humidity: number | null; // null — у провайдера нет дневной влажности
   sunrise?: string;
   sunset?: string;
 }

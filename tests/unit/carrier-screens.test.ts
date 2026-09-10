@@ -55,7 +55,10 @@ describe('2. оплата и SOS', () => {
     expect(VITRINA).not.toMatch(/data:image\/png;base64/);
   });
   it('витрина несёт общий EmergencyAction и таб-бар, кабинет — под HubLayout', () => {
-    expect(VITRINA).toMatch(/<EmergencyAction\b/);
+    // SOS с 10.09 живёт в общей шапке (§2, #1775): витрина рендерит <Header />,
+    // и он несёт EmergencyAction (сторож sos-always-reachable); своя копия
+    // рядом с заголовком была бы второй кнопкой на экране.
+    expect(VITRINA).toMatch(/<Header\b/);
     expect(VITRINA).toMatch(/<BottomNav\b/);
     expect(CABINET_LAYOUT).toMatch(/<HubLayout\b/);
   });
