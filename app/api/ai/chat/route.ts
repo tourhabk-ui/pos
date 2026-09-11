@@ -225,8 +225,8 @@ export async function POST(request: NextRequest) {
     let visionDescription: string | null = null;
     if (imageBase64 && imageMimeType && safeRole === 'tourist') {
       try {
-        const { callGeminiVision } = await import('@/lib/ai/providers');
-        visionDescription = await callGeminiVision(
+        const { callVision } = await import('@/lib/ai/providers');
+        visionDescription = await callVision(
           imageBase64,
           imageMimeType,
           'Опиши что на фото: место, активность, природа Камчатки. Кратко, 1-2 предложения. Если узнаёшь локацию — назови. Отвечай на русском.',

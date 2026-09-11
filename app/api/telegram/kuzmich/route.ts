@@ -678,8 +678,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       try {
         const photoData = await downloadTgFile(bestPhoto.file_id);
         if (photoData) {
-          const { callGeminiVision } = await import('@/lib/ai/providers');
-          visionDescription = await callGeminiVision(
+          const { callVision } = await import('@/lib/ai/providers');
+          visionDescription = await callVision(
             photoData.base64, photoData.mimeType,
             'Опиши что на фото: место, природа, деятельность. Если это Камчатка — укажи конкретно что это. Кратко, 2-3 предложения.',
           ) ?? undefined;

@@ -225,6 +225,17 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'volcano-merge-gate': ['db_read', 'db_write', 'net_out', 'telegram'],
   'watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'money'],
   'waypoint-proposals': ['db_read'],
+  // Первая редакция объявляла только net_out, и сторож поправил: проба
+  // тянет весь lib/ai/providers, а с ним в перечень приходят db_read,
+  // db_write и ai. Различие важно для читающего, поэтому названо вслух:
+  //   net_out и ai — НАСТОЯЩИЕ: проба по очереди зовёт четыре внешних
+  //     провайдера зрения, то есть ходит наружу и тратит токены;
+  //   db_read и db_write — ТРАНЗИТИВНЫЕ, из графа импортов providers.ts.
+  //     Сам роут в базу не ходит ни за чем.
+  // Занижать объявление нельзя: сторож морозит ИЗМЕНЕНИЕ перечня, и
+  // заниженная запись сделала бы следующую настоящую правку невидимой.
+  // Снимок вшит в код и синтетический: ни чужого фото, ни строки ПД.
+  'vision-probe': ['net_out', 'ai', 'db_read', 'db_write'],
   'weathernext-probe': ['net_out'],
   'web-routes-census': ['db_read'],
 };

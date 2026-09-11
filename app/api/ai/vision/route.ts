@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { safeMsg } from '@/lib/errors/sanitize';
-import { callGeminiVision } from '@/lib/ai/providers';
+import { callVision } from '@/lib/ai/providers';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       ? `${question}\n\nЕсли на фото видна природа Камчатки — определи локацию, вулкан, животное или растение. Предложи подходящий тур.`
       : 'Что изображено на этом фото? Если это природа Камчатки — определи локацию, вулкан, животное или растение. Предложи туристу подходящий тур на vedarai.ru.';
 
-    const result = await callGeminiVision(image, mimeType, prompt);
+    const result = await callVision(image, mimeType, prompt);
 
     if (!result) {
       return NextResponse.json(

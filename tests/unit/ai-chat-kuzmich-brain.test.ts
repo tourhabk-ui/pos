@@ -26,7 +26,7 @@ vi.mock('@/lib/rate-limit', () => ({
 const callAIWithModelDirectMock = vi.fn().mockResolvedValue('LEGACY_ANSWER');
 vi.mock('@/lib/ai/providers', () => ({
   callAIWithModelDirect: (...a: unknown[]) => callAIWithModelDirectMock(...a),
-  callGeminiVision: vi.fn(),
+  callVision: vi.fn(),
 }));
 vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => 'test-model' }));
 const getUserFromRequestMock = vi.fn().mockResolvedValue(null);

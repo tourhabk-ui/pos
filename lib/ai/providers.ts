@@ -2633,124 +2633,284 @@ export async function callGeminiDirect(
   } catch (e) { recordAiLegFailure('gemini', errorFailureReason(e)); return null; }
 }
 
-// ── Gemini Vision (image analysis): нативный Gemini → OpenRouter ─────────────
-// Приоритет 1 — нативный Google Gemini API (GEMINI_API_KEY): не зависит от
-// OpenRouter, поэтому фото читается даже если ключ/модель OpenRouter отвалились
-// (именно из-за OpenRouter-only Кузьмич «перестал узнавать фото»).
-// Приоритет 2 — тот же Gemini через OpenRouter (как было).
-export async function callGeminiVision(
+// ── Зрение Кузьмича ─────────────────────────────────────────────────────────
+//
+// Четыре ступени, и на проде живёт НЕ первая. Имя `callGeminiVision` обещало
+// Gemini и ровно этим вводило в заблуждение: нативный Gemini и он же через
+// OpenRouter гео-блокируются из РФ (Timeweb), так что на боевом пути фото
+// разбирал Qwen-VL, а с отказом ключа DashScope — никто. Функция называется
+// `callVision`, потому что называть путь по недостижимой ступени — это
+// докстрока, обещающая путь, которого нет (правило 10.09).
+//
+// ── Почему у ступени ЧЕТЫРЕ исхода, а не два ────────────────────────────────
+//
+// Прежняя редакция ловила отказ каждой ступени пустым `catch {}`. Снаружи это
+// давало ОДНО состояние — `null`, «фото не вижу», — под которым прятались
+// четыре разных: ключа нет, провайдер ответил отказом (401/403/кончилась
+// квота), сеть не дошла, ответ пришёл пустым. Человек в поле и админ на
+// /hub/admin/health видели одну и ту же фразу и не могли отличить «мы не
+// настроены» от «провайдер нас отверг» (§4.0: отказ не глушится).
+//
+// Теперь каждая ступень возвращает исход и причину словами, а `callVision`
+// остаётся прежней по сигнатуре — чтобы пять вызывающих не переписывать.
+export type VisionLegOutcome = 'ok' | 'refused' | 'unreachable' | 'empty' | 'skipped';
+
+export interface VisionLeg {
+  /** Ступень: gemini_native | gemini_openrouter | qwen_vl | deepseek. */
+  provider: string;
+  /** Какой моделью спрашивали. null — до выбора модели не дошло. */
+  model: string | null;
+  outcome: VisionLegOutcome;
+  /** Причина словами. Секреты вычищены (stripSecrets в failure-trace). */
+  detail: string | null;
+  ms: number;
+}
+
+export interface VisionResult {
+  text: string | null;
+  legs: VisionLeg[];
+}
+
+export interface VisionOptions {
+  /**
+   * id модели DeepSeek со зрением. НЕ хардкодится (§8: сильнейшую берут из
+   * каталога, а зрение DeepSeek каталогом не помечено никак) и не выдумывается:
+   * не задан — ступень честно пропускается с причиной, а не «пробуется наугад».
+   */
+  deepseekModel?: string;
+}
+
+/** Имя модели: буквы, цифры, точка, дефис, подчёркивание. Слэша и двоеточия нет. */
+const VISION_MODEL_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
+
+const VISION_SYSTEM_HINT =
+  'Ты — эксперт по природе и достопримечательностям Камчатки. Отвечай на русском, кратко и точно. Определяй вулканы, животных, растения, локации.';
+
+/** Тело OpenAI-совместимого запроса со снимком — одинаково у OpenRouter, Qwen и DeepSeek. */
+function visionChatBody(model: string, imageBase64: string, mimeType: string, prompt: string) {
+  return {
+    model,
+    max_tokens: 600,
+    messages: [
+      { role: 'system', content: VISION_SYSTEM_HINT },
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+          { type: 'text', text: prompt },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Зрение с разбором по ступеням. Ступени идут по достижимости с прода, а
+ * возврат — на первом непустом ответе.
+ */
+export async function callVisionDetailed(
+  imageBase64: string,
+  mimeType: string,
+  prompt: string,
+  opts: VisionOptions = {},
+): Promise<VisionResult> {
+  const legs: VisionLeg[] = [];
+  const add = (
+    provider: string,
+    model: string | null,
+    outcome: VisionLegOutcome,
+    detail: string | null,
+    startedAt: number,
+  ) => {
+    legs.push({ provider, model, outcome, detail, ms: Date.now() - startedAt });
+    if (outcome !== 'ok' && outcome !== 'skipped') recordAiLegFailure(`vision_${provider}`, detail ?? outcome);
+  };
+
+  // Ступень 1: нативный Gemini API. Модель — из /models, как у текстового пути:
+  // хардкод gemini-2.0-flash отвечал 404 «no longer available» (ai-debug run 4,
+  // 04.09), и распознавание молча уходило ниже.
+  {
+    const t = Date.now();
+    const geminiKey = getGeminiKey();
+    if (!geminiKey) {
+      add('gemini_native', null, 'skipped', 'GEMINI_API_KEY не задан', t);
+    } else {
+      const visionModel = await resolveGeminiModel();
+      if (!visionModel) {
+        add('gemini_native', null, 'refused', 'каталог /models не дал пригодной модели', t);
+      } else {
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${geminiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                system_instruction: { parts: [{ text: VISION_SYSTEM_HINT }] },
+                contents: [{
+                  parts: [
+                    { inline_data: { mime_type: mimeType, data: imageBase64 } },
+                    { text: prompt },
+                  ],
+                }],
+                generationConfig: { maxOutputTokens: 600 },
+              }),
+              signal: AbortSignal.timeout(30_000),
+            },
+          );
+          if (!res.ok) {
+            add('gemini_native', visionModel, 'refused', httpFailureReason(res.status, await res.text().catch(() => '')), t);
+          } else {
+            const data = await res.json();
+            const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text?.trim()) {
+              add('gemini_native', visionModel, 'ok', null, t);
+              return { text: text.trim(), legs };
+            }
+            add('gemini_native', visionModel, 'empty', describeEmptyCompletion(data), t);
+          }
+        } catch (e) {
+          add('gemini_native', visionModel, 'unreachable', errorFailureReason(e), t);
+        }
+      }
+    }
+  }
+
+  // Ступень 2: тот же Gemini через OpenRouter. С прода закрыт гео-блоком
+  // (403 «Request not allowed») — оставлен для раннеров и на случай релея.
+  {
+    const t = Date.now();
+    const apiKey = getOpenRouterKey();
+    const model = 'google/gemini-2.0-flash-001';
+    if (!apiKey) {
+      add('gemini_openrouter', null, 'skipped', 'OPENROUTER_API_KEY не задан', t);
+    } else {
+      try {
+        const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            ...openRouterAttribution(),
+          },
+          body: JSON.stringify(visionChatBody(model, imageBase64, mimeType, prompt)),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok) {
+          add('gemini_openrouter', model, 'refused', httpFailureReason(res.status, await res.text().catch(() => '')), t);
+        } else {
+          const data = await res.json();
+          const text: string | undefined = data?.choices?.[0]?.message?.content;
+          if (text?.trim()) {
+            add('gemini_openrouter', model, 'ok', null, t);
+            return { text: text.trim(), legs };
+          }
+          add('gemini_openrouter', model, 'empty', describeEmptyCompletion(data), t);
+        }
+      } catch (e) {
+        add('gemini_openrouter', model, 'unreachable', errorFailureReason(e), t);
+      }
+    }
+  }
+
+  // Ступень 3 (RF-достижимая, БЕЗ релея): Qwen-VL через DashScope. Именно она
+  // и работала на проде, пока ключ DashScope принимался; её отказ
+  // (AllocationQuota.FreeTierOnly, HTTP 403) означает «квота кончилась», а не
+  // «ключ не тот» — и теперь это видно в detail, а не теряется.
+  {
+    const t = Date.now();
+    const { apiKey: qwenKey, base: qwenBase } = getQwenConfig();
+    const model = process.env.QWEN_VISION_MODEL ?? 'qwen-vl-max';
+    if (!qwenKey) {
+      add('qwen_vl', model, 'skipped', 'ключ Qwen/DashScope не задан', t);
+    } else {
+      try {
+        const res = await fetch(`${qwenBase}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwenKey}` },
+          body: JSON.stringify(visionChatBody(model, imageBase64, mimeType, prompt)),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok) {
+          add('qwen_vl', model, 'refused', httpFailureReason(res.status, await res.text().catch(() => '')), t);
+        } else {
+          const data = await res.json();
+          const text: string | undefined = data?.choices?.[0]?.message?.content;
+          if (text?.trim()) {
+            add('qwen_vl', model, 'ok', null, t);
+            return { text: text.trim(), legs };
+          }
+          add('qwen_vl', model, 'empty', describeEmptyCompletion(data), t);
+        }
+      } catch (e) {
+        add('qwen_vl', model, 'unreachable', errorFailureReason(e), t);
+      }
+    }
+  }
+
+  // Ступень 4: DeepSeek. Заведена потому, что DeepSeek — единственный
+  // провайдер, достижимый с прода БЕЗ релея и без гео-блока (он же первичный
+  // в тексте), а анонс V4.1 Flash от 11.09 заявляет native visual
+  // understanding. Анонс — не замер: пока имя модели не задано явно, ступень
+  // ПРОПУСКАЕТСЯ с причиной, а не пробуется наугад. Замерить — пробой
+  // GET /api/cron/vision-probe?deepseek_model=<id>.
+  {
+    const t = Date.now();
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const model = opts.deepseekModel ?? process.env.DEEPSEEK_VISION_MODEL ?? null;
+    if (!apiKey) {
+      add('deepseek', model, 'skipped', 'DEEPSEEK_API_KEY не задан', t);
+    } else if (!model) {
+      add('deepseek', null, 'skipped', 'модель со зрением не названа (DEEPSEEK_VISION_MODEL) — выдумывать id нельзя', t);
+    } else if (!VISION_MODEL_ID_RE.test(model)) {
+      add('deepseek', null, 'refused', 'имя модели не прошло проверку формата', t);
+    } else {
+      try {
+        const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          // Размышление выключено — и здесь это не экономия, а условие
+          // работоспособности: max_tokens у DeepSeek считает раздумья ВМЕСТЕ с
+          // ответом (замер 04.09), так что при включённом размышлении наши 600
+          // токенов ушли бы в reasoning, а content вернулся бы пустым. Ровно
+          // та немота, которую уже чинили в текстовом пути.
+          body: JSON.stringify({
+            ...visionChatBody(model, imageBase64, mimeType, prompt),
+            ...deepseekThinking(),
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok) {
+          add('deepseek', model, 'refused', httpFailureReason(res.status, await res.text().catch(() => '')), t);
+        } else {
+          const data = await res.json();
+          const text: string | undefined = data?.choices?.[0]?.message?.content;
+          if (text?.trim()) {
+            add('deepseek', model, 'ok', null, t);
+            return { text: text.trim(), legs };
+          }
+          add('deepseek', model, 'empty', describeEmptyCompletion(data), t);
+        }
+      } catch (e) {
+        add('deepseek', model, 'unreachable', errorFailureReason(e), t);
+      }
+    }
+  }
+
+  return { text: null, legs };
+}
+
+/**
+ * Зрение одной строкой — для пяти вызывающих, которым нужен только текст.
+ * `null` здесь по-прежнему значит «не увидели», но ПОЧЕМУ теперь записано в
+ * след отказов (`recordAiLegFailure`) и доступно пробе, а не теряется.
+ */
+export async function callVision(
   imageBase64: string,
   mimeType: string,
   prompt: string,
 ): Promise<string | null> {
-  const systemHint = 'Ты — эксперт по природе и достопримечательностям Камчатки. Отвечай на русском, кратко и точно. Определяй вулканы, животных, растения, локации.';
-
-  // Приоритет 1: нативный Gemini API. Модель — по /models, как у текстового
-  // пути: хардкод gemini-2.0-flash отвечал 404 «no longer available» (ai-debug
-  // run 4, 04.09), и распознавание фото молча уходило на OpenRouter, который
-  // с прода закрыт гео-блоком.
-  const geminiKey = getGeminiKey();
-  const visionModel = geminiKey ? await resolveGeminiModel() : null;
-  if (geminiKey && visionModel) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${geminiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemHint }] },
-            contents: [{
-              parts: [
-                { inline_data: { mime_type: mimeType, data: imageBase64 } },
-                { text: prompt },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 600 },
-          }),
-          signal: AbortSignal.timeout(30_000),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text?.trim()) return text.trim();
-      }
-    } catch { /* переходим на OpenRouter */ }
-  }
-
-  // Приоритет 2 (fallback): Gemini через OpenRouter.
-  const apiKey = getOpenRouterKey();
-  if (apiKey) {
-    try {
-      const res = await relayFetch(`${OPENROUTER_BASE}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          ...openRouterAttribution(),
-        },
-        body: JSON.stringify({
-          model: 'google/gemini-2.0-flash-001',
-          max_tokens: 600,
-          messages: [
-            { role: 'system', content: systemHint },
-            {
-              role: 'user',
-              content: [
-                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-                { type: 'text', text: prompt },
-              ],
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text: string | undefined = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) return text.trim();
-      }
-    } catch { /* переходим на Qwen-VL */ }
-  }
-
-  // Приоритет 3 (RF-достижимый, БЕЗ релея): Qwen-VL через DashScope.
-  // Gemini (нативный и через OpenRouter) гео-блокируется из РФ (Timeweb) — на
-  // проде зрение Кузьмича живёт ТОЛЬКО на китайском провайдере. Именно поэтому
-  // веб-чат отвечал «фото не вижу»: оба приоритета выше недостижимы. Модель —
-  // env QWEN_VISION_MODEL, дефолт qwen-vl-max. Нет ключа Qwen → возвращаем null.
-  const { apiKey: qwenKey, base: qwenBase } = getQwenConfig();
-  if (qwenKey) {
-    try {
-      const model = process.env.QWEN_VISION_MODEL ?? 'qwen-vl-max';
-      const res = await fetch(`${qwenBase}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwenKey}` },
-        body: JSON.stringify({
-          model,
-          max_tokens: 600,
-          messages: [
-            { role: 'system', content: systemHint },
-            {
-              role: 'user',
-              content: [
-                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-                { type: 'text', text: prompt },
-              ],
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text: string | undefined = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) return text.trim();
-      }
-    } catch { /* исчерпали провайдеров зрения */ }
-  }
-
-  return null;
+  return (await callVisionDetailed(imageBase64, mimeType, prompt)).text;
 }
 
 // ── Распознавание речи ─────────────────────────────────────────
@@ -2768,7 +2928,7 @@ export async function callGeminiVision(
 // заставляла человека переговаривать в пустоту.
 //
 // Фолбэка на китайского провайдера здесь НЕТ намеренно, в отличие от зрения
-// (§ callGeminiVision, приоритет 3 — Qwen-VL). Есть ли у DashScope модель
+// (§ callVisionDetailed, ступень 3 — Qwen-VL). Есть ли у DashScope модель
 // распознавания речи, доступная нашему ключу, я не проверял, а вписать
 // правдоподобный id значит завести ветку, которая выглядит запасным путём и
 // не является им. Каталог спрашивается переписью `GET /api/cron/ai-models`;

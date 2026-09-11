@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { processMessage, type PendingBooking } from '@/lib/kuzmich/core';
-import { callGeminiVision } from '@/lib/ai/providers';
+import { callVision } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
 
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
             const media = await downloadWhatsAppMedia(msg.image.id);
             let imageDescription = '';
             if (media) {
-              const desc = await callGeminiVision(
+              const desc = await callVision(
                 media.base64,
                 media.mimeType,
                 'Describe what is in the photo in 1-2 sentences. Mention if it looks like Kamchatka (volcanoes, bears, hot springs, fishing). Respond in Russian.',
