@@ -14,6 +14,7 @@ import {
   getToursByOperator,
 } from '@/lib/api/operator-tours';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export async function GET(request: NextRequest) {
   try {
@@ -75,14 +76,14 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof SyntaxError) {
-      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+      return NextResponse.json({ error: 'Не удалось прочитать запрос: тело не является корректным JSON' }, { status: 400 });
     }
     // Мёртвая ветка: ZodError.message — JSON-массив issue-объектов и НИКОГДА
     // не содержит подстроку "validation", поэтому эта проверка не срабатывала
     // ни разу, и любая ошибка валидации (пустой title, отрицательная цена)
     // падала в generic 500 без объяснения (аудит кабинета оператора).
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues[0]?.message ?? 'Некорректные данные' }, { status: 400 });
+      return NextResponse.json({ error: zodErrorMessage(error) }, { status: 400 });
     }
     const e = error as { code?: string; message?: string };
     console.error('[hub/operator/tours] POST отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));

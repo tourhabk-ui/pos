@@ -37,7 +37,7 @@ export function OperatorTelegramBanner() {
           href={status.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ocean)] hover:opacity-80 transition-opacity"
+          className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-lg text-xs font-medium text-[var(--ocean)] hover:bg-[var(--ocean)]/10 transition-colors"
         >
           Подключить
           <ExternalLink className="w-3 h-3" />
@@ -45,8 +45,8 @@ export function OperatorTelegramBanner() {
       )}
       <button
         onClick={() => setDismissed(true)}
-        className="shrink-0 p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-        aria-label="Закрыть"
+        aria-label="Скрыть подсказку"
+        className="shrink-0 inline-flex items-center justify-center w-11 h-11 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
       >
         <X className="w-4 h-4" />
       </button>

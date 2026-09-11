@@ -8,6 +8,7 @@ import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { missingFields, blockerLabel, type ReadinessRow } from '@/lib/tours/readiness';
+import { COMPLETENESS_TOURS_SQL, logScreenQueryFailure } from '@/lib/operator/screen-queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ interface TourCompletenessRow {
   difficulty: string | null; season_start: string | null; season_end: string | null;
   duration_type: string | null; included: string[] | null; not_included: string[] | null;
   what_to_bring: string[] | null; tour_image: string | null; photos: string[] | null;
-  price_old: number | null; price_unit: string | null; transportation: string | null;
+  price_old: number | null; price_unit: string | null;
   is_published: boolean;
   // Поля витринной готовности (04.09): кабинет обязан судить тем же правилом,
   // что и ленты на Авито с Яндексом.
@@ -79,25 +80,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { rows: tours } = await pool.query<TourCompletenessRow>(
-      `SELECT
-         ot.id, ot.title, ot.description, ot.short_description,
-         ot.base_price, ot.max_participants, ot.min_participants,
-         ot.location_type, ot.activity_type, ot.location_name,
-         ot.latitude, ot.longitude, ot.duration_hours, ot.difficulty,
-         ot.season_start, ot.season_end, ot.duration_type,
-         ot.included, ot.not_included, ot.what_to_bring,
-         ot.tour_image, ot.photos, ot.price_old, ot.price_unit,
-         ot.transportation, ot.is_published,
-         -- Витринная готовность: те же поля, по которым судят ленты каналов.
-         ot.pickup_type,
-         COALESCE(LENGTH(TRIM(ot.pickup_details)), 0) AS pickup_details_chars,
-         (ot.meeting_point IS NOT NULL AND LENGTH(TRIM(ot.meeting_point)) > 0) AS has_meeting_point,
-         (ot.cancellation_policy IS NOT NULL AND LENGTH(TRIM(ot.cancellation_policy)) > 0) AS has_cancellation_policy,
-         (p.contacts IS NOT NULL AND p.contacts::text <> '{}') AS has_operator_contact
-       FROM operator_tours ot
-       LEFT JOIN partners p ON p.id = ot.operator_id
-       WHERE ot.operator_id = $1 AND ot.deleted_at IS NULL
-       ORDER BY ot.created_at DESC`,
+      COMPLETENESS_TOURS_SQL,
       [partnerId]
     );
 
@@ -150,7 +133,6 @@ export async function GET(request: NextRequest) {
         coordinates: tour.latitude && tour.longitude,
         duration_hours: tour.duration_hours && tour.duration_hours > 0,
         price_unit: !!tour.price_unit,
-        transportation: tour.transportation && Array.isArray(tour.transportation) && tour.transportation.length > 0,
       };
 
       const recommendedFilled = Object.values(recommended).filter(Boolean).length;
@@ -199,10 +181,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    const e = error as { code?: string; message?: string };
-    console.error('[operator/completeness] отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
+    logScreenQueryFailure('completeness', error);
     return NextResponse.json(
-      { error: 'Failed to fetch completeness data' },
+      { success: false, error: 'Не удалось загрузить полноту туров. Попробуйте обновить страницу.' },
       { status: 500 }
     );
   }

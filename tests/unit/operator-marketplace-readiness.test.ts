@@ -22,6 +22,9 @@ import { missingFields, blockerLabel, BLOCKER_LABELS, MIN_DESCRIPTION_CHARS, typ
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const API = read('app/api/operator/completeness/route.ts');
+// SQL экрана переехал в общий модуль 11.09 (#1794): его текст обязан
+// исполняться на настоящем PostgreSQL, а роут его только зовёт.
+const SQL = read('lib/operator/screen-queries.ts');
 const UI = read('app/hub/operator/completeness/_CompletenessClient.tsx');
 
 describe('кабинет судит тем же правилом, что и витрина', () => {
@@ -39,8 +42,10 @@ describe('кабинет судит тем же правилом, что и ви
 
   it('читает поля витринной готовности из базы', () => {
     for (const col of ['ot.pickup_type', 'pickup_details_chars', 'has_cancellation_policy', 'has_operator_contact']) {
-      expect(API, `кабинет не читает ${col}`).toContain(col);
+      expect(SQL, `кабинет не читает ${col}`).toContain(col);
     }
+    // Роут не держит свой SELECT — иначе pg-тест проверял бы не тот запрос.
+    expect(API).toMatch(/COMPLETENESS_TOURS_SQL/);
   });
 });
 

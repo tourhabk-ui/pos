@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Building2, Phone, Globe, FileText, Check,
-  ChevronRight, Loader2, CreditCard, Shield
+  ChevronRight, Loader2, CreditCard, Shield, AlertTriangle
 } from 'lucide-react';
+import { profileStatusView } from '@/lib/operator/profile-status';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,12 +124,17 @@ function Step1Profile({
         />
       </div>
 
-      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+      {error && (
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--danger)]" />
+          <p className="text-sm text-[var(--text-primary)]">{error}</p>
+        </div>
+      )}
 
       <button
         onClick={save}
         disabled={saving}
-        className="w-full flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+        className="w-full min-h-[44px] flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
       >
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
         Сохранить и продолжить
@@ -141,6 +147,30 @@ function Step1Profile({
 // ─── Step 2 — Реквизиты для выплат ───────────────────────────────────────────
 
 type PayoutMethod = 'sbp' | 'bank';
+
+/**
+ * Завершение онбординга: ответ читается, а не игнорируется.
+ *
+ * До 11.09 обе кнопки шага 2 слали PATCH и уходили на дашборд, не глядя на
+ * результат; если PATCH не прошёл, дашборд тут же возвращал сюда — петля без
+ * единого слова человеку (#1798).
+ */
+async function completeOnboarding(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/hub/operator/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ complete_onboarding: true }),
+    });
+    const j = (await res.json().catch(() => null)) as { success?: boolean; error?: string } | null;
+    if (!res.ok || !j?.success) {
+      return j?.error ?? `Не удалось завершить настройку (HTTP ${res.status})`;
+    }
+    return null;
+  } catch {
+    return 'Сетевая ошибка: настройка не завершена';
+  }
+}
 
 function Step2Payout({ onFinish }: { onFinish: () => void }) {
   const [method,  setMethod]  = useState<PayoutMethod>('sbp');
@@ -166,18 +196,18 @@ function Step2Payout({ onFinish }: { onFinish: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(details),
       });
-      const pj: unknown = await payRes.json();
-      if (typeof pj === 'object' && pj !== null && 'success' in pj && (pj as { success: boolean }).success) {
-        // Mark onboarding complete
-        await fetch('/api/hub/operator/profile', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ complete_onboarding: true }),
-        });
+      const pj: unknown = await payRes.json().catch(() => null);
+      if (payRes.ok && typeof pj === 'object' && pj !== null && 'success' in pj && (pj as { success: boolean }).success) {
+        const failure = await completeOnboarding();
+        if (failure) { setError(failure); return; }
         onFinish();
       } else {
-        const err = (pj as { error?: string }).error;
-        setError(err ?? 'Ошибка сохранения');
+        const err = (pj as { error?: string } | null)?.error;
+        // 503 — шифрование реквизитов недоступно: это отказ сервиса, а не
+        // ошибка оператора, и выход из него есть — «Пропустить».
+        setError(payRes.status === 503
+          ? `${err ?? 'Реквизиты сейчас сохранить нельзя'}. Можно пропустить шаг и добавить их позже в разделе «Финансы».`
+          : err ?? 'Ошибка сохранения');
       }
     } catch {
       setError('Сетевая ошибка');
@@ -248,26 +278,31 @@ function Step2Payout({ onFinish }: { onFinish: () => void }) {
         </p>
       </div>
 
-      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+      {error && (
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--danger)]" />
+          <p className="text-sm text-[var(--text-primary)]">{error}</p>
+        </div>
+      )}
 
       <div className="flex gap-3">
         <button
           onClick={async () => {
-            await fetch('/api/hub/operator/profile', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ complete_onboarding: true }),
-            }).catch(() => {});
+            setSaving(true);
+            const failure = await completeOnboarding();
+            setSaving(false);
+            if (failure) { setError(failure); return; }
             onFinish();
           }}
-          className="flex-1 py-3 border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-sm hover:text-[var(--text-primary)] transition-colors"
+          disabled={saving}
+          className="flex-1 min-h-[44px] py-3 border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-sm hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
         >
           Пропустить
         </button>
         <button
           onClick={save}
           disabled={saving}
-          className="flex-1 flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
           Завершить настройку
@@ -333,7 +368,12 @@ export default function OnboardingClient() {
           Настройка профиля
         </h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          {profile.company_name} · Заявка {profile.profile_status === 'pending' ? 'на рассмотрении' : 'одобрена'}
+          {/*
+            Четыре подписи, а не две: у profile_status четыре значения по CHECK
+            базы, и «одобрена» всем подряд читал даже тот, кому отказали
+            (#1798). Словарь общий — lib/operator/profile-status.
+          */}
+          {profile.company_name} · {profileStatusView(profile.profile_status).onboarding}
         </p>
       </div>
 

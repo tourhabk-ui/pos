@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { requireRole } from '@/lib/auth/middleware';
 import { PlatformAgent } from '@/lib/agents/platform-agent';
 import { canDispatchIntent, allowedIntentsForRole } from '@/lib/agents/permissions';
+import { OPERATOR_COMMAND_EXAMPLES } from '@/lib/agents/operator-commands';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +56,20 @@ export async function POST(req: NextRequest) {
     role: 'operator',
     sessionId: parsed.data.sessionId,
   });
+
+  // Нераспознанная команда — не отказ прав. До 11.09 «unknown» уходил в тот
+  // же 403 «недоступно роли», и человек читал запрет там, где его просто не
+  // поняли (#1800). Разные исходы — разные ответы (§4.0).
+  if (result.intent === 'unknown') {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Не понял команду. Вот что я умею: ' + OPERATOR_COMMAND_EXAMPLES.map((e) => e.message).join('; '),
+        examples: OPERATOR_COMMAND_EXAMPLES.map((e) => ({ label: e.label, message: e.message })),
+      },
+      { status: 422 }
+    );
+  }
 
   // Permission gate: only op_* allowed
   if (!canDispatchIntent('operator', result.intent)) {

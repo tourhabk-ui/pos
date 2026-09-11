@@ -3,6 +3,7 @@ import { query } from '@/lib/database';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { z } from 'zod';
+import { isUuid } from '@/lib/text/slugify';
 
 const UpdateClientSchema = z.object({
   tags: z.array(z.string()).optional(),
@@ -42,6 +43,11 @@ export async function GET(
     }
 
     const { id } = await context.params;
+    // users.id — uuid; строка вида «1» роняла запрос с 22P02 и отдавала 500
+    // там, где это просто неверный адрес (#1794).
+    if (!isUuid(id)) {
+      return NextResponse.json({ success: false, error: 'Некорректный идентификатор клиента' }, { status: 400 });
+    }
     const hasAccess = await verifyClientAccess(id, partnerId);
     if (!hasAccess) {
       return NextResponse.json({ success: false, error: 'Клиент не найден' }, { status: 404 });
@@ -166,6 +172,11 @@ export async function PATCH(
     }
 
     const { id } = await context.params;
+    // users.id — uuid; строка вида «1» роняла запрос с 22P02 и отдавала 500
+    // там, где это просто неверный адрес (#1794).
+    if (!isUuid(id)) {
+      return NextResponse.json({ success: false, error: 'Некорректный идентификатор клиента' }, { status: 400 });
+    }
     const hasAccess = await verifyClientAccess(id, partnerId);
     if (!hasAccess) {
       return NextResponse.json({ success: false, error: 'Клиент не найден' }, { status: 404 });

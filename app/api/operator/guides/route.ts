@@ -18,6 +18,7 @@ import { query } from '@/lib/database';
 import { requireRole } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import type { ApiResponse } from '@/types';
+import { GUIDES_SQL, logScreenQueryFailure } from '@/lib/operator/screen-queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,7 @@ interface GuideRow {
   id: string;
   name: string | null;
   rating: string | null;
-  specializations: string[] | null;
+  verified_certifications: string;
   is_available: boolean | null;
   tours_count: string;
 }
@@ -54,18 +55,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await query<GuideRow>(
-      `SELECT
-         g.id,
-         g.name,
-         g.rating,
-         g.specializations,
-         g.is_available,
-         COUNT(gs.id)::text AS tours_count
-       FROM partners g
-       LEFT JOIN guide_schedule gs ON gs.guide_id = g.id
-       WHERE g.category = 'guide' AND g.guide_operator_id = $1
-       GROUP BY g.id, g.name, g.rating, g.specializations, g.is_available
-       ORDER BY g.name NULLS LAST`,
+      GUIDES_SQL,
       [partnerId],
     );
 
@@ -75,14 +65,15 @@ export async function GET(request: NextRequest) {
         id: row.id,
         name: row.name ?? 'Без имени',
         rating: row.rating === null ? null : Number(row.rating),
-        specializations: row.specializations ?? [],
+        verifiedCertifications: Number(row.verified_certifications),
         isAvailable: row.is_available !== false,
         toursCount: Number(row.tours_count),
       })),
     } as ApiResponse<unknown>);
-  } catch {
+  } catch (error) {
+    logScreenQueryFailure('guides', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка при получении списка гидов' } as ApiResponse<null>,
+      { success: false, error: 'Не удалось загрузить гидов. Попробуйте обновить страницу.' } as ApiResponse<null>,
       { status: 500 },
     );
   }
@@ -118,9 +109,10 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, data: { id: result.rows[0].id } } as ApiResponse<unknown>);
-  } catch {
+  } catch (error) {
+    logScreenQueryFailure('guides.patch', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка при изменении доступности гида' } as ApiResponse<null>,
+      { success: false, error: 'Не удалось изменить доступность гида. Попробуйте ещё раз.' } as ApiResponse<null>,
       { status: 500 },
     );
   }

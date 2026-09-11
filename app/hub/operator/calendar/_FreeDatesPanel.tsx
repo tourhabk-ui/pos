@@ -11,10 +11,11 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   CalendarDays, ChevronDown, ChevronUp, CheckCircle,
-  AlertTriangle, RefreshCw, Zap, X,
+  AlertTriangle, RefreshCw, Zap, X, Plus,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -61,6 +62,8 @@ function today(): string {
 export default function FreeDatesPanel() {
   const [tours, setTours]         = useState<TourCoverage[]>([]);
   const [loading, setLoading]     = useState(true);
+  /** «Не смогли спросить» — третий исход, отдельный от «туров нет» (§4.0). */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [openForm, setOpenForm]   = useState(false);
 
   // Form state
@@ -78,12 +81,20 @@ export default function FreeDatesPanel() {
   // ── Загрузка покрытия дат ──────────────────────────────────────────────────
   const loadCoverage = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      // 1. Список туров оператора
+      // 1. Список туров оператора. Роут отдаёт { success, data: Tour[],
+      //    pagination } — массив в data, а не data.tours. До 11.09 панель
+      //    читала data.tours, получала [] и всем операторам говорила «нет
+      //    активных туров» (#1796).
       const toursRes = await fetch('/api/hub/operator/tours?page=1&limit=100');
-      const toursJson: { success: boolean; data?: { tours?: { id: string; title: string }[] } } =
-        await toursRes.json();
-      const tourList = toursJson.data?.tours ?? [];
+      const toursJson: { success?: boolean; data?: unknown; error?: string } =
+        await toursRes.json().catch(() => ({}));
+      if (!toursRes.ok || !toursJson.success || !Array.isArray(toursJson.data)) {
+        throw new Error(toursJson.error ?? `туры не загружены (HTTP ${toursRes.status})`);
+      }
+      const tourList = (toursJson.data as Array<{ id: string | number; title: string }>)
+        .map(t => ({ id: String(t.id), title: t.title }));
       if (tourList.length === 0) { setTours([]); return; }
 
       // 2. Для каждого тура — сколько дней открыто в ближайшие 90 дней
@@ -93,11 +104,15 @@ export default function FreeDatesPanel() {
         `/api/operator/calendar?startDate=${from}&endDate=${to}`
       );
       const coverageJson: {
-        success: boolean;
-        data?: { availability?: { tourId: string; date: string; remainingSlots: number }[] };
-      } = await coverageRes.json();
+        success?: boolean;
+        error?: string;
+        data?: { availability?: { tourId: string | number; date: string; remainingSlots: number }[] };
+      } = await coverageRes.json().catch(() => ({}));
+      if (!coverageRes.ok || !coverageJson.success) {
+        throw new Error(coverageJson.error ?? `даты не загружены (HTTP ${coverageRes.status})`);
+      }
 
-      const avail = coverageJson.data?.availability ?? [];
+      const avail = (coverageJson.data?.availability ?? []).map(a => ({ ...a, tourId: String(a.tourId) }));
 
       // Группируем по tourId
       const byTour = new Map<string, { dates: string[]; slots: number }>();
@@ -127,6 +142,11 @@ export default function FreeDatesPanel() {
 
       // Если один тур — сразу выбираем его
       if (tourList.length === 1) setFormTour(tourList[0].id);
+    } catch (err) {
+      // Ловить можно, молчать нельзя: причина — в консоль, оператору —
+      // отдельное состояние с повтором, а не «туров нет».
+      console.error('[free-dates] покрытие дат не загружено:', err instanceof Error ? err.message : String(err));
+      setLoadError('Не удалось загрузить открытые даты. Проверьте связь и повторите.');
     } finally {
       setLoading(false);
     }
@@ -240,9 +260,28 @@ export default function FreeDatesPanel() {
                 style={{ background: 'var(--bg-hover)' }} />
             ))}
           </div>
+        ) : loadError ? (
+          <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-start gap-2 flex-1 min-w-0">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--danger)' }} />
+              <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{loadError}</p>
+            </div>
+            <button type="button" onClick={loadCoverage}
+              className="min-h-[44px] px-4 rounded-lg border text-sm font-medium inline-flex items-center justify-center gap-2 hover:bg-[var(--bg-hover)] transition-colors shrink-0"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+              <RefreshCw className="w-4 h-4" /> Повторить
+            </button>
+          </div>
         ) : !hasTours ? (
-          <div className="p-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-            Нет активных туров. Создайте тур в разделе &laquo;Туры&raquo;.
+          <div className="p-6 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              Активных туров пока нет — открывать даты нечему.
+            </p>
+            <Link href="/hub/operator/tours/new"
+              className="mt-3 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
+              style={{ background: 'var(--accent)', color: '#fff' }}>
+              <Plus className="w-4 h-4" /> Создать первый тур
+            </Link>
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
