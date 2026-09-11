@@ -424,8 +424,20 @@ export async function cancelBooking(octoUuid: string, apiKeyId: string, reason?:
 
     const booking = rows[0];
 
-    // booked_slots не трогаем: OCTO больше не пишет счётчик (см. createBooking) —
-    // отменённая бронь исчезает из честной занятости сама (status='cancelled').
+    // booked_slots НЕ трогаем — контракт канала, замороженный намеренно
+    // (#336, сторож tests/unit/octo-no-counter-writes.test.ts): OCTO пишет
+    // холды, а счётчик несёт смысл «оплаченные участники», и инкремент на
+    // неоплаченном холде уже смешивал семантику и грозил переполнением CHECK
+    // на смешанных каналах. Прежний декремент вдобавок выбирал ПРОИЗВОЛЬНЫЙ
+    // слот (WHERE booked_slots > 0 LIMIT 1) и портил чужие дни.
+    //
+    // 11.09 я подключил сюда общее вычитание (#1816) и был неправ: оно
+    // холостое по построению (`releaseSlotsForCancelledBooking` фильтрует по
+    // payment_status = 'paid', а такие брони канал не создаёт), зато молча
+    // переезжало чужое обдуманное решение. Посылка «эта бронь не могла быть
+    // оплачена через наш вебхук» теперь не в моей памяти, а в реестре
+    // tests/unit/cancel-releases-slots.test.ts — вместе с условием, при
+    // котором её придётся пересмотреть.
     await client.query(
       `INSERT INTO octo_booking_log (booking_id, action, api_key_id, request_body)
        VALUES ($1, 'CANCEL', $2, $3)`,
