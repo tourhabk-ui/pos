@@ -19,7 +19,11 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { logAgentRun } from '@/lib/agents/run-logger';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+// Потолок поднят вместе с потолком curl в workflow (замер 11.09): двадцать
+// вопросов фикстуры идут пачками по EVAL_CONCURRENCY, но худший случай должен
+// помещаться с запасом, а не вровень. На Timeweb это самодокументация —
+// значение соблюдает платформа Vercel, у нас поток режет только curl.
+export const maxDuration = 600;
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;

@@ -1,21 +1,66 @@
 name: Cron — Kuzmich Faithfulness Eval
 
+# Еженедельная faithfulness-регрессия ответов Кузьмича: фикстура из 20 вопросов
+# и живые вопросы туристов из chat_sessions.
+#
+# ── Почему у шагов такой запас времени (замер 11.09) ───────────────────────
+#
+# Прогон 07.09: живой шаг отработал 10 вопросов за 145 с (14,5 с на вопрос —
+# агент-цикл Кузьмича плюс судья), а фикстурный шаг из 20 вопросов упёрся в
+# curl --max-time 280 и упал с кодом 28. Так было КАЖДЫЙ раз: все десять
+# прогонов workflow красные, успешных в истории нет. Watchdog читал это как
+# регрессию ответов, хотя это была арифметика.
+#
+# Починено с двух сторон: вопросы идут пачками (EVAL_CONCURRENCY в
+# lib/agents/eval/kuzmich-faithfulness.ts), а потолок ожидания поднят выше
+# худшего случая, а не вровень с ним.
+
 on:
   schedule:
     - cron: '0 5 * * 1'  # каждый понедельник 05:00 UTC
   workflow_dispatch:
+  # Запуск маркером (11.09): workflow_dispatch через интеграцию отвечает 403,
+  # а перемерять эвал надо после КАЖДОЙ правки промпта, поиска или набора
+  # вопросов. До этого дня проверить починку можно было только дождавшись
+  # понедельника — то есть на деле не проверять вовсе. Тот же приём, что у
+  # prod-check, дайджеста и retrieval-probe. Расписание остаётся: маркер —
+  # ручной запуск, а не второй крон.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/kuzmich-eval.json'
+
+permissions:
+  contents: read
 
 jobs:
   kuzmich-eval:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Потолок задачи больше суммы окон внутри: ожидание сборки до 35 минут плюс
+    # два шага по 9. Потолок вровень с суммой и есть настоящее окно, а цифры
+    # внутри — украшение (урок deploy.yml).
+    timeout-minutes: 60
     steps:
+      - uses: actions/checkout@v7
+
+      # Код эвала едет ТЕМ ЖЕ коммитом, что и маркер: не дождались сборки —
+      # мерить нечего, и прогон обязан покраснеть на своей причине, а не на
+      # чужом результате (сторож tests/unit/marker-waits-for-deploy.test.ts).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+        run: bash scripts/wait-for-deploy.sh
+
       - name: Kuzmich Eval — faithfulness-регрессия ответов (фикстура)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
-          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 280 \
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 540 \
             "https://vedarai.ru/api/cron/kuzmich-eval" \
             -H "Authorization: Bearer $CRON_SECRET")
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
@@ -31,7 +76,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
-          HTTP=$(curl -s -o /tmp/live.json -w "%{http_code}" --max-time 280 \
+          HTTP=$(curl -s -o /tmp/live.json -w "%{http_code}" --max-time 540 \
             "https://vedarai.ru/api/cron/kuzmich-eval?source=live&limit=10" \
             -H "Authorization: Bearer $CRON_SECRET")
           echo "HTTP: $HTTP" && cat /tmp/live.json 2>/dev/null || true
