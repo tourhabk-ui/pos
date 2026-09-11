@@ -12,7 +12,7 @@ import {
   Column,
 } from '@/components/admin/shared';
 import {
-  Star, Briefcase, Pencil, Trash2, X, Save, Shield, ShieldOff,
+  Star, Briefcase, Pencil, Trash2, X, Save, Shield, ShieldOff, Plus,
   AlertCircle, CheckCircle, Upload, ImageIcon,
 } from 'lucide-react';
 import TildaPanel from '@/components/admin/TildaPanel';
@@ -40,6 +40,13 @@ const CATEGORY_LABELS: Record<string, string> = {
   restaurant: 'Ресторан',
   agent: 'Агент',
 };
+
+/**
+ * Панель одна на «завести» и «править», а признак режима — этот сентинел.
+ * Отдельная форма создания разошлась бы с формой правки ровно так же, как
+ * расходились копии карточки тура: два места, один смысл.
+ */
+const NEW_PARTNER = 'new';
 
 const EDITABLE_CATEGORIES = [
   { value: 'operator', label: 'Туроператор' },
@@ -140,6 +147,20 @@ export default function PartnersManagement() {
     }
   };
 
+  /* ── Завести партнёра ── */
+  const openCreate = () => {
+    setEditId(NEW_PARTNER);
+    setMessage(null);
+    setEditLoading(false);
+    setEditForm({
+      name: '', category: 'operator', description: '', shortDescription: '', slug: '',
+      heroImage: '', logoImage: '',
+      location: { lat: '', lng: '', address: '', city: '' },
+      contact: { phone: '', email: '', website: '', address: '' },
+      isVerified: false, isPublic: false,
+    });
+  };
+
   const closeEdit = () => {
     setEditId(null);
     setEditForm(null);
@@ -149,18 +170,31 @@ export default function PartnersManagement() {
   /* ── Save partner ── */
   const handleSave = async () => {
     if (!editId || !editForm) return;
+    const creating = editId === NEW_PARTNER;
     setSaving(true);
     setMessage(null);
     try {
-      const res = await fetch(`/api/admin/content/partners/${editId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
-      });      const json = await res.json();
+      const res = await fetch(
+        creating ? '/api/admin/content/partners' : `/api/admin/content/partners/${editId}`,
+        {
+          method: creating ? 'POST' : 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(editForm),
+        },
+      );
+      const json = await res.json();
       if (json.success) {
-        setMessage({ text: 'Партнёр обновлён', type: 'success' });
         fetchPartners();
-        setTimeout(() => closeEdit(), 1200);
+        if (creating) {
+          // Панель НЕ закрывается: логотип и фото грузятся только к
+          // существующей строке (адрес загрузки содержит id), и человеку,
+          // который пришёл сюда с логотипом в руке, некуда было бы его деть.
+          setEditId(json.data.id);
+          setMessage({ text: 'Партнёр заведён — теперь можно загрузить логотип', type: 'success' });
+        } else {
+          setMessage({ text: 'Партнёр обновлён', type: 'success' });
+          setTimeout(() => closeEdit(), 1200);
+        }
       } else {
         setMessage({ text: json.error ?? 'Ошибка сохранения', type: 'error' });
       }
@@ -322,6 +356,14 @@ export default function PartnersManagement() {
       <div className="flex items-center gap-2.5">
         <Briefcase className="w-4 h-4 text-[var(--text-muted)]" />
         <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Управление партнёрами</h1>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 min-h-[44px] sm:min-h-0 sm:py-1.5 bg-[var(--accent)] text-white text-xs font-medium rounded-lg hover:opacity-90 transition-opacity"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Завести партнёра
+        </button>
       </div>
 
       {/* Filters */}
@@ -389,7 +431,7 @@ export default function PartnersManagement() {
           <div className="fixed top-0 right-0 h-full w-full max-w-md bg-[var(--bg-card)] border-l border-[var(--border)] z-50 shadow-lg overflow-y-auto">
             {/* Panel header */}
             <div className="sticky top-0 bg-[var(--bg-card)] border-b border-[var(--border)] px-4 py-3 flex items-center justify-between z-10">
-              <h2 className="text-xs font-semibold text-[var(--text-primary)]">Редактирование партнёра</h2>
+              <h2 className="text-xs font-semibold text-[var(--text-primary)]">{editId === NEW_PARTNER ? 'Новый партнёр' : 'Редактирование партнёра'}</h2>
               <button onClick={closeEdit} className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors">
                 <X className="w-4 h-4" />
               </button>
@@ -476,6 +518,14 @@ export default function PartnersManagement() {
                 {/* Logo */}
                 <div>
                   <label className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--text-muted)] mb-2 block">Логотип партнёра</label>
+                  {editId === NEW_PARTNER && (
+                    // Не украшение: адрес загрузки содержит id партнёра, и до
+                    // сохранения его не существует. Без этой строки кнопка
+                    // выглядела бы сломанной, а не ещё-не-доступной.
+                    <p className="mb-2 text-[11px] text-[var(--text-muted)]">
+                      Сначала «Завести» — потом загрузка. Панель останется открытой.
+                    </p>
+                  )}
                   <input
                     ref={logoInputRef}
                     type="file"
@@ -494,7 +544,7 @@ export default function PartnersManagement() {
                       <button
                         type="button"
                         onClick={() => logoInputRef.current?.click()}
-                        disabled={uploadingType !== null}
+                        disabled={uploadingType !== null || editId === NEW_PARTNER}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors disabled:opacity-50"
                       >
                         <Upload className="w-3 h-3" />
@@ -504,7 +554,7 @@ export default function PartnersManagement() {
                         <button
                           type="button"
                           onClick={() => handleDeleteImage('logo')}
-                          disabled={uploadingType !== null}
+                          disabled={uploadingType !== null || editId === NEW_PARTNER}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)]/8 border border-[var(--danger)]/20 rounded-lg text-xs text-[var(--danger)] hover:bg-[var(--danger)]/12 transition-colors disabled:opacity-50"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -533,7 +583,7 @@ export default function PartnersManagement() {
                         <button
                           type="button"
                           onClick={() => heroInputRef.current?.click()}
-                          disabled={uploadingType !== null}
+                          disabled={uploadingType !== null || editId === NEW_PARTNER}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-card)] rounded-lg text-xs text-[var(--text-primary)] font-medium hover:bg-[var(--bg-hover)] transition-colors"
                         >
                           <Upload className="w-3 h-3" />
@@ -542,7 +592,7 @@ export default function PartnersManagement() {
                         <button
                           type="button"
                           onClick={() => handleDeleteImage('hero')}
-                          disabled={uploadingType !== null}
+                          disabled={uploadingType !== null || editId === NEW_PARTNER}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)]/90 rounded-lg text-xs text-white font-medium hover:bg-[var(--danger)] transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -559,7 +609,7 @@ export default function PartnersManagement() {
                     <button
                       type="button"
                       onClick={() => heroInputRef.current?.click()}
-                      disabled={uploadingType !== null}
+                      disabled={uploadingType !== null || editId === NEW_PARTNER}
                       className="w-full h-24 border-2 border-dashed border-[var(--border)] rounded-lg flex flex-col items-center justify-center gap-2 text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
                     >
                       {uploadingType === 'hero' ? (
@@ -726,15 +776,17 @@ export default function PartnersManagement() {
                     className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[var(--accent)] text-white text-xs font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    {saving ? 'Сохранение...' : 'Сохранить'}
+                    {saving ? 'Сохранение...' : editId === NEW_PARTNER ? 'Завести' : 'Сохранить'}
                   </button>
-                  <button
-                    onClick={() => handleDelete(editId)}
-                    className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[var(--danger)]/10 text-[var(--danger)] text-xs font-medium rounded-lg hover:bg-[var(--danger)]/15 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Удалить
-                  </button>
+                  {editId !== NEW_PARTNER && (
+                    <button
+                      onClick={() => handleDelete(editId)}
+                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[var(--danger)]/10 text-[var(--danger)] text-xs font-medium rounded-lg hover:bg-[var(--danger)]/15 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Удалить
+                    </button>
+                  )}
                 </div>
               </div>
             ) : null}
