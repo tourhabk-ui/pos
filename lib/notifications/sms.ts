@@ -3,7 +3,10 @@
 // Kamchatour Hub - SMS Notification Service
 // =============================================
 
-import { config } from '@/lib/config';
+// Импорт `config` убран 11.09.2026: он был, а обращений к нему не было ни
+// одного — ключ читается из process.env.SMS_RU_API_KEY прямо ниже. Мёртвый
+// импорт опаснее мёртвой строки: он выглядит как связь с `config.notifications`
+// и делает секцию конфига «используемой» на глаз, хотя её не читает никто.
 
 interface SMSMessage {
   to: string;
