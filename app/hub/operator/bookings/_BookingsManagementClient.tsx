@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   Plus, X, Check, AlertTriangle, Phone, Mail,
   RefreshCw, ChevronLeft, ChevronRight, Users, ExternalLink,
@@ -358,7 +359,7 @@ export default function BookingsManagementClient() {
                 {/* Date + Tour */}
                 <div>
                   <p className="text-xs font-semibold text-[var(--text-primary)]">
-                    {new Date(b.booking_date + 'T00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {formatDateOnly(b.booking_date, { day: 'numeric', month: 'short', year: 'numeric' })}
                   </p>
                   <p className="text-xs text-[var(--text-muted)] truncate max-w-[160px]">{b.tour_title}</p>
                   {b.weather_alert_triggered && (
@@ -467,7 +468,7 @@ export default function BookingsManagementClient() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-[var(--text-muted)] text-xs block">Дата тура</span>{new Date(detail.booking_date + 'T00:00').toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+              <div><span className="text-[var(--text-muted)] text-xs block">Дата тура</span>{formatDateOnly(detail.booking_date, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
               <div><span className="text-[var(--text-muted)] text-xs block">Участников</span>{detail.participants} чел.</div>
               <div><span className="text-[var(--text-muted)] text-xs block">Турист</span>{detail.tourist_name || '—'}</div>
               <div><span className="text-[var(--text-muted)] text-xs block">Телефон</span>{detail.tourist_phone || '—'}</div>

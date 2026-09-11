@@ -33,6 +33,7 @@ export async function GET(
 
     const result = await query(
       `SELECT b.*,
+              b.booking_date::text AS booking_date,
               t.title as tour_title,
               t.location_name,
               t.base_price as tour_base_price
