@@ -59,6 +59,53 @@ const PASS_MIN = 4;                 // балл судьи >=4 считаем fa
 const ALERT_PASS_RATE_THRESHOLD = 0.8;
 const ALERT_JUDGE_NULL_RATIO = 0.3; // >30% null — "судья недоступен", не "всё хорошо"
 
+/**
+ * Сколько вопросов идёт одновременно.
+ *
+ * Прогон был последовательным, и это не помещалось в отведённое время:
+ * замер 07.09 по живому шагу — 145 с на десять вопросов, то есть 14,5 с на
+ * вопрос (ответ Кузьмича через агент-цикл плюс судья). Двадцать вопросов
+ * фикстуры дают около 290 с при потолке curl в 280 — шаг падал с кодом 28
+ * КАЖДЫЙ раз, и «успешных прогонов в истории нет» было арифметикой, а не
+ * регрессией ответов.
+ *
+ * Четыре — не потолок провайдера, а осознанная умеренность: прод живёт на
+ * двух ядрах (§6.1), и вопросы ждут сеть, а не считают. Двадцать вопросов
+ * укладываются примерно в 75 с.
+ */
+export const EVAL_CONCURRENCY = 4;
+
+/**
+ * Потолок контекста, показываемого судье.
+ *
+ * Обрезка тут не экономия, а риск: факт, вырезанный из контекста, судья
+ * объявит невернифицируемым, и мы получим низкий балл за СВОЮ обрезку. Потолок
+ * взят с запасом (места, маршруты, законы, туры и выводы инструментов вместе
+ * редко доходят и до половины), а если он всё же сработал — судье об этом
+ * говорят прямо, см. judgeFaithfulness.
+ */
+const JUDGE_CONTEXT_LIMIT = 12_000;
+
+/**
+ * Выполняет задачи пачками по `limit`, сохраняя порядок результатов.
+ * Свой на четыре строки, чтобы не тащить зависимость ради одного места.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (let i = next++; i < items.length; i = next++) {
+      out[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 const FAITHFULNESS_JUDGE_SYSTEM = `Ты — строгий проверяющий фактологической точности ответов Кузьмича, AI-хранителя туристической safety-платформы Камчатки.
 Тебе даны: вопрос туриста, ПРИЛОЖЕННЫЙ КОНТЕКСТ (retrieved-данные, которые реально были в промпте Кузьмича) и ОТВЕТ Кузьмича.
 
@@ -78,11 +125,18 @@ async function judgeFaithfulness(
   context: string,
   answer: string,
 ): Promise<{ score: number | null; reason: string }> {
+  const truncated = context.length > JUDGE_CONTEXT_LIMIT;
+  const shown = truncated ? context.slice(0, JUDGE_CONTEXT_LIMIT) : context;
+
   const user = `ВОПРОС ТУРИСТА:
 ${question}
 
-ПРИЛОЖЕННЫЙ КОНТЕКСТ (retrieved, реально был в промпте):
-${context ? context.slice(0, 4000) : '(контекст пуст — retrieval ничего не нашёл по этому вопросу)'}
+ПРИЛОЖЕННЫЙ КОНТЕКСТ (данные и выводы инструментов, реально бывшие в промпте Кузьмича):
+${shown || '(контекст пуст — ни поиск, ни инструменты ничего не принесли по этому вопросу)'}${
+  truncated
+    ? `\n\n(КОНТЕКСТ ОБРЕЗАН нами: показано ${JUDGE_CONTEXT_LIMIT} из ${context.length} символов. Обрезка — наше ограничение, не выдумка Кузьмича: факт, которого нет в показанной части, мог лежать в отрезанной. Снижай балл за факт, ПРОТИВОРЕЧАЩИЙ показанному, либо за конкретику по теме, которой в контексте нет вовсе.)`
+    : ''
+}
 
 ОТВЕТ КУЗЬМИЧА:
 ${answer.slice(0, 2000)}`;
@@ -137,34 +191,40 @@ export function decideAlert(summary: Omit<EvalReport, 'alerts_sent'>): string | 
 
 export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuestion[] }): Promise<EvalReport> {
   const questions = opts?.questions ?? (questionsFixture as EvalQuestion[]);
-  const cases: EvalCase[] = [];
 
-  for (const q of questions) {
+  // Порядок результатов сохраняется: отчёт читают глазами, и случайный
+  // порядок вопросов сделал бы два прогона несравнимыми.
+  const cases: EvalCase[] = await mapWithConcurrency(questions, EVAL_CONCURRENCY, async (q) => {
     let answer: string | null = null;
     let context = '';
     try {
       const result = await askKuzmichForEval(q.question);
       answer = result?.answer ?? null;
       context = result?.context ?? '';
-    } catch {
+    } catch (err) {
+      // Отказ не глушится (§4.0): без строки в логе «нет ответа от Кузьмича»
+      // неотличимо от «Кузьмич промолчал по делу».
+      console.error('[kuzmich-eval] вопрос не отработал', {
+        id: q.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
       answer = null;
     }
 
     if (!answer) {
-      cases.push({
+      return {
         id: q.id, category: q.category, question: q.question,
         answer: null, context_len: context.length, score: null,
         reason: 'нет ответа от Кузьмича (waterfall недоступен или таймаут)',
-      });
-      continue;
+      };
     }
 
     const verdict = await judgeFaithfulness(q.question, context, answer);
-    cases.push({
+    return {
       id: q.id, category: q.category, question: q.question,
       answer, context_len: context.length, score: verdict.score, reason: verdict.reason,
-    });
-  }
+    };
+  });
 
   const summary = summarizeFaithfulness(cases);
   const alertText = decideAlert(summary);

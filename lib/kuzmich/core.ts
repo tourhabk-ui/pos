@@ -2001,6 +2001,13 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
 // Внешний агент через MCP видит те же данные, что турист через Кузьмича.
 export { executeTool as executeKuzmichTool };
 
+/**
+ * Сколько символов вывода инструмента сохраняется в журнале вызовов.
+ * Две тысячи покрывают ответ get_guardian_context целиком (статус вулкана,
+ * опасности, высота) и не дают каталогу туров вытеснить всё остальное.
+ */
+const TOOL_OUTPUT_KEEP = 2000;
+
 export async function aiChatAgentLoop(
   userText: string,
   systemContent: string,
@@ -2038,7 +2045,16 @@ export async function aiChatAgentLoop(
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
     const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool, validateToolArgs);
     for (const o of outcomes) {
-      if (o.executed) toolRuns?.push({ name: o.name, producedData: toolOutputHasData(o.content) });
+      // Вывод кладётся ОБРЕЗАННЫМ: журнал живёт в памяти запроса и уходит в
+      // контекст судьи, а не в диалог. Целиком инструмент может вернуть
+      // десятки килобайт (каталог туров), и это вытеснило бы остальное.
+      if (o.executed) {
+        toolRuns?.push({
+          name: o.name,
+          producedData: toolOutputHasData(o.content),
+          output: o.content.slice(0, TOOL_OUTPUT_KEEP),
+        });
+      }
       // В диалог — обёрнутый untrusted-вывод (анти-prompt-injection); наш
       // short-circuit дублей не оборачиваем. В KB ниже идёт СЫРОЙ результат.
       const msgContent = o.executed ? wrapToolOutput(o.name, o.content) : o.content;
@@ -2225,6 +2241,9 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
     searchRoutes(question),
     searchLegislation(question),
   ]);
+  // Журнал вызовов инструментов — вторая половина контекста, и без неё оценка
+  // судила против пустоты (см. ниже).
+  const toolRuns: ToolRun[] = [];
 
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
   const dynamic = fitTextToTokenBudget(
@@ -2234,11 +2253,39 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
     : cacheable;
 
-  const raw = await aiChatAgentLoop(question, systemContent, [], [{ role: 'user', content: question }])
+  const raw = await aiChatAgentLoop(question, systemContent, [], [{ role: 'user', content: question }], toolRuns)
     .catch(() => null);
   if (!raw?.trim()) return null;
 
-  return { answer: cleanAIResponse(raw.trim()), context: dynamic };
+  /**
+   * Контекст для судьи — ВСЁ, чем обоснован ответ, а не одна его треть.
+   *
+   * До 11.09 сюда уходил только `dynamic` (места, маршруты, законы). За бортом
+   * оставались два источника, из которых Кузьмич берёт как раз факты
+   * безопасности: подборка туров и результаты инструментов агент-цикла
+   * (`get_guardian_context` и прочие). Судья faithfulness сверяет ответ С
+   * КОНТЕКСТОМ — значит «статус вулкана зелёный» он объявлял выдумкой ровно
+   * потому, что мы не показали ему инструмент, который этот статус принёс.
+   *
+   * Инструмент, НЕ принёсший данных, в контекст не идёт: «спросили и получили
+   * пусто» ничего не обосновывает, и выдавать его за основание значило бы
+   * заземлять ответ отсутствием данных.
+   */
+  const toolContext = toolRuns
+    .filter(r => r.producedData && r.output)
+    .map(r => `[инструмент ${r.name}]\n${r.output}`)
+    .join('\n\n');
+
+  /**
+   * Порядок не косметический: судья показывает первые JUDGE_CONTEXT_LIMIT
+   * символов, и обрезка обязана съедать наименее доказательное. Впереди —
+   * выводы инструментов (ими обоснованы факты безопасности), затем поиск по
+   * вопросу, последним — общий каталог туров, который к конкретному вопросу
+   * чаще всего отношения не имеет.
+   */
+  const context = [toolContext, dynamic, tourContext || ''].filter(Boolean).join('\n\n');
+
+  return { answer: cleanAIResponse(raw.trim()), context };
 }
 
 // ── Full Message Processor ────────────────────────────────────────────────────
