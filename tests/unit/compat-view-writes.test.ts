@@ -1,21 +1,33 @@
 /**
- * В совместимые VIEW не пишут.
+ * В `bookings` и `tours` не пишут.
  *
- * `bookings` и `tours` — не таблицы, а VIEW над operator_bookings и
- * operator_tours (миграция 132), сделанные когда-то, чтобы шестьдесят legacy-
- * маршрутов не переписывать разом. Читать через них CLAUDE.md уже запрещает.
- * Писать — запрещает тем более, и вот почему это не вкусовщина:
+ * Миграция 132 планировала сделать их VIEW над operator_bookings и
+ * operator_tours, чтобы шестьдесят legacy-маршрутов не переписывать разом.
+ * Читать через них CLAUDE.md уже запрещает. Писать — запрещает тем более, и
+ * вот почему это не вкусовщина:
  *
- * VIEW не подхватывает новые колонки базы. `end_date` добавили в
- * operator_bookings миграцией 140 — во view его нет и сегодня. `currency` в
- * список выборки не попал изначально. `total_price` там вообще выражение
- * COALESCE, в которое PostgreSQL писать не даёт. Поэтому
- * `INSERT INTO bookings (..., end_date, currency, total_price, ...)` падал на
- * разборе при КАЖДОМ вызове: бронирование тура существовало в виде маршрута и
- * не существовало как работающая функция. Фронт его не звал, поэтому поломка
- * молчала — ровно тот же класс, что зелёный KVERT с нулём вулканов.
+ * **Разбор 11.09 (#1814) показал: план 132 не выполнился.** `DROP VIEW IF
+ * EXISTS bookings` глушит только «не существует» — а `bookings` была
+ * ТАБЛИЦЕЙ, и `DROP VIEW` на ней падает с ошибкой; вся миграция шла одной
+ * транзакцией и откатилась целиком (это же откатило добавление колонки
+ * `operator_bookings.user_id` из того же файла — её вернула отдельно
+ * миграция 906). Прод сегодня (`schema-baseline.sql`) держит `bookings` как
+ * настоящую, отдельную, несовместимую таблицу: `id uuid` (не `bigint`, как у
+ * `operator_bookings`), без `refund_amount`/`cancelled_by`/`cancelled_at`.
+ * Запись в неё не «читает старые данные по забытому имени» — она падает на
+ * разборе (`42703 undefined_column` или несовпадение типа id) и НЕ
+ * ВЫПОЛНЯЕТСЯ НИКОГДА, ровно тот класс дефекта, что ложный «инкремент»
+ * 24.08. `lib/bookings/booking.service.ts` жил с этим четырьмя UPDATE
+ * (confirm/cancel/reschedule/complete, #1814) — молча, потому что тест ниже
+ * проверял только `INSERT`.
  *
- * Тест держит правило: новые записи в совместимые view не появляются.
+ * VIEW из плана 132 в любом случае не подошло бы: она не подхватывает новые
+ * колонки базы. `end_date` добавили в operator_bookings миграцией 140 — во
+ * view его не было бы и сегодня. `total_price` там выражение COALESCE, в
+ * которое PostgreSQL писать не даёт.
+ *
+ * Тест держит правило: новые записи в `bookings`/`tours` не появляются — ни
+ * INSERT, ни UPDATE.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
@@ -41,6 +53,20 @@ const COMPAT_VIEWS = ['bookings', 'tours'];
 const KNOWN_DEBT = [
   'app/api/tours/route.ts',
   'app/api/tours/create/route.ts',
+  /**
+   * Найдены 11.09 расширением проверки на UPDATE (#1814 чинил только
+   * lib/bookings/booking.service.ts; эти четыре — тот же класс дефекта в
+   * соседних доменах, не тронуты этой правкой). Каждый UPDATE отвергается на
+   * разборе (`bookings`/`tours` — отдельные несовместимые таблицы, не view,
+   * см. шапку файла) и не выполняется никогда:
+   * PUT /api/bookings/[id] не сохраняет special_requests ни разу;
+   * деактивация/публикация тура оператором не выполняется ни разу.
+   * Заведён #1827 — чинить предстоит отдельно, не задним числом здесь.
+   */
+  'app/api/bookings/[id]/route.ts',
+  'app/api/operator/tours/[id]/deactivate/route.ts',
+  'app/api/operator/tours/[id]/publish/route.ts',
+  'lib/services/tours/tour.service.ts',
 ];
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -66,17 +92,20 @@ describe('запись в совместимые view', () => {
   for (const file of FILES) {
     const src = code(readFileSync(join(ROOT, file), 'utf-8'));
     for (const view of COMPAT_VIEWS) {
-      if (new RegExp(`INSERT\\s+INTO\\s+${view}\\s*\\(`, 'i').test(src)) {
+      if (
+        new RegExp(`INSERT\\s+INTO\\s+${view}\\s*\\(`, 'i').test(src) ||
+        new RegExp(`UPDATE\\s+${view}\\s+SET`, 'i').test(src)
+      ) {
         offenders.push({ file, view });
       }
     }
   }
 
-  it('новых записей в bookings и tours не появляется', () => {
+  it('новых записей в bookings и tours не появляется (ни INSERT, ни UPDATE)', () => {
     const unexpected = offenders.filter((o) => !KNOWN_DEBT.includes(o.file));
     expect(
       unexpected.map((o) => `${o.file} → ${o.view}`),
-      'писать надо в operator_bookings / operator_tours: view не подхватывает новые колонки базы',
+      'писать надо в operator_bookings / operator_tours: это отдельная несовместимая таблица (#1814), не view',
     ).toEqual([]);
   });
 
@@ -85,7 +114,7 @@ describe('запись в совместимые view', () => {
     // список превращается в кладбище, где новое нарушение спрячется незаметно.
     const stale = KNOWN_DEBT.filter((f) => !offenders.some((o) => o.file === f));
     expect(stale, 'долг починен — убрать строку из списка').toEqual([]);
-    expect(KNOWN_DEBT).toHaveLength(2);
+    expect(KNOWN_DEBT).toHaveLength(6);
   });
 
   it('бронирование тура пишет в мастер-таблицу', () => {

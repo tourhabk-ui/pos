@@ -10,10 +10,12 @@
  * бронь прямым запросом к `operator_bookings`. Работает.
  *
  * Непрефиксный идентификатор уходит в `cancelBooking` из
- * `lib/bookings/booking.service.ts`, а тот ЧИТАЕТ `operator_bookings`, но
- * ПИШЕТ в `bookings` — другую таблицу, с uuid вместо bigint и без колонок
- * `refund_amount`, `cancelled_at`, `cancelled_by`. Запрос отвергается на
- * разборе (42703) и не выполняется никогда. Разбор и починка — #1814.
+ * `lib/bookings/booking.service.ts`. До 11.09 (#1814) он ЧИТАЛ
+ * `operator_bookings`, но ПИСАЛ в `bookings` — другую таблицу, с uuid вместо
+ * bigint и без колонок `refund_amount`, `cancelled_at`, `cancelled_by`;
+ * запрос отвергался на разборе (42703) и не выполнялся никогда. Починено:
+ * пишет в `operator_bookings`, статус отмены один — `cancelled` (колонки под
+ * «кто отменил» в таблице нет — это `cancellation_reason`, текст).
  *
  * ── Про возврат денег ─────────────────────────────────────────────────────
  *

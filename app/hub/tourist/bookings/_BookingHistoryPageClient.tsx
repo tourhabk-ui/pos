@@ -29,12 +29,10 @@ export default function BookingHistoryPageClient() {
   const list = bookings ?? [];
 
   const isCancellableStatus = (status: BookingStatus) =>
-    status === 'pending' || status === 'confirmed';
+    status === 'new' || status === 'confirmed';
 
   const isCancelledStatus = (status: BookingStatus) =>
-    status === 'cancelled' ||
-    status === 'cancelled_by_tourist' ||
-    status === 'cancelled_by_operator';
+    status === 'cancelled';
 
   // Bug 2 fix: wire up the cancel API call with confirmation + refetch
   const handleCancel = useCallback(
@@ -66,7 +64,7 @@ export default function BookingHistoryPageClient() {
 
   const getStatusBadge = (status: BookingStatus) => {
     const statusMap: Record<BookingStatus, { style: string; label: string }> = {
-      pending: {
+      new: {
         style: 'bg-[var(--warning)]/15 text-[var(--warning)]',
         label: 'Ожидает',
       },
@@ -82,17 +80,9 @@ export default function BookingHistoryPageClient() {
         style: 'bg-[var(--danger)]/15 text-[var(--danger)]',
         label: 'Отменено',
       },
-      cancelled_by_tourist: {
-        style: 'bg-[var(--danger)]/15 text-[var(--danger)]',
-        label: 'Отменено вами',
-      },
-      cancelled_by_operator: {
-        style: 'bg-[var(--danger)]/15 text-[var(--danger)]',
-        label: 'Отменено оператором',
-      },
-      refunded: {
+      no_show: {
         style: 'bg-[var(--bg-hover)] text-[var(--text-muted)]',
-        label: 'Возврат',
+        label: 'Не пришёл',
       },
     };
     const { style, label } = statusMap[status] ?? { style: '', label: status };

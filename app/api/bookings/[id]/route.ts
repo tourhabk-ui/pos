@@ -126,7 +126,7 @@ export async function PUT(
       );
     }
 
-    if (booking.status !== 'pending') {
+    if (booking.status !== 'new') {
       return NextResponse.json(
         { success: false, error: 'Можно редактировать только бронирование в статусе ожидания' } as ApiResponse<null>,
         { status: 409 }

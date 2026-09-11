@@ -3,26 +3,43 @@
  * Расширенная бизнес-логика: статусы, отмены, возвраты, логирование
  */
 
+/**
+ * Реальные значения `operator_bookings.booking_status` (11.09, #1814).
+ *
+ * До этой правки тип называл статусы, которых ни один писатель не производит
+ * (`pending`, `cancelled_by_tourist`, `cancelled_by_operator`, `refunded`) —
+ * `lib/bookings/booking.service.ts` строил переходы по ним и писал их в
+ * таблицу `bookings` (другую, с несовместимой схемой), поэтому реальный
+ * столбец их никогда не видел. Источник правды здесь три независимых места,
+ * согласные между собой: Zod-схема ручной правки статуса
+ * (`app/api/hub/operator/bookings/[id]/route.ts`), единственный писатель при
+ * создании (`lib/bookings/reserve.ts`) и WHERE-фильтры занятости по всей базе
+ * (`booking_status NOT IN ('cancelled','rejected')`, `IN ('new','confirmed')`).
+ * `rejected` встречается только в защитном WHERE, ни один писатель его не
+ * производит — в перечень не включён (правило 10.09: объявлять статус без
+ * производителя значит повторить эту же ошибку в другую сторону).
+ *
+ * Кто отменил (турист/оператор) и на сколько положен возврат — не отдельные
+ * СТАТУСЫ бронирования (колонки под это в `operator_bookings` нет), а
+ * `cancellation_reason` (текст) и вычисляемый `RefundResult` соответственно.
+ */
 export type BookingStatus =
-  | 'pending'
+  | 'new'
   | 'confirmed'
   | 'completed'
-  | 'cancelled'               // обратная совместимость со старыми записями
-  | 'cancelled_by_tourist'
-  | 'cancelled_by_operator'
-  | 'refunded';
+  | 'cancelled'
+  | 'no_show';
 
 /** Статусы, считающиеся терминальными (нельзя менять) */
 export const TERMINAL_STATUSES: ReadonlySet<BookingStatus> = new Set([
   'completed',
-  'refunded',
+  'cancelled',
+  'no_show',
 ]);
 
-/** Статусы отмены (можно перейти только в refunded) */
+/** Статус отмены — один, `cancelled`. Кто отменил — в `cancellation_reason`. */
 export const CANCELLED_STATUSES: ReadonlySet<BookingStatus> = new Set([
   'cancelled',
-  'cancelled_by_tourist',
-  'cancelled_by_operator',
 ]);
 
 /**
@@ -30,13 +47,11 @@ export const CANCELLED_STATUSES: ReadonlySet<BookingStatus> = new Set([
  * Ключ — текущий статус, значение — массив допустимых следующих статусов
  */
 export const ALLOWED_TRANSITIONS: Record<BookingStatus, readonly BookingStatus[]> = {
-  pending: ['confirmed', 'cancelled_by_tourist', 'cancelled_by_operator'],
-  confirmed: ['completed', 'cancelled_by_tourist', 'cancelled_by_operator'],
+  new: ['confirmed', 'cancelled'],
+  confirmed: ['completed', 'cancelled', 'no_show'],
   completed: [],
-  cancelled: ['refunded'],
-  cancelled_by_tourist: ['refunded'],
-  cancelled_by_operator: ['refunded'],
-  refunded: [],
+  cancelled: [],
+  no_show: [],
 } as const;
 
 export interface RefundResult {

@@ -62,6 +62,10 @@ const ANSWERS: Record<string, 'releases' | string> = {
   'app/api/bookings/[id]/cancel/route.ts': 'releases',
   'app/api/hub/operator/bookings/[id]/route.ts': 'releases',
   'app/api/operator/bookings/[id]/route.ts': 'releases',
+  // cancelBooking() здесь же чинит #1814 (писала в чужую таблицу bookings) и
+  // сразу вызывает releaseSlotsForCancelledBooking — иначе фикс сам открыл бы
+  // #1816 заново для этого пути (Telegram-кнопки оператора, /api/bookings/[id]).
+  'lib/bookings/booking.service.ts': 'releases',
 
   // ── Пишут отмену, но вычитать нечего ────────────────────────────────────
   'app/api/cron/abandoned-bookings/route.ts':

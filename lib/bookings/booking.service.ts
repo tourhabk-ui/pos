@@ -14,6 +14,7 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '@/lib/database';
 import { notifyBookingConfirmed, notifyBookingCancelled } from '@/lib/notifications/booking-notifications';
+import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import {
   BookingStatus,
   BookingWithDetails,
@@ -36,7 +37,7 @@ import {
  */
 function validateTransition(from: BookingStatus, to: BookingStatus): void {
   if (TERMINAL_STATUSES.has(from)) {
-    throw new Error(`Нельзя изменить статус завершённого бронирования (${from})`);
+    throw new Error(`Нельзя изменить статус бронирования в терминальном состоянии (${from})`);
   }
 
   const allowed = ALLOWED_TRANSITIONS[from];
@@ -154,7 +155,7 @@ const BOOKING_SELECT = `
 // to operator_bookings. See /api/bookings/route.ts (POST returns 410 Gone).
 
 /**
- * Подтвердить бронирование: pending -> confirmed
+ * Подтвердить бронирование: new -> confirmed
  * Вызывается оператором или админом.
  */
 export async function confirmBooking(
@@ -176,7 +177,7 @@ export async function confirmBooking(
     validateTransition(currentStatus, 'confirmed');
 
     await client.query(
-      `UPDATE bookings SET status = 'confirmed', updated_at = NOW() WHERE id = $1`,
+      `UPDATE operator_bookings SET booking_status = 'confirmed', updated_at = NOW() WHERE id = $1`,
       [bookingId]
     );
 
@@ -208,13 +209,19 @@ export async function confirmBooking(
 /**
  * Отменить бронирование.
  *
- * Логика зависит от роли:
- * - Турист отменяет: refund зависит от времени до тура
- *   > 48ч — 100%, 24-48ч — 50%, < 24ч — 0%
- * - Оператор отменяет: всегда 100% возврат
+ * `operator_bookings.booking_status` знает только один статус отмены —
+ * `cancelled` (нет `cancelled_by_tourist`/`cancelled_by_operator`/`refunded`,
+ * #1814). Кто отменил и на сколько положен возврат — не статус, а
+ * `cancellation_reason` (текст) и вычисляемый `RefundResult`, который
+ * возвращается вызывающему (для email/ответа API), а не пишется в
+ * несуществующие колонки `refund_amount`/`cancelled_by`.
  *
- * Если refund > 0, статус сразу переходит в refunded.
- * Если refund = 0, статус остаётся cancelled_by_tourist.
+ * Логика возврата зависит от роли:
+ * - Турист отменяет: > 48ч — 100%, 24-48ч — 50%, < 24ч — 0%
+ * - Оператор отменяет: всегда 100%
+ *
+ * Фактический возврат денег этой функцией не выполняется — платформа не
+ * вызывает ни один платёжный refund API для туровых броней (#1813).
  */
 export async function cancelBooking(
   bookingId: string,
@@ -233,63 +240,45 @@ export async function cancelBooking(
 
     const row = result.rows[0];
     const currentStatus = String(row.status) as BookingStatus;
-
-    // Определяем целевой статус отмены
     const isOperatorCancel = role === 'operator' || role === 'admin';
-    const cancelStatus: BookingStatus = isOperatorCancel
-      ? 'cancelled_by_operator'
-      : 'cancelled_by_tourist';
 
-    validateTransition(currentStatus, cancelStatus);
+    validateTransition(currentStatus, 'cancelled');
 
-    // Рассчитываем возврат
+    // Рассчитываем возврат (только для ответа/уведомления — см. шапку функции)
     const refund = calculateRefund(
       Number(row.total_price),
       new Date(String(row.date ?? row.start_date)),
       isOperatorCancel
     );
 
-    // Определяем финальный статус
-    // Оператор отменяет: всегда refunded
-    // Турист отменяет: refunded если возврат > 0, иначе cancelled_by_tourist
-    let finalStatus: BookingStatus = cancelStatus;
-    if (refund.amount > 0) {
-      finalStatus = 'refunded';
-    }
+    const cancellationReason = (
+      reason ?? (isOperatorCancel ? 'Отменено оператором' : 'Отменено туристом')
+    ).slice(0, 255);
 
     // Обновляем бронирование
     await client.query(
-      `UPDATE bookings
-       SET status = $2,
-           refund_amount = $3,
+      `UPDATE operator_bookings
+       SET booking_status = 'cancelled',
+           cancellation_reason = $2,
            cancelled_at = NOW(),
-           cancelled_by = $4,
            updated_at = NOW()
        WHERE id = $1`,
-      [bookingId, finalStatus, refund.amount, userId]
+      [bookingId, cancellationReason]
     );
 
-    // Логируем переход отмены
+    // Места, занятые оплаченной бронью, возвращаются в доступность в ТОЙ ЖЕ
+    // транзакции, что и смена статуса — иначе одного цикла «оплатили —
+    // отменили» хватает, чтобы дата больше не приняла оплату (#1816).
+    await releaseSlotsForCancelledBooking(client, bookingId);
+
     await logStatusChange(
       client,
       bookingId,
       currentStatus,
-      cancelStatus,
+      'cancelled',
       userId,
-      reason ?? (isOperatorCancel ? 'Отменено оператором' : 'Отменено туристом')
+      `${cancellationReason} — возврат: ${refund.percent}% (${refund.amount} руб.) — ${refund.reason}`
     );
-
-    // Если переходим в refunded, логируем и этот переход
-    if (finalStatus === 'refunded' && (cancelStatus as BookingStatus) !== 'refunded') {
-      await logStatusChange(
-        client,
-        bookingId,
-        cancelStatus,
-        'refunded',
-        userId,
-        `Возврат: ${refund.percent}% (${refund.amount} руб.) — ${refund.reason}`
-      );
-    }
 
     const updated = await client.query(
       `${BOOKING_SELECT} AND b.id = $1`,
@@ -429,16 +418,18 @@ export async function rescheduleBooking(
 
     const nextStatus = currentStatus;
 
+    // Счётчик занятости (tour_availability.booked_slots) здесь намеренно не
+    // трогается: перенос — известный отдельный пробел (не входит в #1814/
+    // #1813/#1816), а не тихая правка задним числом.
     await client.query(
-      `UPDATE bookings
-       SET tour_id = $1,
-           date = $2,
-           start_date = $2,
+      `UPDATE operator_bookings
+       SET operator_tour_id = $1,
+           booking_date = $2,
            participants = $3,
-           guests_count = $3,
-           total_price = $4,
+           base_total_price = $4,
+           final_price = $4,
            payment_status = $5,
-           status = $6,
+           booking_status = $6,
            updated_at = NOW()
        WHERE id = $7`,
       [targetTour.id, input.targetDate, participants, newTotalPrice, nextPaymentStatus, nextStatus, bookingId]
@@ -480,7 +471,7 @@ export async function completeBooking(
     validateTransition(currentStatus, 'completed');
 
     await client.query(
-      `UPDATE bookings SET status = 'completed', updated_at = NOW() WHERE id = $1`,
+      `UPDATE operator_bookings SET booking_status = 'completed', updated_at = NOW() WHERE id = $1`,
       [bookingId]
     );
 
