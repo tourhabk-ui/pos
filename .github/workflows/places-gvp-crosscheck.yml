@@ -1,0 +1,111 @@
+name: Places × GVP — сверка вулканов с Global Volcanism Program (вручную)
+
+# GET /api/cron/places-gvp-crosscheck (11.09): читает живые places с
+# location_type='volcano' и сверяет с Global Volcanism Program (Смитсоновский
+# институт) — независимый от OSM научный источник, специально для вулканов.
+# Кандидаты — ближайшие по РАССТОЯНИЮ вулканы ГВП, без сравнения имён
+# (places.name по-русски, VolcanoName ГВП — английская транслитерация,
+# pg_trgm между алфавитами бесполезен). Ничего не пишет и не прячет сам:
+# список для человека, отсортированный по убыванию расстояния до ближайшего
+# кандидата, без порогового отсечения (см. шапку lib/geo/gvp-crosscheck.ts).
+#
+# Правку по находке делать здесь — POST /api/cron/place-coords (нужен
+# независимый источник) или отдельная миграция-скрытие (без источника).
+#
+# Запуск: workflow_dispatch (кнопка) или push в main, меняющий
+# .github/triggers/places-gvp-crosscheck.json.
+
+on:
+  workflow_dispatch:
+    inputs:
+      part:
+        description: 'summary — только счётчики; items/both — со списком'
+        required: false
+        default: both
+        type: choice
+        options: [both, summary, items]
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/places-gvp-crosscheck.json'
+
+permissions:
+  contents: read
+
+# Новый прогон отменяет старый: сверка только читает, и две одновременные
+# копии лишь дважды нагружают GVP ради одного и того же ответа.
+concurrency:
+  group: places-gvp-crosscheck
+  cancel-in-progress: true
+
+jobs:
+  crosscheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Параметры — из ввода или из маркера
+        env:
+          IN_PART: ${{ inputs.part || '' }}
+        run: |
+          set -u
+          python3 - <<'PY'
+          import json, os
+          with open('.github/triggers/places-gvp-crosscheck.json') as f:
+              marker = json.load(f)
+          part = os.environ.get('IN_PART') or marker.get('part') or 'both'
+          limit = str(marker.get('limit') or 100)
+          offset = str(marker.get('offset') or 0)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'PART={part}\n')
+              env.write(f'LIMIT={limit}\n')
+              env.write(f'OFFSET={offset}\n')
+          print(f'part={part} limit={limit} offset={offset}')
+          PY
+
+      # Маркер едет в main тем же пушем, что и роут
+      # /api/cron/places-gvp-crosscheck, а Timeweb собирает образ 5–20 минут.
+      # Не дождались сборки — спрашивать нечего (tests/unit/marker-waits-for-deploy.test.ts).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+          ATTEMPTS: '110'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Сверка
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          URL="https://vedarai.ru/api/cron/places-gvp-crosscheck?part=${PART}&limit=${LIMIT}&offset=${OFFSET}"
+          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 90 "$URL") || RESP=""
+          echo "$RESP" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print(json.dumps({k: d.get(k) for k in (
+              'success', 'probe', 'bbox',
+              'checked_places_total', 'gvp_volcanoes_total',
+              'items_total', 'items_without_candidates_total',
+              'items_offset', 'items_limit', 'items_dropped',
+          )}, ensure_ascii=False))
+          " || { echo "$RESP" | head -c 800; exit 1; }
+          echo "── Ближайший вулкан ГВП, самые дальние первыми ──"
+          echo "$RESP" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          for it in d.get('items') or []:
+              top = (it.get('candidates') or [{}])[0]
+              print(f\"{it.get('nearestKm')} км | {it.get('name')} [{it.get('placeId')}] @ {it.get('ourLat')},{it.get('ourLng')} -> {top.get('name')} ({top.get('country')}, {top.get('volcanoType')}) @ {top.get('lat')},{top.get('lng')}\")
+          "
+          {
+            echo "## places-gvp-crosscheck — part=$PART"
+            echo
+            echo '```json'
+            echo "$RESP" | python3 -m json.tool | head -c 30000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

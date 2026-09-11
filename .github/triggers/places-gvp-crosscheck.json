@@ -1,0 +1,7 @@
+{
+  "note": "Маркер запускает places-gvp-crosscheck.yml при пуше в main. part — summary|items|both. Меняйте run, чтобы прогон был новым.",
+  "run": 1,
+  "part": "both",
+  "limit": 100,
+  "offset": 0
+}
