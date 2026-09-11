@@ -82,6 +82,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
 import { bearingDeg } from '@/lib/on-route/bearing';
 import { isUuid } from '@/lib/text/slugify';
+import { coordIsTrustworthy, coordSourceLabel, type CoordSource } from '@/lib/places/coord-source';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
@@ -338,7 +339,17 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
 
 // ─── НА МАРШРУТЕ tab ──────────────────────────────────────────────────────────
 
-interface SavedWaypoint { lat: number; lng: number; name: string; }
+interface SavedWaypoint {
+  lat: number; lng: number; name: string;
+  /**
+   * Откуда взята координата места (миграция 873). `undefined` — точка не
+   * из `places` (например, начало/конец трека, синтезированные из линии
+   * маршрута), и вопрос о происхождении координаты к ней не относится.
+   * Отсутствие поля НЕ значит «подтверждено» (§4.0) — статус-строка
+   * проверяет явно через `coordIsTrustworthy`, а не через truthy-проверку.
+   */
+  coordSource?: CoordSource;
+}
 
 /**
  * Линия маршрута для карты — снятый трек или честный фолбэк по точкам.
@@ -1047,6 +1058,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             lat: Number(w.lat),
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
+            coordSource: (w.coordSource as CoordSource | null) ?? undefined,
           }));
         // Ноль путевых точек — ЗАКОННЫЙ результат, а не отказ: у Скал Три
         // Брата все 23 связи стали «рядом», путь описан одним треком. Прежний
@@ -1420,8 +1432,20 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     }
     if (compassState === 'blocked') return { tone: 'info', text: 'Компас выключен', cta: 'compass' };
     if (compassState === 'unconfirmed') return { tone: 'warn', text: 'Компас не подтверждён — сверяйтесь с картой' };
+    /**
+     * Координата цели не подтверждена (§4.1, миграция 873). Прибор способен
+     * показать точный азимут и «~5 мин» на КООРДИНАТУ, которая при этом сама
+     * может быть неверной — 10.09 так нашлись Голубые озёра и Овальное:
+     * приложение вело человека к правильному числу, посчитанному от неверной
+     * точки. `undefined` — точка не из `places` (анкер трека), проверять
+     * нечего; здесь молчание не должно означать «подтверждено».
+     */
+    const targetCoordSource = waypoints[currentWpIdx]?.coordSource;
+    if (targetCoordSource && !coordIsTrustworthy(targetCoordSource)) {
+      return { tone: 'warn', text: `Координата точки: ${coordSourceLabel(targetCoordSource)} — не полагайтесь только на азимут и время` };
+    }
     return null;
-  }, [gpsError, fix, gpsMessage, isOffline, compassState]);
+  }, [gpsError, fix, gpsMessage, isOffline, compassState, waypoints, currentWpIdx]);
 
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
@@ -2669,6 +2693,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             lat: Number(w.lat),
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
+            coordSource: (w.coordSource as CoordSource | null) ?? undefined,
           }));
         if (converted.length === 0) {
           setPreviewError({ id: r.id, text: 'У точек маршрута нет координат — на карте его не показать.' });

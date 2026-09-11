@@ -14,6 +14,7 @@ import { routeNavigability, MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigabilit
 import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
 import { trackEvidence } from '@/lib/routes/track-evidence';
 import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
+import type { CoordSource } from '@/lib/places/coord-source';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
 
 export const dynamic = 'force-dynamic';
@@ -236,7 +237,7 @@ export async function GET(
       `SELECT rw.position, rw.is_start, rw.is_end, rw.notes,
               to_jsonb(rw)->>'link_kind' AS link_kind,
          p.ark_id AS place_id, p.name AS place_name, p.location_type,
-         p.lat AS place_lat, p.lng AS place_lng,
+         p.lat AS place_lat, p.lng AS place_lng, p.coord_source,
          sp.altitude_m, sp.hazard_types
        FROM route_waypoints rw
        JOIN places p ON p.id = rw.place_id
@@ -596,6 +597,10 @@ export async function GET(
           locationType: w.location_type as string | null,
           lat:          w.place_lat != null ? parseFloat(w.place_lat as string) : null,
           lng:          w.place_lng != null ? parseFloat(w.place_lng as string) : null,
+          // Откуда взята координата (миграция 873) — экран поля решает по
+          // ней, показывать ли уверенный азимут или предупреждение
+          // «координата не подтверждена» (lib/places/coord-source.ts).
+          coordSource:  ((w.coord_source as string | null) ?? 'unknown') as CoordSource,
           altitudeM:    w.altitude_m != null ? Number(w.altitude_m) : null,
           hazardTypes:  (w.hazard_types as string[]) ?? [],
           // Чем связь является: точка пути или «это рядом» (миграция 874).
