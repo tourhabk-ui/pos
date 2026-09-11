@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   Save, X, Plus, Images, ArrowLeft,
   MapPin, Clock, Users, DollarSign, Mountain, Upload, Loader2,
@@ -702,8 +703,7 @@ export default function EditTourClient() {
         ) : (
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {avail.map(slot => {
-              const d = new Date(slot.date + 'T12:00:00');
-              const dateStr = d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' });
+              const dateStr = formatDateOnly(slot.date, { weekday: 'short', day: 'numeric', month: 'short' });
               const pct = slot.available_slots > 0 ? Math.round((slot.booked_slots / slot.available_slots) * 100) : 0;
               const isFull = slot.booked_slots >= slot.available_slots;
               return (

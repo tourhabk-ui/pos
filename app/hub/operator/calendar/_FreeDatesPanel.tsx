@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   CalendarDays, ChevronDown, ChevronUp, CheckCircle,
   AlertTriangle, RefreshCw, Zap, X,
@@ -254,9 +255,7 @@ export default function FreeDatesPanel() {
                   {t.nextDate && (
                     <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
                       Ближайшая дата:{' '}
-                      {new Date(t.nextDate + 'T12:00:00').toLocaleDateString('ru-RU', {
-                        day: 'numeric', month: 'short',
-                      })}
+                      {formatDateOnly(t.nextDate, { day: 'numeric', month: 'short' })}
                     </p>
                   )}
                 </div>

@@ -237,7 +237,7 @@ export async function addAvailability(
 export async function getAvailability(tourId: bigint, fromDate: string, toDate: string) {
   const result = await query(
     `SELECT
-      a.id, a.date, a.available_slots, a.booked_slots,
+      a.id, a.date::text AS date, a.available_slots, a.booked_slots,
       a.base_price_override, a.weather_status, a.is_cancelled,
       a.cancellation_reason, a.weather_check_time,
       COALESCE(

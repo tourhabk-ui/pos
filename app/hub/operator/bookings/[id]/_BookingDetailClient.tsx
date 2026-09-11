@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
+import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   ArrowLeft, CheckCircle, XCircle, Award, UserX,
   Phone, Mail, Calendar, Users, Wallet, AlertTriangle,
@@ -190,7 +191,7 @@ export default function BookingDetailClient({ bookingId }: Props) {
               <div>
                 <p className="ds-label">Дата тура</p>
                 <p className="text-[var(--text-primary)] font-medium">
-                  {new Date(booking.booking_date + 'T00:00').toLocaleDateString('ru-RU', {
+                  {formatDateOnly(booking.booking_date, {
                     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
                   })}
                 </p>
@@ -296,7 +297,7 @@ export default function BookingDetailClient({ bookingId }: Props) {
       <div className="mt-4 text-xs text-[var(--text-muted)]">
         Создано: {new Date(booking.created_at).toLocaleString('ru-RU')}
         {booking.created_via && ` · через ${booking.created_via}`}
-        {' · '}Обновлено: {new Date(booking.updated_at).toLocaleString('ru-RU')}
+        {booking.updated_at && ` · Обновлено: ${new Date(booking.updated_at).toLocaleString('ru-RU')}`}
       </div>
     </div>
   );
