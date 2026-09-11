@@ -27,7 +27,7 @@ import {
   cancelledBookingSql,
   CANCELLED_STATUS_PARAM,
 } from '@/lib/payments/release-eligibility';
-import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
+import { reachFrom, partnerReachCensus, type PartnerReachRow } from '@/lib/partners/reach';
 import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -48,7 +48,7 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable';
   count: number;
   details: string;
   /**
@@ -229,6 +229,69 @@ async function notifyOperatorDirectly(
   } catch (e) {
     console.error(`[watchdog] напоминание оператору «${partnerName}» не ушло в Telegram: ${e instanceof Error ? e.message : 'fetch error'}`);
     return null;
+  }
+}
+
+/**
+ * Оператор продаёт, но до него не дозвониться — и это видно ДО первой заявки.
+ *
+ * ── Почему понадобилась отдельная проверка ────────────────────────────────
+ *
+ * Недостижимость уже ловилась — но только внутри `checkOperatorNoResponse`,
+ * то есть ПОСЛЕ того, как заявка сорок восемь часов пролежала без ответа.
+ * Порядок выходил такой: турист оставил бронь, двое суток ждал, и лишь потом
+ * платформа узнавала, что отправить её было некуда. Цена задержки — не
+ * сообщение в логе, а человек, который за эти двое суток купил поездку у
+ * кого-то другого.
+ *
+ * Условие при этом СТОЯЧЕЕ и проверяемое в любой момент: у партнёра есть
+ * активные туры и нет ни одного канала. Заявка для этого не нужна.
+ *
+ * ── Почему сейчас ──────────────────────────────────────────────────────────
+ *
+ * Замер 11.09 (`GET /api/cron/operator-reach`, прогон маркера prod-check 51):
+ * `operators_with_live_tours: 2, reachable: 0, unreachable: 2,
+ * tours_behind_unreachable: 12, verdict: "gap"`. То есть недостижимы НЕ
+ * отдельные операторы, а все до единого, и двенадцать живых туров продаются
+ * так, что продавец о продаже не узнает. Перепись это знала — но её никто не
+ * зовёт: она заведена ручной, и между «репозиторий может ответить» и
+ * «репозиторий говорит» лежала ровно эта проверка.
+ *
+ * ── Чего проверка НЕ утверждает ───────────────────────────────────────────
+ *
+ * Что достижимый оператор ответит. Она про наличие адреса, а не про человека
+ * на другом конце; молчание достижимого — предмет `checkOperatorNoResponse`,
+ * и путать эти два состояния нельзя: первое чиним мы, второе — оператор.
+ *
+ * Не КРИТ: чинится не за минуту и не ночью — нужен живой контакт с
+ * оператором. Значит идёт с дебаунсом в 12 часов, как прочие стоячие
+ * условия, чтобы не приучать пролистывать Telegram.
+ */
+async function checkUnreachableOperators(): Promise<CheckResult> {
+  try {
+    const census = await partnerReachCensus();
+    const unreachable = census.filter((r) => !r.has_telegram && !r.has_max);
+    if (unreachable.length === 0) return null;
+
+    const tours = unreachable.reduce((sum, r) => sum + r.live_tours, 0);
+    // Имена — в тревогу: «двое операторов» не даёт начать действовать, а
+    // имя даёт. Адресов здесь нет и быть не должно: перепись их не отдаёт.
+    const named = unreachable
+      .map((r) => `${r.name} (${r.live_tours})`)
+      .join(', ');
+
+    return {
+      type: 'operator_unreachable',
+      count: unreachable.length,
+      details:
+        `${unreachable.length} оператор(ов) с активными турами без единого канала `
+        + `(ни MAX, ни Telegram): ${named}. За ними ${tours} тур(ов) — заявка по ним `
+        + 'никуда не уедет. Это наша недоставка, а не молчание оператора; '
+        + 'подробности: GET /api/cron/operator-reach.',
+    };
+  } catch (err) {
+    console.error('[watchdog] checkUnreachableOperators:', err instanceof Error ? err.message : err);
+    return checkFailure('checkUnreachableOperators', err);
   }
 }
 
@@ -1600,6 +1663,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkUnconfirmedStayBookings,
     checkPendingGearRentals,
     checkPendingTransferBookings,
+    checkUnreachableOperators,
     checkOperatorNoResponse,
     checkOperatorRegistrationSpike,
     checkStuckPayouts,
