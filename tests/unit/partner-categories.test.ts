@@ -95,10 +95,15 @@ describe('регистрация оператора больше не расхо
 });
 
 describe('кабинет находит партнёра своей категории', () => {
-  it('ensurePartnerExists ищет с фильтром по категории', () => {
+  it('поиск партнёра фильтрует по категории, а не берёт первую запись', () => {
     // У физлица с экскурсиями и трансфером две записи под одним user_id.
     // Прежний `WHERE user_id = $1 LIMIT 1` возвращал произвольную из них.
-    const SRC = readFileSync(join(ROOT, 'lib/auth/operator-helpers.ts'), 'utf-8');
+    //
+    // Держателем правила был `ensurePartnerExists`; 11.09 он удалён (#1803)
+    // вместе с роутами /api/operator/profile*, своими единственными
+    // вызывающими. Само правило никуда не делось — оно живёт в создании
+    // профиля при регистрации, туда и смотрит сторож.
+    const SRC = readFileSync(join(ROOT, 'lib/auth/partner-profile.ts'), 'utf-8');
     const CODE = SRC.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
     expect(CODE).not.toMatch(/FROM partners WHERE user_id = \$1 LIMIT 1/);
     expect(CODE).toMatch(/user_id = \$1 AND category = \$2/);

@@ -22,8 +22,9 @@ const PatchSchema = z.object({
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
@@ -40,7 +41,7 @@ export async function GET(
        FROM operator_bookings b
        JOIN operator_tours t ON b.operator_tour_id = t.id
        WHERE b.id = $1 AND t.operator_id = $2 AND b.deleted_at IS NULL LIMIT 1`,
-      [BigInt(params.id), operator_id]
+      [BigInt(id), operator_id]
     );
 
     if (result.rows.length === 0) {
@@ -57,8 +58,9 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
@@ -81,7 +83,7 @@ export async function PATCH(
          JOIN operator_tours t ON b.operator_tour_id = t.id
          WHERE b.id = $1 AND t.operator_id = $2 AND b.deleted_at IS NULL
          FOR UPDATE OF b`,
-        [BigInt(params.id), operator_id]
+        [BigInt(id), operator_id]
       );
       if (locked.rows.length === 0) {
         return { row: undefined, alreadyWasCompleted: false };
@@ -108,7 +110,7 @@ export async function PATCH(
         values.push(input.notes);
       }
 
-      values.push(BigInt(params.id));
+      values.push(BigInt(id));
 
       const result = await client.query(
         `UPDATE operator_bookings SET ${sets.join(', ')}
@@ -186,8 +188,8 @@ export async function PATCH(
         const uid = userResult.rows[0].id;
         const price = parseFloat(row.final_price);
         await query('UPDATE users SET total_spent = COALESCE(total_spent, 0) + $1 WHERE id = $2', [price, uid]);
-        loyaltySystem.earnPoints(uid, params.id, price, 'booking').catch(() => {});
-        loyaltySystem.earnActivityPoints(uid, 'first_booking', params.id).catch(() => {});
+        loyaltySystem.earnPoints(uid, id, price, 'booking').catch(() => {});
+        loyaltySystem.earnActivityPoints(uid, 'first_booking', id).catch(() => {});
         loyaltySystem.completeReferral(uid).catch(() => {});
       }
     }
