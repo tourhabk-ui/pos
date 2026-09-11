@@ -218,7 +218,14 @@ describe('экран соответствует моменту, а не отчи
   it('всё в порядке — строки нет вовсе', () => {
     // Тишина тоже сообщение: «иди». Постоянная зелёная плашка «сеть есть»
     // приучает не читать статусы.
-    expect(SCREEN).toMatch(/return null;\n  \}, \[gpsError, fix, gpsMessage, isOffline, compassState\]\)/);
+    //
+    // Единственный `return null` этого memo обязан идти ПОСЛЕДНИМ, после
+    // всех проверок — иначе «всё хорошо» окажется молчаливым дефолтом для
+    // веток, которых на момент проверки ещё не было (10-11.09: сюда
+    // добавилась проверка coordIsTrustworthy — тишина не должна была
+    // означать «координата подтверждена»).
+    expect(SCREEN).toMatch(/if \(targetCoordSource && !coordIsTrustworthy\(targetCoordSource\)\)/);
+    expect(SCREEN).toMatch(/return null;\n  \}, \[gpsError, fix, gpsMessage, isOffline, compassState, waypoints, currentWpIdx\]\)/);
     expect(SCREEN).not.toMatch(/'Сеть есть'/);
   });
 
