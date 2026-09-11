@@ -26,6 +26,8 @@ interface Lead {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** Есть ли Telegram или почта: без них отправлять некуда (#1804). */
+  has_recipient?: boolean;
 }
 
 interface MatchedTour {
@@ -376,8 +378,11 @@ export default function LeadDetailClient({ leadId }: Props) {
                 {lead?.status !== 'proposal_sent' && lead?.status !== 'converted' && (
                   <button
                     onClick={handleSendProposal}
-                    disabled={sendingProposal}
-                    className="ds-btn-primary text-xs gap-1.5"
+                    disabled={sendingProposal || lead?.has_recipient === false}
+                    title={lead?.has_recipient === false
+                      ? 'У лида нет ни Telegram, ни почты — отправлять некуда. Позвоните по телефону.'
+                      : undefined}
+                    className="ds-btn-primary text-xs gap-1.5 disabled:opacity-50"
                     aria-label="Отправить клиенту"
                   >
                     {sendingProposal ? (
@@ -386,6 +391,11 @@ export default function LeadDetailClient({ leadId }: Props) {
                       <><Send className="w-3.5 h-3.5" />Отправить клиенту</>
                     )}
                   </button>
+                )}
+                {lead?.has_recipient === false && (
+                  <span className="text-[11px] text-[var(--text-muted)]">
+                    Только телефон — отправлять предложение некуда
+                  </span>
                 )}
                 <a
                   href={`/api/leads/${leadId}/proposal/pdf`}

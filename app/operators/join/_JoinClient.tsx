@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Mountain, Check, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
+/** Цифра маршрутов приходит с сервера из базы; нет её — пункта нет (#1804). */
 const PERKS = [
   'Первый месяц — 0% комиссии',
   'Личный кабинет с календарём и аналитикой',
-  '1189 маршрутов уже в базе — привяжите тур к маршруту',
   'Автоматические уведомления о бронированиях',
   'Поддержка команды при настройке',
 ];
@@ -16,7 +16,8 @@ const PERKS = [
 const INP = 'w-full px-3.5 py-2.5 text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors';
 const LBL = 'block text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1.5';
 
-export default function JoinClient() {
+export default function JoinClient({ routesLine }: { routesLine?: string | null }) {
+  const perks = routesLine ? [PERKS[0], PERKS[1], routesLine, ...PERKS.slice(2)] : PERKS;
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -121,7 +122,7 @@ export default function JoinClient() {
           </div>
 
           <ul className="space-y-3">
-            {PERKS.map(perk => (
+            {perks.map(perk => (
               <li key={perk} className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
                   style={{ background: 'var(--success)' }}>

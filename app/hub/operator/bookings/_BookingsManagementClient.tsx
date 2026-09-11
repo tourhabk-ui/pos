@@ -93,6 +93,13 @@ export default function BookingsManagementClient() {
   const [saving, setSaving]           = useState(false);
   const [saveError, setSaveError]     = useState('');
 
+  // Действия над бронью: занятость строки, причина отказа и подтверждение
+  // необратимого шага (#1802). Раньше ответ PATCH не читался вовсе — 4xx/5xx
+  // выглядели как успех, а «Отменить» срабатывало с первого касания.
+  const [busyId, setBusyId]           = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{ booking: Booking; status: 'cancelled' | 'no_show' } | null>(null);
+
   // ── Fetch bookings ──────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,12 +112,18 @@ export default function BookingsManagementClient() {
 
     try {
       const r = await fetch(`/api/hub/operator/bookings?${params}`);
-      const d = await r.json();
-      if (d.success) {
-        setBookings(d.data);
-        setTotal(d.pagination.total);
+      const d = await r.json().catch(() => null) as { success?: boolean; data?: Booking[]; pagination?: { total: number }; error?: string } | null;
+      if (!r.ok || !d?.success || !Array.isArray(d.data)) {
+        throw new Error(d?.error ?? `список не загружен (HTTP ${r.status})`);
       }
-    } catch { /* non-fatal */ }
+      setBookings(d.data);
+      setTotal(d.pagination?.total ?? d.data.length);
+      setActionError('');
+    } catch (err) {
+      // «Не смогли спросить» не показывается как «броней нет» (§4.0).
+      console.error('[bookings] список не загружен:', err instanceof Error ? err.message : String(err));
+      setActionError('Список бронирований не загрузился. Проверьте связь и обновите.');
+    }
     finally { setLoading(false); }
   }, [page, statusFilter, payFilter]);
 
@@ -172,15 +185,38 @@ export default function BookingsManagementClient() {
 
   // ── Status update ───────────────────────────────────────────────────────────
   const updateStatus = async (id: string, booking_status: string) => {
+    if (busyId) return;                       // второе нажатие не шлёт второй PATCH
+    setBusyId(id);
+    setActionError('');
     try {
-      await fetch(`/api/hub/operator/bookings/${id}`, {
+      const res = await fetch(`/api/hub/operator/bookings/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ booking_status }),
       });
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      if (!res.ok || json?.success === false) {
+        // Отказ виден человеку и в логе: молчащий catch и был находкой (§4.0).
+        console.error('[bookings] статус не изменён', res.status, json?.error ?? '');
+        setActionError(json?.error ?? `Статус не изменён (HTTP ${res.status})`);
+        return;
+      }
       await load();
       if (detail?.id === id) setDetail(prev => prev ? { ...prev, booking_status: booking_status as Booking['booking_status'] } : null);
-    } catch { /* non-fatal */ }
+    } catch {
+      setActionError('Нет связи с сервером — статус не изменён');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** Необратимое действие спрашивает подтверждение; обычное — выполняется сразу. */
+  const requestStatus = (booking: Booking, status: string) => {
+    if (status === 'cancelled' || status === 'no_show') {
+      setConfirmAction({ booking, status: status as 'cancelled' | 'no_show' });
+      return;
+    }
+    void updateStatus(booking.id, status);
   };
 
   // ── Pagination ──────────────────────────────────────────────────────────────
@@ -198,6 +234,63 @@ export default function BookingsManagementClient() {
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
+
+      {/*
+        Подтверждение необратимого шага (#1802). Непрозрачное по DS: отмена
+        брони — действие, а не контекст; стекло здесь запрещено. Отмена
+        видна туристу, поэтому спрашиваем до, а не сообщаем после.
+      */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
+          role="dialog" aria-modal="true" aria-labelledby="booking-confirm-title">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0 text-[var(--danger)]" />
+              <div className="min-w-0">
+                <h2 id="booking-confirm-title" className="text-base font-semibold text-[var(--text-primary)]">
+                  {confirmAction.status === 'cancelled' ? 'Отменить бронь?' : 'Отметить «не явился»?'}
+                </h2>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">
+                  {confirmAction.booking.tourist_name ?? 'Турист'} · {confirmAction.booking.tour_title} ·{' '}
+                  {formatDateOnly(confirmAction.booking.booking_date)}
+                </p>
+                <p className="text-sm text-[var(--text-secondary)] mt-2">
+                  {confirmAction.status === 'cancelled'
+                    ? 'Турист увидит отмену в своём кабинете. Вернуть бронь самостоятельно нельзя.'
+                    : 'Отметка остаётся в истории брони и влияет на статистику.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setConfirmAction(null)} disabled={busyId !== null}
+                className="flex-1 min-h-[44px] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50">
+                Не надо
+              </button>
+              <button type="button" disabled={busyId !== null}
+                onClick={() => {
+                  const { booking, status } = confirmAction;
+                  setConfirmAction(null);
+                  void updateStatus(booking.id, status);
+                }}
+                className="flex-1 min-h-[44px] rounded-lg text-sm font-semibold text-white bg-[var(--danger)] hover:opacity-90 transition-opacity disabled:opacity-50">
+                {confirmAction.status === 'cancelled' ? 'Отменить бронь' : 'Отметить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Отказ действия виден человеку, а не только в консоли */}
+      {actionError && (
+        <div className="flex items-start gap-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 p-4">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--danger)]" />
+          <p className="flex-1 text-sm text-[var(--text-primary)]">{actionError}</p>
+          <button type="button" onClick={() => setActionError('')} aria-label="Закрыть"
+            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -409,21 +502,25 @@ export default function BookingsManagementClient() {
                 {/* Actions */}
                 <div className="flex items-center justify-end gap-1 flex-wrap">
                   {b.booking_status === 'new' && (
-                    <button onClick={() => updateStatus(b.id, 'confirmed')} className="text-xs px-2 py-1 bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 rounded transition-colors">
-                      Принять
+                    <button onClick={() => requestStatus(b, 'confirmed')} disabled={busyId !== null}
+                      className="min-h-[44px] sm:min-h-0 text-xs px-3 py-2 sm:py-1 bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 rounded-lg transition-colors disabled:opacity-50">
+                      {busyId === b.id ? 'Сохраняем…' : 'Принять'}
                     </button>
                   )}
                   {(b.booking_status === 'new' || b.booking_status === 'confirmed') && (
-                    <button onClick={() => updateStatus(b.id, 'cancelled')} className="text-xs px-2 py-1 bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 rounded transition-colors">
+                    <button onClick={() => requestStatus(b, 'cancelled')} disabled={busyId !== null}
+                      className="min-h-[44px] sm:min-h-0 text-xs px-3 py-2 sm:py-1 bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 rounded-lg transition-colors disabled:opacity-50">
                       Отменить
                     </button>
                   )}
                   {b.booking_status === 'confirmed' && (
-                    <button onClick={() => updateStatus(b.id, 'completed')} className="text-xs px-2 py-1 border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded transition-colors">
+                    <button onClick={() => requestStatus(b, 'completed')} disabled={busyId !== null}
+                      className="min-h-[44px] sm:min-h-0 text-xs px-3 py-2 sm:py-1 border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-lg transition-colors disabled:opacity-50">
                       Завершить
                     </button>
                   )}
-                  <button onClick={() => setDetail(b)} className="text-xs px-2 py-1 border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded transition-colors">
+                  <button onClick={() => setDetail(b)}
+                    className="min-h-[44px] sm:min-h-0 text-xs px-3 py-2 sm:py-1 border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-lg transition-colors">
                     Детали
                   </button>
                 </div>
@@ -500,17 +597,20 @@ export default function BookingsManagementClient() {
             {/* Quick status actions in detail */}
             <div className="flex gap-2 flex-wrap pt-1 border-t border-[var(--border)]">
               {detail.booking_status === 'new' && (
-                <button onClick={() => { updateStatus(detail.id, 'confirmed'); setDetail(null); }} className="ds-btn ds-btn-primary text-sm flex items-center gap-1.5">
+                <button onClick={() => { const b = detail; setDetail(null); requestStatus(b, 'confirmed'); }} disabled={busyId !== null}
+                  className="ds-btn ds-btn-primary text-sm flex items-center gap-1.5 disabled:opacity-50">
                   <Check className="w-3.5 h-3.5" />Принять
                 </button>
               )}
               {detail.booking_status === 'confirmed' && (
-                <button onClick={() => { updateStatus(detail.id, 'completed'); setDetail(null); }} className="ds-btn ds-btn-secondary text-sm">
+                <button onClick={() => { const b = detail; setDetail(null); requestStatus(b, 'completed'); }} disabled={busyId !== null}
+                  className="ds-btn ds-btn-secondary text-sm disabled:opacity-50">
                   Завершить
                 </button>
               )}
               {(detail.booking_status === 'new' || detail.booking_status === 'confirmed') && (
-                <button onClick={() => { updateStatus(detail.id, 'cancelled'); setDetail(null); }} className="ds-btn ds-btn-danger text-sm">
+                <button onClick={() => { const b = detail; setDetail(null); requestStatus(b, 'cancelled'); }} disabled={busyId !== null}
+                  className="ds-btn ds-btn-danger text-sm disabled:opacity-50">
                   Отменить
                 </button>
               )}

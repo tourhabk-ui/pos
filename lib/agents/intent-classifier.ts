@@ -258,4 +258,13 @@ export function classifyIntentByKeywords(
   return 'unknown';
 }
 
+export { OPERATOR_COMMAND_EXAMPLES } from './operator-commands';
+import { OPERATOR_COMMAND_EXAMPLES as _examples } from './operator-commands';
+/**
+ * Компиляторная сверка: намерения примеров — подмножество AgentIntent.
+ * Разъедутся списки — упадёт tsc, а не прод (правило 10.09).
+ */
+const _examplesAreKnownIntents: AgentIntent[] = _examples.map((e) => e.intent);
+void _examplesAreKnownIntents;
+
 export type { AgentIntent };

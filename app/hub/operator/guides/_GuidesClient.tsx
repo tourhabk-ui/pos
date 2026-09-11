@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
-import { Users, Star, Loader2, Search, UserCheck, UserX, AlertTriangle } from 'lucide-react';
+import { Users, Star, Loader2, Search, UserCheck, UserX, AlertTriangle, RefreshCw, BadgeCheck } from 'lucide-react';
+import { plural } from '@/lib/home/data-freshness';
 
 /**
  * Гиды оператора — живой экран.
@@ -17,7 +18,7 @@ interface Guide {
   id: string;
   name: string;
   rating: number | null;
-  specializations: string[];
+  verifiedCertifications: number;
   isAvailable: boolean;
   toursCount: number;
 }
@@ -96,10 +97,25 @@ export default function GuidesClient() {
           </div>
         </div>
 
+        {/*
+          Три исхода, не два: «не смогли загрузить» — отдельное состояние с
+          кнопкой повтора, а не ошибка ПЛЮС «гидов пока нет» разом (#1794).
+          Пустота внизу рисуется только когда список действительно пуст.
+        */}
         {error && (
-          <div className="flex items-start gap-2 p-4 mb-4 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
+          <div className="flex items-start gap-3 p-4 mb-4 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
             <AlertTriangle className="w-4 h-4 mt-0.5 text-[var(--danger)] flex-shrink-0" />
-            <span>{error}</span>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium">{error}</p>
+              <p className="text-[var(--text-secondary)] mt-0.5">Список гидов не показан — мы не знаем, есть ли они.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="min-h-[44px] px-3 rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors inline-flex items-center gap-1.5 shrink-0"
+            >
+              <RefreshCw className="w-4 h-4" /> Повторить
+            </button>
           </div>
         )}
 
@@ -107,7 +123,7 @@ export default function GuidesClient() {
           <div className="flex justify-center py-16">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : error ? null : filtered.length === 0 ? (
           <div className="text-center py-16">
             <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3" />
             <p className="text-[var(--text-secondary)]">
@@ -141,8 +157,13 @@ export default function GuidesClient() {
                         {guide.rating.toFixed(1)}
                       </span>
                     )}
-                    <span>{guide.toursCount} выходов</span>
-                    {guide.specializations.length > 0 && <span>{guide.specializations.join(', ')}</span>}
+                    <span>{guide.toursCount} {plural(guide.toursCount, 'выход', 'выхода', 'выходов')}</span>
+                    {guide.verifiedCertifications > 0 && (
+                      <span className="flex items-center gap-1">
+                        <BadgeCheck className="w-3.5 h-3.5 text-[var(--success)]" />
+                        {guide.verifiedCertifications} {plural(guide.verifiedCertifications, 'аттестация', 'аттестации', 'аттестаций')}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button

@@ -557,7 +557,10 @@ export interface OpDashboardMetricsRow {
   cancelled_bookings: string;
   total_revenue: string;
   monthly_revenue: string;
-  avg_rating: string;
+  paid_revenue: string;
+  paid_revenue_month: string;
+  /** NULL, когда ни один тур оператора не оценивали. */
+  avg_rating: string | null;
   total_reviews: string;
 }
 

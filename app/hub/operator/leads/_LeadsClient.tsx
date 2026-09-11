@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import useSWR from 'swr';
+import Link from 'next/link';
 import {
   Brain, Zap, FileText, CheckCircle, Clock,
   AlertCircle, User, Phone, MessageSquare, Download,
@@ -97,12 +98,19 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
   const canProcess = ['new', 'contacted', 'qualified'].includes(lead.status);
   const hasProposal = !!lead.proposal_id;
 
+  // Карточка — НЕ ссылка целиком: внутри неё живут кнопка AI-обработки и
+  // ссылка на PDF, а <a> внутри <a> роняет гидратацию React и ведёт себя
+  // непредсказуемо в браузере (#1804). Ссылкой стал заголовок, он же растянут
+  // невидимой областью по карточке (before:inset-0).
   return (
-    <a href={`/hub/operator/leads/${lead.id}`} className="ds-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 hover:bg-[var(--bg-hover)] transition-colors block">
+    <div className="ds-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 hover:bg-[var(--bg-hover)] transition-colors relative">
       {/* Основные данные */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className="font-medium text-[var(--text-primary)]">{lead.name}</span>
+          <Link href={`/hub/operator/leads/${lead.id}`}
+            className="font-medium text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors before:absolute before:inset-0 before:content-[''] before:z-0">
+            {lead.name}
+          </Link>
           <StatusBadge status={lead.status} />
           {lead.ai_score !== null && <ScoreBadge score={lead.ai_score} />}
         </div>
@@ -138,8 +146,8 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
         )}
       </div>
 
-      {/* Действия */}
-      <div className="flex items-center gap-2 shrink-0" onClick={e => e.preventDefault()}>
+      {/* Действия — поверх растянутой области ссылки (z-10), клики свои */}
+      <div className="flex items-center gap-2 shrink-0 relative z-10">
         {hasProposal && (
           <a
             href={`/api/leads/${lead.id}/proposal/pdf`}
@@ -179,7 +187,7 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
           </span>
         ) : null}
       </div>
-    </a>
+    </div>
   );
 }
 

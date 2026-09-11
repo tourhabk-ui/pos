@@ -2,6 +2,13 @@
 
 import { useState } from 'react';
 import { Sparkles, Loader, Send, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { OPERATOR_COMMAND_EXAMPLES } from '@/lib/agents/operator-commands';
+
+/**
+ * Примеры — из того же модуля, что и ключевые фразы классификатора: список на
+ * экране и разбор команды обязаны быть одним источником (#1800).
+ */
+const EXAMPLES = OPERATOR_COMMAND_EXAMPLES;
 
 interface AgentResult {
   intent: string;
@@ -10,14 +17,6 @@ interface AgentResult {
   data?: Record<string, unknown>;
 }
 
-const EXAMPLES = [
-  { label: 'Сводка туров', message: 'Покажи сводку по моим турам' },
-  { label: 'Бронирования сегодня', message: 'Что за бронирования сегодня?' },
-  { label: 'Выручка за 7 дней', message: 'Какая выручка за последнюю неделю?' },
-  { label: 'Создать тур', message: 'Создай тур "Рыбалка на Авачинской бухте"' },
-  { label: 'AI заполнить тур', message: 'заполни тур 1' },
-  { label: 'Добавить слоты', message: 'добавь слоты туру 1 с 2026-07-01 по 2026-07-31, 10 мест' },
-];
 
 export function AIAssistClient() {
   const [message, setMessage] = useState('');
@@ -87,7 +86,8 @@ export function AIAssistClient() {
                 key={ex.label}
                 onClick={() => sendMessage(ex.message)}
                 disabled={loading}
-                className="px-3 py-1.5 text-xs rounded border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
+                title={ex.message}
+                className="min-h-[44px] px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
               >
                 {ex.label}
               </button>
@@ -184,19 +184,19 @@ export function AIAssistClient() {
         <div className="mt-8 ds-card p-5">
           <h2 className="ds-h2 mb-3">Доступные команды</h2>
           <div className="space-y-2 text-sm text-[var(--text-secondary)]">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <p className="font-medium text-[var(--text-primary)] mb-1">Читать</p>
-                <p>— Покажи мои туры</p>
-                <p>— Бронирования сегодня</p>
-                <p>— Выручка за 7 дней</p>
-              </div>
-              <div>
-                <p className="font-medium text-[var(--text-primary)] mb-1">Создавать</p>
-                <p>— Создай тур [название]</p>
-                <p>— Заполни тур [ID]</p>
-                <p>— Добавь слоты туру [ID] с [дата] по [дата]</p>
-              </div>
+            {/* Список — из того же реестра, что и кнопки: два перечня расходятся,
+                один нет (#1800). */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {(['read', 'write'] as const).map((group) => (
+                <div key={group}>
+                  <p className="font-medium text-[var(--text-primary)] mb-1">
+                    {group === 'read' ? 'Читать' : 'Создавать'}
+                  </p>
+                  {EXAMPLES.filter((ex) => ex.group === group).map((ex) => (
+                    <p key={ex.label}>— {ex.message}</p>
+                  ))}
+                </div>
+              ))}
             </div>
           </div>
         </div>
