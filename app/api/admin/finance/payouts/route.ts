@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query, transaction } from '@/lib/database';
 import { z } from 'zod';
+import { notCancelledBookingSql, CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -158,12 +159,17 @@ export async function POST(request: NextRequest) {
 
   const result = await transaction(async client => {
     const paymentsResult = await client.query(
-      `SELECT id, net_amount FROM tour_payments
-       WHERE id = ANY($1::uuid[])
-         AND operator_id = $2
-         AND status = 'HELD'
+      // Условие про отменённую бронь — не украшение. Отказ ниже уже ГОВОРИЛ
+      // «они уже выплачены, отменены или принадлежат другому оператору», но
+      // отмена платёж не трогала нигде: слово в сообщении было, проверки не
+      // было (#1813). Теперь есть и проверка.
+      `SELECT id, net_amount FROM tour_payments tp
+       WHERE tp.id = ANY($1::uuid[])
+         AND tp.operator_id = $2
+         AND tp.status = 'HELD'
+         AND ${notCancelledBookingSql('tp', 3)}
        FOR UPDATE`,
-      [paymentIds, operatorId]
+      [paymentIds, operatorId, CANCELLED_STATUS_PARAM]
     );
 
     if (paymentsResult.rows.length === 0) {

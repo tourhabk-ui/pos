@@ -36,6 +36,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import {
+  notCancelledBookingSql,
+  cancelledBookingSql,
+  CANCELLED_STATUS_PARAM,
+} from '@/lib/payments/release-eligibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,20 +67,40 @@ export async function GET(request: NextRequest) {
     await client.query('BEGIN');
     inTransaction = true;
 
-    // 1. Находим HELD платежи, у которых release_after уже наступил
-    const readyRes = await client.query(`
-      SELECT id, operator_id, net_amount, booking_id
-      FROM tour_payments
-      WHERE status = 'HELD'
-        AND release_after <= NOW()
-      FOR UPDATE SKIP LOCKED
-      LIMIT 100
-    `);
+    // 1. Находим HELD платежи, у которых release_after уже наступил И бронь
+    //    НЕ отменена. Без последнего условия релиз платил оператору за тур,
+    //    который отменён: отмена брони не трогает платёж нигде (#1813).
+    const readyRes = await client.query(
+      `SELECT id, operator_id, net_amount, booking_id
+         FROM tour_payments tp
+        WHERE tp.status = 'HELD'
+          AND tp.release_after <= NOW()
+          AND ${notCancelledBookingSql('tp', 1)}
+        FOR UPDATE SKIP LOCKED
+        LIMIT 100`,
+      [CANCELLED_STATUS_PARAM],
+    );
+
+    // Придержанное обязано быть ВИДНЫМ, а не молча остаться в HELD: это
+    // деньги туриста у нас, и решение по ним за человеком (§4.0).
+    const withheldRes = await client.query<{ count: string; total: string }>(
+      `SELECT COUNT(*)::text AS count, COALESCE(SUM(retail_amount), 0)::text AS total
+         FROM tour_payments tp
+        WHERE tp.status = 'HELD'
+          AND tp.release_after <= NOW()
+          AND ${cancelledBookingSql('tp', 1)}`,
+      [CANCELLED_STATUS_PARAM],
+    );
+    const withheld = {
+      count: parseInt(withheldRes.rows[0]?.count ?? '0', 10),
+      retail_total: parseFloat(withheldRes.rows[0]?.total ?? '0'),
+      note: 'бронь отменена — платёж не выплачен оператору; что вернуть туристу, решает человек (#1813)',
+    };
 
     if (readyRes.rows.length === 0) {
       await client.query('COMMIT');
       inTransaction = false;
-      return NextResponse.json({ ok: true, released: 0 });
+      return NextResponse.json({ ok: true, released: 0, withheld_cancelled: withheld });
     }
 
     const ids = readyRes.rows.map((r: { id: string }) => r.id);
@@ -114,7 +139,7 @@ export async function GET(request: NextRequest) {
       }).catch(() => {});
     }
 
-    return NextResponse.json({ ok: true, released: ids.length, totalNet });
+    return NextResponse.json({ ok: true, released: ids.length, totalNet, withheld_cancelled: withheld });
 
   } catch (err) {
     if (inTransaction) await client.query('ROLLBACK').catch(() => {});

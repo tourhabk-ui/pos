@@ -22,6 +22,11 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import {
+  notCancelledBookingSql,
+  cancelledBookingSql,
+  CANCELLED_STATUS_PARAM,
+} from '@/lib/payments/release-eligibility';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
 import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -43,7 +48,7 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'cron_fruitless';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless';
   count: number;
   details: string;
   /**
@@ -740,6 +745,13 @@ async function checkOperatorRegistrationSpike(): Promise<CheckResult> {
  *
  * Порог — 6 часов: шесть пропущенных запусков подряд, случайной задержкой уже
  * не объясняются. Тревога говорит и о деньгах, и о причине: молчащий крон.
+ *
+ * ОТМЕНЁННЫЕ БРОНИ СЮДА НЕ ВХОДЯТ (11.09, #1813). С этого дня релиз намеренно
+ * НЕ выплачивает платёж отменённой брони — значит такой платёж останется в
+ * HELD навсегда и звенел бы здесь вечно, утопив настоящий сигнал о молчащем
+ * кроне в собственном шуме. Но «убрать из этой тревоги» не значит «спрятать»:
+ * у них своя тревога ниже — `checkHeldForCancelled`. Деньги туриста лежат у
+ * нас, и это отдельный факт с отдельным именем, а не разница двух чисел.
  */
 async function checkStuckPayouts(): Promise<CheckResult> {
   try {
@@ -747,11 +759,12 @@ async function checkStuckPayouts(): Promise<CheckResult> {
       SELECT COUNT(*)::text                                              AS count,
              COALESCE(SUM(net_amount), 0)::text                          AS total,
              MAX(EXTRACT(EPOCH FROM (NOW() - release_after)) / 3600)::text AS oldest_hours
-      FROM tour_payments
-      WHERE status = 'HELD'
-        AND release_after IS NOT NULL
-        AND release_after < NOW() - INTERVAL '6 hours'
-    `);
+      FROM tour_payments tp
+      WHERE tp.status = 'HELD'
+        AND tp.release_after IS NOT NULL
+        AND tp.release_after < NOW() - INTERVAL '6 hours'
+        AND ${notCancelledBookingSql('tp', 1)}
+    `, [CANCELLED_STATUS_PARAM]);
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;
 
@@ -771,6 +784,64 @@ async function checkStuckPayouts(): Promise<CheckResult> {
     // об отказе проверки здесь дороже всего.
     console.error('[watchdog] checkStuckPayouts:', err instanceof Error ? err.message : err);
     return checkFailure('checkStuckPayouts', err);
+  }
+}
+
+/**
+ * Деньги туриста за ОТМЕНЁННУЮ бронь лежат у нас и ждут решения человека.
+ *
+ * С 11.09 релиз таких платежей не делает (#1813): платить оператору за тур,
+ * которого не было, нельзя. Но и молчать о них нельзя — это ровно тот случай,
+ * когда «мы ничего не делаем» выглядит как «всё в порядке».
+ *
+ * Возврата в платформе нет ни одного: `REFUNDED` объявлен в схеме и в
+ * счётчике админского экрана, а писателя у него нет. Пока владелец не решил,
+ * что происходит с деньгами при отмене (возврат целиком, удержание 50% по
+ * `cancellation_policy`, ручное решение), единственное честное поведение —
+ * держать и говорить об этом вслух.
+ *
+ * ОТСЧЁТ ИДЁТ ОТ ОТМЕНЫ, А НЕ ОТ СРОКА РЕЛИЗА, и это не мелочь. Первая
+ * редакция этой проверки считала от `release_after` — то есть от конца тура
+ * плюс 36 часов. Турист, отменивший бронь за два месяца до поездки, ждал бы
+ * упоминания о своих деньгах эти два месяца: платёж не «застревает» по
+ * календарю релиза, он становится чужим в момент отмены. Проверка, которая
+ * почти никогда не срабатывает вовремя, — это молчание с видом наблюдения.
+ *
+ * Порог 48 часов от `cancelled_at`: человеку нужно время разобрать отмену, но
+ * не двое суток тишины. Брони без `cancelled_at` (статус поставлен мимо
+ * штатного пути) считаются от `updated_at` — иначе они выпали бы из счёта
+ * совсем, а «не знаю когда» не значит «не считать».
+ */
+async function checkHeldForCancelled(): Promise<CheckResult> {
+  try {
+    const { rows } = await pool.query<{ count: string; total: string | null; oldest_hours: string | null }>(`
+      SELECT COUNT(*)::text                        AS count,
+             COALESCE(SUM(tp.retail_amount), 0)::text AS total,
+             MAX(EXTRACT(EPOCH FROM (NOW() - COALESCE(ob.cancelled_at, ob.updated_at))) / 3600)::text AS oldest_hours
+      FROM tour_payments tp
+      JOIN operator_bookings ob ON ob.id = tp.booking_id
+      WHERE tp.status = 'HELD'
+        AND ob.booking_status = ANY($1::text[])
+        AND COALESCE(ob.cancelled_at, ob.updated_at) < NOW() - INTERVAL '48 hours'
+    `, [CANCELLED_STATUS_PARAM]);
+    const count = parseInt(rows[0]?.count ?? '0', 10);
+    if (count === 0) return null;
+
+    const total = Math.round(parseFloat(rows[0]?.total ?? '0'));
+    const oldest = Math.round(parseFloat(rows[0]?.oldest_hours ?? '0'));
+    return {
+      type: 'payment_held_for_cancelled_booking',
+      count,
+      critical: true,
+      details:
+        `${count} платежей на ${total} руб. за ОТМЕНЁННЫЕ брони удерживаются платформой ` +
+        `(самая старая отмена — ${oldest} ч назад). Оператору они не уйдут, но и туристу ` +
+        `не вернулись: возврата в платформе нет. Нужно решение человека — /hub/admin/finance.`,
+    };
+  } catch (err) {
+    // «Не смог проверить» — не «всё хорошо» (§4.0). Здесь это чужие деньги.
+    console.error('[watchdog] checkHeldForCancelled:', err instanceof Error ? err.message : err);
+    return checkFailure('checkHeldForCancelled', err);
   }
 }
 
@@ -1532,6 +1603,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkOperatorNoResponse,
     checkOperatorRegistrationSpike,
     checkStuckPayouts,
+    checkHeldForCancelled,
     checkUnprocessedLeads,
     checkIgnoredSOS,
     checkAbandonedSOS,
