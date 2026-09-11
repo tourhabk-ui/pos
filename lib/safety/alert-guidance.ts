@@ -104,6 +104,17 @@ const ALIASES: Record<string, string> = {
   tsunami_warning: 'tsunami',
   ashfall: 'volcano',
   eruption: 'volcano',
+  // Типы, которые классификатор МЧС и роут /api/safety/volcanic РЕАЛЬНО
+  // производят. До 10.09 алиасы покрывали `ashfall` и `eruption` — имена,
+  // которых не производил никто, — а `volcanic_eruption` (единственный живой
+  // вулканический тип в external_alerts) отвечал `known: false`. Экран
+  // планирования зовёт alertGuidance с типом тревоги как есть, то есть на
+  // вулканической тревоге человек в поле читал «что делать — у нас не
+  // записано», пока правила МЧС при пеплопаде лежали рядом под ключом
+  // `volcano`. Та же дыра, что лавины (#1763) и медведи (#1792), только в
+  // потребителе. Сторож: tests/unit/alert-types-produced.test.ts.
+  volcanic_eruption: 'volcano',
+  ash_cloud: 'volcano',
   seismic: 'earthquake',
   quake: 'earthquake',
 };
