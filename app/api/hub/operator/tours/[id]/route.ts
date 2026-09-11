@@ -20,7 +20,7 @@ import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export const dynamic = 'force-dynamic';
 
-/** BigInt(params.id) на нечисловом id кидает SyntaxError — тот же тип
+/** BigInt(id) на нечисловом id кидает SyntaxError — тот же тип
  * исключения, что и у request.json() на битом теле. Раньше обе ошибки
  * ловились одним catch и путались: DELETE /tours/not-a-number отвечал
  * общим 500 "Failed to delete tour" вместо честного 400 на клиентскую
@@ -35,9 +35,10 @@ function parseTourId(raw: string): bigint | null {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const tourId = parseTourId(params.id);
+  const { id } = await params;
+  const tourId = parseTourId(id);
   if (tourId === null) {
     return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
   }
@@ -68,9 +69,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const tourId = parseTourId(params.id);
+  const { id } = await params;
+  const tourId = parseTourId(id);
   if (tourId === null) {
     return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
   }
@@ -183,9 +185,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const tourId = parseTourId(params.id);
+  const { id } = await params;
+  const tourId = parseTourId(id);
   if (tourId === null) {
     return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
   }

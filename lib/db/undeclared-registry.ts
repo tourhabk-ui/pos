@@ -130,7 +130,11 @@ export const UNDECLARED_TABLES = [
   // спрашивал единственный читатель — уведомления кабинета оператора, где
   // отказ глушился пустым catch и выглядел как «отзывов нет» (#1801).
   // Читатель переведён на существующую operator_tour_reviews.
-  'agents', 'tour_images',
+  //
+  // tour_images вычеркнута 11.09 (#1803) следом: её спрашивал единственный
+  // роут /api/operator/tours, удалённый вместе с семью такими же — он падал
+  // на ней («relation \"tour_images\" does not exist») и не имел потребителя.
+  'agents',
 ] as const;
 
 export type UndeclaredTable = (typeof UNDECLARED_TABLES)[number];

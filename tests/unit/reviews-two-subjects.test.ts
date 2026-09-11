@@ -38,7 +38,8 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 /** Файлы, обслуживающие отзывы о ТУРАХ. */
 const TOUR_REVIEW_SURFACES = [
   'app/api/operator/reviews/route.ts',
-  'app/api/operator/reviews/stats/route.ts',
+  // `reviews/stats` удалён 11.09 (#1803): он падал на неоднозначном `rating`
+  // и не имел ни одного потребителя — статистику отзывов кабинет не показывал.
   'app/api/operator/reviews/[id]/reply/route.ts',
   'app/api/reviews/tour/[tourId]/route.ts',
 ];
