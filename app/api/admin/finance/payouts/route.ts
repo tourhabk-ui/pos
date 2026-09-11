@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query, transaction } from '@/lib/database';
 import { z } from 'zod';
-import { notCancelledBookingSql, CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
+import { notCancelledBookingSql, cancelledBookingSql, CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,7 +86,13 @@ export async function GET(request: NextRequest) {
      LIMIT 50`
   );
 
-  // HELD платежи готовые к выплате (release_after < NOW)
+  // HELD платежи готовые к выплате (release_after < NOW).
+  //
+  // Фильтр по отменённым добавлен 11.09 вместе с находкой pendingRefunds
+  // ниже: без него сумма группы включала платежи отменённых броней, которые
+  // POST этого же роута всё равно отвергает (notCancelledBookingSql там уже
+  // стоял) — админ видел «оператору причитается N» и получал 409 «часть
+  // платежей недоступна» на весь батч, если группа задевала отменённый.
   const readyResult = await query(
     `SELECT tp.operator_id, p.company_name AS operator_name,
             COUNT(*) AS count,
@@ -94,8 +100,32 @@ export async function GET(request: NextRequest) {
      FROM tour_payments tp
      JOIN partners p ON p.id = tp.operator_id
      WHERE tp.status = 'HELD' AND tp.release_after < NOW()
+       AND ${notCancelledBookingSql('tp', 1)}
      GROUP BY tp.operator_id, p.company_name
-     ORDER BY total_net DESC`
+     ORDER BY total_net DESC`,
+    [CANCELLED_STATUS_PARAM],
+  );
+
+  /**
+   * Платежи за ОТМЕНЁННЫЕ брони, всё ещё HELD — ждут возврата туристу, не
+   * выплаты оператору (#1813). Список поимённый, не агрегат: возврат
+   * оформляется по конкретному платежу (`POST /api/admin/finance/refunds`),
+   * а не батчем по оператору, как выплата, — суммы и получатель разные у
+   * каждой строки.
+   */
+  const pendingRefundsResult = await query(
+    `SELECT tp.id, tp.retail_amount, tp.booking_id,
+            p.company_name AS operator_name,
+            ot.title       AS tour_title,
+            ob.tourist_name, ob.booking_date,
+            COALESCE(ob.cancelled_at, ob.updated_at) AS cancelled_at
+       FROM tour_payments tp
+       JOIN partners p ON p.id = tp.operator_id
+       JOIN operator_bookings ob ON ob.id = tp.booking_id
+       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+      WHERE tp.status = 'HELD' AND ${cancelledBookingSql('tp', 1)}
+      ORDER BY cancelled_at ASC`,
+    [CANCELLED_STATUS_PARAM],
   );
 
   const s = statsResult.rows[0];
@@ -116,6 +146,7 @@ export async function GET(request: NextRequest) {
       payments:     paymentsResult.rows,
       payouts:      payoutsResult.rows,
       readyForPayout: readyResult.rows,
+      pendingRefunds: pendingRefundsResult.rows,
     },
   });
 }
