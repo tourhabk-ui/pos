@@ -33,9 +33,16 @@
 -- фото (806). Поэтому слоги разведены явно, а не по случайности, и родство
 -- двух операторов остаётся вопросом к человеку, а не выводом из реки.
 --
--- Водяной знак на изображениях — «KAMCHATKA RIVER TOURS». Компания это Яны
--- или нет, из материалов не следует: `company_name` оставлен пустым, а не
--- заполнен догадкой.
+-- Компания — «River Tours Kamchatka». Первая редакция этой миграции оставляла
+-- `company_name` пустым: водяной знак на программах читался, но чей он, из
+-- присланного не следовало, и заполнять поле догадкой было нельзя. Владелец
+-- прислал логотип в тот же вечер — вопрос закрыт свидетельством, а не
+-- правдоподобием, и имя партнёра теперь компания, а не имя человека (как у
+-- «Камчатка Рафтинг», где в контактах живёт Катерина). Яна осталась в
+-- `contacts.admin_name`.
+--
+-- Логотип: public/images/river-tours-kamchatka/logo.jpg, путь в `logo_image` —
+-- по той же конвенции, что у «Камчатской Рыбалки» (миграция 804).
 --
 -- ── Чего мы не знаем (NULL здесь — ответ, а не пропуск) ───────────────────
 --
@@ -77,17 +84,22 @@
 -- ... WHERE slug IS NOT NULL`, миграция 694), а вывод индекса в ON CONFLICT по
 -- частичному индексу требует повторить его предикат в самой инструкции.
 -- NOT EXISTS от формы индекса не зависит вовсе — и переживёт её изменение.
-INSERT INTO partners (slug, name, category, contact, contacts, location, is_public, created_at)
+INSERT INTO partners (
+  slug, name, company_name, category, contact, contacts, location,
+  logo_image, is_public, created_at
+)
 SELECT
-  'yana-splavy',
-  'Яна',
+  'river-tours-kamchatka',
+  'River Tours Kamchatka',
+  'River Tours Kamchatka',
   'operator',
   jsonb_build_object('phone', '+79246882092', 'admin_name', 'Яна'),
   jsonb_build_object('phone', '+79246882092', 'admin_name', 'Яна'),
   jsonb_build_object('region', 'Камчатский край'),
+  '/images/river-tours-kamchatka/logo.jpg',
   FALSE,
   NOW()
-WHERE NOT EXISTS (SELECT 1 FROM partners WHERE slug = 'yana-splavy');
+WHERE NOT EXISTS (SELECT 1 FROM partners WHERE slug = 'river-tours-kamchatka');
 
 -- Ставку комиссии здесь НЕ ТРОГАЕМ намеренно (§7): её назначает владелец, и
 -- умолчание колонки — те самые 10% из миграции 811. Импортёры, пишущие новым
@@ -158,7 +170,7 @@ SELECT
   NOW(),
   NOW()
 FROM partners p
-WHERE p.slug = 'yana-splavy'
+WHERE p.slug = 'river-tours-kamchatka'
   AND NOT EXISTS (
     SELECT 1 FROM operator_tours ot
      WHERE ot.operator_id::text = p.id::text
@@ -227,7 +239,7 @@ SELECT
   NOW(),
   NOW()
 FROM partners p
-WHERE p.slug = 'yana-splavy'
+WHERE p.slug = 'river-tours-kamchatka'
   AND NOT EXISTS (
     SELECT 1 FROM operator_tours ot
      WHERE ot.operator_id::text = p.id::text

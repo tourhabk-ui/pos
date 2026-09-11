@@ -89,7 +89,7 @@ BEGIN
    WHERE name ILIKE '%рога%копыт%'
      AND COALESCE(slug, '') NOT IN (
        'kamchatka-rafting', 'fishingkam', 'kamchatskaya-rybalka',
-       'rybalka-po-kamchatski', 'yana-splavy'
+       'rybalka-po-kamchatski', 'river-tours-kamchatka'
      );
 
   IF v_partner_ids IS NULL THEN
