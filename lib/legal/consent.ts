@@ -28,7 +28,15 @@ export interface ConsentChoice {
   advertising: boolean;
 }
 
-const KEY = 'vedar.consent.v1';
+/**
+ * Ключ хранилища. Экспортирован не ради удобства: браузерная проба на проде
+ * (`test/e2e/consent-gate.spec.ts`) сажает согласие в localStorage ДО
+ * навигации, и ключ у неё обязан быть тот же самый. Разойдись они — проба
+ * зеленела бы на «согласия нет», не проверив ветку согласия вовсе.
+ */
+export const CONSENT_STORAGE_KEY = 'vedar.consent.v1';
+
+const KEY = CONSENT_STORAGE_KEY;
 
 interface StoredConsent {
   analytics: boolean;
