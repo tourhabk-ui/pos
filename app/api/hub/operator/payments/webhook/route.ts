@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payments/cloudpayments-webhook';
 import { notifyBookingPaid } from '@/lib/notifications/operator-booking';
-import { recordCommissionFromBooking } from '@/lib/payments/commission';
+import { recordCommissionFromBooking, PLATFORM_COMMISSION_PERCENT } from '@/lib/payments/commission';
 import { query, transaction } from '@/lib/database';
 
 export const dynamic = 'force-dynamic';
@@ -118,9 +118,15 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
          ob.id,
          ot.operator_id,
          ob.final_price,
-         ROUND(ob.final_price * (1 - p.commission_current / 100), 2),
-         ROUND(ob.final_price * p.commission_current / 100, 2),
-         p.commission_current,
+         -- COALESCE обязателен: колонка NULLABLE, а net_amount и
+         -- commission_rate объявлены NOT NULL. Без запаса пустая ставка
+         -- партнёра роняла бы не вставку платежа, а ВСЮ транзакцию оплаты
+         -- (23502): деньги списаны, бронь не подтверждена, CloudPayments
+         -- повторяет вебхук по кругу. Запас — тот же, что у всех остальных
+         -- читателей колонки (lib/payments/commission.ts).
+         ROUND(ob.final_price * (1 - COALESCE(p.commission_current, $4::numeric) / 100), 2),
+         ROUND(ob.final_price * COALESCE(p.commission_current, $4::numeric) / 100, 2),
+         COALESCE(p.commission_current, $4::numeric),
          $2, $3,
          'HELD', NOW(),
          ob.booking_date::timestamp
@@ -131,7 +137,7 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
        JOIN partners p ON p.id = ot.operator_id
        WHERE ob.id = $1
        ON CONFLICT (cp_transaction_id) DO NOTHING`,
-      [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId],
+      [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId, PLATFORM_COMMISSION_PERCENT],
     );
 
     // Занятость — в той же транзакции: слот не может подтвердиться отдельно от

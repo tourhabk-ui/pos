@@ -131,12 +131,49 @@ export async function GET(request: NextRequest) {
                                    WHERE oc.booking_id = ob.id))           AS paid_without_commission`,
     );
 
+    // Уехала ли уже ставка. До 11.09 её перезаписывала `recalculate_commission`
+    // при каждом релизе выплат — по лестнице за объём, ниже назначенных
+    // владельцем 10% (разбор в tests/unit/commission-rate-decided.test.ts).
+    // Вызовы убраны, но убрать вызов — не то же самое, что вернуть ставку:
+    // если лестница успела сработать, в базе так и лежит 7% или 5%, и каждое
+    // начисление считается по ним. Ответить на это может только прод.
+    const { rows: rates } = await pool.query<{
+      partner: string | null;
+      commission_current: string | null;
+      commission_start: string | null;
+      completed_bookings: number;
+    }>(
+      `SELECT COALESCE(p.company_name, p.name)                   AS partner,
+              p.commission_current::text,
+              p.commission_start::text,
+              (SELECT COUNT(*)::int FROM operator_bookings ob
+                JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+               WHERE ot.operator_id = p.id
+                 AND ob.booking_status = 'completed'
+                 AND ob.deleted_at IS NULL)                      AS completed_bookings
+         FROM partners p
+        WHERE p.commission_current IS DISTINCT FROM $1::numeric
+        ORDER BY p.commission_current NULLS FIRST
+        LIMIT 50`,
+      [PLATFORM_COMMISSION_PERCENT],
+    );
+
     return NextResponse.json({
       ok: true,
       collected_at: new Date().toISOString(),
       checked: verdicts.length,
       bookings: verdicts,
       trace: trace[0] ?? null,
+      rate_drift: {
+        expected_percent: PLATFORM_COMMISSION_PERCENT,
+        off_expected_count: rates.length,
+        // NULL здесь — не «десять»: это «ставка не записана», и начисление
+        // пойдёт по запасной константе. Различать обязательно (§4.0).
+        partners: rates,
+        note: rates.length === 0
+          ? `у всех партнёров ставка равна ${PLATFORM_COMMISSION_PERCENT}% — лестница за объём не срабатывала`
+          : 'ставка отличается от назначенной владельцем: либо договорная, либо след лестницы за объём (10+ завершённых броней → 7%, 50+ → 5%)',
+      },
     });
   } catch (err) {
     // Третий исход: не смог проверить — это не «начислять нечего».

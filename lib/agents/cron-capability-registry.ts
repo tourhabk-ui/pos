@@ -123,6 +123,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'ocr-passports-pending': ['db_read', 'net_out'],
   'ocr-passports-write': ['db_read', 'db_write'],
   'operator-reach': ['db_read', 'pd_direct'],
+  // money — потому что среди разбираемых запросов есть выручка оператора
+  // (tour_payments). Разбором дело и ограничивается: PREPARE не выполняет
+  // запрос, ни одной строки не читается и не пишется.
+  'operator-screens-check': ['db_read', 'money'],
   'operator-site-audit': ['db_read', 'db_write', 'net_out'],
   'osm-import': ['db_read', 'db_write', 'net_out'],
   'osm-traces': ['db_read', 'db_write', 'net_out', 'telegram'],

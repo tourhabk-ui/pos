@@ -32,6 +32,42 @@ import { query } from '@/lib/database';
 export const PLATFORM_COMMISSION_PERCENT = 10;
 
 /**
+ * Ставка партнёра, когда в базе её НЕТ.
+ *
+ * ── Зачем понадобилась одна функция на всех (разбор 11.09) ────────────────
+ *
+ * `partners.commission_current` — колонка NULLABLE. Читателей у неё пять, и
+ * на пустое значение каждый отвечал по-своему:
+ *
+ *   • `recordCommissionFromBooking` (здесь)     — COALESCE до 10%;
+ *   • `/api/operator/finance`                   — COALESCE до 10;
+ *   • `lib/transfers/service.ts`                — COALESCE до единой ставки;
+ *   • `/api/bookings/tour`                      — `Number(null)` = **0**, то
+ *     есть НУЛЕВАЯ комиссия платформы, молча и без единой строки в логе;
+ *   • вставка в `tour_payments` в hub-вебхуке   — NULL в арифметике даёт NULL,
+ *     а `net_amount`/`commission_rate` объявлены NOT NULL: вся транзакция
+ *     оплаты падает на 23502. Турист заплатил, бронь не подтвердилась,
+ *     CloudPayments повторяет вебхук по кругу.
+ *
+ * Три разных ответа на один вопрос — это и есть §4.0: «не знаю» не имело
+ * исхода, и каждый читатель придумал свой. Теперь исход один и записан здесь.
+ *
+ * ЧТО ЭТА ФУНКЦИЯ НЕ ДЕЛАЕТ. Не трогает ноль. `0` — это ЗАПИСАННАЯ ставка
+ * «комиссии нет», и подменять её десятью значило бы врать в другую сторону.
+ * Отдельный вопрос, что три импортёра (`visitkamchatka-operators`,
+ * `visitkamchatka-guides`, `tours-visitkamchatka`) пишут новым партнёрам
+ * именно `0` вместо NULL, — то есть записывают решение там, где договора не
+ * было. Сколько таких партнёров на проде, отвечает перепись `rate_drift` в
+ * `GET /api/cron/commission-dry-run`; правится это отдельно и по числу, а не
+ * по догадке.
+ */
+export function effectiveCommissionPercent(raw: unknown): number {
+  if (raw === null || raw === undefined || raw === '') return PLATFORM_COMMISSION_PERCENT;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(n) ? n : PLATFORM_COMMISSION_PERCENT;
+}
+
+/**
  * Идемпотентно записать комиссию платформы по броне.
  *
  * ЕДИНСТВЕННЫЙ способ начислить комиссию — оба платёжных вебхука зовут именно

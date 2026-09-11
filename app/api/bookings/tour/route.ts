@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
+import { effectiveCommissionPercent } from '@/lib/payments/commission';
 
 export const dynamic = 'force-dynamic';
 
@@ -206,7 +207,10 @@ export async function POST(request: NextRequest) {
     // 7. Финансовый расчёт
     const baseTotal      = pricePerPerson * participants;
     const finalPrice     = baseTotal;
-    const commissionRate = Number(tour.commission_current);
+    // `Number(null)` здесь давало 0 — то есть НУЛЕВУЮ комиссию платформы,
+    // молча, у любого партнёра без записанной ставки. Исход «ставка не
+    // записана» теперь один на всех читателей колонки (§4.0).
+    const commissionRate = effectiveCommissionPercent(tour.commission_current);
     const commissionAmt  = Number((finalPrice * commissionRate / 100).toFixed(2));
     const netAmount      = Number((finalPrice - commissionAmt).toFixed(2));
 
