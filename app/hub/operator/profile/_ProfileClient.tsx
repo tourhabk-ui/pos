@@ -6,6 +6,7 @@ import {
   Building2, Loader2, Save, AlertCircle, CheckCircle,
   MapPin, Phone, Globe, MessageSquare, BadgeCheck, Clock,
 } from 'lucide-react';
+import { profileStatusView } from '@/lib/operator/profile-status';
 
 const INPUT = 'w-full min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]';
 const INPUT_RO = 'w-full min-h-[44px] px-4 bg-[var(--bg-hover)] border border-[var(--border)] rounded-lg text-[var(--text-secondary)] cursor-not-allowed select-none';
@@ -119,22 +120,6 @@ export default function OperatorProfileClient() {
     }
   };
 
-  const statusLabel: Record<string, string> = {
-    draft:    'Черновик',
-    pending:  'На проверке',
-    active:   'Активен',
-    rejected: 'Отклонён',
-    inactive: 'Неактивен',
-  };
-
-  const statusColor: Record<string, string> = {
-    draft:    'text-[var(--text-muted)]',
-    pending:  'text-[var(--warning)]',
-    active:   'text-[var(--success)]',
-    rejected: 'text-[var(--danger)]',
-    inactive: 'text-[var(--text-secondary)]',
-  };
-
   return (
     <Protected roles={['operator', 'admin']}>
       <div className="max-w-3xl mx-auto px-4 py-6 lg:py-8 space-y-6">
@@ -149,12 +134,15 @@ export default function OperatorProfileClient() {
                   <BadgeCheck className="w-4 h-4" /> Верифицирован
                 </span>
               )}
-              {profileStatus && (
-                <span className={`flex items-center gap-1 text-xs ${statusColor[profileStatus] ?? 'text-[var(--text-secondary)]'}`}>
-                  <Clock className="w-4 h-4" />
-                  {statusLabel[profileStatus] ?? profileStatus}
-                </span>
-              )}
+              {/*
+                Один словарь на все экраны (lib/operator/profile-status): до
+                11.09 здесь был свой набор из пяти значений, не совпадавший с
+                CHECK базы, и оператор читал сырое «none» (#1798).
+              */}
+              <span className={`flex items-center gap-1 text-xs ${profileStatusView(profileStatus).color}`}>
+                <Clock className="w-4 h-4" />
+                {profileStatusView(profileStatus).label}
+              </span>
             </div>
           )}
         </div>

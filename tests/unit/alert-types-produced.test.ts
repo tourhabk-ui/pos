@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { classifyMchsItem } from '@/lib/services/safety/seismic-parser';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import { PUSH_TYPES_WITH_INSTRUCTION, pushCopy } from '@/lib/services/safety/push-copy';
+import { alertGuidance } from '@/lib/safety/alert-guidance';
 
 const classify = (text: string, title = '') =>
   classifyMchsItem('mchs/a', title, text, '2026-11-20T06:00:00Z', 'https://t.me/mchs41', 'tg_mchs');
@@ -86,6 +87,41 @@ describe('сход грунта без вулкана — landslide', () => {
   });
 });
 
+// ── Медведи (10.09, #1792) ──────────────────────────────────────────────────
+// Дайджест 10.09: «В Петропавловске-Камчатском введён режим повышенной
+// готовности из-за участившихся выходов медведей». До этого дня ветка отдавала
+// `info` со severity 1 — до карточек доезжало, в ленту и пуш нет, а инструкция
+// для медведей из alert-guidance по типу `info` не подключалась.
+const BEAR_REGIME = `В Петропавловске-Камчатском введён режим повышенной готовности в связи с участившимися выходами медведей в городскую черту. Жителям и гостям города не подходить к животным, не кормить, о встречах сообщать по телефону 112.`;
+
+const BEAR_SIGHTING = `В районе Халактырского пляжа замечен медведь. Отдыхающим быть внимательными.`;
+
+describe('медведи у людей — свой тип, а не info', () => {
+  it('режим повышенной готовности — bear, severity 2: это решение властей о территории', () => {
+    const ev = classify(BEAR_REGIME);
+    expect(ev).not.toBeNull();
+    expect(ev!.alert_type).toBe('bear');
+    expect(ev!.severity, 'ниже двойки нет ни пуша, ни красного статуса').toBe(2);
+  });
+
+  it('одиночный выход — bear, severity 1: карточка предупредит, пуш на весь район не нужен', () => {
+    const ev = classify(BEAR_SIGHTING);
+    expect(ev!.alert_type).toBe('bear');
+    expect(ev!.severity).toBe(1);
+  });
+
+  it('тип доходит до ленты и до пуша', () => {
+    expect(FEED_ALERT_TYPES as readonly string[]).toContain('bear');
+    expect(PUSH_TYPES_WITH_INSTRUCTION as readonly string[]).toContain('bear');
+  });
+
+  it('пуш берёт инструкцию из alert-guidance, а не свою — доктрина одна', () => {
+    const copy = pushCopy({ alertType: 'bear', title: 'Медведи в городе' });
+    expect(copy.body).toContain(alertGuidance('bear').steps[0]);
+    expect(alertGuidance('bear').known).toBe(true);
+  });
+});
+
 /**
  * Файлы, которые ПРОИЗВОДЯТ тревоги (пишут alert_type в SeismicEvent /
  * external_alerts). Потребители — watchdog, лента, danger-analyst — сюда не
@@ -141,5 +177,77 @@ describe('у каждого объявленного типа тревоги е�
   it('avalanche и landslide — больше не в списке непроизводимых', () => {
     expect(KNOWN_UNPRODUCED.avalanche).toBeUndefined();
     expect(KNOWN_UNPRODUCED.landslide).toBeUndefined();
+  });
+});
+
+// ── Обратная связка: у произведённого типа есть руководство (10.09) ────────
+//
+// Первая половина сторожа держит «объявленное производится». Эта — «то, что
+// производится, доходит до инструкции». Разбор ash_cloud показал дыру в
+// потребителе: `alertGuidance('volcanic_eruption')` отвечал `known: false`,
+// хотя правила МЧС при пеплопаде лежали под ключом `volcano`, а алиасы
+// покрывали `ashfall` и `eruption` — имена, которых никто не производит.
+// Экран планирования (_PlanningClient) зовёт alertGuidance с типом тревоги
+// как есть — человек читал «у нас не записано» рядом с записанным.
+
+/**
+ * Типы, которые производятся, но руководства для которых НЕТ — с причиной.
+ * Сочинять инструкцию ради зелёного теста нельзя (§4.0): «будьте осторожны»
+ * на экране выглядит указанием, ничего не указывая. Список самоустаревающий:
+ * появилось руководство — тест требует убрать запись.
+ */
+const KNOWN_WITHOUT_GUIDANCE: Record<string, string> = {
+  info:
+    'Нейтральный тип по замыслу: сводки, статистика, объекты «открыто/закрыто». ' +
+    'У него нет опасности, к которой можно дать инструкцию.',
+  road_closure:
+    'Ограничение проезда — не опасность в поле, а факт о дороге; действие одно ' +
+    '(«проверьте подъезд до выезда») и оно уже в push-copy. Руководство из ' +
+    'нескольких шагов здесь было бы искусственным.',
+  fire_danger:
+    'Пожарная опасность — режим, а не событие: класс опасности и запрет на ' +
+    'посещение леса. Инструкции МЧС на этот случай в репозитории нет; писать ' +
+    'свою — сочинять. Появится источник — заводится блок в alert-guidance.',
+  landslide:
+    'Тип заведён 10.09 (#1763) с одной строкой в push-copy («обойдите склон, ' +
+    'не вставайте лагерем под ним»). Многошагового руководства от МЧС нет; ' +
+    'заводить блок из одной строки, переписанной второй раз, — дубль (§12).',
+};
+
+describe('у произведённого типа тревоги есть руководство — либо записано, почему нет', () => {
+  const parserSource = readFileSync(join(process.cwd(), 'lib/services/safety/seismic-parser.ts'), 'utf-8');
+  // САМОЕ ДЛИННОЕ объединение, а не первое: укороченный список стоит в шапке
+  // файла как пояснение, и первый матч даёт четыре типа вместо двенадцати —
+  // проверка молча ослабла бы ровно там, где должна быть строгой. Грабли
+  // задокументированы в push-copy.test.ts, и я наступил на них повторно:
+  // предупреждение в соседнем тесте не заменяет одинакового кода.
+  const producedTypes = [
+    ...([...parserSource.matchAll(/alert_type:\s*((?:'[a-z_]+'\s*\|\s*)+'[a-z_]+')/g)]
+      .map((m) => m[1])
+      .sort((a, b) => b.length - a.length)[0] ?? '').matchAll(/'([a-z_]+)'/g),
+  ].map((m) => m[1]);
+
+  it('объединение типов из классификатора прочитано, а не выдумано', () => {
+    expect(producedTypes.length).toBeGreaterThan(8);
+    expect(producedTypes).toContain('volcanic_eruption');
+  });
+
+  it.each([...new Set(producedTypes)])('%s — руководство есть, либо причина записана', (type) => {
+    const g = alertGuidance(type);
+    if (g.known) {
+      expect(KNOWN_WITHOUT_GUIDANCE[type], `${type} теперь имеет руководство — убери его из KNOWN_WITHOUT_GUIDANCE`)
+        .toBeUndefined();
+      expect(g.steps.length).toBeGreaterThan(0);
+      return;
+    }
+    expect(KNOWN_WITHOUT_GUIDANCE[type], `тип ${type} производится, а руководства нет: в поле человек прочтёт «у нас не записано»`)
+      .toBeTruthy();
+    expect(KNOWN_WITHOUT_GUIDANCE[type].length).toBeGreaterThan(40);
+  });
+
+  it('вулканические типы ведут к правилам МЧС при пеплопаде, а не в пустоту', () => {
+    expect(alertGuidance('volcanic_eruption').type).toBe('volcano');
+    expect(alertGuidance('ash_cloud').type).toBe('volcano');
+    expect(alertGuidance('volcanic_eruption').steps.length).toBeGreaterThan(0);
   });
 });

@@ -37,14 +37,21 @@ describe('бронь с карточки тура (#1769)', () => {
 });
 
 describe('мои бронирования (#1770)', () => {
-  const src = stripComments(read('app/api/bookings/my/route.ts'));
+  // SQL кабинета живёт в lib/tourist/cabinet.ts и гоняется на настоящем
+  // PostgreSQL (tests/integration/tourist-cabinet.pg.test.ts); роут только
+  // зовёт и оборачивает отказ.
+  const sql = stripComments(read('lib/tourist/cabinet.ts'));
+  const route = stripComments(read('app/api/bookings/my/route.ts'));
   it('нет JOIN tour_assets: tour_assets.tour_id — uuid, operator_tours.id — bigint', () => {
-    expect(src).not.toMatch(/tour_assets/);
-    expect(src).toMatch(/t\.photos as tour_images/);
+    expect(sql).not.toMatch(/JOIN\s+tour_assets/);
+    expect(route).not.toMatch(/tour_assets/);
+    expect(sql).toMatch(/ot\.photos AS tour_photos/);
+    expect(route).toMatch(/listMyBookings/);
   });
   it('отказ запроса пишется в лог с SQLSTATE, а не глохнет', () => {
-    expect(src).toMatch(/catch \(err\)/);
-    expect(src).toMatch(/console\.error\(\s*'\[bookings\/my\]/);
+    expect(route).toMatch(/catch \((err|error)\)/);
+    expect(route).toMatch(/console\.error\(\s*'\[bookings\/my\]/);
+    expect(route).toMatch(/sqlstate/);
   });
 });
 

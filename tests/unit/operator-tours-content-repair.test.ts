@@ -22,13 +22,11 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const SQL = readFileSync(
   join(process.cwd(), 'migrations/908_operator_tours_content_repair.sql'), 'utf-8',
-);
-const ROUTE = readFileSync(
-  join(process.cwd(), 'app/api/operator/tours/route.ts'), 'utf-8',
 );
 
 /**
@@ -79,11 +77,18 @@ describe('миграция 908', () => {
   });
 });
 
-describe('чтение includes переживает оба типа', () => {
-  it('строка не уезжает в поле, объявленное массивом', () => {
-    // Если на проде TEXT, то `row.includes ?? []` отдал бы строку в поле
-    // типа string[] — и она отрисовалась бы посимвольно. Пока тип не
-    // измерен, читаем оба вида.
-    expect(ROUTE).toMatch(/Array\.isArray\(row\.includes\)/);
+describe('чтение includes: вопрос снят вместе с читателем', () => {
+  it('в кабинете не осталось кода, читающего operator_tours.includes', () => {
+    // Тип ИЗМЕРЕН 11.09 на настоящей базе: operator_tours.includes — TEXT
+    // (information_schema), то есть опасение «строка уедет в поле-массив»
+    // было обоснованным. Читателя больше нет: единственным был
+    // app/api/operator/tours/route.ts, удалённый в #1803 (500 на
+    // несуществующей tour_images, ни одного потребителя). Живой путь
+    // кабинета читает массив `included`, а не текстовое `includes`.
+    const hits = execSync(
+      `grep -rn "row\\.includes\\b" app lib --include=*.ts --include=*.tsx || true`,
+      { cwd: process.cwd(), encoding: 'utf-8' },
+    ).trim();
+    expect(hits, `кто-то снова читает includes:\n${hits}`).toBe('');
   });
 });

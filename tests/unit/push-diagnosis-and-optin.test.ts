@@ -57,7 +57,8 @@ describe('Опт-ин подписки на публичной /safety', () => {
   });
   it('с safety-рамкой (не голая кнопка)', () => {
     expect(offer).toMatch(/Предупреждения о безопасности/);
-    expect(offer).toMatch(/<PushSubscribeButton \/>/);
+    // audience="tourist" — серверное «не настроено» туристу не показывается (#1779).
+    expect(offer).toMatch(/<PushSubscribeButton audience="tourist" \/>/);
   });
 });
 

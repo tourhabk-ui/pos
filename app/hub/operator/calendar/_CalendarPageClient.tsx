@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   ChevronLeft, ChevronRight, RefreshCw, Check, X,
   Phone, Mail, Users, CalendarDays, CloudLightning,
@@ -124,7 +125,7 @@ function buildInsights(data: CalendarData, maxRev: number): Insight[] {
     insights.push({
       type: 'high',
       label: 'Лучший день',
-      value: `${new Date(topDay[0] + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} — ${RUB(topDay[1])}`,
+      value: `${formatDateOnly(topDay[0], { day: 'numeric', month: 'short' })} — ${RUB(topDay[1])}`,
     });
   }
 
@@ -622,7 +623,7 @@ export default function CalendarPageClient() {
               <div className="flex items-center gap-2">
                 <CalendarDays className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                 <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                  {new Date(selectedDay.date + 'T12:00:00').toLocaleDateString('ru-RU', {
+                  {formatDateOnly(selectedDay.date, {
                     day: 'numeric', month: 'long', weekday: 'long',
                   })}
                 </span>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   Save, X, Plus, Images, ArrowLeft,
   MapPin, Clock, Users, DollarSign, Mountain, Upload, Loader2,
@@ -58,6 +59,9 @@ const ACTIVITY_TYPES = [
   ['rafting', 'Сплав'], ['fishing', 'Рыбалка'], ['bears', 'Медведи'],
   ['helicopter', 'Вертолёт'], ['jeep', 'Джип-тур'], ['other', 'Другое'],
 ];
+/** Ниже этого — почти всегда опечатка в цене тура, не настоящее предложение. */
+const SUSPICIOUS_PRICE_RUB = 1000;
+
 const DIFFICULTY_TYPES = [
   ['easy', 'Лёгкий'], ['medium', 'Средний'], ['hard', 'Сложный'], ['expert', 'Экстрим'],
 ];
@@ -186,9 +190,9 @@ export default function EditTourClient() {
           title: t.title,
           short_description: t.short_description || '',
           description: t.description || '',
-          location_type: t.location_type,
-          activity_type: t.activity_type,
-          location_name: t.location_name,
+          location_type: t.location_type ?? '',
+          activity_type: t.activity_type ?? '',
+          location_name: t.location_name ?? '',
           latitude: t.latitude?.toString() || '',
           longitude: t.longitude?.toString() || '',
           base_price: t.base_price.toString(),
@@ -239,8 +243,6 @@ export default function EditTourClient() {
         title: form.title,
         short_description: form.short_description || null,
         description: form.description || null,
-        location_type: form.location_type,
-        activity_type: form.activity_type,
         location_name: form.location_name,
         latitude: form.latitude ? parseFloat(form.latitude) : null,
         longitude: form.longitude ? parseFloat(form.longitude) : null,
@@ -270,6 +272,12 @@ export default function EditTourClient() {
         pickup_details: form.pickup_details.trim() || null,
         photos,
       };
+
+      // Незаполненный тип не отправляется вовсе: PATCH частичный, и «поле не
+      // трогали» — не то же самое, что «поле пустое». Иначе Zod-enum отвергает
+      // весь запрос из-за поля, которого оператор не касался (#1797).
+      if (form.location_type) payload.location_type = form.location_type;
+      if (form.activity_type) payload.activity_type = form.activity_type;
 
       const res = await fetch(`/api/hub/operator/tours/${tourId}`, {
         method: 'PATCH',
@@ -486,12 +494,20 @@ export default function EditTourClient() {
           <div>
             <label className={lbl}>Тип локации</label>
             <select className={inp} value={form.location_type} onChange={e => setF('location_type', e.target.value)}>
+              {/*
+                Пустое значение — настоящее состояние записи, а не ошибка формы:
+                у туров из импорта и старых миграций location_type NULL. До 11.09
+                форма молча слала это NULL дальше, Zod резал весь PATCH, и тур
+                нельзя было сохранить ВООБЩЕ (#1797).
+              */}
+              <option value="">— не указано —</option>
               {LOCATION_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </div>
           <div>
             <label className={lbl}>Тип активности</label>
             <select className={inp} value={form.activity_type} onChange={e => setF('activity_type', e.target.value)}>
+              <option value="">— не указано —</option>
               {ACTIVITY_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </div>
@@ -519,6 +535,16 @@ export default function EditTourClient() {
           <div>
             <label className={lbl}><DollarSign className="w-3 h-3 inline mr-1" />Цена (₽)</label>
             <input type="number" min="0" className={inp} value={form.base_price} onChange={e => setF('base_price', e.target.value)} />
+            {/*
+              Предупреждение, а не запрет: цену назначает оператор, и дешёвый
+              тур бывает. Но «8 ₽» — почти всегда опечатка или цена в тысячах,
+              и узнать об этом лучше здесь, чем от туриста на витрине (#1797).
+            */}
+            {form.base_price !== '' && Number(form.base_price) > 0 && Number(form.base_price) < SUSPICIOUS_PRICE_RUB && (
+              <p className="text-[11px] mt-1" style={{ color: 'var(--warning)' }}>
+                Цена ниже {SUSPICIOUS_PRICE_RUB.toLocaleString('ru-RU')} ₽ — проверьте, не опечатка ли
+              </p>
+            )}
           </div>
           <div>
             <label className={lbl}>Старая цена</label>
@@ -702,8 +728,7 @@ export default function EditTourClient() {
         ) : (
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {avail.map(slot => {
-              const d = new Date(slot.date + 'T12:00:00');
-              const dateStr = d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' });
+              const dateStr = formatDateOnly(slot.date, { weekday: 'short', day: 'numeric', month: 'short' });
               const pct = slot.available_slots > 0 ? Math.round((slot.booked_slots / slot.available_slots) * 100) : 0;
               const isFull = slot.booked_slots >= slot.available_slots;
               return (

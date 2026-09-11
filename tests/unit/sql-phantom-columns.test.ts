@@ -43,6 +43,10 @@ const ROOT = process.cwd();
  * некому. Оставлять было бы хуже: список долга, где треть записей про
  * несуществующие файлы, перестаёт говорить, сколько долга есть на самом деле.
  */
+// 11.09 список сократился на четыре записи (#1794, #1803): analytics и guides
+// починены по настоящей схеме (tour_payments.retail_amount, аттестации гидов
+// вместо несуществующих specializations), а оба profile-роута удалены вместе с
+// operator_settings.id — их не звал никто, и каждый отвечал 500.
 const BASELINE = new Set<string>([
   "app/api/ai/knowledge-base/route.ts → partners.contact_info",
   "app/api/ai/knowledge-base/route.ts → partners.specialization",
@@ -61,10 +65,6 @@ const BASELINE = new Set<string>([
   "app/api/import/asset/route.ts → assets.key",
   "app/api/import/asset/route.ts → assets.mime",
   "app/api/import/asset/route.ts → assets.source_url",
-  "app/api/operator/analytics/route.ts → tour_payments.amount",
-  "app/api/operator/guides/route.ts → partners.specializations",
-  "app/api/operator/profile/route.ts → operator_settings.id",
-  "app/api/operator/profile/settings/route.ts → operator_settings.id",
   "app/api/operator/tours/[id]/generate-tags/route.ts → operator_tours.images",
   "app/api/operators/[slug]/route.ts → partners.faq",
   "app/api/operators/[slug]/route.ts → partners.features",

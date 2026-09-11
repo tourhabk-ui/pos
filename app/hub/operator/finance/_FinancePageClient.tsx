@@ -244,7 +244,16 @@ export default function FinancePageClient() {
             <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">К выплате</span>
           </div>
           <p className="text-xl font-semibold text-[var(--text-primary)] font-mono">{formatRub(summary.balanceHeld)}</p>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">{summary.heldCount} бронирований · ожидают 36ч после тура</p>
+          {/*
+            Ноль объясняется, а не стоит молча: «броней не было» и «деньги ещё
+            не дошли до удержания» — разные состояния, и оператор должен
+            понимать, какое из них перед ним (#1804, §4.0).
+          */}
+          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+            {summary.heldCount > 0
+              ? `${summary.heldCount} бронирований · ожидают 36ч после тура`
+              : 'Оплаченных броней в удержании пока нет'}
+          </p>
         </div>
 
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
@@ -253,7 +262,9 @@ export default function FinancePageClient() {
             <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Выплачено</span>
           </div>
           <p className="text-xl font-semibold text-[var(--text-primary)] font-mono">{formatRub(summary.totalReleased)}</p>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">{summary.releasedCount} бронирований</p>
+          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+            {summary.releasedCount > 0 ? `${summary.releasedCount} бронирований` : 'Выплат ещё не было'}
+          </p>
         </div>
 
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
@@ -262,7 +273,11 @@ export default function FinancePageClient() {
             <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Комиссия платформы</span>
           </div>
           <p className="text-xl font-semibold text-[var(--text-primary)] font-mono">{formatRub(summary.totalCommission)}</p>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">Ставка снижается по мере роста броней</p>
+          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+            {summary.totalCommission > 0
+              ? 'Ставка снижается по мере роста броней'
+              : 'Начисляется с оплаченных броней'}
+          </p>
         </div>
       </div>
 

@@ -82,7 +82,10 @@ export async function GET(
   const res = await pool.query(
     `SELECT id, name, phone, email, comment, route_id, route_title, source_url, source_data,
             status, notes, proposal_id, ai_score, ai_summary, group_size, budget_rub, desired_dates,
-            created_at, updated_at
+            created_at, updated_at,
+            -- Есть ли куда отправлять предложение. Экран выключает кнопку
+            -- заранее, а не узнаёт об этом из отказа сервера (#1804).
+            (telegram_chat_id IS NOT NULL OR email IS NOT NULL) AS has_recipient
      FROM leads WHERE id = $1${scope.cond}`,
     [id, ...scope.vals]
   );

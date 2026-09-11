@@ -11,9 +11,14 @@ export interface OperatorMetrics {
   confirmedBookings: number;
   completedBookings: number;
   cancelledBookings: number;
+  /** Выставлено по неотменённым броням — не то же, что получено. */
   totalRevenue: number;
   monthlyRevenue: number;
-  averageRating: number;
+  /** Реально оплачено (payment_status = 'paid'). */
+  paidRevenue: number;
+  paidRevenueMonth: number;
+  /** null — никто ещё не оценивал; ноль звёзд был бы выдумкой (§4.0). */
+  averageRating: number | null;
   totalReviews: number;
   newLeadsToday: number;
   newLeadsWeek: number;

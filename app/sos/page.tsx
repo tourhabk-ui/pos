@@ -9,13 +9,14 @@ import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
 import { SosQrScanner } from '@/components/safety/SosQrScanner';
 import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
-import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import { EMERGENCY_NUMBERS, EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
 // Единый источник номеров — работает офлайн, без зависимостей (см. lib/safety/emergency-numbers.ts)
 const SOS_CONTACTS = EMERGENCY_NUMBERS;
+const PRIMARY = EMERGENCY_PRIMARY;
 
 // ── Общий модуль семантики деградации GPS (public/safety/geo-degradation.js) ──
 // Тот же модуль обслуживает /emergency. Единственный источник поведения при
@@ -351,6 +352,38 @@ export default function SosPage() {
 
       <div style={{ flex: 1, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
+        {/* ПЕРВЫМ — позвонить. Прогулка 10.09 (#1779): tel:112 стоял на
+            1473 px, первый экран занимали QR-эстафета и слово «меш». Человек
+            в беде должен видеть кнопку звонка, не читая. Непрозрачно (§5:
+            критичное действие), 112 работает без SIM, баланса и интернета. */}
+        <a
+          href={`tel:${PRIMARY.phone}`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            padding: '18px 16px',
+            borderRadius: '14px',
+            background: 'var(--danger)',
+            color: 'white',
+            textDecoration: 'none',
+            minHeight: '72px',
+          }}
+        >
+          <div style={{
+            width: '44px', height: '44px', borderRadius: '12px',
+            background: 'rgba(255,255,255,0.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <Phone size={22} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '18px', fontWeight: 800, lineHeight: 1.1 }}>Позвонить {PRIMARY.phone}</div>
+            <div style={{ fontSize: '12px', opacity: 0.85, marginTop: '3px' }}>{PRIMARY.hint ?? PRIMARY.name}</div>
+          </div>
+          <div style={{ fontSize: '26px', fontWeight: 800, fontFamily: 'monospace', flexShrink: 0 }}>{PRIMARY.phone}</div>
+        </a>
+
         {/* Координаты — честная деградация: прогресс, причина отказа, повтор */}
         <div style={{
           padding: '12px 16px',
@@ -411,116 +444,6 @@ export default function SosPage() {
           )}
         </div>
 
-        {/* QR: показать спасателю/попутчику. Режим «эстафета» — попутчик
-            сканирует ДАЖЕ БЕЗ СЕТИ у обоих; его телефон доставит сигнал,
-            когда доберётся до связи. Режим «точка» — geo:-ссылка для любых
-            карт. Белая подложка обязательна (экран тёмный, сканеры не
-            читают инверсный код). Рендерится только при реальных координатах. */}
-        {qrSvg && coords && (
-          <div style={{ textAlign: 'center' }}>
-            <div
-              style={{
-                display: 'inline-block',
-                background: '#fff',
-                padding: '8px',
-                borderRadius: '12px',
-                lineHeight: 0,
-              }}
-              dangerouslySetInnerHTML={{ __html: qrSvg }}
-            />
-            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', margin: '6px 0 0', lineHeight: 1.4 }}>
-              {qrMode === 'relay'
-                ? 'Дай отсканировать попутчику — работает даже без сети у обоих. Его телефон передаст твой SOS спасателям, как только поймает связь'
-                : 'Покажи этот код спасателю — на его телефоне откроется твоя точка на карте'}
-            </p>
-            <button
-              type="button"
-              onClick={() => setQrMode(qrMode === 'relay' ? 'geo' : 'relay')}
-              style={{
-                marginTop: '6px',
-                fontSize: '11px',
-                color: 'rgba(255,255,255,0.65)',
-                background: 'transparent',
-                border: '1px solid rgba(255,255,255,0.25)',
-                borderRadius: '8px',
-                padding: '4px 10px',
-              }}
-            >
-              {qrMode === 'relay' ? 'Показать код-точку для карт' : 'Показать код-эстафету SOS'}
-            </button>
-          </div>
-        )}
-
-        {/* Последняя известная позиция — рендерится ТОЛЬКО когда она реально
-            есть (readLastKnown вернул точку) И сети нет: онлайн эта подсказка
-            вредна — уводит к устаревшей точке вместо текущих координат. */}
-        {lastKnown && !isOnline && (
-          <div style={{
-            padding: '10px 14px',
-            borderRadius: '12px',
-            background: 'color-mix(in srgb, var(--success) 8%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
-          }}>
-            <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Последний сигнал сети
-            </p>
-            <p style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'var(--success)' }}>
-              {lastKnown.lat.toFixed(5)}, {lastKnown.lng.toFixed(5)}
-            </p>
-            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', margin: '2px 0 0', lineHeight: 1.4 }}>
-              {lastKnown.ageLabel}{lastKnown.distanceLabel ? ` · ~${lastKnown.distanceLabel} от тебя` : ''} — не текущее место, а где была связь
-            </p>
-          </div>
-        )}
-
-        {/* Меш-статус: сколько устройств группы рядом, ретрансляции SOS */}
-        <MeshStatusWidget status={meshStatus} peers={meshPeers} relayedCount={meshRelayedCount} />
-
-        {/* Обратная сторона эстафеты: этот же экран открывает тот, кто НАШЁЛ
-            пострадавшего. Без кнопки сканирования попутчику оставалось выйти
-            из приложения в штатную камеру — а она ведёт в браузер, где нашей
-            PWA может не быть, и офлайн страница эстафеты не откроется. */}
-        <SosQrScanner />
-
-        {/* Подписка на предупреждения — здесь тоже (владелец 05.09: искал
-            «включить уведомления» на этом экране и не нашёл). Ниже сканера и
-            выше шагов: действие SOS первым, подписка — когда до неё дошли. */}
-        <PushSafetyOffer />
-
-        {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
-        <div style={{
-          padding: '14px 16px',
-          borderRadius: '12px',
-          background: 'rgba(255,255,255,0.03)',
-          border: '1px solid rgba(255,255,255,0.1)',
-        }}>
-          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>
-            Что делать
-          </p>
-          <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {[
-              { n: 1, text: 'Нажми кнопку «Отправить координаты» ниже', color: 'var(--danger)' },
-              { n: 2, text: 'Позвони 112 — назови координаты с экрана', color: 'var(--danger)' },
-              // Владельцы маяков в панике забывают про маяк — напоминание спасает.
-              { n: 3, text: 'Есть спутниковый маяк (PLB, inReach) или трекер — активируй его сейчас', color: 'var(--danger)' },
-              { n: 4, text: 'Нет голоса — отправь SMS (кнопка «Без интернета»)', color: 'var(--warning)' },
-              { n: 5, text: 'Оставайся на месте, если оно безопасно, и жди помощи', color: 'var(--warning)' },
-            ].map(({ n, text, color }) => (
-              <li key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <span style={{
-                  flexShrink: 0, width: '20px', height: '20px',
-                  borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '10px', fontWeight: 800, background: `color-mix(in srgb, ${color} 20%, transparent)`,
-                  color,
-                }}>{n}</span>
-                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.5, paddingTop: '2px' }}>{text}</span>
-              </li>
-            ))}
-          </ol>
-          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', margin: '12px 0 0', lineHeight: 1.5 }}>
-            Приложение не заменяет спутниковый трекер. SMS и SOS уйдут только при наличии сотового сигнала.
-          </p>
-        </div>
 
         {/* Данные + кнопка отправки */}
         <div style={{
@@ -641,12 +564,47 @@ export default function SosPage() {
           )}
         </div>
 
+        {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
+        <div style={{
+          padding: '14px 16px',
+          borderRadius: '12px',
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.1)',
+        }}>
+          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>
+            Что делать
+          </p>
+          <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {[
+              { n: 1, text: 'Позвони 112 — назови координаты с экрана', color: 'var(--danger)' },
+              { n: 2, text: 'Нажми кнопку «Отправить координаты» выше', color: 'var(--danger)' },
+              // Владельцы маяков в панике забывают про маяк — напоминание спасает.
+              { n: 3, text: 'Есть спутниковый маяк (PLB, inReach) или трекер — активируй его сейчас', color: 'var(--danger)' },
+              { n: 4, text: 'Нет голоса — отправь SMS (кнопка «Без интернета»)', color: 'var(--warning)' },
+              { n: 5, text: 'Оставайся на месте, если оно безопасно, и жди помощи', color: 'var(--warning)' },
+            ].map(({ n, text, color }) => (
+              <li key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <span style={{
+                  flexShrink: 0, width: '20px', height: '20px',
+                  borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '10px', fontWeight: 800, background: `color-mix(in srgb, ${color} 20%, transparent)`,
+                  color,
+                }}>{n}</span>
+                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.5, paddingTop: '2px' }}>{text}</span>
+              </li>
+            ))}
+          </ol>
+          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', margin: '12px 0 0', lineHeight: 1.5 }}>
+            Приложение не заменяет спутниковый трекер. SMS и SOS уйдут только при наличии сотового сигнала.
+          </p>
+        </div>
+
         {/* Экстренные номера */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '8px 0 4px' }}>
-            Экстренные номера
+            Другие службы
           </p>
-          {SOS_CONTACTS.map((c) => (
+          {SOS_CONTACTS.filter((c) => !c.primary).map((c) => (
             <a
               key={c.phone}
               href={`tel:${c.phone.replace(/\s/g, '')}`}
@@ -693,6 +651,100 @@ export default function SosPage() {
               </div>
             </a>
           ))}
+        </div>
+
+        {/* ВТОРОЙ ЭКРАН — когда позвонить нельзя. Эстафета через попутчика,
+            последняя точка связи, меш соседей, сканер чужого SOS, подписка.
+            Всё это работает и офлайн, но человеку без сети сначала нужно
+            понять, что это за инструменты — отсюда заголовок словами. */}
+        <div style={{
+          marginTop: '8px',
+          paddingTop: '14px',
+          borderTop: '1px solid rgba(255,255,255,0.12)',
+        }}>
+          <p style={{ fontSize: '15px', fontWeight: 700, margin: 0, fontFamily: 'var(--font-playfair), Georgia, serif' }}>
+            Если связи нет
+          </p>
+          <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', margin: '4px 0 12px', lineHeight: 1.45 }}>
+            Передай сигнал через попутчика или соседний телефон — он доставит его, когда поймает сеть.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* QR: показать спасателю/попутчику. Режим «эстафета» — попутчик
+            сканирует ДАЖЕ БЕЗ СЕТИ у обоих; его телефон доставит сигнал,
+            когда доберётся до связи. Режим «точка» — geo:-ссылка для любых
+            карт. Белая подложка обязательна (экран тёмный, сканеры не
+            читают инверсный код). Рендерится только при реальных координатах. */}
+        {qrSvg && coords && (
+          <div style={{ textAlign: 'center' }}>
+            <div
+              style={{
+                display: 'inline-block',
+                background: '#fff',
+                padding: '8px',
+                borderRadius: '12px',
+                lineHeight: 0,
+              }}
+              dangerouslySetInnerHTML={{ __html: qrSvg }}
+            />
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', margin: '6px 0 0', lineHeight: 1.4 }}>
+              {qrMode === 'relay'
+                ? 'Дай отсканировать попутчику — работает даже без сети у обоих. Его телефон передаст твой SOS спасателям, как только поймает связь'
+                : 'Покажи этот код спасателю — на его телефоне откроется твоя точка на карте'}
+            </p>
+            <button
+              type="button"
+              onClick={() => setQrMode(qrMode === 'relay' ? 'geo' : 'relay')}
+              style={{
+                marginTop: '6px',
+                fontSize: '11px',
+                color: 'rgba(255,255,255,0.65)',
+                background: 'transparent',
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: '8px',
+                padding: '4px 10px',
+              }}
+            >
+              {qrMode === 'relay' ? 'Показать код-точку для карт' : 'Показать код-эстафету SOS'}
+            </button>
+          </div>
+        )}
+
+        {/* Последняя известная позиция — рендерится ТОЛЬКО когда она реально
+            есть (readLastKnown вернул точку) И сети нет: онлайн эта подсказка
+            вредна — уводит к устаревшей точке вместо текущих координат. */}
+        {lastKnown && !isOnline && (
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: '12px',
+            background: 'color-mix(in srgb, var(--success) 8%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+          }}>
+            <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Последний сигнал сети
+            </p>
+            <p style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'var(--success)' }}>
+              {lastKnown.lat.toFixed(5)}, {lastKnown.lng.toFixed(5)}
+            </p>
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', margin: '2px 0 0', lineHeight: 1.4 }}>
+              {lastKnown.ageLabel}{lastKnown.distanceLabel ? ` · ~${lastKnown.distanceLabel} от тебя` : ''} — не текущее место, а где была связь
+            </p>
+          </div>
+        )}
+
+        {/* Меш-статус: сколько устройств группы рядом, ретрансляции SOS */}
+        <MeshStatusWidget status={meshStatus} peers={meshPeers} relayedCount={meshRelayedCount} />
+
+        {/* Обратная сторона эстафеты: этот же экран открывает тот, кто НАШЁЛ
+            пострадавшего. Без кнопки сканирования попутчику оставалось выйти
+            из приложения в штатную камеру — а она ведёт в браузер, где нашей
+            PWA может не быть, и офлайн страница эстафеты не откроется. */}
+        <SosQrScanner />
+
+        {/* Подписка на предупреждения — здесь тоже (владелец 05.09: искал
+            «включить уведомления» на этом экране и не нашёл). Ниже сканера и
+            выше шагов: действие SOS первым, подписка — когда до неё дошли. */}
+        <PushSafetyOffer />
+          </div>
         </div>
 
         {/* Инструкции выживания — офлайн, всегда доступны */}

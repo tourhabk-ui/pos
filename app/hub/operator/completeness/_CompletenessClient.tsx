@@ -54,7 +54,6 @@ const FIELD_LABELS: Record<string, string> = {
   duration_type: 'Тип длительности',
   price_unit: 'Единица цены',
   notes: 'Интересные факты',
-  transportation: 'Способы транспорта',
 };
 
 const FIELD_PRIORITY: Record<string, 'critical' | 'high' | 'medium'> = {
@@ -73,7 +72,6 @@ const FIELD_PRIORITY: Record<string, 'critical' | 'high' | 'medium'> = {
   coordinates: 'high',
   duration_hours: 'high',
   price_unit: 'medium',
-  transportation: 'medium',
 };
 
 const PRIORITY_COLOR = {

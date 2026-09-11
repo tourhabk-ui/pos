@@ -13,6 +13,7 @@ import { ROLE_HUB } from '@/lib/auth/role-routes';
 import { RoleSwitcher } from './RoleSwitcher';
 import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
+import SignOutButton from '@/components/auth/SignOutButton';
 
 interface SidebarItem {
   href: string;
@@ -101,6 +102,9 @@ export function HubLayout({ children, sidebarItems, sidebarTitle, requiredRole }
             <Link href="/profile" className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Личный кабинет">
               <User size={20} />
             </Link>
+            {/* «Выйти» (#1778): до 10.09 ни у одной роли не было выхода из
+                кабинета — сессию можно было закончить только чисткой cookie. */}
+            <SignOutButton iconOnly className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" />
           </div>
         </div>
       </header>

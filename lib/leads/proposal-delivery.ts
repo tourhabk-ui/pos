@@ -23,7 +23,7 @@ export type DeliveryOutcome =
   | { ok: true; sent: string[]; failed: string[]; pdfUrl: string; message: string }
   | {
       ok: false;
-      reason: 'not_found' | 'no_proposal' | 'already_sent' | 'proposal_missing' | 'not_delivered';
+      reason: 'not_found' | 'no_proposal' | 'already_sent' | 'proposal_missing' | 'not_delivered' | 'no_recipient';
       message: string;
     };
 
@@ -163,7 +163,10 @@ export async function sendProposalToClient(
     await releaseClaim();
     return {
       ok: false,
-      reason: 'not_delivered',
+      // Два разных исхода, а не один: «канал отказал» — это сбой (502, стоит
+      // повторить), «адреса нет вовсе» — состояние данных (409, повтор не
+      // поможет). До 11.09 оба отдавали 502 «ошибка шлюза» (#1804).
+      reason: failed.length > 0 ? 'not_delivered' : 'no_recipient',
       message: failed.length > 0
         ? 'Не удалось доставить предложение ни одним каналом. Статус лида не изменён — попробуйте ещё раз.'
         : 'Некуда отправлять: у лида нет ни Telegram, ни почты. Статус лида не изменён.',

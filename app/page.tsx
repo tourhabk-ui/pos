@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import loadDynamic from 'next/dynamic'
 import { headers } from 'next/headers'
 import { pool } from '@/lib/db-pool'
 import { Header } from '@/components/layout/Header'
@@ -25,13 +24,13 @@ import { getPlatformCounts } from '@/lib/stats/platform-counts'
 export const dynamic = 'force-dynamic'
 
 /**
- * SOS — единственная реализация на всю платформу (components/shared/EmergencyAction).
- * Раньше здесь висела своя плавающая кнопка `components/shared/SOSButton`: она
- * уводила сразу на /emergency, тогда как везде SOS ведёт на /sos и падает на
- * /emergency только офлайн. Две кнопки одного действия с разным поведением —
- * ровно тот случай, ради которого заведена единая реализация (#887).
+ * SOS — единственная реализация на всю платформу (components/shared/EmergencyAction),
+ * и с 10.09 она живёт в общей шапке (Header, §2). Раньше здесь висела своя
+ * плавающая кнопка `components/shared/SOSButton` (уводила сразу на /emergency,
+ * тогда как везде SOS ведёт на /sos и падает на /emergency только офлайн), потом
+ * — плавающий EmergencyAction в левом нижнем углу. Второй экземпляр рядом с
+ * шапкой — две кнопки одного действия на одном экране (#887, #1775).
  */
-const EmergencyAction = loadDynamic(() => import('@/components/shared/EmergencyAction'));
 
 async function getSafetyStatus(): Promise<SafetyStatusData | null> {
   try {
@@ -187,17 +186,6 @@ export default async function Page() {
       </main>
       {/* Футер — только desktop (CLAUDE.md §2); на мобильном — своя нижняя навигация v8 */}
       <Footer />
-      {/* Плавающее место то же, поведение — общее (см. комментарий у импорта). */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 'calc(24px + env(safe-area-inset-bottom))',
-          left: '16px',
-          zIndex: 88,
-        }}
-      >
-        <EmergencyAction />
-      </div>
     </div>
   );
 }

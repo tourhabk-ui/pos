@@ -169,6 +169,9 @@ export default function TouristDashboardClient() {
   // рекомендаций — как «появятся после первого бронирования» (#1772).
   const [bookingsFailed, setBookingsFailed] = useState(false);
   const [recsFailed, setRecsFailed] = useState(false);
+  // Погода не пришла — это состояние, а не пустое место (#1774): раньше API
+  // подсовывал выдуманные 15 °C, и карточка выглядела заполненной.
+  const [weatherFailed, setWeatherFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recsLoading, setRecsLoading] = useState(true);
   // Активная поездка — ТОТ ЖЕ источник, что у главной (auth-scoped
@@ -201,8 +204,15 @@ export default function TouristDashboardClient() {
       setBookingsFailed(true);
     }
     if (weatherRes.status === 'fulfilled') {
-      const d = await weatherRes.value.json();
-      if (d.success) setWeather(d.data);
+      try {
+        const d = await weatherRes.value.json();
+        if (d.success) { setWeather(d.data); setWeatherFailed(false); }
+        else setWeatherFailed(true);
+      } catch {
+        setWeatherFailed(true);
+      }
+    } else {
+      setWeatherFailed(true);
     }
     setLoading(false);
   }, []);
@@ -340,6 +350,14 @@ export default function TouristDashboardClient() {
       )}
 
       {/* Weather details */}
+      {!weather && weatherFailed && (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+          <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">Погода на Камчатке</h2>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Сейчас нет данных: ни один метеопровайдер не ответил. Перед выходом проверьте прогноз другим способом.
+          </p>
+        </div>
+      )}
       {weather && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
@@ -367,12 +385,12 @@ export default function TouristDashboardClient() {
             </div>
             <div>
               <Droplets className="w-6 h-6 text-[var(--text-secondary)] mx-auto mb-2" />
-              <p className="text-xl font-semibold text-[var(--text-primary)]">{weather.humidity}%</p>
+              <p className="text-xl font-semibold text-[var(--text-primary)]">{weather.humidity != null ? `${weather.humidity}%` : '—'}</p>
               <p className="ds-label mt-1">Влажность</p>
             </div>
             <div>
               <Eye className="w-6 h-6 text-[var(--text-secondary)] mx-auto mb-2" />
-              <p className="text-xl font-semibold text-[var(--text-primary)]">{weather.visibility}</p>
+              <p className="text-xl font-semibold text-[var(--text-primary)]">{weather.visibility != null ? weather.visibility : '—'}</p>
               <p className="ds-label mt-1">Видимость, км</p>
             </div>
           </div>

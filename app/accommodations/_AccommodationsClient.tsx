@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Search, SlidersHorizontal, X, Building2 } from 'lucide-react';
 import { AccommodationCard } from '@/components/shared/AccommodationCard';
 import { AccommodationCardSkeleton } from '@/components/shared/AccommodationCardSkeleton';
@@ -57,6 +58,49 @@ export function AccommodationsClient() {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<FiltersState>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
+
+  // Избранное — по единому контракту (lib/wishlist/contract, тип
+  // `accommodation`), той же дорогой, что у каталога туров. До 10.09 сердечко
+  // на карточке жилья было мёртвым: страница не передавала обработчик, клик
+  // не делал ничего (#1786). Гость — на вход, не молча.
+  const router = useRouter();
+  const [favMap, setFavMap] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/tourist/wishlist?type=accommodation')
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { data?: Array<{ item_id: string; id: string | number }> } | null) => {
+        if (!alive || !Array.isArray(data?.data)) return;
+        setFavMap(new Map(data.data.map(i => [String(i.item_id), String(i.id)])));
+      })
+      .catch(() => { /* гость или сеть — сердечки остаются пустыми, клик проверит вход */ });
+    return () => { alive = false; };
+  }, []);
+
+  const toggleFavorite = useCallback(async (id: string) => {
+    const isFav = favMap.has(id);
+    setFavMap(prev => { const next = new Map(prev); if (isFav) next.delete(id); else next.set(id, ''); return next; });
+    const res = await fetch('/api/tourist/wishlist', {
+      method: isFav ? 'DELETE' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemType: 'accommodation', itemId: id }),
+    }).catch(() => null);
+    if (res?.status === 401) {
+      setFavMap(prev => { const next = new Map(prev); next.delete(id); return next; });
+      router.push('/auth/login');
+      return;
+    }
+    if (!res?.ok) {
+      // Откат и причина в консоль: молчащее сердце — это и была находка.
+      console.error('[accommodations] избранное не сохранено', res?.status ?? 'сеть');
+      setFavMap(prev => { const next = new Map(prev); if (isFav) next.set(id, ''); else next.delete(id); return next; });
+      return;
+    }
+    if (!isFav) {
+      const data = await res.json().catch(() => null) as { data?: { id?: string | number } } | null;
+      setFavMap(prev => { const next = new Map(prev); next.set(id, String(data?.data?.id ?? '')); return next; });
+    }
+  }, [favMap, router]);
 
   const load = useCallback(async (currentPage: number, currentFilters: FiltersState) => {
     setLoading(true);
@@ -256,6 +300,8 @@ export function AccommodationsClient() {
                     images={acc.images}
                     starRating={acc.starRating ?? undefined}
                     isVerified={acc.isVerified}
+                    isFavorite={favMap.has(acc.id)}
+                    onFavoriteToggle={toggleFavorite}
                   />
                 ))}
               </div>

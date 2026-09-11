@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { ANALYTICS_SQL, logScreenQueryFailure } from '@/lib/operator/screen-queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,17 +50,7 @@ export async function GET(request: NextRequest) {
       total_revenue: string;
       booking_count: string;
     }>(
-      `SELECT
-         DATE_TRUNC('month', tp.paid_at)::date AS month,
-         SUM(tp.amount) as total_revenue,
-         COUNT(DISTINCT ob.id) as booking_count
-       FROM tour_payments tp
-       JOIN operator_bookings ob ON ob.id = tp.booking_id
-       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-       WHERE ot.operator_id = $1 AND tp.paid_at >= $2 AND tp.status = 'RELEASED'
-         AND ob.deleted_at IS NULL
-       GROUP BY DATE_TRUNC('month', tp.paid_at)
-       ORDER BY month DESC`,
+      ANALYTICS_SQL.revenueByMonth,
       [partnerId, startDate.toISOString()]
     );
 
@@ -71,21 +62,7 @@ export async function GET(request: NextRequest) {
       total_revenue: string;
       avg_price: string;
     }>(
-      `SELECT
-         ot.id as tour_id,
-         ot.title as tour_title,
-         COUNT(ob.id) as booking_count,
-         COALESCE(SUM(tp.amount), 0) as total_revenue,
-         COALESCE(AVG(ob.final_price), 0) as avg_price
-       FROM operator_tours ot
-       LEFT JOIN operator_bookings ob ON ob.operator_tour_id = ot.id
-         AND ob.created_at >= $2 AND ob.deleted_at IS NULL
-       LEFT JOIN tour_payments tp ON tp.booking_id = ob.id
-         AND tp.status = 'RELEASED'
-       WHERE ot.operator_id = $1 AND ot.deleted_at IS NULL
-       GROUP BY ot.id, ot.title
-       ORDER BY booking_count DESC
-       LIMIT 10`,
+      ANALYTICS_SQL.topTours,
       [partnerId, startDate.toISOString()]
     );
 
@@ -95,27 +72,7 @@ export async function GET(request: NextRequest) {
       total_bookings: string;
       conversion_rate: string;
     }>(
-      `SELECT
-         (SELECT COUNT(*) FROM page_views pv
-          JOIN operator_tours ot ON pv.path LIKE '%/routes/' || ot.agent_route_id || '%'
-          WHERE ot.operator_id = $1 AND pv.created_at >= $2) as total_page_views,
-         (SELECT COUNT(*) FROM operator_bookings ob
-          JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-          WHERE ot.operator_id = $1 AND ob.created_at >= $2 AND ob.deleted_at IS NULL) as total_bookings,
-         CASE
-           WHEN (SELECT COUNT(*) FROM page_views pv
-                 JOIN operator_tours ot ON pv.path LIKE '%/routes/' || ot.agent_route_id || '%'
-                 WHERE ot.operator_id = $1 AND pv.created_at >= $2) > 0
-           THEN ROUND(
-             (SELECT COUNT(*) FROM operator_bookings ob
-              JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-              WHERE ot.operator_id = $1 AND ob.created_at >= $2 AND ob.deleted_at IS NULL)::numeric /
-             (SELECT COUNT(*) FROM page_views pv
-              JOIN operator_tours ot ON pv.path LIKE '%/routes/' || ot.agent_route_id || '%'
-              WHERE ot.operator_id = $1 AND pv.created_at >= $2)::numeric * 100, 2
-           )
-           ELSE 0
-         END as conversion_rate`,
+      ANALYTICS_SQL.conversion,
       [partnerId, startDate.toISOString()]
     );
 
@@ -124,11 +81,7 @@ export async function GET(request: NextRequest) {
       status: string;
       count: string;
     }>(
-      `SELECT ob.booking_status as status, COUNT(*) as count
-       FROM operator_bookings ob
-       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-       WHERE ot.operator_id = $1 AND ob.created_at >= $2 AND ob.deleted_at IS NULL
-       GROUP BY ob.booking_status`,
+      ANALYTICS_SQL.statusBreakdown,
       [partnerId, startDate.toISOString()]
     );
 
@@ -139,18 +92,7 @@ export async function GET(request: NextRequest) {
       avg_booking_value: string;
       completed_bookings: string;
     }>(
-      `SELECT
-         COALESCE(SUM(tp.amount), 0) as total_revenue,
-         COUNT(DISTINCT ob.id) as total_bookings,
-         COALESCE(AVG(ob.final_price), 0) as avg_booking_value,
-         (SELECT COUNT(*) FROM operator_bookings ob2
-          JOIN operator_tours ot2 ON ot2.id = ob2.operator_tour_id
-          WHERE ot2.operator_id = $1 AND ob2.booking_status = 'completed'
-          AND ob2.created_at >= $2 AND ob2.deleted_at IS NULL) as completed_bookings
-       FROM operator_bookings ob
-       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-       LEFT JOIN tour_payments tp ON tp.booking_id = ob.id AND tp.status = 'RELEASED'
-       WHERE ot.operator_id = $1 AND ob.created_at >= $2 AND ob.deleted_at IS NULL`,
+      ANALYTICS_SQL.summary,
       [partnerId, startDate.toISOString()]
     );
 
@@ -201,8 +143,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    logScreenQueryFailure('analytics', error);
     return NextResponse.json(
-      { error: 'Failed to fetch analytics' },
+      { success: false, error: 'Не удалось загрузить аналитику. Попробуйте обновить страницу.' },
       { status: 500 }
     );
   }

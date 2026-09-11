@@ -18,7 +18,10 @@ const TONE_COLOR: Record<AdvisoryTone, string> = {
 };
 
 export default function PlaceKuzmich({ placeId, placeName, kuzmichReview, advisory }: Props) {
-  const chatUrl = `/chat?context=place&id=${placeId}&name=${encodeURIComponent(placeName)}`;
+  // Страница Кузьмича — /kuzmich; /chat не существовало никогда (#1777: 404
+  // с карточки места). Контекст передаём тем же query — экран его пока не
+  // читает, но адрес хотя бы ведёт к живому Кузьмичу.
+  const chatUrl = `/kuzmich?context=place&id=${placeId}&name=${encodeURIComponent(placeName)}`;
 
   return (
     <section className="max-w-3xl mx-auto px-4">

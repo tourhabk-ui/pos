@@ -37,7 +37,9 @@ export default function StickyLeadButton() {
   // задеты: скрываем только /tours/ подпути.
   // /planning — полевой контур (скрин владельца 27.08): коммерческая кнопка
   // висела поверх навигатора рядом с компасом. В поле не продают.
-  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/planning', '/field-check'];
+  // /kuzmich — там уже живой чат, вторая кнопка ложилась поверх текста;
+  // /auth — на входе перекрывала «Вернуться на главную» (#1780).
+  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/planning', '/field-check', '/kuzmich', '/auth'];
   if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/') return null;
 
   async function submitLead(e: React.FormEvent) {
@@ -92,7 +94,7 @@ export default function StickyLeadButton() {
       {/* Popover form */}
       {open && (
         <div
-          className="fixed bottom-24 right-4 z-50 w-80 rounded-xl shadow-2xl border overflow-hidden"
+          className="fixed bottom-24 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl shadow-2xl border overflow-hidden"
           style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
         >
           {/* Header */}

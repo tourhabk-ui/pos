@@ -75,122 +75,13 @@ export async function getOperatorPartnerId(userId: string): Promise<string | nul
 // разойтись с остальными — расхождение проявилось бы как «прав нет» у того,
 // у кого они есть. Удалены 22.08.2026 (перепись).
 
-/**
- * Get partner record with full details
- */
-export async function getPartnerByUserId(userId: string, category?: string): Promise<any | null> {
-  try {
-    let queryStr = `
-      SELECT 
-        p.id,
-        p.name,
-        p.category,
-        p.description,
-        p.contact,
-        p.rating,
-        p.review_count,
-        p.is_verified,
-        p.logo_asset_id,
-        p.created_at,
-        p.updated_at,
-        a.url as logo_url
-      FROM partners p
-      LEFT JOIN assets a ON p.logo_asset_id = a.id
-      WHERE p.user_id = $1
-    `;
-    
-    const params = [userId];
-    
-    if (category) {
-      queryStr += ` AND p.category = $2`;
-      params.push(category);
-    }
-    
-    queryStr += ` LIMIT 1`;
-    
-    const result = await query(queryStr, params);
-    
-    if (result.rows.length === 0) {
-      return null;
-    }
-    
-    const partner = result.rows[0];
-    return {
-      id: partner.id,
-      name: partner.name,
-      category: partner.category,
-      description: partner.description,
-      contact: partner.contact,
-      rating: parseFloat(partner.rating as string),
-      reviewCount: partner.review_count,
-      isVerified: partner.is_verified,
-      logoAssetId: partner.logo_asset_id,
-      logoUrl: partner.logo_url,
-      createdAt: partner.created_at,
-      updatedAt: partner.updated_at
-    };
-  } catch (error) {
-    logCheckFailure('getPartnerByUserId', error);
-    return null;
-  }
-}
-
-/**
- * Create partner record for user if doesn't exist
- */
-export async function ensurePartnerExists(userId: string, userName: string, userEmail: string, role: string): Promise<string> {
-  try {
-    // Map role to category
-    const categoryMap: Record<string, string> = {
-      'operator': 'operator',
-      'guide': 'guide',
-      'transfer': 'transfer',
-      'agent': 'operator' // agents work as operators
-    };
-
-    const category = categoryMap[role] || 'operator';
-
-    // Ищем запись ИМЕННО этой категории, а не первую попавшуюся.
-    //
-    // Один человек может оказывать несколько услуг: физлицо с экскурсиями и
-    // трансфером — обычный камчатский случай, и у него две записи в partners
-    // под одним user_id. Прежний запрос `WHERE user_id = $1 LIMIT 1` возвращал
-    // произвольную из них: кабинет оператора мог получить трансферную запись и
-    // показать чужие туры. Сортировка по created_at делает выбор ещё и
-    // повторяемым, если дублей одной категории окажется несколько.
-    const existing = await query(
-      `SELECT id FROM partners
-        WHERE user_id = $1 AND category = $2
-        ORDER BY created_at ASC
-        LIMIT 1`,
-      [userId, category]
-    );
-
-    if (existing.rows.length > 0) {
-      return existing.rows[0].id as string;
-    }
-
-    // Create new partner record
-    const result = await query(
-      `INSERT INTO partners (user_id, name, category, contact, is_verified, rating, review_count)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id`,
-      [
-        userId,
-        userName,
-        category,
-        JSON.stringify({ email: userEmail, phone: '' }),
-        false,
-        0.0,
-        0
-      ]
-    );
-    
-    return result.rows[0].id as string;
-  } catch (error) {
-    throw error;
-  }
-}
+// getPartnerByUserId и ensurePartnerExists удалены 11.09 (#1803) вместе со
+// своими единственными вызывающими — роутами /api/operator/profile и
+// /api/operator/profile/settings, которые отвечали 500 на несуществующем
+// operator_settings.id и не были подключены ни к одному экрану. Живой путь
+// кабинета — /api/hub/operator/profile поверх getOperatorPartnerId;
+// автосоздание профиля делает lib/auth/partner-profile.ts в транзакции
+// регистрации (случай 24.08). Экспорт без вызывающего — лишнее слово export.
 
 /**
  * Verify user owns a tour (through partner)

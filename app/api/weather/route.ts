@@ -35,6 +35,18 @@ export async function GET(request: NextRequest) {
     // Получаем данные о погоде
     const weather = await getWeatherData(latitude, longitude, location || undefined, provider);
 
+    if (!weather) {
+      // Ни один провайдер не ответил. До 10.09 здесь отдавалась выдуманная
+      // погода (15 °C, ветер 10, влажность 60 %, видимость 10) с success:true
+      // (#1774): дашборды рисовали её как замер, а safetyLevel «good» уходил
+      // туристу как оценка условий. Отказ — это отказ (§4.0).
+      return NextResponse.json({
+        success: false,
+        unavailable: true,
+        error: 'Погода недоступна: ни один провайдер не ответил',
+      }, { status: 503 });
+    }
+
     return NextResponse.json({
       success: true,
       data: weather,
@@ -55,7 +67,7 @@ async function getWeatherData(
   lng: number, 
   location?: string,
   preferredProvider: string = 'openMeteo'
-): Promise<Weather> {
+): Promise<Weather | null> {
   const providers = [preferredProvider, 'openMeteo', 'weatherApi', 'openWeatherMap', 'yandex'];
   const uniqueProviders = [...new Set(providers)];
 
@@ -82,12 +94,17 @@ async function getWeatherData(
           break;
       }
     } catch (error) {
+      // Отказ не глушится: имя провайдера и причина — в лог (§4.0).
+      console.error('[weather] провайдер не ответил', {
+        provider,
+        message: error instanceof Error ? error.message : String(error),
+      });
       continue;
     }
   }
 
-  // Если все провайдеры не работают, возвращаем данные по умолчанию
-  return getDefaultWeather(lat, lng, location);
+  // Все провайдеры отказали или не настроены. Данных нет — так и говорим.
+  return null;
 }
 
 // ===== OPEN-METEO (бесплатный, надежный) =====
@@ -142,13 +159,19 @@ async function getOpenMeteoWeather(lat: number, lng: number, location?: string):
       precipitation: daily.precipitation_sum[i] || 0,
       precipitationProbability: daily.precipitation_probability_max[i] || 0,
       windSpeed: Math.round(daily.wind_speed_10m_max[i] * 3.6),
-      humidity: 60, // Open-Meteo не дает дневную влажность
+      // Дневной влажности у Open-Meteo нет — берём среднее почасовых за эту
+      // дату; нет и их — null, а не «60» (#1774).
+      humidity: meanHourlyForDate(hourly.time, hourly.relative_humidity_2m, daily.time[i]),
       sunrise: daily.sunrise[i],
       sunset: daily.sunset[i],
     });
   }
 
   const currentCondition = getWeatherCondition(current.weather_code);
+  // Текущей видимости в блоке current у Open-Meteo нет, но она есть в
+  // почасовом ряду — берём час, совпадающий с current.time. Прежде здесь
+  // стояла константа 10 км (#1774), и она же уходила в расчёт safetyLevel.
+  const visibilityKm = hourlyVisibilityKm(hourly.time, hourly.visibility, current.time);
   const temp = Math.round(current.temperature_2m);
   const feelsLike = Math.round(current.apparent_temperature);
   const windSpeed = Math.round(current.wind_speed_10m * 3.6);
@@ -165,14 +188,14 @@ async function getOpenMeteoWeather(lat: number, lng: number, location?: string):
     windDirection: current.wind_direction_10m,
     windGust: windGust,
     pressure: Math.round(current.pressure_msl),
-    visibility: 10, // Open-Meteo не дает текущую видимость
+    visibility: visibilityKm,
     uvIndex: Math.round(hourly.uv_index[0] || 0),
     cloudCover: current.cloud_cover,
     forecast: forecast,
     hourlyForecast: hourlyForecast,
     lastUpdated: new Date(),
-    safetyLevel: calculateSafetyLevel(currentCondition, windSpeed, 10, temp),
-    recommendations: getWeatherRecommendations(currentCondition, windSpeed, 10, temp),
+    safetyLevel: calculateSafetyLevel(currentCondition, windSpeed, visibilityKm, temp),
+    recommendations: getWeatherRecommendations(currentCondition, windSpeed, visibilityKm, temp),
     clothingAdvice: getClothingAdvice(temp, feelsLike, currentCondition, windSpeed),
     tourAdvice: getTourAdvice(currentCondition, windSpeed, temp),
     comfortIndex: calculateComfortIndex(temp, feelsLike, current.relative_humidity_2m, windSpeed, currentCondition),
@@ -394,7 +417,7 @@ async function getYandexWeather(lat: number, lng: number, location?: string): Pr
     windSpeed: windSpeed,
     windDirection: windDirToAngle(fact.wind_dir),
     pressure: fact.pressure_mm,
-    visibility: fact.visibility || 10,
+    visibility: typeof fact.visibility === 'number' ? fact.visibility : null,
     uvIndex: fact.uv_index || 0,
     cloudCover: fact.cloudness * 12.5, // Yandex дает 0-8, конвертируем в %
     sunrise: data.forecast?.parts?.[0]?.sunrise,
@@ -413,8 +436,8 @@ async function getYandexWeather(lat: number, lng: number, location?: string): Pr
       humidity: day.parts.day.humidity,
     })) || [],
     lastUpdated: new Date(fact.obs_time * 1000),
-    safetyLevel: calculateSafetyLevel(condition, windSpeed, fact.visibility || 10, temp),
-    recommendations: getWeatherRecommendations(condition, windSpeed, fact.visibility || 10, temp),
+    safetyLevel: calculateSafetyLevel(condition, windSpeed, typeof fact.visibility === 'number' ? fact.visibility : null, temp),
+    recommendations: getWeatherRecommendations(condition, windSpeed, typeof fact.visibility === 'number' ? fact.visibility : null, temp),
     clothingAdvice: getClothingAdvice(temp, feelsLike, condition, windSpeed),
     tourAdvice: getTourAdvice(condition, windSpeed, temp),
     comfortIndex: calculateComfortIndex(temp, feelsLike, fact.humidity, windSpeed, condition),
@@ -423,37 +446,36 @@ async function getYandexWeather(lat: number, lng: number, location?: string): Pr
 
 // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
-function getDefaultWeather(lat: number, lng: number, location?: string): Weather {
-  return {
-    location: location || `${lat.toFixed(2)}, ${lng.toFixed(2)}`,
-    temperature: 15,
-    feelsLike: 15,
-    condition: 'partly_cloudy',
-    conditionText: 'Переменная облачность',
-    humidity: 60,
-    windSpeed: 10,
-    windDirection: 180,
-    pressure: 760,
-    visibility: 10,
-    uvIndex: 3,
-    cloudCover: 50,
-    forecast: [{
-      date: new Date(),
-      temperature: { min: 10, max: 20 },
-      condition: 'partly_cloudy',
-      conditionText: 'Переменная облачность',
-      precipitation: 0,
-      precipitationProbability: 20,
-      windSpeed: 10,
-      humidity: 60,
-    }],
-    lastUpdated: new Date(),
-    safetyLevel: 'good',
-    recommendations: ['Данные погоды временно недоступны'],
-    clothingAdvice: ['Рекомендуется одеваться по сезону'],
-    tourAdvice: 'Проверьте актуальный прогноз перед выходом',
-    comfortIndex: 70,
-  };
+
+/**
+ * Видимость (км) из почасового ряда Open-Meteo для часа `currentTime`
+ * (ISO без зоны, как отдаёт сам провайдер). Нет такого часа или значения —
+ * null: провайдер не сказал, и мы не выдумываем.
+ */
+function hourlyVisibilityKm(times: unknown, values: unknown, currentTime: unknown): number | null {
+  if (!Array.isArray(times) || !Array.isArray(values) || typeof currentTime !== 'string') return null;
+  const hour = currentTime.slice(0, 13);
+  const idx = times.findIndex((t) => typeof t === 'string' && t.slice(0, 13) === hour);
+  if (idx < 0) return null;
+  const metres = values[idx];
+  if (typeof metres !== 'number' || !Number.isFinite(metres)) return null;
+  return Math.round(metres / 100) / 10;
+}
+
+/** Среднее почасовых значений за дату `YYYY-MM-DD`; нет значений — null. */
+function meanHourlyForDate(times: unknown, values: unknown, date: unknown): number | null {
+  if (!Array.isArray(times) || !Array.isArray(values) || typeof date !== 'string') return null;
+  const day = date.slice(0, 10);
+  let sum = 0;
+  let n = 0;
+  times.forEach((t, i) => {
+    const v = values[i];
+    if (typeof t === 'string' && t.slice(0, 10) === day && typeof v === 'number' && Number.isFinite(v)) {
+      sum += v;
+      n += 1;
+    }
+  });
+  return n > 0 ? Math.round(sum / n) : null;
 }
 
 // Маппинг условий Open-Meteo (WMO коды)
@@ -556,14 +578,17 @@ function windDirToAngle(dir: string): number {
 function calculateSafetyLevel(
   condition: string,
   windSpeed: number,
-  visibility: number,
+  visibility: number | null,
   temp: number
 ): 'excellent' | 'good' | 'moderate' | 'difficult' | 'dangerous' {
+  // Видимость неизвестна — её пороги не срабатывают ни в какую сторону:
+  // «не знаем» не равно «10 км» (§4.0).
+  const vis = visibility ?? Number.POSITIVE_INFINITY;
   // Опасные условия
   if (
     condition === 'thunderstorm' ||
     windSpeed > 60 ||
-    visibility < 0.5 ||
+    vis < 0.5 ||
     temp < -30 ||
     temp > 45
   ) {
@@ -574,7 +599,7 @@ function calculateSafetyLevel(
   if (
     condition === 'showers' ||
     windSpeed > 40 ||
-    visibility < 2 ||
+    vis < 2 ||
     temp < -20 ||
     temp > 40
   ) {
@@ -586,7 +611,7 @@ function calculateSafetyLevel(
     condition === 'rain' ||
     condition === 'snow' ||
     windSpeed > 25 ||
-    visibility < 5 ||
+    vis < 5 ||
     temp < -10
   ) {
     return 'moderate';
@@ -610,10 +635,12 @@ function calculateSafetyLevel(
 function getWeatherRecommendations(
   condition: string,
   windSpeed: number,
-  visibility: number,
+  visibilityKm: number | null,
   temp: number
 ): string[] {
   const recommendations: string[] = [];
+  // Неизвестная видимость не порождает советов о видимости.
+  const visibility = visibilityKm ?? Number.POSITIVE_INFINITY;
 
   // Критические условия
   if (condition === 'thunderstorm') {
@@ -749,7 +776,7 @@ function getTourAdvice(condition: string, windSpeed: number, temp: number): stri
 function calculateComfortIndex(
   temp: number,
   feelsLike: number,
-  humidity: number,
+  humidity: number | null,
   windSpeed: number,
   condition: string
 ): number {
@@ -763,8 +790,8 @@ function calculateComfortIndex(
   const feelsLikeDiff = Math.abs(feelsLike - 20);
   index -= feelsLikeDiff * 1.5;
 
-  // Влажность (идеал 50-60%)
-  if (humidity < 40 || humidity > 70) {
+  // Влажность (идеал 50-60%); неизвестная — не штрафуется
+  if (humidity !== null && (humidity < 40 || humidity > 70)) {
     index -= Math.abs(humidity - 55) * 0.5;
   }
 

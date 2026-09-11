@@ -52,7 +52,9 @@ export async function GET(request: NextRequest) {
         SELECT
           COUNT(DISTINCT t.id)                                      AS total_tours,
           COUNT(DISTINCT CASE WHEN t.is_active THEN t.id END)       AS active_tours,
-          COALESCE(AVG(t.rating) FILTER (WHERE t.rating > 0), 0)    AS avg_rating,
+          -- NULL, а не 0: «никто не оценивал» и «оценили на ноль» — разные
+          -- факты, и ноль звёзд у нового оператора был выдумкой (§4.0, #1799).
+          AVG(t.rating) FILTER (WHERE t.rating > 0)                 AS avg_rating,
           COALESCE(SUM(t.review_count), 0)                          AS total_reviews
         FROM operator_tours t
         WHERE t.operator_id = $1 AND t.deleted_at IS NULL
@@ -64,8 +66,13 @@ export async function GET(request: NextRequest) {
           COUNT(*) FILTER (WHERE b.booking_status = 'confirmed')                            AS confirmed_bookings,
           COUNT(*) FILTER (WHERE b.booking_status = 'completed')                            AS completed_bookings,
           COUNT(*) FILTER (WHERE b.booking_status = 'cancelled')                            AS cancelled_bookings,
+          -- Две разные цифры вместо одной «выручки»: выставлено по броням и
+          -- реально оплачено. Раньше платёжный статус не участвовал вовсе, и
+          -- дашборд показывал 17К ₽ там, где «Финансы» показывали 0 (#1799).
           COALESCE(SUM(b.final_price) FILTER (WHERE b.booking_status != 'cancelled'), 0)   AS total_revenue,
-          COALESCE(SUM(b.final_price) FILTER (WHERE b.created_at >= $2 AND b.booking_status != 'cancelled'), 0) AS monthly_revenue
+          COALESCE(SUM(b.final_price) FILTER (WHERE b.created_at >= $2 AND b.booking_status != 'cancelled'), 0) AS monthly_revenue,
+          COALESCE(SUM(b.final_price) FILTER (WHERE b.booking_status != 'cancelled' AND b.payment_status = 'paid'), 0) AS paid_revenue,
+          COALESCE(SUM(b.final_price) FILTER (WHERE b.created_at >= $2 AND b.booking_status != 'cancelled' AND b.payment_status = 'paid'), 0) AS paid_revenue_month
         FROM operator_bookings b
         JOIN operator_tours t ON b.operator_tour_id = t.id
         WHERE t.operator_id = $1 AND b.deleted_at IS NULL
@@ -99,7 +106,10 @@ export async function GET(request: NextRequest) {
       cancelledBookings: parseInt(String(row?.cancelled_bookings)) || 0,
       totalRevenue:      parseFloat(String(row?.total_revenue))    || 0,
       monthlyRevenue:    parseFloat(String(row?.monthly_revenue))  || 0,
-      averageRating:     parseFloat(String(row?.avg_rating))       || 0,
+      paidRevenue:       parseFloat(String(row?.paid_revenue))      || 0,
+      paidRevenueMonth:  parseFloat(String(row?.paid_revenue_month))|| 0,
+      // null доезжает до карточки: она печатает «—», а не «0.0».
+      averageRating:     row?.avg_rating == null ? null : parseFloat(String(row.avg_rating)),
       totalReviews:      parseInt(String(row?.total_reviews))      || 0,
       newLeadsToday:     parseInt(String(lr?.new_today))           || 0,
       newLeadsWeek:      parseInt(String(lr?.new_week))            || 0,

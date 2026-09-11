@@ -117,18 +117,18 @@ import { GuestSelector } from '@/components/booking/ui/GuestSelector';
 ### Для трансферов:
 - `GET /api/transfers/[routeId]/schedules?date=...`
 
-**📖 Примеры API в:** `/КАЛЕНДАРИ_ИНСТРУКЦИЯ.md`
 
 ---
 
-## 📚 Документация
+## Документация
 
-| Файл | Описание |
-|------|----------|
-| `/КАЛЕНДАРИ_ИНСТРУКЦИЯ.md` | Быстрый старт |
-| `/ИТОГ_КАЛЕНДАРИ.md` | Полная сводка |
-| `/docs/CALENDAR_UI_SPECS.md` | UI спецификации |
-| `/docs/CALENDAR_FINAL_DECISION.md` | Архитектура |
+Раньше здесь стояла таблица из четырёх файлов (`КАЛЕНДАРИ_ИНСТРУКЦИЯ.md`,
+`ИТОГ_КАЛЕНДАРИ.md`, `docs/CALENDAR_UI_SPECS.md`, `docs/CALENDAR_FINAL_DECISION.md`).
+Ни одного из них в репозитории нет — проверено 10.09.2026. Ссылка на
+несуществующий документ хуже её отсутствия: читающий идёт искать то, чего
+нет, и решает, что не нашёл. Актуальные источники: этот README, стандарт
+карточки тура в `CLAUDE.md` §11 (блок «липкая бронь», `BookingFormClient`,
+`TourDateField` → `GET /api/tours/[id]/slots`) и `docs/DEVELOPER_GUIDE.md`.
 
 ---
 

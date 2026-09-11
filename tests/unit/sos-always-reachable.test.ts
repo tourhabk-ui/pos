@@ -90,6 +90,40 @@ describe('у SOS одна реализация', () => {
   });
 });
 
+const HEADER = 'components/layout/Header.tsx';
+const TOUR_CARD = 'app/marketplace/tours/[id]/_TourDetailClient.tsx';
+
+describe('SOS — в общей шапке (§2, #1775)', () => {
+  /**
+   * Решение владельца 29.07: SOS — фиксированная кнопка шапки на каждом
+   * экране. До 10.09 общая шапка её не несла, и на /routes, /catalog,
+   * /kuzmich и карточке тура SOS не было вовсе: кнопку получали только
+   * экраны, где автор вспомнил положить её рядом с заголовком.
+   */
+  it('Header рендерит EmergencyAction', () => {
+    expect(SOURCES.get(HEADER), 'общая шапка исчезла').toBeTruthy();
+    expect(SOURCES.get(HEADER)!).toMatch(/<EmergencyAction\b/);
+  });
+
+  it('карточка тура (без общей шапки) несёт SOS сама', () => {
+    // Единственная реализация карточки тура (§11) рисует свой герой вместо
+    // Header — значит SOS обязана стоять в нём, и не под условием статуса дня.
+    expect(SOURCES.get(TOUR_CARD)!).toMatch(/<EmergencyAction\b/);
+  });
+
+  it('экран с общей шапкой не ставит вторую SOS рядом с заголовком', () => {
+    // Два экземпляра одного действия на одном экране — не разъезд поведения,
+    // но обещание «одна кнопка в одном месте» они ломают. Бесатрибутный
+    // <EmergencyAction /> — это вариант шапки; варианты field/className на
+    // полевом экране остаются законными (там они в сетке действий, не в шапке).
+    const offenders = [...SOURCES.entries()]
+      .filter(([path]) => path !== HEADER)
+      .filter(([, src]) => /<Header\b/.test(src) && /<EmergencyAction\s*\/>/.test(src))
+      .map(([path]) => path);
+    expect(offenders, 'на экране с Header стоит вторая SOS-пилюля').toEqual([]);
+  });
+});
+
 describe('каждый экран с нижней навигацией показывает SOS', () => {
   /** Экраны, которые рисуют мобильную навигацию: общий BottomNav или свой таб-бар. */
   const screens = [...SOURCES.entries()]
@@ -101,9 +135,10 @@ describe('каждый экран с нижней навигацией пока�
     expect(screens.length).toBeGreaterThanOrEqual(3);
   });
 
-  it.each(screens)('%s рендерит EmergencyAction', (path) => {
+  it.each(screens)('%s рендерит EmergencyAction или общую шапку с ней', (path) => {
+    // Общая шапка несёт SOS сама (проверено выше) — экран с <Header /> покрыт.
     expect(SOURCES.get(path)!, `на ${path} нижняя навигация есть, а SOS нет`)
-      .toMatch(/<EmergencyAction\b/);
+      .toMatch(/<EmergencyAction\b|<Header\b/);
   });
 });
 

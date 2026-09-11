@@ -94,9 +94,11 @@ describe('2. реестр один', () => {
 describe('3. /menu — экран, а не список', () => {
   const src = strip(read('app/menu/page.tsx'));
   it('несёт шапку, таб-бар и SOS', () => {
+    // SOS с 10.09 живёт в общей шапке (§2, #1775): <Header /> и есть SOS,
+    // своя копия рядом с заголовком была бы второй кнопкой на экране.
     expect(src).toMatch(/<Header \/>/);
     expect(src).toMatch(/<BottomNav\b/);
-    expect(src).toMatch(/<EmergencyAction\b/);
+    expect(strip(read('components/layout/Header.tsx'))).toMatch(/<EmergencyAction\b/);
   });
   it('не индексируется: это навигация, а не контент', () => {
     expect(src).toMatch(/index:\s*false/);

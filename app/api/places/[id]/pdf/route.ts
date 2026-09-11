@@ -93,8 +93,17 @@ export async function GET(
       },
     });
   } catch (err) {
+    // §4.0: отказ не глушится. До 10.09 catch молчал, и 500 на «Скачать
+    // карточку для офлайн» (#1777) не оставлял в логе ни строки.
+    const code = typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code?: unknown }).code) : '';
+    console.error('[places/pdf] генерация карточки не удалась', {
+      id,
+      code,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Ошибка генерации PDF' },
+      { error: 'Не удалось собрать PDF карточки места. Попробуйте позже.' },
       { status: 500 },
     );
   }

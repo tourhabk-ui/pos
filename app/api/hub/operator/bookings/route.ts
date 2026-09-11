@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
         `SELECT
           b.id, b.operator_tour_id, t.title as tour_title,
           b.tourist_name, b.tourist_email, b.tourist_phone,
-          b.booking_date, b.participants,
+          b.booking_date::text AS booking_date, b.participants,
           b.final_price, b.currency,
           b.payment_status, b.booking_status,
           b.weather_alert_triggered, b.created_at
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
         payment_status, payment_method, booking_status,
         special_requests, created_via
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      RETURNING id, booking_date, participants, final_price, booking_status`,
+      RETURNING id, booking_date::text AS booking_date, participants, final_price, booking_status`,
       [
         tourId,
         input.tourist_name || null,

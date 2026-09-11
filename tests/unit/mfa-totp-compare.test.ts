@@ -80,7 +80,10 @@ describe('вход через MAX: решает серверный флаг', ()
 
 describe('проверки владения оператора: отказ не выдаётся за «прав нет»', () => {
   it('каждая проверка оставляет след при сбое', () => {
-    for (const check of ['getOperatorPartnerId', 'getPartnerByUserId',
+    // getPartnerByUserId удалён 11.09 (#1803) вместе с обоими своими
+    // вызывающими — роутами /api/operator/profile*, которые отвечали 500 и не
+    // имели экрана. Оставшиеся три проверки владения — на месте.
+    for (const check of ['getOperatorPartnerId',
                          'verifyTourOwnership', 'verifyBookingOwnership']) {
       expect(HELPERS, `${check} снова молчит при отказе`)
         .toMatch(new RegExp(`logCheckFailure\\('${check}'`));

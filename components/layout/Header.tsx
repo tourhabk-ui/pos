@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Sun, Moon, UserCircle, Search, LogIn, Menu } from 'lucide-react';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 import { useScrollY } from '@/hooks/useScrollY';
 import { useTheme } from '@/contexts/ThemeContext';
 import { GeoToggle } from '@/components/geo/GeoToggle';
@@ -10,9 +11,11 @@ import Logo from '@/components/shared/Logo';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
+// 44px — минимальная тач-цель DS (§10 vedar-design); 32 px в шапке были
+// ниже правила и промахивались пальцем в перчатке (#1780).
 const iconBtnBase: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
+  width: '44px',
+  height: '44px',
   borderRadius: '50%',
   border: 'none',
   background: 'transparent',
@@ -36,8 +39,13 @@ export function Header() {
 
   React.useEffect(() => {
     let alive = true;
-    fetch('/api/auth/me', { credentials: 'include' })
-      .then(r => { if (alive) setAuthed(r.ok); })
+    // /api/auth/state, а не /api/auth/me: у гостя «me» отвечает 401 и красит
+    // консоль на каждом экране (#1780); «state» отдаёт 200 с флагом.
+    fetch('/api/auth/state', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { data?: { authenticated?: boolean } } | null) => {
+        if (alive && typeof d?.data?.authenticated === 'boolean') setAuthed(d.data.authenticated);
+      })
       .catch(() => { /* связи нет — состояние остаётся «не знаю» */ });
     return () => { alive = false; };
   }, []);
@@ -148,6 +156,16 @@ export function Header() {
         >
           {isDark ? <Sun size={18} /> : <Moon size={18} />}
         </button>
+
+        {/*
+          SOS — фиксированная кнопка шапки на каждом экране (решение владельца
+          29.07, §2). До 10.09 шапка её не несла, и на /routes, /catalog,
+          /kuzmich и карточке тура SOS не было вовсе (#1775): страницы,
+          которым шапка общая, кнопку получали только там, где автор экрана
+          вспомнил положить её рядом с заголовком. Одна кнопка — в одной
+          шапке; экран со своей копией рядом с заголовком показывал бы две.
+        */}
+        <EmergencyAction />
 
         {/*
           Вход. Значок аккаунта стоял здесь ВСЕГДА — и у вошедшего, и у

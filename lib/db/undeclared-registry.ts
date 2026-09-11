@@ -111,9 +111,13 @@ export const UNDECLARED_TABLES = [
   // дословное «relation tourist_profiles does not exist» при нуле успешных
   // прогонов за всю историю. Таблицы не было на проде, и напоминания об
   // истечении документов туриста не работали ни разу.
-  'tourist_trips', 'trip_bookings',
-  'tourist_achievements', 'tourist_reviews', 'tourist_wishlist',
-  'tourist_checklists', 'tourist_notification_preferences',
+  // tourist_wishlist и tourist_notification_preferences объявлены миграцией
+  // 949 (10.09.2026) по живому коду роутов: сердечки и страница уведомлений
+  // кабинета отвечали 500 с момента написания (issue #1771). tourist_trips,
+  // trip_bookings, tourist_achievements, tourist_reviews, tourist_checklists
+  // из списка ушли иначе — их читателей больше нет: роуты без единого
+  // экрана-потребителя удалены, сводка кабинета считается по operator_bookings,
+  // operator_tour_reviews, user_achievements и user_trips (lib/tourist/cabinet).
   // Согласия и аудит согласий (152-ФЗ) — тем более странно не иметь схемы.
   'user_agreements', 'agreement_audit_log', 'content_consents',
   // Прочее.
@@ -121,7 +125,16 @@ export const UNDECLARED_TABLES = [
   // писала ни одна строка кода — читал её только SDK-инструмент погоды,
   // и теперь он берёт прогноз из единственного источника платформы.
   // Список может только сокращаться; это сокращение.
-  'agents', 'operator_reviews', 'tour_images',
+  //
+  // operator_reviews вычеркнута 11.09: её не заводила ни одна миграция, а
+  // спрашивал единственный читатель — уведомления кабинета оператора, где
+  // отказ глушился пустым catch и выглядел как «отзывов нет» (#1801).
+  // Читатель переведён на существующую operator_tour_reviews.
+  //
+  // tour_images вычеркнута 11.09 (#1803) следом: её спрашивал единственный
+  // роут /api/operator/tours, удалённый вместе с семью такими же — он падал
+  // на ней («relation \"tour_images\" does not exist») и не имел потребителя.
+  'agents',
 ] as const;
 
 export type UndeclaredTable = (typeof UNDECLARED_TABLES)[number];

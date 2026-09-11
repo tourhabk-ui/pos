@@ -1,0 +1,128 @@
+name: Places × OSM — массовая сверка координат (вручную)
+
+# GET /api/cron/places-osm-crosscheck (10.09): читает ВСЕ живые places и
+# сверяет с одним bulk-запросом к Overpass по имени (pg_trgm) и расстоянию.
+# Ничего не пишет и не прячет сам — список кандидатов для человека, отсортированный
+# по убыванию расстояния БЕЗ порогового отсечения (единого порога, отделяющего
+# ошибку от однофамильца, не существует — см. шапку route.ts).
+#
+# Повод: 10.09 четыре плохие координаты (Голубые озёра, Овальное, Смотровая
+# у Авачинского, Лежбище сивучей) нашлись только по жалобам туриста с
+# телефона. Правку по находке делать здесь — POST /api/cron/place-coords
+# (нужен независимый источник) или отдельная миграция-скрытие (без
+# источника, как 947/948).
+#
+# Запуск: workflow_dispatch (кнопка) или push в main, меняющий
+# .github/triggers/places-osm-crosscheck.json.
+
+on:
+  workflow_dispatch:
+    inputs:
+      min_sim:
+        description: 'Порог pg_trgm.similarity() (0..1)'
+        required: false
+        default: '0.3'
+      part:
+        description: 'summary — только счётчики; items/both — со списком'
+        required: false
+        default: both
+        type: choice
+        options: [both, summary, items]
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/places-osm-crosscheck.json'
+
+permissions:
+  contents: read
+
+# Новый прогон отменяет старый: сверка только читает, и две одновременные
+# копии лишь дважды нагружают Overpass ради одного и того же ответа.
+concurrency:
+  group: places-osm-crosscheck
+  cancel-in-progress: true
+
+jobs:
+  crosscheck:
+    runs-on: ubuntu-latest
+    # Ожидание своей сборки (scripts/wait-for-deploy.sh) — до 55 минут
+    # (ATTEMPTS ниже). 10.09 run 2 отсидел штатные 35 и не дождался: две
+    # сборки Timeweb встали в очередь подряд. Пятнадцати минут не хватило бы
+    # по построению: job отменила бы себя раньше, чем прод обновился.
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Параметры — из ввода или из маркера
+        env:
+          IN_MIN_SIM: ${{ inputs.min_sim || '' }}
+          IN_PART: ${{ inputs.part || '' }}
+        run: |
+          set -u
+          python3 - <<'PY'
+          import json, os
+          with open('.github/triggers/places-osm-crosscheck.json') as f:
+              marker = json.load(f)
+          min_sim = os.environ.get('IN_MIN_SIM') or str(marker.get('min_sim') or '0.3')
+          part = os.environ.get('IN_PART') or marker.get('part') or 'both'
+          limit = str(marker.get('limit') or 100)
+          offset = str(marker.get('offset') or 0)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'MIN_SIM={min_sim}\n')
+              env.write(f'PART={part}\n')
+              env.write(f'LIMIT={limit}\n')
+              env.write(f'OFFSET={offset}\n')
+          print(f'min_sim={min_sim} part={part} limit={limit} offset={offset}')
+          PY
+
+      # Маркер едет в main тем же пушем, что и роут /api/cron/places-osm-crosscheck,
+      # а Timeweb собирает образ 5–20 минут. Эндпоинт этого прогона едет ТЕМ ЖЕ
+      # коммитом (REQUIRE_FRESH=1): не дождались сборки — спрашивать нечего,
+      # прогон обязан покраснеть на своей причине, а не получить 404 со старого
+      # прода (сторож tests/unit/marker-waits-for-deploy.test.ts).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+          ATTEMPTS: '110'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Сверка
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          URL="https://vedarai.ru/api/cron/places-osm-crosscheck?part=${PART}&min_sim=${MIN_SIM}&limit=${LIMIT}&offset=${OFFSET}"
+          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 150 "$URL") || RESP=""
+          echo "$RESP" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print(json.dumps({k: d.get(k) for k in (
+              'success', 'probe', 'bbox', 'name_sim_floor', 'strong_sim',
+              'checked_places_total', 'osm_features_total',
+              'items_with_candidates_total', 'items_strong_total',
+              'items_weak_only_total', 'items_without_candidates_total',
+              'items_offset', 'items_limit', 'items_dropped',
+          )}, ensure_ascii=False))
+          " || { echo "$RESP" | head -c 800; exit 1; }
+          echo "── Ближайший одноимённый объект OSM (sim >= strong_sim), самые дальние первыми ──"
+          echo "$RESP" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          for it in d.get('items') or []:
+              top = (it.get('candidates') or [{}])[0]
+              ext = ' [протяжённый]' if it.get('isExtendedObject') else ''
+              ns = it.get('nearestStrongKm')
+              key = f'{ns} км' if ns is not None else 'только слабые'
+              print(f\"{key} | {it.get('name')}{ext} [{it.get('placeId')}] @ {it.get('ourLat')},{it.get('ourLng')} -> {top.get('osmName')} @ {top.get('osmLat')},{top.get('osmLng')} ({top.get('matchedTag')}, sim={top.get('nameSim')}, {top.get('distanceKm')} км)\")
+          "
+          {
+            echo "## places-osm-crosscheck — min_sim=$MIN_SIM part=$PART"
+            echo
+            echo '```json'
+            echo "$RESP" | python3 -m json.tool | head -c 30000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

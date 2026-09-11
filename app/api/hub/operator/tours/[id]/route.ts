@@ -16,10 +16,11 @@ import { transaction } from '@/lib/database';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export const dynamic = 'force-dynamic';
 
-/** BigInt(params.id) на нечисловом id кидает SyntaxError — тот же тип
+/** BigInt(id) на нечисловом id кидает SyntaxError — тот же тип
  * исключения, что и у request.json() на битом теле. Раньше обе ошибки
  * ловились одним catch и путались: DELETE /tours/not-a-number отвечал
  * общим 500 "Failed to delete tour" вместо честного 400 на клиентскую
@@ -34,9 +35,10 @@ function parseTourId(raw: string): bigint | null {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const tourId = parseTourId(params.id);
+  const { id } = await params;
+  const tourId = parseTourId(id);
   if (tourId === null) {
     return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
   }
@@ -67,9 +69,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const tourId = parseTourId(params.id);
+  const { id } = await params;
+  const tourId = parseTourId(id);
   if (tourId === null) {
     return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
   }
@@ -165,14 +168,14 @@ export async function PATCH(
     return NextResponse.json({ success: true, data: updatedRow });
   } catch (error) {
     if (error instanceof SyntaxError) {
-      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+      return NextResponse.json({ error: 'Не удалось прочитать запрос: тело не является корректным JSON' }, { status: 400 });
     }
     // ZodError раньше не разбирался отдельно — любая ошибка валидации
     // (пустая строка в title, отрицательная цена, non-nullable base_price
     // при очистке поля) падала в generic 500 "Failed to update tour" без
     // объяснения причины (аудит кабинета оператора).
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues[0]?.message ?? 'Некорректные данные' }, { status: 400 });
+      return NextResponse.json({ error: zodErrorMessage(error) }, { status: 400 });
     }
     const e = error as { code?: string; message?: string };
     console.error('[hub/operator/tours/[id]] PATCH отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
@@ -182,9 +185,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const tourId = parseTourId(params.id);
+  const { id } = await params;
+  const tourId = parseTourId(id);
   if (tourId === null) {
     return NextResponse.json({ error: 'Некорректный id тура' }, { status: 400 });
   }

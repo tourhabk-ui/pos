@@ -287,9 +287,12 @@ export default function IntegrationsPageClient() {
               <button
                 onClick={() => handleSync(partner.partner.id)}
                 disabled={!partner.configured || syncing === partner.partner.id}
-                className={`px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${
+                title={partner.configured ? undefined : 'Интеграция не настроена — синхронизировать нечего'}
+                className={`min-h-[44px] px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  // Белый текст на акценте читается в обеих темах; --bg-card в
+                  // тёмной давал тёмное на оранжевом (#1804).
                   partner.configured
-                    ? 'bg-[var(--accent)] text-[var(--bg-card)] hover:opacity-90'
+                    ? 'bg-[var(--accent)] text-white hover:opacity-90'
                     : 'bg-[var(--bg-hover)] text-[var(--text-muted)] cursor-not-allowed'
                 }`}
               >

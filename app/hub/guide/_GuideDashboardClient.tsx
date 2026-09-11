@@ -183,8 +183,12 @@ function WeatherStrip({ weather }: { weather: Weather }) {
         </div>
         <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
           <span className="inline-flex items-center gap-1"><Wind className="w-3.5 h-3.5" /> {weather.windSpeed} км/ч</span>
-          <span className="inline-flex items-center gap-1"><Droplets className="w-3.5 h-3.5" /> {weather.humidity}%</span>
-          <span className="inline-flex items-center gap-1"><Eye className="w-3.5 h-3.5" /> {weather.visibility} км</span>
+          {weather.humidity != null && (
+            <span className="inline-flex items-center gap-1"><Droplets className="w-3.5 h-3.5" /> {weather.humidity}%</span>
+          )}
+          {weather.visibility != null && (
+            <span className="inline-flex items-center gap-1"><Eye className="w-3.5 h-3.5" /> {weather.visibility} км</span>
+          )}
         </div>
       </div>
     </div>

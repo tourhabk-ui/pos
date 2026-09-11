@@ -1,5 +1,7 @@
 'use client';
 
+import { plural } from '@/lib/home/data-freshness';
+
 export interface PlatformStats {
   routes: number;
   places: number;
@@ -17,13 +19,14 @@ export function StatsBand({ stats }: StatsBandProps) {
   const items: { num: string; label: string }[] = [
     ...(stats
       ? [
-          { num: stats.routes.toLocaleString('ru-RU'),         label: 'маршрутов в базе' },
-          { num: stats.places.toLocaleString('ru-RU'),         label: 'локаций с координатами' },
-          { num: stats.mchsRoutes.toLocaleString('ru-RU'),     label: 'маршрутов с регистрацией МЧС' },
-          { num: stats.safetyProfiles.toLocaleString('ru-RU'), label: 'профилей безопасности' },
+          // Склонение по числу: «61 профиль», не «61 профилей» (#1780).
+          { num: stats.routes.toLocaleString('ru-RU'),         label: `${plural(stats.routes, 'маршрут', 'маршрута', 'маршрутов')} в базе` },
+          { num: stats.places.toLocaleString('ru-RU'),         label: `${plural(stats.places, 'локация', 'локации', 'локаций')} с координатами` },
+          { num: stats.mchsRoutes.toLocaleString('ru-RU'),     label: `${plural(stats.mchsRoutes, 'маршрут', 'маршрута', 'маршрутов')} с регистрацией МЧС` },
+          { num: stats.safetyProfiles.toLocaleString('ru-RU'), label: `${plural(stats.safetyProfiles, 'профиль', 'профиля', 'профилей')} безопасности` },
         ]
       : []),
-    { num: '24 / 7', label: 'SAR-мониторинг' },
+    { num: '24 / 7', label: 'мониторинг угроз' },
     { num: '2026',   label: 'сезон открыт' },
   ];
 
