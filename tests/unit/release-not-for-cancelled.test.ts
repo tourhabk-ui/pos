@@ -93,6 +93,17 @@ describe('придержанное видно, а не спрятано', () => 
       .toMatch(/notCancelledBookingSql\(/);
   });
 
+  it('счёт идёт от ОТМЕНЫ, а не от срока релиза', () => {
+    const fn = CODE.slice(CODE.indexOf('async function checkHeldForCancelled'));
+    const body = fn.slice(0, 2000);
+    // Турист, отменивший за два месяца до тура, не должен ждать два месяца,
+    // пока о его деньгах вообще упомянут: платёж становится чужим в момент
+    // отмены, а не по календарю релиза.
+    expect(body).toMatch(/COALESCE\(ob\.cancelled_at, ob\.updated_at\)/);
+    expect(body, 'отсчёт от release_after срабатывал бы почти никогда')
+      .not.toMatch(/tp\.release_after < NOW\(\)/);
+  });
+
   it('у них своя тревога, и она заведена вместе с производителем', () => {
     expect(CODE).toMatch(/async function checkHeldForCancelled/);
     expect(CODE).toMatch(/type: 'payment_held_for_cancelled_booking'/);

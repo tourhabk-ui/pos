@@ -800,20 +800,29 @@ async function checkStuckPayouts(): Promise<CheckResult> {
  * `cancellation_policy`, ручное решение), единственное честное поведение —
  * держать и говорить об этом вслух.
  *
- * Порог 24 часа, а не 6: здесь ждут не крона, а человека, и шесть часов
- * означали бы тревогу по любой ночной отмене.
+ * ОТСЧЁТ ИДЁТ ОТ ОТМЕНЫ, А НЕ ОТ СРОКА РЕЛИЗА, и это не мелочь. Первая
+ * редакция этой проверки считала от `release_after` — то есть от конца тура
+ * плюс 36 часов. Турист, отменивший бронь за два месяца до поездки, ждал бы
+ * упоминания о своих деньгах эти два месяца: платёж не «застревает» по
+ * календарю релиза, он становится чужим в момент отмены. Проверка, которая
+ * почти никогда не срабатывает вовремя, — это молчание с видом наблюдения.
+ *
+ * Порог 48 часов от `cancelled_at`: человеку нужно время разобрать отмену, но
+ * не двое суток тишины. Брони без `cancelled_at` (статус поставлен мимо
+ * штатного пути) считаются от `updated_at` — иначе они выпали бы из счёта
+ * совсем, а «не знаю когда» не значит «не считать».
  */
 async function checkHeldForCancelled(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ count: string; total: string | null; oldest_hours: string | null }>(`
-      SELECT COUNT(*)::text                                                  AS count,
-             COALESCE(SUM(retail_amount), 0)::text                           AS total,
-             MAX(EXTRACT(EPOCH FROM (NOW() - tp.release_after)) / 3600)::text AS oldest_hours
+      SELECT COUNT(*)::text                        AS count,
+             COALESCE(SUM(tp.retail_amount), 0)::text AS total,
+             MAX(EXTRACT(EPOCH FROM (NOW() - COALESCE(ob.cancelled_at, ob.updated_at))) / 3600)::text AS oldest_hours
       FROM tour_payments tp
+      JOIN operator_bookings ob ON ob.id = tp.booking_id
       WHERE tp.status = 'HELD'
-        AND tp.release_after IS NOT NULL
-        AND tp.release_after < NOW() - INTERVAL '24 hours'
-        AND ${cancelledBookingSql('tp', 1)}
+        AND ob.booking_status = ANY($1::text[])
+        AND COALESCE(ob.cancelled_at, ob.updated_at) < NOW() - INTERVAL '48 hours'
     `, [CANCELLED_STATUS_PARAM]);
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;
@@ -826,7 +835,7 @@ async function checkHeldForCancelled(): Promise<CheckResult> {
       critical: true,
       details:
         `${count} платежей на ${total} руб. за ОТМЕНЁННЫЕ брони удерживаются платформой ` +
-        `(самый старый — ${oldest} ч после срока). Оператору они не уйдут, но и туристу ` +
+        `(самая старая отмена — ${oldest} ч назад). Оператору они не уйдут, но и туристу ` +
         `не вернулись: возврата в платформе нет. Нужно решение человека — /hub/admin/finance.`,
     };
   } catch (err) {
