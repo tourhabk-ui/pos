@@ -1,10 +1,16 @@
 {
-  "note": "11.09: сверка places-osm-crosscheck после вчерашних 15 правок — что осталось в списке, особенно диапазон 5-30 км (вчера обработана только часть, «Озеро Котельное» пропущено).",
-  "run": 468,
+  "note": "11.09: полная первая сотня places-osm-crosscheck постранично (15 за раз), чтобы найти все пропуски вчерашних правок, включая «Озеро Котельное».",
+  "run": 469,
   "urls": [
-    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=0&limit=100&min_sim=0.3"
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=0&limit=15&min_sim=0.3",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=15&limit=15&min_sim=0.3",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=30&limit=15&min_sim=0.3",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=45&limit=15&min_sim=0.3",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=60&limit=15&min_sim=0.3",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=75&limit=15&min_sim=0.3",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&offset=90&limit=15&min_sim=0.3"
   ],
-  "bytes": 20000,
+  "bytes": 16000,
   "timeout": 180,
   "ua": "KamchatourHub/1.0 (https://vedarai.ru; places crosscheck)"
 }
