@@ -1,9 +1,9 @@
 {
-  "note": "11.09 (run 477): Global Volcanism Program WFS — реальная схема и образец данных ПЕРЕД тем, как писать парсер по догадке (места-кросс-чек вулканов, план после places-osm-crosscheck).",
-  "run": 477,
+  "note": "11.09 (run 478 продолжение): проверить resultType=hits (общий счёт), propertyName (обрезка полей — Remarks делает payload огромным на 1400+ вулканов), и bbox-фильтр по краю Камчатки (155,50,167,64) — тот же конверт, что у places-osm-crosscheck.",
+  "run": 479,
   "urls": [
-    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/wfs?service=WFS&version=2.0.0&request=DescribeFeatureType&typeName=GVP-VOTW:E3WebApp_HoloceneVolcanoes&outputFormat=application/json",
-    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/wfs?service=WFS&version=2.0.0&request=GetFeature&typeName=GVP-VOTW:E3WebApp_HoloceneVolcanoes&outputFormat=application/json&count=3"
+    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/wfs?service=WFS&version=2.0.0&request=GetFeature&typeName=GVP-VOTW:E3WebApp_HoloceneVolcanoes&resultType=hits",
+    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/wfs?service=WFS&version=2.0.0&request=GetFeature&typeName=GVP-VOTW:E3WebApp_HoloceneVolcanoes&outputFormat=application/json&propertyName=VolcanoNumber,VolcanoName,Country,VolcanoType,LastEruption,Elevation,LatitudeDecimal,LongitudeDecimal&bbox=155,50,167,64,EPSG:4326"
   ],
   "bytes": 20000,
   "timeout": 60,
