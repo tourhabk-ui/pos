@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
+import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata = {
   title: 'Агентский договор — Ведар',
@@ -27,7 +28,7 @@ export default function AgentAgreementPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Предмет договора</h2>
             <p>
-              ООО &laquo;ПОС-СЕРВИС&raquo; (ОГРН 1114101005952, ИНН 4101147649), действующее под брендом
+              {REQUISITES.shortName} (ОГРН {REQUISITES.ogrn}, ИНН {REQUISITES.inn}), действующее под брендом
               TourHab (далее &mdash; Агент), и туроператор (далее &mdash; Принципал) заключают настоящий
               агентский договор в соответствии со ст. 1005-1011 ГК РФ,
               Федеральным законом от 24.11.1996 No 132-ФЗ &laquo;Об основах туристской деятельности
@@ -146,10 +147,10 @@ export default function AgentAgreementPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">8. Реквизиты Агента</h2>
             <div className="p-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] text-sm space-y-1">
-              <p><span className="font-semibold">Наименование:</span> ООО &laquo;ПОС-СЕРВИС&raquo;</p>
-              <p><span className="font-semibold">ИНН:</span> 4101147649</p>
-              <p><span className="font-semibold">ОГРН:</span> 1114101005952</p>
-              <p><span className="font-semibold">Адрес:</span> 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1</p>
+              <p><span className="font-semibold">Наименование:</span> {REQUISITES.shortName}</p>
+              <p><span className="font-semibold">ИНН:</span> {REQUISITES.inn}</p>
+              <p><span className="font-semibold">ОГРН:</span> {REQUISITES.ogrn}</p>
+              <p><span className="font-semibold">Адрес:</span> {REQUISITES.address}</p>
               <p><span className="font-semibold">Платформа:</span> vedarai.ru</p>
             </div>
           </section>

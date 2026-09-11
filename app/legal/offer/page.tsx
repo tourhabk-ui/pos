@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
+import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata = {
   title: 'Публичная оферта для партнёров | Tourhab',
@@ -33,7 +34,7 @@ export default function OfferPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Стороны и предмет договора</h2>
             <p>
-              <strong>Исполнитель (Платформа):</strong> ООО «ПОС-СЕРВИС» (ОГРН 1114101005952, ИНН 4101147649),
+              <strong>Исполнитель (Платформа):</strong> {REQUISITES.shortName} (ОГРН {REQUISITES.ogrn}, ИНН {REQUISITES.inn}),
               осуществляющее деятельность под торговой маркой TourHab, далее — «Платформа».
             </p>
             <p>
@@ -124,7 +125,7 @@ export default function OfferPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">6. Порядок расчётов</h2>
             <ul className="list-disc pl-6 space-y-2">
               <li>Пользователь оплачивает бронирование через Платформу; средства поступают на
-                  расчётный счёт ООО «ПОС-СЕРВИС» как платёжного агрегатора в соответствии с Федеральным законом от 27.06.2011 No 161-ФЗ «О национальной платёжной системе»</li>
+                  расчётный счёт {REQUISITES.shortName} как платёжного агрегатора в соответствии с Федеральным законом от 27.06.2011 No 161-ФЗ «О национальной платёжной системе»</li>
               <li>После подтверждения факта оказания услуги Платформа перечисляет Партнёру
                   причитающуюся сумму за вычетом комиссии</li>
               <li>Срок перечисления — не более 3 рабочих дней с момента подтверждения оказания услуги</li>
@@ -195,11 +196,11 @@ export default function OfferPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">11. Реквизиты Платформы</h2>
             <p className="font-mono text-sm leading-7">
-              ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ «ПОС-СЕРВИС»<br />
-              ИНН: 4101147649<br />
-              ОГРН: 1114101005952<br />
-              Юридический адрес: 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1<br />
-              Генеральный директор: Асеев Андрей Валерьевич<br />
+              {REQUISITES.fullName}<br />
+              ИНН: {REQUISITES.inn}<br />
+              ОГРН: {REQUISITES.ogrn}<br />
+              Юридический адрес: {REQUISITES.address}<br />
+              Генеральный директор: {REQUISITES.director}<br />
               Банк: ООО «Банк Точка»<br />
               Расчётный счёт: 40702810102500044777<br />
               БИК: 044525104<br />

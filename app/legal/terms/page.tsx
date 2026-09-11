@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
+import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata = {
   title: 'Пользовательское соглашение | Tourhab',
@@ -25,8 +26,8 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Термины и определения</h2>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong>Платформа</strong> — интернет-сервис TourHab, расположенный по адресу vedarai.ru, принадлежащий ООО «ПОС-СЕРВИС» (ИНН 4101147649, ОГРН 1114101005952)</li>
-              <li><strong>Оператор</strong> — ООО «ПОС-СЕРВИС», 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1</li>
+              <li><strong>Платформа</strong> — интернет-сервис TourHab, расположенный по адресу vedarai.ru, принадлежащий {REQUISITES.shortName} (ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn})</li>
+              <li><strong>Оператор</strong> — {REQUISITES.shortName}, {REQUISITES.address}</li>
               <li><strong>Пользователь</strong> — физическое лицо, достигшее 18 лет, использующее Платформу в личных, некоммерческих целях</li>
               <li><strong>Партнёр</strong> — юридическое лицо или индивидуальный предприниматель, оказывающий туристические и сопутствующие услуги через Платформу</li>
               <li><strong>Бронирование</strong> — резервирование услуги Партнёра на указанные дату и состав группы, оформленное и оплаченное через Платформу</li>
@@ -189,11 +190,11 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">11. Реквизиты Оператора</h2>
             <p className="font-mono text-sm leading-7">
-              ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ «ПОС-СЕРВИС»<br />
-              ИНН: 4101147649<br />
-              ОГРН: 1114101005952<br />
-              Юридический адрес: 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1<br />
-              Генеральный директор: Асеев Андрей Валерьевич<br />
+              {REQUISITES.fullName}<br />
+              ИНН: {REQUISITES.inn}<br />
+              ОГРН: {REQUISITES.ogrn}<br />
+              Юридический адрес: {REQUISITES.address}<br />
+              Генеральный директор: {REQUISITES.director}<br />
               Email: <a href="mailto:legal@tourhab.ru" className="text-[var(--ocean)] hover:underline">legal@tourhab.ru</a><br />
               Поддержка пользователей: <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">support@tourhab.ru</a>
             </p>
