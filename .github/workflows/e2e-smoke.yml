@@ -75,8 +75,14 @@ jobs:
             echo "прод ещё не готов (HTTP $CODE), жду 30с ($i/10)"; sleep 30
           done
 
+      # consent-gate.spec.ts едет здесь же, а не отдельным workflow, и это
+      # не экономия строк. Гейт согласия проверяется ТОЛЬКО настоящим
+      # браузером: теги вешаются afterInteractive, в SSR-HTML их нет ни при
+      # каком согласии, и проверка по разметке (prod-check run 50) ответить
+      # не может в принципе. Браузер по проду уже поднимается тут — значит
+      # и место проверки тут, и гоняется она каждую ночь, а не однажды.
       - name: Run smoke (chromium, read-only, против прода)
-        run: npx playwright test test/e2e/smoke.spec.ts --project=chromium
+        run: npx playwright test test/e2e/smoke.spec.ts test/e2e/consent-gate.spec.ts --project=chromium
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
