@@ -16,6 +16,7 @@
 import { pool } from '@/lib/db-pool';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { getPublicBaseUrl } from '@/lib/config';
+import { sendEmail } from '@/lib/email';
 
 export type DeliveryChannel = 'telegram' | 'email' | 'both';
 
@@ -152,9 +153,73 @@ export async function sendProposalToClient(
   }
 
   if ((channel === 'email' || channel === 'both') && lead.email) {
-    // Email-канал не реализован: оператор звонит клиенту по телефону.
-    sent.push('email_queued');
+    /*
+     * Письмо отправляется ПО-НАСТОЯЩЕМУ.
+     *
+     * До 11.09 здесь стояло `sent.push('email_queued')` — строка без единого
+     * вызова отправки, и это было худшее враньё во всём пути лида. У лида с
+     * почтой и без Telegram список отправленных получался непустым: функция
+     * возвращала успех, лид уходил в `proposal_sent`, оператор читал
+     * «Предложение отправлено клиенту». Не отправлялось НИЧЕГО. Турист ждал
+     * письма, которого никто не послал, а лид числился обработанным — к нему
+     * больше не возвращались. §4.0: «не смог» выдавалось за «хорошо», и
+     * платил за это живой человек.
+     *
+     * Отправщик в платформе был всё это время (`lib/email.ts`, SMTP Timeweb,
+     * им же пользуется эскалация маршрутов). Он честен сам: без SMTP-настроек
+     * отвечает «SMTP не настроен», на отказ сервера — его текстом. Здесь
+     * результат уважается: успех — в `sent`, отказ — в `failed` и в лог.
+     */
+    const lines = [
+      `Здравствуйте, ${lead.name}!`,
+      '',
+      proposal.headline,
+      '',
+      proposal.summary,
+      '',
+      ...proposal.highlights.slice(0, 3).map((h) => `- ${h}`),
+      proposal.primary_tour
+        ? `\nТур: ${proposal.primary_tour.title} — ${proposal.primary_tour.price.toLocaleString('ru-RU')} р/чел`
+        : '',
+      proposal.price_from ? `Бюджет: от ${proposal.price_from.toLocaleString('ru-RU')} р` : '',
+      '',
+      `Полное предложение в PDF: ${pdfUrl}`,
+    ].filter(Boolean);
+
+    const html = [
+      `<p>Здравствуйте, ${esc(lead.name)}!</p>`,
+      `<p><b>${esc(proposal.headline)}</b></p>`,
+      `<p>${esc(proposal.summary)}</p>`,
+      proposal.highlights.length > 0
+        ? `<ul>${proposal.highlights.slice(0, 3).map((h) => `<li>${esc(h)}</li>`).join('')}</ul>`
+        : '',
+      proposal.primary_tour
+        ? `<p><b>Тур:</b> ${esc(proposal.primary_tour.title)} — ${proposal.primary_tour.price.toLocaleString('ru-RU')} р/чел</p>`
+        : '',
+      proposal.price_from ? `<p><b>Бюджет:</b> от ${proposal.price_from.toLocaleString('ru-RU')} р</p>` : '',
+      `<p><a href="${pdfUrl}">Скачать полное предложение PDF</a></p>`,
+    ].filter(Boolean).join('\n');
+
+    const mail = await sendEmail({
+      to: lead.email,
+      subject: `Предложение по поездке на Камчатку — ${proposal.headline}`,
+      text: lines.join('\n'),
+      html,
+    });
+
+    if (mail.success) {
+      sent.push('email');
+    } else {
+      // Ловить можно, молчать нельзя: без причины в логе отказ почты снова
+      // станет невидимым (§4.0).
+      console.error('[proposal-delivery] письмо не отправлено', { leadId, error: mail.error });
+      failed.push('email');
+    }
   }
+
+  // Единственная попытка была почтой, которой нет: это не сбой связи, повтор
+  // не поможет — нужен звонок. Отдельная причина, отдельные слова оператору.
+  const emailOnly = sent.length === 0 && failed.length === 1 && failed[0] === 'email';
 
   if (sent.length === 0) {
     // Ни один канал не сработал (нет chat_id и почты, либо Telegram отказал).
@@ -166,10 +231,12 @@ export async function sendProposalToClient(
       // Два разных исхода, а не один: «канал отказал» — это сбой (502, стоит
       // повторить), «адреса нет вовсе» — состояние данных (409, повтор не
       // поможет). До 11.09 оба отдавали 502 «ошибка шлюза» (#1804).
-      reason: failed.length > 0 ? 'not_delivered' : 'no_recipient',
-      message: failed.length > 0
-        ? 'Не удалось доставить предложение ни одним каналом. Статус лида не изменён — попробуйте ещё раз.'
-        : 'Некуда отправлять: у лида нет ни Telegram, ни почты. Статус лида не изменён.',
+      reason: emailOnly ? 'no_recipient' : failed.length > 0 ? 'not_delivered' : 'no_recipient',
+      message: emailOnly
+        ? 'Письмо не ушло, а Telegram у лида нет. Статус лида не изменён — попробуйте ещё раз или позвоните клиенту: PDF-предложение можно скачать кнопкой рядом.'
+        : failed.length > 0
+          ? 'Не удалось доставить предложение ни одним каналом. Статус лида не изменён — попробуйте ещё раз.'
+          : 'Некуда отправлять: у лида нет ни Telegram, ни почты. Статус лида не изменён.',
     };
   }
 
@@ -178,8 +245,11 @@ export async function sendProposalToClient(
     sent,
     failed,
     pdfUrl,
-    message: sent.length > 0
-      ? `Предложение отправлено клиенту (${sent.join(', ')})`
-      : 'Каналы отправки не настроены (нет telegram_id и email у лида)',
+    // Список каналов в сообщении — только те, куда реально ушло. Если почта
+    // не сработала, оператор обязан это увидеть здесь же, а не узнать от
+    // клиента через неделю.
+    message: failed.includes('email')
+      ? 'Предложение отправлено в Telegram. Письмо на почту не ушло — при необходимости позвоните клиенту.'
+      : `Предложение отправлено клиенту (${sent.join(', ')})`,
   };
 }
