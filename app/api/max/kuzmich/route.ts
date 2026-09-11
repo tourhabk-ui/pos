@@ -346,8 +346,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       try {
         const mediaData = await downloadMedia(photoAtt.payload.url);
         if (mediaData) {
-          const { callGeminiVision } = await import('@/lib/ai/providers');
-          visionDescription = await callGeminiVision(
+          const { callVision } = await import('@/lib/ai/providers');
+          visionDescription = await callVision(
             mediaData.base64, mediaData.mimeType,
             'Опиши что на фото: место, природа, деятельность. Если это Камчатка — укажи конкретно что это. Кратко, 2-3 предложения.',
           ) ?? undefined;
