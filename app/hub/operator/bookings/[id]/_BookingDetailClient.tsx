@@ -69,6 +69,12 @@ export default function BookingDetailClient({ bookingId }: Props) {
   );
 
   const [updating, setUpdating] = useState(false);
+  /**
+   * Подтверждение необратимой отметки. «Не явился» остаётся в истории брони и
+   * влияет на статистику туриста; в списке броней подтверждение появилось
+   * 11.09 (#1802), а здесь кнопка срабатывала с первого касания.
+   */
+  const [confirmNoShow, setConfirmNoShow] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const booking = data?.data;
@@ -247,6 +253,37 @@ export default function BookingDetailClient({ bookingId }: Props) {
       )}
 
       {/* Actions */}
+      {/* Непрозрачный по DS: отметка — действие, стекла здесь нет. */}
+      {confirmNoShow && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
+          role="dialog" aria-modal="true" aria-labelledby="no-show-title">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <UserX className="w-5 h-5 mt-0.5 shrink-0 text-[var(--warning)]" />
+              <div className="min-w-0">
+                <h2 id="no-show-title" className="text-base font-semibold text-[var(--text-primary)]">
+                  Отметить «не явился»?
+                </h2>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">
+                  Отметка останется в истории брони и повлияет на статистику. Снять её самостоятельно нельзя.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setConfirmNoShow(false)} disabled={updating}
+                className="flex-1 min-h-[44px] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50">
+                Не надо
+              </button>
+              <button type="button" disabled={updating}
+                onClick={() => { setConfirmNoShow(false); void updateStatus('no_show'); }}
+                className="flex-1 min-h-[44px] rounded-lg text-sm font-semibold text-white bg-[var(--warning)] hover:opacity-90 transition-opacity disabled:opacity-50">
+                Отметить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(canConfirm || canComplete || canCancel || canMarkNoShow) && (
         <div className="ds-card p-5">
           <h2 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-4">Действия</h2>
@@ -271,7 +308,7 @@ export default function BookingDetailClient({ bookingId }: Props) {
             )}
             {canMarkNoShow && (
               <button
-                onClick={() => updateStatus('no_show')}
+                onClick={() => setConfirmNoShow(true)}
                 disabled={updating}
                 className="ds-btn ds-btn-secondary flex items-center gap-2"
               >

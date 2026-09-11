@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
-import { Bell, Loader2, CheckCheck, Settings } from 'lucide-react';
+import { Bell, Loader2, CheckCheck, Settings, AlertTriangle } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import { PushSubscribeButton } from '@/components/PWA/PushSubscribeButton';
 
@@ -71,14 +71,25 @@ export default function NotificationsClient() {
   );
 
   const list = notifications ?? [];
+  const [markError, setMarkError] = useState('');
 
+  /**
+   * Отметка «прочитано» показывается сразу, но если сервер её не принял —
+   * откатывается и говорит об этом. Прежний пустой catch с подписью «silent»
+   * оставлял экран, уверяющий человека в том, чего на сервере не произошло:
+   * после перезагрузки всё снова непрочитано, и непонятно почему (§4.0).
+   */
   const handleReadAll = async () => {
-    setData((prev) => (prev ?? []).map((n) => ({ ...n, read: true })));
-    try {
-      await fetch('/api/notifications/mark-all-read', { method: 'POST' });
-    } catch {
-      // silent — already updated optimistically
+    const before = notifications ?? [];
+    setData(before.map((n) => ({ ...n, read: true })));
+    const res = await fetch('/api/notifications/mark-all-read', { method: 'POST' }).catch(() => null);
+    if (!res?.ok) {
+      console.error('[tourist/notifications] отметка не сохранена', res?.status ?? 'сеть');
+      setData(before);
+      setMarkError('Не получилось отметить прочитанными. Проверьте связь и попробуйте ещё раз.');
+      return;
     }
+    setMarkError('');
   };
 
   const filtered = filter === 'unread' ? list.filter((n) => !n.read) : list;
@@ -129,6 +140,13 @@ export default function NotificationsClient() {
             Непрочитанные ({unreadCount})
           </button>
         </div>
+
+        {markError && (
+          <div className="flex items-start gap-2 mb-4 p-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--danger)]" />
+            <p className="text-sm text-[var(--text-primary)]">{markError}</p>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
