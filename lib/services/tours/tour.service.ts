@@ -197,6 +197,17 @@ export const tourService = {
     );
     return this.normalize(result.rows[0] ?? null);
   },
+  /**
+   * СИРОТА: `update()` не вызывает никто (проверено грепом по репозиторию,
+   * #1827) — в отличие от `publish`/`unpublish` этого же файла, которые
+   * реально дёргает `app/api/discovery/tours/[id]/publish/route.ts`.
+   * И таблица (`tours`, не `operator_tours`), И имена колонок (`name`,
+   * `category`, `duration`, `price` — реальные `title`, `activity_type`,
+   * `duration_hours`, `base_price`, см. `create()` выше) здесь неверны.
+   * Не чинить вслепую: без живого вызывающего сопоставление колонок
+   * проверить нечем, а угадать — значит выдумать данные (§4.0). Появится
+   * вызывающий — тогда и сверять с ним.
+   */
   async update(id: string, data: Record<string, unknown>) {
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -280,7 +291,9 @@ export const tourService = {
     const tour = await this.getById(id);
     if (tour?.isActive) throw new TourAlreadyPublishedError(id);
     const result = await pool.query(
-      `UPDATE tours SET is_active = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      // `tours` — не VIEW, отдельная несовместимая таблица (#1814/#1827):
+      // запрос отвергался на разборе и не выполнялся никогда.
+      `UPDATE operator_tours SET is_active = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`,
       [id]
     );
     return this.normalize(result.rows[0] ?? null);
@@ -289,7 +302,7 @@ export const tourService = {
     const tour = await this.getById(id);
     if (!tour) throw new TourNotFoundError(id);
     const result = await pool.query(
-      `UPDATE tours SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      `UPDATE operator_tours SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING *`,
       [id]
     );
     return this.normalize(result.rows[0] ?? null);

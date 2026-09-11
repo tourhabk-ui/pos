@@ -61,7 +61,7 @@ export async function POST(
 
     // Деактивируем тур
     await query(
-      `UPDATE tours SET is_active = false, updated_at = NOW() WHERE id = $1`,
+      `UPDATE operator_tours SET is_active = false, updated_at = NOW() WHERE id = $1`,
       [id]
     );
 

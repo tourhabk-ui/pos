@@ -136,7 +136,7 @@ export async function PUT(
     const specialRequests = typeof body.specialRequests === 'string' ? body.specialRequests : null;
 
     await query(
-      `UPDATE bookings SET special_requests = $2, updated_at = NOW() WHERE id = $1`,
+      `UPDATE operator_bookings SET special_requests = $2, updated_at = NOW() WHERE id = $1`,
       [id, specialRequests]
     );
 

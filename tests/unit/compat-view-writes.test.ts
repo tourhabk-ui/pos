@@ -54,18 +54,17 @@ const KNOWN_DEBT = [
   'app/api/tours/route.ts',
   'app/api/tours/create/route.ts',
   /**
-   * Найдены 11.09 расширением проверки на UPDATE (#1814 чинил только
-   * lib/bookings/booking.service.ts; эти четыре — тот же класс дефекта в
-   * соседних доменах, не тронуты этой правкой). Каждый UPDATE отвергается на
-   * разборе (`bookings`/`tours` — отдельные несовместимые таблицы, не view,
-   * см. шапку файла) и не выполняется никогда:
-   * PUT /api/bookings/[id] не сохраняет special_requests ни разу;
-   * деактивация/публикация тура оператором не выполняется ни разу.
-   * Заведён #1827 — чинить предстоит отдельно, не задним числом здесь.
+   * #1827 (11.09): расширение проверки на UPDATE нашло тот же класс дефекта,
+   * что #1814, в соседних доменах. Три из четырёх — PUT /api/bookings/[id]
+   * (special_requests), деактивация и публикация тура оператором — починены
+   * в том же PR. Остался один: `lib/services/tours/tour.service.ts` держит
+   * ЖИВЫЕ `publish`/`unpublish` (тоже починены) и ОРФАННЫЙ `update()` — у
+   * него, кроме таблицы, ещё и имена колонок не те (`name`/`category` вместо
+   * `title`/`activity_type`), а вызывающего нет ни одного (грепом проверено).
+   * Чинить в отсутствие вызывающего — угадывать сопоставление колонок, то
+   * есть выдумывать данные (§4.0). Комментарий рядом с самим `update()`
+   * объясняет то же самое: строка уйдёт из долга, когда появится вызывающий.
    */
-  'app/api/bookings/[id]/route.ts',
-  'app/api/operator/tours/[id]/deactivate/route.ts',
-  'app/api/operator/tours/[id]/publish/route.ts',
   'lib/services/tours/tour.service.ts',
 ];
 
@@ -114,7 +113,7 @@ describe('запись в совместимые view', () => {
     // список превращается в кладбище, где новое нарушение спрячется незаметно.
     const stale = KNOWN_DEBT.filter((f) => !offenders.some((o) => o.file === f));
     expect(stale, 'долг починен — убрать строку из списка').toEqual([]);
-    expect(KNOWN_DEBT).toHaveLength(6);
+    expect(KNOWN_DEBT).toHaveLength(3);
   });
 
   it('бронирование тура пишет в мастер-таблицу', () => {
