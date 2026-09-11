@@ -149,6 +149,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'places-dedup': ['db_read', 'db_write', 'pd_direct'],
   'places-export': ['db_read'],
   'places-geocode': ['db_read', 'db_write', 'net_out'],
+  'places-gvp-crosscheck': ['db_read', 'net_out'],
   'places-no-track-census': ['db_read'],
   'places-osm-crosscheck': ['db_read', 'net_out'],
   'places-routes-census': ['db_read'],
