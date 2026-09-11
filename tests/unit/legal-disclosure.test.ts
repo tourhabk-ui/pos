@@ -148,10 +148,18 @@ describe('проверка гейта существует и ВЫЗЫВАЕТС
     const src = read(SPEC);
     expect(src).toMatch(/from '\.\.\/\.\.\/lib\/legal\/third-party-registry'/);
     expect(src).toMatch(/CONSENT_STORAGE_KEY/);
-    for (const tp of THIRD_PARTIES) {
-      const own = new RegExp(`TRACKED_HOSTS\\s*=\\s*\\[[^\\]]*${tp.host.replace(/\./g, '\\.')}`);
-      expect(src, 'хосты переписаны в пробу руками — разойдутся с реестром').not.toMatch(own);
-    }
+    // Список хостов обязан ВЫЧИСЛЯТЬСЯ из реестра, а не стоять литералом.
+    expect(src, 'TRACKED_HOSTS перестал считаться из реестра').toMatch(
+      /TRACKED_HOSTS\s*=\s*THIRD_PARTIES\.map/,
+    );
+    // И ни один хост не вписан в пробу строкой. Исключение одно и намеренное —
+    // Метрика в положительном контроле: там хост назван именно потому, что
+    // проверяется попадание в КОНКРЕТНЫЙ сервис, а не «хоть куда-то».
+    const handwritten = THIRD_PARTIES
+      .filter((tp) => tp.id !== 'YandexMetrika')
+      .map((tp) => tp.host)
+      .filter((host) => src.includes(`'${host}'`) || src.includes(`"${host}"`));
+    expect(handwritten, 'хост вписан в пробу руками — разойдётся с реестром').toEqual([]);
   });
 
   it('у пробы есть положительный контроль: она умеет не только НЕ находить', () => {
