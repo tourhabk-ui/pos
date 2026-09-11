@@ -221,5 +221,6 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'volcano-merge-gate': ['db_read', 'db_write', 'net_out', 'telegram'],
   'watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'money'],
   'waypoint-proposals': ['db_read'],
+  'weathernext-probe': ['net_out'],
   'web-routes-census': ['db_read'],
 };
