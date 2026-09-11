@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
+import { REQUISITES } from '@/lib/legal/requisites';
+import { THIRD_PARTIES, crossBorderRecipients } from '@/lib/legal/third-party-registry';
 
 export const metadata = {
   title: 'Политика конфиденциальности | Tourhab',
@@ -27,7 +29,7 @@ export default function PrivacyPage() {
             <p>
               Настоящая Политика конфиденциальности (далее — Политика) определяет порядок сбора, хранения,
               использования и защиты персональных данных пользователей туристической платформы TourHab
-              (vedarai.ru), принадлежащей ООО «ПОС-СЕРВИС» (ОГРН 1114101005952, ИНН 4101147649)
+              (vedarai.ru), принадлежащей {REQUISITES.shortName} (ОГРН {REQUISITES.ogrn}, ИНН {REQUISITES.inn})
               (далее — Оператор).
             </p>
             <p>
@@ -162,17 +164,34 @@ export default function PrivacyPage() {
               ИНН 7714865325) и ООО «Банк Точка» — Оператор карточных данных не хранит.
             </p>
             <p>
-              Платформа использует аффилиатные сервисы для подбора дополнительных услуг (авиабилеты,
-              отели, страховки, трансферы). При переходе по аффилиатным ссылкам Пользователь может
-              быть идентифицирован партнёрами в соответствии с их политиками конфиденциальности:
+              Кроме того, на страницах Платформы работает код сторонних сервисов. Перечень ниже —
+              не пересказ, а тот же список, по которому эти сервисы фактически загружаются
+              (<code>lib/legal/third-party-registry</code>): что не перечислено здесь, то и не
+              загружается.
             </p>
             <ul className="list-disc pl-6 space-y-1 text-sm">
-              <li><strong>TravelPayouts / Aviasales</strong> (ООО «Авиасейлс», ИНН 9909022850) — авиабилеты</li>
-              <li><strong>Hotellook / Ostrovok</strong> — подбор отелей</li>
-              <li><strong>Cherehapa</strong> — страховки ВЗР</li>
-              <li><strong>Kiwitaxi</strong> — трансферы</li>
-              <li><strong>Яндекс.Метрика</strong> (ООО «Яндекс», ИНН 7736207543) — веб-аналитика</li>
+              {THIRD_PARTIES.map((tp) => (
+                <li key={tp.id}>
+                  <strong>{tp.title}</strong>
+                  {tp.entity ? ` (${tp.entity})` : ' (юридическое лицо не установлено)'} — {tp.purpose}.
+                  {' '}Домен: <code>{tp.host}</code>. Юрисдикция:{' '}
+                  {tp.jurisdiction === 'RU' ? 'Россия' : tp.jurisdiction === 'unknown' ? 'не установлена' : tp.jurisdiction}.
+                </li>
+              ))}
             </ul>
+            <p className="text-sm">
+              Эти сервисы загружаются <strong>только после вашего согласия</strong>. Без согласия
+              Платформа работает полностью, данные им не передаются. Изменить решение можно,
+              очистив данные сайта в браузере — тогда вопрос будет задан снова.
+            </p>
+            {crossBorderRecipients().length > 0 && (
+              <p className="text-sm">
+                <strong>Трансграничная передача.</strong> Часть получателей находится за пределами
+                Российской Федерации:{' '}
+                {crossBorderRecipients().map((t) => `${t.title} (${t.jurisdiction === 'unknown' ? 'юрисдикция не установлена' : t.jurisdiction})`).join(', ')}.
+                Передача происходит только при вашем согласии на соответствующую категорию.
+              </p>
+            )}
             <p>
               Оператор не продаёт персональные данные третьим лицам в коммерческих целях.
               Передача данных без согласия субъекта возможна исключительно по требованию уполномоченных
@@ -236,9 +255,9 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">9. Контакты и ответственное лицо</h2>
             <p className="font-mono text-sm leading-7">
               Оператор персональных данных:<br />
-              ООО «ПОС-СЕРВИС», ИНН 4101147649, ОГРН 1114101005952<br />
-              683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1<br />
-              Генеральный директор: Асеев Андрей Валерьевич<br />
+              {REQUISITES.shortName}, ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn}<br />
+              {REQUISITES.address}<br />
+              Генеральный директор: {REQUISITES.director}<br />
               Email по вопросам ПД: <a href="mailto:privacy@tourhab.ru" className="text-[var(--ocean)] hover:underline">privacy@tourhab.ru</a><br />
               Обращения Пользователей: <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">support@tourhab.ru</a>
             </p>

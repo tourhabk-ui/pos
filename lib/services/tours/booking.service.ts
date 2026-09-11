@@ -143,47 +143,26 @@ export const bookingService = {
     );
     return this.normalize(result.rows[0] ?? null);
   },
-  async cancel(id: string, reason: string, userId?: string) {
-    const result = userId
-      ? await pool.query(
-          `UPDATE operator_bookings
-           SET
-             booking_status = 'cancelled',
-             updated_at = NOW(),
-             special_requests = CASE
-               WHEN $3::text = '' THEN special_requests
-               WHEN special_requests IS NULL OR special_requests = '' THEN $3
-               ELSE special_requests || E'\n' || $3
-             END
-           WHERE id = $1 AND user_id = $2
-           RETURNING *`,
-          [id, userId, reason]
-        )
-      : await pool.query(
-          `UPDATE operator_bookings
-           SET
-             booking_status = 'cancelled',
-             updated_at = NOW(),
-             special_requests = CASE
-               WHEN $2::text = '' THEN special_requests
-               WHEN special_requests IS NULL OR special_requests = '' THEN $2
-               ELSE special_requests || E'\n' || $2
-             END
-           WHERE id = $1
-           RETURNING *`,
-          [id, reason]
-        );
+  // cancel() удалён 11.09 — ЧЕТВЁРТАЯ реализация отмены, у которой не было
+  // ни одного потребителя (`bookingService` не импортирует никто, кроме
+  // барреля `lib/services/index.ts`).
+  //
+  // Она расходилась с живыми путями сразу в четырёх местах: не ставила
+  // `cancelled_at`, писала причину в `special_requests` вместо
+  // `cancellation_reason`, не возвращала места в `tour_availability` (#1816) и
+  // возвращала вызывающему `refundAmount: 0` — то есть УТВЕРЖДАЛА, что
+  // возврата не будет, хотя решения никто не принимал и механизма возврата в
+  // платформе нет вовсе (#1813).
+  //
+  // Расходящийся дубль опаснее отсутствия: он ждёт первого, кто найдёт его
+  // поиском и позовёт, считая работающим путём. Цену такой копии платформа уже
+  // платила — две SOS-кнопки разошлись поведением (#887).
+  //
+  // Отмена живёт в трёх настоящих местах: /api/bookings/[id]/cancel (турист),
+  // /api/hub/operator/bookings/[id] и /api/operator/bookings/[id] (оператор).
+  // Правило «отмена возвращает места» держит
+  // tests/unit/cancel-releases-slots.test.ts.
 
-    const booking = this.normalize(result.rows[0] ?? null);
-    if (!booking) {
-      return null;
-    }
-
-    return {
-      ...booking,
-      refundAmount: 0,
-    };
-  },
   async list(params: Record<string, unknown>) {
     const limit = (params.limit as number) || 20;
     const offset = (params.offset as number) || 0;

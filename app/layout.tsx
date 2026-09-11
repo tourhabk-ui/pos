@@ -154,9 +154,10 @@ export const metadata: Metadata = {
 import './globals.css'
 import React from 'react'
 import { Providers } from '@/components/Providers'
-import YandexMetrika from '@/components/shared/YandexMetrika'
-import TravelPayoutsDrive from '@/components/shared/TravelPayoutsDrive'
-import MicrosoftClarity from '@/components/shared/MicrosoftClarity'
+// Метрика, Clarity и TP Drive больше не монтируются поштучно и безусловно:
+// состав и право на загрузку решает lib/legal/third-party-registry, а данные
+// не уходят раньше согласия посетителя (разбор права 11.09, docs/LEGAL.md).
+import ThirdPartyScripts from '@/components/legal/ThirdPartyScripts'
 import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
@@ -311,9 +312,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             ])
           }}
         />
-        <YandexMetrika />
-        <MicrosoftClarity />
-        <TravelPayoutsDrive />
+        <ThirdPartyScripts />
         <StickyLeadButton />
         <KuzmichWidget />
         <InstallPrompt />
