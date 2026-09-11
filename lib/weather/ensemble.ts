@@ -315,11 +315,6 @@ const TTL_OK_MS = 30 * 60 * 1000;
 const TTL_FAIL_MS = 5 * 60 * 1000;
 const cache = new Map<string, { data: EnsembleOutlook | null; at: number }>();
 
-/** Только для тестов: кэш переживает импорт модуля. */
-export function _resetEnsembleCache(): void {
-  cache.clear();
-}
-
 /**
  * Ансамблевый прогноз по точке. `null` — не смог: отказ сети, не-2xx, ответ
  * не той формы. Отказ пишется в лог (§4.0) и кэшируется на 5 минут, чтобы
