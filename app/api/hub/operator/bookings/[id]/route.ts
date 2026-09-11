@@ -11,6 +11,7 @@ import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { emailService } from '@/lib/notifications/email-service';
 import { sendPushToUser } from '@/lib/notifications/web-push';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,6 +120,16 @@ export async function PATCH(
                    (SELECT title FROM operator_tours WHERE id = operator_tour_id) AS tour_title`,
         values
       );
+
+      // Места возвращаются в доступность — В ТОЙ ЖЕ транзакции и только на
+      // ПЕРЕХОДЕ в отменённое. Счётчик наполняют платёжные вебхуки и до
+      // 11.09 не уменьшал никто: одного цикла «дату выкупили — отменили»
+      // хватало, чтобы дата больше не приняла оплату (#1816, CHECK
+      // booked_valid роняет транзакцию оплаты). Условие на prevStatus —
+      // чтобы повторная отмена не вычла дважды.
+      if (input.booking_status === 'cancelled' && prevStatus !== 'cancelled') {
+        await releaseSlotsForCancelledBooking(client, BigInt(id));
+      }
 
       return { row: result.rows[0], alreadyWasCompleted: prevStatus === 'completed' };
     });

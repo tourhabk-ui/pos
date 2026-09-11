@@ -3,20 +3,38 @@
  *
  * Роли: tourist (свои), operator (свои туры), admin (любые)
  *
- * Бизнес-логика возвратов:
- * - Турист: >48ч = 100%, 24-48ч = 50%, <24ч = 0%
- * - Оператор/админ: всегда 100%
+ * ── Осторожно: у роута две ветки, и они не равны ──────────────────────────
  *
- * Оплата офлайн — refundAmount сохраняется в БД, физический возврат вне системы.
+ * Идентификатор с префиксом `op-` — единственный живой путь: `/api/bookings`
+ * отдаёт кабинету туриста именно такие (`op-${id}`), и ветка ниже отменяет
+ * бронь прямым запросом к `operator_bookings`. Работает.
+ *
+ * Непрефиксный идентификатор уходит в `cancelBooking` из
+ * `lib/bookings/booking.service.ts`, а тот ЧИТАЕТ `operator_bookings`, но
+ * ПИШЕТ в `bookings` — другую таблицу, с uuid вместо bigint и без колонок
+ * `refund_amount`, `cancelled_at`, `cancelled_by`. Запрос отвергается на
+ * разборе (42703) и не выполняется никогда. Разбор и починка — #1814.
+ *
+ * ── Про возврат денег ─────────────────────────────────────────────────────
+ *
+ * Прежняя редакция этой шапки обещала «турист: >48ч = 100%, 24-48ч = 50%,
+ * <24ч = 0%; оплата офлайн — refundAmount сохраняется в БД». Ни одно из
+ * этого не происходит: расчёт живёт внутри неисполнимой ветки, а механизма
+ * возврата в платформе нет вовсе — статус `REFUNDED` объявлен в схеме и в
+ * счётчике админского экрана, писателя у него нет (#1813).
+ *
+ * Докстрока, обещающая путь, которого нет, — дефект кода, а не документации
+ * (правило 10.09). Поэтому обещание убрано, а не переписано красивее.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse } from '@/types';
 import { verifyAuth } from '@/lib/auth';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { cancelBooking } from '@/lib/bookings/booking.service';
 import { emailService } from '@/lib/notifications/email-service';
 import type { AuthRole } from '@/lib/auth';
+import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 
 export async function POST(
   request: NextRequest,
@@ -62,14 +80,48 @@ export async function POST(
           { status: 409 }
         );
       }
-      await query(
-        `UPDATE operator_bookings SET booking_status = 'cancelled', cancelled_at = NOW(), updated_at = NOW() WHERE id = $1`,
-        [opId]
-      );
+
+      // Отмена и возврат мест — в ОДНОЙ транзакции, и переход атомарный.
+      //
+      // Проверка статуса выше и запись ниже раньше шли двумя запросами: две
+      // вкладки проходили проверку обе и обе отменяли. Само по себе это было
+      // безобидно (повторный UPDATE того же статуса), но с возвратом мест
+      // (#1816) двойной переход вычел бы места дважды. Поэтому условие
+      // перенесено В САМ UPDATE: строку меняет только первый, второй получает
+      // ноль строк и честный 409.
+      const cancelled = await transaction(async (client) => {
+        const upd = await client.query(
+          `UPDATE operator_bookings
+              SET booking_status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+            WHERE id = $1 AND booking_status IN ('new', 'confirmed')
+            RETURNING id`,
+          [opId]
+        );
+        if (upd.rowCount === 0) return false;
+        // Места возвращаются в доступность только на настоящем переходе:
+        // счётчик до 11.09 умел только расти, и одного цикла «выкупили —
+        // отменили» хватало, чтобы дата больше не приняла оплату.
+        await releaseSlotsForCancelledBooking(client, opId);
+        return true;
+      });
+
+      if (!cancelled) {
+        return NextResponse.json(
+          { success: false, error: 'Бронирование нельзя отменить в текущем статусе' } as ApiResponse<null>,
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json({
         success: true,
-        message: 'Бронирование отменено.',
-        data: { booking: { id: bookingId }, refund: { amount: 0, reason: '' } },
+        message: 'Бронирование отменено. Решение по возврату средств принимает оператор платформы.',
+        // `refund` здесь стоял как `{ amount: 0, reason: '' }` — то есть ответ
+        // УТВЕРЖДАЛ, что возврата не будет, хотя решения никто не принимал и
+        // механизма возврата в платформе нет вовсе (#1813). Выдуманный ноль
+        // хуже отсутствия числа: турист читает его как отказ. Пока владелец
+        // не решил, что происходит с деньгами при отмене, честный ответ —
+        // «не знаю» (§4.0).
+        data: { booking: { id: bookingId }, refund: null },
       });
     }
 
