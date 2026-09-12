@@ -1,0 +1,5 @@
+{
+  "note": "Маркер запускает place-description-drafts.yml при пуше в main. dry_run=true по умолчанию — не жжёт токены и не пишет БД, только показывает охват.",
+  "run": 1,
+  "dry_run": "true"
+}

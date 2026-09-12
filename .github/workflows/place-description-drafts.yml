@@ -1,0 +1,83 @@
+name: Черновики описаний вулканов из GVP (вручную)
+
+# POST /api/cron/place-description-drafts (#1830): тянет Remarks с Global
+# Volcanism Program для подтверждённого реестра lib/geo/gvp-confirmed-pairs.ts,
+# переводит через callAIQualityOrNull и пишет ЧЕРНОВИК в
+# place_description_drafts. НИКОГДА не пишет в places.description напрямую —
+# публикация только через ручное PATCH /api/admin/places/[id]/description-draft.
+#
+# dry_run=true (умолчание) не зовёт AI и не пишет в БД — только показывает
+# охват. apply — боевой перевод (реальные токены, реальная запись черновика;
+# уже рассмотренные человеком черновики не переписывает).
+#
+# Запуск: workflow_dispatch (кнопка) или push в main, меняющий
+# .github/triggers/place-description-drafts.json.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true — только охват, без AI и записи; false — боевой перевод'
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/place-description-drafts.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: place-description-drafts
+  cancel-in-progress: true
+
+jobs:
+  drafts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Параметры — из ввода или из маркера (умолчание — dry_run=true, боевой прогон только явным вводом)
+        env:
+          IN_DRY_RUN: ${{ inputs.dry_run || '' }}
+        run: |
+          set -u
+          python3 - <<'PY'
+          import json, os
+          with open('.github/triggers/place-description-drafts.json') as f:
+              marker = json.load(f)
+          dry_run = os.environ.get('IN_DRY_RUN') or marker.get('dry_run') or 'true'
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'DRY_RUN={dry_run}\n')
+          print(f'dry_run={dry_run}')
+          PY
+
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+          ATTEMPTS: '110'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Черновики
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          URL="https://vedarai.ru/api/cron/place-description-drafts?dry_run=${DRY_RUN}"
+          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -X POST -s --max-time 100 "$URL") || RESP=""
+          echo "$RESP" | python3 -m json.tool || { echo "$RESP" | head -c 2000; exit 1; }
+          {
+            echo "## place-description-drafts — dry_run=$DRY_RUN"
+            echo
+            echo '```json'
+            echo "$RESP" | python3 -m json.tool | head -c 30000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
