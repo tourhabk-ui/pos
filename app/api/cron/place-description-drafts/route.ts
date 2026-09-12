@@ -101,9 +101,15 @@ export async function POST(request: NextRequest) {
 
   const dryRunParam = request.nextUrl.searchParams.get('dry_run');
   const dryRun = dryRunParam !== 'false';
+  // Точечный повтор (12.09): пересчитать только перечисленные места после
+  // правки реестра, не трогая уже верные черновики повторным вызовом AI.
+  const placeIdsParam = request.nextUrl.searchParams.get('place_ids');
+  const placeIds = placeIdsParam
+    ? placeIdsParam.split(',').map(s => s.trim()).filter(Boolean)
+    : undefined;
 
   try {
-    const result = await runGvpRemarksDrafts({ dryRun });
+    const result = await runGvpRemarksDrafts({ dryRun, placeIds });
 
     const byStatus = result.outcomes.reduce<Record<string, number>>((acc, o) => {
       acc[o.status] = (acc[o.status] ?? 0) + 1;

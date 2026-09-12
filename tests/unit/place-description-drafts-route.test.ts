@@ -55,4 +55,10 @@ describe('place-description-drafts — предлагает, не публику
   it('маркер версии для workflow есть', () => {
     expect(SRC).toMatch(/place_description_drafts_v\d+/);
   });
+
+  it('?place_ids= ограничивает прогон точечно (12.09: правка реестра без повторной траты AI на верные черновики)', () => {
+    const postBody = SRC.slice(SRC.indexOf('export async function POST'));
+    expect(postBody).toContain("searchParams.get('place_ids')");
+    expect(postBody).toContain('runGvpRemarksDrafts({ dryRun, placeIds })');
+  });
 });

@@ -54,6 +54,21 @@
  *
  * Реестр — не приговор: это тоже улика, которую перед шагом 2 стоит пробежать
  * глазами (владелец знает эти вулканы вживую, я — только по транслитерации).
+ *
+ * ── Исправление 12.09: 7 перепутанных `volcanoNumber` ────────────────────
+ *
+ * Ручная сверка боевых черновиков (шаг 2, #1830) вскрыла, что у семи пар имя
+ * и расстояние совпадали, а `volcanoNumber` был чужим — черновик места
+ * получал Remarks СОСЕДНЕГО вулкана (Желтовская Сопка ↔ Ильинский,
+ * Вилючинский ↔ Желтовский, Академии Наук ↔ Тауншиц, Тауншиц ↔ Малый
+ * Семячик, Кроноцкий ↔ Большой Семячик, Терпук ↔ Горный Институт, Спокойный
+ * ↔ число из чужой записи). Имя (`gvpName`) и `distanceKm` были верными —
+ * ошибка сидела ровно в одной цифре номера, переписанной вручную из отчёта
+ * `places-gvp-crosscheck` не с той строки. Числа взяты заново из СВЕЖЕГО
+ * прогона того же кросс-чека (не из памяти о прошлой расшифровке) —
+ * `lib/geo/gvp-crosscheck.ts` ищет по расстоянию независимо от имени, так
+ * подмену не повторить: правильный номер — тот, что стоит у ближайшего (< 1
+ * км) кандидата, чьё английское имя совпадает с `gvpName`.
  */
 
 export type GvpPairConfidence = 'exact' | 'complex-member' | 'distance-only';
@@ -70,29 +85,29 @@ export interface GvpConfirmedPair {
 export const GVP_CONFIRMED_PAIRS: readonly GvpConfirmedPair[] = [
   // ── exact: имя и расстояние совпадают однозначно ──────────────────────
   { placeId: '625fac2b-1790-441c-b57e-1a70ddf74dd8', placeName: 'Ичинский Вулкан', volcanoNumber: 300280, gvpName: 'Ichinsky', distanceKm: 0.1, confidence: 'exact' },
-  { placeId: 'a41cf39b-5a64-43da-89f1-3ad5b9d5887c', placeName: 'Терпук', volcanoNumber: 300550, gvpName: 'Terpuk', distanceKm: 0.2, confidence: 'exact' },
+  { placeId: 'a41cf39b-5a64-43da-89f1-3ad5b9d5887c', placeName: 'Терпук', volcanoNumber: 300512, gvpName: 'Terpuk', distanceKm: 0.2, confidence: 'exact' },
   { placeId: '9fc3d079-62b5-4812-94a5-3ab168ca12ae', placeName: 'Комарова', volcanoNumber: 300220, gvpName: 'Komarov', distanceKm: 0.2, confidence: 'exact' },
-  { placeId: '00a71c01-6a76-4227-91ba-c62ec50aefc1', placeName: 'Желтовская Сопка', volcanoNumber: 300030, gvpName: 'Zheltovsky', distanceKm: 0.2, confidence: 'exact' },
+  { placeId: '00a71c01-6a76-4227-91ba-c62ec50aefc1', placeName: 'Желтовская Сопка', volcanoNumber: 300040, gvpName: 'Zheltovsky', distanceKm: 0.2, confidence: 'exact' },
   { placeId: 'ce3db5c5-69c8-41b9-8a95-8b088ac2230e', placeName: 'Асача', volcanoNumber: 300058, gvpName: 'Asacha', distanceKm: 0.2, confidence: 'exact' },
-  { placeId: '44be8f5a-809d-47aa-bfa9-858e65cdfe77', placeName: 'Вулкан Кроноцкий (Кроноцкая сопка)', volcanoNumber: 300150, gvpName: 'Kronotsky', distanceKm: 0.2, confidence: 'exact' },
+  { placeId: '44be8f5a-809d-47aa-bfa9-858e65cdfe77', placeName: 'Вулкан Кроноцкий (Кроноцкая сопка)', volcanoNumber: 300200, gvpName: 'Kronotsky', distanceKm: 0.2, confidence: 'exact' },
   { placeId: 'dea62fd1-4317-431e-9b6a-da1fb6e4fea9', placeName: 'Вулкан Карымская сопка', volcanoNumber: 300130, gvpName: 'Karymsky', distanceKm: 0.2, confidence: 'exact' },
   { placeId: 'a8bef8cd-f162-48f4-9814-bf7cc0f35629', placeName: 'Дзензур', volcanoNumber: 300110, gvpName: 'Dzenzursky', distanceKm: 0.3, confidence: 'exact' },
   { placeId: '90382b16-f857-4948-842e-32a792a42cf0', placeName: 'вулкан Фусса', volcanoNumber: 290340, gvpName: 'Fuss Peak', distanceKm: 0.3, confidence: 'exact' },
   { placeId: '14f062f3-665b-4311-a99f-035480e3dce5', placeName: 'Шишейка', volcanoNumber: 300511, gvpName: 'Shisheika', distanceKm: 0.3, confidence: 'exact' },
   { placeId: 'dec9e9ec-dbe2-46d0-aed3-6d9797af2b52', placeName: 'Камень', volcanoNumber: 300251, gvpName: 'Kamen', distanceKm: 0.3, confidence: 'exact' },
-  { placeId: 'f2260dcf-a94b-4532-abb0-8ba55a1c5781', placeName: 'Вулкан Тауншиц', volcanoNumber: 300140, gvpName: 'Taunshits', distanceKm: 0.4, confidence: 'exact' },
+  { placeId: 'f2260dcf-a94b-4532-abb0-8ba55a1c5781', placeName: 'Вулкан Тауншиц', volcanoNumber: 300160, gvpName: 'Taunshits', distanceKm: 0.4, confidence: 'exact' },
   { placeId: '20d7b84d-8145-48a3-9177-3d7f40ec9915', placeName: 'Вулкан Крашенинникова', volcanoNumber: 300190, gvpName: 'Krasheninnikov', distanceKm: 0.4, confidence: 'exact' },
   { placeId: '2b9c567e-1ffc-403e-a69a-6d72c93b88ae', placeName: 'Кошелева', volcanoNumber: 300020, gvpName: 'Koshelev', distanceKm: 0.5, confidence: 'exact' },
-  { placeId: '164f612c-32da-4f0f-b261-c45c09dc2933', placeName: 'Вулкан Вилючинский', volcanoNumber: 300040, gvpName: 'Vilyuchinsky', distanceKm: 0.6, confidence: 'exact' },
+  { placeId: '164f612c-32da-4f0f-b261-c45c09dc2933', placeName: 'Вулкан Вилючинский', volcanoNumber: 300083, gvpName: 'Vilyuchinsky', distanceKm: 0.6, confidence: 'exact' },
   { placeId: 'c962d02c-ce85-4d9f-aa54-272944de56f2', placeName: 'Алаид', volcanoNumber: 290390, gvpName: 'Alaid', distanceKm: 0.6, confidence: 'exact' },
-  { placeId: '347377fb-7e57-46f1-8ce5-e09d5b997106', placeName: 'Спокойный', volcanoNumber: 300520, gvpName: 'Spokoiny', distanceKm: 0.7, confidence: 'exact' },
-  { placeId: 'f4fa9a04-a746-491e-871c-bcef3725f7d0', placeName: 'Вулкан Академии Наук', volcanoNumber: 300160, gvpName: 'Akademia Nauk', distanceKm: 0.9, confidence: 'exact' },
-  { placeId: '4dad7765-bd22-4df9-8848-9189df00cb49', placeName: 'Киненин', volcanoNumber: 300420, gvpName: 'Kinenin', distanceKm: 0.9, confidence: 'exact' },
+  { placeId: '347377fb-7e57-46f1-8ce5-e09d5b997106', placeName: 'Спокойный', volcanoNumber: 300671, gvpName: 'Spokoiny', distanceKm: 0.7, confidence: 'exact' },
+  { placeId: 'f4fa9a04-a746-491e-871c-bcef3725f7d0', placeName: 'Вулкан Академии Наук', volcanoNumber: 300125, gvpName: 'Akademia Nauk', distanceKm: 0.9, confidence: 'exact' },
+  { placeId: '4dad7765-bd22-4df9-8848-9189df00cb49', placeName: 'Киненин', volcanoNumber: 300551, gvpName: 'Kinenin', distanceKm: 0.9, confidence: 'exact' },
   { placeId: '6e3a46a9-104d-4181-958a-2a47698f2982', placeName: 'Вулкан Ксудач', volcanoNumber: 300050, gvpName: 'Ksudach', distanceKm: 0.9, confidence: 'exact' },
-  { placeId: '5d5ab623-3faf-41d7-80c0-536130118432', placeName: 'Кальдера Курильское озеро', volcanoNumber: 300000, gvpName: 'Kurile Lake', distanceKm: 1.0, confidence: 'exact' },
-  { placeId: '57918158-2844-435a-a509-c61430a2f5e8', placeName: 'Вулкан Бархатная сопка', volcanoNumber: 300065, gvpName: 'Barkhatnaya Sopka', distanceKm: 2.0, confidence: 'exact' },
-  { placeId: '775aa3de-d278-4398-ac95-40e9ed616957', placeName: 'Вулкан Большой Семячик', volcanoNumber: 300200, gvpName: 'Bolshoi Semiachik', distanceKm: 2.3, confidence: 'exact' },
-  { placeId: '36af71d6-94f0-41b2-98e7-b802c167505a', placeName: 'Еловский', volcanoNumber: 300460, gvpName: 'Elovsky', distanceKm: 2.5, confidence: 'exact' },
+  { placeId: '5d5ab623-3faf-41d7-80c0-536130118432', placeName: 'Кальдера Курильское озеро', volcanoNumber: 300023, gvpName: 'Kurile Lake', distanceKm: 1.0, confidence: 'exact' },
+  { placeId: '57918158-2844-435a-a509-c61430a2f5e8', placeName: 'Вулкан Бархатная сопка', volcanoNumber: 300084, gvpName: 'Barkhatnaya Sopka', distanceKm: 2.0, confidence: 'exact' },
+  { placeId: '775aa3de-d278-4398-ac95-40e9ed616957', placeName: 'Вулкан Большой Семячик', volcanoNumber: 300150, gvpName: 'Bolshoi Semiachik', distanceKm: 2.3, confidence: 'exact' },
+  { placeId: '36af71d6-94f0-41b2-98e7-b802c167505a', placeName: 'Еловский', volcanoNumber: 300590, gvpName: 'Elovsky', distanceKm: 2.5, confidence: 'exact' },
   { placeId: '77e5d9e1-4746-45fc-bb1a-8527003edf5f', placeName: 'Шивелуч', volcanoNumber: 300270, gvpName: 'Sheveluch', distanceKm: 3.4, confidence: 'exact' },
   { placeId: 'f59475f4-8295-4f38-a62c-e0c51337eac6', placeName: 'Вулкан Толбачик', volcanoNumber: 300240, gvpName: 'Tolbachik', distanceKm: 4.3, confidence: 'exact' },
   { placeId: '910476b9-fa29-4678-964b-ee23fe5754d0', placeName: 'Опала', volcanoNumber: 300080, gvpName: 'Opala', distanceKm: 0.1, confidence: 'exact' },
