@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-11 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `951_operator_notification_reads.sql`.
+> Снято 2026-09-12 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `952_place_description_drafts.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 241 |
+| Таблиц | 242 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3193 |
-| Внешних ключей | 258 |
+| Колонок | 3203 |
+| Внешних ключей | 260 |
 | Таблиц без единого FK в обе стороны | 70 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -20,7 +20,7 @@
 |---|---:|---|
 | [Платежи и деньги](#платежи-и-деньги) | 10 | `affiliate_clicks` `affiliate_payouts` `agent_commissions` `agent_market_payments` `commission_payouts` `operator_commissions` `operator_payouts` `refund_requests` `tour_payments` `transfer_transactions` |
 | [Безопасность](#безопасность) | 17 | `danger_assessments` `emergency_contacts` `external_alerts` `mchs_group_registrations` `mchs_registrations` `route_registration_notifications` `route_registrations` `safety_alerts` `safety_checkins` `safety_decision_events` `safety_source_health` `sos_events` `tourist_incidents` `volcano_status` `weather_alert_bookings` `weather_alerts` `zone_capacity_limits` |
-| [Точки, маршруты, карта](#точки-маршруты-карта) | 33 | `_agent_route_knowledge_legacy` `_route_description_cache_legacy` `activities` `ai_route_images` `collections` `crowd_log` `description_provenance` `kamchatka_routes` `location_real_time_status` `location_safety_profile` `parks` `place_aliases` `place_safety_reports` `places` `road_graph_edges` `road_graph_imports` `road_graph_nodes` `route_categories` `route_description_cache` `route_field_check_photos` `route_field_checks` `route_geometry_archive` `route_order_decisions` `route_passport_ocr` `route_source_checks` `route_subcategories` `route_tags` `route_templates` `route_track_imports` `route_waypoints` `trail_report_photos` `trail_reports` `user_place_photos` |
+| [Точки, маршруты, карта](#точки-маршруты-карта) | 34 | `_agent_route_knowledge_legacy` `_route_description_cache_legacy` `activities` `ai_route_images` `collections` `crowd_log` `description_provenance` `kamchatka_routes` `location_real_time_status` `location_safety_profile` `parks` `place_aliases` `place_description_drafts` `place_safety_reports` `places` `road_graph_edges` `road_graph_imports` `road_graph_nodes` `route_categories` `route_description_cache` `route_field_check_photos` `route_field_checks` `route_geometry_archive` `route_order_decisions` `route_passport_ocr` `route_source_checks` `route_subcategories` `route_tags` `route_templates` `route_track_imports` `route_waypoints` `trail_report_photos` `trail_reports` `user_place_photos` |
 | [Туры и брони](#туры-и-брони) | 29 | `booking_change_requests` `booking_group_members` `booking_logs` `booking_transfers` `booking_waivers` `bookings` `cancellation_policies` `channel_orders` `contingency_rules` `octo_api_keys` `octo_booking_log` `octo_webhook_log` `operator_bookings` `operator_tour_reviews` `operator_tour_tags` `operator_tours` `promo_codes` `tour_assets` `tour_availability` `tour_availability_alternatives` `tour_departures` `tour_options` `tour_pricing_rules` `tour_selection_events` `tour_selection_items` `tour_selections` `tour_transfer_requests` `tours` `uon_sync_log` |
 | [Люди и доступ](#люди-и-доступ) | 27 | `accounts` `audit_log` `audit_logs` `max_login_sessions` `official_registry_operators` `operator_ai_actions` `operator_ai_config` `operator_applications` `operator_settings` `operator_signups` `operator_site_audits` `operator_staff` `operator_stats_cache` `operator_vehicles` `partner_assets` `partner_integrations` `partner_prospects` `partners` `referrals` `security_blocks` `sessions` `tourist_documents` `tourist_profiles` `user_role_history` `user_sessions` `users` `verification_tokens` |
 | [Гиды](#гиды) | 6 | `guide_availability` `guide_certifications` `guide_earnings` `guide_groups` `guide_reviews` `guide_schedule` |
@@ -447,11 +447,15 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `place_id text!` `alias text!` `source_name text` `created_at timestamptz!=`
 
+**place_description_drafts** · 10 кол. · PK place_id, source · place_id → places.id, reviewed_by → users.id · индексов 2
+
+`place_id text!` `source text!` `source_ref text!` `original_text text!` `translated_text text!` `model text!` `status text!=` `created_at timestamptz!=` `reviewed_at timestamptz` `reviewed_by uuid`
+
 **place_safety_reports** · 9 кол. · PK id · индексов 3
 
 `id uuid!=` `place_id text!` `user_id uuid` `is_ok boolean!=` `conditions text[]!=` `note text` `reporter_lat numeric` `reporter_lng numeric` `created_at timestamptz!=`
 
-**places** · 42 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, reviews, route_waypoints, volcano_status · индексов 8
+**places** · 42 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, place_description_drafts, reviews, route_waypoints, volcano_status · индексов 8
 
 `id text!` `name text!` `description text` `category text` `category_slug text` `lat numeric!` `lng numeric!` `district text` `length_km numeric` `duration varchar` `difficulty varchar` `images jsonb=` `created_at timestamptz=` `ark_id uuid` `location_type varchar` `activity_type varchar` `zone varchar` `source_url text` `source_name varchar` `updated_at timestamptz=` `search_count integer!=` `is_visible boolean!=` `essence text` `photo_url text` `best_season text` `seasonal_notes jsonb` `access_info text` `eco_zone varchar` `eco_permit_required boolean=` `eco_rules text` `eco_permit_url text` `indigenous_info jsonb` `view_count integer!=` `dedupe_key text` `kuzmich_review text` `embedding jsonb` `merged_into_id uuid` `merged_at timestamptz` `geocode_failed_at timestamptz` `slug varchar` `coord_source varchar!=` `coord_source_at timestamptz`
 
@@ -755,7 +759,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `user_id uuid` `token varchar!` `expires_at timestamptz!` `created_at timestamptz=`
 
-**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_referral_links, audit_logs, board_meeting_sessions, booking_logs, booking_waivers, bookings, chat_sessions, client_communications, collections, commission_payouts, conversation_messages, conversation_participants, conversations, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partners, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tour_selections, tourist_profiles, transfer_reviews, transfer_seat_bookings, transfers, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
+**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_referral_links, audit_logs, board_meeting_sessions, booking_logs, booking_waivers, bookings, chat_sessions, client_communications, collections, commission_payouts, conversation_messages, conversation_participants, conversations, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partners, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tour_selections, tourist_profiles, transfer_reviews, transfer_seat_bookings, transfers, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
 
 `id uuid!=` `email varchar!` `name varchar!` `password_hash varchar!` `role varchar!` `preferences jsonb=` `created_at timestamptz=` `updated_at timestamptz=` `recommendations jsonb` `recommended_at timestamptz` `phone varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `referral_code varchar` `referred_by uuid` `total_spent numeric=` `pending_role text` `role_applied_at timestamp` `telegram_id bigint` `telegram_username varchar` `pd_consent_given boolean=` `marketing_consent boolean=` `telegram_chat_id bigint` `is_active boolean=` `mfa_secret text` `mfa_enabled boolean=` `metadata jsonb=` `active_trip_id uuid` `active_trip_since timestamptz` `max_user_id bigint` `max_username text` `is_blocked boolean!=` `blocked_reason text`
 
