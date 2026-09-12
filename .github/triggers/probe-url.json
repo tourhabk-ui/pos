@@ -1,11 +1,11 @@
 {
-  "note": "12.09: place-description-drafts.yml сорвался по таймауту ожидания деплоя (55 мин, built_at reason=no_git_head) — но main с тех пор ушёл дальше (#1833 и др.), проверяю напрямую, жив ли новый роут на проде прямо сейчас (POST-only, поэтому через post, не urls).",
-  "run": 481,
+  "note": "12.09: боевой перевод напрямую (обход wait-for-deploy — тот дважды упал на no_git_head, ~56 мин впустую оба раза, а роут подтверждённо жив и работал в пробе 481). dry_run=false, таймаут щедрый — ~45 уникальных вулканов, каждый отдельный вызов callAIQualityOrNull.",
+  "run": 482,
   "urls": [],
   "post": [
-    {"url": "https://vedarai.ru/api/cron/place-description-drafts?dry_run=true", "body": {}}
+    {"url": "https://vedarai.ru/api/cron/place-description-drafts?dry_run=false", "body": {}}
   ],
-  "bytes": 20000,
-  "timeout": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; probe deploy status)"
+  "bytes": 30000,
+  "timeout": 580,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; volcano descriptions apply run)"
 }
