@@ -17,7 +17,7 @@
  * чистка 25 мест вслепую опаснее самой проблемы.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { findSilentCatches, isEmptyShape } from '@/lib/quality/silent-catch';
@@ -45,14 +45,24 @@ const BASELINE = new Set<string>([
   'lib/kuzmich/core.ts',
   'lib/kuzmich/engagement.ts',
   'lib/notifications/post-validation.ts',
-  'lib/payments/transfer-payments.ts',
+  // 'lib/payments/transfer-payments.ts' снят 12.09: файл удалён целиком.
+  // 515 строк не импортировал никто — две его «заглушки» (статус платежа
+  // всегда success, возврат success без вызова CloudPayments) были найдены
+  // Evo Judge как настоящие и таковыми являлись, но недостижимыми: живой
+  // путь трансферов — /api/hub/carrier/* и СБП Точка. Долг снят удалением,
+  // а не починкой: реализовывать CloudPayments в файле, к которому нет
+  // входа, значит заводить второй приёмник денег рядом с настоящим (§7).
   'lib/planner/data.ts',
   'lib/services/analytics.service.ts',
   'lib/services/operators/support.service.ts',
   'lib/services/rag.service.ts',
   'lib/services/tours/tour.service.ts',
   'lib/transfers/booking.ts',
-  'lib/transfers/matching.ts',
+  // 'lib/transfers/matching.ts' снят 12.09: файла нет с #1496 («Заход
+  // удаления, шаг 2: мёртвый модуль трансферов»). Запись пережила свой файл
+  // на месяц и всё это время описывала несуществующий долг — её нашла не
+  // ревизия глазами, а проверка «в реестре нет записей о файлах, которых
+  // больше нет», добавленная тем же заходом, что снял transfer-payments.
 ]);
 
 describe('форма-пустышка распознаётся', () => {
@@ -116,6 +126,19 @@ describe('тихий catch виден', () => {
 });
 
 describe('долг не растёт', () => {
+  it('в реестре нет записей о файлах, которых больше нет', () => {
+    // Самоустаревание (правило 10.09). Замороженный список — объявление, и
+    // оно живёт дольше кода: удалили файл, запись осталась, и реестр начал
+    // описывать несуществующий долг. Проверять его глазами никто не станет,
+    // поэтому запись о пропавшем файле обязана ронять сборку — так же, как
+    // KNOWN_UNPRODUCED требует убрать себя, когда производитель появился.
+    const missing = [...BASELINE].filter((f) => !existsSync(join(ROOT, f)));
+    expect(
+      missing,
+      'запись реестра указывает на файл, которого нет: снять её вместе с файлом',
+    ).toEqual([]);
+  });
+
   it('новых тихих catch в app/ и lib/ нет', () => {
     const files = execSync("git ls-files 'app/**/*.ts' 'app/**/*.tsx' 'lib/**/*.ts'", { cwd: ROOT, encoding: 'utf-8' })
       .trim().split('\n').filter(Boolean);

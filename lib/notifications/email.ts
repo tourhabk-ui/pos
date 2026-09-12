@@ -4,6 +4,7 @@
 // =============================================
 
 import { escapeHtml as e, telHref, safeSubject } from '@/lib/text/escape-html';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import nodemailer from 'nodemailer';
 
 interface EmailMessage {
@@ -26,8 +27,20 @@ interface EmailResponse {
 
 export class EmailNotificationService {
   private transporter: nodemailer.Transporter;
+  /**
+   * Имена незаданных переменных — не значения. Пусто = почта настроена.
+   *
+   * `process.env.SMTP_PASS || ''` создавал транспорт с пустым логином и
+   * паролем, и отказ приходил от SMTP-сервера в виде «535 authentication
+   * failed» — то есть выглядел как проблема доступа, а не как незаполненная
+   * настройка. Разница дорогая: в первом случае идут к почтовому провайдеру,
+   * во втором — в панель приложения. §4.0: у проверки три исхода, и «не
+   * настроено» не равно «не смогли отправить».
+   */
+  private readonly missingEnv: string[];
 
   constructor() {
+    this.missingEnv = (['SMTP_USER', 'SMTP_PASS'] as const).filter((n) => !process.env[n]);
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: parseInt(process.env.SMTP_PORT || '587'),
@@ -37,10 +50,27 @@ export class EmailNotificationService {
         pass: process.env.SMTP_PASS || '',
       },
     });
+    if (this.missingEnv.length > 0) {
+      logSwallowedFailure(
+        'email',
+        'EmailNotificationService.constructor',
+        new Error(`не заданы ${this.missingEnv.join(', ')} — письма отправляться не будут`),
+      );
+    }
   }
 
   // Отправка email
   async sendEmail(message: EmailMessage): Promise<EmailResponse> {
+    if (this.missingEnv.length > 0) {
+      // До SMTP не идём вовсе: отвечать «не смогли отправить» там, где на
+      // самом деле «некому отправлять», — это выдавать одно состояние за
+      // другое. Имена переменных в тексте есть, значений нет никогда.
+      return {
+        success: false,
+        error: `Почта не настроена: не заданы ${this.missingEnv.join(', ')}`,
+      };
+    }
+
     try {
       const info = await this.transporter.sendMail({
         from: `"Kamchatour Hub" <${process.env.SMTP_USER}>`,

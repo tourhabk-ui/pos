@@ -125,7 +125,11 @@ describe('DeepSeek: живой путь просит ответ без разм�
     // debug-проба (...v.extra) меряет рычаги намеренно, её базовая форма проверена выше.
     const answering = bodies.filter((b) => !/max_tokens: 1,/.test(b) && !/\.\.\.v\.extra/.test(b));
     expect(answering.length).toBeGreaterThanOrEqual(6);
-    for (const b of answering) expect(b, b.slice(0, 200)).toMatch(/deepseekThinking\((?:'fast'|'deep')?\)|thinking: \{ type: 'disabled' \}/);
+    // `callAIQuality` (12.09) зовёт deepseekThinking(deepThinking ? 'deep' :
+    // 'fast') — выбор ступени решает вызывающий (scout-innovator отказывается
+    // от размышления ради полноты JSON), но deepseekThinking спредится тут же,
+    // литералом или через переменную.
+    for (const b of answering) expect(b, b.slice(0, 200)).toMatch(/deepseekThinking\((?:'fast'|'deep')?\)|deepseekThinking\(deepThinking \? 'deep' : 'fast'\)|thinking: \{ type: 'disabled' \}/);
   });
 
   it('назначение решает: чат без размышления, генерация с ним', async () => {
@@ -150,7 +154,12 @@ describe('DeepSeek: живой путь просит ответ без разм�
   });
 
   it('глубокие пути просят размышление и дают ему бюджет', () => {
-    expect(PROVIDERS).toMatch(/max_tokens: deepThinkingBudget\(maxTokens\)[\s\S]{0,120}deepseekThinking\('deep'\)/);
+    // callAIQuality (текст для людей) — по умолчанию (deepThinking=true) даёт
+    // размышлению бюджет; структурные вызывающие (scout-innovator) отказываются
+    // явно через deepThinking: false, а не полагаются на то, что maxTokens сам
+    // на размышление хватит (12.09: не хватало — см. providers.ts docstring).
+    expect(PROVIDERS).toMatch(/max_tokens: deepThinking \? deepThinkingBudget\(maxTokens\) : maxTokens,[\s\S]{0,150}deepseekThinking\(deepThinking \? 'deep' : 'fast'\)/);
+    // Решатель (callAIDecision, отдельный вызывающий) — фиксированный бюджет 1500, размышление всегда включено.
     expect(PROVIDERS).toMatch(/max_tokens: deepThinkingBudget\(1500\)[\s\S]{0,120}deepseekThinking\('deep'\)/);
     // Бюджет времени тоже вырос: размышление идёт дольше.
     expect(PROVIDERS).toMatch(/timeoutMs: 90_000, label: 'deepseek:content'/);

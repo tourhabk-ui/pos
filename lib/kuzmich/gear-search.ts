@@ -8,6 +8,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { containsPattern } from '@/lib/db/like';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export interface GearSearchArgs {
@@ -31,12 +32,15 @@ export async function searchGearForKuzmich(args: GearSearchArgs): Promise<string
   const conds: string[] = ['is_active = true'];
   const params: unknown[] = [];
 
+  // containsPattern, а не `%${...}%`: оба аргумента приходят из переписки с
+  // Кузьмичом, и `%` в них расширял шаблон до «совпадает со всем» — поиск
+  // отвечал бы чем попало, выглядя при этом исправным.
   if (args.query) {
-    params.push(`%${args.query}%`);
+    params.push(containsPattern(args.query));
     const p = `$${params.length}`;
     conds.push(`(name ILIKE ${p} OR brand ILIKE ${p} OR category ILIKE ${p})`);
   }
-  if (args.category) { params.push(`%${args.category}%`); conds.push(`category ILIKE $${params.length}`); }
+  if (args.category) { params.push(containsPattern(args.category)); conds.push(`category ILIKE $${params.length}`); }
   const priceMax = Number(args.price_max);
   if (args.price_max && Number.isFinite(priceMax) && priceMax > 0) {
     params.push(priceMax);
