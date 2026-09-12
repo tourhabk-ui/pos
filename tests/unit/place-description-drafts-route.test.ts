@@ -27,6 +27,14 @@ describe('place-description-drafts — предлагает, не публику
     expect(getBody).toContain("WHERE source = 'gvp'");
   });
 
+  it('?detail=true отдаёт тексты pending-черновиков для ручной сверки, тоже только SELECT', () => {
+    const getBody = SRC.slice(SRC.indexOf('export async function GET'), SRC.indexOf('export async function POST'));
+    expect(getBody).toContain("searchParams.get('detail') === 'true'");
+    expect(getBody).toMatch(/SELECT d\.place_id, p\.name AS place_name, d\.original_text, d\.translated_text, d\.model/);
+    expect(getBody).toContain("d.status = 'pending'");
+    expect(getBody).not.toMatch(/UPDATE|INSERT INTO|DELETE FROM/);
+  });
+
   it('не трогает places.description напрямую', () => {
     expect(SRC).not.toMatch(/UPDATE\s+places\s+SET/i);
   });

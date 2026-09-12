@@ -33,12 +33,20 @@ export const maxDuration = 120;
  * повторной траты бюджета на перевод (12.09: клиентский таймаут 580с оборвал
  * ответ ДО того, как узнали исход — сервер мог как раз тогда дописывать
  * последние черновики).
+ *
+ * `?detail=true` — тексты `pending`-черновиков (имя места, оригинал ГВП,
+ * перевод) для ручной сверки (#1830: «перевод + проверка»). Пока в
+ * платформе нет отдельного экрана ревью — эта ветка временно и есть
+ * единственный способ УВИДЕТЬ, что реально предложено, до публикации через
+ * `PATCH /api/admin/places/[id]/description-draft`. Тоже только SELECT.
  */
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const detail = request.nextUrl.searchParams.get('detail') === 'true';
 
   try {
     const result = await pool.query<{ status: string; n: string }>(
@@ -49,11 +57,35 @@ export async function GET(request: NextRequest) {
     );
     const byStatus = Object.fromEntries(result.rows.map(r => [r.status, Number(r.n)]));
 
+    if (!detail) {
+      return NextResponse.json({
+        success: true,
+        probe: 'place_description_drafts_status_v1',
+        total: result.rows.reduce((sum, r) => sum + Number(r.n), 0),
+        by_status: byStatus,
+      });
+    }
+
+    const pending = await pool.query<{
+      place_id: string;
+      place_name: string;
+      original_text: string;
+      translated_text: string;
+      model: string;
+    }>(
+      `SELECT d.place_id, p.name AS place_name, d.original_text, d.translated_text, d.model
+         FROM place_description_drafts d
+         JOIN places p ON p.id = d.place_id
+        WHERE d.source = 'gvp' AND d.status = 'pending'
+        ORDER BY p.name`,
+    );
+
     return NextResponse.json({
       success: true,
       probe: 'place_description_drafts_status_v1',
       total: result.rows.reduce((sum, r) => sum + Number(r.n), 0),
       by_status: byStatus,
+      pending: pending.rows,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка чтения черновиков описаний';
