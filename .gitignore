@@ -200,5 +200,9 @@ evo-apply-manifest.json
 # Разбор CodeQL пишет SARIF в рабочий каталог прогона
 sarif-results/
 *.sarif
+
+# claude plugin eval: отчёт прогона (HTML + JSON) — регенерируется, в коммит не идёт;
+# сами кейсы (evals/<case>/prompt.md, graders/*.md) — идут
+.claude/skills/*/evals/results/
 .cache/
 __pycache__/
