@@ -6,10 +6,9 @@ import { OperatorBooking } from '@/types/operator';
 
 interface RecentBookingsTableProps {
   bookings: OperatorBooking[];
-  onViewDetails?: (booking: OperatorBooking) => void;
 }
 
-export function RecentBookingsTable({ bookings, onViewDetails }: RecentBookingsTableProps) {
+export function RecentBookingsTable({ bookings }: RecentBookingsTableProps) {
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('ru-RU', {
       style: 'currency',
@@ -104,19 +103,12 @@ export function RecentBookingsTable({ bookings, onViewDetails }: RecentBookingsT
           {new Date(booking.createdAt).toLocaleDateString('ru-RU')}
         </span>
       )
-    },
-    {
-      key: 'actions',
-      title: 'Действия',
-      render: (booking) => (
-        <button
-          onClick={() => onViewDetails && onViewDetails(booking)}
-          className="px-3 py-1 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-lg text-xs font-medium transition-colors"
-        >
-          Детали
-        </button>
-      )
     }
+    // Столбец «Действия» с кнопкой «Детали» убран 11.09 (#1785, решение
+    // владельца «пока убери»): onViewDetails на вызывающей стороне
+    // (_OperatorDashboardClient.tsx) был `(_booking) => {}` — кнопка ничего
+    // не делала ни разу. Возвращать её стоит вместе с настоящим действием
+    // (модалка деталей, переход на страницу брони), а не раньше.
   ];
 
   return <DataTable columns={columns} data={bookings} />;

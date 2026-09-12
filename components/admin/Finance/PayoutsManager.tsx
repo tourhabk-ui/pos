@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Banknote, Clock, CheckCircle, AlertCircle, Send } from 'lucide-react';
+import { Banknote, Clock, CheckCircle, AlertCircle, Send, Undo2 } from 'lucide-react';
 
 interface TourPayment {
   id: string;
@@ -27,6 +27,17 @@ interface ReadyGroup {
   operator_name: string;
   count: string;
   total_net: string;
+}
+
+interface PendingRefund {
+  id: string;
+  retail_amount: string;
+  booking_id: string;
+  operator_name: string;
+  tour_title: string;
+  tourist_name: string;
+  booking_date: string;
+  cancelled_at: string;
 }
 
 interface Stats {
@@ -61,6 +72,7 @@ export function PayoutsManager() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [payments, setPayments] = useState<TourPayment[]>([]);
   const [ready, setReady] = useState<ReadyGroup[]>([]);
+  const [pendingRefunds, setPendingRefunds] = useState<PendingRefund[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [processing, setProcessing] = useState<string | null>(null);
@@ -72,10 +84,11 @@ export function PayoutsManager() {
       const r = await fetch(`/api/admin/finance/payouts?${params}`);
       const j: unknown = await r.json();
       if (typeof j === 'object' && j !== null && 'success' in j && (j as { success: boolean }).success) {
-        const d = (j as unknown as { data: { stats: Stats; payments: TourPayment[]; readyForPayout: ReadyGroup[] } }).data;
+        const d = (j as unknown as { data: { stats: Stats; payments: TourPayment[]; readyForPayout: ReadyGroup[]; pendingRefunds: PendingRefund[] } }).data;
         setStats(d.stats);
         setPayments(d.payments);
         setReady(d.readyForPayout);
+        setPendingRefunds(d.pendingRefunds ?? []);
       }
     } finally {
       setLoading(false);
@@ -107,6 +120,39 @@ export function PayoutsManager() {
       const j: unknown = await res.json();
       if (typeof j === 'object' && j !== null && 'success' in j && (j as { success: boolean }).success) {
         fetchData();
+      }
+    } finally {
+      setProcessing(null);
+    }
+  }
+
+  async function handleRefund(payment: PendingRefund) {
+    // Причина обязательна на сервере (§ MarkRefundedSchema, min 8 символов) —
+    // просим её здесь же, а не отправляем пустую строку и не показываем
+    // отдельную форму: это единичное разовое действие, не мастер.
+    const reason = prompt(
+      `Возврат ${formatRub(payment.retail_amount)} туристу ${payment.tourist_name}.\n`
+      + 'Укажите подтверждение перевода (номер операции, скриншот и т.п.) — это войдёт в запись:',
+    );
+    if (reason === null) return; // отменено пользователем, не пустой ввод
+    if (reason.trim().length < 8) {
+      alert('Подтверждение слишком короткое — опишите, чем возврат подтверждён.');
+      return;
+    }
+
+    setProcessing(payment.id);
+    try {
+      const res = await fetch('/api/admin/finance/refunds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentIds: [payment.id], reason: reason.trim() }),
+      });
+      const j: unknown = await res.json();
+      if (typeof j === 'object' && j !== null && 'success' in j && (j as { success: boolean }).success) {
+        fetchData();
+      } else {
+        const err = (j as { error?: string })?.error ?? 'Не удалось отметить возврат';
+        alert(err);
       }
     } finally {
       setProcessing(null);
@@ -158,6 +204,44 @@ export function PayoutsManager() {
                 >
                   <Send className="w-3 h-3" />
                   {processing === g.operator_id ? 'Обработка...' : 'Выплатить'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Ждут возврата туристу (11.09, #1813): отменённые оплаченные брони,
+          деньги удержаны платформой. Оператору они не уйдут (payouts их уже
+          исключает); туристу — только вручную, платёжного API нет. */}
+      {pendingRefunds.length > 0 && (
+        <div className="bg-[var(--danger)]/5 border border-[var(--danger)]/20 rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-[var(--danger)]/20">
+            <p className="text-xs font-medium text-[var(--danger)]">
+              Ждут возврата туристу ({pendingRefunds.length})
+            </p>
+            <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+              Возврат 100% — верните деньги вне платформы, затем отметьте здесь.
+            </p>
+          </div>
+          <div className="divide-y divide-[var(--danger)]/10">
+            {pendingRefunds.map((r) => (
+              <div key={r.id} className="flex items-center justify-between px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-[var(--text-primary)] truncate">
+                    {r.tourist_name} · {formatRub(r.retail_amount)}
+                  </p>
+                  <p className="text-[10px] text-[var(--text-muted)] truncate">
+                    {r.tour_title} · {r.operator_name} · отменено {formatDate(r.cancelled_at)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleRefund(r)}
+                  disabled={processing === r.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)] hover:bg-[var(--danger)]/90 text-white rounded text-[10px] font-medium transition-colors disabled:opacity-50 shrink-0 ml-3"
+                >
+                  <Undo2 className="w-3 h-3" />
+                  {processing === r.id ? 'Обработка...' : 'Отметить возврат'}
                 </button>
               </div>
             ))}

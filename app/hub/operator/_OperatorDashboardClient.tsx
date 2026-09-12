@@ -10,7 +10,7 @@ import { SimpleChart } from '@/components/admin/Dashboard/SimpleChart';
 import { LoadingSpinner, EmptyState } from '@/components/admin/shared';
 import { MchsRegistrationPanel } from '@/components/operator/Dashboard/MchsRegistrationPanel';
 import { OperatorEarningsCard } from '@/components/operator/OperatorEarningsCard';
-import { OperatorDashboardData, OperatorBooking } from '@/types/operator';
+import { OperatorDashboardData } from '@/types/operator';
 import { AlertTriangle, BarChart3, Mountain, Calendar, Users, RefreshCw,
   CheckCircle2, Circle, ArrowRight, Plus,
   Wallet, TrendingUp, CalendarDays, CalendarClock, Trophy, ClipboardList,
@@ -147,8 +147,6 @@ export default function OperatorDashboardClient() {
 
   useEffect(() => { void fetchDashboardData(); }, [fetchDashboardData]);
 
-  const handleViewBookingDetails = (_booking: OperatorBooking) => {};
-
   return (
     <div className="p-5 lg:p-6 space-y-5">
       {/* Header */}
@@ -274,7 +272,7 @@ export default function OperatorDashboardClient() {
           <div>
             <SectionLabel icon={ClipboardList}>Последние бронирования</SectionLabel>
             {data.recentBookings.length > 0 ? (
-              <RecentBookingsTable bookings={data.recentBookings} onViewDetails={handleViewBookingDetails} />
+              <RecentBookingsTable bookings={data.recentBookings} />
             ) : (
               <EmptyState
                 icon={<Calendar className="w-10 h-10 text-[var(--text-muted)]" />}
