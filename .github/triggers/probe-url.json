@@ -1,11 +1,14 @@
 {
-  "note": "12.09: проверка исправленных 12 черновиков (#1830) — тексты должны совпасть с исправленным volcanoNumber.",
-  "run": 491,
+  "note": "12.09: точечная проверка двух оставшихся исправленных черновиков (Терпук, Спокойный) — предыдущий прогон обрезался по bytes=40000 раньше конца алфавитного списка.",
+  "run": 492,
   "urls": [
     "https://vedarai.ru/api/cron/place-description-drafts?detail=true"
   ],
   "post": [],
-  "bytes": 40000,
+  "bytes": 200,
   "timeout": 30,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place-description-drafts detail after fix)"
+  "around": ["\"place_name\":\"Терпук\"", "\"place_name\":\"Спокойный\""],
+  "aroundLines": 60,
+  "aroundHits": 1,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; targeted check terpuk spokoiny)"
 }
