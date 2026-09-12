@@ -1,16 +1,11 @@
 {
-  "note": "12.09: боевой перевод только 12 исправленных пар (#1830) — dry_run=false, place_ids сузили прогон, чтобы не трогать AI-бюджетом 11 уже верных черновиков. Код уже подтверждённо выкатился (проба 488).",
-  "run": 489,
-  "urls": [],
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/place-description-drafts?dry_run=false&place_ids=00a71c01-6a76-4227-91ba-c62ec50aefc1,164f612c-32da-4f0f-b261-c45c09dc2933,f4fa9a04-a746-491e-871c-bcef3725f7d0,f2260dcf-a94b-4532-abb0-8ba55a1c5781,44be8f5a-809d-47aa-bfa9-858e65cdfe77,a41cf39b-5a64-43da-89f1-3ad5b9d5887c,347377fb-7e57-46f1-8ce5-e09d5b997106,775aa3de-d278-4398-ac95-40e9ed616957,4dad7765-bd22-4df9-8848-9189df00cb49,5d5ab623-3faf-41d7-80c0-536130118432,57918158-2844-435a-a509-c61430a2f5e8,36af71d6-94f0-41b2-98e7-b802c167505a",
-      "body": {}
-    }
+  "note": "12.09: проверка исправленных 12 черновиков (#1830) — тексты должны совпасть с исправленным volcanoNumber.",
+  "run": 491,
+  "urls": [
+    "https://vedarai.ru/api/cron/place-description-drafts?detail=true"
   ],
-  "bytes": 20000,
-  "timeout": 480,
-  "retries": 5,
-  "retryDelay": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; gvp corrected pairs live translation, 12 places)"
+  "post": [],
+  "bytes": 40000,
+  "timeout": 30,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place-description-drafts detail after fix)"
 }
