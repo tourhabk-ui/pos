@@ -13,9 +13,18 @@ const ROOT = process.cwd();
 const SRC = readFileSync(join(ROOT, 'app/api/cron/place-description-drafts/route.ts'), 'utf-8');
 
 describe('place-description-drafts — предлагает, не публикует', () => {
-  it('экспортирует только POST', () => {
+  it('экспортирует POST (пишет черновик) и GET (только читает итог)', () => {
     expect(SRC).toMatch(/export async function POST/);
-    expect(SRC).not.toMatch(/export async function (GET|PUT|PATCH|DELETE)/);
+    expect(SRC).toMatch(/export async function GET/);
+    expect(SRC).not.toMatch(/export async function (PUT|PATCH|DELETE)/);
+  });
+
+  it('GET не запускает перевод и не пишет: только SELECT по своей таблице', () => {
+    const getBody = SRC.slice(SRC.indexOf('export async function GET'), SRC.indexOf('export async function POST'));
+    expect(getBody).not.toMatch(/UPDATE|INSERT INTO|DELETE FROM/);
+    expect(getBody).not.toContain('runGvpRemarksDrafts');
+    expect(getBody).toMatch(/SELECT status, COUNT\(\*\)::text AS n\s*\n\s*FROM place_description_drafts/);
+    expect(getBody).toContain("WHERE source = 'gvp'");
   });
 
   it('не трогает places.description напрямую', () => {

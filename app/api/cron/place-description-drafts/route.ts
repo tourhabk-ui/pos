@@ -22,9 +22,44 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runGvpRemarksDrafts } from '@/lib/geo/gvp-remarks-runner';
+import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
+
+/**
+ * GET — сколько черновиков реально записано, по статусу. Только чтение, без
+ * AI и без перевода: нужна, чтобы проверить итог боевого прогона POST'а без
+ * повторной траты бюджета на перевод (12.09: клиентский таймаут 580с оборвал
+ * ответ ДО того, как узнали исход — сервер мог как раз тогда дописывать
+ * последние черновики).
+ */
+export async function GET(request: NextRequest) {
+  const secret = getCronSecret(request);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const result = await pool.query<{ status: string; n: string }>(
+      `SELECT status, COUNT(*)::text AS n
+         FROM place_description_drafts
+        WHERE source = 'gvp'
+        GROUP BY status`,
+    );
+    const byStatus = Object.fromEntries(result.rows.map(r => [r.status, Number(r.n)]));
+
+    return NextResponse.json({
+      success: true,
+      probe: 'place_description_drafts_status_v1',
+      total: result.rows.reduce((sum, r) => sum + Number(r.n), 0),
+      by_status: byStatus,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Ошибка чтения черновиков описаний';
+    return NextResponse.json({ success: false, error: message }, { status: 502 });
+  }
+}
 
 export async function POST(request: NextRequest) {
   const secret = getCronSecret(request);
