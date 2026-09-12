@@ -1,14 +1,11 @@
 {
-  "note": "12.09: точечная проверка двух оставшихся исправленных черновиков (Терпук, Спокойный) — предыдущий прогон обрезался по bytes=40000 раньше конца алфавитного списка.",
-  "run": 492,
+  "note": "12.09: полный дамп всех pending-черновиков (#1830) для показа владельцу на ревью.",
+  "run": 493,
   "urls": [
     "https://vedarai.ru/api/cron/place-description-drafts?detail=true"
   ],
   "post": [],
-  "bytes": 200,
+  "bytes": 200000,
   "timeout": 30,
-  "around": ["\"place_name\":\"Терпук\"", "\"place_name\":\"Спокойный\""],
-  "aroundLines": 60,
-  "aroundHits": 1,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; targeted check terpuk spokoiny)"
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; full drafts dump for owner review)"
 }
