@@ -1,14 +1,14 @@
 {
-  "note": "12.09: после деплоя коммита ce150da — читаем реальный итог боевого перевода вулканов (#1830) новым GET /api/cron/place-description-drafts, без повторной траты AI. Ждём выката по маркеру нового probe.",
-  "run": 484,
+  "note": "12.09: тексты 18 pending-черновиков переводов ГВП (#1830) для ручной сверки — новая ветка ?detail=true.",
+  "run": 485,
   "urls": [
-    "https://vedarai.ru/api/cron/place-description-drafts"
+    "https://vedarai.ru/api/cron/place-description-drafts?detail=true"
   ],
   "post": [],
-  "bytes": 5000,
+  "bytes": 40000,
   "timeout": 30,
   "until": "place_description_drafts_status_v1",
   "retries": 15,
   "retryDelay": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place-description-drafts status check)"
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place-description-drafts detail review)"
 }
