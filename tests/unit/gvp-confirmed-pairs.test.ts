@@ -63,4 +63,42 @@ describe('GVP_CONFIRMED_PAIRS', () => {
       expect(p.placeName.toLowerCase()).not.toContain(p.gvpName.toLowerCase());
     }
   });
+
+  // 12.09: семь пар (имя+расстояние верны, volcanoNumber — чужой) дошли до
+  // боевых черновиков и были пойманы только ручной сверкой текста (#1830,
+  // шаг 2) — Remarks соседнего вулкана читались как факт о нашем месте.
+  // Числа ниже перепроверены свежим прогоном `places-gvp-crosscheck`
+  // (расстояние + совпадение английского имени), не взяты из памяти о
+  // прошлой расшифровке отчёта.
+  it('семь ранее перепутанных volcanoNumber исправлены (12.09)', () => {
+    const byId = new Map(GVP_CONFIRMED_PAIRS.map(p => [p.placeId, p]));
+    const corrected: Array<[string, number, string]> = [
+      ['00a71c01-6a76-4227-91ba-c62ec50aefc1', 300040, 'Желтовская Сопка → Zheltovsky'],
+      ['164f612c-32da-4f0f-b261-c45c09dc2933', 300083, 'Вулкан Вилючинский → Vilyuchinsky'],
+      ['f4fa9a04-a746-491e-871c-bcef3725f7d0', 300125, 'Вулкан Академии Наук → Akademia Nauk'],
+      ['f2260dcf-a94b-4532-abb0-8ba55a1c5781', 300160, 'Вулкан Тауншиц → Taunshits'],
+      ['44be8f5a-809d-47aa-bfa9-858e65cdfe77', 300200, 'Вулкан Кроноцкий → Kronotsky'],
+      ['a41cf39b-5a64-43da-89f1-3ad5b9d5887c', 300512, 'Терпук → Terpuk'],
+      ['347377fb-7e57-46f1-8ce5-e09d5b997106', 300671, 'Спокойный → Spokoiny'],
+    ];
+    for (const [placeId, expectedNumber, label] of corrected) {
+      expect(byId.get(placeId)?.volcanoNumber, label).toBe(expectedNumber);
+    }
+  });
+
+  it('volcanoNumber не переиспользуется двумя РАЗНЫМИ вулканами (кластеры вроде Толбачика — исключение по gvpName)', () => {
+    // Ловит ровно класс дефекта 12.09: если у одного volcanoNumber разошлись
+    // gvpName — значит хотя бы одна запись показывает Remarks чужого вулкана.
+    // Единственное легитимное совпадение — комплекс, где несколько places
+    // намеренно делят общее имя ГВП (Толбачик, Зимина).
+    const byVolcano = new Map<number, Set<string>>();
+    for (const p of GVP_CONFIRMED_PAIRS) {
+      const names = byVolcano.get(p.volcanoNumber) ?? new Set<string>();
+      names.add(p.gvpName);
+      byVolcano.set(p.volcanoNumber, names);
+    }
+    for (const [volcanoNumber, names] of byVolcano) {
+      expect(names.size, `volcanoNumber ${volcanoNumber} держит разные gvpName: ${[...names].join(', ')}`).toBe(1);
+    }
+  });
 });

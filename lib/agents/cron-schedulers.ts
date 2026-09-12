@@ -129,6 +129,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // зовёт images-repack.yml по маркеру — объявление было бы вторым ответом
   // на тот же вопрос (тот же довод, что у 'tochka-check' и 'ai-channel-check').
   'db-size-census':            { kind: 'manual', writes: false, note: 'сколько занимает база и чем именно: pg_database_size, топ таблиц по весу, доля журнальных таблиц без чистки. Предел тома изнутри не виден — сравнение с тарифом за человеком' },
+  'pwa-installs-census':       { kind: 'manual', writes: false, note: 'сколько устройств поставили и открыли PWA — тот же счёт, что в requireAdmin /api/admin/dashboard, но без входа в аккаунт, для разовой сверки. Нижняя граница (не все браузеры шлют appinstalled/standalone-launch), не «точное число скачиваний» (миграция 798)' },
   'operator-reach':            { kind: 'manual', writes: false, note: 'до скольких операторов с живыми турами дойдёт заявка: без канала связи она не доходит никогда, и это неотличимо от «оператор молчит»' },
   'passport-flag-census':      { kind: 'manual', writes: false, note: 'паспорт есть, флаг «регистрация в МЧС обязательна» false: подозреваемые для разбора по паспорту, вердикта нет — «сказано false» и «дефолт false» по базе неотличимы' },
   'beacon-check':              { kind: 'manual', writes: false, note: 'способен ли приёмник маяка записать событие: тот же INSERT в транзакции с гарантированным откатом' },

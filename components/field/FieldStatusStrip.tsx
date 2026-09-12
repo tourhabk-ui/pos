@@ -29,7 +29,7 @@ export interface FieldStatusStripProps {
 export function FieldStatusStrip(p: FieldStatusStripProps) {
   return (
     <div style={{ borderBottom: '1px solid var(--border)' }}>
-      <div className="flex items-center gap-2 px-4 py-2.5 text-xs">
+      <div className="flex items-center gap-2 px-4 py-2 text-xs">
         <span className="w-2 h-2 rounded-full shrink-0"
           style={{ background: p.fixLive ? 'var(--success)' : 'var(--warning)' }} />
         <span className="shrink-0 tabular-nums" style={{ color: p.fixLive ? 'var(--success)' : 'var(--warning)' }}>
@@ -48,7 +48,7 @@ export function FieldStatusStrip(p: FieldStatusStripProps) {
         )}
       </div>
       {p.dataLine && (
-        <div className="flex items-center justify-center gap-1.5 px-4 pb-2 text-[11px]"
+        <div className="flex items-center justify-center gap-1.5 px-4 pb-1.5 text-[11px]"
           style={{ color: p.dataOk ? 'var(--success)' : 'var(--warning)' }}>
           {p.dataOk
             ? <Check className="w-3.5 h-3.5 shrink-0" />

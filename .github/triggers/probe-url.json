@@ -1,10 +1,14 @@
 {
-  "note": "12.09: хвост places-gvp-crosscheck (run 1 отдал 100 из 117, offset=0) — недостающие 17 самых близких пар для составления списка подтверждённых соответствий places<->VolcanoNumber (#1830).",
-  "run": 480,
+  "note": "12.09: точечная проверка двух оставшихся исправленных черновиков (Терпук, Спокойный) — предыдущий прогон обрезался по bytes=40000 раньше конца алфавитного списка.",
+  "run": 492,
   "urls": [
-    "https://vedarai.ru/api/cron/places-gvp-crosscheck?part=items&offset=100&limit=20"
+    "https://vedarai.ru/api/cron/place-description-drafts?detail=true"
   ],
-  "bytes": 20000,
-  "timeout": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; volcano descriptions research)"
+  "post": [],
+  "bytes": 200,
+  "timeout": 30,
+  "around": ["\"place_name\":\"Терпук\"", "\"place_name\":\"Спокойный\""],
+  "aroundLines": 60,
+  "aroundHits": 1,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; targeted check terpuk spokoiny)"
 }

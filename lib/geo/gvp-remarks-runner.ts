@@ -60,6 +60,13 @@ export interface DraftOutcome {
 export interface RunDraftsParams {
   dryRun: boolean;
   bounds?: typeof KAMCHATKA_BOUNDS;
+  /**
+   * Ограничить прогон конкретными местами (12.09: точечная пересборка семи
+   * пар после исправления перепутанных `volcanoNumber` в реестре —
+   * `GVP_CONFIRMED_PAIRS`, без повторной траты AI-бюджета на уже верные
+   * черновики). `undefined`/пусто — без ограничения, как раньше.
+   */
+  placeIds?: string[];
 }
 
 export interface RunDraftsResult {
@@ -86,8 +93,10 @@ export async function runGvpRemarksDrafts(params: RunDraftsParams): Promise<RunD
 
   const translationCache = new Map<number, string | null>();
   const outcomes: DraftOutcome[] = [];
+  const onlyIds = params.placeIds && params.placeIds.length > 0 ? new Set(params.placeIds) : null;
 
   for (const pair of GVP_CONFIRMED_PAIRS) {
+    if (onlyIds && !onlyIds.has(pair.placeId)) continue;
     if (reviewed.has(pair.placeId)) {
       outcomes.push({ placeId: pair.placeId, placeName: pair.placeName, volcanoNumber: pair.volcanoNumber, status: 'skipped_reviewed' });
       continue;

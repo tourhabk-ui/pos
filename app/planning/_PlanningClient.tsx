@@ -3605,7 +3605,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               Показывается лишь когда хранилище настроено: пока своей карты
               нет ни у кого, эта строка была бы шумом на каждом экране. */}
           {mapPackBaseUrl && fieldBaseMap.kind === 'leaflet' && (
-            <p className="px-3 pb-2 text-[11px] leading-snug"
+            <p className="px-3 pb-1 text-[11px] leading-snug"
               style={{ color: 'var(--text-muted)' }}>
               Подложка OSM: {fieldBaseMap.reason}
             </p>
@@ -3616,7 +3616,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               (z-10) — на самой карте (z-0) его накрывала бы эта же
               карточка. См. комментарий у vedarDiag выше. */}
           {fieldBaseMap.kind === 'vedar' && vedarDiag && (
-            <p className="px-3 pb-2 text-[11px] leading-snug"
+            <p className="px-3 pb-1 text-[11px] leading-snug"
               style={{ color: 'var(--warning)' }}>
               {/* Формулировку целиком приносит VedarMap: «не отрисовалась»
                   и «не пришёл один слой» — разные беды, и решает это та
@@ -3628,7 +3628,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           {/* Чего в пакете НЕТ — словами из паспорта пакета, не тишиной.
               Цвет приглушённый, не тревожный: это факт о данных, не сбой. */}
           {fieldBaseMap.kind === 'vedar' && coverageNote && (
-            <p className="px-3 pb-2 text-[11px] leading-snug"
+            <p className="px-3 pb-1 text-[11px] leading-snug"
               style={{ color: 'var(--text-muted)' }}>
               {coverageNote}
             </p>
@@ -3647,7 +3647,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               не знает вовсе — их подавлять нечем и незачем. */}
           {status && !(hasRoute && recovery.kind === 'stale_fix') && (
             <div
-              className="flex items-center gap-2 px-4 py-2.5 text-xs"
+              className="flex items-center gap-2 px-4 py-2 text-xs"
               style={{
                 color: status.tone === 'warn' ? 'var(--warning)' : 'var(--text-secondary)',
               }}

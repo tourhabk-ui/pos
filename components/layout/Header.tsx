@@ -65,9 +65,39 @@ export function Header() {
         left: 0,
         right: 0,
         zIndex: 50,
-        display: 'flex',
+        /**
+         * Три дорожки, а не flex с absolute-навигацией посередине.
+         *
+         * До 12.09 центральная навигация стояла `position:absolute; left:50%`
+         * ПОВЕРХ ряда кнопок справа. Позиционированный элемент красится выше
+         * статического — значит половина ширины навигации, дотянувшаяся до
+         * кнопок, забирала их клики себе. Замер (headless-браузер,
+         * elementFromPoint по центру каждой кнопки) на ширине окна:
+         *
+         *   1024px — перехвачены ВСЕ шесть, включая SOS («Операторы»);
+         *   1280px — поиск, гео, тема;
+         *   1440px — поиск;
+         *   1536px и шире — чисто.
+         *
+         * То есть на всяком ноутбуке кнопка поиска и переключатель темы не
+         * работали, а на 1024-1150 не работал и SOS: человек жал красную
+         * кнопку и попадал в «Операторы». §7 и §11 требуют обратного — SOS
+         * доступен всегда; кнопка, которую перекрывает меню, этого не даёт.
+         *
+         * Нашлось не глазами: ночной e2e честно кликал по роли и подписи, и
+         * Playwright назвал перехватчика поимённо. Прежний разбор (прогон 7)
+         * списал это на «селектор взял перекрытый элемент» — селектор был
+         * верен, перекрытие настоящее.
+         *
+         * Grid снимает причину, а не симптом: у навигации своя дорожка, лечь
+         * поверх соседней она не может ни при какой ширине и ни при каком
+         * числе пунктов. Цена — на узких окнах навигация не «съезжает», а
+         * раздвигает дорожки, поэтому ниже xl она скрыта (см. ниже).
+         */
+        display: 'grid',
+        gridTemplateColumns: '1fr auto 1fr',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        gap: '8px',
         padding: 'calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px',
         fontFamily: FO,
         transition: 'background 0.3s, box-shadow 0.3s',
@@ -84,6 +114,7 @@ export function Header() {
         style={{
           display: 'flex',
           alignItems: 'center',
+          justifySelf: 'start',
           color: 'var(--text-primary)',
           textDecoration: 'none',
           flexShrink: 0,
@@ -92,14 +123,27 @@ export function Header() {
         <Logo size={24} />
       </Link>
 
-      {/* Center nav — desktop only */}
+      {/*
+        Центральная навигация — только там, где она ПОМЕЩАЕТСЯ.
+
+        Десять пунктов занимают 896-970px (замер: два разных гротеска, живой
+        шрифт между ними), ряд кнопок справа — 274px. На дорожках это значит
+        минимум ~1180px на всё вместе; ниже навигация не сжимается, а
+        выталкивает кнопки за край экрана — SOS уезжал бы вправо за границу
+        окна. Поэтому порог xl (1280px), с запасом в сотню пикселей к худшему
+        из замеров, а не lg (1024px), при котором она и налезала на кнопки.
+
+        На окнах уже 1280 платформа достижима через «Ещё» (/menu, реестр
+        lib/navigation/platform-links) — ровно так же, как на телефоне;
+        сторож mobile-two-taps держит, что оттуда любая публичная страница в
+        двух касаниях. Меню, закрывающее собой SOS, хуже меню, убранного в
+        «Ещё».
+      */}
       <nav style={{
         alignItems: 'center',
-        gap: '4px',
-        position: 'absolute',
-        left: '50%',
-        transform: 'translateX(-50%)',
-      }} className="hidden lg:flex">
+        justifySelf: 'center',
+        gap: '2px',
+      }} className="hidden xl:flex">
         {[
           { href: '/hub/fishing', label: 'Рыбалка' },
           { href: '/places',      label: 'Места' },
@@ -116,7 +160,7 @@ export function Header() {
             key={item.href}
             href={item.href}
             style={{
-              padding: '6px 14px',
+              padding: '6px 10px',
               borderRadius: '20px',
               fontFamily: FO,
               fontSize: '14px',
@@ -133,7 +177,7 @@ export function Header() {
       </nav>
 
       {/* Right side — icon buttons */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifySelf: 'end', gap: '2px' }}>
         {/* Search */}
         <button
           onClick={() => window.dispatchEvent(new Event('open-search'))}

@@ -13,9 +13,26 @@ const ROOT = process.cwd();
 const SRC = readFileSync(join(ROOT, 'app/api/cron/place-description-drafts/route.ts'), 'utf-8');
 
 describe('place-description-drafts — предлагает, не публикует', () => {
-  it('экспортирует только POST', () => {
+  it('экспортирует POST (пишет черновик) и GET (только читает итог)', () => {
     expect(SRC).toMatch(/export async function POST/);
-    expect(SRC).not.toMatch(/export async function (GET|PUT|PATCH|DELETE)/);
+    expect(SRC).toMatch(/export async function GET/);
+    expect(SRC).not.toMatch(/export async function (PUT|PATCH|DELETE)/);
+  });
+
+  it('GET не запускает перевод и не пишет: только SELECT по своей таблице', () => {
+    const getBody = SRC.slice(SRC.indexOf('export async function GET'), SRC.indexOf('export async function POST'));
+    expect(getBody).not.toMatch(/UPDATE|INSERT INTO|DELETE FROM/);
+    expect(getBody).not.toContain('runGvpRemarksDrafts');
+    expect(getBody).toMatch(/SELECT status, COUNT\(\*\)::text AS n\s*\n\s*FROM place_description_drafts/);
+    expect(getBody).toContain("WHERE source = 'gvp'");
+  });
+
+  it('?detail=true отдаёт тексты pending-черновиков для ручной сверки, тоже только SELECT', () => {
+    const getBody = SRC.slice(SRC.indexOf('export async function GET'), SRC.indexOf('export async function POST'));
+    expect(getBody).toContain("searchParams.get('detail') === 'true'");
+    expect(getBody).toMatch(/SELECT d\.place_id, p\.name AS place_name, d\.original_text, d\.translated_text, d\.model/);
+    expect(getBody).toContain("d.status = 'pending'");
+    expect(getBody).not.toMatch(/UPDATE|INSERT INTO|DELETE FROM/);
   });
 
   it('не трогает places.description напрямую', () => {
@@ -37,5 +54,11 @@ describe('place-description-drafts — предлагает, не публику
 
   it('маркер версии для workflow есть', () => {
     expect(SRC).toMatch(/place_description_drafts_v\d+/);
+  });
+
+  it('?place_ids= ограничивает прогон точечно (12.09: правка реестра без повторной траты AI на верные черновики)', () => {
+    const postBody = SRC.slice(SRC.indexOf('export async function POST'));
+    expect(postBody).toContain("searchParams.get('place_ids')");
+    expect(postBody).toContain('runGvpRemarksDrafts({ dryRun, placeIds })');
   });
 });

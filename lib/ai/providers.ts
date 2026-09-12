@@ -3804,9 +3804,30 @@ export function isWaterfallErrorResponse(text: string): boolean {
  */
 export async function callAIQuality(
   messages: ChatMessage[],
-  opts: { maxTokens?: number; temperature?: number; json?: boolean } = {},
+  opts: { maxTokens?: number; temperature?: number; json?: boolean; deepThinking?: boolean } = {},
 ): Promise<string> {
-  const { maxTokens = 1600, temperature = 0.5, json = false } = opts;
+  // `deepThinking` (по умолчанию true — прежнее поведение для прозы) даёт
+  // структурированным вызывающим отказаться от размышления.
+  //
+  // Разбор панели 12.09 (scout-innovator, «модель=quality: ответ оборван…
+  // после дедупа/критика осталось 0»): арифметика двух реальных прогонов
+  // показала, что размышление не фиксировано, а РАСТЯГИВАЕТСЯ под бюджет.
+  // maxTokens подняли 800→3000 (05.09, комментарий ниже у deepThinkingBudget)
+  // — общий бюджет вырос на 2200 токенов, а точка обрыва ответа сдвинулась
+  // с ~2440 до ~2527 символов, то есть меньше чем на 100. Прибавка бюджета
+  // ушла в ДОПОЛНИТЕЛЬНОЕ размышление, а не в ответ: фиксированная надбавка
+  // +1500 у `deepThinkingBudget` калибровалась по короткой задаче (575-686
+  // знаков рассуждения) и не держит многошаговый анализ 2-3 предложений с
+  // шагами и критериями. Поднимать потолок ещё раз — та же попытка третий
+  // раз подряд без причины ждать другого исхода.
+  //
+  // У scout-innovator результат думания и так проверяет ОТДЕЛЬНЫЙ LLM-критик
+  // (criticReviewProposal) ниже по цепочке — вторая проверка качества уже
+  // есть, и получить полный, но менее «глубоко обдуманный» JSON лучше, чем
+  // надёжно получать 0 предложений после обрыва. Для прозы (Editor, Scout
+  // Digest, посты в канал) размышление остаётся включённым — там владелец
+  // явно выбрал глубину важнее скорости (04.09, см. deepThinkingBudget).
+  const { maxTokens = 1600, temperature = 0.5, json = false, deepThinking = true } = opts;
   const payload = messages.map(({ role, content }) => ({ role, content }));
   // Формат просим у ПРОВАЙДЕРА, а не уговариваем словами в промпте. DeepSeek и
   // Qwen — OpenAI-совместимые и response_format понимают; водопад-запасной путь
@@ -3827,20 +3848,34 @@ export async function callAIQuality(
       const model = await resolveContentModel('deepseek');
       // Путь генерации ТЕКСТА для людей: размышление включено, потолок
       // покрывает и его, и ответ. Иначе получаем ровно то, на что жалуется
-      // владелец, — быстрый поверхностный текст.
+      // владелец, — быстрый поверхностный текст. Для structured-JSON
+      // вызывающих с deepThinking=false потолок — сам maxTokens, без
+      // надбавки: размышления нет, весь бюджет достаётся ответу.
       const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
         body: JSON.stringify({
-          model, temperature, max_tokens: deepThinkingBudget(maxTokens),
-          messages: payload, ...format, ...deepseekThinking('deep'),
+          model, temperature,
+          max_tokens: deepThinking ? deepThinkingBudget(maxTokens) : maxTokens,
+          messages: payload, ...format, ...deepseekThinking(deepThinking ? 'deep' : 'fast'),
         }),
       }, { timeoutMs: 90_000, label: 'deepseek:content' });
       if (res.ok) {
-        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const data = await res.json() as {
+          choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+          usage?: ProviderUsage;
+        };
         const text = data?.choices?.[0]?.message?.content;
         if (text?.trim()) {
           logLLMUsage(answeredModel(model, data), data.usage);
+          // Диагностика для следующего разбора обрыва (см. пояснение выше у
+          // `deepThinking`): без этой строки узнать, сколько бюджета съело
+          // размышление, можно было только повторной догадкой. reasoning_content
+          // есть только при deepThinking=true — при fast-режиме поле пустое.
+          const reasoningLen = data?.choices?.[0]?.message?.reasoning_content?.length ?? 0;
+          if (reasoningLen > 0) {
+            console.error(`[AI] deepseek:content размышление=${reasoningLen}знаков ответ=${text.length}знаков maxTokens=${maxTokens}`);
+          }
           return text;
         }
         recordAiLegFailure('deepseek:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
@@ -3889,7 +3924,7 @@ export async function callAIQuality(
 /** Как callAIQuality, но отказ виден как null, а не строкой-заглушкой. */
 export async function callAIQualityOrNull(
   messages: ChatMessage[],
-  opts: { maxTokens?: number; temperature?: number; json?: boolean } = {},
+  opts: { maxTokens?: number; temperature?: number; json?: boolean; deepThinking?: boolean } = {},
 ): Promise<string | null> {
   const text = await callAIQuality(messages, opts);
   return isWaterfallErrorResponse(text) ? null : text;

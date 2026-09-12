@@ -98,6 +98,19 @@ describe('runGvpRemarksDrafts — боевой прогон', () => {
     expect(queryMock.mock.calls.some(([s]) => /INSERT/i.test(s as string))).toBe(false);
   });
 
+  it('placeIds — точечный повтор ТОЛЬКО перечисленных мест (12.09: не тратить AI на уже верные черновики)', async () => {
+    const result = await runGvpRemarksDrafts({ dryRun: false, placeIds: ['p-2'] });
+    // p-2 не имеет Remarks — AI не звался вовсе, а p-1 (был бы вызван без фильтра) не тронут.
+    expect(aiMock).not.toHaveBeenCalled();
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ placeId: 'p-2', status: 'skipped_no_remarks' });
+  });
+
+  it('placeIds пустой/не задан — ведёт себя как раньше, без ограничения', async () => {
+    const result = await runGvpRemarksDrafts({ dryRun: false, placeIds: [] });
+    expect(result.outcomes).toHaveLength(2);
+  });
+
   it('уже рассмотренный человеком черновик — пропускается, не переводится заново', async () => {
     queryMock.mockImplementation(async (sql: string) => {
       if (/SELECT place_id FROM place_description_drafts/.test(sql)) {

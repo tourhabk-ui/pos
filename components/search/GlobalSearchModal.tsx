@@ -122,8 +122,27 @@ export function GlobalSearchModal() {
         aria-hidden
       />
 
-      {/* Modal */}
-      <div className="fixed z-[201] top-[10vh] left-1/2 -translate-x-1/2 w-full max-w-xl px-4">
+      {/*
+        Modal.
+
+        role="dialog" + aria-modal + подпись — не украшение и не «для теста».
+        До 12.09 модалка поиска была набором div'ов: человек со скринридером
+        нажимал кнопку «Поиск (Ctrl+K)» в шапке, окно открывалось, и ему не
+        сообщалось НИЧЕГО — ни что появился диалог, ни что в нём. Поиск в
+        шапке у нас единственный (решение владельца §2: только иконка, всё
+        остальное в модалке), то есть без этих атрибутов искать по платформе
+        с экранным диктором было нечем.
+
+        Нашлось, когда e2e-проверка «поиск открывается модальным окном» стала
+        спрашивать по РОЛИ, а не по классам: getByRole('dialog') не нашёл
+        ничего. Тест был прав, разметка — нет (DS §10).
+      */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Поиск по платформе"
+        className="fixed z-[201] top-[10vh] left-1/2 -translate-x-1/2 w-full max-w-xl px-4"
+      >
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden">
 
           {/* Input row */}

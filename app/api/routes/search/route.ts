@@ -89,13 +89,25 @@ export async function GET(req: NextRequest) {
 
   const rawQ = parsed.data.q.trim();
 
-  // Семантический поиск для запросов ≥ 3 символов
   if (rawQ.length >= 3) {
     const cached = getRouteSearchCache(rawQ) as { routes: RouteRow[]; semantic: boolean } | null;
     if (cached) {
       return NextResponse.json({ ...cached, cache_hit: true });
     }
+  }
 
+  // Семантика — необязательный СЛОЙ поверх надёжного ILIKE ниже, не замена
+  // ему. До 12.09 успешная (даже слабая, порог всего 0.3) семантика
+  // обрывала функцию ранним return до ILIKE — точное совпадение по имени
+  // терялось, если модель находила хоть что-то постороннее выше порога.
+  // Ровно так маршрут, названный ровно как запрос («Горный массив
+  // Вачкажец»), рисковал не попасть в список: семантике незачем знать
+  // конкретное имя, а её успех отменял единственную ветку, которая ищет по
+  // точному совпадению (владелец 12.09: «на маршруте при кнопке сменить
+  // маршрут не смог найти Вачкажец»). ILIKE теперь считается ВСЕГДА,
+  // семантика лишь дополняет его тем, чего нет среди точных совпадений.
+  let semanticGraded: Array<RouteRow & { line_grade: PassportGrade; similarity?: number }> = [];
+  if (rawQ.length >= 3) {
     try {
       const t0 = Date.now();
       const semanticResults = await semanticSearch(rawQ, 15);
@@ -108,20 +120,17 @@ export async function GET(req: NextRequest) {
 
         // Обогащаем SQL-данными, сохраняем порядок по схожести
         const byId = Object.fromEntries(rows.map(r => [r.id, r]));
-        const ordered = withLineGrade(semanticResults
+        semanticGraded = withLineGrade(semanticResults
           .filter(r => byId[r.id])
           .map(r => ({ ...byId[r.id], similarity: r.similarity })));
-
-        setRouteSearchCache(rawQ, { routes: ordered, semantic: true });
-        return NextResponse.json({ routes: ordered, semantic: true });
       }
     } catch (err) {
       console.error('[search] semantic error', { query_length: rawQ.length, error: err instanceof Error ? err.message : String(err) });
-      // Семантический поиск упал → ILIKE фоллбэк ниже
+      // Семантический поиск упал → ILIKE ниже всё равно отработает
     }
   }
 
-  // ILIKE фоллбэк: по названию маршрута ИЛИ по названию места на нём —
+  // ILIKE: по названию маршрута ИЛИ по названию места на нём —
   // навигаторный выбор ищет именно место («Авачинский» → все маршруты через него)
   const like = `%${rawQ}%`;
   try {
@@ -176,10 +185,31 @@ export async function GET(req: NextRequest) {
        LIMIT 15`,
       [like],
     );
-    return NextResponse.json({ routes: withLineGrade(result.rows), semantic: false });
+    // Точное совпадение — первым, семантика лишь добавляет то, чего среди
+    // точных совпадений нет (дедуп по id, ILIKE не переопределяется).
+    const ilikeGraded = withLineGrade(result.rows);
+    const seen = new Set(ilikeGraded.map(r => r.id));
+    const merged = [
+      ...ilikeGraded,
+      ...semanticGraded.filter(r => !seen.has(r.id)),
+    ].slice(0, 15);
+    const semantic = semanticGraded.length > 0;
+
+    if (semantic) {
+      // Кэшируем только когда семантика реально что-то дала: сам ILIKE —
+      // дешёвый SQL, кэш ему не нужен, а вычисление эмбеддинга — дорогая
+      // часть, которую кэш и должен избавить от повтора.
+      setRouteSearchCache(rawQ, { routes: merged, semantic });
+    }
+    return NextResponse.json({ routes: merged, semantic });
   } catch (err) {
-    // В поле лучше пустой список, чем 500 — UI покажет «ничего не нашлось»
+    // В поле лучше пустой список, чем 500 — UI покажет «ничего не нашлось».
+    // Если ILIKE упал, но семантика успела что-то найти — лучше отдать её,
+    // чем пустоту.
     console.error('[search] fallback error', { error: err instanceof Error ? err.message : String(err) });
+    if (semanticGraded.length > 0) {
+      return NextResponse.json({ routes: semanticGraded.slice(0, 15), semantic: true });
+    }
     return NextResponse.json({ routes: [], semantic: false });
   }
 }
