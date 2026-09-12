@@ -1,10 +1,11 @@
 {
-  "note": "12.09: хвост places-gvp-crosscheck (run 1 отдал 100 из 117, offset=0) — недостающие 17 самых близких пар для составления списка подтверждённых соответствий places<->VolcanoNumber (#1830).",
-  "run": 480,
-  "urls": [
-    "https://vedarai.ru/api/cron/places-gvp-crosscheck?part=items&offset=100&limit=20"
+  "note": "12.09: place-description-drafts.yml сорвался по таймауту ожидания деплоя (55 мин, built_at reason=no_git_head) — но main с тех пор ушёл дальше (#1833 и др.), проверяю напрямую, жив ли новый роут на проде прямо сейчас (POST-only, поэтому через post, не urls).",
+  "run": 481,
+  "urls": [],
+  "post": [
+    {"url": "https://vedarai.ru/api/cron/place-description-drafts?dry_run=true", "body": {}}
   ],
   "bytes": 20000,
   "timeout": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; volcano descriptions research)"
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; probe deploy status)"
 }
