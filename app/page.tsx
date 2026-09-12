@@ -17,6 +17,7 @@ import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import { MoodEntry } from '@/components/homepage/MoodEntry'
 import { SeasonNow } from '@/components/homepage/SeasonNow'
+import BottomNav from '@/components/shared/BottomNav'
 import HomeV8Client from './_home/_HomeV8Client'
 import { getHomeV8Data } from './_home/data'
 import { getPlatformCounts } from '@/lib/stats/platform-counts'
@@ -137,7 +138,7 @@ export default async function Page() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <OnSiteBanner />
-      <main className="flex-1 pt-[56px]">
+      <main className="flex-1 pt-[56px] pb-16 md:pb-0">
 
         {/* Hero — статус дня: уровень безопасности + поиск маршрута */}
         <HeroStatus safety={safety} fetchedAt={fetchedAt} />
@@ -186,6 +187,15 @@ export default async function Page() {
       </main>
       {/* Футер — только desktop (CLAUDE.md §2); на мобильном — своя нижняя навигация v8 */}
       <Footer />
+      {/* §2/§10.09 (issue #1839): это дерево рендерится не только настоящему
+          десктопу, но и любому UA, который серверная эвристика выше не
+          распознала как телефон (неоднозначный UA — безопасный дефолт).
+          BottomNav сам скрывает себя на десктопных ширинах через `md:hidden`
+          (тот же приём, что в HubLayout) — значит рендерить его здесь
+          безусловно, а не полагаться ещё раз на UA-нюх. Так навигация
+          остаётся единой на ВСЕХ экранах, как обещает §2, а не только там,
+          где UA-строка распозналась правильно. */}
+      <BottomNav activePath="/" />
     </div>
   );
 }
