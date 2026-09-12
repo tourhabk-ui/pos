@@ -1,11 +1,10 @@
 {
-  "note": "11.09 (run 478 продолжение): проверить resultType=hits (общий счёт), propertyName (обрезка полей — Remarks делает payload огромным на 1400+ вулканов), и bbox-фильтр по краю Камчатки (155,50,167,64) — тот же конверт, что у places-osm-crosscheck.",
-  "run": 479,
+  "note": "12.09: хвост places-gvp-crosscheck (run 1 отдал 100 из 117, offset=0) — недостающие 17 самых близких пар для составления списка подтверждённых соответствий places<->VolcanoNumber (#1830).",
+  "run": 480,
   "urls": [
-    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/wfs?service=WFS&version=2.0.0&request=GetFeature&typeName=GVP-VOTW:E3WebApp_HoloceneVolcanoes&resultType=hits",
-    "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/wfs?service=WFS&version=2.0.0&request=GetFeature&typeName=GVP-VOTW:E3WebApp_HoloceneVolcanoes&outputFormat=application/json&propertyName=VolcanoNumber,VolcanoName,Country,VolcanoType,LastEruption,Elevation,LatitudeDecimal,LongitudeDecimal&bbox=155,50,167,64,EPSG:4326"
+    "https://vedarai.ru/api/cron/places-gvp-crosscheck?part=items&offset=100&limit=20"
   ],
   "bytes": 20000,
   "timeout": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; volcano crosscheck research)"
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; volcano descriptions research)"
 }
