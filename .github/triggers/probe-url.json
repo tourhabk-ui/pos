@@ -1,12 +1,14 @@
 {
-  "note": "12.09: диагностика бага «Сменить маршрут» — поиск не находит Вачкажец. Проверяем /api/routes/search напрямую (публичный GET, без auth) с реальным запросом пользователя.",
-  "run": 483,
+  "note": "12.09: после деплоя коммита ce150da — читаем реальный итог боевого перевода вулканов (#1830) новым GET /api/cron/place-description-drafts, без повторной траты AI. Ждём выката по маркеру нового probe.",
+  "run": 484,
   "urls": [
-    "https://vedarai.ru/api/routes/search?q=%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86",
-    "https://vedarai.ru/api/routes/search?q=%D0%B2%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86%D0%B5"
+    "https://vedarai.ru/api/cron/place-description-drafts"
   ],
   "post": [],
-  "bytes": 20000,
-  "timeout": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; route-search vachkazhets debug)"
+  "bytes": 5000,
+  "timeout": 30,
+  "until": "place_description_drafts_status_v1",
+  "retries": 15,
+  "retryDelay": 60,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place-description-drafts status check)"
 }
