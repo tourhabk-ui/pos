@@ -3,7 +3,7 @@
 // Kamchatour Hub - SMS Notification Service
 // =============================================
 
-import { config } from '@/lib/config';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 interface SMSMessage {
   to: string;
@@ -24,6 +24,17 @@ export class SMSNotificationService {
   constructor() {
     this.apiKey = process.env.SMS_RU_API_KEY || '';
     if (!this.apiKey) {
+      // Пустое тело этого `if` стояло здесь с заведения файла: автор увидел
+      // состояние «ключа нет», завёл под него ветку и не сказал о нём ничего.
+      // Сервис молча превращался в заглушку, а «SMS не пришла» выглядело как
+      // сбой оператора связи, а не как незаданная переменная (§4.0: отказ не
+      // глушится, имя проверки — в лог). Печатается ИМЯ переменной, никогда
+      // значение.
+      logSwallowedFailure(
+        'sms',
+        'SMSNotificationService.constructor',
+        new Error('SMS_RU_API_KEY не задан — SMS-уведомления отправляться не будут'),
+      );
     }
   }
 
@@ -224,9 +235,15 @@ export class SMSNotificationService {
     }
 
     try {
-      const response = await fetch(
-        `https://sms.ru/sms/status?api_id=${this.apiKey}&sms_id=${messageId}&json=1`
-      );
+      // encodeURIComponent на обоих: ключ приходит из окружения, messageId —
+      // из ответа провайдера, и ни один из них не обязан быть безопасным в
+      // составе URL. Незакодированный `&` или `#` в значении молча обрезает
+      // строку запроса, и вопрос уходит не тот, что собирались задать.
+      const url = new URL('https://sms.ru/sms/status');
+      url.searchParams.set('api_id', this.apiKey);
+      url.searchParams.set('sms_id', messageId);
+      url.searchParams.set('json', '1');
+      const response = await fetch(url);
       const data = await response.json();
 
       return {
@@ -255,9 +272,10 @@ export class SMSNotificationService {
     }
 
     try {
-      const response = await fetch(
-        `https://sms.ru/my/balance?api_id=${this.apiKey}&json=1`
-      );
+      const url = new URL('https://sms.ru/my/balance');
+      url.searchParams.set('api_id', this.apiKey);
+      url.searchParams.set('json', '1');
+      const response = await fetch(url);
       const data = await response.json();
 
       return {
