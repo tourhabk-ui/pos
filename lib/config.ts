@@ -78,7 +78,28 @@ export const config = {
     idleTimeout: parseInt(process.env.DATABASE_IDLE_TIMEOUT || '30000'),
   },
 
-  // Настройки AI
+  /**
+   * Настройки AI. Здесь ТОЛЬКО то, что кто-то читает.
+   *
+   * До 11.09.2026 рядом лежали блоки deepseek / minimax / xai / openrouter и
+   * поле dailyBudget. Их не читал никто: вызовы к моделям идут через
+   * `lib/ai/providers.ts` со своим резолвом, а дневной бюджет считает
+   * `/api/cron/llm-budget-check` прямо из `process.env.AI_DAILY_BUDGET_USD`,
+   * мимо конфига.
+   *
+   * Сами по себе мёртвые строки стоили бы только места. Цена у них другая:
+   * читающий им ВЕРИТ. В каждом блоке лежал захардкоженный id модели —
+   * `deepseek-v4-pro` (провайдер выводит его 14.09.2026), `grok-4`,
+   * `abab6.5s-chat`, `meta-llama/llama-3.1-70b-instruct` (лето 2024), — и
+   * выглядело это ровно как место, где у платформы настраиваются модели.
+   * Настраиваются они не здесь и по другому правилу: §8 запрещает привязку к
+   * id, сильнейшую модель берут из `/v1/models` (`lib/ai/model-resolver.ts`).
+   * То есть конфиг обещал механизм, которого нет, и вдобавок противоречащий
+   * действующему правилу.
+   *
+   * §4.0, «Объявленный исход без источника»: у объявленного обязан быть
+   * потребитель. Сторож — tests/unit/config-has-consumers.test.ts.
+   */
   ai: {
     timeweb: {
       timeout: 30000,
@@ -91,42 +112,6 @@ export const config = {
         chunkSize: 1000,
       },
     },
-    deepseek: {
-      apiKey: process.env.DEEPSEEK_API_KEY || '',
-      baseUrl: 'https://api.deepseek.com/v1',
-      // Синхронный конфиг не может спросить /v1/models. deepseek-chat умер
-      // 26.07.2026 вместе с линейкой v3 — дефолт из списка поддерживаемых,
-      // override через DEEPSEEK_MODEL (как у резолвера в providers).
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
-      maxTokens: parseInt(process.env.AI_MAX_TOKENS || '4000'),
-      temperature: 0.7,
-      timeout: 30000,
-    },
-    minimax: {
-      apiKey: process.env.MINIMAX_API_KEY || '',
-      baseUrl: 'https://api.minimax.chat/v1',
-      model: 'abab6.5s-chat',
-      maxTokens: parseInt(process.env.AI_MAX_TOKENS || '4000'),
-      temperature: 0.7,
-      timeout: 30000,
-    },
-    xai: {
-      apiKey: process.env.XAI_API_KEY || '',
-      baseUrl: 'https://api.x.ai/v1',
-      model: 'grok-4',
-      maxTokens: parseInt(process.env.AI_MAX_TOKENS || '4000'),
-      temperature: 0.7,
-      timeout: 30000,
-    },
-    openrouter: {
-      apiKey: process.env.OPENROUTER_API_KEY || '',
-      baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'meta-llama/llama-3.1-70b-instruct',
-      maxTokens: parseInt(process.env.AI_MAX_TOKENS || '4000'),
-      temperature: 0.7,
-      timeout: 30000,
-    },
-    dailyBudget: parseFloat(process.env.AI_DAILY_BUDGET_USD || '10.0'),
   },
 
   // Настройки аутентификации
