@@ -157,6 +157,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'places-unmerge': ['db_read', 'db_write'],
   'prod-errors': ['db_read'],
   'prospect-scan': ['net_out', 'pd_direct'],
+  'pwa-installs-census': ['db_read'],
   'relief-coverage': ['db_read'],
   'relief-sanity': ['db_read'],
   'repo-scan': ['db_read', 'db_write', 'net_out'],
