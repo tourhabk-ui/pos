@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-12 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `952_place_description_drafts.sql`.
+> Снято 2026-09-12 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `954_tour_payments_refund_manual.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 242 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3203 |
-| Внешних ключей | 260 |
+| Колонок | 3204 |
+| Внешних ключей | 261 |
 | Таблиц без единого FK в обе стороны | 70 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -139,6 +139,7 @@ erDiagram
     uuid id PK
     bigint booking_id FK
     uuid operator_id FK
+    uuid refunded_by FK
     numeric retail_amount
     numeric net_amount
     numeric commission_amount
@@ -272,6 +273,7 @@ erDiagram
   operator_tours ||--o{ tour_availability : "operator_tour_id"
   operator_bookings ||--o{ tour_payments : "booking_id"
   partners ||--o{ tour_payments : "operator_id"
+  users ||--o{ tour_payments : "refunded_by"
   users ||--o{ user_trips : "user_id"
   user_trips ||--o{ users : "active_trip_id"
   places ||..o{ location_safety_profile : "agent_route_id = places.ark_id"
@@ -315,9 +317,9 @@ erDiagram
 
 `id integer!=` `partner_id uuid!` `booking_id integer!` `booking_amount numeric!` `refund_percent numeric!` `refund_amount numeric!` `reason text` `days_before_tour integer` `cp_transaction_id text` `cp_refund_id text` `status text!=` `error_message text` `initiated_by integer` `created_at timestamptz!=` `completed_at timestamptz`
 
-**tour_payments** · 20 кол. · PK id · booking_id → operator_bookings.id, operator_id → partners.id · индексов 6
+**tour_payments** · 21 кол. · PK id · booking_id → operator_bookings.id, operator_id → partners.id, refunded_by → users.id · индексов 6
 
-`id uuid!=` `booking_id bigint!` `operator_id uuid!` `retail_amount numeric!` `net_amount numeric!` `commission_amount numeric!` `commission_rate numeric!` `currency varchar!=` `cp_transaction_id varchar` `cp_invoice_id varchar` `cp_payment_method varchar` `status varchar!=` `paid_at timestamp` `release_after timestamp` `released_at timestamp` `refunded_at timestamp` `refund_amount numeric` `refund_reason text` `created_at timestamp=` `updated_at timestamp=`
+`id uuid!=` `booking_id bigint!` `operator_id uuid!` `retail_amount numeric!` `net_amount numeric!` `commission_amount numeric!` `commission_rate numeric!` `currency varchar!=` `cp_transaction_id varchar` `cp_invoice_id varchar` `cp_payment_method varchar` `status varchar!=` `paid_at timestamp` `release_after timestamp` `released_at timestamp` `refunded_at timestamp` `refund_amount numeric` `refund_reason text` `created_at timestamp=` `updated_at timestamp=` `refunded_by uuid`
 
 **transfer_transactions** · 14 кол. · PK id · driver_id → drivers.id, operator_id → partners.id, transfer_id → transfers.id, vehicle_id → vehicles.id · индексов 5
 
@@ -759,7 +761,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `user_id uuid` `token varchar!` `expires_at timestamptz!` `created_at timestamptz=`
 
-**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_referral_links, audit_logs, board_meeting_sessions, booking_logs, booking_waivers, bookings, chat_sessions, client_communications, collections, commission_payouts, conversation_messages, conversation_participants, conversations, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partners, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tour_selections, tourist_profiles, transfer_reviews, transfer_seat_bookings, transfers, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
+**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_referral_links, audit_logs, board_meeting_sessions, booking_logs, booking_waivers, bookings, chat_sessions, client_communications, collections, commission_payouts, conversation_messages, conversation_participants, conversations, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partners, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tour_payments, tour_selections, tourist_profiles, transfer_reviews, transfer_seat_bookings, transfers, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
 
 `id uuid!=` `email varchar!` `name varchar!` `password_hash varchar!` `role varchar!` `preferences jsonb=` `created_at timestamptz=` `updated_at timestamptz=` `recommendations jsonb` `recommended_at timestamptz` `phone varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `referral_code varchar` `referred_by uuid` `total_spent numeric=` `pending_role text` `role_applied_at timestamp` `telegram_id bigint` `telegram_username varchar` `pd_consent_given boolean=` `marketing_consent boolean=` `telegram_chat_id bigint` `is_active boolean=` `mfa_secret text` `mfa_enabled boolean=` `metadata jsonb=` `active_trip_id uuid` `active_trip_since timestamptz` `max_user_id bigint` `max_username text` `is_blocked boolean!=` `blocked_reason text`
 
