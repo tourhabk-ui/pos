@@ -54,9 +54,20 @@ describe('оборванный по потолку токенов массив (
     // вовсе — ключ DashScope отвергнут в обоих регионах. Требование к потолку
     // от этого не ослабло, а сузилось до единственного оставшегося пути.
     expect(INNOVATOR).not.toMatch(/callQwen\(/);
-    expect(INNOVATOR).toMatch(/callAIQualityOrNull\(messages, \{ maxTokens: \d{4} \}\)/);
+    expect(INNOVATOR).toMatch(/callAIQualityOrNull\(messages, \{ maxTokens: \d{4}, deepThinking: false \}\)/);
     expect(INNOVATOR).not.toMatch(/callAIWaterfallOrNull\(messages\)/);
     expect(PROVIDERS).toMatch(/max_tokens: maxTokens/);
+  });
+
+  it('12.09: подъём потолка не лечил обрыв — размышление растягивалось под бюджет, отсюда deepThinking: false', () => {
+    // Арифметика двух реальных прогонов (панель владельца): 800→3000 токенов
+    // (+2200) сдвинуло точку обрыва ответа с ~2440 до ~2527 символов (+~90).
+    // Почти вся добавка ушла в размышление, а не в ответ — значит третий
+    // подъём голого maxTokens повторил бы ту же догадку без причины ждать
+    // другого исхода. Вместо этого структурный JSON-вызов отказывается от
+    // размышления явно, а не полагается на то, что бюджет сам на него хватит.
+    expect(INNOVATOR).toMatch(/deepThinking: false/);
+    expect(INNOVATOR).not.toMatch(/callAIQualityOrNull\(messages, \{ maxTokens: \d{4} \}\)/);
   });
 });
 
