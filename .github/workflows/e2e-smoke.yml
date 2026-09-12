@@ -84,6 +84,26 @@ jobs:
       - name: Run smoke (chromium, read-only, против прода)
         run: npx playwright test test/e2e/smoke.spec.ts test/e2e/consent-gate.spec.ts --project=chromium
 
+      # ── Три спеки, которые не гонялись НИГДЕ ────────────────────────────
+      #
+      # booking-flow, quality-gates и seo-flows лежали в test/e2e/ с 14.08 и
+      # не вызывались ни одним workflow и ни одним скриптом package.json:
+      # ночной прогон называет спеки поимённо, а эти в список не попали.
+      # 242 строки проверок, которые никогда не исполнялись. Среди них —
+      # «booking modal requires auth», «POST /api/bookings requires auth»,
+      # «admin routes return 401 without token», «operator routes return 401»:
+      # то есть проверки авторизации на денежном пути были написаны и ни разу
+      # не запускались.
+      #
+      # Отдельным шагом, а не дописыванием в строку выше, намеренно. Джоб
+      # падает от любого из двух, и это верно — обе группы проверяют живой
+      # прод. Но имя шага в логе сразу говорит, ЧТО именно упало: витрина и
+      # гейт согласия или эти три. Разбирающему ночную красноту не придётся
+      # гадать, прод сломался или устарел селектор в спеке, которая лежала
+      # без дела четыре недели.
+      - name: Run booking/quality/seo (chromium, read-only, против прода)
+        run: npx playwright test test/e2e/booking-flow.spec.ts test/e2e/quality-gates.spec.ts test/e2e/seo-flows.spec.ts --project=chromium
+
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
