@@ -1,14 +1,14 @@
 {
-  "note": "12.09: тексты 18 pending-черновиков переводов ГВП (#1830) для ручной сверки — новая ветка ?detail=true.",
-  "run": 485,
+  "note": "12.09 (повтор): прошлый прогон 485 поймал СТАРУЮ сборку — маркер 'place_description_drafts_status_v1' был общим для обеих веток и не отличал детальный ответ от короткого (тот же текст, 99 байт, без pending[]). Здесь маркер сужен до поля, которое есть только в ?detail=true.",
+  "run": 486,
   "urls": [
     "https://vedarai.ru/api/cron/place-description-drafts?detail=true"
   ],
   "post": [],
   "bytes": 40000,
   "timeout": 30,
-  "until": "place_description_drafts_status_v1",
+  "until": "\"place_name\"",
   "retries": 15,
   "retryDelay": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place-description-drafts detail review)"
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place-description-drafts detail review retry)"
 }
