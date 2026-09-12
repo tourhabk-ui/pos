@@ -10,5 +10,7 @@
   ],
   "bytes": 20000,
   "timeout": 480,
+  "retries": 5,
+  "retryDelay": 60,
   "ua": "KamchatourHub/1.0 (https://vedarai.ru; gvp corrected pairs live translation, 12 places)"
 }
