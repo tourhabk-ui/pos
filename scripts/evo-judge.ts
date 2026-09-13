@@ -97,6 +97,172 @@ needs_info — находка ссылается на СУЩЕСТВУЮЩИЙ �
 
 Не выдумывай подробностей, которых нет в находке и в коде.`;
 
+/* ─── Разведданные: другой вопрос, другие вердикты ─────────────────────────── */
+
+/**
+ * Вердикт разведданным. Не «сломано ли это» — «служит ли это делу платформы».
+ *
+ * Задание владельца 13.09: «пусть судья и разведку разбирает на полезность».
+ * До этого дня разведданные не судились вовсе (решение 22.08), и причина была
+ * верной: судье КОДА они задавали вопрос, ответ на который известен заранее —
+ * его промпт прямо велит считать шумом предложения «изучить» и «внедрить».
+ * Платили за известный ответ токенами флагмана, а цифра «шум 34» читалась как
+ * точность сканера кода, которой не являлась.
+ *
+ * Вопрос поменяли — значит поменялись и промпт, и вердикты, и цена перестала
+ * быть платой за известное.
+ *
+ * ЧТО СУДЬЯ МОЖЕТ ЗНАТЬ. Он видит ТОЛЬКО заголовки — ни репозитория, ни базы.
+ * Поэтому вердикты назначены так, чтобы каждый выводился из текста и
+ * объявленной цели платформы, а не из состояния кода. Спросить «есть ли у нас
+ * данные о медведях» значило бы заказать выдумку (§4.0: промпт не требует
+ * того, чего нет в данных).
+ */
+export type IntelVerdict =
+  /** Служит объявленной главной цели платформы — безопасности туриста в поле. */
+  | 'worth'
+  /** Про туриста, но не про его безопасность: удобство, коммерция. */
+  | 'product'
+  /** Про нас, а не про туриста: инфраструктура, ИИ, разработка. */
+  | 'internal'
+  /** Повторяет другую позицию этого же списка — и называет какую. */
+  | 'duplicate'
+  /** Мимо: не про эту платформу, или уже закрыто. */
+  | 'off'
+  /** Не разобрана: модель не ответила или ответила не в форме. */
+  | 'unjudged';
+
+export interface JudgedIntel {
+  id: string;
+  title: string;
+  verdict: IntelVerdict;
+  reason: string;
+  /** Номер позиции-оригинала (1-based), когда вердикт `duplicate`. */
+  duplicateOf?: number;
+  model?: string;
+  provenance?: string[];
+}
+
+export const INTEL_VERDICT_RU: Record<IntelVerdict, string> = {
+  worth: 'служит безопасности',
+  product: 'польза туристу',
+  internal: 'про нас',
+  duplicate: 'дубль',
+  off: 'мимо',
+  unjudged: 'не разобрана',
+};
+
+const INTEL_SYSTEM = `Ты разбираешь ИДЕИ для туристической платформы Камчатки — не код.
+
+Про платформу, и суди только по этому, а не по общим соображениям о продуктах:
+- объявленная главная цель — БЕЗОПАСНОСТЬ ТУРИСТОВ в поле;
+- ключевые функции (карта, SOS, маршруты) обязаны работать без интернета;
+- три сущности не смешиваются: точка — географический факт, маршрут —
+  инструкция, тур — коммерческое предложение.
+
+Тебе дан пронумерованный список идей. Ответь по КАЖДОМУ номеру, одной строкой:
+N | вердикт | причина
+
+Вердикты:
+worth — служит главной цели: безопасности туриста в поле.
+product — про туриста, но не про безопасность: удобство, продажи, контент.
+internal — про нас, а не про туриста: инфраструктура, ИИ, разработка, тесты.
+duplicate:M — та же идея, что в позиции M этого списка. Номер обязателен, и M
+  не равен N. Ставь его щедро: список собран роботом, повторы в нём частые.
+off — мимо: не про эту платформу вовсе.
+
+Причина — одно предложение, не длиннее двадцати слов.
+
+Ты видишь ТОЛЬКО эти заголовки: ни кода, ни базы. Поэтому не утверждай, есть
+ли у платформы нужные данные, таблицы или интеграции — ты этого не знаешь.
+Суди по тому, чему идея служит, а не по тому, выполнима ли она.
+
+Не пропускай номера: строка нужна на каждый. Не добавляй ничего, кроме строк.`;
+
+/** Пронумерованный список идей для модели — нумерация 1-based и общая с разбором ответа. */
+export function buildIntelPrompt(items: Array<{ title: string }>): string {
+  return items.map((f, i) => `${i + 1}. ${f.title}`).join('\n');
+}
+
+/**
+ * Разбор ответа модели. Чистая функция — проверяется без сети.
+ *
+ * Позиция, на которую строки не пришло, становится `unjudged`, а не пропадает
+ * и не считается разобранной: ответ на 12 идей из 19 — это ответ на 12 (§4.0,
+ * «ноль результатов при нулевом входе — отказ, а не успех»).
+ *
+ * `duplicate` без пригодного номера — тоже `unjudged`: «это дубль чего-то» не
+ * проверяемо и человеку бесполезно, а принять такую строку значило бы вычесть
+ * позицию из очереди, не показав, чем она заменена.
+ */
+export function parseIntelAnswer(
+  answer: string,
+  items: Array<{ id: string; title: string }>,
+): JudgedIntel[] {
+  const seen = new Map<number, { verdict: IntelVerdict; reason: string; duplicateOf?: number }>();
+  const line = /^\s*(\d+)\s*[|)._-]\s*(worth|product|internal|off|duplicate(?:\s*:\s*(\d+))?)\s*[|:]\s*(.+?)\s*$/i;
+
+  for (const raw of answer.split('\n')) {
+    const m = line.exec(raw);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (!Number.isInteger(n) || n < 1 || n > items.length) continue;
+    // Первая строка на номер выигрывает: повтор номера — сбой формы, и
+    // последняя версия ничем не лучше первой.
+    if (seen.has(n)) continue;
+
+    const kind = m[2].toLowerCase();
+    const reason = m[4].trim().slice(0, 200) || 'причина не названа';
+
+    if (kind.startsWith('duplicate')) {
+      const target = m[3] ? parseInt(m[3], 10) : NaN;
+      const valid = Number.isInteger(target) && target >= 1 && target <= items.length && target !== n;
+      seen.set(n, valid
+        ? { verdict: 'duplicate', reason, duplicateOf: target }
+        : { verdict: 'unjudged', reason: 'назван дублем, но без пригодного номера оригинала' });
+      continue;
+    }
+    seen.set(n, { verdict: kind as IntelVerdict, reason });
+  }
+
+  return items.map((f, i) => {
+    const got = seen.get(i + 1);
+    return got
+      ? { id: f.id, title: f.title, ...got }
+      : { id: f.id, title: f.title, verdict: 'unjudged' as const, reason: 'строки на эту позицию в ответе не было' };
+  });
+}
+
+/**
+ * Один вызов на ВЕСЬ список — не по идее за раз, и это не экономия, а условие.
+ *
+ * Дубли видны только тому, кто держит список целиком: семь из девятнадцати
+ * позиций выпуска 13.09 повторяют друг друга (медведи на карте записаны
+ * трижды, сбои перевозки — четырежды). Спросив про каждую отдельно, повтор не
+ * поймать в принципе — каждая по отдельности выглядит осмысленной.
+ */
+export async function judgeIntel(items: Array<{ id: string; title: string }>): Promise<JudgedIntel[]> {
+  if (items.length === 0) return [];
+
+  const messages: ChatMessage[] = [
+    { role: 'system', content: INTEL_SYSTEM },
+    // ПД чистятся и здесь: заголовок идеи мог прийти из дайджеста разведки с
+    // именем или контактом внутри (152-ФЗ, lib/agents/compliance).
+    { role: 'user', content: redactPII(buildIntelPrompt(items)) },
+  ];
+
+  const res = await callAIDecisionDetailed(messages);
+  if (!res.text) {
+    const why = res.error ? `модель не ответила: ${res.error}`.slice(0, 300) : 'модель не ответила';
+    return items.map((f) => ({ id: f.id, title: f.title, verdict: 'unjudged' as const, reason: why }));
+  }
+  return parseIntelAnswer(res.text, items).map((j) => ({
+    ...j,
+    model: res.model ?? undefined,
+    provenance: res.provenance,
+  }));
+}
+
 /**
  * Кусок кода к находке — из репозитория, распакованного на том же раннере.
  *
@@ -487,7 +653,7 @@ export function selectForJudging(
 
 /** Ревизия контракта судьи. Поднимать при смене SYSTEM-промпта, формы ответа
  *  или правил отбора — правки комментариев и форматирования её не трогают. */
-export const JUDGE_CONTRACT_VERSION = 'judge-v1';
+export const JUDGE_CONTRACT_VERSION = 'judge-v2';
 
 /** Проекция для человека: один канонический Issue на окно анализа. */
 export function reportKey(days: number): string {
@@ -579,36 +745,60 @@ function isRealFinding(j: Judged): boolean {
   return j.finding.id !== '';
 }
 
-export function hashJudgeOutput(judged: Judged[], intel: Array<{ id: string; title: string }>): string {
+export function hashJudgeOutput(judged: Judged[], intel: JudgedIntel[]): string {
   const results = judged
     .filter(isRealFinding)
     .map((j) => ({ id: j.finding.id, verdict: j.verdict, reason: j.reason, model: j.model ?? null }))
     .sort((a, b) => a.id.localeCompare(b.id));
-  return sha256(canonicalJSON({ results, intel: [...intel].map((f) => f.id).sort() }));
+  // Вердикт разведданным — тоже ответ модели, и его смена обязана менять
+  // отпечаток вывода: иначе повторная доставка того же входа с ДРУГИМ
+  // разбором идей прошла бы как «ничего не изменилось».
+  const ideas = [...intel]
+    .map((f) => ({ id: f.id, verdict: f.verdict, reason: f.reason, duplicate_of: f.duplicateOf ?? null }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return sha256(canonicalJSON({ results, intel: ideas }));
 }
 
-/** Владельцу требует внимания: real/needs_info/unjudged и intel — «шум»/«починено» этот отпечаток не меняют. */
+/** Владельцу требует внимания: real/needs_info/unjudged — «шум»/«починено» этот отпечаток не меняют. */
 const ACTIONABLE_VERDICTS = new Set<Verdict>(['real', 'needs_info', 'unjudged']);
+
+/**
+ * Идея НЕ требует отдельного решения владельца, только когда у судьи есть
+ * улика, что решать нечего: это копия другой позиции (`duplicate`, и он
+ * назвал какой) или речь не об этой платформе (`off`).
+ *
+ * Всё остальное — включая `internal` и `unjudged` — считается. Соблазн
+ * вычесть «про нас» велик и ошибочен: это не улика, а вкус, и вычитание по
+ * вкусу — тот же способ сделать зелёным то, что не разобрано. До 13.09
+ * разведданные считались ВСЕ до одной, и `actionable` не мог дойти до нуля
+ * никогда: разведчик производит идеи каждый день.
+ */
+const INTEL_SETTLED = new Set<IntelVerdict>(['duplicate', 'off']);
 
 /** Разбор молчал по ВСЕЙ выборке — отдельный факт отпечатка: смена reason не создаёт новое решение, смена этого — создаёт. */
 export function isDegraded(judged: Judged[]): boolean {
   return judged.length > 0 && judged.every((j) => j.verdict === 'unjudged');
 }
 
-export function hashOwnerDecisions(judged: Judged[], intel: Array<{ id: string; title: string }>): string {
+export function hashOwnerDecisions(judged: Judged[], intel: JudgedIntel[]): string {
   const actionable = judged
     .filter((j) => isRealFinding(j) && ACTIONABLE_VERDICTS.has(j.verdict))
     .map((j) => ({ id: j.finding.id, verdict: j.verdict }))
     .sort((a, b) => a.id.localeCompare(b.id));
+  const ideas = intel
+    .filter((f) => !INTEL_SETTLED.has(f.verdict))
+    .map((f) => ({ id: f.id, verdict: f.verdict }))
+    .sort((a, b) => a.id.localeCompare(b.id));
   return sha256(canonicalJSON({
     actionable,
-    intel: [...intel].map((f) => f.id).sort(),
+    intel: ideas,
     system_failure: isDegraded(judged),
   }));
 }
 
-export function countActionable(judged: Judged[], intel: Array<{ id: string; title: string }>): number {
-  return judged.filter((j) => isRealFinding(j) && ACTIONABLE_VERDICTS.has(j.verdict)).length + intel.length;
+export function countActionable(judged: Judged[], intel: JudgedIntel[]): number {
+  return judged.filter((j) => isRealFinding(j) && ACTIONABLE_VERDICTS.has(j.verdict)).length
+    + intel.filter((f) => !INTEL_SETTLED.has(f.verdict)).length;
 }
 
 export interface ReportMeta {
@@ -667,7 +857,7 @@ export function balanceLine(b: Awaited<ReturnType<typeof checkOpenRouterBalance>
   return `Счёт OpenRouter: осталось $${b.remaining}${warn} (начислено $${b.total_credits}, потрачено $${b.total_usage}).`;
 }
 
-export function renderReport(judged: Judged[], balance?: string, intel: Array<{ title: string }> = []): string {
+export function renderReport(judged: Judged[], balance?: string, intel: JudgedIntel[] = []): string {
   const by = (v: Verdict) => judged.filter((j) => j.verdict === v);
   const real = by('real'), fixed = by('fixed'), noise = by('noise'),
     info = by('needs_info'), un = by('unjudged');
@@ -726,7 +916,12 @@ export function renderReport(judged: Judged[], balance?: string, intel: Array<{ 
   // как «их не было», а они были и стоят решения человека — просто не того,
   // которое выносит судья кода.
   if (intel.length > 0) {
-    lines.push(`Разведданных (не судятся): **${intel.length}**. Это заметки моста разведки, а не утверждения о коде: вопрос «это дефект?» им не задаётся, потому что ответ известен заранее и стоит токенов.`);
+    const settled = intel.filter((f) => INTEL_SETTLED.has(f.verdict)).length;
+    lines.push(
+      `Разведданных: **${intel.length}**, из них требуют решения **${intel.length - settled}**. ` +
+      'Это заметки моста разведки, а не утверждения о коде — им задаётся другой вопрос: ' +
+      'чему идея служит, а не сломана ли она.',
+    );
     lines.push('');
   }
 
@@ -766,12 +961,53 @@ export function renderReport(judged: Judged[], balance?: string, intel: Array<{ 
     lines.push('');
   }
   if (intel.length > 0) {
-    lines.push('## Разведданные (не судятся)');
+    lines.push('## Разведданные');
     lines.push('');
-    lines.push('Решение по ним — человека, и вопрос к ним другой: стоит ли этим заниматься, а не «сломано ли это».');
+    lines.push('Решение по ним — человека. Вердикт судьи говорит, ЧЕМУ идея служит, и не более того:');
+    lines.push('он видит только заголовки, без кода и базы, и о выполнимости ничего не знает.');
     lines.push('');
-    for (const f of intel) lines.push(`- ${f.title}`);
+
+    const dupes = intel.filter((f) => f.verdict === 'duplicate');
+    lines.push('| Вердикт | Сколько |');
+    lines.push('|---|---|');
+    for (const v of ['worth', 'product', 'internal', 'duplicate', 'off', 'unjudged'] as IntelVerdict[]) {
+      const n = intel.filter((f) => f.verdict === v).length;
+      if (n > 0) lines.push(`| ${INTEL_VERDICT_RU[v]} | ${n} |`);
+    }
     lines.push('');
+
+    // Порядок групп — порядок важности по объявленной цели платформы:
+    // безопасность туриста первой, «мимо» и дубли последними.
+    for (const v of ['worth', 'product', 'internal', 'unjudged', 'off'] as IntelVerdict[]) {
+      const group = intel.filter((f) => f.verdict === v);
+      if (group.length === 0) continue;
+      lines.push(`### ${INTEL_VERDICT_RU[v]}`);
+      for (const f of group) {
+        const n = intel.indexOf(f) + 1;
+        // Дубли не выбрасываются, а собираются под своим оригиналом: иначе
+        // «19 идей стало 12» читалось бы как потеря семи, а не как их
+        // склейка, и проверить склейку было бы нечем.
+        const copies = dupes.filter((d) => d.duplicateOf === n);
+        lines.push(`- **${f.title}** — ${f.reason}`);
+        for (const d of copies) lines.push(`  - то же самое: ${d.title}`);
+      }
+      lines.push('');
+    }
+
+    // Дубль, чей оригинал сам оказался дублем или потерялся, ниоткуда не
+    // виден — печатаем отдельно, чтобы позиция не исчезла молча.
+    const orphan = dupes.filter((d) => {
+      const target = d.duplicateOf ? intel[d.duplicateOf - 1] : undefined;
+      return !target || target.verdict === 'duplicate';
+    });
+    if (orphan.length > 0) {
+      lines.push('### Дубли, оригинал которых сам дубль');
+      for (const d of orphan) {
+        const target = d.duplicateOf ? intel[d.duplicateOf - 1] : undefined;
+        lines.push(`- **${d.title}** — ${target ? `ведёт к «${target.title}»` : 'оригинал не найден'}`);
+      }
+      lines.push('');
+    }
   }
 
   return lines.join('\n');
@@ -805,6 +1041,9 @@ async function main(): Promise<void> {
   // «что судили» гарантированно совпадает с тем, что попало в input_hash.
   const prepared = prepareJudgeInput(all, { days });
   const judged: Judged[] = prepared.picked.length > 0 ? await judgeAll(prepared.picked) : [];
+  // Разведданные — отдельный вопрос и ОДИН вызов на весь список: дубли видны
+  // только тому, кто держит его целиком (задание владельца 13.09).
+  const intel: JudgedIntel[] = await judgeIntel(prepared.intel);
 
   if (prepared.skipped_ids.length > 0) {
     // Потолок назван вслух: молчаливая обрезка читается как «разобрали всё».
@@ -819,7 +1058,7 @@ async function main(): Promise<void> {
 
   writeFileSync(
     outPath,
-    all.length === 0 ? `Открытых находок нет.\n\n${balance}\n` : renderReport(judged, balance, prepared.intel),
+    all.length === 0 ? `Открытых находок нет.\n\n${balance}\n` : renderReport(judged, balance, intel),
   );
 
   if (metaPath) {
@@ -828,9 +1067,9 @@ async function main(): Promise<void> {
       report_key: reportKey(days),
       title: reportTitle(days),
       input_hash: hashJudgeInput(prepared),
-      output_hash: hashJudgeOutput(judged, prepared.intel),
-      decision_hash: hashOwnerDecisions(judged, prepared.intel),
-      actionable: countActionable(judged, prepared.intel),
+      output_hash: hashJudgeOutput(judged, intel),
+      decision_hash: hashOwnerDecisions(judged, intel),
+      actionable: countActionable(judged, intel),
       analysis_status: isDegraded(judged) ? 'degraded' : 'complete',
     };
     writeFileSync(metaPath, JSON.stringify(meta, null, 2));
