@@ -54,7 +54,11 @@ describe('кокпит не объявляет пройденным то, к ч�
   });
 
   it('порог берётся из общего места, своего числа в экране нет', () => {
-    expect(SRC).toMatch(/import \{ approachPlan, ON_ROUTE_ENTRY_KM \} from '@\/lib\/on-route\/approach'/);
+    // Состав импорта может расти (13.09 добавился notOnRoute — #1847); суть
+    // проверки в другом: радиус входа приходит из approach.ts, а не стоит в
+    // экране своим числом.
+    expect(SRC).toMatch(/import \{[^}]*\bON_ROUTE_ENTRY_KM\b[^}]*\} from '@\/lib\/on-route\/approach'/);
+    expect(SRC).not.toMatch(/ON_ROUTE_ENTRY_KM\s*=/);
   });
 
   it('далеко от маршрута — начало маршрута, а не его конец', () => {
