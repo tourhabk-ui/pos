@@ -433,11 +433,31 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     // строка), но читать его пришли только на следующий вечер. Моки этого не
     // ловят — вывод имён делает сервер; сторож — tests/integration/
     // alert-dedup.pg.test.ts на настоящем PostgreSQL.
+    // Severity ПЕРЕОЦЕНИВАЕТСЯ — и только вверх, как и срок.
+    //
+    // До 13.09 дедуп двигал один `expires_at`, и это делало любую починку
+    // классификатора задним числом бесполезной для уже идущего события. Случай
+    // того же дня: сводка УГМС о паводке ОЯ на Большой Воровской принимается в
+    // 12:00 с severity 1, в 13:00 выходит правка, поднимающая ОЯ до двойки, — и
+    // строка живёт единицей все свои 120 часов, потому что каждый следующий
+    // опрос ленты попадает в дедуп и трогает только срок. Правка есть, до
+    // туриста она не доходит: ровно тот разрыв «я же починил», что уже был с
+    // координатами мест и статичными пакетами карты.
+    //
+    // GREATEST, а не присваивание: понижать нельзя. Иначе переформулированная
+    // МЧС сводка (тот же заголовок, мягче текст) молча сняла бы красный статус
+    // и отменила бы ещё не отправленный пуш — починка, работающая в сторону
+    // тишины, опаснее её отсутствия.
+    //
+    // Пуш при этом не дублируется: выборка рассылки берёт `push_sent_at IS
+    // NULL`, поэтому поднятый до двойки алерт уедет ровно один раз — тот, что
+    // раньше не уезжал вовсе.
     const dup = await query(
       `UPDATE external_alerts
-       SET expires_at = GREATEST(external_alerts.expires_at, $4)
+       SET expires_at = GREATEST(external_alerts.expires_at, $4),
+           severity = GREATEST(external_alerts.severity, $5)
        FROM (
-         SELECT id, expires_at
+         SELECT id, expires_at, severity
            FROM external_alerts
           WHERE alert_type = $1
             AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
@@ -446,22 +466,33 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
        ) prev
        WHERE external_alerts.id = prev.id
        RETURNING external_alerts.id,
-                 (external_alerts.expires_at IS DISTINCT FROM prev.expires_at) AS extended`,
-      [event.alert_type, event.title, event.description, expiresAt]
+                 (external_alerts.expires_at IS DISTINCT FROM prev.expires_at) AS extended,
+                 (external_alerts.severity IS DISTINCT FROM prev.severity) AS regraded`,
+      [event.alert_type, event.title, event.description, expiresAt, event.severity]
     );
     if ((dup.rowCount ?? 0) > 0) {
       // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
       // тот же пост каждые пять минут, и `GREATEST` в 287 случаях из 288
       // возвращает прежнее значение: ничего не произошло, писать нечего.
-      if (dup.rows[0]?.extended) {
+      // Переоценка разряда — событие само по себе, и молчать о нём нельзя:
+      // алерт внезапно становится громче (красный статус, пуш), и в журнале
+      // должно остаться, ПОЧЕМУ. Пишется даже когда срок не двигался: смена
+      // severity — это не «перечитали ленту».
+      const regraded = dup.rows[0]?.regraded === true;
+      if (dup.rows[0]?.extended || regraded) {
         await appendSafetyEvent({
           entityId: dup.rows[0]?.id != null ? String(dup.rows[0].id) : null,
           eventType: 'dedup_skipped',
           actorType: 'system',
           actorId: 'seismic-parser.saveEvent',
           payloadHash,
-          decisionReason: 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
-          details: { extended_expires_at: expiresAt.toISOString() },
+          decisionReason: regraded
+            ? 'контент совпал с активным алертом — разряд опасности поднят до текущей оценки классификатора'
+            : 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
+          details: {
+            extended_expires_at: expiresAt.toISOString(),
+            ...(regraded ? { regraded_to_severity: event.severity } : {}),
+          },
         });
       }
       return 'skipped';

@@ -176,6 +176,64 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
     expect(after.getTime()).toBeGreaterThan(before.getTime());
   });
 
+  it('повтор с БОЛЬШИМ разрядом поднимает severity у живого алерта', async () => {
+    // Случай 13.09: сводка УГМС о паводке ОЯ принята с severity 1, через час
+    // вышла правка классификатора, поднимающая ОЯ до двойки. Без переоценки
+    // строка жила бы единицей все свои 120 часов — то есть починка есть, а до
+    // туриста она не доходит. Ниже двойки нет ни пуша, ни красного статуса.
+    await parser.saveEvent(sampleEvent({ severity: 1 }));
+    expect(await parser.saveEvent(sampleEvent({
+      source_id: 't.me/kbgsras/pg-test-5', severity: 2,
+    }))).toBe('skipped');
+
+    const { rows } = await pool.query(
+      `SELECT severity FROM external_alerts WHERE external_id = $1`, ['t.me/kbgsras/pg-test-1'],
+    );
+    expect(Number(rows[0].severity)).toBe(2);
+    // Одна строка, не две: переоценка — это UPDATE, а не новый алерт.
+    const { rows: cnt } = await pool.query(
+      `SELECT count(*)::int AS n FROM external_alerts WHERE external_id LIKE 't.me/kbgsras/pg-test-%'`,
+    );
+    expect(cnt[0].n).toBe(1);
+  });
+
+  it('повтор с МЕНЬШИМ разрядом severity НЕ понижает', async () => {
+    // Понижение опаснее отсутствия правки: переформулированная сводка с тем же
+    // заголовком молча сняла бы красный статус и отменила ещё не ушедший пуш.
+    await parser.saveEvent(sampleEvent({ severity: 2 }));
+    expect(await parser.saveEvent(sampleEvent({
+      source_id: 't.me/kbgsras/pg-test-6', severity: 1,
+    }))).toBe('skipped');
+
+    const { rows } = await pool.query(
+      `SELECT severity FROM external_alerts WHERE external_id = $1`, ['t.me/kbgsras/pg-test-1'],
+    );
+    expect(Number(rows[0].severity)).toBe(2);
+  });
+
+  it('переоценка разряда попадает в журнал даже без сдвига срока', async () => {
+    // Алерт внезапно становится громче — в журнале обязано остаться, почему.
+    await parser.saveEvent(sampleEvent({ severity: 1 }));
+    const { rows: before } = await pool.query(
+      `SELECT count(*)::int AS n FROM safety_decision_events WHERE event_type = 'dedup_skipped'`,
+    );
+    // Тот же published_at — срок не двинется, сработает только переоценка.
+    await parser.saveEvent(sampleEvent({ source_id: 't.me/kbgsras/pg-test-7', severity: 2 }));
+    const { rows: after } = await pool.query(
+      `SELECT count(*)::int AS n FROM safety_decision_events WHERE event_type = 'dedup_skipped'`,
+    );
+    expect(after[0].n).toBe(before[0].n + 1);
+    // Именно ПОСЛЕДНЯЯ запись, а не max() по тексту: журнал копится между
+    // проверками, а «срок действия продлён» сортируется после «разряд
+    // опасности поднят» — максимум взял бы чужую строку.
+    const { rows: latest } = await pool.query(
+      `SELECT decision_reason, details FROM safety_decision_events
+        WHERE event_type = 'dedup_skipped' ORDER BY id DESC LIMIT 1`,
+    );
+    expect(String(latest[0].decision_reason)).toContain('разряд опасности поднят');
+    expect(latest[0].details?.regraded_to_severity).toBe(2);
+  });
+
   it('повтор с тем же сроком ничего не меняет и не пишет dedup_skipped', async () => {
     await parser.saveEvent(sampleEvent());
     const { rows: beforeLedger } = await pool.query(
