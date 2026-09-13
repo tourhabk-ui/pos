@@ -201,6 +201,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // 'place-coords' объявления здесь не несёт с 03.09: его зовёт place-coords.yml
   // (сухой прогон и правка по маркеру — Верхне-Опальские в 29 км от места);
   // объявление тут было бы вторым ответом на тот же вопрос, как у route-endpoints.
+  'place-description-drafts-review': { kind: 'manual', writes: true, note: 'публикация конкретных pending-черновиков ГВП в places.description по явному массиву решений человека (#1830, 13.09) — второй, CRON_SECRET вход к той же публикации, что admin PATCH; своего расписания быть не должно' },
   'place-link':                { kind: 'manual', writes: true,  note: 'привязка места к маршруту' },
   'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },
   'place-unlink':              { kind: 'manual', writes: true,  note: 'отвязка места от маршрута' },
