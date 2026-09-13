@@ -8,7 +8,7 @@ import {
   Check, ChevronRight, ChevronUp, ChevronDown, ChevronLeft, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
-  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair,
+  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair, Search,
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
@@ -80,12 +80,16 @@ import { alertGuidance, NO_GUIDANCE_TEXT } from '@/lib/safety/alert-guidance';
 import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
+import { PlacesLayerButton } from '@/components/field/PlacesLayerButton';
 import { bearingDeg } from '@/lib/on-route/bearing';
 import { isUuid } from '@/lib/text/slugify';
 import { coordIsTrustworthy, coordSourceLabel, type CoordSource } from '@/lib/places/coord-source';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
+
+/** Ключ памяти «слой всех мест включён» (см. showAllPlaces и PlacesLayerButton). */
+const ALL_PLACES_KEY = 'field_all_places_v1';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -308,6 +312,46 @@ function RouteCard({ route, onNavigate }: { route: RoutePreview; onNavigate?: (r
   );
 }
 
+/**
+ * Строка результата поиска на плане.
+ *
+ * Не RouteCard: та — карточка рельса шириной 160 пикселей с картинкой, и в
+ * вертикальном списке результатов она читается хуже строки. Здесь важны имя,
+ * через какие точки идёт путь и длина — по ним выбирают, а не по фото.
+ */
+function RouteSearchRow({ route, onNavigate }: { route: RoutePreview; onNavigate?: (routeId: string) => void }) {
+  return (
+    <div className="flex items-center gap-2 p-3 rounded-xl"
+      style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
+      <Link href={`/routes/${route.id}`} className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-[var(--text-primary)] truncate">{route.title}</p>
+        {/* Показываем только то, что пришло: пустой подзаголовок хуже
+            отсутствующего, а выдуманная длина — хуже обоих. */}
+        {(route.via || route.distanceKm != null || route.difficulty) && (
+          <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>
+            {[
+              route.via,
+              route.distanceKm != null ? `${route.distanceKm} км` : null,
+              route.difficulty ? (DIFFICULTY_LABELS[route.difficulty] ?? route.difficulty) : null,
+            ].filter(Boolean).join(' · ')}
+          </p>
+        )}
+      </Link>
+      {onNavigate && (
+        <button type="button" onClick={() => onNavigate(route.id)}
+          className="text-xs font-bold px-3 rounded-lg shrink-0 min-h-[44px] transition-all duration-200"
+          style={{
+            background: 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))',
+            color: 'var(--accent)',
+            border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
+          }}>
+          Начать
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Compass component ────────────────────────────────────────────────────────
 
 /**
@@ -493,6 +537,28 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     });
   }, []);
   /**
+   * Слой всех мест платформы — ВЫКЛЮЧЕН по умолчанию (решение владельца
+   * 13.09 по его же скрину: «получается всё в одной карте и очень сложно
+   * ориентироваться... сначала план»).
+   *
+   * Карта поля отвечает на один вопрос — куда шагать по ВЫБРАННОМУ маршруту.
+   * Вопрос «куда вообще пойти» решается раньше, на вкладке «Планирование», и
+   * у него там свой поиск: выбирать цель, выщипывая иконку из трёхсот на
+   * карте района, нельзя. Тумблер возвращает контекст, когда он нужен, и
+   * выбор переживает перезапуск — в поле переключать его каждый раз незачем.
+   */
+  const [showAllPlaces, setShowAllPlaces] = useState(false);
+  useEffect(() => {
+    try { setShowAllPlaces(window.localStorage.getItem(ALL_PLACES_KEY) === '1'); } catch { /* нет хранилища — только маршрут */ }
+  }, []);
+  const toggleAllPlaces = useCallback(() => {
+    setShowAllPlaces(v => {
+      const next = !v;
+      try { window.localStorage.setItem(ALL_PLACES_KEY, next ? '1' : '0'); } catch { /* квота — не страшно */ }
+      return next;
+    });
+  }, []);
+  /**
    * Диагностика своей карты — принята здесь, а не показана внутри неё.
    *
    * Скрин владельца 01.09: строка на карте была, её накрывала непрозрачная
@@ -638,6 +704,8 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // «Повторить» после failed. Смена этого числа перезапускает эффект ниже.
   const [buildRetryTick, setBuildRetryTick] = useState(0);
   const [searching, setSearching] = useState(false);
+  /** Поиск не дошёл до сервера — это не «ничего не нашлось» (§4.0). */
+  const [searchFailed, setSearchFailed] = useState(false);
   const [preview, setPreview] = useState<{
     id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
     /** Черта: можно ли обещать ведение. Считается на сервере — см. openPreview. */
@@ -1697,6 +1765,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     return chooseFieldBaseMap(p.lat, p.lng, mapPackBaseUrl);
   }, [coords, mapCenter, mapPackBaseUrl, track, waypoints, lastFix, isLoadingRoute]);
 
+  /**
+   * Тумблер слоя мест показывается, только когда слою есть что показать:
+   * своя карта поднята И у её пакета собран places.geojson. Пакета нет —
+   * кнопки нет: тумблер, который нечем включить, обещает слой, которого не
+   * существует (правило 10.09 — объявленный исход без источника).
+   */
+  const canTogglePlaces = fieldBaseMap.kind === 'vedar' && fieldBaseMap.source.placesUrl !== null;
+
   // Паспорт пакета — один маленький JSON на пакет; читается при смене пакета.
   // Отказ сети (офлайн без кэша) — тишина, не приговор о покрытии.
   const manifestUrl = fieldBaseMap.kind === 'vedar' ? fieldBaseMap.source.manifestUrl : null;
@@ -2253,14 +2329,18 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   useEffect(() => {
     const q = modalQuery.trim();
     clearTimeout(modalSearchRef.current);
-    if (!pickerVisible || q.length < 2) { setSearchRoutes([]); setSearching(false); return; }
+    if (!pickerVisible || q.length < 2) { setSearchRoutes([]); setSearching(false); setSearchFailed(false); return; }
     setSearching(true);
+    setSearchFailed(false);
     modalSearchRef.current = setTimeout(() => {
       fetch(`/api/routes/search?q=${encodeURIComponent(q)}`)
-        .then(r => r.json())
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
         .then((d: unknown) => {
           const rows = (typeof d === 'object' && d !== null ? (d as Record<string, unknown>).routes : null);
-          if (!Array.isArray(rows)) { setSearchRoutes([]); return; }
+          if (!Array.isArray(rows)) { setSearchRoutes([]); setSearchFailed(true); return; }
           setSearchRoutes(rows.slice(0, 8).map((r) => {
             const row = r as Record<string, unknown>;
             const names = Array.isArray(row.waypoint_names) ? (row.waypoint_names as string[]) : [];
@@ -2290,7 +2370,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             } satisfies RoutePreview;
           }));
         })
-        .catch(() => setSearchRoutes([]))
+        // Отказ сети — не пустой результат (§4.0): «ничего не нашлось»
+        // сообщало бы туристу факт о Камчатке там, где мы просто не смогли
+        // спросить сервер.
+        .catch(() => { setSearchRoutes([]); setSearchFailed(true); })
         .finally(() => setSearching(false));
     }, 350);
     return () => clearTimeout(modalSearchRef.current);
@@ -2973,8 +3056,13 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
                                   {searching ? 'Ищем пути…' : `Пути к «${modalQuery.trim()}»`}
                                 </p>
-                                <div className="text-[var(--text-muted)] text-sm text-center py-6">
-                                  {searching ? 'Секунду…' : 'Ничего не нашлось — попробуйте другое место'}
+                                <div className="text-sm text-center py-6"
+                                  style={{ color: searchFailed && !searching ? 'var(--warning)' : 'var(--text-muted)' }}>
+                                  {searching
+                                    ? 'Секунду…'
+                                    : searchFailed
+                                      ? 'Поиск не дошёл до сервера — проверьте связь. Это не значит, что путей нет.'
+                                      : 'Ничего не нашлось — попробуйте другое место'}
                                 </div>
                               </div>
                             ) : (() => {
@@ -3488,7 +3576,11 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               vectorUrl: fieldBaseMap.source.vectorUrl,
               // Места платформы (05.09): свой слой поверх OSM, по реестру
               // PLACES_BUILT; null — слоя нет, и карта его не просит.
-              placesUrl: fieldBaseMap.source.placesUrl,
+              // По умолчанию НЕ просит и здесь (13.09, showAllPlaces): на
+              // экране маршрута реестр района закрывал сам маршрут. Тот же
+              // null, что и при отсутствии пакета, — карта уже умеет его
+              // читать как «слоя нет», отдельного режима заводить не нужно.
+              placesUrl: showAllPlaces ? fieldBaseMap.source.placesUrl : null,
               // Океан обзора (05.09): у пакета поля его нет (null), он у обзора.
               oceanUrl: fieldBaseMap.source.oceanUrl,
               attribution: '© Copernicus DEM (ESA)',
@@ -3682,7 +3774,16 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           середине высоты ушли под нижний лист). */}
       {!showMap && (hasRoute || isLoadingRoute || mapCtl) && (
         <div className="relative z-20 flex justify-between items-start px-3 pt-2">
-          <VedarZoomButtons handle={mapCtl} />
+          <div className="flex flex-col gap-2">
+            <VedarZoomButtons handle={mapCtl} />
+            {/* Тумблер слоя мест — рядом с масштабом, в том же столбце
+                управления картой. Второй его экземпляр стоит в режиме
+                «Карта» (ниже): одновременно смонтирован ровно один — этот
+                ряд рисуется только при !showMap, тот только при showMap, —
+                и состояние у них общее (showAllPlaces), так что разойтись
+                поведением им нечем. */}
+            {canTogglePlaces && <PlacesLayerButton on={showAllPlaces} onToggle={toggleAllPlaces} />}
+          </div>
           {(hasRoute || isLoadingRoute) && (
           <div className="flex flex-col items-center gap-2 ml-auto">
             {/* size=300 — дефолт компонента, рассчитанный на центр колонки
@@ -4625,6 +4726,13 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             aria-label="Закрыть карту">
             <X className="w-5 h-5" />
           </button>
+          {/* Тот же тумблер слоя мест, что в приборном ряду (см. выше):
+              одновременно смонтирован ровно один из двух, состояние общее. */}
+          {canTogglePlaces && (
+            <div className="pointer-events-auto absolute top-4 right-4">
+              <PlacesLayerButton on={showAllPlaces} onToggle={toggleAllPlaces} overMap />
+            </div>
+          )}
           {mapMarkers.length === 0 && (
             <div className="absolute bottom-32 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm whitespace-nowrap"
               style={{ background: 'rgba(13,17,23,0.9)', color: 'var(--text-muted)', border: '1px solid #30363d' }}>
@@ -4679,6 +4787,29 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => void }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
   const [routes, setRoutes] = useState<RoutePreview[]>([]);
+  /**
+   * Поиск «куда» — на плане, до выхода в поле (владелец 13.09: «когда не
+   * знаешь куда, сложно выбрать на этой карте... нужен предварительный
+   * поиск... сначала план»).
+   *
+   * До этого дня на вкладке «Планирование» не было ни одного поля ввода:
+   * выбрать цель можно было либо из восьми «популярных», либо выщипывая
+   * иконку из всего реестра мест на полевой карте — то есть на экране,
+   * который для этого не предназначен. Ищет тот же /api/routes/search, что
+   * и выбор цели в поле: он знает путевые точки, и «Авачинский» находит все
+   * маршруты через него, а не только совпавшие названием.
+   */
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<RoutePreview[]>([]);
+  /**
+   * Четыре состояния, а не два (§4.0): «не искали», «ищем», «искали и нашли
+   * столько-то» и «НЕ СМОГЛИ поискать». Последнее — не пустой результат:
+   * оборванная сеть, выданная за «ничего не нашлось», говорит туристу, что
+   * маршрута нет, там где мы просто не спросили.
+   */
+  const [searchState, setSearchState] = useState<'idle' | 'searching' | 'done' | 'failed'>('idle');
+  const [retryTick, setRetryTick] = useState(0);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [kuzmichTip, setKuzmichTip] = useState<string | null>(null);
   const emergencyRef = useRef<HTMLDivElement>(null);
   const [showGearModal, setShowGearModal] = useState(false);
@@ -4730,6 +4861,53 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
     if (item.id === 'gear') return { ...item, done: gearChecked.size === GEAR_LIST.length };
     return item;
   });
+
+  // Поиск маршрутов по названию места. Задержка 350 мс — та же, что у поиска
+  // цели в поле: печатают в перчатке, и запрос на каждую букву не нужен.
+  useEffect(() => {
+    const q = query.trim();
+    clearTimeout(searchTimerRef.current);
+    if (q.length < 2) { setResults([]); setSearchState('idle'); return; }
+    setSearchState('searching');
+    let cancelled = false;
+    searchTimerRef.current = setTimeout(() => {
+      fetch(`/api/routes/search?q=${encodeURIComponent(q)}`)
+        .then(r => {
+          // Отказ сервера — это отказ, а не «ничего не нашлось»: ветка ok
+          // разделена намеренно, иначе 500 читался бы как пустой результат.
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((d: unknown) => {
+          if (cancelled) return;
+          const rows = (typeof d === 'object' && d !== null ? (d as Record<string, unknown>).routes : null);
+          if (!Array.isArray(rows)) { setResults([]); setSearchState('failed'); return; }
+          setResults(rows.slice(0, 12).map((r) => {
+            const row = r as Record<string, unknown>;
+            const names = Array.isArray(row.waypoint_names) ? (row.waypoint_names as string[]) : [];
+            return {
+              id: String(row.id),
+              title: String(row.title),
+              difficulty: (row.difficulty_level as string | null) ?? null,
+              durationDays: null,
+              distanceKm: row.distance_km != null ? Number(row.distance_km) : null,
+              imageUrl: null,
+              via: names.length > 0 ? names.slice(0, 3).join(' · ') : null,
+              lineGrade: (row.line_grade as PassportGrade | null) ?? null,
+            } satisfies RoutePreview;
+          }));
+          setSearchState('done');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          // Пустой список ЗДЕСЬ был бы враньём: мы не спросили, а не получили
+          // ноль (§4.0). Список чистим, но состояние называем отказом.
+          setResults([]);
+          setSearchState('failed');
+        });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(searchTimerRef.current); };
+  }, [query, retryTick]);
 
   useEffect(() => {
     // Load checklist from localStorage (only manually-toggled items)
@@ -4857,6 +5035,60 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
             Собрать маршрут <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
+      </div>
+
+      {/* Поиск «куда» — до карты, а не на ней (владелец 13.09) */}
+      <div className="rounded-lg p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+        <h2 className="font-bold text-[var(--text-primary)] mb-1">Куда хотите пойти?</h2>
+        <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+          Найдите место по названию — маршруты к нему покажутся здесь. Выбранный маршрут
+          откроется на своей карте в «На маршруте».
+        </p>
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ color: 'var(--text-muted)' }} />
+          <input
+            type="search"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Авачинский, Толбачик, Налычево…"
+            aria-label="Поиск маршрута по названию места"
+            className="w-full pl-9 pr-3 py-3 rounded-xl text-sm min-h-[44px]"
+            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+          />
+        </div>
+
+        {query.trim().length >= 2 && (
+          <div className="mt-3">
+            {searchState === 'searching' && (
+              <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Ищем…</p>
+            )}
+            {/* «Не смогли спросить» ≠ «нашли ноль»: отказ называется отказом и
+                предлагает повтор, а не отправляет искать другое место. */}
+            {searchState === 'failed' && (
+              <div className="flex flex-col items-center gap-3 py-4">
+                <p className="text-sm text-center" style={{ color: 'var(--warning)' }}>
+                  Поиск не дошёл до сервера — проверьте связь. Это не значит, что маршрутов нет.
+                </p>
+                <button type="button" onClick={() => setRetryTick(t => t + 1)}
+                  className="text-xs font-semibold px-4 py-2 rounded-lg min-h-[44px]"
+                  style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                  Повторить
+                </button>
+              </div>
+            )}
+            {searchState === 'done' && results.length === 0 && (
+              <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>
+                Ничего не нашлось — попробуйте другое название
+              </p>
+            )}
+            {searchState === 'done' && results.length > 0 && (
+              <div className="space-y-2">
+                {results.map(r => <RouteSearchRow key={r.id} route={r} onNavigate={onStartTrail} />)}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Checklist */}
