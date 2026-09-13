@@ -1,12 +1,22 @@
 {
-  "note": "13.09 вечер: доехали ли до прода обе правки дня — b127430 (сняты кружки вершин и посёлков OSM) и 25b447e (чужие навигаторы убраны). Утренняя проба 497 показала built_at 06:31, то есть сборку СТАРШЕ первого пуша (06:45). Здесь тот же маркер: built_at позже 07:47 UTC означает, что образ собран после второго пуша. commit на проде всегда 'unknown' (#1762), поэтому судим по времени.",
-  "run": 498,
+  "note": "#1830 шаг 4-5: (1) формат публичной страницы вулкана ГВП — прежде чем ставить ссылку на карточку места, надо увидеть, что адрес такого вида существует и отдаёт страницу этого вулкана (Шивелуч, VolcanoNumber 300270). Обещать на экране непроверенный путь нельзя. (2) Условия использования volcano.si.edu — в WFS-схеме их нет, есть только VPImageCredit (подпись, не лицензия), а платформа коммерческая. Решение по фото — владельца, но факты под решение собираю пробой, не памятью.",
+  "run": 499,
   "urls": [
-    "https://vedarai.ru/version.json"
+    "https://volcano.si.edu/volcano.cfm?vn=300270",
+    "https://volcano.si.edu/gvp_termsofuse.cfm",
+    "https://www.si.edu/termsofuse"
   ],
   "post": [],
-  "bytes": 4000,
-  "timeout": 30,
+  "bytes": 6000,
+  "timeout": 40,
   "retries": 1,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; deploy freshness check)"
+  "grep": [
+    "Sheveluch",
+    "Creative Commons",
+    "public domain",
+    "non-commercial",
+    "noncommercial",
+    "permission"
+  ],
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; GVP attribution and image terms check for #1830)"
 }
