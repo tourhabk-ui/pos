@@ -85,15 +85,31 @@ async function executeArchiveSOS(task: ExecutionTask): Promise<ExecutionResult> 
   const errors: string[] = [];
 
   try {
-    const stale = await pool.query<{ id: string; tourist_name: string | null; created_at: string }>(
-      `SELECT id, tourist_name, created_at::text
-       FROM sos_events
+    const reason = typeof task.context.reason === 'string'
+      ? task.context.reason
+      : 'Авто-архивация: нет ответа >24ч';
+
+    // ОДИН оператор вместо SELECT + UPDATE по списку id (находка судьи, 13.09).
+    //
+    // Разделённые, они оставляли окно: между выборкой «не отвечали сутки» и
+    // записью спасатель успевает принять сигнал, а UPDATE шёл по id, БЕЗ
+    // повторной проверки статуса — и затирал приём. Событие получало
+    // `archived` и наши заметки поверх настоящих: принятый SOS помечался как
+    // непринятый. Транзакция это лечит слабее, чем предикат: здесь гонки нет
+    // ПО ПОСТРОЕНИЮ, потому что условие проверяется в момент записи.
+    //
+    // RETURNING заодно чинит второе: в отчёт уходит то, что записано, а не
+    // то, что собирались записать (§4.0 — измеренное, а не предполагаемое).
+    const archived = await pool.query<{ id: string; created_at: string }>(
+      `UPDATE sos_events
+       SET status = 'archived', notes = $1
        WHERE status = 'sent'
          AND created_at < NOW() - INTERVAL '24 hours'
-       ORDER BY created_at ASC`
+       RETURNING id, created_at::text`,
+      [reason]
     );
 
-    if (stale.rows.length === 0) {
+    if (archived.rows.length === 0) {
       return {
         success: true,
         changes_made: ['Зависших SOS-событий не найдено'],
@@ -103,22 +119,15 @@ async function executeArchiveSOS(task: ExecutionTask): Promise<ExecutionResult> 
       };
     }
 
-    const ids = stale.rows.map(r => r.id);
-    const reason = typeof task.context.reason === 'string'
-      ? task.context.reason
-      : 'Авто-архивация: нет ответа >24ч';
-
-    await pool.query(
-      `UPDATE sos_events
-       SET status = 'archived', notes = $1
-       WHERE id = ANY($2::uuid[])`,
-      [reason, ids]
-    );
+    // RETURNING не обещает порядка — сортируем здесь, чтобы отчёт читался от
+    // самого старого события, как раньше.
+    const rows = [...archived.rows].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const ids = rows.map(r => r.id);
 
     // Имена в отчёт не идут: отчёт уходит владельцу в Telegram, а событие
     // опознаётся по id и дате. Имя тут ничего не решает, а это ПД.
     changes.push(`Архивировано ${ids.length} SOS-событий:`);
-    for (const r of stale.rows) {
+    for (const r of rows) {
       changes.push(`  • ${String(r.id).slice(0, 8)} (от ${r.created_at.slice(0, 10)})`);
     }
 
