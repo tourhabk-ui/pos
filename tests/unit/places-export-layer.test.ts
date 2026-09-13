@@ -232,7 +232,12 @@ describe('слой мест в стиле карты', () => {
   it('карта на маршруте и подкладки соседей передают адрес слоя из пакета', () => {
     const planning = readFileSync(join(ROOT, 'app/planning/_PlanningClient.tsx'), 'utf-8');
     const vedarMap = readFileSync(join(ROOT, 'components/shared/VedarMap.tsx'), 'utf-8');
-    expect(planning).toMatch(/placesUrl: fieldBaseMap\.source\.placesUrl/);
+    // Проверка про АДРЕС слоя: он берётся из пакета, а не собирается строкой
+    // на экране. С 13.09 экран маршрута ещё и спрашивает его по тумблеру —
+    // слой всех мест выключен по умолчанию (решение владельца, сторож
+    // tests/unit/field-map-focus.test.ts). Источник адреса при этом тот же,
+    // и подмена его хардкодом здесь по-прежнему покраснеет.
+    expect(planning).toMatch(/placesUrl: showAllPlaces \? fieldBaseMap\.source\.placesUrl : null/);
     expect(vedarMap).toMatch(/placesUrl: pack\.source\.placesUrl/);
   });
 });
