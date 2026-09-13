@@ -179,7 +179,10 @@ describe('журнал пишет о событиях, а перечитанна
     // произошло, писать нечего. Старое значение берётся снимком строки до
     // записи (FROM external_alerts o), иначе «продлили» и «перечитали»
     // неразличимы.
-    expect(body).toMatch(/SELECT id, expires_at\s*\n\s*FROM external_alerts/);
+    // Снимок берёт и severity (13.09 — переоценка разряда, см.
+    // tests/integration/alert-dedup.pg.test.ts): суть проверки прежняя —
+    // старое значение читается подзапросом ДО записи.
+    expect(body).toMatch(/SELECT id, expires_at, severity\s*\n\s*FROM external_alerts/);
     expect(body).toMatch(/external_alerts\.expires_at IS DISTINCT FROM prev\.expires_at\) AS extended/);
     const extendedCheck = body.indexOf('.extended');
     const dedupEmit = body.indexOf("eventType: 'dedup_skipped'");
