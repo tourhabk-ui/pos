@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Navigation, Bookmark, Share2, CloudSun } from 'lucide-react';
 import { useWishlist } from '@/hooks/use-wishlist';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
+import { OWN_ROUTE_EVENT, OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 
 interface Props {
   lat: number;
@@ -48,19 +49,31 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
     }
   }
 
-  const geoUrl = `geo:${lat},${lng}?q=${encodeURIComponent(name)}`;
+  // Своя навигация вместо чужой (владелец 13.09). Здесь стоял `geo:` —
+  // системный выбор приложения: «Навигация» на карточке НАШЕГО места
+  // открывала список чужих карт. Теперь тап будит свой расчёт по дорожному
+  // графу Камчатки (PlaceOwnRoute на этой же странице) и прокручивает к нему.
+  //
+  // Через событие, а не через проп: шапка липкая и живёт в другом поддереве —
+  // поднимать состояние расчёта в клиент страницы ради одного тапа значило бы
+  // протащить его через половину дерева.
+  function askOwnRoute() {
+    window.dispatchEvent(new Event(OWN_ROUTE_EVENT));
+    document.getElementById(OWN_ROUTE_ANCHOR)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 
   return (
     <div className="sticky z-30 bg-[var(--bg-card)] border-b border-[var(--border)]" style={{ top: '56px' }}>
       <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2">
-        <a
-          href={geoUrl}
+        <button
+          type="button"
+          onClick={askOwnRoute}
           className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold py-2.5 rounded-xl text-white transition-opacity hover:opacity-90"
           style={{ background: 'var(--accent)' }}
         >
           <Navigation className="w-4 h-4" />
           Навигация
-        </a>
+        </button>
 
         <button
           onClick={fav.toggle}

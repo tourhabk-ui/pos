@@ -4,6 +4,11 @@
  * навигации на карточке не вела на платформу (обе — внешние навигаторы,
  * PlaceActionBar/MobileBottomBar), и человек не видел свой расчёт, не
  * прокрутив весь экран.
+ *
+ * 13.09 внешние навигаторы с карточки сняты совсем (владелец: «кнопка
+ * навигация до сих пор открывает сторонние сервисы»), и этот блок стал
+ * единственным расчётом дороги — плюс autoStart для прихода с карты
+ * (?route=1). Сторож охвата — no-external-navigators.test.ts.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -26,6 +31,6 @@ describe('_PlaceDetailClient — PlaceOwnRoute подключён рядом с 
   });
 
   it('получает координаты и имя места', () => {
-    expect(CLIENT).toMatch(/<PlaceOwnRoute lat=\{place\.lat\} lng=\{place\.lng\} name=\{place\.name\} \/>/);
+    expect(CLIENT).toMatch(/<PlaceOwnRoute lat=\{place\.lat\} lng=\{place\.lng\} name=\{place\.name\}/);
   });
 });

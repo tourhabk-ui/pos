@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Navigation, Download, Video } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
+import { OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
@@ -33,7 +34,6 @@ const PlaceUserPhotos       = dynamic(() => import('@/components/places/PlaceUse
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
 const PlaceOwnRoute         = dynamic(() => import('@/components/places/PlaceOwnRoute').then(m => ({ default: m.PlaceOwnRoute })), { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
-const NavigateTo            = dynamic(() => import('@/components/shared/NavigateTo'),            { ssr: false });
 
 function Skeleton() {
   return (
@@ -69,8 +69,13 @@ function Skeleton() {
  * знает про Organic Maps deep link — «Оффлайн» остаётся только здесь.
  */
 function MobileBottomBar({ place }: { place: PlaceData }) {
-  const orgMapsUrl = `om://map?v=1&ll=${place.lat},${place.lng}&n=${encodeURIComponent(place.name)}`;
-
+  // «Оффлайн — Organic Maps» (om://) снят 13.09 вместе с остальными чужими
+  // навигаторами. Слово «оффлайн» тут было к тому же чужой заслугой: офлайн
+  // у нас свой — пакеты карты районов и GPX/PDF места, и обещать его через
+  // приложение, которого у человека может не стоять, значит обещать чужим.
+  //
+  // Взамен — наш офлайн-файл трека: GPX кладётся в любой прибор и не зависит
+  // ни от какой установленной программы.
   return (
     <div
       className="fixed left-0 right-0 z-50 md:hidden"
@@ -78,11 +83,12 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
     >
       <div className="flex items-center gap-2 px-3 py-3 bg-[var(--bg-card)] border-t border-[var(--border)]">
         <a
-          href={orgMapsUrl}
+          href={`/api/places/${place.id}/gpx`}
+          download
           className="flex-1 flex items-center justify-center gap-2 text-sm font-medium text-[var(--text-primary)] bg-[var(--bg-hover)] border border-[var(--border)] rounded-xl py-3 hover:border-[var(--accent)] transition-colors"
         >
           <Download className="w-4 h-4" />
-          Оффлайн — Organic Maps
+          Скачать точку (GPX)
         </a>
       </div>
     </div>
@@ -105,6 +111,11 @@ function lsWrite(id: string, data: PlaceData) {
 }
 
 export default function PlaceDetailClient({ id }: { id: string }) {
+  // `?route=1` — человек уже нажал «Навигация» на листе места (карта) и
+  // приехал сюда за путём. Читается из location, а не через useSearchParams:
+  // хук заставил бы обернуть страницу в Suspense ради одного булева флага.
+  const autoRoute = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('route') === '1';
   const [place, setPlace] = useState<PlaceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -222,9 +233,14 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           место») — сразу под шапкой, не в конце страницы: до этой правки
           НИ ОДНА ссылка навигации на карточке не вела на платформу, обе
           уходили во внешние навигаторы (осознанное решение 11.08), а свой
-          роутер (roadGraphCarProvider) был подключён только в /planning. */}
-      <div className="max-w-3xl mx-auto px-4 pt-3">
-        <PlaceOwnRoute lat={place.lat} lng={place.lng} name={place.name} />
+          роутер (roadGraphCarProvider) был подключён только в /planning.
+
+          13.09 чужие ссылки отсюда УБРАНЫ совсем (владелец: «кнопка навигация
+          до сих пор открывает сторонние сервисы»): 07.09 свой путь только
+          ДОБАВИЛИ, оставив рядом geo: в шапке и om:// в нижнем баре — от этого
+          на одной карточке жили три навигации, две из них чужие. */}
+      <div id={OWN_ROUTE_ANCHOR} className="max-w-3xl mx-auto px-4 pt-3" style={{ scrollMarginTop: 112 }}>
+        <PlaceOwnRoute lat={place.lat} lng={place.lng} name={place.name} autoStart={autoRoute} />
       </div>
 
       {/* Offline cache notice */}
@@ -347,14 +363,14 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         />
       </div>
 
-      {/* 10b. Отдать дорогу тем, кто её умеет строить */}
-      <div className="max-w-3xl mx-auto px-4 mt-6">
-        <NavigateTo to={{ lat: place.lat, lng: place.lng, name: place.name }} mode="car" />
-      </div>
+      {/* 10b. Ряд марок чужих навигаторов (Organic Maps / Яндекс / 2ГИС) стоял
+          здесь до 13.09 — снят по слову владельца «кнопка навигация до сих пор
+          открывает сторонние сервисы». Дорогу до места считает свой граф
+          (PlaceOwnRoute под шапкой), пеший путь — блок ниже. */}
 
-      {/* 10c. Дальше — наше: путь сюда пешком, с компасом и GPS вместо чужого
-          навигатора. NavigateTo выше довозит до начала тропы, здесь начинается
-          то, что не делают Organic Maps и 2ГИС (см. её же комментарий). Ищет
+      {/* 10c. Дальше — наше: путь сюда пешком, с компасом и GPS. Дорога
+          считается выше своим графом, здесь начинается то, чего у дорожного
+          пути нет вовсе — тропа. Ищет
           путь ТЕМ ЖЕ полем поиска, что заполнил бы человек сам — предзаполнен
           именем места через ?q=. auto=1 (владелец 30.08: «сразу на маршруте
           от места, где находится пользователь») доводит цель и старт (живой

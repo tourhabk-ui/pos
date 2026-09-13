@@ -88,7 +88,16 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
   }, [initialData.id, isOffline]);
 
   const typeLabel = LOCATION_LABELS[initialData.locationType ?? 'other'] ?? 'Место';
-  const geoUrl = `geo:${initialData.lat},${initialData.lng}?q=${encodeURIComponent(initialData.title)}`;
+  // Своя навигация, не чужая (владелец 13.09: «кнопка навигация до сих пор
+  // открывает сторонние сервисы»). Здесь стоял `geo:` — а это даже не
+  // конкретный навигатор, а системный выбор приложения: человек тапал
+  // «Навигация» на НАШЕЙ карте и попадал в чужой список.
+  //
+  // Путь считает свой дорожный граф Камчатки (миграция 760,
+  // roadGraphCarProvider) — тот же расчёт, что на карточке места.
+  // `?route=1` говорит карточке начать сразу: человек уже нажал «Навигация»
+  // здесь, и просить его нажать то же самое второй раз — потерянный тап.
+  const ownRouteUrl = `/places/${initialData.id}?route=1`;
   // Своя карта (VedarMap) несёт с тапа только id/имя/тип/координаты —
   // initialData.description там всегда пустая строка. Полный текст едет
   // отдельным запросом ниже; до его прихода полагаемся на initialData
@@ -170,11 +179,11 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
 
           {/* Actions */}
           <div className="flex items-center gap-2 mb-3">
-            <a href={geoUrl}
+            <Link href={ownRouteUrl}
               className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold py-2.5 rounded-xl text-white transition-opacity hover:opacity-90"
               style={{ background: 'var(--accent)' }}>
               <Navigation className="w-4 h-4" /> Навигация
-            </a>
+            </Link>
             <button onClick={fav.toggle}
               aria-label={fav.on ? 'Убрать из избранного' : 'Добавить в избранное'}
               className="p-2.5 rounded-xl border transition-colors"

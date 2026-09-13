@@ -19,7 +19,7 @@
  * уже действует в /planning (renderDestinationPicker, ветка calculatedPreview).
  */
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Navigation } from 'lucide-react';
 import type { MapMarker, MapMarkerGeometry } from '@/components/shared/leaflet-types';
@@ -34,7 +34,25 @@ interface Props {
   lat: number;
   lng: number;
   name: string;
+  /**
+   * Начать расчёт сразу, не дожидаясь нажатия. Ставится, когда человек уже
+   * нажал «Навигация» на ДРУГОМ экране (лист места на карте) и приехал сюда
+   * с `?route=1`: заставлять его нажимать второй раз то же самое — потерянный
+   * тап и потерянная секунда в поле.
+   */
+  autoStart?: boolean;
 }
+
+/**
+ * Событие «построй свой путь» — для кнопки, которая стоит на том же экране,
+ * но в другом поддереве (липкая шапка PlaceActionBar). Иначе пришлось бы
+ * поднимать состояние расчёта в клиент страницы и тащить его через половину
+ * дерева ради одного тапа.
+ */
+export const OWN_ROUTE_EVENT = 'vedar:build-own-route';
+
+/** Якорь блока — к нему прокручивает кнопка из шапки. */
+export const OWN_ROUTE_ANCHOR = 'own-route';
 
 type State =
   | { phase: 'idle' }
@@ -55,10 +73,10 @@ function refusalText(result: Extract<RouteBuildResult, { status: 'not_found' | '
   return result.message;
 }
 
-export function PlaceOwnRoute({ lat, lng, name }: Props) {
+export function PlaceOwnRoute({ lat, lng, name, autoStart = false }: Props) {
   const [state, setState] = useState<State>({ phase: 'idle' });
 
-  function build() {
+  const build = useCallback(function build() {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setState({ phase: 'error', message: 'Геолокация недоступна в этом браузере' });
       return;
@@ -99,7 +117,23 @@ export function PlaceOwnRoute({ lat, lng, name }: Props) {
       () => setState({ phase: 'error', message: 'Не удалось определить ваше местоположение' }),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
     );
-  }
+  }, [lat, lng, name]);
+
+  // Приход с «Навигации» другого экрана: считаем сразу. Только из idle —
+  // иначе повторный рендер сбрасывал бы уже показанный путь.
+  useEffect(() => {
+    if (autoStart && state.phase === 'idle') build();
+    // Намеренно без state.phase в зависимостях: эффект должен сработать один
+    // раз на приход, а не заново после каждого «Скрыть путь».
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, build]);
+
+  // Кнопка из липкой шапки — то же действие, другое поддерево.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.addEventListener(OWN_ROUTE_EVENT, build);
+    return () => window.removeEventListener(OWN_ROUTE_EVENT, build);
+  }, [build]);
 
   if (state.phase === 'idle') {
     return (
@@ -120,12 +154,30 @@ export function PlaceOwnRoute({ lat, lng, name }: Props) {
   }
 
   if (state.phase === 'error' || state.phase === 'refused') {
+    // Отказ обязан оставлять человека с чем-то в руках. До 13.09 рядом стояли
+    // марки чужих навигаторов, и «пути нет» означало «возьми другой навигатор»;
+    // теперь их нет, и голое «Попробовать снова» было бы тупиком в поле.
+    // Координата — то, что работает всегда: её диктуют по рации, вбивают в
+    // прибор, шлют спасателям.
+    const coords = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
         <p className="text-sm text-[var(--text-secondary)]">{state.message}</p>
-        <button type="button" onClick={build} className="mt-2 text-xs font-semibold text-[var(--accent)]">
-          Попробовать снова
-        </button>
+        <p className="mt-2 text-xs text-[var(--text-secondary)]">
+          Координаты места: <span className="font-semibold text-[var(--text-primary)]">{coords}</span>
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={build} className="text-xs font-semibold text-[var(--accent)]">
+            Попробовать снова
+          </button>
+          <button
+            type="button"
+            onClick={() => { navigator.clipboard?.writeText(coords).catch(() => {}); }}
+            className="text-xs font-semibold text-[var(--ocean)]"
+          >
+            Скопировать координаты
+          </button>
+        </div>
       </div>
     );
   }

@@ -190,7 +190,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
         </div>
 
         {mapMarkers.length > 0 && (
-          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+          <div id="trip-map" className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)', scrollMarginTop: 72 }}>
             <LeafletMap markers={mapMarkers} height="260px" />
           </div>
         )}
@@ -311,13 +311,20 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                             {TRANSPORT_LABELS[transport] || transport}
                           </span>
                         )}
-                        {/* Deep-link в навигатор (C-6): geo: открывает точку дня
-                            в Organic Maps / любых картах телефона — офлайн. */}
+                        {/* Точка дня — на карте ЭТОЙ страницы (владелец 13.09:
+                            «кнопка навигация до сих пор открывает сторонние
+                            сервисы»). Здесь стоял `geo:` — даже не навигатор, а
+                            системный выбор приложения, и подпись «Навигатор»
+                            обещала чужую программу, которой у получателя ссылки
+                            может не быть вовсе.
+                            Карта дней уже нарисована выше, все точки на ней —
+                            значит показывать надо её, а не уводить с плана.
+                            Уносимый офлайн-файл дня — GPX ниже. */}
                         {Array.isArray(day.coords) && day.coords.length === 2 && (
-                          <a href={`geo:${day.coords[0]},${day.coords[1]}?z=12`}
+                          <a href="#trip-map"
                             className="px-2 py-0.5 rounded-full flex items-center gap-1"
                             style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)', color: 'var(--success)' }}>
-                            <Navigation className="w-3 h-3" />Навигатор
+                            <Navigation className="w-3 h-3" />На карте
                           </a>
                         )}
                       </div>

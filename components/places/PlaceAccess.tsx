@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Download, Navigation, MapPin, FileDown } from 'lucide-react';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
+import { OWN_ROUTE_EVENT, OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -17,8 +18,11 @@ interface Props {
 }
 
 export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearbyMarkers }: Props) {
-  const yandexUrl = `https://yandex.ru/maps/?pt=${lng},${lat}&z=12&l=map`;
-  const organicUrl = `geo:${lat},${lng}?z=12`;
+  // Кнопки «Organic Maps» и «Яндекс.Карты» сняты 13.09 (владелец: «кнопка
+  // навигация до сих пор открывает сторонние сервисы»). Дорогу считает свой
+  // граф — блок PlaceOwnRoute под шапкой этой же карточки; здесь остаются
+  // только файлы, которые человек уносит с собой и которые ни от какого
+  // чужого приложения не зависят.
   const gpxUrl = `/api/places/${placeId}/gpx`;
 
   // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
@@ -66,8 +70,8 @@ export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearb
         />
       </div>
 
-      {/* Navigation buttons */}
-      <div className="grid grid-cols-3 gap-2 mb-2">
+      {/* Файлы места — унести с собой. Чужих навигаторов здесь больше нет. */}
+      <div className="grid grid-cols-2 gap-2 mb-2">
         <a
           href={gpxUrl}
           download
@@ -76,22 +80,17 @@ export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearb
           <Download className="w-4 h-4" />
           Скачать GPX
         </a>
-        <a
-          href={organicUrl}
-          className="flex flex-col items-center justify-center gap-1 px-2 py-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 text-xs font-semibold hover:bg-green-500/20 transition-colors text-center"
-        >
-          <Navigation className="w-4 h-4" />
-          Organic Maps
-        </a>
-        <a
-          href={yandexUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new Event(OWN_ROUTE_EVENT));
+            document.getElementById(OWN_ROUTE_ANCHOR)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }}
           className="flex flex-col items-center justify-center gap-1 px-2 py-3 rounded-lg bg-[var(--ocean)]/10 border border-[var(--ocean)]/30 text-[var(--ocean)] text-xs font-semibold hover:bg-[var(--ocean)]/20 transition-colors text-center"
         >
-          <MapPin className="w-4 h-4" />
-          Яндекс.Карты
-        </a>
+          <Navigation className="w-4 h-4" />
+          Построить путь
+        </button>
       </div>
 
       {/* Offline PDF */}

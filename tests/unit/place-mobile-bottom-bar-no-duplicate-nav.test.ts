@@ -8,8 +8,14 @@
  * «Навигация» на тот же geo:-адрес. `MobileBottomBar` (только внутри
  * _PlaceDetailClient.tsx, `md:hidden` — то есть виден именно на мобильном)
  * держал СВОЙ второй такой же CTA — человек на телефоне видел одно и то же
- * действие дважды на одном экране. Сторож держит: geo: живёт только в
- * PlaceActionBar, MobileBottomBar несёт то, чего там нет — Organic Maps.
+ * действие дважды на одном экране.
+ *
+ * 13.09 правка пошла дальше: чужих навигаторов на карточке нет вовсе
+ * (владелец: «кнопка навигация до сих пор открывает сторонние сервисы»).
+ * geo: из PlaceActionBar и om:// из MobileBottomBar сняты оба — дорогу
+ * считает свой граф. Разделение труда осталось прежним: шапка даёт
+ * ДЕЙСТВИЕ (построить путь), нижний бар — ФАЙЛ (унести точку с собой),
+ * и одинаковых CTA по-прежнему не два.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -32,16 +38,28 @@ describe('карточка места — «Навигация» не дубли
     expect(ACTION_BAR).not.toMatch(/hidden md:|md:hidden/);
   });
 
+  it('«Навигация» в шапке — свой расчёт, не чужое приложение', () => {
+    // Ищем ПЕРЕХОД, а не слово: комментарий в файле сам объясняет, что здесь
+    // стояло раньше, и запрет на упоминание сделал бы объяснение невозможным.
+    expect(ACTION_BAR).not.toMatch(/href=\{?[`'"]geo:/);
+    expect(ACTION_BAR).toContain('OWN_ROUTE_EVENT');
+  });
+
   it('MobileBottomBar не несёт geo:-ссылку и текст «Навигация» — это уже есть в PlaceActionBar', () => {
     const bar = bodyOf('MobileBottomBar', CLIENT);
-    expect(bar).not.toContain('geo:');
+    expect(bar).not.toMatch(/href=\{?[`'"]geo:/);
     expect(bar).not.toContain('Навигация');
   });
 
-  it('MobileBottomBar по-прежнему держит Organic Maps deep link — единственное, чего нет в PlaceActionBar', () => {
+  it('MobileBottomBar несёт ФАЙЛ, а не второе такое же действие', () => {
+    // Organic Maps deep link (om://) снят 13.09. Слово «оффлайн» было там к
+    // тому же чужой заслугой: обещать офлайн через приложение, которого у
+    // человека может не стоять, — обещание за чужой счёт. GPX не зависит ни
+    // от какой установленной программы.
     const bar = bodyOf('MobileBottomBar', CLIENT);
-    expect(bar).toContain('om://map');
-    expect(bar).toContain('Оффлайн');
+    expect(bar).not.toMatch(/href=\{?[`'"]om:\/\//);
+    expect(bar).toContain('/gpx');
+    expect(bar).toContain('download');
   });
 
   it('MobileBottomBar остаётся md:hidden — на десктопе не рисуется вовсе', () => {
