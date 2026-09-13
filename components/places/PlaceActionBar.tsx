@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Navigation, Bookmark, Share2, CloudSun } from 'lucide-react';
-import { useWishlist } from '@/hooks/use-wishlist';
+import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
 import { OWN_ROUTE_EVENT, OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 
@@ -77,7 +77,8 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
 
         <button
           onClick={fav.toggle}
-          aria-label={fav.on ? 'Убрать из избранного' : 'Добавить в избранное'}
+          aria-label={wishlistLabel(fav)}
+          title={fav.localOnly ? WISHLIST_LOCAL_ONLY_HINT : undefined}
           className="p-2.5 rounded-xl border transition-colors"
           style={{
             background: fav.on ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' : 'var(--bg-hover)',
@@ -98,6 +99,12 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
             : <Share2 className="w-4 h-4" />
           }
         </button>
+
+        {fav.localOnly && (
+          <span className="text-[10px] leading-tight text-[var(--warning)] max-w-[8rem]" aria-live="polite">
+            {WISHLIST_LOCAL_ONLY_HINT}
+          </span>
+        )}
 
         {weather && (
           <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-hover)]">

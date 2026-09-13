@@ -108,18 +108,49 @@ async function executeArchiveSOS(task: ExecutionTask): Promise<ExecutionResult> 
       ? task.context.reason
       : 'Авто-архивация: нет ответа >24ч';
 
-    await pool.query(
+    // `AND status = 'sent'` в UPDATE — не дубль условия из SELECT (находка
+    // Evo Judge 13.09). Между выборкой и записью лежит время, и за него
+    // событие может быть взято в работу: спасатель отвечает, статус уходит из
+    // 'sent'. UPDATE по одному только id затёр бы ЖИВОЙ статус словом
+    // 'archived' и припиской «нет ответа >24ч» — на SOS-пути это ложь о том,
+    // помогли человеку или нет. Транзакция здесь не нужна: одного
+    // перепроверяющего UPDATE достаточно, он атомарен сам по себе.
+    //
+    // RETURNING id — чтобы отчёт называл число ДЕЙСТВИТЕЛЬНО заархивированных,
+    // а не число намеченных (§4.0): взятые в работу события в UPDATE не
+    // попадут, и говорить о них «архивировано» нельзя.
+    const archived = await pool.query<{ id: string }>(
       `UPDATE sos_events
        SET status = 'archived', notes = $1
-       WHERE id = ANY($2::uuid[])`,
+       WHERE id = ANY($2::uuid[])
+         AND status = 'sent'
+       RETURNING id`,
       [reason, ids]
     );
 
+    const archivedIds = new Set(archived.rows.map(r => r.id));
+    if (archivedIds.size === 0) {
+      return {
+        success: true,
+        changes_made: [`Все ${ids.length} событий за время разбора взяты в работу — архивировать нечего`],
+        errors: [],
+        rollback_available: false,
+        verification_passed: true,
+      };
+    }
+
     // Имена в отчёт не идут: отчёт уходит владельцу в Telegram, а событие
     // опознаётся по id и дате. Имя тут ничего не решает, а это ПД.
-    changes.push(`Архивировано ${ids.length} SOS-событий:`);
+    changes.push(`Архивировано ${archivedIds.size} SOS-событий:`);
     for (const r of stale.rows) {
+      if (!archivedIds.has(r.id)) continue;
       changes.push(`  • ${String(r.id).slice(0, 8)} (от ${r.created_at.slice(0, 10)})`);
+    }
+    // Разошлось — значит кого-то взяли в работу между выборкой и записью.
+    // Молчать об этом нельзя: расхождение и есть тот случай, ради которого
+    // перепроверка поставлена.
+    if (archivedIds.size < ids.length) {
+      changes.push(`  (${ids.length - archivedIds.size} пропущено: статус изменился за время разбора)`);
     }
 
     // Уведомляем владельца в Telegram
@@ -131,7 +162,7 @@ async function executeArchiveSOS(task: ExecutionTask): Promise<ExecutionResult> 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text: `✅ Rescue Agent авто-архивировал ${ids.length} SOS-событий старше 24ч`,
+          text: `✅ Rescue Agent авто-архивировал ${archivedIds.size} SOS-событий старше 24ч`,
           parse_mode: 'HTML',
         }),
       }).catch(() => null);

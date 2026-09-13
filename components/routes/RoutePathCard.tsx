@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useWishlist } from '@/hooks/use-wishlist';
+import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { Heart, Clock, Footprints, ChevronUp, ChevronsUp, AlertTriangle, MapPin } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
 
@@ -76,7 +76,8 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
         <button
           type="button"
           onClick={fav.toggle}
-          aria-label={fav.on ? 'В избранном' : 'В избранное'}
+          aria-label={wishlistLabel(fav)}
+            title={fav.localOnly ? WISHLIST_LOCAL_ONLY_HINT : undefined}
           className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 backdrop-blur-md border border-white/15"
           style={{ background: fav.on ? 'var(--accent)' : 'rgba(0,0,0,0.4)', opacity: fav.busy ? 0.5 : 1 }}
         >

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useWishlist } from '@/hooks/use-wishlist';
+import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { Heart, Flame, Thermometer, Anchor, Mountain, Leaf, Fish, Snowflake, Plane, Car, Wind, Footprints, PawPrint, MapPin, Waves, Droplets, Landmark, TreePine, Globe } from 'lucide-react';
 
 export interface RouteItem {
@@ -100,7 +100,8 @@ function LegacyCard({ route }: { route: RouteItem }) {
           <button
             type="button"
             onClick={fav.toggle}
-            aria-label={fav.on ? 'В избранном' : 'В избранное'}
+            aria-label={wishlistLabel(fav)}
+            title={fav.localOnly ? WISHLIST_LOCAL_ONLY_HINT : undefined}
             className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
             style={{
               background: fav.on ? 'var(--accent)' : 'var(--bg-hover)',

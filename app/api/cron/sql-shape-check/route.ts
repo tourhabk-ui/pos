@@ -175,6 +175,23 @@ export const SHAPES: ShapeEntry[] = [
            )
            ON CONFLICT (route_id, place_id) DO NOTHING`,
   },
+  {
+    // 13.09, находка Evo Judge. Прежде здесь стоял
+    // `ON CONFLICT (email) DO NOTHING` — и запрос отвечал 42P10 на каждом
+    // операторе: `ON CONFLICT (col)` требует УНИКАЛЬНОГО индекса, а у
+    // outreach_queue индекс по email обычный (миграция 115). Третий за месяц
+    // запрос, не выполнявшийся ни разу; первые два — 24.08, §4 CLAUDE.md.
+    name: 'очередь обзвона операторов',
+    source: 'lib/agents/execution/handlers/operator-outreach-executor.ts',
+    sql: `INSERT INTO outreach_queue (company_name, email, website, source, status)
+             SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, 'found'
+              WHERE NOT EXISTS (
+                SELECT 1 FROM outreach_queue
+                 WHERE ($2::varchar IS NOT NULL AND lower(email) = lower($2::varchar))
+                    OR ($2::varchar IS NULL AND lower(company_name) = lower($1::varchar))
+              )
+             RETURNING id`,
+  },
 ];
 
 export interface ShapeResult {

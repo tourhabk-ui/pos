@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { useWishlist } from '@/hooks/use-wishlist';
+import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
   Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Trash2,
@@ -267,7 +267,8 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           <button
             type="button"
             onClick={fav.toggle}
-            aria-label={fav.on ? 'В избранном' : 'В избранное'}
+            aria-label={wishlistLabel(fav)}
+            title={fav.localOnly ? WISHLIST_LOCAL_ONLY_HINT : undefined}
             className={`pc-hrt pc-hit absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center ${popped ? 'pc-hrt-pop' : ''}`}
             onAnimationEnd={() => setPopped(false)}
             style={{ background: fav.on ? 'var(--accent)' : 'rgba(0,0,0,0.45)', opacity: fav.busy ? 0.6 : 1 }}

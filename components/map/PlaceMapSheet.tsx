@@ -1,6 +1,6 @@
 'use client';
 
-import { useWishlist } from '@/hooks/use-wishlist';
+import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -185,7 +185,8 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
               <Navigation className="w-4 h-4" /> Навигация
             </Link>
             <button onClick={fav.toggle}
-              aria-label={fav.on ? 'Убрать из избранного' : 'Добавить в избранное'}
+              aria-label={wishlistLabel(fav)}
+              title={fav.localOnly ? WISHLIST_LOCAL_ONLY_HINT : undefined}
               className="p-2.5 rounded-xl border transition-colors"
               style={{
                 background: fav.on ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' : 'var(--bg-hover)',
@@ -200,6 +201,9 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
               <Share2 className="w-4 h-4" />
             </button>
           </div>
+          {fav.localOnly && (
+            <p className="mb-3 text-xs text-[var(--warning)]" aria-live="polite">{WISHLIST_LOCAL_ONLY_HINT}</p>
+          )}
           {shareStatus && (
             <p className="mb-3 text-xs text-[var(--text-secondary)]" aria-live="polite">{shareStatus}</p>
           )}

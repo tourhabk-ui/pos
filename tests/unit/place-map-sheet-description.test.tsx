@@ -22,8 +22,12 @@ vi.mock('next/image', () => ({
   default: (props: { src: string; alt: string }) => React.createElement('img', { src: props.src, alt: props.alt }),
 }));
 
-vi.mock('@/hooks/use-wishlist', () => ({
-  useWishlist: () => ({ on: false, busy: false, error: null, toggle: vi.fn() }),
+// Подпись и подсказку берём НАСТОЯЩИЕ (importOriginal), мокаем только сам
+// хук: иначе мок тихо разъезжается с контрактом при каждом новом экспорте —
+// ровно это и случилось 13.09, когда у хука появился localOnly.
+vi.mock('@/hooks/use-wishlist', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/use-wishlist')>()),
+  useWishlist: () => ({ on: false, busy: false, error: null, localOnly: false, toggle: vi.fn() }),
 }));
 
 import { PlaceMapSheet } from '@/components/map/PlaceMapSheet';

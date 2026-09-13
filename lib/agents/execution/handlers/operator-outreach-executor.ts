@@ -193,10 +193,43 @@ export async function executeOperatorOutreach(task: ExecutionTask): Promise<Exec
       for (const op of operators) {
         try {
           // ── Step 3: INSERT (skip if already in queue by company name or email) ──
+          //
+          // Здесь стояло `ON CONFLICT (email) DO NOTHING`, и запрос не
+          // выполнялся НИКОГДА (находка Evo Judge 13.09, разобрана 13.09).
+          // `ON CONFLICT (col)` требует УНИКАЛЬНОГО индекса по col, чтобы
+          // вывести арбитра; у `outreach_queue` индекс по email обычный
+          // (миграция 115: `CREATE INDEX ... WHERE email IS NOT NULL`, без
+          // UNIQUE — сверено со схемой прода, docs/DB_SCHEMA.md: три индекса,
+          // уникального среди них нет). Ответ сервера — 42P10 «there is no
+          // unique or exclusion constraint matching the ON CONFLICT
+          // specification», на КАЖДОМ операторе, а `catch (opErr)` ниже
+          // складывал его в errors[] — отчёт был, читателя не было.
+          //
+          // Тот же род, что случай 24.08 в CLAUDE.md §4: запрос формы
+          // «вставь, если такого ещё нет», который не выполняется никогда.
+          // Поэтому и лечится он так же — явной проверкой NOT EXISTS, а не
+          // новым уникальным индексом: индекс пришлось бы накатывать
+          // миграцией на живую таблицу, и при существующих дублях
+          // `CREATE UNIQUE INDEX` уронил бы деплой (миграции идут в start.js
+          // до подъёма сервера).
+          //
+          // Приведения `::varchar` у КАЖДОГО параметра в списке SELECT
+          // обязательны: без якоря типа эта форма отвечает 42P08, и запрос
+          // снова не выполнялся бы никогда. Запрос внесён в реестр
+          // app/api/cron/sql-shape-check — приговор выносит PREPARE на проде.
+          //
+          // Заодно исполнено то, что обещал комментарий: пропуск по email
+          // ИЛИ по имени компании. Прежний ON CONFLICT про имя не знал вовсе,
+          // а у оператора без email (email IS NULL) арбитра нет по смыслу —
+          // NULL в уникальном индексе не конфликтует сам с собой.
           const insertResult = await pool.query<{ id: string }>(
             `INSERT INTO outreach_queue (company_name, email, website, source, status)
-             VALUES ($1, $2, $3, $4, 'found')
-             ON CONFLICT (email) DO NOTHING
+             SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, 'found'
+              WHERE NOT EXISTS (
+                SELECT 1 FROM outreach_queue
+                 WHERE ($2::varchar IS NOT NULL AND lower(email) = lower($2::varchar))
+                    OR ($2::varchar IS NULL AND lower(company_name) = lower($1::varchar))
+              )
              RETURNING id`,
             [op.company_name, op.email ?? null, op.website ?? null, op.source]
           );
