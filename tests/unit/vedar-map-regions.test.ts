@@ -8,8 +8,10 @@
  * Черты:
  *  1. Оверлей района — те же слои, что в основном стиле, с суффиксом района
  *     в идентификаторах; вместе с основным стилем проходит валидатор.
- *  2. Два яруса: base (рельеф + вершины) — дёшево на любом зуме; detail
- *     (горизонтали + остальной OSM) — GeoJSON целиком, только вблизи.
+ *  2. Два яруса: base (рельеф, океан и наши места) — дёшево на любом зуме;
+ *     detail (горизонтали + OSM) — GeoJSON целиком, только вблизи. Вершин и
+ *     посёлков OSM в base больше нет (владелец 13.09), и OSM-слоёв у яруса
+ *     не осталось вовсе: эти два были всем его содержимым.
  *  3. Пересечение bbox района с видимой областью — чистая функция.
  *  4. Карта слушает moveend и не подкладывает основной район второй раз.
  */
@@ -60,21 +62,19 @@ describe('оверлей района', () => {
     }
   });
 
-  it('base — рельеф, вершины и посёлки; detail — без рельефа и без них', () => {
-    // Посёлок в базовом ярусе намеренно (02.09): на обзорном виде это
-    // единственное, по чему человек понимает, куда смотрит, а файл
-    // килобайтный — в отличие от горизонталей.
+  it('base — только рельеф (OSM-слоёв у яруса больше нет); detail — без рельефа', () => {
+    // Вершины и посёлки стояли в базовом ярусе с 02.09 как единственные
+    // ориентиры обзорного вида (файл килобайтный — в отличие от
+    // горизонталей). 13.09 владелец убрал их с карты совсем («белые точки и
+    // рыжие не понятны»), и ярус остался на одном рельефе: эти два слоя были
+    // всем его OSM-содержимым. Источника тоже нет — geojson-источник
+    // MapLibre качает файл сразу, как его добавили, даже без слоя.
     const b = buildRegionOverlay('dark', src('esso-bystrinsky'), 'esso-bystrinsky', 'base');
     const types = Object.values(b.sources).map(s => (s as { type: string }).type);
     expect(types).toContain('raster-dem');
-    expect(Object.keys(b.sources)).toEqual([
-      'terrain-esso-bystrinsky', 'osm-peaks-esso-bystrinsky', 'osm-places-esso-bystrinsky',
-    ]);
-    // Точечных подписей (вершина, посёлок) больше нет — решение владельца
-    // 13.09, см. vedar-style.ts: закрывали маркер на плотном зуме.
+    expect(Object.keys(b.sources)).toEqual(['terrain-esso-bystrinsky']);
     expect(b.layers.map(l => l.id)).toEqual([
       'relief-esso-bystrinsky', 'hillshade-esso-bystrinsky',
-      'osm-peaks-esso-bystrinsky', 'osm-places-esso-bystrinsky',
     ]);
     const d = buildRegionOverlay('dark', src('esso-bystrinsky'), 'esso-bystrinsky', 'detail');
     expect(Object.values(d.sources).every(s => (s as { type: string }).type === 'geojson')).toBe(true);
@@ -82,6 +82,8 @@ describe('оверлей района', () => {
     expect(Object.keys(d.sources)).not.toContain('osm-peaks-esso-bystrinsky');
     expect(Object.keys(d.sources)).not.toContain('osm-places-esso-bystrinsky');
     expect(d.layers.map(l => l.id)).toContain('contour-major-esso-bystrinsky');
+    expect(d.layers.map(l => l.id)).not.toContain('osm-peaks-esso-bystrinsky');
+    expect(d.layers.map(l => l.id)).not.toContain('osm-places-esso-bystrinsky');
     // Приют и перевал — вблизи, вместе с горизонталями (точками, без подписи).
     expect(d.layers.map(l => l.id)).toContain('osm-shelters-esso-bystrinsky');
     expect(d.layers.map(l => l.id)).toContain('osm-passes-esso-bystrinsky');
@@ -92,7 +94,7 @@ describe('оверлей района', () => {
     expect(Object.keys(base.sources)).toContain('terrain');
     expect(Object.keys(base.sources)).toContain('contours');
     expect(base.layers.map(l => l.id)).toContain('hillshade');
-    expect(base.layers.map(l => l.id)).toContain('osm-peaks');
+    expect(base.layers.map(l => l.id)).toContain('osm-shelters');
   });
 });
 

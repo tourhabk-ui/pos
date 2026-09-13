@@ -438,7 +438,11 @@ function layerRefs(s: VedarStyleSources, ns: string): LayerRefs {
   return {
     vector: false,
     sources: () => ({ ...contoursSource(s, ns), ...osmSources(s.osmUrls, ns) }),
-    osm: (layer) => (s.osmUrls?.[layer] ? { source: `osm-${layer}${ns}` } : null),
+    // Слой из OSM_LAYERS_NOT_DRAWN не имеет источника (см. osmSources), и
+    // ссылка на него дала бы висячий `source` — стиль не прошёл бы валидацию.
+    // Отказ здесь, а не «надо помнить»: одно множество решает и наличие
+    // источника, и возможность на него сослаться.
+    osm: (layer) => (s.osmUrls?.[layer] && !OSM_LAYERS_NOT_DRAWN.has(layer) ? { source: `osm-${layer}${ns}` } : null),
     contours: () => ({ source: `contours${ns}` }),
     fine: () => null,
   };
@@ -638,18 +642,14 @@ export function buildVedarStyle(
         },
         paint: { 'text-color': p.calculated, 'text-halo-color': p.contourLabelHalo, 'text-halo-width': 1.2 },
       }] : []),
-      // Имена воды — под символами: река подписывается вдоль себя, озеро
-      // в своём пятне, и оба уступают место ориентирам.
+      // Имя реки — под символами: подписывается вдоль русла и уступает
+      // место ориентирам.
       ...osmWaterLabelLayers(r, p, glyphs, font, ''),
-      // Приюты и перевалы — над линиями, под вершинами и посёлками.
+      // Приюты, перевалы, броды, источники — над линиями, под местами.
       ...osmShelterPassLayers(r, p, ''),
-      // Вершины — сверху всего: ориентир в поле важнее любой линии.
-      ...osmPeakLayers(r, p, ''),
-      // Посёлки — самый верх: на обзорном виде это единственное, по чему
-      // человек понимает, куда смотрит.
-      ...osmPlaceLayers(r, p, ''),
       // Места платформы — над всем: ради них карту и открывают, а профиль
       // безопасности точки — то, о чём человек в поле спрашивает первым.
+      // Вершины и посёлки OSM отсюда убраны 13.09 — см. OSM_LAYERS_NOT_DRAWN.
       ...vedarPlaceLayers(sources, p, ''),
     ],
   };
@@ -734,20 +734,18 @@ export function buildRegionOverlay(
   const ns = `-${regionId}`;
   const font = sources.glyphsFont ?? 'Noto Sans Regular';
   if (tier === 'base') {
-    // Вершины и посёлки — два слоя-ориентира, ради которых обзорный вид и
-    // нужен. Файлы у обоих килобайтные, в отличие от горизонталей. Векторный
-    // пакет — один источник на всё, его тайлы и так берутся по кадру.
-    const marks: VedarStyleSources = sources.vectorUrl
-      ? sources
-      : { ...sources, osmUrls: {
-          ...(sources.osmUrls?.peaks ? { peaks: sources.osmUrls.peaks } : {}),
-          ...(sources.osmUrls?.places ? { places: sources.osmUrls.places } : {}),
-        } };
-    const r = layerRefs(marks, ns);
+    // Базовый ярус соседа — рельеф, океан и НАШИ места. Вершины и посёлки
+    // OSM стояли здесь как «два слоя-ориентира, ради которых обзорный вид и
+    // нужен»; 13.09 владелец убрал их с карты совсем (безымянный кружок
+    // после снятия подписей ничего не сообщал), и ярус остался на рельефе
+    // и собственных точках — за ориентир теперь отвечают они.
+    //
+    // OSM-источников у базового яруса больше нет вовсе: единственные два,
+    // что он подкладывал, — как раз peaks и places. Всё остальное OSM живёт
+    // в ярусе detail, с z10.
     return {
       sources: {
         ...terrainSource(sources, ns),
-        ...(r.vector ? r.sources() : osmSources(marks.osmUrls, ns)),
         ...vedarOceanSource(sources, ns),
         ...vedarPlacesSource(sources, ns),
       },
@@ -755,19 +753,21 @@ export function buildRegionOverlay(
         reliefLayer(p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         hillshadeLayer(theme, p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         ...vedarOceanLayers(sources, p, ns),
-        ...osmPeakLayers(r, p, ns),
-        ...osmPlaceLayers(r, p, ns),
         ...vedarPlaceLayers(sources, p, ns),
       ] as Array<Record<string, unknown>>,
     };
   }
-  const rest: VedarStyleSources['osmUrls'] = { ...(sources.osmUrls ?? {}) };
-  delete rest.peaks;
-  delete rest.places;
-  const r = layerRefs(sources.vectorUrl ? sources : { ...sources, osmUrls: rest }, ns);
+  // Ярус detail берёт источники как есть: вершины и посёлки отсеивает
+  // OSM_LAYERS_NOT_DRAWN внутри osmSources, а не список исключений здесь.
+  // До 13.09 они вычитались тут вручную — чтобы не продублировать базовый
+  // ярус, который их подкладывал; теперь их не рисует никто.
+  const r = layerRefs(sources, ns);
   return {
-    // Векторный источник уже стоит с базового яруса (карта не добавляет
-    // источник дважды — см. VedarMap); повторить его здесь безопасно.
+    // Векторный источник района заводится ЗДЕСЬ: с 13.09 базовый ярус не
+    // рисует из пакета ни одного слоя (вершины и посёлки убраны), и держать
+    // источник ради ничего значило бы качать тайлы впустую. Карта всё равно
+    // не добавляет источник дважды (см. VedarMap), так что порядок ярусов
+    // этому не мешает.
     sources: r.sources(),
     layers: [
       ...osmFillLayers(r, p, ns),
@@ -924,11 +924,30 @@ function contourLayers(
   ];
 }
 
-/** Источники OSM — только для слоёв, чьи адреса есть. Атрибуция ODbL у каждого. */
+/**
+ * Слои пакета, которые карта больше не рисует (решение владельца 13.09:
+ * «белые точки и рыжие не понятны, удалим их» — после снятия подписей
+ * кружок вершины и посёлка перестал что-либо сообщать).
+ *
+ * Источник тоже не создаётся, а не только слой: geojson-источник MapLibre
+ * ЗАГРУЖАЕТ файл сразу, как его добавили, даже если на него не смотрит ни
+ * один слой. Оставить источник значило бы качать два файла на каждый район
+ * ради ничего — на телефоне в поле это чужой трафик за наш счёт.
+ *
+ * Файлы в пакетах остаются: конвейер их собирает, и вернуть слой — одна
+ * строка. Удалять их из `build_osm.py` значило бы пересобирать пакеты ради
+ * решения о виде карты.
+ */
+const OSM_LAYERS_NOT_DRAWN: ReadonlySet<string> = new Set(['peaks', 'places']);
+
+/**
+ * Источники OSM — только для слоёв, чьи адреса есть И которые карта рисует.
+ * Атрибуция ODbL у каждого.
+ */
 function osmSources(urls: VedarStyleSources['osmUrls'], ns: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [layer, url] of Object.entries(urls ?? {})) {
-    if (!url) continue;
+    if (!url || OSM_LAYERS_NOT_DRAWN.has(layer)) continue;
     out[`osm-${layer}${ns}`] = { type: 'geojson', data: url, attribution: OSM_ATTRIBUTION };
   }
   return out;
@@ -1060,51 +1079,29 @@ function osmLineLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
   return out;
 }
 
-/**
- * Точечных подписей у вершин больше нет (решение владельца 13.09): при
- * зуме ≥8.5 текст «Синичкина 279» ложился прямо на соседние маркеры (у
- * иконок `icon-ignore-placement: true` — они не участвуют в вытеснении
- * MapLibre, и подпись рисуется поверх без проверки коллизии), и тапнуть
- * саму точку становилось нечем. Кружок вершины остаётся ориентиром;
- * имя и высота — по тапу, не текстом на карте.
+/*
+ * ВЕРШИНЫ И ПОСЁЛКИ OSM: ПОЧЕМУ ИХ НЕТ НА КАРТЕ
+ *
+ * Слои `osm-peaks` и `osm-places` удалены 13.09 (решение владельца, два шага
+ * за один день). Сюда ссылаются остальные упоминания решения в файле.
+ *
+ * Сначала с карты ушли точечные подписи: у иконки места стоит
+ * `icon-ignore-placement: true` (иначе 383 точки прятались бы друг за друга
+ * на обзоре), а значит текст рядом не видел маркер как препятствие и
+ * ложился прямо на него — при зуме ≥8.5 «Синичкина 279» закрывала точку, и
+ * тапнуть её было нечем.
+ *
+ * Без подписи остался безымянный кружок: «белые точки и рыжие не понятны»
+ * (владелец, скрин зума 9.1). Кружок вершины не отвечал ни на один вопрос
+ * поля — ни имени, ни высоты, ни принадлежности к нашим 117 точкам, —
+ * а от НАШИХ маркеров отличался только формой. Удалён вместе с посёлками:
+ * у обоих слоёв и источники не создаются — см. OSM_LAYERS_NOT_DRAWN.
+ *
+ * Приюты, перевалы, броды и источники ОСТАВЛЕНЫ намеренно (см.
+ * `osmShelterPassLayers`): они видны только с z9-z10, то есть в поле, и
+ * отвечают на вопросы «где ночевать», «где переваливать», «где перейти
+ * реку» — кружок там сообщает факт местности даже без подписи.
  */
-function osmPeakLayers(
-  r: LayerRefs, p: MapPalette, ns: string,
-): unknown[] {
-  const peaks = r.osm('peaks');
-  if (!peaks) return [];
-  return [{
-    id: `osm-peaks${ns}`, type: 'circle', ...peaks,
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4],
-      'circle-color': p.peak,
-      'circle-stroke-color': p.background,
-      'circle-stroke-width': 1,
-    },
-  }];
-}
-
-/**
- * Посёлки. Подпись убрана решением владельца 13.09 вместе со всеми
- * точечными подписями карты — см. `osmPeakLayers`. Кружок остаётся, имя
- * — по тапу.
- */
-function osmPlaceLayers(
-  r: LayerRefs, p: MapPalette, ns: string,
-): unknown[] {
-  const places = r.osm('places');
-  if (!places) return [];
-  return [{
-    id: `osm-places${ns}`, type: 'circle', ...places,
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 13, 3.5],
-      'circle-color': p.place,
-      'circle-stroke-color': p.background,
-      'circle-stroke-width': 1,
-      'circle-opacity': 0.8,
-    },
-  }];
-}
 
 /**
  * Океан обзорного яруса — один GeoJSON, производный от OSM (полигоны суши),
@@ -1201,8 +1198,9 @@ function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<strin
  * всеми точечными подписями карты): `icon-ignore-placement: true` выше
  * выводит иконку из вытеснения MapLibre, и подпись рисовалась поверх
  * СОСЕДНЕЙ точки без проверки коллизии — на зуме ≥8.5 текст «Синичкина 279»
- * и подобные (`osmPeakLayers`) полностью закрывали маркер, и тапнуть по
- * нему было нечем. Имя места теперь узнаётся тапом, не текстом на карте.
+ * и подобные полностью закрывали маркер, и тапнуть по нему было нечем. Имя
+ * места теперь узнаётся тапом, не текстом на карте. Второй шаг того же дня —
+ * снятие самих кружков вершин и посёлков, см. OSM_LAYERS_NOT_DRAWN.
  */
 function vedarPlaceLayers(
   sources: VedarStyleSources, p: MapPalette, ns: string,
@@ -1234,8 +1232,9 @@ function vedarPlaceLayers(
  * они не решение, а сор.
  *
  * Текстовых подписей (имя, высота перевала) больше нет — решение владельца
- * 13.09 вместе со всеми точечными подписями карты, см. `osmPeakLayers`.
- * Точка остаётся фактом местности, имя/высота — по тапу.
+ * 13.09 вместе со всеми точечными подписями карты. Сами точки ОСТАВЛЕНЫ,
+ * в отличие от вершин и посёлков (см. OSM_LAYERS_NOT_DRAWN): эти четыре
+ * рода видны только вблизи и отвечают на вопрос поля даже без имени.
  */
 function osmShelterPassLayers(
   r: LayerRefs, p: MapPalette, ns: string,

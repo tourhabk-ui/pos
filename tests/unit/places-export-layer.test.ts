@@ -164,10 +164,22 @@ describe('слой мест в стиле карты', () => {
     }
   });
 
-  it('места — верхний слой: над посёлками OSM', () => {
-    const src = { ...STYLE_SRC, osmUrls: { places: 'https://example.test/map-packs/cell-52n157e.osm-places.geojson' } };
+  it('места — верхний слой: над приютами и перевалами OSM', () => {
+    // До 13.09 сравнение шло с посёлками OSM — их слоя больше нет вовсе
+    // (владелец: безымянный кружок после снятия подписей ничего не сообщал).
+    // Верхний OSM-ориентир теперь приют/перевал, и НАШИ места выше него:
+    // ради них карту и открывают.
+    const src = {
+      ...STYLE_SRC,
+      osmUrls: {
+        shelters: 'https://example.test/map-packs/cell-52n157e.osm.shelters.geojson',
+        passes: 'https://example.test/map-packs/cell-52n157e.osm.passes.geojson',
+      },
+    };
     const ids = (buildVedarStyle('dark', src) as { layers: Layer[] }).layers.map((l) => l.id);
-    expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-places'));
+    expect(ids.indexOf('osm-shelters')).toBeGreaterThan(-1);
+    expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-shelters'));
+    expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-passes'));
     expect(ids.at(-1)).toBe('vedar-places');
   });
 

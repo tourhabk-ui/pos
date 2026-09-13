@@ -30,6 +30,13 @@ const UP = readFileSync(join(ROOT, 'scripts/map-tiles/upload-pack.ts'), 'utf-8')
 const base = 'https://s3.example.ru/b';
 const allUrls = Object.fromEntries(OSM_LAYERS.map((l) => [l, `${base}/map-packs/avacha-group.osm.${l}.geojson`])) as Record<OsmLayer, string>;
 const baseSources = { terrainUrl: 'pmtiles://x', contoursUrl: 'y', terrainMaxZoom: 13, attribution: 'a' };
+/**
+ * Слои, которые конвейер собирает, а карта не рисует (владелец 13.09).
+ * Список ЗДЕСЬ, а не импортом из стиля: импорт проверял бы, что стиль
+ * согласен сам с собой, а сторож должен проверять то, о чём договорились.
+ * Чтобы вернуть слой, придётся поправить и это место — и объяснить, почему.
+ */
+const NOT_DRAWN = new Set<OsmLayer>(['peaks', 'places']);
 type Style = { sources: Record<string, { attribution?: string }>; layers: Array<{ id: string; type: string; source?: string; paint?: Record<string, unknown> }> };
 
 describe('список слоёв — один на конвейер и контракт', () => {
@@ -95,19 +102,47 @@ describe('адреса — только обещанным районам', () =
       const errs = validateStyleMin(style as never);
       expect(errs.map((e) => e.message), `тема ${theme}`).toEqual([]);
       for (const l of OSM_LAYERS) {
+        if (NOT_DRAWN.has(l)) continue;
         expect(style.sources[`osm-${l}`]?.attribution).toBe('© OpenStreetMap contributors');
       }
       // Подписи вершин убраны решением владельца 13.09 (см. описание файла
-      // ниже) — глифы им больше не нужны, кружок остаётся один.
+      // ниже), а вторым шагом того же дня — и сами кружки.
       expect(style.layers.some((l) => l.id === 'osm-peak-labels')).toBe(false);
     }
   });
 
-  it('подписи вершин не создаются ни с глифами, ни без них — кружки остаются', () => {
-    const style = buildVedarStyle('dark', { ...baseSources, osmUrls: allUrls }) as unknown as Style;
-    expect(style.layers.some((l) => l.id === 'osm-peaks')).toBe(true);
-    expect(style.layers.some((l) => l.id === 'osm-peak-labels')).toBe(false);
-    expect(validateStyleMin(style as never)).toEqual([]);
+  it('вершины и посёлки не рисуются вовсе — ни слоя, ни источника', () => {
+    // Решение владельца 13.09, второй шаг: без подписи кружок вершины и
+    // посёлка не сообщал ничего («белые точки и рыжие не понятны»).
+    // Источник проверяется отдельно от слоя: geojson-источник MapLibre
+    // качает файл сразу, как его добавили, даже если на него не смотрит ни
+    // один слой — слой без источника сэкономил бы нарисованное, но не
+    // трафик поля.
+    for (const theme of ['dark', 'light'] as const) {
+      for (const withGlyphs of [true, false]) {
+        const style = buildVedarStyle(theme, {
+          ...baseSources, osmUrls: allUrls,
+          ...(withGlyphs
+            ? { glyphsUrl: `${base}/map-packs/glyphs/{fontstack}/{range}.pbf`, glyphsFont: 'Noto Sans Regular' }
+            : {}),
+        }) as unknown as Style;
+        for (const l of NOT_DRAWN) {
+          expect(style.layers.some((x) => x.id === `osm-${l}`), `слой osm-${l}`).toBe(false);
+          expect(style.sources[`osm-${l}`], `источник osm-${l}`).toBeUndefined();
+        }
+        expect(style.layers.some((l) => l.id === 'osm-peak-labels')).toBe(false);
+        expect(validateStyleMin(style as never)).toEqual([]);
+      }
+    }
+  });
+
+  it('файлы вершин и посёлков конвейер всё равно собирает — вернуть слой одна строка', () => {
+    // Снятие со стиля — решение о ВИДЕ карты; пересобирать пакеты ради него
+    // значило бы смешать два разных решения. Файлы остаются в пакете.
+    expect(OSM_LAYERS).toContain('peaks');
+    expect(OSM_LAYERS).toContain('places');
+    expect(PY).toMatch(/node\["natural"~"\^\(peak\|volcano\)\$"\]/);
+    expect(PY).toMatch(/node\["place"~/);
   });
 });
 
@@ -115,12 +150,15 @@ describe('порядок и вид слоёв', () => {
   const style = buildVedarStyle('dark', { ...baseSources, osmUrls: allUrls }) as unknown as Style;
   const idx = (id: string) => style.layers.findIndex((l) => l.id === id);
 
-  it('заливки под тенью, линии над горизонталями и под маршрутом, вершины сверху', () => {
+  it('заливки под тенью, линии над горизонталями и под маршрутом, ориентиры сверху', () => {
     expect(idx('osm-wood')).toBeLessThan(idx('hillshade'));
     expect(idx('osm-water')).toBeLessThan(idx('hillshade'));
     expect(idx('osm-waterways')).toBeGreaterThan(idx('contour-major'));
     expect(idx('osm-paths')).toBeLessThan(idx('route-line'));
-    expect(idx('osm-peaks')).toBeGreaterThan(idx('route-connector'));
+    // Верхние OSM-символы — приют и перевал: вершины с 13.09 не рисуются,
+    // и самым верхним из OSM стал тот род, что остался решением поля.
+    expect(idx('osm-shelters')).toBeGreaterThan(idx('route-connector'));
+    expect(idx('osm-passes')).toBeGreaterThan(idx('route-connector'));
   });
 
   it('тропа с OSM — пунктир: не наш снятый трек (§12)', () => {
@@ -177,10 +215,15 @@ describe('имена: посёлки, приюты, перевалы, вода',
     expect(validateStyleMin(style as never)).toEqual([]);
   });
 
-  it('посёлки, приюты, перевалы остаются точками (кружком), без подписи', () => {
-    expect(idx('osm-places')).toBeGreaterThanOrEqual(0);
+  it('приюты, перевалы, броды, источники остаются точками (кружком), без подписи', () => {
+    // Эти четыре рода ОСТАВЛЕНЫ, в отличие от вершин и посёлков: видны с
+    // z10, то есть в поле, и отвечают на вопрос «где ночевать / где
+    // переваливать / где перейти реку» даже безымянным кружком.
     expect(idx('osm-shelters')).toBeGreaterThanOrEqual(0);
     expect(idx('osm-passes')).toBeGreaterThanOrEqual(0);
+    expect(idx('osm-fords')).toBeGreaterThanOrEqual(0);
+    expect(idx('osm-springs')).toBeGreaterThanOrEqual(0);
+    expect(idx('osm-places')).toBe(-1);
     expect(idx('osm-waterway-labels')).toBeLessThan(idx('osm-shelters'));
   });
 
@@ -202,7 +245,7 @@ describe('имена: посёлки, приюты, перевалы, вода',
     for (const id of ['osm-place-labels', 'osm-shelter-labels', 'osm-pass-labels', 'osm-water-labels']) {
       expect(noGlyphs.layers.some((l) => l.id === id), id).toBe(false);
     }
-    expect(noGlyphs.layers.some((l) => l.id === 'osm-places')).toBe(true);
+    expect(noGlyphs.layers.some((l) => l.id === 'osm-shelters')).toBe(true);
     expect(validateStyleMin(noGlyphs as never)).toEqual([]);
   });
 });

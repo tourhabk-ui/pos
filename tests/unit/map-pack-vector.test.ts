@@ -115,9 +115,14 @@ describe('стиль с векторным пакетом', () => {
     expect(validateStyleMin(style as never)).toEqual([]);
   });
 
-  it('оверлей соседа с пакетом: базовый ярус несёт источник, детальный — те же слои', () => {
+  it('оверлей соседа с пакетом: векторный источник заводит детальный ярус', () => {
+    // Базовый ярус брал векторный источник, пока рисовал из него вершины и
+    // посёлки. 13.09 владелец убрал их с карты (см. vedar-style.ts), и у
+    // базового яруса не осталось ни одного слоя из пакета — значит и
+    // источника там быть не должно: он завёлся бы ради ничего.
     const b = buildRegionOverlay('dark', vec, 'paratunka', 'base');
-    expect(Object.keys(b.sources)).toEqual(['terrain-paratunka', 'vector-paratunka']);
+    expect(Object.keys(b.sources)).toEqual(['terrain-paratunka']);
+    expect(b.layers.some((l) => String(l.id).startsWith('osm-'))).toBe(false);
     const d = buildRegionOverlay('dark', vec, 'paratunka', 'detail');
     expect(Object.keys(d.sources)).toEqual(['vector-paratunka']);
     expect(d.layers.map((l) => l.id)).toContain('contour-fine-paratunka');
