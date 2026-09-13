@@ -1,16 +1,11 @@
 {
-  "note": "13.09: 2 черновика (#1830) обрезаны на середине предложения (Дзензур 134/567 симв., Кошелева 46/795) — не мой перевод плох, а сама запись неполная. Точечный повтор только этих двух.",
-  "run": 494,
-  "urls": [],
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/place-description-drafts?dry_run=false&place_ids=a8bef8cd-f162-48f4-9814-bf7cc0f35629,2b9c567e-1ffc-403e-a69a-6d72c93b88ae",
-      "body": {}
-    }
+  "note": "13.09: проверить, что Дзензур и Кошелева больше не обрываются.",
+  "run": 495,
+  "urls": [
+    "https://vedarai.ru/api/cron/place-description-drafts?detail=true"
   ],
-  "bytes": 5000,
-  "timeout": 120,
-  "retries": 5,
-  "retryDelay": 60,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; retry two truncated gvp drafts)"
+  "post": [],
+  "bytes": 200000,
+  "timeout": 30,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; verify truncation fix)"
 }
