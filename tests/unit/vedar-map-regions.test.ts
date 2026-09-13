@@ -70,10 +70,11 @@ describe('оверлей района', () => {
     expect(Object.keys(b.sources)).toEqual([
       'terrain-esso-bystrinsky', 'osm-peaks-esso-bystrinsky', 'osm-places-esso-bystrinsky',
     ]);
+    // Точечных подписей (вершина, посёлок) больше нет — решение владельца
+    // 13.09, см. vedar-style.ts: закрывали маркер на плотном зуме.
     expect(b.layers.map(l => l.id)).toEqual([
       'relief-esso-bystrinsky', 'hillshade-esso-bystrinsky',
-      'osm-peaks-esso-bystrinsky', 'osm-peak-labels-esso-bystrinsky',
-      'osm-places-esso-bystrinsky', 'osm-place-labels-esso-bystrinsky',
+      'osm-peaks-esso-bystrinsky', 'osm-places-esso-bystrinsky',
     ]);
     const d = buildRegionOverlay('dark', src('esso-bystrinsky'), 'esso-bystrinsky', 'detail');
     expect(Object.values(d.sources).every(s => (s as { type: string }).type === 'geojson')).toBe(true);
@@ -81,9 +82,9 @@ describe('оверлей района', () => {
     expect(Object.keys(d.sources)).not.toContain('osm-peaks-esso-bystrinsky');
     expect(Object.keys(d.sources)).not.toContain('osm-places-esso-bystrinsky');
     expect(d.layers.map(l => l.id)).toContain('contour-major-esso-bystrinsky');
-    // Приют и перевал — вблизи, вместе с горизонталями.
+    // Приют и перевал — вблизи, вместе с горизонталями (точками, без подписи).
     expect(d.layers.map(l => l.id)).toContain('osm-shelters-esso-bystrinsky');
-    expect(d.layers.map(l => l.id)).toContain('osm-pass-labels-esso-bystrinsky');
+    expect(d.layers.map(l => l.id)).toContain('osm-passes-esso-bystrinsky');
   });
 
   it('основной стиль не изменился: идентификаторы без суффикса', () => {

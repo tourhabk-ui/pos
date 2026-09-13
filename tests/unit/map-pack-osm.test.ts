@@ -97,11 +97,13 @@ describe('адреса — только обещанным районам', () =
       for (const l of OSM_LAYERS) {
         expect(style.sources[`osm-${l}`]?.attribution).toBe('© OpenStreetMap contributors');
       }
-      expect(style.layers.some((l) => l.id === 'osm-peak-labels')).toBe(true);
+      // Подписи вершин убраны решением владельца 13.09 (см. описание файла
+      // ниже) — глифы им больше не нужны, кружок остаётся один.
+      expect(style.layers.some((l) => l.id === 'osm-peak-labels')).toBe(false);
     }
   });
 
-  it('без глифов подписи вершин не создаются, кружки остаются', () => {
+  it('подписи вершин не создаются ни с глифами, ни без них — кружки остаются', () => {
     const style = buildVedarStyle('dark', { ...baseSources, osmUrls: allUrls }) as unknown as Style;
     expect(style.layers.some((l) => l.id === 'osm-peaks')).toBe(true);
     expect(style.layers.some((l) => l.id === 'osm-peak-labels')).toBe(false);
@@ -128,10 +130,13 @@ describe('порядок и вид слоёв', () => {
 });
 
 /**
- * Имена на карте (02.09, осмотр владельца: «на карте нет ни одного
- * названия посёлка»). Посёлок — ориентир обзорного вида; приют и перевал —
- * решения поля. Имена рек и озёр новых данных не потребовали: `name` уже
- * лежал в слоях, карта его не читала.
+ * Точечные подписи (посёлки, приюты, перевалы, озёра) убраны решением
+ * владельца 13.09: у иконки маркера `icon-ignore-placement: true`, она не
+ * участвует в вытеснении MapLibre, и текст рядом рисовался поверх соседней
+ * точки без проверки коллизии — на зуме ≥8.5 подпись вершины/посёлка
+ * полностью закрывала маркер, и тапнуть по нему было нечем. Осталась
+ * только подпись реки — она идёт ВДОЛЬ линии (symbol-placement: line), а
+ * не садится точкой поверх маркера, и решения это не касается.
  */
 describe('имена: посёлки, приюты, перевалы, вода', () => {
   const style = buildVedarStyle('dark', {
@@ -164,32 +169,19 @@ describe('имена: посёлки, приюты, перевалы, вода',
     expect(PY).toMatch(/layer in \('peaks', 'passes'\)/);
   });
 
-  it('подписи есть у всех четырёх родов имён', () => {
-    for (const id of ['osm-place-labels', 'osm-shelter-labels', 'osm-pass-labels',
-      'osm-waterway-labels', 'osm-water-labels']) {
-      expect(idx(id), id).toBeGreaterThanOrEqual(0);
+  it('точечных подписей нет ни у одного из четырёх родов — только у реки (линия)', () => {
+    for (const id of ['osm-place-labels', 'osm-shelter-labels', 'osm-pass-labels', 'osm-water-labels']) {
+      expect(idx(id), id).toBe(-1);
     }
+    expect(idx('osm-waterway-labels')).toBeGreaterThanOrEqual(0);
     expect(validateStyleMin(style as never)).toEqual([]);
   });
 
-  it('посёлки — поверх всего, вода — под символами', () => {
-    expect(idx('osm-place-labels')).toBeGreaterThan(idx('osm-peaks'));
-    expect(idx('osm-waterway-labels')).toBeLessThan(idx('osm-shelters'));
-  });
-
-  it('при тесноте вытесняется хутор, а не город', () => {
-    const labels = style.layers.find((l) => l.id === 'osm-place-labels') as unknown as
-      { layout: Record<string, unknown> };
-    expect(labels.layout['symbol-sort-key']).toEqual(
-      ['match', ['get', 'kind'], 'city', 0, 'town', 1, 'village', 2, 3]);
-    expect(labels.layout['text-allow-overlap']).toBe(false);
-  });
-
-  it('безымянный перевал остаётся точкой без подписи (§4.0)', () => {
-    const passLabels = style.layers.find((l) => l.id === 'osm-pass-labels') as unknown as
-      { filter: unknown };
-    expect(passLabels.filter).toEqual(['has', 'name']);
+  it('посёлки, приюты, перевалы остаются точками (кружком), без подписи', () => {
+    expect(idx('osm-places')).toBeGreaterThanOrEqual(0);
+    expect(idx('osm-shelters')).toBeGreaterThanOrEqual(0);
     expect(idx('osm-passes')).toBeGreaterThanOrEqual(0);
+    expect(idx('osm-waterway-labels')).toBeLessThan(idx('osm-shelters'));
   });
 
   it('обрыв — поверх троп, цветом тревоги; горячий источник — акцентом', () => {

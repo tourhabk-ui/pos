@@ -642,15 +642,15 @@ export function buildVedarStyle(
       // в своём пятне, и оба уступают место ориентирам.
       ...osmWaterLabelLayers(r, p, glyphs, font, ''),
       // Приюты и перевалы — над линиями, под вершинами и посёлками.
-      ...osmShelterPassLayers(r, p, glyphs, font, ''),
+      ...osmShelterPassLayers(r, p, ''),
       // Вершины — сверху всего: ориентир в поле важнее любой линии.
-      ...osmPeakLayers(r, p, glyphs, font, ''),
+      ...osmPeakLayers(r, p, ''),
       // Посёлки — самый верх: на обзорном виде это единственное, по чему
       // человек понимает, куда смотрит.
-      ...osmPlaceLayers(r, p, glyphs, font, ''),
+      ...osmPlaceLayers(r, p, ''),
       // Места платформы — над всем: ради них карту и открывают, а профиль
       // безопасности точки — то, о чём человек в поле спрашивает первым.
-      ...vedarPlaceLayers(sources, p, glyphs, font, ''),
+      ...vedarPlaceLayers(sources, p, ''),
     ],
   };
 }
@@ -755,9 +755,9 @@ export function buildRegionOverlay(
         reliefLayer(p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         hillshadeLayer(theme, p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         ...vedarOceanLayers(sources, p, ns),
-        ...osmPeakLayers(r, p, glyphs, font, ns),
-        ...osmPlaceLayers(r, p, glyphs, font, ns),
-        ...vedarPlaceLayers(sources, p, glyphs, font, ns),
+        ...osmPeakLayers(r, p, ns),
+        ...osmPlaceLayers(r, p, ns),
+        ...vedarPlaceLayers(sources, p, ns),
       ] as Array<Record<string, unknown>>,
     };
   }
@@ -774,7 +774,7 @@ export function buildRegionOverlay(
       ...contourLayers(r, p, glyphs, font, ns),
       ...osmLineLayers(r, p, ns),
       ...osmWaterLabelLayers(r, p, glyphs, font, ns),
-      ...osmShelterPassLayers(r, p, glyphs, font, ns),
+      ...osmShelterPassLayers(r, p, ns),
     ] as Array<Record<string, unknown>>,
   };
 }
@@ -1060,12 +1060,20 @@ function osmLineLayers(r: LayerRefs, p: MapPalette, ns: string): unknown[] {
   return out;
 }
 
+/**
+ * Точечных подписей у вершин больше нет (решение владельца 13.09): при
+ * зуме ≥8.5 текст «Синичкина 279» ложился прямо на соседние маркеры (у
+ * иконок `icon-ignore-placement: true` — они не участвуют в вытеснении
+ * MapLibre, и подпись рисуется поверх без проверки коллизии), и тапнуть
+ * саму точку становилось нечем. Кружок вершины остаётся ориентиром;
+ * имя и высота — по тапу, не текстом на карте.
+ */
 function osmPeakLayers(
-  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
+  r: LayerRefs, p: MapPalette, ns: string,
 ): unknown[] {
   const peaks = r.osm('peaks');
   if (!peaks) return [];
-  const out: unknown[] = [{
+  return [{
     id: `osm-peaks${ns}`, type: 'circle', ...peaks,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4],
@@ -1074,46 +1082,19 @@ function osmPeakLayers(
       'circle-stroke-width': 1,
     },
   }];
-  // Имя и высота — только при глифах, иначе слой подписей отвергает стиль
-  // целиком (тот же урок, что у горизонталей 01.09).
-  if (glyphs) {
-    out.push({
-      id: `osm-peak-labels${ns}`, type: 'symbol', ...peaks,
-      layout: {
-        'text-font': [font],
-        'text-field': ['case', ['has', 'ele'],
-          ['concat', ['get', 'name'], ' ', ['to-string', ['get', 'ele']]],
-          ['get', 'name']],
-        'text-size': 11,
-        'text-offset': [0, 0.9],
-        'text-anchor': 'top',
-        'text-allow-overlap': false,
-      },
-      paint: {
-        'text-color': p.peakLabel,
-        'text-halo-color': p.background,
-        'text-halo-width': 1.4,
-      },
-    });
-  }
-  return out;
 }
 
 /**
- * Посёлки (02.09, осмотр владельца: «на карте нет ни одного названия»).
- *
- * Слой один на все четыре рода — город, посёлок, село, хутор, — а
- * разбираются они кеглем и ПОРЯДКОМ ВЫТЕСНЕНИЯ (`symbol-sort-key`): когда
- * подписи не помещаются, MapLibre выбрасывает хутор, а не город. Резать
- * зумом по родам было бы четыре слоя и четыре угаданных порога; здесь
- * порог один — «что влезло».
+ * Посёлки. Подпись убрана решением владельца 13.09 вместе со всеми
+ * точечными подписями карты — см. `osmPeakLayers`. Кружок остаётся, имя
+ * — по тапу.
  */
 function osmPlaceLayers(
-  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
+  r: LayerRefs, p: MapPalette, ns: string,
 ): unknown[] {
   const places = r.osm('places');
   if (!places) return [];
-  const out: unknown[] = [{
+  return [{
     id: `osm-places${ns}`, type: 'circle', ...places,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 13, 3.5],
@@ -1123,27 +1104,6 @@ function osmPlaceLayers(
       'circle-opacity': 0.8,
     },
   }];
-  if (glyphs) {
-    out.push({
-      id: `osm-place-labels${ns}`, type: 'symbol', ...places,
-      layout: {
-        'text-font': [font],
-        'text-field': ['get', 'name'],
-        'text-size': ['match', ['get', 'kind'], 'city', 15, 'town', 13, 'village', 12, 11],
-        'text-offset': [0, 0.8],
-        'text-anchor': 'top',
-        'text-padding': 4,
-        'text-allow-overlap': false,
-        'symbol-sort-key': ['match', ['get', 'kind'], 'city', 0, 'town', 1, 'village', 2, 3],
-      },
-      paint: {
-        'text-color': p.place,
-        'text-halo-color': p.background,
-        'text-halo-width': 1.6,
-      },
-    });
-  }
-  return out;
 }
 
 /**
@@ -1235,23 +1195,27 @@ function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<strin
  * зум 4.4). `icon-allow-overlap` — тем же способом, каким кружок раньше
  * рисовался ВСЕГДА независимо от тесноты: без него MapLibre скрывал бы
  * иконки при столкновении на обзоре, где 383 точки густо стоят на крае —
- * это была бы новая, никем не просимая потеря точек. Подпись — с z9, когда
- * есть глифы (383 имени на весь край читались бы кашей), и в вытеснении
- * тревожная подпись идёт первой: она не должна проигрывать хутору.
+ * это была бы новая, никем не просимая потеря точек.
+ *
+ * Текстовой подписи имени больше нет (решение владельца 13.09, вместе со
+ * всеми точечными подписями карты): `icon-ignore-placement: true` выше
+ * выводит иконку из вытеснения MapLibre, и подпись рисовалась поверх
+ * СОСЕДНЕЙ точки без проверки коллизии — на зуме ≥8.5 текст «Синичкина 279»
+ * и подобные (`osmPeakLayers`) полностью закрывали маркер, и тапнуть по
+ * нему было нечем. Имя места теперь узнаётся тапом, не текстом на карте.
  */
 function vedarPlaceLayers(
-  sources: VedarStyleSources, p: MapPalette, glyphs: string | null, font: string, ns: string,
+  sources: VedarStyleSources, p: MapPalette, ns: string,
 ): unknown[] {
   if (!sources.placesUrl) return [];
   const source = `vedar-places${ns}`;
   const hazardous: unknown = ['>', ['length', ['coalesce', ['get', 'hazard_types'], ['literal', []]]], 0];
-  const color: unknown = ['case', hazardous, p.cliff, p.peak];
   const iconImage: unknown = [
     'concat', 'place-icon-',
     ['case', hazardous, 'hazard-', 'normal-'],
     ['coalesce', ['get', 'kind'], 'other'],
   ];
-  const out: unknown[] = [{
+  return [{
     id: `vedar-places${ns}`, type: 'symbol', source,
     minzoom: OVERVIEW_MIN_ZOOM,
     layout: {
@@ -1262,28 +1226,6 @@ function vedarPlaceLayers(
       'icon-ignore-placement': true,
     },
   }];
-  if (glyphs) {
-    out.push({
-      id: `vedar-place-labels${ns}`, type: 'symbol', source,
-      minzoom: 9,
-      layout: {
-        'text-font': [font],
-        'text-field': ['get', 'name'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 13, 13],
-        'text-offset': [0, 0.9],
-        'text-anchor': 'top',
-        'text-padding': 4,
-        'text-allow-overlap': false,
-        'symbol-sort-key': ['case', hazardous, 0, 2],
-      },
-      paint: {
-        'text-color': color,
-        'text-halo-color': p.background,
-        'text-halo-width': 1.6,
-      },
-    });
-  }
-  return out;
 }
 
 /**
@@ -1291,12 +1233,12 @@ function vedarPlaceLayers(
  * ночевать и где переваливать. Оба видны только вблизи (z10): на обзоре
  * они не решение, а сор.
  *
- * Перевал подписан высотой, как вершина: по ней понимают набор и снег.
- * Безымянный перевал остаётся точкой без подписи — он всё равно факт
- * местности, а выдуманного имени у него нет (§4.0).
+ * Текстовых подписей (имя, высота перевала) больше нет — решение владельца
+ * 13.09 вместе со всеми точечными подписями карты, см. `osmPeakLayers`.
+ * Точка остаётся фактом местности, имя/высота — по тапу.
  */
 function osmShelterPassLayers(
-  r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
+  r: LayerRefs, p: MapPalette, ns: string,
 ): unknown[] {
   const out: unknown[] = [];
   const passes = r.osm('passes');
@@ -1354,127 +1296,47 @@ function osmShelterPassLayers(
       },
     });
   }
-  if (!glyphs) return out;
-  if (springs) {
-    out.push({
-      id: `osm-spring-labels${ns}`, type: 'symbol', ...springs,
-      minzoom: 12,
-      filter: ['has', 'name'],
-      layout: {
-        'text-font': [font],
-        'text-field': ['get', 'name'],
-        'text-size': 10,
-        'text-offset': [0, 0.9],
-        'text-anchor': 'top',
-        'text-allow-overlap': false,
-      },
-      paint: {
-        'text-color': ['case', ['==', ['get', 'kind'], 'hot_spring'], p.hotSpring, p.spring],
-        'text-halo-color': p.background,
-        'text-halo-width': 1.4,
-      },
-    });
-  }
-  if (passes) {
-    out.push({
-      id: `osm-pass-labels${ns}`, type: 'symbol', ...passes,
-      minzoom: 10,
-      filter: ['has', 'name'],
-      layout: {
-        'text-font': [font],
-        'text-field': ['case', ['has', 'ele'],
-          ['concat', ['get', 'name'], ' ', ['to-string', ['get', 'ele']]],
-          ['get', 'name']],
-        'text-size': 11,
-        'text-offset': [0, 0.9],
-        'text-anchor': 'top',
-        'text-allow-overlap': false,
-      },
-      paint: {
-        'text-color': p.mountainPass,
-        'text-halo-color': p.background,
-        'text-halo-width': 1.4,
-      },
-    });
-  }
-  if (shelters) {
-    out.push({
-      id: `osm-shelter-labels${ns}`, type: 'symbol', ...shelters,
-      minzoom: 10,
-      filter: ['has', 'name'],
-      layout: {
-        'text-font': [font],
-        'text-field': ['get', 'name'],
-        'text-size': 11,
-        'text-offset': [0, 0.9],
-        'text-anchor': 'top',
-        'text-allow-overlap': false,
-      },
-      paint: {
-        'text-color': p.shelter,
-        'text-halo-color': p.background,
-        'text-halo-width': 1.4,
-      },
-    });
-  }
   return out;
 }
 
 /**
- * Имена рек и озёр. Новых данных не нужно: `name` уже лежит в тех же
- * слоях `waterways` и `water` — их писал конвейер с самого начала, а карта
- * не читала. Река подписывается ВДОЛЬ себя (symbol-placement: line), озеро
- * — в своём пятне; безымянные молчат.
+ * Имя реки. Новых данных не нужно: `name` уже лежит в слое `waterways` —
+ * его писал конвейер с самого начала, а карта не читала. Подпись идёт
+ * ВДОЛЬ русла (symbol-placement: line) — в отличие от точечных подписей
+ * (вершины, посёлки, места платформы и т.д.), она не садится поверх
+ * маркера, а тянется по линии реки, поэтому решение владельца 13.09
+ * убрать точечные подписи её не касается.
+ *
+ * Имя озера убрано вместе с прочими точечными подписями (было
+ * `osm-water-labels`, `symbol-placement` по умолчанию — точка в пятне
+ * озера, тот же эффект перекрытия маркера, что у вершин).
  */
 function osmWaterLabelLayers(
   r: LayerRefs, p: MapPalette, glyphs: string | null, font: string, ns: string,
 ): unknown[] {
   if (!glyphs) return [];
-  const out: unknown[] = [];
   const waterways = r.osm('waterways');
-  const water = r.osm('water');
-  if (waterways) {
-    out.push({
-      id: `osm-waterway-labels${ns}`, type: 'symbol', ...waterways,
-      minzoom: 11,
-      filter: ['has', 'name'],
-      layout: {
-        'symbol-placement': 'line',
-        'text-font': [font],
-        'text-field': ['get', 'name'],
-        'text-size': 10,
-        'text-max-angle': 30,
-        'text-padding': 4,
-        'symbol-spacing': 400,
-        'text-allow-overlap': false,
-      },
-      paint: {
-        'text-color': p.waterLabel,
-        'text-halo-color': p.background,
-        'text-halo-width': 1.2,
-      },
-    });
-  }
-  if (water) {
-    out.push({
-      id: `osm-water-labels${ns}`, type: 'symbol', ...water,
-      minzoom: 10,
-      filter: ['has', 'name'],
-      layout: {
-        'text-font': [font],
-        'text-field': ['get', 'name'],
-        'text-size': 11,
-        'text-padding': 4,
-        'text-allow-overlap': false,
-      },
-      paint: {
-        'text-color': p.waterLabel,
-        'text-halo-color': p.background,
-        'text-halo-width': 1.2,
-      },
-    });
-  }
-  return out;
+  if (!waterways) return [];
+  return [{
+    id: `osm-waterway-labels${ns}`, type: 'symbol', ...waterways,
+    minzoom: 11,
+    filter: ['has', 'name'],
+    layout: {
+      'symbol-placement': 'line',
+      'text-font': [font],
+      'text-field': ['get', 'name'],
+      'text-size': 10,
+      'text-max-angle': 30,
+      'text-padding': 4,
+      'symbol-spacing': 400,
+      'text-allow-overlap': false,
+    },
+    paint: {
+      'text-color': p.waterLabel,
+      'text-halo-color': p.background,
+      'text-halo-width': 1.2,
+    },
+  }];
 }
 
 function emptyFeatureCollection() {

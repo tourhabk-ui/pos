@@ -143,12 +143,15 @@ describe('слой мест в стиле карты', () => {
     expect(new Set(PLACES_BUILT).size).toBe(PLACES_BUILT.length);
   });
 
-  it('есть адрес — есть источник со СВОЕЙ атрибуцией и два слоя; нет — ничего', () => {
+  it('есть адрес — есть источник со СВОЕЙ атрибуцией и слой мест; нет — ничего', () => {
     const style = buildVedarStyle('dark', STYLE_SRC) as { sources: Record<string, { attribution?: string }>; layers: Layer[] };
     expect(style.sources['vedar-places']?.attribution).toBe(PLACES_ATTRIBUTION);
     expect(style.layers.map((l) => l.id)).toEqual(
-      expect.arrayContaining(['vedar-places', 'vedar-place-labels']),
+      expect.arrayContaining(['vedar-places']),
     );
+    // Текстовой подписи имени больше нет (решение владельца 13.09 —
+    // точечные подписи закрывали маркер на плотном зуме, см. vedar-style.ts).
+    expect(style.layers.some((l) => l.id === 'vedar-place-labels')).toBe(false);
     const bare = buildVedarStyle('dark', { ...STYLE_SRC, placesUrl: null }) as { sources: Record<string, unknown>; layers: Layer[] };
     expect(bare.sources['vedar-places']).toBeUndefined();
     expect(bare.layers.some((l) => l.id.startsWith('vedar-place'))).toBe(false);
@@ -164,8 +167,8 @@ describe('слой мест в стиле карты', () => {
   it('места — верхний слой: над посёлками OSM', () => {
     const src = { ...STYLE_SRC, osmUrls: { places: 'https://example.test/map-packs/cell-52n157e.osm-places.geojson' } };
     const ids = (buildVedarStyle('dark', src) as { layers: Layer[] }).layers.map((l) => l.id);
-    expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-place-labels'));
-    expect(ids.at(-1)).toBe('vedar-place-labels');
+    expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-places'));
+    expect(ids.at(-1)).toBe('vedar-places');
   });
 
   it('без глифов — только кружки, подписи не просятся (иначе MapLibre отвергает весь стиль)', () => {
@@ -220,7 +223,7 @@ describe('слой мест в стиле карты', () => {
     const base = buildRegionOverlay('dark', STYLE_SRC, 'cell-53n158e', 'base');
     expect(Object.keys(base.sources)).toContain('vedar-places-cell-53n158e');
     expect(base.layers.map((l) => String(l.id))).toEqual(
-      expect.arrayContaining(['vedar-places-cell-53n158e', 'vedar-place-labels-cell-53n158e']),
+      expect.arrayContaining(['vedar-places-cell-53n158e']),
     );
     const detail = buildRegionOverlay('dark', STYLE_SRC, 'cell-53n158e', 'detail');
     expect(Object.keys(detail.sources)).not.toContain('vedar-places-cell-53n158e');

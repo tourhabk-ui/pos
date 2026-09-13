@@ -184,8 +184,12 @@ export interface VedarMapHandle {
 
 /**
  * Фильтр слоя мест — на базовый и на каждого подложенного соседа сразу:
- * оба несут собственный ns в id (`vedar-places${ns}` / `vedar-place-labels${ns}`),
- * второго списка id нигде не хранится, поэтому ищем по стилю целиком.
+ * каждый несёт собственный ns в id (`vedar-places${ns}`), списка id нигде
+ * не хранится, поэтому ищем по стилю целиком. Подстрока 'vedar-place', а
+ * не префикс 'vedar-places', — исторически ловила ещё и текстовую подпись
+ * (`vedar-place-labels${ns}`); подпись убрана решением владельца 13.09
+ * (закрывала маркер на плотном зуме), но подстрока безопасна и без нужды
+ * менять её на префикс.
  */
 function applyPlacesFilter(map: MLMap, filter: string | null | undefined): void {
   const layers = map.getStyle()?.layers ?? [];
