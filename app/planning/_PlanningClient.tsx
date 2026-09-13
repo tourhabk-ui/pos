@@ -16,7 +16,7 @@ import { ObservationSheet, useTrailObservationQueue } from '@/components/field/O
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
-import { approachPlan, ON_ROUTE_ENTRY_KM } from '@/lib/on-route/approach';
+import { approachPlan, notOnRoute, ON_ROUTE_ENTRY_KM } from '@/lib/on-route/approach';
 import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
 import { offTrackThresholdM, fixUsableForNavigation } from '@/lib/on-route/fix-quality';
 import {
@@ -2212,6 +2212,22 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     offline: isOffline,
   }), [lineFidelity, track, approach, fix, savedMap, isOffline]);
 
+  /**
+   * Человек ещё не на маршруте (#1847). Решает движок, экран только
+   * показывает: пешее время к такому расстоянию не относится, и главную
+   * цифру надо назвать тем, что она есть.
+   */
+  const offRoute = useMemo(
+    () => notOnRoute({
+      plan: approach ?? null,
+      // Прямая идёт во вторую ветвь, только когда плана НЕТ: при живом плане
+      // судит измеренный подход, а не арифметика.
+      straightToNextKm: approach ? null : distToNext,
+      routeTotalKm: progress.totalKm > 0 ? progress.totalKm : null,
+    }),
+    [approach, distToNext, progress.totalKm],
+  );
+
   const eta = useMemo(
     () => etaHours({
       distanceKm: distToNext ?? 0,
@@ -2222,6 +2238,28 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     }),
     [distToNext, travelMode, paceKmh, ahead],
   );
+
+  /**
+   * Оценка времени показывается, только пока её предпосылка выполняется.
+   *
+   * Модель считает ход ПО ТРОПЕ. Пока человек до тропы не дошёл, почти всё
+   * расстояние — прямая через край, и «~39 ч 25 мин» (скрин 13.09) не оценка,
+   * а число, полученное применением модели туда, где она не работает. Молчать
+   * здесь честнее: рядом стоит строка, объясняющая, почему цифры нет.
+   */
+  const etaShown = offRoute === null && eta.hours !== null ? `~${formatEta(eta.hours)}` : null;
+
+  /** Подпись главной цифры: «до точки» верна только для того, кто на маршруте. */
+  const distCaption = offRoute !== null
+    ? 'до точки маршрута'
+    : waypoints.length > 1 ? 'до следующей точки' : 'до точки';
+
+  /** Почему цифра такая и почему нет времени — словами, рядом с числом. */
+  const offRouteNote = offRoute === null
+    ? null
+    : offRoute.approachKm !== null
+      ? `Вы ещё не на маршруте: до линии ${fmtKm(offRoute.approachKm)} по прямой. Пешее время не считаем — так этот путь не проходят.`
+      : 'Вы ещё не на маршруте: до точки дальше, чем весь маршрут целиком. Пешее время не считаем — сначала нужно добраться до места старта.';
   /**
    * Пока темпа нет — говорим об этом вслух. Молчаливый прочерк турист читает
    * как поломку (ровно так читалось «0ч 00м» на скрине), а честная строка
@@ -3931,7 +3969,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
              рамке была бы вложенной карточкой. Всё остальное — по ручке. */
           <div className="w-full flex flex-col gap-3">
             <div className="w-full px-1 py-1 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 flex flex-col gap-1">
                 {calculatedPreview ? (
                   // Расчётный автопуть — своя, независимая пара «расстояние/
                   // время» (см. calcDistLabel/calcEtaLabel выше), и проверяется
@@ -3961,12 +3999,21 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                   <FieldDistance compact
                     distanceLabel={distLabel}
                     live={figuresLive}
-                    caption={waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
+                    caption={distCaption}
                     pointName={null}
-                    etaLabel={eta.hours !== null ? `~${formatEta(eta.hours)}` : null}
+                    etaLabel={etaShown}
                     ascentLabel={ahead?.ascentM ? `+${Math.round(ahead.ascentM)} м` : null}
                     totalLabel={waypoints.length > 1 && progress.totalKm > 0 ? `всего ${fmtKm(progress.totalKm)}` : null}
                   />
+                )}
+                {/* Свёрнутый лист — то, что владелец видел на скрине 13.09:
+                    именно здесь «138 км» стояло рядом с «всего 64.3 км». Без
+                    этой строки противоречие осталось бы в самом заметном
+                    месте экрана и объяснялось бы только в развёрнутом. */}
+                {!calculatedPreview && offRouteNote && distLabel !== null && (
+                  <p className="text-[11px] leading-tight" style={{ color: 'var(--warning)' }}>
+                    {offRouteNote}
+                  </p>
                 )}
               </div>
               <button type="button" onClick={toggleSheet} aria-label="Развернуть приборы"
@@ -4061,12 +4108,20 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                     <FieldDistance
                       distanceLabel={distLabel}
                       live={figuresLive}
-                      caption={waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
+                      caption={distCaption}
                       pointName={nextWp?.name && nextWp.name !== activeRouteTitle ? nextWp.name : null}
-                      etaLabel={eta.hours !== null ? `~${formatEta(eta.hours)}` : null}
+                      etaLabel={etaShown}
                       ascentLabel={ahead?.ascentM ? `+${Math.round(ahead.ascentM)} м` : null}
                       totalLabel={waypoints.length > 1 && progress.totalKm > 0 ? `всего ${fmtKm(progress.totalKm)}` : null}
                     />
+                    {/* «Вы ещё не на маршруте» — рядом с числом, а не в
+                        подвале: решение «идти ли сейчас» принимают глядя на
+                        цифру, и оговорка обязана стоять там же (#1847). */}
+                    {offRouteNote && (
+                      <p className="text-[11px] leading-tight mt-1" style={{ color: 'var(--warning)' }}>
+                        {offRouteNote}
+                      </p>
+                    )}
                     {/* Из чего сложилось число. Подход и выход — прямые, и
                         выдавать их за путь по тропе нельзя: на камчатском
                         рельефе прямая проходит через каньон и реку. */}
@@ -4109,7 +4164,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                 {/* Время в пути показано чипом у главной цифры; здесь
                     остаётся только оговорка о том, ОТКУДА оно взялось —
                     без неё «~32 мин» выглядит измерением, а не оценкой. */}
-                {distLabel !== null && etaNote && (
+                {/* Оговорка «откуда взялось время» показывается только вместе
+                    с самим временем: при снятой оценке (offRoute) она осталась
+                    бы объяснять число, которого на экране нет. */}
+                {distLabel !== null && etaShown !== null && etaNote && (
                   <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-muted)' }}>{etaNote}</p>
                 )}
 
