@@ -76,9 +76,17 @@ const SYSTEM = `Ты разбираешь находки автоматичес�
 real — дефект настоящий, его стоит чинить.
 fixed — код приложен, и в нём дефекта уже нет: находка устарела.
 noise — сканер ошибся: санкционированная конструкция, ложное совпадение, «X вместо X».
-needs_info — находка ССЫЛАЕТСЯ НА ФАЙЛ, но приложенного куска не хватает, чтобы решить.
+needs_info — находка ссылается на СУЩЕСТВУЮЩИЙ файл, но приложенного куска не
+хватает, чтобы решить.
 
 Если код приложен, суди ПО КОДУ, а не по тексту находки: находка старше кода.
+
+Сказано «ФАЙЛА БОЛЬШЕ НЕТ» — это fixed, и только fixed: в удалённом файле
+дефекта быть не может. Это НЕ needs_info: кода нет не потому, что его не
+показали, а потому, что его не существует, и ждать тут больше нечего.
+
+Сказано «файл не прочитан» — вот это needs_info: файл может быть на месте,
+посмотреть не смогли.
 
 Находка БЕЗ файла — не утверждение о коде, а заметка или предложение. Её судят
 по тексту: предложение изучить, внедрить, исследовать — это noise. Отсутствие
@@ -118,24 +126,89 @@ function identifiersFrom(f: Finding): string[] {
   return [...new Set(found)];
 }
 
+/**
+ * Чем кончилась попытка достать код находки. Четыре исхода, а не «строка или
+ * null» — потому что три из них означают РАЗНОЕ, а сливались в одно.
+ *
+ * 13.09: две находки про `lib/payments/transfer-payments.ts` получили «мало
+ * данных» с формулировкой «код не приложен, проверить невозможно» — через
+ * сутки после того, как файл был УДАЛЁН целиком (#1842). Судья ответил ровно
+ * так, как его просили: в промпте `needs_info` определён как «ссылается на
+ * файл, но куска не хватает», а тело запроса говорило «файл не прочитан» —
+ * одинаково и про удалённый файл, и про сбой чтения, и про отвергнутый путь.
+ *
+ * Цена: находка о несуществующем файле не закроется НИКОГДА — кусок не
+ * появится, потому что появляться нечему, — и при этом вечно считается в
+ * `actionable` (`needs_info` требует внимания). Удаление мёртвого кода
+ * увеличивало очередь вместо того, чтобы её сокращать.
+ *
+ * Забавно и показательно: намерение было записано ещё в прошлой редакции —
+ * «Файла нет — это ОТВЕТ, а не пустота» стояло комментарием прямо над
+ * `return null`, который этот ответ и стирал. Докстрока пообещала механизм,
+ * которого не было (правило 10.09).
+ */
+export type SnippetOutcome =
+  /** Файл прочитан — судить по коду. */
+  | { kind: 'code'; text: string }
+  /** Файла нет на диске: дефекта в нём быть не может. */
+  | { kind: 'absent' }
+  /** Посмотреть не смогли: путь отвергнут правилами или чтение упало. */
+  | { kind: 'unreadable'; reason: string }
+  /** Находка не называет файла — она не о коде. */
+  | { kind: 'no_path' };
+
+/**
+ * Отсутствующий файл отличается от нечитаемого по коду ошибки, а не по тексту
+ * находки. `ENOENT` проверяется и в поле `code` (настоящий fs), и в тексте
+ * сообщения — подставные читатели в тестах бросают голый `Error('ENOENT')`.
+ */
+function isMissingFile(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  if (code === 'ENOENT' || code === 'ENOTDIR') return true;
+  return err instanceof Error && /ENOENT/i.test(err.message);
+}
+
+export function readSnippetOutcome(
+  filePath: string | null,
+  line: number | null,
+  identifiers: string[] = [],
+  read: (p: string) => string = (p) => readFileSync(join(process.cwd(), p), 'utf-8'),
+): SnippetOutcome {
+  if (!filePath) return { kind: 'no_path' };
+  const rel = filePath.trim();
+  if (!rel) return { kind: 'no_path' };
+  // Путь отвергнут — это НЕ «файла нет»: файл может существовать, просто
+  // читать его этим способом нельзя. Смешать эти два исхода значило бы
+  // объявлять починенным всё, что лежит вне разрешённых расширений.
+  if (rel.startsWith('/') || rel.includes('..') || !READABLE.test(rel)) {
+    return { kind: 'unreadable', reason: 'путь не читается по правилам сборки куска' };
+  }
+
+  let text: string;
+  try {
+    text = read(rel);
+  } catch (err) {
+    if (isMissingFile(err)) return { kind: 'absent' };
+    return { kind: 'unreadable', reason: 'файл не прочитан' };
+  }
+  return { kind: 'code', text: cutSnippet(text, line, identifiers) };
+}
+
+/**
+ * Совместимая обёртка: только код, иначе `null`. Оставлена, чтобы место
+ * вызова, которому нужен ТОЛЬКО текст, не разбирало исход целиком.
+ */
 export function readSnippet(
   filePath: string | null,
   line: number | null,
   identifiers: string[] = [],
   read: (p: string) => string = (p) => readFileSync(join(process.cwd(), p), 'utf-8'),
 ): string | null {
-  if (!filePath) return null;
-  const rel = filePath.trim();
-  if (!rel || rel.startsWith('/') || rel.includes('..') || !READABLE.test(rel)) return null;
+  const out = readSnippetOutcome(filePath, line, identifiers, read);
+  return out.kind === 'code' ? out.text : null;
+}
 
-  let text: string;
-  try {
-    text = read(rel);
-  } catch {
-    // Файла нет — это ОТВЕТ, а не пустота: находка может указывать на
-    // удалённый файл, и судье полезно знать именно это.
-    return null;
-  }
+function cutSnippet(text: string, line: number | null, identifiers: string[]): string {
 
   const lines = text.split('\n');
 
@@ -165,9 +238,26 @@ export function readSnippet(
   ].join('\n');
 }
 
+/**
+ * Как исход чтения выглядит в запросе к судье. Формулировки РАЗНЫЕ намеренно:
+ * по ним модель и различает «дефекта больше нет» от «посмотреть не смогли».
+ */
+export function describeOutcome(outcome: SnippetOutcome, filePath: string | null): string {
+  switch (outcome.kind) {
+    case 'code':
+      return `\nКОД СЕЙЧАС (${filePath}):\n${outcome.text}`;
+    case 'absent':
+      return `\nФАЙЛА БОЛЬШЕ НЕТ: ${filePath} удалён из репозитория. Описанного дефекта в нём быть не может.`;
+    case 'unreadable':
+      return `\nКода нет: файл ${filePath} не прочитан (${outcome.reason}). Файл при этом может существовать.`;
+    case 'no_path':
+      return '\nФайла эта находка не называет — она не о коде.';
+  }
+}
+
 /** Один разбор. Провал — это `unjudged`, а не «шум». */
 export async function judgeOne(f: Finding, retried = false): Promise<Judged> {
-  const snippet = readSnippet(f.file_path, f.line_number, identifiersFrom(f));
+  const outcome = readSnippetOutcome(f.file_path, f.line_number, identifiersFrom(f));
   // ПД перед отправкой во внешнюю модель чистятся всегда: находка может
   // процитировать строку кода с телефоном или почтой (152-ФЗ, см.
   // lib/agents/compliance). Дешевле почистить, чем доказывать, что не было.
@@ -179,12 +269,9 @@ export async function judgeOne(f: Finding, retried = false): Promise<Judged> {
     f.description ? `Описание: ${f.description}` : null,
     f.suggestion ? `Предложение сканера: ${f.suggestion}` : null,
     // Код идёт ПОСЛЕ находки и назван кодом: находка старше него, и судья
-    // должен видеть, что именно с чем сверяет.
-    snippet
-      ? `\nКОД СЕЙЧАС (${f.file_path}):\n${snippet}`
-      : f.file_path
-        ? `\nКода нет: файл ${f.file_path} не прочитан.`
-        : '\nФайла эта находка не называет — она не о коде.',
+    // должен видеть, что именно с чем сверяет. Три «кода нет» звучат
+    // по-разному, потому что означают разное — см. SnippetOutcome.
+    describeOutcome(outcome, f.file_path),
   ].filter(Boolean).join('\n'));
 
   const messages: ChatMessage[] = [
@@ -433,8 +520,16 @@ export function canonicalJSON(value: unknown): string {
 
 /** Кусок кода находки, очищенный от ПД и свёрнутый в хеш — сравнивать входы, не хранить снимки кода в отпечатке. */
 function hashSnippet(f: Finding): string | null {
-  const snippet = readSnippet(f.file_path, f.line_number, identifiersFrom(f));
-  return snippet ? sha256(redactPII(snippet)) : null;
+  const outcome = readSnippetOutcome(f.file_path, f.line_number, identifiersFrom(f));
+  switch (outcome.kind) {
+    case 'code': return sha256(redactPII(outcome.text));
+    // Удаление файла — изменение входа, и отпечаток обязан это видеть: иначе
+    // повторная доставка после удаления сочтётся дублем и остановится ДО
+    // модели, оставив вчерашний вердикт про файл, которого уже нет.
+    case 'absent': return 'absent';
+    case 'unreadable': return 'unreadable';
+    case 'no_path': return null;
+  }
 }
 
 export interface PreparedFinding extends Finding {
