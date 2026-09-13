@@ -2,7 +2,7 @@
   "name": "Ведар",
   "short_name": "Ведар",
   "description": "Полевой инструмент Камчатки. Маршруты, безопасность, SOS, проводник Кузьмич.",
-  "start_url": "/",
+  "start_url": "/planning?mode=trail",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
