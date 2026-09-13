@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   renderReport, balanceLine, selectForJudging, splitGenres, readSnippet,
+  readSnippetOutcome, describeOutcome,
   prepareJudgeInput, hashJudgeInput, hashJudgeOutput, hashOwnerDecisions,
   countActionable, isDegraded, canonicalJSON, reportKey, reportTitle,
   JUDGE_CONTRACT_VERSION,
@@ -94,15 +95,19 @@ describe('провал разбора не выдаётся за вердикт'
 describe('судья судит по коду, а не по тексту находки', () => {
   it('кусок кода уходит в промпт и назван кодом', () => {
     expect(SRC).toMatch(/КОД СЕЙЧАС/);
-    expect(SRC).toMatch(/readSnippet\(f\.file_path, f\.line_number, identifiersFrom\(f\)\)/);
+    expect(SRC).toMatch(/readSnippetOutcome\(f\.file_path, f\.line_number, identifiersFrom\(f\)\)/);
+    expect(describeOutcome({ kind: 'code', text: 'const a = 1;' }, 'lib/a.ts'))
+      .toMatch(/КОД СЕЙЧАС \(lib\/a\.ts\)/);
   });
 
   it('отсутствие кода названо прямо, а не пропущено молча', () => {
     // Пустое место читается как «кода не нужно». Судья должен знать разницу
     // между «файл назван, но не прочитан» и «файла находка не называет» —
     // это разные вещи, и вердикты у них разные.
-    expect(SRC).toMatch(/Кода нет: файл \$\{f\.file_path\} не прочитан/);
-    expect(SRC).toMatch(/Файла эта находка не называет/);
+    expect(describeOutcome({ kind: 'unreadable', reason: 'файл не прочитан' }, 'lib/a.ts'))
+      .toMatch(/Кода нет: файл lib\/a\.ts не прочитан/);
+    expect(describeOutcome({ kind: 'no_path' }, null))
+      .toMatch(/Файла эта находка не называет/);
   });
 
   it('промпт велит судить по коду, потому что находка старше', () => {
@@ -171,6 +176,92 @@ describe('судья судит по коду, а не по тексту нах�
   it('нет файла — нет куска, и это не роняет разбор', () => {
     expect(readSnippet('lib/нет-такого.ts', 10, [], () => { throw new Error('ENOENT'); })).toBeNull();
     expect(readSnippet(null, null, [], () => 'x')).toBeNull();
+  });
+});
+
+/**
+ * УДАЛЁННЫЙ ФАЙЛ — НЕ «МАЛО ДАННЫХ» (13.09).
+ *
+ * Прогон 10 закрыл шесть находок, но две — про `lib/payments/transfer-payments.ts`
+ * — получили «мало данных»: «находка ссылается на файл, но код не приложен,
+ * поэтому проверить заглушку невозможно». Файл к тому моменту был УДАЛЁН
+ * целиком (#1842), и кода не было ровно потому, что кода не существует.
+ *
+ * Судья ответил правильно на неверно заданный вопрос: тело запроса говорило
+ * «файл не прочитан» одинаково про удаление, про сбой чтения и про отвергнутый
+ * путь, а промпт определял `needs_info` как «куска не хватает». Три разных
+ * состояния сливались в одно — §4.0 наоборот: не «плохо» выдавалось за
+ * «хорошо», а сделанное за непонятное.
+ *
+ * Цена считается: `needs_info` входит в `actionable`, значит находка о
+ * несуществующем файле не закрылась бы НИКОГДА. Удаление мёртвого кода
+ * увеличивало очередь вместо того, чтобы её сокращать.
+ */
+describe('исход чтения кода: удаление, сбой и отсутствие файла — разные вещи', () => {
+  const enoent = () => { const e = new Error('нет файла') as Error & { code: string }; e.code = 'ENOENT'; throw e; };
+
+  it('файла нет на диске — исход «absent»', () => {
+    expect(readSnippetOutcome('lib/удалён.ts', 10, [], enoent)).toEqual({ kind: 'absent' });
+  });
+
+  it('подставной читатель с голым ENOENT в тексте — тоже «absent»', () => {
+    // Настоящий fs кладёт код в поле `code`, а тесты бросают обычный Error.
+    // Признать «absent» только по полю значило бы иметь проверку, которая на
+    // своих же данных работает иначе, чем в бою.
+    expect(readSnippetOutcome('lib/удалён.ts', 10, [], () => { throw new Error('ENOENT: no such file'); }))
+      .toEqual({ kind: 'absent' });
+  });
+
+  it('чтение упало не из-за отсутствия — «unreadable», а не «absent»', () => {
+    const out = readSnippetOutcome('lib/a.ts', 10, [], () => { throw new Error('EACCES: permission denied'); });
+    expect(out.kind, 'сбой доступа назван удалением — работа сочтётся сделанной').toBe('unreadable');
+  });
+
+  it('путь отвергнут правилами — «unreadable»: файл может существовать', () => {
+    // Тут разница принципиальная: объявить `absent` по отвергнутому пути
+    // значило бы штамповать «уже починено» всему, что лежит вне разрешённых
+    // расширений, — и закрывать находки, ни разу их не посмотрев.
+    const read = () => 'не должно быть прочитано';
+    for (const p of ['../../etc/passwd', '/etc/passwd', '.env.local', 'secrets.pem']) {
+      expect(readSnippetOutcome(p, 1, [], read).kind, p).toBe('unreadable');
+    }
+  });
+
+  it('файл прочитан — «code» с текстом', () => {
+    expect(readSnippetOutcome('lib/a.ts', 1, [], () => 'const a = 1;'))
+      .toEqual({ kind: 'code', text: 'const a = 1;' });
+  });
+
+  it('находка без файла — «no_path», это не о коде', () => {
+    expect(readSnippetOutcome(null, null, [], () => 'x')).toEqual({ kind: 'no_path' });
+  });
+
+  it('в запросе судье удаление названо удалением, а не «не прочитан»', () => {
+    const absent = describeOutcome({ kind: 'absent' }, 'lib/payments/transfer-payments.ts');
+    expect(absent).toMatch(/ФАЙЛА БОЛЬШЕ НЕТ/);
+    expect(absent).toMatch(/удалён из репозитория/);
+    expect(absent, 'удаление снова описано как «не прочитан» — вернётся «мало данных»')
+      .not.toMatch(/не прочитан/);
+  });
+
+  it('промпт даёт «уже починено» производителя для удалённого файла', () => {
+    // Правило 10.09: исход `fixed` был объявлен, но для целого класса случаев
+    // его никто не производил. Формулировка и запрет на needs_info — рядом.
+    expect(SRC).toMatch(/Сказано «ФАЙЛА БОЛЬШЕ НЕТ» — это fixed/);
+    expect(SRC).toMatch(/НЕ needs_info/);
+    expect(SRC).toMatch(/Сказано «файл не прочитан» — вот это needs_info/);
+  });
+
+  it('needs_info в промпте сужен до СУЩЕСТВУЮЩЕГО файла', () => {
+    expect(SRC).toMatch(/находка ссылается на СУЩЕСТВУЮЩИЙ файл/);
+  });
+
+  it('отпечаток входа различает удаление и сбой чтения', () => {
+    // Иначе повторная доставка после удаления сочлась бы дублем, разбор
+    // остановился бы ДО модели, и в выпуске остался бы вчерашний вердикт про
+    // файл, которого больше нет.
+    expect(SRC).toMatch(/case 'absent': return 'absent';/);
+    expect(SRC).toMatch(/case 'unreadable': return 'unreadable';/);
   });
 
   it('сорванная форма ответа переспрашивается один раз, а не теряется', () => {
