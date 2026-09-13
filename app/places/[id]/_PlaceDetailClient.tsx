@@ -63,10 +63,13 @@ function Skeleton() {
  * safe-area (см. её собственный комментарий), чтобы бары не перекрывались.
  *
  * «Навигация» отсюда убрана 07.09 (владелец, скрин: «почему 2 кнопки
- * навигация?») — `PlaceActionBar` уже держит sticky «Навигация» с тем же
- * geo:-адресом, и она видна на мобильном НАРАВНЕ с этим баром: до правки
- * человек видел два одинаковых CTA на одном экране. `PlaceActionBar` не
- * знает про Organic Maps deep link — «Оффлайн» остаётся только здесь.
+ * навигация?») — `PlaceActionBar` уже держит sticky «Навигация», и она видна
+ * на мобильном НАРАВНЕ с этим баром: до правки человек видел два одинаковых
+ * CTA на одном экране.
+ *
+ * Разделение труда с тех пор не изменилось, а вот содержание изменилось
+ * дважды: 13.09 «Навигация» в шапке стала звать свой расчёт вместо geo:, а
+ * отсюда ушёл om:// Organic Maps. Шапка даёт ДЕЙСТВИЕ, этот бар — ФАЙЛ.
  */
 function MobileBottomBar({ place }: { place: PlaceData }) {
   // «Оффлайн — Organic Maps» (om://) снят 13.09 вместе с остальными чужими
@@ -291,6 +294,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         name={place.name}
         essence={place.essence}
         description={place.description}
+        descriptionSource={place.descriptionSource}
         placeId={place.id}
       />
 

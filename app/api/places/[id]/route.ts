@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
+import { describeDescriptionSource } from '@/lib/text/description-source';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,8 +94,24 @@ export async function GET(
          ai.author     AS photo_author,
          ai.license    AS photo_license,
          ai.license_url AS photo_license_url,
-         ai.source_url  AS photo_source_url
+         ai.source_url  AS photo_source_url,
+         -- Атрибуция ТЕКСТА описания (#1830, шаг 4). Не путать с
+         -- p.source_url/p.source_name: те про происхождение ЗАПИСИ места, а
+         -- это про происхождение конкретного абзаца, который человек читает.
+         --
+         -- Условие равенства текстов — не перестраховка. Черновик остаётся
+         -- 'approved' навсегда, а описание потом может переписать кто угодно:
+         -- Editor, миграция, человек в админке. Подпись «по данным
+         -- Смитсоновского института» под ЧУЖИМ текстом — ложное утверждение
+         -- об источнике, и хуже отсутствия подписи. Совпало — подписываем,
+         -- разошлось — подписи нет, и это происходит само.
+         gvp.source_ref AS description_source_ref
        FROM places p
+       LEFT JOIN place_description_drafts gvp
+              ON gvp.place_id = p.id
+             AND gvp.source = 'gvp'
+             AND gvp.status = 'approved'
+             AND gvp.translated_text = p.description
        LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
        LEFT JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
@@ -215,6 +232,9 @@ export async function GET(
           const cleaned = stripSourceAttribution(r.description as string | null);
           return cleaned || null;
         })(),
+        // Подпись под описанием: есть, только пока живой текст совпадает с
+        // одобренным переводом (условие JOIN выше). Разошлись — null.
+        descriptionSource: describeDescriptionSource(r.description_source_ref as string | null),
         essence: r.essence as string | null,
         category: r.category as string | null,
         locationType: r.location_type as string | null,
