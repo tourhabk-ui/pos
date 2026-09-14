@@ -449,3 +449,42 @@ describe('инъекция, которой нет (прогон 23.08)', () => {
     expect(findingRejectionReason(f)).toBeNull();
   });
 });
+
+describe('клеймо «URL без кодирования» при живом URLSearchParams в файле (issue #1853)', () => {
+  // Дословный текст находки #1853 (заведена повторным сканом 13.09 на файл,
+  // уже почищенный в #1842) — страж проверял try/catch/auth/валидацию/
+  // инъекцию, но не эту форму, и сверка молчала.
+  const finding = {
+    title: '[evo/bug] API-ключ в URL без кодирования (medium)',
+    description: 'apiKey и messageId подставляются в query-строку через шаблон без encodeURIComponent — при спецсимволах в ключе URL ломается, а ключ утекает в логи прокси/сервера.',
+    suggestion: 'В месте подстановки параметров заменить прямую интерполяцию на вызов encodeURIComponent для каждого значения. Если URL собирается через new URL или URLSearchParams — использовать их.',
+  };
+
+  const FIXED_SRC = `
+async function checkSMSStatus(messageId: string) {
+  const params = new URLSearchParams({ api_id: this.apiKey, sms_id: messageId, json: '1' });
+  const response = await fetch(\`https://sms.ru/sms/status?\${params}\`);
+  return response.json();
+}`;
+
+  it('дословный текст issue #1853 глушится по source_has_encoding', () => {
+    expect(verifyAgainstSource(finding, FIXED_SRC)).toBe('source_has_encoding');
+  });
+
+  it('«без кодирования» на файле БЕЗ URLSearchParams/encodeURIComponent — проходит (может быть правдой)', () => {
+    const RAW_SRC = `
+async function checkSMSStatus(messageId: string) {
+  const response = await fetch(\`https://sms.ru/sms/status?api_id=\${this.apiKey}&sms_id=\${messageId}\`);
+  return response.json();
+}`;
+    expect(verifyAgainstSource(finding, RAW_SRC)).toBeNull();
+  });
+
+  it('«без валидации» (другой класс) не ловится как «без кодирования» даже при живом URLSearchParams', () => {
+    expect(verifyAgainstSource({
+      title: 'Нет валидации',
+      description: 'Тело запроса не проверяется перед использованием',
+      suggestion: 'Добавить Zod-схему',
+    }, FIXED_SRC)).toBeNull();
+  });
+});

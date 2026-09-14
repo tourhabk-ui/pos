@@ -101,17 +101,43 @@ async function syncClosedIssues(): Promise<{ accepted: number; rejected: number 
   return { accepted: accepted.length, rejected: rejected.length };
 }
 
-/** Тело файла из репозитория (для сверки находки с живым кодом). null — не достали. */
-async function fetchSource(relPath: string): Promise<string | null> {
+/**
+ * Тело файла из репозитория (для сверки находки с живым кодом) — и РОД отказа,
+ * если тела нет.
+ *
+ * Раньше «404 (файла на main нет)» и «сеть/таймаут» давали один и тот же
+ * null, и вызывающий код публиковал находку в обоих случаях («не судим —
+ * иначе при недоступном GitHub отбросим всё»). Это верно для настоящего
+ * незнания, но не для 404: файл, которого нет на main, почти наверняка
+ * означает, что находку завели по коду, который уже удалили или переименовали
+ * (issue #1852 — сирота `lib/payments/transfer-payments.ts`, удалён в #1842
+ * ДО того, как повторный скан 13.09 завёл на него дубль). 404 — не «не знаю»,
+ * это сильная улика, и её роняли вместе с настоящим незнанием.
+ *
+ * Поле названо `kind`, не `status` — сознательно: `evo-stats-honesty.test.ts`
+ * сканирует этот файл на литералы `status = '...'` и сверяет их со словарём
+ * статусов `evo_growth_issues`/`evo_evolution_log`. Это локальный дискриминант
+ * результата HTTP-запроса, в БД не пишется вовсе, и `status` тут было бы
+ * случайным совпадением имени, которое сторож прочитал бы неверно.
+ */
+export type SourceFetch =
+  | { kind: 'ok'; text: string }
+  | { kind: 'not_found' }
+  | { kind: 'unknown' };
+
+export async function fetchSource(relPath: string): Promise<SourceFetch> {
   try {
     const res = await githubFetch(
       `https://raw.githubusercontent.com/tourhabk-ui/pos/main/${relPath}`,
       { signal: AbortSignal.timeout(10_000) },
     );
-    if (!res.ok) return null;
-    return await res.text();
+    if (res.status === 404) {
+      return { kind: 'not_found' };
+    }
+    if (!res.ok) return { kind: 'unknown' };
+    return { kind: 'ok', text: await res.text() };
   } catch {
-    return null;
+    return { kind: 'unknown' };
   }
 }
 
@@ -271,7 +297,7 @@ export async function GET(req: NextRequest) {
   // файле есть всё три. Страж стоял только на входе (скан), выход публиковал
   // что лежит в БД, включая до-стражевый мусор. Не прошедшее сверку помечаем
   // 'rejected' — оно больше не всплывёт (БД самоочищается).
-  const sourceCache = new Map<string, string | null>();
+  const sourceCache = new Map<string, SourceFetch>();
   const verified: typeof rows = [];
   const rejected: string[] = [];
 
@@ -295,12 +321,16 @@ export async function GET(req: NextRequest) {
       src = await fetchSource(f.file_path);
       sourceCache.set(f.file_path, src);
     }
-    // Исходник не достали — не судим (иначе при недоступном GitHub отбросим всё).
-    if (src === null) { verified.push(f); continue; }
+    // Файла на main нет вовсе — не «не знаем», а улика: находка почти
+    // наверняка про код, который уже удалили (см. комментарий у fetchSource).
+    if (src.kind === 'not_found') { rejected.push(f.id); continue; }
+    // Сеть/таймаут/иной отказ — настоящее «не знаем»: не судим, иначе при
+    // недоступном GitHub отбросим всё.
+    if (src.kind === 'unknown') { verified.push(f); continue; }
 
     const reason = verifyAgainstSource(
       { title: f.title, description: f.description ?? '', suggestion: f.suggestion ?? '' },
-      src,
+      src.text,
     );
     if (reason) rejected.push(f.id);
     else verified.push(f);
