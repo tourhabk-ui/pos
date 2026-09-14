@@ -9,6 +9,7 @@ import EmergencyAction from '@/components/shared/EmergencyAction';
 import { zoneName } from '@/lib/safety/zone-names';
 import { plural } from '@/lib/home/data-freshness';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
+import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge } from '@/lib/services/safety/kvert-vona';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -40,6 +41,26 @@ interface VolcanicEvent {
   created_at: string;
   /** Действует сейчас. Роут отдаёт и историю за неделю — её надо отличать. */
   active?: boolean;
+}
+
+/**
+ * Код KVERT из /api/safety/volcanic (поле statuses.elevated) — «что сейчас»,
+ * в отличие от VolcanicEvent («что случилось» по новостям МЧС/СМИ). Роут уже
+ * отдаёт оба потока одним ответом с 06.09 (getVolcanoStatuses), но до этой
+ * правки секция «Вулканическая активность» читала только events и писала
+ * «предупреждений нет» при живом оранжевом коде — тот же класс дефекта,
+ * который 06.09 уже чинили для вкладки «Вулканы» на главной (см. шапку
+ * lib/services/safety/volcano-status.ts), только здесь он вернулся на другом
+ * экране. Форма — VolcanoStatusRow оттуда же, локально, чтобы не тащить
+ * серверный модуль (там импорт pool) в клиентский бандл.
+ */
+interface VolcanoStatusRow {
+  name: string;
+  color: AccColor;
+  summary: string | null;
+  ash_height_m: number | null;
+  observed_at: string | null;
+  source_url: string | null;
 }
 
 interface WeatherData {
@@ -200,6 +221,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   const [seismic, setSeismic] = useState<SeismicEvent[]>([]);
   const [seismicSource, setSeismicSource] = useState<string>('');
   const [volcanic, setVolcanic] = useState<VolcanicEvent[]>([]);
+  const [volcanoCodes, setVolcanoCodes] = useState<VolcanoStatusRow[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -252,7 +274,13 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           if (d.checkedAt) setCheckedAt(new Date(d.checkedAt).getTime());
         }).catch(() => {}),
       ok(fetch(`/api/safety/volcanic?fresh=${q}`).then(r => r.json()))
-        .then((d: { events?: VolcanicEvent[] }) => setVolcanic(d.events ?? [])).catch(() => {}),
+        .then((d: { events?: VolcanicEvent[]; statuses?: { elevated?: VolcanoStatusRow[] } }) => {
+          setVolcanic(d.events ?? []);
+          // КВЕРТ отдельно от новостей МЧС (см. комментарий у VolcanoStatusRow) —
+          // без этого секция ниже видела только новости и звала оранжевый код
+          // «предупреждений нет».
+          setVolcanoCodes(d.statuses?.elevated ?? []);
+        }).catch(() => {}),
       ok(fetch(`/api/safety/weather?fresh=${q}`).then(r => r.json()))
         .then((d: WeatherData & { checked_at?: string }) => {
           setWeather(d.tempC ? d : null);
@@ -287,7 +315,12 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   // Тревоги в баннер обязательны: иначе шапка страницы объявляет норму над
   // собственной лентой предупреждений (полевой скриншот 10.08).
   const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level), live?.safety.alerts ?? []);
-  const volcanicActive = volcanic.filter(ev => ev.active !== false).length;
+  // Считаем оба потока (см. комментарий у VolcanoStatusRow): новость МЧС и
+  // живой код KVERT — разные сигналы, даже если про один и тот же вулкан.
+  // Занижать сумму дедупом по имени значило бы решить за читателя, что один
+  // сигнал перекрывает другой — а он не перекрывает: у кода своё «сейчас»,
+  // у новости своё «что случилось».
+  const volcanicActive = volcanic.filter(ev => ev.active !== false).length + volcanoCodes.length;
 
   const handleCheckin = useCallback(() => {
     if (checkinState === 'sending') return;
@@ -637,17 +670,39 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
         </button>
         {volcanicOpen && (
           <div style={{ borderTop: '1px solid var(--border)' }}>
-            {volcanic.length === 0 ? (
+            {volcanic.length === 0 && volcanoCodes.length === 0 ? (
               <p style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>Активных вулканических предупреждений нет.</p>
             ) : (
-              volcanic.map(ev => {
-                // Истёкшее показываем как историю недели, а не как угрозу: тем
-                // же кеглем и цветом оно читается как «действует сейчас».
-                const past = ev.active === false;
-                const sevColor = past
-                  ? 'var(--text-muted)'
-                  : ev.severity >= 3 ? 'var(--danger)' : ev.severity === 2 ? 'var(--warning)' : 'var(--text-secondary)';
-                return (
+              <>
+                {/* Коды KVERT — «сейчас», выше новостей МЧС («что случилось»):
+                    тот же порядок приоритета, что у «Пульса вулканов» выше на
+                    странице (owner 02.09 — вулкан важнее толчка). */}
+                {volcanoCodes.map(v => {
+                  const meta = ACC_META[v.color] ?? ACC_META.unassigned;
+                  const ageDays = volcanoObservationAgeDays(v.observed_at);
+                  const stale = isVolcanoObservationStale(v.observed_at);
+                  return (
+                    <div key={`kvert-${v.name}`} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>{v.name}</span>
+                        <span style={{ fontSize: 11, color: meta.token }}>КВЕРТ: {meta.short}{v.ash_height_m ? ` · пепел до ${(v.ash_height_m / 1000).toFixed(1)} км` : ''}</span>
+                      </div>
+                      {v.summary && <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>{v.summary}</p>}
+                      <p style={{ color: stale ? 'var(--warning)' : 'var(--text-muted)', fontSize: 11, margin: '4px 0 0' }}>
+                        {ageDays == null ? 'дата наблюдения не передана' : formatObservationAge(ageDays)}
+                        {stale ? ' — устарело' : ''}
+                      </p>
+                    </div>
+                  );
+                })}
+                {volcanic.map(ev => {
+                  // Истёкшее показываем как историю недели, а не как угрозу: тем
+                  // же кеглем и цветом оно читается как «действует сейчас».
+                  const past = ev.active === false;
+                  const sevColor = past
+                    ? 'var(--text-muted)'
+                    : ev.severity >= 3 ? 'var(--danger)' : ev.severity === 2 ? 'var(--warning)' : 'var(--text-secondary)';
+                  return (
                   <div key={ev.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', opacity: past ? 0.6 : 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontWeight: 600, color: past ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: 13 }}>{ev.title}</span>
@@ -666,7 +721,8 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
                     )}
                   </div>
                 );
-              })
+                })}
+              </>
             )}
           </div>
         )}
