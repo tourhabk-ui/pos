@@ -115,22 +115,75 @@ function answeredModel(requested: string, data: unknown): string {
   return requested;
 }
 
-function logLLMUsage(model: string, usage: ProviderUsage | undefined): void {
+/**
+ * Откуда взята цена вызова — провенанс на КАЖДУЮ строку журнала (#1862,
+ * решение владельца 14.09, карт-бланш). Историю задним числом не
+ * пересчитываем («пересчёт задним числом — тоже вид выдумывания») — строки
+ * до миграции 961 помечены отдельным значением самой миграцией, не этим кодом.
+ */
+type CostBasis = 'model_catalog' | 'cost_table_fallback' | 'unknown';
+
+/**
+ * Цена вызова — из каталога моделей (миграция 946, цены OpenRouter,
+ * привезённые раннером GitHub, потому что прод каталог не видит), а не из
+ * захардкоженной таблицы. `COST_PER_1K` ниже остаётся только ЗАПАСОМ для
+ * моделей, которых в каталоге OpenRouter нет и быть не может (прямые
+ * DeepSeek/Qwen/Timeweb вызовы). Промах в обоих источниках — `cost: null`,
+ * не умолчание $0.0005: догадка — ровно то, из-за чего заведён #1862
+ * (умолчание втрое завышало DeepSeek Flash и втрое с половиной занижало
+ * GLM 5.3 — обе живые модели, ни одной из которых в старой таблице не было).
+ */
+export async function resolveCostUsd(
+  model: string,
+  promptTokens: number,
+  completionTokens: number,
+): Promise<{ cost: number | null; basis: CostBasis }> {
+  try {
+    const { rows } = await pool.query<{ usd_per_mtok_in: string | null; usd_per_mtok_out: string | null }>(
+      `SELECT usd_per_mtok_in, usd_per_mtok_out FROM model_catalog WHERE model_id = $1 LIMIT 1`,
+      [model],
+    );
+    const row = rows[0];
+    if (row) {
+      const inPrice = row.usd_per_mtok_in != null ? Number(row.usd_per_mtok_in) : null;
+      const outPrice = row.usd_per_mtok_out != null ? Number(row.usd_per_mtok_out) : null;
+      if (inPrice !== null && outPrice !== null && Number.isFinite(inPrice) && Number.isFinite(outPrice)) {
+        return { cost: (promptTokens * inPrice + completionTokens * outPrice) / 1e6, basis: 'model_catalog' };
+      }
+    }
+  } catch (e) {
+    // Каталог не спросился (сеть/БД) — не выдумываем цену, падаем на запас.
+    console.error('[llm-usage] каталог моделей не прочитан:', model, e instanceof Error ? e.message : e);
+  }
+  if (model in COST_PER_1K) {
+    return { cost: (COST_PER_1K[model] * (promptTokens + completionTokens)) / 1000, basis: 'cost_table_fallback' };
+  }
+  return { cost: null, basis: 'unknown' };
+}
+
+async function logLLMUsage(model: string, usage: ProviderUsage | undefined): Promise<void> {
   if (!usage) return;
   const prompt = usage.prompt_tokens ?? 0;
   const completion = usage.completion_tokens ?? 0;
   const total = prompt + completion;
   if (total === 0) return;
-  const cost = ((COST_PER_1K[model] ?? 0.00050) * total) / 1000;
+  const { cost, basis } = await resolveCostUsd(model, prompt, completion);
   // Атрибуция вызывающему агенту (Roitman §18.7.4) — no-op вне
   // runWithUsageTracking (обычные HTTP-запросы Кузьмича), agent_id тогда NULL.
-  addUsage(prompt, completion, cost);
+  // Неизвестная цена в аккумулятор идёт нулём: он копит ОЦЕНКУ одного прогона
+  // для человека, а бухгалтерия — в llm_usage_log.estimated_cost_usd, где
+  // NULL остаётся NULL, а не нулём (SUM(...) в /api/admin/llm-usage считает
+  // известное отдельно от количества строк с неизвестной ценой).
+  addUsage(prompt, completion, cost ?? 0);
   pool.query(
     `INSERT INTO llm_usage_log
-       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, agent_id, created_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW())`,
-    [model, prompt, completion, total, cost, currentAgentId()],
-  ).catch(() => { /* silent */ });
+       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW())`,
+    [model, prompt, completion, total, cost, basis, currentAgentId()],
+  ).catch((e) => {
+    // Отказ не глушится (§4.0): «не записали» не должно выглядеть как «не тратили».
+    console.error('[llm-usage] строка не записана:', model, e instanceof Error ? e.message : e);
+  });
 }
 
 // ── Retry с exponential backoff + jitter (Roitman §18.7.1) ────

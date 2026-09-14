@@ -19,34 +19,40 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const today = new Date().toISOString().slice(0, 10);
 
+  // #1862: estimated_cost_usd допускает NULL с миграции 960 («цену не
+  // знаем»). SUM(...) молча пропускает такие строки — без отдельного счётчика
+  // модель вне каталога выглядела бы в этом отчёте дешёвой, а не непосчитанной.
   const [todayRow, weekRow, byRoute, ragQuality] = await Promise.all([
-    pool.query<{ total_tokens: string; cost_usd: string; calls: string }>(
+    pool.query<{ total_tokens: string; cost_usd: string; calls: string; unknown_cost_calls: string }>(
       `SELECT
          COALESCE(SUM(total_tokens), 0)::int      AS total_tokens,
          COALESCE(SUM(estimated_cost_usd), 0)     AS cost_usd,
-         COUNT(*)::int                             AS calls
+         COUNT(*)::int                             AS calls,
+         COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
        FROM llm_usage_log
        WHERE created_at >= $1::date
          AND created_at <  $1::date + INTERVAL '1 day'`,
       [today],
     ),
 
-    pool.query<{ total_tokens: string; cost_usd: string; calls: string }>(
+    pool.query<{ total_tokens: string; cost_usd: string; calls: string; unknown_cost_calls: string }>(
       `SELECT
          COALESCE(SUM(total_tokens), 0)::int      AS total_tokens,
          COALESCE(SUM(estimated_cost_usd), 0)     AS cost_usd,
-         COUNT(*)::int                             AS calls
+         COUNT(*)::int                             AS calls,
+         COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
        FROM llm_usage_log
        WHERE created_at >= NOW() - INTERVAL '7 days'`,
       [],
     ),
 
-    pool.query<{ route: string; total_tokens: string; cost_usd: string; calls: string }>(
+    pool.query<{ route: string; total_tokens: string; cost_usd: string; calls: string; unknown_cost_calls: string }>(
       `SELECT
          route,
          SUM(total_tokens)::int      AS total_tokens,
          SUM(estimated_cost_usd)     AS cost_usd,
-         COUNT(*)::int               AS calls
+         COUNT(*)::int               AS calls,
+         COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
        FROM llm_usage_log
        WHERE created_at >= NOW() - INTERVAL '7 days'
        GROUP BY route
@@ -92,17 +98,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         total_tokens: Number(t?.total_tokens ?? 0),
         cost_usd:     Number(t?.cost_usd ?? 0),
         calls:        Number(t?.calls ?? 0),
+        unknown_cost_calls: Number(t?.unknown_cost_calls ?? 0),
       },
       week: {
         total_tokens: Number(w?.total_tokens ?? 0),
         cost_usd:     Number(w?.cost_usd ?? 0),
         calls:        Number(w?.calls ?? 0),
+        unknown_cost_calls: Number(w?.unknown_cost_calls ?? 0),
       },
       by_route: byRoute.rows.map(r => ({
         route:        r.route,
         total_tokens: Number(r.total_tokens),
         cost_usd:     Number(r.cost_usd),
         calls:        Number(r.calls),
+        unknown_cost_calls: Number(r.unknown_cost_calls),
       })),
       rag_quality: {
         count:              ragCount,

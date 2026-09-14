@@ -17,7 +17,11 @@ export async function GET(req: NextRequest) {
         SUM(completion_tokens)::int     AS completion_tokens,
         SUM(total_tokens)::int          AS total_tokens,
         SUM(estimated_cost_usd)         AS cost_usd,
-        COUNT(*)::int                   AS calls
+        COUNT(*)::int                   AS calls,
+        -- #1862: SUM(estimated_cost_usd) молча пропускает NULL («цену не
+        -- знаем», миграция 961) — без этого числа cost_usd у модели вне
+        -- каталога читался бы как «дёшево», а не «не посчитано».
+        COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
       FROM llm_usage_log
       WHERE created_at > NOW() - INTERVAL '7 days'
       GROUP BY route, day
@@ -27,7 +31,8 @@ export async function GET(req: NextRequest) {
       SELECT
         SUM(total_tokens)::int      AS total_tokens,
         SUM(estimated_cost_usd)     AS cost_usd,
-        COUNT(*)::int               AS total_calls
+        COUNT(*)::int               AS total_calls,
+        COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
       FROM llm_usage_log
       WHERE created_at > NOW() - INTERVAL '7 days'
     `),
