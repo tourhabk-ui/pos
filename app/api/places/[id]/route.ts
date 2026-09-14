@@ -95,6 +95,16 @@ export async function GET(
          ai.license    AS photo_license,
          ai.license_url AS photo_license_url,
          ai.source_url  AS photo_source_url,
+         -- Метка версии снимка. Раздача /api/images/route/[routeId] отдаёт
+         -- картинку с max-age=31536000, immutable, а адрес состоял из
+         -- одного ark_id — то есть при ЗАМЕНЕ главного фото браузер целый год
+         -- показывал бы прежнее и даже не переспросил (в этом смысл
+         -- immutable). Замена героя перестала быть видна ровно в тот день,
+         -- когда её сделали возможной (14.09).
+         --
+         -- Токен в адресе — не отключение кэша, а исполнение его контракта:
+         -- содержимое сменилось — сменился адрес.
+         EXTRACT(EPOCH FROM ai.created_at)::bigint AS photo_version,
          -- Атрибуция ТЕКСТА описания (#1830, шаг 4). Не путать с
          -- p.source_url/p.source_name: те про происхождение ЗАПИСИ места, а
          -- это про происхождение конкретного абзаца, который человек читает.
@@ -143,7 +153,13 @@ export async function GET(
          p.lat,
          p.lng,
          p.photo_url,
-         (SELECT CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai2 WHERE ai2.route_id = p.ark_id AND ai2.model IN ('wikimedia', 'manual-upload')) THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS thumb_url,
+         -- Та же метка версии у миниатюр «рядом»: адрес без неё замерзал бы
+         -- на год так же, как у главного фото.
+         (SELECT '/api/images/route/' || p.ark_id || '?v=' || EXTRACT(EPOCH FROM ai2.created_at)::bigint
+            FROM ai_route_images ai2
+           WHERE ai2.route_id = p.ark_id
+             AND ai2.model IN ('wikimedia', 'manual-upload')
+           LIMIT 1) AS thumb_url,
          round(
            6371 * acos(
              LEAST(1.0, cos(radians($1::float)) * cos(radians(p.lat::float)) *
@@ -250,7 +266,10 @@ export async function GET(
             const first = imgs[0];
             if (typeof first === 'string' && (first.startsWith('http') || first.startsWith('/'))) return first;
           }
-          if (Number(r.photo_count) > 0) return `/api/images/route/${r.ark_id}`;
+          if (Number(r.photo_count) > 0) {
+            const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
+            return `/api/images/route/${r.ark_id}${v}`;
+          }
           return null;
         })(),
         images: (r.images as unknown[] | null) ?? [],
