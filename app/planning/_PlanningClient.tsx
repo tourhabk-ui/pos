@@ -83,7 +83,7 @@ import { FieldDistance } from '@/components/field/FieldDistance';
 import { PlacesLayerButton } from '@/components/field/PlacesLayerButton';
 import { bearingDeg } from '@/lib/on-route/bearing';
 import { isUuid } from '@/lib/text/slugify';
-import { coordIsTrustworthy, coordSourceLabel, type CoordSource } from '@/lib/places/coord-source';
+import { coordIsTrustworthy, coordSourceLabel, asCoordSource, type CoordSource } from '@/lib/places/coord-source';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
@@ -1125,7 +1125,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             lat: Number(w.lat),
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
-            coordSource: (w.coordSource as CoordSource | null) ?? undefined,
+            coordSource: w.coordSource ? asCoordSource(w.coordSource as string) : undefined,
           }));
         // Ноль путевых точек — ЗАКОННЫЙ результат, а не отказ: у Скал Три
         // Брата все 23 связи стали «рядом», путь описан одним треком. Прежний
@@ -2813,7 +2813,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             lat: Number(w.lat),
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
-            coordSource: (w.coordSource as CoordSource | null) ?? undefined,
+            coordSource: w.coordSource ? asCoordSource(w.coordSource as string) : undefined,
           }));
         if (converted.length === 0) {
           setPreviewError({ id: r.id, text: 'У точек маршрута нет координат — на карте его не показать.' });

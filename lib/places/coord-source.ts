@@ -30,15 +30,60 @@
  */
 
 /** Откуда взялась координата места. */
-export type CoordSource = 'surveyed' | 'geocoded' | 'placeholder' | 'unknown';
+export type CoordSource = 'surveyed' | 'geocoded' | 'placeholder' | 'external' | 'unknown';
 
-/** Как объяснить происхождение координаты человеку. */
+/**
+ * `external` заведён 14.09, и за ним стоит дефект, а не вкус.
+ *
+ * Колонка `places.coord_source` — свободный текст, а тип здесь был закрытым
+ * перечнем. Миграции, которым ни одно из четырёх слов не подходило, писали
+ * своё: 930 поставила Синичкину `osm_organic_930` (координата из OSM через
+ * Organic Maps). Такая строка не совпадает ни с одной веткой switch ниже, а
+ * ветки `default` не было — функция возвращала `undefined`.
+ *
+ * Цена этого видна на полевом экране: `app/planning/_PlanningClient.tsx`
+ * показывает человеку строку «Координата точки: ${coordSourceLabel(...)} — не
+ * полагайтесь только на азимут и время». С незнакомым значением она читалась
+ * «Координата точки: undefined». Предупреждение, потерявшее смысл ровно там,
+ * где оно нужно.
+ *
+ * `external` закрывает настоящий пробел перечня: координата взята из внешнего
+ * справочника (OSM, Wikimedia, паспорт маршрута). Это не «снята на месте» и
+ * не «угадана по названию» — происхождение известно и названо, а точность
+ * зависит от источника.
+ */
 export function coordSourceLabel(source: CoordSource): string {
   switch (source) {
     case 'surveyed':    return 'снята на месте';
     case 'geocoded':    return 'угадана по названию';
     case 'placeholder': return 'заглушка вместо координаты';
+    case 'external':    return 'взята из внешнего справочника';
     case 'unknown':     return 'происхождение не записано';
+  }
+}
+
+/**
+ * Привести значение из базы к перечню.
+ *
+ * Нужен потому, что колонка — свободный текст, а `as CoordSource` на границе
+ * чтения был не проверкой, а обещанием: незнакомая строка проезжала в switch
+ * и выходила из него `undefined`.
+ *
+ * Незнакомое сводится к `unknown` — «происхождение не записано». Это слабее
+ * правды (в базе что-то записано), но сильнее прежнего молчания: человек
+ * видит слова, а `coordIsTrustworthy` по-прежнему отвечает «нет», то есть
+ * решения на такой координате не строятся.
+ */
+export function asCoordSource(raw: string | null | undefined): CoordSource {
+  switch (raw) {
+    case 'surveyed':
+    case 'geocoded':
+    case 'placeholder':
+    case 'external':
+    case 'unknown':
+      return raw;
+    default:
+      return 'unknown';
   }
 }
 
