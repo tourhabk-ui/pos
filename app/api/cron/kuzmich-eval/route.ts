@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { runKuzmichFaithfulnessEval } from '@/lib/agents/eval/kuzmich-faithfulness';
+import { runKuzmichFaithfulnessEval, failedCases } from '@/lib/agents/eval/kuzmich-faithfulness';
 import { sampleLiveQuestions } from '@/lib/agents/eval/live-questions';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -109,6 +109,11 @@ export async function GET(request: NextRequest) {
         alerts_sent: report.alerts_sent,
         source,
         live_sampled: liveCount,
+        // Что именно упало (#1883). Без этого следующий провал разбирается
+        // археологией в логе Actions: тревога несёт только pass_rate, и
+        // «75%» не говорит, какие вопросы и чем плохи. Вопросы живого
+        // трафика чистятся redactPII — это сообщения туристов (§8).
+        failed_cases: failedCases(report.cases),
       },
     });
 

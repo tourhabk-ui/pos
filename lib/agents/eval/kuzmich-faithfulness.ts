@@ -24,6 +24,7 @@ import { tgSend } from '@/lib/notifications/tg-send';
 import { judgeWithFallback } from '@/lib/agents/eval/editor-judge';
 import { wilsonInterval, type WilsonInterval } from '@/lib/agents/learning/experiment-tracker';
 import questionsFixture from '@/lib/agents/eval/kuzmich-eval-questions.json';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export interface EvalQuestion {
   id: string;
@@ -188,6 +189,49 @@ ${answer.slice(0, 2000)}`;
 /** Fire-and-forget Telegram-алерт владельцу (образец: sendTgAlertAsync в smoke-test.ts). */
 
 // ── Чистая агрегация (юнит-тестируемая, без сети/БД) ─────────────────────────
+
+/** Одна проваленная проверка в записи прогона — компактно, для разбора потом. */
+export interface FailedCaseNote {
+  id: string;
+  category: string;
+  question: string;
+  /** Обоснование судьи, обрезанное: полный текст нужен глазам, не базе. */
+  reason: string;
+  score: number | null;
+}
+
+/** Сколько проваленных класть в запись. Их обычно 0-5 из 20. */
+const FAILED_CASES_KEPT = 8;
+/** Обоснование судьи бывает на абзац; в записи хватает начала. */
+const REASON_CHARS = 400;
+
+/**
+ * Проваленные проверки для записи прогона (#1883, побочная находка).
+ *
+ * Полный разбор «что именно провалилось» до сих пор существовал ТОЛЬКО в логе
+ * workflow: тревога несёт агрегат (pass_rate, wilson_low), а запись прогона в
+ * БД — те же агрегаты. Чтобы узнать, какие вопросы упали, надо было лезть в
+ * Actions API и парсить лог конкретного прогона. Так и был найден нынешний
+ * дефект — археологией, а не записью.
+ *
+ * ПД ЖИВОГО ТРАФИКА. При `source=live` вопрос — это сообщение живого туриста,
+ * и класть его в базу дословно нельзя (§8): текст проходит через `redactPII`,
+ * тот же инструмент, что чистит промпты перед отправкой в зарубежные модели.
+ * Вопросы фикстуры наши собственные и чистки не требуют — но она им и не
+ * вредит, поэтому применяется ко всем: одна ветка вместо двух не разъедется.
+ */
+export function failedCases(cases: EvalCase[]): FailedCaseNote[] {
+  return cases
+    .filter(c => c.score === null || c.score < PASS_MIN)
+    .slice(0, FAILED_CASES_KEPT)
+    .map(c => ({
+      id: c.id,
+      category: c.category,
+      question: redactPII(c.question).slice(0, REASON_CHARS),
+      reason: redactPII(c.reason).slice(0, REASON_CHARS),
+      score: c.score,
+    }));
+}
 
 export function summarizeFaithfulness(cases: EvalCase[]): Omit<EvalReport, 'alerts_sent'> {
   const asked = cases.length;
