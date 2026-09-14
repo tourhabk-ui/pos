@@ -237,6 +237,18 @@ function claimsMissingValidation(text: string): boolean {
 }
 
 /**
+ * Находка о «параметр подставлен в URL без кодирования» (issue #1853, найдена
+ * повторным сканом 13.09 уже ПОСЛЕ того, как дефект почистили в #1842 —
+ * страж проверял try/catch, auth, валидацию, инъекцию, но не эту форму, и
+ * сверка с живым файлом её пропускала молча). Два условия — про кодирование
+ * И про URL/адрес — иначе «без валидации query-параметра» тоже попал бы сюда.
+ */
+function claimsMissingEncoding(text: string): boolean {
+  return /encodeuricomponent|urlsearchparams|url[-\s]?encod|percent[-\s]?encod|не\s+кодиру[а-яё]*|без\s+кодирования|без\s+экранирования|не\s+экранир[а-яё]*/i.test(text)
+    && /\burl\b|адрес[а-яё]*|query[-\s]?строк|ссылк[а-яё]*|запрос[а-яё]*\s+строк/i.test(text);
+}
+
+/**
  * Находка о SQL-инъекции: якобы конкатенация/интерполяция пользовательского
  * ввода в запрос.
  */
@@ -302,6 +314,10 @@ function sourceHasValidation(src: string): boolean {
   // Zod — стандарт проекта (§4 CLAUDE.md); Joi/yup — на случай легаси.
   return /\.safeParse\s*\(|\.parse\s*\(\s*(?:await\s+)?(?:req|request|body|data)|z\.object\s*\(|Joi\.object|yup\.object/i.test(src);
 }
+/** Кодирует ли файл значения перед подстановкой в URL — тремя стандартными способами. */
+function sourceHasEncoding(src: string): boolean {
+  return /encodeURIComponent\s*\(|new\s+URLSearchParams\s*\(|\.searchParams\.(?:set|append)\s*\(/i.test(src);
+}
 /**
  * Роут сам декларирует публичность: «AUTH: публичный» / «Public by design» в
  * шапке. Клеймо «нет авторизации» на таком файле — спор с замыслом, а не
@@ -361,6 +377,10 @@ export function verifyAgainstSource(f: CandidateFinding, source: string | null |
   // #1001: «data из req.json() напрямую в createBooking без проверок» — а роут
   // валидирует BookingSchema.safeParse с 29-й строки).
   if (claimsMissingValidation(text) && sourceHasValidation(source)) return 'source_has_validation';
+  // «Ключ/параметр не кодируется в URL» при живом URLSearchParams/
+  // encodeURIComponent в файле (issue #1853, дубль уже почищенного в #1842 —
+  // ровно та дыра, которую эта проверка закрывает).
+  if (claimsMissingEncoding(text) && sourceHasEncoding(source)) return 'source_has_encoding';
 
   // Обратный класс к «нет X, когда X есть»: находка УТВЕРЖДАЕТ, что код есть, и
   // цитирует его — а кода нет. Именно так выглядели issues #768/#770/#772/#774:
