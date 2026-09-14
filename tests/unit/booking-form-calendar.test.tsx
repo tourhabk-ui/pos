@@ -78,6 +78,17 @@ describe('BookingFormClient — календарь доступности', () =
     );
     fireEvent.click(cell);
 
+    // Даты теперь МАЛО: с 14.09 форма не уходит без согласия на обработку ПД
+    // (PdConsentCheckbox, миграция 969). Смысл проверки прежний — выбор даты
+    // снимает СВОЁ препятствие, — но препятствий стало два, и тест обязан
+    // снять оба, иначе он проверял бы не то, что называется в его имени.
+    await waitFor(() => {
+      expect(screen.getByText(/Отметьте согласие на обработку данных/)).toBeInTheDocument();
+    });
+    expect(submit).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /обработку персональных данных/i }));
+
     await waitFor(() => expect(submit).not.toBeDisabled());
   });
 

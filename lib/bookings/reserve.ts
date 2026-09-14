@@ -1,5 +1,14 @@
 /**
- * Единственное место, где заводится бронь тура.
+ * Место, где заводится ГОСТЕВАЯ бронь тура — из веб-формы и из чата Кузьмича.
+ *
+ * Заголовок уточнён 14.09. До этого здесь стояло «единственное место, где
+ * заводится бронь тура», и это было неправдой: `app/api/bookings/tour`
+ * делает свой `INSERT INTO operator_bookings` напрямую, мимо этой функции.
+ * Тот путь живёт под `requireAuth` — бронирует вошедший пользователь, чьё
+ * согласие на обработку ПД записано при регистрации, — и потому в разговоре
+ * про гостевые ПД он не участвует. Но «единственное» он опровергает, а
+ * докстрока, обещающая путь, которого нет, — дефект кода (правило 10.09):
+ * читающий поверил бы, что согласие теперь несут ВСЕ брони.
  *
  * ── Что было (аудит Fable 5.1, 08.09) ─────────────────────────────────────
  *
@@ -69,6 +78,16 @@ export interface ReserveInput {
   userId?: string | null;
   /** Произвольная метка канала (например, tg_chat_id) — идёт в metadata. */
   metadata?: Record<string, unknown> | null;
+  /**
+   * Согласие на обработку ПД — обстоятельства, а не булево: когда, откуда,
+   * из какой формы и под какой версией формулировки (lib/legal/pd-consent).
+   *
+   * `null` и `undefined` означают «согласие НЕ ЗАФИКСИРОВАНО», а не «отказано».
+   * Бронь приходит и из чата Кузьмича, где формы с галочкой нет вовсе; выдать
+   * её молчание за согласие было бы худшим из исходов (§4.0). Третье
+   * состояние хранится как NULL в четырёх колонках и видно запросом.
+   */
+  pdConsent?: import('@/lib/legal/pd-consent').PdConsentRecord | null;
 }
 
 export interface Reserved {
@@ -176,8 +195,9 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       `INSERT INTO operator_bookings (
          operator_tour_id, tourist_name, tourist_email, tourist_phone,
          participants, booking_date, special_requests, booking_status,
-         base_total_price, final_price, created_via, user_id, metadata
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12::jsonb)
+         base_total_price, final_price, created_via, user_id, metadata,
+         pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12::jsonb,$13,$14,$15,$16)
        RETURNING id, access_token::text AS access_token`,
       [
         input.tourId,
@@ -192,6 +212,14 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
         input.createdVia,
         input.userId ?? null,
         input.metadata ? JSON.stringify(input.metadata) : null,
+        // Согласие идёт В ТОЙ ЖЕ вставке, что бронь. Отдельный UPDATE после
+        // дал бы окно, в котором бронь есть, а доказательства права её
+        // хранить — нет; и окно это не теоретическое, а ровно такое же, как
+        // у дедупа алертов 13.09.
+        input.pdConsent?.at ?? null,
+        input.pdConsent?.ip ?? null,
+        input.pdConsent?.source ?? null,
+        input.pdConsent?.version ?? null,
       ],
     );
 
