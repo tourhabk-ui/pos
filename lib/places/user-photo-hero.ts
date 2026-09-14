@@ -32,13 +32,28 @@ export interface PromoteResult {
  * только явным `authorOverride`, то есть решением человека.
  *
  * `actorUserId = null` (путь по CRON_SECRET) — значит «своих» снимков нет
- * вовсе, и любой требует явной подписи. Умолчание здесь одностороннее
+ * вовсе, и имя само не подставляется ни у одного. Умолчание одностороннее
  * намеренно: ошибиться в сторону «попросить подпись» можно, в сторону
  * «опубликовать чужое имя» — нельзя.
+ *
+ * Исходов у подписи, стало быть, ТРИ, а не два: «подписать вот так», «подписи
+ * нет — снимок собственный» (`allowNoAuthor`, владелец 14.09: «мой, ставь без
+ * подписи») и «не знаю, чем подписать» → отказ `needs_author`. Второй и
+ * третий различаются ровно тем, объявлен выбор или получился забывчивостью.
  */
 export async function promoteUserPhotoToHero(
   photoId: string,
-  opts: { actorUserId: string | null; authorOverride?: string | null },
+  opts: {
+    actorUserId: string | null;
+    authorOverride?: string | null;
+    /**
+     * Подписи не будет — и это ОБЪЯВЛЕНО вызывающим, а не вышло само.
+     * Собственный снимок платформы внешнего автора не имеет, и требовать его
+     * значило бы заставлять выдумывать (§4.0). Флаг нужен, чтобы «подписи
+     * нет» нельзя было получить забывчивостью.
+     */
+    allowNoAuthor?: boolean;
+  },
 ): Promise<PromoteResult> {
   const { rows } = await pool.query<{
     url: string; user_id: string; ark_id: string | null;
@@ -62,7 +77,7 @@ export async function promoteUserPhotoToHero(
 
   const isOwnPhoto = opts.actorUserId !== null && row.user_id === opts.actorUserId;
   const author = opts.authorOverride ?? (isOwnPhoto ? row.uploader_name : null);
-  if (!author) {
+  if (!author && !opts.allowNoAuthor) {
     return { status: 'needs_author', author: null, placeName: row.place_name };
   }
 
@@ -88,7 +103,7 @@ export async function promoteUserPhotoToHero(
            license_url = EXCLUDED.license_url,
            source_url  = EXCLUDED.source_url,
            created_at  = now()`,
-    [row.ark_id, row.url, `hero from user photo ${photoId}`, author],
+    [row.ark_id, row.url, `hero from user photo ${photoId}`, author ?? null],
   );
 
   // Одобрение идёт ВМЕСТЕ с переносом: снимок на карточке и «ждёт проверки» —
@@ -100,5 +115,5 @@ export async function promoteUserPhotoToHero(
     [opts.actorUserId, photoId],
   );
 
-  return { status: 'applied', author, placeName: row.place_name };
+  return { status: 'applied', author: author ?? null, placeName: row.place_name };
 }

@@ -43,11 +43,23 @@ const MAX_BATCH = 10;
 
 const BodySchema = z.object({
   photo_ids: z.array(z.string().uuid()).min(1).max(MAX_BATCH),
-  /** Чем подписать снимок на карточке. Без умолчания — см. шапку. */
-  author: z.string().trim().min(1).max(200),
-  /** Сухой прогон по умолчанию: ничего не пишем, показываем, что было бы. */
-  dry_run: z.boolean().optional(),
-});
+  /** Чем подписать снимок на карточке. */
+  author: z.string().trim().min(1).max(200).optional(),
+  /**
+   * Подписи не будет: снимок собственный, внешнего автора у него нет.
+   *
+   * Отдельный ЯВНЫЙ флаг, а не просто отсутствие `author` (владелец 14.09:
+   * «мой, ставь без подписи»). Правило защищало от одного — публикации чужого
+   * имени МОЛЧА; «подписи нет» его не нарушает, но и умолчанием быть не
+   * должно: тогда забытое поле стало бы решением. Решений два, и оба
+   * называются вслух.
+   */
+  no_author: z.literal(true).optional(),
+}).and(z.object({ dry_run: z.boolean().optional() }))
+  .refine(
+    v => (('author' in v && v.author) ? 1 : 0) + (('no_author' in v && v.no_author) ? 1 : 0) === 1,
+    { message: 'Укажите ровно одно: author (чем подписать) или no_author: true (подписи нет)' },
+  );
 
 function unauthorized(): NextResponse {
   return NextResponse.json({ error: 'Unauthorized', probe: PROBE }, { status: 401 });
@@ -115,7 +127,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { photo_ids: photoIds, author } = parsed.data;
+  const { photo_ids: photoIds } = parsed.data;
+  // Пустая подпись — законный исход, но только объявленный (no_author).
+  const author = 'author' in parsed.data ? (parsed.data.author ?? null) : null;
   const dryRun = parsed.data.dry_run !== false;
 
   const results: Array<{ photo_id: string } & PromoteResult> = [];
@@ -143,6 +157,7 @@ export async function POST(req: NextRequest) {
     const res = await promoteUserPhotoToHero(photoId, {
       actorUserId: null,
       authorOverride: author,
+      allowNoAuthor: author === null,
     });
     results.push({ photo_id: photoId, ...res });
   }
