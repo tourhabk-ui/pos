@@ -129,6 +129,10 @@ export async function POST(req: NextRequest) {
         date: new Date(data.booking_date),
         participants: data.participants_count,
         totalAmount: result.totalPrice,
+        // Второй носитель ключа рядом с письмом (#1889): у письма была одна
+        // ветка и одно условие, а без ключа человек не откроет ни заявку, ни
+        // PDF с собственными телефоном и почтой.
+        accessToken: result.accessToken,
       });
     }
 

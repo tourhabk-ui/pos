@@ -10,6 +10,7 @@ import {
   FileText, Ticket, QrCode,
 } from 'lucide-react';
 import SbpQrPayment from '@/components/marketplace/SbpQrPayment';
+import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 
 interface BookingData {
   id: number;
@@ -421,6 +422,18 @@ export default function BookingSuccessClient() {
               <FileText size={15} />
               Договор (PDF)
             </a>
+          </div>
+        )}
+
+        {/* Ключ к этой странице — здесь же, пока он у человека в руках.
+            За PDF выше лежат его собственные телефон и почта, а открывается
+            всё только по `?t=`: закрыл вкладку без сохранённой ссылки — и
+            доступ к своим данным потерян, восстановить его платформе нечем
+            (#1889). Гость из корзины мог не оставить почту вовсе, и тогда
+            письма с этой ссылкой не было. */}
+        {booking && (
+          <div className="mb-3">
+            <BookingAccessLink bookingId={booking.id} accessToken={accessToken} />
           </div>
         )}
 

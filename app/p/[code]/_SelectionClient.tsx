@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { MapPin, Clock, Shield, AlertTriangle, Phone, ChevronRight, Users } from 'lucide-react';
+import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 
 interface TourItem {
   item_id: string;
@@ -173,6 +174,8 @@ export default function SelectionClient({ code }: { code: string }) {
   const [people, setPeople]   = useState(1);
   const [sending, setSending] = useState(false);
   const [sent, setSent]       = useState(false);
+  /** Номер и ключ созданной брони — единственный носитель доступа у этой формы. */
+  const [created, setCreated] = useState<{ id: number; token: string } | null>(null);
   const [bookErr, setBookErr] = useState<string | null>(null);
 
   const logEvent = useCallback((type: 'open' | 'tour_view' | 'book_click', itemId?: string) => {
@@ -217,8 +220,19 @@ export default function SelectionClient({ code }: { code: string }) {
           booking_date:       date,
         }),
       });
-      const data = await res.json() as { error?: string };
+      // Ключ доступа читается ИЗ ОТВЕТА и показывается человеку. До 14.09
+      // здесь разбирался только `error`: заявка создавалась, ключ приходил и
+      // выбрасывался в ту же секунду, а почты у этой формы нет вовсе — то
+      // есть доступ к своей брони турист терял НАВСЕГДА, каждый раз (#1889).
+      const data = await res.json() as { error?: string; id?: number; access_token?: string };
       if (!res.ok) throw new Error(data.error ?? 'Ошибка');
+      if (data.id != null && data.access_token) {
+        setCreated({ id: data.id, token: data.access_token });
+      } else {
+        // Бронь есть, ключа в ответе нет — это не «всё хорошо». Сказать
+        // человеку нечего, но в лог сказать обязаны (§4.0).
+        console.error('[p/code] бронь создана без ключа доступа в ответе', data.id ?? 'без номера');
+      }
       setSent(true);
     } catch (err) {
       setBookErr(err instanceof Error ? err.message : 'Ошибка');
@@ -332,6 +346,11 @@ export default function SelectionClient({ code }: { code: string }) {
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>
                   Оператор свяжется с вами в ближайшее время.
                 </p>
+                {created && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <BookingAccessLink bookingId={created.id} accessToken={created.token} />
+                  </div>
+                )}
                 <button className="ds-btn ds-btn-secondary" onClick={() => setBookTour(null)}>
                   Вернуться к подборке
                 </button>

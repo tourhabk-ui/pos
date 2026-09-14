@@ -6,6 +6,7 @@ import { Sparkles, Send, Loader2, X, MessageCircle, Camera, ExternalLink, Fish, 
 import Link from 'next/link';
 import Image from 'next/image';
 import { useGeo } from '@/contexts/GeoContext';
+import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 
 // Страницы где виджет не нужен
 const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
@@ -87,6 +88,11 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
           className="text-xs text-center py-2 rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity">
           Перейти к оплате
         </a>
+        {/* Виджет стоит на ЧУЖОМ сайте: закрыл его — и ключ исчез вместе с
+            вкладкой, а почта здесь необязательна, то есть письма могло не
+            быть. Кнопка выше уводит по ключу, но сохранить его туристу
+            нечем — для этого общий блок (#1889). */}
+        <BookingAccessLink bookingId={bookingId} accessToken={accessToken} />
       </div>
     );
   }

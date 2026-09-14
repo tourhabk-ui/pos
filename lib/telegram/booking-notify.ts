@@ -11,6 +11,7 @@
 
 import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
+import { getPublicBaseUrl } from '@/lib/config';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -37,6 +38,21 @@ export function notifyTouristBookingCreated(
     date: Date;
     participants: number;
     totalAmount: number;
+    /**
+     * Ключ доступа к брони (`operator_bookings.access_token`, миграция 943).
+     *
+     * До 14.09 ключ уходил ОДНОЙ веткой — письмом, и только если турист
+     * оставил почту. Здесь его не было вовсе: сообщение звало в личный
+     * кабинет, а `/booking-success` и PDF с договором открываются только по
+     * ключу. У канала, который турист выбрал сам, свой способ доставки есть
+     * — этой ссылкой (#1889).
+     *
+     * Ключ, а не персональные данные: Telegram зарубежный, и телефон с
+     * почтой туда по-прежнему не идут (см. notifyTouristDocumentExpiring).
+     * Ссылку с тем же ключом бот Кузьмича шлёт в этот же канал с самого
+     * начала — контракт канала не меняется.
+     */
+    accessToken?: string | null;
   }
 ): void {
   void (async () => {
@@ -59,8 +75,16 @@ export function notifyTouristBookingCreated(
           `<b>Сумма:</b> ${booking.totalAmount.toLocaleString('ru-RU')} ₽`,
           '',
           'Оператор рассмотрит заявку в течение нескольких часов.',
-          'Статус брони можно проверить в личном кабинете.',
           '',
+          // Ссылка с ключом — первой: по ней открываются статус, условия и
+          // документы. Ссылка на кабинет остаётся второй строкой, но сама по
+          // себе заявку не открывает, и звать только туда значило бы обещать
+          // доступ, которого у ссылки нет.
+          ...(booking.accessToken
+            ? [`<a href="${getPublicBaseUrl()}/booking-success/${booking.id}?t=${encodeURIComponent(booking.accessToken)}">Открыть заявку →</a>`,
+               'Сохраните это сообщение: по одному номеру заявка не открывается.',
+               '']
+            : []),
           `<a href="https://vedarai.ru/hub/tourist/bookings">Мои бронирования →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
