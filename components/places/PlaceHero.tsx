@@ -162,7 +162,7 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
           </p>
 
           <h1
-            className="text-[2.1rem] leading-[1.05] sm:text-5xl md:text-6xl font-bold text-white"
+            className="text-[36px] leading-[1.1] sm:text-5xl md:text-[56px] md:leading-[1.08] font-bold text-white"
             style={{ fontFamily: 'var(--font-playfair)', textShadow: '0 2px 24px rgba(0,0,0,0.45)' }}
           >
             {name}

@@ -50,7 +50,11 @@ export default function PlaceLNT({ capacityPerDay, ecoZone }: Props) {
 
   return (
     <section>
-      <div className="ds-card overflow-hidden">
+      {/* Плита без рамки — как у соседних блоков раздела «Что знать»
+          (правка 14.09). `ds-card` давал рамку и тень, и на фоне соседей без
+          рамок этот блок выглядел чужим: страница читалась как набор разных
+          по возрасту кусков. */}
+      <div className="overflow-hidden rounded-lg bg-[var(--bg-card)]">
 
         <button
           onClick={() => setExpanded(v => !v)}

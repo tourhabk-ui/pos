@@ -10,6 +10,7 @@ import { OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
+import { distanceToCity } from '@/lib/places/distance-to-city';
 
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
@@ -113,7 +114,7 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
  */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="pt-10 first:pt-6">
+    <section className="pt-14 first:pt-6">
       {/*
         Заголовок раздела ВИДЕН.
 
@@ -127,11 +128,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         структуры, а не как призыв к действию.
       */}
       <h2
-        className="mb-5 text-2xl font-bold text-[var(--text-primary)]"
+        className="mb-3 text-[26px] font-bold leading-[1.2] text-[var(--text-primary)]"
         style={{ fontFamily: 'var(--font-playfair)' }}
       >
         {title}
-        <span className="mt-2 block h-[3px] w-10 rounded-full bg-[var(--accent)]" aria-hidden />
       </h2>
       <div className="space-y-5">{children}</div>
     </section>
@@ -246,6 +246,13 @@ export default function PlaceDetailClient({ id }: { id: string }) {
   // «не знаем» выражается отсутствием строки, а не прочерком (§4.0), и
   // решать, что известно, должна карточка, у которой данные на руках.
   const heroFacts: Array<{ label: string; value: string }> = [];
+
+  // Первым — единственный факт, который производим у ЛЮБОГО места: координаты
+  // у `places` NOT NULL, значит расстояние до города есть всегда. У остальных
+  // фактов источник может молчать.
+  const toCity = distanceToCity(place.lat, place.lng);
+  if (toCity) heroFacts.push({ label: 'от Петропавловска', value: toCity.label });
+
   if (place.safety.altitudeM != null) {
     heroFacts.push({ label: 'высота', value: `${place.safety.altitudeM.toLocaleString('ru-RU')} м` });
   }
@@ -525,7 +532,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           {/* КУЗЬМИЧ — без обёртки раздела: у блока есть собственный
               заголовок «Кузьмич о месте», и второй над ним был бы тем же
               дублем, что «Как добраться» над «Как добраться». */}
-          <div className="pt-10">
+          <div className="pt-14">
             <PlaceKuzmich
               placeId={place.id}
               placeName={place.name}
