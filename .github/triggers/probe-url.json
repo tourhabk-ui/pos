@@ -1,12 +1,14 @@
 {
-  "note": "14.09: владелец — «столько времени не можем это сделать» про фото вулканов. Перестаю гадать: сколько мест НА САМОМ ДЕЛЕ показывают фото. Карточка рисует только wikimedia и manual-upload (решение 2026-07-17 «честный градиент вместо AI-фото»), а генерации qwen-image/pollinations-flux не показываются никогда. images-oversize даёт by_model — из него видно, сколько снимков каждого рода. Одна строка на место (ON CONFLICT по route_id), поэтому счёт по родам это и есть покрытие.",
-  "run": 500,
+  "note": "14.09, прогон 2: перепись снимков теперь называет не только вес, но и показывается ли род на карточке и есть ли чем подписать (author/license). Вопрос один: у 23 wikimedia-commons и 87 real-photo есть права? Если у первых есть — это 23 карточки, которые можно показать сегодня, без переговоров с кем бы то ни было.",
+  "run": 501,
   "urls": [
     "https://vedarai.ru/api/cron/images-oversize"
   ],
   "post": [],
-  "bytes": 6000,
+  "bytes": 3000,
   "timeout": 60,
-  "retries": 1,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place photo coverage census)"
+  "until": "credited",
+  "retries": 12,
+  "retryDelay": 60,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; photo rights census)"
 }

@@ -122,11 +122,29 @@ async function census() {
         GROUP BY 1
         ORDER BY 1`,
     ),
-    pool.query<{ model: string | null; n: string; mb: string; avg_kb: string }>(
+    // 14.09: к весу добавлены ПОКАЗЫВАЕТСЯ ЛИ и ЕСТЬ ЛИ ПРАВА.
+    //
+    // Перепись отвечала только на «сколько весит», и по ней нельзя было
+    // увидеть главного: из 657 снимков карточка рисует лишь те, у кого
+    // model IN ('wikimedia','manual-upload') — то есть 34. Остальные 623
+    // лежат невидимыми, и среди них 110 НАСТОЯЩИХ фотографий
+    // (wikimedia-commons 23, real-photo 87), не показанных лишь потому, что
+    // их род не совпал со строкой в фильтре показа.
+    //
+    // Владелец 14.09: «столько времени не можем это сделать» — про фото
+    // вулканов. Перепись, не отвечающая «можно ли это показать», заставляет
+    // искать снаружи то, что уже лежит внутри.
+    //
+    // `credited` — есть ли чем подписать. Без автора и лицензии снимок
+    // показывать нельзя независимо от того, настоящий он: сегодняшний разбор
+    // прав (#1830) ровно об этом.
+    pool.query<{ model: string | null; n: string; mb: string; avg_kb: string; shown: string; credited: string }>(
       `SELECT model,
               COUNT(*)::text AS n,
               ROUND(SUM(OCTET_LENGTH(image_data)) / 1048576.0, 1)::text AS mb,
-              ROUND(AVG(OCTET_LENGTH(image_data)) / 1024.0)::text AS avg_kb
+              ROUND(AVG(OCTET_LENGTH(image_data)) / 1024.0)::text AS avg_kb,
+              COUNT(*) FILTER (WHERE model IN ('wikimedia', 'manual-upload'))::text AS shown,
+              COUNT(*) FILTER (WHERE author IS NOT NULL OR license IS NOT NULL)::text AS credited
          FROM ai_route_images
         WHERE image_data IS NOT NULL
         GROUP BY model
@@ -160,6 +178,10 @@ async function census() {
       count: Number(m.n),
       total_mb: Number(m.mb),
       avg_kb: Number(m.avg_kb),
+      // Рисует ли карточка этот род вообще.
+      shown: Number(m.shown),
+      // У скольких есть автор или лицензия — то есть чем подписать.
+      credited: Number(m.credited),
     })),
     heaviest: details.map(describe),
   };
