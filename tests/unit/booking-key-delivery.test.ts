@@ -1,5 +1,6 @@
 /**
- * Сторож доставки ключа брони (#1889).
+ * Сторож доставки ключа брони: перепись клиентов, а не проверка одного файла
+ * (#1889).
  *
  * ── Что случилось ─────────────────────────────────────────────────────────
  *
@@ -9,25 +10,24 @@
  * заявки, а вместе с ними PDF с чужими телефоном и почтой.
  *
  * Цена намеренного решения — у ключа обязан быть носитель. Носитель был
- * ОДИН: письмо, и только когда почта есть. Перепись клиентов
- * `POST /api/hub/bookings/create` 14.09 показала, что двое не доставляли
- * ключ НИКУДА — они читали из ответа только `id` (или только `error`), а
- * остальное выбрасывали:
- *
- *   `/p/[code]`       — поля почты в форме нет вовсе, то есть письма не было
- *                       никогда: доступ терялся ВСЕГДА, а не в краевом случае;
- *   `/kuzmich` (web)  — вдобавок писал «проверьте детали на странице
- *                       бронирования» про страницу, ключ от которой выкинул.
+ * ОДИН: письмо, и только когда почта есть. Перепись всех клиентов
+ * `POST /api/hub/bookings/create` 14.09 нашла троих, у которых ключ не
+ * доходил никуда: `/p/[code]` (поля почты в форме нет вовсе — письма не было
+ * НИКОГДА), `/kuzmich` на сайте (читал из ответа только `id`, а следом писал
+ * «проверьте детали на странице бронирования» — про страницу, ключ от которой
+ * сам же и выбросил) и виджет на чужом сайте (ссылка была, сохранить её было
+ * нечем).
  *
  * ── Что держит этот сторож ────────────────────────────────────────────────
  *
- * Связку, а не половину (правило 10.09): у каждого клиента эндпоинта обязан
- * быть НАЗВАННЫЙ носитель ключа, и новый клиент, не внесённый в реестр,
- * краснеет. Молчание не ответ: клиент, про который ничего не сказано, — это
- * ровно тот случай, который уже стоил двум поверхностям потери доступа.
+ * Не «на экране N есть кнопка» — это проверяют соседние тесты
+ * (`booking-link-recovery`, `booking-notify-access-link`). Здесь СВЯЗКА
+ * (правило 10.09): у КАЖДОГО клиента эндпоинта обязан быть названный
+ * носитель ключа, и клиент, не внесённый в реестр, краснеет. Молчание не
+ * ответ — именно молчанием трое выше и дожили до сегодня.
  *
  * Реестр самоустаревающий в обе стороны: исчез клиент — тест требует убрать
- * запись, появился — требует внести и назвать способ.
+ * запись, появился — внести и назвать способ.
  */
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -55,21 +55,42 @@ function code(rel: string): string {
 const ENDPOINT = '/api/hub/bookings/create';
 
 /**
- * Чем клиент доставляет ключ туристу. Значение — не ярлык, а то, что
- * проверяется ниже по коду самого файла.
+ * Чем клиент доставляет ключ туристу — проверяется по коду самого файла:
+ *
+ * `redirect`  — уводит на `/booking-success/<id>?t=<ключ>`, ключ остаётся в
+ *               адресной строке (и там же его подхватывает предупреждение на
+ *               самой странице подтверждения);
+ * `on-screen` — показывает ссылку с ключом и даёт её скопировать, потому
+ *               что уводить некуда: чужой сайт, чат, форма без почты.
  */
-type Carrier =
-  /** Уводит на `/booking-success/<id>?t=<ключ>` — ключ остаётся в адресе. */
-  | 'redirect'
-  /** Показывает ссылку с ключом прямо на экране (BookingAccessLink). */
-  | 'on-screen';
+type Carrier = 'redirect' | 'on-screen';
 
 const CLIENTS: Record<string, Carrier> = {
-  'components/marketplace/BookingFormClient.tsx':        'redirect',
-  'app/hub/tourist/cart/checkout/_CheckoutClient.tsx':   'redirect',
-  'app/kuzmich/_KuzmichClient.tsx':                      'on-screen',
-  'app/p/[code]/_SelectionClient.tsx':                   'on-screen',
-  'components/kuzmich/KuzmichWidget.tsx':                'on-screen',
+  'components/marketplace/BookingFormClient.tsx':      'redirect',
+  'app/hub/tourist/cart/checkout/_CheckoutClient.tsx': 'redirect',
+  'app/kuzmich/_KuzmichClient.tsx':                    'on-screen',
+  'app/p/[code]/_SelectionClient.tsx':                 'on-screen',
+  'components/kuzmich/KuzmichWidget.tsx':              'on-screen',
+};
+
+/**
+ * Поверхности, у которых блок «сохрани ссылку» написан СВОЙ, а не взят из
+ * `components/bookings/BookingAccessLink.tsx`.
+ *
+ * Список ведётся вслух, потому что четыре копии одного текста о доступе
+ * разойдутся — репозиторий уже платил за это трижды реализованным правилом
+ * вида линии (§12). Копии появились не по недосмотру: три поверхности
+ * закрыты отдельным PR #1891, и переписывать вмёрженное ради единообразия
+ * дороже, чем назвать долг. Сведение к общему блоку — отдельная правка;
+ * запись тогда уйдёт отсюда сама.
+ */
+const KNOWN_OWN_COPY: Record<string, string> = {
+  'app/p/[code]/_SelectionClient.tsx':
+    'свой блок из PR #1891; строит ссылку из ответа, почты у формы нет вовсе',
+  'components/kuzmich/KuzmichWidget.tsx':
+    'свой блок из PR #1891; в виджете мало места, предупреждение только когда почты нет',
+  'app/booking-success/[id]/_BookingSuccessClient.tsx':
+    'свой блок из PR #1891; копирует window.location.href и смотрит на has_email',
 };
 
 /** Файлы репозитория, которые реально зовут эндпоинт (а не упоминают в тексте). */
@@ -101,7 +122,7 @@ describe('реестр клиентов эндпоинта полон', () => {
     expect(stale, 'запись в реестре пережила свой файл').toEqual([]);
   });
 
-  it('клиентов не меньше, чем известно на 14.09', () => {
+  it('клиентов не меньше, чем насчитано 14.09', () => {
     // Падение числа само по себе не ошибка, но требует взгляда: клиент мог
     // исчезнуть, а мог перестать опознаваться этим поиском.
     expect(found.length).toBeGreaterThanOrEqual(5);
@@ -118,18 +139,49 @@ describe('каждый клиент читает ключ из ответа и �
       expect(src, 'ключ не читается из ответа эндпоинта').toMatch(/access_token/);
 
       if (carrier === 'redirect') {
-        // Ключ уходит в адрес страницы подтверждения.
-        expect(src).toMatch(/booking-success\/\$\{[^}]+\}\?t=/);
+        expect(src, 'ключ не уходит в адрес страницы подтверждения')
+          .toMatch(/booking-success\/\$\{[^}]+\}\?t=/);
       } else {
-        // Ключ показывается человеку общим блоком — своей копии текста
-        // «сохраните ссылку» быть не должно: копии расходятся.
-        expect(src).toMatch(/BookingAccessLink/);
+        // Ссылка с ключом на экране: либо общий блок, либо своя копия —
+        // но тогда она названа в KNOWN_OWN_COPY, а не заведена молча.
+        const shared = /BookingAccessLink/.test(src);
+        const own = /\?t=\$\{encodeURIComponent\(/.test(src);
+        expect(shared || own, 'ключ не показывается человеку').toBe(true);
+        if (!shared) {
+          expect(Object.keys(KNOWN_OWN_COPY), `${file}: своя копия блока не названа`)
+            .toContain(file);
+          // Своя копия обязана давать СОХРАНИТЬ ссылку, а не только перейти
+          // по ней: вкладка закроется, и перейти будет уже неоткуда.
+          expect(src, `${file}: ссылку нечем сохранить`).toMatch(/clipboard\.writeText/);
+        }
       }
     });
   }
 });
 
-describe('блок ссылки не выдумывает ссылку, когда ключа нет', () => {
+describe('долг по копиям блока назван и не растёт молча', () => {
+  it('каждая запись указывает на существующий файл', () => {
+    for (const file of Object.keys(KNOWN_OWN_COPY)) {
+      expect(() => code(file), `запись пережила файл: ${file}`).not.toThrow();
+    }
+  });
+
+  it('запись снимается, когда поверхность перешла на общий блок', () => {
+    // Самоустаревание: реестр в markdown такого не умеет — он сам стал бы
+    // объявлением без источника (правило 10.09).
+    const stillOwn = Object.keys(KNOWN_OWN_COPY)
+      .filter((f) => !/BookingAccessLink/.test(code(f)));
+    expect(Object.keys(KNOWN_OWN_COPY).sort()).toEqual(stillOwn.sort());
+  });
+
+  it('у каждой записи есть причина, а не пустая строка', () => {
+    for (const [file, reason] of Object.entries(KNOWN_OWN_COPY)) {
+      expect(reason.trim().length, `${file}: причина не названа`).toBeGreaterThan(20);
+    }
+  });
+});
+
+describe('общий блок не выдумывает ссылку, когда ключа нет', () => {
   const BLOCK = code('components/bookings/BookingAccessLink.tsx');
 
   it('без ключа не рисуется вовсе', () => {
@@ -140,38 +192,5 @@ describe('блок ссылки не выдумывает ссылку, когд
 
   it('ключ уходит в адрес закодированным', () => {
     expect(BLOCK).toMatch(/encodeURIComponent\(accessToken\)/);
-  });
-});
-
-describe('второй носитель ключа — канал, который турист выбрал сам', () => {
-  const NOTIFY = code('lib/telegram/booking-notify.ts');
-  const CREATE = code('app/api/hub/bookings/create/route.ts');
-
-  it('сообщение о созданной брони несёт ссылку с ключом', () => {
-    const fn = NOTIFY.slice(NOTIFY.indexOf('export function notifyTouristBookingCreated'));
-    const body = fn.slice(0, fn.indexOf('\n}\n'));
-    expect(body).toMatch(/booking-success\/\$\{booking\.id\}\?t=/);
-    expect(body).toMatch(/encodeURIComponent\(booking\.accessToken\)/);
-  });
-
-  it('ключа нет — ссылки нет, а не ссылка с пустым `t=`', () => {
-    const fn = NOTIFY.slice(NOTIFY.indexOf('export function notifyTouristBookingCreated'));
-    expect(fn.slice(0, fn.indexOf('\n}\n'))).toMatch(/booking\.accessToken\s*\n?\s*\?/);
-  });
-
-  it('роут действительно передаёт ключ в уведомление', () => {
-    // Поле, объявленное в типе и не переданное вызывающим, — то самое
-    // «объявление без источника» (правило 10.09): тип обещает доставку,
-    // которой нет.
-    const call = CREATE.slice(CREATE.indexOf('notifyTouristBookingCreated('));
-    expect(call.slice(0, 600)).toMatch(/accessToken:\s*result\.accessToken/);
-  });
-
-  it('персональные данные в зарубежный канал по-прежнему не идут', () => {
-    // Ключ — не ПД; телефон и почта туриста в сообщение не добавлялись и не
-    // должны (см. notifyTouristDocumentExpiring в том же файле).
-    const fn = NOTIFY.slice(NOTIFY.indexOf('export function notifyTouristBookingCreated'));
-    const body = fn.slice(0, fn.indexOf('\n}\n'));
-    expect(body).not.toMatch(/touristPhone|touristEmail|tourist_phone|tourist_email/);
   });
 });

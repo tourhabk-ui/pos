@@ -123,15 +123,15 @@ export async function POST(req: NextRequest) {
     // и не звалась ниоткуда (перепись 22.08.2026); её соседи о подтверждении
     // и отмене подключены давно.
     if (userId !== null) {
+      // accessToken — тот же ключ, что уходит письмом (#1889): без него
+      // ссылка на оплату из Telegram-уведомления вела бы в тупик, хотя
+      // канал доставки есть.
       notifyTouristBookingCreated(userId, {
         id: String(result.bookingId),
         tourTitle: String(result.tourTitle),
         date: new Date(data.booking_date),
         participants: data.participants_count,
         totalAmount: result.totalPrice,
-        // Второй носитель ключа рядом с письмом (#1889): у письма была одна
-        // ветка и одно условие, а без ключа человек не откроет ни заявку, ни
-        // PDF с собственными телефоном и почтой.
         accessToken: result.accessToken,
       });
     }

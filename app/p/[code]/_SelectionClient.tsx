@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { MapPin, Clock, Shield, AlertTriangle, Phone, ChevronRight, Users } from 'lucide-react';
-import BookingAccessLink from '@/components/bookings/BookingAccessLink';
+import { MapPin, Clock, Shield, AlertTriangle, Phone, ChevronRight, Users, Copy } from 'lucide-react';
 
 interface TourItem {
   item_id: string;
@@ -174,9 +173,12 @@ export default function SelectionClient({ code }: { code: string }) {
   const [people, setPeople]   = useState(1);
   const [sending, setSending] = useState(false);
   const [sent, setSent]       = useState(false);
-  /** Номер и ключ созданной брони — единственный носитель доступа у этой формы. */
-  const [created, setCreated] = useState<{ id: number; token: string } | null>(null);
   const [bookErr, setBookErr] = useState<string | null>(null);
+  // Эта форма email не спрашивает вовсе — значит письма со ссылкой на бронь
+  // не будет никогда, а без ссылки заявку не открыть по номеру (#1889).
+  // Ключ раньше не читался из ответа совсем: турист уходил с одним «✓».
+  const [bookedLink, setBookedLink] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const logEvent = useCallback((type: 'open' | 'tour_view' | 'book_click', itemId?: string) => {
     fetch(`/api/p/${code}/event`, {
@@ -220,18 +222,10 @@ export default function SelectionClient({ code }: { code: string }) {
           booking_date:       date,
         }),
       });
-      // Ключ доступа читается ИЗ ОТВЕТА и показывается человеку. До 14.09
-      // здесь разбирался только `error`: заявка создавалась, ключ приходил и
-      // выбрасывался в ту же секунду, а почты у этой формы нет вовсе — то
-      // есть доступ к своей брони турист терял НАВСЕГДА, каждый раз (#1889).
       const data = await res.json() as { error?: string; id?: number; access_token?: string };
       if (!res.ok) throw new Error(data.error ?? 'Ошибка');
-      if (data.id != null && data.access_token) {
-        setCreated({ id: data.id, token: data.access_token });
-      } else {
-        // Бронь есть, ключа в ответе нет — это не «всё хорошо». Сказать
-        // человеку нечего, но в лог сказать обязаны (§4.0).
-        console.error('[p/code] бронь создана без ключа доступа в ответе', data.id ?? 'без номера');
+      if (data.id && data.access_token) {
+        setBookedLink(`${window.location.origin}/booking-success/${data.id}?t=${encodeURIComponent(data.access_token)}`);
       }
       setSent(true);
     } catch (err) {
@@ -346,12 +340,34 @@ export default function SelectionClient({ code }: { code: string }) {
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>
                   Оператор свяжется с вами в ближайшее время.
                 </p>
-                {created && (
-                  <div style={{ marginBottom: '20px' }}>
-                    <BookingAccessLink bookingId={created.id} accessToken={created.token} />
+                {bookedLink && (
+                  <div style={{
+                    textAlign: 'left', padding: '12px 14px', borderRadius: '10px', marginBottom: '20px',
+                    background: 'rgba(210,153,34,0.1)', border: '1px solid var(--warning)',
+                  }}>
+                    <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>
+                      Сохрани эту ссылку сейчас
+                    </p>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '10px' }}>
+                      Почту эта форма не спрашивает — письма со ссылкой не будет. Без неё вернуться
+                      к заявке, оплате и документам будет нечем.
+                    </p>
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      onClick={() => {
+                        void navigator.clipboard.writeText(bookedLink);
+                        setLinkCopied(true);
+                        setTimeout(() => setLinkCopied(false), 2000);
+                      }}
+                    >
+                      <Copy size={13} />
+                      {linkCopied ? 'Ссылка скопирована' : 'Скопировать ссылку'}
+                    </button>
                   </div>
                 )}
-                <button className="ds-btn ds-btn-secondary" onClick={() => setBookTour(null)}>
+                <button className="ds-btn ds-btn-secondary" onClick={() => { setBookTour(null); setBookedLink(null); setSent(false); }}>
                   Вернуться к подборке
                 </button>
               </div>

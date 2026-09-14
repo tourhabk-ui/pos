@@ -6,7 +6,6 @@ import { Sparkles, Send, Loader2, X, MessageCircle, Camera, ExternalLink, Fish, 
 import Link from 'next/link';
 import Image from 'next/image';
 import { useGeo } from '@/contexts/GeoContext';
-import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 
 // Страницы где виджет не нужен
 const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
@@ -78,21 +77,35 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
   }
 
   if (done && bookingId) {
+    const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/booking-success/${bookingId}?t=${encodeURIComponent(accessToken)}`;
+    // Без почты у брони нет другого способа вернуться к этой ссылке (#1889):
+    // виджет живёт поверх чужого сайта, и его легко закрыть вместе с вкладкой.
+    const noOtherChannel = email.trim() === '';
     return (
       <div className="rounded-xl border border-[var(--success)]/30 bg-[var(--success)]/5 p-3 flex flex-col gap-2">
         <div className="flex items-center gap-2 text-[var(--success)] text-xs font-medium">
           <CheckCircle size={14} />
           Бронирование #{bookingId} создано
         </div>
-        <a href={`/booking-success/${bookingId}?t=${encodeURIComponent(accessToken)}`} target="_blank" rel="noopener noreferrer"
+        <a href={link} target="_blank" rel="noopener noreferrer"
           className="text-xs text-center py-2 rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity">
           Перейти к оплате
         </a>
-        {/* Виджет стоит на ЧУЖОМ сайте: закрыл его — и ключ исчез вместе с
-            вкладкой, а почта здесь необязательна, то есть письма могло не
-            быть. Кнопка выше уводит по ключу, но сохранить его туристу
-            нечем — для этого общий блок (#1889). */}
-        <BookingAccessLink bookingId={bookingId} accessToken={accessToken} />
+        {noOtherChannel && (
+          <div className="rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 p-2 flex flex-col gap-1.5">
+            <p className="text-[11px] text-[var(--text-secondary)] leading-snug">
+              Почту не указали — письма со ссылкой не будет. Сохрани её сейчас, иначе вернуться
+              к брони будет нечем.
+            </p>
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(link)}
+              className="text-[11px] text-center py-1.5 rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+            >
+              Скопировать ссылку
+            </button>
+          </div>
+        )}
       </div>
     );
   }

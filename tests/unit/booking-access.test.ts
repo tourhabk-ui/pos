@@ -152,6 +152,28 @@ describe('сама проверка ключа', () => {
   });
 });
 
+describe('без email — единственная ссылка требует явного «сохрани сейчас» (#1889)', () => {
+  it('JSON-ответ несёт факт наличия email, а не сам email', () => {
+    const c = code(JSON_ROUTE);
+    expect(c).toMatch(/b\.tourist_email/);
+    expect(c).toMatch(/has_email:\s*Boolean\(row\.tourist_email\)/);
+    // Сама почта — ПД; наружу уходит только булево, не значение колонки.
+    expect(c).not.toMatch(/tourist_email:\s*row\.tourist_email/);
+  });
+
+  it('страница подтверждения показывает предупреждение именно по has_email', () => {
+    expect(SUCCESS).toMatch(/!booking\.has_email/);
+    expect(SUCCESS).toMatch(/Сохрани эту ссылку сейчас/);
+  });
+
+  it('копируется настоящий URL страницы, а не собранная руками ссылка', () => {
+    // Сборка вручную легко разойдётся с тем, что реально в адресной строке
+    // (домен, порядок параметров) — копируем то, что уже открыто.
+    const fn = SUCCESS.slice(SUCCESS.indexOf('handleCopyLink'));
+    expect(fn.slice(0, 300)).toMatch(/window\.location\.href/);
+  });
+});
+
 describe('миграция засыпает старые брони разными ключами', () => {
   it('колонка есть, ключ случайный и уникальный', () => {
     expect(MIGRATION).toMatch(/ADD COLUMN IF NOT EXISTS access_token UUID NOT NULL DEFAULT gen_random_uuid\(\)/);
