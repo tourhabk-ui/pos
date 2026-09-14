@@ -46,6 +46,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'beacon-check': ['db_read', 'db_write'],
   'booking-attempts': ['db_read'],
   'booking-stall-alert': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
+  'user-photo-hero': ['db_read', 'db_write', 'pd_direct'],
   'build-sha-probe': [],
   'catalog-census': ['db_read'],
   'catalog-diag': ['db_read'],
