@@ -144,6 +144,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'place-description-drafts-review': ['db_read', 'db_write'],
   'place-link': ['db_read', 'db_write'],
   'place-link-suggest': ['db_read'],
+  'place-name-dups': ['db_read'],
   'place-unlink': ['db_read', 'db_write'],
   'places-audit': ['db_read'],
   'places-by-type': ['db_read'],
