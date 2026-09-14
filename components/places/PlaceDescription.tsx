@@ -21,7 +21,7 @@ export default function PlaceDescription({ essence, description, descriptionSour
   if (!essence && paragraphs.length === 0) return null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 pt-6 space-y-3">
+    <section className="space-y-3">
       {/* Essence / lede */}
       {essence && (
         <p
@@ -32,16 +32,15 @@ export default function PlaceDescription({ essence, description, descriptionSour
         </p>
       )}
 
-      {/* Description body */}
+      {/* Description body.
+          Обрезка по СТРОКАМ, а не выцветанием в фон (правка 14.09). Маска-
+          градиент растворяла последние две строки в подложку посреди
+          предложения — читалось ровно как то, чем и было: текст, тающий в
+          муть. `line-clamp` режет честно и по границе строки; что текст
+          продолжается, говорит кнопка под ним, а не спецэффект. */}
       {paragraphs.length > 0 && (
         <div className="space-y-3">
-          <div
-            className={`overflow-hidden transition-all duration-300 ${isLong && !expanded ? 'max-h-44' : 'max-h-[9999px]'}`}
-            style={isLong && !expanded ? {
-              WebkitMaskImage: 'linear-gradient(to bottom, black 55%, transparent 100%)',
-              maskImage: 'linear-gradient(to bottom, black 55%, transparent 100%)',
-            } : undefined}
-          >
+          <div className={isLong && !expanded ? 'line-clamp-6' : undefined}>
             {paragraphs.map((p, i) => (
               <p
                 key={i}

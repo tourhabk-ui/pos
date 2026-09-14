@@ -27,7 +27,7 @@ export default function PlaceReviews({ placeId, reviews }: Props) {
     : null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 space-y-4">
+    <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h2
           className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2"

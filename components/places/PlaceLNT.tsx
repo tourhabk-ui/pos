@@ -49,8 +49,12 @@ export default function PlaceLNT({ capacityPerDay, ecoZone }: Props) {
   if (ecoZone && (ecoZone === 'UNESCO' || ecoZone === 'federal_reserve')) return null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 mt-6">
-      <div className="ds-card overflow-hidden">
+    <section>
+      {/* Плита без рамки — как у соседних блоков раздела «Что знать»
+          (правка 14.09). `ds-card` давал рамку и тень, и на фоне соседей без
+          рамок этот блок выглядел чужим: страница читалась как набор разных
+          по возрасту кусков. */}
+      <div className="overflow-hidden rounded-lg bg-[var(--bg-card)]">
 
         <button
           onClick={() => setExpanded(v => !v)}

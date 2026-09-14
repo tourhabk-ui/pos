@@ -23,7 +23,7 @@ export default function PlaceIndigenous({ indigenous }: Props) {
     .join(', ');
 
   return (
-    <section className="max-w-3xl mx-auto px-4 mt-6">
+    <section>
       <div className="ds-card overflow-hidden border border-[var(--ocean)]/25">
 
         {/* Header — clickable to expand */}

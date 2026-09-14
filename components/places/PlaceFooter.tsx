@@ -31,7 +31,7 @@ export default function PlaceFooter({ sourceUrl, sourceName, updatedAt }: Props)
   const externalSource = sourceName === EXTERNAL_SOURCE_NAME;
 
   return (
-    <footer className="max-w-3xl mx-auto px-4 pb-12 space-y-3 text-xs text-[var(--text-muted)]">
+    <footer className="pb-12 space-y-3 text-xs text-[var(--text-muted)]">
       <div className="border-t border-[var(--border)] pt-4 space-y-2">
         {externalSource ? (
           <p>Источник: {EXTERNAL_SOURCE_NAME}</p>

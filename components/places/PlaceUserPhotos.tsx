@@ -147,7 +147,7 @@ export default function PlaceUserPhotos({ placeId }: { placeId: string }) {
   if (state.kind !== 'ready' || state.photos.length === 0) return null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 space-y-3">
+    <section className="space-y-3">
       <h2
         className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2"
         style={{ fontFamily: 'var(--font-playfair)' }}
