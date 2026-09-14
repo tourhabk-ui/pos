@@ -106,12 +106,16 @@ export async function POST(req: NextRequest) {
     // и не звалась ниоткуда (перепись 22.08.2026); её соседи о подтверждении
     // и отмене подключены давно.
     if (userId !== null) {
+      // accessToken — тот же ключ, что уходит письмом (#1889): без него
+      // ссылка на оплату из Telegram-уведомления вела бы в тупик, хотя
+      // канал доставки есть.
       notifyTouristBookingCreated(userId, {
         id: String(result.bookingId),
         tourTitle: String(result.tourTitle),
         date: new Date(data.booking_date),
         participants: data.participants_count,
         totalAmount: result.totalPrice,
+        accessToken: result.accessToken,
       });
     }
 

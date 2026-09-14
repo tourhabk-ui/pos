@@ -65,6 +65,7 @@ export async function GET(
     operator_telegram: string | null;
     final_price: string;
     payment_status: string;
+    tourist_email: string | null;
   }>(
     `SELECT
        b.id,
@@ -78,7 +79,8 @@ export async function GET(
        t.base_price,
        COALESCE(p.name, u.name, u.email) AS operator_name,
        COALESCE(p.contacts->>'phone', u.phone)    AS operator_phone,
-       COALESCE(p.contacts->>'telegram', u.telegram_username) AS operator_telegram
+       COALESCE(p.contacts->>'telegram', u.telegram_username) AS operator_telegram,
+       b.tourist_email
      FROM operator_bookings b
      JOIN operator_tours   t ON t.id = b.operator_tour_id
      LEFT JOIN partners    p ON p.id = t.operator_id
@@ -125,6 +127,13 @@ export async function GET(
       /** Готова ли оплата по QR СБП. Раньше вкладка СБП была заперта внутри
        *  проверки ключа CloudPayments — настроенная Точка не спасала. */
       sbp_available: pay.sbp,
+      /**
+       * Не сам email (это ПД, отсюда наружу не выводится) — только факт его
+       * наличия. Без него у брони нет НИ ОДНОГО письма-дубликата со ссылкой:
+       * `?t=` в адресной строке — единственный экземпляр ключа (#1889).
+       * Клиент решает по этому флагу, показывать ли «сохрани ссылку сейчас».
+       */
+      has_email: Boolean(row.tourist_email),
       /**
        * `pdf_token` отсюда УБРАН намеренно (08.09). Он был HMAC от номера
        * брони и выдавался анониму по этому же номеру — то есть замок
