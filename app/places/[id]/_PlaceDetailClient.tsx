@@ -113,13 +113,43 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
  */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="pt-7 first:pt-3">
-      <h2 className="mb-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+    <section className="pt-10 first:pt-6">
+      {/*
+        Заголовок раздела ВИДЕН.
+
+        Первая редакция (14.09, тем же днём) делала его деликатным: одиннадцать
+        пикселей, разрядка, самый тусклый токен `--text-muted`. На тёмном фоне
+        он попросту исчез — страница осталась ровным серым полем без единой
+        точки опоры, и владелец назвал это одним словом: «муть».
+
+        Голос края — Playfair, крупно (§2 языка Ведара). Рядом короткая черта
+        цветом лавы: единственное место, где акцент работает как метка
+        структуры, а не как призыв к действию.
+      */}
+      <h2
+        className="mb-5 text-2xl font-bold text-[var(--text-primary)]"
+        style={{ fontFamily: 'var(--font-playfair)' }}
+      >
         {title}
-        <span className="h-px flex-1 bg-[var(--border)]" aria-hidden />
+        <span className="mt-2 block h-[3px] w-10 rounded-full bg-[var(--accent)]" aria-hidden />
       </h2>
-      <div className="space-y-4">{children}</div>
+      <div className="space-y-5">{children}</div>
     </section>
+  );
+}
+
+/**
+ * Плита раздела — содержимое на своей подложке.
+ *
+ * Убрать рамки было правильно, но само по себе дало ровное поле: текст,
+ * таблица и кнопки лежали на одном фоне без планов. Плита возвращает
+ * ПЛАН, не возвращая коробочности: подложка `--bg-card`, щедрые поля,
+ * НЕТ рамки и нет вложенных плит — карточка в карточке запрещена
+ * (vedar-design §3).
+ */
+function Plate({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg bg-[var(--bg-card)] p-5 sm:p-6">{children}</div>
   );
 }
 
@@ -430,12 +460,14 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
               {place.indigenous && <PlaceIndigenous indigenous={place.indigenous} />}
 
-              <PlaceFacts
-                locationType={place.locationType}
-                zone={place.zone}
-                safety={place.safety}
-                terrainType={place.safety.terrainType}
-              />
+              <Plate>
+                <PlaceFacts
+                  locationType={place.locationType}
+                  zone={place.zone}
+                  safety={place.safety}
+                  terrainType={place.safety.terrainType}
+                />
+              </Plate>
             </Section>
           )}
 
@@ -443,7 +475,9 @@ export default function PlaceDetailClient({ id }: { id: string }) {
               эко-режим и след. Это подготовка, а не сводка «сейчас». */}
           {hasKnow && (
             <Section title="Что знать">
-              <PlaceSafety safety={place.safety} placeId={place.id} />
+              <Plate>
+                <PlaceSafety safety={place.safety} placeId={place.id} />
+              </Plate>
 
               {hasSeason && (
                 <PlaceSeason
@@ -488,8 +522,10 @@ export default function PlaceDetailClient({ id }: { id: string }) {
             </Section>
           )}
 
-          {/* КУЗЬМИЧ — одна строка, а не раздел: это вход в разговор. */}
-          <Section title="Спросить">
+          {/* КУЗЬМИЧ — без обёртки раздела: у блока есть собственный
+              заголовок «Кузьмич о месте», и второй над ним был бы тем же
+              дублем, что «Как добраться» над «Как добраться». */}
+          <div className="pt-10">
             <PlaceKuzmich
               placeId={place.id}
               placeName={place.name}
@@ -504,7 +540,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
                 hazardTypes: place.safety.hazardTypes,
               })}
             />
-          </Section>
+          </div>
 
           {/*
             ОТ ЛЮДЕЙ — под раскрытием.
