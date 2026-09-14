@@ -577,8 +577,18 @@ export async function callOpenRouterModel(
     }
 
     clearOpenRouterFailure();
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: ProviderUsage;
+    };
     const text = data?.choices?.[0]?.message?.content;
+    // Расход пишется ДО проверки текста: пустой ответ тоже оплачен, и счёт,
+    // который учитывает только удачные вызовы, занижает трату ровно там, где
+    // модель капризничает. Тринадцать ступеней из четырнадцати писали usage
+    // всегда — не писала ровно эта, самая дорогая: через неё идёт флагман.
+    // Отсюда и слепое пятно, названное в шапке lib/ai/model-cost.ts как то,
+    // что мешает перейти от оценки к замеру.
+    logLLMUsage(answeredModel(modelId, data), data?.usage);
     if (!text?.trim()) {
       onRefusal?.({ kind: 'empty', status: res.status, detail: 'ответ 200, но текста в нём нет' });
       return null;
