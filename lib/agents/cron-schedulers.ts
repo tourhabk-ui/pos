@@ -205,6 +205,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'place-description-drafts-review': { kind: 'manual', writes: true, note: 'публикация конкретных pending-черновиков ГВП в places.description по явному массиву решений человека (#1830, 13.09) — второй, CRON_SECRET вход к той же публикации, что admin PATCH; своего расписания быть не должно' },
   'place-link':                { kind: 'manual', writes: true,  note: 'привязка места к маршруту' },
   'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },
+  'place-name-dups':           { kind: 'manual', writes: false, note: 'одноимённые места НЕЗАВИСИМО от координат: places-dedup отбирает пары по близости и требует lat/lng у обеих, поэтому пару, где координат нет или они врут, не увидит никогда — а это ровно тот случай, когда неясно, какая запись живая (14.09: Курильское двумя записями, Паужетка четырьмя). Сообщает состав кластера, не вердикт' },
   'place-unlink':              { kind: 'manual', writes: true,  note: 'отвязка места от маршрута' },
   'places-by-type':            { kind: 'manual', writes: false, note: 'разрез мест по типу' },
   'places-candidates':         { kind: 'manual', writes: false, note: 'кандидаты в места' },
