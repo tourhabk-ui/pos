@@ -228,21 +228,22 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
   }
 }
 
-async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: number; error?: string }> {
+async function dispatchPushAlerts(): Promise<{ dispatched: number; suppressed: number; skipped: number; error?: string }> {
   // Если VAPID не настроен — не трогаем push_sent_at, следующий cron повторит после настройки
   if (!process.env.NEXT_PUBLIC_VAPID_KEY || !process.env.VAPID_PRIVATE_KEY) {
-    return { dispatched: 0, skipped: 0, error: 'VAPID keys not configured — push skipped' };
+    return { dispatched: 0, suppressed: 0, skipped: 0, error: 'VAPID keys not configured — push skipped' };
   }
 
   try {
     const { rows } = await pool.query<{
       id: number;
       alert_type: string;
+      severity: number | null;
       magnitude: string | null;
       title: string;
       description: string | null;
     }>(`
-      SELECT id, alert_type, magnitude, title, description
+      SELECT id, alert_type, severity, magnitude, title, description
       FROM external_alerts
       -- road_closure убран из push (решение владельца 06.09, отменяет #836):
       -- одно и то же ограничение приходит сразу с нескольких источников
@@ -253,6 +254,9 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
       -- и они удалят PWA: severity 1 остаётся видимым на /safety, но не в push.
       WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
         AND push_sent_at IS NULL
+        -- Уже заглушённые (миграция 957) из выборки уходят: решение по ним
+        -- принято и записано, перебирать их каждые полчаса незачем.
+        AND push_suppressed_at IS NULL
         -- Окно ретрая = срок действия алерта, а не произвольные 2 часа.
         -- Прежнее created_at > NOW() - '2 hours' создавало тупик с Watchdog
         -- (найдено 31.07 на живых 11 алертах): алерт, не доставленный за
@@ -267,7 +271,61 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
     `);
 
     let dispatched = 0;
+    let suppressed = 0;
     for (const alert of rows) {
+      // ── Один звонок на тип, пока прежний ещё действует (владелец 14.09) ──
+      //
+      // В 10:12 пришло ТРИ уведомления об одном паводке: экстренное
+      // предупреждение, фраза про достижение опасного уровня и новость о
+      // выезде спасателей в Соболево. Для человека это одно событие, для
+      // конвейера — три строки: контент-дедуп saveEvent сверяет заголовок с
+      // описанием, а у трёх разных постов МЧС они разные. Дальше каждая
+      // строка получает свой `tag: alert-<id>`, а разные теги на телефоне не
+      // заменяют друг друга — ложатся стопкой.
+      //
+      // Глушить можно потому, что второй push не нёс НИ ОДНОГО сведения,
+      // которого не было в первом: заголовок называет тип и край целиком
+      // («Паводок — Камчатка»), района в push нет, а инструкция у типа одна
+      // на всех. Теряется звонок, не факт: алерт целиком остаётся на /safety.
+      //
+      // Два предохранителя, оба намеренные:
+      //   • тяжесть ВЫШЕ прежней проходит всегда — иначе правило заглушило бы
+      //     развитие обстановки, ради которого push и существует;
+      //   • цунами не глушится НИКОГДА. Там повторное предупреждение может
+      //     нести другую волну и другое время подхода, и цена ошибки в этом
+      //     типе не такая, как в остальных.
+      if (alert.alert_type !== 'tsunami_warning') {
+        const louder = await pool.query<{ id: number }>(
+          `SELECT id FROM external_alerts
+            WHERE alert_type = $1
+              AND id <> $2
+              AND push_sent_at IS NOT NULL
+              AND expires_at > NOW()
+              AND COALESCE(severity, 0) >= COALESCE($3::int, 0)
+            LIMIT 1`,
+          [alert.alert_type, alert.id, alert.severity]
+        );
+        if ((louder.rowCount ?? 0) > 0) {
+          const reason = `дубль по типу ${alert.alert_type}: push об алерте ${louder.rows[0].id} уже разослан и ещё действует`;
+          await pool.query(
+            `UPDATE external_alerts
+                SET push_suppressed_at = NOW(), push_suppressed_reason = $2
+              WHERE id = $1`,
+            [alert.id, reason]
+          );
+          await appendSafetyEvent({
+            entityId: String(alert.id),
+            eventType: 'dedup_skipped',
+            actorType: 'system',
+            actorId: 'safety-ingest.dispatchPushAlerts',
+            decisionReason: reason,
+            details: { suppressed_by: louder.rows[0].id, alert_type: alert.alert_type },
+          });
+          suppressed++;
+          continue;
+        }
+      }
+
       // Текст пуша — в lib/services/safety/push-copy. Лестница из трёх `?:`
       // стояла здесь и всё незнакомое отправляла как землетрясение с командой
       // «уходите вверх от воды»: вулкан, паводок и метель приходили человеку
@@ -329,9 +387,12 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
       dispatched++;
     }
 
-    return { dispatched, skipped: rows.length - dispatched };
+    // `suppressed` отделён от `skipped` намеренно: «не стали слать, потому что
+    // уже звонили об этом» и «не смогли доставить» — разные исходы, и свести
+    // их в одно число значило бы спрятать одно за другим (§4.0).
+    return { dispatched, suppressed, skipped: rows.length - dispatched - suppressed };
   } catch (e) {
-    return { dispatched: 0, skipped: 0, error: `push dispatch failed: ${(e as Error).message}` };
+    return { dispatched: 0, suppressed: 0, skipped: 0, error: `push dispatch failed: ${(e as Error).message}` };
   }
 }
 
@@ -359,7 +420,7 @@ function buildResponse(
   },
   rtStatus: { updated: number; error?: string },
   durationMs: number,
-  pushResult?: { dispatched: number; skipped: number; error?: string },
+  pushResult?: { dispatched: number; suppressed?: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
   extras?: { delegated_to_heartbeat?: string[]; telegramSeismicAgeMin?: number | null },
   // Уборка могла не пройти — тогда приходит причина, а не результат. Приём
@@ -471,6 +532,10 @@ function buildResponse(
     // «проверено, чисто», а не «не проверяли»: поле есть всегда.
     pruned_genres: pruned ?? null,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
+    // Сколько звонков намеренно не сделано, потому что об этом типе уже
+    // предупреждали и алерт ещё действует (миграция 957). Ноль тут значит
+    // «дублей не было», а не «правило выключено» — поле есть всегда.
+    push_alerts_suppressed: pushResult?.suppressed ?? 0,
     // #883 (A): источники, которых в этом ответе НЕТ числами, потому что их
     // обслуживает heartbeat-GET. Явный список вместо вводящих в заблуждение
     // «inserted: 0» после того, как heartbeat уже забрал те же посты.
