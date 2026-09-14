@@ -26,6 +26,7 @@ import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } 
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { withSosBlock } from '@/lib/safety/sos-detector';
+import { withDistanceCaveat } from '@/lib/kuzmich/distance-guard';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
@@ -2190,7 +2191,12 @@ export async function aiChat(opts: {
   // Пользователю и в историю уходит finalAnswer; грейдер и синтез заметок
   // получают ОРИГИНАЛЬНЫЙ ответ модели — иначе boilerplate SOS-блока
   // портит оценку faithfulness и утекает в долгосрочную память бота.
-  const finalAnswer = withSosBlock(answer, userContent).text;
+  // Тот же guard, что на пути оценки: расстояние и время в пути, которых нет
+  // в контексте платформы, получают пометку. Контекст здесь — systemContent:
+  // в него входит dynamic (карточка места, маршрут, доступность), то есть всё,
+  // чем платформа обосновала ответ.
+  const withDistance = withDistanceCaveat(answer, systemContent).text;
+  const finalAnswer = withSosBlock(withDistance, userContent).text;
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
   if (!isAIErrorResponse(answer)) {
@@ -2286,7 +2292,13 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
    */
   const context = [toolContext, dynamic, tourContext || ''].filter(Boolean).join('\n\n');
 
-  return { answer: cleanAIResponse(raw.trim()), context };
+  // Неподтверждённый километраж помечается вслух (#1883, вариант Б владельца).
+  // Пометка ставится ЗДЕСЬ, а не только в живом чате: иначе прогон оценки
+  // мерил бы не то, что получает турист, и дыра снова стала бы видна только
+  // археологией в логе.
+  const guarded = withDistanceCaveat(cleanAIResponse(raw.trim()), context);
+
+  return { answer: guarded.text, context };
 }
 
 // ── Full Message Processor ────────────────────────────────────────────────────
