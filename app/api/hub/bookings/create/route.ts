@@ -14,6 +14,7 @@ import { emailService } from '@/lib/notifications/email-service';
 import { createUonRequest } from '@/lib/integrations/uon';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
+import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
 
 export const dynamic = 'force-dynamic';
@@ -38,6 +39,18 @@ const BookingSchema = z.object({
   participants_count: z.number().min(1, 'Минимум 1 участник').max(100),
   booking_date:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Формат даты: YYYY-MM-DD'),
   special_requests:   z.string().max(2000).optional(),
+  /**
+   * Согласие на обработку ПД — ОПЦИОНАЛЬНО, и это не послабление.
+   *
+   * У эндпоинта пять клиентов: форма тура, корзина, Кузьмич, виджет Кузьмича
+   * и `/p/[code]`. Форма с галочкой есть ровно у первого; жёсткое
+   * `z.literal(true)`, как на `/api/leads`, сломало бы четырёх разом.
+   *
+   * Отсутствие согласия записывается как NULL — «не спрашивали», а не
+   * «отказано» (§4.0). Различить их в базе можно запросом, а выдать молчание
+   * бота за согласие человека нельзя.
+   */
+  pd_consent:         z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -98,6 +111,10 @@ export async function POST(req: NextRequest) {
       specialRequests: data.special_requests ?? '',
       createdVia:      'website',
       userId,
+      // Обстоятельства согласия, а не булево: время, адрес, канал и версия
+      // формулировки. buildConsentRecord вернёт null, когда галочки не было —
+      // у Кузьмича и виджета её нет вовсе, и это честное «не спрашивали».
+      pdConsent:       buildConsentRecord(data.pd_consent, ip, 'web-form'),
     });
 
     // Турист узнаёт, что заявка дошла. Раньше уведомление шло только
@@ -215,17 +232,23 @@ export async function POST(req: NextRequest) {
     if (data.tourist_email) {
       void emailService.sendEmail({
         to: data.tourist_email,
-        subject: `Заявка принята: ${result.tourTitle} — Ведар`,
+        subject: `Заявка №${result.bookingId} — ${result.tourTitle}`,
+        // Письмо — носитель политики, а не квитанция. До 14.09 оно говорило
+        // «перейдите по ссылке и ОПЛАТИТЕ ТУР» кнопкой «Оплатить тур» — то
+        // есть торопило с оплатой ДО того, как оператор подтвердил дату. На
+        // форме при этом написано обратное: «сначала фиксируем заявку, условия
+        // подтверждаются перед оплатой». Два голоса об одном, и громче звучал
+        // тот, который человек читает без нас.
         html: `
-          <h2>Ваша заявка принята!</h2>
+          <h2>Заявка принята</h2>
+          <p><strong>Номер заявки:</strong> ${result.bookingId}</p>
           <p><strong>Тур:</strong> ${result.tourTitle}</p>
           <p><strong>Дата:</strong> ${data.booking_date}</p>
           <p><strong>Участники:</strong> ${data.participants_count}</p>
-          <p><strong>Сумма к оплате:</strong> ${result.totalPrice.toLocaleString('ru-RU')} ₽</p>
-          <p><strong>Номер заявки:</strong> ${result.bookingId}</p>
-          <p>Для завершения бронирования перейдите по ссылке ниже и оплатите тур:</p>
-          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Оплатить тур</a></p>
-          <p>Оператор также получил уведомление о вашей заявке и может связаться с вами.</p>
+          <p><strong>Сумма:</strong> ${result.totalPrice.toLocaleString('ru-RU')} ₽</p>
+          <p>Оператор получил заявку и свяжется с вами, чтобы подтвердить дату и детали поездки.</p>
+          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть заявку</a></p>
+          <p>Сохраните эту ссылку: по одному номеру заявка не открывается. Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.</p>
         `,
       }).catch((err: unknown) => {
         // Это письмо — единственное, что возвращает туриста к оплате: ссылка
