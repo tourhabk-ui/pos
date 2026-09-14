@@ -256,7 +256,13 @@ export async function GET(
         images: (r.images as unknown[] | null) ?? [],
         photoCount: Number(r.photo_count),
         // Атрибуция фото — обязательна для CC-BY/CC-BY-SA (model=wikimedia).
-        photoAttribution: (r.photo_model === 'wikimedia' && (r.photo_author || r.photo_license)) ? {
+        // Подпись идёт за ДАННЫМИ, а не за именем модели. Прежде условие
+        // требовало `photo_model === 'wikimedia'`, и снимок ручной загрузки
+        // не подписывался НИКОГДА — даже когда автор и лицензия у него
+        // записаны. Для фото, взятого у правообладателя (владелец 14.09:
+        // «возьму фотки у вулканологов»), это прямое нарушение условий:
+        // лицензия почти всегда требует видимого указания автора.
+        photoAttribution: (r.photo_author || r.photo_license) ? {
           author: (r.photo_author as string | null) ?? null,
           license: (r.photo_license as string | null) ?? null,
           licenseUrl: (r.photo_license_url as string | null) ?? null,
