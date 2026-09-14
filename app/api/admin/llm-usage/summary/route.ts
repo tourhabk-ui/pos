@@ -26,6 +26,10 @@ export async function GET(req: NextRequest) {
   const from = parsed.data.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const to = parsed.data.to ?? new Date().toISOString().slice(0, 10);
 
+  // #1862: estimated_cost_usd допускает NULL с миграции 960 («цену не
+  // знаем» — модели нет ни в каталоге OpenRouter, ни в запасной таблице).
+  // SUM(...) молча пропускает такие строки; без отдельного счётчика модель
+  // без цены выглядела бы в этой сводке дешёвой, а не непосчитанной.
   const [daily, byRoute, total] = await Promise.all([
     pool.query(`
       SELECT
@@ -35,7 +39,8 @@ export async function GET(req: NextRequest) {
         SUM(completion_tokens)::int AS completion_tokens,
         SUM(total_tokens)::int      AS total_tokens,
         SUM(estimated_cost_usd)     AS cost_usd,
-        COUNT(*)::int               AS calls
+        COUNT(*)::int               AS calls,
+        COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
       FROM llm_usage_log
       WHERE created_at >= $1::date
         AND created_at <  $2::date + INTERVAL '1 day'
@@ -48,7 +53,8 @@ export async function GET(req: NextRequest) {
         route,
         SUM(total_tokens)::int  AS total_tokens,
         SUM(estimated_cost_usd) AS cost_usd,
-        COUNT(*)::int           AS calls
+        COUNT(*)::int           AS calls,
+        COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
       FROM llm_usage_log
       WHERE created_at >= $1::date
         AND created_at <  $2::date + INTERVAL '1 day'
@@ -60,7 +66,8 @@ export async function GET(req: NextRequest) {
       SELECT
         SUM(total_tokens)::int  AS total_tokens,
         SUM(estimated_cost_usd) AS total_cost,
-        COUNT(*)::int           AS total_calls
+        COUNT(*)::int           AS total_calls,
+        COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int AS unknown_cost_calls
       FROM llm_usage_log
       WHERE created_at >= $1::date
         AND created_at <  $2::date + INTERVAL '1 day'
@@ -74,5 +81,6 @@ export async function GET(req: NextRequest) {
     total_cost: total.rows[0]?.total_cost ?? 0,
     total_tokens: total.rows[0]?.total_tokens ?? 0,
     total_calls: total.rows[0]?.total_calls ?? 0,
+    unknown_cost_calls: total.rows[0]?.unknown_cost_calls ?? 0,
   });
 }
