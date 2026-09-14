@@ -78,12 +78,23 @@ function inserted(column: string): unknown {
   return params[n - 1];
 }
 
-function mockDb(opts: { calendar?: unknown[]; user?: unknown[] } = {}) {
+/**
+ * `calendar` остался тем же аргументом с тем же смыслом — строка календаря
+ * оператора на дату, — но с 14.09 календарь и занятость приходят ОДНИМ
+ * запросом по дням диапазона: раньше их было два, и счёт занятости искал
+ * брони равенством дат, не видя многодневных.
+ */
+function mockDb(opts: { calendar?: Array<{ available_slots: number; is_cancelled: boolean }>; user?: unknown[] } = {}) {
+  const slot = opts.calendar?.[0] ?? null;
   clientQueryMock.mockImplementation((sql: string) => {
     const s = String(sql);
-    if (s.includes('FROM operator_tours'))    return Promise.resolve({ rows: [{ operator_id: 'op-1', title: TOUR.title, base_price: '9000', max_participants: 10 }] });
-    if (s.includes('FROM tour_availability')) return Promise.resolve({ rows: opts.calendar ?? [] });
-    if (s.includes('already_booked'))         return Promise.resolve({ rows: [{ already_booked: '0' }] });
+    if (s.includes('FROM operator_tours'))    return Promise.resolve({ rows: [{ operator_id: 'op-1', title: TOUR.title, base_price: '9000', max_participants: 10, multi_day_count: null, duration_hours: 6 }] });
+    if (s.includes('generate_series'))        return Promise.resolve({ rows: [{
+      date: PENDING.date,
+      occupied: '0',
+      available_slots: slot ? slot.available_slots : null,
+      is_cancelled: slot ? slot.is_cancelled : null,
+    }] });
     if (s.includes('INSERT INTO operator_bookings'))
       return Promise.resolve({ rows: [{ id: 101, access_token: '11111111-2222-3333-4444-555555555555' }] });
     throw new Error('unexpected SQL: ' + s);
@@ -110,10 +121,14 @@ describe('писатель брони один на обе поверхност�
     }
   });
 
-  it('лок и счёт занятости стоят в общем модуле, а не в одной из копий', () => {
-    expect(RESERVE).toMatch(/FOR UPDATE/);
-    expect(RESERVE).toMatch(/already_booked/);
-    expect(RESERVE).toMatch(/FROM tour_availability/);
+  it('лок, календарь и счёт занятости стоят в общем модуле, а не в одной из копий', () => {
+    // Приметы обновлены 14.09 вместе с самим гейтом: календарь и занятость
+    // теперь приходят ОДНИМ запросом по дням диапазона, поэтому прежних
+    // `already_booked` и `FROM tour_availability` в модуле больше нет. Смысл
+    // проверки прежний — всё три вещи живут здесь, а не в копии.
+    expect(RESERVE, 'лок строки тура').toMatch(/FOR UPDATE/);
+    expect(RESERVE, 'календарь оператора').toMatch(/tour_availability/);
+    expect(RESERVE, 'счёт занятости по дням').toMatch(/generate_series/);
   });
 });
 

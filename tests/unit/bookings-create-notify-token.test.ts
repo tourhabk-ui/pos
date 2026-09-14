@@ -63,8 +63,10 @@ const TOUR_ROW = {
 function mockHappyPathQueries() {
   clientQueryMock.mockImplementation((sql: string) => {
     if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [TOUR_ROW] });
-    if (sql.includes('FROM tour_availability')) return Promise.resolve({ rows: [] });
-    if (sql.includes('already_booked')) return Promise.resolve({ rows: [{ already_booked: '0' }] });
+    // Календарь и занятость — одним запросом по дням диапазона (14.09).
+    if (sql.includes('generate_series')) {
+      return Promise.resolve({ rows: [{ date: '2099-01-01', occupied: '0', available_slots: null, is_cancelled: null }] });
+    }
     if (sql.includes('INSERT INTO operator_bookings')) {
       return Promise.resolve({ rows: [{ id: 42, access_token: 'test-access-token-abc' }] });
     }
