@@ -1,133 +1,104 @@
 /**
- * Неподтверждённый километраж помечается вслух (#1883, вариант Б владельца).
+ * #1883: Кузьмич выдумывал километраж «от Петропавловска» два прогона евала
+ * подряд (13.09 pass_rate 0.60, 14.09 pass_rate 0.75) — промпт запрещает это
+ * прямо и не помогает. Guard ловит незаземлённый километраж детерминированно,
+ * по образцу lib/safety/sos-detector.ts.
  *
- * Кузьмич отвечал «до Паратунки примерно 60 км», «Малкинские — примерно
- * 200 км», «до Курильского около 400 км» — ни одного из этих чисел в данных
- * платформы нет. Промпт это ЗАПРЕЩАЕТ прямо и всё равно нарушается на трёх
- * вопросах из трёх в двух прогонах подряд: значит строкой в промпте не
- * чинится, нужен серверный guard (§8, тот же вывод, что у sos-detector).
- *
- * ГЛАВНОЕ РЕШЕНИЕ, КОТОРОЕ ДЕРЖИТ ЭТОТ СТОРОЖ: судим по ИСТОЧНИКУ, а не по
- * правде. В том же прогоне «около 25 км до Авачинского» было ВЕРНО — и всё
- * равно неподтверждено. Верное число остаётся в ответе и получает пометку:
- * для туриста подтверждённое и угаданное неотличимы, а следующее угаданное
- * окажется неверным.
+ * Тексты в первых трёх тестах — дословные ответы Кузьмича из прогонов евала
+ * (см. issue #1883), контекст — минимальный, без совпадающих чисел, как было
+ * в реальных прогонах.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  findDistanceClaims, unsourcedClaims, withDistanceCaveat, DISTANCE_CAVEAT,
-} from '@/lib/kuzmich/distance-guard';
+import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
 
-describe('что считается названным расстоянием', () => {
-  it('километры во всех виданных формах', () => {
-    const claims = findDistanceClaims('примерно 60 км, около 200 километров, 400-450 км');
-    expect(claims.map(c => c.value)).toEqual([60, 200, 400]);
-    expect(claims.every(c => c.unit === 'km')).toBe(true);
+const NO_DISTANCE_CONTEXT = '=== Маршруты по запросу ===\nМаршрут: Паратунские источники\nТермальные источники, купание круглый год.';
+
+describe('живые провалы евала (#1883)', () => {
+  it('Паратунка: выдуманные 60 км и дорога через Елизово вырезаны', () => {
+    const answer =
+      'От Петропавловска-Камчатского до Паратунки примерно 60 километров. ' +
+      'Дорога идёт через Елизово, обычно занимает около часа на машине.\n\n' +
+      'Кстати, Паратунка — это в первую очередь термальные источники, купаться там можно круглый год. ' +
+      'Интересует что-то из этого — источники, базы отдыха или просто дорога?';
+    const { cleaned, removed } = stripUngroundedDistanceClaims(answer, NO_DISTANCE_CONTEXT);
+
+    expect(cleaned).not.toContain('60 километров');
+    expect(cleaned).not.toContain('через Елизово');
+    expect(cleaned).toContain('Точных данных о расстоянии');
+    // Второй абзац — легитимный, не про километраж — остаётся как был.
+    expect(cleaned).toContain('термальные источники, купаться там можно круглый год');
+    expect(cleaned).toContain('\n\n'); // структура абзацев сохранена
+    expect(removed.length).toBe(2);
   });
 
-  it('часы — ТОЛЬКО рядом со словом пути', () => {
-    // Без этого «работает с 9 часов» и «остывает за 2 часа» стали бы
-    // находками, и пометка лепилась бы ко всему подряд.
-    expect(findDistanceClaims('3-4 часа на машине').map(c => c.unit)).toEqual(['hour']);
-    expect(findDistanceClaims('около часа езды').length).toBe(0); // «часа» без числа
-    expect(findDistanceClaims('источник работает с 9 часов')).toEqual([]);
-    expect(findDistanceClaims('вода остывает за 2 часа')).toEqual([]);
+  it('Малкинские источники: выдуманные 200 км и маршрут через Елизово и Сокоч вырезаны', () => {
+    const answer =
+      'Малкинские источники — примерно 200 км от Петропавловска-Камчатского. ' +
+      'Дорога идёт через Елизово и Сокоч, обычно это 3–4 часа на машине в зависимости от состояния трассы.\n\n' +
+      'Кстати, рядом с Малками течёт река Быстрая — там как раз проходит однодневный сплав с ухой.';
+    const { cleaned, removed } = stripUngroundedDistanceClaims(answer, NO_DISTANCE_CONTEXT);
+
+    expect(cleaned).not.toContain('200 км');
+    expect(cleaned).not.toContain('Елизово и Сокоч');
+    expect(cleaned).toContain('Точных данных о расстоянии');
+    expect(cleaned).toContain('река Быстрая');
+    expect(removed.length).toBe(2);
   });
 
-  it('высота в метрах расстоянием не считается', () => {
-    expect(findDistanceClaims('высота 3283 м')).toEqual([]);
-  });
-});
+  it('Курильское озеро: выдуманные 400 км вырезаны, а грамотный контекст соседних предложений остаётся', () => {
+    const answer =
+      'Дорога к озеру идёт через Вилючинский перевал, а проезд там с 15 июля только по пропускам.\n\n' +
+      'По расстоянию: от Петропавловска-Камчатского до Курильского озера около 400 км. ' +
+      'Значительная часть пути грунтовая.\n\n' +
+      'Тебя интересует именно дорога на машине или рассматриваешь вертолётный тур?';
+    const { cleaned, removed } = stripUngroundedDistanceClaims(answer, NO_DISTANCE_CONTEXT);
 
-describe('источник — то же число в той же единице', () => {
-  it('число из контекста подтверждено, чужое — нет', () => {
-    const ctx = '[инструмент searchRoutes]\nМаршрут: длина 18.2 км, набор 900 м';
-    expect(unsourcedClaims('Маршрут 18 км, идти легко', ctx)).toEqual([]);
-    expect(unsourcedClaims('До места 200 км', ctx).map(c => c.value)).toEqual([200]);
-  });
-
-  it('голое совпадение числа в другой единице не засчитывается', () => {
-    // «25» в контексте может быть ценой, вместимостью или высотой. Засчитывать
-    // его за подтверждение расстояния значило бы заземлять ответ чем попало.
-    const ctx = 'Вместимость: 25 человек в день';
-    expect(unsourcedClaims('около 25 км от города', ctx).map(c => c.value)).toEqual([25]);
-  });
-
-  it('округление при пересказе придиркой не считается', () => {
-    const ctx = 'длина 18.2 км';
-    expect(unsourcedClaims('примерно 18 км', ctx)).toEqual([]);
-  });
-});
-
-describe('пометка', () => {
-  const ctx = 'Паратунские источники — традиция отдыха.';
-
-  it('три вопроса из прогона 14.09 помечаются', () => {
-    for (const answer of [
-      'От Петропавловска-Камчатского до Паратунки примерно 60 километров.',
-      'Малкинские источники — примерно 200 км от Петропавловска-Камчатского.',
-      'До Курильского озера около 400 км, полноценный день пути.',
-    ]) {
-      const out = withDistanceCaveat(answer, ctx);
-      expect(out.unsourced.length, answer).toBeGreaterThan(0);
-      expect(out.text).toContain(DISTANCE_CAVEAT);
-      // Число ОСТАЁТСЯ: режем источник доверия, а не текст ответа.
-      expect(out.text).toContain(answer);
-    }
-  });
-
-  it('верное, но неподтверждённое число тоже помечается', () => {
-    // Авачинский, «около 25 км» — правда. Но источника нет, и турист не
-    // отличит эту правду от соседней выдумки.
-    const out = withDistanceCaveat('Авачинский — около 25 км от города.', ctx);
-    expect(out.text).toContain(DISTANCE_CAVEAT);
-  });
-
-  it('подтверждённый ответ не трогается вовсе', () => {
-    const answer = 'Длина маршрута 18.2 км.';
-    const out = withDistanceCaveat(answer, 'Маршрут: длина 18.2 км');
-    expect(out.text).toBe(answer);
-    expect(out.unsourced).toEqual([]);
-  });
-
-  it('ответ без чисел не трогается', () => {
-    const answer = 'Дорога грунтовая, нужен полный привод.';
-    expect(withDistanceCaveat(answer, ctx).text).toBe(answer);
-  });
-
-  it('пустой контекст: подтверждать нечем — значит не подтверждено', () => {
-    expect(withDistanceCaveat('До места 60 км.', '').unsourced.length).toBe(1);
-  });
-
-  it('пометка не дублируется при повторном проходе', () => {
-    const once = withDistanceCaveat('До места 60 км.', ctx).text;
-    const twice = withDistanceCaveat(once, ctx).text;
-    expect(twice).toBe(once);
+    expect(cleaned).not.toContain('400 км');
+    expect(cleaned).toContain('Точных данных о расстоянии');
+    // Первый абзац (про пропуска на перевале) — отдельный, не про километраж, не тронут.
+    expect(cleaned).toContain('только по пропускам');
+    expect(cleaned).toContain('вертолётный тур');
+    expect(removed.length).toBeGreaterThanOrEqual(1);
   });
 });
 
-describe('guard подключён на ОБА пути, а не на один', () => {
-  it('живой чат и путь оценки зовут один и тот же guard', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const core = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf-8');
-    // Если пометка стоит только в живом чате, прогон оценки мерит НЕ ТО, что
-    // получает турист, и дыра снова видна лишь археологией в логе.
-    const uses = core.match(/withDistanceCaveat\(/g) ?? [];
-    expect(uses.length).toBeGreaterThanOrEqual(2);
-    expect(core).toMatch(/withDistanceCaveat\(answer, systemContent\)/);
-    expect(core).toMatch(/withDistanceCaveat\(cleanAIResponse\(raw\.trim\(\)\), context\)/);
+describe('не режет то, что заземлено или не относится к делу', () => {
+  it('число подтверждено контекстом — предложение остаётся как есть', () => {
+    const context = 'Расстояние от Петропавловска-Камчатского до Паратунки — 60 км (данные оператора).';
+    const answer = 'От Петропавловска-Камчатского до Паратунки примерно 60 километров.';
+    const { cleaned, removed } = stripUngroundedDistanceClaims(answer, context);
+    expect(cleaned).toBe(answer);
+    expect(removed).toEqual([]);
   });
 
-  it('пометка ставится ДО SOS-страховки — телефоны остаются последним словом', () => {
-    // Порядок не косметический: блок 112/МЧС обязан быть виден целиком, а не
-    // отодвинут вниз служебной сноской про километраж.
-    const { readFileSync } = require('node:fs') as typeof import('node:fs');
-    const { join } = require('node:path') as typeof import('node:path');
-    const core = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf-8');
-    const dist = core.indexOf('const withDistance = withDistanceCaveat(answer, systemContent)');
-    const sos = core.indexOf('const finalAnswer = withSosBlock(withDistance', dist);
-    expect(dist).toBeGreaterThan(-1);
-    expect(sos).toBeGreaterThan(dist);
+  it('длина самого маршрута (routeFacts) не путается с расстоянием от города', () => {
+    // routeFacts() печатает "дистанция N км" без слова "Петропавловск"/"города" рядом.
+    const answer = 'Маршрут: Авачинский вулкан\nдистанция 6 км · набор высоты 1200 м · сложность средняя';
+    const { cleaned, removed } = stripUngroundedDistanceClaims(answer, '');
+    expect(cleaned).toBe(answer);
+    expect(removed).toEqual([]);
+  });
+
+  it('ответ без километража не трогается вовсе', () => {
+    const answer = 'Авачинский вулкан сейчас в красном статусе — восхождение не рекомендуется.';
+    const { cleaned, removed } = stripUngroundedDistanceClaims(answer, '');
+    expect(cleaned).toBe(answer);
+    expect(removed).toEqual([]);
+  });
+
+  it('километраж без упоминания города — не тот класс, не трогается', () => {
+    const answer = 'Маршрут длиной 12 км подойдёт для однодневного похода.';
+    const { cleaned, removed } = stripUngroundedDistanceClaims(answer, '');
+    expect(cleaned).toBe(answer);
+    expect(removed).toEqual([]);
+  });
+
+  it('два независимых незаземлённых упоминания в одном абзаце — одна честная фраза, не две подряд', () => {
+    const answer =
+      'До Паратунки от Петропавловска примерно 60 км. ' +
+      'А до Малков от Петропавловска все 200 км.';
+    const { cleaned } = stripUngroundedDistanceClaims(answer, '');
+    const occurrences = cleaned.split('Точных данных о расстоянии').length - 1;
+    expect(occurrences).toBe(1);
   });
 });

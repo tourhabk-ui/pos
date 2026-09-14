@@ -48,6 +48,11 @@ function code(src: string): string {
 }
 
 const UPLOAD = read('app/api/admin/places/[id]/photo/route.ts');
+// Разбор SQL идёт по КОДУ: две проверки ниже ищут запрос через indexOf, а
+// шапка файла объясняет тот же самый `ON CONFLICT (route_id) DO UPDATE`
+// словами. 14.09 объяснение доросло до упоминания раньше запроса, и сторож
+// покраснел на комментарии — том самом, который правило выше разрешает.
+const UPLOAD_CODE = code(UPLOAD);
 const API = read('app/api/places/[id]/route.ts');
 const VIEW = read('app/places/[id]/_PlaceDetailClient.tsx');
 const VIEW_CODE = code(VIEW);
@@ -56,18 +61,18 @@ const RIGHTS = ['author', 'license', 'license_url', 'source_url'] as const;
 
 describe('ручная загрузка записывает права', () => {
   it('все четыре поля перечислены в INSERT', () => {
-    const at = UPLOAD.indexOf('INSERT INTO ai_route_images');
+    const at = UPLOAD_CODE.indexOf('INSERT INTO ai_route_images');
     expect(at, 'INSERT не найден').toBeGreaterThan(-1);
-    const stmt = UPLOAD.slice(at, UPLOAD.indexOf('`,', at));
+    const stmt = UPLOAD_CODE.slice(at, UPLOAD_CODE.indexOf('`,', at));
     const cols = stmt.slice(0, stmt.indexOf('VALUES'));
     for (const c of RIGHTS) expect(cols, `колонка ${c}`).toContain(c);
   });
 
   it('все четыре обновляются при замене снимка, а не остаются от прежнего', () => {
     // Самый тихий из трёх дефектов: фото новое, подпись старая.
-    const at = UPLOAD.indexOf('ON CONFLICT (route_id) DO UPDATE');
+    const at = UPLOAD_CODE.indexOf('ON CONFLICT (route_id) DO UPDATE');
     expect(at).toBeGreaterThan(-1);
-    const upd = UPLOAD.slice(at, UPLOAD.indexOf('`,', at));
+    const upd = UPLOAD_CODE.slice(at, UPLOAD_CODE.indexOf('`,', at));
     for (const c of RIGHTS) {
       expect(upd, `${c} должен обновляться из EXCLUDED`).toMatch(
         new RegExp(`${c}\\s*=\\s*EXCLUDED\\.${c}`),

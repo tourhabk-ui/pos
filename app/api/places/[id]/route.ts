@@ -90,6 +90,21 @@ export async function GET(
          -- показываются, вместо них честный градиент (решение владельца 2026-07-17)
          (SELECT count(*)::int FROM ai_route_images ai
           WHERE ai.route_id = p.ark_id AND ai.model IN ('wikimedia', 'manual-upload')) AS photo_count,
+         -- Галерея места: вторая и последующие фотографии (миграция 968).
+         -- Лежат отдельной таблицей, потому что у ai_route_images уникальный
+         -- индекс по route_id, снять который нельзя — ON CONFLICT (route_id)
+         -- стоит в десяти уже применённых миграциях.
+         --
+         -- Метка версии та же, что у героя, и по той же причине: раздача
+         -- отдаёт immutable на год, а адрес состоит из ark_id и позиции. Без
+         -- неё замена второго снимка была бы не видна.
+         (SELECT COALESCE(json_agg(
+                   '/api/images/place-gallery/' || g.ark_id || '/' || g.position
+                   || '?v=' || EXTRACT(EPOCH FROM g.created_at)::bigint
+                   ORDER BY g.position
+                 ), '[]'::json)
+            FROM place_gallery_photos g
+           WHERE g.ark_id = p.ark_id) AS gallery_urls,
          ai.model      AS photo_model,
          ai.author     AS photo_author,
          ai.license    AS photo_license,
@@ -272,8 +287,30 @@ export async function GET(
           }
           return null;
         })(),
-        images: (r.images as unknown[] | null) ?? [],
-        photoCount: Number(r.photo_count),
+        // Галерея героя. PlaceHero включает свайп при images.length > 1;
+        // до 14.09 кормить его было нечем, кроме legacy-списка ССЫЛОК в
+        // places.images — наши собственные снимки лежали байтами и по одному
+        // на место. Теперь: есть свои снимки галереи — показываем их, герой
+        // первым кадром. Нет — прежний legacy-список, как было.
+        //
+        // Свои важнее чужих намеренно: places.images собирался импортом с
+        // посторонних сайтов, а здесь фотографии, у которых мы знаем автора
+        // и права.
+        images: (() => {
+          const gallery = (r.gallery_urls as unknown[] | null) ?? [];
+          if (Array.isArray(gallery) && gallery.length > 0) {
+            const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
+            const hero = Number(r.photo_count) > 0
+              ? [`/api/images/route/${r.ark_id}${v}`]
+              : [];
+            return [...hero, ...gallery];
+          }
+          return (r.images as unknown[] | null) ?? [];
+        })(),
+        // Сколько снимков у места ВСЕГО — герой плюс галерея. Раньше число
+        // означало «есть ли настоящее фото» и дальше единицы не росло;
+        // счётчик «3/7» в PlaceHero по нему судить не мог.
+        photoCount: Number(r.photo_count) + ((r.gallery_urls as unknown[] | null)?.length ?? 0),
         // Атрибуция фото — обязательна для CC-BY/CC-BY-SA (model=wikimedia).
         // Подпись идёт за ДАННЫМИ, а не за именем модели. Прежде условие
         // требовало `photo_model === 'wikimedia'`, и снимок ручной загрузки

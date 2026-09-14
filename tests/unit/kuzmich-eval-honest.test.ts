@@ -87,11 +87,11 @@ describe('судья видит то, чем обоснован ответ', () 
     const fn = CORE.slice(CORE.indexOf('export async function askKuzmichForEval'));
     const body = fn.slice(0, fn.indexOf('\n}\n'));
     expect(body).toMatch(/const context = \[toolContext, dynamic, tourContext \|\| ''\]/);
-    // Ответ проходит через guard неподтверждённого километража (#1883,
-    // 14.09) — но КОНТЕКСТ уходит судье целиком и неизменным: судья обязан
-    // видеть то, чем обоснован ответ, а не то, что мы к нему приписали.
-    expect(body).toMatch(/withDistanceCaveat\(cleanAIResponse\(raw\.trim\(\)\), context\)/);
-    expect(body).toMatch(/return \{ answer: guarded\.text, context \}/);
+    // #1883: ответ идёт через stripUngroundedDistanceClaims (guard на
+    // придуманный километраж) ПЕРЕД возвратом — но context, которым судья
+    // меряет заземление, остаётся тем же полным составом, не урезанным.
+    expect(body).toMatch(/stripUngroundedDistanceClaims\(cleanedAnswer, context\)/);
+    expect(body).toMatch(/return \{ answer: distanceGuard\.cleaned, context \}/);
   });
 
   it('при обрезке первым страдает каталог туров, а не выводы инструментов', () => {

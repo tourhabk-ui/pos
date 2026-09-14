@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Phone, Mail, User, ChevronRight } from 'lucide-react';
 import TourDateField from '@/components/marketplace/TourDateField';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 
 interface BookingFormProps {
@@ -51,6 +53,14 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     booking_date: '',
     special_requests: '',
   });
+  /**
+   * Согласие на обработку ПД. Заведено 14.09: замер показал, что
+   * PdConsentCheckbox стоит на ДЕВЯТИ поверхностях платформы и не стоит ровно
+   * на этой — при том, что здесь собирают имя, телефон и почту гостя. Гостевая
+   * бронь — единственный путь, которым платформа берёт ПД человека без
+   * аккаунта, и права на это у неё не было записано нигде.
+   */
+  const [pdConsent, setPdConsent] = useState(false);
 
   const participants = parseInt(formData.participants_count) || 1;
   const totalPrice = basePrice * participants;
@@ -66,6 +76,27 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
       setError('Выберите дату заезда');
       return;
     }
+    // Согласие проверяется и здесь, а не только выключенной кнопкой: гейт,
+    // держащийся одним `disabled`, переживает ровно до первой правки вёрстки.
+    if (!pdConsent) {
+      setError('Нужно согласие на обработку данных, чтобы мы могли связаться с вами');
+      return;
+    }
+    /**
+     * Телефон приводится к единому виду ПЕРЕД отправкой — иначе оператор
+     * получает «8 900...», «+7(900)...» и «9001234567» как три разных номера,
+     * а сервер их не различает: там `min(10)` по длине строки.
+     *
+     * Хелпер существующий (lib/mcp/normalize-phone): мягкая проверка, не
+     * строго-РФ — турист бывает иностранным, — и мусор даёт null, а не
+     * выдуманный номер. Четвёртую нормализацию заводить нельзя: в репозитории
+     * их уже три, и одна из них обслуживает телефоны спасения.
+     */
+    const phone = normalizePhone(formData.tourist_phone);
+    if (!phone) {
+      setError('Проверьте телефон: нужен номер из 10–15 цифр, например +7 900 000 00 00');
+      return;
+    }
     setLoading(true);
     setError('');
 
@@ -78,7 +109,13 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           // но форма обязана слать число сама (issue #1769).
           tour_id: Number(tourId),
           ...formData,
+          tourist_phone: phone,
           participants_count: participants,
+          // СОСТОЯНИЕ галочки, а не литерал `true`. Девять соседних форм шлют
+          // литерал, и это работает лишь пока кнопка выключена: снимут
+          // `disabled` — согласие уедет без галочки, а сервер не отличит,
+          // потому что проверяет, ЧТО пришло, а не что человек нажимал.
+          pd_consent: pdConsent,
         }),
       });
 
@@ -226,6 +263,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         Отправляя заявку, вы понимаете, что даты, наличие мест и точная стоимость уточняются перед оплатой.
       </p>
 
+      <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-tour-booking" />
+
       {/* Итог */}
       <div className="border-t border-[var(--border)] pt-4">
         <div className="flex items-center justify-between mb-3">
@@ -242,8 +281,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
               (issue #1780), человек жал и не понимал, что не так. */}
           <button
             type="submit"
-            disabled={loading || !formData.booking_date}
-            aria-describedby={!formData.booking_date ? 'booking-submit-hint' : undefined}
+            disabled={loading || !formData.booking_date || !pdConsent}
+            aria-describedby={!formData.booking_date || !pdConsent ? 'booking-submit-hint' : undefined}
             className="ds-btn ds-btn-primary flex items-center gap-2 px-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
           >
             {loading ? (
@@ -256,13 +295,25 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             )}
           </button>
         </div>
+        {/* Причина, по которой кнопка выключена, называется КОНКРЕТНАЯ. Одно
+            «заполните форму» на два разных препятствия заставляет искать
+            глазами, чего не хватает (урок #1780). */}
         {!formData.booking_date ? (
           <p id="booking-submit-hint" className="text-xs text-[var(--warning)]">
             Сначала выберите дату заезда в календаре выше.
           </p>
+        ) : !pdConsent ? (
+          <p id="booking-submit-hint" className="text-xs text-[var(--warning)]">
+            Отметьте согласие на обработку данных — без него мы не сможем связаться с вами.
+          </p>
         ) : (
           <p className="text-xs text-[var(--text-muted)]">
             После создания заявки откроется страница бронирования с дальнейшими шагами. Оператор получит уведомление автоматически.
+            {/* Про повтор говорим ЧЕСТНО: идемпотентности у создания брони нет
+                (ни ключа, ни ON CONFLICT — проверено 14.09), и обещание
+                «заявка не продублируется» было бы прямым враньём. Ограничение
+                частоты 5/мин повтор не отменяет. */}
+            {' '}Если отправка не удалась — подождите минуту и попробуйте снова, а не нажимайте несколько раз подряд.
           </p>
         )}
       </div>

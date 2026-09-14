@@ -5,11 +5,23 @@
  * UPSERT into ai_route_images (linked to place via route_id = places.ark_id).
  *
  * FormData:
- *   file        — image (jpg/png/webp/heic), up to 20 MB
- *   author      — кто снял (необязательно): «Ю. Демянчук, ИВиС ДВО РАН»
- *   license     — на каких условиях: «© ИВиС ДВО РАН, с разрешения», «CC BY 4.0»
- *   license_url — где прочитать условия
- *   source_url  — откуда взят снимок
+ *   file         — image (jpg/png/webp/heic), up to 20 MB
+ *   author       — кто снял (необязательно): «Ю. Демянчук, ИВиС ДВО РАН»
+ *   license      — на каких условиях: «© ИВиС ДВО РАН, с разрешения», «CC BY 4.0»
+ *   license_url  — где прочитать условия
+ *   source_url   — откуда взят снимок
+ *   replace_hero — 'true': заменить главное фото, а не добавить в галерею
+ *
+ * ВТОРОЙ СНИМОК НЕ СТИРАЕТ ПЕРВЫЙ (14.09). До этой правки у места могло быть
+ * ровно одно фото: `ON CONFLICT (route_id) DO UPDATE` — загрузка второго
+ * МОЛЧА уничтожала первое, и узнать об этом было неоткуда, потому что ответ
+ * был тот же самый «ok». Владелец 14.09 прислал по пять кадров на место, и
+ * класть их было некуда.
+ *
+ * Теперь: у места нет фото — снимок идёт героем; фото уже есть — снимок идёт
+ * в галерею (`place_gallery_photos`, миграция 968) следующей позицией. Замена
+ * героя осталась, но её надо СКАЗАТЬ вслух — `replace_hero=true`. Ответ
+ * называет, куда лёг снимок (`slot`), а не молчит об этом.
  *
  * ПРАВА НА ЧУЖОЕ ФОТО (14.09). До этой правки путь ручной загрузки не писал
  * НИ ОДНОГО из четырёх полей, хотя колонки в `ai_route_images` есть и вики-путь
@@ -116,6 +128,68 @@ export async function POST(request: NextRequest, { params }: Props) {
   const licenseUrl = rights('license_url');
   const sourceUrl  = rights('source_url');
 
+  // Куда класть: герой или галерея. Решает НАЛИЧИЕ героя, а не догадка о
+  // намерении — и решение уходит в ответ, чтобы загрузивший его видел.
+  const heroRow = await pool.query(
+    `SELECT 1 FROM ai_route_images WHERE route_id = $1 LIMIT 1`,
+    [arkId],
+  );
+  const hasHero = (heroRow.rowCount ?? 0) > 0;
+  const replaceHero = formData.get('replace_hero') === 'true';
+
+  if (hasHero && !replaceHero) {
+    // Галерея: следующая свободная позиция. Позиция считается отдельным
+    // запросом, а не `INSERT ... SELECT MAX(...)`: у такой формы параметрам
+    // негде взять якорь типа, и она отвечает 42P08 «inconsistent types
+    // deduced» ВСЕГДА, не иногда (CLAUDE.md §4, случай 24.08).
+    //
+    // Гонка двух загрузок разрешается уникальным индексом (ark_id, position)
+    // и повтором: 23505 здесь значит «позицию заняли», а не «снимок плохой».
+    let position = 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const next = await pool.query<{ next: number }>(
+        `SELECT COALESCE(MAX(position), 0) + 1 AS next
+           FROM place_gallery_photos WHERE ark_id = $1`,
+        [arkId],
+      );
+      position = Number(next.rows[0]?.next ?? 1);
+      try {
+        await pool.query(
+          `INSERT INTO place_gallery_photos
+             (ark_id, position, image_data, mime_type, width, height,
+              author, license, license_url, source_url)
+           VALUES ($1, $2, $3, 'image/jpeg', $4, $5, $6, $7, $8, $9)`,
+          [arkId, position, processed, TARGET_WIDTH, TARGET_HEIGHT,
+           author, license, licenseUrl, sourceUrl],
+        );
+        break;
+      } catch (err) {
+        const code = (err as { code?: string })?.code;
+        if (code === '23505' && attempt < 2) continue;
+        // Отказ не глушится: иначе «не смог записать» выглядело бы как
+        // «записал» — ровно то, от чего §4.0.
+        console.error('[place-photo] снимок не лёг в галерею:', arkId, position, code ?? err);
+        return NextResponse.json(
+          { error: 'Не удалось сохранить снимок в галерею. Попробуйте ещё раз.' },
+          { status: 503 },
+        );
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      placeId,
+      arkId,
+      slot: 'gallery',
+      position,
+      width: TARGET_WIDTH,
+      height: TARGET_HEIGHT,
+      sizeKb: Math.round(processed.length / 1024),
+      rights: { author, license, licenseUrl, sourceUrl },
+      url: `/api/images/place-gallery/${arkId}/${position}?t=${Date.now()}`,
+    });
+  }
+
   // UPSERT — replace existing AI-generated image if any.
   //
   // Четыре поля прав ОБЯЗАТЕЛЬНО перечислены и в INSERT, и в DO UPDATE. До
@@ -149,6 +223,7 @@ export async function POST(request: NextRequest, { params }: Props) {
     ok: true,
     placeId,
     arkId,
+    slot: 'hero',
     width: TARGET_WIDTH,
     height: TARGET_HEIGHT,
     sizeKb: Math.round(processed.length / 1024),

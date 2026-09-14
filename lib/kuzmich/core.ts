@@ -26,7 +26,7 @@ import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } 
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { withSosBlock } from '@/lib/safety/sos-detector';
-import { withDistanceCaveat } from '@/lib/kuzmich/distance-guard';
+import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
@@ -2186,17 +2186,29 @@ export async function aiChat(opts: {
     }
   }
 
+  // Guard на придуманный километраж «от Петропавловска» (#1883) — тот же
+  // контекст, которым обоснован ответ (toolContext + dynamic + tourContext,
+  // ровно набор askKuzmichForEval), применяется ДО SOS-блока: правим ответ
+  // модели, а не собственную вставку.
+  const toolContext = toolRuns
+    .filter((r) => r.producedData && r.output)
+    .map((r) => `[инструмент ${r.name}]\n${r.output}`)
+    .join('\n\n');
+  const groundingContext = [toolContext, dynamic, tourContext || ''].filter(Boolean).join('\n\n');
+  const distanceGuard = stripUngroundedDistanceClaims(answer, groundingContext);
+  if (distanceGuard.removed.length > 0) {
+    console.error('[kuzmich-distance-guard] вырезан незаземлённый километраж', {
+      chatId, removed: distanceGuard.removed,
+    });
+    answer = distanceGuard.cleaned;
+  }
+
   // Серверная SOS-страховка: при признаках ЧП телефоны 112/МЧС добавляются
   // к ответу независимо от модели — даже когда AI-конвейер лежит целиком.
   // Пользователю и в историю уходит finalAnswer; грейдер и синтез заметок
   // получают ОРИГИНАЛЬНЫЙ ответ модели — иначе boilerplate SOS-блока
   // портит оценку faithfulness и утекает в долгосрочную память бота.
-  // Тот же guard, что на пути оценки: расстояние и время в пути, которых нет
-  // в контексте платформы, получают пометку. Контекст здесь — systemContent:
-  // в него входит dynamic (карточка места, маршрут, доступность), то есть всё,
-  // чем платформа обосновала ответ.
-  const withDistance = withDistanceCaveat(answer, systemContent).text;
-  const finalAnswer = withSosBlock(withDistance, userContent).text;
+  const finalAnswer = withSosBlock(answer, userContent).text;
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
   if (!isAIErrorResponse(answer)) {
@@ -2292,13 +2304,12 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
    */
   const context = [toolContext, dynamic, tourContext || ''].filter(Boolean).join('\n\n');
 
-  // Неподтверждённый километраж помечается вслух (#1883, вариант Б владельца).
-  // Пометка ставится ЗДЕСЬ, а не только в живом чате: иначе прогон оценки
-  // мерил бы не то, что получает турист, и дыра снова стала бы видна только
-  // археологией в логе.
-  const guarded = withDistanceCaveat(cleanAIResponse(raw.trim()), context);
+  // Тот же guard (#1883), что в живом aiChat — иначе pass_rate евала мерил
+  // бы пайплайн, которого турист уже не видит.
+  const cleanedAnswer = cleanAIResponse(raw.trim());
+  const distanceGuard = stripUngroundedDistanceClaims(cleanedAnswer, context);
 
-  return { answer: guarded.text, context };
+  return { answer: distanceGuard.cleaned, context };
 }
 
 // ── Full Message Processor ────────────────────────────────────────────────────
