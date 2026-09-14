@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-13 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `957_external_alerts_push_suppressed.sql`.
+> Снято 2026-09-14 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `961_llm_usage_log_cost_nullable.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 242 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3206 |
+| Колонок | 3201 |
 | Внешних ключей | 261 |
 | Таблиц без единого FK в обе стороны | 70 |
 
@@ -861,9 +861,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `operator_id uuid!` `name varchar!` `from_location varchar!` `to_location varchar!` `from_coordinates jsonb` `to_coordinates jsonb` `distance numeric` `estimated_duration integer` `base_price numeric!` `price_per_km numeric` `price_per_hour numeric` `popular boolean=` `transfers_count integer=` `average_rating numeric=` `is_active boolean=` `weather_dependent boolean=` `stops jsonb=` `description text` `notes text` `created_at timestamptz=` `updated_at timestamptz=`
 
-**transfer_seat_bookings** · 18 кол. · PK id · ordered_by_partner_id → partners.id, ordered_by_user_id → users.id, trip_id → transfer_trips.id · индексов 5
+**transfer_seat_bookings** · 12 кол. · PK id · ordered_by_partner_id → partners.id, ordered_by_user_id → users.id, trip_id → transfer_trips.id · индексов 4
 
-`id uuid!=` `trip_id uuid!` `ordered_by_partner_id uuid` `ordered_by_user_id uuid` `seats integer!` `price numeric` `status varchar!=` `decline_reason text` `comment text` `contact_phone varchar` `created_at timestamptz!=` `updated_at timestamptz!=` `tochka_qr_id varchar` `qr_expires_at timestamptz` `payment_status varchar!=` `paid_at timestamptz` `paid_amount numeric` `platform_fee numeric`
+`id uuid!=` `trip_id uuid!` `ordered_by_partner_id uuid` `ordered_by_user_id uuid` `seats integer!` `price numeric` `status varchar!=` `decline_reason text` `comment text` `contact_phone varchar` `created_at timestamptz!=` `updated_at timestamptz!=`
 
 **transfer_trips** · 15 кол. · PK id · to_route_id → kamchatka_routes.id, vehicle_id → transfer_fleet_vehicles.id · на неё ссылаются: transfer_seat_bookings · индексов 3
 
@@ -973,9 +973,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `user_id uuid!` `tour_id bigint!` `session_id text` `signal_type text!=` `pushed_at timestamp` `created_at timestamp!=`
 
-**llm_usage_log** · 9 кол. · PK id · индексов 4
+**llm_usage_log** · 10 кол. · PK id · индексов 4
 
-`id uuid!=` `route text!` `prompt_tokens integer!=` `completion_tokens integer!=` `total_tokens integer!=` `estimated_cost_usd numeric!=` `user_id uuid` `created_at timestamptz!=` `agent_id text`
+`id uuid!=` `route text!` `prompt_tokens integer!=` `completion_tokens integer!=` `total_tokens integer!=` `estimated_cost_usd numeric` `user_id uuid` `created_at timestamptz!=` `agent_id text` `cost_basis text`
 
 **mcp_clients** · 7 кол. · PK caller_hash, day · индексов 2
 
