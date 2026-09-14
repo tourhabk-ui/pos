@@ -82,8 +82,24 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
         <RouteGradientPlaceholder title={name} locationType={locationType} className="w-full h-full" showLabel={false} />
       )}
 
-      {/* Deep gradient from bottom */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+      {/*
+        Подложка под текст. Раньше это был один линейный градиент на всю
+        высоту (from-black/80 via-black/20) — и на кадре, где низ уже тёмный и
+        ПЛОСКИЙ (бетон, стена, вода в тени), он не делал ничего: заголовок
+        читался как наклеенный на серый прямоугольник.
+
+        Теперь два слоя: мягкое затемнение всего кадра и отдельная плотная
+        подложка нижней трети с нелинейной кривой. Текст всегда лежит на
+        своём фоне, а не на удачном месте фотографии.
+      */}
+      <div className="absolute inset-0 bg-black/15 pointer-events-none" />
+      <div
+        className="absolute inset-x-0 bottom-0 h-2/3 pointer-events-none"
+        style={{
+          background:
+            'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.72) 28%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0) 100%)',
+        }}
+      />
 
       {/* Dot indicators for gallery */}
       {isGallery && (
@@ -105,12 +121,30 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
           <ArrowLeft className="w-3.5 h-3.5" /> Все места
         </Link>
 
-        {(isGallery ? gallery.length : photoCount) > 1 && (
-          <span className="inline-flex items-center gap-1.5 text-xs text-white/80 bg-black/40 px-2.5 py-1.5 rounded-full border border-white/15">
-            <Images className="w-3.5 h-3.5" />
-            {isGallery ? `${currentIdx + 1}/${gallery.length}` : photoCount}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Координаты — прибор, а не заголовок. До 14.09 они стояли
+              моноширинным шрифтом прямо под именем места, между названием и
+              фактами: строка вида «53.28836, 158.35007» читается как вывод
+              отладки и первое, что видел турист. Тому, кому они нужны в поле,
+              они нужны в буфере обмена, а не в вёрстке — отсюда кнопка. */}
+          <button
+            onClick={copyCoords}
+            aria-label={`Скопировать координаты: ${coordStr}`}
+            className="inline-flex items-center gap-1.5 text-xs text-white/80 bg-black/40 px-2.5 py-1.5 rounded-full border border-white/15 hover:bg-black/60 transition-colors"
+          >
+            {copied
+              ? <><Check className="w-3.5 h-3.5 text-[var(--success)]" /> Скопировано</>
+              : <><Copy className="w-3.5 h-3.5" /> {lat.toFixed(3)}, {lng.toFixed(3)}</>
+            }
+          </button>
+
+          {(isGallery ? gallery.length : photoCount) > 1 && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-white/80 bg-black/40 px-2.5 py-1.5 rounded-full border border-white/15">
+              <Images className="w-3.5 h-3.5" />
+              {isGallery ? `${currentIdx + 1}/${gallery.length}` : photoCount}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Bottom overlay: type + name + coords */}
@@ -119,37 +153,30 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
             иначе на широком экране имя места висит по центру, а текст под ним
             начинается левее — разъезд, который читается как небрежность. */}
         <div className="max-w-3xl lg:max-w-6xl mx-auto">
-          <span className="inline-block text-[11px] font-bold uppercase tracking-widest text-white bg-[var(--accent)] px-3 py-1 rounded-full mb-3">
+          {/* Род места — надзаголовок, а не оранжевая плашка.
+              Плашка спорила по яркости с кнопкой «Навигация» в двухстах
+              пикселях ниже: акцент, употреблённый дважды подряд, перестаёт
+              быть акцентом. Типографика справляется тут лучше цвета. */}
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">
             {label}
-          </span>
+          </p>
+
           <h1
-            className="text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight mb-3"
-            style={{ fontFamily: 'var(--font-playfair)', textShadow: '0 2px 12px rgba(0,0,0,0.4)' }}
+            className="text-[2.1rem] leading-[1.05] sm:text-5xl md:text-6xl font-bold text-white"
+            style={{ fontFamily: 'var(--font-playfair)', textShadow: '0 2px 24px rgba(0,0,0,0.45)' }}
           >
             {name}
           </h1>
-          <button
-            onClick={copyCoords}
-            className="inline-flex items-center gap-1.5 text-xs text-white/60 font-mono hover:text-white transition-colors pointer-events-auto"
-          >
-            {copied
-              ? <><Check className="w-3 h-3 text-[var(--success)]" /> Скопировано</>
-              : <><Copy className="w-3 h-3" /> {coordStr}</>
-            }
-          </button>
 
-          {/* Факты первого экрана. Стекло здесь разрешено и уместно — это слой
-              КОНТЕКСТА поверх фотографии, а не действие (DS §2, решение
-              владельца 2026-08-15). Действия рядом остаются непрозрачными. */}
+          {/* Факты первого экрана — строкой, через тонкие разделители.
+              Пузырьки-«стекляшки» на фото складывались в нашлёпки; здесь
+              работает та же типографика, что и в заголовке. */}
           {facts && facts.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
               {facts.slice(0, 3).map((f) => (
-                <span
-                  key={f.label}
-                  className="inline-flex items-baseline gap-1.5 rounded-2xl border border-white/15 bg-black/40 px-3 py-1.5 backdrop-blur-md"
-                >
-                  <span className="text-[10px] uppercase tracking-wide text-white/60">{f.label}</span>
-                  <span className="text-sm font-semibold text-white">{f.value}</span>
+                <span key={f.label} className="flex items-baseline gap-2">
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-white/50">{f.label}</span>
+                  <span className="text-sm font-semibold text-white/95">{f.value}</span>
                 </span>
               ))}
             </div>
