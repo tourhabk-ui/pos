@@ -131,7 +131,7 @@
     "@types/leaflet.markercluster": "^1.5.6",
     "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/ui": "^4.1.10",
+    "@vitest/ui": "^5.0.0",
     "husky": "^9.1.7",
     "jsdom": "^30.0.1",
     "tsx": "^4.23.13",
