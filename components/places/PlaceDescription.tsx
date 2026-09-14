@@ -64,11 +64,22 @@ export default function PlaceDescription({ essence, description, descriptionSour
           {/* Источник ТЕКСТА — под самим текстом, а не в подвале карточки
               (#1830, шаг 4): подпись относится к этим абзацам, и человек
               должен видеть её там, где читает. Приглушённо: это сноска, а не
-              часть рассказа о месте. Без ссылки — адрес ГВП проверить не
-              удалось, все три пробы вернули 403 (см. description-source.ts). */}
+              часть рассказа о месте.
+              Адрес подтвердил владелец из браузера 14.09 — с раннера он
+              отдавал 403 (см. description-source.ts). Нет адреса — остаётся
+              текст: подпись называет источник и без ссылки. */}
           {descriptionSource && (
             <p className="text-xs text-[var(--text-muted)] pt-1" style={{ maxWidth: '68ch' }}>
-              {descriptionSource.label}
+              {descriptionSource.url ? (
+                <a
+                  href={descriptionSource.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-[var(--ocean)] transition-colors"
+                >
+                  {descriptionSource.label}
+                </a>
+              ) : descriptionSource.label}
             </p>
           )}
         </div>

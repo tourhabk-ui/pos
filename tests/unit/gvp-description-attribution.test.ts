@@ -20,11 +20,13 @@
  *    `translated_text = p.description` снимает подпись САМО, без чьей-либо
  *    памяти о том, что так надо.
  *
- * 3. **Ссылки нет, и это записано как «не смог».** Проба 499 (13.09) получила
- *    HTTP 403 на все три адреса volcano.si.edu и si.edu — Смитсоновский
- *    закрывает датацентр. Формат адреса ПРОВЕРИТЬ НЕ УДАЛОСЬ; это третий
- *    исход (§4.0), а не «ссылка не нужна». Непроверенный путь на карточке был
- *    бы обещанием дороги, которой мы не видели.
+ * 3. **Ссылка появилась только после проверки ЧЕЛОВЕКОМ.** Проба 499 (13.09)
+ *    получила HTTP 403 на все три адреса volcano.si.edu и si.edu —
+ *    Смитсоновский закрывает датацентр, — поэтому сперва подпись шла текстом
+ *    без ссылки: непроверенный путь на карточке был бы обещанием дороги,
+ *    которой мы не видели. 14.09 адрес подтвердил владелец из браузера, и
+ *    «не смог» стало «работает». Сторож держит ОБА исхода: ссылка есть, когда
+ *    опознание адресуемо, и её нет, когда нет.
  *
  * 4. **Формулировка одна на платформу.** Две подписи под одним источником
  *    стали бы двумя разными утверждениями о нём — тот же урок, что у линий
@@ -43,10 +45,12 @@ const VIEW = read('components/places/PlaceDescription.tsx');
 const CLIENT = read('app/places/[id]/_PlaceDetailClient.tsx');
 
 describe('describeDescriptionSource — чистая логика', () => {
-  it('нет ссылки на черновик — нет подписи', () => {
-    expect(describeDescriptionSource(null)).toBeNull();
-    expect(describeDescriptionSource(undefined)).toBeNull();
-    expect(describeDescriptionSource('')).toBeNull();
+  it('нет опознания — нет подписи; пробелы считаются отсутствием', () => {
+    // Пустая строка и строка из пробелов — одно и то же «опознания нет».
+    // Разное поведение у них было бы разнобоем на ровном месте.
+    for (const ref of [null, undefined, '', '   ', '\t']) {
+      expect(describeDescriptionSource(ref), JSON.stringify(ref)).toBeNull();
+    }
   });
 
   it('есть VolcanoNumber — подпись дословно из issue', () => {
@@ -63,17 +67,36 @@ describe('describeDescriptionSource — чистая логика', () => {
     expect(src.label).not.toMatch(/\bГВП\b/);
   });
 
-  it('ссылки в контракте нет вовсе — а не поле, всегда равное null', () => {
-    // Поле, которое никогда не заполняется, — то же объявление без источника
-    // (§10.09). Пока адрес не проверен, ссылки нет и в типе.
-    const src = describeDescriptionSource('300270')!;
-    expect('url' in src).toBe(false);
-    expect(MODULE).not.toMatch(/https:\/\/volcano\.si\.edu\/volcano\.cfm/);
+  it('шестизначный номер — адрес страницы вулкана', () => {
+    // Ровно тот адрес, который владелец открыл из браузера 14.09.
+    expect(describeDescriptionSource('300270')!.url)
+      .toBe('https://volcano.si.edu/volcano.cfm?vn=300270');
+    // Пробелы по краям не должны попадать в адрес.
+    expect(describeDescriptionSource(' 300270 ')!.url)
+      .toBe('https://volcano.si.edu/volcano.cfm?vn=300270');
   });
 
-  it('причина отсутствия ссылки записана, а не подразумевается', () => {
+  it('опознание не шестизначное — ссылки нет, а подпись остаётся', () => {
+    // Битая ссылка хуже её отсутствия: подпись называет источник и текстом.
+    for (const ref of ['Sheveluch', '30027', '3002701', 'vn=300270']) {
+      const src = describeDescriptionSource(ref);
+      expect(src, ref).not.toBeNull();
+      expect(src!.url, ref).toBeNull();
+      expect(src!.label, ref).toBe('По данным Global Volcanism Program, Смитсоновский институт');
+    }
+  });
+
+  it('история проверки записана: 403 с раннера и подтверждение человеком', () => {
+    // Без этой записи следующий, увидев 403 в логах пробы, решит, что ссылка
+    // сломана, и снимет рабочий адрес.
     expect(MODULE).toMatch(/403/);
-    expect(MODULE).toMatch(/ПРОВЕРИТЬ НЕ УДАЛОСЬ/);
+    expect(MODULE).toMatch(/подтвердил владелец из браузера/);
+  });
+
+  it('лицензия фото НЕ следует из того, что страница открылась', () => {
+    // «Скачивается» и «можно публиковать на коммерческой странице» — разные
+    // утверждения; VPImageCredit это подпись автора, а не условия.
+    expect(MODULE).toMatch(/ЛИЦЕНЗИЯ ФОТО ЭТИМ НЕ ЗАКРЫТА/);
   });
 });
 
@@ -107,10 +130,13 @@ describe('подпись доходит до экрана', () => {
     expect(VIEW).toMatch(/text-\[var\(--text-muted\)\]/);
   });
 
-  it('подпись — не ссылка: непроверенный адрес наружу не идёт', () => {
-    const at = VIEW.indexOf('descriptionSource.label');
-    const block = VIEW.slice(Math.max(0, at - 400), at + 200);
-    expect(block).not.toMatch(/<a\s/);
-    expect(block).not.toContain('volcano.si.edu');
+  it('ссылка — только когда адрес есть; иначе тот же текст без неё', () => {
+    expect(VIEW).toMatch(/descriptionSource\.url \? \(/);
+    expect(VIEW).toMatch(/href=\{descriptionSource\.url\}/);
+    expect(VIEW).toMatch(/\) : descriptionSource\.label\}/);
+    // Чужая вкладка и без передачи реферера — как у остальных внешних ссылок.
+    expect(VIEW).toMatch(/rel="noopener noreferrer"/);
+    // Адрес в разметке не зашит: он строится из VolcanoNumber в одном месте.
+    expect(VIEW).not.toContain('volcano.si.edu');
   });
 });
