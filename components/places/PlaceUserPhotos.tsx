@@ -29,8 +29,8 @@
  * непроверенные по-прежнему не показываются никому.
  */
 
-import { useEffect, useState } from 'react';
-import { Camera } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Camera, Star, Loader2 } from 'lucide-react';
 
 interface UserPhoto {
   id: string;
@@ -68,6 +68,60 @@ type State =
 
 export default function PlaceUserPhotos({ placeId }: { placeId: string }) {
   const [state, setState] = useState<State>({ kind: 'loading' });
+  /**
+   * Админ ли смотрящий. Спрашивается у сервера, а не выводится из чего-либо
+   * на клиенте: кнопка «сделать главным» лишь ПОКАЗЫВАЕТСЯ по этому флагу,
+   * а право проверяет роут (requireAdmin). Три состояния, и «пока не знаю»
+   * не равно «нет» — кнопка не мигает на медленной сети.
+   */
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [heroBusy, setHeroBusy] = useState<string | null>(null);
+  const [heroNote, setHeroNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (!res.ok) { if (!cancelled) setIsAdmin(false); return; }
+        // Контракт /api/auth/me: { success, data: { role, roles } }. Берём
+        // АКТИВНУЮ роль, а не список owned: сервер (requireAdmin) судит по
+        // ней же, и кнопка, показанная по другому признаку, обещала бы то,
+        // в чём роут откажет.
+        const json = (await res.json()) as { data?: { role?: string } };
+        if (!cancelled) setIsAdmin(json?.data?.role === 'admin');
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /** Сделать снимок главным фото карточки (владелец 14.09). */
+  const makeHero = useCallback(async (photoId: string) => {
+    setHeroBusy(photoId);
+    setHeroNote(null);
+    try {
+      const res = await fetch(`/api/admin/user-photos/${photoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'make_hero' }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      // Исход называется словами в обоих случаях: молчащая кнопка неотличима
+      // от сломанной (тот же урок, что у «поделиться» на листе карты).
+      if (res.ok && json.success) {
+        setHeroNote('Готово — фото стало главным. Обновите страницу.');
+      } else {
+        setHeroNote(json.error ?? 'Не удалось сделать фото главным');
+      }
+    } catch {
+      setHeroNote('Нет связи — попробуйте ещё раз');
+    } finally {
+      setHeroBusy(null);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +159,10 @@ export default function PlaceUserPhotos({ placeId }: { placeId: string }) {
         </span>
       </h2>
 
+      {heroNote && (
+        <p className="text-xs text-[var(--text-secondary)]" aria-live="polite">{heroNote}</p>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {state.photos.map((p) => (
           <figure key={p.id} className="space-y-1">
@@ -115,6 +173,19 @@ export default function PlaceUserPhotos({ placeId }: { placeId: string }) {
               loading="lazy"
               className="w-full aspect-[4/3] object-cover rounded-lg border border-[var(--border)] bg-[var(--bg-hover)]"
             />
+            {isAdmin === true && (
+              <button
+                type="button"
+                onClick={() => { void makeHero(p.id); }}
+                disabled={heroBusy !== null}
+                className="w-full inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+              >
+                {heroBusy === p.id
+                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                  : <Star className="w-3 h-3" />}
+                Сделать главным
+              </button>
+            )}
             {ownStatusLabel(p) && (
               <p className="text-[11px] text-[var(--warning)] leading-tight">{ownStatusLabel(p)}</p>
             )}

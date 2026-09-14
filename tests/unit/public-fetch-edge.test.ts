@@ -73,6 +73,12 @@ const KNOWN_PERSONAL_CALLS = new Set([
   // admin (user_roles в localStorage), вызов несёт Bearer либо cookie. До
   // 01.09 вызов числился публичным, потому что публичным был весь /api/admin.
   'DELETE /api/admin/places/X',
+  // Блок «сняли туристы» на карточке места (14.09): кнопка «сделать главным»
+  // рисуется ТОЛЬКО при активной роли admin, которую компонент спрашивает у
+  // /api/auth/me — то есть у сервера, а не выводит на клиенте. Гость кнопки
+  // не видит, а если бы позвал — requireAdmin в роуте откажет: показ и право
+  // здесь разные вещи, и второе не зависит от первого.
+  'PATCH /api/admin/user-photos/X',
   'POST /api/accommodations/X/book',// бронь жилья — форма гейтится
   'GET /api/accommodations/X/prices',
   'POST /api/tools/equipment',      // AI-подбор снаряжения: rate-limit есть, вход пока обязателен
