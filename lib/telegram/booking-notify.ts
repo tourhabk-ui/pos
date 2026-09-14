@@ -37,6 +37,15 @@ export function notifyTouristBookingCreated(
     date: Date;
     participants: number;
     totalAmount: number;
+    /**
+     * Ключ доступа к брони (миграция 943) — тот же, что уходит письмом.
+     * Опционален: старые вызывающие места без него по-прежнему рабочие,
+     * просто без прямой ссылки на оплату (issue #1889). `/hub/tourist/
+     * bookings` ниже работает по сессии и токена не требует — но оплатить
+     * бронь можно только со страницы `/booking-success`, а туда без ключа
+     * не попасть.
+     */
+    accessToken?: string;
   }
 ): void {
   void (async () => {
@@ -47,6 +56,10 @@ export function notifyTouristBookingCreated(
       const dateStr = booking.date.toLocaleDateString('ru-RU', {
         day: 'numeric', month: 'long', year: 'numeric',
       });
+
+      const payLine = booking.accessToken
+        ? `<a href="https://vedarai.ru/booking-success/${booking.id}?t=${encodeURIComponent(booking.accessToken)}">Перейти к оплате →</a>`
+        : null;
 
       await telegramService.sendMessage({
         chatId,
@@ -61,6 +74,7 @@ export function notifyTouristBookingCreated(
           'Оператор рассмотрит заявку в течение нескольких часов.',
           'Статус брони можно проверить в личном кабинете.',
           '',
+          ...(payLine ? [payLine, ''] : []),
           `<a href="https://vedarai.ru/hub/tourist/bookings">Мои бронирования →</a>`,
         ].join('\n'),
         parseMode: 'HTML',

@@ -25,6 +25,8 @@ interface BookingData {
   operator_telegram: string | null;
   cp_public_id: string;
   sbp_available: boolean;
+  /** Есть ли у брони email — единственный другой способ вернуться к ссылке (#1889). */
+  has_email: boolean;
 }
 
 declare global {
@@ -112,6 +114,21 @@ export default function BookingSuccessClient() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  /**
+   * Ссылка на эту же страницу с ключом — единственный способ сюда вернуться,
+   * когда почты у брони нет (#1889). Копируем ПОЛНЫЙ URL (window.location.href,
+   * не собранный вручную), а не только `bookingId`, как в handleCopy выше —
+   * тот для другой цели (продиктовать номер оператору по телефону).
+   */
+  const [linkCopied, setLinkCopied] = useState(false);
+  const handleCopyLink = () => {
+    try {
+      void navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch { /* буфер обмена недоступен — ссылка всё равно видна в адресной строке */ }
+  };
+
   const handlePay = useCallback(() => {
     if (!booking || !window.cp || !cpReady) return;
     setPaying(true);
@@ -189,6 +206,35 @@ export default function BookingSuccessClient() {
                 : 'Проверьте данные заявки и переходите к оплате, если всё подходит.'}
           </p>
         </div>
+
+        {/* Нет email — эта ссылка единственная (#1889): закрыл вкладку без
+            сохранения, и вернуться к брони, PDF и оплате будет нечем.
+            Предупреждаем ДО карточки с деталями, а не мельче внизу. */}
+        {booking && !booking.has_email && (
+          <div className="ds-card p-4 mb-5 border-2" style={{ borderColor: 'var(--warning)' }}>
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-[var(--warning)]" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  Сохрани эту ссылку сейчас
+                </p>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
+                  Почту при бронировании не указывали — значит письма с этой ссылкой не будет,
+                  и вернуться к заявке, оплате и документам можно только по ней. Закроешь вкладку
+                  без сохранения — доступ к брони и своим данным восстановить будет нечем.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="ds-btn ds-btn-secondary text-xs mt-3 flex items-center gap-1.5"
+                >
+                  <Copy size={13} />
+                  {linkCopied ? 'Ссылка скопирована' : 'Скопировать ссылку'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Card */}
         <div className="ds-card p-5 sm:p-7 mb-5">
