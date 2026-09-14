@@ -22,6 +22,8 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const ROUTE = read('app/api/admin/user-photos/[id]/route.ts');
+const CRON = read('app/api/cron/user-photo-hero/route.ts');
+const LIB  = read('lib/places/user-photo-hero.ts');
 const VIEW = read('components/places/PlaceUserPhotos.tsx');
 
 describe('make_hero — действие, а не побочный эффект модерации', () => {
@@ -36,16 +38,16 @@ describe('make_hero — действие, а не побочный эффект 
   it('переносится ССЫЛКА, а не байты', () => {
     // У ai_route_images есть s3_url, и раздача отдаёт его редиректом.
     // Копировать мегабайты ради смены главного фото незачем.
-    const at = ROUTE.indexOf('INSERT INTO ai_route_images');
+    const at = LIB.indexOf('INSERT INTO ai_route_images');
     expect(at).toBeGreaterThan(-1);
-    const stmt = ROUTE.slice(at, ROUTE.indexOf('`,', at));
+    const stmt = LIB.slice(at, LIB.indexOf('`,', at));
     expect(stmt).toContain('s3_url');
     expect(stmt).toMatch(/image_data\s*=\s*NULL/);
   });
 
   it('права переписываются целиком — прежний герой не оставляет подписи', () => {
-    const at = ROUTE.indexOf('ON CONFLICT (route_id) DO UPDATE');
-    const upd = ROUTE.slice(at, ROUTE.indexOf('`,', at));
+    const at = LIB.indexOf('ON CONFLICT (route_id) DO UPDATE');
+    const upd = LIB.slice(at, LIB.indexOf('`,', at));
     for (const c of ['author', 'license', 'license_url', 'source_url']) {
       expect(upd, c).toMatch(new RegExp(`${c}\\s*=\\s*EXCLUDED\\.${c}`));
     }
@@ -54,19 +56,42 @@ describe('make_hero — действие, а не побочный эффект 
   it('одобрение идёт вместе с переносом, а не отдельным шагом', () => {
     // «Фото на карточке, но ждёт проверки» — противоречие; два действия
     // подряд оставили бы окно, в котором оно истинно.
-    expect(ROUTE).toMatch(/UPDATE user_place_photos\s*\n\s*SET status = 'approved'/);
+    expect(LIB).toMatch(/UPDATE user_place_photos\s*\n\s*SET status = 'approved'/);
+  });
+
+  it('перенос ОДИН на оба входа — копии нет', () => {
+    // Два одинаковых переноса разошлись бы при первой правке прав; этот урок
+    // платформа уже оплачивала (три копии подписи фото, разбор 14.09 утром).
+    expect(ROUTE).toContain("from '@/lib/places/user-photo-hero'");
+    expect(CRON).toContain("from '@/lib/places/user-photo-hero'");
+    for (const [name, src] of [['admin-роут', ROUTE], ['cron-роут', CRON]] as const) {
+      expect(src, `${name} не должен нести свой INSERT`).not.toContain('INSERT INTO ai_route_images');
+    }
   });
 });
 
 describe('имя чужого человека не публикуется умолчанием', () => {
   it('свой снимок подписывается своим именем, чужой — только явным author', () => {
-    expect(ROUTE).toMatch(/const isOwnPhoto = row\.user_id === admin\.userId/);
-    expect(ROUTE).toMatch(/authorOverride \?\? \(isOwnPhoto \? row\.uploader_name : null\)/);
+    expect(LIB).toMatch(/const isOwnPhoto = opts\.actorUserId !== null && row\.user_id === opts\.actorUserId/);
+    expect(LIB).toMatch(/opts\.authorOverride \?\? \(isOwnPhoto \? row\.uploader_name : null\)/);
   });
 
   it('без подписи чужого снимка — отказ словами, а не тихая публикация', () => {
+    expect(LIB).toMatch(/return \{ status: 'needs_author'/);
     expect(ROUTE).toMatch(/Это снимок другого человека/);
-    expect(ROUTE).toMatch(/status: 400/);
+    expect(ROUTE).toMatch(/status: code/);
+  });
+
+  it('у пути по CRON_SECRET «своих» снимков нет — author обязателен', () => {
+    // Владельца аккаунта там нет, и подставить имя загрузившего значило бы
+    // опубликовать чужие ПД по догадке кода.
+    expect(CRON).toMatch(/author: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(200\)/);
+    expect(CRON).toMatch(/actorUserId: null/);
+  });
+
+  it('пишущий путь: сухой прогон по умолчанию, партия не больше десяти', () => {
+    expect(CRON).toMatch(/const MAX_BATCH = 10/);
+    expect(CRON).toMatch(/dry_run !== false/);
   });
 });
 

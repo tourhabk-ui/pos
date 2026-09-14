@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { ApiResponse } from '@/types';
 import { JWTPayload } from '@/lib/auth/jwt';
+import { promoteUserPhotoToHero } from '@/lib/places/user-photo-hero';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +55,20 @@ export async function PATCH(
     }
 
     if (parsed.data.action === 'make_hero') {
-      return await makeHero(id, admin, parsed.data.author ?? null);
+      const res = await promoteUserPhotoToHero(id, {
+        actorUserId: admin.userId,
+        authorOverride: parsed.data.author ?? null,
+      });
+      if (res.status === 'applied') return NextResponse.json({ success: true } satisfies ApiResponse<null>);
+      const [error, code] = res.status === 'not_found'
+        ? ['Фото не найдено', 404] as const
+        : res.status === 'no_ark_id'
+          ? ['У места нет ark_id — снимок не к чему привязать', 422] as const
+          : ['Это снимок другого человека. Укажите author — чем подписать его на карточке.', 400] as const;
+      return NextResponse.json(
+        { success: false, error } satisfies ApiResponse<null>,
+        { status: code },
+      );
     }
 
     const newStatus = parsed.data.action === 'approve' ? 'approved' : 'rejected';
@@ -81,87 +95,4 @@ export async function PATCH(
       { status: 500 }
     );
   }
-}
-
-/**
- * Перенести снимок туриста в герои карточки.
- *
- * Одобрение идёт ВМЕСТЕ с переносом: снимок на карточке и «ждёт проверки» —
- * противоречие, а два действия подряд оставили бы окно, в котором фото уже
- * главное, но по данным ещё непроверенное.
- */
-async function makeHero(
-  photoId: string,
-  admin: JWTPayload,
-  authorOverride: string | null,
-): Promise<NextResponse> {
-  const { rows } = await pool.query<{
-    url: string; user_id: string; ark_id: string | null; uploader_name: string | null;
-  }>(
-    `SELECT ph.url, ph.user_id::text AS user_id, p.ark_id::text AS ark_id, u.name AS uploader_name
-       FROM user_place_photos ph
-       JOIN places p ON p.id = ph.place_id
-       LEFT JOIN users u ON u.id = ph.user_id
-      WHERE ph.id = $1
-      LIMIT 1`,
-    [photoId],
-  );
-
-  const row = rows[0];
-  if (!row) {
-    return NextResponse.json(
-      { success: false, error: 'Фото не найдено' } satisfies ApiResponse<null>,
-      { status: 404 },
-    );
-  }
-  if (!row.ark_id) {
-    // Тот же отказ, что у ручной загрузки: без ark_id снимок не к чему привязать.
-    return NextResponse.json(
-      { success: false, error: 'У места нет ark_id — снимок не к чему привязать' } satisfies ApiResponse<null>,
-      { status: 422 },
-    );
-  }
-
-  const isOwnPhoto = row.user_id === admin.userId;
-  const author = authorOverride ?? (isOwnPhoto ? row.uploader_name : null);
-  if (!author) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Это снимок другого человека. Укажите author — чем подписать его на карточке.',
-      } satisfies ApiResponse<null>,
-      { status: 400 },
-    );
-  }
-
-  // Четыре поля прав перечислены и в INSERT, и в DO UPDATE — иначе прежний
-  // герой оставил бы свою подпись под новым снимком (разбор 14.09).
-  // image_data гасится: байты прежнего снимка под новой ссылкой — мусор,
-  // который раздача всё равно не отдаст (s3_url имеет приоритет).
-  await pool.query(
-    `INSERT INTO ai_route_images
-       (route_id, s3_url, image_data, mime_type, prompt, model, author, license, license_url, source_url)
-     VALUES ($1, $2, NULL, 'image/jpeg', $3, 'manual-upload', $4, NULL, NULL, $2)
-     ON CONFLICT (route_id) DO UPDATE
-       SET s3_url      = EXCLUDED.s3_url,
-           image_data  = NULL,
-           mime_type   = EXCLUDED.mime_type,
-           prompt      = EXCLUDED.prompt,
-           model       = EXCLUDED.model,
-           author      = EXCLUDED.author,
-           license     = EXCLUDED.license,
-           license_url = EXCLUDED.license_url,
-           source_url  = EXCLUDED.source_url,
-           created_at  = now()`,
-    [row.ark_id, row.url, `hero from user photo ${photoId}`, author],
-  );
-
-  await pool.query(
-    `UPDATE user_place_photos
-        SET status = 'approved', reviewed_at = NOW(), reviewed_by = $1
-      WHERE id = $2`,
-    [admin.userId, photoId],
-  );
-
-  return NextResponse.json({ success: true } satisfies ApiResponse<null>);
 }
