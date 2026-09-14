@@ -44,7 +44,15 @@ describe('экран «На маршруте» — не полагается м�
   });
 
   it('обе точки входа (живой fetch и превью) прокидывают coordSource из ответа', () => {
-    const matches = FIELD_CLIENT.match(/coordSource:\s*\(w\.coordSource as CoordSource \| null\) \?\? undefined/g);
+    // Проверяется, что оба входа ПРОКИДЫВАЮТ coordSource, а не форма, которой
+    // они это делают. 14.09 форма сменилась: `as CoordSource` был не проверкой,
+    // а обещанием — колонка в базе свободный текст, и незнакомая строка
+    // (`osm_organic_930` у Синичкина, миграция 930) проезжала в
+    // coordSourceLabel и выходила оттуда undefined. Человек в поле читал
+    // «Координата точки: undefined». Теперь на границе стоит asCoordSource;
+    // прежняя редакция этой проверки покраснела бы на правке, которая её
+    // собственный смысл усиливает.
+    const matches = FIELD_CLIENT.match(/coordSource:\s*w\.coordSource \? asCoordSource\(/g);
     expect(matches?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
