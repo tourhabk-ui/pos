@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
+import { getUserFromRequest } from '@/lib/auth/jwt';
 import { pool } from '@/lib/db-pool';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
 import crypto from 'crypto';
@@ -14,16 +15,31 @@ const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 const CaptionSchema = z.string().trim().max(300).optional();
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Загрузивший видит СВОЙ снимок всегда — одобренный, ждущий проверки или
+  // отклонённый (владелец 14.09: «я лично загружал свои фото и их нет»).
+  // Прежде GET отдавал только `approved`, и человек, приславший фото, не мог
+  // отличить «ещё не проверили» от «не загрузилось»: экран в обоих случаях
+  // выглядел одинаково пустым. Это третий исход, выданный за первый (§4.0).
+  //
+  // Чужие непроверенные снимки по-прежнему не показываются никому: модерация
+  // ровно для того и есть.
+  const viewer = await getUserFromRequest(req as never);
+  const viewerId = viewer?.userId ?? null;
+
   const { rows } = await pool.query(
-    `SELECT id, url, caption, created_at
+    `SELECT id, url, caption, created_at, status,
+            ($2::uuid IS NOT NULL AND user_id = $2::uuid) AS mine
      FROM user_place_photos
-     WHERE place_id = $1 AND status = 'approved'
+     WHERE place_id = $1
+       AND (status = 'approved'
+            OR ($2::uuid IS NOT NULL AND user_id = $2::uuid))
      ORDER BY created_at DESC LIMIT 50`,
-    [id],
+    [id, viewerId],
   );
   return NextResponse.json({ success: true, data: rows });
 }
@@ -119,16 +135,30 @@ export async function POST(
     );
   }
 
+  // Модерация фильтрует ЧУЖИЕ снимки, а не свои (владелец 14.09: «я лично
+  // загружал свои фото и их нет»). Админ, поставивший фото со страницы места,
+  // попадал в очередь к самому себе: снимок ложился в `pending`, показываются
+  // только `approved`, и одобрить его надо было на другом экране
+  // (/hub/admin/user-photos). Снаружи это неотличимо от «загрузка не
+  // работает» — человек сделал всё правильно и не увидел ничего.
+  //
+  // Роль решает СЕРВЕР по токену, не клиент: статус в теле запроса не
+  // принимается и приниматься не должен.
+  const isAdmin = auth.role === 'admin';
+  const status = isAdmin ? 'approved' : 'pending';
+
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO user_place_photos (place_id, user_id, url, caption)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO user_place_photos (place_id, user_id, url, caption, status)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [placeId, auth.userId, url, captionValue ?? null],
+    [placeId, auth.userId, url, captionValue ?? null, status],
   );
 
   return NextResponse.json({
     success: true,
-    data: { id: rows[0].id, url, status: 'pending' },
-    message: 'Фото отправлено на модерацию',
+    data: { id: rows[0].id, url, status },
+    // Обещание должно совпадать с тем, что произошло: админу обещать
+    // модерацию, которой не будет, — то же враньё, только вежливое.
+    message: isAdmin ? 'Фото опубликовано' : 'Фото отправлено на модерацию',
   }, { status: 201 });
 }

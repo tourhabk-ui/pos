@@ -1,12 +1,14 @@
 {
-  "note": "13.09 вечер: доехали ли до прода обе правки дня — b127430 (сняты кружки вершин и посёлков OSM) и 25b447e (чужие навигаторы убраны). Утренняя проба 497 показала built_at 06:31, то есть сборку СТАРШЕ первого пуша (06:45). Здесь тот же маркер: built_at позже 07:47 UTC означает, что образ собран после второго пуша. commit на проде всегда 'unknown' (#1762), поэтому судим по времени.",
-  "run": 498,
+  "note": "14.09, прогон 2: перепись снимков теперь называет не только вес, но и показывается ли род на карточке и есть ли чем подписать (author/license). Вопрос один: у 23 wikimedia-commons и 87 real-photo есть права? Если у первых есть — это 23 карточки, которые можно показать сегодня, без переговоров с кем бы то ни было.",
+  "run": 501,
   "urls": [
-    "https://vedarai.ru/version.json"
+    "https://vedarai.ru/api/cron/images-oversize"
   ],
   "post": [],
-  "bytes": 4000,
-  "timeout": 30,
-  "retries": 1,
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; deploy freshness check)"
+  "bytes": 3000,
+  "timeout": 60,
+  "until": "credited",
+  "retries": 12,
+  "retryDelay": 60,
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; photo rights census)"
 }

@@ -1,3 +1,4 @@
+import type { DescriptionSource } from '@/lib/text/description-source';
 export interface PlaceSafety {
   difficultyLevel: number | null;
   altitudeM: number | null;
@@ -105,6 +106,11 @@ export interface PlaceData {
   id: string;
   name: string;
   description: string | null;
+  /**
+   * Откуда взят ТЕКСТ описания (#1830). null — подписывать нечего: либо
+   * текст не из внешнего источника, либо его с тех пор переписали.
+   */
+  descriptionSource: DescriptionSource | null;
   essence: string | null;
   category: string | null;
   locationType: string | null;

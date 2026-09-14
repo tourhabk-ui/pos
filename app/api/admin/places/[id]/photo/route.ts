@@ -5,7 +5,23 @@
  * UPSERT into ai_route_images (linked to place via route_id = places.ark_id).
  *
  * FormData:
- *   file — image (jpg/png/webp/heic), up to 20 MB
+ *   file        — image (jpg/png/webp/heic), up to 20 MB
+ *   author      — кто снял (необязательно): «Ю. Демянчук, ИВиС ДВО РАН»
+ *   license     — на каких условиях: «© ИВиС ДВО РАН, с разрешения», «CC BY 4.0»
+ *   license_url — где прочитать условия
+ *   source_url  — откуда взят снимок
+ *
+ * ПРАВА НА ЧУЖОЕ ФОТО (14.09). До этой правки путь ручной загрузки не писал
+ * НИ ОДНОГО из четырёх полей, хотя колонки в `ai_route_images` есть и вики-путь
+ * их заполняет. Снимок, полученный у правообладателя, ложился в базу без следа
+ * того, чей он и на каких условиях, — а лицензия почти всегда требует видимого
+ * указания автора. Повод предметный: владелец 14.09 решил брать фото вулканов
+ * у вулканологов (ИВиС ДВО РАН / КВЕРТ) вместо ГВП, где снимки Камчатки помечены
+ * знаком охраны того же института.
+ *
+ * Поля НЕОБЯЗАТЕЛЬНЫЕ: у собственного снимка внешнего автора нет, и требовать
+ * его значило бы заставлять выдумывать (§4.0). Но если их не передали, старые
+ * значения СНИМАЮТСЯ, а не остаются — см. UPSERT ниже.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -86,19 +102,47 @@ export async function POST(request: NextRequest, { params }: Props) {
     return NextResponse.json({ error: `Не удалось обработать файл: ${msg}` }, { status: 400 });
   }
 
+  // Права на снимок. Пустая строка приравнивается к отсутствию: форма,
+  // отправленная с незаполненным полем, шлёт '' — и хранить его значило бы
+  // держать в базе «автор есть, зовут его никак».
+  const rights = (key: string): string | null => {
+    const v = formData.get(key);
+    if (typeof v !== 'string') return null;
+    const trimmed = v.trim();
+    return trimmed === '' ? null : trimmed.slice(0, 500);
+  };
+  const author     = rights('author');
+  const license    = rights('license');
+  const licenseUrl = rights('license_url');
+  const sourceUrl  = rights('source_url');
+
   // UPSERT — replace existing AI-generated image if any.
+  //
+  // Четыре поля прав ОБЯЗАТЕЛЬНО перечислены и в INSERT, и в DO UPDATE. До
+  // 14.09 их не было ни там, ни там, и это давало тихую подмену: заменив
+  // снимок Wikimedia ручной загрузкой, строка сохраняла author и license
+  // ПРЕЖНЕГО фото — карточка подписывала новое изображение чужим именем и
+  // чужой лицензией. Ложная атрибуция хуже отсутствующей: она утверждает
+  // права, которых нет, от имени человека, который этого не говорил.
   await pool.query(
-    `INSERT INTO ai_route_images (route_id, image_data, mime_type, prompt, model, width, height)
-     VALUES ($1, $2, 'image/jpeg', $3, 'manual-upload', $4, $5)
+    `INSERT INTO ai_route_images
+       (route_id, image_data, mime_type, prompt, model, width, height,
+        author, license, license_url, source_url)
+     VALUES ($1, $2, 'image/jpeg', $3, 'manual-upload', $4, $5, $6, $7, $8, $9)
      ON CONFLICT (route_id) DO UPDATE
-       SET image_data = EXCLUDED.image_data,
-           mime_type  = EXCLUDED.mime_type,
-           prompt     = EXCLUDED.prompt,
-           model      = EXCLUDED.model,
-           width      = EXCLUDED.width,
-           height     = EXCLUDED.height,
-           created_at = now()`,
-    [arkId, processed, `manual upload by admin for ${placeRow.rows[0]!.name}`, TARGET_WIDTH, TARGET_HEIGHT],
+       SET image_data  = EXCLUDED.image_data,
+           mime_type   = EXCLUDED.mime_type,
+           prompt      = EXCLUDED.prompt,
+           model       = EXCLUDED.model,
+           width       = EXCLUDED.width,
+           height      = EXCLUDED.height,
+           author      = EXCLUDED.author,
+           license     = EXCLUDED.license,
+           license_url = EXCLUDED.license_url,
+           source_url  = EXCLUDED.source_url,
+           created_at  = now()`,
+    [arkId, processed, `manual upload by admin for ${placeRow.rows[0]!.name}`,
+     TARGET_WIDTH, TARGET_HEIGHT, author, license, licenseUrl, sourceUrl],
   );
 
   return NextResponse.json({
@@ -108,6 +152,9 @@ export async function POST(request: NextRequest, { params }: Props) {
     width: TARGET_WIDTH,
     height: TARGET_HEIGHT,
     sizeKb: Math.round(processed.length / 1024),
+    // Что записано о правах — обратно в ответе, чтобы загрузивший видел, с
+    // какой подписью снимок уйдёт на карточку, а не узнавал об этом с экрана.
+    rights: { author, license, licenseUrl, sourceUrl },
     url: `/api/images/route/${arkId}?t=${Date.now()}`,
   });
 }

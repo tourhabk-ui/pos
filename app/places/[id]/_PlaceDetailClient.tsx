@@ -63,10 +63,13 @@ function Skeleton() {
  * safe-area (см. её собственный комментарий), чтобы бары не перекрывались.
  *
  * «Навигация» отсюда убрана 07.09 (владелец, скрин: «почему 2 кнопки
- * навигация?») — `PlaceActionBar` уже держит sticky «Навигация» с тем же
- * geo:-адресом, и она видна на мобильном НАРАВНЕ с этим баром: до правки
- * человек видел два одинаковых CTA на одном экране. `PlaceActionBar` не
- * знает про Organic Maps deep link — «Оффлайн» остаётся только здесь.
+ * навигация?») — `PlaceActionBar` уже держит sticky «Навигация», и она видна
+ * на мобильном НАРАВНЕ с этим баром: до правки человек видел два одинаковых
+ * CTA на одном экране.
+ *
+ * Разделение труда с тех пор не изменилось, а вот содержание изменилось
+ * дважды: 13.09 «Навигация» в шапке стала звать свой расчёт вместо geo:, а
+ * отсюда ушёл om:// Organic Maps. Шапка даёт ДЕЙСТВИЕ, этот бар — ФАЙЛ.
  */
 function MobileBottomBar({ place }: { place: PlaceData }) {
   // «Оффлайн — Organic Maps» (om://) снят 13.09 вместе с остальными чужими
@@ -200,20 +203,28 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         images={place.images as string[]}
       />
 
-      {/* Атрибуция фото (CC-BY / CC-BY-SA — Wikimedia Commons) */}
+      {/* Атрибуция фото. Автор и лицензия — что записано, без умолчаний.
+          До 14.09 здесь стояло `author || 'Wikimedia Commons'`: у снимка без
+          автора карточка ПРИПИСЫВАЛА его Wikimedia Commons. Для вики-фото это
+          выглядело безобидно, но подпись — утверждение о правах, и под фото,
+          взятым у правообладателя (ИВиС ДВО РАН / КВЕРТ), она стала бы ложью
+          вдвойне: чужое имя и намёк на свободную лицензию, которой нет.
+          Не знаем автора — не называем его (§4.0). */}
       {place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license) && (
         <div className="max-w-3xl mx-auto px-4 pt-1.5 text-[11px] text-[var(--text-muted)]">
           Фото:{' '}
-          {place.photoAttribution.sourceUrl ? (
-            <a href={place.photoAttribution.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
-              {place.photoAttribution.author || 'Wikimedia Commons'}
-            </a>
-          ) : (
-            <span>{place.photoAttribution.author || 'Wikimedia Commons'}</span>
+          {place.photoAttribution.author && (
+            place.photoAttribution.sourceUrl ? (
+              <a href={place.photoAttribution.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+                {place.photoAttribution.author}
+              </a>
+            ) : (
+              <span>{place.photoAttribution.author}</span>
+            )
           )}
           {place.photoAttribution.license && (
             <>
-              {' · '}
+              {place.photoAttribution.author ? ' · ' : ''}
               {place.photoAttribution.licenseUrl ? (
                 <a href={place.photoAttribution.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
                   {place.photoAttribution.license}
@@ -223,6 +234,8 @@ export default function PlaceDetailClient({ id }: { id: string }) {
               )}
             </>
           )}
+          {/* Источник без автора и лицензии подписью не является, но ссылка
+              на него полезна — она есть в блоке выше, когда автор известен. */}
         </div>
       )}
 
@@ -291,6 +304,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         name={place.name}
         essence={place.essence}
         description={place.description}
+        descriptionSource={place.descriptionSource}
         placeId={place.id}
       />
 

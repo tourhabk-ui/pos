@@ -20,6 +20,13 @@
  * по происхождению вещи, и смешивать их в одной галерее значит выдавать
  * любительский кадр за карточное фото. Здесь он подписан авторством места:
  * «сняли туристы».
+ *
+ * СВОЙ СНИМОК ВИДЕН ВСЕГДА (14.09). Владелец: «я лично загружал свои фото и
+ * их нет». Путь работал ровно как написан — снимок лёг в `pending`, а блок
+ * показывал только `approved`, — и человек, приславший фото, не мог отличить
+ * «ещё не проверили» от «не загрузилось»: пусто и там и там. Теперь свой
+ * снимок приходит в любом состоянии и НАЗЫВАЕТ его словами. Чужие
+ * непроверенные по-прежнему не показываются никому.
  */
 
 import { useEffect, useState } from 'react';
@@ -30,6 +37,23 @@ interface UserPhoto {
   url: string;
   caption: string | null;
   created_at: string;
+  /** 'pending' | 'approved' | 'rejected'. Чужие непроверенные сюда не приходят. */
+  status?: string | null;
+  /** Снимок прислал тот, кто сейчас смотрит. */
+  mine?: boolean;
+}
+
+/**
+ * Подпись состояния для СВОЕГО снимка (владелец 14.09: «я лично загружал свои
+ * фото и их нет»). Одобренный подписи не требует — он просто фото; остальные
+ * обязаны назвать своё состояние словами, иначе «ещё не проверили» неотличимо
+ * от «не загрузилось».
+ */
+function ownStatusLabel(p: UserPhoto): string | null {
+  if (!p.mine) return null;
+  if (p.status === 'pending') return 'Ждёт проверки — видно только вам';
+  if (p.status === 'rejected') return 'Отклонено модератором';
+  return null;
 }
 
 /**
@@ -91,6 +115,9 @@ export default function PlaceUserPhotos({ placeId }: { placeId: string }) {
               loading="lazy"
               className="w-full aspect-[4/3] object-cover rounded-lg border border-[var(--border)] bg-[var(--bg-hover)]"
             />
+            {ownStatusLabel(p) && (
+              <p className="text-[11px] text-[var(--warning)] leading-tight">{ownStatusLabel(p)}</p>
+            )}
             {p.caption?.trim() && (
               <figcaption className="text-xs text-[var(--text-muted)] line-clamp-2">
                 {p.caption.trim()}
