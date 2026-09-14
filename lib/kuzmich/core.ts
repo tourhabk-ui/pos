@@ -26,6 +26,7 @@ import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } 
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { withSosBlock } from '@/lib/safety/sos-detector';
+import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
@@ -2185,6 +2186,23 @@ export async function aiChat(opts: {
     }
   }
 
+  // Guard на придуманный километраж «от Петропавловска» (#1883) — тот же
+  // контекст, которым обоснован ответ (toolContext + dynamic + tourContext,
+  // ровно набор askKuzmichForEval), применяется ДО SOS-блока: правим ответ
+  // модели, а не собственную вставку.
+  const toolContext = toolRuns
+    .filter((r) => r.producedData && r.output)
+    .map((r) => `[инструмент ${r.name}]\n${r.output}`)
+    .join('\n\n');
+  const groundingContext = [toolContext, dynamic, tourContext || ''].filter(Boolean).join('\n\n');
+  const distanceGuard = stripUngroundedDistanceClaims(answer, groundingContext);
+  if (distanceGuard.removed.length > 0) {
+    console.error('[kuzmich-distance-guard] вырезан незаземлённый километраж', {
+      chatId, removed: distanceGuard.removed,
+    });
+    answer = distanceGuard.cleaned;
+  }
+
   // Серверная SOS-страховка: при признаках ЧП телефоны 112/МЧС добавляются
   // к ответу независимо от модели — даже когда AI-конвейер лежит целиком.
   // Пользователю и в историю уходит finalAnswer; грейдер и синтез заметок
@@ -2286,7 +2304,12 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
    */
   const context = [toolContext, dynamic, tourContext || ''].filter(Boolean).join('\n\n');
 
-  return { answer: cleanAIResponse(raw.trim()), context };
+  // Тот же guard (#1883), что в живом aiChat — иначе pass_rate евала мерил
+  // бы пайплайн, которого турист уже не видит.
+  const cleanedAnswer = cleanAIResponse(raw.trim());
+  const distanceGuard = stripUngroundedDistanceClaims(cleanedAnswer, context);
+
+  return { answer: distanceGuard.cleaned, context };
 }
 
 // ── Full Message Processor ────────────────────────────────────────────────────
