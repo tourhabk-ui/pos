@@ -21,13 +21,21 @@ describe('_PlaceDetailClient — PlaceOwnRoute подключён рядом с 
     expect(CLIENT).toMatch(/import\('@\/components\/places\/PlaceOwnRoute'\)/);
   });
 
-  it('стоит СРАЗУ после PlaceActionBar, до блока с фото-кэшем', () => {
+  it('стоит после PlaceActionBar и ДО текста карточки', () => {
+    // Проверяется СМЫСЛ решения 07.09 — свой путь у шапки, а не в конце
+    // страницы, — а не соседство с конкретным блоком. 14.09 ориентир
+    // сменился: раскладка карточки стала двухколонной, и уведомление о
+    // кэше уехало выше сетки, к другим полноширинным полосам. Прежняя
+    // редакция проверки покраснела бы на правке, которая её собственный
+    // смысл не трогает: свой путь как был первым после шапки, так и остался
+    // (на телефоне — подряд, на широком экране — в правом столбце).
     const actionBarAt = CLIENT.indexOf('<PlaceActionBar');
     const ownRouteAt = CLIENT.indexOf('<PlaceOwnRoute', actionBarAt);
-    const cacheNoticeAt = CLIENT.indexOf('fromCache &&', actionBarAt);
+    const descriptionAt = CLIENT.indexOf('<PlaceDescription', actionBarAt);
     expect(actionBarAt).toBeGreaterThan(-1);
     expect(ownRouteAt).toBeGreaterThan(actionBarAt);
-    expect(cacheNoticeAt).toBeGreaterThan(ownRouteAt);
+    expect(descriptionAt, 'свой путь обязан быть выше описания места')
+      .toBeGreaterThan(ownRouteAt);
   });
 
   it('получает координаты и имя места', () => {

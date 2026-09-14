@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Navigation, Download, Video } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
+import { DIFFICULTY_LABELS } from '@/components/places/types';
 import { OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
@@ -38,8 +39,8 @@ const Header                = dynamic(() => import('@/components/layout/Header')
 function Skeleton() {
   return (
     <div className="animate-pulse">
-      <div className="w-full bg-[var(--bg-hover)]" style={{ height: 'clamp(320px, 68vh, 720px)' }} />
-      <div className="max-w-3xl mx-auto px-4 pt-8 space-y-4">
+      <div className="w-full bg-[var(--bg-hover)]" style={{ height: 'clamp(320px, 62vh, 560px)' }} />
+      <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 pt-8 space-y-4">
         <div className="h-5 bg-[var(--bg-hover)] rounded-full w-20" />
         <div className="h-9 bg-[var(--bg-hover)] rounded-lg w-3/4" />
         <div className="h-4 bg-[var(--bg-hover)] rounded w-full" />
@@ -186,6 +187,24 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
   const hasSeason = place.safety.openFromDate || place.safety.openToDate || place.bestSeason || place.seasonalNotes;
 
+  // Факты первого экрана — то, что человек спрашивает раньше всего: далеко ли
+  // до помощи, тяжело ли идти, высоко ли. Собираются ЗДЕСЬ, а не в герое:
+  // «не знаем» выражается отсутствием строки, а не прочерком (§4.0), и
+  // решать, что известно, должна карточка, у которой данные на руках.
+  const heroFacts: Array<{ label: string; value: string }> = [];
+  if (place.safety.altitudeM != null) {
+    heroFacts.push({ label: 'высота', value: `${place.safety.altitudeM.toLocaleString('ru-RU')} м` });
+  }
+  if (place.safety.difficultyLevel != null) {
+    heroFacts.push({
+      label: 'сложность',
+      value: DIFFICULTY_LABELS[place.safety.difficultyLevel] ?? String(place.safety.difficultyLevel),
+    });
+  }
+  if (place.safety.nearestMedicalKm != null) {
+    heroFacts.push({ label: 'до медпомощи', value: `${place.safety.nearestMedicalKm} км` });
+  }
+
   return (
     <>
       <Header />
@@ -201,6 +220,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         photoUrl={place.photoUrl}
         photoCount={place.photoCount}
         images={place.images as string[]}
+        facts={heroFacts}
       />
 
       {/* Атрибуция фото. Автор и лицензия — что записано, без умолчаний.
@@ -211,7 +231,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           вдвойне: чужое имя и намёк на свободную лицензию, которой нет.
           Не знаем автора — не называем его (§4.0). */}
       {place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license) && (
-        <div className="max-w-3xl mx-auto px-4 pt-1.5 text-[11px] text-[var(--text-muted)]">
+        <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
           Фото:{' '}
           {place.photoAttribution.author && (
             place.photoAttribution.sourceUrl ? (
@@ -239,22 +259,10 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Action bar: navigate, bookmark, share, weather */}
+      {/* Action bar: navigate, bookmark, share, weather.
+          Полноширинный липкий бар — намеренно вне сетки ниже: он относится ко
+          всей странице, а не к колонке текста. */}
       <PlaceActionBar lat={place.lat} lng={place.lng} placeId={place.id} name={place.name} />
-
-      {/* Свой рассчитанный автопуть (владелец 07.09: «добавить свой трек на
-          место») — сразу под шапкой, не в конце страницы: до этой правки
-          НИ ОДНА ссылка навигации на карточке не вела на платформу, обе
-          уходили во внешние навигаторы (осознанное решение 11.08), а свой
-          роутер (roadGraphCarProvider) был подключён только в /planning.
-
-          13.09 чужие ссылки отсюда УБРАНЫ совсем (владелец: «кнопка навигация
-          до сих пор открывает сторонние сервисы»): 07.09 свой путь только
-          ДОБАВИЛИ, оставив рядом geo: в шапке и om:// в нижнем баре — от этого
-          на одной карточке жили три навигации, две из них чужие. */}
-      <div id={OWN_ROUTE_ANCHOR} className="max-w-3xl mx-auto px-4 pt-3" style={{ scrollMarginTop: 112 }}>
-        <PlaceOwnRoute lat={place.lat} lng={place.lng} name={place.name} autoStart={autoRoute} />
-      </div>
 
       {/* Offline cache notice */}
       {fromCache && (
@@ -264,192 +272,217 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Hazard quick-view */}
-      {(place.safety.hazardTypes.length > 0 || place.safety.registrationRequired) && (
-        <div className="max-w-3xl mx-auto px-4 pt-3 pb-1">
-          <HazardBadgeStrip
-            hazards={place.safety.hazardTypes}
-            mchsRequired={place.safety.registrationRequired}
-          />
-        </div>
-      )}
+      {/*
+        РАСКЛАДКА КАРТОЧКИ — ОДНА, И ОНА ЗДЕСЬ (14.09).
 
-      {/* 1b. Авиационный цветовой код вулкана (KVERT) */}
-      {place.volcanoStatus && <VolcanoAccBadge status={place.volcanoStatus} />}
+        До этого дня ширину и поля решал КАЖДЫЙ блок сам: `max-w-3xl mx-auto
+        px-4` стояло в девятнадцати компонентах, а родитель половину из них
+        оборачивал в такой же контейнер ещё раз. Отсюда разъезд, который на
+        широком экране видно сразу: у одних блоков отступ 16 пикселей, у
+        других 32, а `PlaceCharacteristics` и `PlaceNearby` контейнера не имели
+        вовсе и растягивались во всю ширину монитора, пока соседи стояли
+        колонкой посередине. Правило, написанное двадцать раз, — это двадцать
+        правил, и они уже разошлись (тот же урок, что со стандартом линии §12).
 
-      {/* 1c. Живая камера вулкана — только для вулканов под видеонаблюдением
+        Второе: на мониторе 1440+ вся карточка была лентой в 768 пикселей с
+        пустыми полями по бокам. Поэтому на широком экране появляется вторая
+        колонка — «как добраться»: она прилипает и едет вместе с чтением,
+        вместо того чтобы уезжать вверх и теряться.
+
+        Порядок DOM — сначала столбец «как добраться», потом основной текст —
+        выбран НЕ случайно: на телефоне сетки нет, и блоки идут подряд, то
+        есть свой путь остаётся сразу под шапкой (решение владельца 07.09).
+        На широком экране `lg:col-start-2 lg:row-start-1` переносит его
+        вправо, не трогая порядок на телефоне и не создавая второй копии
+        компонента — две копии одного действия уже расходились поведением (#887).
+      */}
+      <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-10 lg:items-start">
+
+        {/* Как добраться — правый столбец на широком экране */}
+        <aside className="lg:col-start-2 lg:row-start-1 lg:sticky lg:top-[120px] pt-3 space-y-3">
+          {/* Свой рассчитанный автопуть (владелец 07.09: «добавить свой трек на
+              место»): до той правки НИ ОДНА ссылка навигации на карточке не
+              вела на платформу, обе уходили во внешние навигаторы.
+
+              13.09 чужие ссылки отсюда УБРАНЫ совсем (владелец: «кнопка
+              навигация до сих пор открывает сторонние сервисы»): 07.09 свой
+              путь только ДОБАВИЛИ, оставив рядом geo: в шапке и om:// в нижнем
+              баре — от этого на одной карточке жили три навигации, две чужие. */}
+          <div id={OWN_ROUTE_ANCHOR} style={{ scrollMarginTop: 112 }}>
+            <PlaceOwnRoute lat={place.lat} lng={place.lng} name={place.name} autoStart={autoRoute} hideIdleTrigger />
+          </div>
+
+          {/* Дорога считается выше своим графом, здесь начинается то, чего у
+              дорожного пути нет вовсе — тропа. Ищет путь ТЕМ ЖЕ полем поиска,
+              что заполнил бы человек сам — предзаполнен именем места через ?q=.
+              auto=1 (владелец 30.08: «сразу на маршруте от места, где находится
+              пользователь») доводит цель и старт (живой GPS) до автовыбора.
+
+              14.09 переехало сюда снизу: пеший путь и автопуть — один вопрос
+              «как я сюда попаду», и разносить их через всю страницу незачем. */}
+          {/* На телефоне — скромная ссылка, на широком экране — карточка в
+              столбце. Иначе первый экран телефона занимали ЧЕТЫРЕ кнопки
+              навигации подряд («Навигация», автопуть, пеший путь, GPX) и ни
+              одного слова о самом месте. Элемент один и тот же — вторая копия
+              ради второго вида расходится поведением (#887). */}
+          <Link
+            href={`/planning?mode=trail&q=${encodeURIComponent(place.name)}&auto=1`}
+            className="flex items-center gap-2 py-1 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--accent)] lg:rounded-lg lg:border lg:border-[var(--border)] lg:bg-[var(--bg-card)] lg:px-4 lg:py-2.5 lg:text-[var(--text-primary)] lg:hover:border-[var(--accent)]"
+          >
+            <Navigation className="h-4 w-4 text-[var(--accent)]" aria-hidden />
+            Пройти сюда с компасом и GPS
+          </Link>
+        </aside>
+
+        {/* Основной столбец */}
+        <div className="lg:col-start-1 lg:row-start-1 min-w-0 space-y-6">
+
+          {/* Hazard quick-view */}
+          {(place.safety.hazardTypes.length > 0 || place.safety.registrationRequired) && (
+            <div className="pt-3">
+              <HazardBadgeStrip
+                hazards={place.safety.hazardTypes}
+                mchsRequired={place.safety.registrationRequired}
+              />
+            </div>
+          )}
+
+          {/* 1b. Авиационный цветовой код вулкана (KVERT) */}
+          {place.volcanoStatus && <VolcanoAccBadge status={place.volcanoStatus} />}
+
+          {/* 1c. Живая камера вулкана — только для вулканов под видеонаблюдением
           КФ ФИЦ ЕГС РАН (см. lib/safety/volcano-cameras). Внешний онлайн-ресурс:
           обычная ссылка (не iframe, не офлайн), с честной пометкой про сеть.
           Визуальное подтверждение состояния кратера рядом с кодом КВЕРТ. */}
-      {place.locationType === 'volcano' && hasVolcanoCamera(place.name) && (
-        <a
+          {place.locationType === 'volcano' && hasVolcanoCamera(place.name) && (
+            <a
           href={VOLCANO_CAMERAS_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors"
-        >
+            >
           <Video className="w-5 h-5 text-[var(--ocean)] shrink-0" strokeWidth={1.8} />
           <span className="min-w-0">
             <span className="block text-sm font-semibold text-[var(--text-primary)]">Камеры вулкана вживую</span>
             <span className="block text-xs text-[var(--text-secondary)]">{VOLCANO_CAMERAS_SOURCE} · внешний источник, нужна сеть</span>
           </span>
-        </a>
-      )}
+            </a>
+          )}
 
-      {/* 2. Realtime alert — sticky on danger */}
-      {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
+          {/* 2. Realtime alert — sticky on danger.
+          Внутри колонки намеренно: он про ЭТО место, а не про страницу. */}
+          {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
 
-      {/* 3. Description */}
-      <PlaceDescription
-        name={place.name}
-        essence={place.essence}
-        description={place.description}
-        descriptionSource={place.descriptionSource}
-        placeId={place.id}
-      />
-
-      {/* 3b. Indigenous — context before characteristics */}
-      {place.indigenous && <PlaceIndigenous indigenous={place.indigenous} />}
-
-      {/* 4. Stat pills + hazard chips */}
-      <PlaceCharacteristics
-        locationType={place.locationType}
-        zone={place.zone}
-        safety={place.safety}
-        terrainType={place.safety.terrainType}
-      />
-
-      {/* 5. Safety block */}
-      <PlaceSafety safety={place.safety} placeId={place.id} />
-
-      {/* 5b. Field reports from tourists */}
-      <PlaceFieldReports placeId={place.id} />
-
-      {/* 6. Eco */}
-      {place.eco && (
-        <div className="max-w-3xl mx-auto px-4 mt-6">
-          <PlaceEco eco={place.eco} placeName={place.name} />
-        </div>
-      )}
-
-      {/* 6b. Universal LNT — for all places */}
-      <PlaceLNT
-        capacityPerDay={place.safety.capacityPerDay}
-        ecoZone={place.eco?.zone ?? null}
-      />
-
-      {/* 7. Season */}
-      {hasSeason && (
-        <div className="max-w-3xl mx-auto px-4 mt-6">
-          <PlaceSeason
-            openFromDate={place.safety.openFromDate}
-            openToDate={place.safety.openToDate}
-            bestSeason={place.bestSeason}
-            seasonalNotes={place.seasonalNotes}
+          {/* 3. Description */}
+          <PlaceDescription
+            name={place.name}
+            essence={place.essence}
+            description={place.description}
+            descriptionSource={place.descriptionSource}
+            placeId={place.id}
           />
-        </div>
-      )}
 
-      {/* 8. Routes through this place */}
-      {place.routes.length > 0 && (
-        <div className="max-w-3xl mx-auto px-4 mt-8">
-          <PlaceRoutes routes={place.routes} placeId={place.id} />
-        </div>
-      )}
+          {/* 3b. Indigenous — context before characteristics */}
+          {place.indigenous && <PlaceIndigenous indigenous={place.indigenous} />}
 
-      {/* 9. Tours to this place — компактные ссылки (CLAUDE.md §9, блок 11);
+          {/* 4. Stat pills + hazard chips */}
+          <PlaceCharacteristics
+            locationType={place.locationType}
+            zone={place.zone}
+            safety={place.safety}
+            terrainType={place.safety.terrainType}
+          />
+
+          {/* 5. Safety block */}
+          <PlaceSafety safety={place.safety} placeId={place.id} />
+
+          {/* 5b. Field reports from tourists */}
+          <PlaceFieldReports placeId={place.id} />
+
+          {/* 6. Eco */}
+          {place.eco && <PlaceEco eco={place.eco} placeName={place.name} />}
+
+          {/* 6b. Universal LNT — for all places */}
+          <PlaceLNT
+            capacityPerDay={place.safety.capacityPerDay}
+            ecoZone={place.eco?.zone ?? null}
+          />
+
+          {/* 7. Season */}
+          {hasSeason && (
+            <PlaceSeason
+          openFromDate={place.safety.openFromDate}
+          openToDate={place.safety.openToDate}
+          bestSeason={place.bestSeason}
+          seasonalNotes={place.seasonalNotes}
+            />
+          )}
+
+          {/* 8. Routes through this place */}
+          {place.routes.length > 0 && <PlaceRoutes routes={place.routes} placeId={place.id} />}
+
+          {/* 9. Tours to this place — компактные ссылки (CLAUDE.md §9, блок 11);
           коммерция остаётся на странице тура, здесь только переходы */}
-      {place.tours.length > 0 && (
-        <div className="mt-8">
-          <PlaceTours tours={place.tours} />
-        </div>
-      )}
+          {place.tours.length > 0 && <PlaceTours tours={place.tours} />}
 
-      {/* 10. Map + access */}
-      <div className="mt-8">
-        <PlaceAccess
-          placeId={place.id}
-          name={place.name}
-          lat={place.lat}
-          lng={place.lng}
-          accessInfo={place.accessInfo}
-          nearbyMarkers={place.nearby}
-        />
-      </div>
+          {/* 10. Map + access */}
+          <PlaceAccess
+            placeId={place.id}
+            name={place.name}
+            lat={place.lat}
+            lng={place.lng}
+            accessInfo={place.accessInfo}
+            nearbyMarkers={place.nearby}
+          />
 
-      {/* 10b. Ряд марок чужих навигаторов (Organic Maps / Яндекс / 2ГИС) стоял
+          {/* 10b. Ряд марок чужих навигаторов (Organic Maps / Яндекс / 2ГИС) стоял
           здесь до 13.09 — снят по слову владельца «кнопка навигация до сих пор
-          открывает сторонние сервисы». Дорогу до места считает свой граф
-          (PlaceOwnRoute под шапкой), пеший путь — блок ниже. */}
+          открывает сторонние сервисы». Дорогу до места считает свой граф, пеший
+          путь — ссылка на /planning; оба переехали 14.09 в столбец «как
+          добраться» выше: это один вопрос, и разносить его через всю страницу
+          незачем. */}
 
-      {/* 10c. Дальше — наше: путь сюда пешком, с компасом и GPS. Дорога
-          считается выше своим графом, здесь начинается то, чего у дорожного
-          пути нет вовсе — тропа. Ищет
-          путь ТЕМ ЖЕ полем поиска, что заполнил бы человек сам — предзаполнен
-          именем места через ?q=. auto=1 (владелец 30.08: «сразу на маршруте
-          от места, где находится пользователь») доводит цель и старт (живой
-          GPS) до автовыбора — человеку остаётся выбрать способ передвижения
-          и сам путь, если их несколько. */}
-      <div className="max-w-3xl mx-auto px-4 mt-4">
-        <Link
-          href={`/planning?mode=trail&q=${encodeURIComponent(place.name)}&auto=1`}
-          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--accent)]"
-        >
-          <Navigation className="h-4 w-4 text-[var(--accent)]" aria-hidden />
-          Пройти сюда с компасом и GPS
-        </Link>
-      </div>
+          {/* 11. Kuzmich */}
+          <PlaceKuzmich
+            placeId={place.id}
+            placeName={place.name}
+            kuzmichReview={place.kuzmichReview}
+            advisory={buildPlaceAdvisory({
+          volcano: place.volcanoStatus
+            ? { colorCode: place.volcanoStatus.colorCode, observedAt: place.volcanoStatus.observedAt }
+            : null,
+          realtime: place.realtime
+            ? { isOpen: place.realtime.isOpen, activeAlerts: place.realtime.activeAlerts, alertSeverity: place.realtime.alertSeverity }
+            : null,
+          hazardTypes: place.safety.hazardTypes,
+            })}
+          />
 
-      {/* 11. Kuzmich */}
-      <div className="max-w-3xl mx-auto px-4 mt-6">
-        <PlaceKuzmich
-          placeId={place.id}
-          placeName={place.name}
-          kuzmichReview={place.kuzmichReview}
-          advisory={buildPlaceAdvisory({
-            volcano: place.volcanoStatus
-              ? { colorCode: place.volcanoStatus.colorCode, observedAt: place.volcanoStatus.observedAt }
-              : null,
-            realtime: place.realtime
-              ? { isOpen: place.realtime.isOpen, activeAlerts: place.realtime.activeAlerts, alertSeverity: place.realtime.alertSeverity }
-              : null,
-            hazardTypes: place.safety.hazardTypes,
-          })}
-        />
-      </div>
+          {/* 12. Reviews */}
+          <PlaceReviews placeId={place.id} reviews={place.reviews} />
 
-      {/* 12. Reviews */}
-      <div className="max-w-3xl mx-auto px-4 mt-6">
-        <PlaceReviews placeId={place.id} reviews={place.reviews} />
-      </div>
-
-      {/* 12b. Фото туристов, прошедшие модерацию — ПЕРЕД формой загрузки:
+          {/* 12b. Фото туристов, прошедшие модерацию — ПЕРЕД формой загрузки:
           человек сначала видит, куда попадёт его снимок, и только потом
           загружает. Блока нет, если одобренных фото нет (см. компонент). */}
-      <div className="mt-6">
-        <PlaceUserPhotos placeId={place.id} />
-      </div>
+          <PlaceUserPhotos placeId={place.id} />
 
-      {/* 12c. Tourist photo upload */}
-      <div className="max-w-3xl mx-auto px-4 mt-6">
-        <PhotoUpload placeId={place.id} placeName={place.name} />
-      </div>
+          {/* 12c. Tourist photo upload */}
+          <PhotoUpload placeId={place.id} placeName={place.name} />
 
-      {/* 13. Nearby places — horizontal scroll mobile */}
-      {place.nearby.length > 0 && (
-        <div className="mt-6">
-          <PlaceNearby nearby={place.nearby} placeId={place.id} />
-        </div>
-      )}
+          {/* 13. Nearby places — horizontal scroll mobile */}
+          {place.nearby.length > 0 && <PlaceNearby nearby={place.nearby} placeId={place.id} />}
 
-      {/* Footer */}
-      <div className="max-w-3xl mx-auto px-4 mt-10 mb-24 md:mb-12">
-        <PlaceFooter
-          sourceUrl={place.sourceUrl}
-          sourceName={place.sourceName}
-          updatedAt={place.updatedAt}
-        />
-      </div>
+          {/* Footer */}
+          <div className="pt-4 mb-24 md:mb-12">
+            <PlaceFooter
+              sourceUrl={place.sourceUrl}
+              sourceName={place.sourceName}
+              updatedAt={place.updatedAt}
+            />
+          </div>
+
+        </div>{/* /основной столбец */}
+      </div>{/* /сетка карточки */}
 
       {/* Mobile sticky bottom bar */}
       <MobileBottomBar place={place} />

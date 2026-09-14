@@ -49,7 +49,7 @@ export default function PlaceLNT({ capacityPerDay, ecoZone }: Props) {
   if (ecoZone && (ecoZone === 'UNESCO' || ecoZone === 'federal_reserve')) return null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 mt-6">
+    <section>
       <div className="ds-card overflow-hidden">
 
         <button

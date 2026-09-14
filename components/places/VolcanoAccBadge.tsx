@@ -25,7 +25,7 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
   const stale = isVolcanoObservationStale(status.observedAt);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 pt-3">
+    <div className="pt-3">
       <div
         className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4"
         style={{ borderLeftWidth: '4px', borderLeftColor: meta.token }}

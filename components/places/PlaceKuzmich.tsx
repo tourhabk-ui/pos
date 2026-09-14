@@ -24,7 +24,7 @@ export default function PlaceKuzmich({ placeId, placeName, kuzmichReview, adviso
   const chatUrl = `/kuzmich?context=place&id=${placeId}&name=${encodeURIComponent(placeName)}`;
 
   return (
-    <section className="max-w-3xl mx-auto px-4">
+    <section>
       {/* Проактивный совет на сегодня — над вечным «о месте». Живёт, только
           если есть данные (в т.ч. честное «данных нет»). */}
       {advisory && (

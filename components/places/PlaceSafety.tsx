@@ -43,7 +43,7 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
   if (!hasAnyData) return null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 mt-6">
+    <section>
       <div className="rounded-lg border border-[var(--warning)]/30 bg-[var(--warning)]/5 overflow-hidden">
 
         {/* Header */}

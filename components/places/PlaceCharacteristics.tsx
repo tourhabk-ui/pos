@@ -99,12 +99,12 @@ export default function PlaceCharacteristics({ locationType, zone, safety, terra
 
   return (
     <section className="mt-4">
-      {/* Stat pills — horizontal scroll */}
+      {/* Показатели места. Перенос, а не горизонтальная прокрутка: на телефоне
+          прокрутка резала второй показатель по краю экрана — «СЛОЖНОСТЬ» без
+          значения, — и о том, что ряд вообще скроллится, ничто не говорило.
+          Обрез читается как поломка вёрстки, а не как приглашение тянуть. */}
       {stats.length > 0 && (
-        <div
-          className="flex gap-2 overflow-x-auto px-4 pb-1"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
+        <div className="flex flex-wrap gap-2 pb-1">
           {stats.map((s, i) => (
             <div
               key={i}
@@ -123,7 +123,7 @@ export default function PlaceCharacteristics({ locationType, zone, safety, terra
 
       {/* Hazard chips */}
       {topHazards.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-4 mt-3">
+        <div className="flex flex-wrap gap-2 mt-3">
           {topHazards.map(h => {
             const info = HAZARD_LABELS[h] ?? { label: h };
             return (

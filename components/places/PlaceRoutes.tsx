@@ -17,7 +17,7 @@ export default function PlaceRoutes({ routes, placeId: _ }: Props) {
   if (!routes.length) return null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 space-y-3">
+    <section className="space-y-3">
       <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2" style={{ fontFamily: 'var(--font-playfair)' }}>
         <Route className="w-5 h-5 text-[var(--accent)]" /> Маршруты через это место
       </h2>

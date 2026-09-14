@@ -15,7 +15,7 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
   return (
     <section className="mt-8">
       <h2
-        className="text-lg font-bold text-[var(--text-primary)] px-4 mb-3"
+        className="text-lg font-bold text-[var(--text-primary)] mb-3"
         style={{ fontFamily: 'var(--font-playfair)' }}
       >
         Рядом
@@ -23,7 +23,7 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
 
       {/* Horizontal scroll on mobile, grid on md+ */}
       <div
-        className="flex gap-3 overflow-x-auto px-4 pb-2 md:grid md:grid-cols-3 md:overflow-visible"
+        className="flex gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-3 md:overflow-visible"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {nearby.map(n => (

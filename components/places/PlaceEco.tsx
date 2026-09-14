@@ -133,7 +133,7 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
     : (ZONE_RULES[eco.zone] ?? []);
 
   return (
-    <section className="max-w-3xl mx-auto px-4">
+    <section>
       <div className="ds-card overflow-hidden border border-[var(--border)]">
 
         {/* ── Header ─────────────────────────────────────────────────────────── */}

@@ -21,7 +21,7 @@ export default function PlaceDescription({ essence, description, descriptionSour
   if (!essence && paragraphs.length === 0) return null;
 
   return (
-    <section className="max-w-3xl mx-auto px-4 pt-6 space-y-3">
+    <section className="pt-6 space-y-3">
       {/* Essence / lede */}
       {essence && (
         <p
