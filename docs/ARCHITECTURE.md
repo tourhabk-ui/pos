@@ -69,12 +69,25 @@ Guard-тест `tests/unit/platform-counts.test.ts` не даёт разнобо
 |----------|-------|
 | `tours/` | tour.service, booking.service, booking-funnel-stages, dynamic-pricing, tours-visitkamchatka |
 | `routes/` | route-description-cache, route-preflight-safety, routes-geometry-health, places-quality, geocode |
-| `safety/` | emergency-contacts, rescue-coverage, seismic-feed, seismic-parser, air-quality, zone-weather, kvert-vona |
-| `operators/` | operator-registry.service (+.test), partner.service, lead-processor.service, notification.service, operator-tour-scraper, review.service, support.service, chat.service |
-| `ingest/` | visitkamchatka-{importer,audit,gpx-importer,guides,operators}, idilesom-importer, legislation-importer, osm-traces-scout, firecrawl, mistral-ocr, wikimedia-photos, ai-image-generator |
-| корень (core/platform) | payment, search, rag, analytics, flights, hotels, insurance, transfers, travelpayouts, profanity-filter, query-expansion-health, data-inventory, data-repair, offline-readiness, intelligence-monitor, `_helpers`, `_errors`, `index` (barrel) |
+| `safety/` | emergency-contacts, rescue-coverage, seismic-feed, seismic-parser, seismic-zones, air-quality, zone-weather, kvert-vona, kvert-activity-ru, volcano-status, volcano-match, wildfire-firms, alert-delivery-health, alert-prune, feed-types, ingest-outcome, push-copy, source-health |
+| `operators/` | operator-registry.service, partner.service, lead-processor.service, notification.service, operator-tour-scraper, review.service, support.service, chat.service |
+| `ingest/` | visitkamchatka-importer, visitkamchatka-audit, visitkamchatka-gpx-importer, visitkamchatka-guides, visitkamchatka-operators, legislation-importer, osm-traces-scout, firecrawl, brightdata-unlocker, mistral-ocr, wikimedia-photos, ai-image-generator, pollinations-url, track-parse, track-place-match |
+| `intelligence/` | page-links |
+| `relief/` | dem-backfill |
+| `scout/` | source-health |
+| корень (core/platform) | payment.service, search.service, rag.service, analytics.service, intelligence-monitor.service, travelpayouts, profanity-filter, query-expansion-health, data-inventory, data-repair, offline-readiness, `_helpers`, `_errors`, `index` |
 
 Баррел `lib/services/index.ts` реэкспортит доменные сервисы по новым путям.
+
+**Таблица выше сверяется с диском сторожем** — `tests/unit/architecture-services-map.test.ts`.
+Сторож появился 14.09 не для порядка, а потому что карта разошлась с кодом в обе стороны
+разом и молча: она обещала четыре сервиса, которых нет НИ ОДНОГО файла (`flights`, `hotels`,
+`insurance`, `transfers`), не знала трёх появившихся папок (`intelligence/`, `relief/`,
+`scout/`), звала одиннадцать safety-сервисов семью — и по-прежнему называла
+`idilesom-importer`, вычищенный решением владельца 07.09 вместе со всем скрейпом чужого
+сайта. Читающий карту верит карте: «сервис перелётов есть, надо его дописать» — вывод,
+который она подсказывала, а кода за ним нет вовсе (правило 10.09, «объявленный исход без
+источника»).
 
 ---
 
