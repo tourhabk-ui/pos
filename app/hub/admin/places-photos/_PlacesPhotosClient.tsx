@@ -484,37 +484,51 @@ export default function PlacesPhotosClient() {
     return () => clearTimeout(t);
   }, [query, fetchPlaces]);
 
-  const handleUpload = async (placeId: string, file: File) => {
+  const handleUpload = async (placeId: string, file: File, replaceHero = false) => {
     setUploading(placeId);
     setFeedback((prev) => ({ ...prev, [placeId]: { ok: true, msg: 'Загрузка…' } }));
 
     try {
       const fd = new FormData();
       fd.append('file', file);
+      if (replaceHero) fd.append('replace_hero', 'true');
 
       const res = await fetch(`/api/admin/places/${placeId}/photo`, {
         method: 'POST',
         body: fd,
       });
 
-      const data = await res.json() as { ok?: boolean; error?: string; url?: string; sizeKb?: number };
+      const data = await res.json() as {
+        ok?: boolean; error?: string; url?: string; sizeKb?: number;
+        slot?: string; position?: number;
+      };
 
       if (!res.ok || !data.ok) {
         setFeedback((prev) => ({ ...prev, [placeId]: { ok: false, msg: data.error ?? 'Ошибка загрузки' } }));
         return;
       }
 
+      // Куда лёг снимок — словами. Раньше ответ был один и тот же «Готово», и
+      // замена главного фото выглядела так же, как добавление второго.
+      const where = data.slot === 'gallery'
+        ? `в галерею, ${data.position}-й`
+        : 'главным фото';
+
       setFeedback((prev) => ({
         ...prev,
-        [placeId]: { ok: true, msg: `Готово · ${data.sizeKb} КБ · 1280×720` },
+        [placeId]: { ok: true, msg: `Готово · ${where} · ${data.sizeKb} КБ · 1280×720` },
       }));
 
-      // Update place in list
-      setPlaces((prev) =>
-        prev.map((p) =>
-          p.id === placeId ? { ...p, hasPhoto: true, photoUrl: data.url ?? p.photoUrl } : p,
-        ),
-      );
+      // Обновляем плитку только когда сменился ГЕРОЙ: снимок галереи в
+      // превью не показывается, и подменять им обложку значило бы врать о
+      // том, что лежит первым.
+      if (data.slot !== 'gallery') {
+        setPlaces((prev) =>
+          prev.map((p) =>
+            p.id === placeId ? { ...p, hasPhoto: true, photoUrl: data.url ?? p.photoUrl } : p,
+          ),
+        );
+      }
     } catch (err) {
       setFeedback((prev) => ({
         ...prev,
@@ -525,7 +539,13 @@ export default function PlacesPhotosClient() {
     }
   };
 
-  const triggerUpload = (placeId: string) => {
+  // Выбор файла один, а намерений два: добавить в галерею или заменить
+  // главное фото. Намерение запоминается на время диалога выбора файла —
+  // иначе его пришлось бы угадывать в обработчике.
+  const replaceHeroRef = useRef<Record<string, boolean>>({});
+
+  const triggerUpload = (placeId: string, replaceHero = false) => {
+    replaceHeroRef.current[placeId] = replaceHero;
     fileInputRefs.current[placeId]?.click();
   };
 
@@ -865,7 +885,7 @@ export default function PlacesPhotosClient() {
                   disabled={isUploading || !place.arkId}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) handleUpload(place.id, f);
+                    if (f) handleUpload(place.id, f, replaceHeroRef.current[place.id] === true);
                     e.target.value = '';
                   }}
                 />
@@ -882,9 +902,23 @@ export default function PlacesPhotosClient() {
                   {isUploading ? (
                     <><Loader2 className="w-3.5 h-3.5 animate-spin" />Загрузка…</>
                   ) : (
-                    <><Upload className="w-3.5 h-3.5" />{place.hasPhoto ? 'Заменить' : 'Загрузить'}</>
+                    <><Upload className="w-3.5 h-3.5" />{place.hasPhoto ? 'Добавить в галерею' : 'Загрузить'}</>
                   )}
                 </button>
+
+                {/* Замена главного фото — отдельным действием. Пока кнопка
+                    была одна и звалась «Заменить», второй снимок МОЛЧА
+                    уничтожал первый; теперь уничтожение надо выбрать. */}
+                {place.hasPhoto && (
+                  <button
+                    onClick={() => triggerUpload(place.id, true)}
+                    disabled={isUploading || !place.arkId}
+                    className="w-full mt-2 text-xs underline underline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Заменить главное фото
+                  </button>
+                )}
 
                 <button
                   onClick={() => openWiki(place.id, place.name)}

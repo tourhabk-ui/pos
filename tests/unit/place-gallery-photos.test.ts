@@ -46,6 +46,8 @@ const API = read('app/api/places/[id]/route.ts');
 const RASTER = read('app/api/images/place-gallery/[arkId]/[position]/route.ts');
 const CLIENT = read('app/places/[id]/_PlaceDetailClient.tsx');
 const HERO = read('components/places/PlaceHero.tsx');
+const UPLOAD = read('app/api/admin/places/[id]/photo/route.ts');
+const ADMIN_UI = read('app/hub/admin/places-photos/_PlacesPhotosClient.tsx');
 
 describe('производитель — таблица галереи', () => {
   it('миграция заводит place_gallery_photos', () => {
@@ -122,6 +124,49 @@ describe('провод — карточка узнаёт, что снимков 
     // росло — и подпись под снимком врала бы о количестве.
     expect(API).toMatch(/photoCount:\s*Number\(r\.photo_count\) \+ /);
     expect(API).toMatch(/gallery_urls as unknown\[\] \| null\)\?\.length/);
+  });
+});
+
+describe('наполнение — второй снимок не стирает первый', () => {
+  // Без этого блока таблица была бы объявлением без источника (правило
+  // 10.09): место, куда никто не пишет. Живой производитель — ручная
+  // загрузка из админки.
+  it('решает по наличию героя, а не по догадке', () => {
+    expect(UPLOAD).toMatch(/FROM ai_route_images WHERE route_id = \$1/);
+    expect(UPLOAD).toMatch(/hasHero && !replaceHero/);
+  });
+
+  it('второй снимок кладётся в галерею', () => {
+    expect(UPLOAD).toMatch(/INSERT INTO place_gallery_photos/);
+  });
+
+  it('замена героя требует сказать это вслух', () => {
+    expect(UPLOAD).toMatch(/replace_hero/);
+  });
+
+  it('позиция берётся отдельным запросом, а не INSERT ... SELECT MAX', () => {
+    // У `INSERT INTO t (...) SELECT $1, MAX(...)` параметрам негде взять
+    // якорь типа: 42P08 «inconsistent types deduced», запрос не выполняется
+    // НИКОГДА (CLAUDE.md §4, случай 24.08).
+    expect(UPLOAD).not.toMatch(/INSERT INTO place_gallery_photos[\s\S]{0,400}SELECT/);
+    expect(UPLOAD).toMatch(/SELECT COALESCE\(MAX\(position\), 0\) \+ 1/);
+  });
+
+  it('отказ записи не выдаётся за успех', () => {
+    expect(UPLOAD).toMatch(/console\.error\('\[place-photo\]/);
+    expect(UPLOAD).toMatch(/status: 503/);
+  });
+
+  it('ответ называет, куда лёг снимок', () => {
+    expect(UPLOAD).toMatch(/slot: 'gallery'/);
+    expect(UPLOAD).toMatch(/slot: 'hero'/);
+  });
+
+  it('админка предлагает оба действия и показывает исход', () => {
+    expect(ADMIN_UI).toMatch(/Добавить в галерею/);
+    expect(ADMIN_UI).toMatch(/Заменить главное фото/);
+    expect(ADMIN_UI).toMatch(/fd\.append\('replace_hero', 'true'\)/);
+    expect(ADMIN_UI).toMatch(/data\.slot === 'gallery'/);
   });
 });
 
