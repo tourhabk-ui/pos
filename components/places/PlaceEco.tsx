@@ -134,7 +134,7 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
 
   return (
     <section>
-      <div className="ds-card overflow-hidden border border-[var(--border)]">
+      <div className="overflow-hidden rounded-lg bg-[var(--bg-card)]">
 
         {/* ── Header ─────────────────────────────────────────────────────────── */}
         <div className={`px-5 py-4 flex items-center gap-3 ${isStrict ? 'bg-[var(--success)]/8' : 'bg-[var(--ocean)]/6'}`}>

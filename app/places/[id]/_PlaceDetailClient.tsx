@@ -532,7 +532,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           {/* КУЗЬМИЧ — без обёртки раздела: у блока есть собственный
               заголовок «Кузьмич о месте», и второй над ним был бы тем же
               дублем, что «Как добраться» над «Как добраться». */}
-          <div className="pt-14">
+          <div className="pt-10">
             <PlaceKuzmich
               placeId={place.id}
               placeName={place.name}
