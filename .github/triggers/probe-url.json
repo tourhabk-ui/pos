@@ -1,22 +1,12 @@
 {
-  "note": "#1830 шаг 4-5: (1) формат публичной страницы вулкана ГВП — прежде чем ставить ссылку на карточку места, надо увидеть, что адрес такого вида существует и отдаёт страницу этого вулкана (Шивелуч, VolcanoNumber 300270). Обещать на экране непроверенный путь нельзя. (2) Условия использования volcano.si.edu — в WFS-схеме их нет, есть только VPImageCredit (подпись, не лицензия), а платформа коммерческая. Решение по фото — владельца, но факты под решение собираю пробой, не памятью.",
-  "run": 499,
+  "note": "14.09: владелец — «столько времени не можем это сделать» про фото вулканов. Перестаю гадать: сколько мест НА САМОМ ДЕЛЕ показывают фото. Карточка рисует только wikimedia и manual-upload (решение 2026-07-17 «честный градиент вместо AI-фото»), а генерации qwen-image/pollinations-flux не показываются никогда. images-oversize даёт by_model — из него видно, сколько снимков каждого рода. Одна строка на место (ON CONFLICT по route_id), поэтому счёт по родам это и есть покрытие.",
+  "run": 500,
   "urls": [
-    "https://volcano.si.edu/volcano.cfm?vn=300270",
-    "https://volcano.si.edu/gvp_termsofuse.cfm",
-    "https://www.si.edu/termsofuse"
+    "https://vedarai.ru/api/cron/images-oversize"
   ],
   "post": [],
   "bytes": 6000,
-  "timeout": 40,
+  "timeout": 60,
   "retries": 1,
-  "grep": [
-    "Sheveluch",
-    "Creative Commons",
-    "public domain",
-    "non-commercial",
-    "noncommercial",
-    "permission"
-  ],
-  "ua": "KamchatourHub/1.0 (https://vedarai.ru; GVP attribution and image terms check for #1830)"
+  "ua": "KamchatourHub/1.0 (https://vedarai.ru; place photo coverage census)"
 }
