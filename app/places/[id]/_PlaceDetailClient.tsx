@@ -16,7 +16,7 @@ const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineG
 const PlaceRealtimeStatus   = dynamic(() => import('@/components/places/PlaceRealtimeStatus'),   { ssr: false });
 const VolcanoAccBadge       = dynamic(() => import('@/components/places/VolcanoAccBadge'),       { ssr: false });
 const PlaceDescription      = dynamic(() => import('@/components/places/PlaceDescription'),      { ssr: false });
-const PlaceCharacteristics  = dynamic(() => import('@/components/places/PlaceCharacteristics'),  { ssr: false });
+const PlaceFacts            = dynamic(() => import('@/components/places/PlaceFacts'),            { ssr: false });
 const PlaceSafety           = dynamic(() => import('@/components/places/PlaceSafety'),           { ssr: false });
 const PlaceAccess           = dynamic(() => import('@/components/places/PlaceAccess'),           { ssr: false });
 const PlaceSeason           = dynamic(() => import('@/components/places/PlaceSeason'),           { ssr: false });
@@ -430,7 +430,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
               {place.indigenous && <PlaceIndigenous indigenous={place.indigenous} />}
 
-              <PlaceCharacteristics
+              <PlaceFacts
                 locationType={place.locationType}
                 zone={place.zone}
                 safety={place.safety}
