@@ -35,8 +35,16 @@ import { promoteUserPhotoToHero, type PromoteResult } from '@/lib/places/user-ph
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
-/** Маркер версии — по нему workflow ждёт выкат, а не слепой таймер. */
-const PROBE = 'user_photo_hero_v1';
+/**
+ * Маркер версии — по нему workflow ждёт выкат, а не слепой таймер.
+ *
+ * v2, а не v1: контракт тела изменился (author стал необязательным, появился
+ * no_author). Проба 503 с маркером v1 приняла ПРЕЖНЮЮ сборку — строка была в
+ * обоих образах — и получила 400 от старой схемы, где author обязателен.
+ * Маркер обязан меняться вместе с тем, что он удостоверяет, иначе ожидание
+ * выката удостоверяет прошлое.
+ */
+const PROBE = 'user_photo_hero_v2';
 
 /** Партия не больше десяти — правило владельца, общее для пишущих разборов. */
 const MAX_BATCH = 10;
