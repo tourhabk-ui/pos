@@ -71,12 +71,65 @@ function codeLines(sql: string): string[] {
   });
 }
 
+/**
+ * Вырезать присваивания `UPDATE … SET x = y`, оставив всё прочее на месте.
+ *
+ * Присваивание — НЕ сравнение, и это не послабление, а ровно то, что написано
+ * в шапке этого файла: text→uuid Постгрес приводит присваиванием сам, а
+ * оператора `=` для такой пары не существует вовсе. Требовать `::text` от
+ * `SET user_id = u.id` значит требовать приведения там, где путаницы доменов
+ * быть не может (14.09, миграция 970 — ложное срабатывание ровно на этой
+ * строке).
+ *
+ * Дыры это не открывает: опасное присваивание `SET user_id =
+ * (metadata->>'user_id')::uuid` ловит соседняя проверка «идентификаторы не
+ * приводятся к uuid», и ловит по другой причине — не по домену сравнения, а по
+ * тому, что приведение падает на первой же кривой записи.
+ *
+ * Разбор идёт по состоянию, а не построчно: `SET` открывает область
+ * присваиваний, `FROM` / `WHERE` / `RETURNING` / `;` её закрывают, и область
+ * переживает перенос строки — в UPDATE на четыре строки SET стоит на одной, а
+ * WHERE на другой.
+ */
+function stripSetAssignments(lines: string[]): string[] {
+  let inSet = false;
+  return lines.map((line) => {
+    let rest = line;
+    let out = '';
+    for (;;) {
+      if (rest.length === 0) break;
+      if (!inSet) {
+        const open = /\bSET\b/i.exec(rest);
+        if (!open) { out += rest; break; }
+        out += rest.slice(0, open.index + open[0].length);
+        rest = rest.slice(open.index + open[0].length);
+        inSet = true;
+      } else {
+        const close = /\b(?:FROM|WHERE|RETURNING)\b|;/i.exec(rest);
+        if (!close) break;           // весь остаток строки — присваивания
+        rest = rest.slice(close.index);
+        inSet = false;
+      }
+    }
+    return out;
+  });
+}
+
+/**
+ * Одна сторона сравнения: колонка, при ней — необязательное извлечение из
+ * JSONB (`metadata->>'user_id'`) и необязательное приведение.
+ */
+const SIDE = String.raw`[\w.]+(?:\s*->>\s*'[^']*')?(?:::\s*\w+)?`;
+const COMPARISON = new RegExp(String.raw`(${SIDE})\s*=\s*(${SIDE})`);
+
 /** Строки-сравнения, где тип идентификатора предполагается. */
 export function assumedIdTypes(sql: string): string[] {
   const literals = valuesAliases(sql);
   const bad: string[] = [];
-  codeLines(sql).forEach((line, i) => {
-    const m = line.match(/([\w.]+(?:::\s*\w+)?)\s*=\s*([\w.]+(?:::\s*\w+)?)/);
+  const original = codeLines(sql);
+  stripSetAssignments(original).forEach((code, i) => {
+    const line = original[i]!;
+    const m = code.match(COMPARISON);
     if (!m) return;
     const [, left, right] = m;
     if (!ID_COLUMNS.test(left) && !ID_COLUMNS.test(right)) return;
@@ -93,8 +146,14 @@ export function assumedIdTypes(sql: string): string[] {
     // где operator_tours.id — bigint).
     const isIntLiteral = (side: string) => /^-?\d+$/.test(side.trim());
     if (isIntLiteral(left) || isIntLiteral(right)) return;
+    // Текстом сторона бывает не только по явному `::text`. Оператор `->>` в
+    // PostgreSQL ВСЕГДА возвращает text — по определению, а не по удаче
+    // (`->` тем же местом отдаёт jsonb, и он тут не в счёт). Требовать от
+    // `metadata->>'user_id'` доказать, что он текст, — требовать приведения
+    // текста к тексту.
+    const jsonText = (side: string) => /->>\s*'/.test(side);
     const typed = (side: string) =>
-      /::\s*text\b/i.test(side) || literals.has(side.split('.')[0]);
+      /::\s*text\b/i.test(side) || jsonText(side) || literals.has(side.split('.')[0]);
     if (typed(left) && typed(right)) return;
     bad.push(`${i + 1}: ${line.trim()}`);
   });
@@ -130,6 +189,29 @@ describe('сторож ловит ровно тот отказ, что стои�
     // как «сравниваем id без приведения» — у числа нет неоднозначного домена.
     expect(assumedIdTypes('WHERE ot.id = 4')).toEqual([]);
     expect(assumedIdTypes('WHERE ot.id = -1')).toEqual([]);
+  });
+
+  it('присваивание в SET — не сравнение', () => {
+    // 14.09, миграция 970: `SET user_id = u.id` — присваивание uuid в uuid.
+    expect(assumedIdTypes('UPDATE b SET user_id = u.id')).toEqual([]);
+  });
+
+  it('SET не прикрывает собой WHERE того же запроса', () => {
+    // Область присваиваний обязана ЗАКРЫВАТЬСЯ: иначе одно послабление
+    // выключило бы сторожа на всех UPDATE разом — а именно UPDATE и была
+    // миграция 874, стоившая шести попыток.
+    const sql = `UPDATE route_waypoints rw
+   SET link_kind = 'waypoint'
+  FROM places p
+ WHERE rw.place_id = p.id;`;
+    expect(assumedIdTypes(sql).length).toBeGreaterThan(0);
+  });
+
+  it('извлечение ->> считается текстом, а -> нет', () => {
+    // `->>` возвращает text по определению оператора; `->` возвращает jsonb, и
+    // сравнивать его с идентификатором — та же путаница доменов.
+    expect(assumedIdTypes("WHERE u.id::text = b.metadata->>'user_id'")).toEqual([]);
+    expect(assumedIdTypes("WHERE u.id::text = b.metadata->'user_id'").length).toBeGreaterThan(0);
   });
 
   it('строковый литерал в кавычках регулярка сравнений не видит вовсе — как и раньше', () => {
