@@ -40,7 +40,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion } from '@/lib/ai/failure-trace';
+import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion, reasoningAteTheAnswer } from '@/lib/ai/failure-trace';
 import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
@@ -2030,20 +2030,66 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     const candidates = [...new Set([primary, ...eligible, 'deepseek-chat'])];
     for (const model of candidates) {
       try {
-        const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
+        /**
+         * Решатель — не чат: здесь думать и надо, потолок покрывает
+         * размышление вместе с ответом (см. deepThinkingBudget).
+         *
+         * Но у сильнейшей модели размышление на длинной находке съедает
+         * потолок целиком, и ответа не остаётся. Замер судьи (#1428):
+         * reasoning_content 10251 и 11976 знаков при бюджете 3000 токенов —
+         * в пятнадцать-двадцать раз больше тех 575-686 знаков, по которым
+         * надбавка +1500 и калибровалась.
+         *
+         * ЦЕНА БЫЛА НЕ «одна находка не разобрана». Пустой ответ уводил на
+         * СЛЕДУЮЩЕГО кандидата — то есть на более слабую модель. Значит на
+         * самых длинных, самых трудных находках вердикт выносил слабейший,
+         * а в отчёте это выглядело всего лишь строкой в таблице «модель —
+         * вердиктов». Инверсия качества, невидимая по построению.
+         *
+         * Поэтому повтор — ТОЙ ЖЕ моделью и без размышления, а не переход к
+         * следующей. Рычаг выбран измерением: `thinking: disabled` лечит
+         * (04.09, run 7), больший потолок — нет (12.09: прибавка 2200
+         * токенов сдвинула обрыв меньше чем на 100 знаков, вся ушла в
+         * дополнительное размышление). Весь бюджет достаётся ответу, надбавка
+         * на размышление не нужна.
+         */
+        const ask = (think: boolean) => fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-          // Решатель — не чат: здесь думать и надо. Потолок покрывает
-          // размышление вместе с ответом (см. deepThinkingBudget).
           body: JSON.stringify({
-            model, temperature: 0.3, max_tokens: deepThinkingBudget(1500),
-            messages: payload, ...deepseekThinking('deep'),
+            model, temperature: 0.3,
+            max_tokens: think ? deepThinkingBudget(1500) : 1500,
+            messages: payload, ...deepseekThinking(think ? 'deep' : 'fast'),
           }),
-        }, { timeoutMs: 90_000, label: `evo-decision:${model}` });
+        }, { timeoutMs: 90_000, label: `evo-decision:${model}${think ? '' : ':no-think'}` });
+
+        let res = await ask(true);
         if (res.ok) {
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
           if (text?.trim()) { logLLMUsage(answeredModel(model, data), data.usage); return { text, model: answeredModel(model, data), provenance: why.slice() }; }
+
+          // Размышление съело ответ — единственный случай, который лечится
+          // повтором. Прочая немота (фильтр, error под 200, пустой choices)
+          // от выключенного размышления не проходит, и повторять её значило бы
+          // платить вторым запросом за то же молчание.
+          if (reasoningAteTheAnswer(data)) {
+            why.push(`deepseek(${model}): размышление съело ответ — ${describeEmptyCompletion(data)}; повтор без размышления`);
+            res = await ask(false);
+            if (res.ok) {
+              const retry = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+              const retryText = retry?.choices?.[0]?.message?.content;
+              if (retryText?.trim()) {
+                logLLMUsage(answeredModel(model, retry), retry.usage);
+                return { text: retryText, model: answeredModel(model, retry), provenance: why.slice() };
+              }
+              why.push(`deepseek(${model}) без размышления: пустой ответ — ${describeEmptyCompletion(retry)}`);
+            } else {
+              why.push(`deepseek(${model}) без размышления: HTTP ${res.status}`);
+            }
+            continue;
+          }
+
           why.push(`deepseek(${model}): пустой ответ — ${describeEmptyCompletion(data)}`);
           continue; // пустой body — беда конкретной модели, пробуем следующую
         }

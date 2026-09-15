@@ -129,7 +129,12 @@ describe('DeepSeek: живой путь просит ответ без разм�
     // 'fast') — выбор ступени решает вызывающий (scout-innovator отказывается
     // от размышления ради полноты JSON), но deepseekThinking спредится тут же,
     // литералом или через переменную.
-    for (const b of answering) expect(b, b.slice(0, 200)).toMatch(/deepseekThinking\((?:'fast'|'deep')?\)|deepseekThinking\(deepThinking \? 'deep' : 'fast'\)|thinking: \{ type: 'disabled' \}/);
+    // Ступень задаётся литералом ЛИБО тернаром по булевой переменной. Имя
+    // переменной не перечисляется: до 15.09 здесь стоял ровно один вариант
+    // (`deepThinking`), и второй вызывающий с тем же по смыслу тернаром
+    // (`think` в пути решателя) уронил сторожа, ничего не нарушив. Сторож,
+    // падающий на имени переменной, проверяет написание, а не правило.
+    for (const b of answering) expect(b, b.slice(0, 200)).toMatch(/deepseekThinking\((?:'fast'|'deep')?\)|deepseekThinking\([A-Za-z_]\w* \? 'deep' : 'fast'\)|thinking: \{ type: 'disabled' \}/);
   });
 
   it('назначение решает: чат без размышления, генерация с ним', async () => {
@@ -159,8 +164,16 @@ describe('DeepSeek: живой путь просит ответ без разм�
     // явно через deepThinking: false, а не полагаются на то, что maxTokens сам
     // на размышление хватит (12.09: не хватало — см. providers.ts docstring).
     expect(PROVIDERS).toMatch(/max_tokens: deepThinking \? deepThinkingBudget\(maxTokens\) : maxTokens,[\s\S]{0,150}deepseekThinking\(deepThinking \? 'deep' : 'fast'\)/);
-    // Решатель (callAIDecision, отдельный вызывающий) — фиксированный бюджет 1500, размышление всегда включено.
-    expect(PROVIDERS).toMatch(/max_tokens: deepThinkingBudget\(1500\)[\s\S]{0,120}deepseekThinking\('deep'\)/);
+    // Решатель (callAIDecision, отдельный вызывающий) — фиксированный бюджет
+    // 1500. Размышление включено ПЕРВОЙ попыткой; с 15.09 у него есть ровно
+    // одно измеренное исключение — повтор без размышления, когда размышление
+    // съело весь бюджет и ответа не осталось (#1428: reasoning_content 10-12
+    // тысяч знаков при потолке 3000 токенов). Повтор идёт ТОЙ ЖЕ моделью:
+    // раньше пустой ответ уводил перебор на следующую, то есть более слабую,
+    // и самые длинные находки судил слабейший. Держит
+    // tests/unit/reasoning-ate-answer.test.ts.
+    expect(PROVIDERS).toMatch(/max_tokens: think \? deepThinkingBudget\(1500\) : 1500[\s\S]{0,160}deepseekThinking\(think \? 'deep' : 'fast'\)/);
+    expect(PROVIDERS, 'первая попытка решателя обязана просить размышление').toMatch(/await ask\(true\)/);
     // Бюджет времени тоже вырос: размышление идёт дольше.
     expect(PROVIDERS).toMatch(/timeoutMs: 90_000, label: 'deepseek:content'/);
   });
