@@ -50,7 +50,13 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Ожидание сборки внутри job'а стоит 35 минут (ATTEMPTS 70 x SLEEP 30 в
+    # scripts/wait-for-deploy.sh). Таймаут job'а обязан быть БОЛЬШЕ — иначе
+    # GitHub отменит шаг ровно тогда, когда ожидание собиралось вынести свой
+    # вердикт, и отмена прочтётся как «ничего не сказано». Так и вышло 14.09:
+    # funnel-census прошёл гейт сборки в 13:49:53 и был отменён в ту же секунду.
+    # Держит tests/unit/workflow-timeout-fits-wait.test.ts.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
