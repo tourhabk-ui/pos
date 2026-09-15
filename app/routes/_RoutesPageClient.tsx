@@ -380,7 +380,19 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   return (
     <>
       <Header />
-      <div className="ds-page pt-20 pb-10">
+      {/*
+        Боковые поля 14.09. `ds-page` даёт фон, минимальную высоту и отступ
+        под шапку — и НИ ОДНОГО бокового отступа (см. globals.css). Каталог
+        на них рассчитывал: заголовок «Камчатка» и счётчик мест стояли
+        вплотную к краю экрана и обрезались на телефоне — владелец прислал
+        снимок, где у числа мест срезаны первые цифры.
+
+        Отступ ставится здесь, а не в `ds-page`: утилита используется в
+        полусотне мест, и половина из них добавляет свой `px-*` или
+        `max-w-*` — правка в утилите удвоила бы поля там и сломала
+        полноширинные экраны.
+      */}
+      <div className="ds-page pt-20 pb-10 px-4 md:px-6">
 
         {/* ── Hero ──────────────────────────────────────────── */}
         <div className="mb-6">
@@ -633,7 +645,12 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                 </button>
               </div>
             ) : routes.length === 0 ? (
-              <div className="py-24 text-center">
+              /* Отступ был py-24: на телефоне под шапкой, вкладками, поиском,
+                 сортировкой, фильтрами и рядом типов сообщение «Ничего не
+                 найдено» уезжало ЗА нижний край, и пустой поиск выглядел как
+                 сломанная страница. Сообщение об отсутствии результата обязано
+                 попадать в тот же экран, что и поле поиска. */
+              <div className="py-10 text-center">
                 <SlidersHorizontal className="w-10 h-10 mx-auto mb-3 text-[var(--text-muted)]" />
                 <p className="text-[var(--text-secondary)]">Ничего не найдено</p>
                 <button
