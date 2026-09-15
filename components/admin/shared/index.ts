@@ -22,5 +22,9 @@ export type { LoadingSpinnerProps } from './LoadingSpinner';
 export { EmptyState } from './EmptyState';
 export type { EmptyStateProps } from './EmptyState';
 
+export { Sensitive } from './Sensitive';
+
+export { SensitiveMaskToggle } from './SensitiveMaskToggle';
+
 
 

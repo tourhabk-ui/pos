@@ -8,6 +8,7 @@ import {
 } from '@dnd-kit/core';
 import { Phone, AlertTriangle } from 'lucide-react';
 import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
+import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { STATUS_META, ScoreBadge, formatDate, type Lead } from './_LeadsClient';
 
 /**
@@ -68,12 +69,12 @@ function KanbanCard({ lead }: { lead: Lead }) {
       }}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="font-medium text-sm text-[var(--text-primary)] truncate">{lead.name}</span>
+        <Sensitive as="span" className="font-medium text-sm text-[var(--text-primary)] truncate">{lead.name}</Sensitive>
         <ScoreBadge score={lead.ai_score} />
       </div>
       <div className="flex items-center gap-1 mt-1 text-xs text-[var(--text-secondary)]">
         <Phone size={11} />
-        {lead.phone}
+        <Sensitive>{lead.phone}</Sensitive>
       </div>
       {interests.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2">
@@ -218,7 +219,7 @@ export function LeadsKanban() {
         <DragOverlay>
           {activeLead ? (
             <div className="ds-card rounded-lg p-3 shadow-lg w-72" style={{ opacity: movingId ? 0.7 : 1 }}>
-              <span className="font-medium text-sm text-[var(--text-primary)]">{activeLead.name}</span>
+              <Sensitive as="span" className="font-medium text-sm text-[var(--text-primary)]">{activeLead.name}</Sensitive>
             </div>
           ) : null}
         </DragOverlay>

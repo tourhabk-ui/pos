@@ -6,6 +6,7 @@ import {
   Loader2, AlertCircle, Globe, Mail, Phone,
   CheckCircle, XCircle, Clock, Send, RefreshCw, ExternalLink,
 } from 'lucide-react';
+import { Sensitive } from '@/components/admin/shared/Sensitive';
 
 interface OutreachRow {
   id: string;
@@ -177,7 +178,7 @@ export default function OutreachClient() {
                     </span>
                     {row.contact_name && (
                       <span className="text-sm text-[var(--text-secondary)]">
-                        / {row.contact_name}
+                        / <Sensitive>{row.contact_name}</Sensitive>
                       </span>
                     )}
                     <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[row.status] ?? ''}`}>
@@ -188,12 +189,12 @@ export default function OutreachClient() {
                   <div className="flex gap-4 mt-1.5 flex-wrap text-xs text-[var(--text-secondary)]">
                     {row.email && (
                       <a href={`mailto:${row.email}`} className="flex items-center gap-1 hover:text-[var(--ocean)]">
-                        <Mail className="w-3 h-3" />{row.email}
+                        <Mail className="w-3 h-3" /><Sensitive>{row.email}</Sensitive>
                       </a>
                     )}
                     {row.phone && (
                       <a href={`tel:${row.phone}`} className="flex items-center gap-1 hover:text-[var(--ocean)]">
-                        <Phone className="w-3 h-3" />{row.phone}
+                        <Phone className="w-3 h-3" /><Sensitive>{row.phone}</Sensitive>
                       </a>
                     )}
                     {row.website && (

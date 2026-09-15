@@ -7,6 +7,7 @@ import {
   SearchBar,
   LoadingSpinner,
   EmptyState,
+  Sensitive,
   Column
 } from '@/components/admin/shared';
 import { AdminUser } from '@/types/admin';
@@ -78,8 +79,8 @@ export default function UsersManagement() {
       sortable: true,
       render: (user) => (
         <div>
-          <p className="font-medium text-[var(--text-primary)] text-xs">{user.name}</p>
-          <p className="text-[10px] text-[var(--text-muted)]">{user.email}</p>
+          <Sensitive as="p" className="font-medium text-[var(--text-primary)] text-xs">{user.name}</Sensitive>
+          <Sensitive as="p" className="text-[10px] text-[var(--text-muted)]">{user.email}</Sensitive>
         </div>
       )
     },

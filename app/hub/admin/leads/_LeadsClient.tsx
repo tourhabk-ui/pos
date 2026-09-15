@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, RefreshCw, Search, MapPin, Calendar, Trash2, AlertTriangle, Zap, List, Columns3 } from 'lucide-react';
 
 import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
+import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { LeadsKanban } from './_LeadsKanban';
 
 type View = 'list' | 'kanban';
@@ -285,7 +286,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
       <div className="flex items-start gap-3 p-4 cursor-pointer select-none" onClick={() => setOpen(o => !o)}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-[var(--text-primary)]">{lead.name}</span>
+            <Sensitive as="span" className="font-semibold text-[var(--text-primary)]">{lead.name}</Sensitive>
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sm.color}`}>{sm.label}</span>
             <ScoreBadge score={lead.ai_score} />
             {sourceLabel && (
@@ -300,7 +301,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
               className="hover:text-[var(--accent)] transition-colors"
               onClick={e => e.stopPropagation()}
             >
-              {lead.phone}
+              <Sensitive>{lead.phone}</Sensitive>
             </a>
             <CopyButton text={lead.phone} />
           </div>
