@@ -10,6 +10,7 @@
  * Используется в публичном calendar-ре (/calendar) для рендера heatmap.
  */
 
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 
@@ -65,11 +66,7 @@ export async function GET(request: NextRequest) {
          -- Занятость из реальных броней (как у гейткипера), а не из
          -- booked_slots: счётчик обновляется только при оплате и не видит
          -- созданные-но-неоплаченные брони
-         SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
-         FROM operator_bookings ob
-         WHERE ob.operator_tour_id = ta.operator_tour_id
-           AND ob.booking_date = ta.date
-           AND ob.booking_status NOT IN ('cancelled', 'rejected')
+         ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
        ) occ
        WHERE ta.date >= $1
          AND ta.date <= $2

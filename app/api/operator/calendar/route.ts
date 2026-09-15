@@ -1,3 +1,4 @@
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
@@ -62,14 +63,8 @@ export async function GET(request: NextRequest) {
       ta.cancellation_reason                   AS block_reason,
       -- Реальные брони за эту дату: SUM(participants) — люди, не COUNT(*)
       -- броней (групповая бронь на 5 человек занимает 5 мест, не 1)
-      COALESCE((
-        SELECT SUM(b.participants)
-        FROM operator_bookings b
-        WHERE b.operator_tour_id = ta.operator_tour_id
-          AND b.booking_date = ta.date
-          AND b.booking_status NOT IN ('cancelled', 'rejected')
-          AND b.deleted_at IS NULL
-      ), 0)::int                               AS booked_spots,
+      (${occupiedOnDaySql({ booking: 'b', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
+      )                                        AS booked_spots,
       -- Колонки notes в tour_availability нет (migrations 040/041) — раньше
       -- SELECT падал и весь календарь отвечал 500. Контракт поля сохраняем.
       NULL::text                               AS notes

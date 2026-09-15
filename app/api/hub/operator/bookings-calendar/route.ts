@@ -4,6 +4,7 @@
  * Используется в календарном виде рабочего места.
  */
 
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
@@ -80,12 +81,7 @@ export async function GET(req: NextRequest) {
      FROM tour_availability ta
      JOIN operator_tours t ON ta.operator_tour_id = t.id
      CROSS JOIN LATERAL (
-       SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
-       FROM operator_bookings ob
-       WHERE ob.operator_tour_id = ta.operator_tour_id
-         AND ob.booking_date = ta.date
-         AND ob.booking_status NOT IN ('cancelled', 'rejected')
-         AND ob.deleted_at IS NULL
+${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
      ) occ
      WHERE t.operator_id = $1
        AND ta.date >= $2
