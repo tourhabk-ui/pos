@@ -40,7 +40,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion } from '@/lib/ai/failure-trace';
+import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion, reasoningAteTheAnswer } from '@/lib/ai/failure-trace';
 import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
@@ -1414,6 +1414,33 @@ export function deepThinkingBudget(answerTokens: number): number {
   return answerTokens + 1500;
 }
 
+/**
+ * Имя модели для прямого Anthropic API, выведенное из слага OpenRouter.
+ *
+ * Запасной путь на случай, когда каталог самого Anthropic не ответил. Работает
+ * ТОЛЬКО для anthropic'овских слагов: снятие префикса у `anthropic/claude-...`
+ * даёт осмысленный id, у чужого слага — не даёт ничего.
+ *
+ * Правило появилось 15.09 по следу в отчёте судьи (#1428): строка
+ * `flagshipModel.replace(/^anthropic\//, '')` писалась тогда, когда флагман
+ * ВСЕГДА был моделью Anthropic. С 09.09 вендор задаётся переменной
+ * (`EVO_DECISION_FLAGSHIP_VENDOR: z-ai`), и до этой строки смена не доехала:
+ * `z-ai/glm-5.3` префикса не имеет, replace его не трогает, и в
+ * `api.anthropic.com/v1/messages` уходило `model: "z-ai/glm-5.3"` — модель
+ * чужого поставщика. В отчёте это читалось как `anthropic(z-ai/glm-5.3): HTTP
+ * 401` и выглядело отказом ключа; ключ там и правда отвергнут, но запрос был
+ * бессмысленным независимо от ключа.
+ *
+ * `null` — честное «просить нечего» (§4.0): ступень пропускается с названной
+ * причиной, а не тратит запрос на заведомо неверное имя.
+ */
+export function anthropicModelFromSlug(flagshipSlug: string): string | null {
+  const PREFIX = 'anthropic/';
+  if (!flagshipSlug.startsWith(PREFIX)) return null;
+  const id = flagshipSlug.slice(PREFIX.length).trim();
+  return id.length > 0 ? id : null;
+}
+
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
   // deepseek-chat — стабильный chat-id DeepSeek (V3). Раньше здесь стоял
   // deepseek-v4-pro, но на chat/completions он возвращал пустой body (полевой
@@ -1632,11 +1659,28 @@ export async function probeFlagshipRelay(): Promise<{
     } catch (e) { openrouter.body_sample = `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`; }
   }
 
-  // Anthropic-путь — Anthropic-форма (content[].text). Модель без префикса anthropic/.
+  // Anthropic-путь — Anthropic-форма (content[].text). Модель без префикса
+  // anthropic/ — и ТОЛЬКО если флагман действительно anthropic'овский.
+  //
+  // Здесь тот же дефект, что в решателе (#1428), но цена у него своя и выше:
+  // это ДИАГНОСТИКА. С флагманом `z-ai/glm-5.3` (вендор задаётся переменной с
+  // 09.09) снятие префикса ничего не снимало, и проба спрашивала
+  // api.anthropic.com про модель чужого поставщика. Ответ — отказ, и проба
+  // объявляла путь нерабочим, когда на самом деле она не смогла его
+  // проверить. Пополнили счёт, запустили проверку, получили «не помогло» —
+  // и решение принято по замеру, которого не было (§4.0).
   const antKey = getAnthropicKey();
-  const antModel = flagshipModel.replace(/^anthropic\//, '');
-  const anthropic: RelayProbeLeg = { base: ANTHROPIC_BASE, key_set: !!antKey, http_status: null, text_found: false, body_sample: antKey ? '' : 'ключ не задан' };
-  if (antKey) {
+  const antModel = anthropicModelFromSlug(flagshipModel);
+  const anthropic: RelayProbeLeg = {
+    base: ANTHROPIC_BASE,
+    key_set: !!antKey,
+    http_status: null,
+    text_found: false,
+    body_sample: !antKey ? 'ключ не задан'
+      : !antModel ? `флагман ${flagshipModel} — не модель Anthropic: id для запроса взять неоткуда, путь НЕ проверен`
+      : '',
+  };
+  if (antKey && antModel) {
     try {
       const res = await relayFetch(`${ANTHROPIC_BASE}/v1/messages`, {
         method: 'POST',
@@ -1914,12 +1958,34 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     // `claude-opus-4-8`. Запрос отвечал 400 за доли секунды, и отчёты 16-19.08
     // читались как «Anthropic молчит» — при живом ключе с оплаченным Opus.
     // Разные каталоги — разные имена; общего у них только поставщик.
+    /**
+     * Запасное имя берётся из слага ТОЛЬКО если слаг — anthropic'овский.
+     *
+     * Строка `flagshipModel.replace(/^anthropic\//, '')` писалась тогда, когда
+     * флагман ВСЕГДА был моделью Anthropic, и снятие префикса было
+     * осмысленным. С 09.09 вендор флагмана задаётся переменной
+     * (`EVO_DECISION_FLAGSHIP_VENDOR: z-ai`), и до этой строки смена не
+     * доехала: `z-ai/glm-5.3` префикса `anthropic/` не имеет, replace его не
+     * трогает, и в `api.anthropic.com/v1/messages` уходило поле
+     * `model: "z-ai/glm-5.3"` — модель чужого поставщика.
+     *
+     * В отчёте судьи (#1428) это читалось как `anthropic(z-ai/glm-5.3): HTTP
+     * 401` и выглядело отказом ключа. Ключ там и правда отвергнут, но запрос
+     * был бессмысленным независимо от ключа: даже с живым и оплаченным
+     * ключом Anthropic не знает такого id.
+     *
+     * Теперь чужой слаг — это честное «не знаю, какую модель просить»: ступень
+     * пропускается с названной причиной, а не тратит запрос на заведомо
+     * неверное имя (§4.0).
+     */
     const antIds = await getAnthropicModelIds();
-    const antModel = pickBestFlagship(antIds) ?? flagshipModel.replace(/^anthropic\//, '');
+    const antModel = pickBestFlagship(antIds) ?? anthropicModelFromSlug(flagshipModel);
     if (antIds.length === 0) {
-      why.push('anthropic: каталог моделей пуст — id взят из слага OpenRouter');
+      why.push(antModel
+        ? 'anthropic: каталог моделей пуст — id взят из слага OpenRouter'
+        : `anthropic: каталог моделей пуст, а флагман (${flagshipModel}) — не модель Anthropic; просить нечего`);
     }
-    try {
+    if (antModel) try {
       const sys = payload.find(m => m.role === 'system');
       const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
       if (turns.length) {
@@ -2030,20 +2096,66 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     const candidates = [...new Set([primary, ...eligible, 'deepseek-chat'])];
     for (const model of candidates) {
       try {
-        const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
+        /**
+         * Решатель — не чат: здесь думать и надо, потолок покрывает
+         * размышление вместе с ответом (см. deepThinkingBudget).
+         *
+         * Но у сильнейшей модели размышление на длинной находке съедает
+         * потолок целиком, и ответа не остаётся. Замер судьи (#1428):
+         * reasoning_content 10251 и 11976 знаков при бюджете 3000 токенов —
+         * в пятнадцать-двадцать раз больше тех 575-686 знаков, по которым
+         * надбавка +1500 и калибровалась.
+         *
+         * ЦЕНА БЫЛА НЕ «одна находка не разобрана». Пустой ответ уводил на
+         * СЛЕДУЮЩЕГО кандидата — то есть на более слабую модель. Значит на
+         * самых длинных, самых трудных находках вердикт выносил слабейший,
+         * а в отчёте это выглядело всего лишь строкой в таблице «модель —
+         * вердиктов». Инверсия качества, невидимая по построению.
+         *
+         * Поэтому повтор — ТОЙ ЖЕ моделью и без размышления, а не переход к
+         * следующей. Рычаг выбран измерением: `thinking: disabled` лечит
+         * (04.09, run 7), больший потолок — нет (12.09: прибавка 2200
+         * токенов сдвинула обрыв меньше чем на 100 знаков, вся ушла в
+         * дополнительное размышление). Весь бюджет достаётся ответу, надбавка
+         * на размышление не нужна.
+         */
+        const ask = (think: boolean) => fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-          // Решатель — не чат: здесь думать и надо. Потолок покрывает
-          // размышление вместе с ответом (см. deepThinkingBudget).
           body: JSON.stringify({
-            model, temperature: 0.3, max_tokens: deepThinkingBudget(1500),
-            messages: payload, ...deepseekThinking('deep'),
+            model, temperature: 0.3,
+            max_tokens: think ? deepThinkingBudget(1500) : 1500,
+            messages: payload, ...deepseekThinking(think ? 'deep' : 'fast'),
           }),
-        }, { timeoutMs: 90_000, label: `evo-decision:${model}` });
+        }, { timeoutMs: 90_000, label: `evo-decision:${model}${think ? '' : ':no-think'}` });
+
+        let res = await ask(true);
         if (res.ok) {
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
           if (text?.trim()) { logLLMUsage(answeredModel(model, data), data.usage); return { text, model: answeredModel(model, data), provenance: why.slice() }; }
+
+          // Размышление съело ответ — единственный случай, который лечится
+          // повтором. Прочая немота (фильтр, error под 200, пустой choices)
+          // от выключенного размышления не проходит, и повторять её значило бы
+          // платить вторым запросом за то же молчание.
+          if (reasoningAteTheAnswer(data)) {
+            why.push(`deepseek(${model}): размышление съело ответ — ${describeEmptyCompletion(data)}; повтор без размышления`);
+            res = await ask(false);
+            if (res.ok) {
+              const retry = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+              const retryText = retry?.choices?.[0]?.message?.content;
+              if (retryText?.trim()) {
+                logLLMUsage(answeredModel(model, retry), retry.usage);
+                return { text: retryText, model: answeredModel(model, retry), provenance: why.slice() };
+              }
+              why.push(`deepseek(${model}) без размышления: пустой ответ — ${describeEmptyCompletion(retry)}`);
+            } else {
+              why.push(`deepseek(${model}) без размышления: HTTP ${res.status}`);
+            }
+            continue;
+          }
+
           why.push(`deepseek(${model}): пустой ответ — ${describeEmptyCompletion(data)}`);
           continue; // пустой body — беда конкретной модели, пробуем следующую
         }

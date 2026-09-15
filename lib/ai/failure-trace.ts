@@ -87,6 +87,38 @@ export function describeRecentAiFailures(windowMs = 120_000): string | null {
  * Здесь — только форма: finish_reason, поля message, длина reasoning_content,
  * либо error в теле. Текст ответа не показывается — его нет, потому и зовут.
  */
+/**
+ * Пустой ответ ИМЕННО ПОТОМУ, что размышление съело весь бюджет.
+ *
+ * Подпись точная и ни с чем не путается: `content` пуст, `finish_reason` —
+ * `length` (потолок, а не фильтр и не остановка), и при этом
+ * `reasoning_content` не пуст — то есть модель думала, потолок кончился, и до
+ * ответа дело не дошло.
+ *
+ * Отличать это от прочей немоты обязательно, потому что лечится оно иначе.
+ * «Фильтр сработал», «в теле error под 200», «choices пуст» — там повтор без
+ * размышления не поможет; здесь помогает, и это измерено (04.09, ai-debug
+ * run 7: `thinking: {type:'disabled'}` — ответ за ~320 мс).
+ *
+ * Поднимать потолок — НЕ лечение, и это тоже измерено (12.09): прибавка 2200
+ * токенов сдвинула точку обрыва меньше чем на 100 знаков, вся прибавка ушла
+ * в ДОПОЛНИТЕЛЬНОЕ размышление. Размышление растягивается под бюджет, а не
+ * укладывается в него.
+ */
+export function reasoningAteTheAnswer(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as {
+    choices?: Array<{ finish_reason?: unknown; message?: Record<string, unknown> | null }>;
+  };
+  const choice = Array.isArray(d.choices) ? d.choices[0] : undefined;
+  if (!choice) return false;
+  if (choice.finish_reason !== 'length') return false;
+  const msg = choice.message && typeof choice.message === 'object' ? choice.message : {};
+  const content = typeof msg.content === 'string' ? msg.content.trim() : '';
+  const reasoning = typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
+  return content.length === 0 && reasoning.length > 0;
+}
+
 export function describeEmptyCompletion(data: unknown): string {
   if (!data || typeof data !== 'object') {
     return `тело не объект: ${stripSecrets(JSON.stringify(data) ?? String(data)).slice(0, 80)}`;
