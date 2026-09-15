@@ -11,6 +11,7 @@ import {
 import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
 import type { PartnerCategory } from '@/lib/partners/categories';
 import TildaPanel from '@/components/admin/TildaPanel';
+import { Sensitive } from '@/components/admin/shared/Sensitive';
 
 type ProfileStatus = 'pending' | 'approved' | 'rejected';
 
@@ -181,7 +182,7 @@ function OperatorCard({
           <div className="min-w-0">
             <p className="font-medium text-[var(--text-primary)] truncate">{op.company_name}</p>
             <p className="text-xs text-[var(--text-muted)]">
-              {CATEGORY_LABELS[op.category] ?? op.category} · {op.contact_name}
+              {CATEGORY_LABELS[op.category] ?? op.category} · <Sensitive>{op.contact_name}</Sensitive>
             </p>
           </div>
         </div>
@@ -199,12 +200,12 @@ function OperatorCard({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 text-sm">
             <div className="flex items-center gap-2 text-[var(--text-secondary)]">
               <Mail className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-              <a href={`mailto:${op.email}`} className="hover:text-[var(--accent)] transition-colors truncate">{op.email}</a>
+              <a href={`mailto:${op.email}`} className="hover:text-[var(--accent)] transition-colors truncate"><Sensitive>{op.email}</Sensitive></a>
             </div>
             {op.contact_phone && (
               <div className="flex items-center gap-2 text-[var(--text-secondary)]">
                 <Phone className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                <a href={`tel:${op.contact_phone}`} className="hover:text-[var(--accent)] transition-colors">{op.contact_phone}</a>
+                <a href={`tel:${op.contact_phone}`} className="hover:text-[var(--accent)] transition-colors"><Sensitive>{op.contact_phone}</Sensitive></a>
               </div>
             )}
             {op.inn && (

@@ -9,6 +9,7 @@ import {
   StatusBadge,
   LoadingSpinner,
   EmptyState,
+  Sensitive,
   Column,
 } from '@/components/admin/shared';
 import {
@@ -305,7 +306,9 @@ export default function PartnersManagement() {
       key: 'contact',
       header: 'Контакт',
       render: (partner) => (
-        <span className="text-[var(--text-secondary)] text-xs">{partner.contact?.phone || '—'}</span>
+        partner.contact?.phone
+          ? <Sensitive as="span" className="text-[var(--text-secondary)] text-xs">{partner.contact.phone}</Sensitive>
+          : <span className="text-[var(--text-secondary)] text-xs">—</span>
       ),
     },
     {

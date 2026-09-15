@@ -116,7 +116,7 @@ const SIDEBAR_ITEMS = [
 
 export default function AdminHubLayout({ children }: { children: ReactNode }) {
   return (
-    <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Администрирование" requiredRole="admin">
+    <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Администрирование" requiredRole="admin" showSensitiveMaskToggle>
       {children}
       <AiAssistant />
       <ChatWidget />

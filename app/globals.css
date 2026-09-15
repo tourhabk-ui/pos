@@ -457,6 +457,30 @@ a:focus-visible {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
+
+  /* Маска чувствительных данных back-office (components/admin/shared/Sensitive.tsx).
+     Сама по себе ничего не прячет — реагирует на data-mask-sensitive на <html>. */
+  .sensitive-value {
+    border-radius: 4px;
+    outline: none;
+  }
+}
+
+html[data-mask-sensitive="true"] .sensitive-value {
+  filter: blur(5px);
+  transition: filter 150ms ease;
+  cursor: default;
+}
+
+html[data-mask-sensitive="true"] .sensitive-value:hover,
+html[data-mask-sensitive="true"] .sensitive-value:focus-visible {
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-mask-sensitive="true"] .sensitive-value {
+    transition: none;
+  }
 }
 
 /* Globalnye overrajdy -- kazhdaya stranica poluchaet korrektnyj fon */

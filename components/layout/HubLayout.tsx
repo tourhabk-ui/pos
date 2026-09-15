@@ -14,6 +14,7 @@ import { RoleSwitcher } from './RoleSwitcher';
 import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import SignOutButton from '@/components/auth/SignOutButton';
+import { SensitiveMaskToggle } from '@/components/admin/shared/SensitiveMaskToggle';
 
 interface SidebarItem {
   href: string;
@@ -28,9 +29,11 @@ interface HubLayoutProps {
   sidebarTitle: string;
   /** Роль(и), необходимые для доступа. Неавторизованные → /auth/login, чужая роль → свой хаб. */
   requiredRole: string | string[];
+  /** Кнопка «скрыть чувствительные данные» в шапке — только там, где на странице реально есть <Sensitive>. */
+  showSensitiveMaskToggle?: boolean;
 }
 
-export function HubLayout({ children, sidebarItems, sidebarTitle, requiredRole }: HubLayoutProps) {
+export function HubLayout({ children, sidebarItems, sidebarTitle, requiredRole, showSensitiveMaskToggle }: HubLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
@@ -96,6 +99,7 @@ export function HubLayout({ children, sidebarItems, sidebarTitle, requiredRole }
                 потребитель в поле, а не оператор за столом. Для back-office
                 (оператор/админ) бара нет и SOS в шапке не навязываем. */}
             {isTourist && <EmergencyAction />}
+            {showSensitiveMaskToggle && <SensitiveMaskToggle />}
             <button onClick={toggleTheme} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>

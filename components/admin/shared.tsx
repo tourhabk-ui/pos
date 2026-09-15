@@ -261,3 +261,11 @@ export function LoadingSpinner({ size = 'md', message }: LoadingSpinnerProps) {
 // EmptyState — re-export from dedicated file
 export { EmptyState } from './shared/EmptyState';
 export type { EmptyStateProps } from './shared/EmptyState';
+
+// Sensitive/SensitiveMaskToggle — re-export from dedicated files. Этот файл
+// (shared.tsx) — то, во что реально резолвится import '@/components/admin/shared':
+// Node ищет shared.tsx РАНЬШЕ shared/index.ts, и без ре-экспорта здесь
+// components/admin/shared/index.ts для этого пути мёртв (замечено при
+// добавлении маски чувствительных данных, 15.09).
+export { Sensitive } from './shared/Sensitive';
+export { SensitiveMaskToggle } from './shared/SensitiveMaskToggle';
