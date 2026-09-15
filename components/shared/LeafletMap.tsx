@@ -343,6 +343,10 @@ export default function LeafletMap({
       const container = containerRef.current as HTMLElement & { _leaflet_id?: number };
       delete container._leaflet_id;
 
+      // Флаг из префикса Leaflet убирается ЗДЕСЬ, до создания карты: опции
+      // `map()` префикс не принимают, он живёт на самом контроле.
+      L.Control.Attribution.prototype.options.prefix = false;
+
       const map = L.map(containerRef.current, {
         center: restoredView
           ? L.latLng(restoredView.lat, restoredView.lng)
@@ -352,6 +356,14 @@ export default function LeafletMap({
         // Свой угол — свой контрол ниже (иначе Leaflet ставит его
         // bottomright и никакая опция map() этот угол не меняет).
         attributionControl: attribution !== false && !attributionPosition,
+        // Встроенный контрол Leaflet печатает перед атрибуцией свой префикс —
+        // ссылку на библиотеку с флагом Украины (Leaflet ставит его с 2022
+        // года по умолчанию). Мы этот флаг не выбирали и политических знаков
+        // на карточке места не показываем; лицензии OSM он не касается —
+        // требуется указание источника ТАЙЛОВ, и оно остаётся на месте.
+        //
+        // У второго пути (свой угол атрибуции, attributionPosition) префикс
+        // уже отключён — здесь та же настройка для первого.
         minZoom: 5,
         // Совпадает с maxZoom тайлового слоя ниже (17) — владелец 28.08,
         // закрытие M0. Было 12: карта искусственно запрещала приближение,

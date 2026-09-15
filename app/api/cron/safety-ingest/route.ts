@@ -180,14 +180,38 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           ON ea.expires_at > NOW()
           AND (${ALERT_MATCH_SQL})
       ),
-      agg AS (
+      dedup AS (
         -- DISTINCT: RSS-перепубликации одного предупреждения (разные guid,
-        -- один текст) размножали алерт шестикратно на карточках маршрутов
+        -- один текст) размножали алерт шестикратно на карточках маршрутов.
+        -- Теперь дедуп отдельным шагом, чтобы ниже осталась ВОЗМОЖНОСТЬ
+        -- отсортировать: у array_agg(DISTINCT ...) порядок задать нечем,
+        -- кроме самого title.
+        SELECT DISTINCT ON (lrs_id, title) lrs_id, title, severity
+        FROM matched
+        ORDER BY lrs_id, title, severity DESC
+      ),
+      agg AS (
+        -- ПОРЯДОК ПО ОПАСНОСТИ, а не по алфавиту (правка 15.09).
+        --
+        -- Владелец на карточке «Раздолья»: «Кузьмич безопасность бред
+        -- написал». Карточка писала «Сегодня сюда — нет» и тут же
+        -- «Активное предупреждение: Вилючинский перевал — проезд по
+        -- пропускам», хотя перевал в шестидесяти километрах и severity у
+        -- него 1. Красный вердикт давал ДРУГОЙ алерт зоны, посильнее, а
+        -- показывался первый по алфавиту: activeAlerts[0] читатели
+        -- (карточка, Кузьмич) берут как «то самое предупреждение».
+        --
+        -- Объяснение, не относящееся к выводу, хуже отсутствия объяснения:
+        -- человек сверяет одно с другим и перестаёт верить обоим.
         SELECT
           lrs_id,
-          COALESCE(array_agg(DISTINCT title) FILTER (WHERE title IS NOT NULL), '{}') AS alerts,
+          COALESCE(
+            array_agg(title ORDER BY severity DESC, title)
+              FILTER (WHERE title IS NOT NULL),
+            '{}'
+          ) AS alerts,
           COALESCE(MAX(severity), 0) AS max_severity
-        FROM matched
+        FROM dedup
         GROUP BY lrs_id
       )
       UPDATE location_real_time_status lrs
