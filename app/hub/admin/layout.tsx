@@ -39,6 +39,11 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/content/places-import', label: 'Импорт мест', icon: MapPin, section: 'Контент' },
   { href: '/hub/admin/enrich-places', label: 'Обогащение мест', icon: Sprout, section: 'Контент' },
   { href: '/hub/admin/places-photos', label: 'Редактор мест', icon: ImageIcon, section: 'Контент' },
+  // Очередь снятых в поле треков (15.09). До неё посмотреть свою запись было
+  // неоткуда: единственный вход — крон с секретом. Та же болезнь, что лечил
+  // field-check-queue: «форма, чей результат нельзя посмотреть, — это не
+  // форма, а способ потерять чужой труд».
+  { href: '/hub/admin/track-imports', label: 'Треки из поля', icon: Route, section: 'Контент' },
   // Экран существовал без единой ссылки — найти его можно было, только помня
   // URL наизусть (перепись достижимости 22.08). То же ниже: Webhook Telegram.
   // Transparency Hub, найденный той же переписью, снесён 05.09: он показывал
