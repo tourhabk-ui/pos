@@ -11,6 +11,7 @@
  * Урок: чинили комнату в доме без фундамента. Роут удалён; сторож держит две
  * границы — файл не возрождается и никто не начинает звать умерший путь.
  */
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -33,7 +34,13 @@ describe('мёртвый /time-slots удалён и не возвращаетс
 
   it('живой эндпоинт дат /slots на месте и считает по реальным колонкам', () => {
     const src = readFileSync(join(ROOT, 'app/api/tours/[id]/slots/route.ts'), 'utf-8');
-    expect(src).toMatch(/SUM\(ob\.participants\)/);
+    // Счёт по УЧАСТНИКАМ (групповая бронь на пятерых занимает пять мест, а не
+    // одно) с 15.09 живёт в общем правиле: перепись нашла двенадцать мест, где
+    // занятость считалась заново, и часть из них разошлась. Поэтому здесь
+    // проверяется ОТРЕНДЕРЕННЫЙ SQL правила, а не текст роута.
+    expect(src).toMatch(/occupiedOnDaySql\(/);
+    expect(occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' }))
+      .toMatch(/SUM\(ob\.participants\)/);
     expect(src).not.toMatch(/guests_count|tour_type/);
   });
 });

@@ -1,3 +1,4 @@
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
@@ -73,30 +74,33 @@ export async function GET(
         SELECT date + 1
         FROM date_series
         WHERE date < $2::date
-      ),
-      booking_counts AS (
-        SELECT
-          DATE(b.booking_date) as booking_date,
-          COALESCE(SUM(b.participants), 0) as booked_count
-        FROM operator_bookings b
-        WHERE b.operator_tour_id = $3
-          AND b.booking_status IN ('confirmed', 'new')
-          AND DATE(b.booking_date) BETWEEN $1 AND $2
-          AND b.deleted_at IS NULL
-        GROUP BY DATE(b.booking_date)
       )
+      -- Занятость считается ПО ДНЮ интервалом, а не группировкой по дате
+      -- начала. Прежняя редакция собирала CTE booking_counts с GROUP BY
+      -- DATE(booking_date) и подшивала его LEFT JOIN'ом — то есть пятидневная
+      -- бронь давала вклад ровно в день выезда, а дни 2..5 оставались
+      -- пустыми. Заодно у неё было ДВА отличия от гейта:
+      --
+      --   1. booking_status IN (confirmed,new) — предикат вида, при
+      --      котором pending_payment (оплата уже начата) НЕ занимает место;
+      --   2. DATE(booking_date) BETWEEN 1 AND 2 — бронь, начавшаяся ДО
+      --      окна и накрывающая его серединой, не попадала в счёт вовсе.
+      --      С интервальным предикатом этот фильтр не просто лишний, он
+      --      был бы неверен: такую бронь надо считать.
       SELECT
         ds.date::text,
-        COALESCE(bc.booked_count, 0) as booked,
+        occ.taken as booked,
         $4::integer as max_capacity,
-        ($4::integer - COALESCE(bc.booked_count, 0)) as spots_left,
+        ($4::integer - occ.taken) as spots_left,
         CASE
           WHEN ds.date < CURRENT_DATE THEN 'past'
-          WHEN COALESCE(bc.booked_count, 0) >= $4::integer THEN 'full'
+          WHEN occ.taken >= $4::integer THEN 'full'
           ELSE 'available'
         END as status
       FROM date_series ds
-      LEFT JOIN booking_counts bc ON bc.booking_date = ds.date
+      CROSS JOIN LATERAL (
+        ${occupiedOnDaySql({ booking: 'b', day: 'ds.date', tourId: '$3' })}
+      ) occ
       ORDER BY ds.date
     `;
 

@@ -11,6 +11,7 @@
  *
  * Auth: agent | admin
  */
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
@@ -87,11 +88,7 @@ export async function GET(req: NextRequest) {
       AND a.deleted_at IS NULL
       AND a.is_cancelled = FALSE
     CROSS JOIN LATERAL (
-      SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
-      FROM operator_bookings ob
-      WHERE ob.operator_tour_id = a.operator_tour_id
-        AND ob.booking_date = a.date
-        AND ob.booking_status NOT IN ('cancelled', 'rejected')
+      ${occupiedOnDaySql({ booking: 'ob', day: 'a.date', tourId: 'a.operator_tour_id' })}
     ) occ
     WHERE t.is_published  = TRUE
       AND t.deleted_at    IS NULL

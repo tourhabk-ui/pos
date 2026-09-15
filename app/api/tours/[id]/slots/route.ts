@@ -8,6 +8,7 @@
  * брони — показывал места, по которым бронь была бы отклонена.
  */
 
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 
@@ -33,11 +34,7 @@ export async function GET(
        FROM tour_availability ta
        JOIN operator_tours ot ON ot.id = ta.operator_tour_id
        CROSS JOIN LATERAL (
-         SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
-         FROM operator_bookings ob
-         WHERE ob.operator_tour_id = ta.operator_tour_id
-           AND ob.booking_date = ta.date
-           AND ob.booking_status NOT IN ('cancelled', 'rejected')
+         ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
        ) occ
        WHERE ta.operator_tour_id = $1
          AND ta.date >= CURRENT_DATE
