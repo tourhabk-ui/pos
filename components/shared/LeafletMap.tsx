@@ -811,6 +811,11 @@ export default function LeafletMap({
         }
       }
 
+      // Маркер-держатель линии: пина у него нет. Геометрия уже нарисована
+      // выше и в fitBounds попала — рисовать поверх неё пин значило бы
+      // ставить точку там, где точки нет.
+      if (marker.geometryOnly) return;
+
       const svgIcon = placeMarkerSvg(hex, marker.category);
       const icon = L.divIcon({
         html: svgIcon,

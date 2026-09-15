@@ -43,6 +43,7 @@ interface Row {
   format: string | null;
   points: number | null;
   length_km: string | null;
+  timespan_min: number | null;
   note: string | null;
   trip_tag: string | null;
   matched_route_id: string | null;
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
     const { rows } = await pool.query<Row>(
       `SELECT t.id::text AS id, t.created_at::text AS created_at, t.status,
               t.source_name, t.format, t.points, t.length_km::text AS length_km,
-              t.note, t.trip_tag,
+              t.timespan_min, t.note, t.trip_tag,
               t.matched_route_id::text AS matched_route_id,
               r.title AS matched_route_title,
               t.off_by_km::text AS off_by_km
@@ -89,6 +90,9 @@ export async function GET(request: NextRequest) {
         format: r.format,
         points: r.points,
         length_km: num(r.length_km),
+        // NULL законен: KML без gx:Track меток времени не несёт вовсе, и
+        // «записи длительности нет» — не то же, что «шли ноль минут».
+        timespan_min: r.timespan_min,
         note: r.note,
         trip_tag: r.trip_tag,
         // Подсказка, а не вердикт: matched_route_id подбирает БЛИЖАЙШУЮ
