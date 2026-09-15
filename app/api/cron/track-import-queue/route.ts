@@ -43,6 +43,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { parseTrackFile } from '@/lib/field/track-import';
 import { splitAtGaps, pickSegment, describeBreak } from '@/lib/field/track-segments';
+import { judgeRouteTitle } from '@/lib/routes/title-standard';
 import { isPlausibleTrackPoint } from '@/lib/routes/track';
 
 export const dynamic = 'force-dynamic';
@@ -165,6 +166,21 @@ const ApplyBodySchema = z.object({
   id: z.string().uuid(),
   route_id: z.string().min(8).max(64).optional(),
   route_title: z.string().min(2).max(200).optional(),
+  /**
+   * Создать НОВЫЙ маршрут из этой записи (15.09).
+   *
+   * Владелец: «я сам записывал трек» — а путь к «Раздолью Камчатки» так и не
+   * появился. Причина была в устройстве: применить трек можно было ТОЛЬКО к
+   * существующему маршруту, а к месту, у которого маршрута нет, приложить
+   * его было нечем. Снятый в поле путь ложился в очередь и оставался там
+   * навсегда — очередь без выхода.
+   *
+   * Имя ОБЯЗАТЕЛЬНО приходит от человека и проверяется судьёй §13
+   * (`judgeRouteTitle`): сочинять имя маршрута код не вправе, а пускать в
+   * каталог «Трек от 15.09» — значит заводить мусор, который потом не
+   * найдётся ни поиском, ни сверкой имён.
+   */
+  new_route_title: z.string().min(3).max(200).optional(),
   dry_run: z.boolean().default(true),
   force: z.boolean().default(false),
   /**
@@ -180,9 +196,13 @@ const ApplyBodySchema = z.object({
    * Без этого флага повторное применение — ошибка 409, как и было.
    */
   reapply: z.boolean().default(false),
-}).refine(d => Boolean(d.route_id) !== Boolean(d.route_title), {
-  message: 'Нужен ровно один из route_id / route_title — цель называется явно, matched_route_id не используется',
-});
+}).refine(
+  d => [d.route_id, d.route_title, d.new_route_title].filter(Boolean).length === 1,
+  {
+    message: 'Нужен ровно один из route_id / route_title / new_route_title — '
+      + 'цель называется явно, matched_route_id не используется',
+  },
+);
 
 interface QueueRow {
   id: string;
@@ -225,7 +245,45 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const routeRes = data.route_id
+  // Новый маршрут из записи. Создаётся ДО разбора файла намеренно: если имя
+  // не проходит судью §13 или занято, человек узнает об этом сразу, а не
+  // после скачивания и разбора трека.
+  if (data.new_route_title) {
+    const title = data.new_route_title.trim();
+    const verdict = judgeRouteTitle(title);
+    if (!verdict.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Имя не проходит стандарт §13: ${verdict.violations.join(', ')}. `
+            + 'Имя называет объект или путь: «Вулкан Горелый», «Пиначево — Центральный»',
+        },
+        { status: 400 },
+      );
+    }
+    const taken = await pool.query<{ id: string; title: string }>(
+      `SELECT id::text AS id, title FROM kamchatka_routes
+        WHERE lower(trim(title)) = lower($1) AND merged_into_id IS NULL
+        LIMIT 1`,
+      [title],
+    );
+    if (taken.rows.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Маршрут «${taken.rows[0]!.title}» уже есть — применяйте к нему через route_id`,
+          route_id: taken.rows[0]!.id,
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  const routeRes = data.new_route_title
+    // Нового маршрута ещё нет: цель создаётся в транзакции ниже, вместе с
+    // линией. Пустой id — признак «создать», а не найденная запись.
+    ? { rows: [{ id: '', title: data.new_route_title.trim(), geometry_source: null }] as RouteRow[] }
+    : data.route_id
     ? await pool.query<RouteRow>(
         `SELECT id::text AS id, title, geometry->>'source' AS geometry_source
          FROM kamchatka_routes WHERE id::text = $1 AND is_visible = TRUE AND merged_into_id IS NULL`,
@@ -254,7 +312,12 @@ export async function POST(request: NextRequest) {
     );
   }
   const target = routeRes.rows[0]!;
-  const precedence = mayOverwrite(target.geometry_source, 'gpx');
+  const creating = data.new_route_title != null;
+  // У создаваемого маршрута линии нет по определению — перезаписывать нечего,
+  // и правило старшинства к нему не применяется.
+  const precedence = creating
+    ? { allowed: true, reason: 'новый маршрут — линии ещё нет' }
+    : mayOverwrite(target.geometry_source, 'gpx');
   if (!precedence.allowed && !data.force) {
     return NextResponse.json(
       {
@@ -326,7 +389,9 @@ export async function POST(request: NextRequest) {
   const lengthKm = chosen.lengthKm;
 
   const preview = {
-    target: { id: target.id, title: target.title, previous_source: target.geometry_source },
+    target: creating
+      ? { id: null, title: target.title, previous_source: null, will_create: true }
+      : { id: target.id, title: target.title, previous_source: target.geometry_source },
     new_line: {
       points: coords.length,
       length_km: lengthKm,
@@ -347,6 +412,9 @@ export async function POST(request: NextRequest) {
   }
 
   const client = await pool.connect();
+  // Живёт вне try: id созданного маршрута нужен в ответе, иначе человек не
+  // узнает, куда лёг его трек, и вынужден искать запись руками.
+  let createdRouteId: string | null = null;
   try {
     await client.query('BEGIN');
     // Условия здесь не было ВОВСЕ: принятый трек ложился поверх чего угодно.
@@ -355,6 +423,22 @@ export async function POST(request: NextRequest) {
     // равного по силе соседа (osm_traces, field_track) трогать нельзя.
     // Условие ставит общее правило. `force` его снимает — но только он:
     // человек сказал явно и выше уже получил отказ с причиной.
+    // Новый маршрут: сначала запись, потом та же линия тем же кодом ниже.
+    // `category` NOT NULL — ставим 'hiking': запись сделана ногами, и это
+    // факт о способе, а не догадка о содержании. Видимость сразу TRUE —
+    // маршрут заведён человеком осознанно, прятать его не от кого.
+    let targetId = target.id;
+    if (creating) {
+      const made = await client.query<{ id: string }>(
+        `INSERT INTO kamchatka_routes (title, category, is_visible, source_name, created_at, updated_at)
+         VALUES ($1, 'hiking', TRUE, 'field_track', NOW(), NOW())
+         RETURNING id::text AS id`,
+        [target.title],
+      );
+      targetId = made.rows[0]!.id;
+      createdRouteId = targetId;
+    }
+
     const applied = data.force
       ? await client.query(
           `UPDATE kamchatka_routes
@@ -362,7 +446,7 @@ export async function POST(request: NextRequest) {
                distance_km = $2,
                updated_at = NOW()
            WHERE id::text = $3`,
-          [JSON.stringify(coords), lengthKm, target.id],
+          [JSON.stringify(coords), lengthKm, targetId],
         )
       : await client.query(
           `UPDATE kamchatka_routes
@@ -370,7 +454,7 @@ export async function POST(request: NextRequest) {
                distance_km = $2,
                updated_at = NOW()
            WHERE id::text = $3 AND ${overwriteWhereSql(4)}`,
-          [JSON.stringify(coords), lengthKm, target.id, overwritableSources('gpx')],
+          [JSON.stringify(coords), lengthKm, targetId, overwritableSources('gpx')],
         );
     if (applied.rowCount === 0) {
       // Гонка: линию заменили между проверкой и записью. Очередь не должна
@@ -394,5 +478,11 @@ export async function POST(request: NextRequest) {
     client.release();
   }
 
-  return NextResponse.json({ success: true, dry_run: false, applied: true, ...preview });
+  return NextResponse.json({
+    success: true,
+    dry_run: false,
+    applied: true,
+    ...preview,
+    ...(createdRouteId ? { created_route_id: createdRouteId } : {}),
+  });
 }
