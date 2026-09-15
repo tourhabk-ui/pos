@@ -92,6 +92,25 @@ function stemWord(w: string): string {
  * место с уточнением, а не два имени.
  */
 export function volcanoStem(name: string): string {
+  return nameStem(name, GENERIC);
+}
+
+/**
+ * Имя → основа при ЗАДАННОМ списке родовых слов.
+ *
+ * Вынесено из `volcanoStem` 15.09, когда понадобилась вторая словарная
+ * область: привязка дорожных предупреждений к точке (`lib/safety/
+ * alert-anchor.ts`) режет другие родовые слова — «перевал», «река», «бухта»,
+ * — но нормализация обязана остаться ОДНА. Две нормализации одного имени —
+ * ровно тот класс, ради которого писался §12: правило, реализованное дважды,
+ * это два правила, и они разойдутся при первой правке.
+ *
+ * Словарь родовых слов у областей РАЗНЫЙ намеренно. Добавить «перевал» в
+ * список вулканов нельзя: тогда «Вилючинский перевал» и «Вулкан Вилючинский»
+ * схлопнутся в одну основу, и код авиационной опасности KVERT уедет на
+ * перевал — не туда, где конус.
+ */
+export function nameStem(name: string, generic: readonly string[]): string {
   const words = name
     .toLowerCase()
     .replace(/\(.*?\)/g, ' ')
@@ -99,7 +118,7 @@ export function volcanoStem(name: string): string {
     .replace(/ё/g, 'е')
     .split(/\s+/)
     .map((w) => w.trim())
-    .filter((w) => w.length > 0 && !GENERIC.includes(w))
+    .filter((w) => w.length > 0 && !generic.includes(w))
     .map(stemWord)
     .filter((w) => w.length > 0);
   return words.join(' ');

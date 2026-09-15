@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-14 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `970_booking_owner_link.sql`.
+> Снято 2026-09-15 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `971_track_import_preview_line.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 243 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3225 |
+| Колонок | 3226 |
 | Внешних ключей | 261 |
 | Таблиц без единого FK в обе стороны | 71 |
 
@@ -521,9 +521,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `name varchar!` `description text!` `short_description text` `category varchar=` `difficulty varchar!` `duration integer!` `season jsonb=` `coordinates jsonb=` `requirements jsonb=` `included jsonb=` `not_included jsonb=` `is_active boolean=` `source varchar=` `source_external_id varchar` `dedupe_key varchar` `created_at timestamptz=` `updated_at timestamptz=` `subcategory varchar` `tags jsonb=` `district varchar` `length_km numeric` `activities jsonb=` `features jsonb=` `best_months varchar` `min_elevation integer` `max_elevation integer` `images jsonb=`
 
-**route_track_imports** · 22 кол. · PK id · matched_route_id → kamchatka_routes.id · индексов 3
+**route_track_imports** · 23 кол. · PK id · matched_route_id → kamchatka_routes.id · индексов 3
 
-`id uuid!=` `source_name text` `format varchar!` `s3_url text!` `s3_key text!` `byte_size integer!` `points integer` `length_km numeric` `span_km numeric` `ele_share numeric` `step_min_m integer` `step_median_m integer` `step_max_m integer` `timespan_min integer` `waypoints integer!=` `matched_route_id uuid` `off_by_km numeric` `problems text[]` `note text` `trip_tag varchar` `status varchar!=` `created_at timestamptz!=`
+`id uuid!=` `source_name text` `format varchar!` `s3_url text!` `s3_key text!` `byte_size integer!` `points integer` `length_km numeric` `span_km numeric` `ele_share numeric` `step_min_m integer` `step_median_m integer` `step_max_m integer` `timespan_min integer` `waypoints integer!=` `matched_route_id uuid` `off_by_km numeric` `problems text[]` `note text` `trip_tag varchar` `status varchar!=` `created_at timestamptz!=` `preview_line jsonb`
 
 **route_waypoints** · 10 кол. · PK id · place_id → places.id, route_id → kamchatka_routes.id · индексов 5 · триггеры: trg_route_version_waypoints
 

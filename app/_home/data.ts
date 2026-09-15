@@ -95,7 +95,31 @@ export interface VolcanoPulseItem {
  * показывал бы пустоту в спокойный день, а пустота на слое безопасности
  * неотличима от «данные не дошли». Отсюда же `degraded`.
  */
-export interface VolcanoSnapshot { items: VolcanoPulseItem[]; updatedAt: string | null; degraded: boolean }
+export interface VolcanoSnapshot {
+  items: VolcanoPulseItem[];
+  /**
+   * Когда КВЕРТ НАБЛЮДАЛ — самая свежая отметка `observed_at`.
+   *
+   * Это возраст самого факта, а не нашей осведомлённости о нём. В спокойный
+   * период КВЕРТ неделю не выпускает новой сводки, и четыре дня здесь — не
+   * поломка, а тишина на вулканах.
+   */
+  updatedAt: string | null;
+  /**
+   * Когда МЫ СПРАШИВАЛИ — самая свежая отметка `updated_at` (её ставит синк
+   * на каждом прогоне, даже когда ничего не изменилось).
+   *
+   * Отдельным полем, потому что одна отметка на два разных факта — это уже
+   * стоило нам разбора 07.09 (одна цифра на четыре источника). Владелец
+   * 15.09 увидел на телефоне «КВЕРТ — обновлено 4 дн назад» и спросил, что
+   * это значит. Ответа на экране не было: «источник молчит четвёртый день» и
+   * «наш синк не работает четвёртый день» выглядели ОДИНАКОВО, а различать
+   * их обязан именно safety-экран — под той же строкой стоит «Опасность:
+   * Высокая». `null` — синк не отметился ни разу, и это тоже говорится.
+   */
+  checkedAt: string | null;
+  degraded: boolean;
+}
 
 export type HazardLevel = 'critical' | 'danger' | 'warning';
 export type HazardKind = 'volcano' | 'thermal' | 'quake' | 'bear' | 'fire' | 'report';
@@ -488,10 +512,14 @@ async function fetchVolcanoPulse(): Promise<VolcanoSnapshot> {
   try {
     const { rows } = await query<{
       name: string; place_id: string; acc: string; ash: number | null;
-      observed_at: string | null; summary: string | null;
+      observed_at: string | null; checked_at: string | null; summary: string | null;
     }>(
       `SELECT p.name, p.id::text AS place_id, vs.aviation_color_code AS acc,
               vs.ash_height_m AS ash, vs.observed_at::text AS observed_at,
+              -- Когда синк последний раз отметился по ЭТОЙ записи. Отдельно от
+              -- observed_at: первое — время нашего опроса, второе — время
+              -- наблюдения КВЕРТ, и путать их на safety-экране нельзя.
+              vs.updated_at::text AS checked_at,
               LEFT(vs.summary, 300) AS summary
          FROM volcano_status vs
          JOIN places p ON vs.place_ark_id = p.ark_id
@@ -507,10 +535,13 @@ async function fetchVolcanoPulse(): Promise<VolcanoSnapshot> {
     const updatedAt = rows.reduce<string | null>(
       (m, r) => (r.observed_at && (!m || r.observed_at > m) ? r.observed_at : m), null,
     );
-    return { items, updatedAt, degraded: false };
+    const checkedAt = rows.reduce<string | null>(
+      (m, r) => (r.checked_at && (!m || r.checked_at > m) ? r.checked_at : m), null,
+    );
+    return { items, updatedAt, checkedAt, degraded: false };
   } catch (err) {
     console.error('[home] пульс вулканов не выбрался:', err);
-    return { items: [], updatedAt: null, degraded: true };
+    return { items: [], updatedAt: null, checkedAt: null, degraded: true };
   }
 }
 

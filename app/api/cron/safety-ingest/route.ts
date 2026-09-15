@@ -6,6 +6,7 @@ import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/ale
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
+import { buildAnchorIndex, matchAlertAnchor, ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
@@ -122,38 +123,73 @@ function authError(req: Request): Response | null {
  * событий без точных координат (МЧС-текст, официальные предупреждения о
  * цунами) и для точек без lat/lng.
  *
- * Пожар (`fire_danger`, источник NASA FIRMS) — исключение: у события ЕСТЬ
- * точные координаты кластера (`external_alerts.lat/lng`, migration 687), и у
- * точки/маршрута тоже есть координаты (`agent_route_knowledge.lat/lng`).
- * Находка issue #861: одиночная термоточка (возможно вулканическая термаль,
- * severity 0) где-то в зоне зажигала карточки ВСЕХ маршрутов зоны, включая
- * лежащие в 300 км от неё. Раз координаты обеих сторон есть — используем их:
- * радиус вместо зоны. RADIUS_KM=50 — инженерная оценка (шире 10 км кластера
- * FIRMS, уже зоны), не измерение; событие/точка без обеих координат уходят
- * в обычный зонный фолбэк.
+ * Радиус вместо зоны — у двух родов событий, и оба заведены по живому
+ * случаю, а не про запас.
+ *
+ * Пожар (`fire_danger`, NASA FIRMS): у события ЕСТЬ точные координаты
+ * кластера (`external_alerts.lat/lng`, migration 687). Находка issue #861 —
+ * одиночная термоточка (возможно вулканическая термаль, severity 0) зажигала
+ * карточки ВСЕХ маршрутов зоны, включая лежащие в 300 км. RADIUS 50 км —
+ * инженерная оценка (шире 10-километрового кластера FIRMS, уже зоны).
+ *
+ * Ограничение проезда (`road_closure`, лента МЧС): координат у события нет
+ * вовсе, и до 15.09 оно раскладывалось зоной. Владелец увидел итог на
+ * карточке «Раздолья»: «Вилючинский перевал — проезд по пропускам» у
+ * купальни за шестьдесят километров. Координаты берутся из НАШЕГО каталога
+ * по имени объекта в заголовке (`anchorRoadAlerts` ниже), радиус 30 км —
+ * решение владельца.
+ *
+ * Событие или точка без обеих координат уходят в обычный зонный фолбэк:
+ * привязка, которой нет, не выдаётся за привязку.
  *
  * Единственная формула на все три поля (active_alerts/alert_severity/
  * recommender_status) — раньше один и тот же предикат был написан трижды,
  * в трёх отдельных correlated subquery. Плодить его четвёртым местом при
  * следующей правке не стоит.
  */
+
+/**
+ * Когда у события и у точки есть координаты И тип события таков, что
+ * расстояние вообще что-то значит.
+ *
+ * Условие написано ОДИН раз и подставляется в обе ветки: в первой редакции
+ * оно было продублировано с отрицанием, и любая правка радиусных типов
+ * требовала помнить про второй экземпляр. Точка, не попавшая ни в одну
+ * ветку, теряет очистку `active_alerts` и остаётся со вчерашним значением —
+ * то есть цена расхождения здесь не косметическая.
+ */
+const GEO_SCOPED_SQL = `
+  ea.alert_type IN ('fire_danger', 'road_closure')
+  AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
+  AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+`;
+
+/**
+ * Радиус по роду события, км.
+ *
+ * Пожар — 50: шире 10-километрового кластера FIRMS, уже зоны (инженерная
+ * оценка #861, не замер).
+ *
+ * Дорожное ограничение — 30: решение владельца 15.09 («30 км от вилючинского
+ * вулкана достаточно») после карточки «Раздолья», где предупреждение о
+ * Вилючинском перевале висело за шестьдесят километров. Число хранится в
+ * `ROAD_ALERT_RADIUS_KM` и подставляется отсюда, чтобы у радиуса не завелось
+ * второго значения в SQL.
+ */
 const ALERT_MATCH_SQL = `
   (
-    ea.alert_type = 'fire_danger'
-    AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
-    AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+    ${GEO_SCOPED_SQL}
     AND 2 * 6371 * asin(sqrt(
           power(sin(radians((ark.lat - ea.lat) / 2)), 2)
           + cos(radians(ea.lat)) * cos(radians(ark.lat))
             * power(sin(radians((ark.lng - ea.lng) / 2)), 2)
-        )) <= 50
+        )) <= CASE ea.alert_type
+                WHEN 'road_closure' THEN ${ROAD_ALERT_RADIUS_KM}
+                ELSE 50
+              END
   )
   OR (
-    NOT (
-      ea.alert_type = 'fire_danger'
-      AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
-      AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
-    )
+    NOT (${GEO_SCOPED_SQL})
     AND (
       ea.affected_zones IS NULL
       OR ea.affected_zones = '{}'
@@ -161,6 +197,79 @@ const ALERT_MATCH_SQL = `
     )
   )
 `;
+
+/**
+ * Привязать дорожные предупреждения к точке каталога.
+ *
+ * Лента МЧС координат не несёт, поэтому до 15.09 ограничение проезда
+ * раскладывалось ЗОНОЙ — на сотни километров. Владелец увидел итог на
+ * карточке «Раздолья»: «Вилючинский перевал — проезд по пропускам» у
+ * купальни за шестьдесят километров.
+ *
+ * Здесь координаты берутся из НАШЕГО каталога по имени объекта в заголовке
+ * (`lib/safety/alert-anchor.ts`, три исхода: нашли / несколько / нет).
+ * Дальше радиусную привязку делает `ALERT_MATCH_SQL` — тем же способом, что
+ * уже работает на пожарах FIRMS.
+ *
+ * Лечит и уже лежащие записи, а не только свежий приём: предупреждение живёт
+ * неделю, и починка, которая начинает действовать через неделю, — это не
+ * починка. Условие `lat IS NULL` делает прогон идемпотентным: привязанное
+ * второй раз не трогается.
+ */
+interface RoadAnchorResult {
+  /** Получили точку привязки — дальше судит радиус. */
+  anchored: number;
+  /** Имя в заголовке совпало с несколькими точками: какая — неизвестно. */
+  ambiguous: number;
+  /** Такой точки в каталоге нет. Пробел каталога, а не ошибка привязки. */
+  unresolved: number;
+  error?: string;
+}
+
+async function anchorRoadAlerts(): Promise<RoadAnchorResult> {
+  try {
+    const places = await query<{ id: string; name: string; lat: string; lng: string }>(
+      `SELECT id::text AS id, name, lat::text AS lat, lng::text AS lng
+         FROM places
+        WHERE is_visible = TRUE AND merged_into_id IS NULL
+          AND lat IS NOT NULL AND lng IS NOT NULL`,
+    );
+    if (places.rows.length === 0) {
+      // Каталог пуст — привязывать не к чему. Это отказ, а не «ноль
+      // привязок»: ноль здесь неотличим от «всё уже привязано» (§4.0).
+      return { anchored: 0, ambiguous: 0, unresolved: 0, error: 'каталог мест пуст — привязывать не к чему' };
+    }
+    const index = buildAnchorIndex(places.rows.map(r => ({
+      id: r.id, name: r.name, lat: Number(r.lat), lng: Number(r.lng),
+    })));
+
+    const pending = await query<{ id: string; title: string }>(
+      `SELECT id::text AS id, title FROM external_alerts
+        WHERE alert_type = 'road_closure'
+          AND expires_at > NOW()
+          AND (lat IS NULL OR lng IS NULL)`,
+    );
+
+    let anchored = 0, ambiguous = 0, unresolved = 0;
+    for (const row of pending.rows) {
+      const match = matchAlertAnchor(index, row.title);
+      if (match.kind === 'ambiguous') { ambiguous++; continue; }
+      if (match.kind === 'none') { unresolved++; continue; }
+      await query(
+        `UPDATE external_alerts SET lat = $2, lng = $3 WHERE id::text = $1`,
+        [row.id, match.place.lat, match.place.lng],
+      );
+      anchored++;
+    }
+    return { anchored, ambiguous, unresolved };
+  } catch (e) {
+    // Молчать нельзя: без строки в логе «почему предупреждение опять на всю
+    // зону» не находится никогда.
+    const message = e instanceof Error ? e.message : 'привязка не выполнилась';
+    console.error('[safety-ingest] привязка дорожных предупреждений не выполнилась:', message);
+    return { anchored: 0, ambiguous: 0, unresolved: 0, error: message };
+  }
+}
 
 async function updateRealTimeStatus(): Promise<{ updated: number; error?: string }> {
   try {
@@ -451,6 +560,10 @@ function buildResponse(
   // от этого не страдает (см. safely), но молчать об ошибке нельзя: она
   // должна быть видна в ответе, иначе чистка перестанет работать незаметно.
   pruned?: PruneResult | { error: string },
+  // Привязка дорожных предупреждений к точке: сколько привязано, сколько
+  // осталось зонными и почему. Отказ приходит причиной, а не нулём — ноль
+  // привязок и несработавшая привязка выглядят одинаково (§4.0).
+  roadAnchors?: RoadAnchorResult | { error: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -464,6 +577,7 @@ function buildResponse(
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
     ...(pruned && 'error' in pruned ? [pruned.error] : []),
+    ...(roadAnchors && 'error' in roadAnchors && roadAnchors.error ? [roadAnchors.error] : []),
   ];
   // Кто из двух планировщиков это и что случилось с каждым источником.
   // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
@@ -555,6 +669,11 @@ function buildResponse(
     // Сколько протухших по жанру записей снято этим прогоном. Ноль здесь —
     // «проверено, чисто», а не «не проверяли»: поле есть всегда.
     pruned_genres: pruned ?? null,
+    // Дорожные предупреждения: сколько получили точку привязки, сколько
+    // остались зонными из-за неоднозначности имени и сколько — из-за того,
+    // что такой точки у нас нет. Три исхода видны раздельно: «не привязали»
+    // по разным причинам чинится по-разному.
+    road_anchors: roadAnchors ?? null,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
     // Сколько звонков намеренно не сделано, потому что об этом типе уже
     // предупреждали и алерт ещё действует (миграция 957). Ноль тут значит
@@ -699,6 +818,10 @@ export async function GET(req: Request) {
   // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
   // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
+  // ДО раскладки по точкам: привязка даёт дорожному предупреждению
+  // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
+  // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
+  const roadAnchors = await safely('road-anchor', () => anchorRoadAlerts());
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   // Статус — по источникам, которыми владеет heartbeat (см. записи здоровья
@@ -736,7 +859,7 @@ export async function GET(req: Request) {
   ]));
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get',
-    { telegramSeismicAgeMin: await telegramSeismicAgeMin() }, pruned);
+    { telegramSeismicAgeMin: await telegramSeismicAgeMin() }, pruned, roadAnchors);
 }
 
 const HtmlBodySchema = z.object({
@@ -859,6 +982,10 @@ export async function POST(req: Request) {
   // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
   // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
+  // ДО раскладки по точкам: привязка даёт дорожному предупреждению
+  // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
+  // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
+  const roadAnchors = await safely('road-anchor', () => anchorRoadAlerts());
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   // Статус — по источникам, которые приносит воркфлоу (те же, что в записях
@@ -888,5 +1015,5 @@ export async function POST(req: Request) {
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
-  }, pruned);
+  }, pruned, roadAnchors);
 }

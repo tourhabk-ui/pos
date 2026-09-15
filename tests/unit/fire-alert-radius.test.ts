@@ -18,32 +18,52 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 
 const RAW = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8');
 const CODE = RAW.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 
 describe('пожарный алерт — радиус вместо зоны', () => {
   it('fire_danger с координатами обеих сторон матчится по расстоянию (haversine), не по зоне', () => {
-    expect(CODE, 'нет ветки fire_danger').toMatch(/alert_type\s*=\s*'fire_danger'/);
+    // 15.09: радиусных родов стало два — к пожару добавилось ограничение
+    // проезда (владелец: «30 км от вилючинского вулкана достаточно»).
+    // Требование прежнее: пожар судится расстоянием, а не зоной.
+    expect(CODE, 'нет ветки fire_danger').toMatch(/alert_type IN \([^)]*'fire_danger'[^)]*\)/);
     expect(CODE, 'нет проверки координат события').toMatch(/ea\.lat IS NOT NULL AND ea\.lng IS NOT NULL/);
     expect(CODE, 'нет проверки координат точки').toMatch(/ark\.lat IS NOT NULL AND ark\.lng IS NOT NULL/);
     expect(CODE, 'нет формулы расстояния (haversine)').toMatch(/asin\(sqrt\(/);
     expect(CODE, 'нет земного радиуса 6371').toMatch(/6371/);
   });
 
-  it('порог радиуса задан числом и уже привычной 300-км зоны', () => {
-    const m = /\)\)\s*<=\s*(\d+)/.exec(CODE);
-    expect(m, 'не найден порог сравнения с рассчитанным расстоянием').toBeTruthy();
-    const radiusKm = Number(m![1]);
-    expect(radiusKm).toBeGreaterThan(0);
-    expect(radiusKm, 'радиус не должен спасать старую зональную ширину в сотни км').toBeLessThan(300);
+  it('каждый порог радиуса уже привычной 300-км зоны', () => {
+    // Порог теперь не один: CASE по роду события. Проверяются ВСЕ — иначе
+    // второй род мог бы тихо получить зональную ширину обратно.
+    const cmp = /\)\)\s*<=\s*([\s\S]{0,200}?)END/.exec(CODE)
+      ?? /\)\)\s*<=\s*(\d+)/.exec(CODE);
+    expect(cmp, 'не найден порог сравнения с рассчитанным расстоянием').toBeTruthy();
+
+    const literals = (cmp![1].match(/\d+/g) ?? []).map(Number);
+    expect(literals.length, 'в сравнении нет ни одного числового порога').toBeGreaterThan(0);
+    for (const km of literals) {
+      expect(km).toBeGreaterThan(0);
+      expect(km, 'радиус не должен спасать старую зональную ширину в сотни км').toBeLessThan(300);
+    }
+
+    // Радиус дорожных приходит константой — в тексте запроса его числа нет,
+    // и проверить его можно только у источника.
+    expect(ROAD_ALERT_RADIUS_KM).toBeGreaterThan(0);
+    expect(ROAD_ALERT_RADIUS_KM).toBeLessThan(300);
   });
 
   it('событие или точка без обеих координат честно падают в зонный фолбэк', () => {
     // Фолбэк обязан быть примененим именно когда fire_danger-ветка условий не
     // выполняется целиком (NOT (...)) — а не отдельным самостоятельным ИЛИ,
     // который совпадал бы даже когда fire_danger с координатами уже дал матч.
-    expect(CODE).toMatch(/NOT\s*\(\s*ea\.alert_type\s*=\s*'fire_danger'/);
+    // Фолбэк отрицает ТУ ЖЕ строку условия, что включает радиус
+    // (GEO_SCOPED_SQL подставляется в обе ветки). Раньше условие было
+    // выписано дважды — вторая копия могла разъехаться с первой молча.
+    expect(CODE).toMatch(/NOT\s*\(\$\{GEO_SCOPED_SQL\}\)/);
+    expect(CODE.match(/const GEO_SCOPED_SQL/g)?.length, 'условие радиуса объявлено не один раз').toBe(1);
     expect(CODE).toMatch(/ea\.affected_zones IS NULL/);
     expect(CODE).toMatch(/ark\.zone = ANY\(ea\.affected_zones\)/);
   });
