@@ -39,6 +39,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { reasoningAteTheAnswer, describeEmptyCompletion } from '@/lib/ai/failure-trace';
+import { anthropicModelFromSlug } from '@/lib/ai/providers';
 
 const ROOT = process.cwd();
 const PROVIDERS = readFileSync(join(ROOT, 'lib/ai/providers.ts'), 'utf-8');
@@ -94,6 +95,73 @@ describe('подпись «размышление съело ответ» опо
     // Диагностика и лечение — разные вещи; появление второй не отменяет первую.
     expect(describeEmptyCompletion(ATE)).toContain('11976');
     expect(describeEmptyCompletion(ATE)).toContain('finish_reason=length');
+  });
+});
+
+/**
+ * Второй след из того же отчёта #1428, и того же рода: смена, сделанная
+ * позже, не доехала до старой строки.
+ *
+ *   anthropic: каталог моделей пуст — id взят из слага OpenRouter
+ *   anthropic(z-ai/glm-5.3): HTTP 401 ... "API key is invalid."
+ *
+ * Запасное имя выводилось как `flagshipModel.replace(/^anthropic\//, '')` —
+ * верно ровно до 09.09, пока флагман ВСЕГДА был моделью Anthropic. После того
+ * как вендор стал переменной (`EVO_DECISION_FLAGSHIP_VENDOR: z-ai`), replace
+ * перестал что-либо снимать, и в api.anthropic.com уходила модель чужого
+ * поставщика.
+ *
+ * Строка выглядела отказом ключа — и именно поэтому её никто не разбирал:
+ * рядом стоял настоящий отказ ключа, и второй дефект прятался за первым.
+ */
+describe('чужой слаг не уходит в Anthropic под видом его модели', () => {
+  it('anthropic-слаг превращается в id', () => {
+    expect(anthropicModelFromSlug('anthropic/claude-opus-4.6')).toBe('claude-opus-4.6');
+  });
+
+  it('слаг другого поставщика — «просить нечего», а не он сам', () => {
+    // Ровно случай #1428.
+    expect(anthropicModelFromSlug('z-ai/glm-5.3')).toBeNull();
+    for (const alien of ['openai/gpt-5.6', 'x-ai/grok-4.6', 'deepseek/deepseek-v4-pro']) {
+      expect(anthropicModelFromSlug(alien), alien).toBeNull();
+    }
+  });
+
+  it('пустой хвост и голое имя без вендора — тоже «нечего»', () => {
+    expect(anthropicModelFromSlug('anthropic/')).toBeNull();
+    expect(anthropicModelFromSlug('anthropic/   ')).toBeNull();
+    expect(anthropicModelFromSlug('')).toBeNull();
+    // Похожее имя без разделителя моделью Anthropic не делает.
+    expect(anthropicModelFromSlug('anthropic-claude-opus')).toBeNull();
+  });
+
+  it('ступень пропускается с НАЗВАННОЙ причиной, а не молча', () => {
+    expect(PROVIDERS).toMatch(/не модель Anthropic; просить нечего/);
+  });
+
+  it('проба релея не выдаёт «не смогла проверить» за «путь сломан»', () => {
+    // Второе такое же место, найденное этим же сторожем. Цена там выше: это
+    // диагностика, и её ложный отказ — основание для НЕВЕРНОГО решения.
+    expect(PROVIDERS).toMatch(/путь НЕ проверен/);
+  });
+
+  it('вывод id из слага больше не размазан по файлу', () => {
+    /**
+     * Строк было ДВЕ, и вторую (пробу релея) нашёл этот тест, а не глаз:
+     * рядом с ней стоял настоящий отказ ключа, и дефект прятался за ним.
+     * Правило живёт в одной функции — иначе следующая смена вендора снова
+     * доедет не до всех.
+     *
+     * Комментарии исключены: они НАЗЫВАЮТ прежнюю форму как пример ловушки,
+     * и краснеть на собственном объяснении сторож не должен.
+     */
+    const code = PROVIDERS.split('\n')
+      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+      .join('\n');
+    expect(code, 'replace вернулся — смена вендора снова доедет не до всех')
+      .not.toMatch(/flagshipModel\.replace\(\/\^anthropic/);
+    expect((code.match(/anthropicModelFromSlug\(/g) ?? []).length)
+      .toBeGreaterThanOrEqual(3);   // объявление + оба вызывающих
   });
 });
 

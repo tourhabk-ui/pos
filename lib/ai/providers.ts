@@ -1414,6 +1414,33 @@ export function deepThinkingBudget(answerTokens: number): number {
   return answerTokens + 1500;
 }
 
+/**
+ * Имя модели для прямого Anthropic API, выведенное из слага OpenRouter.
+ *
+ * Запасной путь на случай, когда каталог самого Anthropic не ответил. Работает
+ * ТОЛЬКО для anthropic'овских слагов: снятие префикса у `anthropic/claude-...`
+ * даёт осмысленный id, у чужого слага — не даёт ничего.
+ *
+ * Правило появилось 15.09 по следу в отчёте судьи (#1428): строка
+ * `flagshipModel.replace(/^anthropic\//, '')` писалась тогда, когда флагман
+ * ВСЕГДА был моделью Anthropic. С 09.09 вендор задаётся переменной
+ * (`EVO_DECISION_FLAGSHIP_VENDOR: z-ai`), и до этой строки смена не доехала:
+ * `z-ai/glm-5.3` префикса не имеет, replace его не трогает, и в
+ * `api.anthropic.com/v1/messages` уходило `model: "z-ai/glm-5.3"` — модель
+ * чужого поставщика. В отчёте это читалось как `anthropic(z-ai/glm-5.3): HTTP
+ * 401` и выглядело отказом ключа; ключ там и правда отвергнут, но запрос был
+ * бессмысленным независимо от ключа.
+ *
+ * `null` — честное «просить нечего» (§4.0): ступень пропускается с названной
+ * причиной, а не тратит запрос на заведомо неверное имя.
+ */
+export function anthropicModelFromSlug(flagshipSlug: string): string | null {
+  const PREFIX = 'anthropic/';
+  if (!flagshipSlug.startsWith(PREFIX)) return null;
+  const id = flagshipSlug.slice(PREFIX.length).trim();
+  return id.length > 0 ? id : null;
+}
+
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
   // deepseek-chat — стабильный chat-id DeepSeek (V3). Раньше здесь стоял
   // deepseek-v4-pro, но на chat/completions он возвращал пустой body (полевой
@@ -1632,11 +1659,28 @@ export async function probeFlagshipRelay(): Promise<{
     } catch (e) { openrouter.body_sample = `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`; }
   }
 
-  // Anthropic-путь — Anthropic-форма (content[].text). Модель без префикса anthropic/.
+  // Anthropic-путь — Anthropic-форма (content[].text). Модель без префикса
+  // anthropic/ — и ТОЛЬКО если флагман действительно anthropic'овский.
+  //
+  // Здесь тот же дефект, что в решателе (#1428), но цена у него своя и выше:
+  // это ДИАГНОСТИКА. С флагманом `z-ai/glm-5.3` (вендор задаётся переменной с
+  // 09.09) снятие префикса ничего не снимало, и проба спрашивала
+  // api.anthropic.com про модель чужого поставщика. Ответ — отказ, и проба
+  // объявляла путь нерабочим, когда на самом деле она не смогла его
+  // проверить. Пополнили счёт, запустили проверку, получили «не помогло» —
+  // и решение принято по замеру, которого не было (§4.0).
   const antKey = getAnthropicKey();
-  const antModel = flagshipModel.replace(/^anthropic\//, '');
-  const anthropic: RelayProbeLeg = { base: ANTHROPIC_BASE, key_set: !!antKey, http_status: null, text_found: false, body_sample: antKey ? '' : 'ключ не задан' };
-  if (antKey) {
+  const antModel = anthropicModelFromSlug(flagshipModel);
+  const anthropic: RelayProbeLeg = {
+    base: ANTHROPIC_BASE,
+    key_set: !!antKey,
+    http_status: null,
+    text_found: false,
+    body_sample: !antKey ? 'ключ не задан'
+      : !antModel ? `флагман ${flagshipModel} — не модель Anthropic: id для запроса взять неоткуда, путь НЕ проверен`
+      : '',
+  };
+  if (antKey && antModel) {
     try {
       const res = await relayFetch(`${ANTHROPIC_BASE}/v1/messages`, {
         method: 'POST',
@@ -1914,12 +1958,34 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     // `claude-opus-4-8`. Запрос отвечал 400 за доли секунды, и отчёты 16-19.08
     // читались как «Anthropic молчит» — при живом ключе с оплаченным Opus.
     // Разные каталоги — разные имена; общего у них только поставщик.
+    /**
+     * Запасное имя берётся из слага ТОЛЬКО если слаг — anthropic'овский.
+     *
+     * Строка `flagshipModel.replace(/^anthropic\//, '')` писалась тогда, когда
+     * флагман ВСЕГДА был моделью Anthropic, и снятие префикса было
+     * осмысленным. С 09.09 вендор флагмана задаётся переменной
+     * (`EVO_DECISION_FLAGSHIP_VENDOR: z-ai`), и до этой строки смена не
+     * доехала: `z-ai/glm-5.3` префикса `anthropic/` не имеет, replace его не
+     * трогает, и в `api.anthropic.com/v1/messages` уходило поле
+     * `model: "z-ai/glm-5.3"` — модель чужого поставщика.
+     *
+     * В отчёте судьи (#1428) это читалось как `anthropic(z-ai/glm-5.3): HTTP
+     * 401` и выглядело отказом ключа. Ключ там и правда отвергнут, но запрос
+     * был бессмысленным независимо от ключа: даже с живым и оплаченным
+     * ключом Anthropic не знает такого id.
+     *
+     * Теперь чужой слаг — это честное «не знаю, какую модель просить»: ступень
+     * пропускается с названной причиной, а не тратит запрос на заведомо
+     * неверное имя (§4.0).
+     */
     const antIds = await getAnthropicModelIds();
-    const antModel = pickBestFlagship(antIds) ?? flagshipModel.replace(/^anthropic\//, '');
+    const antModel = pickBestFlagship(antIds) ?? anthropicModelFromSlug(flagshipModel);
     if (antIds.length === 0) {
-      why.push('anthropic: каталог моделей пуст — id взят из слага OpenRouter');
+      why.push(antModel
+        ? 'anthropic: каталог моделей пуст — id взят из слага OpenRouter'
+        : `anthropic: каталог моделей пуст, а флагман (${flagshipModel}) — не модель Anthropic; просить нечего`);
     }
-    try {
+    if (antModel) try {
       const sys = payload.find(m => m.role === 'system');
       const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
       if (turns.length) {
