@@ -46,7 +46,7 @@ export default function PlaceFieldReports({ placeId }: { placeId: string }) {
   if (!loaded || reports.length === 0) return null;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 mt-6">
+    <div>
       <div className="ds-card p-4">
         <div className="flex items-center gap-2 mb-3">
           <ClipboardList size={16} style={{ color: 'var(--ocean)' }} />

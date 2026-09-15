@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { Download, Navigation, MapPin, FileDown } from 'lucide-react';
+import { Download, Navigation, FileDown } from 'lucide-react';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 import { OWN_ROUTE_EVENT, OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 
@@ -48,10 +48,11 @@ export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearb
   ], [lat, lng, name, nearbyMarkers]);
 
   return (
-    <section className="max-w-3xl mx-auto px-4 space-y-4">
-      <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2" style={{ fontFamily: 'var(--font-playfair)' }}>
-        <MapPin className="w-5 h-5 text-[var(--accent)]" /> Как добраться
-      </h2>
+    <section className="space-y-4">
+      {/* Свой заголовок убран 14.09: раздел карточки уже называется «Как
+          добраться», и подпись шла дважды подряд в двух строках — ровно то,
+          от чего страница читалась как каша. Название группы даёт раздел,
+          блок внутри подписывается только когда блоков в разделе несколько. */}
 
       {accessInfo && (
         <p className="text-[var(--text-secondary)] leading-relaxed" style={{ fontSize: '17px', lineHeight: '1.7', maxWidth: '68ch' }}>

@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { compressImageToLimit } from '@/lib/images/compress-client';
+import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ interface Message {
   imagePreview?: string;       // превью фото пользователя
   tours?: TourCard[];          // карточки туров от Кузьмича
   bookingForm?: BookingFormData; // inline-форма бронирования
-  bookingConfirmed?: { id: number; tour: string };
+  bookingConfirmed?: { id: number; tour: string; accessToken: string };
 }
 
 // ── Быстрые чипы ──────────────────────────────────────────────────
@@ -61,7 +62,7 @@ function BookingFormCard({
   onConfirmed,
 }: {
   data: BookingFormData;
-  onConfirmed: (bookingId: number, tourTitle: string) => void;
+  onConfirmed: (bookingId: number, tourTitle: string, accessToken: string) => void;
 }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -72,6 +73,12 @@ function BookingFormCard({
   const [error, setError] = useState('');
   const [qr, setQr] = useState<{ qrCode: string; qrLink: string; amount: number; bookingId: number } | null>(null);
   const [pollPaid, setPollPaid] = useState(false);
+  /**
+   * Ключ доступа к созданной брони. До 14.09 из ответа читался только `id`,
+   * а ключ выбрасывался — при том что следом бот писал «проверьте детали на
+   * странице бронирования», куда без ключа не пускает 404 (#1889).
+   */
+  const [accessToken, setAccessToken] = useState('');
 
   const total = (data.tourPrice * participants).toLocaleString('ru-RU');
   const minDate = new Date();
@@ -88,12 +95,12 @@ function BookingFormCard({
         if (json.paid) {
           setPollPaid(true);
           clearInterval(interval);
-          onConfirmed(qr.bookingId, data.tourTitle);
+          onConfirmed(qr.bookingId, data.tourTitle, accessToken);
         }
       } catch { /* ignore */ }
     }, 3000);
     return () => clearInterval(interval);
-  }, [qr, pollPaid, onConfirmed, data.tourTitle]);
+  }, [qr, pollPaid, onConfirmed, data.tourTitle, accessToken]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -113,9 +120,16 @@ function BookingFormCard({
           booking_date: date,
         }),
       });
-      const bookJson = await bookRes.json() as { id?: number; error?: string };
+      const bookJson = await bookRes.json() as { id?: number; error?: string; access_token?: string };
       if (!bookRes.ok) throw new Error(bookJson.error ?? 'Ошибка сервера');
       const bookingId = bookJson.id!;
+      const token = bookJson.access_token ?? '';
+      setAccessToken(token);
+      if (!token) {
+        // Бронь есть, ключа нет — показать человеку нечего, но промолчать
+        // об этом нельзя: «ссылки нет» неотличимо от «ссылка не нужна» (§4.0).
+        console.error('[kuzmich-web] бронь создана без ключа доступа в ответе', bookingId);
+      }
 
       // 2. Запрашиваем СБП QR от Точки
       const qrRes = await fetch('/api/payments/tochka/qr', {
@@ -129,7 +143,7 @@ function BookingFormCard({
         setQr({ ...qrJson, bookingId });
       } else {
         // Точка недоступна — бронь всё равно создана, оператор позвонит
-        onConfirmed(bookingId, data.tourTitle);
+        onConfirmed(bookingId, data.tourTitle, token);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Попробуйте ещё раз');
@@ -450,10 +464,10 @@ export default function KuzmichClient() {
   }, [loading, sessionId, messages, imageFile, imagePreview]);
 
   // Подтверждение бронирования
-  function onBookingConfirmed(msgIndex: number, bookingId: number, tourTitle: string) {
+  function onBookingConfirmed(msgIndex: number, bookingId: number, tourTitle: string, accessToken: string) {
     setMessages(prev => prev.map((m, i) => {
       if (i !== msgIndex) return m;
-      return { ...m, bookingForm: undefined, bookingConfirmed: { id: bookingId, tour: tourTitle } };
+      return { ...m, bookingForm: undefined, bookingConfirmed: { id: bookingId, tour: tourTitle, accessToken } };
     }));
     setMessages(prev => [...prev, {
       role: 'assistant',
@@ -546,15 +560,26 @@ export default function KuzmichClient() {
                   {msg.bookingForm && (
                     <BookingFormCard
                       data={msg.bookingForm}
-                      onConfirmed={(bookingId, tourTitle) => onBookingConfirmed(i, bookingId, tourTitle)}
+                      onConfirmed={(bookingId, tourTitle, accessToken) => onBookingConfirmed(i, bookingId, tourTitle, accessToken)}
                     />
                   )}
 
                   {/* Подтверждение */}
                   {msg.bookingConfirmed && (
-                    <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[var(--success)]/10 text-[var(--success)] text-sm">
-                      <CheckCircle className="w-4 h-4 shrink-0" />
-                      Бронирование #{msg.bookingConfirmed.id} создано
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[var(--success)]/10 text-[var(--success)] text-sm">
+                        <CheckCircle className="w-4 h-4 shrink-0" />
+                        Бронирование #{msg.bookingConfirmed.id} создано
+                      </div>
+                      {/* Ссылка с ключом — та самая «страница бронирования»,
+                          на которую зовёт сообщение выше. Без ключа она
+                          отвечает 404 (#1889). Почта у этой формы обязательна,
+                          поэтому письмо с той же ссылкой тоже ушло. */}
+                      <BookingAccessLink
+                        bookingId={msg.bookingConfirmed.id}
+                        accessToken={msg.bookingConfirmed.accessToken}
+                        emailSent
+                      />
                     </div>
                   )}
                 </div>

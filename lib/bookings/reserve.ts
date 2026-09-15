@@ -30,10 +30,28 @@
  * Это не «показали не то». Это бронь, которой для платформы не существует:
  * человек идёт звонить оператору, а оператор её не ждёт.
  *
+ * ── Третье расхождение той же природы (14.09) ─────────────────────────────
+ *
+ * Оно нашлось позже и держалось дольше: этот модуль не знал о МНОГОДНЕВНЫХ
+ * турах. Длительность считал только путь оплаты (`app/api/bookings/tour`), он
+ * же писал `end_date` и `duration_days`; здесь тур любой длины заводился как
+ * однодневный.
+ *
+ * Цена — не косметическая. `v_tour_daily_occupancy` разворачивает бронь в дни
+ * через `COALESCE(end_date, booking_date)`, то есть пустой `end_date` значит
+ * «ровно один день». Группа с пятидневного тура занимала день выезда и
+ * пропадала из остальных четырёх — для кабинета оператора, динамического
+ * ценообразования, планера и гейта оплаченной брони дни 2..N были свободны.
+ * Слепота была двусторонней: собственный счёт занятости искал по
+ * `booking_date = $2` и не видел чужую многодневную бронь, накрывающую
+ * запрошенный день серединой.
+ *
  * ── Правило ───────────────────────────────────────────────────────────────
  *
  * Бронь заводит ЭТА функция и только она. Своя копия неизбежно разойдётся
- * снова — расхождение выше накопилось не за день.
+ * снова — расхождение выше накопилось не за день. Правило длительности по той
+ * же причине вынесено в `lib/bookings/duration.ts`: оно нужно обеим дверям, и
+ * записанное дважды было бы двумя правилами.
  *
  * ── Чего функция НЕ делает ────────────────────────────────────────────────
  *
@@ -44,6 +62,7 @@
 
 import type { PoolClient } from 'pg';
 import { transaction } from '@/lib/database';
+import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
 
 /** Причины отказа. Текст решает вызывающий: у чата и формы он разный. */
 export type ReserveErrorCode =
@@ -130,8 +149,11 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       title: string;
       base_price: string;
       max_participants: number | null;
+      multi_day_count: number | null;
+      duration_hours: number | null;
     }>(
-      `SELECT ot.operator_id, ot.title, ot.base_price, ot.max_participants
+      `SELECT ot.operator_id, ot.title, ot.base_price, ot.max_participants,
+              ot.multi_day_count, ot.duration_hours
          FROM operator_tours ot
         WHERE ot.id = $1 AND ot.is_active = true AND ot.is_published = true
           AND ot.deleted_at IS NULL
@@ -143,50 +165,94 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
     }
     const tour = tourResult.rows[0]!;
 
-    // Календарь оператора опционален: нет строки на дату — дата свободна
-    // (большинство операторов календарём не пользуются). Но ЯВНАЯ блокировка
-    // и лимит слотов обязаны уважаться обоими путями, а не только веб-формой.
-    const calendar = await client.query<{ available_slots: number; is_cancelled: boolean }>(
-      `SELECT available_slots, is_cancelled FROM tour_availability
-        WHERE operator_tour_id = $1 AND date = $2 AND deleted_at IS NULL
-        LIMIT 1`,
-      [input.tourId, input.date],
+    // Многодневный тур занимает ВСЕ свои дни, а не только день выезда. До
+    // 14.09 этот модуль о многодневности не знал вовсе: `end_date` оставался
+    // NULL, а `v_tour_daily_occupancy` понимает NULL как «ровно один день»
+    // (`COALESCE(end_date, booking_date)`), и группа исчезала из дней 2..N.
+    // Правило длительности — одно на обе двери, см. lib/bookings/duration.ts.
+    const durationDays = tourDurationDays(tour);
+    const endDate = tourEndDate(input.date, durationDays);
+
+    /**
+     * Календарь и занятость — ПО КАЖДОМУ дню диапазона, одним запросом.
+     *
+     * Календарь оператора опционален: нет строки на дату — дата свободна
+     * (большинство операторов календарём не пользуются). Но явная блокировка
+     * и лимит слотов обязаны уважаться на каждом дне, а не только на первом.
+     *
+     * Занятость берётся ИНТЕРВАЛОМ (`день BETWEEN booking_date И
+     * COALESCE(end_date, booking_date)`), а не равенством дат. Прежнее
+     * `booking_date = $2` не видело чужую многодневную бронь, накрывающую
+     * запрошенную дату серединой, — слепота была двусторонней.
+     *
+     * Предикат статусов НЕ взят у `v_tour_daily_occupancy` намеренно. Вид
+     * считает только `('new','confirmed')`, а здесь исключаются лишь
+     * `('cancelled','rejected')` — то есть `pending_payment` (оплата уже
+     * начата) место занимает. Перейти на предикат вида значило бы ОСЛАБИТЬ
+     * проверку и продать место, за которое человек в эту минуту платит.
+     * `deleted_at IS NULL` добавлен: снятая бронь места не держит.
+     */
+    const days = await client.query<{
+      date: string;
+      occupied: string;
+      available_slots: number | null;
+      is_cancelled: boolean | null;
+    }>(
+      `SELECT d.day::date AS date,
+              COALESCE(occ.occupied, 0) AS occupied,
+              ta.available_slots,
+              ta.is_cancelled
+         FROM generate_series($2::date, $3::date, '1 day') AS d(day)
+         LEFT JOIN tour_availability ta
+                ON ta.operator_tour_id = $1 AND ta.date = d.day::date
+               AND ta.deleted_at IS NULL
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(b.participants), 0) AS occupied
+             FROM operator_bookings b
+            WHERE b.operator_tour_id = $1
+              AND b.booking_status NOT IN ('cancelled', 'rejected')
+              AND b.deleted_at IS NULL
+              AND d.day::date BETWEEN b.booking_date
+                                  AND COALESCE(b.end_date, b.booking_date)
+         ) occ ON true
+        ORDER BY d.day`,
+      [input.tourId, input.date, endDate],
     );
-    const calendarRow = calendar.rows[0] ?? null;
-    if (calendarRow?.is_cancelled) {
-      throw new ReserveError('DATE_BLOCKED', 'Оператор закрыл бронирование на эту дату.');
-    }
 
-    const capacityCap: number | null = calendarRow
-      ? Math.min(tour.max_participants ?? calendarRow.available_slots, calendarRow.available_slots)
-      : tour.max_participants;
+    for (const day of days.rows) {
+      if (day.is_cancelled) {
+        throw new ReserveError(
+          'DATE_BLOCKED',
+          durationDays > 1
+            ? `Оператор закрыл бронирование на ${day.date} — эта дата входит в тур.`
+            : 'Оператор закрыл бронирование на эту дату.',
+        );
+      }
 
-    if (capacityCap != null && input.participants > capacityCap) {
-      throw new ReserveError(
-        'MAX_EXCEEDED',
-        `Превышено максимальное число участников (максимум: ${capacityCap}).`,
-      );
-    }
+      const slots = day.available_slots;
+      const capacityCap: number | null = slots != null
+        ? Math.min(tour.max_participants ?? slots, slots)
+        : tour.max_participants;
+      if (capacityCap == null) continue;   // потолка нет ни в туре, ни в календаре
 
-    // Занятость считается ВНУТРИ транзакции: лок выше делает чтение верным.
-    const booked = await client.query<{ already_booked: string }>(
-      `SELECT COALESCE(SUM(participants), 0) AS already_booked
-         FROM operator_bookings
-        WHERE operator_tour_id = $1
-          AND booking_date = $2
-          AND booking_status NOT IN ('cancelled', 'rejected')`,
-      [input.tourId, input.date],
-    );
-    const alreadyBooked = parseInt(booked.rows[0]!.already_booked, 10);
+      if (input.participants > capacityCap) {
+        throw new ReserveError(
+          'MAX_EXCEEDED',
+          `Превышено максимальное число участников (максимум: ${capacityCap}).`,
+        );
+      }
 
-    if (capacityCap != null && alreadyBooked + input.participants > capacityCap) {
-      const remaining = capacityCap - alreadyBooked;
-      throw new ReserveError(
-        'NO_SLOTS',
-        remaining <= 0
-          ? 'На выбранную дату нет свободных мест.'
-          : `Недостаточно мест на эту дату. Доступно: ${remaining}, запрашивается: ${input.participants}.`,
-      );
+      const alreadyBooked = parseInt(day.occupied, 10);
+      if (alreadyBooked + input.participants > capacityCap) {
+        const remaining = capacityCap - alreadyBooked;
+        const where = durationDays > 1 ? ` на ${day.date}` : ' на эту дату';
+        throw new ReserveError(
+          'NO_SLOTS',
+          remaining <= 0
+            ? `Нет свободных мест${where}.`
+            : `Недостаточно мест${where}. Доступно: ${remaining}, запрашивается: ${input.participants}.`,
+        );
+      }
     }
 
     const totalPrice = Number(tour.base_price) * input.participants;
@@ -194,10 +260,11 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
     const inserted = await client.query<{ id: number; access_token: string }>(
       `INSERT INTO operator_bookings (
          operator_tour_id, tourist_name, tourist_email, tourist_phone,
-         participants, booking_date, special_requests, booking_status,
+         participants, booking_date, end_date, duration_days,
+         special_requests, booking_status,
          base_total_price, final_price, created_via, user_id, metadata,
          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12::jsonb,$13,$14,$15,$16)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14::jsonb,$15,$16,$17,$18)
        RETURNING id, access_token::text AS access_token`,
       [
         input.tourId,
@@ -206,12 +273,46 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
         input.touristPhone,
         input.participants,
         input.date,
+        // Записывается ровно тот интервал, который только что проверен выше.
+        // `end_date IS NULL` для всех читателей занятости означает «один
+        // день», а не «неизвестно», — оставить его пустым у многодневного
+        // тура значит отдать дни 2..N на повторную продажу.
+        endDate,
+        durationDays,
         input.specialRequests ?? '',
         NEW_BOOKING_STATUS,
         totalPrice,
         input.createdVia,
         input.userId ?? null,
-        input.metadata ? JSON.stringify(input.metadata) : null,
+        /**
+         * user_id пишется ДВАЖДЫ: в колонку и в metadata, — и это не
+         * небрежность, а вынужденная симметрия.
+         *
+         * Слово владельца 14.09: «бронь в любом случае должна сохраняться в
+         * личном кабинете». Проверка показала дефект: ЛК туриста
+         * (`/api/bookings`), отмена брони и вся админка ищут человека по
+         * `metadata->>'user_id'`, а экспорт ПД и вся операторская сторона — по
+         * колонке `user_id`. `app/api/bookings/tour` пишет обе (там это сделано
+         * явно, с комментарием и ссылкой на PR #321), а сюда, при переезде
+         * создания броней в общий модуль, переехала только колонка.
+         *
+         * Итог был такой: бронь, оставленная вошедшим человеком через форму
+         * заявки или через Кузьмича, у оператора видна, а в личном кабинете
+         * самого туриста — нет, и отменить её оттуда нельзя.
+         *
+         * Свести читателей к одному источнику — отдельная работа: у части
+         * старых броней заполнено только одно поле, и переход на любое из них
+         * в одиночку потерял бы чужую половину. Пока читатели разные, писать
+         * надо обоим; реестр читателей заморожен сторожем
+         * tests/unit/booking-owner-link.test.ts и может только сокращаться.
+         *
+         * Метка канала при этом не теряется: metadata вызывающего сливается с
+         * привязкой, а не подменяется ею.
+         */
+        JSON.stringify({
+          ...(input.metadata ?? {}),
+          ...(input.userId ? { user_id: input.userId } : {}),
+        }),
         // Согласие идёт В ТОЙ ЖЕ вставке, что бронь. Отдельный UPDATE после
         // дал бы окно, в котором бронь есть, а доказательства права её
         // хранить — нет; и окно это не теоретическое, а ровно такое же, как

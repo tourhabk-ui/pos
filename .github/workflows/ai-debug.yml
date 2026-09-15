@@ -16,7 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     # 35, а не 10: шаг ожидания деплоя длится до 20 мин, а run 5 (04.09) был
     # снят самим таймаутом задачи на 20-й попытке.
-    timeout-minutes: 35
+    # Было ровно 35 — столько же, сколько ждёт сборку wait-for-deploy.sh
+    # (70 x 30 c). Равенство здесь не «впритык», а тот же отказ, что у
+    # funnel-census 14.09: ожидание выбирает бюджет целиком и отменяется в ту
+    # же секунду, когда собиралось вынести вердикт. Держит
+    # tests/unit/workflow-timeout-fits-wait.test.ts.
+    timeout-minutes: 45
     steps:
       # checkout ради scripts/wait-for-deploy.sh: сам замер идёт на проде.
       - uses: actions/checkout@v7

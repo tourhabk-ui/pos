@@ -12,7 +12,6 @@ interface ParkRow {
   display_name: string;
   description: string | null;
   zone: string | null;
-  mchs_phone: string | null;
   permit_url: string | null;
   permit_email: string | null;
   permit_office_address: string | null;
@@ -46,7 +45,7 @@ export async function GET(
 
   try {
     const parkResult = await pool.query<ParkRow>(
-      `SELECT slug, display_name, description, zone, mchs_phone, permit_url,
+      `SELECT slug, display_name, description, zone, permit_url,
               permit_email, permit_office_address, permit_office_hours,
               permit_gosuslugi_url, permit_online_url, search_term
        FROM parks
@@ -85,7 +84,13 @@ export async function GET(
       displayName: park.display_name,
       description: park.description,
       zone: park.zone,
-      mchs_phone: park.mchs_phone,
+      // `mchs_phone` НЕ отдаётся намеренно (15.09). Колонка несёт
+      // `+7 (4152) 23-53-62` у трёх парков и NULL у двух; первый номер
+      // назван в `lib/safety/emergency-numbers.ts` среди пяти разъехавшихся
+      // «номеров МЧС», которые владелец 17.07 подтвердить не смог, второй
+      // давал на экране «МЧС:» и пустоту. Региональный номер берётся из
+      // единого проверенного источника, а не отсюда: второй источник того же
+      // факта — это два разных факта, и в ЧП цена расхождения — чужой гудок.
       permit_url: park.permit_url,
       // Каналы получения разрешения (issue #367); NULL — данных нет,
       // UI показывает только заполненные

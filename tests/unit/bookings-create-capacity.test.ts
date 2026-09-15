@@ -48,15 +48,32 @@ const TOUR_ROW = {
   base_price: 5000,
   max_participants: 10,
   available_slots: null,
+  // Однодневный тур: диапазон гейта — ровно одна дата, как и было до 14.09,
+  // когда многодневность в этот модуль ещё не приехала.
+  multi_day_count: null,
+  duration_hours: 8,
 };
 
 interface CalendarRow { available_slots: number; is_cancelled: boolean }
 
+/**
+ * Календарь и занятость приходят ОДНИМ запросом по дням диапазона (14.09):
+ * раньше их было два — отдельный `FROM tour_availability` и отдельный счёт
+ * `already_booked` по равенству дат. Смысл случаев ниже не изменился, поэтому
+ * прежние аргументы `calendar`/`alreadyBooked` сохранены и разворачиваются в
+ * строку одного дня.
+ */
 function mockQueries(opts: { calendar: CalendarRow[]; alreadyBooked?: string }) {
+  const slot = opts.calendar[0] ?? null;
+  const day = {
+    date: '2099-01-01',
+    occupied: opts.alreadyBooked ?? '0',
+    available_slots: slot ? slot.available_slots : null,
+    is_cancelled: slot ? slot.is_cancelled : null,
+  };
   clientQueryMock.mockImplementation((sql: string) => {
     if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [TOUR_ROW] });
-    if (sql.includes('FROM tour_availability')) return Promise.resolve({ rows: opts.calendar });
-    if (sql.includes('already_booked')) return Promise.resolve({ rows: [{ already_booked: opts.alreadyBooked ?? '0' }] });
+    if (sql.includes('generate_series')) return Promise.resolve({ rows: [day] });
     if (sql.includes('INSERT INTO operator_bookings')) return Promise.resolve({ rows: [{ id: 42 }] });
     throw new Error('unexpected SQL: ' + sql);
   });

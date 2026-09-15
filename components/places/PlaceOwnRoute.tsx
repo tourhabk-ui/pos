@@ -41,6 +41,22 @@ interface Props {
    * тап и потерянная секунда в поле.
    */
   autoStart?: boolean;
+  /**
+   * Не рисовать собственную кнопку запуска: на этом экране её роль уже играет
+   * другая, и обе видны ОДНОВРЕМЕННО.
+   *
+   * Заведено 14.09 по снимку карточки места на телефоне: под фотографией шли
+   * «Навигация» (липкая шапка, оранжевая, во всю ширину) и сразу под ней
+   * «Построить свой путь на автомобиле» — две кнопки одного действия в сорока
+   * пикселях друг от друга. Владелец уже ловил ровно это 07.09 («почему 2
+   * кнопки навигация?»), тогда убрали третью, а эти две остались.
+   *
+   * Считает по-прежнему этот блок — он же показывает ход и результат;
+   * снаружи приходит только событие OWN_ROUTE_EVENT. Пока считать не о чем,
+   * блок молчит, а не занимает первый экран приглашением, которое уже есть
+   * выше.
+   */
+  hideIdleTrigger?: boolean;
 }
 
 /**
@@ -73,7 +89,7 @@ function refusalText(result: Extract<RouteBuildResult, { status: 'not_found' | '
   return result.message;
 }
 
-export function PlaceOwnRoute({ lat, lng, name, autoStart = false }: Props) {
+export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigger = false }: Props) {
   const [state, setState] = useState<State>({ phase: 'idle' });
 
   const build = useCallback(function build() {
@@ -136,6 +152,7 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false }: Props) {
   }, [build]);
 
   if (state.phase === 'idle') {
+    if (hideIdleTrigger) return null;
     return (
       <button type="button" onClick={build}
         className="w-full flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--accent)]">

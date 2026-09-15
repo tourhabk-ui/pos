@@ -34,7 +34,7 @@ const CATEGORY_MAP: Record<string, { id: string; name: string; parentId: string 
   diving:        { id: '20', name: 'Дайвинг',                  parentId: '1' },
   surf:          { id: '21', name: 'Сёрфинг',                  parentId: '1' },
   cultural:      { id: '22', name: 'Культурные экскурсии',     parentId: '1' },
-  photo:         { id: '23', name: 'Фototуры',                 parentId: '1' },
+  photo:         { id: '23', name: 'Фототуры',                 parentId: '1' },
 };
 
 const DIFFICULTY_LABELS: Record<string, string> = {

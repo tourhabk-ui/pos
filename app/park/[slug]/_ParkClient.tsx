@@ -4,6 +4,34 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone } from 'lucide-react';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
+import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
+
+/**
+ * Региональный номер МЧС на карточке экстренного вызова берётся из ЕДИНОГО
+ * источника (`lib/safety/emergency-numbers.ts`), а не из `parks.mchs_phone`.
+ *
+ * ── Что было (найдено 15.09 по снимку владельца) ──────────────────────────
+ *
+ * Карточка печатала `МЧС: {park.mchs_phone}` без проверки, при том что API
+ * честно объявляет это поле `string | null`, а клиент переписывал его в
+ * `string`. У Вачкажца (миграция 723) и Кроноцкого (781) номер вставлен как
+ * NULL — и на экране оставалось «МЧС:» и пустота. На карточке «112 —
+ * Спасение».
+ *
+ * Пустая подпись оказалась не худшей половиной. У трёх остальных парков в
+ * `parks.mchs_phone` лежит `+7 (4152) 23-53-62` — номер, который
+ * `emergency-numbers.ts` НАЗЫВАЕТ ПОИМЁННО среди пяти разных «номеров МЧС»,
+ * разъехавшихся по экранам, и который владелец 17.07 подтвердить не смог.
+ * То есть централизация номеров, сделанная в июле именно из-за этого, до
+ * экрана парка не доехала: `parks.mchs_phone` остался вторым источником и
+ * продолжал показывать неподтверждённое.
+ *
+ * Показать неверный номер человеку в беде хуже, чем не показать ничего:
+ * он дозвонится не туда и потеряет время. Поэтому источник здесь один, а
+ * пустого исхода по построению не бывает — нет проверенного номера, нет и
+ * строки (§4.0).
+ */
+const REGIONAL_MCHS = VERIFIED_REGIONAL[0] ?? null;
 
 interface Route {
   id: string;
@@ -31,7 +59,6 @@ interface ParkData {
   displayName: string;
   description: string;
   zone: string;
-  mchs_phone: string;
   permit_url: string | null;
   permitChannels?: PermitChannels;
   routes: Route[];
@@ -120,7 +147,11 @@ export default function ParkClient({ slug }: { slug: string }) {
             <Phone size={18} color="var(--danger)" />
             <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>112 — Спасение</span>
           </div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>МЧС: {park.mchs_phone}</p>
+          {REGIONAL_MCHS && (
+            <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>
+              {REGIONAL_MCHS.name}: {REGIONAL_MCHS.phone}
+            </p>
+          )}
         </EmergencyAction>
       </div>
 

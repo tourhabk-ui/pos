@@ -3,9 +3,18 @@
  *
  * GET /api/parks/[slug] и GET /api/parks — справочник парков переехал из
  * хардкода (PARK_MAP) в таблицу parks (migration 712). Контракт ответа
- * карточки парка прежний (slug/displayName/description/zone/mchs_phone/
- * permit_url/routes); маршруты ищутся по search_term из БД; неизвестный
- * slug → 404; ошибка запроса маршрутов не роняет карточку парка.
+ * карточки парка прежний (slug/displayName/description/zone/permit_url/
+ * routes); маршруты ищутся по search_term из БД; неизвестный slug → 404;
+ * ошибка запроса маршрутов не роняет карточку парка.
+ *
+ * `mchs_phone` из контракта УБРАН 15.09 и проверяется на отсутствие. В
+ * колонке лежали `+7 (4152) 23-53-62` (назван поимённо в шапке
+ * `lib/safety/emergency-numbers.ts` среди пяти разъехавшихся «номеров МЧС»,
+ * владелец 17.07 подтвердить не смог) и NULL у двух парков — последний давал
+ * на плитке «112 — Спасение» строку «МЧС:» и пустоту. Экран берёт
+ * региональный номер из единого проверенного источника; отдавать второй
+ * источник того же факта наружу нельзя — подхватит следующий экран и
+ * разойдётся снова. Подробности и сторож: tests/unit/park-emergency-number.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -63,9 +72,12 @@ describe('GET /api/parks/[slug] — из таблицы parks', () => {
       slug: 'nalychevo',
       displayName: 'Природный парк «Налычево»',
       zone: 'avachinsky',
-      mchs_phone: '+7 (4152) 23-53-62',
       permit_url: 'https://nalychevo.ru',
     });
+    // Фикстура строки БД по-прежнему несёт номер — именно поэтому проверка
+    // нужна: она о том, что роут его НЕ ПРОПУСКАЕТ, а не о том, что его нет
+    // в таблице.
+    expect(json).not.toHaveProperty('mchs_phone');
     expect(json.routes).toHaveLength(1);
     expect(json.routes[0].title).toBe('К Налычевским источникам');
   });

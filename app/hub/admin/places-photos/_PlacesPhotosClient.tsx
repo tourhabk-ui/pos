@@ -329,11 +329,34 @@ export default function PlacesPhotosClient() {
           sourceUrl: c.descriptionUrl,
         }),
       });
-      const data = await res.json() as { ok?: boolean; url?: string; error?: string };
+      const data = await res.json() as {
+        ok?: boolean; url?: string; error?: string; slot?: string; position?: number;
+      };
       if (!res.ok || !data.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setPlaces((prev) => prev.map((p) => p.id === wikiPlaceId ? { ...p, hasPhoto: true, photoUrl: data.url ?? p.photoUrl } : p));
-      setWikiDone(true);
-      setFeedback((prev) => ({ ...prev, [wikiPlaceId]: { ok: true, msg: 'Фото из Wikimedia установлено' } }));
+
+      // Обложку в списке меняем только при смене ГЛАВНОГО фото: снимок
+      // галереи в превью не показывается, и подменять им обложку значило бы
+      // врать о том, что лежит первым.
+      if (data.slot !== 'gallery') {
+        setPlaces((prev) => prev.map((p) => p.id === wikiPlaceId
+          ? { ...p, hasPhoto: true, photoUrl: data.url ?? p.photoUrl }
+          : p));
+      }
+
+      // Окно НЕ закрывается на снимке галереи: смысл правки 15.09 в том, чтобы
+      // с одного захода взять несколько кадров — «сложно судить о месте по
+      // одному фото». Закрытие после первого снова оставило бы место с одним.
+      if (data.slot !== 'gallery') setWikiDone(true);
+
+      setFeedback((prev) => ({
+        ...prev,
+        [wikiPlaceId]: {
+          ok: true,
+          msg: data.slot === 'gallery'
+            ? `Добавлено в галерею, ${data.position}-й снимок`
+            : 'Фото из Wikimedia установлено главным',
+        },
+      }));
     } catch (err) {
       setWikiError(err instanceof Error ? err.message : 'Не удалось сохранить фото');
     } finally {

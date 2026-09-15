@@ -63,7 +63,27 @@ export default function ThirdPartyScripts() {
         <div
           role="dialog"
           aria-labelledby="consent-title"
-          className="fixed inset-x-0 bottom-0 z-[60] p-3 sm:p-4"
+          className={
+            'fixed inset-x-0 bottom-0 z-[60] p-3 sm:p-4 ' +
+            'pb-[calc(env(safe-area-inset-bottom)+116px)] ' +
+            'sm:pb-[calc(env(safe-area-inset-bottom)+72px)]'
+          }
+          /*
+           * Отступ снизу поднимает карточку НАД липкими полосами телефона.
+           *
+           * 14.09, снимок карточки места на 390×844: SOS-полоса (z-[100],
+           * выше этого диалога намеренно — SOS всегда сверху) перекрывала
+           * низ карточки согласия, и кнопка «Только необходимое» оказывалась
+           * под ней ПРИ ЛЮБОЙ прокрутке. То есть на телефоне у человека
+           * оставалась ровно одна доступная кнопка — «Разрешить».
+           *
+           * Это не только неудобство: согласие, которое нельзя так же просто
+           * НЕ дать, согласием не является. Поднимать диалог выше SOS нельзя
+           * (сторож sos-always-reachable), поэтому он уступает место сам.
+           * Клиренс считан по двум полосам карточки места — SOS (~52px со
+           * safe-area) и бар с GPX (~58px); на страницах, где полос меньше,
+           * карточка просто висит чуть выше.
+           */
         >
           <div className="mx-auto max-w-3xl rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 shadow-lg sm:p-5">
             <div className="flex items-start gap-3">
@@ -85,7 +105,10 @@ export default function ThirdPartyScripts() {
                   . Решение можно изменить там же.
                 </p>
 
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                {/* Кнопки в строку и на телефоне: столбиком карточка была на
+                    две строки выше, а места на телефоне и так нет. Обе — одного
+                    размера, чтобы отказ не выглядел второстепенным. */}
+                <div className="mt-4 flex flex-row flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => decide({ analytics: true, advertising: true })}

@@ -7,7 +7,7 @@
  * мгновенный, без внешних API.
  */
 
-import { Mountain, Fish, PawPrint, Snowflake, Anchor, Plane, Car, Compass } from 'lucide-react';
+import { Mountain, Fish, PawPrint, Snowflake, Anchor, Plane, Car, Compass, Waves, Droplets } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface GradientConfig {
@@ -34,6 +34,13 @@ const LOCATION_GRADIENTS: Record<string, GradientConfig> = {
   forest:    { gradient: 'from-[#0d1a0d] via-[#1a3d1a] to-[#0a2a0a]',  icon: <Mountain size={48} />, label: 'Тайга' },
   thermal:   { gradient: 'from-[#2a0d00] via-[#8B3A0C] to-[#1a0a1a]',  icon: <Compass  size={48} />, label: 'Термальные' },
   mountain:  ACTIVITY_GRADIENTS.trekking,
+  // Роды, которых не было и которые сваливались в серый «other» с компасом:
+  // на карточке «рядом» это и читалось как пустой серый квадрат.
+  lake:      { gradient: 'from-[#06202e] via-[#12546e] to-[#04121c]', icon: <Waves    size={48} />, label: 'Озеро' },
+  hot_spring: { gradient: 'from-[#2a0d00] via-[#8B3A0C] to-[#1a0a1a]', icon: <Droplets size={48} />, label: 'Источник' },
+  geyser:    { gradient: 'from-[#241000] via-[#7a4a12] to-[#140a02]', icon: <Droplets size={48} />, label: 'Гейзер' },
+  waterfall: { gradient: 'from-[#05202a] via-[#186a7a] to-[#03141a]', icon: <Waves    size={48} />, label: 'Водопад' },
+  rock:      { gradient: 'from-[#1a1712] via-[#4a4238] to-[#0d0b08]', icon: <Mountain size={48} />, label: 'Скала' },
   other:     { gradient: 'from-[#1a1a1a] via-[#2d2d2d] to-[#0d0d0d]',  icon: <Compass  size={48} />, label: 'Маршрут' },
 };
 
@@ -56,9 +63,11 @@ interface Props {
   locationType?: string | null;
   className?: string;
   showLabel?: boolean;
+  /** Миниатюра: без водяного знака и с мелкой иконкой. */
+  compact?: boolean;
 }
 
-export function RouteGradientPlaceholder({ title, activityType, locationType, className = '', showLabel = true }: Props) {
+export function RouteGradientPlaceholder({ title, activityType, locationType, className = '', showLabel = true, compact = false }: Props) {
   const cfg = resolve(activityType, locationType);
 
   return (
@@ -68,22 +77,33 @@ export function RouteGradientPlaceholder({ title, activityType, locationType, cl
         style={{ backgroundImage: 'radial-gradient(circle at 20% 80%, rgba(255,255,255,0.15) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(255,255,255,0.1) 0%, transparent 50%)' }}
       />
 
-      {/* Большая иконка */}
-      <div className="absolute inset-0 flex items-center justify-center opacity-20 text-white">
-        <div className="scale-[3]">{cfg.icon}</div>
-      </div>
+      {/* Большая иконка-водяной знак. В компактном виде её нет: иконка в
+          48 пикселей, увеличенная втрое, — это 144 пикселя, и в миниатюре
+          «рядом» шириной 176 она занимала весь кадр. Владелец назвал такие
+          миниатюры «пустыми серыми квадратами» — ровно из-за неё. */}
+      {!compact && (
+        <div className="absolute inset-0 flex items-center justify-center opacity-20 text-white">
+          <div className="scale-[3]">{cfg.icon}</div>
+        </div>
+      )}
 
       {/* Контент */}
-      <div className="relative z-10 flex flex-col items-center justify-center h-full gap-3 p-6 text-white text-center">
-        <div className="opacity-70">{cfg.icon}</div>
+      <div className={`relative z-10 flex h-full flex-col items-center justify-center text-center text-white ${compact ? 'gap-1 p-3' : 'gap-3 p-6'}`}>
+        <div className={compact ? 'scale-50 opacity-60' : 'opacity-70'}>{cfg.icon}</div>
         {showLabel && (
           <span className="text-xs font-medium uppercase tracking-widest opacity-50">
             {cfg.label}
           </span>
         )}
-        <p className="font-playfair text-lg font-bold leading-tight max-w-xs opacity-90 line-clamp-3">
-          {title}
-        </p>
+        {/* В миниатюре имени нет: оно подписано под кадром, а внутри
+            176-пиксельной плитки Playfair в 18 пунктов не помещался и лез
+            за край. Дважды одно имя в двух строках — это и есть та каша,
+            от которой всю карточку переделывали. */}
+        {!compact && (
+          <p className="font-playfair text-lg font-bold leading-tight max-w-xs opacity-90 line-clamp-3">
+            {title}
+          </p>
+        )}
       </div>
     </div>
   );

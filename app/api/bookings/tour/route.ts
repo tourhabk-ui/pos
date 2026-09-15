@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { effectiveCommissionPercent } from '@/lib/payments/commission';
+import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,13 +23,6 @@ const CreateTourBookingSchema = z.object({
   // Агентский реферальный код (KH-AGT-...) — атрибуция брони реф-ссылке
   ref:          z.string().max(32).optional(),
 });
-
-/** Добавляет N дней к дате (UTC-safe) */
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 export async function POST(request: NextRequest) {
   const authOrResponse = await requireAuth(request);
@@ -122,14 +116,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Вычисляем длительность тура в днях
-    let durationDays = 1;
-    if (tour.multi_day_count && tour.multi_day_count > 1) {
-      durationDays = tour.multi_day_count;
-    } else if (tour.duration_hours && tour.duration_hours >= 24) {
-      durationDays = Math.ceil(tour.duration_hours / 24);
-    }
-    const endDate = addDays(bookingDate, durationDays - 1);
+    // 3. Длительность тура в днях. Правило переехало в lib/bookings/duration.ts
+    //    и стало общим с reserveBooking: до 14.09 оно жило ТОЛЬКО здесь, и
+    //    вторая дверь (веб-форма заявки и чат Кузьмича) заводила многодневный
+    //    тур как однодневный — с пустым end_date, который все читатели
+    //    занятости понимают как «ровно один день».
+    const durationDays = tourDurationDays(tour);
+    const endDate = tourEndDate(bookingDate, durationDays);
 
     // 4. Проверяем слот ТОЛЬКО для даты отправления (цена + отмена)
     const startSlotResult = await client.query<{

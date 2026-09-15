@@ -1,0 +1,184 @@
+name: Перепись воронки — доходит ли заявка до оператора (вручную)
+
+# Повод (14.09). PR #1888 закрыл право СОБИРАТЬ ПД гостя в форме заявки. При
+# разборе выяснилось, что мы собираемся полировать вход воронки, ничего не зная
+# про её выход: разбор денежного пути 11.09 дал `paid_total 0`, а «увидел ли
+# оператор заявку» не измерялось вовсе.
+#
+# Полировать вход, не зная выхода, — работа вслепую. Три переписи, отвечающие
+# на этот вопрос, в репозитории УЖЕ ЕСТЬ и объявлены `manual`: их зовёт человек
+# по адресу с Bearer-секретом. Из песочницы агента прод недостижим, а браузером
+# заголовок не поставить — то есть спросить их было практически нечем.
+#
+# Замер того же дня: под /api/cron/ объявлено 88 ручных эндпоинтов, и ровно
+# ОДИН из них зовётся хоть каким-то workflow. Это не обвинение — `manual` по
+# CLAUDE.md законный род, — но вопрос «как часто их на самом деле спрашивают»
+# стоит задать вслух. Здесь заводится исполнитель для трёх из них.
+#
+# Только чтение. Ни один из трёх эндпоинтов ничего не меняет: funnel-census и
+# operator-reach объявлены `writes: false`, а beacon-check делает свой INSERT
+# в транзакции с гарантированным откатом — строка не остаётся по построению, а
+# не по удаче.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/funnel-census.json'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    # Ожидание сборки внутри job'а стоит 35 минут (ATTEMPTS 70 x SLEEP 30 в
+    # scripts/wait-for-deploy.sh). Таймаут job'а обязан быть БОЛЬШЕ — иначе
+    # GitHub отменит шаг ровно тогда, когда ожидание собиралось вынести свой
+    # вердикт, и отмена прочтётся как «ничего не сказано». Так и вышло 14.09:
+    # funnel-census прошёл гейт сборки в 13:49:53 и был отменён в ту же секунду.
+    # Держит tests/unit/workflow-timeout-fits-wait.test.ts.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # Ждём сборку, хотя все три эндпоинта живут на проде давно и новый код им
+      # не нужен. REQUIRE_FRESH поэтому НЕ ставится: этим коммитом не едет ни
+      # одного эндпоинта, и требовать «именно мою сборку» значило бы городить
+      # условие, которому нечего проверять. Само ожидание оставлено потому, что
+      # маркер едет в main тем же пушем, и правило для marker-прогонов одно на
+      # всех (tests/unit/marker-waits-for-deploy.test.ts): список исключений в
+      # нём может только сокращаться.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Три переписи воронки
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          ask() {
+            local name="$1" path="$2"
+            local code
+            code=$(curl -sS -o "/tmp/$name.json" -w '%{http_code}' --max-time 90 \
+              -H "Authorization: Bearer ${CRON_SECRET}" "https://vedarai.ru$path")
+            echo "$name → HTTP $code"
+            if [ "$code" != "200" ]; then
+              echo "  не ответила — это «не смогли спросить», а не «всё хорошо»"
+              cat "/tmp/$name.json" 2>/dev/null || true
+              echo '{}' > "/tmp/$name.json"
+            fi
+          }
+          ask funnel   "/api/cron/funnel-census?days=14"
+          ask reach    "/api/cron/operator-reach"
+          ask beacon   "/api/cron/beacon-check"
+
+          python3 - <<'PY'
+          import json, sys
+
+          def load(n):
+              try:
+                  return json.load(open('/tmp/%s.json' % n))
+              except Exception:
+                  return {}
+
+          funnel, reach, beacon = load('funnel'), load('reach'), load('beacon')
+          red, unknown = [], []
+
+          # ── 1. Доходит ли заявка до оператора ─────────────────────────────
+          # Самый дешёвый способ потерять туриста: у оператора нет канала, и
+          # заявка не уходит НИКОГДА. Снаружи это неотличимо от «оператор
+          # видит и молчит», и Watchdog в таком случае винит оператора.
+          print('=== ДОХОДИТ ЛИ ЗАЯВКА ===')
+          if not reach:
+              print('  не спросили')
+              unknown.append('operator-reach не ответила')
+          else:
+              total = reach.get('operators_with_live_tours')
+              bad   = reach.get('unreachable')
+              print('  операторов с живыми турами:', total, '| без канала связи:', bad)
+              print('  туров за недостижимыми:', reach.get('tours_behind_unreachable'))
+              drift = reach.get('telegram_only_in_user_account') or []
+              if drift:
+                  print('  адрес есть, но не в той колонке:', len(drift))
+              for o in (reach.get('unreachable_operators') or []):
+                  print('   —', o.get('name'))
+              if isinstance(bad, int) and bad > 0:
+                  red.append('%d оператор(ов) с живыми турами не получат заявку вовсе' % bad)
+
+          # ── 2. Измерима ли середина воронки ───────────────────────────────
+          # Маяк funnel_events молчал с момента заведения из-за 42P08: середина
+          # была не пустой, а НЕИЗМЕРЯЕМОЙ, и «никто не трогает форму» звучало
+          # как факт о туристах, будучи фактом о нас.
+          print()
+          print('=== ПИШЕТ ЛИ МАЯК ===')
+          if not beacon:
+              print('  не спросили')
+              unknown.append('beacon-check не ответила')
+          else:
+              print('  ok:', beacon.get('ok'), '| путь записи:', beacon.get('write_path'))
+              if beacon.get('error'):
+                  print('  ошибка:', beacon.get('error'))
+              if beacon.get('ok') is False:
+                  red.append('приёмник маяка не может записать событие — середина воронки неизмерима')
+
+          # ── 3. Сами числа ─────────────────────────────────────────────────
+          print()
+          print('=== ЧИСЛА ВОРОНКИ (14 дней) ===')
+          if not funnel:
+              print('  не спросили')
+              unknown.append('funnel-census не ответила')
+          else:
+              for k, v in (funnel.get('counts') or {}).items():
+                  print('  %-24s %s' % (k, v))
+              print('  боты отдельно:', funnel.get('bot_views'))
+              state = funnel.get('verdict_state')
+              print('  состояние вердикта:', state)
+              v = funnel.get('verdict')
+              if v:
+                  print('  звено:', v.get('title'), '| важность:', v.get('severity'))
+                  print('  что делать:', v.get('suggestion'))
+              # Три разных ответа, и путать их нельзя: «не смогли посчитать»,
+              # «судить рано» и «поток цел» — это не один и тот же зелёный.
+              if state == 'unknown':
+                  unknown.append('входы воронки не сосчитаны: %s' % funnel.get('unknown_inputs'))
+              elif state == 'insufficient_sample':
+                  print('  судить рано — выборка мала, это НЕ «всё хорошо»')
+
+          # ── Приговор ──────────────────────────────────────────────────────
+          # Красный только там, где виновата ПЛАТФОРМА: оператор без канала и
+          # мёртвый маяк — наши поломки. Пустая воронка виновата не кодом, и
+          # красить прогон в красный из-за отсутствия туристов значило бы
+          # завести сигнализацию, которую начнут отключать.
+          print()
+          if unknown:
+              print('НЕ ИЗМЕРЕНО:')
+              for u in unknown:
+                  print('  —', u)
+          if red:
+              print()
+              print('КРАСНЫЙ — чинить у нас:')
+              for r in red:
+                  print('  —', r)
+              sys.exit(1)
+          if unknown:
+              print()
+              print('ЖЁЛТЫЙ: поломок у нас не видно, но часть замеров не получена.')
+              print('Это не «всё хорошо» — это «спросили не всё».')
+              sys.exit(0)
+          print('ЗЕЛЁНЫЙ: заявка дойдёт до оператора, маяк пишет, числа получены.')
+          PY
+
+      - name: Чего эта перепись НЕ меряет
+        if: always()
+        run: |
+          echo "Уходит ли ПИСЬМО туристу — не измерено и здесь измерить нечем."
+          echo "Отказ отправки пишется через logSwallowedFailure в консоль Timeweb,"
+          echo "счётчика у него нет, эндпоинта тоже. Это третье состояние, а не"
+          echo "зелёный: см. issue #1889 — ключ к брони уходит одной веткой if."

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import { MapPin } from 'lucide-react';
+import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 import type { NearbyPlace } from './types';
 import { LOCATION_TYPE_LABELS } from './types';
 
@@ -13,9 +13,9 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
   if (!nearby.length) return null;
 
   return (
-    <section className="mt-8">
+    <section>
       <h2
-        className="text-lg font-bold text-[var(--text-primary)] px-4 mb-3"
+        className="mb-3 text-[19px] font-semibold text-[var(--text-primary)]"
         style={{ fontFamily: 'var(--font-playfair)' }}
       >
         Рядом
@@ -23,14 +23,14 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
 
       {/* Horizontal scroll on mobile, grid on md+ */}
       <div
-        className="flex gap-3 overflow-x-auto px-4 pb-2 md:grid md:grid-cols-3 md:overflow-visible"
+        className="flex gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-3 md:overflow-visible"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {nearby.map(n => (
           <Link
             key={n.id}
             href={`/places/${n.id}`}
-            className="flex-shrink-0 w-40 md:w-auto ds-card overflow-hidden group hover:border-[var(--accent)] transition-colors"
+            className="group w-44 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--bg-card)] transition-colors md:w-auto"
           >
             {/* Thumb */}
             <div className="relative w-full bg-[var(--bg-hover)]" style={{ paddingBottom: '65%' }}>
@@ -44,8 +44,20 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
                   loading="lazy"
                 />
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[var(--bg-hover)] to-[var(--bg-card)]">
-                  <MapPin className="w-5 h-5 text-[var(--text-muted)] opacity-40" />
+                /* Честный градиент по типу места — тот же, что в герое.
+                   Решение владельца 2026-07-17: AI-генерации за фотографию не
+                   выдаём. Но заглушка была плоским серым прямоугольником с
+                   булавкой в углу, и владелец назвал это «пустыми серыми
+                   квадратами»: честность должна выглядеть как решение, а не
+                   как неудача загрузки. */
+                <div className="absolute inset-0">
+                  <RouteGradientPlaceholder
+                    title={n.name}
+                    locationType={n.locationType}
+                    className="h-full w-full"
+                    showLabel={false}
+                    compact
+                  />
                 </div>
               )}
               {/* Distance badge */}
@@ -53,11 +65,11 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
                 {n.distanceKm} км
               </span>
             </div>
-            <div className="p-2.5">
-              <p className="text-xs font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors">
+            <div className="p-3">
+              <p className="text-[13px] font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors">
                 {n.name}
               </p>
-              <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+              <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
                 {LOCATION_TYPE_LABELS[n.locationType ?? 'other'] ?? 'Место'}
               </p>
             </div>
