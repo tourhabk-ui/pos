@@ -2,22 +2,32 @@
  * tourhab-dev MCP Server
  * Implements JSON-RPC 2.0 over stdio — no external SDK needed.
  *
- * Tools:
- *   next_migration_id   — next available migration number
- *   sql_rules           — mandatory SQL conventions for this project
- *   check_protected     — is a file in the НЕ ТРОГАТЬ list?
+ * Инструменты БЕЗ базы (работают всегда):
+ *   next_migration_id   — следующий свободный номер миграции (читает migrations/)
+ *   sql_rules           — обязательные SQL-соглашения проекта (читает CLAUDE.md)
+ *   check_protected     — файл в списке НЕ ТРОГАТЬ?
+ *
+ * Инструменты С базой (нужен DATABASE_URL, см. lib/mcp/dev-tools/db.ts):
+ *   brain_search · brain_get · brain_upsert · brain_timeline · brain_list
+ *
+ * Прежняя редакция этой шапки перечисляла только первые три и ссылалась на
+ * `.mcp.json` как на то, что задаёт рабочий каталог. Такого файла в
+ * репозитории НЕТ — ни в корне, ни рядом; сервер отсюда не запускается ничем.
+ * Докстрока, обещающая путь, которого нет, — дефект кода (правило 10.09):
+ * читающий верит, что достаточно положить файл на место.
  */
 import { createInterface } from 'readline';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { Pool } from 'pg';
 import { config } from 'dotenv';
+import { devToolsDb } from './db';
 
 config({ path: join(process.cwd(), '.env.local') });
 
-const dbPool = new Pool({ connectionString: process.env.DATABASE_URL });
-
-// cwd is set to repo root via .mcp.json
+// Рабочий каталог обязан быть корнем репозитория: отсюда читаются migrations/
+// и CLAUDE.md. Прежняя строка утверждала, что корень задаётся конфигом
+// `.mcp.json` — файла с таким именем в репозитории НЕТ, то есть условие
+// никем не обеспечивается. Запускающий обязан задать cwd сам.
 const REPO_ROOT = process.cwd();
 const MIGRATIONS_DIR = join(REPO_ROOT, 'migrations');
 const CLAUDE_MD = join(REPO_ROOT, 'CLAUDE.md');
@@ -209,7 +219,7 @@ async function brainSearch(args: Record<string, unknown>): Promise<unknown> {
     params.push(type);
   }
 
-  const { rows } = await dbPool.query(
+  const { rows } = await devToolsDb().query(
     `SELECT slug, type, title,
             LEFT(compiled_truth, 300) AS compiled_truth_preview,
             agent_id, edit_count, updated_at::text,
@@ -231,7 +241,7 @@ async function brainSearch(args: Record<string, unknown>): Promise<unknown> {
       fConds.push(`type = $${fIdx++}`);
       fParams.push(type);
     }
-    const { rows: fRows } = await dbPool.query(
+    const { rows: fRows } = await devToolsDb().query(
       `SELECT slug, type, title,
               LEFT(compiled_truth, 300) AS compiled_truth_preview,
               agent_id, edit_count, updated_at::text
@@ -249,7 +259,7 @@ async function brainSearch(args: Record<string, unknown>): Promise<unknown> {
 
 async function brainGet(args: Record<string, unknown>): Promise<unknown> {
   const slug = String(args.slug ?? '');
-  const { rows } = await dbPool.query(
+  const { rows } = await devToolsDb().query(
     `SELECT id, slug, type, title, compiled_truth, timeline,
             metadata, agent_id, edit_count,
             created_at::text, updated_at::text
@@ -258,7 +268,7 @@ async function brainGet(args: Record<string, unknown>): Promise<unknown> {
   );
   if (rows.length === 0) return { error: 'not_found', slug };
 
-  const { rows: links } = await dbPool.query(
+  const { rows: links } = await devToolsDb().query(
     `SELECT from_slug, to_slug, link_type, context
      FROM agent_knowledge_links
      WHERE from_slug = $1 OR to_slug = $1`,
@@ -276,7 +286,7 @@ async function brainUpsert(args: Record<string, unknown>): Promise<unknown> {
   const metadata = (args.metadata as Record<string, unknown>) ?? {};
   const agentId = args.agent_id ? String(args.agent_id) : null;
 
-  const { rows } = await dbPool.query(
+  const { rows } = await devToolsDb().query(
     `INSERT INTO agent_knowledge (slug, type, title, compiled_truth, metadata, agent_id)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (slug) DO UPDATE SET
@@ -299,7 +309,7 @@ async function brainTimeline(args: Record<string, unknown>): Promise<unknown> {
   const timestamp = new Date().toISOString().slice(0, 16);
   const line = `\n[${timestamp}] ${entry}`;
 
-  const result = await dbPool.query(
+  const result = await devToolsDb().query(
     `UPDATE agent_knowledge
      SET timeline = timeline || $2,
          edit_count = edit_count + 1
@@ -331,7 +341,7 @@ async function brainList(args: Record<string, unknown>): Promise<unknown> {
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const { rows } = await dbPool.query(
+  const { rows } = await devToolsDb().query(
     `SELECT slug, type, title,
             LEFT(compiled_truth, 200) AS compiled_truth_preview,
             agent_id, edit_count, updated_at::text
