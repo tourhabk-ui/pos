@@ -209,3 +209,131 @@ export function repairTelegramHtml(text: string, limit: number = TELEGRAM_TEXT_L
   while (stack.length > 0) out += `</${stack.pop()}>`;
   return out;
 }
+
+/**
+ * Разбить длинный текст на НЕСКОЛЬКО сообщений вместо обрезки.
+ *
+ * ── Что было сломано (15.09) ───────────────────────────────────────────────
+ *
+ * Владелец прислал дайджест 15.09, оборванный на полуслове: «Go-харнесс,
+ * превращающий любой сай». Так и работало: `repairTelegramHtml` режет под
+ * потолок Bot API, ставит «…» — и на этом всё. Второго сообщения не было, и
+ * ХВОСТ ВЫПУСКА НЕ ДОХОДИЛ ДО ЧИТАТЕЛЯ ВОВСЕ.
+ *
+ * Обрезка была заведена от другой беды — от `Bot API 400: can't parse
+ * entities` (05-06.09), когда пост не уходил целиком. На фоне немоты канала
+ * усечённый выпуск был улучшением, и цена его тогда не обсуждалась. Но она
+ * есть: выпуск собирают пятнадцать источников, судья вычёркивает
+ * неподтверждённое, модель синтезирует — и половина этой работы гасится
+ * молчанием на 4096-м знаке.
+ *
+ * Хуже самой потери то, что её никто не считал. Прогон писался `success`,
+ * `digest_sent: true`, в журнале — ни поля о длине, ни о числе частей.
+ * Единственным свидетельством был символ «…», который видит человек в
+ * телефоне и не видит ни один сторож. Ровно правило 10.09: объявленный исход
+ * («выпуск ушёл») без источника, который бы это держал.
+ *
+ * ── Почему части, а не больший потолок ─────────────────────────────────────
+ *
+ * Потолка больше 4096 у Bot API нет. Значит либо части, либо потеря; третьего
+ * нет. Части нумеруются вслух («2/3»), потому что сообщение, пришедшее без
+ * начала, читается как сбой, а не как продолжение.
+ *
+ * ── Открытые теги переезжают в следующую часть ─────────────────────────────
+ *
+ * Разрыв посреди `<blockquote>` даёт две негодные половины: первую Bot API не
+ * примет (тег не закрыт), вторая начнётся с осиротевшего `</blockquote>`.
+ * Поэтому на срезе открытые теги закрываются, а в начале следующей части
+ * открываются заново — ровно те же и в том же порядке.
+ *
+ * Потолок частей есть (`maxParts`): модель может вернуть что угодно, и слать
+ * в канал двадцать сообщений подряд — не доставка, а флуд. Когда потолок
+ * достигнут, остаток ОБЪЯВЛЯЕТСЯ числом (`splitTelegramHtmlReport`), а не
+ * гасится молча: «не поместилось» обязано быть состоянием, а не тишиной.
+ */
+export interface TelegramSplit {
+  parts: string[];
+  /** Сколько знаков исходника не поместилось ни в одну часть. 0 — влезло всё. */
+  droppedChars: number;
+}
+
+export const TELEGRAM_MAX_PARTS = 5;
+
+export function splitTelegramHtmlReport(
+  text: string,
+  limit: number = TELEGRAM_TEXT_LIMIT,
+  maxParts: number = TELEGRAM_MAX_PARTS,
+): TelegramSplit {
+  const src = escapeStrayMarkup(stripCodeFence(text)).replace(/\s+$/, '');
+  if (src.length === 0) return { parts: [], droppedChars: 0 };
+  if (src.length <= limit && telegramHtmlIssue(src) === null) {
+    return { parts: [src], droppedChars: 0 };
+  }
+
+  const parts: string[] = [];
+  let pos = 0;
+  // Переносятся ЦЕЛЫЕ открывающие теги, а не их имена: `<a href="...">`,
+  // переоткрытый как `<a>`, перестаёт быть ссылкой, а `<blockquote
+  // expandable>` теряет сворачивание. Имя достаточно только для закрытия.
+  let carry: OpenTag[] = [];
+
+  while (pos < src.length && parts.length < maxParts) {
+    // Запас под открывающий префикс, хвост закрывающих тегов и подпись части.
+    const prefix = carry.map((t) => t.raw).join('');
+    const reserve = 64 + prefix.length;
+    const room = Math.max(1, limit - reserve);
+    const last = parts.length === maxParts - 1;
+
+    let cut = pos + room >= src.length ? src.length : pos + room;
+    if (cut < src.length) {
+      // Срез не внутри тега.
+      for (const t of tokens(src)) {
+        if (t.start < cut && t.end > cut) { cut = t.start; break; }
+        if (t.start >= cut) break;
+      }
+      // По границе абзаца, если она близко; иначе по слову. Абзац лучше:
+      // выпуск состоит из разделов, и рвать их по живому незачем.
+      const para = src.lastIndexOf('\n\n', cut);
+      const nl = src.lastIndexOf('\n', cut);
+      const ws = src.lastIndexOf(' ', cut);
+      const boundary = para > pos + room / 2 ? para : Math.max(nl, ws);
+      if (boundary > pos) cut = boundary;
+    }
+
+    const { body, open } = balanceSlice(src.slice(pos, cut), carry);
+    const suffix = last && cut < src.length ? '…' : '';
+    const closing = open.map((t) => `</${t.name}>`).reverse().join('');
+    parts.push(`${prefix}${body}${suffix}${closing}`);
+    carry = open;
+    pos = cut;
+    while (pos < src.length && /\s/.test(src[pos]!)) pos++;
+  }
+
+  return { parts, droppedChars: src.length - pos };
+}
+
+/**
+ * Кусок текста с выброшенными закрывающими без пары; возвращает ещё и список
+ * тегов, оставшихся открытыми, — их закрывает вызывающий и переоткрывает в
+ * следующей части.
+ */
+interface OpenTag { name: string; raw: string }
+
+function balanceSlice(chunk: string, inherited: readonly OpenTag[]): { body: string; open: OpenTag[] } {
+  const stack: OpenTag[] = [...inherited];
+  let out = '';
+  let pos = 0;
+  for (const t of tokens(chunk)) {
+    out += chunk.slice(pos, t.start);
+    pos = t.end;
+    if (!TELEGRAM_TAGS.has(t.name)) { out += t.raw; continue; }
+    if (!t.closing) { stack.push({ name: t.name, raw: t.raw }); out += t.raw; continue; }
+    const idx = stack.map((o) => o.name).lastIndexOf(t.name);
+    if (idx === -1) continue;
+    while (stack.length > idx + 1) out += `</${stack.pop()!.name}>`;
+    stack.pop();
+    out += t.raw;
+  }
+  out += chunk.slice(pos);
+  return { body: out.replace(/\s+$/, ''), open: stack };
+}

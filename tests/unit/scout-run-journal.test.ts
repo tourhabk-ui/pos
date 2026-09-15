@@ -55,13 +55,28 @@ describe('отказ Telegram называет причину', () => {
     expect(DIGEST).toMatch(/function describeTelegramReply\(/);
     expect(DIGEST).toMatch(/async function tgSendTo\(chatId: string, text: string, onError\?: SendErrorSink\)/);
     expect(DIGEST).toMatch(/onError\?: SendErrorSink,\n\): Promise<boolean>/);
+
     // Ни одного немого catch у отправителей: причина уходит в onError.
-    const senders = DIGEST.match(/async function tgSend(?:To|Rich)\([\s\S]*?\n\}/g) ?? [];
-    expect(senders.length).toBe(2);
-    for (const s of senders) {
+    //
+    // Проверяется КАЖДАЯ функция, которая реально ходит в Bot API, а не две
+    // по именам. 15.09 отправка выпуска стала многочастной, и запрос переехал
+    // из tgSendTo в tgSendOne: список из двух имён покраснел бы на верной
+    // правке и промолчал бы, заведи кто-то третий молчащий отправитель.
+    const blocks = DIGEST.match(/async function tgSend\w*\([\s\S]*?\n\}/g) ?? [];
+    const callers = blocks.filter((b) => b.includes('/sendMessage'));
+    expect(callers.length, 'ни одной функции, отправляющей в Bot API').toBeGreaterThan(0);
+    for (const s of callers) {
       expect(s).not.toMatch(/catch\s*\{\s*return false;\s*\}/);
       expect(s).toMatch(/onError\?\.\(`сеть:/);
-      expect(s).toMatch(/if \(!ok\) onError\?\.\(describeTelegramReply\(res\.status, data\)\)/);
+      expect(s).toMatch(/onError\?\.\(describeTelegramReply\(res\.status, data\)\)/);
+    }
+
+    // Обёртки, которые сами не ходят в сеть, обязаны пробрасывать сток
+    // причины дальше — иначе отказ части утонет между ними.
+    for (const name of ['tgSendTo', 'tgSendRich']) {
+      const b = blocks.find((x) => x.startsWith(`async function ${name}(`));
+      expect(b, `отправитель ${name} не найден`).toBeTruthy();
+      expect(b!).toMatch(/onError/);
     }
   });
 
