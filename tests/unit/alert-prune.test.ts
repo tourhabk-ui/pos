@@ -142,8 +142,20 @@ describe('правило остаётся одно', () => {
 
   it('крон приёма применяет чистку до пересборки статуса точек', () => {
     // Если чистить ПОСЛЕ, пересборка разложит отбракованное по точкам заново.
+    //
+    // Проверяется ПОРЯДОК, а не соседство. Первая редакция требовала, чтобы
+    // между вызовами было не больше 200 символов, — и покраснела 15.09, когда
+    // между ними встал ещё один шаг (привязка дорожных предупреждений). Это
+    // ложная тревога: правило говорит «раньше», а сторож держал «вплотную».
     const cron = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8');
-    expect(cron).toMatch(/pruneRejectedGenres\([\s\S]{0,200}updateRealTimeStatus\(\)/);
+    const pruneAt = cron.indexOf('pruneRejectedGenres(query)');
+    // Якорь — место ВЫЗОВА, а не первое упоминание имени: имя встречается
+    // раньше в объяснениях и в actorId, и поиск по нему сравнивал бы порядок
+    // комментариев, а не порядок работы.
+    const rebuildAt = cron.indexOf('Promise.all([updateRealTimeStatus()');
+    expect(pruneAt, 'вызов чистки не найден').toBeGreaterThan(-1);
+    expect(rebuildAt, 'пересборка статуса точек не найдена').toBeGreaterThan(-1);
+    expect(pruneAt).toBeLessThan(rebuildAt);
   });
 });
 
