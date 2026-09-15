@@ -93,7 +93,9 @@ describe('панель полевых действий в trail', () => {
     // (destination-first, 27.08).
     const condAt = TRAIL.indexOf('{!hasRoute && !isLoadingRoute ? (');
     const emptyState = TRAIL.slice(condAt, TRAIL.indexOf(') : (', condAt));
-    expect(emptyState).toContain('<FieldActionBar actions={fieldActions} error={fieldBarError} />');
+    // Строка обновлена 15.09: полоса показывает и отказ сохранения карты
+    // (`saveMapError`) — до этого нажатие «Сохранить карту» здесь молчало.
+    expect(emptyState).toContain('<FieldActionBar actions={fieldActions} error={fieldBarError ?? saveMapError} />');
   });
 
   it('ObservationSheet смонтирован вне обеих веток hasRoute', () => {

@@ -73,11 +73,11 @@ describe('форма листа (02.09 08:18)', () => {
   });
 
   it('панель действий прибита к низу листа и одна на оба состояния', () => {
-    const footerAt = SHEET.lastIndexOf('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError} />');
+    const footerAt = SHEET.lastIndexOf('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError ?? saveMapError} />');
     expect(footerAt).toBeGreaterThan(0);
     const tail = SHEET.slice(SHEET.indexOf('{/* Конец тела листа. */}'));
     expect(tail).toContain('shrink-0 px-4 pt-2 pb-2 max-w-sm mx-auto w-full');
-    expect(tail).toContain('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError} />');
+    expect(tail).toContain('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError ?? saveMapError} />');
     // Внутри тела при маршруте панели нет: только в ветке без маршрута
     // (экран выбора цели) и в прибитом низу.
     const occurrences = SHEET.split('<FieldActionBar actions={fieldActions}').length - 1;

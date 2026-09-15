@@ -1002,7 +1002,19 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   }, []);
 
   const saveMap = useCallback(async (routeId: string) => {
-    if (!mapPlan || !navigator.serviceWorker) return;
+    // Три немых `return` ниже стояли здесь до 15.09, и каждый из них означал
+    // для человека одно: нажал — не произошло НИЧЕГО. Снимок владельца:
+    // «кнопка скачать не работает». Кнопка при этом отрабатывала штатно и
+    // молчала — а молчание на экране подготовки к выходу читается как
+    // «сохранилось» (§4.0).
+    if (!mapPlan) {
+      setSaveMapError('План карты ещё не посчитан — подождите или обновите экран');
+      return;
+    }
+    if (!navigator.serviceWorker) {
+      setSaveMapError('Браузер не умеет сохранять карту офлайн (нет service worker)');
+      return;
+    }
     // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
     // нехватке места — без предупреждения и, по закону подлости, перед
     // выходом. Отказ браузера не скрываем, он попадёт в запись.
@@ -1010,7 +1022,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     try {
       const reg = await navigator.serviceWorker.ready;
       const sw = reg.active;
-      if (!sw) return;
+      if (!sw) {
+        setSaveMapError('Офлайн-хранилище ещё не проснулось — повторите через несколько секунд');
+        return;
+      }
       setSaveMapError(null);
       setTileDl({ done: 0, total: mapPlan.tiles });
       const onMsg = (e: MessageEvent) => {
@@ -1041,7 +1056,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       };
       navigator.serviceWorker.addEventListener('message', onMsg);
       sw.postMessage({ type: 'CACHE_TILES', tiles: mapPlan.urls, regionId: routeId });
-    } catch { /* ignore */ }
+    } catch (err) {
+      // Пустой catch превращал поломку в «данных нет» — здесь он превращал её
+      // в «ничего не случилось», что перед выходом в поле дороже.
+      setTileDl(null);
+      setSaveMapError('Не удалось начать сохранение карты. Попробуйте ещё раз.');
+      console.error('[field-pack] сохранение карты не началось, маршрут',
+        routeId, err instanceof Error ? err.message : err);
+    }
   }, [mapPlan, assemblePack]);
 
   // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
@@ -3977,7 +3999,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                 «стала открывать маршрут вместо своей формы»). */}
             <div className="w-full pt-2 border-t border-[var(--border)]">
               <p className="text-xs text-[var(--text-muted)] mb-2 pt-3">Цель не нужна, чтобы сообщить о находке:</p>
-              <FieldActionBar actions={fieldActions} error={fieldBarError} />
+              <FieldActionBar actions={fieldActions} error={fieldBarError ?? saveMapError} />
             </div>
           </div>
         ) : !sheetOpen ? (
@@ -4634,7 +4656,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               палец, только текст под ними уходит вместе со сворачиванием
               листа — human читает имя действия иконкой, а не подписью,
               когда карта важнее. */}
-          <FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError} />
+          <FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError ?? saveMapError} />
         </div>
       )}
       </div>
@@ -4810,7 +4832,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               fieldActions. Наблюдение с карты открывает ту же шторку. */}
           <div className="pointer-events-auto absolute inset-x-0 bottom-0 px-4"
             style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
-            <FieldActionBar actions={fieldActions} error={fieldBarError} />
+            <FieldActionBar actions={fieldActions} error={fieldBarError ?? saveMapError} />
           </div>
         </div>
       )}
