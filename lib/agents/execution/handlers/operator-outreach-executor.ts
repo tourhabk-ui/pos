@@ -4,9 +4,28 @@
  * Flow:
  *   1. Fetch RSS-лент rata-news.ru и tourprom.ru
  *   2. AI извлекает названия операторов, email, сайты
- *   3. INSERT в outreach_queue (skip если email уже есть)
- *   4. Для каждого нового оператора — Telegram-сообщение с готовым текстом приглашения
- *   5. Обновляет статус → 'contacted'
+ *   3. INSERT в outreach_queue (skip если такой уже есть) — статус 'found'
+ *   4. ОТДЕЛЬНОЙ фазой: всё, что стоит в 'found', объявляется в Telegram
+ *      и переводится в 'contacted' — включая застрявшее с прошлых прогонов
+ *
+ * ПОЧЕМУ ДВЕ ФАЗЫ, А НЕ ТРАНЗАКЦИЯ (находка Evo Judge 15.09).
+ * Раньше INSERT, отправка в Telegram и UPDATE шли подряд на каждом операторе.
+ * Между ними стоит ЧУЖОЙ HTTP-вызов, и любой отказ на нём оставлял строку в
+ * статусе 'found' — а дедуп следующего прогона (`NOT EXISTS` по email/имени)
+ * такую строку исключает. То есть оператор, о котором не удалось сообщить,
+ * не объявлялся уже НИКОГДА: молча, без ошибки, без второй попытки.
+ *
+ * Транзакция это не лечит и лечить не может: отправленное в Telegram
+ * сообщение откатом не возвращается, а держать транзакцию открытой поверх
+ * внешнего HTTP — держать блокировку на время чужого таймаута. Лечит
+ * ПОВТОРНАЯ ПОПЫТКА: объявление привязано не к «только что вставили», а к
+ * состоянию строки, и застрявшее подхватывается следующим прогоном.
+ *
+ * Порядок «сначала отправить, потом записать» выбран сознательно: он даёт
+ * доставку не реже одного раза (в худшем случае — повтор сообщения
+ * администратору, это шум). Обратный порядок дал бы не чаще одного раза —
+ * то есть потерю оператора при падении сразу после UPDATE, а это ровно та
+ * поломка, которую здесь чинят.
  */
 
 import { pool } from '@/lib/db-pool';
@@ -115,11 +134,24 @@ async function extractOperatorsFromContent(content: string, sourceName: string):
     .filter(op => op.company_name.length > 2);
 }
 
+/**
+ * Исход отправки — три состояния, а не два (§4.0).
+ *
+ * `not_configured` («некому слать») и `failed` («не дошло») прежде возвращались
+ * одинаковым `false`, и вызывающий не мог их различить: строка молча оставалась
+ * в очереди, а прогон считался успешным. Это разные состояния и разные слова
+ * человеку: первое чинится переменными окружения, второе — повтором.
+ */
+type SendOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'not_configured' }
+  | { ok: false; reason: 'failed'; detail: string };
+
 /** Отправить Telegram-сообщение о найденном операторе с готовым текстом для контакта */
-async function sendOperatorToTelegram(op: FoundOperator, outreachId: string): Promise<boolean> {
+async function sendOperatorToTelegram(op: FoundOperator, outreachId: string): Promise<SendOutcome> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId   = process.env.TELEGRAM_CHAT_ID;
-  if (!botToken || !chatId) return false;
+  if (!botToken || !chatId) return { ok: false, reason: 'not_configured' };
 
   const inviteText = [
     `Здравствуйте, коллеги из ${op.company_name}.`,
@@ -151,19 +183,39 @@ async function sendOperatorToTelegram(op: FoundOperator, outreachId: string): Pr
     `<code>${inviteText}</code>`,
   ].filter(l => l !== '').join('\n');
 
-  const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      chat_id:    chatId,
-      parse_mode: 'HTML',
-      text:       tgText,
-      disable_web_page_preview: true,
-    }),
-  });
+  // Сетевой отказ здесь — тоже «не дошло», а не исключение наружу: цикл
+  // объявления обязан дойти до остальных операторов очереди.
+  try {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        chat_id:    chatId,
+        parse_mode: 'HTML',
+        text:       tgText,
+        disable_web_page_preview: true,
+      }),
+    });
 
-  return res.ok;
+    if (res.ok) return { ok: true };
+
+    const body = await res.text().catch(() => '');
+    const detail = `HTTP ${res.status}${body ? ` ${body.slice(0, 200)}` : ''}`;
+    logSwallowedFailure('operator-outreach', `Telegram о «${op.company_name}»`, new Error(detail));
+    return { ok: false, reason: 'failed', detail };
+  } catch (err) {
+    logSwallowedFailure('operator-outreach', `Telegram о «${op.company_name}»`, err);
+    return { ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };
+  }
 }
+
+/**
+ * Сколько строк объявляем за прогон. Граница нужна не базе, а человеку:
+ * очередь, простоявшая необъявленной, не должна вываливаться в Telegram
+ * сотней сообщений разом. Остаток подхватит следующий прогон — он для того
+ * и отвязан от «только что вставили».
+ */
+const ANNOUNCE_LIMIT = 50;
 
 export async function executeOperatorOutreach(task: ExecutionTask): Promise<ExecutionResult> {
   const changes: string[] = [];
@@ -236,27 +288,11 @@ export async function executeOperatorOutreach(task: ExecutionTask): Promise<Exec
 
           if (!insertResult.rows[0]) continue; // уже в очереди
 
-          const outreachId = insertResult.rows[0].id;
           insertedCount++;
+          changes.push(`В очередь добавлен: ${op.company_name}${op.email ? ` <${op.email}>` : ''}`);
 
-          // ── Step 4: Send Telegram with ready-made outreach text ───────────
-          const tgSent = await sendOperatorToTelegram(op, outreachId);
-
-          if (tgSent) {
-            await pool.query(
-              `UPDATE outreach_queue
-               SET status        = 'contacted',
-                   outreach_text = 'Telegram-уведомление отправлено администратору',
-                   contacted_at  = NOW(),
-                   updated_at    = NOW()
-               WHERE id = $1`,
-              [outreachId]
-            );
-            notifiedCount++;
-            changes.push(`Telegram отправлен: ${op.company_name}${op.email ? ` <${op.email}>` : ''}`);
-          } else {
-            changes.push(`Сохранён в очереди: ${op.company_name}`);
-          }
+          // Объявления здесь НЕТ намеренно — оно идёт отдельной фазой ниже,
+          // по состоянию строки. См. шапку файла.
 
         } catch (opErr) {
           errors.push(`"${op.company_name}": ${opErr instanceof Error ? opErr.message : String(opErr)}`);
@@ -268,10 +304,91 @@ export async function executeOperatorOutreach(task: ExecutionTask): Promise<Exec
     }
   }
 
+  // ── Step 4: объявить всё, что стоит в 'found' ───────────────────────────────
+  //
+  // Отбор по СОСТОЯНИЮ, а не по «только что вставили»: сюда попадает и то,
+  // что застряло на прошлых прогонах (отправка не дошла, процесс упал между
+  // отправкой и записью). Без этой фазы такая строка не объявлялась бы
+  // никогда — дедуп выше её исключает по построению.
+  let notAnnouncedCount = 0;
+  let notConfigured     = false;
+  let pendingTotal      = 0;
+
+  try {
+    const pending = await pool.query<{
+      id: string; company_name: string; email: string | null; website: string | null; source: string | null;
+    }>(
+      `SELECT id, company_name, email, website, source
+         FROM outreach_queue
+        WHERE status = 'found'
+        ORDER BY created_at ASC
+        LIMIT $1`,
+      [ANNOUNCE_LIMIT]
+    );
+    pendingTotal = pending.rows.length;
+
+    for (const row of pending.rows) {
+      const op: FoundOperator = {
+        company_name: row.company_name,
+        email:        row.email   ?? undefined,
+        website:      row.website ?? undefined,
+        source:       row.source  ?? 'неизвестен',
+      };
+
+      const sent = await sendOperatorToTelegram(op, row.id);
+
+      if (!sent.ok) {
+        notAnnouncedCount++;
+        if (sent.reason === 'not_configured') {
+          notConfigured = true;
+        } else {
+          // Отказ доставки — ошибка прогона, а не тишина: строка остаётся в
+          // 'found' и будет объявлена следующим прогоном, но знать об этом
+          // человек должен сейчас (§4.0).
+          errors.push(`Telegram о "${row.company_name}": ${sent.detail}`);
+        }
+        continue;
+      }
+
+      // `AND status = 'found'` — перепроверка того же рода, что в archive_sos:
+      // между отбором и записью статус мог сменить администратор из панели
+      // (/api/admin/outreach PATCH), и затирать его решение словом 'contacted'
+      // нельзя. RETURNING — чтобы счётчик называл ФАКТ записи, а не намерение.
+      const marked = await pool.query<{ id: string }>(
+        `UPDATE outreach_queue
+            SET status        = 'contacted',
+                outreach_text = 'Telegram-уведомление отправлено администратору',
+                contacted_at  = NOW(),
+                updated_at    = NOW()
+          WHERE id = $1
+            AND status = 'found'
+        RETURNING id`,
+        [row.id]
+      );
+
+      if (marked.rows[0]) {
+        notifiedCount++;
+        changes.push(`Telegram отправлен: ${row.company_name}${row.email ? ` <${row.email}>` : ''}`);
+      } else {
+        changes.push(`Статус "${row.company_name}" изменён за время прогона — отметку не ставлю`);
+      }
+    }
+  } catch (announceErr) {
+    logSwallowedFailure('operator-outreach', 'объявление очереди', announceErr);
+    errors.push(`Объявление очереди: ${announceErr instanceof Error ? announceErr.message : String(announceErr)}`);
+  }
+
+  if (notConfigured) {
+    changes.push('TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы — объявлять некуда, очередь ждёт');
+  }
+  if (notAnnouncedCount > 0) {
+    changes.push(`Осталось необъявленных: ${notAnnouncedCount} — подхватит следующий прогон`);
+  }
+
   // ── Telegram итоговый отчёт ─────────────────────────────────────────────────
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId   = process.env.TELEGRAM_CHAT_ID;
-  if (botToken && chatId && (foundCount > 0 || errors.length > 0)) {
+  if (botToken && chatId && (foundCount > 0 || pendingTotal > 0 || errors.length > 0)) {
     await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -284,6 +401,9 @@ export async function executeOperatorOutreach(task: ExecutionTask): Promise<Exec
           `Найдено операторов: <b>${foundCount}</b>`,
           `Добавлено в очередь: <b>${insertedCount}</b>`,
           `Уведомлений отправлено: <b>${notifiedCount}</b>`,
+          // Необъявленное называется вслух: это очередь, которая ждёт, а не
+          // ноль работы. Молчание о ней и было прежней поломкой.
+          ...(notAnnouncedCount > 0 ? [`Осталось необъявленных: <b>${notAnnouncedCount}</b>`] : []),
           errors.length > 0 ? `Ошибок: ${errors.length}` : 'Ошибок нет',
           '',
           '<i>Каждый новый оператор — отдельное сообщение выше с готовым текстом</i>',
@@ -292,13 +412,19 @@ export async function executeOperatorOutreach(task: ExecutionTask): Promise<Exec
     }).catch(() => null);
   }
 
-  changes.push(`Итого: найдено ${foundCount}, добавлено ${insertedCount}, уведомлено ${notifiedCount}`);
+  changes.push(
+    `Итого: найдено ${foundCount}, добавлено ${insertedCount}, ` +
+    `объявлено ${notifiedCount} из ${pendingTotal} ожидавших`
+  );
 
   return {
     success:             errors.length === 0 || insertedCount > 0,
     changes_made:        changes,
     errors,
     rollback_available:  false,
-    verification_passed: true,
+    // Не «всегда true» (§4.0): дело доведено до конца только если очередь
+    // объявлена целиком. Осталось необъявленное — проверка не пройдена, и
+    // писать обратное значит выдавать «не смог» за «хорошо».
+    verification_passed: notAnnouncedCount === 0 && errors.length === 0,
   };
 }

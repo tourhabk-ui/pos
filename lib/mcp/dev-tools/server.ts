@@ -10,12 +10,23 @@
 import { createInterface } from 'readline';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { Pool } from 'pg';
 import { config } from 'dotenv';
+import { createDbPool, requireDb } from './db';
 
 config({ path: join(process.cwd(), '.env.local') });
 
-const dbPool = new Pool({ connectionString: process.env.DATABASE_URL });
+/**
+ * DATABASE_URL может не быть — и это состояние обязано называться (§4.0),
+ * а не превращаться в `ECONNREFUSED` или чужую локальную базу. Почему `pg`
+ * молчит про `undefined` и чем это кончалось — в шапке `./db`.
+ *
+ * Пул не создаётся вовсе, если строки подключения нет: инструменты без БД
+ * (next_migration_id, sql_rules, check_protected) продолжают работать —
+ * отсутствие базы не повод глушить весь сервер, — а brain-инструменты
+ * отвечают отказом, который называет причину.
+ */
+const dbPool = createDbPool(process.env.DATABASE_URL);
+const db = () => requireDb(dbPool);
 
 // cwd is set to repo root via .mcp.json
 const REPO_ROOT = process.cwd();
@@ -209,7 +220,7 @@ async function brainSearch(args: Record<string, unknown>): Promise<unknown> {
     params.push(type);
   }
 
-  const { rows } = await dbPool.query(
+  const { rows } = await db().query(
     `SELECT slug, type, title,
             LEFT(compiled_truth, 300) AS compiled_truth_preview,
             agent_id, edit_count, updated_at::text,
@@ -231,7 +242,7 @@ async function brainSearch(args: Record<string, unknown>): Promise<unknown> {
       fConds.push(`type = $${fIdx++}`);
       fParams.push(type);
     }
-    const { rows: fRows } = await dbPool.query(
+    const { rows: fRows } = await db().query(
       `SELECT slug, type, title,
               LEFT(compiled_truth, 300) AS compiled_truth_preview,
               agent_id, edit_count, updated_at::text
@@ -249,7 +260,7 @@ async function brainSearch(args: Record<string, unknown>): Promise<unknown> {
 
 async function brainGet(args: Record<string, unknown>): Promise<unknown> {
   const slug = String(args.slug ?? '');
-  const { rows } = await dbPool.query(
+  const { rows } = await db().query(
     `SELECT id, slug, type, title, compiled_truth, timeline,
             metadata, agent_id, edit_count,
             created_at::text, updated_at::text
@@ -258,7 +269,7 @@ async function brainGet(args: Record<string, unknown>): Promise<unknown> {
   );
   if (rows.length === 0) return { error: 'not_found', slug };
 
-  const { rows: links } = await dbPool.query(
+  const { rows: links } = await db().query(
     `SELECT from_slug, to_slug, link_type, context
      FROM agent_knowledge_links
      WHERE from_slug = $1 OR to_slug = $1`,
@@ -276,7 +287,7 @@ async function brainUpsert(args: Record<string, unknown>): Promise<unknown> {
   const metadata = (args.metadata as Record<string, unknown>) ?? {};
   const agentId = args.agent_id ? String(args.agent_id) : null;
 
-  const { rows } = await dbPool.query(
+  const { rows } = await db().query(
     `INSERT INTO agent_knowledge (slug, type, title, compiled_truth, metadata, agent_id)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (slug) DO UPDATE SET
@@ -299,7 +310,7 @@ async function brainTimeline(args: Record<string, unknown>): Promise<unknown> {
   const timestamp = new Date().toISOString().slice(0, 16);
   const line = `\n[${timestamp}] ${entry}`;
 
-  const result = await dbPool.query(
+  const result = await db().query(
     `UPDATE agent_knowledge
      SET timeline = timeline || $2,
          edit_count = edit_count + 1
@@ -331,7 +342,7 @@ async function brainList(args: Record<string, unknown>): Promise<unknown> {
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const { rows } = await dbPool.query(
+  const { rows } = await db().query(
     `SELECT slug, type, title,
             LEFT(compiled_truth, 200) AS compiled_truth_preview,
             agent_id, edit_count, updated_at::text
