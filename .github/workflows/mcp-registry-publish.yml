@@ -14,10 +14,15 @@ name: Публикация MCP-сервера в официальный реес
 # доказательства владения доменом (/.well-known/mcp-registry-auth + ключ в
 # переменных Timeweb), и этот путь остаётся владельцу на потом.
 #
-# Повторная публикация той же версии реестром отвергается: перед новым
-# прогоном поднять `version` в server.json И `MCP_SERVER_INFO.version` в
-# lib/mcp/public-tools.ts — сторож mcp-registry-publish.test.ts держит их
-# равными.
+# Повторная публикация той же версии реестром отвергается («cannot publish
+# duplicate version», 400). Первый же мерж в main это показал: маркер
+# опубликовал версию с ветки, а squash в main тронул тот же маркер и
+# запустил прогон второй раз — красный на ровном месте. Поэтому перед
+# публикацией реестр спрашивается: версия уже там — публикация
+# пропускается с явным «уже опубликовано», а не отказом. Это третий
+# исход, не успех и не поломка. Новая версия — поднять `version` в
+# server.json И `MCP_SERVER_INFO.version` в lib/mcp/public-tools.ts;
+# сторож mcp-registry-publish.test.ts держит их равными.
 #
 # Ноль результатов после публикации — отказ, а не успех (§4.0): последний
 # шаг спрашивает реестр и краснеет, если нас там нет.
@@ -67,10 +72,36 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Публикуем $NAME @ $VERSION"
 
+      - name: Уже в реестре? — тогда публиковать нечего
+        id: present
+        run: |
+          set -euo pipefail
+          NAME='${{ steps.manifest.outputs.name }}'
+          VERSION='${{ steps.manifest.outputs.version }}'
+          curl -sS -o before.json "https://registry.modelcontextprotocol.io/v0.1/servers?search=${NAME}"
+          PRESENT=$(python3 - before.json "$NAME" "$VERSION" <<'PY'
+          import json, sys
+          path, name, version = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open(path) as f:
+              data = json.load(f)
+          hit = any(
+              s.get('server', {}).get('name') == name and s.get('server', {}).get('version') == version
+              for s in data.get('servers', [])
+          )
+          print('true' if hit else 'false')
+          PY
+          )
+          echo "present=$PRESENT" >> "$GITHUB_OUTPUT"
+          if [ "$PRESENT" = "true" ]; then
+            echo "::notice::$NAME @ $VERSION уже опубликован — публикация пропущена, ниже только проверка"
+          fi
+
       - name: Вход по OIDC
+        if: steps.present.outputs.present != 'true'
         run: ./mcp-publisher login github-oidc
 
       - name: Публикация
+        if: steps.present.outputs.present != 'true'
         run: ./mcp-publisher publish
 
       - name: Реестр нас видит — иначе красный
