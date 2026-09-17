@@ -79,12 +79,91 @@ jobs:
       - name: Smithery CLI
         run: npm install -g smithery@1 --no-audit --no-fund && smithery --version
 
+      - name: Пространство имён — то, которым владеет ключ, а не то, что угадано
+        id: ns
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          # Первый прогон (run 1, 17.09) упёрся в «404 Namespace not found»:
+          # пространство имён у Smithery — аккаунт владельца, и `tourhabk-ui`
+          # из маркера оказалось не им. Ключ при этом принят — отказ был на
+          # имени. Поэтому имя не угадывается: спрашиваем у Smithery, какими
+          # пространствами владеет ключ.
+          #   · org из маркера среди них — берём его;
+          #   · ровно одно пространство, и оно другое — берём его и говорим об
+          #     этом вслух (маркер поправить, чтобы не удивляться в следующий раз);
+          #   · ни одного — заводим org из маркера (`namespace create`);
+          #   · несколько, и ни одно не совпало — красный со списком: выбор
+          #     имени владельца, не прогона.
+          WANT='${{ steps.cfg.outputs.name }}'
+          ORG="${WANT%%/*}"
+          SRV="${WANT##*/}"
+          set +e
+          RAW=$(smithery namespace list --json 2>&1)
+          RC=$?
+          set -e
+          echo "namespace list (rc=$RC): $RAW"
+          if [ "$RC" -ne 0 ]; then
+            # Отказ CLI — не пустой список: слово «Error» из его ответа не
+            # должно стать именем пространства.
+            echo "::error::не удалось получить список пространств Smithery (rc=$RC): $RAW"
+            exit 1
+          fi
+          mapfile -t OWNED < <(python3 - "$RAW" <<'PY'
+          import json, re, sys
+          raw = sys.argv[1]
+          names = []
+          def take(rows):
+              for r in rows:
+                  n = r.get('name') if isinstance(r, dict) else r
+                  if isinstance(n, str) and n: names.append(n)
+          # CLI печатает по-разному: `--json` — один объект со списком; в
+          # не-TTY без флага — по объекту на строку (jsonl); в TTY — таблицу.
+          # Разбираем все три, потому что какой из них придёт на раннере,
+          # из исходника не следует наверняка.
+          try:
+              data = json.loads(raw)
+              take(data if isinstance(data, list) else data.get('data') or data.get('namespaces') or [])
+          except Exception:
+              for line in raw.splitlines():
+                  line = line.strip()
+                  if not line: continue
+                  try:
+                      take([json.loads(line)]); continue
+                  except Exception:
+                      pass
+                  m = re.match(r'([a-z0-9][a-z0-9-]*)\b', line, re.I)
+                  if m and m.group(1).lower() not in ('name', 'current', 'error', 'warning'): names.append(m.group(1))
+          print('\n'.join(dict.fromkeys(names)))
+          PY
+          )
+          echo "владеет: ${OWNED[*]:-(ничего)}"
+          USE=""
+          for n in "${OWNED[@]:-}"; do [ "$n" = "$ORG" ] && USE="$ORG"; done
+          if [ -z "$USE" ] && [ "${#OWNED[@]}" -eq 1 ] && [ -n "${OWNED[0]}" ]; then
+            USE="${OWNED[0]}"
+            echo "::warning::пространство из маркера '$ORG' ключу не принадлежит; публикуем в единственное доступное '$USE' — поправьте name в .github/triggers/smithery-publish.json на '$USE/$SRV'"
+          fi
+          if [ -z "$USE" ] && { [ "${#OWNED[@]}" -eq 0 ] || [ -z "${OWNED[0]}" ]; }; then
+            echo "у ключа нет ни одного пространства — заводим '$ORG'"
+            smithery namespace create "$ORG"
+            USE="$ORG"
+          fi
+          if [ -z "$USE" ]; then
+            echo "::error::у ключа несколько пространств (${OWNED[*]}), и '$ORG' среди них нет — выберите одно и впишите в name маркера"
+            exit 1
+          fi
+          echo "name=$USE/$SRV" >> "$GITHUB_OUTPUT"
+          echo "Публикуем как $USE/$SRV"
+
       - name: Публикация
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
           # Не-интерактивный прогон: подсказки CLI в CI некому отвечать.
           CI: 'true'
-        run: smithery mcp publish "${{ steps.cfg.outputs.url }}" -n "${{ steps.cfg.outputs.name }}"
+        run: smithery mcp publish "${{ steps.cfg.outputs.url }}" -n "${{ steps.ns.outputs.name }}"
 
       - name: Smithery нас видит — иначе красный
         env:
@@ -92,7 +171,7 @@ jobs:
           CI: 'true'
         run: |
           set -euo pipefail
-          NAME='${{ steps.cfg.outputs.name }}'
+          NAME='${{ steps.ns.outputs.name }}'
           NS="${NAME%%/*}"
           SRV="${NAME##*/}"
           # Поиск каталога может отставать от записи (у реестра MCP — 0,3 с
