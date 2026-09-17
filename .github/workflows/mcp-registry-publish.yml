@@ -6,13 +6,22 @@ name: Публикация MCP-сервера в официальный реес
 # а сам публиковать не мог: он на телефоне, а `mcp-publisher login` требует
 # либо приватный ключ на своей машине, либо device-flow в браузере.
 #
-# Этот путь не требует ни того, ни другого: реестр принимает вход из GitHub
-# Actions по OIDC (`login github-oidc`, право `id-token: write`) и даёт право
-# на имена `io.github.<владелец репозитория>/*`. Секретов нет вовсе — токен
-# выдаёт сам GitHub на время джоба. Поэтому имя в server.json —
-# `io.github.tourhabk-ui/vedar`, а не `ru.vedarai/mcp`: доменное имя требует
-# доказательства владения доменом (/.well-known/mcp-registry-auth + ключ в
-# переменных Timeweb), и этот путь остаётся владельцу на потом.
+# Первая публикация (17.09, run 1) шла по OIDC — `login github-oidc`, право
+# `id-token: write`, имя `io.github.tourhabk-ui/vedar`, без единого секрета.
+# Тем же вечером владелец решил завести доменное имя `ru.vedarai/mcp`:
+# доказательство владения — публичный ключ Ed25519 по адресу
+# /.well-known/mcp-registry-auth (константа в lib/mcp/registry-auth.ts,
+# деплоится с приложением), а приватная половина — в секрете Actions
+# `MCP_REGISTRY_PRIVATE_KEY` (hex-семя). Секрет добавляется с телефона в
+# настройках репозитория; на машину владельца ничего не нужно.
+#
+# Секрета нет — прогон краснеет ДО входа, с именем секрета: это честнее,
+# чем ошибка реестра «invalid signature» без объяснения.
+#
+# Запись `io.github.tourhabk-ui/vedar` в реестре остаётся: два имени на один
+# адрес — мусор в каталогах, поэтому после первой публикации доменного имени
+# старая помечается deprecated (шаг ниже, по OIDC — тем же правом, каким её
+# заводили).
 #
 # Повторная публикация той же версии реестром отвергается («cannot publish
 # duplicate version», 400). Первый же мерж в main это показал: маркер
@@ -58,16 +67,20 @@ jobs:
           curl -sSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
           ./mcp-publisher --version || true
 
-      - name: Манифест — имя в пространстве, которое даёт OIDC
+      - name: Манифест — имя в пространстве, которое даёт ключ домена; секрет на месте
         id: manifest
         run: |
           set -euo pipefail
           NAME=$(python3 -c "import json;print(json.load(open('server.json'))['name'])")
           VERSION=$(python3 -c "import json;print(json.load(open('server.json'))['version'])")
           case "$NAME" in
-            io.github.${{ github.repository_owner }}/*) ;;
-            *) echo "::error::server.json называет '$NAME', а OIDC даёт право только на io.github.${{ github.repository_owner }}/*"; exit 1 ;;
+            ru.vedarai/*) ;;
+            *) echo "::error::server.json называет '$NAME', а ключ домена даёт право только на ru.vedarai/*"; exit 1 ;;
           esac
+          if [ -z "${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}" ]; then
+            echo "::error::секрет MCP_REGISTRY_PRIVATE_KEY не задан — приватная половина ключа домена нужна для login http (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Публикуем $NAME @ $VERSION"
@@ -96,13 +109,37 @@ jobs:
             echo "::notice::$NAME @ $VERSION уже опубликован — публикация пропущена, ниже только проверка"
           fi
 
-      - name: Вход по OIDC
+      - name: Вход ключом домена
         if: steps.present.outputs.present != 'true'
-        run: ./mcp-publisher login github-oidc
+        run: ./mcp-publisher login http --domain vedarai.ru --private-key "${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}"
 
       - name: Публикация
         if: steps.present.outputs.present != 'true'
         run: ./mcp-publisher publish
+
+      - name: Старое имя io.github — deprecated, чтобы не было двух серверов на один адрес
+        run: |
+          set -euo pipefail
+          OLD='io.github.${{ github.repository_owner }}/vedar'
+          curl -sS -o old.json "https://registry.modelcontextprotocol.io/v0.1/servers?search=${OLD}"
+          STATE=$(python3 - old.json "$OLD" <<'PY'
+          import json, sys
+          path, name = sys.argv[1], sys.argv[2]
+          with open(path) as f:
+              data = json.load(f)
+          hits = [s for s in data.get('servers', []) if s.get('server', {}).get('name') == name]
+          if not hits:
+              print('absent')
+          else:
+              print(hits[0].get('_meta', {}).get('io.modelcontextprotocol.registry/official', {}).get('status', 'unknown'))
+          PY
+          )
+          echo "$OLD: $STATE"
+          if [ "$STATE" = "active" ]; then
+            # Тем же правом, каким запись заводили: OIDC даёт io.github.<владелец>/*.
+            ./mcp-publisher login github-oidc
+            ./mcp-publisher status --status deprecated --message "Переехал на ru.vedarai/mcp" --all-versions --yes "$OLD"
+          fi
 
       - name: Реестр нас видит — иначе красный
         run: |
