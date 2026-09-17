@@ -63,7 +63,7 @@ describe('назначаемые типы словарные', () => {
         .map(s => s.replace(/SET location_type = '(\w+)'/, '$1')),
     )];
     expect(targets.length).toBeGreaterThanOrEqual(8);
-    for (const file of ['components/map/PlaceMapSheet.tsx', 'app/places/[id]/page.tsx']) {
+    for (const file of ['components/map/PlaceMapSheet.tsx', 'lib/places/type-label.ts']) {
       const dict = readFileSync(join(process.cwd(), file), 'utf-8');
       for (const t of targets) {
         expect(dict, `${t} в ${file}`).toMatch(new RegExp(`\\b${t}:`));

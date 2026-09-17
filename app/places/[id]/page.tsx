@@ -7,6 +7,8 @@ import { isUuid } from '@/lib/text/slugify';
 import { resolveMergedTarget } from '@/lib/places/aliases';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
+// Словарь разделов — общий с контекстом Хранителя (lib/places/type-label.ts).
+import { PLACE_TYPE_LABEL } from '@/lib/places/type-label';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -55,14 +57,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
-const PLACE_TYPE_LABEL: Record<string, string> = {
-  volcano: 'Вулкан', geyser: 'Гейзер', hot_spring: 'Термальный источник',
-  lake: 'Озеро', mountain: 'Гора', bay: 'Бухта', river: 'Река',
-  waterfall: 'Водопад', beach: 'Пляж', forest: 'Лес',
-  historical: 'Историческое место', museum: 'Музей',
-  viewpoint: 'Смотровая площадка', cape: 'Мыс', island: 'Остров',
-  valley: 'Долина', cave: 'Пещера', rock: 'Скала', other: 'Место',
-};
 
 export default async function PlaceDetailPage({ params }: Props) {
   const { id } = await params;

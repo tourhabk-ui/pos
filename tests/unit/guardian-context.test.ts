@@ -253,3 +253,53 @@ describe('getGuardianContext — чистка контекста (#63, проб�
     expect(kbCall![0]).toMatch(/type <> 'outcome'/);
   });
 });
+
+describe('getGuardianContext — раздел каталога в заголовке (17.09)', () => {
+  // До 17.09 location_type выбирался запросом и не печатался. Два городских
+  // холма месяцами носили бейдж «ВУЛКАН» (972-974), а в MCP — единственном
+  // канале, которым прод читается из сессии, — тип был невидим: ни заметить,
+  // ни проверить починку. Три исхода (§4.0): известный тип → слово; тип
+  // записан, но слова нет → сам слаг; типа нет → в заголовке ничего.
+  beforeEach(() => vi.clearAllMocks());
+
+  const base = {
+    description: null, lat: 53.02, lng: 158.64, hazard_types: null, difficulty_level: null,
+    altitude_m: null, nearest_medical_km: null, sat_communicator_required: null,
+    capacity_per_day: null, open_from_date: null, open_to_date: null, is_open: true,
+    current_crowds: null, active_alerts: null, recommender_status: 'red',
+    alert_message: null, alert_severity: null, tourists_today: null,
+  };
+
+  function mockDbFor(placeRow: Record<string, unknown>) {
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('FROM places')) return Promise.resolve({ rows: [placeRow] });
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('prints the known type next to the name, before the status', async () => {
+    mockDbFor({ ...base, name: 'Сопка Никольская', location_type: 'mountain' });
+    const ctx = await getGuardianContext('Сопка Никольская');
+    expect(ctx).toContain('Сопка Никольская (гора) [КРАСНЫЙ]');
+  });
+
+  it('a volcano is named as such — the very defect 972-974 fixed becomes visible here', async () => {
+    mockDbFor({ ...base, name: 'Сопка Никольская', location_type: 'volcano' });
+    const ctx = await getGuardianContext('Сопка Никольская');
+    expect(ctx).toContain('Сопка Никольская (вулкан)');
+  });
+
+  it('prints the raw slug when the type is recorded but has no Russian word', async () => {
+    mockDbFor({ ...base, name: 'Ледник Козельский', location_type: 'glacier' });
+    const ctx = await getGuardianContext('Ледник Козельский');
+    expect(ctx).toContain('Ледник Козельский (glacier)');
+  });
+
+  it('prints nothing about the type when it is NULL — never a default «место»', async () => {
+    mockDbFor({ ...base, name: 'Безымянная точка', location_type: null });
+    const ctx = await getGuardianContext('Безымянная точка');
+    expect(ctx).toContain('Безымянная точка [КРАСНЫЙ]');
+    expect(ctx).not.toContain('(место)');
+    expect(ctx).not.toContain('Безымянная точка (');
+  });
+});

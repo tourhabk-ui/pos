@@ -70,7 +70,7 @@ describe('назначаемые типы словарные', () => {
     // Словари расходились (PlaceMapSheet знал cave, но не viewpoint; страница
     // места — наоборот) — с этой серии оба словаря синхронизированы до полного
     // объединения, и проверка стала строже: каждый тип в КАЖДОМ словаре.
-    for (const file of ['components/map/PlaceMapSheet.tsx', 'app/places/[id]/page.tsx']) {
+    for (const file of ['components/map/PlaceMapSheet.tsx', 'lib/places/type-label.ts']) {
       const dict = readFileSync(join(process.cwd(), file), 'utf-8');
       for (const t of ['hot_spring', 'valley', 'cape', 'volcano', 'viewpoint', 'cave', 'other']) {
         expect(dict, `${t} в ${file}`).toMatch(new RegExp(`\\b${t}:`));
