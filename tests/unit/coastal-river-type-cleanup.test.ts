@@ -55,7 +55,7 @@ describe('прицельность и идемпотентность', () => {
 
 describe('назначаемые типы словарные', () => {
   it('viewpoint, other, rock, waterfall, valley имеют подписи в обоих словарях', () => {
-    for (const file of ['components/map/PlaceMapSheet.tsx', 'app/places/[id]/page.tsx']) {
+    for (const file of ['components/map/PlaceMapSheet.tsx', 'lib/places/type-label.ts']) {
       const dict = readFileSync(join(process.cwd(), file), 'utf-8');
       for (const t of ['viewpoint', 'other', 'waterfall', 'valley']) {
         expect(dict, `${t} в ${file}`).toMatch(new RegExp(`\\b${t}:`));

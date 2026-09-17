@@ -46,7 +46,7 @@ describe('назначаемые типы словарные', () => {
     // страница места — наоборот. Проверяется объединение обоих.
     const dicts =
       readFileSync(join(process.cwd(), 'components/map/PlaceMapSheet.tsx'), 'utf-8') +
-      readFileSync(join(process.cwd(), 'app/places/[id]/page.tsx'), 'utf-8');
+      readFileSync(join(process.cwd(), 'lib/places/type-label.ts'), 'utf-8');
     for (const t of ['waterfall', 'river', 'other']) {
       expect(dicts).toMatch(new RegExp(`\\b${t}:`));
     }

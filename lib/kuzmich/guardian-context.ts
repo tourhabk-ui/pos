@@ -1,5 +1,6 @@
 import { pool } from '@/lib/db-pool';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { placeTypeLabel } from '@/lib/places/type-label';
 
 interface GuardianPlaceRow {
   name: string;
@@ -244,9 +245,18 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
 
   for (const p of placesRes.rows) {
     const status = p.recommender_status ? STATUS_LABEL[p.recommender_status] ?? p.recommender_status : null;
+    // Раздел каталога — в заголовке, рядом с именем. До 17.09 location_type
+    // выбирался этим же запросом и не печатался: тип был виден только на
+    // бейдже карточки и маркере карты, а в MCP — единственном канале, которым
+    // прод читается из сессии, — его не было. Так два городских холма
+    // месяцами носили «ВУЛКАН» (972-974), и проверить починку было нечем.
+    // Типа нет → ничего не печатаем (не «Место»): «не записано» не равно
+    // «известно, что это место» (§4.0).
+    const kind = placeTypeLabel(p.location_type);
+    const nameWithKind = kind ? `${p.name} (${kind.toLowerCase()})` : p.name;
     const header = status
-      ? `${p.name} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
-      : p.name;
+      ? `${nameWithKind} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
+      : nameWithKind;
     parts.push(header);
 
     if (gradeNameMatch(placeName, p.name) === 'low') {

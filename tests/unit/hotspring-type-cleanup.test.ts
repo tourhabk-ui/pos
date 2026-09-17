@@ -36,7 +36,7 @@ describe('новые типы — со словарной подписью', () 
   it('каждый назначаемый тип известен хотя бы одному словарю', () => {
     const dicts =
       readFileSync(join(process.cwd(), 'components/map/PlaceMapSheet.tsx'), 'utf-8') +
-      readFileSync(join(process.cwd(), 'app/places/[id]/page.tsx'), 'utf-8');
+      readFileSync(join(process.cwd(), 'lib/places/type-label.ts'), 'utf-8');
     const assigned = [...CODE.matchAll(/SET location_type = '(\w+)'/g)].map(m => m[1]);
     expect(assigned.length).toBeGreaterThan(0);
     for (const t of new Set(assigned)) {

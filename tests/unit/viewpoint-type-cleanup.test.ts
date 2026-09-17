@@ -45,7 +45,7 @@ describe('назначаемые типы словарные', () => {
   it('waterfall, viewpoint, hot_spring имеют подписи', () => {
     const dicts =
       readFileSync(join(process.cwd(), 'components/map/PlaceMapSheet.tsx'), 'utf-8') +
-      readFileSync(join(process.cwd(), 'app/places/[id]/page.tsx'), 'utf-8');
+      readFileSync(join(process.cwd(), 'lib/places/type-label.ts'), 'utf-8');
     for (const t of ['waterfall', 'viewpoint', 'hot_spring']) {
       expect(dicts).toMatch(new RegExp(`\\b${t}:`));
     }
