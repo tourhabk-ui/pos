@@ -99,8 +99,8 @@ describe('зоны объединяются, а не первый матч', () 
     expect(new Set(zones)).toEqual(new Set(['northern', 'avachinsky', 'eastern']));
   });
 
-  it('один вулкан — одна зона, дефолт прежний', () => {
+  it('один вулкан — одна зона; без географии — пусто, а не Авачинская (17.09)', () => {
     expect(mchs_zones('вулкан Мутновский')).toEqual(['avachinsky']);
-    expect(mchs_zones('без географии')).toEqual(['avachinsky']);
+    expect(mchs_zones('без географии')).toEqual([]);
   });
 });
