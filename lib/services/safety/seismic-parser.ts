@@ -465,12 +465,31 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     // Пуш при этом не дублируется: выборка рассылки берёт `push_sent_at IS
     // NULL`, поэтому поднятый до двойки алерт уедет ровно один раз — тот, что
     // раньше не уезжал вовсе.
+    // Зоны — лечение уже сохранённых строк (17.09). До этого дня mchs_zones
+    // при пустом совпадении писала ['avachinsky'], и строки с этой подписью
+    // живут в базе, пока лента их републикует (GREATEST выше держит срок).
+    // Правка парсера сама по себе их не касается: INSERT гасит ON CONFLICT,
+    // а этот UPDATE трогал только срок и разряд — «я же починил» не доходило
+    // бы до сопок ещё пять суток паводковой сводки.
+    //
+    // Переписывается ТОЛЬКО строка с подписью старого дефолта, и только если
+    // классификатор сегодня даёт другое. Легитимная Авачинская (Елизово,
+    // Петропавловск, Мутновский названы) даёт ['avachinsky'] снова — не
+    // трогается. Общее «всегда перезаписывать зоны» здесь нельзя по той же
+    // причине, что и понижение разряда: сломанный регэксп сузил бы зону
+    // молча, в сторону тишины.
     const dup = await query(
       `UPDATE external_alerts
        SET expires_at = GREATEST(external_alerts.expires_at, $4),
-           severity = GREATEST(external_alerts.severity, $5)
+           severity = GREATEST(external_alerts.severity, $5),
+           affected_zones = CASE
+             WHEN external_alerts.affected_zones = ARRAY['avachinsky']::text[]
+              AND external_alerts.affected_zones IS DISTINCT FROM $6::text[]
+             THEN $6::text[]
+             ELSE external_alerts.affected_zones
+           END
        FROM (
-         SELECT id, expires_at, severity
+         SELECT id, expires_at, severity, affected_zones
            FROM external_alerts
           WHERE alert_type = $1
             AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
@@ -480,8 +499,9 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
        WHERE external_alerts.id = prev.id
        RETURNING external_alerts.id,
                  (external_alerts.expires_at IS DISTINCT FROM prev.expires_at) AS extended,
-                 (external_alerts.severity IS DISTINCT FROM prev.severity) AS regraded`,
-      [event.alert_type, event.title, event.description, expiresAt, event.severity]
+                 (external_alerts.severity IS DISTINCT FROM prev.severity) AS regraded,
+                 (external_alerts.affected_zones IS DISTINCT FROM prev.affected_zones) AS rezoned`,
+      [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones]
     );
     if ((dup.rowCount ?? 0) > 0) {
       // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
@@ -492,19 +512,26 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
       // должно остаться, ПОЧЕМУ. Пишется даже когда срок не двигался: смена
       // severity — это не «перечитали ленту».
       const regraded = dup.rows[0]?.regraded === true;
-      if (dup.rows[0]?.extended || regraded) {
+      // Смена зон — тоже событие, и громче двух других: алерт перестаёт
+      // (или начинает) красить места. В журнале обязано остаться, откуда и
+      // куда: без этого «почему сопка позеленела» не находится никогда.
+      const rezoned = dup.rows[0]?.rezoned === true;
+      if (dup.rows[0]?.extended || regraded || rezoned) {
         await appendSafetyEvent({
           entityId: dup.rows[0]?.id != null ? String(dup.rows[0].id) : null,
           eventType: 'dedup_skipped',
           actorType: 'system',
           actorId: 'seismic-parser.saveEvent',
           payloadHash,
-          decisionReason: regraded
-            ? 'контент совпал с активным алертом — разряд опасности поднят до текущей оценки классификатора'
-            : 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
+          decisionReason: rezoned
+            ? 'контент совпал с активным алертом — зоны старого дефолта avachinsky заменены текущей оценкой классификатора'
+            : regraded
+              ? 'контент совпал с активным алертом — разряд опасности поднят до текущей оценки классификатора'
+              : 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
           details: {
             extended_expires_at: expiresAt.toISOString(),
             ...(regraded ? { regraded_to_severity: event.severity } : {}),
+            ...(rezoned ? { rezoned_from: ['avachinsky'], rezoned_to: event.affected_zones } : {}),
           },
         });
       }
