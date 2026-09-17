@@ -1,6 +1,6 @@
 {
-  "run": 0,
+  "run": 1,
   "name": "tourhabk-ui/vedar",
   "url": "https://vedarai.ru/api/mcp",
-  "note": "Маркер запуска smithery-publish.yml. `name` — org/name в Smithery; org — аккаунт владельца, уточнить после входа на smithery.ai и поправить здесь. run: 0 — ещё не публиковали; поднять до 1 вместе с добавлением секрета SMITHERY_API_KEY."
+  "note": "Маркер запуска smithery-publish.yml. `name` — org/name в Smithery; если аккаунт владельца называется иначе, чем tourhabk-ui, поправить здесь. run: 1 — первая публикация 17.09, секрет SMITHERY_API_KEY добавлен владельцем."
 }
