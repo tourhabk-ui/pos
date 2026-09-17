@@ -58,8 +58,23 @@ describe('workflow публикации в Smithery', () => {
     expect(CODE).toMatch(/smithery\.ai\/account\/api-keys/);
   });
 
-  it('публикует адрес из маркера под именем из маркера, ключ — из окружения', () => {
-    expect(CODE).toMatch(/smithery mcp publish "\$\{\{ steps\.cfg\.outputs\.url \}\}" -n "\$\{\{ steps\.cfg\.outputs\.name \}\}"/);
+  it('пространство имён спрашивается у Smithery, а не угадывается', () => {
+    /**
+     * Run 1 (17.09): «404 Namespace not found» — `tourhabk-ui` из маркера
+     * оказался не пространством владельца. Ключ принят, отказ на имени.
+     * Теперь список пространств берётся у Smithery; org из маркера — если
+     * ключ им владеет; единственное чужое — с предупреждением; ни одного —
+     * создаётся; несколько без совпадения — красный со списком.
+     */
+    expect(CODE).toMatch(/smithery namespace list --json/);
+    expect(CODE).toMatch(/smithery namespace create "\$ORG"/);
+    expect(CODE).toMatch(/::warning::пространство из маркера/);
+    expect(CODE).toMatch(/::error::у ключа несколько пространств/);
+    expect(CODE).toMatch(/echo "name=\$USE\/\$SRV" >> "\$GITHUB_OUTPUT"/);
+  });
+
+  it('публикует адрес из маркера под разрешённым именем, ключ — из окружения', () => {
+    expect(CODE).toMatch(/smithery mcp publish "\$\{\{ steps\.cfg\.outputs\.url \}\}" -n "\$\{\{ steps\.ns\.outputs\.name \}\}"/);
     expect(CODE).toMatch(/SMITHERY_API_KEY: \$\{\{ secrets\.SMITHERY_API_KEY \}\}/);
   });
 
