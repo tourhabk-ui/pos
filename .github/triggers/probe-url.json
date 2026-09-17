@@ -1,13 +1,15 @@
 {
-  "note": "17.09, прогон 509. ТОЛЬКО ЧТЕНИЕ. Проба 508 получила код 000 тридцать раз подряд — не выкат: сверка с OSM тянет ~8 тысяч объектов одним запросом к Overpass и живёт дольше минуты, а у пробы таймаут по умолчанию 60 с. Свой workflow сверки ходит с --max-time 150, роут объявляет maxDuration 120. Здесь таймаут 170 — тот же вопрос по озёрам, теперь с временем на ответ. until=v3 остаётся: фильтр kind= должен быть в сборке.",
-  "run": 509,
-  "until": "places_osm_crosscheck_v3",
-  "timeout": 170,
-  "retries": 10,
-  "retryDelay": 60,
-  "bytes": 90000,
+  "note": "17.09, прогон 510. ТОЛЬКО ЧТЕНИЕ, внешний источник. Владелец: «проверь» — перед боевой правкой координат двух озёр (place-coords run 12, dry) нужен свидетель, независимый от OSM. Правило 23.08: 21 из 24 совпадений имён оказались тёзками, одного источника мало. Наши миграции по Начикинскому уже дают второе описание с 53.00,157.84 (совпадает с OSM), по Державина — только самоповтор координаты. Википедия из контейнера закрыта прокси; REST-сводка статьи отдаёт coordinates {lat, lon} компактным JSON. allowStale — чтобы 404 на одном заголовке не остановил остальные.",
+  "run": 510,
+  "allowStale": true,
+  "timeout": 30,
+  "retries": 0,
+  "bytes": 4000,
+  "ua": "VedarProbe/1.0 (https://vedarai.ru; contact via GitHub tourhabk-ui/pos)",
   "urls": [
-    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=summary&kind=lake",
-    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&kind=lake&limit=100"
+    "https://ru.wikipedia.org/api/rest_v1/page/summary/%D0%9D%D0%B0%D1%87%D0%B8%D0%BA%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%B5_%D0%BE%D0%B7%D0%B5%D1%80%D0%BE",
+    "https://ru.wikipedia.org/api/rest_v1/page/summary/%D0%94%D0%B5%D1%80%D0%B6%D0%B0%D0%B2%D0%B8%D0%BD%D0%B0_(%D0%BE%D0%B7%D0%B5%D1%80%D0%BE)",
+    "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%20%D0%94%D0%B5%D1%80%D0%B6%D0%B0%D0%B2%D0%B8%D0%BD%D0%B0&language=ru&format=json&limit=5",
+    "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=%D0%9D%D0%B0%D1%87%D0%B8%D0%BA%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%B5%20%D0%BE%D0%B7%D0%B5%D1%80%D0%BE&language=ru&format=json&limit=5"
   ]
 }
