@@ -24,7 +24,7 @@
  * а не диктуется; доказательство владения доменом отдаётся только при
  * настоящем ключе.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -33,7 +33,9 @@ import { CANONICAL_BASE_URL } from '@/lib/config';
 import {
   SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION, negotiateProtocolVersion,
 } from '@/lib/mcp/protocol-version';
-import { registryAuthState, MCP_REGISTRY_AUTH_ENV, registryAuthLine } from '@/lib/mcp/registry-auth';
+import {
+  MCP_REGISTRY_PUBKEY, MCP_REGISTRY_PRIVATE_KEY_SECRET, ED25519_PUBKEY_B64, registryAuthLine,
+} from '@/lib/mcp/registry-auth';
 
 vi.mock('@/lib/kuzmich/core', () => ({
   executeKuzmichTool: vi.fn(async (name: string) => `executed:${name}`),
@@ -55,29 +57,37 @@ describe('server.json — манифест для официального ре�
     remotes: { type: string; url: string }[];
   };
 
-  it('имя — в пространстве, на которое даёт право OIDC из Actions', () => {
+  it('имя — наш домен в обратной записи, и workflow входит ключом этого домена', () => {
     /**
-     * Первая редакция называла `ru.vedarai/mcp` — красиво, но доменное имя
-     * требует доказательства владения доменом с приватным ключом на машине
-     * владельца. 17.09 владелец на телефоне и попросил опубликовать без
-     * него; единственный путь без ключа и без браузера — OIDC из GitHub
-     * Actions (`.github/workflows/mcp-registry-publish.yml`), а он даёт
-     * право только на `io.github.<владелец репозитория>/*`.
+     * История имени за один день 17.09:
+     *   · утро — `ru.vedarai/mcp` в манифесте, ключ у владельца;
+     *   · день — владелец на телефоне, ключа нет; единственный путь без
+     *     ключа и браузера — OIDC из Actions, а он даёт только
+     *     `io.github.<владелец>/*`. Опубликовано как
+     *     `io.github.tourhabk-ui/vedar`;
+     *   · вечер — решение владельца завести ключ: публичная половина —
+     *     константа в коде (деплоится с приложением), приватная — секрет
+     *     Actions, добавляется с телефона. Имя снова доменное, старое
+     *     помечается deprecated тем же прогоном.
      *
-     * Доменный вариант не удалён: `/.well-known/mcp-registry-auth` и
-     * переменная ключа остаются на случай, если владелец решит завести
-     * второе имя сам. Но манифест обязан совпадать с тем, что workflow
-     * реально может опубликовать, — иначе прогон красный по построению.
+     * Манифест обязан совпадать с тем, каким правом входит workflow, —
+     * иначе прогон красный по построению.
      */
-    expect(manifest.name).toBe('io.github.tourhabk-ui/vedar');
+    expect(manifest.name).toBe('ru.vedarai/mcp');
     expect(manifest.name).toMatch(REGISTRY_NAME);
   });
 
-  it('workflow публикации существует, входит по OIDC и краснеет, если реестр нас не видит', () => {
+  it('workflow публикации существует, входит ключом домена и краснеет, если реестр нас не видит', () => {
     const wf = read('.github/workflows/mcp-registry-publish.yml');
-    expect(wf).toMatch(/id-token: write/);
-    expect(wf).toMatch(/mcp-publisher login github-oidc/);
+    expect(wf).toMatch(/mcp-publisher login http --domain vedarai\.ru --private-key "\$\{\{ secrets\.MCP_REGISTRY_PRIVATE_KEY \}\}"/);
     expect(wf).toMatch(/mcp-publisher publish/);
+    // Секрета нет — красный до входа, с именем секрета, а не «invalid
+    // signature» от реестра без объяснения.
+    expect(wf).toMatch(/secrets\.MCP_REGISTRY_PRIVATE_KEY \}\}" \]; then\s*\n\s*echo "::error::секрет MCP_REGISTRY_PRIVATE_KEY не задан/);
+    // Старое имя io.github снимается тем же правом, каким заводилось —
+    // OIDC остаётся ради этого, и только ради этого.
+    expect(wf).toMatch(/id-token: write/);
+    expect(wf).toMatch(/mcp-publisher status --status deprecated .* io\.github\.\$\{\{ github\.repository_owner \}\}\/vedar|\.\/mcp-publisher status --status deprecated .*"\$OLD"/);
     // Ноль результатов — отказ, не успех (§4.0).
     expect(wf).toMatch(/v0\.1\/servers\?search=/);
     expect(wf).toMatch(/sys\.exit\(1\)/);
@@ -90,12 +100,12 @@ describe('server.json — манифест для официального ре�
      * и названный вслух, а не отказ и не молчание.
      */
     expect(wf).toMatch(/id: present/);
-    expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \.\/mcp-publisher login github-oidc/);
+    expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \.\/mcp-publisher login http/);
     expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \.\/mcp-publisher publish/);
     expect(wf).toMatch(/уже опубликован/);
     // Пространство имён проверяется до публикации: чужое имя — ошибка с
     // объяснением, а не отказ реестра без слов.
-    expect(wf).toMatch(/io\.github\.\$\{\{ github\.repository_owner \}\}\/\*/);
+    expect(wf).toMatch(/ru\.vedarai\/\*\) ;;/);
     // Маркер запуска — по общему соглашению репозитория.
     expect(wf).toMatch(/\.github\/triggers\/mcp-registry-publish\.json/);
     expect(read('.github/triggers/mcp-registry-publish.json')).toMatch(/"run"/);
@@ -120,42 +130,39 @@ describe('server.json — манифест для официального ре�
   });
 });
 
-describe('доказательство владения доменом — только при настоящем ключе', () => {
-  afterEach(() => vi.unstubAllEnvs());
-
-  // 32 нулевых байта в base64 — форма верная, значение тестовое.
-  const KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
-
-  it('переменной нет — not_configured, снаружи 404, никакой заглушки', async () => {
-    vi.stubEnv(MCP_REGISTRY_AUTH_ENV, '');
-    expect(registryAuthState()).toEqual({ state: 'not_configured' });
-    const res = await authGet();
-    expect(res.status).toBe(404);
-    expect(await res.text()).not.toMatch(/MCPv1/);
+describe('доказательство владения доменом — публичная половина в коде, приватная только в секрете', () => {
+  it('публичный ключ — настоящий Ed25519 в base64, а не заглушка', () => {
+    // 32 байта → 43 символа и «=». Нули — не ключ: пара заведена 17.09,
+    // и её публичная половина обязана быть непустой по содержанию.
+    expect(MCP_REGISTRY_PUBKEY).toMatch(ED25519_PUBKEY_B64);
+    expect(MCP_REGISTRY_PUBKEY).not.toMatch(/^A{43}=$/);
   });
 
-  it('битый ключ — malformed с именем переменной, снаружи 500', async () => {
-    vi.stubEnv(MCP_REGISTRY_AUTH_ENV, 'not-a-key');
-    const s = registryAuthState();
-    expect(s.state).toBe('malformed');
-    if (s.state === 'malformed') expect(s.reason).toContain(MCP_REGISTRY_AUTH_ENV);
-    const res = await authGet();
-    expect(res.status).toBe(500);
-    expect(await res.text()).toContain(MCP_REGISTRY_AUTH_ENV);
-  });
-
-  it('настоящий ключ — одна строка формата реестра', async () => {
-    vi.stubEnv(MCP_REGISTRY_AUTH_ENV, KEY);
+  it('/.well-known/mcp-registry-auth отдаёт одну строку формата реестра, всегда 200', async () => {
     const res = await authGet();
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe(`v=MCPv1; k=ed25519; p=${KEY}`);
-    expect(registryAuthLine(KEY)).toBe(`v=MCPv1; k=ed25519; p=${KEY}`);
+    expect(res.headers.get('content-type')).toMatch(/text\/plain/);
+    expect(await res.text()).toBe(`v=MCPv1; k=ed25519; p=${MCP_REGISTRY_PUBKEY}`);
+    expect(registryAuthLine()).toBe(`v=MCPv1; k=ed25519; p=${MCP_REGISTRY_PUBKEY}`);
   });
 
-  it('переменная описана в .env.example, приватный ключ — нигде', () => {
+  it('приватной половины нет ни в коде, ни в примере окружения — только имя секрета', () => {
+    /**
+     * Приватное семя — 64 hex-знака. В дереве ему места нет: сторож ищет
+     * упоминания секрета и требует, чтобы рядом с ними не стояло значения.
+     * Полную проверку «нигде нет 64-hex» делать нельзя — хэши коммитов и
+     * контрольные суммы той же длины; поэтому граница проводится по имени.
+     */
     const env = read('.env.example');
-    expect(env).toContain(`${MCP_REGISTRY_AUTH_ENV}=`);
-    expect(env).not.toMatch(/PRIVATE_KEY|key\.pem=/);
+    expect(env).not.toMatch(/MCP_REGISTRY_/);
+    for (const f of ['lib/mcp/registry-auth.ts', '.github/workflows/mcp-registry-publish.yml']) {
+      const src = read(f);
+      const mentions = src.match(new RegExp(`${MCP_REGISTRY_PRIVATE_KEY_SECRET}[^\\n]*`, 'g')) ?? [];
+      expect(mentions.length, `${f}: секрет не упомянут`).toBeGreaterThan(0);
+      for (const m of mentions) {
+        expect(m, `${f}: рядом с именем секрета стоит значение`).not.toMatch(/[0-9a-f]{64}/);
+      }
+    }
   });
 });
 

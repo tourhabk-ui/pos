@@ -7,42 +7,39 @@
  * сервером, который удостоверяет, — смена DNS-хостинга его не теряет.
  *
  * Строка одна, формата реестра: `v=MCPv1; k=ed25519; p=<ключ>`, где ключ —
- * публичная половина пары Ed25519 в base64. Приватная половина в репозиторий
- * не попадает никогда: ею владелец подписывает `mcp-publisher login http` со
- * своей машины.
+ * публичная половина пары Ed25519 в base64.
  *
- * ── Третье состояние ──────────────────────────────────────────────────────
+ * ── Где какая половина ────────────────────────────────────────────────────
  *
- * Ключ приходит из переменной окружения, не из кода. Пока её нет —
- * `not_configured` (404 снаружи), а не заглушка: заглушка по публичному
- * адресу выглядит как доказательство, ничего не доказывая, и реестр отказал
- * бы на ней сообщением, по которому не понять, что не так. Битый ключ —
- * `malformed` (500 с именем переменной): тот, кто запускает публикацию,
- * увидит причину в первом же ответе.
+ * Публичная — здесь, константой. Она публична по определению: реестр читает
+ * её с нашего же адреса, прятать нечего, а константа в коде — это факт с
+ * производителем (§10.09), в отличие от переменной окружения, которую
+ * первая редакция 17.09 требовала задать в панели Timeweb и без которой
+ * путь отвечал 404. Владелец на телефоне, и лишний шаг в чужой панели —
+ * лишнее место, где «завёл» расходится с «работает».
+ *
+ * Приватная — ТОЛЬКО в секрете GitHub Actions `MCP_REGISTRY_PRIVATE_KEY`
+ * (hex-семя, 64 знака). Ею workflow публикации подписывает
+ * `mcp-publisher login http`. В репозиторий, в переменные Timeweb и в чат
+ * она не кладётся; сторож `mcp-registry-publish.test.ts` держит, что в
+ * дереве нет ничего похожего на приватный ключ.
+ *
+ * ── Ротация ───────────────────────────────────────────────────────────────
+ *
+ * Новая пара → новая константа здесь (коммит, деплой) → новый секрет в
+ * GitHub. Старая приватная половина после деплоя бесполезна: реестр
+ * сверяет подпись с тем, что отдаёт этот адрес.
  */
 
-export const MCP_REGISTRY_AUTH_ENV = 'MCP_REGISTRY_AUTH_PUBKEY';
+/** Публичный ключ Ed25519 (32 байта, base64). Пара заведена 17.09.2026. */
+export const MCP_REGISTRY_PUBKEY = 'N1BhIumAPo3xuOdf8gubUdUDyE4vyrJ3s4L+8LojYpg=';
 
-/** Публичный ключ Ed25519 — 32 байта, в base64 это ровно 43 символа и «=». */
-const ED25519_PUBKEY_B64 = /^[A-Za-z0-9+/]{43}=$/;
+/** Имя секрета GitHub Actions с приватной половиной (hex-семя). */
+export const MCP_REGISTRY_PRIVATE_KEY_SECRET = 'MCP_REGISTRY_PRIVATE_KEY';
 
-export function registryAuthLine(pubkey: string): string {
+/** 32 байта в base64 — ровно 43 символа и «=». */
+export const ED25519_PUBKEY_B64 = /^[A-Za-z0-9+/]{43}=$/;
+
+export function registryAuthLine(pubkey: string = MCP_REGISTRY_PUBKEY): string {
   return `v=MCPv1; k=ed25519; p=${pubkey}`;
-}
-
-export type RegistryAuthState =
-  | { state: 'ok'; line: string }
-  | { state: 'not_configured' }
-  | { state: 'malformed'; reason: string };
-
-export function registryAuthState(env: NodeJS.ProcessEnv = process.env): RegistryAuthState {
-  const raw = env[MCP_REGISTRY_AUTH_ENV]?.trim() ?? '';
-  if (!raw) return { state: 'not_configured' };
-  if (!ED25519_PUBKEY_B64.test(raw)) {
-    return {
-      state: 'malformed',
-      reason: `${MCP_REGISTRY_AUTH_ENV} не похож на публичный ключ Ed25519 в base64 (ожидается 44 символа)`,
-    };
-  }
-  return { state: 'ok', line: registryAuthLine(raw) };
 }

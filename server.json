@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.tourhabk-ui/vedar",
+  "name": "ru.vedarai/mcp",
   "title": "Vedar — Kamchatka travel",
   "description": "Kamchatka travel: live tours and availability, safety alerts, places, weather, stays, trip plans",
   "version": "2.3.0",
