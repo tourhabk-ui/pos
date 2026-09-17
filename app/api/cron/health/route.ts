@@ -388,9 +388,21 @@ export async function GET(request: NextRequest) {
   ]);
 
   const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || qwenOk;
-  if (!anyOk) {
-    issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (Qwen + OpenRouter + Anthropic + DeepSeek + Fugu)' });
-  } else {
+
+  // Разбор причин по каждому провайдеру — ВСЕГДА, а не только когда хоть один
+  // жив. До 17.09 он стоял в `else` за `if (!anyOk)`: при пяти отказах разом
+  // крон слал голое «Все AI-провайдеры недоступны», а `known_states` уходил
+  // пустым — хотя 402 DeepSeek, 403 квоты Qwen и известный гео-блок OpenRouter
+  // лежали в том же JSON. Правило этого файла — «причина в текст алерта, а не
+  // только в JSON» — нарушалось ровно в тот момент, когда важнее всего:
+  // владелец получил CRIT в 07:44 и был вынужден спрашивать, что случилось.
+  //
+  // Поэтому провайдерские находки сначала собираются сюда, а в `issues` идут
+  // по-разному: хоть один жив — как есть (warn/known по каждому); все мертвы —
+  // один CRIT с причинами через точку с запятой плюс `known` (принятое
+  // положение обязано оставаться видимым в known_states и тогда).
+  const providerIssues: Array<HealthIssue & { reason: string }> = [];
+  {
     // Предупреждаем только о РЕАЛЬНЫХ проблемах, а не об ожидаемом:
     // — провайдеры без ключа = не настроены, это не сбой
     // — Anthropic-direct блокируется регионом, но Claude доступен через OpenRouter,
@@ -422,9 +434,10 @@ export async function GET(request: NextRequest) {
         const regions = await probeQwenRegions().catch(() => null);
         if (regions) why = `: ${regions.verdict}`;
       }
-      issues.push({
+      providerIssues.push({
         level: 'warn',
         text: `Зрение Кузьмича не работает — ключ DashScope не принят${why}. Текстовые пути Qwen не используют, разбирать фото с прода больше нечем`,
+        reason: `Qwen${why}`,
       });
     }
     // DeepSeek — первичный решатель эволюции. Молчим, если ключ просто не
@@ -432,7 +445,7 @@ export async function GET(request: NextRequest) {
     // называем причину, а не просто «недоступен».
     if (!deepseekOk && dsKeyDiag?.key_set !== false) {
       const why = dsKeyDiag ? `: ${explainDeepSeekFailure(dsKeyDiag)}` : '';
-      issues.push({ level: 'warn', text: `DeepSeek недоступен${why}` });
+      providerIssues.push({ level: 'warn', text: `DeepSeek недоступен${why}`, reason: `DeepSeek${why || ': недоступен'}` });
     }
     // Причина, а не одно слово. Прежде предупреждение было безусловным и
     // покрывало три случая разом: ключа нет, ключ отвергнут, сеть упала. Из-за
@@ -454,16 +467,44 @@ export async function GET(request: NextRequest) {
     // (401, нет ключа, битая форма, сеть не дошла) остаётся warn — это news.
     if (!openrouterOk) {
       const why = orKeyDiag ? ` — ${explainOpenRouterFailure(orKeyDiag)}` : ' (диагностика не собралась)';
-      issues.push({
+      providerIssues.push({
         level: isAcceptedOpenRouterGeoBlock(orKeyDiag) ? 'known' : 'warn',
         text: `OpenRouter недоступен с прода${why}. Путь с раннера GitHub этой пробой не проверялся`,
+        reason: `OpenRouter${why}`,
       });
     }
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
-      issues.push({ level: 'warn', text: 'Anthropic недоступен с прода — и напрямую, и через OpenRouter' });
+      providerIssues.push({
+        level: 'warn',
+        text: 'Anthropic недоступен с прода — и напрямую, и через OpenRouter',
+        reason: 'Anthropic: недоступен с прода, и напрямую, и через OpenRouter',
+      });
     }
     if (process.env.FUGU_API_KEY && !fuguOk) {
-      issues.push({ level: 'warn', text: 'Fugu недоступен (ключ задан, но провайдер не отвечает)' });
+      providerIssues.push({
+        level: 'warn',
+        text: 'Fugu недоступен (ключ задан, но провайдер не отвечает)',
+        reason: 'Fugu: не отвечает',
+      });
+    }
+  }
+
+  if (anyOk) {
+    for (const { reason: _reason, ...issue } of providerIssues) issues.push(issue);
+  } else {
+    // Пять отказов разом — один CRIT, и в нём КАЖДАЯ причина. Провайдер без
+    // ключа в список не попадает (не настроен ≠ сбой), поэтому «причин нет»
+    // возможно только при пяти незаданных ключах — и тогда это сказано словами,
+    // а не спрятано за общим «недоступны».
+    const reasons = providerIssues.map((i) => i.reason);
+    issues.push({
+      level: 'crit',
+      text: reasons.length
+        ? `Все AI-провайдеры недоступны — ${reasons.join('; ')}`
+        : 'Все AI-провайдеры недоступны — ни один ключ не задан, диагностик нет',
+    });
+    for (const { reason: _reason, ...issue } of providerIssues) {
+      if (issue.level === 'known') issues.push(issue);
     }
   }
 
