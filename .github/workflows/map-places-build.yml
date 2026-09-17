@@ -55,8 +55,16 @@ jobs:
             UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/map-places-build.json')).get('upload',False)).lower())")
           fi
           WANT=$(python3 -c "import json;print(json.load(open('.github/triggers/map-places-build.json')).get('expect_v',1))")
+          # id, которых в пакетах быть не должно (скрыты миграциями) — прогон
+          # после заливки читает файлы обратно и отвечает поимённо (17.09).
+          ABSENT=$(python3 -c "import json;print(','.join(json.load(open('.github/triggers/map-places-build.json')).get('expect_absent',[])))")
+          # run маркера — скрипт сверяет его с PLACES_LAYER_VERSION в коде и
+          # отказывается лить при расхождении (17.09, версионный адрес слоя).
+          RUN=$(python3 -c "import json;print(json.load(open('.github/triggers/map-places-build.json')).get('run',0))")
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
           echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
           echo "expect_v=$WANT" >> "$GITHUB_OUTPUT"
+          echo "expect_absent=$ABSENT" >> "$GITHUB_OUTPUT"
           echo "заливка: $UPLOAD, ждём версию эндпоинта: $WANT"
 
       - name: Дождаться СВОЕГО кода на проде
@@ -87,6 +95,8 @@ jobs:
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          PLACES_EXPECT_ABSENT: ${{ steps.cfg.outputs.expect_absent }}
+          MAP_PLACES_RUN: ${{ steps.cfg.outputs.run }}
         run: |
           set -euo pipefail
           if [ -z "$CRON_SECRET" ]; then
@@ -105,7 +115,7 @@ jobs:
             echo '### Слой мест платформы'
             echo
             echo '```'
-            grep -E 'пакетов:|итого|пустых|залито пакетов|ОТКАЗ|сухой прогон' .cache/places/build.log || echo 'лог сборки не найден'
+            grep -E 'пакетов:|итого|пустых|залито и прочитано|ЗАЛИВКА НЕ ПОДТВЕРЖДЕНА|ЭКСПОРТ ОТДАЛ|скрытые записи|ОТКАЗ|сухой прогон' .cache/places/build.log || echo 'лог сборки не найден'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

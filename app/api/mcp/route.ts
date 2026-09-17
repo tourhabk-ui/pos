@@ -22,7 +22,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { negotiateProtocolVersion } from '@/lib/mcp/protocol-version';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
@@ -45,7 +46,9 @@ export const dynamic = 'force-dynamic';
 // жёсткая: заявки создают работу живому менеджеру.
 const readLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
 const writeLimiter = createRateLimiter({ windowMs: 600_000, max: 5 });
-const WRITE_TOOLS = new Set<string>([CREATE_LEAD_TOOL.name, BOOKING_REQUEST_TOOL.name]);
+// Какие инструменты пишущие, знает аннотация (`readOnlyHint: false`) — один
+// источник и для лимита, и для подсказки хосту. Свой список здесь разошёлся бы.
+const WRITE_TOOLS = WRITE_TOOL_NAMES;
 
 function clientIp(request: NextRequest): string {
   return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
@@ -306,7 +309,11 @@ export async function POST(request: NextRequest) {
           clientInfo: (params as { clientInfo?: unknown } | undefined)?.clientInfo,
         });
         return NextResponse.json(jsonrpcSuccess(id, {
-          protocolVersion: '2024-11-05',
+          // Версией клиента, если умеем её; иначе — своей новейшей. Решение
+          // «жить с этим» за клиентом (lib/mcp/protocol-version.ts).
+          protocolVersion: negotiateProtocolVersion(
+            (params as { protocolVersion?: unknown } | undefined)?.protocolVersion,
+          ),
           capabilities: { tools: {} },
           serverInfo: {
             name: MCP_SERVER_INFO.name,
@@ -316,7 +323,11 @@ export async function POST(request: NextRequest) {
 
       // ── client acknowledged init ──
       case 'notifications/initialized':
-        return NextResponse.json(jsonrpcSuccess(id, {}));
+        // Уведомление — сообщение без id, и ответа на него по JSON-RPC не
+        // бывает. Streamable HTTP велит принять его пустым 202. До 17.09
+        // здесь уходил JSON-ответ с `id: null` — клиент получал ответ на
+        // вопрос, которого не задавал.
+        return new NextResponse(null, { status: 202 });
 
       // ── list available tools ──
       case 'tools/list':

@@ -4,6 +4,7 @@
  * "Сейчас на Камчатке" — погода + сезон + ближайший выезд.
  */
 
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 
@@ -64,11 +65,7 @@ export async function GET() {
        JOIN operator_tours t ON t.id = ta.operator_tour_id AND t.is_active = TRUE AND t.deleted_at IS NULL
        JOIN partners p ON p.id = t.operator_id
        CROSS JOIN LATERAL (
-         SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
-         FROM operator_bookings ob
-         WHERE ob.operator_tour_id = ta.operator_tour_id
-           AND ob.booking_date = ta.date
-           AND ob.booking_status NOT IN ('cancelled', 'rejected')
+${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
        ) occ
        WHERE ta.date >= CURRENT_DATE
          AND ta.is_cancelled = FALSE

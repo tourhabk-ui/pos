@@ -7,6 +7,7 @@
  *   - EXPLAIN-эндпоинт занятости под CRON_SECRET (боевой SQL, не похожий).
  */
 import { describe, it, expect } from 'vitest';
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -75,15 +76,24 @@ describe('explain-availability: приёмка индексов 843', () => {
     expect(EXPLAIN).not.toMatch(/INSERT|UPDATE|DELETE|DROP|CREATE/);
   });
 
-  it('меряется боевой запрос: LATERAL и фильтры дословно из планера', () => {
-    for (const frag of [
-      'CROSS JOIN LATERAL',
-      "booking_status NOT IN ('cancelled', 'rejected')",
-      'ta.is_cancelled = FALSE',
-    ]) {
+  it('меряется боевой запрос: LATERAL и фильтры — те же, что у планера', () => {
+    /**
+     * Проверяется ОТРЕНДЕРЕННЫЙ SQL, а не текст исходника. С 15.09 счёт
+     * занятости живёт в одном месте (lib/bookings/occupancy.ts) — раньше он
+     * был переписан одиннадцать раз, и приёмка сверяла дословное совпадение
+     * двух копий. Копий больше нет; сверять надо то, что реально уходит в
+     * базу, иначе сторож проверяет написание, а не запрос.
+     */
+    const occ = occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' });
+    expect(occ).toContain("booking_status NOT IN ('cancelled', 'rejected')");
+
+    for (const frag of ['CROSS JOIN LATERAL', 'ta.is_cancelled = FALSE']) {
       expect(EXPLAIN).toContain(frag);
       expect(PLANNER).toContain(frag);
     }
+    // Обе поверхности зовут общее правило, а не переписывают его.
+    expect(EXPLAIN).toContain('occupiedOnDaySql(');
+    expect(PLANNER).toContain('occupiedOnDaySql(');
   });
 
   it('флаги приёмки называют индексы 843 поимённо', () => {

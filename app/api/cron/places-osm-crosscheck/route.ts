@@ -18,6 +18,14 @@
  * min_sim — порог pg_trgm.similarity() (default 0.30, мягче дедупа мест,
  * потому что здесь важна полнота, а не точность).
  *
+ * kind=<location_type> (17.09) — сузить список до одного типа места. Повод:
+ * владелец попросил проверить озёра; без фильтра пришлось бы листать все
+ * места по странице, и озёра с малым расхождением утонули бы среди чужих
+ * типов. Фильтр применяется ПОСЛЕ сортировки по расстоянию — порядок улик
+ * внутри типа тот же, что и в общем списке. Счётчик items_kind_total
+ * отдельный: «озёр с кандидатами N» и «всего мест с кандидатами M» — разные
+ * числа, и подменять второе первым нельзя.
+ *
  * Bearer CRON_SECRET.
  */
 
@@ -49,6 +57,12 @@ export async function GET(request: NextRequest) {
   const minSimRaw = Number(request.nextUrl.searchParams.get('min_sim') ?? '0.3');
   const minSim = Number.isFinite(minSimRaw) && minSimRaw >= 0 && minSimRaw <= 1 ? minSimRaw : 0.3;
 
+  // Тип места — как в places.location_type (lake, volcano, hot_spring, ...).
+  // Пустая строка — без фильтра. Неизвестный тип не ошибка: список выйдет
+  // пустым, и это видно по items_kind_total: 0.
+  const kindRaw = (request.nextUrl.searchParams.get('kind') ?? '').trim();
+  const kind = /^[a-z_]{1,40}$/.test(kindRaw) ? kindRaw : '';
+
   const limitRaw = Number(request.nextUrl.searchParams.get('limit') ?? String(ITEMS_PAGE_DEFAULT));
   const limit = Number.isFinite(limitRaw) && limitRaw >= 1
     ? Math.min(ITEMS_PAGE_MAX, Math.floor(limitRaw))
@@ -56,11 +70,14 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await runOsmCrosscheck({ minSim });
+    const items = kind ? result.items.filter((it) => it.locationType === kind) : result.items;
 
     return NextResponse.json({
       success: true,
-      probe: 'places_osm_crosscheck_v2',
+      probe: 'places_osm_crosscheck_v3',
       part,
+      kind: kind || null,
+      items_kind_total: kind ? items.length : null,
       bbox: KAMCHATKA_BOUNDS,
       name_sim_floor: minSim,
       strong_sim: STRONG_SIM,
@@ -72,10 +89,10 @@ export async function GET(request: NextRequest) {
       items_without_candidates_total: result.itemsWithoutCandidatesTotal,
       items_offset: offset,
       items_limit: limit,
-      items: part === 'summary' ? undefined : result.items.slice(offset, offset + limit),
+      items: part === 'summary' ? undefined : items.slice(offset, offset + limit),
       items_dropped: part === 'summary'
         ? undefined
-        : Math.max(0, result.items.length - (offset + limit)),
+        : Math.max(0, items.length - (offset + limit)),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка сверки с OSM';

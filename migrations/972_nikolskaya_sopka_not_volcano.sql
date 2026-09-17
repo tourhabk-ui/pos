@@ -1,4 +1,23 @@
--- 971_nikolskaya_sopka_not_volcano.sql
+-- 972_nikolskaya_sopka_not_volcano.sql
+--
+-- ── Почему номер сменился с 971 на 972 ───────────────────────────────────
+--
+-- Уехала на прод как 971 (#1908, 21:36). Через четыре минуты туда же
+-- смержилась 971_track_import_preview_line.sql (#1904, 21:40) — обе сессии
+-- честно взяли max+1, и max у них был один. Сторож tests/unit/
+-- migration-number-unique.test.ts, заведённый в тот же день ровно из-за
+-- такой пары, покраснел на main: его список замороженных тёзок может
+-- только сокращаться, и вносить туда себя значило бы погасить сторожа
+-- вместо починки.
+--
+-- Двигаю СВОЮ, хотя коллизию внёс тот, кто мержился вторым: эта миграция
+-- проверенно идемпотентна (три ветки прогнаны на живом PostgreSQL), а про
+-- чужую я этого не знаю — переименовать чужую применённую миграцию
+-- рискованнее, чем свою.
+--
+-- Под новым именем она прогонится на проде ЕЩЁ РАЗ: `_migrations` помнит
+-- имя, а не содержимое. Это безвредно по построению — второй прогон видит
+-- 'mountain' и выходит, ничего не трогая.
 --
 -- «Сопка Никольская» (51598b80-6b92-48d9-beb4-019f824524c9) несла
 -- location_type = 'volcano' и показывала на карточке бейдж «ВУЛКАН» —
@@ -76,12 +95,12 @@ BEGIN
   SELECT name, location_type INTO pname, ptype FROM places WHERE id = pid;
 
   IF pname IS NULL THEN
-    RAISE NOTICE '[971] % — записи нет в places, делать нечего', pid;
+    RAISE NOTICE '[972] % — записи нет в places, делать нечего', pid;
     RETURN;
   END IF;
 
   IF ptype IS DISTINCT FROM 'volcano' THEN
-    RAISE NOTICE '[971] % (%) — тип уже % , не трогаем', pname, pid, COALESCE(ptype, 'NULL');
+    RAISE NOTICE '[972] % (%) — тип уже % , не трогаем', pname, pid, COALESCE(ptype, 'NULL');
     RETURN;
   END IF;
 
@@ -90,9 +109,9 @@ BEGIN
          updated_at    = NOW()
    WHERE id = pid;
 
-  RAISE NOTICE '[971] % (%) — location_type: volcano -> mountain', pname, pid;
+  RAISE NOTICE '[972] % (%) — location_type: volcano -> mountain', pname, pid;
 END $$;
 
 INSERT INTO _migrations (name)
-VALUES ('971_nikolskaya_sopka_not_volcano.sql')
+VALUES ('972_nikolskaya_sopka_not_volcano.sql')
 ON CONFLICT (name) DO NOTHING;

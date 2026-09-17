@@ -9,6 +9,7 @@
  *   - app/catalog/page.tsx и app/marketplace/page.tsx (серверный первый рендер).
  */
 
+import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { pool } from '@/lib/db-pool';
@@ -96,12 +97,8 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
           AND ta.date >= CURRENT_DATE
           AND ta.deleted_at IS NULL
           AND ta.is_cancelled = false
-          AND ta.available_slots > COALESCE((
-            SELECT SUM(ob2.participants) FROM operator_bookings ob2
-            WHERE ob2.operator_tour_id = ot.id
-              AND ob2.booking_date = ta.date
-              AND ob2.booking_status NOT IN ('cancelled', 'rejected')
-          ), 0)
+          AND ta.available_slots > (${occupiedOnDaySql({ booking: 'ob2', day: 'ta.date', tourId: 'ot.id' })}
+          )
       ) as has_availability`;
 
   const from = `

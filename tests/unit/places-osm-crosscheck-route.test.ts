@@ -31,4 +31,15 @@ describe('places-osm-crosscheck — только чтение', () => {
   it('маркер версии для workflow есть', () => {
     expect(SRC).toMatch(/places_osm_crosscheck_v\d+/);
   });
+
+  it('фильтр kind сужает список, но не подменяет общие счётчики (17.09)', () => {
+    // kind — только буквы и подчёркивание: значение уходит в сравнение,
+    // не в SQL, но и мусор в ответе лишний.
+    expect(SRC).toMatch(/\/\^\[a-z_\]\{1,40\}\$\/\.test\(kindRaw\)/);
+    expect(SRC).toMatch(/result\.items\.filter\(\(it\) => it\.locationType === kind\)/);
+    // Отдельный счётчик по типу; общие items_with_candidates_total остаются
+    // из result, а не из отфильтрованного списка.
+    expect(SRC).toMatch(/items_kind_total: kind \? items\.length : null/);
+    expect(SRC).toMatch(/items_with_candidates_total: result\.items\.length/);
+  });
 });
