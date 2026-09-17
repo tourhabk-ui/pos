@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
 import { packCacheControl } from '@/lib/map/pack-cache-policy';
 import {
-  placesKey, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
+  placesKey, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT, PLACES_LAYER_VERSION,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
 import { verifyReadback, parseExpectAbsent, type ReadbackVerdict } from '@/lib/map/places-readback';
@@ -86,8 +86,22 @@ async function main(): Promise<number> {
     return 2;
   }
 
+  // Версия слоя в коде обязана равняться run маркера этой заливки (17.09).
+  // Клиент просит файл как `?v=<PLACES_LAYER_VERSION>`; заливка под старой
+  // версией оставила бы телефоны на старом адресе — а значит, возможно, на
+  // старом файле, ради чего версия и заведена. Проверка здесь, а не только в
+  // CI: маркер пушится и запускает заливку раньше, чем тест успеет покраснеть.
+  const markerRun = process.env.MAP_PLACES_RUN;
+  if (!dryRun && markerRun && Number(markerRun) !== PLACES_LAYER_VERSION) {
+    console.error(
+      `ОТКАЗ: run маркера ${markerRun}, а PLACES_LAYER_VERSION в lib/map/pack-source.ts = ${PLACES_LAYER_VERSION}. ` +
+      'Поднимите версию в коде тем же коммитом, что и run маркера, — иначе телефоны останутся на старом адресе.',
+    );
+    return 2;
+  }
+
   const targets = placesTargets();
-  console.log(`пакетов: ${targets.length}, прод: ${BASE}${ENDPOINT}, ${dryRun ? 'сухой прогон' : 'боевой'}`);
+  console.log(`пакетов: ${targets.length}, прод: ${BASE}${ENDPOINT}, ${dryRun ? 'сухой прогон' : 'боевой'}, версия слоя v${PLACES_LAYER_VERSION}`);
 
   // Фаза 1 — запросы. Любой отказ останавливает всё до единой заливки.
   const fetched: Fetched[] = [];
@@ -175,16 +189,28 @@ async function readBack(region: PackRegionId, uploaded: Buffer, url: string, exp
   let status: number | null = null;
   let fetchedBody: Buffer | null = null;
   try {
-    // Без кэша, но и без cache-buster'а: адрес обязан быть ТЕМ ЖЕ, что
-    // откроет телефон, иначе проверяется не то, что видит человек.
-    const r = await fetch(url, { cache: 'no-store' });
+    // Адрес обязан быть ТЕМ ЖЕ, что откроет телефон, — включая `?v=`
+    // (placesUrlFor в lib/map/pack-source.ts), иначе проверяется не то, что
+    // видит человек. `no-store` относится к кэшу самого раннера.
+    const r = await fetch(`${url}?v=${PLACES_LAYER_VERSION}`, { cache: 'no-store' });
     status = r.status;
     fetchedBody = Buffer.from(await r.arrayBuffer());
+    // Заголовки ответа хранилища — то, по чему телефон решает, перечитывать
+    // ли файл. Печатаются один раз на прогон (все пакеты идут с одной
+    // политикой): 17.09 выяснилось, что «no-cache в PutObject» и «no-cache в
+    // ответе» никто не сверял. Адрес не печатается: бакет — секрет прогона.
+    if (!headersShown) {
+      headersShown = true;
+      const pick = ['cache-control', 'etag', 'age', 'x-cache', 'via', 'server', 'content-type', 'last-modified'];
+      const seen = pick.map((h) => `${h}: ${r.headers.get(h) ?? '—'}`).join(' · ');
+      console.log(`  заголовки ответа хранилища (первый пакет): ${seen}`);
+    }
   } catch (err) {
     console.error(`  чтение обратно ${region}: ${err instanceof Error ? err.message : String(err)}`);
   }
   return verifyReadback({ region, uploaded, fetched: fetchedBody, status, expectAbsent });
 }
+let headersShown = false;
 
 if (process.argv[1] && process.argv[1].endsWith('build-places.ts')) {
   main().then((code) => process.exit(code)).catch((err) => {

@@ -84,10 +84,12 @@ describe('скрипт заливки зовёт сверку и роняет п
     expect(SRC).toMatch(/const res = await uploadToS3\(key, f\.body[\s\S]*?readBack\(f\.region, f\.body, res\.url, expectAbsent\)/);
   });
 
-  it('чтение обратно идёт по тому же адресу без cache-buster', () => {
-    // Иначе проверяется не то, что видит телефон.
-    expect(SRC).toMatch(/fetch\(url, \{ cache: 'no-store' \}\)/);
-    expect(SRC).not.toMatch(/url \+ ['"`]\?/);
+  it('чтение обратно идёт по тому же адресу, что и телефон, — с ?v=, без случайного buster', () => {
+    // Адрес обязан совпадать с тем, что строит placesUrlFor: версия в нём
+    // ЕСТЬ (17.09), а вот Date.now()/random — нет: со случайным хвостом
+    // проверялось бы не то, что видит человек.
+    expect(SRC).toMatch(/fetch\(`\$\{url\}\?v=\$\{PLACES_LAYER_VERSION\}`, \{ cache: 'no-store' \}\)/);
+    expect(SRC).not.toMatch(/Date\.now\(\)|Math\.random\(\)/);
   });
 
   it('несовпадение и скрытые записи — код 1, не строка в логе', () => {

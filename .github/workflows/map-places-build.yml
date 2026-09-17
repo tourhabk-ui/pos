@@ -58,6 +58,10 @@ jobs:
           # id, которых в пакетах быть не должно (скрыты миграциями) — прогон
           # после заливки читает файлы обратно и отвечает поимённо (17.09).
           ABSENT=$(python3 -c "import json;print(','.join(json.load(open('.github/triggers/map-places-build.json')).get('expect_absent',[])))")
+          # run маркера — скрипт сверяет его с PLACES_LAYER_VERSION в коде и
+          # отказывается лить при расхождении (17.09, версионный адрес слоя).
+          RUN=$(python3 -c "import json;print(json.load(open('.github/triggers/map-places-build.json')).get('run',0))")
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
           echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
           echo "expect_v=$WANT" >> "$GITHUB_OUTPUT"
           echo "expect_absent=$ABSENT" >> "$GITHUB_OUTPUT"
@@ -92,6 +96,7 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
           PLACES_EXPECT_ABSENT: ${{ steps.cfg.outputs.expect_absent }}
+          MAP_PLACES_RUN: ${{ steps.cfg.outputs.run }}
         run: |
           set -euo pipefail
           if [ -z "$CRON_SECRET" ]; then
