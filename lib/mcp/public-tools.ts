@@ -69,26 +69,93 @@ export const BOOKING_REQUEST_TOOL = {
   },
 } as const;
 
+/**
+ * Подсказки хосту о природе инструмента (MCP `ToolAnnotations`).
+ *
+ * Хост по ним решает, спрашивать ли человека перед вызовом, и каталоги
+ * (реестр MCP, каталог коннекторов Claude) требуют их на каждом инструменте.
+ * До 17.09 их не было вовсе — хост видел тринадцать одинаковых кнопок и не
+ * мог отличить «посмотреть погоду» от «оставить телефон менеджеру».
+ *
+ * Значения — факты об исполнении, не пожелания:
+ *   · `readOnlyHint` — инструмент ничего не меняет;
+ *   · `destructiveHint` — может уничтожить или необратимо изменить; у заявок
+ *     `false`: они СОЗДАЮТ запись, а не трогают чужие;
+ *   · `idempotentHint` — повтор с теми же аргументами ничего не добавляет;
+ *     у заявок `false` — каждый вызов ложится к менеджеру отдельно (дедуп
+ *     внутри есть, но контракт этого не обещает);
+ *   · `openWorldHint` — ходит ли инструмент к внешним сущностям в момент
+ *     вызова. Почти всё читает нашу базу; наружу в момент вызова идёт только
+ *     погода.
+ */
+export interface McpToolAnnotations {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+}
+
+const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
+
+/** Аннотации по имени инструмента. Инструмент без записи здесь — красный сторож. */
+export const TOOL_ANNOTATIONS: Record<string, McpToolAnnotations> = {
+  get_tours:             { title: 'Каталог туров', ...READ },
+  get_tour_details:      { title: 'Карточка тура', ...READ },
+  get_tour_availability: { title: 'Свободные даты тура', ...READ },
+  get_guardian_context:  { title: 'Безопасность места', ...READ },
+  get_place_info:        { title: 'Справка о месте', ...READ },
+  safety_status:         { title: 'Обстановка в крае', ...READ },
+  get_weather:           { title: 'Погода', ...READ, openWorldHint: true },
+  search_accommodations: { title: 'Жильё', ...READ },
+  search_transfers:      { title: 'Трансферы', ...READ },
+  search_gear:           { title: 'Прокат снаряжения', ...READ },
+  make_trip_plan:        { title: 'План поездки', ...READ },
+  create_lead:           { title: 'Заявка на подбор тура', ...WRITE },
+  create_booking_request: { title: 'Заявка на бронь тура', ...WRITE },
+};
+
 export interface PublicMcpTool {
   name: string;
+  /** Человеческое имя для каталогов и списков хоста. */
+  title?: string;
   description: string;
   inputSchema: unknown;
+  annotations?: McpToolAnnotations;
+}
+
+function withAnnotations(tool: { name: string; description: string; inputSchema: unknown }): PublicMcpTool {
+  const a = TOOL_ANNOTATIONS[tool.name];
+  // Нет записи — нет подсказок, а не выдуманные. По спеке все hint'ы
+  // необязательны; отсутствие честнее угаданного `readOnlyHint: true`.
+  return a ? { ...tool, title: a.title, annotations: a } : tool;
 }
 
 export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
   ...Object.values(TOOL_REGISTRY)
     .filter((t) => !EXCLUDED_TOOLS.has(t.definition.function.name))
-    .map((t) => ({
+    .map((t) => withAnnotations({
       name: t.definition.function.name,
       description: t.definition.function.description,
       // OpenAI-style parameters — это та же JSON-схема, что MCP inputSchema
       inputSchema: t.definition.function.parameters,
     })),
-  CREATE_LEAD_TOOL,
-  BOOKING_REQUEST_TOOL,
+  withAnnotations(CREATE_LEAD_TOOL),
+  withAnnotations(BOOKING_REQUEST_TOOL),
 ];
 
 export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name));
+
+/**
+ * Пишущие инструменты — те, чья аннотация говорит `readOnlyHint: false`.
+ * Одно правило на лимит записи в роуте и на подсказку хосту: раньше роут
+ * держал свой список из двух имён, и третий пишущий инструмент получил бы
+ * щедрый лимит чтения, пока кто-то не вспомнил бы про второй список.
+ */
+export const WRITE_TOOL_NAMES = new Set(
+  PUBLIC_MCP_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name),
+);
 
 export const MCP_SERVER_INFO = {
   name: 'vedar-mcp',

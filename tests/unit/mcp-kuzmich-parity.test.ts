@@ -96,10 +96,15 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     expect(executeKuzmichTool).not.toHaveBeenCalled();
   });
 
-  it('initialize-рукопожатие живо', async () => {
+  it('initialize-рукопожатие живо и называет версию клиента, если её умеет', async () => {
+    // Без запрошенной версии — новейшая наша, не константа эпохи HTTP+SSE
+    // (подробно: lib/mcp/protocol-version.ts и mcp-registry-publish.test.ts).
     const res = await rpc('initialize');
     const json = await res.json();
-    expect(json.result.protocolVersion).toBe('2024-11-05');
+    expect(json.result.protocolVersion).toBe('2025-06-18');
+
+    const asked = await rpc('initialize', { protocolVersion: '2024-11-05' });
+    expect((await asked.json()).result.protocolVersion).toBe('2024-11-05');
   });
 });
 
