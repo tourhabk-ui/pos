@@ -1,15 +1,17 @@
 {
-  "note": "17.09, прогон 511. ТОЛЬКО ЧТЕНИЕ, внешние источники. Продолжение 510: Wikidata знает Начикинское озеро (Q4315182) — беру его координаты P625; по «озеро Державина» Wikidata пуста — ищу шире, одним словом. GeoNames (справочник, независимый и от OSM, и от Wikidata; учётка demo — общая, может быть исчерпана, тогда ответ это скажет) — по обоим озёрам как третий свидетель. allowStale — чтобы отказ одного адреса не остановил остальные.",
-  "run": 511,
-  "allowStale": true,
-  "timeout": 30,
-  "retries": 0,
-  "bytes": 5000,
-  "ua": "VedarProbe/1.0 (https://vedarai.ru; contact via GitHub tourhabk-ui/pos)",
+  "note": "17.09, прогон 512. ТОЛЬКО ЧТЕНИЕ. Владелец 18:59: «Озеро Овальное» всё ещё открывается на полевой карте (53.04757,158.67959, в черте города) — после прогона 11, который прочитал все 123 пакета обратно и не нашёл в них id c3a29662 (скрыт миграцией 947). Карточку точки кормит onPlaceClick — слой мест из S3, не маршрут. Единственное объяснение, сходящееся со всеми уликами: ВТОРАЯ запись с тем же именем и другим id, видимая и законно экспортируемая. Спрашиваю экспорт двух пакетов, накрывающих город, ПО ИМЕНИ: grep и контекст вокруг «Овальное» дадут id дубля. Если имени в экспорте нет — значит телефон показывает несвежий файл, и разбирать надо кэш.",
+  "run": 512,
+  "timeout": 60,
+  "retries": 2,
+  "retryDelay": 30,
+  "bytes": 40000,
+  "grep": ["Овальное", "c3a29662-7b2f-44b6-91de-f3a51cd54e5a", "Смотровая"],
+  "count": ["Овальное", "\"name\":"],
+  "around": ["Овальное"],
+  "aroundLines": 2,
+  "aroundBefore": 1,
   "urls": [
-    "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=Q4315182&property=P625&format=json",
-    "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=%D0%94%D0%B5%D1%80%D0%B6%D0%B0%D0%B2%D0%B8%D0%BD%D0%B0&language=ru&format=json&limit=10",
-    "https://secure.geonames.org/searchJSON?q=Derzhavina&country=RU&featureClass=H&maxRows=5&username=demo",
-    "https://secure.geonames.org/searchJSON?q=Nachikinskoye&country=RU&featureClass=H&maxRows=5&username=demo"
+    "https://vedarai.ru/api/cron/places-export?region=cell-53n158e",
+    "https://vedarai.ru/api/cron/places-export?region=avacha-group"
   ]
 }
