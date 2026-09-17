@@ -189,20 +189,39 @@ jobs:
           set -euo pipefail
           NAME='${{ steps.manifest.outputs.name }}'
           VERSION='${{ steps.manifest.outputs.version }}'
-          curl -sS -o registry-answer.json "https://registry.modelcontextprotocol.io/v0.1/servers?search=${NAME}"
-          python3 - registry-answer.json "$NAME" "$VERSION" <<'PY'
+          # Поиск реестра отстаёт от записи: run 10 (17.09) опубликовал
+          # ru.vedarai/mcp в 10:45:36.69, спросил поиск в 10:45:36.94 — и
+          # получил пустой список; через полчаса запись была на месте. Поэтому
+          # спрашиваем несколько раз с паузой, и красный — только когда не
+          # увидели ни разу за две минуты. Не нашли сразу — не отказ, а «ещё
+          # не доехало»; не нашли за две минуты — отказ.
+          for attempt in 1 2 3 4 5 6 7 8; do
+            curl -sS -o registry-answer.json "https://registry.modelcontextprotocol.io/v0.1/servers?search=${NAME}" || true
+            if python3 - registry-answer.json "$NAME" "$VERSION" <<'PY'
           import json, sys
           path, name, version = sys.argv[1], sys.argv[2], sys.argv[3]
-          with open(path) as f:
-              data = json.load(f)
+          try:
+              with open(path) as f:
+                  data = json.load(f)
+          except Exception as e:
+              print(f"ответ реестра не разобран: {e}")
+              sys.exit(1)
           hits = [s for s in data.get('servers', []) if s.get('server', {}).get('name') == name]
           if not hits:
-              print(f"::error::реестр не вернул {name}: {json.dumps(data)[:500]}")
+              print(f"реестр пока не вернул {name}: {json.dumps(data)[:200]}")
               sys.exit(1)
           latest = [s for s in hits if s.get('_meta', {}).get('io.modelcontextprotocol.registry/official', {}).get('isLatest')]
           got = (latest or hits)[0]['server'].get('version')
           if got != version:
-              print(f"::error::в реестре версия {got}, ожидалась {version}")
+              print(f"в реестре версия {got}, ожидалась {version}")
               sys.exit(1)
           print(f"Реестр видит {name} @ {got}")
           PY
+            then
+              exit 0
+            fi
+            echo "попытка $attempt/8 — жду 15 с"
+            sleep 15
+          done
+          echo "::error::реестр не показал ${NAME} @ ${VERSION} за две минуты после публикации"
+          exit 1
