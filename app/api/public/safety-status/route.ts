@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentSafetyStatus, SAFETY_SOURCE } from '@/lib/safety/current-status';
+import { getCurrentSafetyStatus } from '@/lib/safety/current-status';
 
 /**
  * GET /api/public/safety-status
@@ -33,7 +33,9 @@ export async function GET() {
         topTitle: null,
         topType: null,
         dataUpdatedAt: null,
-        source: SAFETY_SOURCE,
+        // Источника нет, потому что данных нет: подписывать пустой ответ
+        // именем ленты значило бы выдать «не смогли спросить» за «спросили».
+        source: 'данные недоступны',
       },
     });
   }
