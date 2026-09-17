@@ -1,0 +1,6 @@
+{
+  "run": 1,
+  "name": "tourhabk-ui/vedar",
+  "url": "https://vedarai.ru/api/mcp",
+  "note": "Маркер запуска smithery-publish.yml. `name` — org/name в Smithery; если аккаунт владельца называется иначе, чем tourhabk-ui, поправить здесь. run: 1 — первая публикация 17.09, секрет SMITHERY_API_KEY добавлен владельцем."
+}

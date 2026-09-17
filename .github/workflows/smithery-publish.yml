@@ -1,0 +1,113 @@
+name: Публикация MCP-сервера в Smithery
+
+# Smithery (с 08.2026 — часть Arcade.dev) — второй каталог после официального
+# реестра MCP, и он НЕ подтягивает записи оттуда сам: у него своя витрина,
+# свой шлюз и своя публикация. Владелец 17.09 принёс инструкцию, где вход —
+# `smithery auth login` через браузер; из Actions браузера нет, но CLI
+# читает `SMITHERY_API_KEY` из окружения раньше всякого логина (проверено
+# по исходнику smithery@1.2.0: `process.env.SMITHERY_API_KEY ?? config`).
+# Ключ создаётся на https://smithery.ai/account/api-keys и кладётся в
+# секрет Actions — с телефона, как и ключ реестра.
+#
+# Имя сервера (`org/name`) — из маркера: пространство имён у Smithery —
+# это аккаунт владельца, и до первого входа его не угадать; менять имя —
+# правкой JSON, без правки workflow.
+#
+# Ожидание своей сборки — по общему правилу (marker-waits-for-deploy):
+# Smithery при публикации СКАНИРУЕТ инструменты с живого адреса, и скан
+# старого прода описал бы вчерашний набор.
+#
+# Три исхода: секрета нет — красный ДО публикации с именем секрета;
+# опубликовано и найдено поиском — зелёный; опубликовано, но поиск не
+# показал за две минуты — красный словами Smithery, не догадкой.
+#
+# Ручной вход и файл-триггер — как у остальных сборок: интеграция Claude не
+# имеет права на workflow_dispatch (403, проверено 02.09).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/smithery-publish.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smithery-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Ожидание сборки — до 35 минут (70 x 30 с); таймаут обязан быть больше
+    # (tests/unit/workflow-timeout-fits-wait.test.ts).
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Параметры — из маркера; секрет на месте
+        id: cfg
+        run: |
+          set -euo pipefail
+          NAME=$(python3 -c "import json;print(json.load(open('.github/triggers/smithery-publish.json'))['name'])")
+          URL=$(python3 -c "import json;print(json.load(open('.github/triggers/smithery-publish.json'))['url'])")
+          case "$NAME" in
+            */*) ;;
+            *) echo "::error::имя в маркере должно быть вида org/name, получено '$NAME'"; exit 1 ;;
+          esac
+          if [ -z "${{ secrets.SMITHERY_API_KEY }}" ]; then
+            echo "::error::секрет SMITHERY_API_KEY не задан — ключ создаётся на https://smithery.ai/account/api-keys (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Публикуем $URL как $NAME"
+
+      - name: Дождаться своей сборки на проде
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Smithery CLI
+        run: npm install -g smithery@1 --no-audit --no-fund && smithery --version
+
+      - name: Публикация
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+          # Не-интерактивный прогон: подсказки CLI в CI некому отвечать.
+          CI: 'true'
+        run: smithery mcp publish "${{ steps.cfg.outputs.url }}" -n "${{ steps.cfg.outputs.name }}"
+
+      - name: Smithery нас видит — иначе красный
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          NAME='${{ steps.cfg.outputs.name }}'
+          NS="${NAME%%/*}"
+          SRV="${NAME##*/}"
+          # Поиск каталога может отставать от записи (у реестра MCP — 0,3 с
+          # хватило на пустой ответ); спрашиваем с паузой, красный — только
+          # если не увидели ни разу за две минуты.
+          for attempt in 1 2 3 4 5 6 7 8; do
+            OUT=$(smithery mcp search "$SRV" --namespace "$NS" --limit 20 2>&1 || true)
+            if echo "$OUT" | grep -Fq "$NAME"; then
+              echo "Smithery видит $NAME"
+              echo "$OUT" | grep -F "$NAME" | head -3
+              exit 0
+            fi
+            echo "попытка $attempt/8 — в выдаче пока нет; жду 15 с"
+            sleep 15
+          done
+          echo "::error::Smithery не показал $NAME за две минуты после публикации. Ответ поиска:"
+          echo "$OUT" | head -20
+          exit 1
