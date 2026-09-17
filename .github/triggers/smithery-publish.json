@@ -1,6 +1,6 @@
 {
   "run": 2,
-  "name": "tourhabk-ui/vedar",
+  "name": "tourhabk/vedar",
   "url": "https://vedarai.ru/api/mcp",
-  "note": "Маркер запуска smithery-publish.yml. `name` — org/name в Smithery. run 1 (35278886572): «404 Namespace not found» — tourhabk-ui не пространство владельца; run 2 — пространство спрашивается у Smithery по ключу, маркер поправить на то, что прогон назовёт."
+  "note": "Маркер запуска smithery-publish.yml. `name` — org/name в Smithery; пространство владельца — tourhabk (по адресу mcp.smithery.ai/tourhabk, 17.09). run 1 (35278886572): «404 Namespace not found» на tourhabk-ui; run 2 — имя поправлено, workflow сверяет его со списком пространств ключа."
 }
