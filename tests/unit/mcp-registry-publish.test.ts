@@ -109,6 +109,14 @@ describe('server.json — манифест для официального ре�
     // Маркер запуска — по общему соглашению репозитория.
     expect(wf).toMatch(/\.github\/triggers\/mcp-registry-publish\.json/);
     expect(read('.github/triggers/mcp-registry-publish.json')).toMatch(/"run"/);
+    // Реестр читает ключ с прода: прогон ждёт СВОЮ сборку и идёт только из
+    // main — прод собирается только оттуда (сторож marker-waits-for-deploy
+    // поймал это на первом же CI, run 35193016946).
+    expect(wf).toMatch(/run: bash scripts\/wait-for-deploy\.sh/);
+    expect(wf).toMatch(/branches: \[main\]/);
+    // Комментарии не в счёт: шапка объясняет, ПОЧЕМУ веток нет, и слово
+    // там стоит законно (тот же урок, что у marker-waits-for-deploy 07.09).
+    expect(wf.replace(/^[ \t]*#.*$/gm, '')).not.toMatch(/claude\/\*\*/);
   });
 
   it('описание влезает в лимит реестра', () => {
