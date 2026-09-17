@@ -16,6 +16,7 @@ import {
   recordSourceHealth,
   loadSourceHealth,
   evaluateDeadSources,
+  splitKnownDormant,
   dueForAlert,
   markAlerted,
   formatDeadSourceAlert,
@@ -75,15 +76,26 @@ async function entryFor(
   return { key, label, status, rawItems, inserted };
 }
 
-/** Записать здоровье источников и, если есть мёртвые (с дебаунсом), алертнуть в Telegram. */
-async function watchSourceHealth(entries: SourceHealthEntry[]): Promise<void> {
+/** Источник, чьё молчание принято решением (knownDormant), — для тела ответа. */
+export type KnownDormantSource = { key: string; label: string; since: string; reason: string; silentHours: number | null };
+
+/**
+ * Записать здоровье источников и, если есть мёртвые (с дебаунсом), алертнуть в
+ * Telegram. Возвращает принятых-молчащих (knownDormant): они в Telegram не
+ * уходят, но обязаны быть видны в теле ответа — «не шумим» ≠ «не знаем».
+ */
+async function watchSourceHealth(entries: SourceHealthEntry[]): Promise<KnownDormantSource[]> {
   try {
     await recordSourceHealth(pool, entries);
     const rows = await loadSourceHealth(pool);
     const now = Date.now();
     const dead = evaluateDeadSources(rows, SAFETY_SOURCE_EXPECTATIONS, now);
-    const due = dueForAlert(dead, rows, now);
-    if (!due.length) return;
+    const { alertable, known } = splitKnownDormant(dead, SAFETY_SOURCE_EXPECTATIONS);
+    const knownOut: KnownDormantSource[] = known.map((k) => ({
+      key: k.key, label: k.label, since: k.since, reason: k.dormantReason, silentHours: k.silentHours,
+    }));
+    const due = dueForAlert(alertable, rows, now);
+    if (!due.length) return knownOut;
 
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -95,8 +107,12 @@ async function watchSourceHealth(entries: SourceHealthEntry[]): Promise<void> {
       }).catch(() => {});
     }
     await markAlerted(pool, due.map((d) => d.key));
-  } catch {
-    // Мониторинг не должен ронять ingest — молча пропускаем.
+    return knownOut;
+  } catch (err) {
+    // Мониторинг не должен ронять ingest — но и молчать нельзя (§4.0): пустой
+    // catch превращал «сторож источников не отработал» в «источники живы».
+    console.error('[safety-ingest] watchSourceHealth не отработал:', err instanceof Error ? err.message : err);
+    return [];
   }
 }
 
@@ -562,7 +578,7 @@ function buildResponse(
   durationMs: number,
   pushResult?: { dispatched: number; suppressed?: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
-  extras?: { delegated_to_heartbeat?: string[]; telegramSeismicAgeMin?: number | null },
+  extras?: { delegated_to_heartbeat?: string[]; telegramSeismicAgeMin?: number | null; knownDormantSources?: KnownDormantSource[] },
   // Уборка могла не пройти — тогда приходит причина, а не результат. Приём
   // от этого не страдает (см. safely), но молчать об ошибке нельзя: она
   // должна быть видна в ответе, иначе чистка перестанет работать незаметно.
@@ -695,6 +711,9 @@ function buildResponse(
     // не дожидаясь, пока она перевалит порог. `null` — доставок в журнале
     // нет; это разные вещи с «доставка была только что», и путать их нельзя.
     telegram_seismic_age_min: extras?.telegramSeismicAgeMin,
+    // Принятое молчание (knownDormant в SAFETY_SOURCE_EXPECTATIONS): в Telegram
+    // не уходит, в теле ответа обязано быть — «не шумим» ≠ «не знаем».
+    known_dormant_sources: extras?.knownDormantSources ?? [],
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -855,7 +874,7 @@ export async function GET(req: Request) {
   // нет. Владение здоровьем этих двух отдано POST'у: тогда их last_run_at
   // означает ровно «когда воркфлоу принёс», и задержка становится видимой.
   // Обратная сторона той же меры уже есть — delegated_to_heartbeat в POST.
-  await watchSourceHealth(await Promise.all([
+  const knownDormantGet = await watchSourceHealth(await Promise.all([
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
@@ -866,7 +885,7 @@ export async function GET(req: Request) {
   ]));
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get',
-    { telegramSeismicAgeMin: await telegramSeismicAgeMin() }, pruned, roadAnchors);
+    { telegramSeismicAgeMin: await telegramSeismicAgeMin(), knownDormantSources: knownDormantGet }, pruned, roadAnchors);
 }
 
 const HtmlBodySchema = z.object({
@@ -941,8 +960,13 @@ export async function POST(req: Request) {
   // бесплатным не был.
   const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
-    // kamgov принесён раннером — сервер его не тянет и не считает мёртвым.
-    ingestNewsFeeds(kamgovXmls.length > 0 ? ['kamgov'] : []),
+    // kamgov с сервера не тянется НИКОГДА (гео-блок с Timeweb): его приносит
+    // раннер XML'ом ниже. Прежнее условие «тянуть, если раннер не принёс»
+    // било в стену 12 раз в час — столько POST'ов шлёт реле Cloudflare, а оно
+    // kamgov не забирает по замыслу; каждый писал «news feed unavailable» и
+    // держал статус прогона partial. Отсутствие XML — не повод пробовать с
+    // того адреса, откуда не открывается по построению.
+    ingestNewsFeeds(['kamgov']),
     kamgovXmls.length > 0
       ? ingestNewsFeedXmls(kamgovXmls, 'kamgov')
       : Promise.resolve(undefined),
@@ -1012,7 +1036,7 @@ export async function POST(req: Request) {
   // safety_source_health: её каждые 5 минут обновляет heartbeat-GET, и
   // ложный КРИТ «живой канал МЧС мёртв» невозможен. Писать сюда
   // not_fetched было бы ровно той ошибкой, о которой предупреждала issue.
-  await watchSourceHealth(await Promise.all([
+  const knownDormantPost = await watchSourceHealth(await Promise.all([
     entryFor('kbgsras', 'КБГС РАН (сейсмо)', telegramResult.kbgsras),
     entryFor('eqkam', 'EMSD/EQKam (сейсмо)', telegramResult.eqkam),
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
@@ -1022,5 +1046,6 @@ export async function POST(req: Request) {
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
+    knownDormantSources: knownDormantPost,
   }, pruned, roadAnchors);
 }

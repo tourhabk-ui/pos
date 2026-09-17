@@ -1116,9 +1116,12 @@ async function checkSeismicCronDead(): Promise<CheckResult> {
  *
  * Пути два, и они очень разные. USGS и МЧС сервер тянет сам, вовремя. КБГС и
  * EQKam живут в Telegram, а `t.me` для хостинга гео-закрыт — их приносит
- * GitHub Actions, у которого пятиминутное расписание на практике даёт
- * разрывы в 40–60 минут. Про эту задержку мы узнали 14.08 СЛУЧАЙНО, разбирая другой сбой:
- * измерения не было вовсе.
+ * снаружи тот, кто там живёт. До 03.09 это был только GitHub Actions с
+ * разрывами 102-740 мин; с 03.09 первичен воркер Cloudflare (каждые 5 минут,
+ * infra/safety-relay), раннер — запасной. Про задержку мы узнали 14.08
+ * СЛУЧАЙНО, разбирая другой сбой: измерения не было вовсе. Живость самого
+ * реле меряет checkSeismicRelayAlive ниже — этой проверке с порогом в сутки
+ * она не видна.
  *
  * Уровни выбраны по цене ошибки, а не по громкости. Задержку расписания
  * GitHub владелец починить не может — КРИТ на неё был бы красным, которое не
@@ -1231,6 +1234,65 @@ async function checkSeismicWorkflowDelay(): Promise<CheckResult> {
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkSeismicWorkflowDelay:', err instanceof Error ? err.message : err);
     return checkFailure('checkSeismicWorkflowDelay', err);
+  }
+}
+
+/**
+ * ── Живость сейсмо-реле Cloudflare ──────────────────────────────────────────
+ *
+ * С 03.09 t.me-каналы приносит не раннер GitHub, а воркер
+ * `infra/safety-relay` на кроне Cloudflare каждые 5 минут (проба 514,
+ * 17.09: telegram_seismic_age_min = 1 при последнем прогоне раннера два часа
+ * назад). Раннер остался запасным путём — 5-6 доставок в сутки.
+ *
+ * Оба шлют с одной меткой workflow_post, а порог checkSeismicWorkflowDelay —
+ * сутки: он молчит и при живом реле (5 мин), и при мёртвом (часы). То есть
+ * реле объявлено, а сторожа у него не было — и «сейсмика идёт пятиминутным
+ * путём» держалось на памяти о выкатке, не на замере.
+ *
+ * Мера — число POST'ов за последний час: живое реле даёт ~12, один раннер —
+ * не больше одного. Порог 3 — с трёхкратным запасом на дрожание крона
+ * Cloudflare. Уровень — WARN, не КРИТ: пока реле стоит, данные всё равно
+ * приходят раннером, это деградация, а не слепота; КРИТ на сутки остаётся у
+ * соседней проверки. Чинится: `wrangler deploy` / cron-триггер в панели.
+ */
+export const SEISMIC_RELAY_MIN_POSTS_PER_HOUR = 3;
+/** Сколько минут наблюдать журнал, прежде чем судить о реле (первый час после выката пуст). */
+export const SEISMIC_RELAY_MIN_OBSERVED_MIN = 120;
+
+export function seismicRelayIssue(postsLastHour: number, observedMin: number): WatchdogAlert | null {
+  if (observedMin < SEISMIC_RELAY_MIN_OBSERVED_MIN) return null;
+  if (postsLastHour >= SEISMIC_RELAY_MIN_POSTS_PER_HOUR) return null;
+  return {
+    type: 'safety_cron_dead',
+    count: postsLastHour,
+    critical: false,
+    details:
+      `Сейсмо-реле Cloudflare встало: ${postsLastHour} POST за час при норме ~12 ` +
+      `(порог ${SEISMIC_RELAY_MIN_POSTS_PER_HOUR}). Доставка КБГС/EQKam упала до расписания ` +
+      `GitHub (часы). Проверь воркер vedar-safety-relay: wrangler deploy / cron-триггер. ` +
+      `USGS и МЧС идут напрямую.`,
+  };
+}
+
+async function checkSeismicRelayAlive(): Promise<CheckResult> {
+  try {
+    const { rows } = await pool.query<{ posts_last_hour: string; first_any: string | null }>(`
+      SELECT COUNT(*) FILTER (WHERE metadata->>'trigger' = 'workflow_post'
+                                AND ended_at > NOW() - INTERVAL '60 minutes')::text AS posts_last_hour,
+             MIN(ended_at)::text AS first_any
+        FROM agent_run_history
+       WHERE agent_id = 'safety-ingest'
+         AND ended_at > NOW() - INTERVAL '7 days'
+    `);
+    const firstAny = rows[0]?.first_any ?? null;
+    if (!firstAny) return null; // приёма нет вовсе — это забота checkSeismicCronDead
+    const observedMin = (Date.now() - new Date(firstAny).getTime()) / 60_000;
+    return seismicRelayIssue(Number(rows[0]?.posts_last_hour ?? 0), observedMin);
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «всё хорошо».
+    console.error('[watchdog] checkSeismicRelayAlive:', err instanceof Error ? err.message : err);
+    return checkFailure('checkSeismicRelayAlive', err);
   }
 }
 
@@ -1678,6 +1740,9 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     // heartbeat'ом, который Telegram получить не может. Задержка канала,
     // приносящего КБГС и EQKam, до этой правки не измерялась вовсе.
     checkSeismicWorkflowDelay,
+    // Реле Cloudflare — пятиминутный путь t.me (03.09). Соседняя проверка
+    // с порогом в сутки его остановку не видит: раннер всё ещё доставляет.
+    checkSeismicRelayAlive,
     checkDeadSafetyCrons,
     checkUndeliveredSafetyPush,
     checkIdleCrons,

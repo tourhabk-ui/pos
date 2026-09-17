@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  splitKnownDormant,
   evaluateDeadSources,
   dueForAlert,
   formatDeadSourceAlert,
@@ -109,5 +110,34 @@ describe('formatDeadSourceAlert', () => {
     expect(msg).toContain('VK: не настроен');
     expect(msg).toContain('MAX: молчит 80 ч');
     expect(msg).toContain('МЧС RSS: ни разу');
+  });
+});
+
+describe('splitKnownDormant — принятое молчание не будит, но и не исчезает (17.09)', () => {
+  // КБГС РАН не публикует с 24.03 (перепись 07.09); 17.09 владелец получил
+  // «молчит 228 ч — проверь канал/ключ» про канал без ключа, который
+  // читается и разбирается. Это тот же `known`, что у гео-блока OpenRouter.
+  const dead = [
+    { key: 'kbgsras', label: 'КБГС', reason: 'silent' as const, silentHours: 228 },
+    { key: 'eqkam', label: 'EQKam', reason: 'silent' as const, silentHours: 48 },
+  ];
+  const expectations = [
+    { key: 'kbgsras', label: 'КБГС', maxSilenceHours: 48, knownDormant: { since: '2026-03-24', reason: 'канал не публикует' } },
+    { key: 'eqkam', label: 'EQKam', maxSilenceHours: 48 },
+  ];
+
+  it('известно-молчащий уходит в known с датой и причиной, остальные — в alertable', () => {
+    const { alertable, known } = splitKnownDormant(dead, expectations);
+    expect(alertable.map(d => d.key)).toEqual(['eqkam']);
+    expect(known).toHaveLength(1);
+    expect(known[0]).toMatchObject({ key: 'kbgsras', since: '2026-03-24', silentHours: 228, dormantReason: 'канал не публикует' });
+    // род молчания не затёрт причиной: reason по-прежнему 'silent'
+    expect(known[0].reason).toBe('silent');
+  });
+
+  it('без knownDormant всё alertable — поведение до 17.09 не изменилось', () => {
+    const { alertable, known } = splitKnownDormant(dead, expectations.map(e => ({ ...e, knownDormant: undefined })));
+    expect(alertable).toHaveLength(2);
+    expect(known).toHaveLength(0);
   });
 });
