@@ -97,3 +97,24 @@ describe('журнал называет пустые зоны своим име�
     expect(fn).toMatch(/return \[\];/);
   });
 });
+
+describe('уже сохранённые строки со старым дефолтом лечатся на следующем инжесте', () => {
+  // Правка парсера проспективна: INSERT гасит ON CONFLICT, а дедуп-UPDATE
+  // продлевает срок через GREATEST, пока лента републикует сводку. Без этого
+  // шага строки с ['avachinsky'] жили бы до пяти суток (flood = 120 ч), и
+  // «я же починил» не доходило бы до сопок.
+  const src = read('lib/services/safety/seismic-parser.ts');
+  const upd = src.slice(src.indexOf('const dup = await query('), src.indexOf("return 'skipped';", src.indexOf('const dup = await query(')));
+
+  it('дедуп-UPDATE переписывает зоны ТОЛЬКО с подписью старого дефолта и только если классификатор даёт другое', () => {
+    expect(upd).toMatch(/affected_zones = CASE/);
+    expect(upd).toMatch(/external_alerts\.affected_zones = ARRAY\['avachinsky'\]::text\[\]/);
+    expect(upd).toMatch(/IS DISTINCT FROM \$6::text\[\]/);
+    expect(upd).toMatch(/ELSE external_alerts\.affected_zones/);
+  });
+
+  it('смена зон возвращается как rezoned и уходит в журнал с «откуда → куда»', () => {
+    expect(upd).toMatch(/AS rezoned/);
+    expect(upd).toMatch(/rezoned_from: \['avachinsky'\], rezoned_to: event\.affected_zones/);
+  });
+});
