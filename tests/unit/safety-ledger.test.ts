@@ -71,12 +71,13 @@ describe('фаза 1: закрытый список событий БЕЗ выд
     }
   });
 
-  it('geo_unmatched объявлен в типе, но НЕ эмитится из saveEvent — mchs_zones маскирует fallback (§4.0)', () => {
-    // Тип остаётся в union для будущего (когда появится инструментирование
-    // mchs_zones), но фаза 1 честно не претендует на различение match/fallback.
+  it('geo_unmatched эмитится из saveEvent при пустых зонах (17.09) — различие теперь есть в данных', () => {
+    // До 17.09 mchs_zones маскировала fallback ['avachinsky'], и «unmatched»
+    // снаружи был неотличим от настоящего Авачинского — журнал честно молчал.
+    // Теперь пустое совпадение возвращает [], и событие называется по имени.
     const type: SafetyLedgerEventType = 'geo_unmatched';
     expect(type).toBe('geo_unmatched');
-    expect(SEISMIC).not.toMatch(/eventType:\s*'geo_unmatched'/);
+    expect(SEISMIC).toMatch(/affected_zones\.length > 0 \? 'geo_matched' : 'geo_unmatched'/);
   });
 });
 
@@ -84,7 +85,7 @@ describe('точки врезки: seismic-parser.ts saveEvent — единст�
   it('signal_normalized/risk_classified/geo_matched эмитятся до дедуп-развилки', () => {
     expect(SEISMIC).toContain("eventType: 'signal_normalized'");
     expect(SEISMIC).toContain("eventType: 'risk_classified'");
-    expect(SEISMIC).toContain("eventType: 'geo_matched'");
+    expect(SEISMIC).toMatch(/eventType: event\.affected_zones\.length > 0 \? 'geo_matched' : 'geo_unmatched'/);
   });
 
   it('dedup_skipped — и на content-дедупе, и на ON CONFLICT DO NOTHING', () => {

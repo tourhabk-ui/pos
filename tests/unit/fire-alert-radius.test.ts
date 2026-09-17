@@ -64,8 +64,10 @@ describe('пожарный алерт — радиус вместо зоны', (
     // выписано дважды — вторая копия могла разъехаться с первой молча.
     expect(CODE).toMatch(/NOT\s*\(\$\{GEO_SCOPED_SQL\}\)/);
     expect(CODE.match(/const GEO_SCOPED_SQL/g)?.length, 'условие радиуса объявлено не один раз').toBe(1);
-    expect(CODE).toMatch(/ea\.affected_zones IS NULL/);
-    expect(CODE).toMatch(/ark\.zone = ANY\(ea\.affected_zones\)/);
+    // С 17.09 пустые зоны — «никого», а не «весь край»: ветки IS NULL / = '{}'
+    // в фолбэке нет (сторож — alert-zone-unknown.test.ts), остаётся зонное
+    // совпадение.
+    expect(CODE).toMatch(/AND ark\.zone = ANY\(ea\.affected_zones\)/);
   });
 
   it('формула расстояния и зонный фолбэк объявлены один раз, а не трижды', () => {

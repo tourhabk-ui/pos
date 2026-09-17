@@ -123,9 +123,15 @@ const SEVERITY_WHEN_UNSET = 1;
 /**
  * Предупреждения, накрывающие зоны маршрута.
  *
- * Алерт без зон (`affected_zones` пуст) считается общерегиональным — это та же
- * договорённость, по которой живёт `location_real_time_status`. Иначе
- * предупреждение, у которого зона не распозналась, не дошло бы ни до кого.
+ * Алерт без зон (`affected_zones` пуст или NULL) НЕ накрывает ни один маршрут
+ * (17.09) — та же договорённость, по которой с этого дня живёт
+ * `location_real_time_status` (safety-ingest). Прежняя редакция читала
+ * пустоту как «общерегиональное», чтобы нераспознанное «дошло хоть до
+ * кого-то», — и оно доходило до всех: паводок на западном побережье висел на
+ * маршрутах Авачинской группы. «Не установлено» ≠ «везде» (§4.0): такое
+ * предупреждение остаётся в общекраевой ленте, а тексты, которые сами
+ * говорят «по краю», получают все зоны в mchs_zones. Сторож обоих
+ * предикатов — tests/unit/alert-zone-unknown.test.ts.
  *
  * Бессрочный алерт (`expires_at IS NULL`) — действующий. Так же его читают
  * Кузьмич и guardian-context; условие «expires_at > NOW()» в одиночку молча
@@ -151,11 +157,7 @@ async function loadAlerts(
       `SELECT title, severity::int AS severity, alert_type
          FROM external_alerts
         WHERE (expires_at IS NULL OR expires_at > NOW())
-          AND (
-            affected_zones IS NULL
-            OR affected_zones = '{}'
-            OR affected_zones && $1::text[]
-          )
+          AND affected_zones && $1::text[]
         ORDER BY severity DESC NULLS LAST, created_at DESC
         LIMIT 50`,
       [zones],

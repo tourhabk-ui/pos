@@ -54,6 +54,19 @@ export interface ParseResult {
 
 // ── Карта вулканов → зоны Камчатки ───────────────────────────────────────
 
+/** Все четыре тревожные зоны — для предупреждений, которые сами говорят «по краю». */
+const ALL_ZONES = ['avachinsky', 'eastern', 'western', 'northern'] as const;
+
+/**
+ * Текст, который САМ объявляет себя общекраевым. Это данные, а не умолчание:
+ * «по Камчатскому краю ожидается штормовой ветер» накрывает и город, и
+ * вулканы — по слову источника, не по нашей догадке. Проверяется ПОСЛЕ
+ * вулканов и округов: «по краю… в Соболевском округе» — про Соболевский.
+ */
+// `\b` здесь нельзя: в JS без флага u граница слова считается по [A-Za-z0-9_],
+// и после кириллицы её нет никогда — `/краю\b/` не совпадёт с «по краю».
+const KRAI_WIDE_RE = /по\s+(?:всему\s+)?камчатскому\s+краю|по\s+всему\s+краю|по\s+краю(?![а-яё])|на\s+(?:всей\s+)?территории\s+(?:всего\s+)?края/i;
+
 const VOLCANO_ZONES: Record<string, string[]> = {
   'шивелуч':    ['northern'],
   'ключевской': ['northern'],
@@ -368,11 +381,11 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
 // разделённые ради queryability (искать «все risk_classified severity>=2»
 // проще по своей строке, чем по JSON внутри signal_normalized.details).
 //
-// geo_unmatched НЕ эмитится в фазе 1: mchs_zones() при пустом совпадении
-// молча возвращает fallback ['avachinsky'] (seismic-parser.ts:586) — отсюда,
-// снаружи, «настоящий Авачинский» и «fallback по умолчанию» неразличимы.
-// Выдумывать различие, которого нет в данных, запрещает §4.0 — emit только
-// geo_matched, честно не претендуя на «unmatched».
+// geo_unmatched эмитится с 17.09. До того mchs_zones() при пустом совпадении
+// молча возвращала fallback ['avachinsky'], и снаружи «настоящий Авачинский»
+// и «дефолт» были неразличимы — журнал честно не претендовал на «unmatched».
+// Теперь пустое совпадение возвращает [], различие есть в данных, и оно
+// записывается: пустые affected_zones → geo_unmatched, иначе geo_matched.
 //
 // ЖУРНАЛ ПИШЕТСЯ О СОБЫТИЯХ, А ПЕРЕЧИТАННАЯ ЛЕНТА — НЕ СОБЫТИЕ (09.09).
 //
@@ -532,7 +545,11 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     });
     await appendSafetyEvent({
       entityId: null,
-      eventType: 'geo_matched',
+      // Пустые зоны с 17.09 — честный исход mchs_zones/zonesForEpicenter
+      // («не установлено»), а не замаскированный дефолт, поэтому его можно
+      // и нужно называть своим именем: geo_unmatched. Строка в журнале —
+      // единственный след того, что предупреждение никого не красит.
+      eventType: event.affected_zones.length > 0 ? 'geo_matched' : 'geo_unmatched',
       actorType: 'system',
       actorId: 'seismic-parser.saveEvent',
       payloadHash,
@@ -738,6 +755,28 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   [/налычев/i,      ['avachinsky']],
 ];
 
+/**
+ * Ключи VOLCANO_ZONES стоят в именительном падеже, а в сводках вулкан почти
+ * всегда склонён: «к вулкану Мутновскому», «опасность Мутновского»,
+ * «на Авачинском». До 17.09 сравнение шло `includes(ключ)` и склонённую форму
+ * не видело НИКОГДА — этого не замечали, потому что промах уходил в дефолт
+ * `['avachinsky']`, и для Авачинской группы ответ случайно совпадал с верным.
+ * Когда дефолт сняли, промах стал виден: тест «matches a volcano name» был
+ * зелёным по стечению обстоятельств, а не по работе сопоставителя.
+ *
+ * Прилагательные (-ий/-ый/-ой) ловятся по основе с любым падежным окончанием;
+ * существительные (Шивелуч, Толбачик, Узон) — по вхождению, их косвенные
+ * формы содержат именительную. «Крашенинникова» в карте уже в родительном —
+ * так пишут сводки.
+ */
+const VOLCANO_MATCHERS: Array<[RegExp, string[]]> = Object.entries(VOLCANO_ZONES).map(([name, z]) => {
+  const adj = name.match(/^(.+?)(ий|ый|ой)$/);
+  const src = adj
+    ? `${adj[1]}(?:ий|ый|ой|ого|ому|им|ым|ом|ем|ая|ую|ие|ых|их)`
+    : name;
+  return [new RegExp(src, 'i'), z];
+});
+
 export function mchs_zones(text: string): string[] {
   // Название вулкана в тексте — точнее административного района (переиспользуем
   // ту же карту, что и для КБГС РАН, а не только 9 паттернов по районам).
@@ -749,14 +788,27 @@ export function mchs_zones(text: string): string[] {
   // группы.
   const lower = text.toLowerCase();
   const zones = new Set<string>();
-  for (const [volcano, vZones] of Object.entries(VOLCANO_ZONES)) {
-    if (lower.includes(volcano)) vZones.forEach((z) => zones.add(z));
+  for (const [re, vZones] of VOLCANO_MATCHERS) {
+    if (re.test(lower)) vZones.forEach((z) => zones.add(z));
   }
   if (zones.size > 0) return [...zones];
   for (const [re, dZones] of MCHS_DISTRICT_ZONES) {
     if (re.test(text)) dZones.forEach((z) => zones.add(z));
   }
-  return zones.size > 0 ? [...zones] : ['avachinsky'];
+  if (zones.size > 0) return [...zones];
+  if (KRAI_WIDE_RE.test(text)) return [...ALL_ZONES];
+  // Ни вулкана, ни округа, ни слова «по краю» — зона НЕ УСТАНОВЛЕНА, и это
+  // возвращается как есть. До 17.09 здесь стояло `['avachinsky']`: паводок в
+  // Соболевском округе (западное побережье, ~300 км) красил в красный
+  // смотровые в центре Петропавловска, потому что Соболевского не было в
+  // списке округов и «не знаю где» превращалось в «Авачинская». Дважды до
+  // того чинили по округу за раз (Усть-Большерецкий 29.07, Мильковский
+  // 10.08) — дефолт оставался. Пустой массив — третий исход §4.0: событие
+  // сохраняется, видно в общекраевой ленте, в журнал уходит geo_unmatched,
+  // но места не красит. Так же с 11.08 живут далёкие землетрясения USGS
+  // (seismic-zones.ts); SQL-предикаты в safety-ingest и collect-signals с
+  // 17.09 читают пустоту как «никого», а не «всех».
+  return [];
 }
 
 /** Стабильный отпечаток заголовка (djb2 по нормализованному тексту). */

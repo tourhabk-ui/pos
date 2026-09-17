@@ -345,8 +345,15 @@ describe('mchs_zones', () => {
     expect(mchs_zones('паводок в Усть-Камчатском районе')).toEqual(['northern']);
   });
 
-  it('defaults to avachinsky when neither volcano nor known district is mentioned', () => {
-    expect(mchs_zones('погодное предупреждение по краю')).toEqual(['avachinsky']);
+  it('a text that says «по краю» itself covers all four zones — by the source\'s word, not by default', () => {
+    expect(new Set(mchs_zones('погодное предупреждение по краю')))
+      .toEqual(new Set(['avachinsky', 'eastern', 'western', 'northern']));
+  });
+
+  it('neither volcano, nor district, nor «по краю» → [] (17.09), never a silent avachinsky', () => {
+    // До 17.09 здесь был дефолт ['avachinsky']: паводок в Соболевском округе
+    // (нет в списке округов) красил в красный сопки в центре Петропавловска.
+    expect(mchs_zones('При достижении уровней неблагоприятного явления на реке Большой Воровской подтоплений не прогнозируется')).toEqual([]);
   });
 });
 
