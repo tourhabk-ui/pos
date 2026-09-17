@@ -11,9 +11,16 @@
  * Камчатке», получит «спокойно» и передаст это человеку, который поедет. Тут
  * разница между «мы знаем, что тихо» и «мы не знаем» — это разница между
  * информацией и выдумкой, поэтому она поднята в тип.
+ *
+ * Про `source`. До 17.09 это была константа «КБГС РАН» на любой ответ, при
+ * том что таблицу кормят пять лент, и верхней тревогой в момент проверки был
+ * паводок от МЧС. Теперь источник — происхождение ВЕРХНЕЙ тревоги, выведенное
+ * из её `external_id` (`lib/safety/alert-origin.ts`); тревог нет — ленты
+ * перечислены как есть; происхождение не узнано — так и сказано.
  */
 
 import { query } from '@/lib/database';
+import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 
 export interface CurrentSafetyStatus {
   hasAlert: boolean;
@@ -23,34 +30,36 @@ export interface CurrentSafetyStatus {
   topType: string | null;
   /** Когда последний раз обновлялись реалтайм-данные точек. */
   dataUpdatedAt: string | null;
+  /**
+   * Откуда верхняя тревога. Тревог нет — перечень лент; тревога есть, но
+   * происхождение не узнано — `UNKNOWN_ORIGIN_TEXT`. Строка, а не null: её
+   * показывает плитка главной и пакет офлайн-карты.
+   */
   source: string;
 }
 
-export const SAFETY_SOURCE = 'КБГС РАН';
+/** Перечень лент одной строкой — для ответа без верхней тревоги. */
+export const SAFETY_FEEDS_TEXT = SAFETY_FEEDS.join('; ');
 
 /** `null` — данные недоступны. Не путать с «тревог нет». */
 export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | null> {
   try {
-    const [alertsResult, ingestResult] = await Promise.all([
-      query<{
-        max_severity: string;
-        active_count: string;
-        top_title: string | null;
-        top_type: string | null;
-      }>(`
+    const [aggResult, topResult, ingestResult] = await Promise.all([
+      query<{ max_severity: string; active_count: string }>(`
         SELECT
-          COALESCE(MAX(severity), 0)::text           AS max_severity,
-          COUNT(*)::text                             AS active_count,
-          (SELECT title FROM external_alerts
-           WHERE expires_at > NOW()
-           ORDER BY severity DESC, created_at DESC
-           LIMIT 1)                                 AS top_title,
-          (SELECT alert_type FROM external_alerts
-           WHERE expires_at > NOW()
-           ORDER BY severity DESC, created_at DESC
-           LIMIT 1)                                 AS top_type
+          COALESCE(MAX(severity), 0)::text AS max_severity,
+          COUNT(*)::text                   AS active_count
         FROM external_alerts
         WHERE expires_at > NOW()
+      `),
+      // Верхняя тревога целиком, одной строкой: заголовок, тип и то, по чему
+      // узнаётся её происхождение.
+      query<{ title: string | null; alert_type: string | null; external_id: string | null; source_url: string | null }>(`
+        SELECT title, alert_type, external_id, source_url
+        FROM external_alerts
+        WHERE expires_at > NOW()
+        ORDER BY severity DESC, created_at DESC
+        LIMIT 1
       `),
       // Время последнего запуска ingest-крона — маркер свежести данных
       query<{ last_update: string | null }>(`
@@ -58,17 +67,20 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       `),
     ]);
 
-    const row = alertsResult.rows[0];
-    const activeCount = parseInt(row?.active_count ?? '0');
+    const agg = aggResult.rows[0];
+    const top = topResult.rows[0] ?? null;
+    const activeCount = parseInt(agg?.active_count ?? '0');
 
     return {
       hasAlert: activeCount > 0,
-      maxSeverity: parseInt(row?.max_severity ?? '0'),
+      maxSeverity: parseInt(agg?.max_severity ?? '0'),
       activeCount,
-      topTitle: row?.top_title ?? null,
-      topType: row?.top_type ?? null,
+      topTitle: top?.title ?? null,
+      topType: top?.alert_type ?? null,
       dataUpdatedAt: ingestResult.rows[0]?.last_update ?? null,
-      source: SAFETY_SOURCE,
+      source: top
+        ? (alertOrigin(top.external_id, top.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT)
+        : SAFETY_FEEDS_TEXT,
     };
   } catch {
     return null;
@@ -92,11 +104,15 @@ export function formatSafetyStatusForAgent(status: CurrentSafetyStatus | null): 
   );
   if (status.topTitle) {
     lines.push(`Наиболее значимое: ${status.topTitle}${status.topType ? ` (${status.topType})` : ''}.`);
+    // Источник — у верхней тревоги, а не у ответа: разные тревоги приходят
+    // из разных лент, и подпись обязана принадлежать той, что названа.
+    lines.push(`Источник этого предупреждения: ${status.source}.`);
+  } else {
+    lines.push(`Ленты, по которым собирается обстановка: ${status.source}.`);
   }
   if (status.dataUpdatedAt) {
     lines.push(`Данные обновлены: ${status.dataUpdatedAt}.`);
   }
-  lines.push(`Источник: ${status.source}.`);
   lines.push(
     'Это обстановка по краю целиком, а не оценка конкретного маршрута: по месту спрашивайте get_guardian_context. Экстренный телефон — 112.',
   );

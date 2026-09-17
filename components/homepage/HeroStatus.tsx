@@ -110,9 +110,12 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
   // говорить одинаково (тот же резак, что в ленте /safety).
   const alertLine = hasAlert && safety?.topTitle ? clip(safety.topTitle, 90) : null;
 
+  // Источник приходит с ответом (происхождение верхней тревоги или перечень
+  // лент — lib/safety/alert-origin.ts). Своего умолчания здесь нет: до 17.09
+  // строка подставляла «КБГС РАН» и на паводок от МЧС, и на пустой ответ.
   const sourceLabel =
     !isStale && !cronNeverRan && updatedAt
-      ? `${safety?.source ?? 'КБГС РАН'} · ${formatTime(updatedAt.toISOString())}`
+      ? [safety?.source, formatTime(updatedAt.toISOString())].filter(Boolean).join(' · ')
       : null;
 
   return (

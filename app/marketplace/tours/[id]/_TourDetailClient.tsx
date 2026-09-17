@@ -22,6 +22,7 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
 import { detectFishSpecies } from '@/lib/fish-species';
 import { plural } from '@/lib/home/data-freshness';
+import { UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 
 /* ─── Labels ─── */
 
@@ -253,7 +254,10 @@ function useDayStatus(): DayStatus | null {
         if (o.unavailable === true) return;
         setStatus({
           title: typeof o.topTitle === 'string' ? o.topTitle : null,
-          source: typeof o.source === 'string' ? o.source : 'КБГС РАН',
+          // Источник приходит с ответом (происхождение верхней тревоги —
+          // lib/safety/alert-origin.ts). Нет строки — «не записан», а не имя
+          // первой попавшейся ленты: до 17.09 здесь стояло «КБГС РАН».
+          source: typeof o.source === 'string' ? o.source : UNKNOWN_ORIGIN_TEXT,
           hasAlert: o.hasAlert === true,
         });
       })

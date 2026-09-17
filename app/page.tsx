@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { pool } from '@/lib/db-pool'
+import { getCurrentSafetyStatus } from '@/lib/safety/current-status'
 import { Header } from '@/components/layout/Header'
 import { HeroStatus, type SafetyStatusData } from '@/components/homepage/HeroStatus'
 import { StoriesRail } from '@/components/homepage/StoriesRail'
@@ -35,47 +36,21 @@ export const dynamic = 'force-dynamic'
 
 async function getSafetyStatus(): Promise<SafetyStatusData | null> {
   try {
-    const [alertsRes, lastIngestRes] = await Promise.all([
-      pool.query<{
-        max_severity: string;
-        active_count: string;
-        top_title: string | null;
-        top_type: string | null;
-      }>(`
-        SELECT
-          COALESCE(MAX(severity), 0)::text AS max_severity,
-          COUNT(*)::text                   AS active_count,
-          (SELECT title FROM external_alerts
-           WHERE expires_at > NOW()
-           ORDER BY severity DESC, created_at DESC
-           LIMIT 1)                        AS top_title,
-          (SELECT alert_type FROM external_alerts
-           WHERE expires_at > NOW()
-           ORDER BY severity DESC, created_at DESC
-           LIMIT 1)                        AS top_type
-        FROM external_alerts
-        WHERE expires_at > NOW()
-      `),
-      // Время последнего прогона cron safety-ingest.
-      // MAX(created_at) по всем записям — включая истёкшие — показывает когда последний раз
-      // данные реально обновлялись. Null = cron ни разу не запускался.
+    // Обстановка — из общего правила (lib/safety/current-status.ts): до
+    // 17.09 здесь лежала дословная копия его SQL с подписью «КБГС РАН»
+    // константой, и на паводок от МЧС главная отвечала именем сейсмологов.
+    // Своей остаётся только свежесть: главной важно, когда крон ingest
+    // последний раз что-то записал (MAX(created_at) по всем записям,
+    // включая истёкшие; null = крон ни разу не запускался), а не когда
+    // обновились реалтайм-данные точек.
+    const [status, lastIngestRes] = await Promise.all([
+      getCurrentSafetyStatus(),
       pool.query<{ last_ingest: string | null }>(`
         SELECT MAX(created_at)::text AS last_ingest FROM external_alerts
       `),
     ]);
-
-    const row = alertsRes.rows[0];
-    const activeCount = parseInt(row?.active_count ?? '0');
-
-    return {
-      hasAlert: activeCount > 0,
-      maxSeverity: parseInt(row?.max_severity ?? '0'),
-      activeCount,
-      topTitle: row?.top_title ?? null,
-      topType: row?.top_type ?? null,
-      dataUpdatedAt: lastIngestRes.rows[0]?.last_ingest ?? null,
-      source: 'КБГС РАН',
-    };
+    if (!status) return null;
+    return { ...status, dataUpdatedAt: lastIngestRes.rows[0]?.last_ingest ?? null };
   } catch {
     return null;
   }
