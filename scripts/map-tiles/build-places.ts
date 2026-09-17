@@ -37,6 +37,7 @@ import {
   placesKey, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
+import { verifyReadback, parseExpectAbsent, type ReadbackVerdict } from '@/lib/map/places-readback';
 
 /** Путь эндпоинта — литералом: по нему сторож cron-scheduler-declared видит, кто зовёт роут. */
 const ENDPOINT = '/api/cron/places-export';
@@ -122,12 +123,67 @@ async function main(): Promise<number> {
   }
 
   // Фаза 2 — заливки, только когда все ответы на руках.
-  for (const f of fetched) {
-    const res = await uploadToS3(placesKey(f.region), f.body, 'application/geo+json', packCacheControl(placesKey(f.region)));
-    console.log(`  залито ${f.region} -> ${res.url}`);
+  //
+  // Фаза 3 — ЧТЕНИЕ ОБРАТНО (17.09). До этого дня «залито» значило одно:
+  // PutObject не бросил исключение. Файл после заливки не читал никто, и
+  // владелец увидел в поле место, скрытое миграцией неделю назад, при
+  // зелёном прогоне и чистом коде на каждом звене, которое можно прочитать
+  // из репозитория. Теперь каждый пакет читается по публичному адресу — тому
+  // же, что открывает телефон, — и сверяется байт в байт. Расхождение роняет
+  // прогон, а не пишет строку в лог (lib/map/places-readback.ts).
+  const expectAbsent = parseExpectAbsent(process.env.PLACES_EXPECT_ABSENT);
+  if (expectAbsent.length > 0) {
+    console.log(`после заливки проверю, что этих id в пакетах нет: ${expectAbsent.join(', ')}`);
   }
-  console.log(`залито пакетов: ${fetched.length}. Дальше — внести их в PLACES_BUILT (lib/map/pack-source.ts).`);
+  const bad: string[] = [];
+  const stale: Array<{ region: string; ids: string[] }> = [];
+  for (const f of fetched) {
+    const key = placesKey(f.region);
+    const res = await uploadToS3(key, f.body, 'application/geo+json', packCacheControl(key));
+    const verdict = await readBack(f.region, f.body, res.url, expectAbsent);
+    if (verdict.state === 'ok') {
+      console.log(`  залито ${f.region} -> ${res.url} · прочитано обратно, ${verdict.features} мест, sha ${verdict.sha.slice(0, 12)}`);
+    } else if (verdict.state === 'stale-content') {
+      console.log(`  залито ${f.region} -> ${res.url} · байты совпали, НО в пакете скрытые записи: ${verdict.presentAbsent.join(', ')}`);
+      stale.push({ region: f.region, ids: verdict.presentAbsent });
+    } else {
+      console.error(`  ОТКАЗ чтения обратно: ${verdict.reason}`);
+      bad.push(verdict.reason);
+    }
+  }
+
+  if (bad.length > 0) {
+    console.error(`ЗАЛИВКА НЕ ПОДТВЕРЖДЕНА: ${bad.length} из ${fetched.length} пакетов не прочитались обратно тем, что заливали.`);
+    console.error('Это не «залито с оговоркой» — это «неизвестно, что лежит в хранилище».');
+    return 1;
+  }
+  if (stale.length > 0) {
+    // Байты совпали, значит хранилище честно отдаёт то, что дал ЭКСПОРТ, —
+    // и экспорт отдал скрытую запись. Это уже не про заливку, а про базу или
+    // про фильтр экспорта, и прятать это за зелёным прогоном нельзя.
+    console.error(`В ${stale.length} пакетах ЭКСПОРТ ОТДАЛ записи, которых там быть не должно:`);
+    for (const st of stale) console.error(`  ${st.region}: ${st.ids.join(', ')}`);
+    console.error('Хранилище тут ни при чём — смотреть is_visible в базе и фильтр /api/cron/places-export.');
+    return 1;
+  }
+  console.log(`залито и прочитано обратно пакетов: ${fetched.length}. Дальше — внести новые в PLACES_BUILT (lib/map/pack-source.ts).`);
   return 0;
+}
+
+/** Прочитать пакет по публичному адресу и сверить с залитым. */
+async function readBack(region: PackRegionId, uploaded: Buffer, url: string, expectAbsent: readonly string[]): Promise<ReadbackVerdict> {
+  let status: number | null = null;
+  let fetchedBody: Buffer | null = null;
+  try {
+    // Без кэша, но и без cache-buster'а: адрес обязан быть ТЕМ ЖЕ, что
+    // откроет телефон, иначе проверяется не то, что видит человек.
+    const r = await fetch(url, { cache: 'no-store' });
+    status = r.status;
+    fetchedBody = Buffer.from(await r.arrayBuffer());
+  } catch (err) {
+    console.error(`  чтение обратно ${region}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return verifyReadback({ region, uploaded, fetched: fetchedBody, status, expectAbsent });
 }
 
 if (process.argv[1] && process.argv[1].endsWith('build-places.ts')) {
