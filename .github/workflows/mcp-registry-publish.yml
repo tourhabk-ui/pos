@@ -18,10 +18,12 @@ name: Публикация MCP-сервера в официальный реес
 # Секрета нет — прогон краснеет ДО входа, с именем секрета: это честнее,
 # чем ошибка реестра «invalid signature» без объяснения.
 #
-# Запись `io.github.tourhabk-ui/vedar` в реестре остаётся: два имени на один
-# адрес — мусор в каталогах, поэтому после первой публикации доменного имени
-# старая помечается deprecated (шаг ниже, по OIDC — тем же правом, каким её
-# заводили).
+# Запись `io.github.tourhabk-ui/vedar` и доменная не могут жить вместе:
+# реестр держит один адрес за одной записью («remote URL … is already used
+# by server …», run 9, 17.09) — правило, которого нет в его документации.
+# Поэтому старое имя снимается (deleted, по OIDC — тем же правом, каким его
+# заводили) ДО публикации доменного, а при отказе публикации возвращается в
+# active: невидимость в реестре хуже старого имени.
 #
 # Повторная публикация той же версии реестром отвергается («cannot publish
 # duplicate version», 400). Первый же мерж в main это показал: маркер
@@ -130,17 +132,17 @@ jobs:
             echo "::notice::$NAME @ $VERSION уже опубликован — публикация пропущена, ниже только проверка"
           fi
 
-      - name: Вход ключом домена
+      - name: Снять старое имя io.github, опубликовать доменное; не вышло — вернуть старое
         if: steps.present.outputs.present != 'true'
-        run: ./mcp-publisher login http --domain vedarai.ru --private-key "${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}"
-
-      - name: Публикация
-        if: steps.present.outputs.present != 'true'
-        run: ./mcp-publisher publish
-
-      - name: Старое имя io.github — deprecated, чтобы не было двух серверов на один адрес
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          # Правило реестра, которого нет в его документации и которое он
+          # назвал сам (run 9, 10:01): «remote URL … is already used by server
+          # io.github.tourhabk-ui/vedar». Один адрес — одна запись. Поэтому
+          # порядок обратный первой редакции: сначала снять старое имя, потом
+          # публиковать доменное. И третий исход: доменная публикация не
+          # прошла — старое имя возвращается в active, чтобы мы ни минуты не
+          # были невидимы в реестре, а прогон краснеет словами реестра.
           OLD='io.github.${{ github.repository_owner }}/vedar'
           curl -sS -o old.json "https://registry.modelcontextprotocol.io/v0.1/servers?search=${OLD}"
           STATE=$(python3 - old.json "$OLD" <<'PY'
@@ -156,11 +158,31 @@ jobs:
           PY
           )
           echo "$OLD: $STATE"
-          if [ "$STATE" = "active" ]; then
+          REMOVED=false
+          if [ "$STATE" = "active" ] || [ "$STATE" = "deprecated" ]; then
             # Тем же правом, каким запись заводили: OIDC даёт io.github.<владелец>/*.
-            ./mcp-publisher login github-oidc
-            ./mcp-publisher status --status deprecated --message "Переехал на ru.vedarai/mcp" --all-versions --yes "$OLD"
+            # deleted, не deprecated: deprecated по документации «всё ещё виден» —
+            # и, судя по ответу реестра, всё ещё держит адрес.
+            ./mcp-publisher login github-oidc || exit 1
+            ./mcp-publisher status --status deleted --message "Переехал на ru.vedarai/mcp" --all-versions --yes "$OLD" || exit 1
+            REMOVED=true
+            echo "$OLD снят (deleted)"
           fi
+
+          ./mcp-publisher login http --domain vedarai.ru --private-key "${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}" || exit 1
+          if ./mcp-publisher publish; then
+            echo "Опубликовано доменное имя"
+            exit 0
+          fi
+
+          echo "::error::доменная публикация не прошла — см. ответ реестра выше"
+          if [ "$REMOVED" = "true" ]; then
+            # Возврат старого имени: невидимость в реестре хуже старого имени.
+            ./mcp-publisher login github-oidc && ./mcp-publisher status --status active --all-versions --yes "$OLD" \
+              && echo "::warning::$OLD возвращён в active — в реестре мы по-прежнему под старым именем" \
+              || echo "::error::вернуть $OLD не удалось — в реестре сейчас НЕТ ни одной нашей записи, нужен ручной разбор"
+          fi
+          exit 1
 
       - name: Реестр нас видит — иначе красный
         run: |
