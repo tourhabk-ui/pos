@@ -81,6 +81,18 @@ describe('server.json — манифест для официального ре�
     // Ноль результатов — отказ, не успех (§4.0).
     expect(wf).toMatch(/v0\.1\/servers\?search=/);
     expect(wf).toMatch(/sys\.exit\(1\)/);
+    /**
+     * Та же версия дважды — реестр отвечает 400 «cannot publish duplicate
+     * version». Первый мерж в main (run 35182884177) это показал: маркер
+     * опубликовал с ветки, squash тронул тот же маркер в main — второй
+     * прогон красный на ровном месте. Поэтому публикация идёт только когда
+     * версии в реестре ещё нет; «уже опубликовано» — третий исход, зелёный
+     * и названный вслух, а не отказ и не молчание.
+     */
+    expect(wf).toMatch(/id: present/);
+    expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \.\/mcp-publisher login github-oidc/);
+    expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \.\/mcp-publisher publish/);
+    expect(wf).toMatch(/уже опубликован/);
     // Пространство имён проверяется до публикации: чужое имя — ошибка с
     // объяснением, а не отказ реестра без слов.
     expect(wf).toMatch(/io\.github\.\$\{\{ github\.repository_owner \}\}\/\*/);
