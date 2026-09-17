@@ -1,0 +1,97 @@
+name: Публикация MCP-сервера в официальный реестр
+
+# Реестр MCP (registry.modelcontextprotocol.io) — то, из чего раз в час тянут
+# агрегаторы и по чему чужие агенты нас находят. 17.09 владелец услышал от
+# чужих агентов «к vedarai.ru/api/mcp не обращаемся — его нет в каталоге»,
+# а сам публиковать не мог: он на телефоне, а `mcp-publisher login` требует
+# либо приватный ключ на своей машине, либо device-flow в браузере.
+#
+# Этот путь не требует ни того, ни другого: реестр принимает вход из GitHub
+# Actions по OIDC (`login github-oidc`, право `id-token: write`) и даёт право
+# на имена `io.github.<владелец репозитория>/*`. Секретов нет вовсе — токен
+# выдаёт сам GitHub на время джоба. Поэтому имя в server.json —
+# `io.github.tourhabk-ui/vedar`, а не `ru.vedarai/mcp`: доменное имя требует
+# доказательства владения доменом (/.well-known/mcp-registry-auth + ключ в
+# переменных Timeweb), и этот путь остаётся владельцу на потом.
+#
+# Повторная публикация той же версии реестром отвергается: перед новым
+# прогоном поднять `version` в server.json И `MCP_SERVER_INFO.version` в
+# lib/mcp/public-tools.ts — сторож mcp-registry-publish.test.ts держит их
+# равными.
+#
+# Ноль результатов после публикации — отказ, а не успех (§4.0): последний
+# шаг спрашивает реестр и краснеет, если нас там нет.
+#
+# Ручной вход и файл-триггер — как у остальных сборок: интеграция Claude не
+# имеет права на workflow_dispatch (403, проверено 02.09).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/mcp-registry-publish.json'
+
+permissions:
+  id-token: write   # OIDC-токен для реестра
+  contents: read
+
+concurrency:
+  group: mcp-registry-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: mcp-publisher — из релизов реестра
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --version || true
+
+      - name: Манифест — имя в пространстве, которое даёт OIDC
+        id: manifest
+        run: |
+          set -euo pipefail
+          NAME=$(python3 -c "import json;print(json.load(open('server.json'))['name'])")
+          VERSION=$(python3 -c "import json;print(json.load(open('server.json'))['version'])")
+          case "$NAME" in
+            io.github.${{ github.repository_owner }}/*) ;;
+            *) echo "::error::server.json называет '$NAME', а OIDC даёт право только на io.github.${{ github.repository_owner }}/*"; exit 1 ;;
+          esac
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Публикуем $NAME @ $VERSION"
+
+      - name: Вход по OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Публикация
+        run: ./mcp-publisher publish
+
+      - name: Реестр нас видит — иначе красный
+        run: |
+          set -euo pipefail
+          NAME='${{ steps.manifest.outputs.name }}'
+          VERSION='${{ steps.manifest.outputs.version }}'
+          curl -sS -o registry-answer.json "https://registry.modelcontextprotocol.io/v0.1/servers?search=${NAME}"
+          python3 - registry-answer.json "$NAME" "$VERSION" <<'PY'
+          import json, sys
+          path, name, version = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open(path) as f:
+              data = json.load(f)
+          hits = [s for s in data.get('servers', []) if s.get('server', {}).get('name') == name]
+          if not hits:
+              print(f"::error::реестр не вернул {name}: {json.dumps(data)[:500]}")
+              sys.exit(1)
+          latest = [s for s in hits if s.get('_meta', {}).get('io.modelcontextprotocol.registry/official', {}).get('isLatest')]
+          got = (latest or hits)[0]['server'].get('version')
+          if got != version:
+              print(f"::error::в реестре версия {got}, ожидалась {version}")
+              sys.exit(1)
+          print(f"Реестр видит {name} @ {got}")
+          PY
