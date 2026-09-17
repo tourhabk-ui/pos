@@ -84,10 +84,24 @@ describe('server.json — манифест для официального ре�
     // Секрета нет — красный до входа, с именем секрета, а не «invalid
     // signature» от реестра без объяснения.
     expect(wf).toMatch(/secrets\.MCP_REGISTRY_PRIVATE_KEY \}\}" \]; then\s*\n\s*echo "::error::секрет MCP_REGISTRY_PRIVATE_KEY не задан/);
-    // Старое имя io.github снимается тем же правом, каким заводилось —
-    // OIDC остаётся ради этого, и только ради этого.
+    /**
+     * Правило реестра, которого нет в документации и которое он назвал сам
+     * (run 9, 17.09 10:01): «remote URL … is already used by server
+     * io.github.tourhabk-ui/vedar» — один адрес, одна запись. Поэтому старое
+     * имя снимается ДО публикации доменного (тем же правом, каким заводилось
+     * — OIDC), а при отказе публикации возвращается в active: невидимость в
+     * реестре хуже старого имени.
+     */
     expect(wf).toMatch(/id-token: write/);
-    expect(wf).toMatch(/mcp-publisher status --status deprecated .* io\.github\.\$\{\{ github\.repository_owner \}\}\/vedar|\.\/mcp-publisher status --status deprecated .*"\$OLD"/);
+    const code = wf.replace(/^[ \t]*#.*$/gm, '');
+    const removeAt = code.indexOf('status --status deleted');
+    const publishAt = code.indexOf('./mcp-publisher publish');
+    const restoreAt = code.indexOf('status --status active');
+    expect(removeAt, 'старое имя снимается (deleted)').toBeGreaterThan(0);
+    expect(publishAt, 'публикация есть').toBeGreaterThan(0);
+    expect(restoreAt, 'возврат старого имени при отказе есть').toBeGreaterThan(0);
+    expect(removeAt, 'снять старое — ДО публикации').toBeLessThan(publishAt);
+    expect(restoreAt, 'вернуть старое — ПОСЛЕ отказа публикации').toBeGreaterThan(publishAt);
     // Ноль результатов — отказ, не успех (§4.0).
     expect(wf).toMatch(/v0\.1\/servers\?search=/);
     expect(wf).toMatch(/sys\.exit\(1\)/);
@@ -100,8 +114,9 @@ describe('server.json — манифест для официального ре�
      * и названный вслух, а не отказ и не молчание.
      */
     expect(wf).toMatch(/id: present/);
-    expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \.\/mcp-publisher login http/);
-    expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \.\/mcp-publisher publish/);
+    // Вход, снятие старого и публикация — один шаг, и он целиком под
+    // условием «доменного имени в реестре ещё нет».
+    expect(wf).toMatch(/if: steps\.present\.outputs\.present != 'true'\s*\n\s*run: \|\s*\n[\s\S]*?mcp-publisher login http[\s\S]*?\.\/mcp-publisher publish/);
     expect(wf).toMatch(/уже опубликован/);
     // Пространство имён проверяется до публикации: чужое имя — ошибка с
     // объяснением, а не отказ реестра без слов.
