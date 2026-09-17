@@ -1599,6 +1599,10 @@ export async function ingestMchsAlerts(): Promise<ParseResult> {
 // Классификация — той же classifyMchsItem: природные категории + road_closure.
 
 const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?: boolean }> = [
+  // С сервера НЕ тянется: оба вызывающих (heartbeat-GET в ingestAll и POST в
+  // route.ts) передают skipPrefixes ['kamgov'] — kamgov.ru с Timeweb закрыт,
+  // и попытка отсюда каждые пять минут была не проверкой, а шумом. Живой путь
+  // — XML от раннера через ingestNewsFeedXmls. Сторож: kamgov-runner-only.
   {
     prefix: 'kamgov',
     candidates: [
@@ -1818,7 +1822,11 @@ export async function ingestAll(): Promise<{
   total_inserted: number;
 }> {
   const [kbgsras, eqkam, usgs, mchs, news, vk] = await Promise.all([
-    ingestKbgsras(), ingestEqkam(), ingestUsgs(), ingestMchsAlerts(), ingestNewsFeeds(), ingestVkMchs(),
+    // kamgov с хостинга не открывается (гео, см. шапку ingestNewsFeedXmls) —
+    // тянуть его с сервера значит писать «news feed unavailable: kamgov» в
+    // каждый heartbeat и держать статус прогона вечно partial. Его приносит
+    // раннер XML'ом; здесь — только visitkamchatka (optional).
+    ingestKbgsras(), ingestEqkam(), ingestUsgs(), ingestMchsAlerts(), ingestNewsFeeds(['kamgov']), ingestVkMchs(),
   ]);
   return {
     kbgsras,

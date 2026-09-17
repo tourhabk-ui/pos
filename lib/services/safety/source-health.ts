@@ -21,6 +21,17 @@ export interface SourceExpectation {
   requiresEnv?: string;
   /** Сколько часов молчания (0 релевантных постов) допустимо, прежде чем это «мёртв». */
   maxSilenceHours: number;
+  /**
+   * Источник мёртв У ИСТОЧНИКА, и это измерено и принято человеком (17.09).
+   * Четвёртый исход рядом с тремя из §4.0 — тот же `known`, что у гео-блока
+   * OpenRouter в health-кроне: не «хорошо», не «не знаем», а «плохо, известно
+   * почему, решение принято». Такой источник остаётся в ожиданиях и в
+   * evaluateDeadSources (оживёт — вставит событие, и отметка снимется сама),
+   * но в Telegram каждые 12 часов НЕ уходит: «проверь канал/ключ» про канал,
+   * который не пишет с марта, — шум, а шум учит пролистывать и настоящее.
+   * В теле ответа инжеста он виден списком known_dormant_sources.
+   */
+  knownDormant?: { since: string; reason: string };
 }
 
 /**
@@ -31,7 +42,14 @@ export const SAFETY_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'vk_mchs',  label: 'VK — МЧС Камчатки',    requiresEnv: 'VK_SERVICE_TOKEN', maxSilenceHours: 72 },
   { key: 'max_mchs', label: 'MAX — МЧС Камчатки',   maxSilenceHours: 72 },
   { key: 'mchs_rss', label: 'МЧС RSS (41.mchs)',    maxSilenceHours: 96 },
-  { key: 'kbgsras',  label: 'КБГС РАН (сейсмо)',    maxSilenceHours: 48 },
+  {
+    key: 'kbgsras',  label: 'КБГС РАН (сейсмо)',    maxSilenceHours: 48,
+    // Перепись 07.09: канал t.me/s/kbgsras не публикует с 24 марта. 17.09
+    // владелец получил «молчит 228 ч — проверь канал/ключ»: ключа у t.me
+    // нет, канал достаётся и разбирается (проба run 1669: 14 постов, все в
+    // базе) — проверять нечего. Сейсмика идёт от EQKam и USGS.
+    knownDormant: { since: '2026-03-24', reason: 'канал КБГС не публикует с 24.03 (перепись 07.09); ключа нет, страница читается' },
+  },
   { key: 'eqkam',    label: 'EMSD/EQKam (сейсмо)',  maxSilenceHours: 48 },
   // 'firms' (NASA FIRMS, пожары) сюда НЕ входит осознанно: «нет термоточек»
   // неотличимо от «нет пожаров» (зимой месяцами пусто) — dead-алерт по
@@ -210,6 +228,28 @@ export async function markAlerted(pool: Pool, keys: string[]): Promise<void> {
     `UPDATE safety_source_health SET last_alerted_at = NOW() WHERE source_key = ANY($1)`,
     [keys],
   );
+}
+
+/**
+ * Делит мёртвых на тех, о ком надо будить, и тех, чьё молчание принято
+ * (knownDormant). Чистая функция; вторая половина не теряется — она уходит в
+ * тело ответа инжеста, чтобы «не шумим» было отличимо от «не знаем».
+ */
+export function splitKnownDormant(
+  dead: DeadSource[],
+  expectations: readonly SourceExpectation[],
+): { alertable: DeadSource[]; known: Array<DeadSource & { since: string; dormantReason: string }> } {
+  const byKey = new Map(expectations.map((e) => [e.key, e]));
+  const alertable: DeadSource[] = [];
+  // dormantReason, не reason: у DeadSource своё поле reason ('silent' | …), и
+  // оно остаётся — причина молчания и род молчания разные вещи.
+  const known: Array<DeadSource & { since: string; dormantReason: string }> = [];
+  for (const d of dead) {
+    const kd = byKey.get(d.key)?.knownDormant;
+    if (kd) known.push({ ...d, since: kd.since, dormantReason: kd.reason });
+    else alertable.push(d);
+  }
+  return { alertable, known };
 }
 
 /** Человекочитаемая строка алерта для Telegram. */

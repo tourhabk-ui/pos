@@ -33,7 +33,13 @@ describe('сервер принимает готовый XML', () => {
   it('принесённый снаружи источник сервер не тянет и мёртвым не считает', () => {
     expect(PARSER).toContain('skipPrefixes: string[] = []');
     expect(PARSER).toContain('if (skipPrefixes.includes(source.prefix)) continue;');
-    expect(ROUTE).toContain("ingestNewsFeeds(kamgovXmls.length > 0 ? ['kamgov'] : [])");
+    // 17.09: пропуск стал безусловным. Прежнее «тянуть, если раннер не
+    // принёс» било в гео-стену с прода 12 раз в час — столько POST'ов шлёт
+    // реле Cloudflare, а оно kamgov не забирает по замыслу. Суть проверки
+    // прежняя и стала строже: сервер kamgov не тянет — теперь никогда.
+    // Сторож: tests/unit/kamgov-runner-only.test.ts.
+    expect(ROUTE).toContain("ingestNewsFeeds(['kamgov'])");
+    expect(ROUTE).not.toContain("ingestNewsFeeds(kamgovXmls.length > 0");
   });
 
   it('в ответе крона новости остаются одним блоком', () => {
