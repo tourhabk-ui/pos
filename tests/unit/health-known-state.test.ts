@@ -131,3 +131,37 @@ describe('Qwen: снят с текстовых путей, а не заглуш�
     expect(HEALTH).not.toMatch(/text: `Qwen недоступен/);
   });
 });
+
+describe('пять отказов разом — CRIT с причинами, а не голое «недоступны» (17.09)', () => {
+  // 07:44 UTC: DeepSeek 402, Qwen 403 квоты, OpenRouter 403 гео, Anthropic
+  // недоступен — всё это лежало в JSON пробы, а в Telegram ушла одна строка
+  // «Все AI-провайдеры недоступны (Qwen + OpenRouter + …)», и known_states
+  // был пуст: ветка разбора причин стояла в `else` за `if (!anyOk)` и при
+  // полном отказе не выполнялась. Владелец был вынужден спрашивать, что
+  // случилось. Правило файла — «причина в текст алерта, а не только в JSON» —
+  // нарушалось ровно тогда, когда важнее всего.
+  it('разбор причин не спрятан за if (!anyOk) … else', () => {
+    expect(HEALTH).not.toMatch(/if \(!anyOk\) \{\s*\n\s*issues\.push\(\{ level: 'crit'/);
+    expect(HEALTH).toMatch(/const providerIssues: Array<HealthIssue & \{ reason: string \}>/);
+  });
+
+  it('CRIT собирается из причин каждого провайдера', () => {
+    expect(HEALTH).toMatch(/const reasons = providerIssues\.map\(\(i\) => i\.reason\)/);
+    expect(HEALTH).toMatch(/`Все AI-провайдеры недоступны — \$\{reasons\.join\('; '\)\}`/);
+    // Старая форма — перечень имён без причин — больше не существует.
+    expect(HEALTH).not.toMatch(/Все AI-провайдеры недоступны \(Qwen \+ OpenRouter/);
+  });
+
+  it('known остаётся видимым и при полном отказе (known_states не пустеет)', () => {
+    const critBranch = HEALTH.slice(HEALTH.indexOf('if (anyOk) {'), HEALTH.indexOf('// Всплеск регистраций операторов'));
+    expect(critBranch).toMatch(/if \(issue\.level === 'known'\) issues\.push\(issue\)/);
+  });
+
+  it('у каждого провайдера есть reason — без него CRIT снова стал бы голым', () => {
+    const block = HEALTH.slice(HEALTH.indexOf('const providerIssues'), HEALTH.indexOf('if (anyOk) {'));
+    const pushes = (block.match(/providerIssues\.push\(/g) ?? []).length;
+    const reasons = (block.match(/\breason: [`']/g) ?? []).length;
+    expect(pushes).toBeGreaterThanOrEqual(5);
+    expect(reasons).toBe(pushes);
+  });
+});
