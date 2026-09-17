@@ -55,9 +55,38 @@ describe('server.json — манифест для официального ре�
     remotes: { type: string; url: string }[];
   };
 
-  it('имя — наш домен в обратной записи, по правилу реестра', () => {
-    expect(manifest.name).toBe('ru.vedarai/mcp');
+  it('имя — в пространстве, на которое даёт право OIDC из Actions', () => {
+    /**
+     * Первая редакция называла `ru.vedarai/mcp` — красиво, но доменное имя
+     * требует доказательства владения доменом с приватным ключом на машине
+     * владельца. 17.09 владелец на телефоне и попросил опубликовать без
+     * него; единственный путь без ключа и без браузера — OIDC из GitHub
+     * Actions (`.github/workflows/mcp-registry-publish.yml`), а он даёт
+     * право только на `io.github.<владелец репозитория>/*`.
+     *
+     * Доменный вариант не удалён: `/.well-known/mcp-registry-auth` и
+     * переменная ключа остаются на случай, если владелец решит завести
+     * второе имя сам. Но манифест обязан совпадать с тем, что workflow
+     * реально может опубликовать, — иначе прогон красный по построению.
+     */
+    expect(manifest.name).toBe('io.github.tourhabk-ui/vedar');
     expect(manifest.name).toMatch(REGISTRY_NAME);
+  });
+
+  it('workflow публикации существует, входит по OIDC и краснеет, если реестр нас не видит', () => {
+    const wf = read('.github/workflows/mcp-registry-publish.yml');
+    expect(wf).toMatch(/id-token: write/);
+    expect(wf).toMatch(/mcp-publisher login github-oidc/);
+    expect(wf).toMatch(/mcp-publisher publish/);
+    // Ноль результатов — отказ, не успех (§4.0).
+    expect(wf).toMatch(/v0\.1\/servers\?search=/);
+    expect(wf).toMatch(/sys\.exit\(1\)/);
+    // Пространство имён проверяется до публикации: чужое имя — ошибка с
+    // объяснением, а не отказ реестра без слов.
+    expect(wf).toMatch(/io\.github\.\$\{\{ github\.repository_owner \}\}\/\*/);
+    // Маркер запуска — по общему соглашению репозитория.
+    expect(wf).toMatch(/\.github\/triggers\/mcp-registry-publish\.json/);
+    expect(read('.github/triggers/mcp-registry-publish.json')).toMatch(/"run"/);
   });
 
   it('описание влезает в лимит реестра', () => {
