@@ -38,11 +38,22 @@ name: Публикация MCP-сервера в официальный реес
 #
 # Ручной вход и файл-триггер — как у остальных сборок: интеграция Claude не
 # имеет права на workflow_dispatch (403, проверено 02.09).
+#
+# Только main, без веток claude/**: реестр читает публичный ключ с прода
+# (/.well-known/mcp-registry-auth), а прод собирается только из main.
+# Прогон с ветки ждал бы сборку, которой не будет, и упирался бы в старый
+# прод — красный, не говорящий ничего нового. Первый прогон (17.09, OIDC)
+# шёл с ветки, потому что тогда ключа не требовалось.
+#
+# Ожидание своей сборки — по общему правилу (scripts/wait-for-deploy.sh,
+# сторож marker-waits-for-deploy): маркер едет в main вместе с кодом, а
+# образ собирается 5–20 минут; без ожидания реестр прочитал бы ключ у
+# вчерашнего прода.
 
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'claude/**']
+    branches: [main]
     paths:
       - '.github/triggers/mcp-registry-publish.json'
 
@@ -57,9 +68,19 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Ожидание сборки — до 35 минут (70 x 30 с); таймаут обязан быть больше,
+    # иначе прогон снимается в ту же секунду, когда дождался
+    # (tests/unit/workflow-timeout-fits-wait.test.ts).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+
+      - name: Дождаться своей сборки на проде
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
 
       - name: mcp-publisher — из релизов реестра
         run: |
