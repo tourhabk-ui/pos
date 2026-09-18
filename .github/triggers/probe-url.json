@@ -1,12 +1,18 @@
 {
-  "note": "17.09, прогон 514. ТОЛЬКО ЧТЕНИЕ. Жив ли сейсмо-воркер Cloudflare (vedar-safety-relay, крон */5, выкачен 03.09)? Он POST-ит на прод с той же меткой workflow_post, что раннер GitHub, а порог Watchdog — сутки: молчит и при живом реле (5 мин), и при мёртвом (4 ч). Единственный прямой замер — telegramSeismicAgeMin в ответе heartbeat-GET /api/cron/safety-ingest: возраст последнего POST'а. Около 5 мин — реле живо; часы — мёртво, и сейсмика идёт только гитхабом 5-6 раз в сутки (последние прогоны cron-safety-ingest: 00:35, 05:15, 10:00). GET — тот же вызов, что супервизор start.js делает каждые 5 минут; побочных эффектов сверх обычных нет.",
-  "run": 514,
-  "timeout": 90,
-  "retries": 1,
-  "retryDelay": 30,
-  "bytes": 12000,
-  "grep": ["telegramSeismicAgeMin", "telegram_seismic_age_min", "trigger", "kbgsras", "eqkam", "errors"],
+  "note": "18.09, прогон 517. ТОЛЬКО ЧТЕНИЕ. Проба 516 показала: «Маяк Петропавловский» (0aa97c3c, historical) стоит на 52.9706/158.6960, а «Мыс Маячный» (3268583a, cape) — на 52.8879/158.7090, то есть настоящий маяк и запись о нём разъехались на 9 км, и в городе оказалась запись о маяке. Нужен независимый источник на положение самого маяка: сверка с OSM тянет man_made=lighthouse (lib/geo/osm-crosscheck.ts), значит kind=historical покажет кандидатов для него поимённо. Второй адрес — kind=cape, для сверки положения мыса. Правок не делает.",
+  "run": 517,
+  "timeout": 170,
+  "retries": 3,
+  "retryDelay": 60,
+  "bytes": 60000,
+  "grep": [
+    "Петропавловск",
+    "lighthouse",
+    "Маячн",
+    "Станицк"
+  ],
   "urls": [
-    "https://vedarai.ru/api/cron/safety-ingest"
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&kind=historical&limit=100",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&kind=cape&limit=50"
   ]
 }

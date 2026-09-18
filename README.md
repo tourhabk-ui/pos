@@ -17,6 +17,10 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 
 У Ведара есть **публичный MCP-сервер** (vedar-mcp): endpoint `https://vedarai.ru/api/mcp`, транспорт Streamable HTTP (JSON-RPC 2.0), авторизация не требуется. 13 инструментов: туры и их реальная занятость, безопасность мест и маршрутов, погода, жильё, трансферы, план поездки, заявки с подтверждением человеком. Подробнее: [vedarai.ru/mcp](https://vedarai.ru/mcp) · манифест [/.well-known/mcp.json](https://vedarai.ru/.well-known/mcp.json) · [/llms.txt](https://vedarai.ru/llms.txt).
 
+В каталогах: официальный реестр MCP — `ru.vedarai/mcp` (манифест публикации — `server.json`), Smithery — `tourhabk/vedar` (`npx -y smithery mcp add tourhabk/vedar`), Glama — `glama.json`. Идентификаторы — в `lib/mcp/catalogs.ts`; их же отдают манифест, `/llms.txt` и `/mcp`.
+
+**Vedar — Kamchatka travel (English).** Public MCP server for AI agents: live tours and availability, safety alerts, places, weather, stays, trip plans. Endpoint `https://vedarai.ru/api/mcp`, Streamable HTTP, no auth.
+
 ---
 
 ## Стек
@@ -44,14 +48,14 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 | Страниц | 212 |
 | API routes | 766 |
 | UI компонентов | 176 |
-| lib-модулей | 644 |
-| SQL миграций | 493 (последняя `974`) |
-| Юнит-тестов | 11198 в 1099 файлах |
-| GitHub Actions | 146 workflow |
+| lib-модулей | 645 |
+| SQL миграций | 494 (последняя `976`) |
+| Юнит-тестов | 11235 в 1104 файлах |
+| GitHub Actions | 147 workflow |
 <!-- STATS:END -->
 
 <!-- CATALOG:START -->
-**Каталог** — перепись `GET /api/cron/catalog-census` на проде, замер 2026-09-17 (обновляется после каждого мержа; «живые» — видимые и не слитые):
+**Каталог** — перепись `GET /api/cron/catalog-census` на проде, замер 2026-09-18 (обновляется после каждого мержа; «живые» — видимые и не слитые):
 
 | Сущность | Живых |
 |----------|-------|

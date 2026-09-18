@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -36,8 +37,14 @@ export default function McpLandingPage() {
     '@context': 'https://schema.org',
     '@type': 'WebAPI',
     name: MCP_SERVER_INFO.name,
+    alternateName: MCP_TITLE_EN,
     version: MCP_SERVER_INFO.version,
     description: MCP_SERVER_INFO.description,
+    // Английский текст — тот же, что в каталогах (server.json); идентификаторы
+    // записей — чтобы поисковый ответ мог сверить «есть в реестре» с нами.
+    disambiguatingDescription: MCP_DESCRIPTION_EN,
+    sameAs: MCP_CATALOGS.map((c) => c.url),
+    identifier: MCP_CATALOGS.map((c) => ({ '@type': 'PropertyValue', propertyID: c.catalog, value: c.name })),
     documentation: `${SITE}/llms.txt`,
     endpointUrl: `${SITE}/api/mcp`,
     termsOfService: `${SITE}/legal/terms`,
@@ -68,8 +75,34 @@ export default function McpLandingPage() {
                 {' · '}Описание для LLM: <a className="underline" style={{ color: 'var(--ocean)' }} href="/llms.txt">/llms.txt</a>
                 {' · '}Версия: {MCP_SERVER_INFO.version}
               </p>
+              <p lang="en" style={{ color: 'var(--text-secondary)' }}>
+                {MCP_TITLE_EN}. {MCP_DESCRIPTION_EN}. Streamable HTTP, no auth.
+              </p>
             </div>
           </header>
+
+          {/* Где нас искать: агент, нашедший запись в каталоге, здесь сверяет её
+              с первоисточником; агент без каталога — узнаёт, что запись есть. */}
+          <section className="space-y-3">
+            <h2 className="ds-h2">В каталогах MCP</h2>
+            <div className="space-y-2">
+              {MCP_CATALOGS.map((c) => (
+                <div key={c.name} className="ds-card p-4 space-y-1 text-sm">
+                  <p style={{ color: 'var(--text-secondary)' }}>{c.catalog}</p>
+                  <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    <a className="underline" style={{ color: 'var(--ocean)' }} href={c.url} rel="noopener">
+                      <code>{c.name}</code>
+                    </a>
+                  </p>
+                  {c.install && (
+                    <p style={{ color: 'var(--text-secondary)' }}>
+                      Подключение: <code>{c.install}</code>
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
 
           <section className="space-y-3">
             <h2 className="ds-h2">Инструменты ({PUBLIC_MCP_TOOLS.length})</h2>
