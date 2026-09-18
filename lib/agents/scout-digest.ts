@@ -16,6 +16,7 @@
  */
 
 import { callAIFast, callAIQualityOrNull, fetchWithRetry } from '@/lib/ai/providers';
+import { wrapUntrusted } from '@/lib/ai/untrusted';
 import { modelRefusalIssue } from '@/lib/notifications/post-validation';
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
@@ -1099,7 +1100,9 @@ export async function runScoutDigest(): Promise<DigestResult> {
     },
     {
       role: 'user',
-      content: `${contextSection ? contextSection + '\n\n' : ''}Сигналы за ${new Date().toLocaleDateString('ru-RU')}:\n\n${signalsList}`,
+      // Сигналы — заголовки чужих лент и каналов: обрамляются как данные.
+      // Контекст (наш) остаётся снаружи забора.
+      content: `${contextSection ? contextSection + '\n\n' : ''}Сигналы за ${new Date().toLocaleDateString('ru-RU')}:\n\n${wrapUntrusted('сигналы разведки', signalsList)}`,
     },
   ];
 
@@ -1388,7 +1391,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         },
         {
           role: 'user',
-          content: `Сигналы:\n\n${aiSignals}`,
+          content: `Сигналы:\n\n${wrapUntrusted('сигналы AI-лент', aiSignals)}`,
         },
       ];
       let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);

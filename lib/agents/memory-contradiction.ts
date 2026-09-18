@@ -22,6 +22,7 @@ import { tgSend } from '@/lib/notifications/tg-send';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { callAIWaterfallOrNull } from '@/lib/ai/providers';
+import { wrapUntrusted } from '@/lib/ai/untrusted';
 import { formatEpisodesForSynthesis } from '@/lib/agents/memory-reflector';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -114,7 +115,8 @@ export async function runContradictionScan(): Promise<ContradictionResult> {
 
   const messages: ChatMessage[] = [
     { role: 'system', content: SCAN_PROMPT },
-    { role: 'user', content: corpus.slice(0, 12_000) },
+    // Тот же забор, что у рефлектора: корпус — чужой текст, не команды.
+    { role: 'user', content: wrapUntrusted('эпизоды и выводы разведки', corpus.slice(0, 12_000)) },
   ];
 
   let raw = '';
