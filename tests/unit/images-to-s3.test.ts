@@ -119,9 +119,19 @@ describe('миграция освобождает место, но ничего 
 });
 
 describe('перевозчик объявлен', () => {
-  it('в реестре планировщиков как ручной и ПИШУЩИЙ', () => {
+  it('запускается расписанием и НЕ объявлен ручным', () => {
+    // До 18.09 запись стояла здесь как `manual, writes: true` — и это было
+    // правдой ровно в том смысле, что звать перевозчик было нечем: ни
+    // расписания, ни маркера, десять дней ни одного запуска, половина базы
+    // в байтах снимков. Владелец решил переехать, у задачи появился
+    // уборщик по расписанию (cron-images-to-s3.yml) и рука у актуатора
+    // images-repack — и ручное объявление стало вторым ответом на тот же
+    // вопрос. Связку целиком держит photos-live-on-s3.
     const reg = read('lib/agents/cron-schedulers.ts');
-    expect(reg).toMatch(/'images-to-s3':\s*\{ kind: 'manual', writes: true/);
+    expect(reg).not.toMatch(/'images-to-s3':\s*\{/);
+    const registry = read('lib/agents/cron-registry.ts');
+    expect(registry).toMatch(/key: 'images-to-s3'/);
+    expect(registry).toMatch(/workflow: 'cron-images-to-s3\.yml'/);
   });
 
   it('в замороженном реестре возможностей — с записью и выходом в сеть', () => {
