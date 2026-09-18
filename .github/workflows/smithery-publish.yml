@@ -41,9 +41,10 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Ожидание сборки — до 35 минут (70 x 30 с); таймаут обязан быть больше
+    # Ожидание сборки — до 35 минут (70 x 30 с) плюс до 10 минут ожидания
+    # релиза у Smithery; таймаут обязан быть больше суммы
     # (tests/unit/workflow-timeout-fits-wait.test.ts).
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
 
@@ -159,34 +160,87 @@ jobs:
           echo "Публикуем как $USE/$SRV"
 
       - name: Публикация
+        id: publish
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
           # Не-интерактивный прогон: подсказки CLI в CI некому отвечать.
           CI: 'true'
-        run: smithery mcp publish "${{ steps.cfg.outputs.url }}" -n "${{ steps.ns.outputs.name }}"
+        run: |
+          set -euo pipefail
+          # В не-TTY CLI не ждёт обработки релиза: печатает JSON с
+          # deploymentId и статусом PENDING и уходит (run 2, 17.09). Ждать —
+          # дело следующего шага, ему нужен deploymentId.
+          smithery mcp publish "${{ steps.cfg.outputs.url }}" -n "${{ steps.ns.outputs.name }}" | tee publish.out
+          DEPLOY=$(python3 - <<'PY'
+          import json, re
+          out = open('publish.out').read()
+          for line in out.splitlines():
+              line = line.strip()
+              if line.startswith('{'):
+                  try:
+                      d = json.loads(line)
+                      if d.get('deploymentId'): print(d['deploymentId']); break
+                  except Exception: pass
+          else:
+              m = re.search(r'Release ([0-9a-f-]{36}) accepted', out)
+              print(m.group(1) if m else '')
+          PY
+          )
+          echo "deployment=$DEPLOY" >> "$GITHUB_OUTPUT"
+          echo "релиз: ${DEPLOY:-(id не найден в выводе)}"
 
-      - name: Smithery нас видит — иначе красный
+      - name: Релиз обработан и Smithery нас видит — иначе красный
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
           CI: 'true'
         run: |
           set -euo pipefail
           NAME='${{ steps.ns.outputs.name }}'
+          DEPLOY='${{ steps.publish.outputs.deployment }}'
           NS="${NAME%%/*}"
           SRV="${NAME##*/}"
-          # Поиск каталога может отставать от записи (у реестра MCP — 0,3 с
-          # хватило на пустой ответ); спрашиваем с паузой, красный — только
-          # если не увидели ни разу за две минуты.
-          for attempt in 1 2 3 4 5 6 7 8; do
-            OUT=$(smithery mcp search "$SRV" --namespace "$NS" --limit 20 2>&1 || true)
-            if echo "$OUT" | grep -Fq "$NAME"; then
-              echo "Smithery видит $NAME"
-              echo "$OUT" | grep -F "$NAME" | head -3
-              exit 0
+          # Run 2 (17.09): релиз принят (PENDING), а поиск через две минуты
+          # пуст — обработка релиза у Smithery дольше. Поэтому спрашивается не
+          # поиск, а сам релиз — тем же адресом, каким CLI следит за ним в
+          # TTY (GET /servers/{name}/releases/{id}, api.smithery.ai, Bearer).
+          # SUCCESS — зелёный; CANCELLED/FAILED — красный телом ответа; всё
+          # ещё PENDING через десять минут — красный «не смог проверить», со
+          # ссылкой на страницу релизов: это третий исход, не успех.
+          API="https://api.smithery.ai"
+          for attempt in $(seq 1 40); do
+            if [ -n "$DEPLOY" ]; then
+              BODY=$(curl -sS -H "Authorization: Bearer $SMITHERY_API_KEY" "$API/servers/$NAME/releases/$DEPLOY" || true)
+            else
+              BODY=$(curl -sS -H "Authorization: Bearer $SMITHERY_API_KEY" "$API/servers/$NAME/releases" || true)
             fi
-            echo "попытка $attempt/8 — в выдаче пока нет; жду 15 с"
+            STATUS=$(python3 - "$BODY" "$DEPLOY" <<'PY'
+          import json, sys
+          body, dep = sys.argv[1], sys.argv[2]
+          try:
+              d = json.loads(body)
+          except Exception:
+              print('unparsed'); sys.exit(0)
+          rel = d
+          if isinstance(d, dict) and 'releases' in d:
+              items = d['releases'] or []
+              rel = next((r for r in items if r.get('deploymentId') == dep), items[0] if items else {})
+          print((rel.get('status') if isinstance(rel, dict) else None) or 'unknown')
+          PY
+          )
+            echo "попытка $attempt/40 — статус релиза: $STATUS"
+            case "$STATUS" in
+              SUCCESS)
+                echo "Релиз обработан. Страница: https://smithery.ai/servers/$NAME"
+                # Поиск — для сведения, не для вердикта: индекс отстаёт от релиза.
+                smithery mcp search "$SRV" --namespace "$NS" --limit 5 2>&1 | head -5 || true
+                exit 0 ;;
+              CANCELLED|FAILED|ERROR)
+                echo "::error::Smithery отверг релиз $NAME ($STATUS). Ответ:"
+                echo "$BODY" | head -30
+                exit 1 ;;
+            esac
             sleep 15
           done
-          echo "::error::Smithery не показал $NAME за две минуты после публикации. Ответ поиска:"
-          echo "$OUT" | head -20
+          echo "::error::релиз $NAME всё ещё '$STATUS' через десять минут — проверить не смог. Статус: https://smithery.ai/servers/$NAME/releases"
+          echo "$BODY" | head -30
           exit 1
