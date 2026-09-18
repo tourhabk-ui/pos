@@ -1,24 +1,18 @@
 {
-  "note": "18.09, прогон 516. ТОЛЬКО ЧТЕНИЕ. Снимок владельца 15:45: карточка «Маяк Петропавловский» стоит в черте города (на мысе Маячном её нет) и без фото — хотя его собственные кадры мыса легли миграцией 962 в место 3268583a («Мыс Маячный»). Подозрение: это ДВЕ разные записи каталога, фото ушло на одну, а на карте открывается другая. Адреса: 1-2 — place-audit по «маяк» и «маячн» (видимые, скрытые и слитые разом, с координатами); 3 — публичная карточка мыса: есть ли на ней снимок (photo_count, photo_author) и где она стоит. Сверять по координатам: вход в Авачинскую бухту около 52.88-52.90 N, центр города 53.02 N.",
-  "run": 516,
-  "timeout": 60,
-  "retries": 2,
-  "retryDelay": 20,
-  "bytes": 14000,
+  "note": "18.09, прогон 517. ТОЛЬКО ЧТЕНИЕ. Проба 516 показала: «Маяк Петропавловский» (0aa97c3c, historical) стоит на 52.9706/158.6960, а «Мыс Маячный» (3268583a, cape) — на 52.8879/158.7090, то есть настоящий маяк и запись о нём разъехались на 9 км, и в городе оказалась запись о маяке. Нужен независимый источник на положение самого маяка: сверка с OSM тянет man_made=lighthouse (lib/geo/osm-crosscheck.ts), значит kind=historical покажет кандидатов для него поимённо. Второй адрес — kind=cape, для сверки положения мыса. Правок не делает.",
+  "run": 517,
+  "timeout": 170,
+  "retries": 3,
+  "retryDelay": 60,
+  "bytes": 60000,
   "grep": [
-    "name",
-    "lat",
-    "lng",
-    "is_visible",
-    "merged_into",
-    "location_type",
-    "photo_count",
-    "photo_author",
-    "photo_model"
+    "Петропавловск",
+    "lighthouse",
+    "Маячн",
+    "Станицк"
   ],
   "urls": [
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%BC%D0%B0%D1%8F%D0%BA",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%BC%D0%B0%D1%8F%D1%87%D0%BD",
-    "https://vedarai.ru/api/places/3268583a-05e0-4f59-8d2c-a87a69be14a6"
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&kind=historical&limit=100",
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&kind=cape&limit=50"
   ]
 }
