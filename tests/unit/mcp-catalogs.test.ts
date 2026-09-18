@@ -36,10 +36,12 @@ const GLAMA = JSON.parse(read('glama.json')) as { $schema: string; maintainers: 
 
 describe('список каталогов — один, и он совпадает с тем, чем записи заводятся', () => {
   it('реестр: имя и английский текст — из server.json', () => {
-    const registry = MCP_CATALOGS.find((c) => /registry\.modelcontextprotocol\.io/.test(c.catalog));
+    // Каталог узнаётся по хосту адреса с якорем: подстрока в середине URL
+    // совпала бы и с чужим хостом (CodeQL на первом прогоне).
+    const registry = MCP_CATALOGS.find((c) => c.url.startsWith('https://registry.modelcontextprotocol.io/'));
     expect(registry).toBeDefined();
     expect(registry!.name).toBe(SERVER_JSON.name);
-    expect(registry!.url).toContain('registry.modelcontextprotocol.io');
+    expect(registry!.catalog).toMatch(/^MCP Registry/);
     expect(MCP_TITLE_EN).toBe(SERVER_JSON.title);
     expect(MCP_DESCRIPTION_EN).toBe(SERVER_JSON.description);
     // Английский текст — латиницей: кириллица здесь значит, что описание
