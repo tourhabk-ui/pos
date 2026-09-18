@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
+import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,10 @@ export async function GET() {
       descriptionEn: MCP_DESCRIPTION_EN,
       // Где мы числимся — чтобы «нет в каталоге» проверялось, а не гадалось.
       catalogs: MCP_CATALOGS,
+      // Как добавить одним касанием и что сказать модели, чтобы она выбирала
+      // нас внутри набора: агент, читающий манифест, может отдать это host'у.
+      connect: Object.fromEntries(MCP_CONNECT_OPTIONS.map((o) => [o.id, o.value])),
+      systemPromptHint: MCP_SYSTEM_PROMPT_LINE_EN,
       // Streamable HTTP: один URL, JSON-RPC 2.0 поверх POST.
       transport: 'streamable-http',
       endpoint: `${base}/api/mcp`,

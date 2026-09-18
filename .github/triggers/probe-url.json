@@ -1,18 +1,21 @@
 {
-  "note": "18.09, прогон 517. ТОЛЬКО ЧТЕНИЕ. Проба 516 показала: «Маяк Петропавловский» (0aa97c3c, historical) стоит на 52.9706/158.6960, а «Мыс Маячный» (3268583a, cape) — на 52.8879/158.7090, то есть настоящий маяк и запись о нём разъехались на 9 км, и в городе оказалась запись о маяке. Нужен независимый источник на положение самого маяка: сверка с OSM тянет man_made=lighthouse (lib/geo/osm-crosscheck.ts), значит kind=historical покажет кандидатов для него поимённо. Второй адрес — kind=cape, для сверки положения мыса. Правок не делает.",
-  "run": 517,
-  "timeout": 170,
-  "retries": 3,
-  "retryDelay": 60,
-  "bytes": 60000,
+  "note": "18.09, прогон 522. ТОЛЬКО ЧТЕНИЕ. Владелец: «куда делись фотки вулканов, почему почти все места без фото». Гипотеза по коду: карточка показывает снимок ТОЛЬКО при model IN ('wikimedia','manual-upload') — фильтр заведён 17.07 против AI-генераций, — а настоящие снимки лежат и под другими именами (перепись 09.09 в lib/images/origin.ts: real-photo 87, wikimedia-commons 23, idilesom-search 191, idilesom-photo 149). Если так, скрыто не решением, а несовпадением имён. Числа месячной давности, поэтому спрашиваем прод заново: images-oversize отдаёт разбор по model (только чтение). Второй адрес — diag каталога, там доля мест с показываемым снимком.",
+  "run": 522,
+  "timeout": 90,
+  "retries": 2,
+  "retryDelay": 30,
+  "bytes": 9000,
   "grep": [
-    "Петропавловск",
-    "lighthouse",
-    "Маячн",
-    "Станицк"
+    "real-photo",
+    "wikimedia-commons",
+    "manual-upload",
+    "qwen-image",
+    "idilesom",
+    "has_real_image"
   ],
   "urls": [
-    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&kind=historical&limit=100",
-    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&kind=cape&limit=50"
-  ]
+    "https://vedarai.ru/api/cron/images-oversize",
+    "https://vedarai.ru/api/cron/catalog-diag"
+  ],
+  "allowStale": true
 }

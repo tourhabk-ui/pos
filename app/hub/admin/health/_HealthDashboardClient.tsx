@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2, Bot, Plug, Loader2, BellRing } from 'lucide-react';
+import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2, Bot, Plug, Loader2, BellRing, Wallet } from 'lucide-react';
 import type { AlertDeliveryHealth } from '@/lib/services/safety/alert-delivery-health';
 
 /**
@@ -155,6 +155,159 @@ function StatusDot({ ok }: { ok: boolean }) {
     : <AlertTriangle className="w-4 h-4 text-[var(--warning)]" />;
 }
 
+// Формы ответа /api/admin/health/ai-money. Объявлены здесь, а не импортом из
+// lib/ai: клиентский компонент не должен тянуть цепочку до providers.ts
+// (сторож client-no-node-builtins идёт по импортам текстом, type-only не
+// различая).
+interface ProviderBalance {
+  id: string;
+  label: string;
+  status: 'ok' | 'no_key' | 'unsupported' | 'failed';
+  amount: number | null;
+  currency: string | null;
+  detail: string;
+}
+interface ModelSpendWindow {
+  calls: number;
+  tokens: number;
+  cost_usd: number | null;
+  unknown_cost_calls: number;
+}
+interface ModelSpend {
+  model: string;
+  provider_guess: string;
+  d1: ModelSpendWindow;
+  d7: ModelSpendWindow;
+  d30: ModelSpendWindow;
+}
+
+interface AiMoney {
+  balances: ProviderBalance[];
+  spend: ModelSpend[];
+  checked_at: string;
+}
+
+const BALANCE_STATUS_LABEL: Record<ProviderBalance['status'], string> = {
+  ok: 'остаток',
+  no_key: 'ключа нет',
+  unsupported: 'API не отдаёт',
+  failed: 'не смог спросить',
+};
+
+function fmtUsd(w: ModelSpendWindow): string {
+  if (w.calls === 0) return '—';
+  const cost = w.cost_usd === null ? 'цена не посчитана' : `$${w.cost_usd.toFixed(w.cost_usd < 1 ? 4 : 2)}`;
+  return w.unknown_cost_calls > 0 && w.cost_usd !== null ? `${cost} +${w.unknown_cost_calls} без цены` : cost;
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return String(n);
+}
+
+/**
+ * Деньги на ИИ: остаток у провайдеров (свойство счёта) и расход по каждой
+ * модели (наш llm_usage_log). Две таблицы, потому что это два разных факта:
+ * баланс провайдер отдаёт на счёт целиком, разрез по моделям есть только у нас.
+ */
+function AiMoneyCard({ data, error }: { data: AiMoney | null; error: boolean }) {
+  const balances = data?.balances ?? [];
+  const withApi = balances.filter(b => b.status !== 'unsupported');
+  const unsupported = balances.filter(b => b.status === 'unsupported');
+  const spend = data?.spend ?? [];
+  const anyFailed = withApi.some(b => b.status === 'failed');
+  return (
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-4 h-4 text-[var(--text-muted)]" />
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Деньги на ИИ</p>
+        </div>
+        {data && !error && <StatusDot ok={!anyFailed} />}
+      </div>
+      <p className="text-xs text-[var(--text-secondary)] mb-4">
+        Остаток — на счёт провайдера, он один на все его модели. Расход по моделям — из нашего журнала
+        вызовов; цена там оценка, и где её нет, это сказано отдельно.
+      </p>
+
+      {error && <p className="text-xs text-[var(--danger)]">Не удалось загрузить деньги на ИИ</p>}
+      {!data && !error && <div className="ds-skeleton h-24 rounded-lg" />}
+
+      {data && !error && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {withApi.map(b => (
+              <div key={b.id} className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+                <StatusDot ok={b.status === 'ok'} />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-[var(--text-primary)]">
+                    {b.label}:{' '}
+                    {b.status === 'ok' && b.amount !== null
+                      ? <span className="font-semibold">{b.amount.toFixed(2)} {b.currency}</span>
+                      : <span className={b.status === 'ok' ? '' : 'text-[var(--warning)]'}>{BALANCE_STATUS_LABEL[b.status]}</span>}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] break-words">{b.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {unsupported.length > 0 && (
+            <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3">
+              <summary className="text-xs font-medium text-[var(--text-primary)] cursor-pointer">
+                Без API баланса: {unsupported.length} провайдеров — остаток только в их консоли
+              </summary>
+              <div className="mt-2 space-y-1">
+                {unsupported.map(b => (
+                  <p key={b.id} className="text-xs text-[var(--text-muted)] break-words">
+                    <span className="text-[var(--text-secondary)]">{b.label}</span> · {b.detail}
+                  </p>
+                ))}
+              </div>
+            </details>
+          )}
+
+          <div>
+            <p className="text-xs font-medium text-[var(--text-primary)] mb-1.5">Расход по моделям</p>
+            {spend.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">За 30 дней в журнале нет ни одного вызова с токенами.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[var(--text-muted)]">
+                      <th className="py-1 pr-3 font-medium">Модель</th>
+                      <th className="py-1 pr-3 font-medium whitespace-nowrap">24 ч</th>
+                      <th className="py-1 pr-3 font-medium whitespace-nowrap">7 дн</th>
+                      <th className="py-1 pr-3 font-medium whitespace-nowrap">30 дн</th>
+                      <th className="py-1 font-medium whitespace-nowrap">Токены, 30 дн</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {spend.map(m => (
+                      <tr key={m.model} className="border-t border-[var(--border)] text-[var(--text-secondary)]">
+                        <td className="py-1.5 pr-3">
+                          <span className="font-mono text-[var(--text-primary)]">{m.model}</span>
+                          <span className="text-[var(--text-muted)]"> · {m.provider_guess}</span>
+                        </td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{fmtUsd(m.d1)}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{fmtUsd(m.d7)}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{fmtUsd(m.d30)}</td>
+                        <td className="py-1.5 whitespace-nowrap">{fmtTokens(m.d30.tokens)} · {m.d30.calls} выз.</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MetricCard({
   title,
   icon: Icon,
@@ -208,6 +361,7 @@ export default function HealthDashboardClient() {
   // Доставка тревог (#1485): «создана → доставлена» одним взглядом. Каждое
   // число троично — null значит «не посчитали», и точка здоровья не рисуется.
   const delivery = useHealth<{ success: boolean; data: AlertDeliveryHealth }>('/api/admin/health/alert-delivery');
+  const money = useHealth<{ success: boolean; data: AiMoney }>('/api/admin/health/ai-money');
 
   // Провайдеры ИИ проверяются ПО КНОПКЕ, а не при открытии страницы: проба
   // шлёт каждому провайдеру настоящий запрос и тратит их квоту. Состояние
@@ -358,6 +512,9 @@ export default function HealthDashboardClient() {
           )}
         </MetricCard>
       </div>
+
+      {/* Деньги на ИИ — остаток у провайдеров и расход по моделям */}
+      <AiMoneyCard data={money.data?.success ? money.data.data : null} error={money.error} />
 
       {/* Провайдеры ИИ — проба по кнопке, а не метрика */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">

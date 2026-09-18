@@ -69,8 +69,14 @@ SELECT lighthouse.ark_id,
   FROM places lighthouse
   JOIN places cape
     ON cape.id::text = '3268583a-05e0-4f59-8d2c-a87a69be14a6'
+  -- Обе стороны приведены к тексту не для красоты: сторож
+  -- migration-id-type-domain требует этого от сравнения идентификаторов
+  -- разных таблиц, потому что домены uuid и text оператором `=` не
+  -- сравниваются вовсе, а расходятся они только на исполнении. Здесь обе
+  -- колонки объявлены uuid, и приведение ничего не меняет по смыслу; строка
+  -- в выборке одна, так что об индексе речи нет.
   JOIN ai_route_images src
-    ON src.route_id = cape.ark_id
+    ON src.route_id::text = cape.ark_id::text
  WHERE lighthouse.id::text = '0aa97c3c-c4d7-496d-a879-7fa065d7f8de'
    AND lighthouse.ark_id IS NOT NULL
    AND src.model IN ('manual-upload', 'wikimedia')

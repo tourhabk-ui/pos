@@ -116,6 +116,9 @@ export const LLM_EGRESS_FILES: readonly string[] = [
   // его в image-модель DashScope. ПД в промпте нет (только текст новости), но
   // егресс зарубежный — под надзором D2.
   'lib/notifications/cover-image.ts',
+  // Остаток счёта DeepSeek (`GET /user/balance`): не LLM-вызов, ПД в запросе
+  // нет, но егресс на тот же зарубежный хост — под надзором D2.
+  'lib/ai/balances.ts',
 ] as const;
 
 /**

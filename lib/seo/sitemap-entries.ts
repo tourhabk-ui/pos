@@ -10,7 +10,7 @@
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
-import { PLAN_PRESETS } from '@/lib/plans/presets';
+import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plans/presets';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -61,9 +61,11 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/mcp`,                  lastModified: new Date('2026-08-15'), changeFrequency: 'monthly', priority: 0.7 },
     // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
-    { url: `${BASE}/plans`,                lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.85 },
+    // Дата — ревизия текста плана (кластер или общая PLANS_TEXT_REVISION), а не
+    // STABLE: константа июня говорила поисковику «не менялось четыре месяца».
+    { url: `${BASE}/plans`,                lastModified: plansHubLastModified(), changeFrequency: 'weekly', priority: 0.85 },
     ...PLAN_PRESETS.map((p) => ({
-      url: `${BASE}/plans/${p.slug}`, lastModified: STABLE, changeFrequency: 'weekly' as const, priority: 0.8,
+      url: `${BASE}/plans/${p.slug}`, lastModified: planLastModified(p), changeFrequency: 'weekly' as const, priority: 0.8,
     })),
     { url: `${BASE}/planning`,             lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/catalog`,              lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },

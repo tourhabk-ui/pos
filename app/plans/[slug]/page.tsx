@@ -19,7 +19,7 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { recommendTrip, type DayPlan } from '@/lib/planner';
 import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activity';
-import { PLAN_PRESETS, findPlanPreset } from '@/lib/plans/presets';
+import { PLAN_PRESETS, findPlanPreset, planLastModified } from '@/lib/plans/presets';
 
 export const revalidate = 86400;
 export const dynamicParams = true;
@@ -100,6 +100,9 @@ export default async function PlanPresetPage({ params }: PageProps) {
     name: preset.title,
     description: preset.description,
     touristType: preset.interests.join(', '),
+    // Дата ревизии текста — та же, что видит читатель и что отдаёт sitemap;
+    // без неё страница неотличима от заброшенной (стратегия 14.08).
+    dateModified: planLastModified(preset).toISOString().slice(0, 10),
     itinerary: {
       '@type': 'ItemList',
       numberOfItems: days.length || preset.days,
