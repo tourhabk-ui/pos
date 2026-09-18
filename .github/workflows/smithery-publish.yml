@@ -216,6 +216,24 @@ jobs:
           else
             echo "::warning::описание карточки не обновилось (HTTP $CODE): $(head -c 400 card.out)"
           fi
+          # Иконка — тот же файл, что у PWA (public/icons/icon-512.png); SDK
+          # шлёт её PUT /servers/{name}/icon (`servers.icon.upload`), форма
+          # тела в исходнике не видна — пробуем multipart, затем сырой PNG.
+          # Не вышло — предупреждение с телом ответа, не красный.
+          ICON=public/icons/icon-512.png
+          ICODE=$(curl -sS -o icon.out -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer $SMITHERY_API_KEY" \
+            -F "file=@$ICON;type=image/png" "https://api.smithery.ai/servers/$NAME/icon" || echo 000)
+          if [ "$ICODE" != "200" ] && [ "$ICODE" != "201" ] && [ "$ICODE" != "204" ]; then
+            ICODE=$(curl -sS -o icon.out -w '%{http_code}' -X PUT \
+              -H "Authorization: Bearer $SMITHERY_API_KEY" -H 'Content-Type: image/png' \
+              --data-binary @"$ICON" "https://api.smithery.ai/servers/$NAME/icon" || echo 000)
+          fi
+          if [ "$ICODE" = "200" ] || [ "$ICODE" = "201" ] || [ "$ICODE" = "204" ]; then
+            echo "иконка загружена (HTTP $ICODE)"
+          else
+            echo "::warning::иконка не загрузилась (HTTP $ICODE): $(head -c 400 icon.out)"
+          fi
 
       - name: Релиз обработан и Smithery нас видит — иначе красный
         env:

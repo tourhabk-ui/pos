@@ -19,7 +19,7 @@
  * значением.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { CANONICAL_BASE_URL } from '@/lib/config';
 
@@ -89,6 +89,12 @@ describe('workflow публикации в Smithery', () => {
     expect(CODE).toMatch(/-X PATCH[\s\S]*?api\.smithery\.ai\/servers\/\$NAME/);
     expect(CODE).toMatch(/'displayName': m\.get\('title'\)/);
     expect(CODE).toMatch(/::warning::описание карточки не обновилось/);
+    // Иконка — та же, что у PWA; файл обязан существовать, иначе curl
+    // отправит пустоту и Smithery ответит непонятным отказом.
+    expect(CODE).toMatch(/ICON=public\/icons\/icon-512\.png/);
+    expect(statSync(join(ROOT, 'public/icons/icon-512.png')).size).toBeGreaterThan(1000);
+    expect(CODE).toMatch(/-X PUT[\s\S]*?api\.smithery\.ai\/servers\/\$NAME\/icon/);
+    expect(CODE).toMatch(/::warning::иконка не загрузилась/);
   });
 
   it('после публикации ждёт обработки релиза, а не поиска; три исхода', () => {
