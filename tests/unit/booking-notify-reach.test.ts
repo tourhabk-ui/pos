@@ -63,7 +63,16 @@ describe('оператор без канала связи назван вслу�
 
 describe('перепись достижимости считает то, что продаётся', () => {
   it('берёт только операторов с живыми турами', () => {
-    expect(REACH_SQL).toMatch(/JOIN operator_tours t ON t\.operator_id = p\.id AND t\.is_active = true/);
+    // Требование — INNER JOIN на туры и живой предикат, а не конкретное
+    // написание строки. 18.09 предикат стал строже (`deleted_at`,
+    // `is_published` — сверено с витриной туриста) и переехал на несколько
+    // строк; сторож, привязанный к написанию, покраснел на ВЕРНОЙ правке.
+    // Что именно значит «живой», держит partner-reach.test.ts.
+    expect(REACH_SQL).toMatch(/JOIN operator_tours t ON[\s\S]{0,200}t\.operator_id = p\.id/);
+    expect(REACH_SQL).toMatch(/t\.is_active = true/);
+    // LEFT JOIN сюда пускать нельзя: партнёр без единого тура недостижим
+    // безобидно — ему нечего присылать, и в тревоге он только шум.
+    expect(REACH_SQL).not.toMatch(/LEFT JOIN operator_tours/);
     expect(REACH).toMatch(/partnerReachCensus\(\)/);
   });
 
