@@ -96,6 +96,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'images-to-s3': ['db_read', 'db_write', 'net_out'],
   'import-route-passports': ['db_read', 'db_write', 'net_out', 'ai', 'pd_direct'],
   'import-routes': ['db_read', 'db_write', 'net_out'],
+  // 18.09: пинг IndexNow по /plans после деплоя правок текстов; db_write — журнал отказов пинга (ai_actions_log) внутри lib/seo/indexnow.
+  'indexnow-plans': ['db_read', 'db_write', 'net_out'],
   'industry-intel': ['db_read', 'db_write', 'ai'],
   'inspect-tour-card': ['db_read', 'pd_direct'],
   'intel-feeds-census': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],

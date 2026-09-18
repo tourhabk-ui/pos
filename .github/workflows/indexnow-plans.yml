@@ -1,0 +1,78 @@
+name: IndexNow — страницы планов (после деплоя правок)
+
+# Зачем workflow, а не curl с телефона: закрытый роут требует CRON_SECRET,
+# а прод не отовсюду достижим. В Actions секрет и сеть уже есть.
+#
+# Пинг имеет смысл только ПОСЛЕ того, как новая версия страниц поднялась на
+# проде: иначе Яндекс переобойдёт старый текст и уснёт на неделю. Поэтому
+# шаг ждёт СВОЮ сборку (scripts/wait-for-deploy.sh, сторож
+# marker-waits-for-deploy), и идёт только из main — прод собирается только
+# оттуда.
+#
+# Три исхода: секрета нет — красный до запроса, с именем секрета; IndexNow
+# принял — зелёный со списком адресов; отверг или не ответил — красный
+# словами протокола из тела ответа.
+#
+# Ручной вход и файл-триггер — как у остальных: интеграция Claude не имеет
+# права на workflow_dispatch (403, проверено 02.09).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/indexnow-plans.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: indexnow-plans
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # Ожидание сборки — до 35 минут (70 x 30 с) плюс запрос; таймаут обязан
+    # быть больше суммы (tests/unit/workflow-timeout-fits-wait.test.ts).
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Секрет на месте
+        run: |
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::секрет CRON_SECRET не задан — позвать роут нечем"
+            exit 1
+          fi
+
+      - name: Дождаться своей сборки на проде
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Пинг IndexNow по страницам планов
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          HTTP=$(curl -sS -o /tmp/indexnow.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/indexnow-plans") || HTTP="000"
+          echo "HTTP $HTTP"
+          python3 -m json.tool /tmp/indexnow.json || cat /tmp/indexnow.json || true
+          {
+            echo '## IndexNow — страницы планов'
+            echo ''
+            echo "HTTP $HTTP"
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/indexnow.json || cat /tmp/indexnow.json || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::IndexNow не принял страницы планов (HTTP $HTTP) — см. тело ответа выше"
+            exit 1
+          fi
