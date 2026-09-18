@@ -1,21 +1,17 @@
 {
-  "note": "18.09, прогон 522. ТОЛЬКО ЧТЕНИЕ. Владелец: «куда делись фотки вулканов, почему почти все места без фото». Гипотеза по коду: карточка показывает снимок ТОЛЬКО при model IN ('wikimedia','manual-upload') — фильтр заведён 17.07 против AI-генераций, — а настоящие снимки лежат и под другими именами (перепись 09.09 в lib/images/origin.ts: real-photo 87, wikimedia-commons 23, idilesom-search 191, idilesom-photo 149). Если так, скрыто не решением, а несовпадением имён. Числа месячной давности, поэтому спрашиваем прод заново: images-oversize отдаёт разбор по model (только чтение). Второй адрес — diag каталога, там доля мест с показываемым снимком.",
-  "run": 522,
+  "note": "18.09, прогон 523. ТОЛЬКО ЧТЕНИЕ. Проверка выката 3735c25 (род real-photo внесён в SHOWN_MODELS, миграция 978 проставляет авторство). Прогон deploy.yml 1803 УПАЛ в 10:58: сторож увидел, что прод отдаёт образ старше коммита. Но Timeweb собирает на каждый пуш в main сам, и пушей после было несколько — значит состояние прода надо спросить, а не вывести. Ждём у real-photo: shown 81 (было 0) и credited 81 (было 0). Если shown 0 — выкат так и не доехал.",
+  "run": 523,
   "timeout": 90,
   "retries": 2,
   "retryDelay": 30,
-  "bytes": 9000,
+  "bytes": 3000,
   "grep": [
     "real-photo",
     "wikimedia-commons",
-    "manual-upload",
-    "qwen-image",
-    "idilesom",
-    "has_real_image"
+    "manual-upload"
   ],
   "urls": [
-    "https://vedarai.ru/api/cron/images-oversize",
-    "https://vedarai.ru/api/cron/catalog-diag"
+    "https://vedarai.ru/api/cron/images-oversize"
   ],
   "allowStale": true
 }
