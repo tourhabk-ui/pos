@@ -94,6 +94,10 @@ describe('workflow публикации в Smithery', () => {
     expect(CODE).toMatch(/ICON=public\/icons\/icon-512\.png/);
     expect(statSync(join(ROOT, 'public/icons/icon-512.png')).size).toBeGreaterThan(1000);
     expect(CODE).toMatch(/-X PUT[\s\S]*?api\.smithery\.ai\/servers\/\$NAME\/icon/);
+    // Поле формы назвал сам Smithery (run 4, 18.09): «Send a file with
+    // field name 'icon'». Поле `file` он отвергает с HTTP 400.
+    expect(CODE).toMatch(/-F "icon=@\$ICON;type=image\/png"/);
+    expect(CODE).not.toMatch(/-F "file=@/);
     expect(CODE).toMatch(/::warning::иконка не загрузилась/);
   });
 
