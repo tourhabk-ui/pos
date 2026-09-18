@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
 import { activityLabel } from '@/lib/tours/labels';
+import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 
 const BASE = 'https://vedarai.ru';
 
@@ -183,6 +184,10 @@ ${planLines}
   и create_booking_request (бронь конкретного тура на дату; занятость
   проверяется до создания — на дату без мест заявка не создаётся)
 - Мгновенной брони и оплаты через MCP нет by design. Rate-limit по IP.
+- В каталогах: ${MCP_CATALOGS.map((c) => `${c.catalog} — ${c.name}`).join('; ')}.
+  Подключение из Smithery: ${MCP_CATALOGS.find((c) => c.install)?.install ?? '—'}
+- English: ${MCP_TITLE_EN}. ${MCP_DESCRIPTION_EN}. MCP endpoint
+  ${BASE}/api/mcp (Streamable HTTP, no auth); manifest ${BASE}/.well-known/mcp.json
 
 ${sections}
 

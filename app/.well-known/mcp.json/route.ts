@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,12 @@ export async function GET() {
   return NextResponse.json(
     {
       ...MCP_SERVER_INFO,
+      // Английские заголовок и описание — из server.json, того же текста, что
+      // в реестре и Smithery: агент, пришедший из каталога, узнаёт запись.
+      title: MCP_TITLE_EN,
+      descriptionEn: MCP_DESCRIPTION_EN,
+      // Где мы числимся — чтобы «нет в каталоге» проверялось, а не гадалось.
+      catalogs: MCP_CATALOGS,
       // Streamable HTTP: один URL, JSON-RPC 2.0 поверх POST.
       transport: 'streamable-http',
       endpoint: `${base}/api/mcp`,
