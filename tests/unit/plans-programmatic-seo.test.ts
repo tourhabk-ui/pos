@@ -15,7 +15,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PLAN_PRESETS, findPlanPreset } from '@/lib/plans/presets';
+import {
+  PLAN_PRESETS, findPlanPreset, PLANS_TEXT_REVISION, planLastModified, plansHubLastModified,
+} from '@/lib/plans/presets';
+import { buildPlansFaq } from '@/lib/plans/faq';
 
 const ROOT = process.cwd();
 const PAGE = readFileSync(join(ROOT, 'app/plans/[slug]/page.tsx'), 'utf-8');
@@ -109,6 +112,55 @@ describe('страница /plans/[slug]', () => {
     expect(PAGE).toMatch(/Другие готовые планы/);
     expect(PAGE).toMatch(/href="\/planner"/);
     expect(HUB).toMatch(/\/plans\/\$\{p\.slug\}/);
+  });
+});
+
+describe('хаб /plans отвечает на запрос «Камчатка туры план» прямо (GEO, 18.09)', () => {
+  it('заголовок и H1 — в форме запроса, прямой ответ в первом экране', () => {
+    expect(HUB).toMatch(/title: 'Туры на Камчатку: готовые планы поездки/);
+    expect(HUB).toMatch(/Туры на Камчатку: готовые планы поездки\s*<\/h1>/);
+    // Число планов — из PLAN_PRESETS, не напечатано руками.
+    expect(HUB).toMatch(/\{PLAN_PRESETS\.length\} готовых планов/);
+  });
+
+  it('вопросы-ответы — из lib/plans/faq, размечены FAQPage через обёртку; список — ItemList', () => {
+    expect(HUB).toMatch(/from '@\/lib\/plans\/faq'/);
+    expect(HUB).toMatch(/'@type': 'FAQPage'/);
+    expect(HUB).toMatch(/'@type': 'ItemList'/);
+    expect(HUB).toMatch(/<JsonLd data=\{faqJsonLd\} \/>/);
+    expect(HUB).not.toMatch(/dangerouslySetInnerHTML/);
+    const faq = buildPlansFaq();
+    expect(faq.length).toBeGreaterThanOrEqual(4);
+    const days = [...new Set(PLAN_PRESETS.map((p) => p.days))].sort((a, b) => a - b);
+    // Ответ про длительность называет ровно те длины, что есть в пресетах.
+    for (const d of days) expect(faq[0].answer).toContain(String(d));
+    // Про цену — источник, а не выдуманная сумма (§4.0).
+    expect(faq[1].answer).toMatch(/из живого каталога/);
+    expect(faq[1].answer).not.toMatch(/\d{2,3} ?\d{3} ?₽/);
+  });
+
+  it('дата ревизии текстов — ISO, не раньше кластеров и не в будущем; хаб показывает её', () => {
+    expect(PLANS_TEXT_REVISION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const rev = new Date(PLANS_TEXT_REVISION).getTime();
+    expect(rev).toBeLessThanOrEqual(Date.now());
+    for (const p of PLAN_PRESETS.filter((x) => x.cluster)) {
+      expect(new Date(p.cluster!.updated).getTime(), p.slug).toBeLessThanOrEqual(rev);
+    }
+    expect(plansHubLastModified().getTime()).toBe(rev);
+    expect(HUB).toMatch(/Обновлено \{updated\}/);
+  });
+
+  it('sitemap и JSON-LD планов берут дату ревизии, а не константу STABLE', () => {
+    const block = SITEMAP.slice(SITEMAP.indexOf('/plans`'), SITEMAP.indexOf('/planning`'));
+    expect(block).toMatch(/plansHubLastModified\(\)/);
+    expect(block).toMatch(/planLastModified\(p\)/);
+    expect(block).not.toMatch(/lastModified: STABLE/);
+    expect(PAGE).toMatch(/dateModified: planLastModified\(preset\)/);
+    // Кластер несёт свою дату, обычный пресет — общую.
+    const cluster = PLAN_PRESETS.find((p) => p.cluster)!;
+    expect(planLastModified(cluster).toISOString().slice(0, 10)).toBe(cluster.cluster!.updated);
+    const plain = PLAN_PRESETS.find((p) => !p.cluster)!;
+    expect(planLastModified(plain).toISOString().slice(0, 10)).toBe(PLANS_TEXT_REVISION);
   });
 });
 
