@@ -38,7 +38,7 @@ import {
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
-import { repairTelegramHtml, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
+import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
 // Правило возраста используется здесь и переэкспортируется ниже: re-export
 // имя в область видимости НЕ вносит, поэтому импорт нужен отдельно.
 import { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
@@ -463,7 +463,8 @@ function describeTelegramReply(status: number, data: unknown): string {
   return `Bot API ${code}: ${desc || 'без описания'}`.slice(0, 200);
 }
 
-async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): Promise<boolean> {
+/** Одно сообщение. Текст уже сбалансирован и влезает в потолок. */
+async function tgSendOne(chatId: string, text: string, onError?: SendErrorSink): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) { onError?.('TELEGRAM_BOT_TOKEN не задан'); return false; }
   try {
@@ -472,9 +473,7 @@ async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        // Срез по границе слова с закрытием тегов, а не вслепую (05.09):
-        // слепой substring оторвал </blockquote>, и Bot API ответил 400.
-        text: repairTelegramHtml(text, 4000),
+        text,
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),
@@ -487,6 +486,50 @@ async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): 
     onError?.(`сеть: ${((e as Error).message || 'unknown').slice(0, 160)}`);
     return false;
   }
+}
+
+/**
+ * Выпуск целиком: частями, если в одно сообщение он не влезает.
+ *
+ * ── Что было сломано (15.09) ───────────────────────────────────────────────
+ *
+ * Владелец прислал дайджест, оборванный на полуслове: «Go-харнесс,
+ * превращающий любой сай». Так и работало: текст резался под потолок Bot API
+ * (`repairTelegramHtml(text, 4000)`), ставилось «…», и на этом всё. Второго
+ * сообщения не было — хвост выпуска не доходил до читателя ВОВСЕ.
+ *
+ * Обрезка была заведена от другой беды: 05-06.09 пост не уходил целиком из-за
+ * `Bot API 400: can't parse entities`. На фоне немого канала усечённый выпуск
+ * был улучшением, и цена не обсуждалась. Но она есть: выпуск собирают
+ * пятнадцать источников, судья вычёркивает неподтверждённое, модель
+ * синтезирует — и половина этой работы гасилась молчанием на 4096-м знаке.
+ *
+ * Хуже самой потери то, что её никто не считал: прогон писался `success`,
+ * `digest_sent: true`, в журнале — ни длины, ни числа частей. Единственным
+ * свидетельством был символ «…» на телефоне у человека.
+ *
+ * ── Успех — это ВСЕ части ──────────────────────────────────────────────────
+ *
+ * Отправка останавливается на первой неудаче и возвращает false: выпуск,
+ * дошедший наполовину, — не доставленный выпуск, и записывать его успехом
+ * значило бы вернуть ту же немоту, только в журнал.
+ */
+async function tgSendTo(chatId: string, text: string, onError?: SendErrorSink): Promise<boolean> {
+  const { parts, droppedChars } = splitTelegramHtmlReport(text, 4000);
+  if (parts.length === 0) { onError?.('пустой текст выпуска'); return false; }
+  if (droppedChars > 0) {
+    // Не отказ отправки, но и не тишина: потолок частей достигнут, и сколько
+    // знаков не поместилось — обязано быть сказано числом.
+    onError?.(`выпуск длиннее ${TELEGRAM_MAX_PARTS} частей: ${droppedChars} знаков не отправлено`);
+  }
+  for (let i = 0; i < parts.length; i++) {
+    // Номер части — чтобы сообщение без начала читалось как продолжение, а не
+    // как сбой. У единственной части подписи нет: «1/1» ничего не сообщает.
+    const label = parts.length > 1 ? `\n\n<i>${i + 1}/${parts.length}</i>` : '';
+    const ok = await tgSendOne(chatId, `${parts[i]}${label}`, onError);
+    if (!ok) return false;
+  }
+  return true;
 }
 
 /**
@@ -510,29 +553,48 @@ async function tgSendRich(
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) { onError?.('TELEGRAM_BOT_TOKEN не задан'); return false; }
-  try {
-    const body: Record<string, unknown> = {
-      chat_id: chatId,
-      text: repairTelegramHtml(text, TELEGRAM_TEXT_LIMIT),
-      parse_mode: 'HTML',
-      link_preview_options: coverUrl
-        ? { url: coverUrl, prefer_large_media: true, show_above_text: true }
-        : { is_disabled: false },
-    };
-    if (buttons?.length) body.reply_markup = { inline_keyboard: buttons };
-    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    const ok = (data as { ok: boolean }).ok === true;
-    if (!ok) onError?.(describeTelegramReply(res.status, data));
-    return ok;
-  } catch (e) {
-    onError?.(`сеть: ${((e as Error).message || 'unknown').slice(0, 160)}`);
-    return false;
+
+  // Пост в ИИ-канал резался тем же способом и с той же ценой, что и выпуск в
+  // основной (см. tgSendTo): всё за 4096-м знаком до читателя не доходило.
+  // Здесь частей обычно одна — пост короче дайджеста, — но «обычно» это не
+  // «всегда», а сорок тысяч подписчиков делают тихую потерю дороже.
+  const { parts, droppedChars } = splitTelegramHtmlReport(text, TELEGRAM_TEXT_LIMIT);
+  if (parts.length === 0) { onError?.('пустой текст поста'); return false; }
+  if (droppedChars > 0) {
+    onError?.(`пост длиннее ${TELEGRAM_MAX_PARTS} частей: ${droppedChars} знаков не отправлено`);
   }
+
+  for (let i = 0; i < parts.length; i++) {
+    const first = i === 0;
+    const last = i === parts.length - 1;
+    const label = parts.length > 1 ? `\n\n<i>${i + 1}/${parts.length}</i>` : '';
+    try {
+      const body: Record<string, unknown> = {
+        chat_id: chatId,
+        text: `${parts[i]}${label}`,
+        parse_mode: 'HTML',
+        // Обложка — только над ПЕРВОЙ частью: она открывает пост. Повторить
+        // её над каждой значило бы превратить один пост в ленту картинок.
+        link_preview_options: coverUrl && first
+          ? { url: coverUrl, prefer_large_media: true, show_above_text: true }
+          : { is_disabled: false },
+      };
+      // Кнопки — под ПОСЛЕДНЕЙ: они завершают пост, а не разделяют его.
+      if (buttons?.length && last) body.reply_markup = { inline_keyboard: buttons };
+      const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      const ok = (data as { ok: boolean }).ok === true;
+      if (!ok) { onError?.(describeTelegramReply(res.status, data)); return false; }
+    } catch (e) {
+      onError?.(`сеть: ${((e as Error).message || 'unknown').slice(0, 160)}`);
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

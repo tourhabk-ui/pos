@@ -18,11 +18,13 @@
  *
  * Происхождение выводится из `external_id`, который каждая лента пишет по
  * своей форме (`t.me/kbgsras/6680`, `usgs/…`, `firms/…`, `mchs/…`,
- * `vk.com/mchs_kamchatka/…`, `max/…`, `kamgov/…`, `manual-…`). Формы
- * собраны из кода лент (`lib/services/safety/seismic-parser.ts`,
- * `wildfire-firms.ts`, `app/api/admin/external-alerts`), и сторож
- * `tests/unit/alert-origin.test.ts` требует, чтобы каждая из них
- * узнавалась.
+ * `vk.com/mchs_kamchatka/…`, `max/…`, `kamgov/…`, `visitkamchatka/…`,
+ * `manual-…`). Формы собраны из кода лент (`lib/services/safety/
+ * seismic-parser.ts`, `wildfire-firms.ts`, `app/api/admin/external-alerts`),
+ * и сторож `tests/unit/alert-origin.test.ts` требует, чтобы каждая из них
+ * узнавалась. Префиксы новостных лент он читает из `NEWS_FEED_PREFIXES`
+ * самого классификатора: ручная перепись 17.09 пропустила `visitkamchatka`,
+ * и 18.09 тревога с него ушла агентам как «источник не записан».
  *
  * Неузнанная форма — `null`, и текст говорит «источник не записан».
  * Подставлять ближайший правдоподобный нельзя: это и была прежняя ошибка.
@@ -54,6 +56,10 @@ const RULES: readonly OriginRule[] = [
     origin: { key: 'max_mchs', label: `${MCHS} (MAX)` },
   },
   { test: (id) => id.startsWith('kamgov/'),        origin: { key: 'kamgov',   label: 'Правительство Камчатского края' } },
+  // Турпортал края (NEWS_FEED_SOURCES, optional). Пропущен переписью 17.09:
+  // 18.09 верхняя тревога «пепловый выброс Шивелуча» шла с него и получала
+  // «источник не записан». Теперь префиксы читает из кода сам сторож.
+  { test: (id) => id.startsWith('visitkamchatka/'), origin: { key: 'visitkamchatka', label: 'Турпортал Камчатского края (visitkamchatka.ru)' } },
   { test: (id) => id.startsWith('manual-'),        origin: { key: 'manual',   label: 'ручная запись администратора Ведара' } },
   // Любой другой Telegram-канал: имя канала — факт из id, не догадка.
   {
@@ -88,4 +94,5 @@ export const SAFETY_FEEDS: readonly string[] = [
   `${MCHS} (RSS, VK, MAX)`,
   'NASA FIRMS (пожары)',
   'Правительство Камчатского края (новости)',
+  'Турпортал Камчатского края visitkamchatka.ru (новости о безопасности)',
 ];

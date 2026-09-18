@@ -40,6 +40,25 @@ export interface McpCatalogEntry {
   install?: string;
 }
 
+/**
+ * День, с которого сервер стоит во всех трёх каталогах разом: реестр
+ * (`ru.vedarai/mcp` active), Smithery (`tourhabk/vedar`, карточка с описанием)
+ * и Glama (коннектор Healthy) — все три сверены владельцем 18.09.2026 с
+ * телефона, не по памяти. От этого дня Watchdog отсчитывает окно, в котором
+ * молчание журнала вызовов — сигнал «нас не нашли», а не «ещё рано».
+ * Переопубликовались заново — дата двигается видимым коммитом.
+ */
+export const MCP_CATALOG_LAUNCH_DATE = '2026-09-18';
+
+/**
+ * Окно сигнала о молчании: раньше 7 суток агрегаторы ещё тянут реестр и
+ * списки читают люди — тишина не говорит ничего; после 14 суток вопрос
+ * отвечен, и повторять его дважды в день (дебаунс Watchdog 12 ч) — долбёжка
+ * без нового факта. Панель /hub/admin/mcp показывает ноль и после.
+ */
+export const MCP_SILENCE_ALERT_FROM_DAYS = 7;
+export const MCP_SILENCE_ALERT_UNTIL_DAYS = 14;
+
 export const MCP_CATALOGS: readonly McpCatalogEntry[] = [
   {
     catalog: 'MCP Registry (registry.modelcontextprotocol.io)',

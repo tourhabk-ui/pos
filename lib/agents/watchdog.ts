@@ -44,11 +44,14 @@ import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents
 import { needsEscalation, type SosOriginClass } from '@/lib/safety/sos-origin';
 import { hashPayload } from '@/lib/safety/ledger';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
+import {
+  MCP_CATALOG_LAUNCH_DATE, MCP_SILENCE_ALERT_FROM_DAYS, MCP_SILENCE_ALERT_UNTIL_DAYS,
+} from '@/lib/mcp/catalogs';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent';
   count: number;
   details: string;
   /**
@@ -1650,6 +1653,65 @@ function isDisplayedCritical(a: WatchdogAlert): boolean {
  * разведки (source-health.ALERT_COOLDOWN_HOURS) — тот же класс задачи:
  * стоячее условие, а не разовое событие.
  */
+/**
+ * MCP-канал после публикации в каталогах: зовут ли нас вообще.
+ *
+ * 18.09 сервер встал в реестр, Smithery и Glama. Владелец: «через 1–2 недели
+ * смотреть mcp_call_log: ноль вызовов = узкое место не в API, а в том, кто и
+ * как ищет». Смотреть глазами — значит забыть; сторож спрашивает журнал
+ * `mcp_tool_calls` сам и говорит ОДИН раз, в окне 7–14 суток после
+ * публикации (`lib/mcp/catalogs.ts`): раньше тишина ничего не значит, позже
+ * вопрос отвечен и долбёжка дважды в день (дебаунс 12 ч) нового факта не
+ * несёт. Панель /hub/admin/mcp остаётся полным срезом и до, и после.
+ *
+ * Журнал считает ВСЕ вызовы, включая наши собственные пробы через коннектор;
+ * ноль значит «никто, включая нас». Ненулевое число здесь не доказательство
+ * чужих агентов — за этим в панель, к именам клиентов из `initialize`.
+ *
+ * Уровень — ВНИМАНИЕ: это про рост, не про безопасность туриста.
+ */
+export function mcpSilenceIssue(input: {
+  callsSinceLaunch: number;
+  distinctCallers: number;
+  daysSinceLaunch: number;
+}): WatchdogAlert | null {
+  if (input.daysSinceLaunch < MCP_SILENCE_ALERT_FROM_DAYS) return null;
+  if (input.daysSinceLaunch >= MCP_SILENCE_ALERT_UNTIL_DAYS) return null;
+  if (input.callsSinceLaunch > 0) return null;
+  return {
+    type: 'mcp_silent',
+    count: 0,
+    critical: false,
+    // Без счётчика дней в тексте: ключ дебаунса считается по details, и
+    // меняющееся число превратило бы один сигнал в ежедневный.
+    details:
+      `MCP-канал молчит: с публикации в каталогах (${MCP_CATALOG_LAUNCH_DATE}) ни одного вызова ` +
+      `инструментов в mcp_tool_calls — ни чужого, ни нашего. Эндпоинт и каталоги здесь ни при чём, ` +
+      `вопрос в том, кто и как ищет: реестр, Smithery, Glama, список awesome-remote. Срез: /hub/admin/mcp.`,
+  };
+}
+
+async function checkMcpSilent(): Promise<CheckResult> {
+  try {
+    const { rows } = await pool.query<{ calls: string; callers: string }>(
+      `SELECT COUNT(*)::text AS calls, COUNT(DISTINCT caller_hash)::text AS callers
+         FROM mcp_tool_calls
+        WHERE created_at >= $1::date`,
+      [MCP_CATALOG_LAUNCH_DATE],
+    );
+    const daysSinceLaunch = (Date.now() - new Date(`${MCP_CATALOG_LAUNCH_DATE}T00:00:00Z`).getTime()) / 86_400_000;
+    return mcpSilenceIssue({
+      callsSinceLaunch: Number(rows[0]?.calls ?? 0),
+      distinctCallers: Number(rows[0]?.callers ?? 0),
+      daysSinceLaunch,
+    });
+  } catch (err) {
+    // §4.0: «не смог проверить» — не «вызовов нет».
+    console.error('[watchdog] checkMcpSilent:', err instanceof Error ? err.message : err);
+    return checkFailure('checkMcpSilent', err);
+  }
+}
+
 export const WATCHDOG_ALERT_DEBOUNCE_HOURS = 12;
 
 /**
@@ -1750,6 +1812,9 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkFruitlessCrons,
     checkUnappliedMigrations,
     checkFailedMigrations,
+    // Рост, не безопасность: молчание MCP-канала в окне после публикации в
+    // каталогах (18.09). Один сигнал, панель /hub/admin/mcp — полный срез.
+    checkMcpSilent,
   ];
 
   const results = await Promise.all(CHECKS.map(run => run()));

@@ -907,7 +907,7 @@ export function classifyMchsItems(
   description: string,
   pubDate: string,
   link: string,
-  sourcePrefix: string = 'mchs',
+  sourcePrefix: string = MCHS_FEED_PREFIX,
 ): SeismicEvent[] {
   const whole = classifyMchsItem(id, title, description, pubDate, link, sourcePrefix);
 
@@ -1229,7 +1229,7 @@ export function classifyMchsItem(
   description: string,
   pubDate: string,
   link: string,
-  sourcePrefix: string = 'mchs',
+  sourcePrefix: string = MCHS_FEED_PREFIX,
 ): SeismicEvent | null {
   const text = `${title} ${description}`.toLowerCase();
 
@@ -1598,6 +1598,13 @@ export async function ingestMchsAlerts(): Promise<ParseResult> {
 // Telegram-дайджест, мимо external_alerts; visitkamchatka не читался вообще.
 // Классификация — той же classifyMchsItem: природные категории + road_closure.
 
+/**
+ * Префикс `external_id` у лент, которые классифицирует classifyMchsItem без
+ * своего префикса (RSS МЧС). Вынесен, чтобы перепись форм id в
+ * alert-origin.test.ts читала его из кода, а не из головы.
+ */
+export const MCHS_FEED_PREFIX = 'mchs';
+
 const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?: boolean }> = [
   // С сервера НЕ тянется: оба вызывающих (heartbeat-GET в ingestAll и POST в
   // route.ts) передают skipPrefixes ['kamgov'] — kamgov.ru с Timeweb закрыт,
@@ -1625,6 +1632,18 @@ const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?
       'https://visitkamchatka.ru/feed/',
     ],
   },
+];
+
+/**
+ * Все префиксы `external_id`, которые новостные ленты пишут через
+ * classifyMchsItem: РСС МЧС и каждый источник из NEWS_FEED_SOURCES. Перепись
+ * для alert-origin.test.ts — новая лента здесь без правила происхождения
+ * в lib/safety/alert-origin.ts делает тот тест красным (случай 18.09:
+ * visitkamchatka писал тревоги, а статус подписывал их «источник не записан»).
+ */
+export const NEWS_FEED_PREFIXES: readonly string[] = [
+  MCHS_FEED_PREFIX,
+  ...NEWS_FEED_SOURCES.map((s) => s.prefix),
 ];
 
 /**
