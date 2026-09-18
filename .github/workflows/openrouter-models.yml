@@ -27,6 +27,42 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Каталог OpenRouter ПУБЛИЧНЫЙ: 200 от него не говорит о ключе ничего.
+      # Отчёт судьи 18.09 (#1428) показал `flagship(z-ai/glm-5.3): HTTP 401
+      # {"error":{"message":"Missing Authentication header","code":401}}` — и
+      # по каталогу нельзя было отличить «наш ключ отвергнут» от «отказ пришёл
+      # с маршрута к z.ai». Разница решает, что чинить: секрет репозитория или
+      # интеграцию в кабинете OpenRouter.
+      #
+      # /api/v1/key требует авторизации и не стоит ни одного токена: это и есть
+      # разделяющий замер. Наружу печатаются только метаданные ключа (метка,
+      # расход, лимит) — ни одного символа самого ключа.
+      - name: Ключ жив? (/api/v1/key, без единого токена)
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY не задан в секретах — о ключе сказать нечего."
+            exit 1
+          fi
+          CODE=$(curl -sS -o /tmp/key.json -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+            https://openrouter.ai/api/v1/key)
+          echo "HTTP: $CODE"
+          if [ "$CODE" = "200" ]; then
+            python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/key.json')).get('data', {}) or {}
+          keep = ('label', 'usage', 'limit', 'limit_remaining', 'is_free_tier', 'is_provisioning_key')
+          print('КЛЮЧ ПРИНЯТ. Метаданные:', json.dumps({k: d.get(k) for k in keep}, ensure_ascii=False))
+          print('Значит 401 на z-ai/glm-5.3 — НЕ про наш ключ: смотреть интеграции (BYOK) в кабинете OpenRouter.')
+          PY
+          else
+            echo "::error::Ключ отвергнут (HTTP $CODE) — вот это и чинится заменой секрета OPENROUTER_API_KEY."
+            head -c 400 /tmp/key.json
+            exit 1
+          fi
+
       - name: Спросить каталог
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
