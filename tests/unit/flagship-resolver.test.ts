@@ -198,11 +198,15 @@ describe('каталог для выбора флагмана полон', () =>
     // при живом ключе с оплаченным Opus.
     const end = SRC.indexOf('// 1) DeepSeek');
     const leg = SRC.slice(SRC.lastIndexOf('const antKey = getAnthropicKey()', end), end);
-    expect(leg).toMatch(/getAnthropicModelIds\(\)/);
+    // 18.09: тот же каталог спрашивается пробой с третьим исходом — «пусто» и
+    // «не смогли спросить» перестали быть одной строкой отчёта
+    // (tests/unit/anthropic-catalog-refusal.test.ts).
+    expect(leg).toMatch(/probeAnthropicModels\(\)/);
     expect(leg).toMatch(/pickBestFlagship\(antIds\)/);
-    // Снятие префикса остаётся ТОЛЬКО как запасной путь на случай пустого
-    // каталога — и о том, что он пуст, сказано вслух.
-    expect(leg).toMatch(/каталог моделей пуст/);
+    // Снятие префикса остаётся ТОЛЬКО как запасной путь, и о том, почему
+    // каталог не дал имени, сказано вслух — обоими способами раздельно.
+    expect(leg).toMatch(/каталог не ответил/);
+    expect(leg).toMatch(/каталог ответил пустым списком/);
   });
 
   it('имя модели названо в причине отказа', () => {
