@@ -59,6 +59,18 @@ export const MCP_CATALOG_LAUNCH_DATE = '2026-09-18';
 export const MCP_SILENCE_ALERT_FROM_DAYS = 7;
 export const MCP_SILENCE_ALERT_UNTIL_DAYS = 14;
 
+/**
+ * HTTP challenge Glama для claim коннектора `ru.vedarai/mcp` (18.09).
+ * Glama выдал строку владельцу на странице коннектора и просит отдавать её
+ * по `/.well-known/glama.json` ПОСТОЯННО: «keep the HTTP file in place to
+ * keep ownership verified» — снять роут значит потерять владение. Не секрет:
+ * файл публичный по построению, доказательство — сам факт, что его отдаёт
+ * наш домен. Значение переписано со снимка экрана владельца; сверено с
+ * текстом, который он прислал следом.
+ */
+export const GLAMA_CLAIM = 'glama_claim_YRnou3wLSt5J5_X3_jmhltmIzO1thMoZ';
+export const GLAMA_CONNECTOR_SCHEMA = 'https://glama.ai/mcp/schemas/connector.json';
+
 export const MCP_CATALOGS: readonly McpCatalogEntry[] = [
   {
     catalog: 'MCP Registry (registry.modelcontextprotocol.io)',
