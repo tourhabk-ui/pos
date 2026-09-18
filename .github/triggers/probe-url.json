@@ -1,18 +1,21 @@
 {
-  "note": "18.09, прогон 521. ТОЛЬКО ЧТЕНИЕ. Проверка миграции 977 на живом проде: на карточку «Маяк Петропавловский» легли три снимка владельца — герой в ai_route_images (DO UPDATE поверх машинной картинки, которую проба 520 нашла по подписи gd-jpeg) и два кадра в галерее place_gallery_photos. Ждём photoCount 1, непустой images и две ссылки /api/images/place-gallery/. Выкат da9f7d6 завершился в 07:37, миграции накатывает start.js при старте контейнера — проба идёт ПОСЛЕ него, в отличие от прогона 518.",
-  "run": 521,
-  "timeout": 60,
-  "retries": 3,
+  "note": "18.09, прогон 522. ТОЛЬКО ЧТЕНИЕ. Владелец: «куда делись фотки вулканов, почему почти все места без фото». Гипотеза по коду: карточка показывает снимок ТОЛЬКО при model IN ('wikimedia','manual-upload') — фильтр заведён 17.07 против AI-генераций, — а настоящие снимки лежат и под другими именами (перепись 09.09 в lib/images/origin.ts: real-photo 87, wikimedia-commons 23, idilesom-search 191, idilesom-photo 149). Если так, скрыто не решением, а несовпадением имён. Числа месячной давности, поэтому спрашиваем прод заново: images-oversize отдаёт разбор по model (только чтение). Второй адрес — diag каталога, там доля мест с показываемым снимком.",
+  "run": 522,
+  "timeout": 90,
+  "retries": 2,
   "retryDelay": 30,
   "bytes": 9000,
   "grep": [
-    "photoCount",
-    "place-gallery",
-    "владелец платформы",
-    "images",
-    "52.887866"
+    "real-photo",
+    "wikimedia-commons",
+    "manual-upload",
+    "qwen-image",
+    "idilesom",
+    "has_real_image"
   ],
   "urls": [
-    "https://vedarai.ru/api/places/0aa97c3c-c4d7-496d-a879-7fa065d7f8de"
-  ]
+    "https://vedarai.ru/api/cron/images-oversize",
+    "https://vedarai.ru/api/cron/catalog-diag"
+  ],
+  "allowStale": true
 }
