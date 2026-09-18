@@ -1498,16 +1498,50 @@ export async function getOpenRouterModelIds(): Promise<string[]> {
  * и через релей (ANTHROPIC_BASE_URL). Нет ключа/недостижим → пустой список.
  */
 export async function getAnthropicModelIds(): Promise<string[]> {
+  const probe = await probeAnthropicModels();
+  if (probe.ok) return probe.ids;
+  // §4.0: ловить можно, молчать нельзя. Снисходительность к живому пути
+  // (падаем на алиас) не даёт права молчать о причине — иначе отказ каталога
+  // доходит до человека как «каталог пуст», и чинить он пойдёт не то.
+  console.error(`[anthropic-models] каталог не ответил: ${probe.http_status ?? 'сеть'} ${probe.detail}`);
+  return [];
+}
+
+/**
+ * Каталог Anthropic С ОТЛИЧИМЫМ ОТКАЗОМ — тот же приём, что у
+ * `probeProviderModels` для DeepSeek и Qwen.
+ *
+ * До 18.09 `getAnthropicModelIds` отвечал пустым списком на ТРИ разных
+ * события: ключа нет, каталог отказал по HTTP, запрос не дошёл. Ступень
+ * Anthropic в решателе печатала по нему одну строку — «каталог моделей
+ * пуст», — и она попадала в отчёт судьи (#1428) как факт о ключе. Факта о
+ * ключе там не было вовсе: спросить не смогли.
+ *
+ * Цена этой подмены выросла в тот день, когда владелец пополнил счёт
+ * Anthropic: отчёт сказал бы ровно то же самое «каталог пуст», и вывод
+ * «деньги не помогли» был бы сделан по замеру, которого не было.
+ */
+export async function probeAnthropicModels(): Promise<
+  | { ok: true; ids: string[] }
+  | { ok: false; http_status: number | null; detail: string }
+> {
   const key = getAnthropicKey();
-  if (!key) return [];
+  if (!key) return { ok: false, http_status: null, detail: 'ключ не задан' };
   try {
     const res = await relayFetchWithRetry(`${ANTHROPIC_BASE}/v1/models?limit=100`, {
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
     }, { timeoutMs: 12_000, maxRetries: 1, baseDelayMs: 500, label: 'anthropic-models-list' });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return { ok: false, http_status: res.status, detail: (await res.text()).slice(0, 300) };
+    }
     const data = await res.json() as { data?: Array<{ id?: unknown }> };
-    return (data?.data ?? []).map((m) => m.id).filter((x): x is string => typeof x === 'string');
-  } catch { return []; }
+    return {
+      ok: true,
+      ids: (data?.data ?? []).map((m) => m.id).filter((x): x is string => typeof x === 'string'),
+    };
+  } catch (err) {
+    return { ok: false, http_status: null, detail: err instanceof Error ? err.message : 'запрос не удался' };
+  }
 }
 
 /**
@@ -1978,12 +2012,26 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
      * пропускается с названной причиной, а не тратит запрос на заведомо
      * неверное имя (§4.0).
      */
-    const antIds = await getAnthropicModelIds();
+    /**
+     * «Каталог пуст» и «каталог не ответил» — разные беды (§4.0).
+     *
+     * Отчёт судьи 18.09 (#1428) печатал первое, а было второе: спросить не
+     * смогли. Читающий видел «пусто» и делал вывод о ключе — о ключе там не
+     * было сказано ничего. Теперь причина отказа называется словами
+     * провайдера и попадает в тот же отчёт.
+     */
+    const antProbe = await probeAnthropicModels();
+    const antIds = antProbe.ok ? antProbe.ids : [];
     const antModel = pickBestFlagship(antIds) ?? anthropicModelFromSlug(flagshipModel);
-    if (antIds.length === 0) {
+    if (!antProbe.ok) {
+      const refused = `каталог не ответил (${antProbe.http_status ?? 'сеть'}): ${antProbe.detail.slice(0, 120)}`;
       why.push(antModel
-        ? 'anthropic: каталог моделей пуст — id взят из слага OpenRouter'
-        : `anthropic: каталог моделей пуст, а флагман (${flagshipModel}) — не модель Anthropic; просить нечего`);
+        ? `anthropic: ${refused} — id взят из слага OpenRouter`
+        : `anthropic: ${refused}; флагман (${flagshipModel}) — не модель Anthropic, просить нечего`);
+    } else if (antIds.length === 0) {
+      why.push(antModel
+        ? 'anthropic: каталог ответил пустым списком — id взят из слага OpenRouter'
+        : `anthropic: каталог ответил пустым списком, а флагман (${flagshipModel}) — не модель Anthropic; просить нечего`);
     }
     if (antModel) try {
       const sys = payload.find(m => m.role === 'system');
