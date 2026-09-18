@@ -22,8 +22,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MCP_CATALOGS, SMITHERY_SERVER_NAME, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
+import {
+  MCP_CATALOGS, SMITHERY_SERVER_NAME, MCP_TITLE_EN, MCP_DESCRIPTION_EN, GLAMA_CLAIM, GLAMA_CONNECTOR_SCHEMA,
+} from '@/lib/mcp/catalogs';
 import { GET as manifestGet } from '@/app/.well-known/mcp.json/route';
+import { GET as glamaClaimGet } from '@/app/.well-known/glama.json/route';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -65,6 +68,23 @@ describe('список каталогов — один, и он совпадае
       expect(c.url).toMatch(/^https:\/\//);
     }
     expect(new Set(MCP_CATALOGS.map((c) => c.name)).size).toBe(MCP_CATALOGS.length);
+  });
+});
+
+describe('/.well-known/glama.json — HTTP challenge владения коннектором', () => {
+  it('отдаёт ровно $schema и claim, 200, JSON; строка — формы glama_claim_', async () => {
+    /**
+     * Glama показал форму на странице claim 18.09: два поля, схема
+     * connector.json. Файл обязан жить постоянно — Glama перепроверяет его,
+     * чтобы владение оставалось подтверждённым.
+     */
+    const res = await glamaClaimGet();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/application\/json/);
+    const body = await res.json();
+    expect(body).toEqual({ $schema: GLAMA_CONNECTOR_SCHEMA, claim: GLAMA_CLAIM });
+    expect(GLAMA_CONNECTOR_SCHEMA).toBe('https://glama.ai/mcp/schemas/connector.json');
+    expect(GLAMA_CLAIM).toMatch(/^glama_claim_[A-Za-z0-9_-]{20,}$/);
   });
 });
 
