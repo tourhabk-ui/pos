@@ -57,7 +57,9 @@ describe('структурированные данные точки не вру
     // Раньше подзапрос брал любую строку ai_route_images, включая
     // сгенерированные моделью: ссылка на вулкан раскрывалась рисунком вулкана.
     expect(CODE_PAGE).not.toMatch(/EXISTS\(SELECT 1 FROM ai_route_images ai WHERE ai\.route_id = p\.ark_id\)/);
-    expect(CODE_PAGE).toMatch(/ai\.model IN \('wikimedia', 'manual-upload'\)/);
+    // 18.09: список родов — в реестре SHOWN_MODELS, а не литералом в каждом
+    // файле. Проверяется, что отбор ЕСТЬ и идёт через общий предикат.
+    expect(CODE_PAGE).toMatch(/shownPhotoSql\('ai\.model'\)/);
   });
 
   it('нет снимка — нет поля image, а не ссылка в никуда', () => {

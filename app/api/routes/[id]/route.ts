@@ -16,6 +16,7 @@ import { trackEvidence } from '@/lib/routes/track-evidence';
 import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
 import type { CoordSource } from '@/lib/places/coord-source';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +65,7 @@ export async function GET(
          COALESCE(kr.kuzmich_review, ark.kuzmich_review) AS kuzmich_review,
          -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации не
          -- показываются, вместо них честный градиент (решение владельца 2026-07-17)
-         (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image,
+         (ari.route_id IS NOT NULL AND ${shownPhotoSql('ari.model')}) AS has_real_image,
          kr.mchs_registration_required,
          kr.mchs_phone,
          kr.park_name,

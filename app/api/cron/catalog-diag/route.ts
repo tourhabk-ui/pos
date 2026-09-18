@@ -19,6 +19,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { queryCatalog } from '@/lib/routes/catalog-query';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -38,7 +39,7 @@ const STEPS: Array<{ name: string; sql: string }> = [
   {
     name: 'join фото и статуса',
     sql: `SELECT ark.id,
-                 (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia','manual-upload')) AS has_real_image,
+                 (ari.route_id IS NOT NULL AND ${shownPhotoSql('ari.model')}) AS has_real_image,
                  lrs.is_open
           FROM agent_route_knowledge ark
           LEFT JOIN ai_route_images ari ON ari.route_id = ark.id

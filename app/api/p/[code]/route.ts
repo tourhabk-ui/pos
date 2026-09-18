@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +55,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
        ot.multi_day_count AS duration_days,
        ot.difficulty,
        ot.description,
-       (SELECT CASE WHEN model IN ('wikimedia', 'manual-upload') THEN '/api/images/route/' || ot.route_id END
+       (SELECT CASE WHEN ${shownPhotoSql('model')} THEN '/api/images/route/' || ot.route_id END
         FROM ai_route_images WHERE route_id = ot.route_id LIMIT 1) AS photo_url,
        kr.hazards,
        kr.mchs_registration_required

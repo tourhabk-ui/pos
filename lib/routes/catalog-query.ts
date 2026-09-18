@@ -16,6 +16,7 @@ import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { lineGradeForList, type PassportGrade } from '@/lib/routes/passport';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 function isImageUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
@@ -366,7 +367,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          ark.created_at,
          -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации в выдачу
          -- не идут — вместо них честный градиент (решение владельца 2026-07-17)
-         (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image,
+         (ari.route_id IS NOT NULL AND ${shownPhotoSql('ari.model')}) AS has_real_image,
          -- Живой статус места (открыто/закрыто) — свойство точки, не тура
          lrs.is_open,
          -- Род навигационных данных маршрута: РЕАЛЬНАЯ geometry из

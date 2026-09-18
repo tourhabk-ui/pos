@@ -9,6 +9,7 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
 // Словарь разделов — общий с контекстом Хранителя (lib/places/type-label.ts).
 import { PLACE_TYPE_LABEL } from '@/lib/places/type-label';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -26,7 +27,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       `SELECT p.name, p.essence, p.description, p.photo_url, p.location_type, p.images,
               (CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai
                                  WHERE ai.route_id = p.ark_id
-                                   AND ai.model IN ('wikimedia', 'manual-upload'))
+                                   AND ${shownPhotoSql('ai.model')})
                     THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS real_photo
        FROM places p
        WHERE (p.ark_id::text = $1 OR p.id = $1 OR p.slug = $1) AND p.is_visible = true`,
@@ -116,7 +117,7 @@ export default async function PlaceDetailPage({ params }: Props) {
               p.photo_url, p.images, p.ark_id,
               EXISTS(SELECT 1 FROM ai_route_images ai
                       WHERE ai.route_id = p.ark_id
-                        AND ai.model IN ('wikimedia', 'manual-upload')) AS has_real_photo,
+                        AND ${shownPhotoSql('ai.model')}) AS has_real_photo,
               lsp.altitude_m, lsp.difficulty_level
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id

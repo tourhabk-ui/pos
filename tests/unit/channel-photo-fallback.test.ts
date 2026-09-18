@@ -161,7 +161,12 @@ describe('эндпоинт картинок отдаёт реальные сни
   it('ORDER BY ставит wikimedia/manual-upload раньше legacy-блобов', async () => {
     const fs = await import('node:fs');
     const src = fs.readFileSync('app/api/images/route/[routeId]/route.ts', 'utf8');
-    expect(src).toContain("model IN ('wikimedia', 'manual-upload') THEN 0");
+    // 18.09: перечисление родов переехало в единый реестр SHOWN_MODELS
+    // (lib/images/origin.ts) — раньше оно было переписано в тринадцати
+    // файлах и разошлось с данными. Сторож держит ту же мысль: приоритет
+    // отдаётся ПОКАЗЫВАЕМЫМ родам, каким бы ни стал их список.
+    expect(src).toContain("shownPhotoSql('model')");
+    expect(src).toContain('THEN 0');
     expect(src).toContain('ORDER BY');
     expect(src).toContain('LIMIT 1');
   });

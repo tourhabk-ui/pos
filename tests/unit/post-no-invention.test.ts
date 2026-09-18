@@ -99,7 +99,12 @@ describe('чужого снимка у поста о месте нет (реше
 
   it('кандидат выбирается только со своим фото — условие в SQL', () => {
     expect(body).toMatch(/EXISTS \(\s*SELECT 1 FROM ai_route_images i\s*WHERE i\.route_id = ark\.id AND i\.model = ANY\(\$2\)/);
-    expect(CHANNEL).toMatch(/OWN_PHOTO_MODELS = \['wikimedia', 'manual-upload'\]/);
+    // 18.09: канал держал СВОЙ список родов, и он разошёлся с карточкой —
+    // снимки владельца (real-photo) не брал ни тот, ни другая. Теперь список
+    // один на платформу; здесь держим сам факт, что канал берёт его оттуда,
+    // а не переписывает заново.
+    expect(CHANNEL).toMatch(/OWN_PHOTO_MODELS = SHOWN_MODELS;/);
+    expect(CHANNEL).toMatch(/import \{ SHOWN_MODELS \} from '@\/lib\/images\/origin'/);
   });
 
   it('фото поста — свой кадр, без фолбэка на чужой', () => {

@@ -31,6 +31,7 @@ import { pool } from '@/lib/db-pool';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { promoteUserPhotoToHero, type PromoteResult } from '@/lib/places/user-photo-hero';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -96,7 +97,7 @@ export async function GET(req: NextRequest) {
             EXISTS (
               SELECT 1 FROM ai_route_images ai
                WHERE ai.route_id = p.ark_id
-                 AND ai.model IN ('wikimedia', 'manual-upload')
+                 AND ${shownPhotoSql('ai.model')}
             )                      AS place_has_hero
        FROM user_place_photos ph
        JOIN places p ON p.id = ph.place_id

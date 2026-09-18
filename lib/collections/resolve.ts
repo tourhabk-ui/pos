@@ -14,6 +14,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { queryCatalog, type CatalogFilters, type CatalogItem } from '@/lib/routes/catalog-query';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export interface CollectionRow {
   id: string;
@@ -106,7 +107,7 @@ async function manualPlaces(ids: string[]): Promise<CollectionPlace[]> {
   if (!ids.length) return [];
   const { rows } = await pool.query<CollectionPlace>(
     `SELECT p.id, p.name, p.location_type, p.lat, p.lng, p.description,
-            (SELECT CASE WHEN ai.model IN ('wikimedia', 'manual-upload') THEN '/api/images/route/' || p.ark_id END
+            (SELECT CASE WHEN ${shownPhotoSql('ai.model')} THEN '/api/images/route/' || p.ark_id END
              FROM ai_route_images ai WHERE ai.route_id = p.ark_id LIMIT 1) AS image_url
        FROM places p WHERE p.id = ANY($1::uuid[])`,
     [ids],

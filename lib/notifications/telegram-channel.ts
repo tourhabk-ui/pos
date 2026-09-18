@@ -14,6 +14,7 @@ import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 import { stripTags } from '@/lib/html/text';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 import { composePlacePost } from '@/lib/notifications/place-post';
+import { SHOWN_MODELS } from '@/lib/images/origin';
 // Подпись к фото — через тот же срез, что и текст поста. Слепой slice(0, 1024)
 // рвал теги и оставлял голый `<`, а Bot API на такую подпись отвечает 400 —
 // и пост, у которого фото ЕСТЬ, уходил голым текстом.
@@ -758,7 +759,11 @@ function publicAppUrl(): string {
  * SQL ниже), а откат при отказе Telegram идёт в текст, не в чужую картинку.
  * Свои снимки — только wikimedia и ручная загрузка, не AI-блобы.
  */
-export const OWN_PHOTO_MODELS = ['wikimedia', 'manual-upload'] as const;
+// Список один на всю платформу: lib/images/origin.ts. Держали его здесь
+// отдельно, и он разошёлся с карточкой — снимки владельца (`real-photo`)
+// канал не брал ровно по той же причине, по какой их не показывала
+// карточка (18.09, сторож photo-shown-single-source).
+export const OWN_PHOTO_MODELS = SHOWN_MODELS;
 
 function ownPhotoUrl(routeId: string): string {
   return `${publicAppUrl()}/api/images/route/${routeId}`;

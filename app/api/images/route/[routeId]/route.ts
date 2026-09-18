@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,7 @@ export async function GET(_req: NextRequest, { params }: Props) {
     const { rows } = await pool.query(
       `SELECT image_data, mime_type, s3_url FROM ai_route_images
        WHERE route_id = $1
-       ORDER BY CASE WHEN model IN ('wikimedia', 'manual-upload') THEN 0 ELSE 1 END,
+       ORDER BY CASE WHEN ${shownPhotoSql('model')} THEN 0 ELSE 1 END,
                 created_at DESC
        LIMIT 1`,
       [routeId],

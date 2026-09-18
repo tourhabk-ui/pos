@@ -45,6 +45,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -125,15 +126,24 @@ async function census() {
     // 14.09: к весу добавлены ПОКАЗЫВАЕТСЯ ЛИ и ЕСТЬ ЛИ ПРАВА.
     //
     // Перепись отвечала только на «сколько весит», и по ней нельзя было
-    // увидеть главного: из 657 снимков карточка рисует лишь те, у кого
-    // model IN ('wikimedia','manual-upload') — то есть 34. Остальные 623
-    // лежат невидимыми, и среди них 110 НАСТОЯЩИХ фотографий
-    // (wikimedia-commons 23, real-photo 87), не показанных лишь потому, что
-    // их род не совпал со строкой в фильтре показа.
+    // увидеть главного: из 657 снимков карточка рисовала 34. Остальные 623
+    // лежали невидимыми, и среди них 110 НАСТОЯЩИХ фотографий, не показанных
+    // лишь потому, что их род не совпал со строкой в фильтре показа.
     //
     // Владелец 14.09: «столько времени не можем это сделать» — про фото
     // вулканов. Перепись, не отвечающая «можно ли это показать», заставляет
     // искать снаружи то, что уже лежит внутри.
+    //
+    // 18.09 находка закрыта наполовину. Владелец повторил вопрос («почему
+    // почти все места без фото») и на вопрос о правах ответил: «это мои фото
+    // влиты». Род `real-photo` (81) внесён в SHOWN_MODELS, авторство
+    // проставлено миграцией 978 — теперь показывается. `wikimedia-commons`
+    // (22) по-прежнему нет: снимки чужие, их лицензия требует имени автора, а
+    // имени в строках нет. Подписать нечем — показывать нельзя.
+    //
+    // `shown` считается ТЕМ ЖЕ предикатом, что и карточка (shownPhotoSql):
+    // перепись, судящая своей копией правила, однажды скажет неправду именно
+    // тогда, когда правило изменят.
     //
     // `credited` — есть ли чем подписать. Без автора и лицензии снимок
     // показывать нельзя независимо от того, настоящий он: сегодняшний разбор
@@ -143,7 +153,7 @@ async function census() {
               COUNT(*)::text AS n,
               ROUND(SUM(OCTET_LENGTH(image_data)) / 1048576.0, 1)::text AS mb,
               ROUND(AVG(OCTET_LENGTH(image_data)) / 1024.0)::text AS avg_kb,
-              COUNT(*) FILTER (WHERE model IN ('wikimedia', 'manual-upload'))::text AS shown,
+              COUNT(*) FILTER (WHERE ${shownPhotoSql('model')})::text AS shown,
               COUNT(*) FILTER (WHERE author IS NOT NULL OR license IS NOT NULL)::text AS credited
          FROM ai_route_images
         WHERE image_data IS NOT NULL

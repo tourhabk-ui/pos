@@ -8,6 +8,7 @@ import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +90,7 @@ export async function GET(
          -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации не
          -- показываются, вместо них честный градиент (решение владельца 2026-07-17)
          (SELECT count(*)::int FROM ai_route_images ai
-          WHERE ai.route_id = p.ark_id AND ai.model IN ('wikimedia', 'manual-upload')) AS photo_count,
+          WHERE ai.route_id = p.ark_id AND ${shownPhotoSql('ai.model')}) AS photo_count,
          -- Галерея места: вторая и последующие фотографии (миграция 968).
          -- Лежат отдельной таблицей, потому что у ai_route_images уникальный
          -- индекс по route_id, снять который нельзя — ON CONFLICT (route_id)
@@ -173,7 +174,7 @@ export async function GET(
          (SELECT '/api/images/route/' || p.ark_id || '?v=' || EXTRACT(EPOCH FROM ai2.created_at)::bigint
             FROM ai_route_images ai2
            WHERE ai2.route_id = p.ark_id
-             AND ai2.model IN ('wikimedia', 'manual-upload')
+             AND ${shownPhotoSql('ai2.model')}
            LIMIT 1) AS thumb_url,
          round(
            6371 * acos(
