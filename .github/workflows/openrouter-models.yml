@@ -60,6 +60,25 @@ jobs:
           else
             echo "::error::Ключ отвергнут (HTTP $CODE) — вот это и чинится заменой секрета OPENROUTER_API_KEY."
             head -c 400 /tmp/key.json
+            echo
+            # Форма ключа БЕЗ его содержимого — тот же приём, что у
+            # describeOpenRouterKey() для прода. «Ключ отозван» и «ключ вставлен
+            # с переводом строки» чинятся по-разному, а по одному 401 они
+            # неотличимы: OpenRouter на оба отвечает «Missing Authentication
+            # header», потому что заголовок с пробелом внутри для него
+            # отсутствует. Ни одного символа ключа наружу: длина, признак
+            # ожидаемого начала и флаг пробелов.
+            LEN=$(printf '%s' "$OPENROUTER_API_KEY" | wc -c | tr -d ' ')
+            case "$OPENROUTER_API_KEY" in
+              sk-or-*) PREFIX=да ;;
+              *)       PREFIX=НЕТ ;;
+            esac
+            case "$OPENROUTER_API_KEY" in
+              *[[:space:]]*) SPACE=ДА ;;
+              *)             SPACE=нет ;;
+            esac
+            echo "форма ключа: длина=$LEN, начинается на sk-or-=$PREFIX, пробелы внутри=$SPACE"
+            echo "длина около 73 и всё чисто — ключ отозван, нужен новый; иначе он вставлен с лишним символом."
             exit 1
           fi
 
