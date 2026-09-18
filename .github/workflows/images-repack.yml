@@ -74,7 +74,7 @@ jobs:
               print(f'::error::mode должен быть dry или apply, а не {mode!r}')
               sys.exit(1)
           tasks = marker.get('tasks') or ['recompress', 'generated']
-          bad = [t for t in tasks if t not in ('recompress', 'generated')]
+          bad = [t for t in tasks if t not in ('recompress', 'generated', 's3')]
           if bad:
               print(f'::error::неизвестная задача: {bad}')
               sys.exit(1)
@@ -137,6 +137,12 @@ jobs:
               PATH_="/api/cron/images-recompress"
               EXTRA="\"min_bytes\": $MIN_BYTES,"
               LEFT_KEY='pending'
+            elif [ "$TASK" = 's3' ]; then
+              # Переезд снимков из байтов в базе в объектное хранилище.
+              # Порога не принимает: везётся ВСЁ, что ещё лежит в базе.
+              PATH_="/api/cron/images-to-s3"
+              EXTRA=""
+              LEFT_KEY='pending'
             else
               PATH_="/api/cron/images-generated"
               EXTRA=""
@@ -169,7 +175,7 @@ jobs:
           import json, sys
           key = sys.argv[1]
           a = json.load(open('/tmp/out.json'))
-          did = a.get('recompressed_count', a.get('deleted_count', 0))
+          did = a.get('recompressed_count', a.get('moved_count', a.get('deleted_count', 0)))
           print(did, a.get('failed_count', 0), a.get(f'{key}_before', 0))
           PY
               )
