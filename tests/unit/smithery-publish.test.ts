@@ -78,6 +78,19 @@ describe('workflow публикации в Smithery', () => {
     expect(CODE).toMatch(/SMITHERY_API_KEY: \$\{\{ secrets\.SMITHERY_API_KEY \}\}/);
   });
 
+  it('карточка получает имя и описание из server.json — одно описание на все каталоги', () => {
+    /**
+     * CLI создаёт запись без тела — карточка выходит пустой (заметил владелец
+     * 18.09). Описание берётся из того же server.json, что ушёл в официальный
+     * реестр. Отказ — предупреждение: публикация состоялась, вердикт о ней
+     * выносит шаг с релизом.
+     */
+    expect(CODE).toMatch(/json\.load\(open\('server\.json'\)\)/);
+    expect(CODE).toMatch(/-X PATCH[\s\S]*?api\.smithery\.ai\/servers\/\$NAME/);
+    expect(CODE).toMatch(/'displayName': m\.get\('title'\)/);
+    expect(CODE).toMatch(/::warning::описание карточки не обновилось/);
+  });
+
   it('после публикации ждёт обработки релиза, а не поиска; три исхода', () => {
     /**
      * Run 2 (17.09): «Created server», «Release accepted», PENDING — а поиск

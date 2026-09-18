@@ -189,6 +189,34 @@ jobs:
           echo "deployment=$DEPLOY" >> "$GITHUB_OUTPUT"
           echo "релиз: ${DEPLOY:-(id не найден в выводе)}"
 
+      - name: Карточка — имя и описание из server.json (одно описание на все каталоги)
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+        run: |
+          set -euo pipefail
+          # `smithery mcp publish` создаёт запись без тела (`servers.create(t)`
+          # в исходнике CLI) — карточка выходит с пустым описанием, и владелец
+          # это увидел первым (18.09). Описание и имя — из server.json, того же
+          # манифеста, что ушёл в официальный реестр: одно описание на все
+          # каталоги, второго источника нет. Отказ здесь — предупреждение, не
+          # красный: карточка без описания хуже, чем с ним, но публикация
+          # состоялась, и вердикт о ней выносит следующий шаг.
+          NAME='${{ steps.ns.outputs.name }}'
+          python3 - > card.json <<'PY'
+          import json
+          m = json.load(open('server.json'))
+          json.dump({'displayName': m.get('title') or 'Vedar', 'description': m['description']}, open('card.json', 'w'), ensure_ascii=False)
+          PY
+          echo "карточка: $(cat card.json)"
+          CODE=$(curl -sS -o card.out -w '%{http_code}' -X PATCH \
+            -H "Authorization: Bearer $SMITHERY_API_KEY" -H 'Content-Type: application/json' \
+            --data-binary @card.json "https://api.smithery.ai/servers/$NAME" || echo 000)
+          if [ "$CODE" = "200" ] || [ "$CODE" = "204" ]; then
+            echo "описание обновлено (HTTP $CODE)"
+          else
+            echo "::warning::описание карточки не обновилось (HTTP $CODE): $(head -c 400 card.out)"
+          fi
+
       - name: Релиз обработан и Smithery нас видит — иначе красный
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
