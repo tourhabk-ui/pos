@@ -3,6 +3,7 @@ import { pool } from '@/lib/db-pool';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
 import { activityLabel } from '@/lib/tours/labels';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
+import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 
 const BASE = 'https://vedarai.ru';
 
@@ -188,6 +189,9 @@ ${planLines}
   Подключение из Smithery: ${MCP_CATALOGS.find((c) => c.install)?.install ?? '—'}
 - English: ${MCP_TITLE_EN}. ${MCP_DESCRIPTION_EN}. MCP endpoint
   ${BASE}/api/mcp (Streamable HTTP, no auth); manifest ${BASE}/.well-known/mcp.json
+- Connect: ${MCP_CONNECT_OPTIONS.find((o) => o.id === 'claude_code')?.value ?? '—'}
+  (Cursor / VS Code: one-click links on ${BASE}/mcp)
+- System prompt line for hosts: ${MCP_SYSTEM_PROMPT_LINE_EN}
 
 ${sections}
 

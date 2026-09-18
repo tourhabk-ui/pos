@@ -16,6 +16,7 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
+import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU } from '@/lib/mcp/connect';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -120,12 +121,56 @@ export default function McpLandingPage() {
             </div>
           </section>
 
+          {/* Рычаг номер один — «человек добавил Vedar»: ссылка, команда или
+              JSON под каждый клиент, без ручного набора адреса. */}
+          <section className="space-y-3">
+            <h2 className="ds-h2">Подключить одним касанием</h2>
+            <div className="flex flex-wrap gap-2">
+              {MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').map((o) => (
+                <a key={o.id} className="ds-btn ds-btn-primary" href={o.value} data-connect={o.id}>
+                  {o.label}
+                </a>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {MCP_CONNECT_OPTIONS.filter((o) => o.kind !== 'link').map((o) => (
+                <div key={o.id} className="ds-card p-4 space-y-1" data-connect={o.id}>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{o.label}</p>
+                  <pre
+                    className="text-xs overflow-x-auto rounded-lg p-3"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                  >
+                    {o.value}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Рычаг номер два — строка системного промпта: сильнее любой
+              карточки в каталоге, потому что решает выбор внутри набора. */}
+          <section className="space-y-3">
+            <h2 className="ds-h2">Строка для системного промпта</h2>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Каталоги помогают попасть в набор инструментов агента; какой инструмент
+              он выберет внутри набора, решает промпт host&apos;а. Одна строка:
+            </p>
+            <div className="ds-card p-4 space-y-2" data-prompt-line="en">
+              <pre className="text-xs whitespace-pre-wrap rounded-lg p-3" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }} lang="en">
+                {MCP_SYSTEM_PROMPT_LINE_EN}
+              </pre>
+              <pre className="text-xs whitespace-pre-wrap rounded-lg p-3" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
+                {MCP_SYSTEM_PROMPT_LINE_RU}
+              </pre>
+            </div>
+          </section>
+
           <section className="ds-card p-5 space-y-2">
             <h2 className="font-playfair text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-              Как подключить
+              Как подключить вручную
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              В любом MCP-клиенте (Claude Desktop, Cursor, Yandex AI Studio и других)
+              В любом MCP-клиенте (Yandex AI Studio и других без кнопки выше)
               укажите тип подключения Streamable HTTP, адрес
               {' '}<code>https://vedarai.ru/api/mcp</code> и «без авторизации».
               Чтение анонимно; записи две — заявка на подбор тура и заявка на бронь,
