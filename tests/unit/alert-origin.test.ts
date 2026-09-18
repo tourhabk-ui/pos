@@ -24,6 +24,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { formatSafetyStatusForAgent, SAFETY_FEEDS_TEXT } from '@/lib/safety/current-status';
+import { NEWS_FEED_PREFIXES } from '@/lib/services/safety/seismic-parser';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -45,6 +46,13 @@ const PRODUCED: Array<[string, string | null, string]> = [
   ['vk.com/mchs_kamchatka/77', 'https://vk.com/wall-1_77', 'МЧС России по Камчатскому краю (VK)'],
   ['max/tdeadbeef', 'https://max.ru/id4101120929_gos', 'МЧС России по Камчатскому краю (MAX)'],
   ['kamgov/2026-09-16/t0102', 'https://kamgov.ru/news/1', 'Правительство Камчатского края'],
+  /**
+   * 18.09: владелец сверил прод — верхняя тревога «пепловый выброс Шивелуча»
+   * с турпортала, инструмент подписал её «источник не записан». Лента
+   * `visitkamchatka` стояла в NEWS_FEED_SOURCES с самого начала, а в этом
+   * списке — нет: перепись форм id делалась руками и повторила пропуск.
+   */
+  ['visitkamchatka/2026-09-18/tabcd', 'https://visitkamchatka.ru/security/1', 'Турпортал Камчатского края (visitkamchatka.ru)'],
   ['manual-shiveluch-ash', null, 'ручная запись администратора Ведара'],
   ['t.me/minec_tourism/42', null, 'Telegram-канал @minec_tourism'],
 ];
@@ -55,6 +63,20 @@ describe('происхождение тревоги узнаётся по фор
       expect(alertOrigin(id, url)?.label).toBe(label);
     });
   }
+
+  it('каждый префикс новостных лент из кода классификатора узнаётся — перепись не ручная', () => {
+    /**
+     * Список PRODUCED выше набран руками и один раз уже пропустил ленту.
+     * Здесь префиксы читаются из seismic-parser: новая лента без правила
+     * происхождения краснеет сама, а не после чужого замера прода.
+     */
+    expect(NEWS_FEED_PREFIXES.length).toBeGreaterThanOrEqual(3);
+    for (const prefix of NEWS_FEED_PREFIXES) {
+      const o = alertOrigin(`${prefix}/2026-09-18/tabcd`, null);
+      expect(o, `${prefix}: лента пишет тревоги, а правила происхождения для неё нет`).not.toBeNull();
+      expect(o!.label.length).toBeGreaterThan(3);
+    }
+  });
 
   it('паводок от МЧС больше не подписывается сейсмологами', () => {
     // Случай 16.09 дословно: id по форме RSS МЧС.
