@@ -78,11 +78,36 @@ describe('workflow публикации в Smithery', () => {
     expect(CODE).toMatch(/SMITHERY_API_KEY: \$\{\{ secrets\.SMITHERY_API_KEY \}\}/);
   });
 
-  it('после публикации переспрашивает поиск и краснеет, если не увидел', () => {
+  it('карточка получает имя и описание из server.json — одно описание на все каталоги', () => {
+    /**
+     * CLI создаёт запись без тела — карточка выходит пустой (заметил владелец
+     * 18.09). Описание берётся из того же server.json, что ушёл в официальный
+     * реестр. Отказ — предупреждение: публикация состоялась, вердикт о ней
+     * выносит шаг с релизом.
+     */
+    expect(CODE).toMatch(/json\.load\(open\('server\.json'\)\)/);
+    expect(CODE).toMatch(/-X PATCH[\s\S]*?api\.smithery\.ai\/servers\/\$NAME/);
+    expect(CODE).toMatch(/'displayName': m\.get\('title'\)/);
+    expect(CODE).toMatch(/::warning::описание карточки не обновилось/);
+  });
+
+  it('после публикации ждёт обработки релиза, а не поиска; три исхода', () => {
+    /**
+     * Run 2 (17.09): «Created server», «Release accepted», PENDING — а поиск
+     * через две минуты пуст. Вердикт выносится по статусу релиза (тем же
+     * адресом, каким CLI следит за ним в TTY): SUCCESS — зелёный;
+     * CANCELLED/FAILED — красный телом ответа; всё ещё PENDING через десять
+     * минут — красный «не смог проверить» (§4.0), со ссылкой.
+     */
+    expect(CODE).toMatch(/deploymentId/);
+    expect(CODE).toMatch(/\/servers\/\$NAME\/releases\/\$DEPLOY/);
+    expect(CODE).toMatch(/Authorization: Bearer \$SMITHERY_API_KEY/);
+    expect(CODE).toMatch(/for attempt in \$\(seq 1 40\); do[\s\S]*?sleep 15[\s\S]*?done/);
+    expect(CODE).toMatch(/SUCCESS\)/);
+    expect(CODE).toMatch(/CANCELLED\|FAILED\|ERROR\)/);
+    expect(CODE).toMatch(/::error::релиз \$NAME всё ещё/);
+    // Поиск остался для сведения, не для вердикта.
     expect(CODE).toMatch(/smithery mcp search/);
-    expect(CODE).toMatch(/for attempt in 1 2 3 4 5 6 7 8; do[\s\S]*?sleep 15[\s\S]*?done/);
-    expect(CODE).toMatch(/::error::Smithery не показал/);
-    expect(CODE).toMatch(/exit 1/);
   });
 
   it('ключ нигде не лежит значением', () => {
