@@ -244,3 +244,24 @@ export const PLAN_PRESETS: readonly PlanPreset[] = [
 export function findPlanPreset(slug: string): PlanPreset | undefined {
   return PLAN_PRESETS.find((p) => p.slug === slug);
 }
+
+/**
+ * Дата последней правки ТЕКСТОВ планов (интро, FAQ хаба, описания).
+ * До 18.09 sitemap отдавал для /plans константу 2026-06-01 — «страница не
+ * менялась четыре месяца», хотя тексты правились в августе, а хаб — сегодня.
+ * Поисковику и AI-ответу это читалось как признак заброшенности.
+ * Меняется видимым коммитом вместе с текстом; сторож требует, чтобы она была
+ * не раньше любой даты ревизии кластера и не в будущем.
+ */
+export const PLANS_TEXT_REVISION = '2026-09-18';
+
+/** Дата изменения страницы плана для sitemap и JSON-LD: ревизия кластера или общая. */
+export function planLastModified(p: PlanPreset): Date {
+  return new Date(p.cluster?.updated ?? PLANS_TEXT_REVISION);
+}
+
+/** Дата изменения хаба /plans — самая поздняя из всех страниц планов. */
+export function plansHubLastModified(): Date {
+  const all = [new Date(PLANS_TEXT_REVISION), ...PLAN_PRESETS.map(planLastModified)];
+  return new Date(Math.max(...all.map((d) => d.getTime())));
+}
