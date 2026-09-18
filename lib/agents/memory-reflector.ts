@@ -21,6 +21,7 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { agentMemory, type MemoryEntry } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { callAIWaterfallOrNull } from '@/lib/ai/providers';
+import { wrapUntrusted } from '@/lib/ai/untrusted';
 import { smokeTestKnowledgeWrites } from '@/lib/agents/smoke-test';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -141,7 +142,10 @@ export async function runMemoryReflector(): Promise<ReflectorResult> {
 
   const messages: ChatMessage[] = [
     { role: 'system', content: SYNTH_PROMPT },
-    { role: 'user', content: corpus.slice(0, 12_000) },
+    // Эпизоды — чужой текст (RSS, Telegram): обрамляются как данные, а не
+    // реплика. Рефлектор — наш compaction, и саммари, сваренное из инструкции
+    // внутри сигнала, стало бы «знанием» для evolver и intel-bridge (18.09).
+    { role: 'user', content: wrapUntrusted('эпизоды разведки', corpus.slice(0, 12_000)) },
   ];
 
   let raw = '';

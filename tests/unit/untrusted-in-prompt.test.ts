@@ -86,3 +86,26 @@ describe('правило применяется там, где чужой тек
     expect(LOOP).toMatch(/from '@\/lib\/ai\/untrusted'/);
   });
 });
+
+describe('саммари агентов обрамляют чужой корпус (18.09)', () => {
+  // Willison, 18.09: в compaction-саммари агентов находили инструкции,
+  // пришедшие из самого сжимаемого текста. Наш compaction — Memory Reflector
+  // и сканер противоречий (эпизоды разведки из RSS и Telegram → «знание» для
+  // evolver и intel-bridge) и синтез дайджеста (заголовки чужих лент → пост
+  // в канал). До этого дня корпус уходил модели голой репликой пользователя.
+  const SUMMARISERS: Array<{ file: string; corpus: RegExp }> = [
+    { file: 'lib/agents/memory-reflector.ts',     corpus: /content: corpus\.slice\(/ },
+    { file: 'lib/agents/memory-contradiction.ts', corpus: /content: corpus\.slice\(/ },
+    { file: 'lib/agents/scout-digest.ts',         corpus: /\$\{signalsList\}`|\$\{aiSignals\}`/ },
+  ];
+
+  for (const { file, corpus } of SUMMARISERS) {
+    const src = readFileSync(join(process.cwd(), file), 'utf-8');
+    it(`${file}: корпус идёт через wrapUntrusted, не голой репликой`, () => {
+      expect(src).toMatch(/from '@\/lib\/ai\/untrusted'/);
+      expect(src).toMatch(/wrapUntrusted\(/);
+      // Голая интерполяция корпуса в content — это и был дефект.
+      expect(src).not.toMatch(corpus);
+    });
+  }
+});
