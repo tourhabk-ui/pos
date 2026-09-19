@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { verifyReadback, featureIds, parseExpectAbsent, sha256 } from '@/lib/map/places-readback';
+import { verifyReadback, verifyBeforeUpload, featureIds, parseExpectAbsent, sha256 } from '@/lib/map/places-readback';
 
 const fc = (ids: string[]) => Buffer.from(JSON.stringify({
   type: 'FeatureCollection',
@@ -59,6 +59,87 @@ describe('три исхода сверки', () => {
     const junk = Buffer.from('<html>');
     const v = verifyReadback({ region: 'r', uploaded: junk, fetched: Buffer.from(junk), status: 200, expectAbsent: [] });
     expect(v.state).toBe('mismatch');
+  });
+});
+
+describe('вопрос задаётся ДО заливки (19.09)', () => {
+  // Прогон 16 залил три пакета со скрытым дублем каньона и покраснел уже
+  // после заливки: на полевой карте дубль к тому моменту был. Те же байты
+  // лежат в памяти до первой заливки — значит тот же вопрос задаётся раньше.
+
+  it('скрытых нет — clean с числом пакетов', () => {
+    const v = verifyBeforeUpload([
+      { region: 'krai-overview', body: fc(['a', 'b']) },
+      { region: 'cell-56n161e', body: fc(['c']) },
+    ], [HIDDEN]);
+    expect(v).toEqual({ state: 'clean', packs: 2 });
+  });
+
+  it('скрытая запись в двух пакетах — present, поимённо и с пакетами', () => {
+    const v = verifyBeforeUpload([
+      { region: 'krai-overview', body: fc(['a', HIDDEN]) },
+      { region: 'avacha-group', body: fc(['b']) },
+      { region: 'cell-56n161e', body: fc([HIDDEN]) },
+    ], [HIDDEN]);
+    expect(v.state).toBe('present');
+    if (v.state === 'present') {
+      expect(v.hits).toEqual([
+        { region: 'krai-overview', ids: [HIDDEN] },
+        { region: 'cell-56n161e', ids: [HIDDEN] },
+      ]);
+      expect(v.unreadable).toEqual([]);
+    }
+  });
+
+  it('пакет не разобрать — unreadable, а НЕ clean', () => {
+    // Третий исход §4.0: «не смог прочитать» не равно «скрытых там нет».
+    const v = verifyBeforeUpload([
+      { region: 'ok', body: fc(['a']) },
+      { region: 'битый', body: Buffer.from('<html>') },
+    ], [HIDDEN]);
+    expect(v).toEqual({ state: 'unreadable', regions: ['битый'] });
+  });
+
+  it('и скрытое, и неразобранное — present не съедает неразобранное', () => {
+    const v = verifyBeforeUpload([
+      { region: 'грязный', body: fc([HIDDEN]) },
+      { region: 'битый', body: Buffer.from('не json') },
+    ], [HIDDEN]);
+    expect(v.state).toBe('present');
+    if (v.state === 'present') expect(v.unreadable).toEqual(['битый']);
+  });
+
+  it('пустой список «не должно быть» — clean, но битый пакет всё равно виден', () => {
+    expect(verifyBeforeUpload([{ region: 'r', body: fc(['a']) }], [])).toEqual({ state: 'clean', packs: 1 });
+    expect(verifyBeforeUpload([{ region: 'r', body: Buffer.from('x') }], []).state).toBe('unreadable');
+  });
+});
+
+describe('скрипт отказывается заливать по этому ответу', () => {
+  const SRC = readFileSync(join(process.cwd(), 'scripts/map-tiles/build-places.ts'), 'utf-8');
+
+  it('проверка стоит ДО первой заливки', () => {
+    const pre = SRC.indexOf('verifyBeforeUpload(');
+    const put = SRC.indexOf('await uploadToS3(');
+    expect(pre).toBeGreaterThan(0);
+    expect(put).toBeGreaterThan(0);
+    expect(pre).toBeLessThan(put);
+  });
+
+  it('проверка стоит и до ветки сухого прогона — «посчитать» тоже не врёт', () => {
+    const pre = SRC.indexOf('verifyBeforeUpload(');
+    const dry = SRC.indexOf('сухой прогон: в хранилище ничего не записано');
+    expect(dry).toBeGreaterThan(0);
+    expect(pre).toBeLessThan(dry);
+  });
+
+  it('оба плохих исхода — код 1 и слова «не залито ничего»', () => {
+    expect(SRC).toMatch(/pre\.state === 'present'[\s\S]*?НЕ ЗАЛИТО НИЧЕГО[\s\S]*?return 1;/);
+    expect(SRC).toMatch(/pre\.state === 'unreadable'[\s\S]*?НЕ ЗАЛИТО НИЧЕГО[\s\S]*?return 1;/);
+  });
+
+  it('чтение обратно не убрано: оно отвечает за хранилище, а проверка — за данные', () => {
+    expect(SRC).toMatch(/readBack\(f\.region, f\.body, res\.url, expectAbsent\)/);
   });
 });
 

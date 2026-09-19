@@ -37,7 +37,7 @@ import {
   placesKey, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT, PLACES_LAYER_VERSION,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
-import { verifyReadback, parseExpectAbsent, type ReadbackVerdict } from '@/lib/map/places-readback';
+import { verifyReadback, verifyBeforeUpload, parseExpectAbsent, type ReadbackVerdict } from '@/lib/map/places-readback';
 
 /** Путь эндпоинта — литералом: по нему сторож cron-scheduler-declared видит, кто зовёт роут. */
 const ENDPOINT = '/api/cron/places-export';
@@ -131,6 +131,36 @@ async function main(): Promise<number> {
     per_pack: fetched.map((f) => ({ region: f.region, features: f.features, bytes: f.body.length })),
   }, null, 2));
 
+  // Фаза 1.5 — «этого быть не должно» спрашивается ДО заливки (19.09).
+  //
+  // Прогон 16 залил 123 пакета, три из них со скрытым дублем каньона, и
+  // только потом прочитал их обратно и покраснел. Проверка отработала верно
+  // и всё равно опоздала: в поле дубль уже уехал. Ответы экспорта лежат в
+  // памяти ещё до первой заливки — значит тот же вопрос можно задать раньше,
+  // и тогда он не сообщает о вреде, а не даёт его причинить.
+  //
+  // В сухом прогоне проверка тоже идёт: «спросить и посчитать» с ответом
+  // «всё хорошо» при скрытой записи в ответе экспорта — ровно то враньё, от
+  // которого §4.0.
+  const expectAbsent = parseExpectAbsent(process.env.PLACES_EXPECT_ABSENT);
+  if (expectAbsent.length > 0) {
+    console.log(`проверяю до заливки, что этих id в ответах экспорта нет: ${expectAbsent.join(', ')}`);
+  }
+  const pre = verifyBeforeUpload(fetched.map((f) => ({ region: f.region, body: f.body })), expectAbsent);
+  if (pre.state === 'present') {
+    console.error(`До заливки: в ${pre.hits.length} пакетах ЭКСПОРТ ОТДАЛ записи, которых там быть не должно:`);
+    for (const hit of pre.hits) console.error(`  ${hit.region}: ${hit.ids.join(', ')}`);
+    if (pre.unreadable.length > 0) console.error(`  (и ещё не разобрались: ${pre.unreadable.join(', ')})`);
+    console.error('В хранилище НЕ ЗАЛИТО НИЧЕГО: на полевой карте осталось прежнее.');
+    console.error('Смотреть is_visible в базе и фильтр /api/cron/places-export; миграция могла ещё не доехать до прода.');
+    return 1;
+  }
+  if (pre.state === 'unreadable') {
+    console.error(`До заливки: ${pre.regions.length} пакетов не разобрать как FeatureCollection: ${pre.regions.join(', ')}`);
+    console.error('Это «не знаю», а не «скрытых нет» — в хранилище НЕ ЗАЛИТО НИЧЕГО.');
+    return 1;
+  }
+
   if (dryRun) {
     console.log('сухой прогон: в хранилище ничего не записано');
     return 0;
@@ -145,9 +175,8 @@ async function main(): Promise<number> {
   // из репозитория. Теперь каждый пакет читается по публичному адресу — тому
   // же, что открывает телефон, — и сверяется байт в байт. Расхождение роняет
   // прогон, а не пишет строку в лог (lib/map/places-readback.ts).
-  const expectAbsent = parseExpectAbsent(process.env.PLACES_EXPECT_ABSENT);
   if (expectAbsent.length > 0) {
-    console.log(`после заливки проверю, что этих id в пакетах нет: ${expectAbsent.join(', ')}`);
+    console.log(`после заливки проверю то же самое в хранилище: ${expectAbsent.join(', ')}`);
   }
   const bad: string[] = [];
   const stale: Array<{ region: string; ids: string[] }> = [];
