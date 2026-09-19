@@ -1,6 +1,6 @@
 {
   "note": "Маркер запуска images-repack.yml. mode: dry — сухой прогон (план, ничего не меняет); apply — боевые партии по 10 до конца. Умолчание без mode — dry.",
-  "mode": "apply",
+  "mode": "dry",
   "tasks": [
     "generated"
   ],
