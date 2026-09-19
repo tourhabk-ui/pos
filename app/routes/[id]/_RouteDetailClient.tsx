@@ -22,6 +22,11 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { trackLine } from '@/lib/map/line-standard';
+// Сложность — из ЕДИНОГО словаря (lib/tours/labels). Здесь лежали свои
+// DIFFICULTY_RU и DIFFICULTY_COLOR, знавшие три написания из семи: у
+// маршрута с `extreme` бейдж выходил пустым, а `moderate` печатался
+// по-английски.
+import { difficultyLabel, difficultyColor } from '@/lib/tours/labels';
 import { lineOwnership } from '@/lib/routes/line-ownership';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
@@ -87,15 +92,7 @@ const ACTIVITY_COLORS: Record<string, string> = {
   snowmobile: 'var(--ocean)', jeep: 'var(--accent)', other: 'var(--text-muted)',
 };
 
-const DIFFICULTY_RU: Record<string, string> = {
-  easy: 'Лёгкий', medium: 'Средний', hard: 'Сложный',
-  легкий: 'Лёгкий', средний: 'Средний', сложный: 'Сложный',
-};
 
-const DIFFICULTY_COLOR: Record<string, string> = {
-  easy: 'var(--success)', medium: 'var(--warning)', hard: 'var(--danger)',
-  легкий: 'var(--success)', средний: 'var(--warning)', сложный: 'var(--danger)',
-};
 
 const MONTHS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
 
@@ -309,12 +306,12 @@ function OfferCard({ offer, activityType, onBook }: {
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
               style={{
-                color: DIFFICULTY_COLOR[offer.difficulty],
-                background: `color-mix(in srgb, ${DIFFICULTY_COLOR[offer.difficulty]} 20%, transparent)`,
-                border: `1px solid color-mix(in srgb, ${DIFFICULTY_COLOR[offer.difficulty]} 40%, transparent)`,
+                color: difficultyColor(offer.difficulty),
+                background: `color-mix(in srgb, ${difficultyColor(offer.difficulty)} 20%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${difficultyColor(offer.difficulty)} 40%, transparent)`,
               }}
             >
-              {DIFFICULTY_RU[offer.difficulty]}
+              {difficultyLabel(offer.difficulty, true)}
             </span>
           )}
         </div>
@@ -843,8 +840,8 @@ export default function RouteDetailClient({ id }: { id: string }) {
             {route.difficulty && (
               <div className="flex-shrink-0 px-4 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Сложность</p>
-                <p className="text-sm font-semibold" style={{ color: DIFFICULTY_COLOR[route.difficulty] ?? 'var(--text-primary)' }}>
-                  {DIFFICULTY_RU[route.difficulty] ?? route.difficulty}
+                <p className="text-sm font-semibold" style={{ color: difficultyColor(route.difficulty) }}>
+                  {difficultyLabel(route.difficulty, true)}
                 </p>
               </div>
             )}
@@ -1204,11 +1201,11 @@ export default function RouteDetailClient({ id }: { id: string }) {
                               style={{
                                 background:
                                   filterDifficulty === diff
-                                    ? DIFFICULTY_COLOR[diff as keyof typeof DIFFICULTY_COLOR]
+                                    ? difficultyColor(diff)
                                     : undefined,
                               }}
                             >
-                              {DIFFICULTY_RU[diff as keyof typeof DIFFICULTY_RU]}
+                              {difficultyLabel(diff, true)}
                             </button>
                           );
                         })}
