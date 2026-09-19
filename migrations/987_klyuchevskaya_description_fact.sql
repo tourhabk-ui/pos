@@ -1,4 +1,4 @@
--- 986_klyuchevskaya_description_fact.sql
+-- 987_klyuchevskaya_description_fact.sql
 --
 -- Ключевская сопка: описание из фактов вместо сочинённого.
 --
