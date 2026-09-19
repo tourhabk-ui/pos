@@ -44,6 +44,7 @@ import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } f
 // `valley`, `park` и `thermal` выводились сырыми английскими словами
 // прямо в списке путевых точек.
 import { locationTypeLabel } from '@/lib/places/location-types';
+import BottomNav from '@/components/shared/BottomNav';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -1837,29 +1838,29 @@ export default function RouteDetailClient({ id }: { id: string }) {
         )}
       </div>
 
-      {/* ── Mobile sticky bar ────────────────────────────────────────────────── */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--bg-card)] border-t border-[var(--border)] px-4 py-3 flex items-center gap-3 safe-area-pb">
-        <div className="flex-1 min-w-0">
-          {minPrice > 0 ? (
-            <p className="text-lg font-bold text-[var(--accent)] leading-none">
-              {minPrice.toLocaleString('ru-RU')} ₽
-              <span className="text-xs font-normal text-[var(--text-muted)] ml-1">/чел</span>
-            </p>
-          ) : (
-            <p className="text-sm text-[var(--text-secondary)]">По запросу</p>
-          )}
-          {offers.length > 1 && (
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">{offers.length} тура</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => offers.length > 0 ? setBookingOffer(offers[0]) : setShowLead(true)}
-          className="ds-btn ds-btn-primary px-6 py-2.5 text-sm font-semibold flex-shrink-0"
-        >
-          {offers.length > 0 ? 'Забронировать' : 'Оставить заявку'}
-        </button>
-      </div>
+      {/*
+        ФИКСИРОВАННОГО БАРА С ЦЕНОЙ И БРОНЬЮ ЗДЕСЬ БОЛЬШЕ НЕТ (19.09, слово
+        владельца «трогай»).
+
+        Он был второй копией действия: у каждой карточки тура (`OfferCard`)
+        своя кнопка брони, и «Оставить заявку» в секции туров тоже своя.
+        Копия действия расходится поведением — это уже случалось (#887).
+
+        Но решило не это, а ЧТО он занимал. Бар стоял `fixed bottom-0`, то
+        есть ровно в слоте нижней навигации платформы, которой на этом экране
+        не было вовсе — при том что §2 объявляет её единой («единая навигация
+        вместо трёх разных», решение владельца 18.07) и она стоит на семи
+        других экранах. Коммерция вытеснила навигацию: с карточки маршрута
+        нельзя было уйти ни на карту, ни к Кузьмичу иначе как через шапку.
+
+        По §10 маршрут — ИНСТРУКЦИЯ, туры на нём — компактные ссылки; липкая
+        бронь по §11 живёт на карточке тура. Бронь никуда не делась, она в
+        секции туров, где человек её и ищет.
+      */}
+      {/* Нижняя навигация платформы — как на остальных экранах (§2).
+          activePath — настоящий адрес: карточка маршрута не является ни одним
+          из пяти пунктов, и подсвечивать чужой было бы неправдой. */}
+      <BottomNav activePath={`/routes/${route.id}`} />
 
       <LeadModal open={showLead} onClose={() => setShowLead(false)} routeId={route.id} routeTitle={route.title} />
       {bookingOffer && (
