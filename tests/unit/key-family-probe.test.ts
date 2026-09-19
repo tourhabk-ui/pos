@@ -54,14 +54,16 @@ describe('поставщик называется по началу ключа',
 
 describe('перекрёстный вопрос: живой ключ или мёртвый', () => {
   it('ключ формы Anthropic из чужого секрета спрашивается у Anthropic', () => {
-    expect(OR).toMatch(/api\.anthropic\.com\/v1\/models/);
-    expect(OR).toMatch(/anthropic-version: 2023-06-01/);
+    // Подстрочный поиск по тексту workflow, а не проверка URL: регулярка тут
+    // читалась бы как неанкоренная проверка хоста (и CodeQL её так и прочёл).
+    expect(OR).toContain('api.anthropic.com/v1/models');
+    expect(OR).toContain('anthropic-version: 2023-06-01');
   });
 
   it('вопрос не стоит токенов — это каталог, а не генерация', () => {
     // /v1/messages списал бы деньги и мог бы упереться в баланс, то есть
     // ответил бы не про ключ. Каталог отвечает ровно про авторизацию.
-    expect(OR).not.toMatch(/api\.anthropic\.com\/v1\/messages/);
+    expect(OR).not.toContain('api.anthropic.com/v1/messages');
   });
 
   it('три исхода, и «не смог» не выдаётся за «оба мертвы»', () => {
