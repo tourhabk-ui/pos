@@ -35,7 +35,7 @@ export default function PlaceIndigenous({ indigenous }: Props) {
             <Users className="w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
+            <p className="text-xs font-medium text-[var(--text-muted)]">
               Коренные народы
             </p>
             <p className="text-sm font-semibold text-[var(--text-primary)]">
@@ -56,7 +56,7 @@ export default function PlaceIndigenous({ indigenous }: Props) {
           {/* Local name */}
           {indigenous.localName && (
             <div>
-              <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-1">
+              <p className="text-[11px] font-medium text-[var(--text-muted)] mb-1">
                 Традиционное название
               </p>
               <p className="text-base font-semibold text-[var(--text-primary)]"
@@ -71,7 +71,7 @@ export default function PlaceIndigenous({ indigenous }: Props) {
             <div className="flex items-start gap-3">
               <Sprout className="w-4 h-4 text-[var(--success)] shrink-0 mt-0.5" />
               <div>
-                <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                <p className="text-[11px] font-medium text-[var(--text-muted)] mb-1">
                   Традиционное природопользование
                 </p>
                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed">

@@ -39,7 +39,7 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
             <Mountain className="w-4 h-4 text-white" />
           </span>
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+            <p className="text-[11px] text-[var(--text-muted)]">
               Авиационный цветовой код · KVERT
             </p>
             <p className="text-sm font-semibold text-[var(--text-primary)]">

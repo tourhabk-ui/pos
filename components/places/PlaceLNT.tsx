@@ -65,7 +65,7 @@ export default function PlaceLNT({ capacityPerDay, ecoZone }: Props) {
               <Leaf className="w-4 h-4" />
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
+              <p className="text-xs font-medium text-[var(--text-muted)]">
                 Бережное посещение
               </p>
               <p className="text-sm font-semibold text-[var(--text-primary)]">

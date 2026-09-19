@@ -65,7 +65,7 @@ export default function PlaceSeason({ openFromDate, openToDate, bestSeason, seas
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {Object.entries(seasonalNotes).map(([season, note]) => (
             <div key={season} className="rounded-lg bg-[var(--bg-card)] p-3">
-              <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+              <p className="text-xs font-semibold text-[var(--text-muted)] mb-1">
                 {SEASON_LABELS[season] ?? season}
               </p>
               <p className="text-sm text-[var(--text-secondary)]">{note}</p>
