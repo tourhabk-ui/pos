@@ -274,17 +274,40 @@ export async function GET(
         lng: parseFloat(r.lng as string),
         zone: r.zone as string | null,
         district: r.district as string | null,
+        /**
+         * СВОЙ СНИМОК ВПЕРЕДИ ЧУЖОЙ ССЫЛКИ (19.09).
+         *
+         * Порядок был обратный: сначала `places.photo_url`, потом
+         * `places.images[0]`, и только потом наш собственный снимок. Оба
+         * первых поля собраны ИМПОРТОМ с посторонних сайтов, то есть это
+         * ссылки, которые живут ровно столько, сколько захочет их владелец.
+         *
+         * Пока чужая ссылка отвечает, она заслоняет наше фото; как только
+         * перестаёт — герой пустеет, хотя снимок у нас есть. Ровно это
+         * владелец и увидел на Вилючинском: двумя часами раньше в
+         * `ai_route_images` легли два его собственных кадра (миграция 979), а
+         * карточка показала пустоту, потому что выбирала не их.
+         *
+         * Соседний блок `images` этим же файлом объявляет обратное правило
+         * словами: «Свои важнее чужих намеренно... здесь фотографии, у которых
+         * мы знаем автора и права». Герой ему противоречил — одно правило,
+         * записанное дважды, разошлось (тот же урок, что с шириной карточки
+         * и стандартом линии).
+         *
+         * Чужие ссылки не выброшены: они остаются запасом на случай, когда
+         * своего снимка нет.
+         */
         photoUrl: (() => {
+          if (Number(r.photo_count) > 0) {
+            const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
+            return `/api/images/route/${r.ark_id}${v}`;
+          }
           if (r.photo_url) return r.photo_url as string;
           // Use first real URL from places.images if available
           const imgs = r.images as unknown[] | null;
           if (Array.isArray(imgs) && imgs.length > 0) {
             const first = imgs[0];
             if (typeof first === 'string' && (first.startsWith('http') || first.startsWith('/'))) return first;
-          }
-          if (Number(r.photo_count) > 0) {
-            const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
-            return `/api/images/route/${r.ark_id}${v}`;
           }
           return null;
         })(),

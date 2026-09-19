@@ -41,10 +41,33 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
   const coordStr = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 
   // Build gallery: prefer images[] if multiple, else single imgSrc
-  const gallery = images && images.length > 1
+  const allSources = images && images.length > 1
     ? images.filter(s => typeof s === 'string' && s.length > 0)
     : (imgSrc ? [imgSrc] : []);
+
+  /**
+   * МЁРТВАЯ ССЫЛКА НЕ ОСТАВЛЯЕТ ДЫРУ (19.09, снимок владельца: «где фото,
+   * почему было и куда делось»).
+   *
+   * `next/image` на неотдавшийся адрес не рисует ничего, а запасной градиент
+   * стоял в ветке «снимков нет вовсе». Значит ссылка, которая перестала
+   * работать, давала не честную заглушку, а ПУСТОЙ ПРЯМОУГОЛЬНИК в пол-экрана
+   * — и по нему нельзя понять, у места нет фотографии или у нас сломался
+   * показ.
+   *
+   * Цена особенно велика для карточки места: половина адресов в `photo_url` и
+   * `places.images` пришла импортом с посторонних сайтов, а чужая ссылка
+   * умирает, когда захочет её владелец, — без всякого нашего участия.
+   *
+   * Теперь отвалившийся кадр выбывает из галереи, и когда выбывают все,
+   * карточка показывает градиент — то же, что при отсутствии снимка. Это не
+   * прячет поломку: адрес остаётся в данных, а `photoCount` продолжает
+   * говорить, сколько снимков мы у места числим.
+   */
+  const [broken, setBroken] = useState<Set<string>>(new Set());
+  const gallery = allSources.filter(s => !broken.has(s));
   const isGallery = gallery.length > 1;
+  const markBroken = (src: string) => setBroken(prev => (prev.has(src) ? prev : new Set(prev).add(src)));
 
   function copyCoords() {
     navigator.clipboard?.writeText(coordStr).then(() => {
@@ -72,12 +95,12 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
         >
           {gallery.map((src, i) => (
             <div key={i} className="flex-shrink-0 w-full snap-start relative h-full">
-              <Image src={src} alt={`${name} ${i + 1}`} fill className="object-cover" priority={i === 0} sizes="100vw" />
+              <Image src={src} alt={`${name} ${i + 1}`} fill className="object-cover" priority={i === 0} sizes="100vw" onError={() => markBroken(src)} />
             </div>
           ))}
         </div>
       ) : gallery.length === 1 ? (
-        <Image src={gallery[0]} alt={name} fill className="object-cover" priority sizes="100vw" />
+        <Image src={gallery[0]} alt={name} fill className="object-cover" priority sizes="100vw" onError={() => markBroken(gallery[0])} />
       ) : (
         <RouteGradientPlaceholder title={name} locationType={locationType} className="w-full h-full" showLabel={false} />
       )}
