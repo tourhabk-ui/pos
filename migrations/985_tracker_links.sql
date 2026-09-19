@@ -1,4 +1,10 @@
--- 983_tracker_links.sql
+-- 985_tracker_links.sql
+--
+-- Номер 985, а не 983: пока PR ждал CI, в main приехала 983_koryaksky_owner_
+-- photo. Третье столкновение за неделю — сторож migration-number-unique ловит
+-- его каждый раз, и это его работа: номер выбирается при написании, а main
+-- двигается во время ревью. Переименование перед мержем здесь routine, а не
+-- авария.
 --
 -- Точка со СПУТНИКОВОГО ТРЕКЕРА доходит до регистрации маршрута.
 --
@@ -84,7 +90,7 @@ ALTER TABLE route_registrations
 
 COMMENT ON COLUMN route_registrations.last_position_source IS
   'Откуда последняя точка: phone (телефон под авторизацией) или tracker '
-  '(спутниковый трекер через tracker_links). NULL — записи до миграции 983, '
+  '(спутниковый трекер через tracker_links). NULL — записи до миграции 985, '
   'источник не установлен; догадываться задним числом нельзя.';
 
 COMMENT ON TABLE tracker_links IS

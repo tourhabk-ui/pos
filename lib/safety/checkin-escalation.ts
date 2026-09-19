@@ -148,7 +148,7 @@ export interface EscalationMessageInput {
 
 /**
  * Откуда пришла последняя точка. `null` — источник не записан (регистрации
- * до миграции 983); догадываться задним числом нельзя.
+ * до миграции 985); догадываться задним числом нельзя.
  */
 export type PositionSource = 'phone' | 'tracker' | null;
 

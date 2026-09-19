@@ -169,7 +169,7 @@ export async function DELETE(request: NextRequest) {
 
   try {
     // Отзыв, а не удаление: счётчики приёма — улика для разбора «почему
-    // точки перестали приходить» (миграция 983).
+    // точки перестали приходить» (миграция 985).
     const { rowCount } = await query(
       `UPDATE tracker_links l
           SET revoked_at = NOW()
