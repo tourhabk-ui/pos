@@ -138,27 +138,67 @@ export async function resolveCostUsd(
   promptTokens: number,
   completionTokens: number,
 ): Promise<{ cost: number | null; basis: CostBasis }> {
+  const candidates = priceLookupIds(model);
   try {
-    const { rows } = await pool.query<{ usd_per_mtok_in: string | null; usd_per_mtok_out: string | null }>(
-      `SELECT usd_per_mtok_in, usd_per_mtok_out FROM model_catalog WHERE model_id = $1 LIMIT 1`,
-      [model],
-    );
-    const row = rows[0];
-    if (row) {
-      const inPrice = row.usd_per_mtok_in != null ? Number(row.usd_per_mtok_in) : null;
-      const outPrice = row.usd_per_mtok_out != null ? Number(row.usd_per_mtok_out) : null;
-      if (inPrice !== null && outPrice !== null && Number.isFinite(inPrice) && Number.isFinite(outPrice)) {
-        return { cost: (promptTokens * inPrice + completionTokens * outPrice) / 1e6, basis: 'model_catalog' };
+    for (const id of candidates) {
+      const { rows } = await pool.query<{ usd_per_mtok_in: string | null; usd_per_mtok_out: string | null }>(
+        `SELECT usd_per_mtok_in, usd_per_mtok_out FROM model_catalog WHERE model_id = $1 LIMIT 1`,
+        [id],
+      );
+      const row = rows[0];
+      if (row) {
+        const inPrice = row.usd_per_mtok_in != null ? Number(row.usd_per_mtok_in) : null;
+        const outPrice = row.usd_per_mtok_out != null ? Number(row.usd_per_mtok_out) : null;
+        if (inPrice !== null && outPrice !== null && Number.isFinite(inPrice) && Number.isFinite(outPrice)) {
+          return { cost: (promptTokens * inPrice + completionTokens * outPrice) / 1e6, basis: 'model_catalog' };
+        }
       }
     }
   } catch (e) {
     // Каталог не спросился (сеть/БД) — не выдумываем цену, падаем на запас.
     console.error('[llm-usage] каталог моделей не прочитан:', model, e instanceof Error ? e.message : e);
   }
-  if (model in COST_PER_1K) {
-    return { cost: (COST_PER_1K[model] * (promptTokens + completionTokens)) / 1000, basis: 'cost_table_fallback' };
+  for (const id of candidates) {
+    if (id in COST_PER_1K) {
+      return { cost: (COST_PER_1K[id] * (promptTokens + completionTokens)) / 1000, basis: 'cost_table_fallback' };
+    }
   }
   return { cost: null, basis: 'unknown' };
+}
+
+/**
+ * Ключ журнала → идентификаторы, под которыми модель знают источники цен.
+ *
+ * Журнал пишет вендора ДВОЕТОЧИЕМ, когда вызов шёл не через OpenRouter:
+ * `anthropic:claude-opus-5`, `qwen:qwen-plus`, `kimi:...`, `timeweb:<agent_id>`.
+ * Оба источника цен — `model_catalog` (миграция 946, слаги OpenRouter) и запас
+ * `COST_PER_1K` — знают форму с КОСОЙ ЧЕРТОЙ: `anthropic/claude-opus-5`.
+ *
+ * Разделители расходились молча, и расходился ровно САМЫЙ ДОРОГОЙ путь. Ступень
+ * 0b решателя (прямой Anthropic) просит сильнейшую модель каталога Anthropic —
+ * Opus 5, $5 вход / $25 выход за миллион, — а в книгах её строка лежала как
+ * «цену не знаем»: `estimated_cost_usd` NULL. `SUM(estimated_cost_usd)` в
+ * `/api/cron/llm-budget-check` NULL пропускает, то есть дневной бюджет не видел
+ * этих трат вовсе и сработать по ним не мог. Пустой баланс ключа Anthropic
+ * (19.09) пришёл именно оттуда: пока ключ OpenRouter лежал не в своём секрете,
+ * ступень 0 отказывала на каждом вызове и весь решатель шёл через 0b.
+ *
+ * Нормализация МЕХАНИЧЕСКАЯ: та же строка, другой разделитель. Догадок о чужих
+ * слагах здесь нет — если `vendor/model` не знает ни каталог, ни запас, цена
+ * остаётся `null`, то есть честное «не знаем» (§4.0), а не подставленный ноль.
+ */
+export function priceLookupIds(loggedModel: string): string[] {
+  const ids = [loggedModel];
+  const sep = loggedModel.indexOf(':');
+  if (sep > 0) {
+    const vendor = loggedModel.slice(0, sep);
+    const rest = loggedModel.slice(sep + 1);
+    // Слаг вендора не содержит двоеточий и косых: `timeweb:<agent_id>` так и
+    // останется неизвестным — у агента шлюза нет цены ни в одном каталоге, и
+    // притворяться, что есть, значило бы выдумать её.
+    if (rest && !rest.includes('/') && !rest.includes(':')) ids.push(`${vendor}/${rest}`);
+  }
+  return ids;
 }
 
 async function logLLMUsage(model: string, usage: ProviderUsage | undefined): Promise<void> {
