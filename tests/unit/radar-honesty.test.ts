@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { FRESH_APPROVED_SQL, SIGHTING_WINDOW_DAYS } from '@/lib/safety/bear-sightings';
 
 // P0-3b (31.07): реализация радара переехала с главной в components/safety/
 // (главная — плитка-ссылка на /safety#radar). Контракты честности не меняются
@@ -56,9 +57,20 @@ describe('радар не обещает «безопасность»', () => {
 
 describe('наблюдения туристов на радаре', () => {
   it('data.ts читает approved trail_reports со сроком годности', () => {
+    // 19.09: отбор переехал в lib/safety/bear-sightings — тот же предикат
+    // судит теперь и медвежьи зоны геофенса (#1957). Проверка от этого не
+    // ослабла, а усилилась: раньше сторож читал ТЕКСТ запроса, теперь —
+    // значение общей константы. Подмена «7» на «70» текстовую проверку
+    // прошла бы, эту не проходит.
     expect(data).toMatch(/FROM trail_reports/);
-    expect(data).toMatch(/status = 'approved'/);
-    expect(data).toMatch(/INTERVAL '7 days'/);
+    expect(data, 'радар завёл свою копию отбора — она разойдётся с геофенсом')
+      .toContain('${FRESH_APPROVED_SQL}');
+    expect(FRESH_APPROVED_SQL).toMatch(/status = 'approved'/);
+    expect(FRESH_APPROVED_SQL, 'окно исчезло из предиката: на радар полезло бы всё подряд')
+      .toMatch(/created_at > NOW\(\) - INTERVAL '1 day' \* \$1/);
+    expect(SIGHTING_WINDOW_DAYS).toBe(7);
+    expect(data, 'окно не передано параметром — предикат остался без $1')
+      .toContain('[SIGHTING_WINDOW_DAYS]');
   });
 
   it('медведь — отдельный kind с уровнем danger', () => {
