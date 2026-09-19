@@ -47,7 +47,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { shownPhotoSql, SHOWN_MODELS, GENERATED_MODELS } from '@/lib/images/origin';
+import { shownPhotoSql, SHOWN_MODELS, whyNotShown } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -55,20 +55,15 @@ export const maxDuration = 60;
 const MAX_LIMIT = 300;
 const DEFAULT_LIMIT = 100;
 
-/** Почему снимок не показывается — словами, по роду. */
-function whyHidden(model: string | null): string {
-  if (model == null) return 'род не записан';
-  if ((GENERATED_MODELS as readonly string[]).includes(model)) {
-    return 'генерация — не показывается с 17.07 (честный градиент вместо AI-фото)';
-  }
-  if (model === 'wikimedia-commons') {
-    return 'чужой снимок: лицензия требует автора, а автор в строке пуст';
-  }
-  if (model.startsWith('idilesom')) {
-    return 'скрейп с чужого сайта — прав на показ нет';
-  }
-  return 'род не в списке показываемых';
-}
+/**
+ * Почему снимок не показывается — словами, по роду.
+ *
+ * Своего объяснения перепись не держит: знание о родах живёт в
+ * `lib/images/origin.ts` вместе со списком показываемых, и написать его здесь
+ * значило бы завести четырнадцатую копию ровно того, что этот файл и сводил
+ * в одно место.
+ */
+const whyHidden = whyNotShown;
 
 export async function GET(req: NextRequest) {
   if (!timingSafeCompare(getCronSecret(req), process.env.CRON_SECRET ?? '')) {

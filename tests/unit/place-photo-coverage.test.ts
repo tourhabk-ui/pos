@@ -31,6 +31,8 @@ import { MANUAL_ENDPOINTS, DECLARED } from '@/lib/agents/cron-schedulers';
 
 const ROOT = process.cwd();
 const SRC = readFileSync(join(ROOT, 'app/api/cron/place-photo-coverage/route.ts'), 'utf-8');
+/** Единый владелец знания о родах снимков: и список показываемых, и причины. */
+const ORIGIN = readFileSync(join(ROOT, 'lib/images/origin.ts'), 'utf-8');
 /** Код без комментариев — запреты проверяются только по нему. */
 const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
@@ -50,15 +52,20 @@ describe('перепись считает показываемое, а не ст
   });
 
   it('у скрытого снимка названа ПРИЧИНА, а не только род', () => {
-    expect(SRC).toContain('function whyHidden');
     expect(SRC).toContain('hidden_by_model');
     for (const reason of ['генерация', 'лицензия требует автора', 'скрейп']) {
-      expect(SRC, `причина «${reason}» должна называться словами`).toContain(reason);
+      expect(ORIGIN, `причина «${reason}» должна называться словами`).toContain(reason);
     }
   });
 
-  it('причины скрытия не выдуманы: роды берутся из origin, а не перечислены заново', () => {
-    expect(SRC).toContain('GENERATED_MODELS');
+  it('причины скрытия живут там же, где список показываемых, — не копией здесь', () => {
+    // Первая редакция переписи написала объяснение у себя. Это была бы
+    // четырнадцатая копия знания о родах — ровно то, ради чего origin.ts и
+    // заводился (там записан счёт: тринадцать файлов с литералом).
+    expect(ORIGIN).toContain('export function whyNotShown');
+    expect(SRC).toContain('whyNotShown');
+    expect(CODE, 'роды перечислены в переписи заново').not.toContain('GENERATED_MODELS');
+    expect(CODE).not.toContain("=== 'wikimedia-commons'");
   });
 });
 

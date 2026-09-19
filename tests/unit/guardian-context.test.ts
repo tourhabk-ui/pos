@@ -290,9 +290,15 @@ describe('getGuardianContext — раздел каталога в заголов
   });
 
   it('prints the raw slug when the type is recorded but has no Russian word', async () => {
+    // Примером здесь стоял `glacier`: до 19.09 русского слова для него в
+    // словаре не было. Сведение словарей типов дало ему «Ледник», и пример
+    // пришлось сменить на заведомо чужой слаг — иначе проверка договора
+    // выродилась бы в проверку того, чего в словаре нет.
     mockDbFor({ ...base, name: 'Ледник Козельский', location_type: 'glacier' });
-    const ctx = await getGuardianContext('Ледник Козельский');
-    expect(ctx).toContain('Ледник Козельский (glacier)');
+    expect(await getGuardianContext('Ледник Козельский')).toContain('Ледник Козельский (ледник)');
+
+    mockDbFor({ ...base, name: 'Нечто', location_type: 'moraine_field' });
+    expect(await getGuardianContext('Нечто')).toContain('Нечто (moraine_field)');
   });
 
   it('prints nothing about the type when it is NULL — never a default «место»', async () => {
