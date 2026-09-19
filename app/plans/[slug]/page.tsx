@@ -17,7 +17,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { recommendTrip, type DayPlan } from '@/lib/planner';
+import { recommendTrip, ACTIVITY_CONSTRAINTS, type DayPlan } from '@/lib/planner';
 import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activity';
 import { PLAN_PRESETS, findPlanPreset, planLastModified } from '@/lib/plans/presets';
 
@@ -52,9 +52,32 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-/** Даты плана: старт через 30 дней (ISR-сутки держат их свежими). */
-function planDates(days: number): { arrival: string; departure: string } {
-  const arrival = new Date(Date.now() + 30 * 86400000);
+/**
+ * Даты плана: ближайший старт В СЕЗОНЕ обещанных интересов.
+ *
+ * Было «через 30 дней», и это ломало страницу тихо. Страница обещает
+ * «Камчатка за 7 дней: вулканы», а пересборка ISR случается в любой месяц:
+ * в октябре вулканы уже вне сезонного окна движка, и план собирался без
+ * единого вулканического дня. Раньше подмену скрывали копии одного и того же
+ * дня — движок так больше не делает (19.09), и читатель увидел бы обещание
+ * рядом с его невыполнением.
+ *
+ * Сезон берётся по ПЕРВОМУ интересу пресета: он же главный в заголовке.
+ * Окна нет — остаётся прежнее «через месяц».
+ */
+function planDates(days: number, interests: string[]): { arrival: string; departure: string } {
+  const soon = Date.now() + 30 * 86400000;
+  const months = ACTIVITY_CONSTRAINTS[interests[0] ?? '']?.months ?? [];
+
+  let arrival = new Date(soon);
+  if (months.length > 0) {
+    const from = new Date(soon);
+    for (let i = 0; i < 24; i++) {
+      const candidate = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + i, 10));
+      if (months.includes(candidate.getUTCMonth() + 1)) { arrival = candidate; break; }
+    }
+  }
+
   const departure = new Date(arrival.getTime() + days * 86400000);
   return {
     arrival: arrival.toISOString().slice(0, 10),
@@ -76,7 +99,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
   // Движок может быть недоступен (БД, таймаут) — страница обязана открыться.
   let days: DayPlan[] = [];
   let tours: Record<string, TopTour> = {};
-  const { arrival, departure } = planDates(preset.days);
+  const { arrival, departure } = planDates(preset.days, preset.interests);
   try {
     const rec = await recommendTrip({
       interests: preset.interests,

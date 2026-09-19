@@ -81,6 +81,9 @@ const safetyStatusSchema = z.object({});
 const makeTripPlanSchema = z.object({
   days: looseString(4).optional(),
   interests: looseString(300).optional(),
+  // Когда ехать. Без него старт был зашит как «через месяц», и спросить план
+  // на июль было нельзя ничем (19.09).
+  when: looseString(40).optional(),
 });
 
 // ── get_tour_availability ───────────────────────────────────────────────────
@@ -282,6 +285,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
           properties: {
             days: { type: 'string', description: 'Сколько дней поездка (число, 3–21). Не сказано — 7.' },
             interests: { type: 'string', description: 'Интересы туриста своими словами: «вулканы и медведи», «рыбалка», «море и термальные»' },
+            when: { type: 'string', description: 'Когда поездка: месяц («июль», «в августе») или дата YYYY-MM-DD. Сезон на Камчатке решает всё — если турист назвал месяц, передай его обязательно. Не сказано — через месяц от сегодня.' },
           },
           required: [],
         },

@@ -386,6 +386,30 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
   },
 };
 
+/**
+ * Ключ активности → слово для человека.
+ *
+ * Заведено 19.09: заголовок дня без реального тура собирался как
+ * `${interest} — ${ZONE_NAMES[zone]}` и показывал туристу ключ движка —
+ * «thermal — Авачинская зона». Словарь один на движок и на Кузьмича: второй
+ * перевод тех же ключей разошёлся бы с первым.
+ */
+export const ACTIVITY_NAMES: Record<string, string> = {
+  volcano:    'вулканы',
+  fishing:    'рыбалка',
+  bears:      'медведи',
+  helicopter: 'вертолётные экскурсии',
+  thermal:    'термальные источники',
+  hot_spring: 'горячие источники',
+  trekking:   'треккинг',
+  boat_trip:  'морские прогулки',
+  sea:        'море',
+  geyser:     'гейзеры',
+  snowmobile: 'снегоходы',
+  mountain:   'горы',
+  river:      'сплавы',
+};
+
 const INTEREST_TO_ZONES: Record<string, ZoneId[]> = {
   volcano:    ['avachinsky'],
   fishing:    ['western', 'avachinsky'],
@@ -603,6 +627,17 @@ function getMonth(profile: TripProfile): number {
   return profile.arrivalDate
     ? new Date(profile.arrivalDate).getMonth() + 1
     : new Date().getMonth() + 1;
+}
+
+/** «1 день / 2 дня / 5 дней» — счёт в предупреждении читает человек. */
+function pluralDays(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return 'дней';
+  switch (n % 10) {
+    case 1: return 'день';
+    case 2: case 3: case 4: return 'дня';
+    default: return 'дней';
+  }
 }
 
 function getTripDays(profile: TripProfile): number {
@@ -958,6 +993,10 @@ async function generateDayPlans(
   // Need helicopter buffer day?
   const needsHeliBuffer = profile.interests.some(i => ACTIVITY_CONSTRAINTS[i]?.requiredTransport === 'helicopter');
 
+  // Пары «зона + активность», для которых общий день уже выдан: повторять
+  // его нельзя (см. ниже, в цикле дней).
+  const genericDays = new Set<string>();
+
   // Insert travel days between different zones
   let prevZone: ZoneId = 'avachinsky';
 
@@ -1002,10 +1041,25 @@ async function generateDayPlans(
       const realTour: RealTour | null = d < realTours.length ? realTours[d] : null;
       const route = !realTour && d - realTours.length >= 0 ? dbRoutes[d - realTours.length] : null;
 
+      // Ни тура, ни маршрута — день собирается из одного сезонного окна, и
+      // второй такой день был бы КОПИЕЙ первого. Замер с прода 19.09: десять
+      // дней без интересов в октябре давали восемь одинаковых строк
+      // «thermal — Авачинская зона — от 1 500 ₽». Восемь копий одного дня
+      // выглядят планом, планом не являясь: место, где нельзя сказать «нечем
+      // наполнить», заполнилось повтором (§4.0). Теперь общий день по паре
+      // «зона + активность» выдаётся ОДИН раз, а недобор называется словами
+      // в предупреждении.
+      if (!realTour && !route) {
+        const genericKey = `${block.zone}:${interest}`;
+        if (genericDays.has(genericKey)) continue;
+        genericDays.add(genericKey);
+      }
+
       const coords: [number, number] = realTour
         ? [realTour.lat, realTour.lng]
         : route ? [route.lat, route.lng] : ZONE_COORDS[block.zone];
-      const title = realTour?.title ?? route?.title ?? `${interest} — ${ZONE_NAMES[block.zone]}`;
+      const title = realTour?.title ?? route?.title
+        ?? `${ACTIVITY_NAMES[interest] ?? interest} — ${ZONE_NAMES[block.zone]}`;
 
       const childOk = youngest === null || youngest >= c.minChildAge;
       const dayWarnings: string[] = [];
@@ -1184,8 +1238,14 @@ async function generateDayPlans(
     }
   }
 
-  // ── Fill remaining days with light activities ──
-  while (dayNum <= tripDays - departureDays) {
+  // ── Один свободный день, если бюджет остался ──
+  //
+  // Раньше здесь стоял `while`, добивавший остаток поездки копиями одной и
+  // той же строки про рыбный рынок. Свободный день в поездке — норма, восемь
+  // одинаковых свободных дней — не план, а заполненная пустота. Один день
+  // выдаётся, остаток честно остаётся незаполненным: о нём говорит
+  // предупреждение в `recommendTrip`.
+  if (dayNum <= tripDays - departureDays) {
     days.push({
       day: dayNum++, type: 'activity', zone: 'avachinsky',
       title: 'Свободный день. Город, сувениры, рыбный рынок',
@@ -1338,6 +1398,26 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     });
   }
   const days = await generateDayPlans(profile, zones, tripDays, cache);
+
+  // ── План короче запрошенного — это факт, и он говорится словами ──────────
+  //
+  // Добивать остаток копиями движок больше не умеет (19.09), значит разница
+  // между «просили 10 дней» и «наполнили 4» стала видимой. Видимой она и
+  // должна быть: молчание здесь читается как «вот ваши четыре дня», то есть
+  // как обещание, что больше на Камчатке в этот месяц делать нечего.
+  if (days.length > 0 && days.length < tripDays) {
+    const month = getMonth(profile);
+    const offSeason = profile.interests
+      .filter(i => ACTIVITY_CONSTRAINTS[i] && !ACTIVITY_CONSTRAINTS[i].months.includes(month))
+      .map(i => ACTIVITY_NAMES[i] ?? i);
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Наполнили ${days.length} ${pluralDays(days.length)} из ${tripDays}`
+        + (offSeason.length > 0 ? `: в этом месяце вне сезона ${offSeason.join(', ')}` : ': подтверждённых выходов на остальные дни у нас нет')
+        + '. Остальные дни не придумываем — сдвиньте даты или добавьте интересы, и план соберётся полнее.',
+    });
+  }
 
   // Inject weather forecasts for activity days
   if (profile.arrivalDate && days.length > 0) {

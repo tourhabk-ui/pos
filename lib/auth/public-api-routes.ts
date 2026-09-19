@@ -45,6 +45,12 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   // мёртв молча. Внутри роутов rate-limit и дедуп по sos_id.
   '/api/mesh': ['GET', 'POST'],
   '/api/safety/register': ['POST'], // Route registration before hike — must remain public (safety feature)
+  // Точка со спутникового трекера. Публичный by design: передатчик за сотни
+  // километров не умеет ни JWT, ни OAuth — он делает один POST по заранее
+  // вбитому адресу. Доказательство права писать — токен в пути (32 байта,
+  // миграция 983); закрой Edge этот адрес, и приёмника не будет вовсе.
+  // Токен пишет ОДНУ строку одной регистрации и не читает ничего.
+  '/api/safety/tracker/*': ['POST'],
   '/api/safety/rescue-chat': ['POST'], // AI Спасатель (requires auth inside handler)
   '/api/safety/seismic':    ['GET'],  // публичные сейсмические данные (КБГС РАН / USGS)
   '/api/safety/volcanic':   ['GET'],  // публичные вулканические алерты

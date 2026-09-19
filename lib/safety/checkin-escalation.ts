@@ -146,9 +146,39 @@ export interface EscalationMessageInput {
   mchsInformedText?: string | null;
 }
 
-export function formatPositionText(lat: string | null, lng: string | null): string {
+/**
+ * Откуда пришла последняя точка. `null` — источник не записан (регистрации
+ * до миграции 985); догадываться задним числом нельзя.
+ */
+export type PositionSource = 'phone' | 'tracker' | null;
+
+/**
+ * Позиция словами — с указанием, ЧТО именно её прислало.
+ *
+ * Источник появился 19.09 вместе с приёмником спутникового трекера, и он не
+ * украшение. Для того, кто едет искать человека, две одинаково старые точки
+ * значат разное:
+ *
+ *   телефон — час назад у него БЫЛА СВЯЗЬ (значит место с покрытием, и
+ *             молчание после этого — новость);
+ *   трекер  — час назад было живо УСТРОЙСТВО (связи могло не быть вовсе,
+ *             и молчание телефона ничего не добавляет).
+ *
+ * Слить их в одну строку значило бы потерять ровно то, ради чего трекер и
+ * подключают.
+ */
+export function formatPositionText(
+  lat: string | null,
+  lng: string | null,
+  source: PositionSource = null,
+): string {
   if (!lat || !lng) return 'неизвестно';
-  return `${parseFloat(lat).toFixed(5)}° N, ${parseFloat(lng).toFixed(5)}° E`;
+  const point = `${parseFloat(lat).toFixed(5)}° N, ${parseFloat(lng).toFixed(5)}° E`;
+  if (source === 'tracker') return `${point} (спутниковый трекер)`;
+  if (source === 'phone') return `${point} (телефон)`;
+  // Источник не записан — так и молчим. Приписать «телефон» было бы
+  // догадкой в сообщении, по которому поднимают спасателей (§4.0).
+  return point;
 }
 
 /**
