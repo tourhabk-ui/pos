@@ -69,14 +69,13 @@
 | **Scout Digest** | `lib/agents/scout-digest.ts` | стадия `runEvoOrchestrator`, 4×/сутки (`evo.run` с cron-job.org); своего крона нет с 29.08, ручной прогон — маркер `.github/triggers/scout-digest.json` | 15 источников (`RSS_SOURCES`) + safety-слой для раздела «Камчатка»: RSS (Habr AI, Simon Willison, Hugging Face, MarkTechPost, HN, OpenAI, Google AI, DeepMind, Турпром, RATA, Skift, Product Hunt) + Telegram-превью (РСТ, Минэк-туризм, Vibecoding) → дедупликация URL (TTL 30д) → AI-синтез → Telegram. Гео-закрытые для РФ источники (t.me, openai.com) — через реле Cloudflare `infra/safety-relay` (`SCOUT_RELAY_BASE`, клиент `lib/agents/scout-relay.ts`); проверка реле с прода — `GET /api/cron/scout-relay-check`. Kamgov/ATOR сняты 01.08 (ленты умерли). |
 | **Scout Innovator** | `lib/agents/scout-innovator.ts` | 08:00 UTC | Анализ трендов + платформы → структурированные proposals → GitHub Issues (`agent-proposal`). Дедуп по открытым issues (Jaccard ≥ 0.5) + critic-gate (отсев нарушающего CLAUDE.md/готового) + task-locking (кросс-прогонный дедуп). |
 | **Danger Analyst** | `lib/agents/agencies/danger-analyst-agency.ts` | каждые 30 мин | Анализ опасностей по зонам маршрутов, данные в `v_current_danger`. |
-| **Industry Intel** | `lib/telegram/industry-channels.ts` | 1–2×/сутки | Чтение 10 отраслевых TG-каналов через MTProto → market-intelligence в `agent_memory`. Нужны `TG_API_*`. `/api/cron/industry-intel`. |
 | **Legislation Sync** | `lib/services/legislation-importer.ts` | 1×/неделю | Парсинг законодательства (Путешествуем.рф) → `legislation_docs` → контекст Кузьмича со ссылкой. Нужны `FIRECRAWL_API_KEY` + URL'ы. `/api/cron/legislation-sync`. |
 | **Memory Reflector** | `lib/agents/memory-reflector.ts` | 1×/сутки | Истекающие intel-сигналы → durable insight-страницы в `agent_knowledge`. `/api/cron/memory-reflect`. |
 | **Contradiction Scanner** | `lib/agents/memory-contradiction.ts` | 1×/сутки | Safety: прямые противоречия в данных → флаг в `agent_knowledge` + алерт. `/api/cron/memory-contradiction`. |
 | **Editor Eval** | `lib/agents/eval/editor-regression.ts` | on-demand | Регрессионный TSR + Wilson CI + LLM-judge качества Editor до выкатки промпта. `/api/cron/editor-eval?judge=1`. |
 
 GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-scout.yml`, `cron-kuzmich-places.yml`
-Новые croны (Industry Intel, Legislation Sync, Memory Reflector, Contradiction Scanner, Editor Eval) — через cron-job.org; настройка в [`docs/ACTIVATION_CHECKLIST.md`](./docs/ACTIVATION_CHECKLIST.md).
+Новые croны (Legislation Sync, Memory Reflector, Contradiction Scanner, Editor Eval) — через cron-job.org; настройка в [`docs/ACTIVATION_CHECKLIST.md`](./docs/ACTIVATION_CHECKLIST.md).
 
 ### Loop-агенты (GitHub Actions, loop engineering)
 

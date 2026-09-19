@@ -37,7 +37,6 @@ import { runEvolverAnalysis } from '@/lib/agents/evo/evolver-analysis';
 import { bridgeScoutIntel } from '@/lib/agents/evo/intel-bridge';
 import { runModelWatcher } from '@/lib/agents/evo/model-watcher';
 import { runScoutInnovator } from '@/lib/agents/scout-innovator';
-import { scanIndustryChannels } from '@/lib/telegram/industry-channels';
 import { runMemoryReflector } from '@/lib/agents/memory-reflector';
 
 export interface OrchestratorResult {
@@ -49,7 +48,6 @@ export interface OrchestratorResult {
   models: unknown;
   scoutDigest: unknown;
   scoutInnovator: unknown;
-  industryIntel: unknown;
   memoryReflector: unknown;
   duration_ms: number;
   errors: string[];
@@ -62,7 +60,7 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   // Phase 1: параллельно — диагностика (внутрь) + безопасность + анализ логов +
   // мост разведки (наружу): дайджест Scout → находки 'intel' в общий пул +
   // четыре бывших отдельных crona (см. комментарий файла).
-  const [scanRes, evolverRes, intelRes, modelsRes, scoutInnovatorRes, industryIntelRes, memoryReflectorRes] = await Promise.allSettled([
+  const [scanRes, evolverRes, intelRes, modelsRes, scoutInnovatorRes, memoryReflectorRes] = await Promise.allSettled([
     runGrowthScan(scanType),
     // Rescue здесь НЕ идёт с 08.09 (issue #1725). Он шёл двумя расписаниями
     // сразу: свой крон каждые 30 минут (cron-rescue.yml, safety-tier, с
@@ -82,7 +80,6 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
     // intel-bridge выше читает последний выпуск из базы знаний, а не ждёт
     // его от этого же прогона.
     runScoutInnovator(),
-    scanIndustryChannels(),
     runMemoryReflector(),
   ]);
 
@@ -132,7 +129,6 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
       digest_skip_detail: 'дайджест идёт своим кроном (cron-scout-digest.yml), не стадией эволюции — 05.09',
     },
     scoutInnovator: unwrap(scoutInnovatorRes, 'ScoutInnovator'),
-    industryIntel: unwrap(industryIntelRes, 'IndustryIntel'),
     memoryReflector: reflector,
     duration_ms: Date.now() - start,
     errors,

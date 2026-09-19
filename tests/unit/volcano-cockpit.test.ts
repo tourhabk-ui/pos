@@ -111,7 +111,10 @@ describe('клиент кокпита: наблюдение без кнопок 
       orchestrator.indexOf('duration_ms: number'),
     );
     const orchestratorStages = [...resultBlock.matchAll(/^\s*(\w+): unknown;/gm)].map((m) => m[1]);
-    expect(orchestratorStages.length).toBeGreaterThanOrEqual(10);
+    // Пол, а не точное число: он защищает от пустого разбора (регулярка
+    // перестала ловить — сверка ниже сравнила бы два пустых списка и
+    // позеленела). 10 → 9 после снятия industryIntel вместе с MTProto 19.09.
+    expect(orchestratorStages.length).toBeGreaterThanOrEqual(9);
 
     const clientStages = [...CLIENT.matchAll(/key: '(\w+)', label:/g)].map((m) => m[1]);
     expect(clientStages.sort()).toEqual(orchestratorStages.sort());

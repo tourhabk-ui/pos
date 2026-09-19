@@ -52,8 +52,11 @@ const PEAK_ALLOWED: Record<string, string> = {
   'cron-rescue.yml': 'safety-tier, каждые 30 минут',
   'cron-kernel-worker.yml': 'очередь ядра каждые 30 минут',
   'cron-health.yml': 'ежечасная проба провайдеров — один короткий вызов',
-  'cron-tg-watchdog.yml': 'проверка вебхука бота каждые 30 минут',
-  'cron-watchdog.yml': 'Watchdog каждые 30 минут; заодно зовёт telegram-webhook-watchdog',
+  // 19.09: обе строки сняты — не переносом, а тем, что кроны ПЕРЕСТАЛИ звать
+  // модель. Их 'ai' был транзитивным: watchdog → telegram-webhook-watchdog →
+  // operator-availability → callAIFast в экстракторе сигналов из TG-групп.
+  // Экстрактор удалён вместе с MTProto, и два получасовых safety-крона больше
+  // не тянут провайдера вовсе. Список сокращается сам — в этом и смысл.
   'cron-tour-reminder.yml': '06:00 UTC = 18:00 Камчатки, напоминание туристу; объём — туры ближайших двух дней',
   'cron-kuzmich-tour.yml': '07:23 UTC = 19:23 Камчатки, один пост в канал: час — аудитории',
   'cron-kuzmich-route.yml': '09:00 UTC = 21:00 Камчатки, один пост в канал: час — аудитории',

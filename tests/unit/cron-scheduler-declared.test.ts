@@ -138,6 +138,8 @@ describe('cron: у каждого эндпоинта назван запуска
     // стадиями `runEvoOrchestrator`, а реестр звал их «внешним расписанием» —
     // то есть «идёт ли, не знаю». Сторож дублей этого не видел: он сравнивает
     // только адреса из workflow, а у стадии адреса нет вовсе.
+    // `industry-intel` снят 19.09 вместе с MTProto; правило держит
+    // `memory-reflect` и всякую будущую стадию.
     const orchestrator = entryCalls(ORCHESTRATOR);
     const misdeclared: string[] = [];
     for (const [endpoint, d] of Object.entries(DECLARED)) {

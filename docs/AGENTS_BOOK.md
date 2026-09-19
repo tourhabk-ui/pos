@@ -29,7 +29,6 @@
    - [Scout Innovator](#15-scout-innovator--генератор-предложений)
    - [Intelligence](#16-intelligence--мониторинг-сигналов)
    - [KB Gap](#17-kb-gap--заполнение-пробелов-kb)
-   - [Group Scout](#18-group-scout--разведка-telegram-групп)
 5. [Часть IV — Бизнес-операции](#часть-iv)
    - [Abandoned Bookings](#19-abandoned-bookings--брошенные-бронирования)
    - [Payouts](#20-payouts--выплаты-операторам)
@@ -203,7 +202,7 @@ npx web-push generate-vapid-keys
 #### Как активировать
 
 1. Сгенерировать VAPID ключи, добавить в env
-2. Workflow читает Telegram MTProto — убедиться что bot token не заблокирован
+2. Workflow читает Telegram Bot API — убедиться что bot token не заблокирован
 3. Проверить `cron-safety-ingest.yml` расписание `*/5 * * * *`
 4. GitHub Actions должен поддерживать такую частоту (иногда нужно 2-минутный интервал)
 
@@ -797,38 +796,11 @@ CRON_SECRET=<секрет>
 
 ---
 
-### 18. Group Scout — Разведка Telegram групп
+### 18. Group Scout — удалён 19.09
 
-**Файл:** `app/api/cron/group-scout/route.ts`  
-**Расписание:** вручную (рекомендуется каждые 12 часов)
-
-#### Что делает
-
-Мониторинг релевантных Telegram-групп и каналов:
-- Сканирует список известных тематических групп (туризм, Камчатка, безопасность)
-- AI-фильтрует сообщения по релевантности (0–10, порог 7)
-- Сохраняет ценные данные в `agent_memory`
-- Максимум: 5 новых групп в день
-
-Использует gramjs (Telegram MTProto) — **требует отдельной авторизации**, не через bot token.
-
-#### Настройка (сложная)
-
-Для MTProto нужен Telegram API ID/Hash:
-1. my.telegram.org → API Development Tools
-2. Создать приложение → получить `api_id` и `api_hash`
-3. Авторизоваться (потребует номер телефона — **не рекомендуется для cron**, используй отдельный аккаунт)
-
-```env
-TELEGRAM_API_ID=<api id>
-TELEGRAM_API_HASH=<api hash>
-# session string (gramjs)
-TELEGRAM_SESSION_STRING=<string session>
-```
-
----
-
-## Часть IV — Бизнес-операции
+Разведка Telegram-групп через MTProto снята вместе со всем транспортом:
+ключи не были заданы ни разу, а авторизация требовала личный аккаунт на
+сервере. См. `docs/ACTIVATION_CHECKLIST.md` §1.
 
 ---
 
@@ -1529,7 +1501,7 @@ CLOUDPAYMENTS_SECRET=
 | `lead_followups` | followups |
 | `agent_route_knowledge` | editor, import-routes, enrich-routes |
 | `agent_knowledge` | scout-digest, scout-innovator, kb-gap |
-| `agent_memory` | scout-digest, group-scout |
+| `agent_memory` | scout-digest |
 | `tour_payments` | payouts |
 | `external_alerts` | safety-ingest |
 | `location_real_time_status` | safety-ingest |
