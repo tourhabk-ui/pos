@@ -129,6 +129,25 @@ jobs:
             echo "Дошли, ключ жив."
           elif [ "$CODE" != "403" ] && grep -q '"type":"error"' /tmp/runner.json; then
             echo "::warning::Дошли до Anthropic (HTTP $CODE, ответ формы Anthropic) — путь через шлюз есть; ключ отвечает отказом: см. тело выше."
+            # Форма ключа БЕЗ содержимого — тем же приёмом, что у пробы
+            # OpenRouter. Прогон 4 той пробы (19.09) нашёл в секрете
+            # OPENROUTER_API_KEY ключ длиной 108 без начала `sk-or-`, то есть
+            # чужой. Если ключи разложены не по своим секретам, то «API key is
+            # invalid» здесь — не отзыв ключа, а тот же обмен местами, и
+            # чинится он возвратом, а не выпуском нового.
+            LEN=$(printf '%s' "$ANTHROPIC_API_KEY" | wc -c | tr -d ' ')
+            case "$ANTHROPIC_API_KEY" in
+              sk-ant-*)  FAMILY="Anthropic (sk-ant-)" ;;
+              sk-or-*)   FAMILY="OPENROUTER (sk-or-) — ключ лежит не в своём секрете" ;;
+              sk-proj-*) FAMILY="OpenAI project (sk-proj-) — ключ лежит не в своём секрете" ;;
+              sk-*)      FAMILY="иной sk-ключ" ;;
+              *)         FAMILY="не похож ни на одну известную форму" ;;
+            esac
+            case "$ANTHROPIC_API_KEY" in
+              *[[:space:]]*) SPACE=ДА ;;
+              *)             SPACE=нет ;;
+            esac
+            echo "форма ключа раннера: длина=$LEN, чей по началу: $FAMILY, пробелы внутри=$SPACE"
           else
             echo "::error::Шлюз с раннера не довёл до Anthropic (HTTP $CODE) — дальше мерить нечего: сломан шлюз, а не гео-путь."
             exit 1
