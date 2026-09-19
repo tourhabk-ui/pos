@@ -125,4 +125,39 @@ describe('вид по дизайн-системе', () => {
     expect(component).toMatch(/from 'lucide-react'/);
     expect(component).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   });
+
+  it('зелёный не становится главным акцентом экрана', () => {
+    // Разбор 19.09: первая редакция красила кнопку сплошным --success по
+    // НАЗВАНИЮ сервиса. На Ведаре цвет несёт состояние (§1), зелёный значит
+    // «эко/норма», а рядом в блоке МЧС уже стоит яркая кнопка — два кричащих
+    // действия отменяют друг друга. Заливка допускается только разбавленная.
+    expect(component).not.toMatch(/background:\s*'var\(--success\)'/);
+    expect(component).not.toMatch(/bg-\[var\(--success\)\]/);
+    expect(component).toMatch(/color-mix\(in srgb, var\(--success\) \d+%/);
+  });
+
+  it('тач-цели не меньше 44px — это палец в перчатке, а не придирка', () => {
+    const targets = component.match(/min-h-\[44px\]/g) ?? [];
+    expect(targets.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('запасные способы свёрнуты, и свёрнуты нативно — без JS и без сети', () => {
+    // Четыре адреса с часами работы — это шум на экране человека в поле.
+    // <details> открывается без JS (§8) и доступен с клавиатуры (§10).
+    // Ищем РАЗМЕТКУ, а не слово: первая версия этой проверки радовалась
+    // упоминанию `<details>` в комментарии к файлу и пропускала мутацию,
+    // в которой блок был развёрнут обратно (поймано мутационной проверкой).
+    expect(component).toMatch(/<details\s+className=/);
+    expect(component).toMatch(/<summary\s+className=[\s\S]{0,400}Другие способы/);
+    // Список способов лежит ВНУТРИ раскрывающегося блока, а не над ним.
+    const det = component.indexOf('<details');
+    const list = component.indexOf('PARK_PERMIT_CHANNELS.filter');
+    expect(det).toBeGreaterThan(0);
+    expect(list).toBeGreaterThan(det);
+  });
+
+  it('движение — только переходами Tailwind, без keyframes', () => {
+    expect(component).toMatch(/transition-\w+ duration-200/);
+    expect(component).not.toMatch(/@keyframes|animate-\[/);
+  });
 });
