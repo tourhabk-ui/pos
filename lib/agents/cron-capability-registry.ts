@@ -90,6 +90,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'health': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money', 'pd_direct'],
   'hidden-tracks-census': ['db_read'],
   'images-generated': ['db_read', 'db_write'],
+  // Перепись перевезённого: только чтение базы. Ни записи, ни сети — снимки
+  // она не трогает и в хранилище не ходит, ключи берёт из таблицы (19.09).
+  'images-in-s3': ['db_read'],
   'images-oversize': ['db_read'],
   'images-recompress': ['db_read', 'db_write'],
   'images-to-s3': ['db_read', 'db_write', 'net_out'],
