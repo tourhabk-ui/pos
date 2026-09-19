@@ -177,6 +177,24 @@ export interface PartnerReachCensusRow {
  */
 export async function partnerReachCensus(): Promise<PartnerReachCensusRow[]> {
   const { rows } = await pool.query<PartnerReachRow & { name: string; live_tours: number }>(
+    // ── Что считать ЖИВЫМ туром (поправка 18.09) ──────────────────────────
+    //
+    // Тревога Watchdog назвала 14 туров за тремя недостижимыми операторами.
+    // Владелец попросил посмотреть прод — и в каталоге, который видит турист
+    // (`buildTourCatalog`, он же MCP `get_tours`), тех же операторов стоит
+    // ДЕВЯТЬ туров. Разошлись предикаты: перепись спрашивала только
+    // `is_active`, каталог — ещё `deleted_at IS NULL` и `is_published`.
+    //
+    // Пять туров из четырнадцати турист открыть не может ВООБЩЕ: они удалены
+    // или сняты с публикации. Заявке по ним взяться неоткуда, и считать их
+    // ценой молчания — завышать ущерб в полтора раза. Тревога, которая
+    // преувеличивает, обесценивает себя: следующую цифру уже делят на глаз.
+    //
+    // Предикат теперь тот же, что у витрины и у `channel-readiness`. Слово
+    // «живой» на этой платформе значит одно и то же везде — расхождение
+    // здесь было ровно того же рода, что «778 мест» и «20 туров» в §4.1:
+    // число больше правды, и работа считается сделанной там, где её нет.
+    //
     // Оба chat_id — BIGINT (миграции 077 и 145), не текст. Ранняя редакция
     // переписи обернула их в TRIM(), и прод ответил «function
     // pg_catalog.btrim(bigint) does not exist»: перепись упала целиком.
@@ -188,7 +206,10 @@ export async function partnerReachCensus(): Promise<PartnerReachCensusRow[]> {
             p.max_chat_id
        FROM partners p
        LEFT JOIN users u_reach ON u_reach.id = p.user_id
-       JOIN operator_tours t ON t.operator_id = p.id AND t.is_active = true
+       JOIN operator_tours t ON t.operator_id = p.id
+                            AND t.is_active = true
+                            AND t.deleted_at IS NULL
+                            AND COALESCE(t.is_published, TRUE) = TRUE
       GROUP BY p.id, p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
   );
   return rows.map((r) => {

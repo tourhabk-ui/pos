@@ -140,3 +140,33 @@ describe('недостижимость не выдаётся за молчани
     expect(c).toMatch(/reach === null/);
   });
 });
+
+describe('живой тур в переписи — тот же, что видит турист', () => {
+  /**
+   * 18.09: тревога назвала 14 туров за тремя недостижимыми операторами, а в
+   * каталоге туриста тех же операторов стояло девять. Перепись спрашивала
+   * только `is_active`, витрина — ещё `deleted_at IS NULL` и `is_published`.
+   *
+   * Пять туров турист открыть не может вообще: заявке по ним взяться неоткуда.
+   * Считать их ценой молчания — завышать ущерб в полтора раза, а тревога,
+   * которая преувеличивает, обесценивает себя.
+   */
+  const census = code(read('lib/partners/reach.ts'));
+  const catalog = code(read('lib/kuzmich/core.ts'));
+
+  it('перепись отсеивает удалённые и неопубликованные туры', () => {
+    const join = census.slice(census.indexOf('JOIN operator_tours t'));
+    expect(join.slice(0, 400)).toMatch(/t\.is_active\s*=\s*true/);
+    expect(join.slice(0, 400)).toMatch(/t\.deleted_at IS NULL/);
+    expect(join.slice(0, 400)).toMatch(/COALESCE\(t\.is_published, TRUE\) = TRUE/);
+  });
+
+  it('витрина туриста судит теми же тремя условиями', () => {
+    // Если витрина ослабит или ужесточит своё условие, а перепись останется
+    // прежней, числа разойдутся снова — и снова молча.
+    const where = catalog.slice(catalog.indexOf('FROM operator_tours ot'));
+    expect(where.slice(0, 900)).toMatch(/ot\.is_active = true/);
+    expect(where.slice(0, 900)).toMatch(/ot\.deleted_at IS NULL/);
+    expect(where.slice(0, 900)).toMatch(/COALESCE\(ot\.is_published, TRUE\) = TRUE/);
+  });
+});
