@@ -72,7 +72,7 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
           style={{ background: 'var(--accent)' }}
         >
           <Navigation className="w-4 h-4" />
-          Навигация
+          Проложить путь
         </button>
 
         <button

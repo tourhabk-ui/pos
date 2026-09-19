@@ -195,6 +195,47 @@ describe('незнание сказано словами, а не пропуще
   });
 });
 
+/**
+ * Срез 3: одно действие-кнопка, один фиксированный слой.
+ *
+ * На телефоне поверх содержимого висели ТРИ постоянных слоя: липкая шапка
+ * действий, фиксированный бар со скачиванием GPX и фиксированный SOS. Бар GPX
+ * держался от SOS константой 52 пикселя, списанной с чужого компонента, —
+ * наехать друг на друга они уже успели однажды, и закрыт тогда оказался бы
+ * SOS.
+ */
+describe('одно действие-кнопка, один фиксированный слой', () => {
+  const CLIENT = codeOnly(readFileSync(join(ROOT, 'app', 'places', '[id]', '_PlaceDetailClient.tsx'), 'utf-8'));
+  const BAR = codeOnly(readFileSync(join(PLACES, 'PlaceActionBar.tsx'), 'utf-8'));
+
+  it('в карточке не осталось своего фиксированного бара — SOS единственный', () => {
+    expect(CLIENT).not.toMatch(/className="[^"]*\bfixed\b[^"]*"/);
+    expect(CLIENT).not.toContain('MobileBottomBar');
+  });
+
+  it('константы «высота SOS» больше нет — слои не держатся друг за друга числом', () => {
+    expect(CLIENT).not.toMatch(/env\(safe-area-inset-bottom\)\s*\+\s*\d+px/);
+  });
+
+  it('GPX места остался достижим и ровно одной ссылкой', () => {
+    const hits = CLIENT.match(/\/api\/places\/\$\{place\.id\}\/gpx/g) ?? [];
+    expect(hits.length, 'вторая копия действия расходится поведением (#887)').toBe(1);
+    expect(CLIENT).toContain('Скачать точку (GPX)');
+  });
+
+  it('главное действие названо тем, что делает, а не «Навигация»', () => {
+    // «Навигация» исторически означала выбор ЧУЖОГО навигатора; с 13.09 кнопка
+    // будит наш расчёт по дорожному графу, и имя должно говорить об этом.
+    expect(BAR).toContain('Проложить путь');
+    expect(BAR).not.toMatch(/>\s*Навигация\s*</);
+  });
+
+  it('акцентная кнопка в шапке действий одна', () => {
+    const accent = BAR.match(/background:\s*'var\(--accent\)'/g) ?? [];
+    expect(accent.length, 'акцент, употреблённый дважды, перестаёт быть акцентом').toBe(1);
+  });
+});
+
 describe('дружелюбие не отменило тревогу', () => {
   it('уровень по-прежнему считается по isOpen и alertSeverity', () => {
     expect(STATUS).toContain('function getLevel');
