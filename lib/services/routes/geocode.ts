@@ -8,6 +8,8 @@
  * не для массового импорта.
  */
 
+import { GEOCODE_ENVELOPE } from '@/lib/geo/krai-envelope';
+
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
 const USER_AGENT = 'KamchatourHub/1.0 (https://vedarai.ru; admin geocoding tool)';
 
@@ -37,9 +39,11 @@ export function clearGeocodeCache(): void {
   geocodeCache.clear();
 }
 
-// Kamchatka bounding box (см. lib/services/ingest/idilesom-importer.ts) — защита от
-// того, что Nominatim примет название места за что-то за пределами края.
-export const KAMCHATKA_BOUNDS = { latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 };
+// Конверт геокодера — защита от того, что Nominatim примет название места за
+// что-то за пределами края. Числа живут в lib/geo/krai-envelope вместе с двумя
+// другими конвертами Камчатки: до 19.09 их было три, они не совпадали, и два
+// носили одно имя (#1961). Имя KAMCHATKA_BOUNDS оставлено для вызывающих.
+export const KAMCHATKA_BOUNDS = GEOCODE_ENVELOPE;
 
 export function withinKamchatka(lat: number, lng: number): boolean {
   return lat >= KAMCHATKA_BOUNDS.latMin && lat <= KAMCHATKA_BOUNDS.latMax

@@ -21,6 +21,7 @@ import { pool } from '@/lib/db-pool';
 import { parseGpx } from '@/lib/services/ingest/visitkamchatka-gpx-importer';
 import { matchTrackToPlace, type PlaceRef } from '@/lib/services/ingest/track-place-match';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { GEOCODE_ENVELOPE } from '@/lib/geo/krai-envelope';
 
 const HEADERS = {
   'User-Agent': 'VedarBot/1.0 (+https://vedarai.ru; туристическая платформа Камчатки)',
@@ -32,8 +33,12 @@ const RSS_FEEDS = [
   'https://www.openstreetmap.org/traces/tag/kamchatka/rss',
 ];
 
-// Bbox Камчатского края с запасом
-const BBOX = { latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 };
+// Bbox Камчатского края с запасом. Числа — из общего модуля: это был
+// ЧЕТВЁРТЫЙ конверт края в репозитории, найденный сторожем 19.09 (#1961).
+// Он совпадал с геокодерным посимвольно и разошёлся бы при первой же правке
+// того — молча, потому что имени `KAMCHATKA_BOUNDS` не носил и по имени не
+// искался.
+const BBOX = GEOCODE_ENVELOPE;
 
 export interface OsmTraceItem {
   id: string;

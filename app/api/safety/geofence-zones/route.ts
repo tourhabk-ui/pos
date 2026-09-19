@@ -9,10 +9,20 @@
  * настоящие KVERT-оповещения (trust-first). Термальные источники и гейзеры —
  * физическая опасность независимо от активности, остаются как были. Цунами —
  * из safety-профиля. При сбое БД — пустой массив + флаг fallback, не синтетика.
+ *
+ * Медведи (род `wildlife`, 19.09, #1957): из подтверждённых наблюдений
+ * туристов, окно и правила — в `lib/safety/bear-sightings.ts`. До этого дня
+ * род был объявлен в `ZoneHazard` и не производился ничем — объявленный исход
+ * без источника (§4). Такие зоны скоропортящиеся и несут `expiresAt`.
  */
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import type { GeofenceZone, ZoneHazard, ZoneLevel } from '@/lib/safety/geofence';
+import {
+  bearSightingZone,
+  FRESH_APPROVED_SQL,
+  SIGHTING_WINDOW_DAYS,
+} from '@/lib/safety/bear-sightings';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +50,14 @@ interface TsunamiRow {
   name: string;
   lat: string | number;
   lng: string | number;
+}
+
+interface BearRow {
+  id: string;
+  text: string;
+  lat: string | number;
+  lng: string | number;
+  hours_ago: string | number;
 }
 
 // ── Активные вулканы: уровень/радиус/подпись по коду KVERT ────────────────
@@ -82,7 +100,7 @@ export async function GET() {
   let fallback = false;
 
   try {
-    const [volcanoRes, thermalRes, tsunamiRes] = await Promise.all([
+    const [volcanoRes, thermalRes, tsunamiRes, bearRes] = await Promise.all([
       // Только вулканы с повышенным кодом KVERT (реально активные). Потухшие
       // сопки без повышенного ACC красной зоны не получают.
       pool.query<VolcanoRow>(`
@@ -112,6 +130,19 @@ export async function GET() {
           AND p.lat IS NOT NULL AND p.lng IS NOT NULL
         LIMIT 100
       `),
+      // Медведи: только подтверждённые модерацией наблюдения с координатами и
+      // только свежие. Предикат и окно — общие с радаром главной, чтобы карта
+      // и геофенс говорили об одной Камчатке.
+      pool.query<BearRow>(`
+        SELECT id::text, text, lat, lng,
+               EXTRACT(EPOCH FROM (NOW() - created_at))::float8 / 3600 AS hours_ago
+          FROM trail_reports
+         WHERE report_type = 'bear'
+           AND lat IS NOT NULL AND lng IS NOT NULL
+           AND ${FRESH_APPROVED_SQL}
+         ORDER BY created_at DESC
+         LIMIT 50
+      `, [SIGHTING_WINDOW_DAYS]),
     ]);
 
     for (const row of volcanoRes.rows) {
@@ -152,8 +183,23 @@ export async function GET() {
         message: `ЦУНАМИ-ЗОНА (${row.name}). При землетрясении — немедленно уходите вверх ≥30 м от уровня моря.`,
       });
     }
-  } catch {
+
+    for (const row of bearRes.rows) {
+      zones.push(bearSightingZone({
+        id:       row.id,
+        lat:      Number(row.lat),
+        lng:      Number(row.lng),
+        text:     row.text,
+        hoursAgo: Number(row.hours_ago),
+      }));
+    }
+  } catch (e) {
     fallback = true;
+    // Отказ не глушится (§4.0): без этой строки «зон нет» и «не смогли
+    // спросить» снаружи неразличимы, а второе — это пустой геофенс в поле.
+    const why = e instanceof Error ? e.message : String(e);
+    const code = typeof (e as { code?: unknown })?.code === 'string' ? (e as { code: string }).code : '—';
+    console.error('[geofence-zones] зоны не собраны:', code, why);
   }
 
   return NextResponse.json({ success: true, zones, fallback });
