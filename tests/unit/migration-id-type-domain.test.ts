@@ -168,6 +168,24 @@ export function assumedIdTypes(sql: string): string[] {
     const typed = (side: string) =>
       /::\s*text\b/i.test(side) || jsonText(side) || literals.has(side.split('.')[0]);
     if (typed(left) && typed(right)) return;
+    // Связь ЧЕРЕЗ `ark_id` — не предположение, а измеренный факт схемы.
+    //
+    // 18.09 сторож покраснел на миграции 976 (`src.route_id = cape.ark_id`) —
+    // это документированный джойн §9 «фото точки»: `ai_route_images.route_id
+    // = places.ark_id`. По снимку настоящего PostgreSQL обе колонки uuid, и
+    // приведение к тексту здесь не защита, а потеря индекса на каждом чтении
+    // карточки места.
+    //
+    // Исключение НАМЕРЕННО узкое: только пара «ark_id — колонка, которая на
+    // него ссылается» (§9 знает ровно две: `route_id` у фото и
+    // `agent_route_id` у профиля безопасности и реалтайм-статуса). Опасная
+    // пара, ради которой сторож писался, под него не попадает: `places.id`
+    // это TEXT, и `p.id = x.ark_id` по-прежнему краснеет — там путаница
+    // доменов настоящая.
+    const ARK = /\.\s*ark_id\b/;
+    const ARK_REF = /\.\s*(route_id|agent_route_id|ark_id)\b/;
+    const arkJoin = (a: string, b: string) => ARK.test(a) && ARK_REF.test(b);
+    if (arkJoin(left, right) || arkJoin(right, left)) return;
     bad.push(`${i + 1}: ${line.trim()}`);
   });
   return bad;
@@ -244,6 +262,31 @@ describe('сторож ловит ровно тот отказ, что стои�
     // (тот же факт, что и «строковый литерал не считается сравнением типов»
     // выше, только с цифрой внутри кавычек).
     expect(assumedIdTypes("WHERE ot.id = '4'")).toEqual([]);
+  });
+});
+
+describe('связь через ark_id — факт схемы, а не предположение', () => {
+  it('документированный джойн фото точки чист', () => {
+    // §9: `ai_route_images.route_id = places.ark_id`, обе колонки uuid.
+    expect(assumedIdTypes('JOIN ai_route_images src ON src.route_id = cape.ark_id')).toEqual([]);
+  });
+
+  it('профиль безопасности и реалтайм — тот же джойн, то же послабление', () => {
+    expect(assumedIdTypes('JOIN location_safety_profile s ON s.agent_route_id = p.ark_id')).toEqual([]);
+  });
+
+  it('послабление НЕ распространяется на places.id — там домены правда разные', () => {
+    // `places.id` — TEXT, `ark_id` — UUID. Ровно тот отказ, ради которого
+    // сторож и писался; расширить исключение сюда значило бы его снять.
+    expect(assumedIdTypes('JOIN x ON p.id = x.ark_id').length).toBeGreaterThan(0);
+  });
+
+  it('падавшая редакция 874 по-прежнему краснеет', () => {
+    expect(assumedIdTypes('WHERE rw.route_id = m.route_id::uuid').length).toBeGreaterThan(0);
+  });
+
+  it('place_id против id — по-прежнему краснеет', () => {
+    expect(assumedIdTypes('WHERE rw.place_id = p.id').length).toBeGreaterThan(0);
   });
 });
 
