@@ -295,13 +295,13 @@ function OfferCard({ offer, activityType, onBook }: {
         {/* Badge типа / сложность */}
         <div className="absolute top-2 left-2 flex gap-1.5">
           {offer.durationType && (
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)] px-2 py-0.5 rounded">
+            <span className="text-[11px] font-bold bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)] px-2 py-0.5 rounded">
               {offer.durationType === 'multi_day' ? `${offer.multiDayCount ?? ''}д` : '1д'}
             </span>
           )}
           {offer.difficulty && (
             <span
-              className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+              className="text-[11px] font-bold px-2 py-0.5 rounded"
               style={{
                 color: difficultyColor(offer.difficulty),
                 background: `color-mix(in srgb, ${difficultyColor(offer.difficulty)} 20%, transparent)`,
@@ -798,7 +798,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
       <div className="bg-[var(--bg-card)] border-b border-[var(--border)]">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 space-y-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest">
+            <span className="text-xs font-semibold text-[var(--accent)]">
               {locLabel}
             </span>
             <span className="text-[var(--text-muted)] text-xs">·</span>
@@ -824,19 +824,19 @@ export default function RouteDetailClient({ id }: { id: string }) {
           <div className="flex items-stretch gap-0 divide-x divide-[var(--border)]">
             {minPrice > 0 && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Цена</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Цена</p>
                 <p className="text-sm font-bold text-[var(--accent)]">от {minPrice.toLocaleString('ru-RU')} ₽</p>
               </div>
             )}
             {route.durationDays != null && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Длительность</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Длительность</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{formatDuration(0, 'multi_day', route.durationDays)}</p>
               </div>
             )}
             {route.difficulty && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Сложность</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Сложность</p>
                 <p className="text-sm font-semibold" style={{ color: difficultyColor(route.difficulty) }}>
                   {difficultyLabel(route.difficulty, true)}
                 </p>
@@ -844,25 +844,25 @@ export default function RouteDetailClient({ id }: { id: string }) {
             )}
             {route.altitude != null && route.altitude > 0 && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Высота</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Высота</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{route.altitude.toLocaleString('ru-RU')} м</p>
               </div>
             )}
             {route.groupSizeMax != null && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Группа</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Группа</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">до {route.groupSizeMax} чел.</p>
               </div>
             )}
             {route.season && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Сезон</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Сезон</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{route.season}</p>
               </div>
             )}
             {offers.length > 0 && (
               <div className="flex-shrink-0 px-4 py-3 ml-auto">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Туров</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Туров</p>
                 <p className="text-sm font-semibold text-[var(--success)]">
                   {offers.length} {uniqueOperators > 1 ? `· ${uniqueOperators} операторов` : ''}
                 </p>
@@ -948,22 +948,22 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 {route.elevationGainM != null && route.elevationLossM != null && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-1">
                     <div>
-                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Набор</p>
+                      <p className="text-[11px] text-[var(--text-muted)]">Набор</p>
                       <p className="text-sm font-semibold text-[var(--text-primary)]">+{route.elevationGainM} м</p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Сброс</p>
+                      <p className="text-[11px] text-[var(--text-muted)]">Сброс</p>
                       <p className="text-sm font-semibold text-[var(--text-primary)]">−{route.elevationLossM} м</p>
                     </div>
                     {route.elevationMinM != null && (
                       <div>
-                        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Мин. высота</p>
+                        <p className="text-[11px] text-[var(--text-muted)]">Мин. высота</p>
                         <p className="text-sm font-semibold text-[var(--text-primary)]">{route.elevationMinM} м</p>
                       </div>
                     )}
                     {route.elevationMaxM != null && (
                       <div>
-                        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Макс. высота</p>
+                        <p className="text-[11px] text-[var(--text-muted)]">Макс. высота</p>
                         <p className="text-sm font-semibold text-[var(--text-primary)]">{route.elevationMaxM} м</p>
                       </div>
                     )}
@@ -1016,7 +1016,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             */}
             {pathWaypoints.length > 0 && (
               <section>
-                <h2 className="text-base font-bold text-[var(--text-primary)] mb-3 uppercase tracking-wide">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3">
                   Точки маршрута
                 </h2>
                 <ol className="space-y-3">
@@ -1029,7 +1029,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             {wp.locationType && (
-                              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
+                              <span className="text-[11px] font-bold text-[var(--text-muted)] block">
                                 {locationTypeLabel(wp.locationType)}
                               </span>
                             )}
@@ -1062,7 +1062,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     было написано здесь вторым экземпляром, и разойтись им
                     ничего не мешало (§4.1 — род связи называется одинаково
                     везде). */}
-                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-1">
                   {linkKindLabel('nearby')}
                 </h2>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
@@ -1099,7 +1099,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             */}
             {derivedOnLine.length > 0 && (
               <section>
-                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-1">
                   Ориентиры вдоль линии
                 </h2>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
@@ -1122,7 +1122,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                         </span>
                         <span className="flex-1 min-w-0">
                           {st.locationType && (
-                            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
+                            <span className="text-[11px] font-bold text-[var(--text-muted)] block">
                               {locationTypeLabel(st.locationType)}
                             </span>
                           )}
@@ -1154,7 +1154,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               <section className="space-y-3">
                 <div className="flex gap-2 overflow-x-auto pb-2">
                   {/* Сортировка */}
-                  <label className="flex-shrink-0 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide pt-2">
+                  <label className="flex-shrink-0 text-xs font-semibold text-[var(--text-muted)] pt-2">
                     Сортировка:
                   </label>
                   {(['price', 'rating', 'date', 'slots'] as const).map(option => (
@@ -1179,7 +1179,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   {/* Сложность */}
                   {['easy', 'medium', 'hard'].some(d => allOffers.some(o => o.difficulty === d)) && (
                     <div>
-                      <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+                      <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-1">
                         Сложность
                       </p>
                       <div className="flex gap-1.5">
@@ -1213,7 +1213,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   {/* Тип тура */}
                   {['day', 'multi_day'].some(dt => allOffers.some(o => o.durationType === dt)) && (
                     <div>
-                      <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+                      <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-1">
                         Тип
                       </p>
                       <div className="flex gap-1.5">
@@ -1241,7 +1241,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
 
                 {/* Слайдер цены */}
                 <div>
-                  <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">
+                  <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-2">
                     Цена: {priceRange[0].toLocaleString('ru-RU')} — {priceRange[1].toLocaleString('ru-RU')} ₽
                   </p>
                   <input
@@ -1290,7 +1290,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     <MessageSquare className="w-4 h-4 text-[var(--accent)]" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-wide mb-2">
+                    <p className="text-xs font-semibold text-[var(--accent)] mb-2">
                       Кузьмич о маршруте
                     </p>
                     <p className="text-sm text-[var(--text-secondary)] leading-relaxed italic">
@@ -1307,7 +1307,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               if (!allIncluded.length) return null;
               return (
                 <section>
-                  <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3">Что входит в туры</h2>
+                  <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3">Что входит в туры</h2>
                   <div className="flex flex-wrap gap-2">
                     {allIncluded.map((item, i) => (
                       <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-[var(--success)]/8 text-[var(--success)] border border-[var(--success)]/20 px-2.5 py-1 rounded-full">
@@ -1323,7 +1323,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             {/* Лучшие месяцы */}
             {route.bestMonths && route.bestMonths.length > 0 && (
               <section>
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-[var(--accent)]" /> Лучшие месяцы
                 </h2>
                 <div className="flex gap-1.5 flex-wrap">
@@ -1343,7 +1343,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             {/* Снаряжение */}
             {route.equipment && route.equipment.length > 0 && (
               <section>
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3">Снаряжение</h2>
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3">Снаряжение</h2>
                 <div className="flex flex-wrap gap-1.5">
                   {route.equipment.map((eq, i) => (
                     <span key={i} className="text-xs bg-[var(--bg-hover)] text-[var(--text-secondary)] px-2.5 py-1.5 rounded-lg">
@@ -1359,7 +1359,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 координате — обман, из-за которого туристы блуждают */}
             {hasTrack && (
               <section>
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
                   <Navigation className="w-3.5 h-3.5 text-[var(--accent)]" /> Навигация
                 </h2>
                 <div className="flex flex-col gap-2">
@@ -1441,7 +1441,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             {/* Карта — mobile: трек + точки маршрута, не одинокий пин */}
             {(hasGeo || hasTrack) && (
               <section className="lg:hidden">
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-[var(--accent)]" /> На карте
                 </h2>
                 <LeafletMap
@@ -1489,7 +1489,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   />
 
                   <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide">
+                    <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)]">
                       {offers.length === 1 ? 'Тур' : `${offers.length} туров`}
                       {uniqueOperators > 1 ? ` · ${uniqueOperators} оператора` : ''}
                     </h2>
@@ -1559,7 +1559,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               {/* Экспорт — скачать GPX / открыть в навигаторе (только при реальном треке) */}
               {hasTrack && (
                 <div>
-                  <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <h2 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5">
                     <Navigation className="w-3 h-3" /> Навигация
                   </h2>
                   <div className="flex flex-col gap-2">
@@ -1608,7 +1608,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               {/* Карта: трек + точки маршрута, не одинокий пин */}
               {(hasGeo || hasTrack) && (
                 <div>
-                  <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <h2 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5">
                     <MapPin className="w-3 h-3" /> На карте
                   </h2>
                   <LeafletMap
