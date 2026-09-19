@@ -133,17 +133,21 @@ describe('ключ журнала с вендором через двоеточ�
 
 describe('logLLMUsage пишет cost_basis рядом с ценой', () => {
   const SRC = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
+  // Окно чтения тела: 19.09 функция подросла ветвью прод-стока для раннера
+  // (расход судьи и ревью в книги не попадал вовсе), и прежние 1500 символов
+  // обрывались до INSERT — тест краснел на своей же мерке, а не на дефекте.
+  const WINDOW = 2800;
 
   it('INSERT несёт колонку cost_basis и параметр basis', () => {
     const start = SRC.indexOf('async function logLLMUsage');
-    const body = SRC.slice(start, start + 1500);
+    const body = SRC.slice(start, start + WINDOW);
     expect(body).toMatch(/estimated_cost_usd,\s*cost_basis/);
     expect(body).toMatch(/\[model, prompt, completion, total, cost, basis, currentAgentId\(\)\]/);
   });
 
   it('отказ INSERT не глушится молча — логируется с моделью и причиной', () => {
     const start = SRC.indexOf('async function logLLMUsage');
-    const body = SRC.slice(start, start + 1500);
+    const body = SRC.slice(start, start + WINDOW);
     expect(body).not.toMatch(/\.catch\(\(\) => \{\s*\/\* silent \*\/\s*\}\)/);
     expect(body).toMatch(/console\.error\(.*llm-usage.*строка не записана/);
   });
