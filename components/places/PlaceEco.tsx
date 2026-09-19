@@ -142,7 +142,7 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
             <Leaf size={18} strokeWidth={2} />
           </div>
           <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">Экология и охрана природы</p>
+            <p className="text-xs font-medium text-[var(--text-muted)]">Экология и охрана природы</p>
             <p className="font-semibold text-[var(--text-primary)] leading-tight">{label}</p>
           </div>
           {eco.permitRequired && (
@@ -162,7 +162,7 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
           {/* ── Seasonal calendar ──────────────────────────────────────────────── */}
           {seasons.length > 0 && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3 flex items-center gap-1.5">
+              <p className="text-xs font-semibold text-[var(--text-muted)] mb-3 flex items-center gap-1.5">
                 <Calendar size={12} />
                 Экологический календарь
               </p>
@@ -207,7 +207,7 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
           {/* ── Visitor rules ──────────────────────────────────────────────────── */}
           {ruleList.length > 0 && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2.5">Правила посещения</p>
+              <p className="text-xs font-semibold text-[var(--text-muted)] mb-2.5">Правила посещения</p>
               <ul className="space-y-1.5">
                 {ruleList.map((rule, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">

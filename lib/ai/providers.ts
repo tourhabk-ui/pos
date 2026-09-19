@@ -45,6 +45,7 @@ import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
+import { usageSinkEnabled, sendUsageToProd } from '@/lib/ai/usage-sink';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
 import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key-identity';
 import { openRouterAttribution } from '@/lib/ai/attribution';
@@ -138,27 +139,176 @@ export async function resolveCostUsd(
   promptTokens: number,
   completionTokens: number,
 ): Promise<{ cost: number | null; basis: CostBasis }> {
+  const candidates = priceLookupIds(model);
   try {
-    const { rows } = await pool.query<{ usd_per_mtok_in: string | null; usd_per_mtok_out: string | null }>(
-      `SELECT usd_per_mtok_in, usd_per_mtok_out FROM model_catalog WHERE model_id = $1 LIMIT 1`,
-      [model],
-    );
-    const row = rows[0];
-    if (row) {
-      const inPrice = row.usd_per_mtok_in != null ? Number(row.usd_per_mtok_in) : null;
-      const outPrice = row.usd_per_mtok_out != null ? Number(row.usd_per_mtok_out) : null;
-      if (inPrice !== null && outPrice !== null && Number.isFinite(inPrice) && Number.isFinite(outPrice)) {
-        return { cost: (promptTokens * inPrice + completionTokens * outPrice) / 1e6, basis: 'model_catalog' };
+    for (const id of candidates) {
+      const { rows } = await pool.query<{ usd_per_mtok_in: string | null; usd_per_mtok_out: string | null }>(
+        `SELECT usd_per_mtok_in, usd_per_mtok_out FROM model_catalog WHERE model_id = $1 LIMIT 1`,
+        [id],
+      );
+      const row = rows[0];
+      if (row) {
+        const inPrice = row.usd_per_mtok_in != null ? Number(row.usd_per_mtok_in) : null;
+        const outPrice = row.usd_per_mtok_out != null ? Number(row.usd_per_mtok_out) : null;
+        if (inPrice !== null && outPrice !== null && Number.isFinite(inPrice) && Number.isFinite(outPrice)) {
+          return { cost: (promptTokens * inPrice + completionTokens * outPrice) / 1e6, basis: 'model_catalog' };
+        }
       }
     }
   } catch (e) {
     // Каталог не спросился (сеть/БД) — не выдумываем цену, падаем на запас.
     console.error('[llm-usage] каталог моделей не прочитан:', model, e instanceof Error ? e.message : e);
   }
-  if (model in COST_PER_1K) {
-    return { cost: (COST_PER_1K[model] * (promptTokens + completionTokens)) / 1000, basis: 'cost_table_fallback' };
+  for (const id of candidates) {
+    if (id in COST_PER_1K) {
+      return { cost: (COST_PER_1K[id] * (promptTokens + completionTokens)) / 1000, basis: 'cost_table_fallback' };
+    }
   }
   return { cost: null, basis: 'unknown' };
+}
+
+/**
+ * Ключ журнала → идентификаторы, под которыми модель знают источники цен.
+ *
+ * Журнал пишет вендора ДВОЕТОЧИЕМ, когда вызов шёл не через OpenRouter:
+ * `anthropic:claude-opus-5`, `qwen:qwen-plus`, `kimi:...`, `timeweb:<agent_id>`.
+ * Оба источника цен — `model_catalog` (миграция 946, слаги OpenRouter) и запас
+ * `COST_PER_1K` — знают форму с КОСОЙ ЧЕРТОЙ: `anthropic/claude-opus-5`.
+ *
+ * Разделители расходились молча, и расходился ровно САМЫЙ ДОРОГОЙ путь. Ступень
+ * 0b решателя (прямой Anthropic) просит сильнейшую модель каталога Anthropic —
+ * Opus 5, $5 вход / $25 выход за миллион, — а в книгах её строка лежала как
+ * «цену не знаем»: `estimated_cost_usd` NULL. `SUM(estimated_cost_usd)` в
+ * `/api/cron/llm-budget-check` NULL пропускает, то есть дневной бюджет не видел
+ * этих трат вовсе и сработать по ним не мог. Пустой баланс ключа Anthropic
+ * (19.09) пришёл именно оттуда: пока ключ OpenRouter лежал не в своём секрете,
+ * ступень 0 отказывала на каждом вызове и весь решатель шёл через 0b.
+ *
+ * Нормализация МЕХАНИЧЕСКАЯ: та же строка, другой разделитель. Догадок о чужих
+ * слагах здесь нет — если `vendor/model` не знает ни каталог, ни запас, цена
+ * остаётся `null`, то есть честное «не знаем» (§4.0), а не подставленный ноль.
+ */
+export function priceLookupIds(loggedModel: string): string[] {
+  const ids = [loggedModel];
+  const sep = loggedModel.indexOf(':');
+  if (sep > 0) {
+    const vendor = loggedModel.slice(0, sep);
+    const rest = loggedModel.slice(sep + 1);
+    // Слаг вендора не содержит двоеточий и косых: `timeweb:<agent_id>` так и
+    // останется неизвестным — у агента шлюза нет цены ни в одном каталоге, и
+    // притворяться, что есть, значило бы выдумать её.
+    if (rest && !rest.includes('/') && !rest.includes(':')) ids.push(`${vendor}/${rest}`);
+  }
+  return ids;
+}
+
+// ── Потолок прямого Anthropic (ступень 0b решателя) ───────────────
+/**
+ * Самая дорогая ступень включается сама, когда ломается дешёвая, — и 19.09
+ * именно так кончился баланс ключа Anthropic.
+ *
+ * Механизм: ключ OpenRouter лежал не в своём секрете, значит ступень 0 (флагман
+ * через OpenRouter, по решению владельца 09.09 — GLM 5.3 за $0.91/$2.86 за млн)
+ * отказывала на КАЖДОМ вызове. Следом шла ступень 0b, а она просит сильнейшую
+ * модель каталога Anthropic — Opus 5, $5/$25 за млн по каталогу того же дня.
+ * Вход дороже в 5,5 раза, выход в 8,7. Решение об экономии отменялось молча и
+ * на каждом вызове, потому что у запасного пути не было ни потолка, ни голоса.
+ *
+ * Потолок ДВОЙНОЙ, и второй — не перестраховка, а третий исход §4.0. Цену мы
+ * знаем не всегда (`resolveCostUsd` честно возвращает null для моделей вне
+ * каталога и запаса), а «цену не знаю» не должно означать «трать сколько
+ * хочешь». Поэтому деньги ограничены суммой, а незнание — числом вызовов.
+ *
+ * Счётчики — на модуль, а не в AsyncLocalStorage: прогон крона и прогон
+ * скрипта на раннере — это процесс, живущий одну задачу, и «за процесс» здесь
+ * совпадает с «за прогон». Атрибуция по агенту уже есть в usage-context и
+ * решает другую задачу — кто потратил, а не сколько осталось.
+ *
+ * Потолок НЕ меняет порядок ступеней (§8, решение владельца 04.08 «решатель
+ * дипсик либо опус»): ступень остаётся на своём месте и в своей очереди. Он
+ * ограничивает только СУММУ, и отказ по нему громкий — в лог и в provenance
+ * отчёта, чтобы «судью понизило до дешёвой модели» нельзя было не заметить.
+ */
+const ANTHROPIC_DIRECT_DEFAULT_MAX_USD = 1.0;
+const ANTHROPIC_DIRECT_DEFAULT_MAX_CALLS = 8;
+
+let anthropicDirectSpentUsd = 0;
+let anthropicDirectCalls = 0;
+let anthropicDirectUnpricedCalls = 0;
+
+function positiveEnvNumber(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  // Мусор в переменной не должен НИ снимать потолок, ни ронять вызов: остаётся
+  // умолчание, и о подмене сказано вслух.
+  if (!Number.isFinite(n) || n < 0) {
+    console.error(`[ai-decision] ${name}=${raw} — не число: беру умолчание ${fallback}`);
+    return fallback;
+  }
+  return n;
+}
+
+/** Пускать ли ещё один вызов прямого Anthropic — и если нет, то почему. */
+export function anthropicDirectGate(): { allowed: boolean; reason: string } {
+  const maxUsd = positiveEnvNumber('ANTHROPIC_DIRECT_MAX_USD', ANTHROPIC_DIRECT_DEFAULT_MAX_USD);
+  const maxCalls = positiveEnvNumber('ANTHROPIC_DIRECT_MAX_CALLS', ANTHROPIC_DIRECT_DEFAULT_MAX_CALLS);
+
+  if (anthropicDirectCalls >= maxCalls) {
+    return {
+      allowed: false,
+      reason: `потолок прямого пути: ${anthropicDirectCalls} вызовов за прогон (предел ${maxCalls}, ANTHROPIC_DIRECT_MAX_CALLS)`,
+    };
+  }
+  if (anthropicDirectSpentUsd >= maxUsd) {
+    return {
+      allowed: false,
+      reason: `потолок прямого пути: $${anthropicDirectSpentUsd.toFixed(4)} за прогон (предел $${maxUsd}, ANTHROPIC_DIRECT_MAX_USD)`,
+    };
+  }
+  return { allowed: true, reason: '' };
+}
+
+/**
+ * Записывает стоимость состоявшегося вызова в счётчики потолка.
+ *
+ * Цена берётся ТЕМ ЖЕ источником, что и книги (`resolveCostUsd`) — иначе
+ * потолок и отчёт расходились бы в числах, а расхождение двух счётчиков одного
+ * факта здесь уже стоило дня разбора. Цены нет — вызов всё равно посчитан
+ * штукой, и это отдельно видно в состоянии.
+ */
+export async function chargeAnthropicDirect(
+  loggedModel: string,
+  promptTokens: number,
+  completionTokens: number,
+): Promise<void> {
+  anthropicDirectCalls += 1;
+  const { cost } = await resolveCostUsd(loggedModel, promptTokens, completionTokens);
+  if (cost === null) {
+    anthropicDirectUnpricedCalls += 1;
+    return;
+  }
+  anthropicDirectSpentUsd += cost;
+}
+
+/** Состояние потолка — для диагностики и для тестов. */
+export function anthropicDirectBudgetState(): {
+  calls: number; spent_usd: number; unpriced_calls: number; max_usd: number; max_calls: number;
+} {
+  return {
+    calls: anthropicDirectCalls,
+    spent_usd: anthropicDirectSpentUsd,
+    unpriced_calls: anthropicDirectUnpricedCalls,
+    max_usd: positiveEnvNumber('ANTHROPIC_DIRECT_MAX_USD', ANTHROPIC_DIRECT_DEFAULT_MAX_USD),
+    max_calls: positiveEnvNumber('ANTHROPIC_DIRECT_MAX_CALLS', ANTHROPIC_DIRECT_DEFAULT_MAX_CALLS),
+  };
+}
+
+/** Сброс счётчиков — только для тестов: в проде процесс живёт один прогон. */
+export function resetAnthropicDirectBudget(): void {
+  anthropicDirectSpentUsd = 0;
+  anthropicDirectCalls = 0;
+  anthropicDirectUnpricedCalls = 0;
 }
 
 async function logLLMUsage(model: string, usage: ProviderUsage | undefined): Promise<void> {
@@ -175,6 +325,22 @@ async function logLLMUsage(model: string, usage: ProviderUsage | undefined): Pro
   // NULL остаётся NULL, а не нулём (SUM(...) в /api/admin/llm-usage считает
   // известное отдельно от количества строк с неизвестной ценой).
   addUsage(prompt, completion, cost ?? 0);
+
+  // Раннер GitHub в БД не достаёт (файрвол Timeweb), и прямой INSERT там падал
+  // ВСЕГДА — а на раннере считают судья эволюции и AI-ревью, два самых дорогих
+  // потребителя. Их расход не попадал в книги ни одной строкой, и дневной
+  // бюджет (/api/cron/llm-budget-check) не мог по нему сработать. Там расход
+  // уходит на прод роутом, который считает цену сам (lib/ai/usage-sink.ts).
+  //
+  // На проде `GITHUB_ACTIONS` не задан — прямой INSERT остаётся прежним, и
+  // прод не звонит сам себе.
+  if (usageSinkEnabled()) {
+    void sendUsageToProd([{
+      model, prompt_tokens: prompt, completion_tokens: completion, agent_id: currentAgentId(),
+    }]);
+    return;
+  }
+
   pool.query(
     `INSERT INTO llm_usage_log
        (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id, created_at)
@@ -2155,7 +2321,15 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         ? 'anthropic: каталог ответил пустым списком — id взят из слага OpenRouter'
         : `anthropic: каталог ответил пустым списком, а флагман (${flagshipModel}) — не модель Anthropic; просить нечего`);
     }
-    if (antModel) try {
+    // Потолок ДО запроса: эта ступень самая дорогая в платформе, и включается
+    // она автоматически — когда ломается дешёвая. Ровно так 19.09 и кончился
+    // баланс (см. шапку anthropicDirectBudgetState).
+    const gate = anthropicDirectGate();
+    if (antModel && !gate.allowed) {
+      why.push(`anthropic(${antModel}): ${gate.reason}`);
+      console.error(`[ai-decision] прямой Anthropic не вызван: ${gate.reason}`);
+    }
+    if (antModel && gate.allowed) try {
       const sys = payload.find(m => m.role === 'system');
       const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
       if (turns.length) {
@@ -2191,6 +2365,14 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
               prompt_tokens: data.usage?.input_tokens,
               completion_tokens: data.usage?.output_tokens,
             });
+            // Счёт ведём ПОСЛЕ ответа и по своим же ценам — тем самым
+            // источником, которым считаются книги (resolveCostUsd), чтобы
+            // потолок и отчёт не расходились в числах.
+            await chargeAnthropicDirect(
+              `anthropic:${antModel}`,
+              data.usage?.input_tokens ?? 0,
+              data.usage?.output_tokens ?? 0,
+            );
             return { text, model: `anthropic:${antModel}`, provenance: why.slice() };
           }
           why.push(`anthropic(${antModel}): пустой ответ`);

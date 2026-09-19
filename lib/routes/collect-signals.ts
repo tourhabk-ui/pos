@@ -42,6 +42,38 @@ export interface CollectDeps {
  */
 export const CORRIDOR_VOLCANO_KM = 25;
 
+/**
+ * Радиус, в котором событие С КООРДИНАТОЙ считается относящимся к маршруту.
+ *
+ * ── Откуда взялся ─────────────────────────────────────────────────────────
+ *
+ * 19.09 владелец прислал карточку «Ночное восхождение на Авачинский вулкан».
+ * В блоке «Осторожно · на сегодня» первой строкой стояло: «Термоточки
+ * (возможен пожар): 2 очаг(ов), 54.61°N 160.30°E». Это 178 км от Авачинского
+ * — другой конец Ключевской группы, другая дорога, другой день пути.
+ *
+ * Дошло оно так: у термоточек зона считается функцией `zonesFor`
+ * (lib/services/safety/wildfire-firms.ts), и её последняя ветка — `return
+ * ['avachinsky']` без условия. То есть «авачинская зона» работает ОСТАТКОМ:
+ * всё, что не север и не восток, объявляется окрестностями города. При длине
+ * полуострова больше тысячи километров туда проваливается его середина.
+ *
+ * Зональный отбор сам по себе не виноват: у большинства предупреждений МЧС
+ * координаты нет вовсе, и зона — единственное, чем их можно привязать.
+ * Виновата пара «грубая зона» + «точная координата, которую никто не
+ * спросил»: у термоточки lat/lng ЕСТЬ, и расстояние можно было измерить.
+ *
+ * Поэтому правило здесь такое: есть координата — меряем; нет координаты —
+ * судим по зоне, как раньше. Это не ужесточение и не послабление, а отказ
+ * гадать там, где можно знать.
+ *
+ * Шире вулканного коридора намеренно: пожар, перекрытая дорога и паводок
+ * меняют решение с большего расстояния, чем газовый шлейф. Но не «весь край»:
+ * предупреждение, до которого сутки пути, на карточке маршрута — шум, а шум
+ * учит не читать предупреждения вовсе.
+ */
+export const CORRIDOR_ALERT_KM = 60;
+
 const KM_PER_DEG_LAT = 111.32;
 
 /** Месяцы, в которые маршрут считается сезонным. */
@@ -150,17 +182,41 @@ function alertFingerprint(title: string): string {
 }
 
 async function loadAlerts(
-  zones: string[], q: QueryFn,
+  zones: string[], points: Array<{ lat: number; lng: number }>, q: QueryFn,
 ): Promise<Array<{ title: string; severity: number; type: string | null }> | null> {
   try {
+    const lats = points.map((p) => p.lat);
+    const lngs = points.map((p) => p.lng);
     const { rows } = await q<AlertRow>(
-      `SELECT title, severity::int AS severity, alert_type
-         FROM external_alerts
-        WHERE (expires_at IS NULL OR expires_at > NOW())
-          AND affected_zones && $1::text[]
+      // Зона отбирает как раньше. Координата, если она у события ЕСТЬ,
+      // добавляет второе условие: расстояние до ближайшей опорной точки
+      // маршрута. Событие без координаты этим условием не отсекается —
+      // мерить нечем, и «не смогли измерить» не равно «далеко» (§4.0).
+      //
+      // Форма расстояния та же, что у вулканов ниже: haversine прямо в
+      // запросе. Своей копии формулы здесь нет.
+      `WITH anchor AS (
+         SELECT unnest($2::float8[]) AS lat, unnest($3::float8[]) AS lng
+       )
+       SELECT title, severity::int AS severity, alert_type
+         FROM external_alerts ea
+        WHERE (ea.expires_at IS NULL OR ea.expires_at > NOW())
+          AND ea.affected_zones && $1::text[]
+          AND (
+            ea.lat IS NULL OR ea.lng IS NULL
+            OR NOT EXISTS (SELECT 1 FROM anchor)
+            OR EXISTS (
+              SELECT 1 FROM anchor a
+               WHERE 2 * 6371 * asin(sqrt(
+                       power(sin(radians((ea.lat::float8 - a.lat) / 2)), 2)
+                       + cos(radians(a.lat)) * cos(radians(ea.lat::float8))
+                         * power(sin(radians((ea.lng::float8 - a.lng) / 2)), 2)
+                     )) <= $4
+            )
+          )
         ORDER BY severity DESC NULLS LAST, created_at DESC
         LIMIT 50`,
-      [zones],
+      [zones, lats, lngs, CORRIDOR_ALERT_KM],
     );
     // Порядок из запроса (важность, затем свежесть) сохраняется, поэтому
     // первой остаётся самая тяжёлая копия дубля, а не случайная.
@@ -179,7 +235,12 @@ async function loadAlerts(
       });
     }
     return out;
-  } catch {
+  } catch (err) {
+    // «Не смогли узнать» возвращается вызывающему как null — и это верно.
+    // Но молчать при этом нельзя: пустой catch превращает поломку в «данных
+    // нет», и отказ проверки читается как её успех (§4.0).
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[collect-signals] предупреждения по маршруту не прочитаны, SQLSTATE ${code}:`, err);
     return null;
   }
 }
@@ -259,7 +320,7 @@ export async function collectRouteSignals(
   }
 
   const [alerts, volcanoes] = await Promise.all([
-    loadAlerts(shape.zones, q),
+    loadAlerts(shape.zones, shape.points, q),
     loadVolcanoes(shape.points, q),
   ]);
 

@@ -16,6 +16,7 @@ import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { lineGradeForList, type PassportGrade } from '@/lib/routes/passport';
+import { lineRankSql } from '@/lib/map/line-standard';
 import { shownPhotoSql } from '@/lib/images/origin';
 
 function isImageUrl(value: unknown): value is string {
@@ -119,7 +120,11 @@ export const CatalogQuerySchema = z.object({
   page:          z.coerce.number().int().min(1).default(1),
   limit:         z.coerce.number().int().min(1).max(2000).default(24),
   hasCoords:     z.enum(['true', 'false']).optional(),
-  sort:          z.enum(['title', 'recent', 'price_asc', 'price_desc', 'recommended']).default('title'),
+  // `navigable` — очерёдность для ВЫБОРА МАРШРУТА В ПОЛЕ: сначала род линии
+  // (снятый трек → набросок → линия не проверена → линии нет), и лишь внутри
+  // рода — полнота карточки. Заведена 19.09 по жалобе владельца, см.
+  // LINE_RANK в lib/map/line-standard.ts.
+  sort:          z.enum(['title', 'recent', 'price_asc', 'price_desc', 'recommended', 'navigable']).default('title'),
   difficulty:    z.enum(['easy', 'medium', 'hard']).optional(),
   price_min:     z.coerce.number().min(0).optional(),
   price_max:     z.coerce.number().min(0).optional(),
@@ -313,6 +318,15 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
    * Поэтому префикс ставится везде, а не только там, где сейчас больно:
    * следующий JOIN не должен ронять каталог.
    */
+  // Полнота карточки: тот же счёт, что в `recommended`. Вынесен, потому что
+  // `navigable` использует его как ВТОРОЙ ключ — после рода линии.
+  const cardRichness = `(
+      CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
+    ) DESC`;
+
   const orderBy =
     sort === 'recent'      ? 'ark.created_at DESC' :
     sort === 'price_asc'   ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 999999999) ASC, ark.title ASC' :
@@ -337,6 +351,18 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       WHEN 'viewpoint'  THEN 2
       ELSE 1
     END DESC,
+    length(COALESCE(ark.description, '')) DESC,
+    ark.title ASC` :
+    // Выбор маршрута В ПОЛЕ. Первый ключ — род линии, и только он отвечает на
+    // вопрос, который человек на тропе задаёт на самом деле: можно ли по ней
+    // идти. Полнота карточки осталась вторым ключом — внутри одного рода
+    // маршрут с ценой, сложностью и сроками полезнее безымянного.
+    //
+    // Порядок родов собирается ИЗ реестров §12 (lineRankSql), а не
+    // переписывается здесь: второй список источников разошёлся бы с первым.
+    sort === 'navigable' ? `${lineRankSql('krl.geometry')} ASC,
+    ${cardRichness},
+    has_real_image DESC,
     length(COALESCE(ark.description, '')) DESC,
     ark.title ASC` :
     'ark.title ASC';

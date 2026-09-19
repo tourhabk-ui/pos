@@ -11,6 +11,7 @@
 import { pool } from '@/lib/db-pool';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { reachForTour } from '@/lib/partners/reach';
+import { priceFrom, priceFromOrSay } from '@/lib/tours/price-label';
 import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -456,7 +457,10 @@ export async function buildTourCatalog(): Promise<string> {
 
     const lines = rows.map(r => {
       const dur   = r.multi_day_count ? `${r.multi_day_count} дн.` : '';
-      const price = `от ${Number(r.base_price).toLocaleString('ru-RU')} р/чел`;
+      // Цены может не быть вовсе, и тогда так и говорим: `Number(null)` — это
+      // 0, и каталог печатал «от 0 р/чел», то есть «бесплатно» (18.09,
+      // тур 34). Правило одно на все поверхности — lib/tours/price-label.
+      const price = priceFromOrSay(r.base_price);
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
       const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
@@ -1231,7 +1235,11 @@ export async function getTourDetails(query: string): Promise<string> {
 
     const parts: string[] = [`ТУР: "${t.title}" (ID${t.id})`];
     if (t.location_name) parts.push(`Локация: ${t.location_name}`);
-    if (t.base_price != null) parts.push(`Цена: от ${Number(t.base_price).toLocaleString('ru-RU')} р/чел`);
+    // Здесь проверка на null уже была, но формат теперь общий с каталогом:
+    // два написания одной цены разъезжаются так же, как два предиката.
+    const priceLine = priceFrom(t.base_price);
+    if (priceLine) parts.push(`Цена: ${priceLine}`);
+    else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
     if (t.description) parts.push(`Описание: ${t.description.slice(0, 1200)}`);
     if (t.meeting_point) parts.push(`Точка сбора и логистика (бери ТОЛЬКО отсюда, не выдумывай):\n${t.meeting_point}`);

@@ -61,7 +61,7 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
   return (
     <section className="space-y-4">
       {/* Шапка — типографикой, а не рамкой. */}
-      <p className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-[var(--text-primary)]">
+      <p className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
         <ShieldAlert className="h-4 w-4 text-[var(--warning)]" aria-hidden />
         Безопасность
       </p>
