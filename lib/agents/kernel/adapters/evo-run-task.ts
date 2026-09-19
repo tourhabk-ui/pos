@@ -52,9 +52,9 @@ export async function startEvoRunTask(scanType: string): Promise<EvoRunHandle | 
 
 const STAGES: ReadonlyArray<keyof Pick<OrchestratorResult,
   'scan' | 'evolution' | 'rescue' | 'evolver' | 'intel' | 'models' |
-  'scoutDigest' | 'scoutInnovator' | 'industryIntel' | 'memoryReflector'>> =
+  'scoutDigest' | 'scoutInnovator' | 'memoryReflector'>> =
   ['scan', 'evolution', 'rescue', 'evolver', 'intel', 'models',
-   'scoutDigest', 'scoutInnovator', 'industryIntel', 'memoryReflector'];
+   'scoutDigest', 'scoutInnovator', 'memoryReflector'];
 
 /**
  * У каждой стадии свой диагноз «сделал ли то, ради чего звался» — и это НЕ
@@ -81,10 +81,6 @@ export function stageDiag(stage: string, value: unknown): string | undefined {
     }
     case 'scoutInnovator':
       return typeof v.phase1_diag === 'string' ? v.phase1_diag : undefined;
-    case 'industryIntel': {
-      const errors = v.errors;
-      return Array.isArray(errors) && errors.length > 0 ? errors.join('; ') : undefined;
-    }
     case 'memoryReflector':
       return typeof v.reason === 'string' ? v.reason : undefined;
     default:

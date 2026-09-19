@@ -4,8 +4,6 @@
  * Три действия в одном endpoint:
  *   scrape_operators — парсит visitkamchatka.ru/tour-operators/ → partners
  *   scrape_tours     — парсит tours.visitkamchatka.ru/tours → operator_tours + tour_availability
- *   scan_tg          — читает TG-группы операторов → agent_memory (наличие мест)
- *   scan_tg_group    — читает конкретную TG-группу (body.group_username обязателен)
  *
  * Auth: requireAdmin
  * Timeweb cron или ручной запуск из /hub/admin
@@ -18,7 +16,6 @@ import { scrapeGuideDirectory } from '@/lib/services/ingest/visitkamchatka-guide
 import { auditVisitKamchatka } from '@/lib/services/ingest/visitkamchatka-audit';
 import { scrapeTourMarketplace, debugFetchTours } from '@/lib/services/tours/tours-visitkamchatka';
 import { scrapeOperatorTours } from '@/lib/services/operators/operator-tour-scraper';
-import { scanAllOperatorGroups, fetchGroupAvailability } from '@/lib/telegram/operator-availability';
 import { fetchViaBrightData, diagnoseBrightData } from '@/lib/scraping/brightdata';
 import { z } from 'zod';
 
@@ -26,12 +23,10 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const BodySchema = z.object({
-  action: z.enum(['scrape_operators', 'scrape_guides', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch', 'debug_fetch_tours', 'audit_site', 'diagnose_brightdata']),
+  action: z.enum(['scrape_operators', 'scrape_guides', 'scrape_tours', 'scrape_tours_per_operator', 'debug_fetch', 'debug_fetch_tours', 'audit_site', 'diagnose_brightdata']),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
   activity: z.string().optional(),
-  group_username: z.string().optional(),
-  hours_back: z.number().int().min(1).max(168).optional(),
   categories: z.array(z.string()).optional(),
   operator_slug: z.string().optional(),
   dry_run: z.boolean().optional(),
@@ -55,7 +50,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { action, date_from, date_to, activity, group_username, hours_back,
+  const { action, date_from, date_to, activity,
           categories, operator_slug, dry_run, max_operators, section_key } = parsed.data;
   const t0 = Date.now();
 
@@ -109,16 +104,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    if (action === 'scan_tg') {
-      const result = await scanAllOperatorGroups(hours_back ?? 72);
-      return NextResponse.json({
-        ok: true,
-        action,
-        duration_ms: Date.now() - t0,
-        ...result,
-      });
-    }
-
     if (action === 'debug_fetch') {
       const url = 'https://visitkamchatka.ru/tour-operators/';
       const html = await fetchViaBrightData(url, { country: 'ru', timeoutMs: 30_000 });
@@ -163,19 +148,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         action,
         duration_ms: Date.now() - t0,
         ...debug,
-      });
-    }
-
-    if (action === 'scan_tg_group') {
-      if (!group_username) {
-        return NextResponse.json({ error: 'group_username required for scan_tg_group' }, { status: 400 });
-      }
-      const result = await fetchGroupAvailability(group_username, hours_back ?? 72);
-      return NextResponse.json({
-        ok: true,
-        action,
-        duration_ms: Date.now() - t0,
-        ...result,
       });
     }
 

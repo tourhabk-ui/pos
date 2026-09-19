@@ -10,21 +10,16 @@
 
 ---
 
-## 1. MTProto — чтение отраслевых Telegram-каналов
+## 1. MTProto — снят 19.09
 
-**Что даёт:** market-intelligence из 10 каналов гостеприимства → `agent_memory` → брифинг агентов и контекст Кузьмича.
+Чтение Telegram через MTProto (отраслевые каналы, разведка групп, наличие мест
+у операторов) удалено решением владельца. Ключи `TG_API_*` не были заданы ни
+разу с 17.05, то есть ни один из трёх модулей не работал ни дня; транспорт
+требовал строку сессии ЛИЧНОГО аккаунта на сервере, а отраслевые каналы были
+про гостиничный рынок России, не про Камчатку. Новости отрасли приходят
+Scout Digest'ом через публичные превью `t.me/s/<канал>` — без авторизации.
 
-**Env (Timeweb):**
-| Переменная | Где взять |
-|-----------|-----------|
-| `TG_API_ID` | my.telegram.org → API development tools |
-| `TG_API_HASH` | там же |
-| `TG_USER_SESSION` | запустить `npx tsx scripts/tg-auth.ts` (введёт код из SMS → выдаст строку сессии) |
-| `INDUSTRY_TG_CHANNELS` | *(опц.)* свой список каналов через запятую |
-
-**Расписание (cron-job.org):** `GET https://vedarai.ru/api/cron/industry-intel` (Bearer `CRON_SECRET`), 1–2 раза в сутки.
-
-**Проверка:** ответ `{ ok: true, channels: N, ... }`; без env — `reason: "mtproto_not_configured"`.
+Сторож: `tests/unit/mtproto-purged.test.ts`.
 
 ---
 
@@ -95,7 +90,6 @@
 
 | Эндпоинт | Частота | Зависит от |
 |----------|---------|-----------|
-| `/api/cron/industry-intel` | 1–2×/сутки | TG_API_* |
 | `/api/cron/legislation-sync` | 1×/неделю | FIRECRAWL_API_KEY + URL'ы |
 | `/api/cron/memory-reflect` | 1×/сутки | накопленные intel-сигналы |
 | `/api/cron/memory-contradiction` | 1×/сутки (после рефлектора) | — |

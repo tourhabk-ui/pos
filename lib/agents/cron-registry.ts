@@ -320,12 +320,6 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 720, tier: 'growth', agentId: 'scout-digest', triggerable: true,
   },
   {
-    key: 'group-scout', label: 'Group Scout',
-    description: 'Разведка TG-групп по туризму.',
-    workflow: 'cron-group-scout.yml', cron: '0 18 * * 0', schedule: 'вс · 18:00 UTC',
-    everyMin: WEEK, tier: 'growth', agentId: null, triggerable: false,
-  },
-  {
     key: 'engagement', label: 'Engagement',
     description: 'Реэнгейджмент туристов Кузьмичом.',
     workflow: 'cron-engagement.yml', cron: '0 10 * * *', schedule: 'ежедневно · 10:00 UTC',
@@ -528,7 +522,6 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // Дайджест без выпуска — законная осторожность ворот, а не обрыв; молчание
   // ПОДРЯД судит scout-silence (silent_runs), а не этот счётчик.
   'scout-digest': 'unknown',
-  'group-scout': 'unknown',
   'engagement': 'unknown',
   'smart-notify': 'unknown',
   // OSM с Timeweb недоступен — ноль здесь известен и объяснён внешней

@@ -87,7 +87,6 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'field-check-queue': ['db_read'],
   'followups': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'funnel-census': ['db_read', 'db_write', 'net_out'],
-  'group-scout': ['db_read', 'db_write', 'net_out', 'ai'],
   'health': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money', 'pd_direct'],
   'hidden-tracks-census': ['db_read'],
   'images-generated': ['db_read', 'db_write'],
@@ -98,7 +97,6 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'import-routes': ['db_read', 'db_write', 'net_out'],
   // 18.09: пинг IndexNow по /plans после деплоя правок текстов; db_write — журнал отказов пинга (ai_actions_log) внутри lib/seo/indexnow.
   'indexnow-plans': ['db_read', 'db_write', 'net_out'],
-  'industry-intel': ['db_read', 'db_write', 'ai'],
   'inspect-tour-card': ['db_read', 'pd_direct'],
   'intel-feeds-census': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'intel-note': ['db_read', 'db_write'],
@@ -217,7 +215,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'sql-shape-check': ['db_read', 'db_write'],
   'ssr-sentinel': ['net_out', 'telegram', 'pd_direct'],
   'support-escalate': ['db_read', 'db_write', 'net_out', 'telegram'],
-  'telegram-webhook-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
+  // 'ai' снят 19.09 вместе с MTProto: возможность была ТРАНЗИТИВНОЙ — watchdog
+  // тянул operator-availability, а тот звал callAIFast в экстракторе сигналов
+  // из TG-групп. Экстрактор удалён, вебхуку модель не нужна.
+  'telegram-webhook-watchdog': ['db_read', 'db_write', 'net_out', 'telegram'],
   'tochka-check': ['net_out'],
   'tour-describe': ['db_read', 'db_write'],
   'tour-photos': ['db_read', 'db_write'],

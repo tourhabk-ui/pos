@@ -5,7 +5,7 @@ import {
   RefreshCw, GitPullRequest, Activity, ShieldX, Zap, Clock,
   CheckCircle2, XCircle, AlertTriangle, CircleDashed, ChevronDown, ChevronUp,
   ExternalLink, HelpCircle, Search, Wrench, LifeBuoy, LineChart, Radar, Cpu,
-  Newspaper, Lightbulb, MessageCircle, BrainCircuit, type LucideIcon,
+  Newspaper, Lightbulb, BrainCircuit, type LucideIcon,
 } from 'lucide-react';
 
 // Кокпит Volcano OS (P3) — ТОЛЬКО ПРОСМОТР. Ни одной кнопки действия здесь
@@ -94,7 +94,6 @@ const EVO_STAGES: ReadonlyArray<{ key: string; label: string; description: strin
   { key: 'models', label: 'Model Watcher', description: 'Следит за моделями сильнее текущей', icon: Cpu },
   { key: 'scoutDigest', label: 'Scout Digest', description: 'RSS → AI-синтез → дайджест в Telegram', icon: Newspaper },
   { key: 'scoutInnovator', label: 'Scout Innovator', description: 'Тренды → предложения → GitHub Issues', icon: Lightbulb },
-  { key: 'industryIntel', label: 'Industry Intel', description: 'Отраслевые TG-каналы → market intelligence', icon: MessageCircle },
   { key: 'memoryReflector', label: 'Memory Reflector', description: 'Эпизодические сигналы → устойчивые инсайты', icon: BrainCircuit },
 ];
 

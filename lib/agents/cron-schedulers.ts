@@ -19,8 +19,9 @@
  *   stage    — работу делает стадия оркестратора эволюции, а роут остался
  *              входом для ручного прогона. Расписания у самого роута нет и
  *              быть не должно: он не забыт, у него другой хозяин. Род заведён
- *              08.09 после находки аудита: `industry-intel` и `memory-reflect`
- *              числились внешними («1-2 раза в день», «раз в сутки») с 29.08,
+ *              08.09 после находки аудита: `industry-intel` (снят 19.09
+ *              вместе с MTProto) и `memory-reflect` числились внешними
+ *              («1-2 раза в день», «раз в сутки») с 29.08,
  *              когда оба переехали стадиями в `runEvoOrchestrator`. Это не
  *              мелочь в словах: «внешнее» значит «идёт ли — не знаю», и панель
  *              звала проверять чужую панель cron-job.org вместо того, чтобы
@@ -67,10 +68,6 @@ export type AnyDeclaration = SchedulerDeclaration | StageDeclaration;
  * намеренно — второе расписание означало бы вторую работу.
  */
 export const ORCHESTRATOR_STAGES: Record<string, StageDeclaration> = {
-  'industry-intel': {
-    kind: 'stage', writes: true, entry: 'scanIndustryChannels', host: 'evo',
-    note: 'стадия runEvoOrchestrator с 29.08: отраслевые TG-каналы → agent_memory; роут остался входом для ручного прогона',
-  },
   'memory-reflect': {
     kind: 'stage', writes: true, entry: 'runMemoryReflector', host: 'evo',
     note: 'стадия runEvoOrchestrator с 29.08: эпизоды разведки → durable-инсайты в agent_knowledge; роут остался входом для ручного прогона',

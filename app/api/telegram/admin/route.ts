@@ -33,7 +33,6 @@ import { postKuzmichRoute, postKuzmichTip } from '@/lib/notifications/telegram-c
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { PlatformAgent } from '@/lib/agents';
-import { scanAllOperatorGroups } from '@/lib/telegram/operator-availability';
 import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
@@ -416,41 +415,6 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
   await reply(ownerChatId, results.join('\n'));
 }
 
-// ── Сканирование TG-групп операторов ────────────────────────────────────────
-
-async function scanOperators(chatId: number): Promise<void> {
-  try {
-    const result = await scanAllOperatorGroups(72);
-    if (result.groups_scanned === 0) {
-      await reply(chatId, 'Нет операторов с TG-группами в базе.\nЗапусти сначала: POST /api/admin/import/operators { "action": "scrape_operators" }');
-      return;
-    }
-    if (result.total_signals === 0) {
-      await reply(chatId, `Просканировано ${result.groups_scanned} групп — новых объявлений о местах не найдено.`);
-      return;
-    }
-    const lines = result.results
-      .filter(r => r.signals_found > 0)
-      .map(r => {
-        const top = r.signals.slice(0, 3).map(s => {
-          const parts = [`• <b>${s.tour_type}</b>`];
-          if (s.date) parts.push(s.date);
-          if (s.price) parts.push(`${s.price.toLocaleString('ru-RU')} ₽`);
-          if (s.slots_available) parts.push(`${s.slots_available} мест`);
-          if (s.contact) parts.push(s.contact);
-          return parts.join(' | ');
-        });
-        return `<b>${r.group}</b> (${r.signals_found} сигналов)\n${top.join('\n')}`;
-      });
-    await reply(chatId,
-      `<b>Наличие мест у операторов</b>\n\n${lines.join('\n\n')}\n\n` +
-      `Групп: ${result.groups_scanned} | Сигналов: ${result.total_signals}`
-    );
-  } catch (e) {
-    await reply(chatId, `Ошибка сканирования: ${(e as Error).message}`);
-  }
-}
-
 // ── Command handlers ──────────────────────────────────────────────────────────
 
 async function handleCommand(cmd: string, chatId: number): Promise<void> {
@@ -470,7 +434,6 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         '/testpush — реальный push на телефон + диагностика VAPID/подписок',
         '/checkchannels — проверить доступность каналов (без постинга)',
         '/testchannels — тест-посты в оба канала',
-        '/scanops — сканировать TG-группы операторов → прислать сигналы о местах',
         '',
         'Любой текст — уходит в Команду AI и возвращается с ответом нужного агента',
       ].join('\n'));
@@ -539,11 +502,6 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
     case '/checkchannels':
       await reply(chatId, 'Проверяю...');
       await checkChannels(chatId);
-      break;
-
-    case '/scanops':
-      await reply(chatId, 'Запускаю сканирование операторов...');
-      await scanOperators(chatId);
       break;
 
     case '/testchannels':
@@ -678,7 +636,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   //    владельцу, а не тому, кто их запросил. Это работает без единой новой
   //    переменной окружения — потому и сделано первым.
   // 2. СЕКРЕТ ЗАГОЛОВКА — когда он заведён. Закрывает остаток: запуск действий
-  //    (/testpush, /scanops) чужими руками. Пока TELEGRAM_ADMIN_WEBHOOK_SECRET
+  //    (/testpush и прочими) чужими руками. Пока TELEGRAM_ADMIN_WEBHOOK_SECRET
   //    не выставлен, слой честно молчит в лог, а не делает вид, что проверил.
   //
   // Fail-closed при незаданном секрете здесь НЕЛЬЗЯ: бот владельца замолчал бы

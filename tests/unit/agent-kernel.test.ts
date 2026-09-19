@@ -209,12 +209,6 @@ describe('три контура подключены к ядру', () => {
       expect(stageDiag('scoutDigest', { digest_sent: true })).toBeUndefined();
     });
 
-    it('industryIntel: массив errors схлопывается в строку, пустой — не diag', () => {
-      expect(stageDiag('industryIntel', { errors: ['канал A: timeout', 'канал B: 403'] }))
-        .toBe('канал A: timeout; канал B: 403');
-      expect(stageDiag('industryIntel', { errors: [] })).toBeUndefined();
-    });
-
     it('memoryReflector: reason как есть, отсутствует — undefined', () => {
       expect(stageDiag('memoryReflector', { reason: 'insufficient_episodes' })).toBe('insufficient_episodes');
       expect(stageDiag('memoryReflector', { consolidated: 3 })).toBeUndefined();
