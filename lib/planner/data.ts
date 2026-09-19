@@ -86,14 +86,27 @@ export interface ReviewSignal {
 
 /**
  * Fetch real operator tours for a zone+activity, sorted by rating (not random).
- * Falls back gracefully: returns [] on error or empty results.
+ *
+ * ── `null` — это «не смогли спросить», и оно НЕ равно пустому списку ─────
+ *
+ * До 19.09 отказ запроса возвращал `[]`, то есть ровно то же, что «туров в
+ * этой зоне нет». Движок читал это как факт о каталоге и собирал общий день,
+ * а перепись того дня объяснила пустой план сезоном — при том что с тем же
+ * исходом запрос мог просто упасть. Доказать было нечем: два разных мира
+ * выглядели одинаково (§4.0).
+ *
+ * Теперь: `[]` — спросили, туров нет; `null` — спросить не вышло, и
+ * вызывающий обязан сказать об этом словами, а не выдать за знание.
+ *
+ * Отказ кэшируется наравне с ответом — намеренно. Кэш живёт один вызов
+ * `recommendTrip`, и долбиться в упавшую базу по разу на зону незачем.
  */
 export async function fetchRealToursForZone(
   zone: ZoneId,
   activityType: string,
   limit: number,
   cache: PlannerCache
-): Promise<RealTour[]> {
+): Promise<RealTour[] | null> {
   return cached(cache, `tours:${zone}:${activityType}`, async () => {
     try {
       const { rows } = await pool.query<{
@@ -179,8 +192,12 @@ export async function fetchRealToursForZone(
         zone: r.zone ?? zone,
         activityType: r.activity_type ?? activityType,
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      // Молчать нельзя: имя проверки и причина — в лог (§4.0). Пустой catch
+      // превращал поломку в «данных нет».
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[planner] туры зоны не прочитались (${zone}/${activityType}):`, message);
+      return null;
     }
   });
 }

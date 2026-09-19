@@ -491,7 +491,11 @@ interface RouteFromDB {
   location_type: string;
 }
 
-async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: number = 5): Promise<RouteFromDB[]> {
+/**
+ * Маршруты зоны под активность. `null` — спросить не вышло (см. шапку
+ * `fetchRealToursForZone`): «не смогли» не равно «маршрутов нет».
+ */
+async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: number = 5): Promise<RouteFromDB[] | null> {
   try {
     const { rows } = await pool.query<RouteFromDB>(
       `SELECT id, title, lat, lng, zone, activity_type, location_type
@@ -502,8 +506,10 @@ async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: num
       [zone, activityType, limit]
     );
     return rows;
-  } catch {
-    return [];
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[planner] маршруты зоны не прочитались (${zone}/${activityType}):`, message);
+    return null;
   }
 }
 
@@ -890,7 +896,10 @@ async function scoreZones(profile: TripProfile, cache: PlannerCache): Promise<Zo
     if ((scores[zone] ?? 0) <= 0) continue;
     const primaryInterest = profile.interests[0] ?? 'trekking';
     const realTours = await fetchRealToursForZone(zone, primaryInterest, 3, cache);
-    if (realTours.length > 0) {
+    // `null` — не смогли спросить. Ни надбавки, ни штрафа: зона не становится
+    // хуже оттого, что про неё не удалось узнать. Трактовать отказ как
+    // «туров нет» значило бы уводить план из зоны по выдуманной причине.
+    if (realTours && realTours.length > 0) {
       scores[zone] = (scores[zone] ?? 0) + 10;
       const avgRating = realTours.reduce((s, t) => s + t.operatorRating, 0) / realTours.length;
       if (avgRating >= 4.0) {
@@ -921,13 +930,26 @@ async function scoreZones(profile: TripProfile, cache: PlannerCache): Promise<Zo
 
 // ── Day plan generator ──────────────────────────────────────────────────────
 
+/**
+ * Дни плана и то, чего мы про них НЕ узнали.
+ *
+ * `unchecked` — пары «зона / активность», по которым запрос к каталогу не
+ * выполнился. Без этого списка недобор дней объяснялся бы сезоном всегда, в
+ * том числе когда причина другая и неизвестная (§4.0).
+ */
+interface DayPlanResult {
+  days: DayPlan[];
+  unchecked: string[];
+}
+
 async function generateDayPlans(
   profile: TripProfile,
   zones: ZoneRecommendation[],
   tripDays: number,
   cache: PlannerCache,
-): Promise<DayPlan[]> {
-  if (tripDays <= 0 || zones.length === 0) return [];
+): Promise<DayPlanResult> {
+  const unchecked = new Set<string>();
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [] };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -958,7 +980,7 @@ async function generateDayPlans(
     childFriendly: true, minChildAge: 0, dayWarnings: [],
   });
 
-  if (dayNum > tripDays) return days;
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked] };
 
   // ── Active days budget ──
   const departureDays = 1;
@@ -1025,10 +1047,22 @@ async function generateDayPlans(
 
     // Fetch real operator tours (sorted by rating) + DB routes as fallback
     const primaryInterest = block.interests[0];
-    const realTours = await fetchRealToursForZone(block.zone, primaryInterest, block.activeDays + 2, cache);
-    const dbRoutes = realTours.length >= block.activeDays
+    const toursOrNull = await fetchRealToursForZone(block.zone, primaryInterest, block.activeDays + 2, cache);
+    const realTours = toursOrNull ?? [];
+
+    const routesOrNull = realTours.length >= block.activeDays
       ? []
       : await fetchRoutesForZone(block.zone, primaryInterest, block.activeDays - realTours.length + 2);
+    const dbRoutes = routesOrNull ?? [];
+
+    // Отказ запроса запоминается ИМЕННО как отказ. День при этом собирается
+    // как прежде — общий день по паре «зона + активность» не лжёт: активность
+    // в сезоне и зона её держит. Лгало бы ОБЪЯСНЕНИЕ недобора: сказать «вне
+    // сезона» там, где мы просто не смогли посмотреть каталог, — выдать
+    // «не знаю» за знание (§4.0).
+    if (toursOrNull === null || routesOrNull === null) {
+      unchecked.add(`${ZONE_NAMES[block.zone]} / ${ACTIVITY_NAMES[primaryInterest] ?? primaryInterest}`);
+    }
 
     // Generate activity days for this zone
     for (let d = 0; d < block.activeDays && dayNum <= tripDays - departureDays; d++) {
@@ -1279,7 +1313,7 @@ async function generateDayPlans(
     });
   }
 
-  return days;
+  return { days, unchecked: [...unchecked] };
 }
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
@@ -1397,7 +1431,21 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const days = await generateDayPlans(profile, zones, tripDays, cache);
+  const { days, unchecked } = await generateDayPlans(profile, zones, tripDays, cache);
+
+  // «Не смогли посмотреть каталог» — отдельное предупреждение и отдельными
+  // словами. Раньше отказ запроса возвращался пустым списком и был
+  // неотличим от «туров нет»: план собирался из общих дней, а недобор
+  // объяснялся сезоном — то есть причина НАЗЫВАЛАСЬ там, где её не знали.
+  if (unchecked.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Не удалось проверить наличие туров: ${unchecked.slice(0, 3).join('; ')}`
+        + (unchecked.length > 3 ? ` и ещё ${unchecked.length - 3}` : '')
+        + '. Это «не знаем», а не «туров нет» — план по этим дням может быть беднее реального.',
+    });
+  }
 
   // ── План короче запрошенного — это факт, и он говорится словами ──────────
   //
@@ -1410,11 +1458,19 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     const offSeason = profile.interests
       .filter(i => ACTIVITY_CONSTRAINTS[i] && !ACTIVITY_CONSTRAINTS[i].months.includes(month))
       .map(i => ACTIVITY_NAMES[i] ?? i);
+    // Причина называется ТОЛЬКО когда она известна. Если хоть одна проверка
+    // каталога не выполнилась, «вне сезона» — уже не факт, а догадка: там
+    // могли быть туры, которых мы не увидели.
+    const reason = unchecked.length > 0
+      ? ': часть проверок наличия туров не выполнилась, поэтому причину недобора назвать не берёмся'
+      : offSeason.length > 0
+        ? `: в этом месяце вне сезона ${offSeason.join(', ')}`
+        : ': подтверждённых выходов на остальные дни у нас нет';
+
     warnings.push({
       type: 'duration',
       severity: 'important',
-      message: `Наполнили ${days.length} ${pluralDays(days.length)} из ${tripDays}`
-        + (offSeason.length > 0 ? `: в этом месяце вне сезона ${offSeason.join(', ')}` : ': подтверждённых выходов на остальные дни у нас нет')
+      message: `Наполнили ${days.length} ${pluralDays(days.length)} из ${tripDays}${reason}`
         + '. Остальные дни не придумываем — сдвиньте даты или добавьте интересы, и план соберётся полнее.',
     });
   }
