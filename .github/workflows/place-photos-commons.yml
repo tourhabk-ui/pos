@@ -1,0 +1,151 @@
+name: Фото мест с Commons — перепись и сухой прогон (по маркеру)
+
+# Повод (19.09). Владелец: «фото мест нужны». Законный путь к ним был написан
+# заранее целиком — geosearch по координатам, автор и лицензия из extmetadata,
+# отсев несвободных, кредит на карточке, — но звался он из админки по одному
+# месту руками. Пакетный проход завели; спросить его из песочницы агента
+# нечем: прод требует Bearer-секрет, а браузером заголовок не поставить.
+#
+# Этот прогон ТОЛЬКО ЧИТАЕТ. Перепись объявлена read-only, а сбор идёт с
+# умолчанием dry_run — то есть ходит в Commons, показывает кандидатов и не
+# пишет в базу ничего, включая пометки «не нашли». Боевая запись
+# (dry_run: false) — отдельное решение владельца и отдельный прогон.
+#
+# Радиус 3000 м — решение владельца 19.09 из двух вариантов (3 км против
+# потолка API в 10 км): строже, снимков меньше, но они про это место.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/place-photos-commons.json'
+
+permissions:
+  contents: read
+
+jobs:
+  photos:
+    runs-on: ubuntu-latest
+    # Бюджет ожидания сборки — 35 минут (ATTEMPTS 70 x SLEEP 30 в
+    # scripts/wait-for-deploy.sh), таймаут job'а обязан быть строго больше:
+    # отменённый на последней секунде job читается как «ничего не сказано»
+    # (случай funnel-census run1). Держит workflow-timeout-fits-wait.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # REQUIRE_FRESH здесь ОБЯЗАТЕЛЕН, в отличие от funnel-census: этим
+      # коммитом едет САМ эндпоинт, которого на проде ещё не было. Спросить
+      # старую сборку значит получить 404 и прочитать его как «мест нет».
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Перепись и сухой прогон
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+
+          code=$(curl -sS -o /tmp/census.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/place-photos-commons")
+          echo "перепись → HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "  не ответила — это «не смогли спросить», а не «фото есть»"
+            cat /tmp/census.json 2>/dev/null || true
+            echo '{}' > /tmp/census.json
+          fi
+
+          # Сухой прогон: dry_run не передаётся, потому что умолчание — сухой.
+          # Передавать его явным true значило бы завести второе место, где это
+          # решается, и однажды они разойдутся.
+          code=$(curl -sS -o /tmp/dry.json -w '%{http_code}' --max-time 280 \
+            -X POST -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -d '{"batch": 10, "radius_m": 3000}' \
+            "https://vedarai.ru/api/cron/place-photos-commons")
+          echo "сухой прогон → HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "  не ответил"
+            cat /tmp/dry.json 2>/dev/null || true
+            echo '{}' > /tmp/dry.json
+          fi
+
+          python3 - <<'PY'
+          import json
+
+          def load(n):
+              try:
+                  return json.load(open('/tmp/%s.json' % n))
+              except Exception:
+                  return {}
+
+          census, dry = load('census'), load('dry')
+          unknown = []
+
+          print('=== СКОЛЬКО МЕСТ БЕЗ ПОКАЗЫВАЕМОГО СНИМКА ===')
+          if not census.get('ok'):
+              print('  не спросили')
+              unknown.append('перепись не ответила')
+          else:
+              live = census.get('live_places')
+              shown = census.get('with_shown_photo')
+              hidden = census.get('photo_hidden_only')
+              none_ = census.get('without_any_photo')
+              print('  живых мест:', live)
+              print('  со снимком, который карточка показывает:', shown)
+              print('  снимок лежит, но скрыт:', hidden)
+              print('  снимка нет вовсе:', none_)
+              if census.get('without_ark_id'):
+                  # Место без ark_id связать со снимком нечем — это отдельное
+                  # состояние, а не «нет фото».
+                  print('  без ark_id (связать не с чем):', census['without_ark_id'])
+              for m in census.get('hidden_by_model') or []:
+                  print('   — род %s: %s, из них с атрибуцией %s'
+                        % (m.get('model'), m.get('count'), m.get('with_attribution')))
+              legacy = census.get('legacy_wikimedia_commons') or {}
+              print('  наследие wikimedia-commons:', legacy.get('total'),
+                    '| с ссылкой на файл Commons:', legacy.get('with_source_url'))
+              print('  помечено «кандидатов не нашлось»:', census.get('marked_no_candidate'))
+
+          print()
+          print('=== ЧТО COMMONS ПРЕДЛАГАЕТ (СУХОЙ ПРОГОН, 3 км) ===')
+          if not dry.get('ok'):
+              print('  не спросили')
+              unknown.append('сухой прогон не ответил')
+          else:
+              # Сухой прогон, который ЧТО-ТО записал, — это дефект, а не удача.
+              if dry.get('dry_run') is not True:
+                  raise SystemExit('ОШИБКА: прогон оказался не сухим — %r' % dry.get('dry_run'))
+              print('  в очереди на этот раз:', dry.get('queue_size'))
+              if dry.get('exhausted'):
+                  print('  очередь пуста: мест без показываемого снимка не осталось')
+              print('  итог:', dry.get('tally'))
+              for r in dry.get('results') or []:
+                  st = r.get('status')
+                  if st == 'would_save':
+                      print('   + %s ← %s | %s, %s | %s м'
+                            % (r.get('name'), r.get('title'), r.get('author'),
+                               r.get('license'), r.get('distance_m')))
+                  elif st == 'no_attribution':
+                      print('   ? %s — %s кандидат(ов), но ни одного с именем автора'
+                            % (r.get('name'), r.get('checked')))
+                  elif st == 'failed':
+                      print('   ! %s — %s' % (r.get('name'), r.get('reason')))
+                  else:
+                      print('   . %s — %s' % (r.get('name'), st))
+
+          print()
+          if unknown:
+              # «Не смогли спросить» — не «всё хорошо» и не «всё плохо».
+              print('НЕ ПРОВЕРЕНО: ' + '; '.join(unknown))
+          print('Записи не было: перепись только читает, сбор шёл сухим.')
+          print('Боевой прогон (dry_run: false) — отдельное решение владельца.')
+          PY

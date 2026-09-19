@@ -21,8 +21,10 @@ export interface WikiCandidate {
   pageId: number;
   distanceM: number | null;
   imageUrl: string; // полноразмерный оригинал
-  thumbUrl: string; // превью для ревью
-  width: number;
+  thumbUrl: string; // превью запрошенной ширины (рендерит сам Commons)
+  thumbWidth: number; // размеры ПРЕВЬЮ, как их назвал Commons, а не вычисленные
+  thumbHeight: number; // из соотношения сторон: вычисленное было бы догадкой
+  width: number; // размеры оригинала
   height: number;
   mime: string;
   author: string; // очищенный от HTML автор ('' если неизвестно)
@@ -76,6 +78,8 @@ interface ExtMetadata {
 interface ImageInfoEntry {
   url?: string;
   thumburl?: string;
+  thumbwidth?: number;
+  thumbheight?: number;
   descriptionurl?: string;
   width?: number;
   height?: number;
@@ -122,6 +126,9 @@ export function buildCandidate(
     distanceM,
     imageUrl: info.url,
     thumbUrl: info.thumburl ?? info.url,
+    // Нет превью — значит отдан оригинал, и размеры у него оригинальные.
+    thumbWidth: info.thumbwidth ?? width,
+    thumbHeight: info.thumbheight ?? height,
     width,
     height,
     mime,
@@ -148,6 +155,16 @@ export interface SearchOpts {
   radiusM?: number; // радиус geosearch (макс. 10000 по API)
   limit?: number; // сколько кандидатов вернуть
   minWidth?: number;
+  /**
+   * Ширина превью, которое отрендерит Commons. 480 — размер витрины ревью.
+   *
+   * Пакетный сбор (`/api/cron/place-photos-commons`) просит 1280 и кладёт в
+   * базу ИМЕННО превью, а не оригинал: у оригиналов Commons бывают десятки
+   * мегабайт, а уменьшать их нам нечем — `sharp` в `package.json` не объявлен
+   * и лежит на диске только транзитивно от next. Превью рендерит чужой
+   * сервер, и это честнее, чем зависеть от пакета, которого мы не просили.
+   */
+  thumbWidth?: number;
 }
 
 /** Ищет свободные фото рядом с координатой. Возвращает кандидатов для ревью. */
@@ -159,6 +176,7 @@ export async function searchCommonsPhotos(
   const radiusM = Math.min(opts.radiusM ?? 3000, 10_000);
   const limit = opts.limit ?? 12;
   const minWidth = opts.minWidth ?? 800;
+  const thumbWidth = Math.min(Math.max(opts.thumbWidth ?? 480, 120), 2000);
 
   const geo = (await commonsFetch({
     action: 'query',
@@ -181,7 +199,7 @@ export async function searchCommonsPhotos(
     action: 'query',
     prop: 'imageinfo',
     iiprop: 'url|extmetadata|size|mime',
-    iiurlwidth: '480',
+    iiurlwidth: String(thumbWidth),
     titles: titles.join('|'),
   })) as { query?: { pages?: Record<string, ImageInfoPage> } };
 
