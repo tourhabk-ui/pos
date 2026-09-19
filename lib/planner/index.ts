@@ -19,6 +19,8 @@ export {
   // обязан называть, ЧТО именно не в сезоне и что в сезоне есть (19.09).
   // Без этого совет «назови интересы иначе» ведёт обратно в тот же отказ.
   ACTIVITY_CONSTRAINTS,
+  // Имена активностей по-русски — один словарь на движок и Кузьмича.
+  ACTIVITY_NAMES,
   type TripProfile,
   type TripRecommendation,
   type DayPlan,

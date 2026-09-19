@@ -198,6 +198,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   make_trip_plan: {
     days: { lead: 'Trip length in days, 3–21; default 7.', example: '7' },
     interests: { lead: 'Interests in free text.', example: 'вулканы и медведи' },
+    when: { lead: 'When the trip starts: a Russian month name or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today.', example: '2027-07-10' },
   },
   create_lead: {
     name: { lead: "Traveller's name." },
