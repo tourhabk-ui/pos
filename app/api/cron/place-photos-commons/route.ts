@@ -45,8 +45,25 @@
  * байты как есть. Тяжёлое сверх порога не кладём вовсе и говорим об этом
  * вслух — это третий исход, а не тихий пропуск.
  *
- * Байты при этом ложатся в базу, и это временно по построению: суточный
- * `cron-images-to-s3.yml` увозит в хранилище всё, что лежит байтами (§4.1).
+ * ── Снимок ложится в S3, а не в базу ───────────────────────────────────────
+ *
+ * Решение владельца 19.09: «фото должны быть в s3, там больше места, 100 ГБ».
+ * Первая редакция этого роута клала байты в `image_data` и полагалась на
+ * суточный `cron-images-to-s3.yml`, который их потом увозит. Так было БЫ
+ * правильно по результату и неправильно по существу: §4.1 говорит прямо —
+ * «байтам фотографии в PostgreSQL не место», а уборщик делает правку
+ * писателей необязательной для правильности, но не отменяет её. База сегодня
+ * 882 МБ, из них 441 МБ — снимки; складывать туда новые, чтобы через сутки
+ * вывезти, значит занимать самое дорогое место самым дешёвым содержимым.
+ *
+ * Порядок записи взят у переезда и не переставляется: залить объект →
+ * ПРОЧИТАТЬ его обратно и сверить размер → и только теперь писать строку.
+ * Заливка, вернувшая успех, — ещё не доказательство: строка со ссылкой на
+ * нечитаемый объект хуже отсутствия строки, потому что выглядит как снимок.
+ *
+ * S3 не настроен — не пишем вовсе и говорим об этом отдельным исходом.
+ * Молчаливый откат «тогда положим в базу» вернул бы ровно то, что здесь
+ * исправляется.
  *
  * ── «Не нашли» — это не «фото нет» ─────────────────────────────────────────
  *
@@ -62,14 +79,33 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { searchCommonsPhotos, downloadPhotoBytes } from '@/lib/services/ingest/wikimedia-photos';
+import { uploadToS3, deleteFromS3, extFor, isS3Configured } from '@/lib/storage/s3';
+import { randomUUID } from 'node:crypto';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 /** Ширина превью, которое просим у Commons. */
 const THUMB_WIDTH = 1280;
-/** Тяжелее — не кладём: уменьшать нечем (см. шапку). */
-const MAX_BYTES = 2 * 1024 * 1024;
+/**
+ * Радиус поиска вокруг места — решение владельца 19.09: «3 км».
+ *
+ * Выбор был между тремя километрами и десятью (потолок API). Десять дают
+ * больше кандидатов и больше мусора: geosearch ищет снимки РЯДОМ С ТОЧКОЙ, и
+ * за десять километров от вулкана попадает всё подряд. Три — строже, снимков
+ * меньше, но они про это место.
+ *
+ * Число остаётся параметром запроса: решение задаёт умолчание, а не запрет.
+ * Расширять радиус на конкретной партии можно, и тогда это видно в ответе.
+ */
+const DEFAULT_RADIUS_M = 3000;
+/**
+ * Тяжелее — не кладём. Порог перестал быть про место: в хранилище его 100 ГБ,
+ * и превью 1280 px весит сотни килобайт. Он остался ловушкой на неожиданное —
+ * превью, которое почему-то оказалось оригиналом, — потому что уменьшать нам
+ * по-прежнему нечем (sharp не объявлен, см. шапку).
+ */
+const MAX_BYTES = 8 * 1024 * 1024;
 /** Пауза между запросами к чужому API. */
 const PAUSE_MS = 1200;
 /** Сколько не возвращаться к месту, у которого кандидатов не нашлось. */
@@ -204,6 +240,7 @@ type Outcome =
   | { place: string; name: string; status: 'no_attribution'; checked: number }
   | { place: string; name: string; status: 'too_heavy'; size_kb: number }
   | { place: string; name: string; status: 'occupied' }
+  | { place: string; name: string; status: 'no_storage' }
   | { place: string; name: string; status: 'failed'; reason: string };
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -216,7 +253,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Неверные параметры запроса' }, { status: 400 });
   }
   const batch = parsed.data.batch ?? 10;
-  const radiusM = parsed.data.radius_m ?? 3000;
+  const radiusM = parsed.data.radius_m ?? DEFAULT_RADIUS_M;
   // Умолчание — сухой прогон. Запись только по явному false.
   const dryRun = parsed.data.dry_run !== false;
 
@@ -245,6 +282,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[place-photos-commons] очередь не прочитана:', err);
     return NextResponse.json({ ok: false, error: 'Очередь не прочитана' }, { status: 500 });
+  }
+
+  // Хранилище не настроено — класть некуда, и молчаливый откат «тогда в
+  // базу» вернул бы то, ради чего этот роут переписан. Сухому прогону
+  // хранилище не нужно: он ничего не кладёт.
+  if (!dryRun && !isS3Configured) {
+    console.error('[place-photos-commons] S3 не настроен: заливать некуда');
+    return NextResponse.json({
+      ok: false, dry_run: false,
+      error: 'S3 не настроен — снимки класть некуда',
+    }, { status: 503 });
   }
 
   const results: Outcome[] = [];
@@ -305,7 +353,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      const saved = await saveIfStillFree(place, pick, bytes);
+      const saved = await saveToStorageIfStillFree(place, pick, bytes);
       results.push(
         saved
           ? {
@@ -360,32 +408,68 @@ async function markNoCandidate(arkId: string): Promise<void> {
 }
 
 /**
- * Запись ТОЛЬКО если место всё ещё без показываемого снимка.
+ * Снимок в ХРАНИЛИЩЕ, ссылка в строку — и только если место всё ещё свободно.
  *
- * Условие стоит в самом `WHERE` вставки, а не проверкой перед ней: между
- * чтением очереди и записью проходят секунды сетевых запросов, и за это время
- * владелец мог залить своё фото. Проверка «сначала спросим, потом вставим»
- * такую гонку не закрывает — закрывает предикат внутри запроса.
+ * Порядок не переставляется (взят у `images-to-s3`, §4.1):
+ *   1. залить объект в S3;
+ *   2. ПРОЧИТАТЬ его обратно и сверить размер;
+ *   3. и только теперь писать строку, где `image_data` пуст.
  *
- * Возвращает false, если место оказалось занято, — это исход, а не ошибка.
+ * Заливка, вернувшая успех, доказательством не является. Строка со ссылкой на
+ * нечитаемый объект хуже отсутствия строки: карточка покажет битую картинку, а
+ * перепись посчитает место обеспеченным.
  *
- * Условие у `DO UPDATE` относится к УЖЕ ЛЕЖАЩЕЙ строке. Пустой род назван в нём
- * отдельно, потому что сравнение NULL со списком даёт NULL, а не «ложь»: без
- * этой ветки место с безымянным снимком не обновилось бы никогда и вечно
- * возвращалось бы в очередь как «занято».
+ * Занятость проверяется предикатом ВНУТРИ запроса, а не отдельным вопросом до
+ * него: между сбором очереди и записью проходят секунды сетевых вызовов, и за
+ * это время владелец мог залить своё фото. Условие у `DO UPDATE` относится к
+ * УЖЕ ЛЕЖАЩЕЙ строке; пустой род назван отдельно, потому что сравнение NULL со
+ * списком даёт NULL, а не «ложь», и без этой ветки место с безымянным снимком
+ * не обновилось бы никогда, вечно возвращаясь в очередь как «занято».
+ *
+ * Место оказалось занято — залитый объект удаляется тут же: сирота, о которой
+ * никто не знает, хуже занятого места. Прежний объект замещённой строки тоже
+ * удаляется, и это делается ПОСЛЕ удачной записи — не раньше, иначе неудачная
+ * запись оставила бы карточку вовсе без снимка.
+ *
+ * Возвращает false, если место занято, — это исход, а не ошибка.
  */
-async function saveIfStillFree(
+async function saveToStorageIfStillFree(
   place: PlaceRow,
   pick: { title: string; thumbUrl: string; thumbWidth: number; thumbHeight: number; mime: string; author: string; license: string; licenseUrl: string; descriptionUrl: string },
   bytes: Buffer,
 ): Promise<boolean> {
+  const mime = thumbMime(pick.thumbUrl, pick.mime);
+  // Новый ключ на каждую заливку: под постоянным ключом замена снимка меняла
+  // бы содержимое по неизменному адресу, а он роздан с `immutable` на год.
+  const key = `places/${place.ark_id}/commons-${randomUUID()}.${extFor(mime)}`;
+
+  const uploaded = await uploadToS3(key, bytes, mime);
+
+  const check = await fetch(uploaded.url, { cache: 'no-store' });
+  if (!check.ok) {
+    await dropObject(key);
+    throw new Error(`объект не читается после заливки: HTTP ${check.status}`);
+  }
+  const readBack = Buffer.from(await check.arrayBuffer());
+  if (readBack.length !== bytes.length) {
+    await dropObject(key);
+    throw new Error(`размер не сошёлся: залито ${bytes.length}, прочитано ${readBack.length}`);
+  }
+
+  // Что лежало раньше — чтобы не оставить объект, на который больше нет ссылки.
+  const prev = await pool.query<{ s3_key: string | null }>(
+    `SELECT s3_key FROM ai_route_images WHERE route_id = $1`,
+    [place.ark_id],
+  );
+  const prevKey = prev.rows[0]?.s3_key ?? null;
+
   const { rowCount } = await pool.query(
     `INSERT INTO ai_route_images
        (route_id, image_data, mime_type, prompt, model, width, height,
-        source_url, author, license, license_url)
-     VALUES ($1, $2, $3, $4, 'wikimedia', $5, $6, $7, $8, $9, $10)
+        source_url, author, license, license_url, s3_key, s3_url)
+     VALUES ($1, NULL, $2, $3, 'wikimedia', $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (route_id) DO UPDATE
-       SET image_data  = EXCLUDED.image_data,
+       SET image_data  = NULL,
            mime_type   = EXCLUDED.mime_type,
            prompt      = EXCLUDED.prompt,
            model       = EXCLUDED.model,
@@ -395,13 +479,14 @@ async function saveIfStillFree(
            author      = EXCLUDED.author,
            license     = EXCLUDED.license,
            license_url = EXCLUDED.license_url,
+           s3_key      = EXCLUDED.s3_key,
+           s3_url      = EXCLUDED.s3_url,
            created_at  = now()
        WHERE ai_route_images.model IS NULL
           OR NOT (${shownPhotoSql('ai_route_images.model')})`,
     [
       place.ark_id,
-      bytes,
-      thumbMime(pick.thumbUrl, pick.mime),
+      mime,
       `Wikimedia Commons: ${pick.title}`,
       pick.thumbWidth,
       pick.thumbHeight,
@@ -409,7 +494,25 @@ async function saveIfStillFree(
       pick.author || null,
       pick.license || null,
       pick.licenseUrl || null,
+      uploaded.key,
+      uploaded.url,
     ],
   );
-  return (rowCount ?? 0) > 0;
+
+  if ((rowCount ?? 0) === 0) {
+    // Место заняли, пока мы ходили в сеть. Свой объект забираем обратно.
+    await dropObject(key);
+    return false;
+  }
+  if (prevKey && prevKey !== uploaded.key) await dropObject(prevKey);
+  return true;
+}
+
+/** Удаление объекта — «не смог» пишется в лог, но прогон не роняет. */
+async function dropObject(key: string): Promise<void> {
+  try {
+    await deleteFromS3(key);
+  } catch (err) {
+    console.error('[place-photos-commons] объект не удалён из хранилища:', key, err);
+  }
 }

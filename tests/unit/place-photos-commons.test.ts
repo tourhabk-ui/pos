@@ -33,7 +33,7 @@ describe('предохранитель 1: свой снимок не затир�
   it('перед записью условие проверяется ВТОРОЙ раз, внутри запроса', () => {
     // Между чтением очереди и записью проходят секунды сетевых запросов.
     // Проверка «сначала спросим, потом вставим» такую гонку не закрывает.
-    const save = SRC.slice(SRC.indexOf('async function saveIfStillFree'));
+    const save = SRC.slice(SRC.indexOf('async function saveToStorageIfStillFree'));
     expect(save).toContain('ON CONFLICT (route_id) DO UPDATE');
     expect(save).toContain("shownPhotoSql('ai_route_images.model')");
     expect(save).toMatch(/WHERE\s+ai_route_images\.model IS NULL/);
@@ -95,7 +95,7 @@ describe('предохранитель 3: сухой прогон по умол�
       expect(before, 'markNoCandidate вне проверки dryRun').toContain('!dryRun');
     }
     // Сохранение снимка — после раннего выхода сухого прогона.
-    expect(SRC.indexOf("status: 'would_save'")).toBeLessThan(SRC.indexOf('saveIfStillFree(place'));
+    expect(SRC.indexOf("status: 'would_save'")).toBeLessThan(SRC.indexOf('saveToStorageIfStillFree(place'));
   });
 });
 
@@ -158,8 +158,87 @@ describe('чужой сервис не долбится', () => {
     expect(SRC).toContain("NextResponse.json({ error: 'Unauthorized' }, { status: 401 })");
   });
 
-  it('объявлен в реестре планировщиков — молчание не ответ', () => {
-    expect(read('lib/agents/cron-schedulers.ts')).toContain("'place-photos-commons'");
+  it('у роута есть вызывающий, и это workflow, а не объявление', () => {
+    // Сторож cron-scheduler-declared требует ЛИБО workflow, ЛИБО строку в
+    // реестре ручных — но не оба сразу: два ответа на вопрос «кто это
+    // запускает» однажды разойдутся. Здесь вызывающий настоящий.
+    const wf = read('.github/workflows/place-photos-commons.yml');
+    expect(wf).toContain('/api/cron/place-photos-commons');
+    expect(read('.github/triggers/place-photos-commons.json')).toContain('"run"');
+  });
+
+  it('прогон по маркеру ждёт ИМЕННО свою сборку', () => {
+    // Этим же коммитом едет сам эндпоинт: спросить старую сборку значит
+    // получить 404 и прочитать его как «мест нет».
+    const wf = read('.github/workflows/place-photos-commons.yml');
+    expect(wf).toContain("REQUIRE_FRESH: '1'");
+    expect(wf).toContain('wait-for-deploy.sh');
+  });
+
+  it('прогон по маркеру не пишет: dry_run не передаётся, а умолчание сухое', () => {
+    const wf = read('.github/workflows/place-photos-commons.yml');
+    // Проверяется ТЕЛО запроса, а не файл: слово dry_run в нём есть — в
+    // пояснении и в проверке отчёта, и запрещать его значило бы запрещать
+    // объяснение (тот же довод, что у сторожа MTProto про `tg_avail_`).
+    const body = /-d '(\{[^']*\})'/.exec(wf)?.[1] ?? '';
+    expect(body, 'тело POST не найдено').toContain('batch');
+    expect(body, 'dry_run передаётся явно — второе место, где это решается').not.toContain('dry_run');
+    // И отчёт краснеет, если прод вдруг ответил не сухим прогоном.
+    expect(wf).toContain("dry.get('dry_run') is not True");
+  });
+});
+
+describe('снимок едет в хранилище, а не в базу', () => {
+  // Решение владельца 19.09: «фото должны быть в s3, там больше места, 100 ГБ».
+  // Первая редакция клала байты в image_data и надеялась на суточный уборщик.
+  // §4.1: «байтам фотографии в PostgreSQL не место» — уборщик делает правку
+  // писателя необязательной для правильности, но не отменяет её.
+  const save = SRC.slice(SRC.indexOf('async function saveToStorageIfStillFree'));
+
+  it('строка пишется с пустыми байтами и со ссылкой на объект', () => {
+    expect(save).toContain('image_data  = NULL');
+    expect(save).toMatch(/VALUES \(\$1, NULL,/);
+    expect(save).toContain('s3_key      = EXCLUDED.s3_key');
+    expect(save).toContain('s3_url      = EXCLUDED.s3_url');
+  });
+
+  it('порядок не переставлен: залить → прочитать обратно → и только потом строка', () => {
+    const up = save.indexOf('await uploadToS3(');
+    const back = save.indexOf('readBack.length !== bytes.length');
+    const row = save.indexOf('INSERT INTO ai_route_images');
+    expect(up).toBeGreaterThan(-1);
+    expect(back).toBeGreaterThan(up);
+    expect(row).toBeGreaterThan(back);
+  });
+
+  it('объект не прочитался — строки не будет', () => {
+    // Строка со ссылкой на нечитаемый объект хуже отсутствия строки: карточка
+    // покажет битую картинку, а перепись посчитает место обеспеченным.
+    expect(save).toMatch(/if \(!check\.ok\)[\s\S]{0,200}throw new Error/);
+    expect(save).toContain('размер не сошёлся');
+  });
+
+  it('сирот за собой не оставляем', () => {
+    // Место заняли, пока ходили в сеть, — свой объект забираем обратно;
+    // прежний объект замещённой строки удаляется ПОСЛЕ удачной записи.
+    expect(save).toMatch(/rowCount \?\? 0\) === 0\)[\s\S]{0,200}dropObject\(key\)/);
+    expect(save).toContain('if (prevKey && prevKey !== uploaded.key) await dropObject(prevKey)');
+  });
+
+  it('нет хранилища — не пишем вовсе, а не откатываемся в базу', () => {
+    expect(SRC).toContain('!dryRun && !isS3Configured');
+    expect(SRC).toContain("status: 'no_storage'");
+  });
+
+  it('ключ объекта новый на каждую заливку', () => {
+    // Постоянный ключ менял бы содержимое по неизменному адресу, а он роздан
+    // с `immutable` на год.
+    expect(save).toContain('randomUUID()');
+  });
+
+  it('расширение объекта берётся из общего правила, а не своей копией', () => {
+    expect(save).toContain('extFor(mime)');
+    expect(SRC).not.toMatch(/function extFor/);
   });
 });
 
