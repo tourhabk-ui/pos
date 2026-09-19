@@ -312,14 +312,14 @@ lib/services/ — доменные сервисы
 lib/types/db-rows.ts — интерфейсы строк БД
 page.tsx      — server (metadata)
 _*Client.tsx  — client (логика, useState)
-lib/services/lead-processor.service.ts — AI Lead Processor (квалификация лидов)
+lib/services/operators/lead-processor.service.ts — AI Lead Processor (квалификация лидов)
 lib/pdf/proposal-generator.ts          — PDF-предложения (PDFKit)
 lib/notifications/lead-notify.ts       — Telegram-нотификации о лидах
 ```
 
 **Подбор тура — 3 движка + Кузьмич (консолидация июль 2026):**
 ```
-ЛИДЫ   lib/services/lead-processor.service.ts — квалификация лида → 3 тура + PDF
+ЛИДЫ   lib/services/operators/lead-processor.service.ts — квалификация лида → 3 тура + PDF
 ПЛАНЕР lib/planner/                           — планирование поездки:
          engine (recommendTrip, зоны/граф) · compose (тур-бандл) · data
          (честная занятость) · intelligence (погода/скоринг) · interests
