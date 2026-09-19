@@ -1,4 +1,20 @@
--- 978_hide_river_tours_three_day_raft.sql
+-- 982_hide_river_tours_three_day_raft.sql
+--
+-- ── Почему 982, а не 978 ─────────────────────────────────────────────────
+--
+-- Файл писался как 978 и под этим номером уехал в main. В тот же день другая
+-- сессия независимо взяла 978 для `978_owner_authorship_real_photo.sql` —
+-- обе честно посчитали «max + 1», просто max у них был разный. Ровно случай
+-- 15.09, ради которого заведён `tests/unit/migration-number-unique.test.ts`.
+--
+-- Разрешено переименованием, а не записью в список замороженных: список там
+-- намеренно не растёт («дописать было бы проще и означало бы, что сторож
+-- учит обходить себя»). Переехал ПОЗДНИЙ из тёзок — этот; ранний (18.09)
+-- остаётся на своём номере.
+--
+-- Переименование прогонит миграцию заново под новым именем, и это безопасно
+-- по построению: уже снятый с витрины тур она не трогает (ветка `pub IS
+-- FALSE` ниже выходит с NOTICE).
 --
 -- Снять с витрины тур «Сплав по реке Быстрая (три дня)» (id 34, оператор
 -- River Tours Kamchatka). Решение владельца 18.09: «тур спрячь».
@@ -86,26 +102,26 @@ BEGIN
    WHERE ot.id = 34 AND ot.deleted_at IS NULL;
 
   IF got_name IS NULL THEN
-    RAISE NOTICE '[978] тура 34 нет (или удалён) — делать нечего';
+    RAISE NOTICE '[982] тура 34 нет (или удалён) — делать нечего';
     RETURN;
   END IF;
 
   SELECT name INTO got_op FROM partners WHERE id = op_id;
 
   IF got_name IS DISTINCT FROM want_name THEN
-    RAISE NOTICE '[978] под id 34 лежит «%», а не «%» — не трогаем',
+    RAISE NOTICE '[982] под id 34 лежит «%», а не «%» — не трогаем',
       got_name, want_name;
     RETURN;
   END IF;
 
   IF got_op IS DISTINCT FROM want_op THEN
-    RAISE NOTICE '[978] тур «%» принадлежит «%», а не «%» — не трогаем',
+    RAISE NOTICE '[982] тур «%» принадлежит «%», а не «%» — не трогаем',
       got_name, COALESCE(got_op, 'NULL'), want_op;
     RETURN;
   END IF;
 
   IF pub IS FALSE THEN
-    RAISE NOTICE '[978] «%» уже снят с витрины', got_name;
+    RAISE NOTICE '[982] «%» уже снят с витрины', got_name;
     RETURN;
   END IF;
 
@@ -115,7 +131,7 @@ BEGIN
 
   -- Состояние на момент снятия — в журнал прогона: по нему видно, ушла ли
   -- причина, когда тур однажды будут возвращать.
-  RAISE NOTICE '[978] «%» снят с витрины (цена была %, условия отмены %)',
+  RAISE NOTICE '[982] «%» снят с витрины (цена была %, условия отмены %)',
     got_name,
     COALESCE(price::text, 'NULL'),
     CASE WHEN policy IS NULL OR btrim(policy) = '' THEN 'не записаны' ELSE 'записаны' END;
