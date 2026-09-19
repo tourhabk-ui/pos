@@ -40,7 +40,6 @@ interface ItemRow {
   id: string;
   s3_key: string;
   model: string | null;
-  author: string | null;
   subject_name: string | null;
   subject_kind: string;
 }
@@ -58,7 +57,6 @@ async function listMoved(limit: number, offset: number) {
     `SELECT i.id::text,
             i.s3_key,
             i.model,
-            i.author,
             COALESCE(p.name, kr.title) AS subject_name,
             CASE WHEN p.name IS NOT NULL THEN 'place'
                  WHEN kr.title IS NOT NULL THEN 'route'
@@ -113,6 +111,9 @@ export async function GET(req: NextRequest) {
   const part   = url.searchParams.get('part') ?? 'both';
   const limit  = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get('limit')) || DEFAULT_LIMIT));
   const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
+  // Ключ объекта в хранилище — по запросу: в списке он занимает больше места,
+  // чем имя, а нужен только когда ищут конкретный файл.
+  const withKeys = url.searchParams.get('with_keys') === '1';
 
   try {
     const c = await counts();
@@ -124,15 +125,16 @@ export async function GET(req: NextRequest) {
       method: 'GET',
       ...c,
       page: { limit, offset, returned: items.length, has_more: offset + items.length < c.in_s3 },
-      // Компактной строкой: имя места, род снимка, автор. Ключ рядом — по
-      // нему объект находится в хранилище, но читает человек имя.
-      items: part === 'summary' ? undefined : items.map(r => ({
-        name:   r.subject_name ?? '(ни места, ни маршрута)',
-        kind:   r.subject_kind,
-        model:  r.model,
-        author: r.author,
-        key:    r.s3_key,
-      })),
+      // ОДНОЙ СТРОКОЙ НА СНИМОК, а не объектом на снимок. Список читает
+      // человек, и читает его через пробу, которая отдаёт первые N байт:
+      // пятьсот объектов с полями не пролезут, пятьсот строк — пролезут.
+      // Ключ прячется за `with_keys`: он вчетверо длиннее имени и нужен
+      // только когда ищут конкретный объект в хранилище.
+      items: part === 'summary' ? undefined : items.map(r => {
+        const name = r.subject_name ?? '(ни места, ни маршрута)';
+        const tail = withKeys ? ` · ${r.s3_key}` : '';
+        return `${name} · ${r.model ?? 'род не указан'}${tail}`;
+      }),
       scope_note: 'что лежит в хранилище СЕЙЧАС. Разделить по прогонам нечем: отметки времени переезда в таблице нет, created_at — дата снимка, а не переезда',
       write_note: 'только перепись, роут не пишет вовсе',
       // Ноль строк при ненулевом in_s3 — отказ выборки, а не «ничего нет».
