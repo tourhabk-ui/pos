@@ -58,7 +58,9 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
   });
 
   it('GET-инфо отдаёт тот же список', async () => {
-    const res = await GET();
+    // GET принимает запрос с 19.09: по Accept он различает «дай карточку»
+    // и «дай поток событий» (сторож mcp-transport-accept).
+    const res = await GET(new NextRequest('https://vedarai.ru/api/mcp'));
     const json = await res.json();
     const names = (json.tools as Array<{ name: string }>).map((t) => t.name);
     expect(names).not.toContain('search_kamchatka');
