@@ -19,7 +19,7 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (...args: unknown[]) => queryMock(...args) },
 }));
 
-import { resolveCostUsd } from '@/lib/ai/providers';
+import { resolveCostUsd, priceLookupIds } from '@/lib/ai/providers';
 
 beforeEach(() => {
   queryMock.mockReset();
@@ -79,19 +79,75 @@ describe('resolveCostUsd: каталог первичен, запас — тол
   });
 });
 
+/**
+ * 19.09: ключ журнала и ключ прайса расходились разделителем, и расходился
+ * ровно самый дорогой путь. Прямой Anthropic (ступень 0b решателя) пишет
+ * `anthropic:claude-opus-5`, а оба источника цен знают `anthropic/claude-opus-5`
+ * — строка уходила в журнал с `estimated_cost_usd` NULL, а SUM(...) в
+ * llm-budget-check такие строки пропускает. То есть дневной бюджет не видел
+ * Opus 5 ($5/$25 за млн) вовсе и сработать по нему не мог.
+ */
+describe('ключ журнала с вендором через двоеточие находит свою цену', () => {
+  it('anthropic:claude-opus-5 — цена НЕ null: находится по слагу с косой чертой', async () => {
+    // Каталога нет (прод-БД недоступна с раннера) — работает запас COST_PER_1K.
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    queryMock.mockRejectedValue(new Error('connection refused'));
+    const { cost, basis } = await resolveCostUsd('anthropic:claude-opus-5', 1000, 200);
+    expect(cost).toBeCloseTo((0.00750 * 1200) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback');
+    consoleSpy.mockRestore();
+  });
+
+  it('каталог спрашивается и по нормализованному id, не только по исходному', async () => {
+    // Первый id (как в журнале) каталогу неизвестен, второй — известен.
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    queryMock.mockResolvedValueOnce({ rows: [{ usd_per_mtok_in: '5', usd_per_mtok_out: '25' }] });
+    const { cost, basis } = await resolveCostUsd('anthropic:claude-opus-5', 1000, 200);
+    expect(cost).toBeCloseTo((1000 * 5 + 200 * 25) / 1e6, 10);
+    expect(basis).toBe('model_catalog');
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('вендор, которого нет ни в каталоге, ни в запасе, остаётся честным unknown', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    queryMock.mockRejectedValue(new Error('connection refused'));
+    const { cost, basis } = await resolveCostUsd('qwen:qwen-plus', 1000, 200);
+    expect(cost).toBeNull();
+    expect(basis).toBe('unknown');
+    consoleSpy.mockRestore();
+  });
+
+  it('timeweb:<agent_id> цены не получает — у агента шлюза её нет ни в одном каталоге', () => {
+    // Нормализация механическая, а не догадка: агент шлюза не модель.
+    expect(priceLookupIds('timeweb:a1b2c3')).toEqual(['timeweb:a1b2c3', 'timeweb/a1b2c3']);
+    expect(priceLookupIds('anthropic:claude-opus-5')).toEqual(['anthropic:claude-opus-5', 'anthropic/claude-opus-5']);
+  });
+
+  it('обычный слаг OpenRouter второго варианта не порождает — лишнего запроса нет', async () => {
+    expect(priceLookupIds('z-ai/glm-5.3')).toEqual(['z-ai/glm-5.3']);
+    queryMock.mockResolvedValueOnce({ rows: [{ usd_per_mtok_in: '1.4', usd_per_mtok_out: '4.4' }] });
+    await resolveCostUsd('z-ai/glm-5.3', 10, 10);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('logLLMUsage пишет cost_basis рядом с ценой', () => {
   const SRC = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
+  // Окно чтения тела: 19.09 функция подросла ветвью прод-стока для раннера
+  // (расход судьи и ревью в книги не попадал вовсе), и прежние 1500 символов
+  // обрывались до INSERT — тест краснел на своей же мерке, а не на дефекте.
+  const WINDOW = 2800;
 
   it('INSERT несёт колонку cost_basis и параметр basis', () => {
     const start = SRC.indexOf('async function logLLMUsage');
-    const body = SRC.slice(start, start + 1500);
+    const body = SRC.slice(start, start + WINDOW);
     expect(body).toMatch(/estimated_cost_usd,\s*cost_basis/);
     expect(body).toMatch(/\[model, prompt, completion, total, cost, basis, currentAgentId\(\)\]/);
   });
 
   it('отказ INSERT не глушится молча — логируется с моделью и причиной', () => {
     const start = SRC.indexOf('async function logLLMUsage');
-    const body = SRC.slice(start, start + 1500);
+    const body = SRC.slice(start, start + WINDOW);
     expect(body).not.toMatch(/\.catch\(\(\) => \{\s*\/\* silent \*\/\s*\}\)/);
     expect(body).toMatch(/console\.error\(.*llm-usage.*строка не записана/);
   });

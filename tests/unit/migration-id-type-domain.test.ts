@@ -129,6 +129,19 @@ export function assumedIdTypes(sql: string): string[] {
   const original = codeLines(sql);
   stripSetAssignments(original).forEach((code, i) => {
     const line = original[i]!;
+    // Дешёвый отсев ДО тяжёлой регулярки сравнения, и он не меняет ни одного
+    // вердикта: находка требует `ID_COLUMNS` хотя бы на одной из сторон, а
+    // сторона — часть строки. Значит строка, где `ID_COLUMNS` не встречается
+    // вовсе, находкой стать не может ни при каком разборе.
+    //
+    // Отсев нужен не для красоты. `SIDE` начинается с `[\w.]+`, и на длинном
+    // прогоне словесных символов, за которым стоит `=`, движок перебирает
+    // каждую позицию с возвратами — то есть ровно на base64 с его `=` в
+    // хвосте. 19.09 этот сторож упал в CI по таймауту 5 с (локально зелёный):
+    // 2,1 с из 2,2 съедали миграции с фотографиями владельца, и 678 мс из них
+    // — один файл 958. Поднимать таймаут значило бы оставить бомбу с более
+    // длинным запалом: следующая миграция со снимком вернула бы тот же отказ.
+    if (!ID_COLUMNS.test(code)) return;
     const m = code.match(COMPARISON);
     if (!m) return;
     const [, left, right] = m;
@@ -214,6 +227,16 @@ describe('сторож ловит ровно тот отказ, что стои�
     expect(assumedIdTypes("WHERE u.id::text = b.metadata->'user_id'").length).toBeGreaterThan(0);
   });
 
+  it('дешёвый отсев не прячет находку на строке с посторонним длинным токеном', () => {
+    // Отсев пропускает дальше любую строку, где встречается `таблица.id`-форма,
+    // даже если рядом лежит длинный мусор: он отбрасывает только строки, где
+    // такой формы нет вовсе и находка невозможна по построению.
+    const blob = 'A'.repeat(4000) + '==';
+    expect(assumedIdTypes(`WHERE p.id = rw.place_id AND data = '${blob}'`).length).toBeGreaterThan(0);
+    // А строка без `таблица.id` находкой не была и до отсева.
+    expect(assumedIdTypes(`INSERT INTO ai_route_images (place_id, image_data) VALUES ('x', '${blob}')`)).toEqual([]);
+  });
+
   it('строковый литерал в кавычках регулярка сравнений не видит вовсе — как и раньше', () => {
     // `[\w.]+` не матчит кавычки: `ot.id = '4'` не попадает под регулярку
     // сравнения ни до этой правки, ни после — послабление для целых
@@ -226,6 +249,14 @@ describe('сторож ловит ровно тот отказ, что стои�
 
 describe('новые миграции не предполагают тип идентификатора', () => {
   const files = newMigrations();
+  // Каждый файл читается с диска ОДИН раз на весь блок, а не заново в каждой
+  // проверке. 19.09 проверка сравнений упала в CI по таймауту 5 с при зелёном
+  // прогоне локально: два блока перечитывали все новые миграции целиком, и на
+  // загруженном раннере этого хватало. Поднимать таймаут было бы лечением
+  // симптома — лишнее чтение не нужно ни одной из проверок.
+  const sources: Array<{ file: string; text: string }> = files.map(f => ({
+    file: f, text: readFileSync(join(DIR, f), 'utf-8'),
+  }));
 
   it('новые миграции найдены', () => {
     expect(files.length).toBeGreaterThan(0);
@@ -233,9 +264,9 @@ describe('новые миграции не предполагают тип ид�
 
   it('идентификаторы не приводятся к uuid', () => {
     const bad: string[] = [];
-    for (const f of files) {
-      codeLines(readFileSync(join(DIR, f), 'utf-8')).forEach((line, i) => {
-        if (/::\s*uuid\b/i.test(line) && /=/.test(line)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
+    for (const { file, text } of sources) {
+      codeLines(text).forEach((line, i) => {
+        if (/::\s*uuid\b/i.test(line) && /=/.test(line)) bad.push(`${file}:${i + 1}: ${line.trim()}`);
       });
     }
     expect(bad, 'приведение к uuid падает на первой же не-uuid записи places.id').toEqual([]);
@@ -243,9 +274,9 @@ describe('новые миграции не предполагают тип ид�
 
   it('в сравнении идентификаторов обе стороны — текст', () => {
     const bad: string[] = [];
-    for (const f of files) {
-      for (const line of assumedIdTypes(readFileSync(join(DIR, f), 'utf-8'))) {
-        bad.push(`${f}:${line}`);
+    for (const { file, text } of sources) {
+      for (const line of assumedIdTypes(text)) {
+        bad.push(`${file}:${line}`);
       }
     }
     expect(bad, 'сверять id разных таблиц можно только приведя обе стороны к тексту').toEqual([]);
