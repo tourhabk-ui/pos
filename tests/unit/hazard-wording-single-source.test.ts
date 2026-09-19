@@ -144,3 +144,45 @@ describe('потребители берут слова из источника',
     expect(hazardLabelLower('bears')).toBe('медведи');
   });
 });
+
+/**
+ * Срез 4 направления D: на карточке места опасности сказаны предложениями.
+ *
+ * Бейдж «Термальные зоны» человек ещё должен расшифровать сам; строка «Есть
+ * термальные зоны — горячая земля и вода» читается сразу. Бейджи при этом
+ * остаются на маршруте и в инструменте безопасности — там формат списком
+ * уместен, и менять его никто не просил.
+ */
+describe('карточка места говорит опасностями, а не ярлыками', () => {
+  const CLIENT = readFileSync(join(ROOT, 'app', 'places', '[id]', '_PlaceDetailClient.tsx'), 'utf-8');
+  const STRIP = readFileSync(join(ROOT, 'components', 'shared', 'HazardBadgeStrip.tsx'), 'utf-8');
+
+  it('карточка рисует фразы, а не бейджи', () => {
+    expect(CLIENT).toContain('<HazardPhraseList');
+    expect(CLIENT).not.toContain('<HazardBadgeStrip');
+  });
+
+  it('оба вида живут в одном файле — уровень и иконки не раздваиваются', () => {
+    expect(STRIP).toContain('export function HazardPhraseList');
+    expect(STRIP).toContain('export function HazardBadgeStrip');
+    expect((STRIP.match(/const HAZARD_SEVERITY/g) ?? []).length).toBe(1);
+    expect((STRIP.match(/function HazardIcon/g) ?? []).length).toBe(1);
+  });
+
+  it('опасность без фразы не исчезает — остаётся ярлык', () => {
+    expect(STRIP).toContain('hazardPhrase(h) ?? hazardLabel(h)');
+  });
+
+  it('ссылка на регистрацию МЧС одна и та же у обоих видов', () => {
+    // Считаем УПОТРЕБЛЕНИЯ в href, а не вхождения имени: строка импорта — тоже
+    // вхождение, и первая редакция этой проверки покраснела на ней.
+    expect((STRIP.match(/href=\{MCHS_ONLINE_FORM_URL\}/g) ?? []).length).toBe(2);
+    expect(STRIP).not.toMatch(/https:\/\/[^\s'"]*mchs/i);
+  });
+
+  it('бейджи остались там, где их не просили менять', () => {
+    for (const f of ['app/routes/[id]/_RouteDetailClient.tsx', 'app/tools/safety/_SafetyClient.tsx']) {
+      expect(readFileSync(join(ROOT, f), 'utf-8')).toContain('HazardBadgeStrip');
+    }
+  });
+});

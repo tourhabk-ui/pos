@@ -7,7 +7,10 @@ import { Navigation, Download, Video, ChevronDown } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 import { DIFFICULTY_LABELS } from '@/components/places/types';
 import { OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
-import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
+// Опасности на карточке места — ПРЕДЛОЖЕНИЯМИ, а не ярлыками (срез 4
+// направления D). Бейджи остались на маршруте и в инструменте
+// безопасности; слова и уровни у обоих видов общие.
+import { HazardPhraseList } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 import { distanceToCity } from '@/lib/places/distance-to-city';
@@ -430,7 +433,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
               {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
 
               {(place.safety.hazardTypes.length > 0 || place.safety.registrationRequired) && (
-                <HazardBadgeStrip
+                <HazardPhraseList
                   hazards={place.safety.hazardTypes}
                   mchsRequired={place.safety.registrationRequired}
                 />
