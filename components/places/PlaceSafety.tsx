@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { AlertTriangle, Backpack, Radio, Phone, Users, ShieldAlert, Flame, Wind, Mountain, Waves, Eye, Thermometer, CloudLightning, Signal, Leaf, Heart, Book } from 'lucide-react';
+import { AlertTriangle, Backpack, Radio, Phone, Users, ShieldAlert, Flame, Wind, Mountain, Waves, Eye, Thermometer, CloudLightning, Signal, Leaf, Heart, Book, Ticket } from 'lucide-react';
 import { HAZARD_LABELS } from './types';
 import type { PlaceSafety as SafetyData } from './types';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
+import ParkPermitAction from '@/components/safety/ParkPermitAction';
 
 interface Props {
   safety: SafetyData;
@@ -91,22 +92,37 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
           )}
 
           {safety.registrationRequired && (
-            <div className="flex items-baseline justify-between gap-4 py-2.5">
-              <dt className="flex shrink-0 items-center gap-1.5 text-sm text-[var(--text-secondary)]">
-                <Users className="h-3.5 w-3.5" aria-hidden /> Регистрация
-              </dt>
-              <dd className="text-right text-sm font-semibold">
-                <a
-                  href={MCHS_ONLINE_FORM_URL}
-                  title={MCHS_DEADLINE_SHORT}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[var(--warning)] hover:underline"
-                >
-                  МЧС обязательна
-                </a>
-              </dd>
-            </div>
+            <>
+              <div className="flex items-baseline justify-between gap-4 py-2.5">
+                <dt className="flex shrink-0 items-center gap-1.5 text-sm text-[var(--text-secondary)]">
+                  <Users className="h-3.5 w-3.5" aria-hidden /> Регистрация
+                </dt>
+                <dd className="text-right text-sm font-semibold">
+                  <a
+                    href={MCHS_ONLINE_FORM_URL}
+                    title={MCHS_DEADLINE_SHORT}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--warning)] hover:underline"
+                  >
+                    МЧС обязательна
+                  </a>
+                </dd>
+              </div>
+
+              {/* Разрешение парка — ВТОРАЯ обязанность, не та же самая
+                  (решение владельца 19.09). МЧС — спасателям сведения о
+                  группе, парк — право быть на территории; выполнивший одно
+                  не освобождён от второго, и одной строкой это не сказать. */}
+              <div className="flex items-baseline justify-between gap-4 py-2.5">
+                <dt className="flex shrink-0 items-center gap-1.5 text-sm text-[var(--text-secondary)]">
+                  <Ticket className="h-3.5 w-3.5" aria-hidden /> Разрешение парка
+                </dt>
+                <dd className="text-right text-sm font-semibold">
+                  <ParkPermitAction variant="compact" />
+                </dd>
+              </div>
+            </>
           )}
 
           {safety.emergencyAccess && (

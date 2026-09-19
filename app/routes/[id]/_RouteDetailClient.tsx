@@ -19,6 +19,7 @@ import { SURFACE_TYPES as SURFACE_LABELS } from '@/lib/import/elevation-profile'
 import LeadModal from '@/components/routes/LeadModal';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
+import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { trackLine } from '@/lib/map/line-standard';
@@ -1693,13 +1694,11 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     <ShieldAlert className="w-4 h-4" />
                     Заполнить заявку онлайн
                   </button>
-                  {route.parkApprovalUrl && (
-                    <a href={route.parkApprovalUrl} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all hover:shadow-sm"
-                      style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
-                      Согласование с парком
-                    </a>
-                  )}
+                  {/* Ссылка на согласование маршрута переехала в блок
+                      «Разрешение на посещение парка» ниже (19.09): это
+                      обязанность перед парком, а не перед МЧС, и две кнопки
+                      одного действия в соседних блоках расходятся
+                      поведением — это в проекте уже разбиралось (SOS, #887). */}
                 </div>
 
                 {/* Три канала подачи и состав данных. Раньше знали только
@@ -1730,6 +1729,21 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Разрешение на посещение парка ──────────────────────────────────
+            Решение владельца 19.09: где нужна регистрация — там же и «Зелёная
+            кнопка». Блок отдельный от МЧС намеренно: это разные обязанности
+            перед разными ведомствами, и выполнивший одну не освобождён от
+            второй. Факты — из lib/safety/park-permit (страница парка). */}
+        {(route.mchsRequired || route.parkName || route.parkApprovalUrl) && (
+          <div className="mt-10 pt-8 border-t border-[var(--border)]">
+            <ParkPermitAction
+              title={route.title}
+              parkName={route.parkName}
+              parkApprovalUrl={route.parkApprovalUrl}
+            />
           </div>
         )}
 
