@@ -39,6 +39,11 @@ import { verdictInlineNote, verdictLook } from '@/lib/routes/verdict-presentatio
 import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } from '@/lib/safety/mchs-registration';
+// Типы мест — один список на платформу (lib/places/location-types).
+// Здесь лежала своя копия на 19 ключей из 24: `pass`, `plateau`,
+// `valley`, `park` и `thermal` выводились сырыми английскими словами
+// прямо в списке путевых точек.
+import { locationTypeLabel } from '@/lib/places/location-types';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -50,14 +55,6 @@ const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr
 // посчитан, ждать больше нечего.
 const PlaceOwnRoute = dynamic(() => import('@/components/places/PlaceOwnRoute').then(m => ({ default: m.PlaceOwnRoute })), { ssr: false });
 
-const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano: 'Вулкан', geyser: 'Гейзерное поле', hot_spring: 'Термальный источник',
-  lake: 'Озеро', mountain: 'Горный массив', river: 'Река', bay: 'Бухта',
-  cape: 'Мыс', island: 'Остров', glacier: 'Ледник', forest: 'Лес и природный парк',
-  beach: 'Пляж', waterfall: 'Водопад', rock: 'Скала',
-  viewpoint: 'Смотровая площадка', settlement: 'Населённый пункт',
-  museum: 'Музей', historical: 'Историческое место', other: 'Маршрут',
-};
 
 const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   trekking: 'Треккинг', fishing: 'Рыбалка', bear_watching: 'Наблюдение за медведями',
@@ -643,7 +640,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
       {
         coords: mapCenter,
         title: route.title,
-        description: LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут',
+        description: locationTypeLabel(route.locationType, 'Маршрут'),
         color: 'red',
         type: MarkerType.TOUR,
         category: route.locationType ?? 'other',
@@ -696,7 +693,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const hasGeo = route.lat != null && route.lng != null;
   const { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track } = mapData;
   const hasTrack = trackCoords != null;
-  const locLabel = LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут';
+  const locLabel = locationTypeLabel(route.locationType, 'Маршрут');
   const actLabel = ACTIVITY_TYPE_LABELS[route.activityType ?? 'other'] ?? 'Активный отдых';
 
   // Фильтрация и сортировка туров
@@ -1033,7 +1030,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                           <div className="min-w-0">
                             {wp.locationType && (
                               <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
-                                {LOCATION_TYPE_LABELS[wp.locationType] ?? wp.locationType}
+                                {locationTypeLabel(wp.locationType)}
                               </span>
                             )}
                             <p className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--ocean)] transition-colors leading-tight truncate">
@@ -1126,7 +1123,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                         <span className="flex-1 min-w-0">
                           {st.locationType && (
                             <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
-                              {LOCATION_TYPE_LABELS[st.locationType] ?? st.locationType}
+                              {locationTypeLabel(st.locationType)}
                             </span>
                           )}
                           <span className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--ocean)] transition-colors leading-tight block truncate">

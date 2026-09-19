@@ -19,6 +19,7 @@ import { callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { locationTypeLabelLower } from '@/lib/places/location-types';
 
 export interface KuzmichPlaceEnricherResult {
   processed: number;
@@ -43,23 +44,6 @@ interface PlaceRow {
   terrain_type: string | null;
 }
 
-const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano:      'вулкан',
-  hot_spring:   'термальный источник',
-  geyser:       'гейзер',
-  lake:         'озеро',
-  mountain:     'гора',
-  cape:         'мыс',
-  bay:          'бухта',
-  beach:        'пляж',
-  river:        'река',
-  waterfall:    'водопад',
-  forest:       'лесной массив',
-  park:         'природный парк',
-  valley:       'долина',
-  pass:         'перевал',
-  plateau:      'плато',
-};
 
 async function loadPlacesNeedingReview(limit: number): Promise<PlaceRow[]> {
   const { rows } = await pool.query<PlaceRow>(
@@ -102,7 +86,7 @@ async function scrapeAdditionalContext(place: PlaceRow): Promise<string | null> 
 
 async function generateKuzmichReview(place: PlaceRow, extraContext: string | null): Promise<string | null> {
   const typeLabel = place.location_type
-    ? (LOCATION_TYPE_LABELS[place.location_type] ?? place.location_type)
+    ? locationTypeLabelLower(place.location_type)
     : 'место';
 
   const safetyParts: string[] = [];

@@ -12,25 +12,9 @@ import { registerCyrillicFonts } from '@/lib/pdf/fonts';
 import QRCode from 'qrcode';
 import { getPublicBaseUrl } from '@/lib/config';
 import { hazardLabel } from '@/lib/safety/hazard-labels';
+import { locationTypeLabel } from '@/lib/places/location-types';
 
 
-const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano:    'Вулкан',
-  hot_spring: 'Термальный источник',
-  geyser:     'Гейзер',
-  lake:       'Озеро',
-  mountain:   'Гора',
-  cape:       'Мыс',
-  bay:        'Бухта',
-  beach:      'Пляж',
-  river:      'Река',
-  waterfall:  'Водопад',
-  forest:     'Лесной массив',
-  park:       'Природный парк',
-  valley:     'Долина',
-  pass:       'Перевал',
-  plateau:    'Плато',
-};
 
 export interface PlaceCardData {
   id: string;
@@ -86,7 +70,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     const W = doc.page.width - 104; // printable width
     const typeLabel = place.locationType
-      ? (LOCATION_TYPE_LABELS[place.locationType] ?? place.locationType.toUpperCase())
+      ? locationTypeLabel(place.locationType)
       : 'МЕСТО';
 
     // ── Заголовок ─────────────────────────────────────────────────────────────

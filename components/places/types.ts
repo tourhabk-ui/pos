@@ -140,28 +140,12 @@ export interface PlaceData {
   nearby: NearbyPlace[];
 }
 
-export const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano: 'Вулкан',
-  geyser: 'Гейзерное поле',
-  hot_spring: 'Термальный источник',
-  lake: 'Озеро',
-  mountain: 'Горный массив',
-  river: 'Река',
-  bay: 'Бухта',
-  cape: 'Мыс',
-  island: 'Остров',
-  forest: 'Природный парк',
-  beach: 'Пляж',
-  waterfall: 'Водопад',
-  rock: 'Скала',
-  viewpoint: 'Смотровая площадка',
-  settlement: 'Населённый пункт',
-  museum: 'Музей',
-  historical: 'Историческое место',
-  glacier: 'Ледник',
-  thermal: 'Термальная зона',
-  other: 'Место',
-};
+/**
+ * Типы мест — НЕ здесь. Один список на платформу:
+ * `lib/places/location-types.ts` (перепись 19.09: копий было пять, ни одна не
+ * знала всех 24 ключей). Имя сохранено ради импортёров.
+ */
+export { LOCATION_TYPES as LOCATION_TYPE_LABELS } from '@/lib/places/location-types';
 
 /**
  * Названия опасностей — НЕ здесь. Один список на платформу:
