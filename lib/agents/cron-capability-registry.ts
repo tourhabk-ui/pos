@@ -156,6 +156,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'places-gvp-crosscheck': ['db_read', 'net_out'],
   'places-no-track-census': ['db_read'],
   'places-osm-crosscheck': ['db_read', 'net_out'],
+  'place-photos-commons': ['db_read', 'db_write', 'net_out'],
   'places-routes-census': ['db_read'],
   'places-unmerge': ['db_read', 'db_write'],
   'prod-errors': ['db_read'],

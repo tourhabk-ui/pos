@@ -124,6 +124,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'tour-photos':               { kind: 'manual', writes: true,  note: 'приписать туру фото, уже лежащие в public/images; чужие хосты запрещены' },
   'intel-feeds-census':        { kind: 'manual', writes: false, note: 'живы ли ленты разведки — спрошенные С ПРОДА: замер 06.09 показал, что один адрес отвечает проду и раннеру по-разному (kamgov 404/403, visitkamchatka 200/404), и судить о ленте с чужой машины значит чинить не то' },
   'payment-config':            { kind: 'manual', writes: false, note: 'какими способами турист может заплатить: имена настроенных переменных без значений — «0 оплат» не должно быть неотличимо от «нечем платить»' },
+  'place-photos-commons':      { kind: 'manual', writes: true, note: 'фото мест с Wikimedia Commons по координатам: GET — перепись (только чтение), POST — сбор партией. Сухой прогон по умолчанию, пишет только по явному dry_run:false. Ручной намеренно: первую партию смотрят глазами — geosearch находит снимки РЯДОМ с точкой, и рядом с вулканом бывает парковка' },
   'images-oversize':           { kind: 'manual', writes: false, note: 'перепись тяжёлых снимков: раскладка по весу и по происхождению. Только чтение — удаление по весу убрано ответом самой переписи: за порогом оказались настоящие фотографии, а вес лежит в генерации' },
   // 'images-recompress', 'images-generated' и 'images-to-s3' объявлений здесь
   // не несут: их зовёт images-repack.yml по маркеру — объявление было бы
