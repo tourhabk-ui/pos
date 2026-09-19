@@ -269,15 +269,78 @@ function jsonrpcSuccess(id: string | number | null | undefined, result: unknown)
   return { jsonrpc: '2.0', id: id ?? null, result };
 }
 
+/**
+ * Просит ли клиент поток событий.
+ *
+ * Разбор именно по типу, а не поиском подстроки в сыром заголовке: клиент
+ * Streamable HTTP шлёт `application/json, text/event-stream` — обе строки
+ * сразу, — и «содержит text/event-stream» отправляло бы в 405 того, кто
+ * согласен и на JSON. Поток запрошен только тогда, когда ДРУГОГО он не
+ * принимает.
+ */
+export function wantsEventStream(accept: string | null): boolean {
+  if (!accept) return false;
+  const types = accept.split(',').map((t) => t.split(';')[0].trim().toLowerCase()).filter(Boolean);
+  if (types.length === 0) return false;
+  return types.every((t) => t === 'text/event-stream');
+}
+
 function jsonrpcError(id: string | number | null | undefined, code: number, message: string) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
 }
 
-// ── MCP Protocol: GET = server info ──────────────────────────
-export async function GET() {
+/**
+ * GET — два разных вопроса по одному адресу, и отвечать на них надо по-разному.
+ *
+ * ── Повод (19.09) ─────────────────────────────────────────────────────────
+ *
+ * Glama прислала письмо: почасовая проверка коннектора «Ведар — Камчатка» не
+ * проходит, «Error connecting to MCP», и в каталоге он помечен неработающим —
+ * то есть стоит ниже живых. При этом сервер ЖИВ: вызов `safety_status` с этой
+ * же машины ответил за секунду.
+ *
+ * Разошлись на транспорте. Клиент Streamable HTTP после рукопожатия открывает
+ * GET с `Accept: text/event-stream`, ожидая либо поток событий, либо
+ * `405 Method Not Allowed` — второе читается как «сервер потоком не умеет,
+ * работаем без него». Мы же отвечали `200 application/json`: отдавали карточку
+ * сервера и список инструментов. Для человека в браузере это удобно, для
+ * клиента по спецификации — нарушение, и строгий клиент обрывает соединение.
+ *
+ * Снисходительный клиент (наш и агент Timeweb) это прощал, почасовая проверка
+ * Glama — нет. Воспроизвести их проверку отсюда нечем: прокси песочницы наружу
+ * не пускает. То есть причина названа по спецификации, а не замером, — но
+ * прежнее поведение спецификации противоречит в любом случае.
+ *
+ * ── Что теперь ────────────────────────────────────────────────────────────
+ *
+ * Просят поток — честное 405: мы им не умеем, и сказать об этом надо тем
+ * словом, которое клиент понимает. Просят обычное — как раньше.
+ */
+export async function GET(request: NextRequest) {
+  if (wantsEventStream(request.headers.get('accept'))) {
+    // Тело пустое намеренно: JSON здесь снова стал бы ответом не на тот
+    // вопрос. Allow называет метод, которым с нами и надо говорить.
+    return new NextResponse(null, { status: 405, headers: { Allow: 'POST' } });
+  }
   return NextResponse.json({
     ...MCP_SERVER_INFO,
     tools: PUBLIC_MCP_TOOLS,
+  });
+}
+
+/**
+ * OPTIONS — для проверок, которые ходят из браузера и начинают с предполёта.
+ * Без него Next отвечает 405, и предполёт читается как «сервера нет».
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      Allow: 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version',
+    },
   });
 }
 

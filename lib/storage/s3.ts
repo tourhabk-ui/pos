@@ -70,6 +70,19 @@ export interface UploadResult {
   size: number;
 }
 
+/**
+ * Расширение объекта по MIME. Живёт здесь, а не у писателей: у ключа объекта
+ * должно быть ОДНО правило именования. Копия у второго писателя однажды
+ * разошлась бы с первой, и разошлась бы молча — объект просто лёг бы под
+ * чужим расширением.
+ */
+export function extFor(mime: string): string {
+  if (mime.includes('png'))  return 'png';
+  if (mime.includes('webp')) return 'webp';
+  if (mime.includes('avif')) return 'avif';
+  return 'jpg';
+}
+
 // ── Upload ───────────────────────────────────────────────────────────────────
 
 /**

@@ -2894,8 +2894,20 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     if (modalRoutes.length > 0) return;
     setModalError(null);
     // has_waypoints: в поле рекомендуем только маршруты с реальными точками —
-    // статьи-обзоры («Зима на Камчатке») в планировщике не нужны
-    fetch('/api/routes?limit=10&sort=recommended&kind=route&has_waypoints=true')
+    // статьи-обзоры («Зима на Камчатке») в планировщике не нужны.
+    //
+    // sort=navigable, а не recommended (19.09). `recommended` ранжирует по
+    // ПОЛНОТЕ КАРТОЧКИ — цена, сложность, сроки, фото, длина описания, — и о
+    // роде линии не спрашивает вовсе. В каталоге же скрейп и записи без линии
+    // составляют девять маршрутов из десяти, поэтому наверх попадали именно
+    // они: владелец в поле увидел «ужасно кривые маршруты» и на вопрос, какой
+    // именно, ответил «да любой».
+    //
+    // `navigable` ставит первым ключом род линии (снятый трек → набросок →
+    // линия не проверена → линии нет), а полноту карточки оставляет вторым.
+    // Ничего не прячет: маршрут без линии остаётся в списке со своим бейджем,
+    // он просто перестаёт быть первым предложением стоящему на тропе.
+    fetch('/api/routes?limit=10&sort=navigable&kind=route&has_waypoints=true')
       .then(r => r.json())
       .then((d: unknown) => {
         if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) {
@@ -5017,8 +5029,12 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
       })
       .catch(() => {});
 
-    // Load popular routes
-    fetch('/api/routes?limit=8&sort=recommended&kind=route')
+    // Список маршрутов на вкладке планирования — та же очерёдность, что и в
+    // поле (19.09). Выбранный дома маршрут завтра проходят ногами, значит и
+    // здесь первым должно стоять то, чьей линии можно верить. Слово
+    // «популярные» ничего не теряет: `recommended` считала не популярность, а
+    // полноту карточки — цену, сроки, длину описания.
+    fetch('/api/routes?limit=8&sort=navigable&kind=route')
       .then(r => r.json())
       .then((d: unknown) => {
         if (
