@@ -2,21 +2,10 @@
 
 import { AlertTriangle, Wind, Mountain, Thermometer, Flame, Waves, Eye, CloudLightning, Signal, Users } from 'lucide-react';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+// Названия опасностей — один список на платформу (lib/safety/hazard-labels).
+// Здесь лежала своя копия, и она уже разошлась с остальными пятью.
+import { hazardLabel } from '@/lib/safety/hazard-labels';
 
-const HAZARD_LABELS: Record<string, string> = {
-  bears: 'Медведи',
-  wildlife: 'Дикие животные',
-  avalanche: 'Лавины',
-  rockfall: 'Камнепад',
-  thermal: 'Термальные зоны',
-  volcanic_gas: 'Вулканические газы',
-  altitude: 'Высота',
-  ice: 'Лёд',
-  weather: 'Непогода',
-  river_crossing: 'Переправа',
-  fog: 'Туман',
-  no_signal: 'Нет связи',
-};
 
 type Severity = 'danger' | 'warning' | 'ocean';
 
@@ -62,7 +51,7 @@ export function HazardBadgeStrip({ hazards, mchsRequired, className = '' }: Prop
       {hazards.map(h => {
         const sev: Severity = HAZARD_SEVERITY[h] ?? 'warning';
         const color = SEVERITY_VAR[sev];
-        const label = HAZARD_LABELS[h] ?? h;
+        const label = hazardLabel(h);
         return (
           <span
             key={h}

@@ -163,19 +163,14 @@ export const LOCATION_TYPE_LABELS: Record<string, string> = {
   other: 'Место',
 };
 
-export const HAZARD_LABELS: Record<string, { label: string }> = {
-  bears: { label: 'Медведи' },
-  wildlife: { label: 'Дикие животные' },
-  avalanche: { label: 'Лавины' },
-  rockfall: { label: 'Камнепад' },
-  thermal: { label: 'Термальные зоны' },
-  volcanic_gas: { label: 'Вулканические газы' },
-  altitude: { label: 'Высота' },
-  river_crossing: { label: 'Переправы' },
-  fog: { label: 'Туман' },
-  ice: { label: 'Лёд' },
-  no_signal: { label: 'Нет связи' },
-  weather: { label: 'Резкая погода' },
-};
+/**
+ * Названия опасностей — НЕ здесь. Один список на платформу:
+ * `lib/safety/hazard-labels.ts` (перепись 19.09: копий было шесть, и все
+ * шесть разошлись; контекст Кузьмича, например, не знал ключа `bears`).
+ *
+ * Имя и форма сохранены ради импортёров (`HAZARD_LABELS[h]?.label`), но
+ * значение теперь общее.
+ */
+export { HAZARDS as HAZARD_LABELS } from '@/lib/safety/hazard-labels';
 
 export const DIFFICULTY_LABELS = ['', 'Лёгкий', 'Ниже среднего', 'Средний', 'Сложный', 'Экстремальный'];

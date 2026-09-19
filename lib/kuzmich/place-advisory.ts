@@ -1,3 +1,4 @@
+import { HAZARDS } from '@/lib/safety/hazard-labels';
 /**
  * Совет Кузьмича «сегодня здесь» — проактивный, ДЕТЕРМИНИРОВАННЫЙ, из данных.
  *
@@ -29,11 +30,6 @@ export interface AdvisoryInput {
 
 // Опасности — свойство места, не тревога (называем кратко). Ключи совпадают с
 // HazardBadgeStrip; неизвестные молча пропускаем, а не гадаем.
-const HAZARD_LABELS: Record<string, string> = {
-  bears: 'медведи', wildlife: 'дикие животные', avalanche: 'лавины', rockfall: 'камнепад',
-  thermal: 'термальные зоны', volcanic_gas: 'вулканические газы', altitude: 'высота',
-  ice: 'лёд', weather: 'непогода', river_crossing: 'переправы', fog: 'туман', no_signal: 'нет связи',
-};
 
 const VOLCANO: Record<string, { tone: AdvisoryTone; text: string }> = {
   green: { tone: 'ok', text: 'Вулкан спокоен — код зелёный' },
@@ -74,7 +70,13 @@ export function buildPlaceAdvisory(p: AdvisoryInput, now: number = Date.now()): 
   }
 
   // 3. Опасности места — краткое напоминание (не тревога).
-  const named = (p.hazardTypes ?? []).map((h) => HAZARD_LABELS[h]).filter(Boolean).slice(0, 3);
+  const named = (p.hazardTypes ?? [])
+    // Неизвестный ключ пропускается МОЛЧА, и это решение именно этой
+    // поверхности: Кузьмич произносит фразу человеку, и сырое английское
+    // слово посреди русского совета хуже пропуска. На экране (бейдж, PDF)
+    // выбор обратный — там сырой ключ виден и чинится.
+    .map((h) => HAZARDS[h]?.label.toLocaleLowerCase('ru-RU'))
+    .filter(Boolean).slice(0, 3);
   if (named.length > 0) lines.push(`Держи в голове: ${named.join(', ')}`);
 
   // 4. Честный итог. Нет живых данных — так и говорим, зелёным не притворяемся.

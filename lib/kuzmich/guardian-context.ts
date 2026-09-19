@@ -1,6 +1,7 @@
 import { pool } from '@/lib/db-pool';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { placeTypeLabel } from '@/lib/places/type-label';
+import { hazardLabelLower } from '@/lib/safety/hazard-labels';
 
 interface GuardianPlaceRow {
   name: string;
@@ -62,17 +63,6 @@ const STATUS_LABEL: Record<string, string> = {
   red: 'КРАСНЫЙ',
 };
 
-const HAZARD_LABELS: Record<string, string> = {
-  avalanche: 'лавины',
-  rockfall: 'камнепад',
-  thermal: 'термальные поля',
-  altitude: 'высотная болезнь',
-  wildlife: 'дикие животные',
-  water: 'горные реки',
-  rapids: 'пороги',
-  chemical: 'химические выбросы',
-  weather: 'резкая смена погоды',
-};
 
 function normalizeForMatch(s: string): string {
   return s.toLowerCase().replace(/[^а-яёa-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -317,7 +307,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     }
 
     if (p.hazard_types?.length) {
-      const hazards = p.hazard_types.map((h) => HAZARD_LABELS[h] ?? h).join(', ');
+      const hazards = p.hazard_types.map((h) => hazardLabelLower(h)).join(', ');
       parts.push(`Опасности: ${hazards}.`);
     } else if (!p.altitude_m && !p.nearest_medical_km && !p.sat_communicator_required) {
       parts.push('Профиль безопасности для этого места не оцифрован.');
