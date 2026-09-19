@@ -1,23 +1,23 @@
 {
-  "note": "19.09, прогон 526. ТОЛЬКО ЧТЕНИЕ. Проверка переноса гамулов (миграция 980) и остатка снимков в базе. Адрес 1 — карточка «Вулкан Вилючинский»: ждём ОДИН снимок (герой-вулкан), гамулов в галерее больше нет. Адрес 2 — карточка «Вилючинский перевал»: ждём гамулов героем с автором «владелец платформы». Адрес 3 — вес базы и таблицы снимков после переезда 500 строк (было 882,2 МБ / 441,8 МБ на 659 строк).",
-  "run": 526,
+  "note": "19.09, прогон 527. ТОЛЬКО ЧТЕНИЕ. Список всех снимков, уехавших в хранилище — владелец попросил его прямо. Четыре страницы переписи images-in-s3 по 200 строк: имя места и род снимка одной строкой. Актуатор такого списка дать не может — он печатает только последний ответ партии, десять строк из двухсот пятидесяти. Маркер свежести images_in_s3_v1: роут выкатывается прямо сейчас, проба ждёт его появления, а не бьётся в 404.",
+  "run": 527,
   "timeout": 60,
-  "retries": 2,
-  "retryDelay": 20,
-  "bytes": 6000,
+  "retries": 25,
+  "retryDelay": 60,
+  "bytes": 14000,
   "grep": [
-    "photoCount",
-    "images",
-    "place-gallery",
-    "владелец платформы",
-    "Гамулы",
-    "ai_route_images",
-    "total_mb",
-    "rows_estimate"
+    "in_s3",
+    "in_db",
+    "neither",
+    "has_more",
+    "real-photo",
+    "manual-upload"
   ],
   "urls": [
-    "https://vedarai.ru/api/places/164f612c-32da-4f0f-b261-c45c09dc2933",
-    "https://vedarai.ru/api/places/8bad8fe6-c7ec-4403-b956-948706649ca8",
-    "https://vedarai.ru/api/cron/db-size-census"
-  ]
+    "https://vedarai.ru/api/cron/images-in-s3?limit=200&offset=0",
+    "https://vedarai.ru/api/cron/images-in-s3?limit=200&offset=200",
+    "https://vedarai.ru/api/cron/images-in-s3?limit=200&offset=400",
+    "https://vedarai.ru/api/cron/images-in-s3?limit=200&offset=600"
+  ],
+  "until": "images_in_s3_v1"
 }
