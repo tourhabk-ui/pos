@@ -12,6 +12,7 @@
  */
 
 import { haversineM as haversineTrackM } from '@/lib/routes/relief';
+import { TRACK_ENVELOPE } from '@/lib/geo/krai-envelope';
 
 export interface TrackPoint {
   lat: number;
@@ -40,7 +41,7 @@ interface GeoJsonLineString {
  * Запас намеренно широкий (весь край плюс шельф): задача — отсечь мусор
  * и перепутанные оси, а не подрезать настоящие треки по краям.
  */
-const KAMCHATKA_BOUNDS = { latMin: 50, latMax: 66, lngMin: 154, lngMax: 175 };
+const KAMCHATKA_BOUNDS = TRACK_ENVELOPE;
 
 /** Точка на Камчатке, а не «конечное число». */
 export function isPlausibleTrackPoint(lat: number, lng: number): boolean {

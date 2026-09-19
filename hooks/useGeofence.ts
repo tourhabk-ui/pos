@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useOfflineGPS } from '@/hooks/useOfflineGPS';
-import { checkBreach, isPositionFreshForGeofence } from '@/lib/safety/geofence';
+import { activeZones, checkBreach, isPositionFreshForGeofence } from '@/lib/safety/geofence';
 import type { GeofenceZone, GeofenceBreach } from '@/lib/safety/geofence';
 
 const ZONES_LS_KEY   = 'vedar_geofence_zones';
@@ -15,9 +15,15 @@ function readCachedZones(): { zones: GeofenceZone[]; stale: boolean; ageMs: numb
     const raw = localStorage.getItem(ZONES_LS_KEY);
     if (!raw) return null;
     const { zones, ts } = JSON.parse(raw) as { zones: GeofenceZone[]; ts: number };
-    if (!Array.isArray(zones) || zones.length === 0) return null;
+    if (!Array.isArray(zones)) return null;
+    // Постоянные зоны переживают любую давность кэша — наблюдения нет.
+    // Отсеиваются ЗДЕСЬ, а не только при проверке близости: иначе истёкшее
+    // наблюдение продолжало бы считаться «зоны загружены», и кэш из одних
+    // просроченных записей выглядел бы полным.
+    const live = activeZones(zones);
+    if (live.length === 0) return null;
     const ageMs = Date.now() - ts;
-    return { zones, stale: ageMs > ZONES_STALE_MS, ageMs };
+    return { zones: live, stale: ageMs > ZONES_STALE_MS, ageMs };
   } catch {
     return null;
   }

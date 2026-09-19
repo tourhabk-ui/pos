@@ -13,6 +13,11 @@
 
 import { query } from '@/lib/database';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
+import {
+  FRESH_APPROVED_SQL,
+  SIGHTING_WINDOW_DAYS,
+  sightingAgeLabel,
+} from '@/lib/safety/bear-sightings';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
@@ -462,21 +467,24 @@ const REPORT_HAZARD_LABEL: Record<string, string> = {
 // «появится в радаре после модерации» — здесь это обещание выполняется.
 // Только approved (ручная модерация владельцем) и только свежие: медведь,
 // замеченный неделю назад, — уже не точка на радаре, а свойство района.
+//
+// Окно и предикат — из lib/safety/bear-sightings: с 19.09 те же строки судят
+// медвежьи зоны геофенса (#1957). Две копии семёрки разошлись бы молча, и
+// карта с полевым предупреждением говорили бы о разной Камчатке.
 async function fetchReportHazards(): Promise<Hazard[]> {
   try {
     const res = await query<{ report_type: string; text: string; lat: number; lng: number; hours_ago: number }>(
       `SELECT report_type, text, lat, lng,
               EXTRACT(EPOCH FROM (NOW() - created_at))::float8 / 3600 AS hours_ago
          FROM trail_reports
-        WHERE status = 'approved' AND lat IS NOT NULL AND lng IS NOT NULL
-          AND created_at > NOW() - INTERVAL '7 days'
+        WHERE lat IS NOT NULL AND lng IS NOT NULL
+          AND ${FRESH_APPROVED_SQL}
         ORDER BY created_at DESC
         LIMIT 12`,
+      [SIGHTING_WINDOW_DAYS],
     );
     return res.rows.map((r) => {
-      const ago = r.hours_ago < 24
-        ? `${Math.max(1, Math.round(r.hours_ago))} ч назад`
-        : `${Math.round(r.hours_ago / 24)} дн назад`;
+      const ago = sightingAgeLabel(r.hours_ago);
       return {
         lat: r.lat, lng: r.lng,
         level: (r.report_type === 'bear' ? 'danger' : 'warning') as HazardLevel,
@@ -485,7 +493,15 @@ async function fetchReportHazards(): Promise<Hazard[]> {
         note: `${r.text.slice(0, 90)} · ${ago} · наблюдение туриста, прошло модерацию.`,
       };
     });
-  } catch { return []; }
+  } catch (e) {
+    // Пустой радар читается как «на полуострове спокойно». Отказ, который
+    // молчит, превращает поломку в отсутствие опасностей — дословно случай
+    // 19.08 из §4.0 (панель тревог, пустая при падающих запросах).
+    const why = e instanceof Error ? e.message : String(e);
+    const code = typeof (e as { code?: unknown })?.code === 'string' ? (e as { code: string }).code : '—';
+    console.error('[home-radar] наблюдения туристов не загружены:', code, why);
+    return [];
+  }
 }
 
 /**

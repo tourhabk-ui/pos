@@ -20,6 +20,21 @@ export interface GeofenceZone {
   hazard: ZoneHazard;
   level: ZoneLevel;
   message: string;
+  /**
+   * Момент, после которого зона перестаёт что-либо утверждать (epoch ms).
+   * Отсутствует у постоянных опасностей — вулкан, источник, гейзер, цунами-зона
+   * никуда не денутся, и кэш любого возраста про них прав.
+   *
+   * Заведено 19.09 вместе с медвежьими зонами (#1957), и заведено потому, что
+   * кэш зон построен на прямо противоположном допущении. Его собственная
+   * подпись: «зоны опасности не переезжают — протухший кеш лучше, чем пустые
+   * зоны в поле». Для вулкана это верно. Для наблюдения медведя — нет:
+   * наблюдение говорит о прошлом вторнике, а не о месте. Без срока годности
+   * оно осталось бы в localStorage телефона навсегда и предупреждало бы вечно,
+   * то есть стало бы генератором ложных тревог — ровно тем, от чего
+   * geofence-zones бережёт себя в случае потухших сопок.
+   */
+  expiresAt?: number;
 }
 
 export interface GeofenceBreach {
@@ -88,6 +103,21 @@ export function checkZone(
   return null;
 }
 
+/**
+ * Зона с истёкшим сроком больше ничего не утверждает.
+ *
+ * Отбор идёт ПЕРЕД проверкой близости, а не после: истёкшая зона не должна
+ * ни подниматься приоритетом, ни заслонять собой действующую. Зона без
+ * `expiresAt` не истекает никогда — это постоянная опасность.
+ */
+export function isZoneActive(zone: GeofenceZone, now: number = Date.now()): boolean {
+  return zone.expiresAt === undefined || zone.expiresAt > now;
+}
+
+export function activeZones(zones: GeofenceZone[], now: number = Date.now()): GeofenceZone[] {
+  return zones.filter((z) => isZoneActive(z, now));
+}
+
 const LEVEL_PRIORITY: Record<ZoneLevel, number> = { warning: 1, danger: 2, critical: 3 };
 const STATE_PRIORITY: Record<BreachState, number> = { near: 1, uncertain: 2, inside: 3 };
 
@@ -100,10 +130,13 @@ export function checkBreach(
   lng: number,
   accuracyM: number,
   zones: GeofenceZone[],
+  now: number = Date.now(),
 ): GeofenceBreach | null {
   const breaches: GeofenceBreach[] = [];
 
-  for (const zone of zones) {
+  // Срок годности отсекается ЗДЕСЬ, а не только у вызывающего: точек входа в
+  // геофенс больше одной, и забытая — это вечная ложная тревога в поле.
+  for (const zone of activeZones(zones, now)) {
     const breach = checkZone(lat, lng, accuracyM, zone);
     if (breach) breaches.push(breach);
   }
