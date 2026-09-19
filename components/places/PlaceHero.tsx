@@ -157,7 +157,7 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
               Плашка спорила по яркости с кнопкой «Навигация» в двухстах
               пикселях ниже: акцент, употреблённый дважды подряд, перестаёт
               быть акцентом. Типографика справляется тут лучше цвета. */}
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">
+          <p className="mb-2 text-[13px] font-semibold text-white/80">
             {label}
           </p>
 
@@ -175,7 +175,7 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
             <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
               {facts.slice(0, 3).map((f) => (
                 <span key={f.label} className="flex items-baseline gap-2">
-                  <span className="text-[10px] uppercase tracking-[0.14em] text-white/50">{f.label}</span>
+                  <span className="text-xs text-white/70">{f.label}</span>
                   <span className="text-sm font-semibold text-white/95">{f.value}</span>
                 </span>
               ))}
