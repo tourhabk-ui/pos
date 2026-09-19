@@ -92,6 +92,31 @@ jobs:
             echo "форма ключа: длина=$LEN, начинается на sk-or-=$PREFIX, пробелы внутри=$SPACE"
             echo "чей ключ по началу: $FAMILY"
             echo "sk-or- и длина около 73 — ключ отозван, нужен новый; иная форма — в секрете лежит чужой ключ."
+
+            # Прогон 5 нашёл здесь ключ Anthropic, а прогон 11 пробы
+            # anthropic-path-probe — ключ Anthropic и в СВОЁМ секрете, но
+            # отвергнутый («API key is invalid»). Два ключа одной формы и
+            # одной длины дают две РАЗНЫЕ починки, и по началу ключа они
+            # неотличимы:
+            #   живой ключ лежит не в своём секрете → переложить;
+            #   оба ключа мертвы                    → выпустить новый.
+            # Различает только сам Anthropic. /v1/models требует авторизации
+            # и не стоит ни одного токена; раннер не в РФ, гео-блок тут не
+            # мешает. Наружу — код ответа и вердикт, ни символа ключа.
+            case "$OPENROUTER_API_KEY" in
+              sk-ant-*)
+                AC=$(curl -sS -o /tmp/ant.json -w '%{http_code}' --max-time 30 \
+                  -H "x-api-key: ${OPENROUTER_API_KEY}" -H 'anthropic-version: 2023-06-01' \
+                  'https://api.anthropic.com/v1/models?limit=1' || echo '000')
+                echo "этот же ключ у Anthropic: HTTP $AC"
+                case "$AC" in
+                  200) echo "::warning::ЖИВОЙ ключ Anthropic лежит в секрете OPENROUTER_API_KEY. Починка — переложить его в ANTHROPIC_API_KEY (там сейчас отвергнутый) и завести настоящий sk-or- для OpenRouter. Новый ключ Anthropic выпускать НЕ нужно." ;;
+                  000) echo "::warning::До Anthropic не дошли (сеть) — какой из двух ключей живой, НЕ ЗНАЮ. Это третий исход, не «оба мертвы»." ;;
+                  *)   echo "Anthropic тоже отверг этот ключ — значит живого ключа Anthropic нет ни в одном секрете, нужен новый. Тело:"
+                       head -c 200 /tmp/ant.json; echo ;;
+                esac
+                ;;
+            esac
             exit 1
           fi
 
