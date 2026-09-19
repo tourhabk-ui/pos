@@ -330,18 +330,29 @@ async function fetchRssWithRetry(url: string, options: RequestInit, label: strin
   return fetchWithRetry(url, options, { timeoutMs: 8000, maxRetries: 2, baseDelayMs: 1000, label: `rss:${label}` });
 }
 
-/** Разбор RSS/Atom в items (чистая, без сети). */
-function parseRssItems(xml: string, label: string): RssItem[] {
+/**
+ * Разбор RSS/Atom в items (чистая, без сети).
+ *
+ * Экспортирована ради сторожа `scout-arxiv-source`: ответ arXiv — Atom, в
+ * котором у каждой записи ДВЕ ссылки (страница работы и PDF), и какую из них
+ * возьмёт этот разбор, проверяется на настоящей форме ответа, а не на
+ * рассуждении о регулярке.
+ */
+export function parseRssItems(xml: string, label: string): RssItem[] {
   const items: RssItem[] = [];
   // RSS использует <item>, Atom (напр. Simon Willison) — <entry>. Поддерживаем оба.
   const blockRegex = /<(item|entry)[^>]*>([\s\S]*?)<\/\1>/gi;
   let match;
   while ((match = blockRegex.exec(xml)) !== null && items.length < 5) {
     const block = match[2];
+    // Пробелы схлопываются: Atom-ленты переносят длинный заголовок по
+    // строкам с отступом (так отдаёт arXiv), и без этого в выпуск уходил бы
+    // заголовок с «лесенкой» внутри — в Telegram это читается как поломка
+    // вёрстки. Для лент, пишущих заголовок одной строкой, правка — тождество.
     const title = (
       /<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title[^>]*>([\s\S]*?)<\/title>/i.exec(block)
         ?.slice(1).find(Boolean) ?? ''
-    ).trim();
+    ).replace(/\s+/g, ' ').trim();
     // RSS: <link>URL</link> | Atom: <link href="URL"/> | fallback: <guid>
     const link = (
       /<link[^>]*href=["']([^"']+)["']/i.exec(block)?.[1]      // Atom

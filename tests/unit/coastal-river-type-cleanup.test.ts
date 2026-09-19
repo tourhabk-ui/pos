@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { placeTypeLabel } from '@/lib/places/type-label';
 
 const SQL = readFileSync(
   join(process.cwd(), 'migrations/857_coastal_river_type_cleanup.sql'),
@@ -55,11 +56,16 @@ describe('прицельность и идемпотентность', () => {
 
 describe('назначаемые типы словарные', () => {
   it('viewpoint, other, rock, waterfall, valley имеют подписи в обоих словарях', () => {
-    for (const file of ['components/map/PlaceMapSheet.tsx', 'lib/places/type-label.ts']) {
-      const dict = readFileSync(join(process.cwd(), file), 'utf-8');
-      for (const t of ['viewpoint', 'other', 'waterfall', 'valley']) {
-        expect(dict, `${t} в ${file}`).toMatch(new RegExp(`\\b${t}:`));
-      }
+    // Словарь платформы спрашивается ПОДПИСЬЮ, а не текстом файла: 19.09 он
+    // сведён в lib/places/location-types.ts, а `type-label.ts` стал
+    // re-export'ом. `placeTypeLabel` отдаёт слаг, когда русского слова нет.
+    const types = ['viewpoint', 'other', 'waterfall', 'valley'];
+    for (const t of types) {
+      expect(placeTypeLabel(t), `${t} без русского слова в словаре платформы`).not.toBe(t);
+    }
+    const sheet = readFileSync(join(process.cwd(), 'components/map/PlaceMapSheet.tsx'), 'utf-8');
+    for (const t of types) {
+      expect(sheet, `${t} в PlaceMapSheet`).toMatch(new RegExp(`\\b${t}:`));
     }
   });
 });

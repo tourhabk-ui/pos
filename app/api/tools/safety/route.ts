@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { callAIFast } from '@/lib/ai/providers';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { hazardLabel } from '@/lib/safety/hazard-labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,20 +20,6 @@ const BodySchema = z.union([
   }),
 ]);
 
-const HAZARD_LABELS: Record<string, string> = {
-  bears: 'Медведи',
-  wildlife: 'Дикие животные',
-  avalanche: 'Лавины',
-  rockfall: 'Камнепад',
-  thermal: 'Термальные зоны',
-  volcanic_gas: 'Вулканические газы',
-  altitude: 'Высота',
-  ice: 'Лёд / гололёд',
-  weather: 'Непогода',
-  river_crossing: 'Переправа',
-  fog: 'Туман',
-  no_signal: 'Нет связи',
-};
 
 function computeRiskScore(
   hazards: string[],
@@ -149,7 +136,7 @@ export async function POST(request: NextRequest) {
       if (r.elevation_gain_m) contextParts.push(`НАБОР ВЫСОТЫ: ${r.elevation_gain_m} м`);
       if (r.duration_hours) contextParts.push(`ДЛИТЕЛЬНОСТЬ: ${r.duration_hours} ч`);
       if (maxAltitude) contextParts.push(`МАКСИМАЛЬНАЯ ВЫСОТА: ${maxAltitude} м`);
-      if (hazards.length) contextParts.push(`ОПАСНОСТИ: ${hazards.map(h => HAZARD_LABELS[h] ?? h).join(', ')}`);
+      if (hazards.length) contextParts.push(`ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}`);
       if (maxDifficulty != null) contextParts.push(`СЛОЖНОСТЬ: ${maxDifficulty}/5`);
       if (minMedical != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${minMedical} км`);
       if (satRequired) contextParts.push('Спутниковая связь: рекомендуется');
@@ -265,7 +252,7 @@ export async function POST(request: NextRequest) {
       `МЕСТО: ${r.name as string} (тип: ${(r.location_type as string | null) ?? 'неизвестно'})`,
     ];
     if (r.altitude_m) contextParts.push(`ВЫСОТА: ${r.altitude_m} м`);
-    if (hazards.length) contextParts.push(`ОПАСНОСТИ: ${hazards.map(h => HAZARD_LABELS[h] ?? h).join(', ')}`);
+    if (hazards.length) contextParts.push(`ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}`);
     if (difficultyLevel != null) contextParts.push(`СЛОЖНОСТЬ ДОСТУПА: ${difficultyLevel}/5`);
     if (r.nearest_medical_km != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${r.nearest_medical_km} км`);
     if (r.sat_communicator_required) contextParts.push('Спутниковая связь: рекомендуется');

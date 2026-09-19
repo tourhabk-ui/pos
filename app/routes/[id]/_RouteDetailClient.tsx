@@ -22,6 +22,11 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { trackLine } from '@/lib/map/line-standard';
+// Сложность — из ЕДИНОГО словаря (lib/tours/labels). Здесь лежали свои
+// DIFFICULTY_RU и DIFFICULTY_COLOR, знавшие три написания из семи: у
+// маршрута с `extreme` бейдж выходил пустым, а `moderate` печатался
+// по-английски.
+import { difficultyLabel, difficultyColor } from '@/lib/tours/labels';
 import { lineOwnership } from '@/lib/routes/line-ownership';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
@@ -34,6 +39,12 @@ import { verdictInlineNote, verdictLook } from '@/lib/routes/verdict-presentatio
 import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } from '@/lib/safety/mchs-registration';
+// Типы мест — один список на платформу (lib/places/location-types).
+// Здесь лежала своя копия на 19 ключей из 24: `pass`, `plateau`,
+// `valley`, `park` и `thermal` выводились сырыми английскими словами
+// прямо в списке путевых точек.
+import { locationTypeLabel } from '@/lib/places/location-types';
+import BottomNav from '@/components/shared/BottomNav';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -45,14 +56,6 @@ const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr
 // посчитан, ждать больше нечего.
 const PlaceOwnRoute = dynamic(() => import('@/components/places/PlaceOwnRoute').then(m => ({ default: m.PlaceOwnRoute })), { ssr: false });
 
-const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano: 'Вулкан', geyser: 'Гейзерное поле', hot_spring: 'Термальный источник',
-  lake: 'Озеро', mountain: 'Горный массив', river: 'Река', bay: 'Бухта',
-  cape: 'Мыс', island: 'Остров', glacier: 'Ледник', forest: 'Лес и природный парк',
-  beach: 'Пляж', waterfall: 'Водопад', rock: 'Скала',
-  viewpoint: 'Смотровая площадка', settlement: 'Населённый пункт',
-  museum: 'Музей', historical: 'Историческое место', other: 'Маршрут',
-};
 
 const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   trekking: 'Треккинг', fishing: 'Рыбалка', bear_watching: 'Наблюдение за медведями',
@@ -87,15 +90,7 @@ const ACTIVITY_COLORS: Record<string, string> = {
   snowmobile: 'var(--ocean)', jeep: 'var(--accent)', other: 'var(--text-muted)',
 };
 
-const DIFFICULTY_RU: Record<string, string> = {
-  easy: 'Лёгкий', medium: 'Средний', hard: 'Сложный',
-  легкий: 'Лёгкий', средний: 'Средний', сложный: 'Сложный',
-};
 
-const DIFFICULTY_COLOR: Record<string, string> = {
-  easy: 'var(--success)', medium: 'var(--warning)', hard: 'var(--danger)',
-  легкий: 'var(--success)', средний: 'var(--warning)', сложный: 'var(--danger)',
-};
 
 const MONTHS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
 
@@ -301,20 +296,20 @@ function OfferCard({ offer, activityType, onBook }: {
         {/* Badge типа / сложность */}
         <div className="absolute top-2 left-2 flex gap-1.5">
           {offer.durationType && (
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)] px-2 py-0.5 rounded">
+            <span className="text-[11px] font-bold bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)] px-2 py-0.5 rounded">
               {offer.durationType === 'multi_day' ? `${offer.multiDayCount ?? ''}д` : '1д'}
             </span>
           )}
           {offer.difficulty && (
             <span
-              className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+              className="text-[11px] font-bold px-2 py-0.5 rounded"
               style={{
-                color: DIFFICULTY_COLOR[offer.difficulty],
-                background: `color-mix(in srgb, ${DIFFICULTY_COLOR[offer.difficulty]} 20%, transparent)`,
-                border: `1px solid color-mix(in srgb, ${DIFFICULTY_COLOR[offer.difficulty]} 40%, transparent)`,
+                color: difficultyColor(offer.difficulty),
+                background: `color-mix(in srgb, ${difficultyColor(offer.difficulty)} 20%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${difficultyColor(offer.difficulty)} 40%, transparent)`,
               }}
             >
-              {DIFFICULTY_RU[offer.difficulty]}
+              {difficultyLabel(offer.difficulty, true)}
             </span>
           )}
         </div>
@@ -646,7 +641,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
       {
         coords: mapCenter,
         title: route.title,
-        description: LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут',
+        description: locationTypeLabel(route.locationType, 'Маршрут'),
         color: 'red',
         type: MarkerType.TOUR,
         category: route.locationType ?? 'other',
@@ -699,7 +694,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const hasGeo = route.lat != null && route.lng != null;
   const { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track } = mapData;
   const hasTrack = trackCoords != null;
-  const locLabel = LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут';
+  const locLabel = locationTypeLabel(route.locationType, 'Маршрут');
   const actLabel = ACTIVITY_TYPE_LABELS[route.activityType ?? 'other'] ?? 'Активный отдых';
 
   // Фильтрация и сортировка туров
@@ -804,7 +799,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
       <div className="bg-[var(--bg-card)] border-b border-[var(--border)]">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 space-y-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest">
+            <span className="text-xs font-semibold text-[var(--accent)]">
               {locLabel}
             </span>
             <span className="text-[var(--text-muted)] text-xs">·</span>
@@ -830,45 +825,45 @@ export default function RouteDetailClient({ id }: { id: string }) {
           <div className="flex items-stretch gap-0 divide-x divide-[var(--border)]">
             {minPrice > 0 && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Цена</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Цена</p>
                 <p className="text-sm font-bold text-[var(--accent)]">от {minPrice.toLocaleString('ru-RU')} ₽</p>
               </div>
             )}
             {route.durationDays != null && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Длительность</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Длительность</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{formatDuration(0, 'multi_day', route.durationDays)}</p>
               </div>
             )}
             {route.difficulty && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Сложность</p>
-                <p className="text-sm font-semibold" style={{ color: DIFFICULTY_COLOR[route.difficulty] ?? 'var(--text-primary)' }}>
-                  {DIFFICULTY_RU[route.difficulty] ?? route.difficulty}
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Сложность</p>
+                <p className="text-sm font-semibold" style={{ color: difficultyColor(route.difficulty) }}>
+                  {difficultyLabel(route.difficulty, true)}
                 </p>
               </div>
             )}
             {route.altitude != null && route.altitude > 0 && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Высота</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Высота</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{route.altitude.toLocaleString('ru-RU')} м</p>
               </div>
             )}
             {route.groupSizeMax != null && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Группа</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Группа</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">до {route.groupSizeMax} чел.</p>
               </div>
             )}
             {route.season && (
               <div className="flex-shrink-0 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Сезон</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Сезон</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{route.season}</p>
               </div>
             )}
             {offers.length > 0 && (
               <div className="flex-shrink-0 px-4 py-3 ml-auto">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Туров</p>
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Туров</p>
                 <p className="text-sm font-semibold text-[var(--success)]">
                   {offers.length} {uniqueOperators > 1 ? `· ${uniqueOperators} операторов` : ''}
                 </p>
@@ -954,22 +949,22 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 {route.elevationGainM != null && route.elevationLossM != null && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-1">
                     <div>
-                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Набор</p>
+                      <p className="text-[11px] text-[var(--text-muted)]">Набор</p>
                       <p className="text-sm font-semibold text-[var(--text-primary)]">+{route.elevationGainM} м</p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Сброс</p>
+                      <p className="text-[11px] text-[var(--text-muted)]">Сброс</p>
                       <p className="text-sm font-semibold text-[var(--text-primary)]">−{route.elevationLossM} м</p>
                     </div>
                     {route.elevationMinM != null && (
                       <div>
-                        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Мин. высота</p>
+                        <p className="text-[11px] text-[var(--text-muted)]">Мин. высота</p>
                         <p className="text-sm font-semibold text-[var(--text-primary)]">{route.elevationMinM} м</p>
                       </div>
                     )}
                     {route.elevationMaxM != null && (
                       <div>
-                        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Макс. высота</p>
+                        <p className="text-[11px] text-[var(--text-muted)]">Макс. высота</p>
                         <p className="text-sm font-semibold text-[var(--text-primary)]">{route.elevationMaxM} м</p>
                       </div>
                     )}
@@ -1022,7 +1017,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             */}
             {pathWaypoints.length > 0 && (
               <section>
-                <h2 className="text-base font-bold text-[var(--text-primary)] mb-3 uppercase tracking-wide">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3">
                   Точки маршрута
                 </h2>
                 <ol className="space-y-3">
@@ -1035,8 +1030,8 @@ export default function RouteDetailClient({ id }: { id: string }) {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             {wp.locationType && (
-                              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
-                                {LOCATION_TYPE_LABELS[wp.locationType] ?? wp.locationType}
+                              <span className="text-[11px] font-bold text-[var(--text-muted)] block">
+                                {locationTypeLabel(wp.locationType)}
                               </span>
                             )}
                             <p className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--ocean)] transition-colors leading-tight truncate">
@@ -1068,7 +1063,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     было написано здесь вторым экземпляром, и разойтись им
                     ничего не мешало (§4.1 — род связи называется одинаково
                     везде). */}
-                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-1">
                   {linkKindLabel('nearby')}
                 </h2>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
@@ -1105,7 +1100,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             */}
             {derivedOnLine.length > 0 && (
               <section>
-                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-1">
                   Ориентиры вдоль линии
                 </h2>
                 <p className="text-xs text-[var(--text-muted)] mb-3">
@@ -1128,8 +1123,8 @@ export default function RouteDetailClient({ id }: { id: string }) {
                         </span>
                         <span className="flex-1 min-w-0">
                           {st.locationType && (
-                            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
-                              {LOCATION_TYPE_LABELS[st.locationType] ?? st.locationType}
+                            <span className="text-[11px] font-bold text-[var(--text-muted)] block">
+                              {locationTypeLabel(st.locationType)}
                             </span>
                           )}
                           <span className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--ocean)] transition-colors leading-tight block truncate">
@@ -1160,7 +1155,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               <section className="space-y-3">
                 <div className="flex gap-2 overflow-x-auto pb-2">
                   {/* Сортировка */}
-                  <label className="flex-shrink-0 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide pt-2">
+                  <label className="flex-shrink-0 text-xs font-semibold text-[var(--text-muted)] pt-2">
                     Сортировка:
                   </label>
                   {(['price', 'rating', 'date', 'slots'] as const).map(option => (
@@ -1185,7 +1180,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   {/* Сложность */}
                   {['easy', 'medium', 'hard'].some(d => allOffers.some(o => o.difficulty === d)) && (
                     <div>
-                      <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+                      <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-1">
                         Сложность
                       </p>
                       <div className="flex gap-1.5">
@@ -1204,11 +1199,11 @@ export default function RouteDetailClient({ id }: { id: string }) {
                               style={{
                                 background:
                                   filterDifficulty === diff
-                                    ? DIFFICULTY_COLOR[diff as keyof typeof DIFFICULTY_COLOR]
+                                    ? difficultyColor(diff)
                                     : undefined,
                               }}
                             >
-                              {DIFFICULTY_RU[diff as keyof typeof DIFFICULTY_RU]}
+                              {difficultyLabel(diff, true)}
                             </button>
                           );
                         })}
@@ -1219,7 +1214,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   {/* Тип тура */}
                   {['day', 'multi_day'].some(dt => allOffers.some(o => o.durationType === dt)) && (
                     <div>
-                      <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+                      <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-1">
                         Тип
                       </p>
                       <div className="flex gap-1.5">
@@ -1247,7 +1242,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
 
                 {/* Слайдер цены */}
                 <div>
-                  <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">
+                  <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-2">
                     Цена: {priceRange[0].toLocaleString('ru-RU')} — {priceRange[1].toLocaleString('ru-RU')} ₽
                   </p>
                   <input
@@ -1296,7 +1291,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     <MessageSquare className="w-4 h-4 text-[var(--accent)]" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-wide mb-2">
+                    <p className="text-xs font-semibold text-[var(--accent)] mb-2">
                       Кузьмич о маршруте
                     </p>
                     <p className="text-sm text-[var(--text-secondary)] leading-relaxed italic">
@@ -1313,7 +1308,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               if (!allIncluded.length) return null;
               return (
                 <section>
-                  <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3">Что входит в туры</h2>
+                  <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3">Что входит в туры</h2>
                   <div className="flex flex-wrap gap-2">
                     {allIncluded.map((item, i) => (
                       <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-[var(--success)]/8 text-[var(--success)] border border-[var(--success)]/20 px-2.5 py-1 rounded-full">
@@ -1329,7 +1324,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             {/* Лучшие месяцы */}
             {route.bestMonths && route.bestMonths.length > 0 && (
               <section>
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-[var(--accent)]" /> Лучшие месяцы
                 </h2>
                 <div className="flex gap-1.5 flex-wrap">
@@ -1349,7 +1344,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             {/* Снаряжение */}
             {route.equipment && route.equipment.length > 0 && (
               <section>
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3">Снаряжение</h2>
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3">Снаряжение</h2>
                 <div className="flex flex-wrap gap-1.5">
                   {route.equipment.map((eq, i) => (
                     <span key={i} className="text-xs bg-[var(--bg-hover)] text-[var(--text-secondary)] px-2.5 py-1.5 rounded-lg">
@@ -1365,7 +1360,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 координате — обман, из-за которого туристы блуждают */}
             {hasTrack && (
               <section>
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
                   <Navigation className="w-3.5 h-3.5 text-[var(--accent)]" /> Навигация
                 </h2>
                 <div className="flex flex-col gap-2">
@@ -1447,7 +1442,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             {/* Карта — mobile: трек + точки маршрута, не одинокий пин */}
             {(hasGeo || hasTrack) && (
               <section className="lg:hidden">
-                <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-[var(--accent)]" /> На карте
                 </h2>
                 <LeafletMap
@@ -1495,7 +1490,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   />
 
                   <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide">
+                    <h2 className="text-lg font-playfair font-bold text-[var(--text-primary)]">
                       {offers.length === 1 ? 'Тур' : `${offers.length} туров`}
                       {uniqueOperators > 1 ? ` · ${uniqueOperators} оператора` : ''}
                     </h2>
@@ -1565,7 +1560,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               {/* Экспорт — скачать GPX / открыть в навигаторе (только при реальном треке) */}
               {hasTrack && (
                 <div>
-                  <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <h2 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5">
                     <Navigation className="w-3 h-3" /> Навигация
                   </h2>
                   <div className="flex flex-col gap-2">
@@ -1614,7 +1609,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
               {/* Карта: трек + точки маршрута, не одинокий пин */}
               {(hasGeo || hasTrack) && (
                 <div>
-                  <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <h2 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5">
                     <MapPin className="w-3 h-3" /> На карте
                   </h2>
                   <LeafletMap
@@ -1843,29 +1838,29 @@ export default function RouteDetailClient({ id }: { id: string }) {
         )}
       </div>
 
-      {/* ── Mobile sticky bar ────────────────────────────────────────────────── */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--bg-card)] border-t border-[var(--border)] px-4 py-3 flex items-center gap-3 safe-area-pb">
-        <div className="flex-1 min-w-0">
-          {minPrice > 0 ? (
-            <p className="text-lg font-bold text-[var(--accent)] leading-none">
-              {minPrice.toLocaleString('ru-RU')} ₽
-              <span className="text-xs font-normal text-[var(--text-muted)] ml-1">/чел</span>
-            </p>
-          ) : (
-            <p className="text-sm text-[var(--text-secondary)]">По запросу</p>
-          )}
-          {offers.length > 1 && (
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">{offers.length} тура</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => offers.length > 0 ? setBookingOffer(offers[0]) : setShowLead(true)}
-          className="ds-btn ds-btn-primary px-6 py-2.5 text-sm font-semibold flex-shrink-0"
-        >
-          {offers.length > 0 ? 'Забронировать' : 'Оставить заявку'}
-        </button>
-      </div>
+      {/*
+        ФИКСИРОВАННОГО БАРА С ЦЕНОЙ И БРОНЬЮ ЗДЕСЬ БОЛЬШЕ НЕТ (19.09, слово
+        владельца «трогай»).
+
+        Он был второй копией действия: у каждой карточки тура (`OfferCard`)
+        своя кнопка брони, и «Оставить заявку» в секции туров тоже своя.
+        Копия действия расходится поведением — это уже случалось (#887).
+
+        Но решило не это, а ЧТО он занимал. Бар стоял `fixed bottom-0`, то
+        есть ровно в слоте нижней навигации платформы, которой на этом экране
+        не было вовсе — при том что §2 объявляет её единой («единая навигация
+        вместо трёх разных», решение владельца 18.07) и она стоит на семи
+        других экранах. Коммерция вытеснила навигацию: с карточки маршрута
+        нельзя было уйти ни на карту, ни к Кузьмичу иначе как через шапку.
+
+        По §10 маршрут — ИНСТРУКЦИЯ, туры на нём — компактные ссылки; липкая
+        бронь по §11 живёт на карточке тура. Бронь никуда не делась, она в
+        секции туров, где человек её и ищет.
+      */}
+      {/* Нижняя навигация платформы — как на остальных экранах (§2).
+          activePath — настоящий адрес: карточка маршрута не является ни одним
+          из пяти пунктов, и подсвечивать чужой было бы неправдой. */}
+      <BottomNav activePath={`/routes/${route.id}`} />
 
       <LeadModal open={showLead} onClose={() => setShowLead(false)} routeId={route.id} routeTitle={route.title} />
       {bookingOffer && (

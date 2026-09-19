@@ -28,6 +28,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { s3PublicBase } from '@/lib/storage/s3';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -101,6 +102,76 @@ async function counts() {
   };
 }
 
+
+/** Потолок проверки доступности: HEAD стоит сети, и ответ читает человек. */
+const MAX_CHECK = 20;
+
+type Reach = 'open' | 'denied' | 'missing' | 'http' | 'foreign' | 'unreachable';
+
+interface CheckRow { s3_url: string; s3_key: string; subject_name: string | null }
+
+/**
+ * ОТКРЫВАЕТСЯ ЛИ ОБЪЕКТ НА САМОМ ДЕЛЕ.
+ *
+ * Перепись выше отвечает на вопрос «что записано в базе». Это не тот же
+ * вопрос, что «увидит ли турист фотографию»: карточка отдаёт РЕДИРЕКТ на
+ * `s3_url`, и дальше за картинкой идёт браузер — без наших ключей, как чужой.
+ *
+ * Заливка ставит объекту `ACL: 'public-read'` и один раз читает его обратно,
+ * сверяя размер. Но это проверка МОМЕНТА ПЕРЕЕЗДА. Политика бакета, смена
+ * настроек или чужая рука могут закрыть доступ позже — и тогда в базе
+ * по-прежнему ссылка, байты уже обнулены, а на экране пусто. Ровно так
+ * выглядит дефект, который нельзя увидеть ни из одной прежней переписи.
+ *
+ * Спрашиваем HEAD, а не GET: нужен код ответа, а не байты.
+ *
+ * Адрес берётся из базы (именно его отдаёт карточка), но ХОДИМ только если он
+ * начинается с нашей публичной базы. Строка в базе — не доказательство
+ * происхождения, а роут ходит с прода: не хватало превратить пробу в
+ * отправитель запросов куда попало. Чужой адрес не запрашивается вовсе и
+ * попадает в ответ отдельным исходом.
+ */
+async function checkReachable(rows: CheckRow[]): Promise<Array<{ name: string; key: string; outcome: Reach; status: number | null }>> {
+  const base = s3PublicBase();
+  return Promise.all(rows.map(async (r) => {
+    const name = r.subject_name ?? '(ни места, ни маршрута)';
+    if (!r.s3_url.startsWith(base)) {
+      return { name, key: r.s3_key, outcome: 'foreign' as Reach, status: null };
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    try {
+      const res = await fetch(r.s3_url, { method: 'HEAD', signal: ctrl.signal, redirect: 'follow' });
+      const outcome: Reach =
+        res.ok            ? 'open'
+        : res.status === 403 || res.status === 401 ? 'denied'
+        : res.status === 404 ? 'missing'
+        : 'http';
+      return { name, key: r.s3_key, outcome, status: res.status };
+    } catch {
+      // Сеть не дошла — это «не смог проверить», а НЕ «объект закрыт» (§4.0).
+      return { name, key: r.s3_key, outcome: 'unreachable' as Reach, status: null };
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+}
+
+/** Случайная выборка перевезённых: проверять всегда первые — значит не узнать о прочих. */
+async function sampleForCheck(n: number): Promise<CheckRow[]> {
+  const { rows } = await pool.query<CheckRow>(
+    `SELECT i.s3_url, i.s3_key, COALESCE(p.name, kr.title) AS subject_name
+       FROM ai_route_images i
+       LEFT JOIN places p           ON p.ark_id = i.route_id
+       LEFT JOIN kamchatka_routes kr ON kr.ark_id = i.route_id
+      WHERE i.s3_url IS NOT NULL AND btrim(i.s3_url) <> ''
+      ORDER BY random()
+      LIMIT $1`,
+    [n],
+  );
+  return rows;
+}
+
 export async function GET(req: NextRequest) {
   const secret = getCronSecret(req);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
@@ -114,10 +185,17 @@ export async function GET(req: NextRequest) {
   // Ключ объекта в хранилище — по запросу: в списке он занимает больше места,
   // чем имя, а нужен только когда ищут конкретный файл.
   const withKeys = url.searchParams.get('with_keys') === '1';
+  // Сколько перевезённых снимков проверить на доступность. 0 — не проверять.
+  const check = Math.min(MAX_CHECK, Math.max(0, Number(url.searchParams.get('check')) || 0));
 
   try {
     const c = await counts();
     const items = part === 'summary' ? [] : await listMoved(limit, offset);
+    const checked = check > 0 ? await checkReachable(await sampleForCheck(check)) : null;
+    const tally = checked?.reduce<Record<string, number>>((acc, r) => {
+      acc[r.outcome] = (acc[r.outcome] ?? 0) + 1;
+      return acc;
+    }, {});
 
     return NextResponse.json({
       ok: true,
@@ -135,6 +213,19 @@ export async function GET(req: NextRequest) {
         const tail = withKeys ? ` · ${r.s3_key}` : '';
         return `${name} · ${r.model ?? 'род не указан'}${tail}`;
       }),
+      // Доступность — отдельный вопрос от наличия записи, и ответ на него
+      // раздельный: «открыт», «закрыт», «нет объекта», «чужой адрес» и
+      // «не смог проверить» не сводятся в один флаг.
+      reachability: checked === null ? undefined : {
+        asked: checked.length,
+        by_outcome: tally,
+        all_open: checked.length > 0 && tally?.open === checked.length,
+        failures: checked
+          .filter(r => r.outcome !== 'open')
+          .slice(0, 10)
+          .map(r => `${r.name} · ${r.outcome}${r.status !== null ? ` ${r.status}` : ''}${withKeys ? ` · ${r.key}` : ''}`),
+        note: 'HEAD без наших ключей — так же, как за снимком идёт браузер туриста',
+      },
       scope_note: 'что лежит в хранилище СЕЙЧАС. Разделить по прогонам нечем: отметки времени переезда в таблице нет, created_at — дата снимка, а не переезда',
       write_note: 'только перепись, роут не пишет вовсе',
       // Ноль строк при ненулевом in_s3 — отказ выборки, а не «ничего нет».
