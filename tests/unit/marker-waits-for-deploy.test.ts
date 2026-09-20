@@ -96,7 +96,11 @@ const NO_WAIT_MEASURED_07_09 = [
   'ocr-opendataloader.yml',
   'ocr-passports-prod.yml',
   'perimeter-smoke.yml',
-  'place-coords.yml',
+  // place-coords.yml ушёл отсюда 20.09 — список сократился ровно так, как
+  // обещает шапка. Амнистия была выдана по доводу «зовёт давно живущий
+  // эндпоинт», и она рухнула в первый же день, когда эндпоинт поехал ТЕМ ЖЕ
+  // коммитом, что и маркер: прогон 16 спросил прежний прод и получил ту самую
+  // ошибку, которую правка убирала.
   'places-audit.yml',
   'places-dedup.yml',
   'places-geocode.yml',
