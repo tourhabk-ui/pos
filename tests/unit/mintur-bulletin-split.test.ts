@@ -61,6 +61,16 @@ describe('живая сводка 06.08 разбирается на событи
     expect(Math.max(...volc.map(e => e.severity))).toBeGreaterThanOrEqual(2);
   });
 
+  it('запрет из недельной сводки живёт до следующего выпуска (168ч), не 48 (issue #1985)', () => {
+    // Мутновский зелёный на проде 21.09 при живой рекомендации Минтура «не
+    // приближаться» — потому что запись гасла через двое суток, а следующий
+    // выпуск сводки мог не переиздать её слово в слово. 168ч — тот же срок,
+    // что у соседней пожарной ветки того же документа.
+    const volc = events.filter(e => e.alert_type === 'volcanic_eruption' && e.severity >= 2);
+    expect(volc.length).toBeGreaterThanOrEqual(1);
+    for (const e of volc) expect(e.expires_hours).toBe(168);
+  });
+
   it('высокая вода на реках — flood', () => {
     expect(events.some(e => e.alert_type === 'flood')).toBe(true);
   });

@@ -254,6 +254,50 @@ describe('getGuardianContext — чистка контекста (#63, проб�
   });
 });
 
+describe('getGuardianContext — запрос «имя тип» находит каноническую точку (issue #1986/#1987)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const base = {
+    description: null, lat: 52.45, lng: 158.2, hazard_types: null, difficulty_level: null,
+    altitude_m: null, nearest_medical_km: null, sat_communicator_required: null,
+    capacity_per_day: null, open_from_date: null, open_to_date: null, is_open: true,
+    current_crowds: null, active_alerts: null, recommender_status: 'green',
+    alert_message: null, alert_severity: null, tourists_today: null,
+    volcano_ash_height_m: null, volcano_observed_at: '2026-09-17T00:00:00Z',
+  };
+
+  it('запрос попадает в SQL как AND по словам, а не буквальной фразой', async () => {
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('FROM places')) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
+    await getGuardianContext('Мутновский вулкан');
+    const placesCall = mockQuery.mock.calls.find(([sql]) => (sql as string).includes('FROM places'));
+    expect(placesCall![0]).toContain('p.name ILIKE $1 AND p.name ILIKE $2');
+    expect(placesCall![1]).toEqual(['%мутновский%', '%вулкан%']);
+  });
+
+  it('среди нескольких совпадений короткое каноническое имя побеждает и несёт KVERT-строку', async () => {
+    // Обе записи содержат оба слова запроса («мутновский», «вулкан») — так и
+    // было на проде: «Вулкан Мутновский» (14 симв.) и «Скитур на Мутновский
+    // вулкан» (28 симв.) обе матчатся при AND-по-словам. Сортировка по
+    // длине имени обязана поднять каноническую точку первой.
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('FROM places')) {
+        return Promise.resolve({
+          rows: [
+            { ...base, name: 'Вулкан Мутновский', location_type: 'volcano', volcano_acc: 'green' },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const ctx = await getGuardianContext('Мутновский вулкан');
+    expect(ctx).toContain('Вулкан Мутновский (вулкан)');
+    expect(ctx).toContain('Авиационный цветовой код KVERT: ЗЕЛЁНЫЙ');
+  });
+});
+
 describe('getGuardianContext — раздел каталога в заголовке (17.09)', () => {
   // До 17.09 location_type выбирался запросом и не печатался. Два городских
   // холма месяцами носили бейдж «ВУЛКАН» (972-974), а в MCP — единственном
