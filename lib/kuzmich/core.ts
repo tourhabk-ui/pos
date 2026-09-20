@@ -509,6 +509,13 @@ async function buildEnrichment(): Promise<string> {
         SELECT title, LEFT(compiled_truth, 300) AS compiled_truth
         FROM agent_knowledge
         WHERE agent_id = 'kuzmich'
+          -- type <> 'outcome': оценки ответов Кузьмича — служебная телеметрия
+          -- качества, а не знание о крае. Пятьдесят самых свежих записей идут
+          -- в контекст промпта; без этого условия туда попадали строки вида
+          -- «Оценка ответа: 6/10. Проблемы: неполная информация о ценах».
+          -- Тот же фильтр давно стоит в guardian-context (проба 113, 15.08);
+          -- здесь его забыли, и обе копии разошлись молча.
+          AND type <> 'outcome'
         ORDER BY updated_at DESC
         LIMIT 50
       `),
@@ -1964,7 +1971,13 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
           [`%${placeName}%`],
         ),
         pool.query<{ title: string; compiled_truth: string }>(
-          `SELECT title, compiled_truth FROM agent_knowledge WHERE agent_id='kuzmich' AND (title ILIKE $1 OR compiled_truth ILIKE $1) LIMIT 3`,
+          // type <> 'outcome' — по той же причине, и это не теория: 20.09
+          // живой вызов get_place_info про озеро вернул туристу строку
+          // «Оценка ответа: 6/10. Проблемы: отсутствие конкретных цифр» —
+          // служебную запись о КАЧЕСТВЕ ответа, совпавшую по ILIKE.
+          `SELECT title, compiled_truth FROM agent_knowledge
+            WHERE agent_id='kuzmich' AND type <> 'outcome'
+              AND (title ILIKE $1 OR compiled_truth ILIKE $1) LIMIT 3`,
           [`%${placeName}%`],
         ),
       ]);
