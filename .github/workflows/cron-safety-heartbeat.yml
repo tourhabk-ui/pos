@@ -1,0 +1,269 @@
+name: Cron — Safety Heartbeat (safety + очередь, каждые 30 мин)
+
+# ── Повод (20.09) ────────────────────────────────────────────────────────
+#
+# Владелец переслал два алерта одним вечером: «Volcano OS Worker не
+# отмечался 3ч» от Watchdog и «все AI-провайдеры недоступны» от health.
+# Разбор первого по коду показал, что классификация и пороги в
+# lib/agents/cron-liveness.ts работают верно (правка 19.09) — тревога
+# честная. Вопрос был в другом: ПОЧЕМУ прогон реально пропал на часы при
+# cron '9,39 * * * *' (каждые 30 мин).
+#
+# Ответ нашёлся не в этом кроне, а в сопоставлении ЧЕТЫРЁХ независимых
+# workflow с разными минутами (9/39, 0/30, */30, 5/35): их фактические
+# времена запуска за сутки (Actions API, не логи самих кронов) совпадали
+# в одном и том же узком окне раз в 2–5 часов, а не шли по своим
+# расписаниям. Смещение минуты (приём, уже применённый в kernel-worker —
+# комментарий «GitHub дропает :00») эту кластеризацию не убирает: все
+# четыре кластеризовались ОДИНАКОВО, несмотря на разные минуты.
+#
+# Единственное объяснение, совместимое с этой картиной, — очередь
+# scheduled-триггеров GitHub душится не по минуте, а по КОЛИЧЕСТВУ
+# отдельных расписаний: в .github/workflows/ на 20.09 лежало 55 файлов с
+# `schedule:`. GitHub прямо документирует это поведение: «If the
+# repository has many scheduled workflows... scheduled runs might be
+# delayed, and if delayed for too long may even be skipped».
+#
+# ── Что сделано ──────────────────────────────────────────────────────────
+#
+# Семь workflow, деливших пару минут «каждые 30 мин» (danger-analysis,
+# leads, rescue, kernel-worker, tg-watchdog, sos-bridge, channel-sync),
+# сведены в один. Это не меняет НИ ОДНОГО эндпоинта, таймаута или условия
+# успеха — только количество отдельных scheduled-записей, за которые эти
+# семь джоб конкурировали в очереди GitHub (было 7 файлов × 1-2 cron-записи
+# каждый, стало 1 файл × 1 запись).
+#
+# Каждый шаг — `continue-on-error: true`: отказ ОДНОГО эндпоинта не должен
+# останавливать вызов остальных (до объединения падение одной джобы никак
+# не влияло на другие семь отдельных workflow — тем же свойством обязан
+# обладать и один job). Порядок — по цене отказа: SOS-мост и оценка риска
+# первыми, чтобы даже при обрыве на середине самое важное уже отработало.
+#
+# Итоговый шаг сводит статусы и заваливает job, если хоть один эндпоинт не
+# ответил 200 — статус GitHub Actions остаётся честным индикатором, а
+# Watchdog по-прежнему судит по agent_run_history, не по этому статусу.
+#
+# ── Чего это НЕ чинит ────────────────────────────────────────────────────
+#
+# Это снимает СЕМЬ конкурентов из очереди GitHub, а не саму очередь: в
+# репозитории остаются другие частые расписания (cron-safety-ingest каждые
+# 5 мин — самый тяжёлый потребитель очереди, cron-watchdog, остальные
+# получасовые). Если кластеризация не исчезнет полностью — цифру снова
+# берёт prod-check или замер Actions API, а не догадка.
+
+on:
+  schedule:
+    - cron: '12,42 * * * *'  # каждые 30 мин; минута выбрана свободной, не занятой другим workflow
+  workflow_dispatch:
+
+concurrency:
+  group: cron-safety-heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # ── SOS-мост (критично, было cron-sos-bridge.yml) ──────────────────
+      - name: SOS Events Bridge
+        id: sos_bridge
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/sos_bridge.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/sos-events-bridge")
+          echo "HTTP: $HTTP" && cat /tmp/sos_bridge.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      # ── Danger Analysis (safety, было cron-danger-analysis.yml) ────────
+      - name: Analyze danger zones
+        id: danger_analysis
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/danger.json -w "%{http_code}" --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/danger-analysis")
+          echo "HTTP: $HTTP" && cat /tmp/danger.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      # ── Rescue (safety-tier, было cron-rescue.yml) ──────────────────────
+      - name: Rescue Scan
+        id: rescue
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set — skipping"
+            exit 0
+          fi
+          HTTP=$(curl -s -o /tmp/rescue.json -w "%{http_code}" --max-time 60 \
+            "https://vedarai.ru/api/cron/rescue" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "Rescue HTTP: $HTTP"
+          cat /tmp/rescue.json 2>/dev/null || true
+          if [ "$HTTP" = "200" ]; then
+            echo "Rescue Scan OK"
+          else
+            echo "Rescue Scan failed: HTTP $HTTP"
+            exit 1
+          fi
+
+      # ── Volcano OS Kernel Worker (было cron-kernel-worker.yml) ─────────
+      # GitHub Actions здесь только будильник — состояние и конкуренцию
+      # держит PostgreSQL Kernel (FOR UPDATE SKIP LOCKED, идемпотентность по
+      # ключу initiative:<id>), поэтому пропущенный/повторный прогон
+      # безопасен.
+      - name: Volcano OS kernel worker
+        id: kernel_worker
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set — skipping"
+            exit 0
+          fi
+
+          HTTP=$(curl -s -o /tmp/worker.json -w "%{http_code}" \
+            --max-time 180 \
+            "https://vedarai.ru/api/cron/kernel-worker" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "Worker HTTP: $HTTP"
+          cat /tmp/worker.json 2>/dev/null || true
+
+          if [ "$HTTP" != "200" ]; then
+            echo "Kernel worker failed: HTTP $HTTP"
+            exit 1
+          fi
+
+          if ! jq -e '.success == true and .status == "completed"' /tmp/worker.json >/dev/null 2>&1; then
+            STATUS=$(jq -r '.status // "invalid-response"' /tmp/worker.json 2>/dev/null || echo "invalid-response")
+            FAILED=$(jq -r '.failed // "?"' /tmp/worker.json 2>/dev/null || echo "?")
+            echo "Kernel worker incomplete: status=$STATUS failed_items=$FAILED"
+            exit 1
+          fi
+
+          # Терминальная запись прогона — часть контракта (P0 27.08).
+          if jq -e '.run_logged == false' /tmp/worker.json >/dev/null 2>&1; then
+            echo "Worker run NOT recorded in agent_run_history — терминальная запись обязательна"
+            exit 1
+          fi
+
+          echo "Kernel worker OK"
+
+      # ── AI-обработка лидов (было cron-leads.yml, шаг 1) ─────────────────
+      - name: Trigger leads processing
+        id: leads_process
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set in GitHub secrets — skipping"
+            exit 0
+          fi
+
+          HTTP=$(curl -s -o /tmp/leads.json -w "%{http_code}" \
+            --max-time 120 \
+            "https://vedarai.ru/api/cron/leads-process" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "HTTP: $HTTP"
+          cat /tmp/leads.json 2>/dev/null || true
+
+          if [ "$HTTP" = "200" ]; then
+            echo "Leads processing OK"
+          else
+            echo "Unexpected HTTP $HTTP"
+            exit 1
+          fi
+
+      # ── Follow-up напоминания (было cron-leads.yml, шаг 2) ──────────────
+      # Поведение прежнее дословно: не проверяет код ответа как отказ job —
+      # так было устроено и в исходном cron-leads.yml.
+      - name: Trigger follow-up reminders
+        id: followups
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then exit 0; fi
+
+          HTTP=$(curl -s -o /tmp/followups.json -w "%{http_code}" \
+            --max-time 60 \
+            "https://vedarai.ru/api/cron/followups" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "Follow-ups HTTP: $HTTP"
+          cat /tmp/followups.json 2>/dev/null || true
+
+      # ── Telegram Webhook Watchdog (было cron-tg-watchdog.yml) ──────────
+      - name: Check and repair Telegram webhook
+        id: tg_watchdog
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/tg_watchdog.json -w "%{http_code}" --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/telegram-webhook-watchdog")
+          echo "HTTP: $HTTP" && cat /tmp/tg_watchdog.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      # ── Синхронизация маркетплейсов (было cron-channel-sync.yml) ───────
+      - name: Sync orders from external marketplaces
+        id: channel_sync
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/channel_sync.json -w "%{http_code}" --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/channel-sync")
+          echo "HTTP: $HTTP" && cat /tmp/channel_sync.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      # ── Итог: job краснеет, если хоть один шаг отказал ──────────────────
+      #
+      # continue-on-error на каждом шаге держит job зелёным по умолчанию —
+      # это верно для «попытались все», но неверно для «всё ли получилось».
+      # Этот шаг восстанавливает честный статус, не отменяя гарантию
+      # «каждый эндпоинт вызван независимо от соседей».
+      - name: Summarize
+        if: always()
+        run: |
+          declare -A OUTCOMES=(
+            [sos_bridge]="${{ steps.sos_bridge.outcome }}"
+            [danger_analysis]="${{ steps.danger_analysis.outcome }}"
+            [rescue]="${{ steps.rescue.outcome }}"
+            [kernel_worker]="${{ steps.kernel_worker.outcome }}"
+            [leads_process]="${{ steps.leads_process.outcome }}"
+            [tg_watchdog]="${{ steps.tg_watchdog.outcome }}"
+            [channel_sync]="${{ steps.channel_sync.outcome }}"
+          )
+          # followups намеренно не входит в сводку — тем же было прежнее
+          # поведение cron-leads.yml: отказ этого шага не считался провалом.
+
+          FAILED=""
+          for name in "${!OUTCOMES[@]}"; do
+            if [ "${OUTCOMES[$name]}" != "success" ]; then
+              FAILED="$FAILED $name"
+            fi
+          done
+
+          if [ -n "$FAILED" ]; then
+            echo "Отказали:$FAILED"
+            exit 1
+          fi
+          echo "Все семь эндпоинтов отработали"

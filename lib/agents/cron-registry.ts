@@ -36,6 +36,15 @@ export interface CronEntry {
   agentId: string | null;
   /** Можно ли запустить вручную через /api/admin/agents/trigger */
   triggerable: boolean;
+  /**
+   * Собственный /api/cron/<endpoint> записи. Нужен, когда `workflow` общий
+   * на несколько записей (20.09, сведение семи safety/ops-кронов в
+   * cron-safety-heartbeat.yml): без него честность agentId нельзя сверить —
+   * «чей это /api/cron/*» решается чтением всего файла, а в общем файле
+   * ответ неоднозначен. Для записей с собственным файлом не нужен — сторож
+   * `cron-registry-honesty.test.ts` выводит эндпоинт из workflow сам.
+   */
+  endpoint?: string;
 }
 
 const DAY = 1440;
@@ -70,14 +79,16 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'sos-bridge', label: 'SOS Events Bridge',
     description: 'Мост SOS-событий в шину агентов.',
-    workflow: 'cron-sos-bridge.yml', cron: '10,40 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'safety', agentId: 'sos-bridge', triggerable: false,
+    endpoint: 'sos-events-bridge',
   },
   {
     key: 'danger-analysis', label: 'Danger Analysis',
     description: 'Оценка риска по зонам Камчатки.',
-    workflow: 'cron-danger-analysis.yml', cron: '0,30 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'safety', agentId: 'danger-analysis', triggerable: false,
+    endpoint: 'danger-analysis',
   },
   {
     key: 'checkin-watchdog', label: 'Check-in Watchdog',
@@ -100,8 +111,9 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'rescue', label: 'Rescue',
     description: 'Погодные угрозы ближайшим турам + отток операторов. SOS/брони — у Watchdog.',
-    workflow: 'cron-rescue.yml', cron: '15,45 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'safety', agentId: 'rescue', triggerable: true,
+    endpoint: 'rescue',
   },
 
   // ── Операции ─────────────────────────────────────────────────────────────
@@ -114,20 +126,23 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'kernel-worker', label: 'Volcano OS Worker',
     description: 'Worker очереди ядра: одобренные инициативы → policy allow/deny → эффект с pre_commit-проверкой.',
-    workflow: 'cron-kernel-worker.yml', cron: '9,39 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'ops', agentId: 'kernel_worker', triggerable: false,
+    endpoint: 'kernel-worker',
   },
   {
     key: 'leads', label: 'Lead Processing',
     description: 'AI-обработка лидов + follow-up напоминания.',
-    workflow: 'cron-leads.yml', cron: '*/30 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'ops', agentId: null, triggerable: false,
+    endpoint: 'leads-process',
   },
   {
     key: 'tg-watchdog', label: 'Telegram Webhook Watchdog',
     description: 'Проверка и починка вебхука бота.',
-    workflow: 'cron-tg-watchdog.yml', cron: '5,35 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'ops', agentId: null, triggerable: false,
+    endpoint: 'telegram-webhook-watchdog',
   },
   {
     key: 'max-webhook', label: 'MAX Webhook Keepalive',
@@ -156,8 +171,9 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'channel-sync', label: 'Channel Sync',
     description: 'Заказы из Tripster/Авито/Sputnik8.',
-    workflow: 'cron-channel-sync.yml', cron: '15,45 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'ops', agentId: 'channel-sync', triggerable: false,
+    endpoint: 'channel-sync',
   },
   {
     key: 'support-escalate', label: 'Support Escalate',

@@ -47,10 +47,11 @@ const RUNNER_AI_WORKFLOWS: Record<string, string> = {
  * Кому разрешено стоять в пике, и почему. Список может только СОКРАЩАТЬСЯ.
  */
 const PEAK_ALLOWED: Record<string, string> = {
-  'cron-danger-analysis.yml': 'safety: оценка риска по зонам каждые 30 минут — час не выбирается',
-  'cron-leads.yml': 'лиды каждые 30 минут: Watchdog тревожит о лиде старше 2 часов',
-  'cron-rescue.yml': 'safety-tier, каждые 30 минут',
-  'cron-kernel-worker.yml': 'очередь ядра каждые 30 минут',
+  // 20.09: danger-analysis/leads/rescue/kernel-worker сведены в один
+  // workflow (cron-safety-heartbeat.yml) — семь получасовых safety/ops
+  // кронов конкурировали за очередь scheduled-триггеров GitHub отдельными
+  // файлами; час по-прежнему не выбирается ни у одного из них.
+  'cron-safety-heartbeat.yml': 'safety+ops, каждые 30 минут: оценка риска, очередь ядра, лиды — час не выбирается',
   'cron-health.yml': 'ежечасная проба провайдеров — один короткий вызов',
   // 19.09: обе строки сняты — не переносом, а тем, что кроны ПЕРЕСТАЛИ звать
   // модель. Их 'ai' был транзитивным: watchdog → telegram-webhook-watchdog →
