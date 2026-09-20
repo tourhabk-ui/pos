@@ -48,6 +48,9 @@ import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
   type SavedMapRecord,
 } from '@/lib/offline/saved-map';
+import {
+  probeCoverage, coverageLabel, coverageIsShort, type CoverageReport,
+} from '@/lib/offline/coverage';
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 import { useSwRegistration } from '@/lib/offline/sw-status';
 import {
@@ -788,6 +791,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const [mapPlanError, setMapPlanError] = useState<string | null>(null);
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
+  /**
+   * ПРОВЕРКА этого заявления делом: сколько тайлов коридора Cache Storage
+   * отдаёт на самом деле. Запись в localStorage и тайлы в кэше живут
+   * порознь, и система вправе вычистить второе, не тронув первое, — тогда
+   * «Карта сохранена · 47 МБ · вчера» становится неправдой ровно к выходу.
+   * null — ещё не проверяли.
+   */
+  const [mapCoverage, setMapCoverage] = useState<CoverageReport | null>(null);
   const [dropping, setDropping] = useState(false);
   const [dropNote, setDropNote] = useState<string | null>(null);
   /**
@@ -882,6 +893,32 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       setMapPlanError('Не смогли спросить сервер о карте — проверьте связь и повторите');
     }
   }, []);
+
+  /**
+   * Сверить заявление о скачанной карте с тем, что в телефоне НА САМОМ ДЕЛЕ.
+   *
+   * Считается только когда есть обе половины: список нужных тайлов (из плана
+   * сервера) и запись о том, что закачка была. Без записи считать нечего —
+   * «не скачано» это отдельное состояние, и выдавать его за «0% на месте»
+   * нельзя (§4.0): первое зовёт нажать кнопку, второе означает, что система
+   * вычистила кэш.
+   *
+   * Проверка идёт по Cache Storage и сети не требует — то есть работает и
+   * тогда, когда связь уже потеряна, а это ровно тот момент, когда вопрос
+   * «а карта-то есть?» задают всерьёз.
+   */
+  useEffect(() => {
+    const urls = mapPlan?.urls;
+    if (!savedMap || !urls || urls.length === 0) {
+      setMapCoverage(null);
+      return;
+    }
+    let cancelled = false;
+    void probeCoverage(urls).then((r) => {
+      if (!cancelled) setMapCoverage(r);
+    });
+    return () => { cancelled = true; };
+  }, [savedMap, mapPlan]);
 
   /**
    * Собрать манифест полевого пакета: линия + точки + снимок условий +
@@ -4501,6 +4538,24 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                   className="underline underline-offset-2" style={{ color: 'var(--ocean)' }}>
                   Обновить
                 </button>
+              )}
+              {/* ПРОВЕРКА ЗАЯВЛЕНИЯ, а не его пересказ.
+                  Строка выше («Карта сохранена · 47 МБ · вчера») — это то,
+                  что закачка ОБЕЩАЛА в момент нажатия. Между обещанием и
+                  выходом стоит система, которая вправе вычистить кэш тайлов,
+                  не тронув запись в localStorage. Здесь сказано, сколько
+                  карты отдаёт Cache Storage сейчас.
+                  Порядок слов выбран так, чтобы дыра читалась первой: сперва
+                  доля, потом причины, по которым карта грубее обещанной. */}
+              {mapCoverage && coverageIsShort(mapCoverage) && (
+                <span className="w-full" style={{ color: 'var(--warning)' }}>
+                  Проверено: {coverageLabel(mapCoverage)} — докачайте, пока есть связь
+                </span>
+              )}
+              {mapCoverage && !coverageIsShort(mapCoverage) && (
+                <span className="w-full" style={{ color: 'var(--text-muted)' }}>
+                  Проверено: {coverageLabel(mapCoverage)}
+                </span>
               )}
               {/* Отброшенные зумы и незакреплённое хранилище — то, из-за чего
                   «сохранено» может не совпасть с тем, что человек ждёт. */}
