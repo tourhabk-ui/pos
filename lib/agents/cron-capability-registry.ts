@@ -87,6 +87,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'field-check-queue': ['db_read'],
   'followups': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'funnel-census': ['db_read', 'db_write', 'net_out'],
+  'guide-readiness': ['db_read', 'pd_direct'],
   'health': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money', 'pd_direct'],
   'hidden-tracks-census': ['db_read'],
   'images-generated': ['db_read', 'db_write'],

@@ -62,10 +62,25 @@ async function getGuide(id: string): Promise<{ guide: GuideProfile; certs: Cert[
         [id],
       );
       certs = c.rows;
-    } catch { /* нет аттестатов / другая схема — покажем честную пустоту */ }
+    } catch (e) {
+      // «Аттестатов нет» и «не смогли спросить» на витрине доверия — разные
+      // вещи, и вторая обязана попасть хотя бы в лог.
+      const err = e as { code?: string; message?: string };
+      console.error('[guides] аттестаты не прочитаны:', `id=${id}`,
+        `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
+    }
 
     return { guide: rows[0], certs };
-  } catch {
+  } catch (e) {
+    // Отказ не глушится (§4.0). Этот пустой catch стоил страницам гидов
+    // всего срока их жизни: запрос выбирал пять колонок, которых не было в
+    // схеме ВООБЩЕ (languages, specializations, photo_url, experience_years,
+    // phone — заведены миграцией 991), PostgreSQL отвечал 42703, ошибка
+    // проглатывалась, и все 112 страниц показывали «Гид не найден». Поломка
+    // выглядела как отсутствие данных, и сказать о ней было некому.
+    const err = e as { code?: string; message?: string };
+    console.error('[guides] профиль не прочитан:', `id=${id}`,
+      `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
     return null;
   }
 }

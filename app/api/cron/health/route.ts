@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -40,15 +40,34 @@ const PING: ChatMessage[] = [
   { role: 'user', content: 'Скажи: ок' },
 ];
 
-async function probeAI(fn: (m: ChatMessage[]) => Promise<string | null>): Promise<boolean> {
+/**
+ * Исход быстрой пробы провайдера. Их ТРИ, и третий — не второй.
+ *
+ * 20.09: раньше функция возвращала boolean, и таймаут в 8 секунд был
+ * неотличим от отказа. Диагностика того же DeepSeek с бюджетом 10 секунд в ту
+ * же минуту получила HTTP 200 с настоящим `chat.completion` — а владельцу
+ * ушёл CRIT «Все AI-провайдеры недоступны», в теле которого этот 200 стоял
+ * причиной недоступности. §4.0: место, где нельзя сказать «не знаю»,
+ * заполняется неправдой.
+ */
+export type ProbeOutcome = 'ok' | 'slow' | 'fail';
+
+/** Бюджет быстрой пробы. Замер 04.09: DeepSeek отвечал за 0,3 с. */
+export const AI_PROBE_TIMEOUT_MS = 8_000;
+
+const PROBE_TIMED_OUT = Symbol('probe_timeout');
+
+async function probeAI(fn: (m: ChatMessage[]) => Promise<string | null>): Promise<ProbeOutcome> {
   try {
     const res = await Promise.race([
       fn(PING),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      new Promise<typeof PROBE_TIMED_OUT>((resolve) =>
+        setTimeout(() => resolve(PROBE_TIMED_OUT), AI_PROBE_TIMEOUT_MS)),
     ]);
-    return !!res;
+    if (res === PROBE_TIMED_OUT) return 'slow';
+    return res ? 'ok' : 'fail';
   } catch {
-    return false;
+    return 'fail';
   }
 }
 
@@ -364,7 +383,7 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag, timewebDiag] = await Promise.all([
+  const [orProbe, anthropicProbe, dsProbe, fuguProbe, qwenProbe, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag, timewebDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
@@ -387,7 +406,20 @@ export async function GET(request: NextRequest) {
     Object.keys(getTimewebAgents()).length > 0 ? probeTimewebAgentStatus().catch(() => null) : Promise.resolve(null),
   ]);
 
-  const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || qwenOk;
+  // Быстрая проба сказала «ок» ЛИБО диагностика того же провайдера ответила
+  // 2xx. Второе — это и есть третий исход: проба не уложилась в 8 секунд, но
+  // провайдер жив, и обвинять его в недоступности нельзя (20.09).
+  const openrouterOk = orProbe === 'ok';
+  const anthropicOk  = anthropicProbe === 'ok';
+  const deepseekOk   = dsProbe === 'ok';
+  const fuguOk       = fuguProbe === 'ok';
+  const qwenOk       = qwenProbe === 'ok';
+
+  const deepseekAlive   = deepseekOk   || diagnosticSaysAlive(dsKeyDiag?.http_status);
+  const openrouterAlive = openrouterOk || diagnosticSaysAlive(orKeyDiag?.http_status);
+  const qwenAlive       = qwenOk       || diagnosticSaysAlive(qwenKeyDiag?.http_status);
+
+  const anyOk = openrouterAlive || anthropicOk || deepseekAlive || fuguOk || qwenAlive;
 
   // Разбор причин по каждому провайдеру — ВСЕГДА, а не только когда хоть один
   // жив. До 17.09 он стоял в `else` за `if (!anyOk)`: при пяти отказах разом
@@ -444,8 +476,20 @@ export async function GET(request: NextRequest) {
     // задан (как для Qwen/Fugu/Anthropic: не настроен ≠ сбой), а если задан —
     // называем причину, а не просто «недоступен».
     if (!deepseekOk && dsKeyDiag?.key_set !== false) {
-      const why = dsKeyDiag ? `: ${explainDeepSeekFailure(dsKeyDiag)}` : '';
-      providerIssues.push({ level: 'warn', text: `DeepSeek недоступен${why}`, reason: `DeepSeek${why || ': недоступен'}` });
+      if (deepseekAlive) {
+        // Жив, но медленный. Это НОВОСТЬ, а не отказ: 04.09 он отвечал за
+        // 0,3 секунды, теперь ему мало восьми. Прежде эта новость уходила
+        // словом «недоступен» и тонула в CRIT.
+        const t = `${Math.round(AI_PROBE_TIMEOUT_MS / 1000)} с`;
+        providerIssues.push({
+          level: 'warn',
+          text: `DeepSeek отвечает дольше ${t} — проба не дождалась, но диагностика получила HTTP ${dsKeyDiag?.http_status}. Провайдер жив, замедлился`,
+          reason: `DeepSeek: жив, но медленнее ${t}`,
+        });
+      } else {
+        const why = dsKeyDiag ? `: ${explainDeepSeekFailure(dsKeyDiag)}` : '';
+        providerIssues.push({ level: 'warn', text: `DeepSeek недоступен${why}`, reason: `DeepSeek${why || ': недоступен'}` });
+      }
     }
     // Причина, а не одно слово. Прежде предупреждение было безусловным и
     // покрывало три случая разом: ключа нет, ключ отвергнут, сеть упала. Из-за
