@@ -85,7 +85,13 @@ const whyHidden = whyNotShown;
  * подставляется кадр стороннего оператора.
  */
 function cardShows(category: string | null): string {
-  const kind = cardImage({ hasShownPhoto: false, id: 'x', category }).kind;
+  // Род спрашивается ВМЕСТЕ с `kind: 'place'`: перепись считает места, а с
+  // 20.09 у места подстановки кадром оператора нет (решение владельца по
+  // числу этой же переписи — 226 карточек из 378 показывали чужой кадр).
+  // Без явного рода ответ совпал бы по случайности — умолчание там тоже
+  // «место», — и следующая правка умолчания молча сделала бы перепись
+  // неверной. Ровно так она уже ошибалась 20.09.
+  const kind = cardImage({ hasShownPhoto: false, id: 'x', category, kind: 'place' }).kind;
   if (kind === 'category_fallback') {
     return 'карточка подставит кадр оператора по категории (/images/partners/kamchatintour), а не снимок этого места';
   }
@@ -158,7 +164,7 @@ export async function GET(req: NextRequest) {
           // отвечала «покажет градиент, и это правда» всем без снимка —
           // и это была неправда у каждого места, чья категория попадает в
           // подстановку.
-          card_shows: cardImage({ hasShownPhoto: r.shown, id: r.id, category: r.category }).kind,
+          card_shows: cardImage({ hasShownPhoto: r.shown, id: r.id, category: r.category, kind: 'place' }).kind,
           storage: r.model === null ? null : (r.in_s3 ? 's3' : r.has_bytes ? 'байты в базе' : 'ни байтов, ни ссылки'),
         })),
       });
@@ -283,7 +289,7 @@ export async function GET(req: NextRequest) {
       own: 0, payload_link: 0, category_fallback: 0, gradient: 0,
     };
     for (const row of noPhotoCats) {
-      const kind = cardImage({ hasShownPhoto: false, id: 'x', category: row.category }).kind;
+      const kind = cardImage({ hasShownPhoto: false, id: 'x', category: row.category, kind: 'place' }).kind;
       byCardKind[kind] += Number(row.n);
     }
     byCardKind.own = Number(totals[0]?.with_shown ?? 0);

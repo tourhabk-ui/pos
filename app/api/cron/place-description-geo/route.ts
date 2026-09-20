@@ -1,0 +1,150 @@
+/**
+ * GET /api/cron/place-description-geo — описание называет одно, координата
+ * говорит другое. Bearer CRON_SECRET, ТОЛЬКО ЧТЕНИЕ.
+ *
+ * Повод, устройство улики и границы применимости — в шапке
+ * `lib/places/description-geo.ts`. Здесь только запрос и сборка ответа.
+ *
+ * ── Что отвечает ──────────────────────────────────────────────────────────
+ *
+ * Не «сколько описаний плохие» — такого эта перепись знать не может. Она
+ * отвечает: у каких мест описание НАЗЫВАЕТ известный нам объект и при этом
+ * стоит от него дальше порога, и насколько дальше. Дальше судит человек: у
+ * «Каньона Опасного» названный Карымский — выдумка, а у места, которое честно
+ * пишет «виден Ичинский», расстояние законно, потому что вулкан ВИДЕН за сто
+ * километров.
+ *
+ * Поэтому порог не приговор, а сортировка: список идёт по убыванию
+ * расстояния, и верх разбирается глазами, партиями. Тот же приём, что у
+ * подсказчика связей и у сверки с OSM — там из 24 сильных улик настоящими
+ * ошибками оказались три.
+ *
+ * ── Три исхода, а не два ──────────────────────────────────────────────────
+ *
+ *   with_evidence   — описание называет объект, до которого далеко;
+ *   no_evidence     — называет, и всё близко;
+ *   nothing_to_check— описания нет вовсе, или оно не называет ни одного
+ *                     ИЗВЕСТНОГО НАМ объекта. Это не «чисто»: выдумка про
+ *                     реку, которой у нас нет, попадает именно сюда.
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { pool } from '@/lib/db-pool';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { getCronSecret } from '@/lib/auth/cron';
+import { distanceKm } from '@/lib/routes/place-link';
+import { nameStem, findMentions, type Landmark } from '@/lib/places/description-geo';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+/** Дальше этого упоминание считается уликой. Не приговор — порог сортировки. */
+const FAR_KM_DEFAULT = 60;
+const MAX_ITEMS = 200;
+
+interface Row {
+  id: string;
+  name: string;
+  lat: string | null;
+  lng: string | null;
+  description: string | null;
+}
+
+export async function GET(req: NextRequest) {
+  if (!timingSafeCompare(getCronSecret(req), process.env.CRON_SECRET ?? '')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const url = new URL(req.url);
+  const farKm = Math.max(5, Math.min(2000, Number(url.searchParams.get('far_km')) || FAR_KM_DEFAULT));
+  const limit = Math.max(1, Math.min(MAX_ITEMS, Number(url.searchParams.get('limit')) || 60));
+
+  try {
+    const { rows } = await pool.query<Row>(
+      `SELECT id::text, name, lat::text, lng::text, description
+         FROM places
+        WHERE is_visible IS NOT FALSE
+          AND merged_into_id IS NULL
+          AND lat IS NOT NULL AND lng IS NOT NULL
+        ORDER BY name`,
+    );
+
+    // Справочник строится из тех же живых мест: имена и координаты у нас
+    // есть, ходить наружу незачем.
+    const gazetteer: Landmark[] = [];
+    for (const r of rows) {
+      const stem = nameStem(r.name);
+      if (!stem) continue;
+      gazetteer.push({ id: r.id, name: r.name, stem, lat: Number(r.lat), lng: Number(r.lng) });
+    }
+
+    interface Evidence {
+      place: string;
+      place_id: string;
+      mentions: Array<{ named: string; km: number; quote: string }>;
+      worst_km: number;
+    }
+    const evidence: Evidence[] = [];
+    let noEvidence = 0;
+    let nothingToCheck = 0;
+    let statedDistanceOnly = 0;
+
+    for (const r of rows) {
+      const descr = (r.description ?? '').trim();
+      if (descr.length < 40) { nothingToCheck++; continue; }
+
+      const mentions = findMentions(descr, gazetteer, nameStem(r.name));
+      if (mentions.length === 0) { nothingToCheck++; continue; }
+
+      const implied = mentions.filter(m => m.kind === 'implied_location');
+      if (implied.length === 0) { statedDistanceOnly++; continue; }
+
+      const lat = Number(r.lat), lng = Number(r.lng);
+      const far = implied
+        .map(m => ({
+          named: m.landmark.name,
+          km: Math.round(distanceKm(lat, lng, m.landmark.lat, m.landmark.lng) * 10) / 10,
+          quote: m.quote,
+        }))
+        .filter(m => m.km >= farKm)
+        .sort((a, b) => b.km - a.km);
+
+      if (far.length === 0) { noEvidence++; continue; }
+      evidence.push({
+        place: r.name,
+        place_id: r.id,
+        mentions: far.slice(0, 4),
+        worst_km: far[0].km,
+      });
+    }
+
+    evidence.sort((a, b) => b.worst_km - a.worst_km);
+
+    return NextResponse.json({
+      ok: true,
+      probe: 'place_description_geo_v1',
+      far_km: farKm,
+      live_places: rows.length,
+      gazetteer_size: gazetteer.length,
+      with_evidence: evidence.length,
+      no_evidence: noEvidence,
+      // Описания нет либо оно не называет ни одного ИЗВЕСТНОГО НАМ объекта.
+      // Это не «чисто»: выдумка про объект вне нашей базы попадает сюда.
+      nothing_to_check: nothingToCheck,
+      // Упоминания только с расстоянием («в 40 км от Петропавловска») —
+      // законная форма, в улики не идёт.
+      stated_distance_only: statedDistanceOnly,
+      items: evidence.slice(0, limit),
+      // Ноль улик при нулевом справочнике — отказ, а не чистота (§4.0).
+      meaningful: gazetteer.length > 0 && rows.length > 0,
+      note: 'улика, не приговор: вулкан бывает ВИДЕН за сто километров, и такое упоминание законно. Разбирать глазами, сверху вниз',
+    });
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[place-description-geo] перепись не выполнена, SQLSTATE ${code}:`, err);
+    return NextResponse.json(
+      { ok: false, probe: 'place_description_geo_v1', error: 'перепись не выполнена', sqlstate: code },
+      { status: 503 },
+    );
+  }
+}

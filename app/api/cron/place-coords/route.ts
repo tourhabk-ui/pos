@@ -67,6 +67,10 @@ interface PlaceRow {
   given: string;
   id: string | null; name: string | null;
   lat: number | null; lng: number | null;
+  /** Показывается ли место. Скрытому координату править МОЖНО — см. ниже. */
+  is_visible: boolean | null;
+  /** Не NULL — запись слита в другую и является надгробием. */
+  merged_into_id: string | null;
 }
 
 export async function POST(request: NextRequest) {
@@ -104,11 +108,32 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    /**
+     * Отбор БЕЗ фильтров — состояние записи разбирается ниже, по одному
+     * исходу на каждое положение дел (20.09).
+     *
+     * Раньше оба условия стояли прямо в JOIN, и любое из трёх разных
+     * положений давало одну строку: «живого места с таким id нет». Сообщение
+     * это неверно дважды: место есть, и «живое» в нём значит не то, что
+     * читается. Я потерял на нём время в тот же день: сухой прогон по
+     * «Каньону Сноубордистов» отказал этими словами, и я пошёл искать
+     * ошибку в id — а id был верен, запись просто СКРЫТА.
+     *
+     * Скрытому месту координату править нужно, и особенно ему. Скрывают
+     * обычно как раз испорченную запись (миграции 947, 948 — координата без
+     * источника), а показать её обратно нельзя, пока координата не
+     * исправлена. Фильтр замыкал круг: чтобы починить, надо показать; чтобы
+     * показать, надо починить.
+     *
+     * Слитая запись остаётся вне правки: это надгробие, указывающее на
+     * другую строку, и двигать её координату незачем. Но говорится это
+     * теперь вслух, отдельным словом.
+     */
     const { rows } = await pool.query<PlaceRow>(
-      `SELECT t.given AS given, p.id::text AS id, p.name, p.lat, p.lng
+      `SELECT t.given AS given, p.id::text AS id, p.name, p.lat, p.lng,
+              p.is_visible, p.merged_into_id::text AS merged_into_id
          FROM unnest($1::text[]) AS t(given)
-         LEFT JOIN places p
-           ON p.id::text = t.given AND p.is_visible = true AND p.merged_into_id IS NULL`,
+         LEFT JOIN places p ON p.id::text = t.given`,
       [data.fixes.map(f => f.place)],
     );
 
@@ -118,12 +143,19 @@ export async function POST(request: NextRequest) {
       from: { lat: number; lng: number };
       to: { lat: number; lng: number };
       movedKm: number; why: string;
+      /** Место скрыто с витрины. Правка разрешена, но человек должен знать. */
+      hidden: boolean;
     }
     const plan: PlanItem[] = [];
 
     for (const f of data.fixes) {
       const r = byId.get(f.place);
-      if (!r || !r.id) { problems.push(`${f.place}: живого места с таким id нет`); continue; }
+      // Три разных положения дел — три разных слова, а не одно на всех.
+      if (!r || !r.id) { problems.push(`${f.place}: места с таким id нет вовсе`); continue; }
+      if (r.merged_into_id) {
+        problems.push(`${f.place}: запись слита в ${r.merged_into_id} — это надгробие, координату правят у той, в которую слили`);
+        continue;
+      }
       const oldLat = Number(r.lat);
       const oldLng = Number(r.lng);
       const moved = Math.round(distanceKm(oldLat, oldLng, f.lat, f.lng) * 10) / 10;
@@ -136,6 +168,10 @@ export async function POST(request: NextRequest) {
         from: { lat: oldLat, lng: oldLng },
         to: { lat: f.lat, lng: f.lng },
         movedKm: moved, why: f.why,
+        // Скрытость — не препятствие правке, но факт, который читатель плана
+        // обязан видеть: у скрытого места починка координаты обычно и есть
+        // условие, при котором его можно показать обратно.
+        hidden: r.is_visible === false,
       });
     }
 
@@ -156,9 +192,12 @@ export async function POST(request: NextRequest) {
     const applied: PlanItem[] = [];
     for (const p of plan) {
       const res = await pool.query(
+        // `is_visible` в условии НЕТ намеренно (20.09): скрытому месту
+        // координату править можно и нужно — см. разбор у выборки выше.
+        // Слитое остаётся защищённым: у надгробия координату не двигают.
         `UPDATE places
             SET lat = $2, lng = $3, updated_at = NOW()
-          WHERE id::text = $1 AND is_visible = true AND merged_into_id IS NULL`,
+          WHERE id::text = $1 AND merged_into_id IS NULL`,
         [p.placeId, p.to.lat, p.to.lng],
       );
       if ((res.rowCount ?? 0) > 0) applied.push(p);

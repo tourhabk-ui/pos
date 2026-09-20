@@ -93,6 +93,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'images-generated': ['db_read', 'db_write'],
   // Перепись перевезённого: только чтение базы. Ни записи, ни сети — снимки
   // она не трогает и в хранилище не ходит, ключи берёт из таблицы (19.09).
+  'place-description-geo': ['db_read'],
   'place-photo-coverage': ['db_read'],
   // net_out добавлен 19.09: проба умеет спросить объект в хранилище HEAD-ом
   // («открывается ли он для браузера туриста»), а не только прочитать, что
