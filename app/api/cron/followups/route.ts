@@ -6,7 +6,8 @@
  * Имя и телефон туриста — ПД, поэтому уведомление идёт в MAX через sendPdAlert;
  * в Telegram при недоступности MAX уходит заглушка без ПД.
  *
- * Запускать каждые 30 минут (GitHub Actions: cron-leads.yml).
+ * Запускать каждые 30 минут (GitHub Actions: cron-safety-heartbeat.yml, шаг
+ * «Trigger follow-up reminders» — до 20.09 был отдельным файлом cron-leads.yml).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';

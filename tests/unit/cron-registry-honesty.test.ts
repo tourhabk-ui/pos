@@ -55,6 +55,33 @@ describe('cron-registry: записи указывают на существую
     const keys = CRON_REGISTRY.map((e) => e.key);
     expect(keys.length).toBe(new Set(keys).size);
   });
+
+  it('endpoint, если указан, реально вызывается в своём workflow', () => {
+    // Иначе поле само стало бы объявленным исходом без источника (§10.09):
+    // называет эндпоинт, который workflow не зовёт, и сверка выше молчит.
+    const wrong = CRON_REGISTRY
+      .filter((e) => e.endpoint && existsSync(join(WF_DIR, e.workflow)))
+      .filter((e) => !cronEndpointsOf(read(e.workflow)).includes(e.endpoint!))
+      .map((e) => `${e.key}: endpoint '${e.endpoint}' не встречается в ${e.workflow}`);
+    expect(wrong, wrong.join(' | ')).toEqual([]);
+  });
+
+  it('endpoint обязателен, когда workflow общий на несколько записей', () => {
+    // Общий файл без endpoint у КАЖДОЙ его записи — та самая неоднозначность
+    // («чей это /api/cron/*»), которую поле и вводили чинить 20.09.
+    const byWorkflow = new Map<string, typeof CRON_REGISTRY>();
+    for (const e of CRON_REGISTRY) {
+      byWorkflow.set(e.workflow, [...(byWorkflow.get(e.workflow) ?? []), e]);
+    }
+    const missing: string[] = [];
+    for (const [workflow, entries] of byWorkflow) {
+      if (entries.length <= 1) continue;
+      for (const e of entries) {
+        if (!e.endpoint) missing.push(`${e.key} (${workflow})`);
+      }
+    }
+    expect(missing, `общий workflow без endpoint: ${missing.join(', ')}`).toEqual([]);
+  });
 });
 
 describe('cron-registry: покрыты все платформенные кроны', () => {
@@ -79,7 +106,11 @@ describe('cron-registry: agentId соответствует телеметрии
       if (!e.agentId) continue;                       // null = «нет телеметрии», это честно
       if (!existsSync(join(WF_DIR, e.workflow))) continue;
 
-      const endpoints = cronEndpointsOf(read(e.workflow));
+      // `endpoint` — когда workflow общий на несколько записей (20.09,
+      // cron-safety-heartbeat.yml): читать весь файл дало бы объединение
+      // agent_id ВСЕХ его эндпоинтов, и совпадение с чужим агентом
+      // проходило бы молча — ровно тот ложный зелёный, который тест ловит.
+      const endpoints = e.endpoint ? [e.endpoint] : cronEndpointsOf(read(e.workflow));
       if (endpoints.length === 0) continue;           // джоба без платформенного вызова
 
       // Собираем agent_id, которые пишут роуты ЭТОЙ джобы.
