@@ -19,8 +19,9 @@ name: Cron — Safety Heartbeat (safety + очередь, каждые 30 мин
 #
 # Единственное объяснение, совместимое с этой картиной, — очередь
 # scheduled-триггеров GitHub душится не по минуте, а по КОЛИЧЕСТВУ
-# отдельных расписаний: в .github/workflows/ на 20.09 лежало 55 файлов с
-# `schedule:`. GitHub прямо документирует это поведение: «If the
+# отдельных расписаний: в .github/workflows/ на 20.09 лежал 61 файл с
+# расписанием (после сведения — 55). GitHub прямо документирует это
+# поведение: «If the
 # repository has many scheduled workflows... scheduled runs might be
 # delayed, and if delayed for too long may even be skipped».
 #
