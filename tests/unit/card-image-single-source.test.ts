@@ -58,26 +58,44 @@ describe('род картинки называется честно', () => {
     expect(r.url).toBe('/api/images/route/abc');
   });
 
-  it('снимка нет, категория знакомая — подстановка оператора, а НЕ градиент', () => {
-    // Ровно то, что перепись называла градиентом до 20.09.
-    const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'termalnye_istochniki' });
-    expect(r.kind).toBe('category_fallback');
-    expect(r.url).toContain('/images/partners/kamchatintour/');
+  it('у МЕСТА без снимка — градиент, подстановки больше нет', () => {
+    // Решение владельца 20.09 по числу с прода: из 378 живых мест свой снимок
+    // у 110, а кадр оператора подставлялся у 226 — у двух карточек из трёх
+    // витрина показывала чужую картинку как снимок этого места. Выбран первый
+    // из трёх путей: снять, а не подписать и не оставить.
+    const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'termalnye_istochniki', kind: 'place' });
+    expect(r.kind).toBe('gradient');
+    expect(r.url).toBeNull();
+  });
+
+  it('род не передан — считается местом: умолчание в сторону «не подставлять»', () => {
+    expect(cardImage({ hasShownPhoto: false, id: 'abc', category: 'vulkani' }).kind).toBe('gradient');
+  });
+
+  it('у МАРШРУТА и ТУРА подстановка осталась — это другое решение', () => {
+    // У места карточка утверждает географический факт: вот место, вот его
+    // снимок. У тура карточка — витрина предложения оператора, и кадр
+    // оператора там не подменяет собой объект. Владелец менял первое.
+    for (const kind of ['route', 'tour'] as const) {
+      const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'termalnye_istochniki', kind });
+      expect(r.kind, kind).toBe('category_fallback');
+      expect(r.url, kind).toContain('/images/partners/kamchatintour/');
+    }
   });
 
   it('категория незнакомая — градиент, и адреса нет', () => {
-    const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'нечто-своё' });
+    const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'нечто-своё', kind: 'route' });
     expect(r.kind).toBe('gradient');
     expect(r.url).toBeNull();
   });
 
   it('категории нет вовсе — тоже градиент', () => {
-    expect(cardImage({ hasShownPhoto: false, id: 'abc', category: null }).kind).toBe('gradient');
+    expect(cardImage({ hasShownPhoto: false, id: 'abc', category: null, kind: 'route' }).kind).toBe('gradient');
   });
 
   it('адрес из payload идёт вперёд подстановки и назван своим родом', () => {
     const r = cardImage({
-      hasShownPhoto: false, id: 'abc', category: 'vulkani',
+      hasShownPhoto: false, id: 'abc', category: 'vulkani', kind: 'route',
       payload: { image: 'https://example.org/photo.jpg' },
     });
     expect(r.kind).toBe('payload_link');
@@ -156,5 +174,53 @@ describe('перепись спрашивает карточку, а не рас
     for (const verb of ['UPDATE ', 'INSERT ', 'DELETE ', 'TRUNCATE']) {
       expect(code(CENSUS), `в переписи появился ${verb.trim()}`).not.toContain(verb);
     }
+  });
+});
+
+/**
+ * Место без снимка — в самый конец витрины (решение владельца 20.09).
+ *
+ * ── Почему это сторожится, хотя «и так работало» ──────────────────────────
+ *
+ * До сегодня порядок выходил сам: ключ `has_real_image` стоял вторым, после
+ * суммы полноты карточки, а сумма у МЕСТ всегда ноль — VIEW отдаёт им пустой
+ * payload (миграция 942). То есть нужный порядок держался на свойстве чужих
+ * данных, а не на правиле: появись у мест payload с ценой — и места без фото
+ * молча всплыли бы наверх, причём заметить это было бы нечем.
+ *
+ * Вместе со снятием подстановки цена ошибки выросла: раньше у 226 мест из 378
+ * карточка показывала кадр оператора, и «без фото» на витрине не существовало
+ * как состояния. Теперь оно видно, и его место — в хвосте.
+ */
+describe('места без снимка уходят в хвост правилом, а не случайно', () => {
+  const CATALOG_SRC = readFileSync(join(process.cwd(), 'lib/routes/catalog-query.ts'), 'utf-8');
+  const CATALOG_CODE = code(CATALOG_SRC);
+
+  /** Ветка `recommended` целиком — от неё и до следующей ветки сортировки. */
+  const recommended = (() => {
+    const at = CATALOG_CODE.indexOf("sort === 'recommended'");
+    const end = CATALOG_CODE.indexOf("sort === 'navigable'", at);
+    expect(at, 'ветка recommended не найдена').toBeGreaterThan(-1);
+    return CATALOG_CODE.slice(at, end > -1 ? end : at + 2500);
+  })();
+
+  it('первым ключом идёт «место без снимка — вниз»', () => {
+    const key = recommended.indexOf("ark.kind = 'place'");
+    const richness = recommended.indexOf("payload->>'price_from'");
+    expect(key, 'ключа про место без снимка нет вовсе').toBeGreaterThan(-1);
+    expect(key, 'ключ стоит ПОСЛЕ суммы полноты — порядок снова зависит от payload')
+      .toBeLessThan(richness);
+  });
+
+  it('правило показа берётся из общего источника, а не переписано литералом', () => {
+    // Иначе в проекте стало бы два ответа на вопрос «какой снимок
+    // показывается» — ровно то, что origin.ts и сводил в одно место.
+    expect(recommended).toContain('shownPhotoSql');
+    expect(recommended).not.toMatch(/model\s+IN\s*\(\s*'/i);
+  });
+
+  it('ключ касается только мест — маршрутам и турам порядок не меняли', () => {
+    const at = recommended.indexOf("ark.kind = 'place'");
+    expect(recommended.slice(at, at + 220)).toMatch(/THEN 1 ELSE 0 END ASC/);
   });
 });

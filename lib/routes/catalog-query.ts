@@ -269,7 +269,31 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     sort === 'recent'      ? 'ark.created_at DESC' :
     sort === 'price_asc'   ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 999999999) ASC, ark.title ASC' :
     sort === 'price_desc'  ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 0) DESC, ark.title ASC' :
-    sort === 'recommended' ? `(
+    sort === 'recommended' ? `
+    -- МЕСТО БЕЗ СНИМКА — В САМЫЙ КОНЕЦ (решение владельца 20.09).
+    --
+    -- Вместе со снятием подстановки кадром оператора: раньше у 226 мест из
+    -- 378 карточка показывала чужой кадр, и «без фото» на витрине не
+    -- существовало как состояния. Теперь оно видно, и владелец решил, что
+    -- такие места идут последними.
+    --
+    -- До сегодня это ВЫХОДИЛО САМО, но случайно: ключ has_real_image стоял
+    -- вторым, после суммы полноты карточки, а сумма у мест всегда 0, потому
+    -- что VIEW отдаёт им пустой payload (миграция 942). То есть порядок
+    -- держался на свойстве ЧУЖИХ данных, а не на правиле. Здесь он назван
+    -- правилом и от payload больше не зависит.
+    --
+    -- Условие повторяет предикат показа через тот же shownPhotoSql, а не
+    -- ссылается на колонку has_real_image: имя выходной колонки SELECT
+    -- Postgres понимает только голым, внутри выражения оно не видно (тот же
+    -- разбор, что в комментарии о квалификации колонок выше).
+    --
+    -- Маршрутов и туров ключ не касается: у них ark.kind другой, выражение
+    -- всегда 0, и прежний порядок сохраняется.
+    CASE WHEN ark.kind = 'place'
+              AND NOT (ari.route_id IS NOT NULL AND ${shownPhotoSql('ari.model')})
+         THEN 1 ELSE 0 END ASC,
+    (
       CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
@@ -368,6 +392,11 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       id: r.id as string,
       payload,
       category: r.category as string,
+      // Род обязателен: у МЕСТА подстановки кадром оператора больше нет
+      // (решение владельца 20.09, разбор в card-image.ts). Без него функция
+      // считает запись местом и не подставляет — но маршрут тогда терял бы
+      // свою картинку молча.
+      kind: (r.kind as 'place' | 'route' | 'tour' | null) ?? 'place',
     }).url;
 
     return {
