@@ -1,0 +1,117 @@
+name: Готовность гидов к AI-визитке — перепись (по маркеру)
+
+# Повод (19.09, находка #1926). Разведка просит дать гидам публичную страницу
+# с ассистентом, отвечающим «строго на данных партнёра». Страница есть,
+# Кузьмич есть, партнёрская область видимости тоже есть и работает
+# (lib/kuzmich/operator-chat.ts отбирает по operator_id в каждом запросе).
+#
+# Неизвестно одно: чем такой ассистент будет отвечать. У гидов нет своих
+# туров — они принадлежат оператору, а гид связан с ним через
+# partners.guide_operator_id. Сколько гидов привязано, не считала ни одна
+# перепись. Если единицы, то сто двенадцать страниц получат ассистента,
+# умеющего пересказать профиль, — это хуже его отсутствия.
+#
+# Прогон ТОЛЬКО ЧИТАЕТ: в роуте нет ни UPDATE, ни INSERT ни при каком
+# аргументе, и это держит сторож.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/guide-readiness.json'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    # Бюджет ожидания сборки — 35 минут (ATTEMPTS 70 x SLEEP 30 в
+    # scripts/wait-for-deploy.sh), таймаут job'а обязан быть строго больше:
+    # отменённый на последней секунде job читается как «ничего не сказано».
+    # Держит workflow-timeout-fits-wait.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # REQUIRE_FRESH обязателен: этим коммитом едет САМ эндпоинт, которого на
+      # проде ещё не было. Спросить старую сборку значит получить 404 и
+      # прочитать его как «гидов нет».
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Перепись
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+
+          code=$(curl -sS -o /tmp/guides.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/guide-readiness")
+          echo "перепись → HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "  не ответила — это «не смогли спросить», а не «гидов нет»"
+            cat /tmp/guides.json 2>/dev/null || true
+            echo '{}' > /tmp/guides.json
+          fi
+
+          python3 - <<'PY'
+          import json
+
+          try:
+              d = json.load(open('/tmp/guides.json'))
+          except Exception:
+              d = {}
+
+          if not d.get('ok'):
+              print('НЕ ПРОВЕРЕНО: перепись не ответила.')
+              raise SystemExit(0)
+
+          if not d.get('meaningful'):
+              # Ноль живых гидов — отказ переписи, а не «все готовы» (§4.0).
+              print('ОТКАЗ: живых гидов ноль. Считать нечего, и это не «всё готово».')
+              raise SystemExit(1)
+
+          print('=== ГИДЫ ===')
+          print('  живых (category=guide, profile_status=active):', d.get('guides_active'))
+          print('  привязано к оператору:', d.get('linked_to_operator'))
+          print('  готовы к AI-визитке:', d.get('ready'))
+          print('  не готовы:', d.get('not_ready'))
+
+          print()
+          print('=== ЧТО МЕШАЕТ ===')
+          gaps = d.get('blocking_by_gap') or {}
+          if not gaps:
+              print('  ничего')
+          for k, v in sorted(gaps.items(), key=lambda kv: -kv[1]):
+              print('  %-32s %s' % (k, v))
+
+          dc = d.get('description_chars') or {}
+          print()
+          print('=== ОПИСАНИЯ ===')
+          print('  пустых:', dc.get('empty'),
+                '| медиана:', dc.get('median'),
+                '| min:', dc.get('min'), '| max:', dc.get('max'))
+          print(' ', dc.get('note'))
+
+          ready = [g for g in (d.get('guides') or []) if not g.get('blocking')]
+          if ready:
+              print()
+              print('=== ГОТОВЫЕ (первые 20) ===')
+              for g in ready[:20]:
+                  print('   + %s | оператор: %s | туров у него: %s | описание: %s зн. | есть: %s'
+                        % (g.get('name'), g.get('operator'),
+                           g.get('operator_active_tours'), g.get('description_chars'),
+                           ', '.join(g.get('has') or []) or '—'))
+
+          print()
+          print('Записи не было: перепись только читает.')
+          PY
