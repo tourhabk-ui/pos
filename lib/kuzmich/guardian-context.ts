@@ -2,6 +2,7 @@ import { pool } from '@/lib/db-pool';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
+import { placeNameSearchSql } from '@/lib/places/name-match';
 
 interface GuardianPlaceRow {
   name: string;
@@ -144,12 +145,15 @@ export async function resolvePlaceForLink(placeNameRaw: string): Promise<string 
   const q = placeNameRaw.trim();
   if (!q) return null;
   try {
+    // Слова, не буквальная фраза (issue #1987): «Горелый вулкан» и «Вулкан
+    // Горелый» — один и тот же порядок для человека, разный для ILIKE '%…%'.
+    const { clause, params } = placeNameSearchSql('name', q, 1);
     const { rows } = await pool.query<{ id: string }>(
       `SELECT id FROM places
-        WHERE merged_into_id IS NULL AND is_visible = true AND name ILIKE $1
+        WHERE merged_into_id IS NULL AND is_visible = true AND (${clause})
         ORDER BY char_length(name) ASC
         LIMIT 1`,
-      [`%${q}%`],
+      params,
     );
     return rows[0]?.id ?? null;
   } catch {
@@ -164,6 +168,12 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
   // на уровне вызывающего кода; здесь просто не пропускаем маркеры в промпт.
   const { text: placeName } = sanitizePromptInput(placeNameRaw);
   if (!placeName.trim()) return '';
+
+  // Слова, не буквальная фраза (issue #1986/#1987): ILIKE '%Мутновский
+  // вулкан%' не находит «Вулкан Мутновский» (обратный порядок) и вместо
+  // отказа молча подставляет случайную запись, СОДЕРЖАЩУЮ ту же подстроку
+  // («Скитур на Мутновский вулкан») — без KVERT-строки канонической точки.
+  const placeMatch = placeNameSearchSql('p.name', placeName, 1);
 
   const [placesRes, alertsRes, knowledgeRes] = await Promise.all([
     pool.query<GuardianPlaceRow>(
@@ -182,10 +192,10 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
        LEFT JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
-       WHERE p.merged_into_id IS NULL AND p.name ILIKE $1
+       WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
        ORDER BY char_length(p.name) ASC
        LIMIT 3`,
-      [`%${placeName}%`],
+      placeMatch.params,
     ),
     pool.query<AlertRow>(
       `SELECT title, severity, description, source_url

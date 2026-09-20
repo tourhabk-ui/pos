@@ -23,6 +23,7 @@ import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/ingest/legislation-importer';
+import { placeNameSearchSql } from '@/lib/places/name-match';
 import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } from '@/lib/kuzmich/context-budget';
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
@@ -1949,6 +1950,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     }
     if (name === 'get_place_info') {
       const placeName = args.name ?? '';
+      // Слова, не буквальная фраза (issue #1987): «Горелый вулкан» не
+      // содержится подстрокой в «Вулкан Горелый» — обратный порядок ломал
+      // ILIKE '%…%' целиком, где человек и каталог называют место по-разному.
+      const placeMatch = placeNameSearchSql('name', placeName, 1);
       const [pr, kr] = await Promise.all([
         pool.query<{ name: string; description: string | null; category: string; district: string | null }>(
           // Слитые дубли отсекаются — то же правило, что у getGuardianContext
@@ -1965,10 +1970,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
           // его походя, заодно с починкой дублей, значило бы смешать две
           // правки. Здесь восстанавливается только паритет со стражем.
           `SELECT name, description, category, district FROM places
-            WHERE merged_into_id IS NULL AND name ILIKE $1
+            WHERE merged_into_id IS NULL AND (${placeMatch.clause})
             ORDER BY char_length(name) ASC
             LIMIT 3`,
-          [`%${placeName}%`],
+          placeMatch.params,
         ),
         pool.query<{ title: string; compiled_truth: string }>(
           // type <> 'outcome' — по той же причине, и это не теория: 20.09
