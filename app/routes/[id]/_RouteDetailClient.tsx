@@ -19,6 +19,8 @@ import { SURFACE_TYPES as SURFACE_LABELS } from '@/lib/import/elevation-profile'
 import LeadModal from '@/components/routes/LeadModal';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
+import ParkPermitAction from '@/components/safety/ParkPermitAction';
+import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { trackLine } from '@/lib/map/line-standard';
@@ -1645,91 +1647,35 @@ export default function RouteDetailClient({ id }: { id: string }) {
           </div>
         </div>
 
-        {/* ── Регистрация МЧС ───────────────────────────────────────────────── */}
+        {/* ── Регистрация МЧС ─────────────────────────────────────────────
+            Разметка вынесена в components/safety/MchsRegistrationBlock (20.09):
+            вид проверяется сторожем по файлу, а не глазами внутри карточки на
+            2600 строк. Красную рамку блок потерял намеренно — красный на
+            Ведаре означает тревогу и SOS, а регистрация это подготовка;
+            на странице должна быть ровно одна красная вещь, и это кнопка SOS. */}
         {route.mchsRequired && (
           <div className="mt-10 pt-8 border-t border-[var(--border)]">
-            <div className="rounded-xl border-2 overflow-hidden"
-              style={{ borderColor: 'var(--danger)', background: 'var(--bg-card)' }}>
-              <div className="flex items-center gap-3 px-5 py-4 border-b"
-                style={{ borderColor: 'var(--danger)', background: 'color-mix(in srgb, var(--danger) 6%, transparent)' }}>
-                <ShieldAlert className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--danger)' }} />
-                <div>
-                  <p className="font-semibold text-[var(--text-primary)]">Обязательная регистрация в МЧС</p>
-                  {/* Срок, а не «до выхода». Прежняя формулировка читалась как
-                      «накануне», и человек опаздывал на неделю: заявка подаётся
-                      за 10 РАБОЧИХ дней до начала. Факт — из lib/safety/
-                      mchs-registration, чтобы копия не разошлась с остальными. */}
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    {MCHS_DEADLINE_SHORT}
-                  </p>
-                </div>
-              </div>
-              <div className="px-5 py-4 space-y-3">
-                {route.parkName && (
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    <span className="font-medium text-[var(--text-primary)]">Природный парк:</span>{' '}
-                    {route.parkSlug ? (
-                      <Link href={`/park/${route.parkSlug}`} className="text-[var(--ocean)] hover:underline">
-                        {route.parkName}
-                      </Link>
-                    ) : (
-                      route.parkName
-                    )}
-                  </p>
-                )}
-                <div className="flex flex-col sm:flex-row gap-3">
-                  {route.mchsPhone && (
-                    <a href={`tel:${route.mchsPhone.replace(/\D/g, '')}`}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all hover:shadow-sm"
-                      style={{ background: 'color-mix(in srgb, var(--danger) 10%, transparent)', color: 'var(--danger)', border: '1px solid var(--danger)' }}>
-                      <Phone className="w-4 h-4" />
-                      МЧС: {route.mchsPhone}
-                    </a>
-                  )}
-                  <button
-                    onClick={() => setShowMchsModal(true)}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all hover:shadow-sm text-white"
-                    style={{ background: 'var(--danger)', border: 'none', cursor: 'pointer' }}>
-                    <ShieldAlert className="w-4 h-4" />
-                    Заполнить заявку онлайн
-                  </button>
-                  {route.parkApprovalUrl && (
-                    <a href={route.parkApprovalUrl} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all hover:shadow-sm"
-                      style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
-                      Согласование с парком
-                    </a>
-                  )}
-                </div>
+            <MchsRegistrationBlock
+              mchsPhone={route.mchsPhone}
+              parkName={route.parkName}
+              parkSlug={route.parkSlug}
+              onOpenForm={() => setShowMchsModal(true)}
+            />
+          </div>
+        )}
 
-                {/* Три канала подачи и состав данных. Раньше знали только
-                    онлайн-форму: если она недоступна, «зарегистрируйтесь»
-                    оставалось советом без способа его исполнить. */}
-                <div className="pt-3 mt-1 border-t" style={{ borderColor: 'var(--border)' }}>
-                  <p className="text-xs font-semibold text-[var(--text-primary)] mb-2">Как подать заявку</p>
-                  <ul className="space-y-1.5">
-                    {MCHS_CHANNELS.map((ch) => (
-                      <li key={ch.key} className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                        <span className="font-medium text-[var(--text-primary)]">{ch.title}:</span>{' '}
-                        {ch.href ? (
-                          <a href={ch.href} target="_blank" rel="noopener noreferrer"
-                            className="text-[var(--ocean)] hover:underline">{ch.detail}</a>
-                        ) : ch.detail}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-1.5">Что указать</p>
-                  <ul className="space-y-1">
-                    {MCHS_REQUIRED_DATA.map((item) => (
-                      <li key={item} className="text-xs text-[var(--text-secondary)] leading-relaxed">— {item}</li>
-                    ))}
-                  </ul>
-                  <p className="text-xs text-[var(--text-muted)] mt-3">
-                    Источник: {MCHS_SOURCE.authority}, {MCHS_SOURCE.asOf}
-                  </p>
-                </div>
-              </div>
-            </div>
+        {/* ── Разрешение на посещение парка ──────────────────────────────────
+            Решение владельца 19.09: где нужна регистрация — там же и «Зелёная
+            кнопка». Блок отдельный от МЧС намеренно: это разные обязанности
+            перед разными ведомствами, и выполнивший одну не освобождён от
+            второй. Факты — из lib/safety/park-permit (страница парка). */}
+        {(route.mchsRequired || route.parkName || route.parkApprovalUrl) && (
+          <div className="mt-10 pt-8 border-t border-[var(--border)]">
+            <ParkPermitAction
+              title={route.title}
+              parkName={route.parkName}
+              parkApprovalUrl={route.parkApprovalUrl}
+            />
           </div>
         )}
 

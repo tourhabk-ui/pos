@@ -1,19 +1,17 @@
 {
-  "note": "19.09, прогон 544. ТОЛЬКО ЧТЕНИЕ. Страница разрешений парка (543) называет «Зелёную кнопку» четвёртым способом получить разрешение и даёт только ссылку на APK. Вести человека на APK-файл нельзя — нужны адреса в магазинах, и они должны ОТВЕЧАТЬ, а не быть моей догадкой. Адрес 1: страница Google Play com.empedokl.greenbutton (тот же вендор, что у APK-домена). Адрес 2: публичный поиск App Store — вернёт trackViewUrl, если приложение там есть; пусто — значит в iOS его нет, и обещать ссылку нельзя.",
-  "run": 544,
+  "note": "19.09, прогон 545. ТОЛЬКО ЧТЕНИЕ. 544: страница Google Play отвечает 200, приложение то самое; в выдаче App Store «Зелёная кнопка» тоже есть (resultCount 5, trackViewUrl присутствует), но окно печати съел список поддерживаемых устройств. Спрашиваем точечно по bundleId com.empedokl.greenbutton — нужен trackViewUrl, то есть настоящий адрес приложения в App Store, а не собранный мной по шаблону.",
+  "run": 545,
   "timeout": 60,
   "retries": 2,
   "retryDelay": 30,
-  "bytes": 2500,
+  "bytes": 9000,
   "grep": [
-    "greenbutton",
-    "Зелен",
-    "Зелён",
     "trackViewUrl",
-    "resultCount"
+    "bundleId",
+    "resultCount",
+    "sellerName"
   ],
   "urls": [
-    "https://play.google.com/store/apps/details?id=com.empedokl.greenbutton&hl=ru",
-    "https://itunes.apple.com/search?term=%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%B0%D1%8F+%D0%BA%D0%BD%D0%BE%D0%BF%D0%BA%D0%B0&country=ru&entity=software&limit=5"
+    "https://itunes.apple.com/lookup?bundleId=com.empedokl.greenbutton&country=ru"
   ]
 }
