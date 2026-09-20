@@ -28,6 +28,7 @@ import {
 import {
   fetchWeatherForecast, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
+import { lodgingIncluded } from '@/lib/planner/lodging-included';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -78,6 +79,11 @@ export interface DayPlan {
     maxParticipants: number;
     weatherDependent: boolean;
     durationHours: number | null;
+    /**
+     * Включено ли проживание в тур: `true` / `false` / `null` — не знаем.
+     * Ночь такого дня не оплачивается отдельно (см. calculatePriceBreakdown).
+     */
+    lodgingIncluded: boolean | null;
   };
   realPrice?: number;
   availableDate?: string;
@@ -993,6 +999,7 @@ async function generateDayPlans(
           maxParticipants: realTour.maxParticipants,
           weatherDependent: realTour.weatherDependent,
           durationHours: realTour.durationHours,
+          lodgingIncluded: lodgingIncluded(realTour.included),
         };
         realPrice = realTour.basePrice;
 
@@ -1165,11 +1172,23 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   const actFrom = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ?? d.priceFrom), 0);
   const actTo   = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ? Math.round(d.realPrice * 1.2) : d.priceTo), 0);
 
-  // Accommodation — estimate by zone nights
+  // Ночёвки. Оценка по зоне — только за те ночи, которые турист ДЕЙСТВИТЕЛЬНО
+  // оплачивает отдельно.
+  //
+  // Замер 20.09: у тура ID9 «Камчатской рыбалки» в составе прямым текстом
+  // «Проживание на базе 5 ночей» при цене 140 000 ₽, а этот цикл прибавлял
+  // ночь за каждый не-отъездный день безусловно. Западная зона при comfort —
+  // 20 000 ₽/ночь: семидневный план показывал ещё 96 000–160 000 ₽
+  // «проживания», которого турист не платит.
+  //
+  // `null` (не разобрали состав) считается как «платит»: занижать счёт на
+  // догадке хуже, чем завысить и сказать об этом вслух — предупреждение
+  // ставит `recommendTrip`.
   let accFrom = 0;
   let accTo = 0;
   for (const day of days) {
     if (day.type === 'departure') continue;
+    if (day.realTour?.lodgingIncluded === true) continue;
     const acc = ZONE_ACCOMMODATION[day.zone];
     const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
     accFrom += Math.round(nightPrice * 0.8);
@@ -1317,6 +1336,22 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: `Не удалось проверить наличие туров: ${unchecked.slice(0, 3).join('; ')}`
         + (unchecked.length > 3 ? ` и ещё ${unchecked.length - 3}` : '')
         + '. Это «не знаем», а не «туров нет» — план по этим дням может быть беднее реального.',
+    });
+  }
+
+  // Состав тура не разобрался — ночь посчитана, и об этом говорится.
+  //
+  // Молчать нельзя именно потому, что ошибка идёт В СТОРОНУ ЗАВЫШЕНИЯ: смета
+  // выглядит точной, а турист платит меньше. «Дороже, чем на самом деле» —
+  // не безобидная осторожность, по такой смете отказываются от поездки.
+  const unknownLodging = days.filter(d => d.realTour && d.realTour.lodgingIncluded === null);
+  if (unknownLodging.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Состав ${unknownLodging.length === 1 ? 'одного тура' : `${unknownLodging.length} туров`} в плане не заполнен, `
+        + 'поэтому ночёвку по ним посчитали отдельно. Если проживание уже входит в тур, '
+        + 'итог в смете завышен — уточните у оператора.',
     });
   }
 

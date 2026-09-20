@@ -47,6 +47,8 @@ export interface RealTour {
   weatherDependent: boolean;
   seasonStart: string | null;
   seasonEnd: string | null;
+  /** Состав тура. `null` — оператор не заполнял; см. lodging-included. */
+  included: string[] | null;
   lat: number;
   lng: number;
   zone: string;
@@ -127,6 +129,7 @@ export async function fetchRealToursForZone(
         lng: number;
         zone: string | null;
         activity_type: string;
+        included: string[] | null;
         tour_rating: string | null;
         tour_review_count: string;
         operator_name: string;
@@ -143,6 +146,7 @@ export async function fetchRealToursForZone(
           ot.season_start::text, ot.season_end::text,
           ot.latitude AS lat, ot.longitude AS lng,
           ot.activity_type,
+          ot.included,
           ark.zone,
           ot.rating AS tour_rating,
           COALESCE(ot.review_count, 0) AS tour_review_count,
@@ -188,6 +192,7 @@ export async function fetchRealToursForZone(
         weatherDependent: r.weather_dependent ?? false,
         seasonStart: r.season_start,
         seasonEnd: r.season_end,
+        included: Array.isArray(r.included) ? r.included : null,
         lat: parseFloat(String(r.lat)) || 53.01,
         lng: parseFloat(String(r.lng)) || 158.65,
         zone: r.zone ?? zone,
