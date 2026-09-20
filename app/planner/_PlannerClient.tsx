@@ -3,6 +3,9 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+// Глубокий путь, а не бочка '@/lib/planner': бочка тянет движок вместе с
+// пулом PostgreSQL, и он уехал бы в клиентский бандл.
+import { parseInterestWords } from '@/lib/planner/interest-words';
 import dynamic from 'next/dynamic';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
@@ -867,21 +870,99 @@ const MOOD_PRESETS: Record<string, { activities: string[]; places: string[] }> =
   first:    { activities: ['trekking'],          places: ['hot_spring', 'volcano'] },
 };
 
+/**
+ * Ключ движка → id плитки на этом экране.
+ *
+ * Совпадают почти все, поэтому карта только для расхождений: у движка
+ * активность зовётся `thermal`, а плитка здесь — `hot_spring`. Без этой
+ * строки «хотим термальные» приходило бы ключом, которого нет ни в
+ * `PLACES`, ни в `ACTIVITIES`, и молча пропадало.
+ */
+const ENGINE_KEY_TO_TILE: Record<string, string> = {
+  thermal: 'hot_spring',
+};
+
+const PLACE_IDS = new Set(PLACES.map((p) => p.id));
+const ACTIVITY_IDS = new Set(ACTIVITIES.map((a) => a.id));
+
+/**
+ * Интересы из ссылки → две группы плиток этого экрана.
+ *
+ * ── Зачем (замер 19.09, починка 20.09) ──────────────────────────────────
+ *
+ * `lib/mcp/handoff-targets.ts` отдаёт туриста внешней модели по адресу
+ * `/planner?days=7&interests=вулканы и медведи`, карточка тура — по
+ * `/planner?hint=fishing`. Экран читал из URL ТОЛЬКО `mood` и оба набора
+ * выбрасывал: человек приходил на пустую форму и заполнял её заново. Два
+ * производителя, ноль потребителей — провод в никуда (§10.09).
+ *
+ * Разбор словарём, а не выдумкой: слово, которого в словаре нет, не
+ * подменяется похожим — оно просто не даёт плитки.
+ */
+function tilesFromLink(interestsText: string | null, hint: string | null): {
+  places: string[]; activities: string[];
+} {
+  const keys = new Set<string>();
+  if (interestsText) for (const k of parseInterestWords(interestsText)) keys.add(k);
+  // `hint` — уже ключ активности (activity_type тура), а не свободный текст.
+  if (hint) keys.add(hint.trim().toLowerCase());
+
+  const places: string[] = [];
+  const activities: string[] = [];
+  for (const key of keys) {
+    const tile = ENGINE_KEY_TO_TILE[key] ?? key;
+    if (PLACE_IDS.has(tile)) places.push(tile);
+    else if (ACTIVITY_IDS.has(tile)) activities.push(tile);
+    // Ключ, которому нет плитки, молча пропадает — и это правильно: рисовать
+    // выбор, которого на экране нет, значило бы обещать несуществующий фильтр.
+  }
+  return { places, activities };
+}
+
+/** Дата через N дней от сегодня, YYYY-MM-DD. */
+function isoInDays(offset: number): string {
+  return new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+}
+
 export function PlannerClient({ initialUserId }: { initialUserId?: string | null }) {
   const searchParams = useSearchParams();
   const router = useRouter();
 
   // Interest + date
+  //
+  // Приход по ссылке: `mood` — плитка намерения с главной; `interests` и
+  // `hint` — то, что турист уже назвал в чате или на карточке тура. Второе
+  // приоритетнее первого: это его собственные слова, а не выбранный за него
+  // пресет настроения.
+  const fromLink = useMemo(
+    () => tilesFromLink(searchParams.get('interests'), searchParams.get('hint')),
+    [searchParams],
+  );
+
   const [places, setPlaces]         = useState<string[]>(() => {
+    if (fromLink.places.length > 0) return fromLink.places;
     const mood = searchParams.get('mood');
     return mood && MOOD_PRESETS[mood] ? MOOD_PRESETS[mood].places : [];
   });
   const [activities, setActivities] = useState<string[]>(() => {
+    if (fromLink.activities.length > 0) return fromLink.activities;
     const mood = searchParams.get('mood');
     return mood && MOOD_PRESETS[mood] ? MOOD_PRESETS[mood].activities : [];
   });
-  const [arrival, setArrival]       = useState('');
-  const [departure, setDeparture]   = useState('');
+
+  // `days` из ссылки заполняет ОБА поля дат и остаётся видимым: турист
+  // называл длительность, а не даты, поэтому старт берётся «через месяц» —
+  // тот же, на который считает Кузьмич. Поля обычные, правятся руками;
+  // подставить длительность молча, не показав дат, значило бы решить за
+  // человека и не сказать об этом.
+  const linkDays = useMemo(() => {
+    const raw = searchParams.get('days');
+    const n = raw && /^\d{1,2}$/.test(raw) ? Number(raw) : 0;
+    return n >= 3 && n <= 21 ? n : 0;
+  }, [searchParams]);
+
+  const [arrival, setArrival]       = useState(() => (linkDays > 0 ? isoInDays(30) : ''));
+  const [departure, setDeparture]   = useState(() => (linkDays > 0 ? isoInDays(30 + linkDays) : ''));
   const [flightArrival, setFlightArrival]     = useState('');
   const [flightDeparture, setFlightDeparture] = useState('');
   const [flightArrivalTime, setFlightArrivalTime]       = useState('');

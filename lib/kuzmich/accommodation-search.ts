@@ -40,18 +40,63 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
     conds.push(`price_per_night_from <= $${params.length}`);
   }
 
-  const { rows } = await pool.query<AccommodationRow>(
-    `SELECT id, name, type, address, location_zone, price_per_night_from, rating
-     FROM accommodations
-     WHERE ${conds.join(' AND ')}
-     ORDER BY rating DESC NULLS LAST
-     LIMIT 6`,
-    params,
-  );
-
-  if (rows.length === 0) return 'Жильё по заданным условиям не найдено.';
-
   const base = appBase();
+  const filtered = Boolean(args.zone || args.type || (args.price_max && Number.isFinite(priceMax) && priceMax > 0));
+
+  let rows: AccommodationRow[];
+  try {
+    ({ rows } = await pool.query<AccommodationRow>(
+      `SELECT id, name, type, address, location_zone, price_per_night_from, rating
+       FROM accommodations
+       WHERE ${conds.join(' AND ')}
+       ORDER BY rating DESC NULLS LAST
+       LIMIT 6`,
+      params,
+    ));
+  } catch (err) {
+    // Третий исход (§4.0): отказ запроса — это «не смог посмотреть», а не
+    // «жилья нет». Молча вернуть пустоту значило бы выдать поломку за факт
+    // о витрине, и турист принял бы решение по несуществующему ответу.
+    const code = (err as { code?: string }).code ?? 'нет кода';
+    console.error(`[search_accommodations] запрос к accommodations не выполнен, SQLSTATE=${code}`);
+    return `Не смог посмотреть витрину жилья — база не ответила. Это отказ проверки, а не «жилья нет». Попробуйте позже или откройте ${base}/accommodations.`;
+  }
+
+  if (rows.length === 0) {
+    // Разные пустоты — разные ответы.
+    //
+    // Раньше здесь стояло «Жильё по заданным условиям не найдено» на ЛЮБОЙ
+    // ноль, в том числе когда условий не задавали вовсе. Турист читал это
+    // как «сузьте запрос» и шёл подбирать фильтры к пустой витрине, а агент
+    // — пересказывал ему то же самое. Образец правильного ответа стоял
+    // рядом: transfer-search говорит «опубликованных поездок нет — это факт
+    // витрины, не сбой» и даёт адрес.
+    if (!filtered) {
+      return `На витрине жилья пока нет ни одного предложения. Это факт витрины, не сбой. Смотреть, когда появятся: ${base}/accommodations.`;
+    }
+
+    let anyActive = false;
+    try {
+      const probe = await pool.query<{ one: number }>(
+        'SELECT 1 AS one FROM accommodations WHERE is_active = true LIMIT 1',
+      );
+      anyActive = probe.rows.length > 0;
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? 'нет кода';
+      console.error(`[search_accommodations] проверка непустой витрины не выполнена, SQLSTATE=${code}`);
+    }
+
+    const asked = [
+      args.zone ? `зона «${args.zone}»` : null,
+      args.type ? `тип «${args.type}»` : null,
+      args.price_max && Number.isFinite(priceMax) && priceMax > 0 ? `до ${Math.round(priceMax)} руб/ночь` : null,
+    ].filter(Boolean).join(', ');
+
+    return anyActive
+      ? `По условиям (${asked}) жилья нет, но на витрине есть другие варианты — попробуйте шире: ${base}/accommodations.`
+      : `На витрине жилья пока нет ни одного предложения — дело не в условиях (${asked}). Это факт витрины, не сбой. ${base}/accommodations.`;
+  }
+
   return rows.map(a => {
     const price = a.price_per_night_from
       ? `от ${Math.round(Number(a.price_per_night_from))} руб/ночь`

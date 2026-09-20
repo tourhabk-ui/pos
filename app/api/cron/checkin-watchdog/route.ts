@@ -17,7 +17,7 @@ import {
   formatPositionText,
   formatKamchatkaTime,
 } from '@/lib/safety/checkin-escalation';
-import type { EscalationStep } from '@/lib/safety/checkin-escalation';
+import type { EscalationStep, PositionSource } from '@/lib/safety/checkin-escalation';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +34,7 @@ interface RegRow {
   mchs_informed_at: Date | null;
   last_position_lat: string | null;
   last_position_lng: string | null;
+  last_position_source: PositionSource;
   leader_name: string;
   leader_phone: string;
   emergency_contact_name: string;
@@ -95,7 +96,11 @@ function buildMessage(
       leaderPhone: reg.leader_phone,
       emergencyContactName: reg.emergency_contact_name,
       emergencyContactPhone: reg.emergency_contact_phone,
-      positionText: formatPositionText(reg.last_position_lat, reg.last_position_lng),
+      positionText: formatPositionText(
+        reg.last_position_lat,
+        reg.last_position_lng,
+        reg.last_position_source,
+      ),
       returnUrl: `${SITE_BASE}/return?id=${reg.id}`,
       // Вторая ссылка — для живой группы, которая просто задерживается. Без
       // неё единственным способом снять тревогу была отметка о ВОЗВРАТЕ, то
@@ -135,6 +140,7 @@ export async function GET(req: Request) {
       r.mchs_informed_at,
       r.last_position_lat::text,
       r.last_position_lng::text,
+      r.last_position_source,
       r.leader_name,
       r.leader_phone,
       r.emergency_contact_name,

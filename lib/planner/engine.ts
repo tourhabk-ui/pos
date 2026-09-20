@@ -7,20 +7,32 @@ import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { pool } from '@/lib/db-pool';
+// Зоны, активности и их сезонные окна переехали в чистый модуль без
+// зависимостей (20.09) — см. его шапку. Здесь они ре-экспортируются, чтобы
+// ни один прежний читатель `@/lib/planner/engine` не был тронут.
+import {
+  type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES,
+} from '@/lib/planner/constants';
+
+export {
+  type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES,
+};
 import {
   createPlannerCache, fetchRealToursForZone, fetchAvailabilityForTour,
   fetchZoneCapacity, fetchContingencyAlternatives, fetchReviewSignals,
+  fetchActivitiesBookableInMonth,
   type PlannerCache, type RealTour,
 } from '@/lib/planner/data';
 import {
   fetchWeatherForecast, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
+import { lodgingIncluded } from '@/lib/planner/lodging-included';
+import { tourDaySpan } from '@/lib/planner/tour-span';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
-export type ZoneId = 'avachinsky' | 'western' | 'eastern' | 'northern';
-export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
-export type FitnessLevel = 'beginner' | 'moderate' | 'active';
 export type BudgetTier = 'economy' | 'comfort' | 'premium';
 export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
 
@@ -68,6 +80,11 @@ export interface DayPlan {
     maxParticipants: number;
     weatherDependent: boolean;
     durationHours: number | null;
+    /**
+     * Включено ли проживание в тур: `true` / `false` / `null` — не знаем.
+     * Ночь такого дня не оплачивается отдельно (см. calculatePriceBreakdown).
+     */
+    lodgingIncluded: boolean | null;
   };
   realPrice?: number;
   availableDate?: string;
@@ -118,18 +135,22 @@ export interface TripRecommendation {
   warnings: TripWarning[];
   priceBreakdown: PriceBreakdown;
   itinerary: string;
+  /**
+   * Активности, открытые КАТАЛОГОМ на месяц поездки (слоты в продаже), даже
+   * если зашитая таблица считает их закрытыми. `null` — каталог спросить не
+   * вышло.
+   *
+   * Отдаётся наружу, чтобы отказ Кузьмича и план судили сезон ОДНИМ ответом.
+   * Иначе план соберёт рыбалку в октябре, а отказ в соседней ветке скажет,
+   * что в октябре рыбалка не сезон, — два голоса об одном (§10.09).
+   */
+  catalogueOpen: string[] | null;
 }
 
 // ─── Knowledge base ──────────────────────────────────────────────────────────
 
 const PKC_COORDS: [number, number] = [53.01, 158.65];
 
-export const ZONE_NAMES: Record<ZoneId, string> = {
-  avachinsky: 'Авачинская зона',
-  western:    'Западная зона',
-  eastern:    'Восточная зона',
-  northern:   'Северная зона',
-};
 
 export const ZONE_COORDS: Record<ZoneId, [number, number]> = {
   avachinsky: [53.25, 158.75],
@@ -189,202 +210,8 @@ export const ZONE_ALLOWED_TRANSPORT: Record<ZoneId, TransportType[]> = {
 
 // ── Activity constraints ─────────────────────────────────────────────────────
 
-interface ActivityConstraints {
-  allowedTransports: TransportType[];
-  requiredTransport?: TransportType;      // hard requirement
-  defaultTransport: TransportType;
-  difficulty: 'easy' | 'moderate' | 'hard';
-  minChildAge: number;                    // 0 = any
-  childAlternative?: string;
-  fitnessRequired: FitnessLevel;
-  minDays: number;                        // minimum days to enjoy activity
-  bestZones: ZoneId[];
-  months: number[];                       // when available
-  seasonNote?: string;
-  pricePerPerson: [number, number];       // [from, to] RUB
-  priceNote?: string;
-  requiresPermit?: string;
-  requiresLicense?: boolean;
-  safetyNotes?: string[];
-}
 
-export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
-  trekking: {
-    allowedTransports: ['walking', 'jeep'],
-    defaultTransport: 'walking',
-    difficulty: 'moderate',
-    minChildAge: 10,
-    childAlternative: 'Лёгкие пешие прогулки в Налычево или окрестностях Паратунки',
-    fitnessRequired: 'moderate',
-    minDays: 1,
-    bestZones: ['avachinsky', 'eastern'],
-    months: [6, 7, 8, 9],
-    seasonNote: 'Снег на тропах тает к середине июня',
-    pricePerPerson: [3000, 8000],
-  },
-  volcano: {
-    allowedTransports: ['jeep', 'helicopter'],
-    defaultTransport: 'jeep',
-    difficulty: 'hard',
-    minChildAge: 12,
-    childAlternative: 'Облёт вулканов на вертолёте (от 5 лет)',
-    fitnessRequired: 'active',
-    minDays: 1,
-    bestZones: ['avachinsky'],
-    months: [7, 8, 9],
-    seasonNote: 'Восхождение на Авачинский 8-10 часов, перепад 1500 м',
-    pricePerPerson: [5000, 15000],
-    safetyNotes: [
-      'Обязательны: трекинговые ботинки, дождевик, слои одежды',
-      'Рекомендуется гид — активная вулканическая зона',
-    ],
-  },
-  fishing: {
-    allowedTransports: ['jeep', 'boat', 'helicopter'],
-    defaultTransport: 'jeep',
-    difficulty: 'easy',
-    minChildAge: 5,
-    fitnessRequired: 'beginner',
-    minDays: 2,
-    bestZones: ['western', 'avachinsky'],
-    months: [6, 7, 8, 9],
-    seasonNote: 'Чавыча: июль. Нерка: июль-авг. Кижуч: сентябрь',
-    pricePerPerson: [8000, 25000],
-    priceNote: 'Многодневные пакеты дешевле: 3 дня от 45 000',
-    requiresLicense: true,
-  },
-  bears: {
-    allowedTransports: ['helicopter', 'jeep'],
-    defaultTransport: 'helicopter',
-    difficulty: 'easy',
-    minChildAge: 6,
-    fitnessRequired: 'beginner',
-    minDays: 1,
-    bestZones: ['eastern', 'avachinsky'],
-    months: [7, 8, 9],
-    seasonNote: 'Курильское озеро: авг-сен. Речные медведи: июль-сен',
-    pricePerPerson: [15000, 45000],
-    priceNote: 'Вертолёт до Курильского озера ~300 000/рейс (8 мест)',
-    requiresPermit: 'Южно-Камчатский федеральный заказник — бронь за 14 дней',
-    safetyNotes: [
-      'Только с аккредитованным гидом',
-      'Минимальная дистанция от медведей — 50 м',
-    ],
-  },
-  helicopter: {
-    allowedTransports: ['helicopter'],
-    requiredTransport: 'helicopter',
-    defaultTransport: 'helicopter',
-    difficulty: 'easy',
-    minChildAge: 3,
-    fitnessRequired: 'beginner',
-    minDays: 1,
-    bestZones: ['avachinsky', 'northern'],
-    months: [5, 6, 7, 8, 9, 10],
-    seasonNote: 'Нелётная погода отменяет 30-50% рейсов — нужен запасной день',
-    pricePerPerson: [20000, 60000],
-    priceNote: 'Ми-8: 120 000-350 000 за рейс (8 мест). Цена на человека зависит от группы',
-  },
-  geyser: {
-    allowedTransports: ['helicopter'],
-    requiredTransport: 'helicopter',
-    defaultTransport: 'helicopter',
-    difficulty: 'easy',
-    minChildAge: 8,
-    childAlternative: 'Малые гейзеры и кальдера Узон — от 8 лет',
-    fitnessRequired: 'beginner',
-    minDays: 1,
-    bestZones: ['northern'],
-    months: [6, 7, 8, 9, 10],
-    seasonNote: 'Только вертолёт. Бронь Кроноцкого заповедника обязательна',
-    pricePerPerson: [30000, 60000],
-    priceNote: 'Вертолёт до Долины гейзеров ~250 000/рейс (8 мест). Вход в заповедник ~4 000/чел',
-    requiresPermit: 'Кроноцкий заповедник — бронирование через kronoki.ru за 30 дней',
-  },
-  hot_spring: {
-    allowedTransports: ['walking', 'jeep'],
-    defaultTransport: 'walking',
-    difficulty: 'easy',
-    minChildAge: 0,
-    fitnessRequired: 'beginner',
-    minDays: 1,
-    bestZones: ['avachinsky', 'eastern'],
-    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    pricePerPerson: [1500, 5000],
-  },
-  thermal: {
-    allowedTransports: ['walking', 'jeep'],
-    defaultTransport: 'walking',
-    difficulty: 'easy',
-    minChildAge: 0,
-    fitnessRequired: 'beginner',
-    minDays: 1,
-    bestZones: ['avachinsky'],
-    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    pricePerPerson: [1500, 5000],
-  },
-  boat_trip: {
-    allowedTransports: ['boat'],
-    requiredTransport: 'boat',
-    defaultTransport: 'boat',
-    difficulty: 'easy',
-    minChildAge: 5,
-    fitnessRequired: 'beginner',
-    minDays: 1,
-    bestZones: ['avachinsky', 'western', 'eastern'],
-    months: [5, 6, 7, 8, 9, 10],
-    seasonNote: 'Океанские экскурсии зависят от волнения моря',
-    pricePerPerson: [8000, 25000],
-    priceNote: 'Катер на 8-12 чел: 80 000-200 000/рейс',
-  },
-  snowmobile: {
-    allowedTransports: ['jeep'],
-    defaultTransport: 'jeep',
-    difficulty: 'moderate',
-    minChildAge: 14,
-    fitnessRequired: 'moderate',
-    minDays: 1,
-    bestZones: ['avachinsky', 'western'],
-    months: [12, 1, 2, 3, 4],
-    seasonNote: 'Только зимний период. Летом недоступно',
-    pricePerPerson: [8000, 18000],
-  },
-  sea: {
-    allowedTransports: ['boat', 'walking'],
-    defaultTransport: 'boat',
-    difficulty: 'easy',
-    minChildAge: 5,
-    fitnessRequired: 'beginner',
-    minDays: 1,
-    bestZones: ['avachinsky', 'eastern', 'western'],
-    months: [5, 6, 7, 8, 9, 10],
-    pricePerPerson: [4000, 15000],
-  },
-  mountain: {
-    allowedTransports: ['walking', 'jeep'],
-    defaultTransport: 'walking',
-    difficulty: 'hard',
-    minChildAge: 12,
-    childAlternative: 'Лёгкие маршруты в предгорьях Авачинского залива',
-    fitnessRequired: 'active',
-    minDays: 2,
-    bestZones: ['avachinsky', 'northern'],
-    months: [7, 8, 9],
-    pricePerPerson: [3000, 10000],
-    safetyNotes: ['Многодневный треккинг — обязателен опытный гид'],
-  },
-  river: {
-    allowedTransports: ['boat', 'jeep'],
-    defaultTransport: 'boat',
-    difficulty: 'moderate',
-    minChildAge: 8,
-    fitnessRequired: 'moderate',
-    minDays: 1,
-    bestZones: ['western', 'avachinsky'],
-    months: [6, 7, 8, 9],
-    pricePerPerson: [5000, 18000],
-  },
-};
+
 
 const INTEREST_TO_ZONES: Record<string, ZoneId[]> = {
   volcano:    ['avachinsky'],
@@ -408,6 +235,19 @@ interface AccommodationInfo {
   types: string[];
   pricePerNight: [number, number, number]; // [economy, comfort, premium]
   note: string;
+  /**
+   * Где турист НОЧУЕТ, если в этой зоне не ночуют.
+   *
+   * Заведено 20.09. У северной зоны стояло `pricePerNight: [0, 0, 0]` с
+   * припиской «Однодневная экскурсия, ночёвка в Авачинской зоне» — то есть
+   * факт был записан прозой, а код читал из него только ноль. Ночь,
+   * которую человек проводит в Петропавловске, не считалась НИГДЕ: смета
+   * занижалась ровно на неё.
+   *
+   * Тот же род дефекта, что двойной счёт ночи на базе, только в другую
+   * сторону — и оба от того, что о ночёвке судили не по данным.
+   */
+  sleepsIn?: ZoneId;
 }
 
 const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
@@ -430,6 +270,9 @@ const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
     types: [],
     pricePerNight: [0, 0, 0],
     note: 'Однодневная экскурсия, ночёвка в Авачинской зоне',
+    // Приписка выше теперь не только для чтения: ночь считается по той
+    // зоне, где её реально проводят.
+    sleepsIn: 'avachinsky',
   },
 };
 
@@ -467,7 +310,11 @@ interface RouteFromDB {
   location_type: string;
 }
 
-async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: number = 5): Promise<RouteFromDB[]> {
+/**
+ * Маршруты зоны под активность. `null` — спросить не вышло (см. шапку
+ * `fetchRealToursForZone`): «не смогли» не равно «маршрутов нет».
+ */
+async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: number = 5): Promise<RouteFromDB[] | null> {
   try {
     const { rows } = await pool.query<RouteFromDB>(
       `SELECT id, title, lat, lng, zone, activity_type, location_type
@@ -478,8 +325,10 @@ async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: num
       [zone, activityType, limit]
     );
     return rows;
-  } catch {
-    return [];
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[planner] маршруты зоны не прочитались (${zone}/${activityType}):`, message);
+    return null;
   }
 }
 
@@ -599,10 +448,55 @@ async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): 
 
 // ─── Core engine ─────────────────────────────────────────────────────────────
 
+/**
+ * В сезоне ли активность в этом месяце.
+ *
+ * Два свидетеля, и они не равнозначны:
+ *   — таблица движка (`ACTIVITY_CONSTRAINTS.months`) — ПОЛ. Она несёт не
+ *     только коммерцию, но и безопасность: «снег на тропах тает к середине
+ *     июня». Снимать её нельзя;
+ *   — каталог (`catalogueOpen`) — открытые слоты этого месяца. Это ДЕЙСТВИЕ
+ *     оператора, а не его описание, и оно окно только расширяет.
+ *
+ * Замер 20.09: семь живых туров из восьми рыболовные, один — «Осенняя
+ * рыбалка (октябрь-ноябрь)», а `fishing.months` = [6,7,8,9]. Пол один, без
+ * каталога, отказывал туристу в том, что оператор продаёт.
+ *
+ * `catalogueOpen === null` — каталог спросить не вышло. Тогда действует один
+ * пол, и вызывающий обязан сказать об этом словами.
+ */
+function inSeason(interest: string, month: number, catalogueOpen: Set<string> | null): boolean {
+  const c = ACTIVITY_CONSTRAINTS[interest];
+  if (!c) return false;
+  if (c.months.includes(month)) return true;
+  return catalogueOpen?.has(interest) ?? false;
+}
+
+/** Активности, открытые ТОЛЬКО каталогом: расхождение, которое надо назвать. */
+function openedByCatalogueOnly(
+  interests: string[], month: number, catalogueOpen: Set<string> | null,
+): string[] {
+  if (!catalogueOpen) return [];
+  return interests.filter(
+    (i) => ACTIVITY_CONSTRAINTS[i] && !ACTIVITY_CONSTRAINTS[i].months.includes(month) && catalogueOpen.has(i),
+  );
+}
+
 function getMonth(profile: TripProfile): number {
   return profile.arrivalDate
     ? new Date(profile.arrivalDate).getMonth() + 1
     : new Date().getMonth() + 1;
+}
+
+/** «1 день / 2 дня / 5 дней» — счёт в предупреждении читает человек. */
+function pluralDays(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return 'дней';
+  switch (n % 10) {
+    case 1: return 'день';
+    case 2: case 3: case 4: return 'дня';
+    default: return 'дней';
+  }
 }
 
 function getTripDays(profile: TripProfile): number {
@@ -636,6 +530,8 @@ function collectWarnings(
   tripDays: number,
   crowdLoad: number = 0,
   alerts: SafetyAlert[] = [],
+  /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
+  catalogueOpen: Set<string> | null,
 ): TripWarning[] {
   const warnings: TripWarning[] = [];
   const month = getMonth(profile);
@@ -707,7 +603,7 @@ function collectWarnings(
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
     if (!c) continue;
-    if (!c.months.includes(month)) {
+    if (!inSeason(interest, month, catalogueOpen)) {
       warnings.push({
         type: 'season', severity: 'critical',
         message: `${interest}: недоступно в выбранный период. ${c.seasonNote ?? ''}`.trim(),
@@ -819,14 +715,19 @@ function collectWarnings(
 
 // ── Zone scoring ─────────────────────────────────────────────────────────────
 
-async function scoreZones(profile: TripProfile, cache: PlannerCache): Promise<ZoneRecommendation[]> {
+async function scoreZones(
+  profile: TripProfile,
+  cache: PlannerCache,
+  /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
+  catalogueOpen: Set<string> | null,
+): Promise<ZoneRecommendation[]> {
   const month = getMonth(profile);
   const scores: Record<string, number> = {};
 
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
     if (!c) continue;
-    if (!c.months.includes(month)) continue;
+    if (!inSeason(interest, month, catalogueOpen)) continue;
     for (const zone of c.bestZones) {
       scores[zone] = (scores[zone] ?? 0) + 25;
     }
@@ -855,7 +756,10 @@ async function scoreZones(profile: TripProfile, cache: PlannerCache): Promise<Zo
     if ((scores[zone] ?? 0) <= 0) continue;
     const primaryInterest = profile.interests[0] ?? 'trekking';
     const realTours = await fetchRealToursForZone(zone, primaryInterest, 3, cache);
-    if (realTours.length > 0) {
+    // `null` — не смогли спросить. Ни надбавки, ни штрафа: зона не становится
+    // хуже оттого, что про неё не удалось узнать. Трактовать отказ как
+    // «туров нет» значило бы уводить план из зоны по выдуманной причине.
+    if (realTours && realTours.length > 0) {
       scores[zone] = (scores[zone] ?? 0) + 10;
       const avgRating = realTours.reduce((s, t) => s + t.operatorRating, 0) / realTours.length;
       if (avgRating >= 4.0) {
@@ -886,13 +790,32 @@ async function scoreZones(profile: TripProfile, cache: PlannerCache): Promise<Zo
 
 // ── Day plan generator ──────────────────────────────────────────────────────
 
+/**
+ * Дни плана и то, чего мы про них НЕ узнали.
+ *
+ * `unchecked` — пары «зона / активность», по которым запрос к каталогу не
+ * выполнился. Без этого списка недобор дней объяснялся бы сезоном всегда, в
+ * том числе когда причина другая и неизвестная (§4.0).
+ */
+interface DayPlanResult {
+  days: DayPlan[];
+  unchecked: string[];
+  /** Туры, чья длительность не заполнена: поставлены одним днём. */
+  spanUnknown: string[];
+  /** Туры, не поместившиеся в срок: пропущены целиком, а не урезаны. */
+  tooLong: string[];
+}
+
 async function generateDayPlans(
   profile: TripProfile,
   zones: ZoneRecommendation[],
   tripDays: number,
   cache: PlannerCache,
-): Promise<DayPlan[]> {
-  if (tripDays <= 0 || zones.length === 0) return [];
+  /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
+  catalogueOpen: Set<string> | null,
+): Promise<DayPlanResult> {
+  const unchecked = new Set<string>();
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [] };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -923,7 +846,7 @@ async function generateDayPlans(
     childFriendly: true, minChildAge: 0, dayWarnings: [],
   });
 
-  if (dayNum > tripDays) return days;
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [] };
 
   // ── Active days budget ──
   const departureDays = 1;
@@ -936,7 +859,7 @@ async function generateDayPlans(
   for (const z of zones) {
     const zoneInterests = profile.interests.filter(i => {
       const c = ACTIVITY_CONSTRAINTS[i];
-      return c?.bestZones.includes(z.zone) && c.months.includes(month);
+      return c?.bestZones.includes(z.zone) && inSeason(i, month, catalogueOpen);
     });
     if (zoneInterests.length === 0) continue;
     const rawDays = Math.max(1, Math.round((z.score / totalScore) * activeBudget));
@@ -957,6 +880,15 @@ async function generateDayPlans(
 
   // Need helicopter buffer day?
   const needsHeliBuffer = profile.interests.some(i => ACTIVITY_CONSTRAINTS[i]?.requiredTransport === 'helicopter');
+
+  // Пары «зона + активность», для которых общий день уже выдан: повторять
+  // его нельзя (см. ниже, в цикле дней).
+  const genericDays = new Set<string>();
+
+  /** Туры без заполненной длительности: поставлены одним днём, но это догадка. */
+  const spanUnknown = new Set<string>();
+  /** Туры длиннее, чем дней в зоне: не поставлены и не урезаны. */
+  const tooLong = new Set<string>();
 
   // Insert travel days between different zones
   let prevZone: ZoneId = 'avachinsky';
@@ -986,26 +918,89 @@ async function generateDayPlans(
 
     // Fetch real operator tours (sorted by rating) + DB routes as fallback
     const primaryInterest = block.interests[0];
-    const realTours = await fetchRealToursForZone(block.zone, primaryInterest, block.activeDays + 2, cache);
-    const dbRoutes = realTours.length >= block.activeDays
+    const toursOrNull = await fetchRealToursForZone(block.zone, primaryInterest, block.activeDays + 2, cache);
+    const realTours = toursOrNull ?? [];
+
+    const routesOrNull = realTours.length >= block.activeDays
       ? []
       : await fetchRoutesForZone(block.zone, primaryInterest, block.activeDays - realTours.length + 2);
+    const dbRoutes = routesOrNull ?? [];
 
-    // Generate activity days for this zone
-    for (let d = 0; d < block.activeDays && dayNum <= tripDays - departureDays; d++) {
+    // Отказ запроса запоминается ИМЕННО как отказ. День при этом собирается
+    // как прежде — общий день по паре «зона + активность» не лжёт: активность
+    // в сезоне и зона её держит. Лгало бы ОБЪЯСНЕНИЕ недобора: сказать «вне
+    // сезона» там, где мы просто не смогли посмотреть каталог, — выдать
+    // «не знаю» за знание (§4.0).
+    if (toursOrNull === null || routesOrNull === null) {
+      unchecked.add(`${ZONE_NAMES[block.zone]} / ${ACTIVITY_NAMES[primaryInterest] ?? primaryInterest}`);
+    }
+
+    // Сборка дней зоны.
+    //
+    // `d` — индекс МАТЕРИАЛА (какой по счёту тур или маршрут берём),
+    // `used` — сколько дней поездки этим материалом уже занято. До 20.09 это
+    // было одно число, и потому многодневный тур занимал ровно один день:
+    // «Многодневный летний тур (5 дней)» за 140 000 ₽ стоял в плане как
+    // однодневная активность. Главный продукт оператора план не мог
+    // представить в принципе.
+    let d = 0;
+    let used = 0;
+    // Сколько раз подряд итерация не дала дня. Полный оборот по интересам
+    // без единого дня значит, что материала больше нет, — и цикл обязан
+    // остановиться сам. С `for (...; d++)` от зацикливания спасал заголовок;
+    // у `while` эту работу делает счётчик, иначе `continue` крутится вечно.
+    let barren = 0;
+    while (used < block.activeDays && dayNum <= tripDays - departureDays) {
+      if (barren >= block.interests.length) break;
+
       const interestIdx = d % block.interests.length;
       const interest = block.interests[interestIdx];
       const c = ACTIVITY_CONSTRAINTS[interest];
-      if (!c) continue;
+      if (!c) { d++; barren++; continue; }
 
       // Reality layer: try real tour first, then DB route
       const realTour: RealTour | null = d < realTours.length ? realTours[d] : null;
       const route = !realTour && d - realTours.length >= 0 ? dbRoutes[d - realTours.length] : null;
 
+      // Ни тура, ни маршрута — день собирается из одного сезонного окна, и
+      // второй такой день был бы КОПИЕЙ первого. Замер с прода 19.09: десять
+      // дней без интересов в октябре давали восемь одинаковых строк
+      // «thermal — Авачинская зона — от 1 500 ₽». Восемь копий одного дня
+      // выглядят планом, планом не являясь: место, где нельзя сказать «нечем
+      // наполнить», заполнилось повтором (§4.0). Теперь общий день по паре
+      // «зона + активность» выдаётся ОДИН раз, а недобор называется словами
+      // в предупреждении.
+      if (!realTour && !route) {
+        const genericKey = `${block.zone}:${interest}`;
+        if (genericDays.has(genericKey)) { d++; barren++; continue; }
+        genericDays.add(genericKey);
+      }
+
+      // Сколько дней поездки занимает этот тур. `null` — длительность не
+      // заполнена: ставим одним днём, как раньше, но запоминаем — под таким
+      // полем может лежать пятидневка (§4.0).
+      const declaredSpan = realTour ? tourDaySpan(realTour.durationHours) : 1;
+      if (realTour && declaredSpan === null) {
+        spanUnknown.add(realTour.title);
+      }
+      const span = declaredSpan ?? 1;
+
+      // Тур длиннее, чем дней в этой зоне. НЕ режем: «три дня из
+      // пятидневного тура» — не продукт, его нельзя купить. Пропускаем и
+      // говорим об этом словами.
+      if (span > block.activeDays) {
+        if (realTour) tooLong.add(`${realTour.title} (${span} дн.)`);
+        d++; barren++;
+        continue;
+      }
+
+      barren = 0;
+
       const coords: [number, number] = realTour
         ? [realTour.lat, realTour.lng]
         : route ? [route.lat, route.lng] : ZONE_COORDS[block.zone];
-      const title = realTour?.title ?? route?.title ?? `${interest} — ${ZONE_NAMES[block.zone]}`;
+      const title = realTour?.title ?? route?.title
+        ?? `${ACTIVITY_NAMES[interest] ?? interest} — ${ZONE_NAMES[block.zone]}`;
 
       const childOk = youngest === null || youngest >= c.minChildAge;
       const dayWarnings: string[] = [];
@@ -1066,6 +1061,7 @@ async function generateDayPlans(
           maxParticipants: realTour.maxParticipants,
           weatherDependent: realTour.weatherDependent,
           durationHours: realTour.durationHours,
+          lodgingIncluded: lodgingIncluded(realTour.included),
         };
         realPrice = realTour.basePrice;
 
@@ -1133,8 +1129,30 @@ async function generateDayPlans(
         qualityScore,
       });
 
+      // Продолжение многодневного тура: те же дни поездки, но БЕЗ повторной
+      // цены и без второй карточки тура. Цена многодневного тура — за весь
+      // тур, а не за сутки; посчитать её N раз значило бы умножить счёт.
+      for (let extra = 1; extra < span && used + extra <= block.activeDays && dayNum <= tripDays - departureDays; extra++) {
+        days.push({
+          day: dayNum++, type: 'activity', zone: block.zone,
+          title: `${dayTitle} — день ${extra + 1} из ${span}`,
+          description: 'Продолжение многодневного тура. Цена учтена в первом дне.',
+          activityType: interest,
+          priceFrom: 0, priceTo: 0,
+          coords, defaultTransport: transport,
+          allowedTransports: allowed.length > 0 ? allowed : [transport],
+          difficulty: (realTour?.difficulty as DayPlan['difficulty']) ?? c.difficulty,
+          childFriendly: childOk, minChildAge: c.minChildAge, dayWarnings: [],
+          // Тот же тур — значит и ночь его, и смета её не считает отдельно.
+          realTour: realTourData,
+        });
+      }
+
+      used += span;
+      d++;
+
       // Insert rest day after hard activities (if budget allows)
-      if (c.difficulty === 'hard' && d < block.activeDays - 1 && dayNum <= tripDays - departureDays - 1) {
+      if (c.difficulty === 'hard' && used < block.activeDays && dayNum <= tripDays - departureDays - 1) {
         days.push({
           day: dayNum++, type: 'rest', zone: block.zone,
           title: 'День отдыха. Термальные источники',
@@ -1145,6 +1163,7 @@ async function generateDayPlans(
           defaultTransport: 'walking', allowedTransports: ['walking'],
           difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
         });
+        used += 1;
       }
     }
 
@@ -1184,8 +1203,14 @@ async function generateDayPlans(
     }
   }
 
-  // ── Fill remaining days with light activities ──
-  while (dayNum <= tripDays - departureDays) {
+  // ── Один свободный день, если бюджет остался ──
+  //
+  // Раньше здесь стоял `while`, добивавший остаток поездки копиями одной и
+  // той же строки про рыбный рынок. Свободный день в поездке — норма, восемь
+  // одинаковых свободных дней — не план, а заполненная пустота. Один день
+  // выдаётся, остаток честно остаётся незаполненным: о нём говорит
+  // предупреждение в `recommendTrip`.
+  if (dayNum <= tripDays - departureDays) {
     days.push({
       day: dayNum++, type: 'activity', zone: 'avachinsky',
       title: 'Свободный день. Город, сувениры, рыбный рынок',
@@ -1219,7 +1244,7 @@ async function generateDayPlans(
     });
   }
 
-  return days;
+  return { days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong] };
 }
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
@@ -1232,12 +1257,26 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   const actFrom = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ?? d.priceFrom), 0);
   const actTo   = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ? Math.round(d.realPrice * 1.2) : d.priceTo), 0);
 
-  // Accommodation — estimate by zone nights
+  // Ночёвки. Оценка по зоне — только за те ночи, которые турист ДЕЙСТВИТЕЛЬНО
+  // оплачивает отдельно.
+  //
+  // Замер 20.09: у тура ID9 «Камчатской рыбалки» в составе прямым текстом
+  // «Проживание на базе 5 ночей» при цене 140 000 ₽, а этот цикл прибавлял
+  // ночь за каждый не-отъездный день безусловно. Западная зона при comfort —
+  // 20 000 ₽/ночь: семидневный план показывал ещё 96 000–160 000 ₽
+  // «проживания», которого турист не платит.
+  //
+  // `null` (не разобрали состав) считается как «платит»: занижать счёт на
+  // догадке хуже, чем завысить и сказать об этом вслух — предупреждение
+  // ставит `recommendTrip`.
   let accFrom = 0;
   let accTo = 0;
   for (const day of days) {
     if (day.type === 'departure') continue;
-    const acc = ZONE_ACCOMMODATION[day.zone];
+    if (day.realTour?.lodgingIncluded === true) continue;
+    // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
+    const sleepZone = ZONE_ACCOMMODATION[day.zone].sleepsIn ?? day.zone;
+    const acc = ZONE_ACCOMMODATION[sleepZone];
     const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
     accFrom += Math.round(nightPrice * 0.8);
     accTo   += Math.round(nightPrice * 1.2);
@@ -1315,6 +1354,8 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       zones: [], days: [], warnings: [],
       priceBreakdown: { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] },
       itinerary: 'Выберите интересы для рекомендации.',
+      // Каталог не спрашивали вовсе — это «не знаем», а не «пусто».
+      catalogueOpen: null,
     };
   }
 
@@ -1326,8 +1367,40 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     fetchSafetyAlerts(profile.arrivalDate, profile.departureDate),
   ]);
 
-  const zones = await scoreZones(profile, cache);
-  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts);
+  // Каталог спрашивается ОДИН раз и кормит все три места, где решает
+  // сезон: иначе они разошлись бы между собой (§10.09).
+  const catalogueOpen = await fetchActivitiesBookableInMonth(getMonth(profile), cache);
+
+  const zones = await scoreZones(profile, cache, catalogueOpen);
+  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen);
+
+  // Каталог открыл то, что зашитая таблица считает закрытым. Промолчать
+  // нельзя ни в одну сторону: отказать — значит не продать то, что оператор
+  // продаёт (замер 20.09: семь туров из восьми рыболовные, и один из них
+  // «Осенняя рыбалка (октябрь-ноябрь)» при `fishing.months` = [6,7,8,9]);
+  // согласиться молча — скрыть, что наш сезонный ориентир говорит другое, а
+  // он несёт и безопасность, не только коммерцию.
+  const catalogueOnly = openedByCatalogueOnly(profile.interests, getMonth(profile), catalogueOpen);
+  if (catalogueOnly.length > 0) {
+    const names = catalogueOnly.map(i => ACTIVITY_NAMES[i] ?? i).join(', ');
+    warnings.push({
+      type: 'season',
+      severity: 'important',
+      message: `${names}: по нашему сезонному ориентиру это уже не сезон, но оператор открыл запись на этот месяц. `
+        + 'Взяли по записи оператора — он отвечает за выход; погоду и снаряжение уточните у него отдельно.',
+    });
+  }
+
+  // Каталог не прочитался — сезон судит один зашитый список, и это надо
+  // сказать: «не знаем» не равно «в каталоге ничего нет».
+  if (catalogueOpen === null) {
+    warnings.push({
+      type: 'season',
+      severity: 'important',
+      message: 'Не удалось свериться с записью операторов на этот месяц — сезон определён по нашему ориентиру. '
+        + 'Что-то из закрытого им могло быть в продаже; уточните у оператора.',
+    });
+  }
 
   // Adventure mode warning
   if (profile.riskMode === 'adventure') {
@@ -1337,7 +1410,93 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const days = await generateDayPlans(profile, zones, tripDays, cache);
+  const { days, unchecked, spanUnknown, tooLong } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+
+  // «Не смогли посмотреть каталог» — отдельное предупреждение и отдельными
+  // словами. Раньше отказ запроса возвращался пустым списком и был
+  // неотличим от «туров нет»: план собирался из общих дней, а недобор
+  // объяснялся сезоном — то есть причина НАЗЫВАЛАСЬ там, где её не знали.
+  if (unchecked.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Не удалось проверить наличие туров: ${unchecked.slice(0, 3).join('; ')}`
+        + (unchecked.length > 3 ? ` и ещё ${unchecked.length - 3}` : '')
+        + '. Это «не знаем», а не «туров нет» — план по этим дням может быть беднее реального.',
+    });
+  }
+
+  // Тур не поместился в срок — и НЕ урезан. «Три дня из пятидневного тура»
+  // не продукт, его нельзя купить; поставить его усечённым значило бы
+  // показать расписание, которое не состоится.
+  if (tooLong.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Не поместились в срок поездки и потому не вошли в план: ${tooLong.slice(0, 3).join('; ')}`
+        + (tooLong.length > 3 ? ` и ещё ${tooLong.length - 3}` : '')
+        + '. Резать тур по границе поездки нельзя — его продают целиком. Добавьте дней, и они войдут.',
+    });
+  }
+
+  // Длительность не заполнена — тур поставлен одним днём, и это догадка.
+  //
+  // Молчать нельзя: под незаполненным полем может лежать пятидневка, и
+  // тогда неверен весь порядок дней, а не одна строка. Именно так
+  // «Многодневный летний тур (5 дней)» и стоял в плане однодневным.
+  if (spanUnknown.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Длительность не указана у ${spanUnknown.slice(0, 3).join('; ')}`
+        + (spanUnknown.length > 3 ? ` и ещё ${spanUnknown.length - 3}` : '')
+        + ' — поставили одним днём. Если тур многодневный, порядок дней в плане сдвинется; уточните у оператора.',
+    });
+  }
+
+  // Состав тура не разобрался — ночь посчитана, и об этом говорится.
+  //
+  // Молчать нельзя именно потому, что ошибка идёт В СТОРОНУ ЗАВЫШЕНИЯ: смета
+  // выглядит точной, а турист платит меньше. «Дороже, чем на самом деле» —
+  // не безобидная осторожность, по такой смете отказываются от поездки.
+  const unknownLodging = days.filter(d => d.realTour && d.realTour.lodgingIncluded === null);
+  if (unknownLodging.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Состав ${unknownLodging.length === 1 ? 'одного тура' : `${unknownLodging.length} туров`} в плане не заполнен, `
+        + 'поэтому ночёвку по ним посчитали отдельно. Если проживание уже входит в тур, '
+        + 'итог в смете завышен — уточните у оператора.',
+    });
+  }
+
+  // ── План короче запрошенного — это факт, и он говорится словами ──────────
+  //
+  // Добивать остаток копиями движок больше не умеет (19.09), значит разница
+  // между «просили 10 дней» и «наполнили 4» стала видимой. Видимой она и
+  // должна быть: молчание здесь читается как «вот ваши четыре дня», то есть
+  // как обещание, что больше на Камчатке в этот месяц делать нечего.
+  if (days.length > 0 && days.length < tripDays) {
+    const month = getMonth(profile);
+    const offSeason = profile.interests
+      .filter(i => ACTIVITY_CONSTRAINTS[i] && !ACTIVITY_CONSTRAINTS[i].months.includes(month))
+      .map(i => ACTIVITY_NAMES[i] ?? i);
+    // Причина называется ТОЛЬКО когда она известна. Если хоть одна проверка
+    // каталога не выполнилась, «вне сезона» — уже не факт, а догадка: там
+    // могли быть туры, которых мы не увидели.
+    const reason = unchecked.length > 0
+      ? ': часть проверок наличия туров не выполнилась, поэтому причину недобора назвать не берёмся'
+      : offSeason.length > 0
+        ? `: в этом месяце вне сезона ${offSeason.join(', ')}`
+        : ': подтверждённых выходов на остальные дни у нас нет';
+
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Наполнили ${days.length} ${pluralDays(days.length)} из ${tripDays}${reason}`
+        + '. Остальные дни не придумываем — сдвиньте даты или добавьте интересы, и план соберётся полнее.',
+    });
+  }
 
   // Inject weather forecasts for activity days
   if (profile.arrivalDate && days.length > 0) {
@@ -1384,7 +1543,10 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     // fallback already set
   }
 
-  return { zones, days, warnings, priceBreakdown, itinerary };
+  return {
+    zones, days, warnings, priceBreakdown, itinerary,
+    catalogueOpen: catalogueOpen ? [...catalogueOpen] : null,
+  };
 }
 
 

@@ -14,9 +14,13 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseChatInterests, matchPreset, formatTripPlanForChat } from '@/lib/kuzmich/trip-plan-tool';
+import {
+  parseChatInterests, matchPreset, formatTripPlanForChat,
+  buildRefusal, inSeasonInterests, parsePlanStart, startNote,
+} from '@/lib/kuzmich/trip-plan-tool';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import type { DayPlan } from '@/lib/planner';
+import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
+import { ACTIVITY_NAMES, type DayPlan } from '@/lib/planner';
 
 const ROOT = process.cwd();
 const CORE = readFileSync(join(ROOT, 'lib/kuzmich/core.ts'), 'utf-8');
@@ -58,6 +62,79 @@ describe('matchPreset: ссылка на публичную страницу с 
   it('снегоходы → зимний кластер (появился с посадочными)', () => {
     expect(matchPreset(7, ['snowmobile'])?.slug).toBe('kamchatka-zimoy');
   });
+
+  /**
+   * Замер 19.09: «море», 7 дней → «Камчатка за 7 дней: рыбалка».
+   *
+   * Счёт был `overlap*10 - dayPenalty`, сравнение строгим `>`, и счёт 10
+   * набирали СРАЗУ ЧЕТЫРЕ пресета. Побеждал не лучший, а первый в массиве —
+   * рыболовный, потому что `boat_trip` стоит у него третьим в списке.
+   * Порядок литералов в файле решал, что увидит турист.
+   */
+  it('море ведёт на страницу про море, а не про рыбалку', () => {
+    const p = matchPreset(7, ['boat_trip']);
+    expect(p?.slug).toBe('kamchatka-za-5-dney-okean');
+    expect(p?.title).toContain('океан');
+  });
+
+  it('ответ не зависит от порядка пресетов в массиве', () => {
+    // Главное свойство. Пока оно держится, вернуть прежний дефект нельзя
+    // никакой перестановкой литералов.
+    const shuffled = [...PLAN_PRESETS].reverse();
+    for (const asked of [['boat_trip'], ['volcano', 'trekking', 'thermal'], ['snowmobile'], ['fishing']]) {
+      expect(
+        matchPreset(7, asked, shuffled)?.slug,
+        `порядок изменил ответ на ${asked.join('+')}`,
+      ).toBe(matchPreset(7, asked)?.slug);
+    }
+  });
+
+  it('заглавный интерес пресета весит больше побочного совпадения', () => {
+    // `kamchatka-za-7-dney-rybalka` содержит boat_trip и точно попадает в
+    // 7 дней — и всё равно проигрывает пятидневному «океану», у которого
+    // boat_trip стоит в заголовке.
+    expect(matchPreset(7, ['boat_trip'])?.slug).not.toBe('kamchatka-za-7-dney-rybalka');
+    // Обратная сторона: рыбалка спрошена — рыболовный пресет и выигрывает.
+    expect(matchPreset(7, ['fishing'])?.slug).toBe('kamchatka-za-7-dney-rybalka');
+  });
+
+  it('пресет, обещающий лишнее, проигрывает точному', () => {
+    // «Всё лучшее» (шесть тем) — плохой ответ на одну спрошенную.
+    expect(matchPreset(7, ['bears'])?.slug).toBe('kamchatka-za-7-dney-medvedi');
+  });
+
+  /**
+   * Два слагаемых счёта на живых шестнадцати пресетах ничего не решают —
+   * это показала проверка мутацией: снимаешь их, ответы те же. Оставить
+   * их на веру значило бы держать в счёте слагаемое без последствий, то
+   * есть объявление без источника (§10.09). Поэтому каждое проверяется
+   * набором, где оно ЕДИНСТВЕННОЕ различие, — ради этого `matchPreset` и
+   * принимает список пресетов параметром.
+   */
+  describe('слагаемые счёта проверяются там, где они решают', () => {
+    const preset = (slug: string, days: number, interests: string[]): PlanPreset => ({
+      slug, title: slug, days, interests, intro: '', description: '',
+    });
+
+    it('штраф за обещанное сверх: узкий пресет выигрывает у широкого', () => {
+      // Оба попадают в дни и оба несут boat_trip заглавным. Отличаются
+      // только тем, сколько обещают сверх спрошенного. Слаги выбраны так,
+      // что без штрафа победил бы ШИРОКИЙ (ничья и алфавит).
+      const wide = preset('a-shirokiy', 7, ['boat_trip', 'x1', 'x2', 'x3']);
+      const tight = preset('b-uzkiy', 7, ['boat_trip']);
+      expect(matchPreset(7, ['boat_trip'], [wide, tight])?.slug).toBe('b-uzkiy');
+    });
+
+    it('остаточная ничья решается слагом, а не позицией в массиве', () => {
+      // Пресеты неразличимы по счёту. Без правила победил бы первый в
+      // массиве — то есть снова порядок литералов.
+      const second = preset('b-vtoroy', 7, ['boat_trip']);
+      const first = preset('a-pervyy', 7, ['boat_trip']);
+      expect(matchPreset(7, ['boat_trip'], [second, first])?.slug).toBe('a-pervyy');
+      // И наоборот: перестановка ответ не меняет.
+      expect(matchPreset(7, ['boat_trip'], [first, second])?.slug).toBe('a-pervyy');
+    });
+  });
 });
 
 describe('formatTripPlanForChat', () => {
@@ -80,6 +157,178 @@ describe('formatTripPlanForChat', () => {
     expect(text).toContain('Не собрал план');
     expect(text).toContain('/planner');
   });
+
+  it('дата, на которую считали, названа в плане', () => {
+    // Турист просит «семь дней», а движок молча берёт месяц вперёд. Не
+    // назвать дату значит выдать план на октябрь за план «на сейчас».
+    const text = formatTripPlanForChat([day({})], [], null, {
+      refusal: 'x', plannedFor: '19 октября',
+    });
+    expect(text).toContain('19 октября');
+  });
+
+  it('готовый отказ не подменяется вшитой строкой', () => {
+    const text = formatTripPlanForChat([], [], null, {
+      refusal: 'В октябре это уже не сезон: вулканы.', plannedFor: '19 октября',
+    });
+    expect(text).toBe('В октябре это уже не сезон: вулканы.');
+  });
+});
+
+/**
+ * Отказ собрать план — замер с прода 19.09.
+ *
+ * Прежний текст был вшит строкой: «попробуй назвать интересы иначе (вулканы,
+ * рыбалка, медведи, море)». Планировщик считает поездку на `now + 30 дней`,
+ * то есть в сентябре — на октябрь, а в октябре вулканы, рыбалка и медведи уже
+ * вне сезонных окон движка. Три слова совета из четырёх вели обратно в тот же
+ * отказ, и настоящая причина — месяц — не называлась вовсе.
+ */
+describe('отказ называет причину, а не гоняет по кругу', () => {
+  it('в сезоне считается из окон движка, а не из списка в коде', () => {
+    // Октябрь: вулканы/рыбалка/медведи закрыты, море и термалка идут.
+    const october = inSeasonInterests(10);
+    expect(october).toContain('boat_trip');
+    expect(october).toContain('thermal');
+    expect(october).not.toContain('volcano');
+    expect(october).not.toContain('fishing');
+    expect(october).not.toContain('bears');
+    // Январь — другой набор, и он тоже не пуст: «ничего» было бы неправдой.
+    expect(inSeasonInterests(1)).toContain('snowmobile');
+    expect(inSeasonInterests(1)).not.toContain('boat_trip');
+  });
+
+  it('называет месяц и то, что именно не в сезоне', () => {
+    const text = buildRefusal(10, ['volcano', 'bears'], 'https://vedarai.ru');
+    expect(text).toContain('октябре');
+    expect(text).toContain('вулканы');
+    expect(text).toContain('медведи');
+  });
+
+  it('совет не повторяет то, на чём план и не собрался', () => {
+    // Главный дефект прежнего текста: закрытое в этом месяце предлагалось
+    // назвать снова.
+    const text = buildRefusal(10, ['volcano', 'fishing', 'bears'], 'https://vedarai.ru');
+    const advice = text.slice(text.indexOf('Что идёт'));
+    for (const closed of ['вулканы', 'рыбалка', 'медведи']) {
+      expect(advice, `${closed} снова в совете`).not.toContain(closed);
+    }
+    expect(advice).toContain('морские прогулки');
+  });
+
+  it('интересы в сезоне — отказ не врёт про сезон', () => {
+    // План может не сложиться и по другой причине (нет туров, транспорт).
+    // Тогда говорить «не сезон» про конкретные интересы нельзя.
+    const text = buildRefusal(8, ['volcano'], 'https://vedarai.ru');
+    expect(text).toContain('план не сложился');
+    expect(text).not.toContain('уже не сезон');
+  });
+
+  it('ссылка на живой планировщик остаётся — там задают свои даты', () => {
+    expect(buildRefusal(10, ['volcano'], 'https://vedarai.ru')).toContain('https://vedarai.ru/planner');
+  });
+
+  it('совет замкнут: что предложили, то и разберём обратно', () => {
+    // Советовать слово, которого Кузьмич не понимает, значит послать туриста
+    // в «не разобрал». Круг проверяется на всех двенадцати месяцах, а не на
+    // одном: список сезонный и меняется вместе с календарём.
+    for (let m = 1; m <= 12; m++) {
+      for (const key of inSeasonInterests(m)) {
+        const word = ACTIVITY_NAMES[key];
+        expect(word, `нет слова для ${key}`).toBeTruthy();
+        expect(parseChatInterests(word), `${word} (месяц ${m})`).toContain(key);
+      }
+    }
+  });
+
+  it('обработчик считает месяц от даты, на которую планирует', () => {
+    // Иначе отказ назовёт сезон «сегодня», а план считался на месяц вперёд.
+    const src = readFileSync(join(ROOT, 'lib/kuzmich/trip-plan-tool.ts'), 'utf-8');
+    expect(src).toMatch(/const month = arrival\.getUTCMonth\(\) \+ 1/);
+    expect(src).toContain('buildRefusal(month');
+    // Вшитого перечня интересов в отказе больше нет.
+    expect(src).not.toContain('назвать интересы иначе');
+  });
+});
+
+/**
+ * Когда считать поездку (решение владельца 19.09: «2 исправляй»).
+ *
+ * До этого дня старт был зашит как `now + 30 дней`: спросить план на июль
+ * было нельзя ничем, и турист, спрашивающий зимой про лето, получал план на
+ * закрытый сезон. Четыре исхода вместо двух — взяли по умолчанию, разобрали,
+ * не разобрали, уже прошло — и три последних различимы снаружи.
+ */
+describe('parsePlanStart: когда ехать', () => {
+  const NOW = Date.parse('2026-09-19T12:00:00Z');
+
+  it('не сказано — прежнее «через месяц», и это отдельный исход', () => {
+    const s = parsePlanStart(undefined, NOW);
+    expect(s.kind).toBe('default');
+    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+  });
+
+  it('месяц словом — ближайший будущий, а не этого года любой ценой', () => {
+    // Сентябрь 2026 уже идёт: «в июле» значит июль 2027, а не прошедший.
+    const july = parsePlanStart('хотим в июле', NOW);
+    expect(july.kind).toBe('parsed');
+    expect(july.date.getUTCFullYear()).toBe(2027);
+    expect(july.date.getUTCMonth() + 1).toBe(7);
+
+    // А декабрь того же года ещё впереди.
+    const dec = parsePlanStart('в декабре', NOW);
+    expect(dec.date.getUTCFullYear()).toBe(2026);
+    expect(dec.date.getUTCMonth() + 1).toBe(12);
+  });
+
+  it('«мае» не путается с «мартом»', () => {
+    // Корень «ма» поймал бы оба — поэтому формы месяцев записаны явно.
+    expect(parsePlanStart('в мае', NOW).date.getUTCMonth() + 1).toBe(5);
+    expect(parsePlanStart('в марте', NOW).date.getUTCMonth() + 1).toBe(3);
+  });
+
+  it('точная дата берётся как есть', () => {
+    const s = parsePlanStart('2027-07-10', NOW);
+    expect(s.kind).toBe('parsed');
+    expect(s.date.toISOString().slice(0, 10)).toBe('2027-07-10');
+  });
+
+  it('дата в прошлом — «так нельзя», а не «не понял»', () => {
+    // Починка разная: одному надо назвать год, другому — сказать понятнее.
+    const s = parsePlanStart('2020-07-10', NOW);
+    expect(s.kind).toBe('past');
+    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+  });
+
+  it('непонятое НЕ выдаётся за понятое', () => {
+    // Молча подставить «через месяц» значит ответить про другую поездку и не
+    // сказать об этом (§4.0).
+    const s = parsePlanStart('когда-нибудь потом', NOW);
+    expect(s.kind).toBe('unparsed');
+    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+  });
+});
+
+describe('startNote: про подмену даты говорят вслух', () => {
+  const NOW = Date.parse('2026-09-19T12:00:00Z');
+
+  it('молчит там, где говорить не о чем', () => {
+    expect(startNote(parsePlanStart(undefined, NOW), '19 октября')).toBe('');
+    expect(startNote(parsePlanStart('в июле', NOW), '10 июля')).toBe('');
+  });
+
+  it('непонятое названо цитатой и вместе с тем, что посчитали', () => {
+    const note = startNote(parsePlanStart('когда-нибудь потом', NOW), '19 октября');
+    expect(note).toContain('когда-нибудь потом');
+    expect(note).toContain('19 октября');
+    expect(note).toContain('2027-07-10');
+  });
+
+  it('прошедшее названо прошедшим', () => {
+    const note = startNote(parsePlanStart('2020-07-10', NOW), '19 октября');
+    expect(note).toContain('уже прошло');
+    expect(note).toContain('19 октября');
+  });
 });
 
 describe('инструмент подключён', () => {
@@ -88,9 +337,21 @@ describe('инструмент подключён', () => {
     expect(names).toContain('make_trip_plan');
   });
 
-  it('аргументы валидируются: оба необязательны, мусор не проходит', () => {
+  it('аргументы валидируются: все необязательны, мусор не проходит', () => {
     expect(validateToolArgs('make_trip_plan', {}).ok).toBe(true);
     expect(validateToolArgs('make_trip_plan', { days: '7', interests: 'вулканы' }).ok).toBe(true);
+    expect(validateToolArgs('make_trip_plan', { when: 'в июле' }).ok).toBe(true);
+  });
+
+  it('модель знает про «когда» — иначе аргумент мёртв (§10.09)', () => {
+    // Поле в схеме, которого нет в описании инструмента, модель не заполнит
+    // никогда: потребитель есть, производителя нет.
+    const def = KUZMICH_TOOLS.find((t) => t.function.name === 'make_trip_plan');
+    const props = def?.function.parameters?.properties as Record<string, { description?: string }> | undefined;
+    expect(props?.when?.description).toBeTruthy();
+    expect(props?.when?.description).toContain('месяц');
+    // И обработчик его действительно получает.
+    expect(CORE).toMatch(/makeTripPlanForKuzmich\(\{[^}]*when: args\.when/);
   });
 
   it('core зовёт обработчик', () => {

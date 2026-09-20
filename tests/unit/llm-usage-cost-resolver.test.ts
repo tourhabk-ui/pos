@@ -10,7 +10,7 @@
  * `resolveCostUsd` экспортирована из lib/ai/providers.ts ровно для этой
  * прямой проверки — тот же приём, что у `fetchSource` в evo-report.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -21,8 +21,21 @@ vi.mock('@/lib/db-pool', () => ({
 
 import { resolveCostUsd, priceLookupIds } from '@/lib/ai/providers';
 
+const savedDbUrl = process.env.DATABASE_URL;
+
 beforeEach(() => {
   queryMock.mockReset();
+  // Каталог живёт в БД, и с 20.09 `resolveCostUsd` не ходит туда, когда строки
+  // подключения нет вовсе (на раннере GitHub её нет, и запрос падал бы всегда,
+  // крича «каталог моделей не прочитан» на каждый вызов модели). Проверки ниже
+  // говорят про ветку С каталогом — значит предпосылку надо назвать вслух, а не
+  // полагаться на то, что окружение прогона её случайно даёт.
+  process.env.DATABASE_URL = 'postgresql://localhost:5432/test';
+});
+
+afterEach(() => {
+  if (savedDbUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = savedDbUrl;
 });
 
 describe('resolveCostUsd: каталог первичен, запас — только для моделей вне него', () => {
@@ -87,6 +100,34 @@ describe('resolveCostUsd: каталог первичен, запас — тол
  * llm-budget-check такие строки пропускает. То есть дневной бюджет не видел
  * Opus 5 ($5/$25 за млн) вовсе и сработать по нему не мог.
  */
+/**
+ * 20.09: прогон evo-judge 53 написал «каталог моделей не прочитан» трижды —
+ * на каждый вызов модели. Чинить там было нечего: БД Timeweb с раннера закрыта
+ * файрволом, `DATABASE_URL` в workflow нет, и запрос не мог выполниться НИ
+ * РАЗУ. Тревога по известному состоянию — не сигнал, а шум, и в тот день она
+ * увела разбор немоты флагмана в сторону БД, хотя сломан был сток расхода.
+ */
+describe('недостижимый каталог — известное состояние, а не отказ', () => {
+  it('без DATABASE_URL в базу не ходят вовсе', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    delete process.env.DATABASE_URL;
+    const { cost, basis } = await resolveCostUsd('anthropic:claude-opus-5', 1000, 200);
+    // Цена берётся из запаса — ровно то, чем живёт потолок прямого Anthropic.
+    expect(cost).toBeCloseTo((0.00750 * 1200) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback');
+    expect(queryMock, 'запрос ушёл в БД, которой нет').not.toHaveBeenCalled();
+    expect(consoleSpy, 'тревога по известному состоянию').not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('незнание цены и без каталога остаётся незнанием', async () => {
+    delete process.env.DATABASE_URL;
+    const { cost, basis } = await resolveCostUsd('z-ai/glm-5.3', 1000, 200);
+    expect(cost).toBeNull();
+    expect(basis).toBe('unknown');
+  });
+});
+
 describe('ключ журнала с вендором через двоеточие находит свою цену', () => {
   it('anthropic:claude-opus-5 — цена НЕ null: находится по слагу с косой чертой', async () => {
     // Каталога нет (прод-БД недоступна с раннера) — работает запас COST_PER_1K.

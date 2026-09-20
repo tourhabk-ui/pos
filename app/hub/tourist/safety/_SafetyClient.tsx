@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { TrackerLinkPanel } from '@/components/hub/TrackerLinkPanel';
 import {
   ShieldCheck, ShieldAlert, Clock, MapPin, Phone, Plus, CheckCircle2, RefreshCw,
 } from 'lucide-react';
@@ -149,6 +150,11 @@ export default function SafetyClient() {
                     >
                       <CheckCircle2 className="w-4 h-4" /> {busyId === r.id ? '…' : 'Я вернулся'}
                     </button>
+
+                    {/* Трекер — отдельной секцией ВНУТРИ карточки, а не своей
+                        карточкой: карточка в карточке дробит экран и делает
+                        второстепенное равным главному. */}
+                    <TrackerLinkPanel registrationId={r.id} />
                   </div>
                 );
               })

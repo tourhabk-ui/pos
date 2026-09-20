@@ -23,6 +23,7 @@
 import { z } from 'zod';
 import type { AliceRequest, AliceResponse, AliceButton, AliceEntity } from './types';
 import type { MarketplaceTourRow, MarketplaceToursFilters, MarketplaceToursResult } from '@/lib/search/tour-search';
+import { priceFromOrSay } from '@/lib/tours/price-label';
 
 export type FetchTours = (
   filters: Partial<MarketplaceToursFilters>,
@@ -133,8 +134,20 @@ function detectIntent(req: AliceRequest, hasState: boolean): Intent {
 
 // ── Сборка ответа ────────────────────────────────────────────────────────────
 
+/**
+ * Цена голосом. `null` — «цена не указана», а НЕ ноль.
+ *
+ * `Math.round(null)` это 0, и Алиса произносила бы «от нуля рублей» — то есть
+ * «бесплатно». Тот же механизм 18.09 нашёлся в каталоге (тур 34: цены в базе
+ * нет, CHECK запрещает там ноль, а витрина печатала «от 0 р/чел»). У голоса
+ * цена ошибки выше: сказанное вслух не перечитывают.
+ *
+ * Тип `MarketplaceTourRow.base_price` объявлен как `number`, но колонка
+ * NULLABLE — объявление тут обещает больше, чем даёт база, и полагаться на
+ * него нельзя.
+ */
 function formatPrice(row: MarketplaceTourRow): string {
-  return `от ${Math.round(row.base_price).toLocaleString('ru-RU')} ₽`;
+  return priceFromOrSay(row.base_price, 'цена не указана', '₽');
 }
 
 function tourButton(row: { id: number; title: string }): AliceButton {

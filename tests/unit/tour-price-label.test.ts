@@ -81,3 +81,18 @@ describe('каталог и карточка тура печатают цену 
  * participants` даёт нулевую сумму брони) и фиды на чужие витрины; туда
  * правка идёт с планом (§5), а не попутно с показом в каталоге.
  */
+
+describe('голос Алисы не произносит «от нуля рублей»', () => {
+  const skill = readFileSync(join(process.cwd(), 'lib/alice/tours-skill.ts'), 'utf8');
+
+  it('навык зовёт общий формат, а не округляет сырое', () => {
+    // `Math.round(null)` это 0, и Алиса сказала бы «бесплатно». У голоса цена
+    // ошибки выше, чем у экрана: сказанное вслух не перечитывают.
+    expect(skill).toContain('priceFromOrSay(row.base_price');
+    expect(skill).not.toMatch(/Math\.round\(row\.base_price\)/);
+  });
+
+  it('отсутствие цены произносится словами', () => {
+    expect(priceFromOrSay(null, 'цена не указана', '₽')).toBe('цена не указана');
+  });
+});
