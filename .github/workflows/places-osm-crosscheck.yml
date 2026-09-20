@@ -97,9 +97,32 @@ jobs:
           set -u
           URL="https://vedarai.ru/api/cron/places-osm-crosscheck?part=${PART}&min_sim=${MIN_SIM}&limit=${LIMIT}&offset=${OFFSET}"
           RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 150 "$URL") || RESP=""
+          # ── ОТКАЗ НЕ ВЫДАЁТСЯ ЗА УСПЕХ (правка 20.09) ─────────────────────
+          #
+          # Прогон 5 вернул `{"success": false, "error": ...}` (роут отвечает
+          # так при отказе Overpass, HTTP 502) — и job остался ЗЕЛЁНЫМ. Печать
+          # ниже берёт ИМЕНОВАННЫЕ поля, и при отказе они все приходят пустыми:
+          # в лог ушла строка сплошных null, а `error` с настоящей причиной был
+          # выброшен. Читатель видел зелёную галочку и пустой список — ровно
+          # «не смог» под видом «нарушений нет» (§4.0).
+          #
+          # Теперь вердикт по `success`, а тело печатается целиком, когда он
+          # не `true`. Разбор причины — дело следующего прогона, но причина
+          # обязана быть НАПЕЧАТАНА, иначе следующий прогон начинается с
+          # гадания.
+          if [ -z "$RESP" ]; then
+            echo "::error::Сверка не ответила вовсе: curl не дошёл (таймаут 150 с или сеть). Это «не смогли спросить», а не «расхождений нет»."
+            exit 1
+          fi
           echo "$RESP" | python3 -c "
           import json, sys
-          d = json.load(sys.stdin)
+          raw = sys.stdin.read()
+          try:
+              d = json.loads(raw)
+          except ValueError:
+              print('Ответ не разобрался как JSON. Первые 2000 знаков:')
+              print(raw[:2000])
+              sys.exit(1)
           print(json.dumps({k: d.get(k) for k in (
               'success', 'probe', 'bbox', 'name_sim_floor', 'strong_sim',
               'checked_places_total', 'osm_features_total',
@@ -107,7 +130,12 @@ jobs:
               'items_weak_only_total', 'items_without_candidates_total',
               'items_offset', 'items_limit', 'items_dropped',
           )}, ensure_ascii=False))
-          " || { echo "$RESP" | head -c 800; exit 1; }
+          if d.get('success') is not True:
+              print('::error::Сверка ответила отказом — списка мест нет, и пустота ниже НЕ означает отсутствие расхождений.')
+              print('Тело ответа целиком:')
+              print(json.dumps(d, ensure_ascii=False)[:4000])
+              sys.exit(1)
+          "
           echo "── Ближайший одноимённый объект OSM (sim >= strong_sim), самые дальние первыми ──"
           echo "$RESP" | python3 -c "
           import json, sys

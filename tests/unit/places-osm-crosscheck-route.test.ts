@@ -43,3 +43,45 @@ describe('places-osm-crosscheck — только чтение', () => {
     expect(SRC).toMatch(/items_with_candidates_total: result\.items\.length/);
   });
 });
+
+/**
+ * Прогон 5 (20.09) вернул `{"success": false, "error": ...}` — роут отвечает
+ * так при отказе Overpass, — а job остался ЗЕЛЁНЫМ.
+ *
+ * Печать в workflow брала ИМЕНОВАННЫЕ поля ответа, и при отказе все они
+ * приходили пустыми: в лог ушла строка сплошных null, `error` с настоящей
+ * причиной был выброшен, список мест был пуст. Читатель видел зелёную галочку
+ * и пустоту — то есть «не смог» под видом «расхождений нет» (§4.0).
+ *
+ * Цена не теоретическая: по этому прогону я собирался судить 137 улик
+ * переписи описаний. Пустой список означал бы «OSM ничего не подтвердил», а
+ * на деле OSM не спросили вовсе.
+ */
+describe('прогон сверки не выдаёт отказ за успех', () => {
+  const WF = readFileSync(join(process.cwd(), '.github/workflows/places-osm-crosscheck.yml'), 'utf-8');
+
+  it('вердикт выносится по success, а не по тому, что json разобрался', () => {
+    expect(WF).toContain("d.get('success') is not True");
+  });
+
+  it('при отказе прогон краснеет, а не идёт дальше', () => {
+    const at = WF.indexOf("d.get('success') is not True");
+    expect(at, 'проверки success в прогоне нет').toBeGreaterThan(0);
+    expect(WF.slice(at, at + 600)).toContain('sys.exit(1)');
+  });
+
+  it('причина отказа ПЕЧАТАЕТСЯ, а не выбрасывается вместе с телом', () => {
+    // Иначе следующий прогон начинается с гадания о том, что сломалось.
+    const at = WF.indexOf("d.get('success') is not True");
+    expect(WF.slice(at, at + 600)).toContain('json.dumps(d');
+  });
+
+  it('пустой ответ — «не смогли спросить», а не «расхождений нет»', () => {
+    expect(WF).toContain('Сверка не ответила вовсе');
+    expect(WF).toMatch(/if \[ -z "\$RESP" \]; then/);
+  });
+
+  it('неразобранный ответ показывается куском, а не глотается', () => {
+    expect(WF).toContain('Ответ не разобрался как JSON');
+  });
+});
