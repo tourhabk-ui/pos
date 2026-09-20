@@ -16,24 +16,11 @@ import {
   recommendTrip, parseInterestsFromText, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type DayPlan,
 } from '@/lib/planner';
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
+// Словарь переехал в чистый модуль без зависимостей: те же слова читает
+// клиент планировщика, а сюда тянется `pool` (см. шапку interest-words).
+import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
-
-/** Русские слова туриста → ключи интересов движка (дополняет parseInterests). */
-const INTEREST_WORDS: Record<string, string> = {
-  'вулкан': 'volcano', 'вулканы': 'volcano',
-  'рыбалка': 'fishing', 'рыба': 'fishing',
-  'медвед': 'bears',
-  'вертолет': 'helicopter', 'вертолёт': 'helicopter',
-  'термал': 'thermal', 'источник': 'thermal',
-  'треккинг': 'trekking', 'поход': 'trekking',
-  // «морск» — не украшение: сезонная подсказка предлагает «морские
-  // прогулки», и без этого корня турист, повторивший наш же совет, получал
-  // «не разобрал». Круг замкнут тестом на всех двенадцати месяцах.
-  'море': 'boat_trip', 'морск': 'boat_trip', 'океан': 'boat_trip', 'катер': 'boat_trip',
-  'гейзер': 'geyser',
-  'снегоход': 'snowmobile',
-};
 
 /**
  * Что Кузьмич вообще умеет разобрать — то он и вправе предложить.
@@ -170,10 +157,7 @@ export function startNote(start: PlanStart, plannedFor: string): string {
 /** Свободный текст интересов → ключи движка. Пусто — классика первой поездки. */
 export function parseChatInterests(raw: string): string[] {
   const text = (raw || '').toLowerCase();
-  const found = new Set<string>();
-  for (const [word, key] of Object.entries(INTEREST_WORDS)) {
-    if (text.includes(word)) found.add(key);
-  }
+  const found = new Set<string>(parseInterestWords(text));
   // parseInterestsFromText движка ловит то, что словарь не покрыл
   try {
     const parsed = parseInterestsFromText(text);
