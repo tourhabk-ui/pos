@@ -41,6 +41,16 @@
  * `?name=` отвечает про ОДНО место словами: есть ли показываемый снимок, а
  * если нет — что у него есть вместо и почему это не показывается. Ровно тот
  * вопрос, который задавали про Козельский.
+ *
+ * `?list=shown` отвечает на вопрос 20.09: у показываемых снимков ЕСТЬ ли
+ * среди них чужие. Владелец прислал карточку с вотермарком фотобанка на
+ * «Голыгинских термальных источниках» — снимок рода `real-photo`, которому
+ * миграция 978 проставила его же авторство по слову «это мои фото влиты».
+ * Пачка залита 28.03 без автора и глазами целиком не пересматривалась.
+ * Проверить это статикой нельзя — вотермарк живёт в пикселях, не в SQL — и
+ * перепись не пытается: она отдаёт список ссылок на снимки, разбор глазами
+ * делает человек. `model=` сужает список до одного рода (например
+ * `real-photo`), `limit`/`offset` — те же, что у списка без снимка.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -92,6 +102,8 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const name = (url.searchParams.get('name') ?? '').trim().slice(0, 120);
+  const list = (url.searchParams.get('list') ?? '').trim();
+  const modelFilter = (url.searchParams.get('model') ?? '').trim().slice(0, 100);
   const limit = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get('limit')) || DEFAULT_LIMIT));
   const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
 
@@ -148,6 +160,73 @@ export async function GET(req: NextRequest) {
           // подстановку.
           card_shows: cardImage({ hasShownPhoto: r.shown, id: r.id, category: r.category }).kind,
           storage: r.model === null ? null : (r.in_s3 ? 's3' : r.has_bytes ? 'байты в базе' : 'ни байтов, ни ссылки'),
+        })),
+      });
+    }
+
+    // ── Список ПОКАЗЫВАЕМЫХ снимков — разбор глазами ─────────────────────
+    //
+    // Отвечает не «сколько», а «какие именно»: у показываемого снимка нет
+    // признака «чужой» в базе — вотермарк живёт в пикселях, SQL его не
+    // видит. Единственный способ найти чужой кадр в пачке `real-photo` —
+    // пройти список глазами по ссылке на сам снимок.
+    if (list === 'shown') {
+      const params: unknown[] = [];
+      let modelClause = '';
+      if (modelFilter) {
+        params.push(modelFilter);
+        modelClause = `AND i.model = $${params.length}`;
+      }
+      params.push(limit, offset);
+
+      const { rows: shownList } = await pool.query<{
+        place: string; ark_id: string; model: string | null;
+        source_url: string | null; author: string | null; license: string | null;
+        in_s3: boolean; has_bytes: boolean;
+      }>(
+        `SELECT p.name AS place,
+                p.ark_id::text AS ark_id,
+                i.model, i.source_url, i.author, i.license,
+                (i.s3_url IS NOT NULL AND btrim(i.s3_url) <> '') AS in_s3,
+                (i.image_data IS NOT NULL) AS has_bytes
+           FROM places p
+           JOIN ai_route_images i ON i.route_id = p.ark_id
+          WHERE p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
+            AND ${shownPhotoSql('i.model')}
+            ${modelClause}
+          ORDER BY p.name
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      );
+
+      const { rows: countRows } = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n
+           FROM places p
+           JOIN ai_route_images i ON i.route_id = p.ark_id
+          WHERE p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
+            AND ${shownPhotoSql('i.model')}
+            ${modelFilter ? 'AND i.model = $1' : ''}`,
+        modelFilter ? [modelFilter] : [],
+      );
+
+      return NextResponse.json({
+        ok: true, probe: 'place_photo_coverage_v1', list: 'shown',
+        model_filter: modelFilter || null,
+        total: Number(countRows[0]?.n ?? 0),
+        page: { limit, offset, returned: shownList.length },
+        // Ноль строк при ненулевом total — отказ выборки, а не «нечего
+        // разбирать» (§4.0).
+        meaningful: Number(countRows[0]?.n ?? 0) === 0 || shownList.length > 0,
+        photos: shownList.map(r => ({
+          place: r.place,
+          model: r.model,
+          // Адрес, по которому снимок реально открывается — тот же, что
+          // отдаёт карточка (route_id = places.ark_id, не places.id).
+          image_url: `/api/images/route/${r.ark_id}`,
+          source_url: r.source_url,
+          author: r.author,
+          license: r.license,
+          storage: r.in_s3 ? 's3' : r.has_bytes ? 'байты в базе' : 'ни байтов, ни ссылки',
         })),
       });
     }
