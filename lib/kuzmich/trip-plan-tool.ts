@@ -12,31 +12,167 @@
  * пресетные страницы уже публичны и ведут к брони, этого достаточно для MVP.
  */
 
-import { recommendTrip, parseInterestsFromText, type DayPlan } from '@/lib/planner';
-import { PLAN_PRESETS } from '@/lib/plans/presets';
+import {
+  recommendTrip, parseInterestsFromText, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type DayPlan,
+} from '@/lib/planner';
+import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
+// Словарь переехал в чистый модуль без зависимостей: те же слова читает
+// клиент планировщика, а сюда тянется `pool` (см. шапку interest-words).
+import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
-/** Русские слова туриста → ключи интересов движка (дополняет parseInterests). */
-const INTEREST_WORDS: Record<string, string> = {
-  'вулкан': 'volcano', 'вулканы': 'volcano',
-  'рыбалка': 'fishing', 'рыба': 'fishing',
-  'медвед': 'bears',
-  'вертолет': 'helicopter', 'вертолёт': 'helicopter',
-  'термал': 'thermal', 'источник': 'thermal',
-  'треккинг': 'trekking', 'поход': 'trekking',
-  'море': 'boat_trip', 'океан': 'boat_trip', 'катер': 'boat_trip',
-  'гейзер': 'geyser',
-  'снегоход': 'snowmobile',
-};
+/**
+ * Что Кузьмич вообще умеет разобрать — то он и вправе предложить.
+ *
+ * Множество выводится из словаря выше, а не пишется вторым списком: слово,
+ * которого Кузьмич не понимает, в совете было бы издевательством («назови
+ * сплавы» → «не разобрал»), а слово, которое он понимает, но не советует,
+ * молча выпадало бы из сезонной подсказки.
+ */
+const OFFERABLE = new Set(Object.values(INTEREST_WORDS));
+
+const MONTH_NAME = [
+  'январе', 'феврале', 'марте', 'апреле', 'мае', 'июне',
+  'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре',
+];
+
+/**
+ * Что вообще доступно в этом месяце.
+ *
+ * Два свидетеля, как и у движка: сезонные окна (`ACTIVITY_CONSTRAINTS`) —
+ * пол, а `catalogueOpen` — то, на что оператор реально открыл запись. Окно
+ * каталогом только расширяется.
+ *
+ * Без второго аргумента отказ говорил бы «в октябре рыбалка не сезон» в тот
+ * же час, когда план по рыбалке собирается: два голоса об одном (§10.09).
+ * Замер 20.09: семь живых туров из восьми рыболовные, один из них —
+ * «Осенняя рыбалка (октябрь-ноябрь)».
+ */
+export function inSeasonInterests(month: number, catalogueOpen: string[] | null = null): string[] {
+  const fromCatalogue = new Set(catalogueOpen ?? []);
+  return Object.entries(ACTIVITY_CONSTRAINTS)
+    .filter(([key, c]) => (c.months.includes(month) || fromCatalogue.has(key)) && OFFERABLE.has(key))
+    .map(([key]) => key);
+}
+
+/**
+ * Текст отказа: причина, дата и то, что В СЕЗОНЕ.
+ *
+ * ── Что было (замер с прода 19.09) ───────────────────────────────────────
+ *
+ * Отказ звучал так: «Не собрал план по этим параметрам — попробуй назвать
+ * интересы иначе (вулканы, рыбалка, медведи, море)». Список был вшит
+ * строкой, и три слова из четырёх — ровно те, на которых план и не
+ * собирается: планировщик считает поездку на `now + 30 дней`, а в октябре
+ * вулканы, рыбалка и медведи уже вне сезонных окон (`ACTIVITY_CONSTRAINTS`).
+ *
+ * То есть совет вёл обратно в тот же отказ, а настоящая причина — месяц —
+ * не называлась ни словом. Проверено на проде: те же десять дней «море» →
+ * план, «рыбалка» → отказ.
+ *
+ * Список теперь СЧИТАЕТСЯ из сезонных окон, а не пишется руками: вшитый
+ * перечень устаревает молча вместе со сменой месяца.
+ */
+export function buildRefusal(
+  month: number, asked: string[], site: string,
+  catalogueOpen: string[] | null = null,
+): string {
+  const open = inSeasonInterests(month, catalogueOpen);
+  const closed = asked.filter((k) => !open.includes(k));
+
+  const monthWord = MONTH_NAME[month - 1] ?? 'этом месяце';
+  const openWords = open.map((k) => ACTIVITY_NAMES[k]).filter(Boolean).join(', ');
+
+  const why = closed.length > 0
+    ? `В ${monthWord} это уже не сезон: ${closed.map((k) => ACTIVITY_NAMES[k] ?? k).join(', ')}.`
+    : `В ${monthWord} по этим интересам план не сложился.`;
+
+  return `${why} Что идёт в ${monthWord}: ${openWords || 'по нашим данным — ничего, и это похоже на пробел в данных, а не на правду о Камчатке'}. `
+    + `Живой планировщик, там можно задать свои даты: ${site}/planner`;
+}
+
+/**
+ * Когда считать поездку.
+ *
+ * До 19.09 старт был зашит как `now + 30 дней`, и спросить план на июль было
+ * нельзя ничем: Кузьмич всегда считал на месяц вперёд. В сентябре это значило
+ * октябрь — то есть закрытый сезон вулканов, рыбалки и медведей у КАЖДОГО
+ * туриста, кто спрашивал про Камчатку летом следующего года.
+ *
+ * Четыре исхода вместо двух (§4.0): взяли по умолчанию, разобрали сказанное,
+ * не разобрали, сказанное уже прошло. Три последних различимы снаружи —
+ * `kind` читает тот, кто пишет ответ человеку.
+ */
+export type PlanStart =
+  | { kind: 'default'; date: Date }
+  | { kind: 'parsed'; date: Date }
+  | { kind: 'unparsed'; date: Date; raw: string }
+  | { kind: 'past'; date: Date; raw: string };
+
+/**
+ * Формы месяцев — явным списком, а не корнем.
+ *
+ * Корень «ма» поймал бы и «март», и «маршрут»; общего корня у «мае» и «май»
+ * нет. Список короткий и проверяемый, догадка — нет.
+ */
+const MONTH_FORMS: string[][] = [
+  ['январ'], ['феврал'], ['март'], ['апрел'], ['мае', 'май', 'маю'], ['июн'],
+  ['июл'], ['август'], ['сентябр'], ['октябр'], ['ноябр'], ['декабр'],
+];
+
+/** День месяца для «хочу в июле»: середина, а не край с его погодой. */
+const MONTH_ANCHOR_DAY = 10;
+
+export function parsePlanStart(raw: string | undefined, now: number): PlanStart {
+  const fallback = new Date(now + 30 * 86400000);
+  const text = (raw ?? '').trim().toLowerCase();
+  if (!text) return { kind: 'default', date: fallback };
+
+  const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(`${iso[0]}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return { kind: 'unparsed', date: fallback, raw: text };
+    // Дата в прошлом — не «не понял», а «так нельзя»: починка разная, и
+    // сказать надо разное.
+    if (d.getTime() <= now) return { kind: 'past', date: fallback, raw: text };
+    return { kind: 'parsed', date: d };
+  }
+
+  for (let m = 0; m < 12; m++) {
+    if (!MONTH_FORMS[m].some((f) => text.includes(f))) continue;
+    let year = new Date(now).getUTCFullYear();
+    if (Date.UTC(year, m, MONTH_ANCHOR_DAY) <= now) year += 1;
+    return { kind: 'parsed', date: new Date(Date.UTC(year, m, MONTH_ANCHOR_DAY)) };
+  }
+
+  return { kind: 'unparsed', date: fallback, raw: text };
+}
+
+/**
+ * Что сказать человеку про выбранную дату. Пусто — когда говорить нечего.
+ *
+ * Молча подставлять `now + 30 дней` вместо неразобранного «через полгодика»
+ * нельзя: турист спросил про одно, получил план про другое и не узнал об
+ * этом. Само число дня при этом всё равно называется в первой строке плана —
+ * здесь объясняется ПОЧЕМУ оно такое.
+ */
+export function startNote(start: PlanStart, plannedFor: string): string {
+  switch (start.kind) {
+    case 'unparsed':
+      return `Не разобрал «${start.raw}» — считаю на ${plannedFor}. `
+        + 'Назови месяц («в июле») или дату (2027-07-10), и пересчитаю.';
+    case 'past':
+      return `«${start.raw}» уже прошло — считаю на ${plannedFor}.`;
+    default:
+      return '';
+  }
+}
 
 /** Свободный текст интересов → ключи движка. Пусто — классика первой поездки. */
 export function parseChatInterests(raw: string): string[] {
   const text = (raw || '').toLowerCase();
-  const found = new Set<string>();
-  for (const [word, key] of Object.entries(INTEREST_WORDS)) {
-    if (text.includes(word)) found.add(key);
-  }
+  const found = new Set<string>(parseInterestWords(text));
   // parseInterestsFromText движка ловит то, что словарь не покрыл
   try {
     const parsed = parseInterestsFromText(text);
@@ -46,16 +182,64 @@ export function parseChatInterests(raw: string): string[] {
   return [...found];
 }
 
-/** Ближайший пресет /plans под длительность и интересы — ссылка с бронью. */
-export function matchPreset(days: number, interests: string[]): { slug: string; title: string } | null {
+/**
+ * Вес за совпадение ЗАГЛАВНОГО интереса пресета — первого в его списке.
+ *
+ * Первый интерес — это то, что написано в заголовке страницы, куда придёт
+ * турист: у `kamchatka-za-5-dney-okean` это `boat_trip` («океан и
+ * побережье»), у `kamchatka-za-7-dney-rybalka` — `fishing` («рыбалка»), хотя
+ * `boat_trip` есть и там. Поэтому вес обязан перебивать одно лишнее побочное
+ * совпадение (10) вместе с разницей в днях: иначе турист, спросивший про
+ * море, уходит на страницу про рыбалку — она просто шире.
+ */
+const HEADLINE_BONUS = 25;
+
+/**
+ * Ближайший пресет /plans под длительность и интересы — ссылка с бронью.
+ *
+ * ── Чем это было сломано (замер 19.09) ───────────────────────────────────
+ *
+ * Счёт был `overlap * 10 - dayPenalty`, а сравнение — строгим `>`. На запрос
+ * «море», 7 дней счёт 10 набирали СРАЗУ ЧЕТЫРЕ пресета, и побеждал не
+ * лучший, а первый в массиве: `kamchatka-za-7-dney-rybalka`. Турист просил
+ * море — получал ссылку «Камчатка за 7 дней: рыбалка», потому что у неё
+ * `boat_trip` стоит третьим в списке. Порядок литералов в файле решал, что
+ * увидит человек.
+ *
+ * Теперь счёт различает три вещи, и ни одна из них не зависит от порядка:
+ * заглавный интерес пресета, число совпадений и обещанное СВЕРХ спрошенного
+ * (пресет на шесть тем — плохой ответ на одну). Остаточная ничья решается
+ * слагом, а не индексом массива.
+ *
+ * `presets` параметром — чтобы сторож мог перетасовать список и показать,
+ * что ответ от порядка не зависит.
+ */
+export function matchPreset(
+  days: number,
+  interests: string[],
+  presets: readonly PlanPreset[] = PLAN_PRESETS,
+): { slug: string; title: string } | null {
   let best: { slug: string; title: string; score: number } | null = null;
-  for (const p of PLAN_PRESETS) {
+
+  for (const p of presets) {
     const overlap = p.interests.filter((i) => interests.includes(i)).length;
-    const dayPenalty = Math.abs(p.days - days);
-    const score = overlap * 10 - dayPenalty;
-    if (!best || score > best.score) best = { slug: p.slug, title: p.title, score };
+    // Ни одного общего интереса — не кандидат вовсе. Ссылка наугад хуже
+    // отсутствия ссылки: турист уходит читать не про то, что просил.
+    if (overlap === 0) continue;
+
+    const headline = p.interests[0];
+    const extraPromised = p.interests.length - overlap;
+    const score = overlap * 10
+      + (headline && interests.includes(headline) ? HEADLINE_BONUS : 0)
+      - Math.abs(p.days - days)
+      - extraPromised;
+
+    if (!best || score > best.score || (score === best.score && p.slug < best.slug)) {
+      best = { slug: p.slug, title: p.title, score };
+    }
   }
-  return best && best.score > 0 ? { slug: best.slug, title: best.title } : null;
+
+  return best ? { slug: best.slug, title: best.title } : null;
 }
 
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
@@ -63,11 +247,23 @@ export function formatTripPlanForChat(
   days: DayPlan[],
   warnings: string[],
   preset: { slug: string; title: string } | null,
+  /**
+   * Готовый текст отказа и дата, на которую считали. Оба обязательны:
+   * турист просил «семь дней», а движок молча берёт месяц вперёд — не
+   * назвать эту дату значит выдать план на октябрь за план «на сейчас».
+   */
+  context?: { refusal: string; plannedFor: string },
 ): string {
   if (days.length === 0) {
-    return `Не собрал план по этим параметрам — попробуй назвать интересы иначе (вулканы, рыбалка, медведи, море). Живой планировщик: ${SITE}/planner`;
+    return context?.refusal
+      ?? `Не собрал план по этим параметрам. Живой планировщик: ${SITE}/planner`;
   }
-  const lines: string[] = ['Собрал план по дням:', ''];
+  const lines: string[] = [
+    context?.plannedFor
+      ? `Собрал план по дням (считаю на ${context.plannedFor} — пересобрать под свои даты можно в планировщике):`
+      : 'Собрал план по дням:',
+    '',
+  ];
   for (const d of days) {
     const price = d.priceFrom > 0 ? ` — от ${d.priceFrom.toLocaleString('ru-RU')} ₽` : '';
     lines.push(`День ${d.day}. ${d.title}${price}`);
@@ -84,11 +280,14 @@ export function formatTripPlanForChat(
 }
 
 /** Обработчик инструмента: собрать план и отдать текст с ссылками. */
-export async function makeTripPlanForKuzmich(args: { days?: string; interests?: string }): Promise<string> {
+export async function makeTripPlanForKuzmich(
+  args: { days?: string; interests?: string; when?: string },
+): Promise<string> {
   const daysNum = Math.min(21, Math.max(3, Number(args.days) || 7));
   const interests = parseChatInterests(args.interests ?? '');
 
-  const arrival = new Date(Date.now() + 30 * 86400000);
+  const start = parsePlanStart(args.when, Date.now());
+  const arrival = start.date;
   const departure = new Date(arrival.getTime() + daysNum * 86400000);
 
   const rec = await recommendTrip({
@@ -102,9 +301,16 @@ export async function makeTripPlanForKuzmich(args: { days?: string; interests?: 
     riskMode: 'safe_only',
   });
 
-  return formatTripPlanForChat(
+  const month = arrival.getUTCMonth() + 1;
+  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+
+  const text = formatTripPlanForChat(
     rec.days,
     rec.warnings.filter((w) => w.severity !== 'info').map((w) => w.message),
     matchPreset(daysNum, interests),
+    { refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor },
   );
+
+  const note = startNote(start, plannedFor);
+  return note ? `${note}\n\n${text}` : text;
 }

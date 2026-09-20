@@ -6,6 +6,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { pool } from '@/lib/db-pool';
 import type { ZoneId } from '@/lib/planner/engine';
+import { rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,8 @@ export interface RealTour {
   weatherDependent: boolean;
   seasonStart: string | null;
   seasonEnd: string | null;
+  /** Состав тура. `null` — оператор не заполнял; см. lodging-included. */
+  included: string[] | null;
   lat: number;
   lng: number;
   zone: string;
@@ -86,14 +89,27 @@ export interface ReviewSignal {
 
 /**
  * Fetch real operator tours for a zone+activity, sorted by rating (not random).
- * Falls back gracefully: returns [] on error or empty results.
+ *
+ * ── `null` — это «не смогли спросить», и оно НЕ равно пустому списку ─────
+ *
+ * До 19.09 отказ запроса возвращал `[]`, то есть ровно то же, что «туров в
+ * этой зоне нет». Движок читал это как факт о каталоге и собирал общий день,
+ * а перепись того дня объяснила пустой план сезоном — при том что с тем же
+ * исходом запрос мог просто упасть. Доказать было нечем: два разных мира
+ * выглядели одинаково (§4.0).
+ *
+ * Теперь: `[]` — спросили, туров нет; `null` — спросить не вышло, и
+ * вызывающий обязан сказать об этом словами, а не выдать за знание.
+ *
+ * Отказ кэшируется наравне с ответом — намеренно. Кэш живёт один вызов
+ * `recommendTrip`, и долбиться в упавшую базу по разу на зону незачем.
  */
 export async function fetchRealToursForZone(
   zone: ZoneId,
   activityType: string,
   limit: number,
   cache: PlannerCache
-): Promise<RealTour[]> {
+): Promise<RealTour[] | null> {
   return cached(cache, `tours:${zone}:${activityType}`, async () => {
     try {
       const { rows } = await pool.query<{
@@ -113,6 +129,7 @@ export async function fetchRealToursForZone(
         lng: number;
         zone: string | null;
         activity_type: string;
+        included: string[] | null;
         tour_rating: string | null;
         tour_review_count: string;
         operator_name: string;
@@ -129,6 +146,7 @@ export async function fetchRealToursForZone(
           ot.season_start::text, ot.season_end::text,
           ot.latitude AS lat, ot.longitude AS lng,
           ot.activity_type,
+          ot.included,
           ark.zone,
           ot.rating AS tour_rating,
           COALESCE(ot.review_count, 0) AS tour_review_count,
@@ -140,7 +158,7 @@ export async function fetchRealToursForZone(
         JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
         WHERE (ark.zone = $1 OR $1 = 'avachinsky')
-          AND ot.activity_type = $2
+          AND ot.activity_type = ANY($2)
           AND ot.is_active = TRUE
           AND ot.is_published = TRUE
           AND ot.deleted_at IS NULL
@@ -151,7 +169,7 @@ export async function fetchRealToursForZone(
           ot.review_count DESC NULLS LAST,
           RANDOM()
         LIMIT $3`,
-        [zone, activityType, limit]
+        [zone, rawTypesFor(activityType), limit]
       );
 
       return rows.map(r => ({
@@ -174,13 +192,18 @@ export async function fetchRealToursForZone(
         weatherDependent: r.weather_dependent ?? false,
         seasonStart: r.season_start,
         seasonEnd: r.season_end,
+        included: Array.isArray(r.included) ? r.included : null,
         lat: parseFloat(String(r.lat)) || 53.01,
         lng: parseFloat(String(r.lng)) || 158.65,
         zone: r.zone ?? zone,
         activityType: r.activity_type ?? activityType,
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      // Молчать нельзя: имя проверки и причина — в лог (§4.0). Пустой catch
+      // превращал поломку в «данных нет».
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[planner] туры зоны не прочитались (${zone}/${activityType}):`, message);
+      return null;
     }
   });
 }
@@ -382,6 +405,63 @@ export async function fetchReviewSignals(
         recentPositivePercent: parseFloat(String(r.recent_positive_percent)) || 0,
       };
     } catch {
+      return null;
+    }
+  });
+}
+
+/**
+ * Активности, на которые в этом месяце РЕАЛЬНО есть на что записаться.
+ *
+ * ── Зачем (замер с прода 20.09, MCP `get_tours`) ─────────────────────────
+ *
+ * Семь живых туров из восьми — рыболовные, и один из них называется
+ * «Осенняя рыбалка (октябрь-ноябрь)» с ближайшей датой 1 октября. А
+ * `ACTIVITY_CONSTRAINTS.fishing.months` — `[6,7,8,9]`. То есть зашитая
+ * таблица отвечала туристу «в октябре рыбалка не сезон» ровно тогда, когда
+ * оператор её продаёт. Мы отказывались продавать единственное, что у нас
+ * есть.
+ *
+ * Свидетель здесь — СЛОТ, а не объявленный `season_start`/`season_end`.
+ * Слот значит «оператор открыл запись на этот день»: это его действие, а не
+ * его описание, и устареть незаметно оно не может. Объявленный сезон мог бы
+ * остаться с прошлого года.
+ *
+ * Таблица движка при этом НЕ отменяется: она остаётся полом (см.
+ * `inSeason` в engine), а каталог может окно только расширить. Так сделано
+ * потому, что таблица несёт не только коммерцию, но и безопасность — «снег
+ * на тропах тает к середине июня». Расхождение между полом и каталогом
+ * турист видит словами, а не разрешается молча в чью-то пользу (§4.0).
+ *
+ * `null` — спросить не вышло. Тогда действует один пол, и вызывающий
+ * говорит об этом вслух: «не знаем» не равно «каталог пуст».
+ */
+export async function fetchActivitiesBookableInMonth(
+  month: number,
+  cache: PlannerCache,
+): Promise<Set<string> | null> {
+  return cached(cache, `bookable-month:${month}`, async () => {
+    try {
+      const { rows } = await pool.query<{ activity_type: string }>(
+        `SELECT DISTINCT ot.activity_type
+           FROM operator_tours ot
+           JOIN partners p ON p.id = ot.operator_id
+           JOIN tour_availability ta ON ta.operator_tour_id = ot.id
+          WHERE ot.is_active = TRUE
+            AND ot.is_published = TRUE
+            AND ot.deleted_at IS NULL
+            AND p.is_public = TRUE
+            AND ta.available_slots > COALESCE(ta.booked_slots, 0)
+            AND ta.date >= CURRENT_DATE
+            AND EXTRACT(MONTH FROM ta.date) = $1`,
+        [month],
+      );
+      // Слово оператора переводится в ключ движка здесь же: сравнивать их
+      // будут с интересами туриста, а те — всегда ключи.
+      return new Set(rows.map((r) => normalizeActivity(r.activity_type)));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[planner] каталог за месяц ${month} не прочитался:`, message);
       return null;
     }
   });

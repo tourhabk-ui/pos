@@ -162,6 +162,17 @@ jobs:
           # в флагманы не попадают — сторож flagship-resolver.
           EVO_DECISION_FLAGSHIP_VENDOR: z-ai
           EVO_JUDGE_DAYS: ${{ env.DAYS }}
+          # Расход флагмана — в книги платформы, а не только в лог прогона.
+          # БД Timeweb с раннера закрыта файрволом, поэтому прямой INSERT в
+          # llm_usage_log падал ВСЕГДА, и судья — самый дорогой потребитель —
+          # не оставил в книгах ни одной строки. lib/ai/usage-sink отправляет
+          # их на прод (POST /api/admin/llm-usage/report), но включается
+          # только при наличии CRON_SECRET, а здесь его не было: прогон 53
+          # (19.09) отработал флагманом дважды и трижды написал «строка не
+          # записана». Без этих строк /api/cron/llm-budget-check нечего
+          # складывать — дневной бюджет по тратам раннера не мог сработать ни
+          # при каком AI_DAILY_BUDGET_USD.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: npx tsx scripts/evo-judge.ts /tmp/findings.json /tmp/report.md /tmp/report-meta.json
 
       # Публикует-или-переиспользует канонический Issue. Если предыдущий шаг

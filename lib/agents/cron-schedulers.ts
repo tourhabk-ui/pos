@@ -104,6 +104,7 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
 /** Ручные переписи, разборы и починки — расписания у них быть и не должно. */
 export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'tour-describe':             { kind: 'manual', writes: true,  note: 'собрать описание тура из его собственных полей — второй блокер выкладки на чужие витрины; сухой прогон по умолчанию, партия ≤10, причина обязательна' },
+  'planner-material-census': { kind: 'manual', writes: false, note: 'чем планировщику наполнять день: туров и маршрутов по КАЖДОЙ паре «зона × активность», теми же предикатами, какими ищет движок. Заведена 20.09 под вопрос «ослабить ли activity_type»: ослабление вслепую кладёт рыболовный тур в вулканический день, а какие пары пусты структурно — видно только числами' },
   'tour-photos-census':        { kind: 'manual', writes: false, note: 'почему у поста о туре нет снимка: что лежит в operator_tours.photos, доступен ли каждый снимок тем же способом, каким его берёт Telegram, и что Bot API отвечал в прошлые разы (записанные отказы из журнала)' },
   'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
   // 'deepseek-model-probe' объявления здесь не несёт: его зовёт
