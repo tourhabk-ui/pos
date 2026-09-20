@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readdirSync, statSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   ELEMENT_GROUPS,
   EXCLUDED_TYPES,
@@ -34,7 +36,7 @@ describe('ELEMENT_GROUPS — маппинг выверен против реал
 
   it('стихий пять, у каждой непустой href', () => {
     expect(ELEMENT_GROUPS).toHaveLength(5);
-    for (const g of ELEMENT_GROUPS) expect(g.href).toMatch(/^\/routes\?location_type=/);
+    for (const g of ELEMENT_GROUPS) expect(g.href).toMatch(/^\/routes\?kind=place&location_type=/);
   });
 
   it('у каждой стихии непустой hex-цвет (карточки мест)', () => {
@@ -82,10 +84,80 @@ describe('groupPlacesByElement — сумма сходится', () => {
     expect(ocean?.count).toBe(10);
   });
 
-  it('elementHref ведёт в location_type-фильтр, а не category', () => {
-    expect(elementHref('snow')).toBe('/routes?location_type=mountain');
-    expect(elementHref('ocean')).toBe('/routes?location_type=bay');
-    expect(elementHref('nature')).toBe('/routes?location_type=lake');
-    expect(elementHref('unknown')).toBe('/routes');
+  it('elementHref ведёт в location_type-фильтр МЕСТ, а не в маршруты', () => {
+    expect(elementHref('snow')).toBe('/routes?kind=place&location_type=mountain');
+    expect(elementHref('ocean')).toBe('/routes?kind=place&location_type=bay');
+    expect(elementHref('nature')).toBe('/routes?kind=place&location_type=lake');
+    // Неизвестная стихия — тоже к местам: `/routes` увело бы в маршруты.
+    expect(elementHref('unknown')).toBe('/routes?kind=place');
+  });
+});
+
+/**
+ * Ссылка с `location_type`, но без `kind=place`, — мёртвая (20.09).
+ *
+ * ── Что нашлось ───────────────────────────────────────────────────────────
+ *
+ * Владелец: «с главной сложно попасть на страницу мест». Попасть было
+ * НЕЛЬЗЯ. Витрина `/routes` показывает умолчанием МАРШРУТЫ, и фильтр по типу
+ * места при маршрутах отбрасывается обеими сторонами по построению: сервер —
+ * `kind === 'place' ? location_type : ''`, клиент — `if (kind === 'place' &&
+ * locationType)`. Значит адрес `/routes?location_type=volcano` открывает
+ * полный список маршрутов без единого фильтра.
+ *
+ * Так вели ВСЕ пять плиток «Стихии» и три плитки «Истории сегодня». Ещё три
+ * истории несли `category`, которую страница не читает вовсе — ни сервер, ни
+ * клиент такого параметра не знают. Одиннадцать ссылок главной, одна
+ * destination, и ни одна не доходила до мест: раздел был достижим только с
+ * карточки уже открытого места, кнопкой «← Все места».
+ *
+ * ── Почему сторож смотрит на весь репозиторий ─────────────────────────────
+ *
+ * Исправить один файл мало: адрес короткий, вид у него правдоподобный, и
+ * следующая копия напишется руками так же. Проверка идёт по исходникам и
+ * ловит форму, а не место.
+ */
+describe('ссылки на витрину мест доходят до мест', () => {
+  const ROOTS = ['app', 'components', 'lib'];
+
+  function walkTsx(dir: string, out: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === '.next') continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walkTsx(full, out);
+      else if (/\.tsx?$/.test(full)) out.push(full);
+    }
+    return out;
+  }
+
+  /** Код без комментариев: разборы выше сами цитируют мёртвый адрес. */
+  function codeOnly(src: string): string {
+    return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  }
+
+  it('ни одна ссылка не несёт location_type без kind=place', () => {
+    const offenders: string[] = [];
+    for (const root of ROOTS) {
+      for (const file of walkTsx(join(process.cwd(), root))) {
+        const code = codeOnly(readFileSync(file, 'utf-8'));
+        for (const m of code.matchAll(/['"`](\/routes\?[^'"`]*location_type=[^'"`]*)['"`]/g)) {
+          if (!m[1].includes('kind=place')) offenders.push(`${file.replace(process.cwd() + '/', '')}: ${m[1]}`);
+        }
+      }
+    }
+    expect(offenders, 'такой адрес открывает маршруты без фильтра').toEqual([]);
+  });
+
+  it('параметра category витрина не знает — ссылок с ним быть не должно', () => {
+    const offenders: string[] = [];
+    for (const root of ROOTS) {
+      for (const file of walkTsx(join(process.cwd(), root))) {
+        const code = codeOnly(readFileSync(file, 'utf-8'));
+        for (const m of code.matchAll(/['"`](\/routes\?[^'"`]*\bcategory=[^'"`]*)['"`]/g)) {
+          offenders.push(`${file.replace(process.cwd() + '/', '')}: ${m[1]}`);
+        }
+      }
+    }
+    expect(offenders, 'ни сервер, ни клиент этот параметр не читают').toEqual([]);
   });
 });

@@ -4,13 +4,25 @@ import React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 
+/**
+ * Куда ведут плитки (20.09).
+ *
+ * Все шесть вели в ОДНУ точку — полный список маршрутов без фильтра. Три
+ * несли `location_type` без `kind=place` (витрина умолчанием показывает
+ * маршруты и при них отбрасывает тип места), ещё три — `category`, которую
+ * страница не читает ВОВСЕ: ни сервер, ни клиент такого параметра не знают.
+ *
+ * Плитка с подписью «Курильское» обещает озеро с медведями и приводила в
+ * общий список. Теперь каждая ведёт туда, что написано на ней: названные
+ * места — поиском по имени среди МЕСТ, «Мыс» — по роду места.
+ */
 const STORIES = [
-  { label: 'Ключевской',   image: '/images/hero/IMG_20260316_133026.jpg', href: '/routes?location_type=volcano' },
-  { label: 'Халактырский', image: '/images/bento/khalaktyr.jpg',           href: '/routes?category=morskie_progulki' },
-  { label: 'Курильское',   image: '/images/hero/bears-kurilskoye.jpg',     href: '/routes?category=medvedi' },
-  { label: 'Паратунка',    image: '/images/bento/paratunka.jpg',           href: '/routes?location_type=hot_spring' },
-  { label: 'Мутновский',   image: '/images/bento/mutnovsky.jpg',           href: '/routes?location_type=volcano' },
-  { label: 'Мыс',          image: '/images/bento/cape.jpg',                href: '/routes?category=morskie_progulki' },
+  { label: 'Ключевской',   image: '/images/hero/IMG_20260316_133026.jpg', href: '/routes?kind=place&location_type=volcano' },
+  { label: 'Халактырский', image: '/images/bento/khalaktyr.jpg',           href: '/routes?kind=place&q=%D1%85%D0%B0%D0%BB%D0%B0%D0%BA%D1%82%D1%8B%D1%80' },
+  { label: 'Курильское',   image: '/images/hero/bears-kurilskoye.jpg',     href: '/routes?kind=place&q=%D0%BA%D1%83%D1%80%D0%B8%D0%BB%D1%8C%D1%81%D0%BA' },
+  { label: 'Паратунка',    image: '/images/bento/paratunka.jpg',           href: '/routes?kind=place&location_type=hot_spring' },
+  { label: 'Мутновский',   image: '/images/bento/mutnovsky.jpg',           href: '/routes?kind=place&location_type=volcano' },
+  { label: 'Мыс',          image: '/images/bento/cape.jpg',                href: '/routes?kind=place&location_type=cape' },
 ];
 
 export function StoriesRail() {
