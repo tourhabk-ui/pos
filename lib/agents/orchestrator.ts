@@ -63,7 +63,8 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   const [scanRes, evolverRes, intelRes, modelsRes, scoutInnovatorRes, memoryReflectorRes] = await Promise.allSettled([
     runGrowthScan(scanType),
     // Rescue здесь НЕ идёт с 08.09 (issue #1725). Он шёл двумя расписаниями
-    // сразу: свой крон каждые 30 минут (cron-rescue.yml, safety-tier, с
+    // сразу: свой крон каждые 30 минут (cron-safety-heartbeat.yml с 20.09,
+    // до этого отдельный cron-rescue.yml, safety-tier, с
     // арендой окна claimCronWindow) и ещё три раза в сутки отсюда — а этот
     // путь звал функцию напрямую, аренду не брал, и остановить его было
     // нечем. Итог: до 51 прогона в сутки вместо 48, из них три могли лечь
