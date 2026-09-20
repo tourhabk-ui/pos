@@ -105,6 +105,35 @@ describe('смета не платит за ночь дважды', () => {
   });
 });
 
+describe('ночь считается там, где её проводят', () => {
+  it('у северной зоны ночёвка отнесена к Авачинской', () => {
+    // Было: pricePerNight [0,0,0] с припиской «ночёвка в Авачинской зоне».
+    // Факт стоял прозой, код читал из него только ноль — и ночь, которую
+    // человек проводит в Петропавловске, не считалась НИГДЕ. Ошибка в
+    // обратную сторону от двойного счёта, причина та же: о ночёвке судили
+    // не по данным.
+    const at = ENGINE.indexOf("note: 'Однодневная экскурсия, ночёвка в Авачинской зоне'");
+    expect(at, 'северная зона не нашлась').toBeGreaterThan(0);
+    expect(ENGINE.slice(at, at + 200)).toMatch(/sleepsIn: 'avachinsky'/);
+  });
+
+  it('смета читает это поле, а не только приписку', () => {
+    // Поле без потребителя — то же объявление в никуда, что и приписка
+    // (§10.09): выглядело бы починкой, не будучи ею.
+    const at = ENGINE.indexOf('let accFrom = 0;');
+    const block = ENGINE.slice(at, at + 700);
+    expect(block).toMatch(/ZONE_ACCOMMODATION\[day\.zone\]\.sleepsIn \?\? day\.zone/);
+    expect(block).toMatch(/const acc = ZONE_ACCOMMODATION\[sleepZone\]/);
+  });
+
+  it('зона, где ночуют, платит по своей цене', () => {
+    // Иначе правка свелась бы к «взять ноль из другого места».
+    const at = ENGINE.indexOf('let accFrom = 0;');
+    const block = ENGINE.slice(at, at + 700);
+    expect(block).not.toMatch(/ZONE_ACCOMMODATION\[day\.zone\]\.pricePerNight/);
+  });
+});
+
 describe('завышение не остаётся молчаливым', () => {
   it('неразобранный состав даёт предупреждение', () => {
     expect(ENGINE).toMatch(/const unknownLodging = days\.filter\(d => d\.realTour && d\.realTour\.lodgingIncluded === null\)/);

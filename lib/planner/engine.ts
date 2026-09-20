@@ -234,6 +234,19 @@ interface AccommodationInfo {
   types: string[];
   pricePerNight: [number, number, number]; // [economy, comfort, premium]
   note: string;
+  /**
+   * Где турист НОЧУЕТ, если в этой зоне не ночуют.
+   *
+   * Заведено 20.09. У северной зоны стояло `pricePerNight: [0, 0, 0]` с
+   * припиской «Однодневная экскурсия, ночёвка в Авачинской зоне» — то есть
+   * факт был записан прозой, а код читал из него только ноль. Ночь,
+   * которую человек проводит в Петропавловске, не считалась НИГДЕ: смета
+   * занижалась ровно на неё.
+   *
+   * Тот же род дефекта, что двойной счёт ночи на базе, только в другую
+   * сторону — и оба от того, что о ночёвке судили не по данным.
+   */
+  sleepsIn?: ZoneId;
 }
 
 const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
@@ -256,6 +269,9 @@ const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
     types: [],
     pricePerNight: [0, 0, 0],
     note: 'Однодневная экскурсия, ночёвка в Авачинской зоне',
+    // Приписка выше теперь не только для чтения: ночь считается по той
+    // зоне, где её реально проводят.
+    sleepsIn: 'avachinsky',
   },
 };
 
@@ -1189,7 +1205,9 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   for (const day of days) {
     if (day.type === 'departure') continue;
     if (day.realTour?.lodgingIncluded === true) continue;
-    const acc = ZONE_ACCOMMODATION[day.zone];
+    // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
+    const sleepZone = ZONE_ACCOMMODATION[day.zone].sleepsIn ?? day.zone;
+    const acc = ZONE_ACCOMMODATION[sleepZone];
     const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
     accFrom += Math.round(nightPrice * 0.8);
     accTo   += Math.round(nightPrice * 1.2);
