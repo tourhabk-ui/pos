@@ -55,6 +55,13 @@ const ICONS_BY_KIND: Record<string, (hex: string, halo: string) => string> = {
   cave: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><path d="M7 18a5 6 0 0 1 10 0" fill="#1A1714" opacity="0.55"/></svg>`,
   cape: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><ellipse cx="12" cy="18" rx="8" ry="4" fill="#475569" opacity="0.3"/><path d="M5 16h7l4 8H5z" fill="${hex}" stroke="${halo}" stroke-width="1.5"/></svg>`,
   settlement: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 3L3 12v13h18V12L12 3z" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><rect x="9.5" y="17" width="5" height="8" rx="0.5" fill="#fff" opacity="0.6"/></svg>`,
+  // Перевал — седловина МЕЖДУ двумя вершинами: две горы и провал посередине,
+  // через который и проходят. Форма намеренно не повторяет `mountain`
+  // (одиночный треугольник): подпись говорит «Перевал», и значок обязан
+  // говорить то же. Заведён 20.09 вместе с миграцией 992 — «Каньон
+  // Сноубордистов» оказался перевалом над Эссо, и до этой строки он падал бы
+  // на общий кружок «other».
+  pass: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M2 23L8 9l4 7 4-7 6 14H2z" fill="${hex}" stroke="${halo}" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 20h6" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/></svg>`,
   other: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.5"/></svg>`,
 };
 
@@ -121,5 +128,9 @@ export const PLACE_KIND_COLOR: Record<string, string> = {
   settlement: '#6B7280',
   valley:     '#0D9488',
   cave:       '#57534E',
+  // Перевал делит цвет с горой намеренно: это горный рельеф, а не отдельная
+  // категория фильтра — в одном списке с горами он не показывается, и
+  // различает их форма (см. комментарий выше про второстепенные виды).
+  pass:       '#1E40AF',
   other:      '#6B7280',
 };
