@@ -161,6 +161,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'places-osm-crosscheck': ['db_read', 'net_out'],
   'places-routes-census': ['db_read'],
   'places-unmerge': ['db_read', 'db_write'],
+  'planner-material-census': ['db_read'],
   'prod-errors': ['db_read'],
   'prospect-scan': ['net_out', 'pd_direct'],
   'pwa-installs-census': ['db_read'],
