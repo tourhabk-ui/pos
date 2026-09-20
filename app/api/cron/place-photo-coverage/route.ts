@@ -48,6 +48,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { shownPhotoSql, SHOWN_MODELS, whyNotShown } from '@/lib/images/origin';
+import { cardImage, type CardImageKind } from '@/lib/routes/card-image';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -65,6 +66,25 @@ const DEFAULT_LIMIT = 100;
  */
 const whyHidden = whyNotShown;
 
+/**
+ * Что карточка покажет ВМЕСТО отсутствующего снимка — словами.
+ *
+ * Род берётся у `cardImage`, то есть у той же функции, которой пользуется
+ * каталог. Своё объяснение здесь уже было, и оно было неверным: «карточка
+ * покажет градиент, и это правда» — тогда как у места с подходящей категорией
+ * подставляется кадр стороннего оператора.
+ */
+function cardShows(category: string | null): string {
+  const kind = cardImage({ hasShownPhoto: false, id: 'x', category }).kind;
+  if (kind === 'category_fallback') {
+    return 'карточка подставит кадр оператора по категории (/images/partners/kamchatintour), а не снимок этого места';
+  }
+  if (kind === 'payload_link') {
+    return 'карточка подставит адрес из payload — чужой сервер';
+  }
+  return 'карточка покажет градиент';
+}
+
 export async function GET(req: NextRequest) {
   if (!timingSafeCompare(getCronSecret(req), process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -79,10 +99,12 @@ export async function GET(req: NextRequest) {
     // ── Вопрос про ОДНО место ────────────────────────────────────────────
     if (name) {
       const { rows } = await pool.query<{
-        id: string; place: string; model: string | null; shown: boolean; has_bytes: boolean; in_s3: boolean;
+        id: string; place: string; category: string | null;
+        model: string | null; shown: boolean; has_bytes: boolean; in_s3: boolean;
       }>(
         `SELECT p.id::text,
                 p.name AS place,
+                p.category,
                 i.model,
                 ${shownPhotoSql('i.model')} AS shown,
                 (i.image_data IS NOT NULL)  AS has_bytes,
@@ -114,12 +136,17 @@ export async function GET(req: NextRequest) {
           id: r.id,
           // Три разных состояния, а не два: снимка нет вовсе / есть, но не
           // показывается / показывается.
-          verdict: r.model === null
-            ? 'снимка нет вовсе — карточка покажет градиент, и это правда'
-            : r.shown
-              ? 'показываемый снимок есть'
-              : `снимок ЕСТЬ, но скрыт: ${whyHidden(r.model)}`,
+          verdict: r.shown
+            ? 'показываемый снимок есть'
+            : r.model === null
+              ? `снимка нет вовсе — ${cardShows(r.category)}`
+              : `снимок ЕСТЬ, но скрыт: ${whyHidden(r.model)}; вместо него ${cardShows(r.category)}`,
           model: r.model,
+          // Что увидит турист, а не что лежит в таблице. До 20.09 перепись
+          // отвечала «покажет градиент, и это правда» всем без снимка —
+          // и это была неправда у каждого места, чья категория попадает в
+          // подстановку.
+          card_shows: cardImage({ hasShownPhoto: r.shown, id: r.id, category: r.category }).kind,
           storage: r.model === null ? null : (r.in_s3 ? 's3' : r.has_bytes ? 'байты в базе' : 'ни байтов, ни ссылки'),
         })),
       });
@@ -159,6 +186,64 @@ export async function GET(req: NextRequest) {
       [limit, offset],
     );
 
+    // ── Что увидит турист у мест БЕЗ показываемого снимка ────────────────
+    //
+    // Считается не по своему условию, а по `cardImage` — той же функции, что
+    // выбирает картинку в каталоге. Иначе перепись отвечала бы про своё
+    // представление о карточке, а не про карточку (так и было до 20.09).
+    const { rows: noPhotoCats } = await pool.query<{ category: string | null; n: string }>(
+      `SELECT p.category, count(*)::text AS n
+         FROM places p
+         LEFT JOIN ai_route_images i ON i.route_id = p.ark_id
+        WHERE p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
+          AND (i.model IS NULL OR NOT ${shownPhotoSql('i.model')})
+        GROUP BY p.category`,
+    );
+
+    const byCardKind: Record<CardImageKind, number> = {
+      own: 0, payload_link: 0, category_fallback: 0, gradient: 0,
+    };
+    for (const row of noPhotoCats) {
+      const kind = cardImage({ hasShownPhoto: false, id: 'x', category: row.category }).kind;
+      byCardKind[kind] += Number(row.n);
+    }
+    byCardKind.own = Number(totals[0]?.with_shown ?? 0);
+
+    // ── Происхождение ПОКАЗЫВАЕМЫХ снимков ───────────────────────────────
+    //
+    // Повод 20.09: на карточках источников стоят кадры с вотермарком «alamy».
+    // Раз они показаны, их род в SHOWN_MODELS — то есть правило показа их
+    // пропустило, а чьи они, не знает никто. Вотермарк лежит в пикселях, SQL
+    // его не видит; единственная записанная улика происхождения —
+    // `source_url`, и перепись отдаёт её хост как есть.
+    //
+    // Пустой источник не объявляется чужим и не объявляется своим: это
+    // «не знаю» (§4.0), и разбирать его человеку.
+    const { rows: shownRows } = await pool.query<{
+      model: string | null; source_url: string | null; author: string | null; license: string | null;
+    }>(
+      `SELECT i.model, i.source_url, i.author, i.license
+         FROM places p
+         JOIN ai_route_images i ON i.route_id = p.ark_id
+        WHERE p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
+          AND ${shownPhotoSql('i.model')}`,
+    );
+
+    const hostOf = (u: string | null): string => {
+      if (!u || !u.trim()) return '(источник не записан)';
+      try { return new URL(u.trim()).hostname.replace(/^www\./, ''); }
+      catch { return '(адрес не разобран)'; }
+    };
+
+    const shownByHost: Record<string, number> = {};
+    const shownByModel: Record<string, number> = {};
+    for (const r of shownRows) {
+      const h = hostOf(r.source_url);
+      shownByHost[h] = (shownByHost[h] ?? 0) + 1;
+      const m = r.model ?? '(род не записан)';
+      shownByModel[m] = (shownByModel[m] ?? 0) + 1;
+    }
+
     const t = totals[0];
     const live = Number(t?.live ?? 0);
     const withShown = Number(t?.with_shown ?? 0);
@@ -176,6 +261,17 @@ export async function GET(req: NextRequest) {
         count: Number(r.n),
         why: whyHidden(r.model),
       })),
+      // Что стоит на карточке у каждого живого места. `own` — собственный
+      // снимок; остальные три означают, что места на картинке нет.
+      card_image_kind: byCardKind,
+      shown_photos: {
+        total: shownRows.length,
+        by_model: shownByModel,
+        by_source_host: shownByHost,
+        without_author: shownRows.filter(r => !r.author || !r.author.trim()).length,
+        without_license: shownRows.filter(r => !r.license || !r.license.trim()).length,
+        note: 'вотермарк живёт в пикселях и в SQL не виден: перепись отдаёт записанный источник, приговор о правах — человеку',
+      },
       page: { limit, offset, returned: items.length },
       // Одной строкой на место: список читает человек.
       without_shown_photo: items.map(r =>
