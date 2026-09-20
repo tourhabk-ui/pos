@@ -19,9 +19,9 @@
  * этом остановилась. Запись живёт в localStorage, тайлы в Cache Storage, и
  * система чистит второе, не трогая первое: запись пережила бы карту, а
  * галочка — обе. Свидетельством теперь служит проба Cache Storage
- * (`lib/offline/tiles-present.ts`), запись — только поводом её запросить.
+ * (`lib/offline/coverage.ts`), запись — только поводом её запросить.
  *
- * «Спросить нечем» (`unknown`: нет Cache Storage, старая запись без пробы)
+ * «Спросить нечем» (`cannot_check`: нет Cache Storage, старая запись без пробы)
  * галочкой не становится. Цена ошибки здесь односторонняя — уйти в поле без
  * карты, — поэтому непроверенность блокирует, а не успокаивает (§4.0).
  */
@@ -49,8 +49,8 @@ describe('офлайн-галочка стоит на свидетельстве
   });
 
   it('свидетельство — подтверждённая проба Cache Storage', () => {
-    expect(block).toMatch(/savedRouteMapPresence/);
-    expect(block).toMatch(/'present'/);
+    expect(block).toMatch(/savedRouteCoverage/);
+    expect(block).toMatch(/'covered'/);
   });
 
   it('«проверить нечем» галочкой не становится', () => {
@@ -60,12 +60,12 @@ describe('офлайн-галочка стоит на свидетельстве
     const offline = block.slice(block.indexOf("item.id === 'offline'"));
     const tail = offline.slice(0, offline.indexOf('\n    }') + 6);
     expect(tail.match(/done:\s*true/g) ?? []).toHaveLength(1);
-    expect(tail).toMatch(/st === 'present'[\s\S]{0,80}done:\s*true/);
+    expect(tail).toMatch(/st === 'covered'[\s\S]{0,80}done:\s*true/);
   });
 
   it('проба берётся из общего источника, а не считается на месте', () => {
-    expect(SRC).toContain("from '@/lib/offline/tiles-present'");
-    expect(SRC).toMatch(/probeTilesPresent\(rec\.sampleUrls\)/);
+    expect(SRC).toContain("from '@/lib/offline/coverage'");
+    expect(SRC).toMatch(/probeCoverage\(rec\.sampleUrls\)/);
   });
 
   it('запись читается из хранилища по ключу маршрута, а не выдумывается', () => {

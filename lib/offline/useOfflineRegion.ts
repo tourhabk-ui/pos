@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { RegionId } from '@/lib/geo/regions';
 import { REGIONS } from '@/lib/geo/regions';
 import { generateTileUrls } from '@/lib/offline/tiles';
-import { probeTilesPresent, type TilesPresence } from '@/lib/offline/tiles-present';
+import { probeCoverage, type CoverageReport } from '@/lib/offline/coverage';
 import {
   saveRegion,
   getRegion,
@@ -69,9 +69,9 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       if (cancelled || !meta) return;
       setRegionMeta(meta);
       const region = REGIONS[regionId];
-      const tiles: TilesPresence = region
-        ? await probeTilesPresent(generateTileUrls(region.bbox))
-        : { state: 'unknown', checked: 0, found: 0 };
+      const tiles: CoverageReport | null = region
+        ? await probeCoverage(generateTileUrls(region.bbox))
+        : null;
 
       // Маршруты тоже проверяются ДЕЛОМ, а не записью. Прежний комментарий
       // утверждал, что при пропавших тайлах «маршруты в IndexedDB живы», —
@@ -88,11 +88,11 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       }
 
       if (cancelled) return;
-      if (tiles.state === 'missing' || tiles.state === 'partial' || routesShort) {
+      if (tiles?.state === 'none' || tiles?.state === 'partial' || routesShort) {
         // Что-то из обещанного не на месте: карта, маршруты или и то и другое.
         setStatus('partial');
       } else {
-        // Проба подтвердила тайлы либо спросить было нечем (`unknown` —
+        // Проба подтвердила тайлы либо спросить было нечем (`cannot_check` —
         // не доказательство, но и не повод объявлять пропажу). Закачка при
         // этом могла пройти с потерями: это записано в самой записи.
         setStatus((meta.tilesFailed ?? 0) > 0 ? 'partial' : 'cached');

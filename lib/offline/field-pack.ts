@@ -29,7 +29,7 @@ import {
 import {
   planTileRelease, regionTileUrls, packTileHolder, type TileHolder,
 } from '@/lib/offline/tile-ownership';
-import { probeTilesPresent } from '@/lib/offline/tiles-present';
+import { probeCoverage } from '@/lib/offline/coverage';
 
 export type PackAssetStatus = 'ready' | 'partial' | 'missing' | 'stale';
 
@@ -190,8 +190,8 @@ export async function verifyFieldPack(
   if (!m.tiles) {
     states.push({ kind: 'tiles', status: 'missing', note: 'Карта не сохранена' });
   } else {
-    const present = await probeTilesPresent(m.tiles.sampleUrls);
-    if (present.state === 'missing') {
+    const present = await probeCoverage(m.tiles.sampleUrls);
+    if (present.state === 'none') {
       states.push({ kind: 'tiles', status: 'missing', note: 'Карта была сохранена, но вычищена системой' });
     } else if (present.state === 'partial') {
       // Раньше сюда не попадал никто: прежний предикат `some` считал картой
