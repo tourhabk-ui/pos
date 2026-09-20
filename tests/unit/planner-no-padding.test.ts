@@ -57,7 +57,12 @@ describe('движок не размножает день', () => {
   it('общий день по паре «зона + активность» выдаётся один раз', () => {
     expect(ENGINE).toContain('const genericDays = new Set<string>()');
     expect(ENGINE).toMatch(/const genericKey = `\$\{block\.zone\}:\$\{interest\}`/);
-    expect(ENGINE).toMatch(/if \(genericDays\.has\(genericKey\)\) continue;/);
+    // Проверяется СВОЙСТВО (повтор ключа не даёт дня), а не написание:
+    // первая редакция пиннила строку `... has(genericKey)) continue;` и
+    // покраснела на верной правке, когда рядом появился счёт занятых дней.
+    const at = ENGINE.indexOf('genericDays.has(genericKey)');
+    expect(at, 'проверки повтора нет').toBeGreaterThan(0);
+    expect(ENGINE.slice(at, at + 120)).toContain('continue');
   });
 
   it('пропуск случается ТОЛЬКО когда нет ни тура, ни маршрута', () => {

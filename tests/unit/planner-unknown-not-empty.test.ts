@@ -130,7 +130,10 @@ describe('недобор дней не называет причину, кото
     expect(ENGINE).toContain('const unchecked = new Set<string>()');
     expect(ENGINE).toMatch(/if \(toursOrNull === null \|\| routesOrNull === null\)/);
     // Список доходит до вызывающего, а не остаётся внутри сборки дней.
-    expect(ENGINE).toMatch(/return \{ days, unchecked: \[\.\.\.unchecked\] \}/);
+    // Состав возвращаемого объекта с тех пор вырос (длительность туров),
+    // поэтому сверяется присутствие поля, а не форма всей строки.
+    expect(ENGINE).toMatch(/return \{ days, unchecked: \[\.\.\.unchecked\]/);
+    expect(ENGINE).toMatch(/const \{ days, unchecked[^}]*\} = await generateDayPlans/);
   });
 
   it('о непроверенном говорится вслух отдельным предупреждением', () => {

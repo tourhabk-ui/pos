@@ -29,6 +29,7 @@ import {
   fetchWeatherForecast, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
+import { tourDaySpan } from '@/lib/planner/tour-span';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -799,6 +800,10 @@ async function scoreZones(
 interface DayPlanResult {
   days: DayPlan[];
   unchecked: string[];
+  /** Туры, чья длительность не заполнена: поставлены одним днём. */
+  spanUnknown: string[];
+  /** Туры, не поместившиеся в срок: пропущены целиком, а не урезаны. */
+  tooLong: string[];
 }
 
 async function generateDayPlans(
@@ -810,7 +815,7 @@ async function generateDayPlans(
   catalogueOpen: Set<string> | null,
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [] };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [] };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -841,7 +846,7 @@ async function generateDayPlans(
     childFriendly: true, minChildAge: 0, dayWarnings: [],
   });
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked] };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [] };
 
   // ── Active days budget ──
   const departureDays = 1;
@@ -879,6 +884,11 @@ async function generateDayPlans(
   // Пары «зона + активность», для которых общий день уже выдан: повторять
   // его нельзя (см. ниже, в цикле дней).
   const genericDays = new Set<string>();
+
+  /** Туры без заполненной длительности: поставлены одним днём, но это догадка. */
+  const spanUnknown = new Set<string>();
+  /** Туры длиннее, чем дней в зоне: не поставлены и не урезаны. */
+  const tooLong = new Set<string>();
 
   // Insert travel days between different zones
   let prevZone: ZoneId = 'avachinsky';
@@ -925,12 +935,28 @@ async function generateDayPlans(
       unchecked.add(`${ZONE_NAMES[block.zone]} / ${ACTIVITY_NAMES[primaryInterest] ?? primaryInterest}`);
     }
 
-    // Generate activity days for this zone
-    for (let d = 0; d < block.activeDays && dayNum <= tripDays - departureDays; d++) {
+    // Сборка дней зоны.
+    //
+    // `d` — индекс МАТЕРИАЛА (какой по счёту тур или маршрут берём),
+    // `used` — сколько дней поездки этим материалом уже занято. До 20.09 это
+    // было одно число, и потому многодневный тур занимал ровно один день:
+    // «Многодневный летний тур (5 дней)» за 140 000 ₽ стоял в плане как
+    // однодневная активность. Главный продукт оператора план не мог
+    // представить в принципе.
+    let d = 0;
+    let used = 0;
+    // Сколько раз подряд итерация не дала дня. Полный оборот по интересам
+    // без единого дня значит, что материала больше нет, — и цикл обязан
+    // остановиться сам. С `for (...; d++)` от зацикливания спасал заголовок;
+    // у `while` эту работу делает счётчик, иначе `continue` крутится вечно.
+    let barren = 0;
+    while (used < block.activeDays && dayNum <= tripDays - departureDays) {
+      if (barren >= block.interests.length) break;
+
       const interestIdx = d % block.interests.length;
       const interest = block.interests[interestIdx];
       const c = ACTIVITY_CONSTRAINTS[interest];
-      if (!c) continue;
+      if (!c) { d++; barren++; continue; }
 
       // Reality layer: try real tour first, then DB route
       const realTour: RealTour | null = d < realTours.length ? realTours[d] : null;
@@ -946,9 +972,29 @@ async function generateDayPlans(
       // в предупреждении.
       if (!realTour && !route) {
         const genericKey = `${block.zone}:${interest}`;
-        if (genericDays.has(genericKey)) continue;
+        if (genericDays.has(genericKey)) { d++; barren++; continue; }
         genericDays.add(genericKey);
       }
+
+      // Сколько дней поездки занимает этот тур. `null` — длительность не
+      // заполнена: ставим одним днём, как раньше, но запоминаем — под таким
+      // полем может лежать пятидневка (§4.0).
+      const declaredSpan = realTour ? tourDaySpan(realTour.durationHours) : 1;
+      if (realTour && declaredSpan === null) {
+        spanUnknown.add(realTour.title);
+      }
+      const span = declaredSpan ?? 1;
+
+      // Тур длиннее, чем дней в этой зоне. НЕ режем: «три дня из
+      // пятидневного тура» — не продукт, его нельзя купить. Пропускаем и
+      // говорим об этом словами.
+      if (span > block.activeDays) {
+        if (realTour) tooLong.add(`${realTour.title} (${span} дн.)`);
+        d++; barren++;
+        continue;
+      }
+
+      barren = 0;
 
       const coords: [number, number] = realTour
         ? [realTour.lat, realTour.lng]
@@ -1083,8 +1129,30 @@ async function generateDayPlans(
         qualityScore,
       });
 
+      // Продолжение многодневного тура: те же дни поездки, но БЕЗ повторной
+      // цены и без второй карточки тура. Цена многодневного тура — за весь
+      // тур, а не за сутки; посчитать её N раз значило бы умножить счёт.
+      for (let extra = 1; extra < span && used + extra <= block.activeDays && dayNum <= tripDays - departureDays; extra++) {
+        days.push({
+          day: dayNum++, type: 'activity', zone: block.zone,
+          title: `${dayTitle} — день ${extra + 1} из ${span}`,
+          description: 'Продолжение многодневного тура. Цена учтена в первом дне.',
+          activityType: interest,
+          priceFrom: 0, priceTo: 0,
+          coords, defaultTransport: transport,
+          allowedTransports: allowed.length > 0 ? allowed : [transport],
+          difficulty: (realTour?.difficulty as DayPlan['difficulty']) ?? c.difficulty,
+          childFriendly: childOk, minChildAge: c.minChildAge, dayWarnings: [],
+          // Тот же тур — значит и ночь его, и смета её не считает отдельно.
+          realTour: realTourData,
+        });
+      }
+
+      used += span;
+      d++;
+
       // Insert rest day after hard activities (if budget allows)
-      if (c.difficulty === 'hard' && d < block.activeDays - 1 && dayNum <= tripDays - departureDays - 1) {
+      if (c.difficulty === 'hard' && used < block.activeDays && dayNum <= tripDays - departureDays - 1) {
         days.push({
           day: dayNum++, type: 'rest', zone: block.zone,
           title: 'День отдыха. Термальные источники',
@@ -1095,6 +1163,7 @@ async function generateDayPlans(
           defaultTransport: 'walking', allowedTransports: ['walking'],
           difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
         });
+        used += 1;
       }
     }
 
@@ -1175,7 +1244,7 @@ async function generateDayPlans(
     });
   }
 
-  return { days, unchecked: [...unchecked] };
+  return { days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong] };
 }
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
@@ -1341,7 +1410,7 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const { days, unchecked } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const { days, unchecked, spanUnknown, tooLong } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
 
   // «Не смогли посмотреть каталог» — отдельное предупреждение и отдельными
   // словами. Раньше отказ запроса возвращался пустым списком и был
@@ -1354,6 +1423,34 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: `Не удалось проверить наличие туров: ${unchecked.slice(0, 3).join('; ')}`
         + (unchecked.length > 3 ? ` и ещё ${unchecked.length - 3}` : '')
         + '. Это «не знаем», а не «туров нет» — план по этим дням может быть беднее реального.',
+    });
+  }
+
+  // Тур не поместился в срок — и НЕ урезан. «Три дня из пятидневного тура»
+  // не продукт, его нельзя купить; поставить его усечённым значило бы
+  // показать расписание, которое не состоится.
+  if (tooLong.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Не поместились в срок поездки и потому не вошли в план: ${tooLong.slice(0, 3).join('; ')}`
+        + (tooLong.length > 3 ? ` и ещё ${tooLong.length - 3}` : '')
+        + '. Резать тур по границе поездки нельзя — его продают целиком. Добавьте дней, и они войдут.',
+    });
+  }
+
+  // Длительность не заполнена — тур поставлен одним днём, и это догадка.
+  //
+  // Молчать нельзя: под незаполненным полем может лежать пятидневка, и
+  // тогда неверен весь порядок дней, а не одна строка. Именно так
+  // «Многодневный летний тур (5 дней)» и стоял в плане однодневным.
+  if (spanUnknown.length > 0) {
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `Длительность не указана у ${spanUnknown.slice(0, 3).join('; ')}`
+        + (spanUnknown.length > 3 ? ` и ещё ${spanUnknown.length - 3}` : '')
+        + ' — поставили одним днём. Если тур многодневный, порядок дней в плане сдвинется; уточните у оператора.',
     });
   }
 
