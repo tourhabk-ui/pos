@@ -87,7 +87,10 @@ export async function GET(
       roomBasePrice = roomResult.rows[0].price_per_night;
     }
 
-    const basePrice = roomBasePrice ?? accommodation.price_per_night_from;
+    // Цены может не быть ни у номера, ни у объекта — и это «не знаю», а не
+    // ноль и не NaN. Прежде отсюда выходил `parseFloat(null)`, то есть NaN,
+    // который JSON тихо превращает в null, а экран печатал словом «NaN».
+    const basePrice: string | number | null = roomBasePrice ?? accommodation.price_per_night_from ?? null;
 
     const pricesResult = roomId
       ? await query<{ date: string; price: string; has_override: boolean; is_blocked: boolean }>(
@@ -134,7 +137,11 @@ export async function GET(
         roomId: roomId ?? null,
         startDate,
         endDate,
-        basePrice: parseFloat(basePrice),
+        // null доезжает до клиента как null, а не как NaN. Прежде тут стоял
+        // голый parseFloat: при отсутствующей цене он давал NaN, JSON.stringify
+        // превращал NaN в null молча, а типом ответа значилось `number` —
+        // то есть контракт расходился с тем, что реально приходило.
+        basePrice: basePrice === null ? null : parseFloat(String(basePrice)),
         prices
       }
     } as ApiResponse<unknown>);

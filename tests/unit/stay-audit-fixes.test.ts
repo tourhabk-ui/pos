@@ -63,7 +63,13 @@ describe('листинг: колонки с префиксом, JOIN не даё
     expect(LIST).toContain('a.is_active = true');
     expect(LIST).toContain('a.name ILIKE');
     expect(LIST).toContain('a.rating >=');
-    expect(LIST).toContain("rating_desc: 'a.rating DESC, a.review_count DESC'");
+    // Проверяется ПРЕФИКС, ради которого сторож и писался (без него JOIN
+    // даёт ambiguous), а не точная строка сортировки целиком. 20.09 к ней
+    // добавилось NULLS LAST — пустая цена при убывании вставала БЕЗ него
+    // первой и читалась туристом как «самое дорогое» (миграция 1006). Смысл
+    // сторожа от этого не изменился, буква изменилась; пришпиленная буква
+    // краснеет на правке, которая её не касается.
+    expect(LIST).toMatch(/rating_desc: 'a\.rating DESC[^']*, a\.review_count DESC'/);
   });
 
   it('count-запрос использует тот же алиас', () => {

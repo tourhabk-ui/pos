@@ -16,13 +16,15 @@ const CreateAccommodationSchema = z.object({
   description: z.string().min(10, 'Описание должно быть минимум 10 символов').max(5000),
   shortDescription: z.string().max(500).optional(),
   type: z.enum(ACCOMMODATION_TYPES, { message: 'Выберите тип размещения' }),
-  address: z.string().min(5, 'Укажите адрес').max(500),
+  // Необязательные с 20.09 — см. миграцию 1006: схема требовала того, чего
+  // владелец объекта может не знать, и запись заводилась выдумкой.
+  address: z.string().min(5, 'Укажите адрес').max(500).optional(),
   coordinates: z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
   }),
-  totalRooms: z.number().int().min(1, 'Укажите количество номеров'),
-  pricePerNightFrom: z.number().min(0, 'Цена не может быть отрицательной'),
+  totalRooms: z.number().int().min(1, 'Номеров не может быть меньше одного').optional(),
+  pricePerNightFrom: z.number().min(0, 'Цена не может быть отрицательной').optional(),
   pricePerNightTo: z.number().min(0).optional(),
   checkInTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   checkOutTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
@@ -134,10 +136,12 @@ export async function POST(request: NextRequest) {
         d.description,
         d.shortDescription ?? d.description.substring(0, 100),
         d.type,
-        d.address,
+        // ЯВНЫЙ null, а не undefined: «не назвали» должно доехать до базы
+        // как «не знаю», а не зависеть от того, как драйвер трактует пропуск.
+        d.address ?? null,
         JSON.stringify(d.coordinates),
-        d.totalRooms,
-        d.pricePerNightFrom,
+        d.totalRooms ?? null,
+        d.pricePerNightFrom ?? null,
         d.pricePerNightTo ?? null,
         d.checkInTime ?? '14:00',
         d.checkOutTime ?? '12:00',

@@ -23,10 +23,17 @@ export const dynamic = 'force-dynamic';
 
 // Префикс a. обязателен: запрос джойнит partners, у которых свои
 // rating/review_count/name — без префикса сортировка была бы ambiguous.
+//
+// NULLS LAST у всех сортировок по цене и оценке — не косметика. Postgres по
+// умолчанию кладёт NULL в КОНЕЦ при ASC и в НАЧАЛО при DESC. Значит
+// «сортировать по цене, сначала дорогие» поднимало бы наверх объекты, у
+// которых цена не объявлена вовсе, — турист прочитал бы это как «самые
+// дорогие». То же с оценкой: неоценённый объект вставал бы выше отличного.
+// Неизвестное не притворяется ни лучшим, ни худшим: оно идёт последним.
 const ACCOMMODATIONS_SORT_SQL = {
-  price_asc: 'a.price_per_night_from ASC',
-  price_desc: 'a.price_per_night_from DESC',
-  rating_desc: 'a.rating DESC, a.review_count DESC',
+  price_asc: 'a.price_per_night_from ASC NULLS LAST',
+  price_desc: 'a.price_per_night_from DESC NULLS LAST',
+  rating_desc: 'a.rating DESC NULLS LAST, a.review_count DESC',
   name_asc: 'a.name ASC',
 } as const;
 
@@ -140,6 +147,13 @@ export async function GET(request: NextRequest) {
       params.push(type);
     }
 
+    // Фильтры цены и оценки ЗАДАЁТ ТУРИСТ, и объект с неизвестной ценой под
+    // «до 5000 ₽» не подходит — не потому что дорог, а потому что неизвестен.
+    // Здесь он выпадает законно: человек спросил про диапазон.
+    //
+    // Это НЕ то же, что было в планере поездки: там условие `rating >= 3.5`
+    // ставила сама платформа, никто её об этом не просил, и объект без
+    // отзывов не попадал в подбор никогда (правка в trip/plan той же датой).
     if (priceMin !== undefined) {
       conditions.push(`a.price_per_night_from >= $${paramIndex++}`);
       params.push(priceMin);
@@ -261,8 +275,8 @@ export async function GET(request: NextRequest) {
     
     const result = await query<{
       id: string; name: string; type: string; description: string | null; short_description: string | null;
-      address: string; coordinates: unknown; location_zone: string; star_rating: unknown;
-      price_per_night_from: string; price_per_night_to: string | null; currency: string;
+      address: string | null; coordinates: unknown; location_zone: string; star_rating: unknown;
+      price_per_night_from: string | null; price_per_night_to: string | null; currency: string;
       amenities: unknown; rating: string | null; review_count: unknown; is_verified: boolean;
       created_at: unknown; partner_name: string | null; images: unknown;
     }>(accommodationsQuery, params);
@@ -278,12 +292,18 @@ export async function GET(request: NextRequest) {
       locationZone: row.location_zone,
       starRating: row.star_rating,
       pricePerNight: {
-        from: parseFloat(row.price_per_night_from),
+        // null доезжает как null. `parseFloat(null)` дал бы NaN, а JSON
+        // молча превратил бы его в null с типом `number` в контракте —
+        // расхождение между объявленным и приходящим (§4.0, миграция 1006).
+        from: row.price_per_night_from === null ? null : parseFloat(row.price_per_night_from),
         to: row.price_per_night_to ? parseFloat(row.price_per_night_to) : null,
         currency: row.currency,
       },
       amenities: row.amenities || [],
-      rating: row.rating ? parseFloat(row.rating) : 0,
+      // «Не оценён» отдаётся как null, а не как ноль. Ноль читается экраном
+      // и планером как ОЦЕНКА, и планер по ней отсеивал объект навсегда:
+      // условие было «rating >= 3.5», а ноль меньше (правка в trip/plan).
+      rating: row.rating === null ? null : parseFloat(row.rating),
       reviewCount: row.review_count || 0,
       isVerified: row.is_verified,
       partnerName: row.partner_name,

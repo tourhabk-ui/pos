@@ -334,11 +334,25 @@ async function selectAccommodations(
       FROM accommodations a
       WHERE 
         a.is_active = true
-        ${budget ? 'AND a.price_per_night_from <= $1' : ''}
-        AND a.rating >= 3.5
+        -- Бюджет: объект без объявленной цены НЕ выбрасывается. NULL <= $1
+        -- в SQL — «неизвестно», то есть строка молча выпадала бы, а «цену не
+        -- назвали» не значит «дорого» (§4.0).
+        ${budget ? 'AND (a.price_per_night_from IS NULL OR a.price_per_night_from <= $1)' : ''}
+        -- «Не оценён» — не «оценён плохо».
+        --
+        -- Было условие «rating >= 3.5», а новый объект получал rating = 0 по
+        -- умолчанию схемы. Ноль меньше трёх с половиной, значит объект без
+        -- отзывов не попадал в подбор НИКОГДА; отзывы же берутся из броней, а
+        -- брони — из подбора. Круг замкнут, и увидеть это можно было только
+        -- чтением SQL: строка не падала, а молча выпадала из выдачи.
+        --
+        -- Умолчание снято миграцией 1006, но NULL сам по себе не лечит:
+        -- сравнение NULL с числом — тоже не истина. Неоценённые допускаются и идут
+        -- ПОСЛЕ оценённых — предпочтение проверенному остаётся, запрет снят.
+        AND (a.rating IS NULL OR a.rating >= 3.5)
       ORDER BY 
-        a.rating DESC,
-        a.price_per_night_from ASC
+        a.rating DESC NULLS LAST,
+        a.price_per_night_from ASC NULLS LAST
       LIMIT 10
     `;
     

@@ -72,8 +72,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        basePrice: base ? Number(base.price_per_night_from) : null,
-        totalRooms: base ? Number(base.total_rooms) : null,
+        // Проверяется САМО ЗНАЧЕНИЕ, а не только то, что строка нашлась.
+        // `Number(null)` равен нулю, и «цену не объявили» показалось бы в
+        // календаре как «0 ₽» (§4.0, миграция 1006).
+        basePrice: base?.price_per_night_from == null ? null : Number(base.price_per_night_from),
+        totalRooms: base?.total_rooms == null ? null : Number(base.total_rooms),
         rates: ratesResult.rows.map(r => ({
           id: r.id,
           roomId: r.room_id,
