@@ -33,7 +33,13 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { distanceKm } from '@/lib/routes/place-link';
-import { nameStem, findMentions, type Landmark } from '@/lib/places/description-geo';
+import {
+  nameStem,
+  findMentions,
+  stemCorpusHits,
+  WORD_SHARE_MAX,
+  type Landmark,
+} from '@/lib/places/description-geo';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -78,10 +84,39 @@ export async function GET(req: NextRequest) {
       gazetteer.push({ id: r.id, name: r.name, stem, lat: Number(r.lat), lng: Number(r.lng) });
     }
 
+    // ── Основы-слова снимаются, и снимаются ВСЛУХ ────────────────────────
+    //
+    // Прогон 60 назвал уликой 284 места из 379, и уликой была не география,
+    // а язык: «лавовые», «каменная берёза», «кратер». Разбор — в шапке
+    // lib/places/description-geo.ts.
+    //
+    // Отброшенное перечисляется в ответе со счётом: снятие, которого не
+    // видно, — то же глушение отказа, только на входе (§4.0). По списку
+    // видно, верен ли порог, и его можно опустить аргументом.
+    const descriptions = rows.map(r => r.description ?? '');
+    const corpusHits = stemCorpusHits(descriptions, gazetteer.map(g => g.stem));
+    const wordShareMax = Math.max(
+      0.01,
+      Math.min(1, Number(url.searchParams.get('word_share')) || WORD_SHARE_MAX),
+    );
+    const wordHitsMax = Math.max(2, Math.floor(rows.length * wordShareMax));
+    const ignoredStems = new Map<string, { stem: string; hits: number; example: string }>();
+    const namesOnly: Landmark[] = [];
+    for (const lm of gazetteer) {
+      const hits = corpusHits.get(lm.stem) ?? 0;
+      if (hits > wordHitsMax) {
+        if (!ignoredStems.has(lm.stem)) {
+          ignoredStems.set(lm.stem, { stem: lm.stem, hits, example: lm.name });
+        }
+        continue;
+      }
+      namesOnly.push(lm);
+    }
+
     interface Evidence {
       place: string;
       place_id: string;
-      mentions: Array<{ named: string; km: number; quote: string }>;
+      mentions: Array<{ named: string; km: number; corpus_hits: number; quote: string }>;
       worst_km: number;
     }
     const evidence: Evidence[] = [];
@@ -93,7 +128,7 @@ export async function GET(req: NextRequest) {
       const descr = (r.description ?? '').trim();
       if (descr.length < 40) { nothingToCheck++; continue; }
 
-      const mentions = findMentions(descr, gazetteer, nameStem(r.name));
+      const mentions = findMentions(descr, namesOnly, nameStem(r.name));
       if (mentions.length === 0) { nothingToCheck++; continue; }
 
       const implied = mentions.filter(m => m.kind === 'implied_location');
@@ -104,6 +139,9 @@ export async function GET(req: NextRequest) {
         .map(m => ({
           named: m.landmark.name,
           km: Math.round(distanceKm(lat, lng, m.landmark.lat, m.landmark.lng) * 10) / 10,
+          // Сколько описаний зовут это имя. Единица — имя опознаёт объект;
+          // десяток — повод посмотреть, не слово ли это, не дожидаясь порога.
+          corpus_hits: corpusHits.get(m.landmark.stem) ?? 0,
           quote: m.quote,
         }))
         .filter(m => m.km >= farKm)
@@ -122,10 +160,15 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      probe: 'place_description_geo_v1',
+      probe: 'place_description_geo_v2',
       far_km: farKm,
       live_places: rows.length,
       gazetteer_size: gazetteer.length,
+      // Сколько имён справочника реально опознают объект, а сколько оказались
+      // словами. Второе число — не брак, а измеренное свойство наших имён.
+      gazetteer_names: namesOnly.length,
+      word_hits_max: wordHitsMax,
+      stems_ignored_as_words: [...ignoredStems.values()].sort((a, b) => b.hits - a.hits),
       with_evidence: evidence.length,
       no_evidence: noEvidence,
       // Описания нет либо оно не называет ни одного ИЗВЕСТНОГО НАМ объекта.
@@ -135,15 +178,17 @@ export async function GET(req: NextRequest) {
       // законная форма, в улики не идёт.
       stated_distance_only: statedDistanceOnly,
       items: evidence.slice(0, limit),
-      // Ноль улик при нулевом справочнике — отказ, а не чистота (§4.0).
-      meaningful: gazetteer.length > 0 && rows.length > 0,
+      // Ноль улик при пустом справочнике — отказ, а не чистота (§4.0).
+      // Пустым он может стать и после снятия слов: если порог снёс ВСЕ имена,
+      // сравнивать не с чем, и молчание такой переписи ничего не значит.
+      meaningful: namesOnly.length > 0 && rows.length > 0,
       note: 'улика, не приговор: вулкан бывает ВИДЕН за сто километров, и такое упоминание законно. Разбирать глазами, сверху вниз',
     });
   } catch (err) {
     const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
     console.error(`[place-description-geo] перепись не выполнена, SQLSTATE ${code}:`, err);
     return NextResponse.json(
-      { ok: false, probe: 'place_description_geo_v1', error: 'перепись не выполнена', sqlstate: code },
+      { ok: false, probe: 'place_description_geo_v2', error: 'перепись не выполнена', sqlstate: code },
       { status: 503 },
     );
   }
