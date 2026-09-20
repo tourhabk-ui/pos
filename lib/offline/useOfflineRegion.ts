@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { RegionId } from '@/lib/geo/regions';
 import { REGIONS } from '@/lib/geo/regions';
 import { generateTileUrls } from '@/lib/offline/tiles';
+import { probeCoverage, type CoverageReport } from '@/lib/offline/coverage';
 import {
   saveRegion,
   getRegion,
@@ -52,35 +53,6 @@ export interface UseOfflineRegionReturn {
 
 const EMPTY_PROGRESS: DownloadProgress = { done: 0, failed: 0, total: 0, percent: 0 };
 
-/**
- * Выборочная проверка: лежат ли тайлы региона в Cache Storage НА САМОМ ДЕЛЕ.
- *
- * Метаданные в IndexedDB — это память о том, что закачка когда-то прошла.
- * Сами тайлы живут в другом хранилище, и система вправе вычистить его при
- * нехватке места, не тронув метаданные. Верить записи без проверки — значит
- * показать «скачано» человеку, у которого карты уже нет.
- *
- * Проверяем пробу из нескольких тайлов по краям и середине списка: полная
- * проверка тысяч URL при каждом монтировании не нужна, а проба ловит главный
- * сценарий — кэш вычищен целиком.
- *
- * `null` — проверить нечем (нет Cache Storage API): остаётся верить записи.
- */
-async function sampleTilesPresent(tileUrls: string[]): Promise<boolean | null> {
-  if (typeof caches === 'undefined' || tileUrls.length === 0) return null;
-  const idxs = [0, Math.floor(tileUrls.length / 2), tileUrls.length - 1];
-  const sample = [...new Set(idxs)].map(i => tileUrls[i]);
-  try {
-    // Request объектом, не строкой: `x.match(строка)` неотличимо от
-    // String.prototype.match, и анализатор читает URL как регулярное
-    // выражение (CodeQL js/incomplete-hostname-regexp). Поведение то же.
-    const hits = await Promise.all(sample.map(u => caches.match(new Request(u))));
-    return hits.some(h => h !== undefined);
-  } catch {
-    return null;
-  }
-}
-
 export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
   const [status, setStatus] = useState<DownloadStatus>('idle');
   const [progress, setProgress] = useState<DownloadProgress>(EMPTY_PROGRESS);
@@ -97,7 +69,9 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       if (cancelled || !meta) return;
       setRegionMeta(meta);
       const region = REGIONS[regionId];
-      const present = region ? await sampleTilesPresent(generateTileUrls(region.bbox)) : null;
+      const tiles: CoverageReport | null = region
+        ? await probeCoverage(generateTileUrls(region.bbox))
+        : null;
 
       // Маршруты тоже проверяются ДЕЛОМ, а не записью. Прежний комментарий
       // утверждал, что при пропавших тайлах «маршруты в IndexedDB живы», —
@@ -114,12 +88,13 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       }
 
       if (cancelled) return;
-      if (present === false || routesShort) {
+      if (tiles?.state === 'none' || tiles?.state === 'partial' || routesShort) {
         // Что-то из обещанного не на месте: карта, маршруты или и то и другое.
         setStatus('partial');
       } else {
-        // Тайлы на месте (или проверить нечем — верим записи), но закачка
-        // могла пройти с потерями: это записано в самой записи.
+        // Проба подтвердила тайлы либо спросить было нечем (`cannot_check` —
+        // не доказательство, но и не повод объявлять пропажу). Закачка при
+        // этом могла пройти с потерями: это записано в самой записи.
         setStatus((meta.tilesFailed ?? 0) > 0 ? 'partial' : 'cached');
       }
     });

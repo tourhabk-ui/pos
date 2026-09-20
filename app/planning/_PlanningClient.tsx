@@ -45,11 +45,12 @@ import {
   type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
 import {
-  parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
+  parseSavedMap, savedMapKey, savedMapSummary, savedAtLabel, requestPersistentStorage,
+  SAVED_PROBE_SIZE,
   type SavedMapRecord,
 } from '@/lib/offline/saved-map';
 import {
-  probeCoverage, coverageLabel, coverageIsShort, type CoverageReport,
+  probeCoverage, coverageLabel, coverageIsShort, evenSample, type CoverageReport,
 } from '@/lib/offline/coverage';
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 import { useSwRegistration } from '@/lib/offline/sw-status';
@@ -852,7 +853,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const loadMapPlan = useCallback(async (routeId: string) => {
     try {
       const raw = localStorage.getItem(savedMapKey(routeId));
-      setSavedMap(parseSavedMap(raw));
+      const rec = parseSavedMap(raw);
+      setSavedMap(rec);
+      // Запись есть — это ещё не карта. Спрашиваем хранилище, пока связь
+      // и время есть: в поле выяснять будет поздно.
+      // Саму проверку ведёт отдельный эффект: у него есть обе половины —
+      // список нужных тайлов из плана сервера и запись о закачке.
     } catch { /* хранилище может быть закрыто — не повод падать */ }
     if (typeof navigator === 'undefined') return;
     if (navigator.onLine === false) {
@@ -962,11 +968,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       tiles: mapPlan ? {
         total: mapPlan.tiles, failed: failedTiles, droppedZooms: mapPlan.dropped,
         coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, mb: mapPlan.mb,
-        sampleUrls: [
-          mapPlan.urls[0],
-          mapPlan.urls[Math.floor(mapPlan.urls.length / 2)],
-          mapPlan.urls[mapPlan.urls.length - 1],
-        ].filter(Boolean),
+        sampleUrls: evenSample(mapPlan.urls, SAVED_PROBE_SIZE),
       } : null,
       safety,
       storage: { persistent: persisted },
@@ -1082,6 +1084,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             at: Date.now(), tiles: mapPlan.tiles, mb: mapPlan.mb,
             zooms: mapPlan.zooms, droppedZooms: mapPlan.dropped,
             coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, persisted,
+            sampleUrls: evenSample(mapPlan.urls, SAVED_PROBE_SIZE),
           };
           setSavedMap(rec);
           try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
@@ -4529,9 +4532,22 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             </div>
           ) : savedMap ? (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} />
+              {/* Зелёная галочка тут стояла безусловно, от одной записи в
+                  localStorage. Система вправе вычистить тайлы, не тронув
+                  запись, — и человек уходил в поле с отметкой «карта есть».
+                  Теперь знак ставится по пробе Cache Storage; `unknown`
+                  (спросить нечем, старая запись без пробы) ведёт себя как
+                  прежде: больше записи мы не утверждаем, но и пропажу не
+                  объявляем. */}
+              {mapCoverage?.state === 'none' || mapCoverage?.state === 'partial' ? (
+                <AlertCircle className="w-3.5 h-3.5" style={{ color: 'var(--danger)' }} />
+              ) : (
+                <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} />
+              )}
               <span style={{ color: 'var(--text-secondary)' }}>
-                Карта сохранена · {savedMapSummary(savedMap)}
+                {mapCoverage?.state === 'none'
+                  ? `Карту сохраняли ${savedAtLabel(savedMap.at)} — сейчас её в телефоне нет`
+                  : `Карта сохранена · ${savedMapSummary(savedMap)}`}
               </span>
               {mapPlan && (
                 <button onClick={() => { const id = crumbsRouteRef.current; if (id) void saveMap(id); }}
@@ -4982,16 +4998,26 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
    * Галочка «Маршрут сохранён офлайн» ставилась от `hasActiveRoute` — то есть
    * от того, что маршрут выбран. Ни одного скачанного байта за ней не стояло,
    * а человек уходил в поле, отметив себе, что всё взято.
+   *
+   * Первая починка заменила `hasActiveRoute` на запись о закачке — и шапка
+   * стала обещать «ДЕЙСТВИТЕЛЬНО лежит в телефоне», хотя записи об этом знать
+   * неоткуда: кэш тайлов система чистит, не трогая localStorage. С 20.09
+   * свидетельством служит проба Cache Storage, а запись — только поводом её
+   * запросить.
    */
   const [savedRouteMap, setSavedRouteMap] = useState<SavedMapRecord | null>(null);
+  const [savedRouteCoverage, setSavedRouteCoverage] = useState<CoverageReport | null>(null);
 
   useEffect(() => {
     const routeId = localStorage.getItem('active_trail_route_id');
     setHasActiveRoute(!!routeId);
-    if (!routeId) { setSavedRouteMap(null); return; }
+    if (!routeId) { setSavedRouteMap(null); setSavedRouteCoverage(null); return; }
     try {
-      setSavedRouteMap(parseSavedMap(localStorage.getItem(savedMapKey(routeId))));
-    } catch { setSavedRouteMap(null); }
+      const rec = parseSavedMap(localStorage.getItem(savedMapKey(routeId)));
+      setSavedRouteMap(rec);
+      setSavedRouteCoverage(null);
+      if (rec) void probeCoverage(rec.sampleUrls).then(setSavedRouteCoverage);
+    } catch { setSavedRouteMap(null); setSavedRouteCoverage(null); }
   }, []);
 
   // Override 'done' for auto-computed items
@@ -5010,9 +5036,25 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
     // «Маршрут сохранён офлайн» отмечался от того, что маршрут ВЫБРАН
     // (`hasActiveRoute`). То есть галочка про готовность к отсутствию связи
     // ставилась сама, без единого скачанного байта, — и человек уходил в
-    // поле, отметив себе, что всё взято. Настоящее свидетельство одно:
-    // запись о завершённой закачке карты этого маршрута.
-    if (item.id === 'offline') return { ...item, done: savedRouteMap !== null };
+    // поле, отметив себе, что всё взято.
+    //
+    // Запись о закачке это чинила наполовину: она говорит, что мы качали, а
+    // не что скачанное на месте. Галочку на чек-листе готовности ставит
+    // только проба Cache Storage; «спросить нечем» галочкой не становится —
+    // цена ошибки здесь односторонняя (уйти без карты), и непроверенность
+    // обязана блокировать, а не успокаивать (§4.0).
+    if (item.id === 'offline') {
+      if (!savedRouteMap) return { ...item, done: false };
+      const st = savedRouteCoverage?.state;
+      if (st === 'covered') return { ...item, done: true };
+      return {
+        ...item,
+        done: false,
+        label: st === 'none' ? 'Карта маршрута удалена системой — сохраните заново'
+          : st === 'partial' ? 'Карта маршрута уцелела не вся — сохраните заново'
+          : 'Карта маршрута: наличие не проверено',
+      };
+    }
     if (item.id === 'gear') return { ...item, done: gearChecked.size === GEAR_LIST.length };
     return item;
   });
