@@ -1,6 +1,6 @@
 import { pool } from '@/lib/db-pool';
 import { notFound } from 'next/navigation';
-import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
+import { CATEGORY_PAGES, categoryListingHref } from '@/lib/routes/category-meta';
 import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE } from '@/lib/routes/zone-meta';
 import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
@@ -96,6 +96,8 @@ export default async function CategoryPage({ category, zone }: { category: strin
 
   const h1 = zoneMeta ? `${meta.name}: ${zoneMeta.name}` : meta.h1;
   const zoneParks = parksResult.rows;
+  // null — у этого слага пары в витрине нет, и ссылку «Смотреть все» не рисуем.
+  const listingHref = categoryListingHref(category);
 
   return (
     <>
@@ -132,12 +134,15 @@ export default async function CategoryPage({ category, zone }: { category: strin
         <div className="flex items-center gap-3 mb-6 text-sm">
           <span className="text-[var(--text-muted)]">{total} маршрутов</span>
           {/* Ссылка «все» только на странице категории: листинг /routes
-              не умеет фильтровать по зоне, для среза она обманула бы счётчиком */}
-          {!zoneMeta && total > 24 && (
+              не умеет фильтровать по зоне, для среза она обманула бы счётчиком.
+              Адрес — из categoryListingHref: параметр `category` витрина не
+              читает вовсе, и прежняя ссылка открывала полный список маршрутов
+              без фильтра (20.09). Пары нет — ссылки нет. */}
+          {!zoneMeta && total > 24 && listingHref && (
             <>
               <span className="text-[var(--border)]">·</span>
               <Link
-                href={`/routes?category=${category}`}
+                href={listingHref}
                 className="text-[var(--accent)] hover:underline"
               >
                 Смотреть все {total} →

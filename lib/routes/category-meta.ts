@@ -138,3 +138,47 @@ export const CATEGORY_PAGES: Record<string, CategoryPageMeta> = {
 };
 
 export const CATEGORY_SLUGS = Object.keys(CATEGORY_PAGES);
+
+/**
+ * Куда ведёт «Смотреть все N →» со страницы категории.
+ *
+ * ── Почему это не просто `/routes?category=<slug>` (20.09) ────────────────
+ *
+ * Параметра `category` витрина не читает ВОВСЕ: ни сервер
+ * (`app/routes/page.tsx`), ни клиент такого имени не знают. Ссылка обещала
+ * «все 40 туров категории» и открывала полный список маршрутов без единого
+ * фильтра — тот же обрыв, что нашёлся в тот день на главной у плиток стихий.
+ *
+ * Словари при этом РАЗНЫЕ, и мост между ними строится только там, где пара
+ * очевидна. Слаги страниц — русская транслитерация (`rybalka`,
+ * `morskie_progulki`), фильтр витрины — английские значения `activity_type`
+ * (`fishing`, `boat_trip`). Часть слагов вообще не про занятие, а про РОД
+ * МЕСТА (`vulkani`, `geyzery`, `lakes`) — такие ведут на витрину мест.
+ *
+ * Где пары нет (`dzhip` — джип-туров в фильтре нет, `eco` — не занятие и не
+ * род), функция возвращает null, и ссылка не рисуется вовсе. Это третий
+ * исход (§4.0): не знаем, куда вести — не обещаем. Мёртвая ссылка хуже
+ * отсутствующей, потому что её нажимают.
+ */
+const CATEGORY_LISTING: Record<string, string> = {
+  // Занятие — фильтр маршрутов.
+  rybalka:              '/routes?activity_type=fishing',
+  termalnye_istochniki: '/routes?activity_type=thermal',
+  morskie_progulki:     '/routes?activity_type=boat_trip',
+  trekking:             '/routes?activity_type=trekking',
+  vertoletnye_tury:     '/routes?activity_type=helicopter',
+  medvedi:              '/routes?activity_type=bear_watching',
+  snegohod:             '/routes?activity_type=snowmobile',
+  // Род места — витрина мест. Без `kind=place` тип отбрасывается, и адрес
+  // открыл бы маршруты без фильтра.
+  vulkani:              '/routes?kind=place&location_type=volcano',
+  geyzery:              '/routes?kind=place&location_type=geyser',
+  lakes:                '/routes?kind=place&location_type=lake',
+  mountains:            '/routes?kind=place&location_type=mountain',
+  rivers:               '/routes?kind=place&location_type=river',
+};
+
+/** Адрес полного списка категории, либо null — пары нет, ссылку не рисуем. */
+export function categoryListingHref(slug: string): string | null {
+  return CATEGORY_LISTING[slug] ?? null;
+}

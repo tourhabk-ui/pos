@@ -22,12 +22,35 @@ export interface ElementGroup {
   color: string;
 }
 
+/**
+ * ── `kind=place` в адресе обязателен (20.09) ──────────────────────────────
+ *
+ * Владелец: «с главной сложно попасть на страницу мест». Оказалось хуже:
+ * попасть было НЕЛЬЗЯ.
+ *
+ * Адрес стихии был `/routes?location_type=volcano`, без рода. А род на
+ * витрине умолчанием — МАРШРУТЫ (`app/routes/page.tsx`), и фильтр по типу
+ * места при маршрутах отбрасывается обеими сторонами по построению:
+ * сервер — `kind === 'place' ? location_type : ''`, клиент —
+ * `if (kind === 'place' && locationType)`.
+ *
+ * То есть все пять плиток «Стихии» на главной вели в ОДНО место: полный
+ * список маршрутов без единого фильтра. Плитка обещала «Огонь — вулканы и
+ * мощь земли», человек получал всё подряд, и ни одна ссылка главной не
+ * доходила до мест вовсе — раздел был достижим только с карточки уже
+ * открытого места («← Все места»).
+ *
+ * Отсюда правило: ссылка с `location_type` без `kind=place` — мёртвая.
+ * Держит сторож `tests/unit/platform-counts.test.ts`, и он же проверяет
+ * репозиторий целиком, а не только этот файл: копия такого адреса руками
+ * повторила бы ровно ту же тишину.
+ */
 export const ELEMENT_GROUPS: ElementGroup[] = [
-  { key: 'fire',   label: 'Огонь',   types: ['volcano'],                          href: '/routes?location_type=volcano',    color: '#C24C3D' },
-  { key: 'snow',   label: 'Снег',    types: ['mountain', 'glacier'],              href: '/routes?location_type=mountain',   color: '#8FB8D8' },
-  { key: 'ocean',  label: 'Океан',   types: ['bay', 'cape', 'island', 'beach'],   href: '/routes?location_type=bay',        color: '#38B6D8' },
-  { key: 'therm',  label: 'Термы',   types: ['hot_spring', 'geyser', 'thermal'],  href: '/routes?location_type=hot_spring', color: '#E8842C' },
-  { key: 'nature', label: 'Природа', types: ['lake', 'river', 'waterfall', 'forest'], href: '/routes?location_type=lake',   color: '#3E9B5F' },
+  { key: 'fire',   label: 'Огонь',   types: ['volcano'],                          href: '/routes?kind=place&location_type=volcano',    color: '#C24C3D' },
+  { key: 'snow',   label: 'Снег',    types: ['mountain', 'glacier'],              href: '/routes?kind=place&location_type=mountain',   color: '#8FB8D8' },
+  { key: 'ocean',  label: 'Океан',   types: ['bay', 'cape', 'island', 'beach'],   href: '/routes?kind=place&location_type=bay',        color: '#38B6D8' },
+  { key: 'therm',  label: 'Термы',   types: ['hot_spring', 'geyser', 'thermal'],  href: '/routes?kind=place&location_type=hot_spring', color: '#E8842C' },
+  { key: 'nature', label: 'Природа', types: ['lake', 'river', 'waterfall', 'forest'], href: '/routes?kind=place&location_type=lake',   color: '#3E9B5F' },
 ];
 
 /** Нейтраль для типов вне стихий (EXCLUDED: музеи, посёлки, скалы...) */
@@ -111,9 +134,15 @@ export function groupPlacesByElement(byType: Record<string, number>): {
   return { elements, excludedCount, unmappedTypes };
 }
 
-/** href стихии по её ключу — для BentoSection (десктоп ведёт как мобайл). */
+/**
+ * href стихии по её ключу — для BentoSection (десктоп ведёт как мобайл).
+ *
+ * Запасной адрес — витрина МЕСТ, а не общая `/routes`: у неизвестного ключа
+ * стихии всё равно спрашивают места, и умолчание `/routes` уводило бы в
+ * маршруты — тот же обрыв, что чинится выше, только тише.
+ */
 export function elementHref(key: string): string {
-  return ELEMENT_GROUPS.find((g) => g.key === key)?.href ?? '/routes';
+  return ELEMENT_GROUPS.find((g) => g.key === key)?.href ?? '/routes?kind=place';
 }
 
 /** Все объявленные в стихиях типы — для проверки на фантомы в тесте. */
