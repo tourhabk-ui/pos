@@ -80,6 +80,12 @@ jobs:
           # в флагманы не попадают — сторож flagship-resolver.
           EVO_DECISION_FLAGSHIP_VENDOR: z-ai
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # Расход в книги платформы: БД Timeweb с раннера закрыта файрволом,
+          # и прямой INSERT в llm_usage_log падал здесь всегда. Отправку на
+          # прод (lib/ai/usage-sink) включает именно CRON_SECRET — без него
+          # ревью тратило токены молча, мимо дневного бюджета. Тот же пробел,
+          # что закрыт в evo-judge.yml.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: npx tsx scripts/evo-review.ts /tmp/review-job.json /tmp/review-result.json
 
       - name: Publish findings (запись в БД прода)

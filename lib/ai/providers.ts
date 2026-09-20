@@ -125,9 +125,29 @@ function answeredModel(requested: string, data: unknown): string {
 type CostBasis = 'model_catalog' | 'cost_table_fallback' | 'unknown';
 
 /**
+ * Достижим ли каталог отсюда.
+ *
+ * Каталог живёт в БД. На раннере GitHub `DATABASE_URL` не задан вовсе, а БД
+ * Timeweb оттуда закрыта файрволом — спрашивать НЕКОГО, и это известное
+ * состояние, а не отказ (тот же четвёртый исход, что уровень `known` в
+ * health-кроне, §8). Ходить туда ради гарантированного промаха значит платить
+ * таймаутом соединения на каждый вызов модели и писать в лог тревогу, по
+ * которой нечего чинить: 19.09 строка «каталог моделей не прочитан» увела
+ * разбор немоты флагмана в сторону БД, хотя сломано было другое — расход
+ * некуда было отправить.
+ *
+ * Цену на раннере считает прод, принимая строку расхода
+ * (`POST /api/admin/llm-usage/report` зовёт эту же функцию у себя); потолку
+ * прямого Anthropic хватает запаса `COST_PER_1K`, где Opus 5 есть.
+ */
+function priceCatalogReachable(): boolean {
+  return Boolean(process.env.DATABASE_URL);
+}
+
+/**
  * Цена вызова — из каталога моделей (миграция 946, цены OpenRouter,
  * привезённые раннером GitHub, потому что прод каталог не видит), а не из
- * захардкоженной таблицы. `COST_PER_1K` ниже остаётся только ЗАПАСОМ для
+ * захардкоженной таблицы. `COST_PER_1K` выше остаётся только ЗАПАСОМ для
  * моделей, которых в каталоге OpenRouter нет и быть не может (прямые
  * DeepSeek/Qwen/Timeweb вызовы). Промах в обоих источниках — `cost: null`,
  * не умолчание $0.0005: догадка — ровно то, из-за чего заведён #1862
@@ -140,6 +160,7 @@ export async function resolveCostUsd(
   completionTokens: number,
 ): Promise<{ cost: number | null; basis: CostBasis }> {
   const candidates = priceLookupIds(model);
+  if (!priceCatalogReachable()) return fromCostTable(candidates);
   try {
     for (const id of candidates) {
       const { rows } = await pool.query<{ usd_per_mtok_in: string | null; usd_per_mtok_out: string | null }>(
@@ -159,12 +180,17 @@ export async function resolveCostUsd(
     // Каталог не спросился (сеть/БД) — не выдумываем цену, падаем на запас.
     console.error('[llm-usage] каталог моделей не прочитан:', model, e instanceof Error ? e.message : e);
   }
-  for (const id of candidates) {
-    if (id in COST_PER_1K) {
-      return { cost: (COST_PER_1K[id] * (promptTokens + completionTokens)) / 1000, basis: 'cost_table_fallback' };
+  return fromCostTable(candidates);
+
+  function fromCostTable(ids: string[]): { cost: number | null; basis: CostBasis } {
+    for (const id of ids) {
+      if (id in COST_PER_1K) {
+        return { cost: (COST_PER_1K[id] * (promptTokens + completionTokens)) / 1000, basis: 'cost_table_fallback' };
+      }
     }
+    // Промах в обоих источниках — честное «не знаем», а не подставленный ноль.
+    return { cost: null, basis: 'unknown' };
   }
-  return { cost: null, basis: 'unknown' };
 }
 
 /**
