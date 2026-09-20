@@ -17,9 +17,10 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const DOC = join(ROOT, 'docs', 'DB_SCHEMA.md');
 const MIGRATIONS = join(ROOT, 'migrations');
+import { sortMigrations } from '@/lib/database/migration-order';
 
 function migrationFiles(): string[] {
-  return readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort();
+  return sortMigrations(readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')));
 }
 
 /**

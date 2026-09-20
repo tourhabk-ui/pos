@@ -15,6 +15,7 @@
 
 import { Pool } from 'pg';
 import { readdir, readFile } from 'node:fs/promises';
+import { sortMigrations } from './migration-order';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 
@@ -89,9 +90,11 @@ async function main() {
     const appliedSet = new Set(applied.rows.map(r => r.name));
 
     // Read migration files
-    const files = (await readdir(MIGRATIONS_DIR))
-      .filter(f => f.endsWith('.sql'))
-      .sort();
+    // Порядок — по ЧИСЛУ (lib/database/migration-order.ts): посимвольный
+    // `.sort()` ставит `1000_` перед всеми миграциями от 100-й до 999-й.
+    const files = sortMigrations(
+      (await readdir(MIGRATIONS_DIR)).filter(f => f.endsWith('.sql')),
+    );
 
     console.log(`[SCAN] Found ${files.length} migration files`);
     console.log(`[SKIP-ALREADY-APPLIED] ${appliedSet.size} already tracked`);

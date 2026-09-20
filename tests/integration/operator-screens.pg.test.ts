@@ -29,7 +29,7 @@ if (!PG_URL) {
 
 const TEST_DB = 'operator_screens_test';
 /** Первая миграция после baseline (снимок прода 2026-08-15, последняя в нём — 862). */
-const FIRST_AFTER_BASELINE = '863';
+const FIRST_AFTER_BASELINE = 863;
 
 function withDatabase(url: string, db: string): string {
   const u = new URL(url);
@@ -56,7 +56,16 @@ withPg('экраны оператора на настоящем PostgreSQL', () 
     const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
     execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
     pool = new Pool({ connectionString: dbUrl, max: 4 });
-    await pool.query(`DELETE FROM _migrations WHERE name >= $1`, [FIRST_AFTER_BASELINE]);
+    // Порог сравнивается ЧИСЛОМ, а не строкой. `name >= '863'` в Postgres —
+    // сравнение текста, и `'1000_...' >= '863'` ЛОЖНО (`'1' < '8'`): миграция
+    // 1000 и все следующие остались бы помеченными применёнными и не
+    // переигрались бы в тестовой базе — их DDL просто не попал бы в схему.
+    await pool.query(
+      `DELETE FROM _migrations
+        WHERE (substring(name from '^[0-9]+'))::bigint >= $1
+           OR substring(name from '^[0-9]+') IS NULL`,
+      [FIRST_AFTER_BASELINE],
+    );
     execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     // Посев: оператор, гид с подтверждённой аттестацией, тур, турист с

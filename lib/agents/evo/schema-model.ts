@@ -16,6 +16,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sortMigrations } from '@/lib/database/migration-order';
 
 export interface ForeignKey {
   table: string;
@@ -108,7 +109,7 @@ export function loadSchemaModel(root: string): SchemaModel {
   const migrations = join(root, 'migrations');
   let files: string[] = [];
   try {
-    files = readdirSync(migrations).filter((f) => f.endsWith('.sql')).sort();
+    files = sortMigrations(readdirSync(migrations).filter((f) => f.endsWith('.sql')));
   } catch { /* миграций нет — работаем по baseline */ }
   for (const f of files) {
     try {

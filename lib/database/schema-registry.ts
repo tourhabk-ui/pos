@@ -21,6 +21,7 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { sortMigrations } from './migration-order';
 
 export interface SchemaRegistry {
   /** таблица → множество колонок (нижний регистр) */
@@ -170,7 +171,7 @@ export function buildSchemaRegistry(dirs?: string[]): SchemaRegistry {
   const reg: SchemaRegistry = { tables: new Map(), views: new Set(), created: new Set() };
   const authoritative = new Set<string>();
   for (const dir of roots) {
-    for (const f of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
+    for (const f of sortMigrations(readdirSync(dir).filter((f) => f.endsWith('.sql')))) {
       applyDdl(readFileSync(join(dir, f), 'utf-8'), reg, authoritative);
     }
     // Всё, что создал этот каталог, закрыто для переобъявления следующими.

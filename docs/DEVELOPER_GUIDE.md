@@ -64,7 +64,7 @@ createdb vedar_dev
 export DATABASE_URL=postgresql://user:pass@localhost:5432/vedar_dev
 
 node scripts/bootstrap-from-baseline.js          # схема прода от 2026-08-15, помечает ВСЕ миграции применёнными
-psql vedar_dev -c "DELETE FROM _migrations WHERE name >= '863'"   # 863 — первая после baseline
+psql vedar_dev -c "DELETE FROM _migrations WHERE (substring(name from '^[0-9]+'))::bigint >= 863"   # 863 — первая после baseline
 npm run migrate                                  # накатывает 863..N
 ```
 
@@ -464,7 +464,7 @@ find app -name page.tsx ! -path 'app/hub/*' | wc -l               # экрано
 for d in app/hub/*/; do echo "$d $(find $d -name page.tsx | wc -l)"; done
 find app/api -name route.ts | wc -l                               # API
 find app/api -name route.ts | awk -F/ '{print $3}' | sort | uniq -c | sort -rn | head
-ls migrations/*.sql | wc -l; ls migrations | tail -1
+ls migrations/*.sql | wc -l; ls migrations/*.sql | sed 's|.*/||' | sort -t_ -k1,1n | tail -1   # числовой порядок: с 1000_ посимвольный врёт
 ls .github/workflows | wc -l; ls .github/triggers | wc -l
 grep -l 'vedarai.ru' .github/workflows/*.yml | wc -l              # ходят на прод
 find tests/unit -name '*.test.ts*' | wc -l; grep -rl 'сторож' tests/unit | wc -l

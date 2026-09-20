@@ -34,6 +34,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { migrationNumber } from '@/lib/database/migration-order';
 
 const DIR = join(process.cwd(), 'migrations');
 const FROM = 870;
@@ -44,9 +45,13 @@ const ID_COLUMNS = /\b\w+\.(route_id|place_id|id)\b/;
 function newMigrations(): string[] {
   return readdirSync(DIR)
     .filter((f) => f.endsWith('.sql'))
+    // Номер берётся РАЗБОРОМ, а не срезом трёх символов: `'1000_x.sql'
+    // .slice(0,3)` давало «100», то есть миграция 1000 и все следующие
+    // молча уходили из-под этого сторожа — «не проверял» выглядело как
+    // «нарушений нет» (§4.0).
     .filter((f) => {
-      const n = Number(f.slice(0, 3));
-      return Number.isFinite(n) && n >= FROM;
+      const n = migrationNumber(f);
+      return n !== null && n >= FROM;
     });
 }
 

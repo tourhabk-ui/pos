@@ -16,7 +16,11 @@ import fs from 'fs';
 import path from 'path';
 
 const ApplyMigrationsSchema = z.object({
-  migrations: z.array(z.string().regex(/^\d{3}$/)).min(1),
+  // Три цифры ЖЁСТКО — до 20.09, и это отвергало бы любую миграцию с
+  // номером 1000 и выше: эндпоинт ручного наката отвечал бы 400 на
+  // существующий файл. Нижняя граница в три знака оставлена (исторический
+  // формат имён), верхней нет.
+  migrations: z.array(z.string().regex(/^\d{3,}$/)).min(1),
   dry_run: z.boolean().default(false),
 });
 

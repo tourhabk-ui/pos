@@ -48,6 +48,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sortMigrations } from '@/lib/database/migration-order';
 
 /** Где лежат накатываемые миграции и где — мёртвые объявления. */
 export const MIGRATIONS_DIR = 'migrations';
@@ -61,7 +62,7 @@ export const UNAPPLIED_DIR = 'lib/database';
  */
 export function createdTables(dir: string, root = process.cwd()): Map<string, string> {
   const found = new Map<string, string>();
-  const files = readdirSync(join(root, dir)).filter((f) => f.endsWith('.sql')).sort();
+  const files = sortMigrations(readdirSync(join(root, dir)).filter((f) => f.endsWith('.sql')));
   for (const f of files) {
     const sql = readFileSync(join(root, dir, f), 'utf-8');
     const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?([a-zA-Z0-9_]+)["']?/gi;

@@ -12,6 +12,46 @@ const { join, resolve } = require('path');
 
 const MIGRATIONS_DIR = resolve(__dirname, '..', 'migrations');
 
+/**
+ * Порядок применения — по ЧИСЛУ, а не по строке.
+ *
+ * Обычный `.sort()` сравнивает посимвольно, и на тысячной миграции это
+ * расходится с номером: `'1000_'` меньше `'999_'` (`'1' < '9'`) и меньше
+ * даже `'100_'` — на четвёртом символе `'0' < '_'`. То есть тысячная
+ * встала бы перед ВСЕМИ миграциями от 100-й до 999-й.
+ *
+ * Правило живёт в `lib/database/migration-order.ts`; здесь оно повторено,
+ * потому что этот файл — чистый CJS для runner-стадии Docker, где нет ни
+ * tsx, ни сборки. Копия не расходится не по обещанию, а по сторожу:
+ * `tests/unit/migration-order.test.ts` гоняет обе реализации по одному
+ * списку и требует одинакового ответа.
+ */
+function migrationNumber(file) {
+  // Буквенный суффикс существует: 144a/144b/144c.
+  const m = /^(\d+)[a-z]*_/i.exec(file);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+function migrationSuffix(file) {
+  const m = /^\d+([a-z]*)_/i.exec(file);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function compareMigrations(a, b) {
+  const na = migrationNumber(a);
+  const nb = migrationNumber(b);
+  if (na === null && nb === null) return a < b ? -1 : a > b ? 1 : 0;
+  if (na === null) return 1;
+  if (nb === null) return -1;
+  if (na !== nb) return na - nb;
+  const sa = migrationSuffix(a);
+  const sb = migrationSuffix(b);
+  if (sa !== sb) return sa < sb ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function isNonTransactional(sql) {
   return /CREATE\s+INDEX\s+CONCURRENTLY/i.test(sql)
     || /REINDEX\s+.*CONCURRENTLY/i.test(sql)
@@ -248,7 +288,7 @@ async function main() {
 
     const files = (await readdir(MIGRATIONS_DIR))
       .filter(f => f.endsWith('.sql'))
-      .sort();
+      .sort(compareMigrations);
 
     let ok = 0, skipped = 0, errors = 0;
 
@@ -324,4 +364,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { scrubError, isNonTransactional, isAlreadyExistsError, isCreatingStatement, splitSqlStatements, isTxControlStatement, applyTransactionalFile };
+module.exports = { migrationNumber, compareMigrations, scrubError, isNonTransactional, isAlreadyExistsError, isCreatingStatement, splitSqlStatements, isTxControlStatement, applyTransactionalFile };

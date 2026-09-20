@@ -16,7 +16,7 @@
  *
  *   createdb schema_doc
  *   DATABASE_URL=postgresql://.../schema_doc node scripts/bootstrap-from-baseline.js
- *   psql schema_doc -c "DELETE FROM _migrations WHERE name >= '863'"   # всё новее baseline
+ *   psql schema_doc -c "DELETE FROM _migrations WHERE (substring(name from '^[0-9]+'))::bigint >= 863"   # всё новее baseline
  *   DATABASE_URL=postgresql://.../schema_doc npm run migrate
  *   DATABASE_URL=postgresql://.../schema_doc npm run db:schema-doc
  *
@@ -29,6 +29,7 @@
 import { Client } from 'pg';
 import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sortMigrations } from '../lib/database/migration-order';
 
 interface Column {
   table: string;
@@ -129,7 +130,11 @@ function domainOf(table: string): string {
 }
 
 function lastMigration(): string {
-  const files = readdirSync(join(process.cwd(), 'migrations')).filter((f) => f.endsWith('.sql')).sort();
+  // По ЧИСЛУ: лексикографически максимумом остаётся файл на `9`, и подпись
+  // справочника ссылалась бы не на ту миграцию.
+  const files = sortMigrations(
+    readdirSync(join(process.cwd(), 'migrations')).filter((f) => f.endsWith('.sql')),
+  );
   return files[files.length - 1] ?? '';
 }
 
