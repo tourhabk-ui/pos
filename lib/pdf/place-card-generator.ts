@@ -11,39 +11,10 @@ import PDFDocument from 'pdfkit';
 import { registerCyrillicFonts } from '@/lib/pdf/fonts';
 import QRCode from 'qrcode';
 import { getPublicBaseUrl } from '@/lib/config';
+import { hazardLabel } from '@/lib/safety/hazard-labels';
+import { locationTypeLabel } from '@/lib/places/location-types';
 
-const HAZARD_LABELS: Record<string, string> = {
-  avalanche:        'Лавины',
-  rockfall:         'Камнепад',
-  thermal:          'Термальные поля',
-  altitude:         'Высокогорье (>2500м)',
-  river_crossing:   'Переправы через реки',
-  bears:            'Медведи',
-  crevasses:        'Трещины/кратеры',
-  volcanic_gas:     'Вулканические газы',
-  flash_flood:      'Паводки',
-  unstable_ground:  'Нестабильный грунт',
-  weather:          'Резкая смена погоды',
-  no_trail:         'Отсутствие тропы',
-};
 
-const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano:    'Вулкан',
-  hot_spring: 'Термальный источник',
-  geyser:     'Гейзер',
-  lake:       'Озеро',
-  mountain:   'Гора',
-  cape:       'Мыс',
-  bay:        'Бухта',
-  beach:      'Пляж',
-  river:      'Река',
-  waterfall:  'Водопад',
-  forest:     'Лесной массив',
-  park:       'Природный парк',
-  valley:     'Долина',
-  pass:       'Перевал',
-  plateau:    'Плато',
-};
 
 export interface PlaceCardData {
   id: string;
@@ -99,7 +70,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     const W = doc.page.width - 104; // printable width
     const typeLabel = place.locationType
-      ? (LOCATION_TYPE_LABELS[place.locationType] ?? place.locationType.toUpperCase())
+      ? locationTypeLabel(place.locationType)
       : 'МЕСТО';
 
     // ── Заголовок ─────────────────────────────────────────────────────────────
@@ -182,7 +153,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
       y = doc.y + 6;
 
       for (const h of place.hazardTypes) {
-        const label = HAZARD_LABELS[h] ?? h;
+        const label = hazardLabel(h);
         doc.fontSize(10)
            .font('Helvetica')
            .fillColor('#000000')

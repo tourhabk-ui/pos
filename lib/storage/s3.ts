@@ -19,6 +19,16 @@ const S3_REGION     = process.env.S3_REGION || 'ru-1';
 /** S3 настроен и готов к использованию? */
 export const isS3Configured = !!(S3_ACCESS_KEY && S3_SECRET_KEY && S3_BUCKET);
 
+/**
+ * Публичная база адресов хранилища — та же, из которой собирается `url` при
+ * заливке. Нужна ПРОВЕРКАМ: адрес, не начинающийся с неё, нашим объектом не
+ * является, и ходить по нему нельзя (в базе лежит строка, а строка в базе —
+ * не доказательство происхождения).
+ */
+export function s3PublicBase(): string {
+  return `${S3_ENDPOINT}/${S3_BUCKET}`;
+}
+
 // ── Client (lazy singleton) ──────────────────────────────────────────────────
 
 let _client: S3Client | null = null;
@@ -58,6 +68,19 @@ export interface UploadResult {
   key: string;
   /** Размер в байтах */
   size: number;
+}
+
+/**
+ * Расширение объекта по MIME. Живёт здесь, а не у писателей: у ключа объекта
+ * должно быть ОДНО правило именования. Копия у второго писателя однажды
+ * разошлась бы с первой, и разошлась бы молча — объект просто лёг бы под
+ * чужим расширением.
+ */
+export function extFor(mime: string): string {
+  if (mime.includes('png'))  return 'png';
+  if (mime.includes('webp')) return 'webp';
+  if (mime.includes('avif')) return 'avif';
+  return 'jpg';
 }
 
 // ── Upload ───────────────────────────────────────────────────────────────────

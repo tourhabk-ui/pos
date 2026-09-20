@@ -60,6 +60,7 @@ vi.mock('@/lib/db-pool', () => {
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
 
+import { NextRequest } from 'next/server';
 import { POST, GET } from '@/app/api/mcp/route';
 
 function rpc(method: string, params?: Record<string, unknown>) {
@@ -161,7 +162,8 @@ describe('MCP create_lead', () => {
   });
 
   it('GET-описание сервера упоминает create_lead', async () => {
-    const res = await GET();
+    // GET принимает запрос с 19.09 (сторож mcp-transport-accept).
+    const res = await GET(new NextRequest('https://vedarai.ru/api/mcp'));
     const json = await res.json();
     expect(json.description).toContain('create_lead');
   });

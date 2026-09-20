@@ -8,6 +8,7 @@ import {
   Upload, Loader2,
 } from 'lucide-react';
 import { readApiResponse } from '@/lib/http/api-response';
+import { locationTypeLabel, LOCATION_TYPES } from '@/lib/places/location-types';
 
 // ─────────────────────────────────────────────
 // Типы
@@ -57,10 +58,6 @@ interface OperatorTour {
 // ─────────────────────────────────────────────
 // Константы
 // ─────────────────────────────────────────────
-const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano: 'Вулкан', hot_spring: 'Термальный источник', bay: 'Бухта',
-  lake: 'Озеро', mountain: 'Горы', river: 'Река', geyser: 'Гейзер', other: 'Другое',
-};
 const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   trekking: 'Трекинг', thermal: 'Термальный', boat_trip: 'Морская прогулка',
   rafting: 'Сплав', fishing: 'Рыбалка', bears: 'Медведи',
@@ -280,7 +277,7 @@ function EditModal({ tour, onClose, onSave }: {
               <div>
                 <label className={labelCls}>Тип локации</label>
                 <select className={inputCls} value={form.location_type} onChange={e => set('location_type', e.target.value)}>
-                  {Object.entries(LOCATION_TYPE_LABELS).map(([v, l]) => (
+                  {Object.entries(LOCATION_TYPES).map(([v, l]) => (
                     <option key={v} value={v}>{l}</option>
                   ))}
                 </select>
@@ -684,7 +681,7 @@ export default function ToursManagement() {
         </select>
         <select className={selectCls} value={locationFilter} onChange={e => { setLocationFilter(e.target.value); setPage(0); }}>
           <option value="">Все локации</option>
-          {Object.entries(LOCATION_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          {Object.entries(LOCATION_TYPES).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <select className={selectCls} value={publishedFilter} onChange={e => { setPublishedFilter(e.target.value); setPage(0); }}>
           <option value="">Все статусы</option>
@@ -732,7 +729,7 @@ export default function ToursManagement() {
                           {ACTIVITY_TYPE_LABELS[tour.activity_type] || tour.activity_type}
                         </span>
                         <span className="text-[10px] text-[var(--text-muted)]">
-                          {LOCATION_TYPE_LABELS[tour.location_type] || tour.location_type}
+                          {locationTypeLabel(tour.location_type)}
                         </span>
                       </div>
                     </td>

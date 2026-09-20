@@ -41,7 +41,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { uploadToS3 } from '@/lib/storage/s3';
+import { uploadToS3, extFor } from '@/lib/storage/s3';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 120;
@@ -64,12 +64,6 @@ interface Row {
 }
 
 /** Расширение по MIME — ключ объекта должен читаться человеком. */
-function extFor(mime: string): string {
-  if (mime.includes('png'))  return 'png';
-  if (mime.includes('webp')) return 'webp';
-  if (mime.includes('avif')) return 'avif';
-  return 'jpg';
-}
 
 /**
  * GET — только ПЛАН, без единой записи.

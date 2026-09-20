@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { placeTypeLabel } from '@/lib/places/type-label';
 
 const SQL = readFileSync(
   join(process.cwd(), 'migrations/859_other_type_cleanup.sql'),
@@ -63,11 +64,16 @@ describe('назначаемые типы словарные', () => {
         .map(s => s.replace(/SET location_type = '(\w+)'/, '$1')),
     )];
     expect(targets.length).toBeGreaterThanOrEqual(8);
-    for (const file of ['components/map/PlaceMapSheet.tsx', 'lib/places/type-label.ts']) {
-      const dict = readFileSync(join(process.cwd(), file), 'utf-8');
-      for (const t of targets) {
-        expect(dict, `${t} в ${file}`).toMatch(new RegExp(`\\b${t}:`));
-      }
+    // Словарь платформы спрашивается ПОДПИСЬЮ, а не текстом файла: 19.09 он
+    // сведён в lib/places/location-types.ts, а `type-label.ts` стал
+    // re-export'ом. `placeTypeLabel` отдаёт слаг, когда русского слова нет
+    // (§4.0), — это и есть искомое «подписи не хватает».
+    for (const t of targets) {
+      expect(placeTypeLabel(t), `${t} без русского слова в словаре платформы`).not.toBe(t);
+    }
+    const sheet = readFileSync(join(process.cwd(), 'components/map/PlaceMapSheet.tsx'), 'utf-8');
+    for (const t of targets) {
+      expect(sheet, `${t} в PlaceMapSheet`).toMatch(new RegExp(`\\b${t}:`));
     }
   });
 });

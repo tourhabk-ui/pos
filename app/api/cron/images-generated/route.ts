@@ -38,6 +38,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { GENERATED_MODELS } from '@/lib/images/origin';
+import { deleteFromS3, isS3Configured } from '@/lib/storage/s3';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -53,6 +54,8 @@ const BodySchema = z.object({
 
 interface Row {
   id: string;
+  /** Ключ объекта в хранилище. NULL — снимок ещё лежит байтами в базе. */
+  s3_key: string | null;
   size_bytes: string;
   model: string | null;
   place_name: string | null;
@@ -65,6 +68,7 @@ async function plan(limit: number) {
   const [{ rows }, { rows: left }] = await Promise.all([
     pool.query<Row>(
       `SELECT i.id::text,
+              i.s3_key,
               OCTET_LENGTH(i.image_data)::text AS size_bytes,
               i.model,
               p.name   AS place_name,
@@ -95,9 +99,14 @@ async function plan(limit: number) {
     by_model: left.map(r => ({ model: r.model, count: Number(r.n), total_mb: Number(r.mb) })),
     items: rows.map(r => ({
       id: r.id,
+      // Ключ объекта едет в плане: без него удаление знало бы только про
+      // строку, а объект в хранилище оставался бы сиротой.
+      s3_key: r.s3_key,
       size_kb: Math.round(Number(r.size_bytes ?? '0') / 1024),
       model: r.model,
       subject: r.place_name ?? r.route_title,
+      // Где снимок лежит СЕЙЧАС — видно в сухом прогоне, до всякого удаления.
+      storage: r.s3_key ? 'хранилище' : 'байты в базе',
     })),
   };
 }
@@ -170,6 +179,33 @@ export async function POST(req: NextRequest) {
 
     for (const item of p.items) {
       try {
+        /**
+         * СНАЧАЛА ОБЪЕКТ, ПОТОМ СТРОКА — порядок не переставлять.
+         *
+         * До 19.09 удалялась только строка. Для снимка, уже уехавшего в
+         * хранилище (`image_data` обнулён, `s3_key` записан), это оставляло
+         * ОБЪЕКТ-СИРОТУ: картинка продолжает занимать оплаченное место, а
+         * найти её больше нечем — единственная ссылка на ключ лежала в
+         * удалённой строке. Удаление, оставляющее ровно то, что просили
+         * удалить, — не удаление.
+         *
+         * Порядок именно такой, потому что он ВОССТАНОВИМ: не удалился
+         * объект — строка остаётся, снимок цел, партию можно повторить.
+         * Обратный порядок терял бы ключ при первой же ошибке сети.
+         */
+        if (item.s3_key && isS3Configured) {
+          try {
+            await deleteFromS3(item.s3_key);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            // Отказ не глушится: строку не трогаем, чтобы объект не стал
+            // сиротой, и называем причину (§4.0).
+            console.error(`[images-generated] объект ${item.s3_key} не удалён:`, msg);
+            failed.push({ id: item.id, reason: `объект в хранилище не удалён (${msg.slice(0, 120)}) — строка не тронута` });
+            continue;
+          }
+        }
+
         // Род повторён в самом DELETE: между планом и удалением снимок мог
         // быть заменён настоящей фотографией через админку.
         const res = await pool.query(

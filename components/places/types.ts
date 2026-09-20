@@ -140,42 +140,21 @@ export interface PlaceData {
   nearby: NearbyPlace[];
 }
 
-export const LOCATION_TYPE_LABELS: Record<string, string> = {
-  volcano: 'Вулкан',
-  geyser: 'Гейзерное поле',
-  hot_spring: 'Термальный источник',
-  lake: 'Озеро',
-  mountain: 'Горный массив',
-  river: 'Река',
-  bay: 'Бухта',
-  cape: 'Мыс',
-  island: 'Остров',
-  forest: 'Природный парк',
-  beach: 'Пляж',
-  waterfall: 'Водопад',
-  rock: 'Скала',
-  viewpoint: 'Смотровая площадка',
-  settlement: 'Населённый пункт',
-  museum: 'Музей',
-  historical: 'Историческое место',
-  glacier: 'Ледник',
-  thermal: 'Термальная зона',
-  other: 'Место',
-};
+/**
+ * Типы мест — НЕ здесь. Один список на платформу:
+ * `lib/places/location-types.ts` (перепись 19.09: копий было пять, ни одна не
+ * знала всех 24 ключей). Имя сохранено ради импортёров.
+ */
+export { LOCATION_TYPES as LOCATION_TYPE_LABELS } from '@/lib/places/location-types';
 
-export const HAZARD_LABELS: Record<string, { label: string }> = {
-  bears: { label: 'Медведи' },
-  wildlife: { label: 'Дикие животные' },
-  avalanche: { label: 'Лавины' },
-  rockfall: { label: 'Камнепад' },
-  thermal: { label: 'Термальные зоны' },
-  volcanic_gas: { label: 'Вулканические газы' },
-  altitude: { label: 'Высота' },
-  river_crossing: { label: 'Переправы' },
-  fog: { label: 'Туман' },
-  ice: { label: 'Лёд' },
-  no_signal: { label: 'Нет связи' },
-  weather: { label: 'Резкая погода' },
-};
+/**
+ * Названия опасностей — НЕ здесь. Один список на платформу:
+ * `lib/safety/hazard-labels.ts` (перепись 19.09: копий было шесть, и все
+ * шесть разошлись; контекст Кузьмича, например, не знал ключа `bears`).
+ *
+ * Имя и форма сохранены ради импортёров (`HAZARD_LABELS[h]?.label`), но
+ * значение теперь общее.
+ */
+export { HAZARDS as HAZARD_LABELS } from '@/lib/safety/hazard-labels';
 
 export const DIFFICULTY_LABELS = ['', 'Лёгкий', 'Ниже среднего', 'Средний', 'Сложный', 'Экстремальный'];

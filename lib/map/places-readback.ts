@@ -52,6 +52,56 @@ export type ReadbackVerdict =
   /** Байты совпали, но среди них — записи из списка «не должно быть». */
   | { state: 'stale-content'; features: number; presentAbsent: string[] };
 
+/** Ответ на вопрос «есть ли скрытое в том, что СОБИРАЕМСЯ залить» (19.09). */
+export type PreflightVerdict =
+  /** Все пакеты читаются и скрытых записей в них нет. */
+  | { state: 'clean'; packs: number }
+  /** Экспорт отдал записи, которых быть не должно; `unreadable` — те, о ком судить нечем. */
+  | { state: 'present'; hits: Array<{ region: string; ids: string[] }>; unreadable: string[] }
+  /** Ни одного попадания, но часть пакетов не разобрать — это «не знаю», не «чисто». */
+  | { state: 'unreadable'; regions: string[] };
+
+/**
+ * Спросить ДО заливки: нет ли в ответах экспорта записей из списка
+ * «этого быть не должно».
+ *
+ * Появилось 19.09 по случаю: прогон 16 залил в хранилище 123 пакета, ТРИ из
+ * них со скрытым дублем каньона, и только после этого прочитал их обратно и
+ * покраснел. Проверка сработала верно и всё же опоздала — в поле дубль уже
+ * уехал. Причина сочетания: маркер пушится следом за миграцией, а миграция
+ * доезжает до прода со сборкой Timeweb минут через двадцать; шаг ожидания
+ * при этом ждёт ВЕРСИЮ КОДА эндпоинта, которая от миграции не меняется.
+ *
+ * Ответы экспорта лежат в памяти целиком ещё до первой заливки (фаза 1 —
+ * «слой либо целиком, либо никак»), поэтому вопрос ничего не стоит: те же
+ * байты, тот же список, только раньше. Чтение обратно этим не отменяется —
+ * оно отвечает за хранилище, а это за данные.
+ *
+ * Три исхода (§4.0): чисто · скрытое найдено · разобрать не смог. Третий не
+ * равен первому: пакет, который не разобрался, — не «пакет без скрытых».
+ */
+export function verifyBeforeUpload(
+  packs: ReadonlyArray<{ region: string; body: Buffer }>,
+  expectAbsent: readonly string[],
+): PreflightVerdict {
+  const hits: Array<{ region: string; ids: string[] }> = [];
+  const unreadable: string[] = [];
+
+  for (const pack of packs) {
+    const ids = featureIds(pack.body);
+    if (ids === null) {
+      unreadable.push(pack.region);
+      continue;
+    }
+    const present = expectAbsent.filter((id) => ids.includes(id));
+    if (present.length > 0) hits.push({ region: pack.region, ids: present });
+  }
+
+  if (hits.length > 0) return { state: 'present', hits, unreadable };
+  if (unreadable.length > 0) return { state: 'unreadable', regions: unreadable };
+  return { state: 'clean', packs: packs.length };
+}
+
 export function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }

@@ -886,7 +886,8 @@ export async function callOpenRouterWithTools(
   timeoutMs = 20_000,
 ): Promise<ToolsCallResult | null> {
   const apiKey = getOpenRouterKey();
-  if (!apiKey || isOpenRouterTemporarilyDisabled()) return null;
+  if (!apiKey) { recordAiLegFailure('openrouter:tools', 'no_key'); return null; }
+  if (isOpenRouterTemporarilyDisabled()) { recordAiLegFailure('openrouter:tools', 'ступень отключена после прошлого отказа'); return null; }
 
   try {
     const res = await relayFetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
@@ -908,6 +909,7 @@ export async function callOpenRouterWithTools(
 
     if (!res.ok) {
       if (res.status === 401) markOpenRouterAuthFailure();
+      recordAiLegFailure('openrouter:tools', httpFailureReason(res.status, await res.text().catch(() => '')));
       return null;
     }
 
@@ -920,13 +922,14 @@ export async function callOpenRouterWithTools(
     };
 
     const msg = data?.choices?.[0]?.message;
-    if (!msg) return null;
+    if (!msg) { recordAiLegFailure('openrouter:tools', `empty (${modelId}): ${describeEmptyCompletion(data)}`); return null; }
 
     return {
       content: msg.content ?? null,
       tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
     };
-  } catch {
+  } catch (e) {
+    recordAiLegFailure('openrouter:tools', errorFailureReason(e));
     return null;
   }
 }
@@ -942,7 +945,7 @@ export async function callDeepSeekWithTools(
   timeoutMs = 25_000,
 ): Promise<ToolsCallResult | null> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) { recordAiLegFailure('deepseek:tools', 'no_key'); return null; }
 
   try {
     const model = modelId ?? await resolveDeepSeekModel();
@@ -963,7 +966,10 @@ export async function callDeepSeekWithTools(
       }),
     }, { timeoutMs, label: `deepseek-tools:${model}` });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      recordAiLegFailure('deepseek:tools', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
 
     const data = await res.json() as {
       choices?: Array<{
@@ -971,17 +977,22 @@ export async function callDeepSeekWithTools(
       }>;
     };
     const msg = data?.choices?.[0]?.message;
-    if (!msg) return null;
+    if (!msg) { recordAiLegFailure('deepseek:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
 
     return {
       content: msg.content ?? null,
       tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
     };
-  } catch {
+  } catch (e) {
+    recordAiLegFailure('deepseek:tools', errorFailureReason(e));
     return null;
   }
 }
 
+// xAI tool-calling (callXaiWithTools) — вторая живая нога этого цикла, но
+// живёт она ниже, вместе с остальным xAI: ей нужен resolveXaiModel, а
+// соседние пробы режут этот файл по границам функций и на имени-приставке
+// «callXai...» ловят не ту.
 // Qwen tool-calling здесь БЫЛ и снят 08.09 решением владельца («qwen не
 // используем»). Функция удалена, а не оставлена «на всякий случай»: ключ
 // DashScope отвергнут в обоих регионах, вызывать её было неоткуда, и
@@ -1021,10 +1032,18 @@ export async function firstNonNullToolLabelled(
   return null;
 }
 
-// Водопад инструментов: DeepSeek (первичный — доступен из РФ) → OpenRouter
-// (последний шанс, авто-восстановление если разблокируют). Раньше tools-цикл
-// Кузьмича висел только на OpenRouter — при регион-блоке инструменты
-// отваливались, чат жил без tools.
+// Водопад инструментов: DeepSeek (первичный — доступен из РФ) → xAI (вторая
+// живая нога) → OpenRouter (последний шанс, авто-восстановление если
+// разблокируют). Раньше tools-цикл Кузьмича висел только на OpenRouter — при
+// регион-блоке инструменты отваливались, чат жил без tools.
+//
+// xAI внесён 19.09 и стоит ПЕРЕД OpenRouter намеренно. Ног было две только на
+// бумаге: OpenRouter гео-блокируется с прода неделями, и в ночь, когда
+// DeepSeek ушёл в таймаут, цикл остался без ответа вовсе. Порядок здесь — не
+// вкус, а тот же урок, что с Qwen выше: ступени идут ПОСЛЕДОВАТЕЛЬНО, и
+// заведомо отказывающая впереди живой — это секунды ожидания человека в поле,
+// купленные ни за что. OpenRouter из очереди не убран: гео-блок снимут — он
+// вернётся сам, а гадать об этом не нужно.
 //
 // Qwen стоял здесь ПЕРВЫМ и снят 08.09 решением владельца («qwen не
 // используем»). Цена промедления была не абстрактной: ступени идут
@@ -1043,6 +1062,7 @@ export async function callToolsWaterfall(
 ): Promise<ToolsCallResult | null> {
   return firstNonNullToolLabelled([
     { provider: 'deepseek',   run: () => callDeepSeekWithTools(messages, tools) },   // первичный: доступен из РФ
+    { provider: 'xai',        run: () => callXaiWithTools(messages, tools) },        // вторая ЖИВАЯ нога (19.09)
     { provider: 'openrouter', run: () => callOpenRouterWithTools(messages, tools) }, // последний шанс (авто-восстановление если разблокируют)
   ]);
 }
@@ -1225,6 +1245,108 @@ export async function callXai(
     recordAiLegFailure('xai', `empty (${model}): ${describeEmptyCompletion(data)}`);
     return null;
   } catch (e) { recordAiLegFailure('xai', errorFailureReason(e)); return null; }
+}
+
+/**
+ * xAI tool-calling — ВТОРАЯ живая нога цикла инструментов (19.09).
+ *
+ * Повод. В ночь на 19.09 DeepSeek перестал отвечать с прода: 18.09 в 22:37
+ * UTC — HTTP 200 за 3,4 с, 19.09 в 01:14 — сетевой таймаут на 35,7 с. Ключ на
+ * месте, ответа нет. И выяснилось, что у tools-цикла Кузьмича ног было две
+ * только на бумаге: вторая, OpenRouter, гео-блокируется с прода неделями и
+ * отвечает отказом ещё до запроса. То есть цикл инструментов стоял на ОДНОЙ
+ * ноге, и в ту ночь она подломилась.
+ *
+ * Без инструментов Кузьмич не немеет — вызывающий уходит в водопад без tools
+ * с предварительным поиском, — но отвечает он тогда из общих соображений там,
+ * где должен был спросить занятость, погоду или профиль безопасности точки.
+ * Для платформы, чья цель безопасность туриста, это худший вид отказа:
+ * выглядит как ответ.
+ *
+ * Почему xAI. Из достижимых с прода провайдеров с function-calling он
+ * единственный, кого не надо чинить: Qwen снят с текстовых путей 08.09,
+ * Anthropic отвечает «credit balance is too low», Gemini гео-блокируется,
+ * Timeweb-шлюз игнорирует параметр `model` и каталога не отдаёт вовсе.
+ *
+ * Сначала 'fast', и это не экономия: замер 04.09 — grok-4.6 отвечает 43 с,
+ * grok-build-0.1 — 13 с. Человек в поле на плохой связи сорок три секунды не
+ * ждёт, для него это «не ответил». Модель резолвится из `/v1/models` (§8), id
+ * здесь не хардкодится.
+ *
+ * ПОЧЕМУ ДВЕ ПОПЫТКИ. Поддерживает ли лёгкая модель каталога function-calling,
+ * отсюда не проверить — каталог отдаёт только имена, а ключа у раннера нет.
+ * Ставить ступень на непроверенной посылке значит завести «объявленный исход
+ * без источника» (§4): нога есть, а ответа от неё не будет никогда, и узнать
+ * об этом будет неоткуда. Поэтому отказ HTTP на лёгкой модели — не приговор
+ * провайдеру: пробуем сильную, один раз. Цена платится только там, где
+ * DeepSeek уже не ответил, то есть в уже испорченном случае; в норме до этой
+ * ветки не доходит вовсе. Обе причины остаются в следе — какая именно модель
+ * отказала, видно на /hub/admin/health.
+ */
+export async function callXaiWithTools(
+  messages: ToolMsg[],
+  tools: ToolDefinition[],
+  timeoutMs = 30_000,
+): Promise<ToolsCallResult | null> {
+  const apiKey = getXaiKey();
+  if (!apiKey) { recordAiLegFailure('xai:tools', 'no_key'); return null; }
+
+  let httpRefused = false;
+  for (const purpose of ['fast', 'strong'] as const) {
+    // Сильная идёт только после ОТКАЗА СЕРВЕРА на лёгкой. Таймаут, пустой
+    // ответ и «модель не разрешена» второй попытки не заслуживают: первое —
+    // уже потраченное ожидание человека, остальные о поддержке инструментов
+    // ничего не говорят.
+    if (purpose === 'strong' && !httpRefused) break;
+
+    const model = await resolveXaiModel(purpose);
+    if (!model) {
+      recordAiLegFailure('xai:tools', `модель не разрешена (${purpose}): ${xaiResolveProblem() ?? 'каталог недоступен'}`);
+      return null;
+    }
+
+    try {
+      const res = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.3,
+          max_tokens: 1000,
+          messages,
+          tools,
+          tool_choice: 'auto',
+        }),
+        signal: AbortSignal.timeout(purpose === 'fast' ? timeoutMs : 45_000),
+      });
+
+      if (!res.ok) {
+        recordAiLegFailure('xai:tools', `${purpose}/${model}: ${httpFailureReason(res.status, await res.text().catch(() => ''))}`);
+        httpRefused = true;
+        continue;
+      }
+
+      const data = await res.json() as {
+        choices?: Array<{
+          message?: { content?: string | null; tool_calls?: ToolCall[] };
+        }>;
+      };
+      const msg = data?.choices?.[0]?.message;
+      if (!msg) { recordAiLegFailure('xai:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
+
+      return {
+        content: msg.content ?? null,
+        tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+      };
+    } catch (e) {
+      recordAiLegFailure('xai:tools', `${purpose}/${model}: ${errorFailureReason(e)}`);
+      return null;
+    }
+  }
+  return null;
 }
 
 // ── Anthropic Claude (direct API) ───────────────────────────
@@ -2592,6 +2714,31 @@ export async function probeDeepSeekKeyStatus(): Promise<{
   }
 }
 
+/**
+ * Диагностика ответила успехом — провайдер ЖИВ, чем бы ни кончилась быстрая
+ * проба здоровья.
+ *
+ * ── Случай 20.09 ───────────────────────────────────────────────────────────
+ *
+ * Владелец переслал CRIT «Все AI-провайдеры недоступны», в теле которого
+ * стояло: «DeepSeek: HTTP 200: {"id":"...","object":"chat.completion",...}».
+ * Заголовок опровергался собственным телом.
+ *
+ * Механизм: быстрая проба даёт провайдеру 8 секунд и возвращает false по
+ * таймауту — неотличимо от настоящего отказа. Диагностика того же провайдера
+ * ходит отдельно с бюджетом 10 секунд и успела. Дальше `anyOk` считался
+ * только по быстрым пробам, диагностики в нём не участвовали, — и пять
+ * таймаутов стали «недоступны все».
+ *
+ * Это §4.0: «не смог за 8 секунд» и «недоступен» — разные исходы, а у пробы
+ * их было два вместо трёх. Цена — ложная тревога высшего уровня, которая
+ * заслоняет настоящие: в том же письме DeepSeek стал отвечать дольше восьми
+ * секунд против 0,3 замеренных 04.09, и эта новость утонула.
+ */
+export function diagnosticSaysAlive(status: number | null | undefined): boolean {
+  return typeof status === 'number' && status >= 200 && status < 300;
+}
+
 /** Человекочитаемая причина отказа DeepSeek для алерта. */
 export function explainDeepSeekFailure(probe: {
   key_set: boolean;
@@ -2599,6 +2746,11 @@ export function explainDeepSeekFailure(probe: {
   detail: string;
 }): string {
   if (!probe.key_set) return 'DEEPSEEK_API_KEY не задан на Timeweb';
+  // Успех в «объяснении отказа» — не отказ. Без этой ветки 200 доезжал до
+  // последней строки и форматировался как причина недоступности (20.09).
+  if (diagnosticSaysAlive(probe.http_status)) {
+    return `ответил HTTP ${probe.http_status} — провайдер жив, отказа нет`;
+  }
   if (probe.http_status === 401 || probe.http_status === 403) return 'ключ отвергнут (401/403)';
   if (probe.http_status === 402) return 'нет средств на балансе (402)';
   if (probe.http_status === 429) return 'лимит запросов (429)';

@@ -16,7 +16,12 @@ describe('placeTypeLabel — три исхода', () => {
     expect(placeTypeLabel('mountain')).toBe('Гора');
   });
   it('recorded but unmapped type → the slug itself, not silence and not «Место»', () => {
-    expect(placeTypeLabel('glacier')).toBe('glacier');
+    // Примером тут стоял `glacier` — до 19.09 слова для него в этом словаре
+    // не было. После сведения с lib/places/location-types.ts оно есть
+    // («Ледник»), и пример пришлось сменить на заведомо чужой слаг: иначе
+    // проверка договора выродилась бы в проверку того, чего в словаре нет.
+    expect(placeTypeLabel('glacier')).toBe('Ледник');
+    expect(placeTypeLabel('no_such_type')).toBe('no_such_type');
   });
   it('absent type → null (caller prints nothing)', () => {
     expect(placeTypeLabel(null)).toBeNull();
@@ -45,17 +50,26 @@ describe('placeTypeLabel — три исхода', () => {
  * может только СОКРАЩАТЬСЯ: новая копия словаря краснеет, а копия, которую
  * перевели на lib/places/type-label.ts, обязана быть отсюда убрана — иначе
  * сторож зеленеет ровно тогда, когда объединение отвалилось.
+ *
+ * ── Сокращение 19.09 ──────────────────────────────────────────────────────
+ *
+ * Три копии переведены на единый справочник `lib/places/location-types.ts`
+ * (сведение пяти словарей типов) и потому убраны отсюда:
+ * `components/places/types.ts`, `app/routes/[id]/_RouteDetailClient.tsx`,
+ * `app/hub/admin/content/tours/page.tsx`. Убраны не «за компанию» — сторож
+ * сам потребовал, увидев, что копий больше нет.
+ *
+ * Туда же ушла таблица `lib/places/type-label.ts`: она была шестой копией
+ * того же смысла и уже разошлась («Лес» против «Лесной массив»). Теперь это
+ * re-export, и литерала в ней нет — из переписи она выбывает сама.
  */
 const KNOWN_COPIES = new Set([
   'app/api/search/route.ts',
   'app/collections/[slug]/_CollectionDetailClient.tsx',
-  'app/hub/admin/content/tours/page.tsx',
   'app/hub/admin/places-photos/_PlacesPhotosClient.tsx',
-  'app/routes/[id]/_RouteDetailClient.tsx',
   'app/tools/safety/_SafetyClient.tsx',
   'app/trending/_TrendingClient.tsx',
   'components/map/PlaceMapSheet.tsx',
-  'components/places/types.ts',
   'components/safety/LiveStatus.tsx',
   'lib/notifications/telegram-channel.ts',
 ]);

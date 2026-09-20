@@ -13,9 +13,21 @@
  * 13.09 правка пошла дальше: чужих навигаторов на карточке нет вовсе
  * (владелец: «кнопка навигация до сих пор открывает сторонние сервисы»).
  * geo: из PlaceActionBar и om:// из MobileBottomBar сняты оба — дорогу
- * считает свой граф. Разделение труда осталось прежним: шапка даёт
- * ДЕЙСТВИЕ (построить путь), нижний бар — ФАЙЛ (унести точку с собой),
- * и одинаковых CTA по-прежнему не два.
+ * считает свой граф.
+ *
+ * ── 19.09: самой нижней панели больше нет ─────────────────────────────────
+ *
+ * Пересборка карточки (направление D, «ux и более дружественный интерфейс»)
+ * сняла `MobileBottomBar` целиком. Причина та же, из-за которой он и попал
+ * под сторожа: фиксированная полоса внизу телефона — третий этаж поверх
+ * BottomNav платформы и SOS, и место в ней стоит дороже всего на экране, а
+ * держала она ОДНУ ссылку на файл.
+ *
+ * Сторож переписан, а не удалён: он держал не имя функции, а свойство —
+ * «одно действие не встречается на экране дважды». Свойство осталось, и
+ * проверяется теперь ПЕРЕСЧЁТОМ, а не чтением тела функции, которой нет.
+ * Так он переживёт и следующую пересборку: считается то, что видит человек,
+ * а не то, как это собрано.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -25,45 +37,62 @@ const ROOT = process.cwd();
 const CLIENT = readFileSync(join(ROOT, 'app/places/[id]/_PlaceDetailClient.tsx'), 'utf-8');
 const ACTION_BAR = readFileSync(join(ROOT, 'components/places/PlaceActionBar.tsx'), 'utf-8');
 
-function bodyOf(fnName: string, src: string): string {
-  const at = src.indexOf(`function ${fnName}(`);
-  expect(at, `${fnName} не найдена в файле`).toBeGreaterThan(-1);
-  const end = src.indexOf('\n}\n', at);
-  return src.slice(at, end > -1 ? end : undefined);
+/**
+ * Код без комментариев — для ЗАПРЕТОВ. Оба файла рассказывают в шапках, что
+ * здесь стояло раньше (geo:, om://, четыре кнопки подряд), и запрет,
+ * прочитавший объяснение как нарушение, потребовал бы стереть именно ту
+ * запись, ради которой правка и делалась. Та же ловушка, что сработала
+ * четырежды 19.09 — вырезание заведено сразу.
+ */
+function codeOnly(src: string): string {
+  return src
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, '')   // JSX-комментарий
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
+const CLIENT_CODE = codeOnly(CLIENT);
+const BAR_CODE = codeOnly(ACTION_BAR);
+
+function count(src: string, needle: string): number {
+  return src.split(needle).length - 1;
 }
 
 describe('карточка места — «Навигация» не дублируется на мобильном', () => {
   it('PlaceActionBar виден без responsive-скрытия (значит и на мобильном тоже)', () => {
     expect(ACTION_BAR).toContain('Навигация');
-    expect(ACTION_BAR).not.toMatch(/hidden md:|md:hidden/);
+    expect(BAR_CODE).not.toMatch(/hidden md:|md:hidden/);
   });
 
   it('«Навигация» в шапке — свой расчёт, не чужое приложение', () => {
     // Ищем ПЕРЕХОД, а не слово: комментарий в файле сам объясняет, что здесь
     // стояло раньше, и запрет на упоминание сделал бы объяснение невозможным.
-    expect(ACTION_BAR).not.toMatch(/href=\{?[`'"]geo:/);
+    expect(BAR_CODE).not.toMatch(/href=\{?[`'"]geo:/);
     expect(ACTION_BAR).toContain('OWN_ROUTE_EVENT');
   });
 
-  it('MobileBottomBar не несёт geo:-ссылку и текст «Навигация» — это уже есть в PlaceActionBar', () => {
-    const bar = bodyOf('MobileBottomBar', CLIENT);
-    expect(bar).not.toMatch(/href=\{?[`'"]geo:/);
-    expect(bar).not.toContain('Навигация');
+  it('второй такой же CTA на карточке не появился', () => {
+    // Слово «Навигация» принадлежит шапке. Появится оно в теле карточки —
+    // это ровно тот экран, на который владелец прислал скрин.
+    expect(CLIENT_CODE).not.toContain('Навигация');
   });
 
-  it('MobileBottomBar несёт ФАЙЛ, а не второе такое же действие', () => {
-    // Organic Maps deep link (om://) снят 13.09. Слово «оффлайн» было там к
-    // тому же чужой заслугой: обещать офлайн через приложение, которого у
-    // человека может не стоять, — обещание за чужой счёт. GPX не зависит ни
-    // от какой установленной программы.
-    const bar = bodyOf('MobileBottomBar', CLIENT);
-    expect(bar).not.toMatch(/href=\{?[`'"]om:\/\//);
-    expect(bar).toContain('/gpx');
-    expect(bar).toContain('download');
+  it('чужих навигаторов на карточке нет ни в шапке, ни в теле', () => {
+    for (const [name, code] of [['карточка', CLIENT_CODE], ['шапка', BAR_CODE]] as const) {
+      expect(code, `${name}: geo:-переход вернулся`).not.toMatch(/href=\{?[`'"]geo:/);
+      expect(code, `${name}: om://-переход вернулся`).not.toMatch(/href=\{?[`'"]om:\/\//);
+    }
   });
 
-  it('MobileBottomBar остаётся md:hidden — на десктопе не рисуется вовсе', () => {
-    const bar = bodyOf('MobileBottomBar', CLIENT);
-    expect(bar).toMatch(/md:hidden/);
+  it('ссылка на GPX ровно одна — вторая копия действия расходится поведением (#887)', () => {
+    expect(count(CLIENT_CODE, '/gpx')).toBe(1);
+    expect(CLIENT_CODE).toContain('download');
+  });
+
+  it('фиксированной полосы внизу карточка не держит — там уже SOS и BottomNav', () => {
+    // Своего `fixed bottom-0` у карточки быть не должно: этаж внизу экрана
+    // занят платформенной навигацией и кнопкой SOS, и третий поверх них
+    // перекрывал бы обоих. Ровно этим и был MobileBottomBar.
+    expect(CLIENT_CODE).not.toMatch(/fixed[^"'`]*bottom-0/);
   });
 });

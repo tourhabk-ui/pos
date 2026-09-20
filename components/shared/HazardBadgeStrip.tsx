@@ -2,21 +2,10 @@
 
 import { AlertTriangle, Wind, Mountain, Thermometer, Flame, Waves, Eye, CloudLightning, Signal, Users } from 'lucide-react';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+// Названия опасностей — один список на платформу (lib/safety/hazard-labels).
+// Здесь лежала своя копия, и она уже разошлась с остальными пятью.
+import { hazardLabel, hazardPhrase } from '@/lib/safety/hazard-labels';
 
-const HAZARD_LABELS: Record<string, string> = {
-  bears: 'Медведи',
-  wildlife: 'Дикие животные',
-  avalanche: 'Лавины',
-  rockfall: 'Камнепад',
-  thermal: 'Термальные зоны',
-  volcanic_gas: 'Вулканические газы',
-  altitude: 'Высота',
-  ice: 'Лёд',
-  weather: 'Непогода',
-  river_crossing: 'Переправа',
-  fog: 'Туман',
-  no_signal: 'Нет связи',
-};
 
 type Severity = 'danger' | 'warning' | 'ocean';
 
@@ -55,6 +44,65 @@ interface Props {
   className?: string;
 }
 
+/**
+ * Те же опасности ПРЕДЛОЖЕНИЯМИ, а не ярлыками (19.09, направление D).
+ *
+ * Бейдж «Термальные зоны» человек ещё должен расшифровать сам; строка «Есть
+ * термальные зоны — горячая земля и вода» читается сразу. Это та же правка
+ * речи, что в срезах 1-2 карточки места.
+ *
+ * Живёт РЯДОМ с бейджами намеренно: уровень опасности (`HAZARD_SEVERITY`) и
+ * иконки — общие для обоих видов, и разносить их по файлам значило бы завести
+ * второй набор правил ровно там, где мы только что свели шесть списков в один.
+ * Два представления, один источник.
+ *
+ * Фраза берётся из `hazardPhrase`; нет фразы — остаётся ярлык
+ * (`hazardLabel` вернёт хотя бы сырой ключ). Пропасть опасность не может:
+ * незнание словаря не должно выглядеть как отсутствие опасности.
+ *
+ * Регистрация МЧС — не опасность, а требование, и стоит отдельной строкой с
+ * той же ссылкой, что у бейджа: копия действия расходится поведением (#887).
+ */
+export function HazardPhraseList({ hazards, mchsRequired, className = '' }: Props) {
+  if (!hazards.length && !mchsRequired) return null;
+  return (
+    <ul className={`space-y-2.5 ${className}`}>
+      {hazards.map(h => {
+        const color = SEVERITY_VAR[HAZARD_SEVERITY[h] ?? 'warning'];
+        return (
+          <li key={h} className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex-shrink-0" style={{ color }}>
+              <HazardIcon hazard={h} />
+            </span>
+            <span className="text-[15px] leading-snug text-[var(--text-primary)]">
+              {hazardPhrase(h) ?? hazardLabel(h)}
+            </span>
+          </li>
+        );
+      })}
+      {mchsRequired && (
+        <li className="flex items-start gap-2.5">
+          <span className="mt-0.5 flex-shrink-0" style={{ color: 'var(--warning)' }}>
+            <Users className="w-3 h-3 flex-shrink-0" />
+          </span>
+          <span className="text-[15px] leading-snug text-[var(--text-primary)]">
+            Отметиться в МЧС обязательно.{' '}
+            <a
+              href={MCHS_ONLINE_FORM_URL}
+              title={MCHS_DEADLINE_SHORT}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-[var(--ocean)] underline underline-offset-2 hover:opacity-80"
+            >
+              Зарегистрировать группу
+            </a>
+          </span>
+        </li>
+      )}
+    </ul>
+  );
+}
+
 export function HazardBadgeStrip({ hazards, mchsRequired, className = '' }: Props) {
   if (!hazards.length && !mchsRequired) return null;
   return (
@@ -62,7 +110,7 @@ export function HazardBadgeStrip({ hazards, mchsRequired, className = '' }: Prop
       {hazards.map(h => {
         const sev: Severity = HAZARD_SEVERITY[h] ?? 'warning';
         const color = SEVERITY_VAR[sev];
-        const label = HAZARD_LABELS[h] ?? h;
+        const label = hazardLabel(h);
         return (
           <span
             key={h}

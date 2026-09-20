@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { placeTypeLabel } from '@/lib/places/type-label';
 
 const SQL = readFileSync(
   join(process.cwd(), 'migrations/856_geyser_mountain_type_cleanup.sql'),
@@ -70,11 +71,19 @@ describe('назначаемые типы словарные', () => {
     // Словари расходились (PlaceMapSheet знал cave, но не viewpoint; страница
     // места — наоборот) — с этой серии оба словаря синхронизированы до полного
     // объединения, и проверка стала строже: каждый тип в КАЖДОМ словаре.
-    for (const file of ['components/map/PlaceMapSheet.tsx', 'lib/places/type-label.ts']) {
-      const dict = readFileSync(join(process.cwd(), file), 'utf-8');
-      for (const t of ['hot_spring', 'valley', 'cape', 'volcano', 'viewpoint', 'cave', 'other']) {
-        expect(dict, `${t} в ${file}`).toMatch(new RegExp(`\\b${t}:`));
-      }
+    //
+    // 19.09 словарь платформы сведён в lib/places/location-types.ts, и
+    // `type-label.ts` стал re-export'ом — строки `volcano:` в нём больше нет.
+    // Поэтому спрашивается не текст файла, а САМА ПОДПИСЬ: `placeTypeLabel`
+    // возвращает слаг, когда русского слова нет (§4.0), и это ровно то, что
+    // проверка и ловила. Так она заодно переживёт следующий переезд таблицы.
+    const types = ['hot_spring', 'valley', 'cape', 'volcano', 'viewpoint', 'cave', 'other'];
+    for (const t of types) {
+      expect(placeTypeLabel(t), `${t} без русского слова в словаре платформы`).not.toBe(t);
+    }
+    const sheet = readFileSync(join(process.cwd(), 'components/map/PlaceMapSheet.tsx'), 'utf-8');
+    for (const t of types) {
+      expect(sheet, `${t} в PlaceMapSheet`).toMatch(new RegExp(`\\b${t}:`));
     }
   });
 });

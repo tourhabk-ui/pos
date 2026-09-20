@@ -9,6 +9,10 @@
 -- позже и ни одним файлом по номеру не названная; её правка идемпотентна,
 -- поэтому повторный накат под новым именем ничего не меняет.
 --
+-- Разрешено переименованием, а не записью в список замороженных столкновений:
+-- список там намеренно не растёт — «дописать было бы проще и означало бы, что
+-- сторож учит обходить себя». Ровно на этом сторож и поймал первую попытку.
+--
 -- Снять с витрины тур «Сплав по реке Быстрая (три дня)» (id 34, оператор
 -- River Tours Kamchatka). Решение владельца 18.09: «тур спрячь».
 --
@@ -95,26 +99,26 @@ BEGIN
    WHERE ot.id = 34 AND ot.deleted_at IS NULL;
 
   IF got_name IS NULL THEN
-    RAISE NOTICE '[978] тура 34 нет (или удалён) — делать нечего';
+    RAISE NOTICE '[982] тура 34 нет (или удалён) — делать нечего';
     RETURN;
   END IF;
 
   SELECT name INTO got_op FROM partners WHERE id = op_id;
 
   IF got_name IS DISTINCT FROM want_name THEN
-    RAISE NOTICE '[978] под id 34 лежит «%», а не «%» — не трогаем',
+    RAISE NOTICE '[982] под id 34 лежит «%», а не «%» — не трогаем',
       got_name, want_name;
     RETURN;
   END IF;
 
   IF got_op IS DISTINCT FROM want_op THEN
-    RAISE NOTICE '[978] тур «%» принадлежит «%», а не «%» — не трогаем',
+    RAISE NOTICE '[982] тур «%» принадлежит «%», а не «%» — не трогаем',
       got_name, COALESCE(got_op, 'NULL'), want_op;
     RETURN;
   END IF;
 
   IF pub IS FALSE THEN
-    RAISE NOTICE '[978] «%» уже снят с витрины', got_name;
+    RAISE NOTICE '[982] «%» уже снят с витрины', got_name;
     RETURN;
   END IF;
 
@@ -124,7 +128,7 @@ BEGIN
 
   -- Состояние на момент снятия — в журнал прогона: по нему видно, ушла ли
   -- причина, когда тур однажды будут возвращать.
-  RAISE NOTICE '[978] «%» снят с витрины (цена была %, условия отмены %)',
+  RAISE NOTICE '[982] «%» снят с витрины (цена была %, условия отмены %)',
     got_name,
     COALESCE(price::text, 'NULL'),
     CASE WHEN policy IS NULL OR btrim(policy) = '' THEN 'не записаны' ELSE 'записаны' END;

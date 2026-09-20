@@ -104,7 +104,13 @@ describe('non-transactional путь тоже не глотает (ревизи�
   });
 
   it('standalone: nonTx-ошибка пробрасывается в файловый catch (без пометки)', () => {
-    expect(STANDALONE).toMatch(/if \(!isAlreadyExistsError\(e\.message\)\) throw e;/);
+    // Выражение уходит в предикат ВТОРЫМ аргументом с 19.09: duplicate key
+    // значит «уже лежит» только у INSERT и CREATE, а у UPDATE это настоящий
+    // конфликт, и молчать о нём нельзя (см. migrate-duplicate-key-not-silent).
+    // Проверяется в обеих ветках раннера — нетранзакционная не должна остаться
+    // со старым решением по одному лишь тексту ошибки.
+    expect(STANDALONE).toMatch(/if \(!isAlreadyExistsError\(e\.message, stmt\)\) throw e;/);
+    expect(STANDALONE).toMatch(/if \(isAlreadyExistsError\(e\.message, stmt\)\) \{/);
   });
 });
 

@@ -87,12 +87,18 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'field-check-queue': ['db_read'],
   'followups': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'funnel-census': ['db_read', 'db_write', 'net_out'],
+  'guide-readiness': ['db_read', 'pd_direct'],
   'health': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money', 'pd_direct'],
   'hidden-tracks-census': ['db_read'],
   'images-generated': ['db_read', 'db_write'],
   // Перепись перевезённого: только чтение базы. Ни записи, ни сети — снимки
   // она не трогает и в хранилище не ходит, ключи берёт из таблицы (19.09).
-  'images-in-s3': ['db_read'],
+  'place-photo-coverage': ['db_read'],
+  // net_out добавлен 19.09: проба умеет спросить объект в хранилище HEAD-ом
+  // («открывается ли он для браузера туриста»), а не только прочитать, что
+  // о нём записано в базе. Ходит ТОЛЬКО по адресам, начинающимся с нашей
+  // публичной базы S3, и только когда просили: без `?check=` сети нет.
+  'images-in-s3': ['db_read', 'net_out'],
   'images-oversize': ['db_read'],
   'images-recompress': ['db_read', 'db_write'],
   'images-to-s3': ['db_read', 'db_write', 'net_out'],
@@ -159,6 +165,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'places-gvp-crosscheck': ['db_read', 'net_out'],
   'places-no-track-census': ['db_read'],
   'places-osm-crosscheck': ['db_read', 'net_out'],
+  'place-photos-commons': ['db_read', 'db_write', 'net_out'],
   'places-routes-census': ['db_read'],
   'places-unmerge': ['db_read', 'db_write'],
   'planner-material-census': ['db_read'],

@@ -1944,7 +1944,23 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const placeName = args.name ?? '';
       const [pr, kr] = await Promise.all([
         pool.query<{ name: string; description: string | null; category: string; district: string | null }>(
-          `SELECT name, description, category, district FROM places WHERE name ILIKE $1 LIMIT 3`,
+          // Слитые дубли отсекаются — то же правило, что у getGuardianContext
+          // и resolvePlaceForLink, и та же сортировка «кратчайшее имя первым».
+          // Без них (19.09) инструмент отвечал из ПОВТОРНОЙ записи: мой дубль
+          // каньона, слитый миграцией 988 в «Крылья Гамулов», продолжал
+          // отзываться на запрос пустой строкой «Каньон на Шивелуче [null]»,
+          // пока настоящая запись с описанием владельца лежала рядом. Слияние
+          // затем и делается, чтобы об объекте отвечала одна запись.
+          //
+          // is_visible здесь НЕ фильтруется намеренно: у стража это записанное
+          // решение — «может знать скрытое место, но ссылку на невидимую
+          // страницу не даём» (комментарий resolvePlaceForLink), — и менять
+          // его походя, заодно с починкой дублей, значило бы смешать две
+          // правки. Здесь восстанавливается только паритет со стражем.
+          `SELECT name, description, category, district FROM places
+            WHERE merged_into_id IS NULL AND name ILIKE $1
+            ORDER BY char_length(name) ASC
+            LIMIT 3`,
           [`%${placeName}%`],
         ),
         pool.query<{ title: string; compiled_truth: string }>(

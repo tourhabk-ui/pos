@@ -51,6 +51,12 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'openai',        label: 'OpenAI',            maxSilenceHours: 168 },
   { key: 'google_ai',     label: 'Google AI',         maxSilenceHours: 168 },
   { key: 'deepmind',      label: 'DeepMind',          maxSilenceHours: 336 },
+  // arXiv (19.09). Запрос — по дате ПОДАЧИ, а подают и в выходные, поэтому
+  // окно узкое: четверо суток без единой работы про агентов в cs.AI — это не
+  // затишье науки, а сломанный адрес или изменившийся формат ответа. Ровно
+  // тот случай, когда сторож и нужен: источник внесён без переписи (arxiv.org
+  // из среды правки недостижим), и подтвердить его может только прогон.
+  { key: 'arxiv',         label: 'arXiv cs.AI',       maxSilenceHours: 96 },
   { key: 'skift',         label: 'Skift',             maxSilenceHours: 120 },
   { key: 'producthunt',   label: 'Product Hunt',      maxSilenceHours: 120 },
   // ator/kamgov/mchs_rss удалены 01.08 из RSS_SOURCES как мёртвые (404 /

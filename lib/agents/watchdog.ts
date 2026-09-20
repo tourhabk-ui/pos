@@ -10,7 +10,10 @@
  *   3. Лиды без обработки > 2ч
  *   4. SOS-сигналы без реакции > 30 мин
  *   5. Сейсмо-крон (safety-ingest) мёртв > 15 мин
- *   6. Любой safety-крон из реестра мёртв (liveness по cron-registry)
+ *   6. Любой safety-крон из реестра мёртв (liveness по cron-registry), а с
+ *      19.09 — и любой крон вне безопасности: три часа немоты мониторинга
+ *      здоровья не заметил никто, потому что вопрос «запускался ли вообще»
+ *      задавался одной восьмой реестра
  *   7. Крон работает вхолостую — запускается, отчитывается успехом, не делает
  *      работы (cron-idle)
  *   8. Крон падает подряд — запускается и каждый раз отчитывается отказом
@@ -31,9 +34,9 @@ import { reachFrom, partnerReachCensus, type PartnerReachRow } from '@/lib/partn
 import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
-import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
+import { CRON_REGISTRY, type CronEntry } from '@/lib/agents/cron-registry';
 import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
-import { computeLiveness } from '@/lib/agents/cron-liveness';
+import { computeLiveness, livenessWatch } from '@/lib/agents/cron-liveness';
 import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
 import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { maxSendDm } from '@/lib/notifications/max-channel';
@@ -51,9 +54,21 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead';
   count: number;
   details: string;
+  /**
+   * По чему считать «то же самое» для дебаунса. Не задано — по `details`.
+   *
+   * Нужно там, где текст алерта содержит ВОЗРАСТ: «не отмечался 5ч» через час
+   * станет «6ч», хэш изменится, и дебаунс пропустит сообщение как новое. Так
+   * стоячее условие превращается в ежечасный повтор — ровно та болезнь, от
+   * которой дебаунс и заводился 06.09 (три одинаковых письма про Intelligence
+   * Monitor за час). Здесь передаётся СОСТАВ нарушения, а не его возраст:
+   * добавился молчащий крон — это новая информация и новое сообщение,
+   * постарел прежний — нет.
+   */
+  debounceOn?: string;
   /**
    * Явная критичность там, где её не вывести из типа. У холостых кронов вес
    * зависит от того, кто именно встал: слепой слой вулканов — КРИТ, трое суток
@@ -1303,11 +1318,13 @@ async function checkSeismicRelayAlive(): Promise<CheckResult> {
  * Любой safety-крон из реестра, который тихо встал. Обобщение checkSeismicCronDead
  * на весь safety-tier: liveness по cron-registry × agent_run_history. Алерт только
  * на 'dead' (был жив, перестал) — не на 'never' (ещё ни разу не отметился после
- * инструментирования, ложную тревогу не поднимаем). Исключены:
- *  - safety-ingest — у него отдельный, более строгий checkSeismicCronDead;
- *  - watchdog (сам себя) — рапорт «Watchdog молчит» из работающего Watchdog
- *    логически противоречив: раз проверка идёт, сторож жив. Свою живость сторож
- *    сам подтвердить не может; это дело внешнего мониторинга.
+ * инструментирования, ложную тревогу не поднимаем).
+ *
+ * Кто сюда попадает, решает `livenessWatch` (lib/agents/cron-liveness.ts), а не
+ * условие на месте: там же названы и оба исключения — safety-ingest со своим
+ * более строгим сторожем и сам Watchdog, который о своей живости судить не
+ * может. Условие на месте молчало о том, кто остался снаружи, и снаружи
+ * оказались семь восьмых реестра (19.09, см. checkDeadNonSafetyCrons).
  * Два порога, а не один. Причина — измерение: 28.07 пришёл КРИТ «safety-агент не
  * отвечает» по danger-analysis и sos-events-bridge, а оба крона в тот момент
  * отрабатывали успешно. Виновата была не платформа, а расписание GitHub
@@ -1327,40 +1344,57 @@ async function checkSeismicRelayAlive(): Promise<CheckResult> {
 const GITHUB_DELAY_FLOOR_MIN = 150;
 const SAFETY_CRON_CRITICAL_MIN = 360;
 
+/**
+ * Молчащие кроны из ПОДМНОЖЕСТВА реестра. Счёт один на обоих сторожей ниже.
+ *
+ * Своего цикла у каждого из них быть не должно: правило «молчит дольше
+ * порога» уже однажды разошлось между checkSeismicCronDead и этой проверкой
+ * (одна мерила любой прогон, другая — задержку канала), и стоило это
+ * отдельного разбора. Здесь считается один раз, а решают — что делать с
+ * найденным — вызывающие.
+ */
+async function silentCronsIn(
+  pick: (e: CronEntry) => boolean,
+): Promise<{ silent: string[]; labels: string[]; worstMinutes: number }> {
+  const entries = CRON_REGISTRY.filter(e => e.agentId !== null && pick(e));
+  if (entries.length === 0) return { silent: [], labels: [], worstMinutes: 0 };
+
+  const ids = entries.map(e => e.agentId as string);
+  const { rows } = await pool.query<{ agent_id: string; last_seen: string | null }>(
+    `SELECT agent_id, MAX(ended_at)::text AS last_seen
+       FROM agent_run_history
+      WHERE agent_id = ANY($1)
+      GROUP BY agent_id`,
+    [ids],
+  );
+  const lastById = new Map(rows.map(r => [r.agent_id, r.last_seen]));
+
+  const now = Date.now();
+  const silent: string[] = [];
+  // Состав отдельно от текста: по нему считается дебаунс, и возраста в нём
+  // быть не должно (см. WatchdogAlert.debounceOn).
+  const labels: string[] = [];
+  let worstMinutes = 0;
+  for (const e of entries) {
+    const last = lastById.get(e.agentId as string) ?? null;
+    const lastMs = last ? new Date(last).getTime() : null;
+    const lv = computeLiveness(e, lastMs, now);
+    // 'dead' по liveness И сверх floor задержки GitHub Actions — иначе штатная
+    // задержка scheduled-cron поднимала тревогу на ровном месте.
+    if (lv.status === 'dead' && (lv.minutesSince ?? 0) >= GITHUB_DELAY_FLOOR_MIN) {
+      const mins = lv.minutesSince ?? 0;
+      worstMinutes = Math.max(worstMinutes, mins);
+      const ago = mins > 120 ? `${Math.round(mins / 60)}ч` : `${mins} мин`;
+      silent.push(`${e.label} — прогон не отмечался ${ago} (расписание: ${e.schedule})`);
+      labels.push(e.label);
+    }
+  }
+  return { silent, labels, worstMinutes };
+}
+
 async function checkDeadSafetyCrons(): Promise<CheckResult> {
   try {
-    const entries = CRON_REGISTRY.filter(
-      e => e.tier === 'safety' && e.agentId !== null
-        && e.agentId !== 'safety-ingest' && e.agentId !== 'watchdog',
-    );
-    const ids = entries.map(e => e.agentId as string);
-    if (ids.length === 0) return null;
-
-    const { rows } = await pool.query<{ agent_id: string; last_seen: string | null }>(
-      `SELECT agent_id, MAX(ended_at)::text AS last_seen
-         FROM agent_run_history
-        WHERE agent_id = ANY($1)
-        GROUP BY agent_id`,
-      [ids],
-    );
-    const lastById = new Map(rows.map(r => [r.agent_id, r.last_seen]));
-
-    const now = Date.now();
-    const silent: string[] = [];
-    let worstMinutes = 0;
-    for (const e of entries) {
-      const last = lastById.get(e.agentId as string) ?? null;
-      const lastMs = last ? new Date(last).getTime() : null;
-      const lv = computeLiveness(e, lastMs, now);
-      // 'dead' по liveness И сверх floor задержки GitHub Actions — иначе штатная
-      // задержка scheduled-cron поднимала тревогу на ровном месте.
-      if (lv.status === 'dead' && (lv.minutesSince ?? 0) >= GITHUB_DELAY_FLOOR_MIN) {
-        const mins = lv.minutesSince ?? 0;
-        worstMinutes = Math.max(worstMinutes, mins);
-        const ago = mins > 120 ? `${Math.round(mins / 60)}ч` : `${mins} мин`;
-        silent.push(`${e.label} — прогон не отмечался ${ago} (расписание: ${e.schedule})`);
-      }
-    }
+    const { silent, labels, worstMinutes } = await silentCronsIn(e => livenessWatch(e) === 'safety');
     if (silent.length === 0) return null;
 
     const critical = worstMinutes >= SAFETY_CRON_CRITICAL_MIN;
@@ -1377,10 +1411,63 @@ async function checkDeadSafetyCrons(): Promise<CheckResult> {
       count: silent.length,
       critical,
       details: `${silent.join('; ')}. ${hint}`,
+      debounceOn: labels.join('|'),
     };
   } catch (err) {
     console.error('[watchdog] checkDeadSafetyCrons failed:', err);
     return checkFailure('checkDeadSafetyCrons', err);
+  }
+}
+
+/** Сколько молчащих кронов вне безопасности перечислять поимённо. */
+const NONSAFETY_CRON_LIST_LIMIT = 8;
+
+/**
+ * Кроны ВНЕ разряда безопасности, которые перестали запускаться (19.09).
+ *
+ * Повод — пересланное владельцем предупреждение о недоступности DeepSeek.
+ * Разбор показал, что предупреждение было трёхчасовой давности: `health`
+ * объявлен в реестре как «каждый час», а между прогонами в ту ночь набегало
+ * от 2ч37м до 5ч34м, и с 01:14 до 04:25 UTC не прошёл ни один. Заметить это
+ * было НЕЧЕМ: liveness-проверка отбирала `tier === 'safety'`, а `health` —
+ * `ops`. Сторож, сообщающий о поломках, сам оставался без сторожа.
+ *
+ * Асимметрия была именно здесь, и видна она рядом: из трёх вопросов к крону
+ * «отчитался успехом, не сделав работы» (checkIdleCrons) и «падает подряд»
+ * (checkFailingCrons) давно задаются ВСЕМУ реестру, и только первый и самый
+ * простой — «запускался ли вообще» — спрашивался у одной восьмой его.
+ *
+ * Отдельная проверка, а не расширенный фильтр у соседней, по двум причинам.
+ * Уровень: молчание safety-крона доходит до КРИТ, молчание контент-крона
+ * не должно — иначе редакторский крон, вставший на ночь, закрывает собой
+ * сейсмику. И текст: смешивать их в одной строке значит получить стену, в
+ * которой безопасность не найти глазами. Здесь же перечисление ограничено
+ * восемью именами, остальные считаются числом: список длиной в реестр не
+ * читает никто, а дебаунс (12 ч) держит повтор.
+ */
+async function checkDeadNonSafetyCrons(): Promise<CheckResult> {
+  try {
+    const { silent, labels, worstMinutes } = await silentCronsIn(e => livenessWatch(e) === 'nonsafety');
+    if (silent.length === 0) return null;
+
+    const shown = silent.slice(0, NONSAFETY_CRON_LIST_LIMIT);
+    const tail = silent.length > shown.length ? `; и ещё ${silent.length - shown.length}` : '';
+    const hint = describeBlame(blameSilentCrons(await readCronWitness(), worstMinutes));
+
+    return {
+      type: 'nonsafety_cron_dead',
+      count: silent.length,
+      // Никогда не КРИТ: вне безопасности молчание крона стоит данных и
+      // времени, но не здоровья человека в поле.
+      critical: false,
+      details: `Вне разряда безопасности не запускаются ${silent.length}: ${shown.join('; ')}${tail}. ${hint}`,
+      // Возраст молчания в текст идёт, в ключ дебаунса — нет: иначе стоячее
+      // условие повторялось бы каждый час вместо раза в двенадцать.
+      debounceOn: labels.join('|'),
+    };
+  } catch (err) {
+    console.error('[watchdog] checkDeadNonSafetyCrons failed:', err);
+    return checkFailure('checkDeadNonSafetyCrons', err);
   }
 }
 
@@ -1737,7 +1824,7 @@ export const WATCHDOG_ALERT_DEBOUNCE_HOURS = 12;
  * ПОВТОР, не про новую информацию под тем же типом.
  */
 function watchdogDebounceKey(a: WatchdogAlert): string {
-  return `${a.type}:${hashPayload({ details: a.details }).slice(0, 16)}`;
+  return `${a.type}:${hashPayload({ details: a.debounceOn ?? a.details }).slice(0, 16)}`;
 }
 
 /** Разносит алерты на «слать» и «уже говорили недавно, не повторяем». */
@@ -1806,6 +1893,10 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     // с порогом в сутки его остановку не видит: раннер всё ещё доставляет.
     checkSeismicRelayAlive,
     checkDeadSafetyCrons,
+    // Тот же вопрос «запускался ли вообще» — остальным семи восьмым реестра.
+    // До 19.09 его задавали только безопасности, и мониторинг здоровья,
+    // вставший на три часа, не заметил никто (шапка проверки).
+    checkDeadNonSafetyCrons,
     checkUndeliveredSafetyPush,
     checkIdleCrons,
     checkFailingCrons,

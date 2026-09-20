@@ -81,13 +81,43 @@ export const LOCATION_LABELS: Record<string, string> = {
 /**
  * Сложность: подпись + семантический токен цвета (никогда не хардкод-hex).
  * `moderate` и `expert` — синонимы, встречались в отдельных копиях словаря.
+ *
+ * ── Что нашлось 19.09 ─────────────────────────────────────────────────────
+ *
+ * В колонке `difficulty` (varchar) живут СЕМЬ написаний, и берутся они из трёх
+ * разных словарей нашего же кода:
+ *
+ *   lib/ai/image-tagger.ts    easy | moderate | extreme
+ *   lib/planner/engine.ts     easy | moderate | hard
+ *   lib/services/tours        easy | medium | hard | extreme
+ *   lib/safety/tour-risk.ts   высокий риск: hard | difficult | extreme | expert
+ *
+ * Этот словарь знал пять и не знал `extreme` и `difficult` — при том что
+ * САМ модуль риска считает оба высоким риском. Подсчёт по репозиторию:
+ * `easy` 49, `hard` 16, `medium` 13, `moderate` 9, `extreme` 4.
+ *
+ * Цена пробела видна на карточке маршрута, а это главная инструкция туриста:
+ * бейдж сложности рисовался без запаса (`MAP[x]` без `?? x`), и у маршрута с
+ * `extreme` он выходил ПУСТЫМ — цветная плашка без слова. Пустая плашка
+ * читается как «ничего особенного» ровно там, где написано «экстремальный».
+ *
+ * Добавлены оба недостающих написания. Слова не придуманы: `extreme` берёт
+ * подпись `expert` (тот же ярус у tour-risk) и короткое слово
+ * «Экстремальный», которое уже есть в шкале мест; `difficult` — полный
+ * синоним `hard`.
+ *
+ * Различать `hard` и `extreme` ЦВЕТОМ — решение владельца, не моё: сейчас оба
+ * `--danger`, как и `expert`. Придумать им разные оттенки значило бы завести
+ * новое правило безопасности без того, кто его принял.
  */
 export const DIFFICULTY_LABELS: Record<string, { label: string; short: string; color: string }> = {
-  easy:     { label: 'Подходит новичкам',  short: 'Лёгкий',     color: 'var(--success)' },
-  medium:   { label: 'Средняя сложность',  short: 'Средний',    color: 'var(--warning)' },
-  moderate: { label: 'Средняя сложность',  short: 'Средний',    color: 'var(--warning)' },
-  hard:     { label: 'Требует подготовки', short: 'Сложный',    color: 'var(--danger)' },
-  expert:   { label: 'Только с опытом',    short: 'Экспертный', color: 'var(--danger)' },
+  easy:      { label: 'Подходит новичкам',  short: 'Лёгкий',        color: 'var(--success)' },
+  medium:    { label: 'Средняя сложность',  short: 'Средний',       color: 'var(--warning)' },
+  moderate:  { label: 'Средняя сложность',  short: 'Средний',       color: 'var(--warning)' },
+  hard:      { label: 'Требует подготовки', short: 'Сложный',       color: 'var(--danger)' },
+  difficult: { label: 'Требует подготовки', short: 'Сложный',       color: 'var(--danger)' },
+  expert:    { label: 'Только с опытом',    short: 'Экспертный',    color: 'var(--danger)' },
+  extreme:   { label: 'Только с опытом',    short: 'Экстремальный', color: 'var(--danger)' },
 };
 
 /** Короткая подпись сложности для чипа. Неизвестное — как есть (§8). */
@@ -96,6 +126,19 @@ export function difficultyLabel(level: string | null | undefined, short = false)
   const d = DIFFICULTY_LABELS[level];
   if (!d) return level;
   return short ? d.short : d.label;
+}
+
+/**
+ * Цвет сложности. Неизвестное написание — НЕЙТРАЛЬНЫЙ токен, а не `undefined`.
+ *
+ * Прежде карточка маршрута подставляла `MAP[x]` прямо в `color-mix(in srgb,
+ * ... )`; для незнакомого написания туда уходило `undefined`, выражение
+ * становилось невалидным и плашка теряла и цвет, и рамку. То есть у самого
+ * опасного маршрута бейдж выглядел бледнее, чем у лёгкого.
+ */
+export function difficultyColor(level: string | null | undefined): string {
+  if (!level) return 'var(--text-secondary)';
+  return DIFFICULTY_LABELS[level]?.color ?? 'var(--text-secondary)';
 }
 
 /** Единица цены. Полная форма — для карточки, короткая — для плитки каталога. */

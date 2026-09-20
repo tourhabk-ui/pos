@@ -93,10 +93,59 @@ function scrubError(msg) {
     .slice(0, 400);
 }
 
-function isAlreadyExistsError(msg) {
-  const l = msg.toLowerCase();
+/**
+ * Выражение, которое что-то СОЗДАЁТ. Для него «уже есть» — идемпотентность.
+ *
+ * Ведущие комментарии и пробелы снимаются: в этом репозитории у каждого
+ * второго выражения над строкой лежит абзац объяснения, и без этого первым
+ * словом оказалось бы `--`.
+ *
+ * `WITH` разбирается на один шаг вперёд: `WITH x AS (...) INSERT ...` —
+ * вставка, а `WITH x AS (...) UPDATE ...` — правка.
+ *
+ * Незнакомая форма считается НЕ создающей, то есть громкой. Направление
+ * умолчания выбрано сознательно (§4.0): лишний раз показать отказ дешевле,
+ * чем один раз выдать «не смог» за «уже сделано».
+ */
+function isCreatingStatement(stmt) {
+  const bare = String(stmt || '')
+    .replace(/^\s*(--[^\n]*\n|\/\*[\s\S]*?\*\/|\s)+/g, '')
+    .trimStart();
+  if (/^WITH\b/i.test(bare)) return /\b(INSERT|CREATE)\b/i.test(bare.slice(0, 4000));
+  return /^(INSERT|CREATE|ALTER|COMMENT|GRANT|COPY)\b/i.test(bare);
+}
+
+/**
+ * Отказ, который значит «это уже сделано», а не «сделать не вышло».
+ *
+ * ── Почему `duplicate key` спрашивает про ВИД выражения (19.09) ───────────
+ *
+ * Правило «текст ошибки решает всё» стоило потерянного шага миграции. У
+ * `ai_route_images` колонка `route_id` уникальна; миграция 988 переносила
+ * снимок каньона на запись, слот которой был занят, и `UPDATE` получил
+ * 23505 duplicate key. Накатчик прочитал это как идемпотентность, записал
+ * `[skip-exists]` и пошёл дальше; остальные выражения файла применились, файл
+ * пометился применённым, и повторно он уже не пойдёт никогда.
+ *
+ * Дальше по цепочке всё отработало честно — скрытие дубля было условным и не
+ * сработало, сборка карты отказалась заливать, — но исходная потеря была
+ * невидимой: в логе выката стояло слово «skip», то есть «не смог» в чистом
+ * виде выдавалось за «хорошо» (§4.0).
+ *
+ * Для INSERT и CREATE duplicate key действительно означает «уже лежит» —
+ * там пропуск верен. Для UPDATE и DELETE это НАСТОЯЩИЙ конфликт: ничего не
+ * сделано, и молчать о нём нельзя. Падение здесь безопасно: файл не
+ * помечается применённым, попадает в `_migration_failures` со счётчиком
+ * попыток и идёт заново на следующем выкате, а старт сервера от отказа
+ * миграции не зависит (см. start.js).
+ *
+ * `already exists` и `duplicate column` вида не спрашивают: они приходят от
+ * DDL по существу.
+ */
+function isAlreadyExistsError(msg, stmt = '') {
+  const l = String(msg || '').toLowerCase();
+  if (l.includes('duplicate key')) return isCreatingStatement(stmt);
   return l.includes('already exists')
-    || l.includes('duplicate key')
     || l.includes('duplicate column')
     || l.includes('already have');
 }
@@ -136,7 +185,7 @@ async function applyTransactionalFile(client, sql, log) {
       try {
         await client.query(stmt);
       } catch (e) {
-        if (isAlreadyExistsError(e.message)) {
+        if (isAlreadyExistsError(e.message, stmt)) {
           await client.query('ROLLBACK TO SAVEPOINT mig_stmt');
           skippedStatements++;
           if (log) log(`  [skip-exists] ${scrubError(e.message).slice(0, 100)}`);
@@ -223,7 +272,7 @@ async function main() {
           if (isNonTransactional(sql)) {
             for (const stmt of splitSqlStatements(sql)) {
               try { await client.query(stmt + ';'); } catch (e) {
-                if (!isAlreadyExistsError(e.message)) throw e;
+                if (!isAlreadyExistsError(e.message, stmt)) throw e;
               }
             }
           } else {
@@ -275,4 +324,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { scrubError, isNonTransactional, isAlreadyExistsError, splitSqlStatements, isTxControlStatement, applyTransactionalFile };
+module.exports = { scrubError, isNonTransactional, isAlreadyExistsError, isCreatingStatement, splitSqlStatements, isTxControlStatement, applyTransactionalFile };
