@@ -12,6 +12,18 @@
  *
  * Чек-лист — последний экран перед местом без связи. Галочка здесь это не
  * украшение списка, а утверждение о том, что человек к этому месту готов.
+ *
+ * ── Вторая половина того же дефекта (20.09) ───────────────────────────────
+ *
+ * Первая починка заменила «маршрут выбран» на «запись о закачке есть» — и на
+ * этом остановилась. Запись живёт в localStorage, тайлы в Cache Storage, и
+ * система чистит второе, не трогая первое: запись пережила бы карту, а
+ * галочка — обе. Свидетельством теперь служит проба Cache Storage
+ * (`lib/offline/tiles-present.ts`), запись — только поводом её запросить.
+ *
+ * «Спросить нечем» (`unknown`: нет Cache Storage, старая запись без пробы)
+ * галочкой не становится. Цена ошибки здесь односторонняя — уйти в поле без
+ * карты, — поэтому непроверенность блокирует, а не успокаивает (§4.0).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -19,7 +31,7 @@ import { join } from 'node:path';
 
 const SRC = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
 /** Блок, где вычисляются автоматические галочки. */
-const block = SRC.slice(SRC.indexOf('const effectiveChecklist'), SRC.indexOf('const effectiveChecklist') + 1400);
+const block = SRC.slice(SRC.indexOf('const effectiveChecklist'), SRC.indexOf('const effectiveChecklist') + 2600);
 
 describe('офлайн-галочка стоит на свидетельстве', () => {
   it('блок автогалочек найден', () => {
@@ -30,8 +42,30 @@ describe('офлайн-галочка стоит на свидетельстве
     expect(block).not.toMatch(/id === 'offline'\)\s*return\s*\{\s*\.\.\.item,\s*done:\s*hasActiveRoute/);
   });
 
-  it('свидетельство — запись о скачанной карте этого маршрута', () => {
-    expect(block).toMatch(/id === 'offline'[\s\S]{0,120}savedRouteMap\s*!==\s*null/);
+  it('запись о закачке больше не является свидетельством сама по себе', () => {
+    // Прежнее правило: `done: savedRouteMap !== null`. Оно верило localStorage
+    // о содержимом Cache Storage — разным хранилищам с разной судьбой.
+    expect(block).not.toMatch(/id === 'offline'\)\s*return\s*\{\s*\.\.\.item,\s*done:\s*savedRouteMap\s*!==\s*null/);
+  });
+
+  it('свидетельство — подтверждённая проба Cache Storage', () => {
+    expect(block).toMatch(/savedRouteMapPresence/);
+    expect(block).toMatch(/'present'/);
+  });
+
+  it('«проверить нечем» галочкой не становится', () => {
+    // Единственный путь к `done: true` — состояние `present`. Если появится
+    // второй, этот тест обязан покраснеть: именно так галочка и вернулась бы
+    // к утверждению непроверенного.
+    const offline = block.slice(block.indexOf("item.id === 'offline'"));
+    const tail = offline.slice(0, offline.indexOf('\n    }') + 6);
+    expect(tail.match(/done:\s*true/g) ?? []).toHaveLength(1);
+    expect(tail).toMatch(/st === 'present'[\s\S]{0,80}done:\s*true/);
+  });
+
+  it('проба берётся из общего источника, а не считается на месте', () => {
+    expect(SRC).toContain("from '@/lib/offline/tiles-present'");
+    expect(SRC).toMatch(/probeTilesPresent\(rec\.sampleUrls\)/);
   });
 
   it('запись читается из хранилища по ключу маршрута, а не выдумывается', () => {

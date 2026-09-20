@@ -55,8 +55,18 @@ describe('частичный офлайн-регион не выдаётся з�
   it('метаданные при монтировании проверяются пробой Cache Storage', () => {
     // Запись «скачано» без тайлов — partial, а не cached: верить памяти
     // о закачке, не глядя в кэш, значит показать карту, которой нет.
-    expect(hook).toMatch(/caches\.match/);
-    expect(hook).toMatch(/sampleTilesPresent/);
+    //
+    // Проверяется ФАКТ пробы, а не место её реализации: 20.09 правило
+    // переехало в общий `lib/offline/tiles-present.ts` — оно жило тремя
+    // копиями, и все три судили «хоть один адрес на месте» (см.
+    // tiles-present-single-source). Прежняя редакция требовала `caches.match`
+    // прямо в хуке, то есть держала копию, а не проверку.
+    expect(hook).toContain("from '@/lib/offline/tiles-present'");
+    expect(hook).toMatch(/probeTilesPresent\(generateTileUrls\(region\.bbox\)\)/);
+  });
+
+  it('пропажа и неполнота одинаково снимают «готово»', () => {
+    expect(hook).toMatch(/tiles\.state === 'missing' \|\| tiles\.state === 'partial'/);
   });
 
   it('закачка с потерями кончается partial, а не cached', () => {

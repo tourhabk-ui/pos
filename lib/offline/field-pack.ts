@@ -29,6 +29,7 @@ import {
 import {
   planTileRelease, regionTileUrls, packTileHolder, type TileHolder,
 } from '@/lib/offline/tile-ownership';
+import { probeTilesPresent } from '@/lib/offline/tiles-present';
 
 export type PackAssetStatus = 'ready' | 'partial' | 'missing' | 'stale';
 
@@ -162,25 +163,6 @@ export async function removeFieldPack(routeId: string): Promise<number | null> {
 }
 
 /**
- * Выборочная проверка тайлов в Cache Storage — та же логика, что у офлайн-
- * регионов: память о закачке не равна наличию данных. `null` — проверить
- * нечем (нет API): остаётся верить записи.
- */
-async function sampleTilesPresent(urls: string[]): Promise<boolean | null> {
-  if (typeof caches === 'undefined' || urls.length === 0) return null;
-  try {
-    // Запрос строим объектом, а не передаём голую строку: Cache Storage
-    // принимает и то и другое, но `x.match(строка)` неотличимо от
-    // String.prototype.match — статический анализ читает URL как регулярное
-    // выражение с неэкранированными точками (CodeQL js/incomplete-hostname-regexp).
-    const hits = await Promise.all(urls.map(u => caches.match(new Request(u))));
-    return hits.some(h => h !== undefined);
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Статусы ассетов пакета — проверкой, не памятью.
  *
  * Каждый ассет отвечает сам за себя: у карты может не хватать зумов, снимок
@@ -208,9 +190,14 @@ export async function verifyFieldPack(
   if (!m.tiles) {
     states.push({ kind: 'tiles', status: 'missing', note: 'Карта не сохранена' });
   } else {
-    const present = await sampleTilesPresent(m.tiles.sampleUrls);
-    if (present === false) {
+    const present = await probeTilesPresent(m.tiles.sampleUrls);
+    if (present.state === 'missing') {
       states.push({ kind: 'tiles', status: 'missing', note: 'Карта была сохранена, но вычищена системой' });
+    } else if (present.state === 'partial') {
+      // Раньше сюда не попадал никто: прежний предикат `some` считал картой
+      // на месте один уцелевший адрес из пробы. Неполная карта выдавалась за
+      // готовую, и выяснялось это уже без связи.
+      states.push({ kind: 'tiles', status: 'partial', note: 'Часть карты вычищена системой — в пути будут пустые участки' });
     } else if (m.tiles.failed > 0) {
       states.push({ kind: 'tiles', status: 'partial', note: `Не хватает ${m.tiles.failed} из ${m.tiles.total} фрагментов` });
     } else if (m.tiles.droppedZooms.length > 0) {
