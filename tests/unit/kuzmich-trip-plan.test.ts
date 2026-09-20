@@ -19,6 +19,7 @@ import {
   buildRefusal, inSeasonInterests, parsePlanStart, startNote,
 } from '@/lib/kuzmich/trip-plan-tool';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
+import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 import { ACTIVITY_NAMES, type DayPlan } from '@/lib/planner';
 
 const ROOT = process.cwd();
@@ -60,6 +61,79 @@ describe('matchPreset: ссылка на публичную страницу с 
 
   it('снегоходы → зимний кластер (появился с посадочными)', () => {
     expect(matchPreset(7, ['snowmobile'])?.slug).toBe('kamchatka-zimoy');
+  });
+
+  /**
+   * Замер 19.09: «море», 7 дней → «Камчатка за 7 дней: рыбалка».
+   *
+   * Счёт был `overlap*10 - dayPenalty`, сравнение строгим `>`, и счёт 10
+   * набирали СРАЗУ ЧЕТЫРЕ пресета. Побеждал не лучший, а первый в массиве —
+   * рыболовный, потому что `boat_trip` стоит у него третьим в списке.
+   * Порядок литералов в файле решал, что увидит турист.
+   */
+  it('море ведёт на страницу про море, а не про рыбалку', () => {
+    const p = matchPreset(7, ['boat_trip']);
+    expect(p?.slug).toBe('kamchatka-za-5-dney-okean');
+    expect(p?.title).toContain('океан');
+  });
+
+  it('ответ не зависит от порядка пресетов в массиве', () => {
+    // Главное свойство. Пока оно держится, вернуть прежний дефект нельзя
+    // никакой перестановкой литералов.
+    const shuffled = [...PLAN_PRESETS].reverse();
+    for (const asked of [['boat_trip'], ['volcano', 'trekking', 'thermal'], ['snowmobile'], ['fishing']]) {
+      expect(
+        matchPreset(7, asked, shuffled)?.slug,
+        `порядок изменил ответ на ${asked.join('+')}`,
+      ).toBe(matchPreset(7, asked)?.slug);
+    }
+  });
+
+  it('заглавный интерес пресета весит больше побочного совпадения', () => {
+    // `kamchatka-za-7-dney-rybalka` содержит boat_trip и точно попадает в
+    // 7 дней — и всё равно проигрывает пятидневному «океану», у которого
+    // boat_trip стоит в заголовке.
+    expect(matchPreset(7, ['boat_trip'])?.slug).not.toBe('kamchatka-za-7-dney-rybalka');
+    // Обратная сторона: рыбалка спрошена — рыболовный пресет и выигрывает.
+    expect(matchPreset(7, ['fishing'])?.slug).toBe('kamchatka-za-7-dney-rybalka');
+  });
+
+  it('пресет, обещающий лишнее, проигрывает точному', () => {
+    // «Всё лучшее» (шесть тем) — плохой ответ на одну спрошенную.
+    expect(matchPreset(7, ['bears'])?.slug).toBe('kamchatka-za-7-dney-medvedi');
+  });
+
+  /**
+   * Два слагаемых счёта на живых шестнадцати пресетах ничего не решают —
+   * это показала проверка мутацией: снимаешь их, ответы те же. Оставить
+   * их на веру значило бы держать в счёте слагаемое без последствий, то
+   * есть объявление без источника (§10.09). Поэтому каждое проверяется
+   * набором, где оно ЕДИНСТВЕННОЕ различие, — ради этого `matchPreset` и
+   * принимает список пресетов параметром.
+   */
+  describe('слагаемые счёта проверяются там, где они решают', () => {
+    const preset = (slug: string, days: number, interests: string[]): PlanPreset => ({
+      slug, title: slug, days, interests, intro: '', description: '',
+    });
+
+    it('штраф за обещанное сверх: узкий пресет выигрывает у широкого', () => {
+      // Оба попадают в дни и оба несут boat_trip заглавным. Отличаются
+      // только тем, сколько обещают сверх спрошенного. Слаги выбраны так,
+      // что без штрафа победил бы ШИРОКИЙ (ничья и алфавит).
+      const wide = preset('a-shirokiy', 7, ['boat_trip', 'x1', 'x2', 'x3']);
+      const tight = preset('b-uzkiy', 7, ['boat_trip']);
+      expect(matchPreset(7, ['boat_trip'], [wide, tight])?.slug).toBe('b-uzkiy');
+    });
+
+    it('остаточная ничья решается слагом, а не позицией в массиве', () => {
+      // Пресеты неразличимы по счёту. Без правила победил бы первый в
+      // массиве — то есть снова порядок литералов.
+      const second = preset('b-vtoroy', 7, ['boat_trip']);
+      const first = preset('a-pervyy', 7, ['boat_trip']);
+      expect(matchPreset(7, ['boat_trip'], [second, first])?.slug).toBe('a-pervyy');
+      // И наоборот: перестановка ответ не меняет.
+      expect(matchPreset(7, ['boat_trip'], [first, second])?.slug).toBe('a-pervyy');
+    });
   });
 });
 

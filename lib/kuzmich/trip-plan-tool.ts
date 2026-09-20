@@ -15,7 +15,7 @@
 import {
   recommendTrip, parseInterestsFromText, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type DayPlan,
 } from '@/lib/planner';
-import { PLAN_PRESETS } from '@/lib/plans/presets';
+import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -183,16 +183,64 @@ export function parseChatInterests(raw: string): string[] {
   return [...found];
 }
 
-/** Ближайший пресет /plans под длительность и интересы — ссылка с бронью. */
-export function matchPreset(days: number, interests: string[]): { slug: string; title: string } | null {
+/**
+ * Вес за совпадение ЗАГЛАВНОГО интереса пресета — первого в его списке.
+ *
+ * Первый интерес — это то, что написано в заголовке страницы, куда придёт
+ * турист: у `kamchatka-za-5-dney-okean` это `boat_trip` («океан и
+ * побережье»), у `kamchatka-za-7-dney-rybalka` — `fishing` («рыбалка»), хотя
+ * `boat_trip` есть и там. Поэтому вес обязан перебивать одно лишнее побочное
+ * совпадение (10) вместе с разницей в днях: иначе турист, спросивший про
+ * море, уходит на страницу про рыбалку — она просто шире.
+ */
+const HEADLINE_BONUS = 25;
+
+/**
+ * Ближайший пресет /plans под длительность и интересы — ссылка с бронью.
+ *
+ * ── Чем это было сломано (замер 19.09) ───────────────────────────────────
+ *
+ * Счёт был `overlap * 10 - dayPenalty`, а сравнение — строгим `>`. На запрос
+ * «море», 7 дней счёт 10 набирали СРАЗУ ЧЕТЫРЕ пресета, и побеждал не
+ * лучший, а первый в массиве: `kamchatka-za-7-dney-rybalka`. Турист просил
+ * море — получал ссылку «Камчатка за 7 дней: рыбалка», потому что у неё
+ * `boat_trip` стоит третьим в списке. Порядок литералов в файле решал, что
+ * увидит человек.
+ *
+ * Теперь счёт различает три вещи, и ни одна из них не зависит от порядка:
+ * заглавный интерес пресета, число совпадений и обещанное СВЕРХ спрошенного
+ * (пресет на шесть тем — плохой ответ на одну). Остаточная ничья решается
+ * слагом, а не индексом массива.
+ *
+ * `presets` параметром — чтобы сторож мог перетасовать список и показать,
+ * что ответ от порядка не зависит.
+ */
+export function matchPreset(
+  days: number,
+  interests: string[],
+  presets: readonly PlanPreset[] = PLAN_PRESETS,
+): { slug: string; title: string } | null {
   let best: { slug: string; title: string; score: number } | null = null;
-  for (const p of PLAN_PRESETS) {
+
+  for (const p of presets) {
     const overlap = p.interests.filter((i) => interests.includes(i)).length;
-    const dayPenalty = Math.abs(p.days - days);
-    const score = overlap * 10 - dayPenalty;
-    if (!best || score > best.score) best = { slug: p.slug, title: p.title, score };
+    // Ни одного общего интереса — не кандидат вовсе. Ссылка наугад хуже
+    // отсутствия ссылки: турист уходит читать не про то, что просил.
+    if (overlap === 0) continue;
+
+    const headline = p.interests[0];
+    const extraPromised = p.interests.length - overlap;
+    const score = overlap * 10
+      + (headline && interests.includes(headline) ? HEADLINE_BONUS : 0)
+      - Math.abs(p.days - days)
+      - extraPromised;
+
+    if (!best || score > best.score || (score === best.score && p.slug < best.slug)) {
+      best = { slug: p.slug, title: p.title, score };
+    }
   }
-  return best && best.score > 0 ? { slug: best.slug, title: best.title } : null;
+
+  return best ? { slug: best.slug, title: best.title } : null;
 }
 
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
