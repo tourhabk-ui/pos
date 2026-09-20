@@ -22,6 +22,7 @@ export {
 import {
   createPlannerCache, fetchRealToursForZone, fetchAvailabilityForTour,
   fetchZoneCapacity, fetchContingencyAlternatives, fetchReviewSignals,
+  fetchActivitiesBookableInMonth,
   type PlannerCache, type RealTour,
 } from '@/lib/planner/data';
 import {
@@ -127,6 +128,16 @@ export interface TripRecommendation {
   warnings: TripWarning[];
   priceBreakdown: PriceBreakdown;
   itinerary: string;
+  /**
+   * Активности, открытые КАТАЛОГОМ на месяц поездки (слоты в продаже), даже
+   * если зашитая таблица считает их закрытыми. `null` — каталог спросить не
+   * вышло.
+   *
+   * Отдаётся наружу, чтобы отказ Кузьмича и план судили сезон ОДНИМ ответом.
+   * Иначе план соберёт рыбалку в октябре, а отказ в соседней ветке скажет,
+   * что в октябре рыбалка не сезон, — два голоса об одном (§10.09).
+   */
+  catalogueOpen: string[] | null;
 }
 
 // ─── Knowledge base ──────────────────────────────────────────────────────────
@@ -414,6 +425,40 @@ async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): 
 
 // ─── Core engine ─────────────────────────────────────────────────────────────
 
+/**
+ * В сезоне ли активность в этом месяце.
+ *
+ * Два свидетеля, и они не равнозначны:
+ *   — таблица движка (`ACTIVITY_CONSTRAINTS.months`) — ПОЛ. Она несёт не
+ *     только коммерцию, но и безопасность: «снег на тропах тает к середине
+ *     июня». Снимать её нельзя;
+ *   — каталог (`catalogueOpen`) — открытые слоты этого месяца. Это ДЕЙСТВИЕ
+ *     оператора, а не его описание, и оно окно только расширяет.
+ *
+ * Замер 20.09: семь живых туров из восьми рыболовные, один — «Осенняя
+ * рыбалка (октябрь-ноябрь)», а `fishing.months` = [6,7,8,9]. Пол один, без
+ * каталога, отказывал туристу в том, что оператор продаёт.
+ *
+ * `catalogueOpen === null` — каталог спросить не вышло. Тогда действует один
+ * пол, и вызывающий обязан сказать об этом словами.
+ */
+function inSeason(interest: string, month: number, catalogueOpen: Set<string> | null): boolean {
+  const c = ACTIVITY_CONSTRAINTS[interest];
+  if (!c) return false;
+  if (c.months.includes(month)) return true;
+  return catalogueOpen?.has(interest) ?? false;
+}
+
+/** Активности, открытые ТОЛЬКО каталогом: расхождение, которое надо назвать. */
+function openedByCatalogueOnly(
+  interests: string[], month: number, catalogueOpen: Set<string> | null,
+): string[] {
+  if (!catalogueOpen) return [];
+  return interests.filter(
+    (i) => ACTIVITY_CONSTRAINTS[i] && !ACTIVITY_CONSTRAINTS[i].months.includes(month) && catalogueOpen.has(i),
+  );
+}
+
 function getMonth(profile: TripProfile): number {
   return profile.arrivalDate
     ? new Date(profile.arrivalDate).getMonth() + 1
@@ -462,6 +507,8 @@ function collectWarnings(
   tripDays: number,
   crowdLoad: number = 0,
   alerts: SafetyAlert[] = [],
+  /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
+  catalogueOpen: Set<string> | null,
 ): TripWarning[] {
   const warnings: TripWarning[] = [];
   const month = getMonth(profile);
@@ -533,7 +580,7 @@ function collectWarnings(
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
     if (!c) continue;
-    if (!c.months.includes(month)) {
+    if (!inSeason(interest, month, catalogueOpen)) {
       warnings.push({
         type: 'season', severity: 'critical',
         message: `${interest}: недоступно в выбранный период. ${c.seasonNote ?? ''}`.trim(),
@@ -645,14 +692,19 @@ function collectWarnings(
 
 // ── Zone scoring ─────────────────────────────────────────────────────────────
 
-async function scoreZones(profile: TripProfile, cache: PlannerCache): Promise<ZoneRecommendation[]> {
+async function scoreZones(
+  profile: TripProfile,
+  cache: PlannerCache,
+  /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
+  catalogueOpen: Set<string> | null,
+): Promise<ZoneRecommendation[]> {
   const month = getMonth(profile);
   const scores: Record<string, number> = {};
 
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
     if (!c) continue;
-    if (!c.months.includes(month)) continue;
+    if (!inSeason(interest, month, catalogueOpen)) continue;
     for (const zone of c.bestZones) {
       scores[zone] = (scores[zone] ?? 0) + 25;
     }
@@ -732,6 +784,8 @@ async function generateDayPlans(
   zones: ZoneRecommendation[],
   tripDays: number,
   cache: PlannerCache,
+  /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
+  catalogueOpen: Set<string> | null,
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
   if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [] };
@@ -778,7 +832,7 @@ async function generateDayPlans(
   for (const z of zones) {
     const zoneInterests = profile.interests.filter(i => {
       const c = ACTIVITY_CONSTRAINTS[i];
-      return c?.bestZones.includes(z.zone) && c.months.includes(month);
+      return c?.bestZones.includes(z.zone) && inSeason(i, month, catalogueOpen);
     });
     if (zoneInterests.length === 0) continue;
     const rawDays = Math.max(1, Math.round((z.score / totalScore) * activeBudget));
@@ -1194,6 +1248,8 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       zones: [], days: [], warnings: [],
       priceBreakdown: { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] },
       itinerary: 'Выберите интересы для рекомендации.',
+      // Каталог не спрашивали вовсе — это «не знаем», а не «пусто».
+      catalogueOpen: null,
     };
   }
 
@@ -1205,8 +1261,40 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     fetchSafetyAlerts(profile.arrivalDate, profile.departureDate),
   ]);
 
-  const zones = await scoreZones(profile, cache);
-  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts);
+  // Каталог спрашивается ОДИН раз и кормит все три места, где решает
+  // сезон: иначе они разошлись бы между собой (§10.09).
+  const catalogueOpen = await fetchActivitiesBookableInMonth(getMonth(profile), cache);
+
+  const zones = await scoreZones(profile, cache, catalogueOpen);
+  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen);
+
+  // Каталог открыл то, что зашитая таблица считает закрытым. Промолчать
+  // нельзя ни в одну сторону: отказать — значит не продать то, что оператор
+  // продаёт (замер 20.09: семь туров из восьми рыболовные, и один из них
+  // «Осенняя рыбалка (октябрь-ноябрь)» при `fishing.months` = [6,7,8,9]);
+  // согласиться молча — скрыть, что наш сезонный ориентир говорит другое, а
+  // он несёт и безопасность, не только коммерцию.
+  const catalogueOnly = openedByCatalogueOnly(profile.interests, getMonth(profile), catalogueOpen);
+  if (catalogueOnly.length > 0) {
+    const names = catalogueOnly.map(i => ACTIVITY_NAMES[i] ?? i).join(', ');
+    warnings.push({
+      type: 'season',
+      severity: 'important',
+      message: `${names}: по нашему сезонному ориентиру это уже не сезон, но оператор открыл запись на этот месяц. `
+        + 'Взяли по записи оператора — он отвечает за выход; погоду и снаряжение уточните у него отдельно.',
+    });
+  }
+
+  // Каталог не прочитался — сезон судит один зашитый список, и это надо
+  // сказать: «не знаем» не равно «в каталоге ничего нет».
+  if (catalogueOpen === null) {
+    warnings.push({
+      type: 'season',
+      severity: 'important',
+      message: 'Не удалось свериться с записью операторов на этот месяц — сезон определён по нашему ориентиру. '
+        + 'Что-то из закрытого им могло быть в продаже; уточните у оператора.',
+    });
+  }
 
   // Adventure mode warning
   if (profile.riskMode === 'adventure') {
@@ -1216,7 +1304,7 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const { days, unchecked } = await generateDayPlans(profile, zones, tripDays, cache);
+  const { days, unchecked } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
 
   // «Не смогли посмотреть каталог» — отдельное предупреждение и отдельными
   // словами. Раньше отказ запроса возвращался пустым списком и был
@@ -1305,7 +1393,10 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     // fallback already set
   }
 
-  return { zones, days, warnings, priceBreakdown, itinerary };
+  return {
+    zones, days, warnings, priceBreakdown, itinerary,
+    catalogueOpen: catalogueOpen ? [...catalogueOpen] : null,
+  };
 }
 
 

@@ -37,10 +37,22 @@ const MONTH_NAME = [
   'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре',
 ];
 
-/** Что вообще доступно в этом месяце — по сезонным окнам движка. */
-export function inSeasonInterests(month: number): string[] {
+/**
+ * Что вообще доступно в этом месяце.
+ *
+ * Два свидетеля, как и у движка: сезонные окна (`ACTIVITY_CONSTRAINTS`) —
+ * пол, а `catalogueOpen` — то, на что оператор реально открыл запись. Окно
+ * каталогом только расширяется.
+ *
+ * Без второго аргумента отказ говорил бы «в октябре рыбалка не сезон» в тот
+ * же час, когда план по рыбалке собирается: два голоса об одном (§10.09).
+ * Замер 20.09: семь живых туров из восьми рыболовные, один из них —
+ * «Осенняя рыбалка (октябрь-ноябрь)».
+ */
+export function inSeasonInterests(month: number, catalogueOpen: string[] | null = null): string[] {
+  const fromCatalogue = new Set(catalogueOpen ?? []);
   return Object.entries(ACTIVITY_CONSTRAINTS)
-    .filter(([key, c]) => c.months.includes(month) && OFFERABLE.has(key))
+    .filter(([key, c]) => (c.months.includes(month) || fromCatalogue.has(key)) && OFFERABLE.has(key))
     .map(([key]) => key);
 }
 
@@ -62,8 +74,11 @@ export function inSeasonInterests(month: number): string[] {
  * Список теперь СЧИТАЕТСЯ из сезонных окон, а не пишется руками: вшитый
  * перечень устаревает молча вместе со сменой месяца.
  */
-export function buildRefusal(month: number, asked: string[], site: string): string {
-  const open = inSeasonInterests(month);
+export function buildRefusal(
+  month: number, asked: string[], site: string,
+  catalogueOpen: string[] | null = null,
+): string {
+  const open = inSeasonInterests(month, catalogueOpen);
   const closed = asked.filter((k) => !open.includes(k));
 
   const monthWord = MONTH_NAME[month - 1] ?? 'этом месяце';
@@ -293,7 +308,7 @@ export async function makeTripPlanForKuzmich(
     rec.days,
     rec.warnings.filter((w) => w.severity !== 'info').map((w) => w.message),
     matchPreset(daysNum, interests),
-    { refusal: buildRefusal(month, interests, SITE), plannedFor },
+    { refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor },
   );
 
   const note = startNote(start, plannedFor);
