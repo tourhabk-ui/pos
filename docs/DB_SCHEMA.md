@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-20 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `995_tracker_links.sql`.
+> Снято 2026-09-20 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1005_agent_rate_is_owner_decision.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 244 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3244 |
-| Внешних ключей | 263 |
+| Колонок | 3247 |
+| Внешних ключей | 264 |
 | Таблиц без единого FK в обе стороны | 71 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -901,9 +901,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `link_id uuid!` `event_type varchar!` `booking_id bigint` `ip varchar` `user_agent text` `created_at timestamp=`
 
-**agent_referral_links** · 10 кол. · PK id · agent_id → users.id, tour_id → operator_tours.id · на неё ссылаются: agent_referral_events, operator_bookings · индексов 4
+**agent_referral_links** · 13 кол. · PK id · agent_id → users.id, rate_set_by → users.id, tour_id → operator_tours.id · на неё ссылаются: agent_referral_events, operator_bookings · индексов 4
 
-`id uuid!=` `agent_id uuid!` `tour_id bigint` `code varchar!` `clicks integer=` `conversions integer=` `commission_rate numeric=` `expires_at timestamp` `is_active boolean=` `created_at timestamp=`
+`id uuid!=` `agent_id uuid!` `tour_id bigint` `code varchar!` `clicks integer=` `conversions integer=` `commission_rate numeric` `expires_at timestamp` `is_active boolean=` `created_at timestamp=` `rate_set_by uuid` `rate_set_at timestamptz` `rate_reason text`
 
 ## Лиды и продажи
 

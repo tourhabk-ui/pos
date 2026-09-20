@@ -7,6 +7,22 @@ import { Link2, MousePointerClick, TrendingUp, Wallet, Plus, Copy, Check, Loader
  * Реферальные ссылки агента: список ссылок с кликами/конверсиями/заработком,
  * создание новой ссылки, копирование `?ref=CODE`. Данные — GET/POST
  * /api/hub/agent/referral (конверсии считаются из operator_bookings.referral_link_id).
+ *
+ * ── Пустая ставка — не ноль (20.09) ───────────────────────────────────────
+ *
+ * Ставку агент себе больше не назначает: ссылка создаётся без неё, а
+ * назначает администратор. Значит `commission_rate` и `earned_total` могут
+ * прийти пустыми, и это НЕ ноль.
+ *
+ * Прежний код писал `Number(link.commission_rate)` и `Number(link.earned_total)`.
+ * В JavaScript `Number(null)` равен нулю — то есть экран показал бы «0%» и
+ * «0 ₽» там, где правда «ставка ещё не назначена». Этой самой ловушкой уже
+ * была испорчена комиссия платформы в `/api/bookings/tour` (§7), только там
+ * молчаливый ноль стоил денег платформе, а здесь соврал бы человеку.
+ *
+ * Поэтому пустое показывается словами, а не числом, и рядом с итогом стоит,
+ * сколько ссылок в счёт не вошло: «заработано 0 ₽» не должно читаться как
+ * «вы ничего не заработали», когда верный ответ — «считать пока нечем».
  */
 
 interface ReferralLink {
@@ -16,13 +32,19 @@ interface ReferralLink {
   tour_title: string | null;
   clicks: number;
   conversions: number;
-  commission_rate: string;
-  earned_total: string;
+  commission_rate: string | null;
+  earned_total: string | null;
   is_active: boolean;
   created_at: string;
 }
 
-interface Stats { totalClicks: number; totalConversions: number; totalEarned: number; }
+interface Stats {
+  totalClicks: number;
+  totalConversions: number;
+  totalEarned: number;
+  /** Сколько ссылок не вошло в итог: у них ставки нет. */
+  linksWithoutRate: number;
+}
 
 function money(v: number): string {
   return new Intl.NumberFormat('ru-RU').format(Math.round(v)) + ' ₽';
@@ -53,7 +75,9 @@ export default function ReferralClient() {
       const res = await fetch('/api/hub/agent/referral', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commissionRate: 10 }),
+        // Ставку не шлём: её назначает платформа, и сервер такой запрос
+        // отклоняет. Прежде здесь стояло жёсткое `commissionRate: 10`.
+        body: JSON.stringify({}),
       });
       if (res.ok) load();
     } catch {
@@ -97,7 +121,17 @@ export default function ReferralClient() {
           {[
             { icon: MousePointerClick, label: 'Клики', value: String(stats.totalClicks) },
             { icon: TrendingUp, label: 'Конверсии', value: String(stats.totalConversions) },
-            { icon: Wallet, label: 'Заработано', value: money(stats.totalEarned) },
+            {
+              icon: Wallet,
+              label: 'Заработано',
+              // Итог считается только по ссылкам со ставкой. Если ставки нет
+              // НИ У ОДНОЙ — показывать «0 ₽» нельзя: это ответ на другой
+              // вопрос. Ноль рублей значит «не заработали», а правда здесь —
+              // «считать нечем».
+              value: stats.linksWithoutRate > 0 && stats.totalEarned === 0
+                ? 'ставка не назначена'
+                : money(stats.totalEarned),
+            },
           ].map(s => (
             <div key={s.label} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
               <div className="flex items-center gap-1.5 text-[var(--text-muted)] mb-1.5">
@@ -118,6 +152,13 @@ export default function ReferralClient() {
         </div>
       )}
 
+      {stats && stats.linksWithoutRate > 0 && (
+        <p className="text-xs text-[var(--text-secondary)]">
+          Ставка не назначена у {stats.linksWithoutRate} из {links?.length ?? stats.linksWithoutRate} ссылок —
+          по ним заработок не считается. Ставку назначает платформа.
+        </p>
+      )}
+
       {links !== null && links.length === 0 && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center">
           <p className="text-sm text-[var(--text-secondary)] mb-1">Ссылок пока нет.</p>
@@ -132,12 +173,18 @@ export default function ReferralClient() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-sm font-semibold text-[var(--text-primary)]">{link.code}</span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  {link.tour_title ?? 'Все туры'} · {Number(link.commission_rate)}%
+                  {link.tour_title ?? 'Все туры'} ·{' '}
+                  {link.commission_rate === null
+                    ? 'ставка не назначена'
+                    : `${Number(link.commission_rate)}%`}
                 </span>
                 {!link.is_active && <span className="ds-badge border border-[var(--border)] text-[var(--danger)]">неактивна</span>}
               </div>
               <p className="text-xs text-[var(--text-secondary)] mt-1.5">
-                {link.clicks} кликов · {link.conversions} бронь(и) · заработано {money(Number(link.earned_total))}
+                {link.clicks} кликов · {link.conversions} бронь(и) ·{' '}
+                {link.earned_total === null
+                  ? 'заработок не считается: ставка не назначена'
+                  : `заработано ${money(Number(link.earned_total))}`}
               </p>
             </div>
             <button onClick={() => copy(link)} className="ds-btn ds-btn-secondary text-xs shrink-0">

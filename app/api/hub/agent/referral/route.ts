@@ -1,6 +1,37 @@
 /**
  * GET  /api/hub/agent/referral — список реф. ссылок агента + статистика
  * POST /api/hub/agent/referral — создать новую реф. ссылку
+ *
+ * ── Ставку назначает платформа, а не агент (20.09) ─────────────────────────
+ *
+ * До этой правки процент приходил ТЕЛОМ ЗАПРОСА от самого агента (Zod:
+ * нижняя граница 1, верхняя 30, умолчание 10) и писался в ссылку, а GET ниже
+ * показывал ему «заработано» = оплаченные брони × эта же ставка. Сторона
+ * сделки назначала себе вознаграждение, и до тридцати процентов.
+ *
+ * Правило платформы однозначно и оплачено делом (§7, разбор денежного пути
+ * 11.09): ставку назначает владелец, её не меняет никакой автомат. Там был
+ * автомат; здесь — контрагент, то есть хуже.
+ *
+ * Теперь ссылка создаётся БЕЗ ставки. NULL здесь — «не назначена», и это не
+ * ноль и не десять: умолчание снято миграцией 1005 именно потому, что
+ * молчаливая десятка была денежным решением, принятым без человека.
+ * Назначает ставку администратор — POST /api/admin/agent-referral/rate,
+ * с автором и основанием.
+ *
+ * Присланная ставка не игнорируется, а ОТКЛОНЯЕТСЯ. Молча выбросить поле
+ * значило бы оставить у клиента впечатление, что он её задал: он ждал бы
+ * тридцать процентов, а получил бы пустоту — ровно то расхождение между
+ * показанным и сделанным, ради которого вся правка.
+ *
+ * ── Заработок не считается, пока ставки нет ───────────────────────────────
+ *
+ * `Number(null)` в JavaScript равен нулю, и этим уже был испорчен денежный
+ * путь однажды: `/api/bookings/tour` брал так комиссию платформы и молча
+ * получал НОЛЬ (§7). Здесь та же ловушка с другой стороны: показать агенту
+ * «заработано 0 ₽» при неназначенной ставке значит соврать числом. Поэтому
+ * `earned_total` остаётся null, итог считается только по ссылкам со ставкой,
+ * а число ссылок без неё идёт рядом.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -12,9 +43,8 @@ import { randomBytes } from 'crypto';
 export const dynamic = 'force-dynamic';
 
 const CreateSchema = z.object({
-  tourId:         z.coerce.number().int().positive().optional(),
-  commissionRate: z.number().min(1).max(30).default(10),
-  expiresAt:      z.string().datetime().optional(),
+  tourId:    z.coerce.number().int().positive().optional(),
+  expiresAt: z.string().datetime().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -35,7 +65,8 @@ export async function GET(request: NextRequest) {
        COALESCE(
          (SELECT SUM(ob.final_price) FROM operator_bookings ob
            WHERE ob.referral_link_id = rl.id AND ob.payment_status = 'paid'), 0
-       ) * rl.commission_rate / 100 AS earned_total
+       ) * rl.commission_rate / 100 AS earned_total,
+       (rl.commission_rate IS NULL) AS rate_unset
      FROM agent_referral_links rl
      LEFT JOIN operator_tours ot ON ot.id = rl.tour_id
      WHERE rl.agent_id = $1
@@ -43,10 +74,16 @@ export async function GET(request: NextRequest) {
     [auth.userId]
   );
 
+  // Итог по деньгам считается ТОЛЬКО по ссылкам со ставкой. Ссылка без
+  // ставки не даёт нуля — она не даёт ничего, и её число выносится рядом,
+  // чтобы «заработано 0 ₽» не читалось как «вы ничего не заработали», когда
+  // верный ответ — «ставка ещё не назначена».
+  const withRate = rows.filter(r => r.commission_rate !== null);
   const stats = {
     totalClicks:      rows.reduce((s, r) => s + Number(r.clicks), 0),
     totalConversions: rows.reduce((s, r) => s + Number(r.conversions), 0),
-    totalEarned:      rows.reduce((s, r) => s + Number(r.earned_total), 0),
+    totalEarned:      withRate.reduce((s, r) => s + Number(r.earned_total ?? 0), 0),
+    linksWithoutRate: rows.length - withRate.length,
   };
 
   return NextResponse.json({ success: true, data: rows, stats });
@@ -69,17 +106,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { tourId, commissionRate, expiresAt } = parsed.data;
+  // Ставку в теле не принимаем и не глушим: отказ громче тихого выбрасывания.
+  if (body !== null && typeof body === 'object' && 'commissionRate' in body) {
+    return NextResponse.json(
+      { success: false, error: 'Ставку вознаграждения назначает платформа, а не агент' },
+      { status: 400 },
+    );
+  }
+
+  const { tourId, expiresAt } = parsed.data;
 
   // Генерируем код: KH-AGT-XXXX
   const code = `KH-AGT-${randomBytes(3).toString('hex').toUpperCase()}`;
 
   const { rows } = await pool.query(
+    // commission_rate пишется ЯВНЫМ NULL, а не опускается: пропуск колонки
+    // вернул бы умолчание, если его когда-нибудь заведут обратно.
     `INSERT INTO agent_referral_links
        (agent_id, tour_id, code, commission_rate, expires_at)
-     VALUES ($1, $2, $3, $4, $5)
+     VALUES ($1, $2, $3, NULL, $4)
      RETURNING id, code, tour_id, commission_rate, expires_at, created_at`,
-    [auth.userId, tourId ?? null, code, commissionRate, expiresAt ?? null]
+    [auth.userId, tourId ?? null, code, expiresAt ?? null]
   );
 
   return NextResponse.json({ success: true, data: rows[0] }, { status: 201 });
