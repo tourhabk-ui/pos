@@ -11,7 +11,7 @@ import { Link2, MousePointerClick, TrendingUp, Wallet, Plus, Copy, Check, Loader
  * ── Пустая ставка — не ноль (20.09) ───────────────────────────────────────
  *
  * Ставку агент себе больше не назначает: ссылка создаётся без неё, а
- * назначает администратор. Значит `commission_rate` и `earned_total` могут
+ * назначает её владелец платформы своей рукой. Значит `commission_rate` и `earned_total` могут
  * прийти пустыми, и это НЕ ноль.
  *
  * Прежний код писал `Number(link.commission_rate)` и `Number(link.earned_total)`.
@@ -155,7 +155,7 @@ export default function ReferralClient() {
       {stats && stats.linksWithoutRate > 0 && (
         <p className="text-xs text-[var(--text-secondary)]">
           Ставка не назначена у {stats.linksWithoutRate} из {links?.length ?? stats.linksWithoutRate} ссылок —
-          по ним заработок не считается. Ставку назначает платформа.
+          по ним заработок не считается. Ставку назначает владелец платформы.
         </p>
       )}
 

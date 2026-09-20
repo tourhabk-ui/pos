@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { agentReferralForBooking } from '@/lib/referral/agent-link';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,9 +179,18 @@ export default function TourPaymentModal({
     setSubmitting(true);
 
     try {
-      // Агентский реф-код из URL (?ref=KH-AGT-...) — атрибуция брони
+      // Агентский код: сперва адресная строка, потом ПАМЯТЬ (30 дней).
+      //
+      // До 20.09 читалась только адресная строка, и этого хватало ровно на
+      // одно посещение: турист ушёл на другую страницу, вернулся назавтра или
+      // открыл ссылку из мессенджера, срезавшего параметры, — привязка
+      // терялась, и блогер не получал ничего. Для покупки за десятки тысяч
+      // «вернулся назавтра» — норма, а не исключение (issue #1978).
+      //
+      // Порядок «адрес сильнее памяти» намеренный: пришёл по ссылке ПРЯМО
+      // СЕЙЧАС — привёл этот блогер, а не тот, чей код лежит со вчера.
       const ref = typeof window !== 'undefined'
-        ? (new URLSearchParams(window.location.search).get('ref') || undefined)
+        ? (agentReferralForBooking(window.location.search, Date.now()) ?? undefined)
         : undefined;
       const res = await fetch('/api/bookings/tour', {
         method: 'POST',

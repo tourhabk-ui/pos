@@ -8,15 +8,39 @@
  * ссылка из кабинета лояльности ведёт на главную, кнопка «поделиться» с
  * карточки тура — на карточку. Ловить только на главной значило бы терять
  * ровно те приглашения, где приглашающий показал конкретное место.
+ *
+ * ── Кодов ДВА, и они не смешиваются (20.09) ───────────────────────────────
+ *
+ * Параметр `ref` на платформе занят дважды: пользовательским приглашением
+ * (`KH-XXXXXX`, бонус лояльности) и агентской ссылкой (`KH-AGT-XXXXXX`,
+ * вознаграждение по ставке владельца). Это разные сущности с разными
+ * выплатами, и `lib/referral/link.ts` прямо запрещает класть одно в другое.
+ *
+ * Поэтому здесь два ловца с разными хранилищами, и каждый смотрит на ФОРМАТ
+ * кода, а не хватает всё подряд. Чужой код в своём хранилище хуже
+ * отсутствующего: он выглядит рабочим.
+ *
+ * Агентский код до этого дня не запоминался вовсе — бронь брала его из
+ * адресной строки в момент нажатия. Турист, вернувшийся назавтра, терял
+ * привязку, и блогер не получал ничего (issue #1978).
  */
 
 import { useEffect } from 'react';
 import { readReferralFromSearch, saveReferral } from '@/lib/referral/link';
+import { readAgentReferralFromSearch, saveAgentReferral } from '@/lib/referral/agent-link';
 
 export function ReferralCapture() {
   useEffect(() => {
-    const code = readReferralFromSearch(window.location.search);
-    if (code) saveReferral(code, Date.now());
+    const now = Date.now();
+
+    const userCode = readReferralFromSearch(window.location.search);
+    if (userCode) saveReferral(userCode, now);
+
+    // Отдельной строкой, а не `else`: формат у кодов разный, и один и тот же
+    // адрес не может нести оба. Независимые проверки честнее ветвления —
+    // появится третий род кода, и он не отнимет чужой.
+    const agentCode = readAgentReferralFromSearch(window.location.search);
+    if (agentCode) saveAgentReferral(agentCode, now);
   }, []);
 
   return null;
