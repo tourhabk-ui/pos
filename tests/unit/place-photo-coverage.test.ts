@@ -90,6 +90,43 @@ describe('вопрос про одно место отвечается слов�
   });
 });
 
+describe('список показываемых снимков — разбор глазами (20.09)', () => {
+  it('есть параметр list=shown', () => {
+    expect(SRC).toContain("list === 'shown'");
+  });
+
+  it('сужается по роду через параметр, не хардкодом', () => {
+    expect(SRC).toContain("url.searchParams.get('model')");
+    expect(CODE).not.toMatch(/i\.model\s*=\s*'real-photo'/);
+  });
+
+  it('на каждый снимок — ссылка, по которой он реально открывается', () => {
+    // route_id ссылается на places.ark_id, а не places.id — перепутать эти
+    // два поля значит отдать нерабочую ссылку.
+    expect(SRC).toContain('p.ark_id::text AS ark_id');
+    expect(SRC).toContain('/api/images/route/${r.ark_id}');
+  });
+
+  it('отдаёт записанные author/license/source_url как есть, не выводит признак «чужой»', () => {
+    // Тот же принцип §4.0, что и у общего счёта: вотермарк в пикселях,
+    // SQL его не видит — приговор выносит человек по ссылке, не перепись
+    // по строке.
+    expect(SRC).not.toMatch(/is_foreign|is_stock|looks_foreign/);
+  });
+
+  it('пустой список при ненулевом total — отказ выборки, а не «нечего разбирать»', () => {
+    expect(SRC).toMatch(/meaningful: Number\(countRows\[0\]\?\.n \?\? 0\) === 0 \|\| shownList\.length > 0/);
+  });
+
+  it('остаётся читающим', () => {
+    const listBlock = SRC.slice(SRC.indexOf("if (list === 'shown')"), SRC.indexOf('// ── Перепись по всем живым местам'));
+    const listCode = listBlock.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    for (const verb of ['UPDATE ', 'INSERT ', 'DELETE ', 'TRUNCATE']) {
+      expect(listCode, `в ветке list=shown появился ${verb.trim()}`).not.toContain(verb);
+    }
+  });
+});
+
 describe('перепись читающая и объявленная', () => {
   it('ни одного UPDATE/INSERT/DELETE', () => {
     expect(CODE).not.toMatch(/\b(UPDATE|INSERT\s+INTO|DELETE\s+FROM)\b/i);
