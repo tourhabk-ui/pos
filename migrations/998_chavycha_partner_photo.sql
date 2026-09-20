@@ -48,7 +48,14 @@
 DO $$
 DECLARE
   photo   TEXT := '/images/partners/kamchatka-fishing/chavycha.jpg';
-  op      INT;
+  -- UUID, а не INT. Первая редакция объявила эту переменную целым числом и
+  -- упала на настоящем PostgreSQL: «operator does not exist: uuid = integer».
+  -- Локальная проверка её пропустила, потому что схему для неё я собрал РУКОЙ
+  -- и типы в ней угадал. Тип берётся из DDL (040: `operator_id UUID NOT NULL
+  -- REFERENCES partners(id)`), а не из головы — ровно то же правило, по
+  -- которому §4.1 запрещает обращаться к таблице без CREATE TABLE в
+  -- миграциях: чего не прочитано, то додумано.
+  op      UUID;
   found   INT;
   touched INT;
 BEGIN
