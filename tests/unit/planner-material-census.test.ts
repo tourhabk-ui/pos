@@ -117,6 +117,37 @@ describe('третье состояние: ноль не подменяет от
   });
 });
 
+describe('жильё: видно ли заведённое', () => {
+  it('считается БЕЗ фильтра живости', () => {
+    // Весь смысл — увидеть строку, которую не видит ни один продуктовый
+    // инструмент: и поиск, и страница, и MCP фильтруют is_active = true.
+    // Добавить сюда тот же фильтр значило бы построить четвёртый слепой
+    // инструмент.
+    const staysSql = ROUTE.slice(ROUTE.indexOf('FROM accommodations'), ROUTE.indexOf('GROUP BY 1`'));
+    expect(staysSql.length, 'SQL жилья не нашёлся').toBeGreaterThan(10);
+    expect(staysSql).not.toMatch(/WHERE[\s\S]*is_active/);
+  });
+
+  it('заведённое и видимое — разные числа, и разница названа', () => {
+    expect(ROUTE).toMatch(/COUNT\(\*\) FILTER \(WHERE is_active = TRUE\)/);
+    expect(ROUTE).toMatch(/hidden: total - active/);
+  });
+
+  it('зона отдаётся как записана, без перевода', () => {
+    // Расхождение между словом владельца («13 км») и ключом движка
+    // (`avachinsky`) — это и есть то, что надо увидеть; перевод его скрыл бы.
+    expect(ROUTE).toContain('location_zone AS zone');
+    expect(ROUTE).toContain("r.zone ?? 'зона не записана'");
+  });
+
+  it('отказ запроса не выдаётся за «жилья нет»', () => {
+    expect(ROUTE).toContain('[planner-material-census] жильё не посчитано');
+    expect(ROUTE).toMatch(/errors\.push\(`stays:/);
+    // null, а не нули: ноль значит «посчитали, пусто».
+    expect(ROUTE).toMatch(/let stays: PlannerMaterialCensus\['stays'\] = null/);
+  });
+});
+
 describe('род запуска объявлен', () => {
   it('перепись числится ручной, а не молчит', () => {
     // Роут без workflow и без объявления — красный (§8). Молчание не ответ.

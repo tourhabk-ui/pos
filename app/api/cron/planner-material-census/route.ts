@@ -66,6 +66,26 @@ export interface PlannerMaterialCensus {
   empty_pairs: string[] | null;
   /** Сколько пар рассмотрено всего — знаменатель для empty_pairs. */
   pairs_total: number;
+  /**
+   * Жильё: сколько заведено и сколько из этого ВИДНО туристу.
+   *
+   * Считается отдельно от активного намеренно. 20.09 на вопрос «есть ли в
+   * базе гостевой домик» ответить было нечем: `search_accommodations`,
+   * страница объекта и MCP — все фильтруют `is_active = true`, и строка с
+   * выключенным флагом невидима каждому инструменту разом. «Не нашёл» и
+   * «не смотрел» сливались в один ответ (§4.0).
+   *
+   * `by_zone` — по значению `location_zone` КАК ОНО ЗАПИСАНО, без перевода
+   * в зоны движка: расхождение между словом владельца и ключом движка —
+   * это то, что и надо увидеть.
+   */
+  stays: {
+    total: number;
+    active: number;
+    /** Заведены, но не показываются никому: разница видна числом. */
+    hidden: number;
+    by_zone: Record<string, number>;
+  } | null;
   definitions: Record<string, string>;
   errors: string[];
 }
@@ -77,6 +97,8 @@ const DEFINITIONS: PlannerMaterialCensus['definitions'] = {
   routes:
     'agent_route_knowledge: zone и activity_type точно равны, is_visible, lat и lng не NULL',
   empty_pairs: 'пары, где и туров, и маршрутов ноль — день по ним собирается общим, без конкретики',
+  stays: 'accommodations: total — все строки, active — is_active = true (только их видят турист, Кузьмич и MCP), '
+    + 'hidden — заведённые и невидимые. by_zone — location_zone как записан, без перевода в зоны движка',
   pairs_total: 'число рассмотренных пар: зоны движка × активности с сезонным окном',
 };
 
@@ -157,6 +179,31 @@ export async function GET(request: NextRequest) {
     cells.sort((a, b) => (b.tours + b.routes) - (a.tours + a.routes));
   }
 
+  // Жильё. Отдельным запросом и БЕЗ фильтра живости: вопрос ровно в том,
+  // сколько заведено и сколько из этого видно.
+  let stays: PlannerMaterialCensus['stays'] = null;
+  try {
+    const { rows } = await pool.query<{ zone: string | null; total: number; active: number }>(
+      `SELECT location_zone AS zone,
+              COUNT(*)::int                                AS total,
+              COUNT(*) FILTER (WHERE is_active = TRUE)::int AS active
+         FROM accommodations
+        GROUP BY 1`,
+    );
+    const total = rows.reduce((s2, r) => s2 + r.total, 0);
+    const active = rows.reduce((s2, r) => s2 + r.active, 0);
+    stays = {
+      total,
+      active,
+      hidden: total - active,
+      by_zone: Object.fromEntries(rows.map((r) => [r.zone ?? 'зона не записана', r.total])),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[planner-material-census] жильё не посчитано:', message);
+    errors.push(`stays: ${message.slice(0, 160)}`);
+  }
+
   const body: PlannerMaterialCensus = {
     ok: true,
     probe: 'planner_material_census_v1',
@@ -164,6 +211,7 @@ export async function GET(request: NextRequest) {
     cells: measurable ? cells : null,
     empty_pairs: measurable ? emptyPairs : null,
     pairs_total: zones.length * activities.length,
+    stays,
     definitions: DEFINITIONS,
     errors,
   };
