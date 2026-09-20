@@ -176,6 +176,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'relief-coverage': ['db_read'],
   'relief-sanity': ['db_read'],
   'repo-scan': ['db_read', 'db_write', 'net_out'],
+  'referral-census': ['db_read'],
   'rescue': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'retrieval-probe': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'route-core': ['db_read'],
