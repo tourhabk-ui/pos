@@ -41,6 +41,12 @@ const LOCATION_LABELS: Record<string, string> = {
   river: 'Река', cave: 'Пещера', bay: 'Бухта', forest: 'Лес',
   historical: 'Историческое место', museum: 'Музей', rock: 'Скала',
   viewpoint: 'Смотровая', cape: 'Мыс', island: 'Остров', other: 'Место',
+  // Перевал заведён 20.09 вместе с миграцией 992: «Каньон Сноубордистов»
+  // оказался перевалом над Эссо, а не ущельем, и без этой строки лист карты
+  // подписал бы его английским `pass`. Слова здесь короче платформенных
+  // НАМЕРЕННО (решение владельца, см. place-type-label) — потому это не
+  // копия справочника, а свой словарь, и пополняется он по одному слову.
+  pass: 'Перевал',
 };
 
 export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLabel }: Props) {
