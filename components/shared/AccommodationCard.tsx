@@ -10,13 +10,16 @@ interface AccommodationCardProps {
   name: string;
   type: string;
   description: string;
-  address: string;
+  /** null — адреса в привычном виде нет; место находят по координате. */
+  address: string | null;
   pricePerNight: {
-    from: number;
+    /** null — цена НЕ ОБЪЯВЛЕНА. Это не ноль: настоящая цена живёт у номера. */
+    from: number | null;
     to?: number | null;
     currency: string;
   };
-  rating: number;
+  /** null — НЕ ОЦЕНЁН. Отзывы ставят от 1 до 5, нулевой оценки не бывает. */
+  rating: number | null;
   reviewCount: number;
   amenities: string[];
   images: Array<{ url: string; alt?: string }>;
@@ -175,8 +178,11 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
             <h3 className="text-xl font-bold text-[var(--text-primary)] mb-1 group-hover:text-[var(--accent)] transition-colors line-clamp-1">
               {name}
             </h3>
+            {/* Адреса может не быть: у базы за городом его в привычном виде
+                нет, место находят по координате. Пустая строка вместо него
+                оставляла бы безмолвный пробел, который читается как сбой. */}
             <p className="text-sm text-[var(--text-muted)] line-clamp-1">
-               {address}
+              {address ?? 'Адрес не указан — смотрите на карте'}
             </p>
           </div>
           
@@ -207,7 +213,11 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
           <div className="flex items-center justify-between pt-4 border-t border-[var(--border)]">
             {/* Рейтинг */}
             <div className="flex items-center gap-2">
-              {rating > 0 ? (
+              {/* `rating > 0` работало и для null (null > 0 — ложь), но
+                  проверять надо СМЫСЛ, а не удачное совпадение приведения:
+                  null это «не оценён», и с 20.09 (миграция 1006) новый объект
+                  приходит именно с ним, а не с нулём. */}
+              {rating !== null && rating > 0 ? (
                 <>
                   <div className="px-2 py-1 bg-[var(--accent)]/20 rounded-lg">
                     <span className="text-[var(--accent)] font-bold">{rating.toFixed(1)}</span>
@@ -223,17 +233,27 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
               )}
             </div>
             
-            {/* Цена */}
-            <div className="text-right" aria-label={`Цена от ${pricePerNight.from} рублей за ночь`}>
-              <div className="text-xs text-[var(--text-muted)] mb-1">от</div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-[var(--accent)]">
-                  {pricePerNight.from.toLocaleString('ru-RU')}
-                </span>
-                <span className="text-sm text-[var(--text-muted)]">₽</span>
+            {/* Цена. Её может не быть, и тогда это НЕ ноль: настоящая цена
+                живёт у номера, а здесь витринное «от». Прежде тут стоял голый
+                `.toLocaleString()`, и отсутствующая цена печаталась туристу
+                словом «NaN» либо нулём рублей — ложь ценой в доверие. */}
+            {pricePerNight.from === null ? (
+              <div className="text-right">
+                <div className="text-sm text-[var(--text-secondary)]">Цена по запросу</div>
+                <div className="text-xs text-[var(--text-muted)]">уточняйте у владельца</div>
               </div>
-              <div className="text-xs text-[var(--text-muted)]">за ночь</div>
-            </div>
+            ) : (
+              <div className="text-right" aria-label={`Цена от ${pricePerNight.from} рублей за ночь`}>
+                <div className="text-xs text-[var(--text-muted)] mb-1">от</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-bold text-[var(--accent)]">
+                    {pricePerNight.from.toLocaleString('ru-RU')}
+                  </span>
+                  <span className="text-sm text-[var(--text-muted)]">₽</span>
+                </div>
+                <div className="text-xs text-[var(--text-muted)]">за ночь</div>
+              </div>
+            )}
           </div>
           
           {/* Кнопка бронирования.

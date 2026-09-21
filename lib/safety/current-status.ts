@@ -21,6 +21,7 @@
 
 import { query } from '@/lib/database';
 import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
+import { RESOLUTION_SQL_PATTERN } from '@/lib/safety/resolution-notice';
 
 export interface CurrentSafetyStatus {
   hasAlert: boolean;
@@ -54,13 +55,21 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       `),
       // Верхняя тревога целиком, одной строкой: заголовок, тип и то, по чему
       // узнаётся её происхождение.
+      //
+      // Отбой («стабилизировалась паводковая обстановка») сортируется ПОСЛЕ
+      // действующих тревог независимо от severity/свежести — иначе он же
+      // почти всегда и побеждал: отбой приходит позже самой тревоги по
+      // определению, а сегодня вся лента плоская (severity=1 у всех 13),
+      // и тай-брейк `created_at DESC` отдавал строку «Наиболее значимое»
+      // именно ему (issue #1984). Строка не выбрасывается — отбой остаётся
+      // кандидатом, если ничего другого нет.
       query<{ title: string | null; alert_type: string | null; external_id: string | null; source_url: string | null }>(`
         SELECT title, alert_type, external_id, source_url
         FROM external_alerts
         WHERE expires_at > NOW()
-        ORDER BY severity DESC, created_at DESC
+        ORDER BY (title ~* $1) ASC, severity DESC, created_at DESC
         LIMIT 1
-      `),
+      `, [RESOLUTION_SQL_PATTERN]),
       // Время последнего запуска ingest-крона — маркер свежести данных
       query<{ last_update: string | null }>(`
         SELECT MAX(updated_at)::text AS last_update FROM location_real_time_status

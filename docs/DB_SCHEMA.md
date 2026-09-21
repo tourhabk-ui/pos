@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-20 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1005_agent_rate_is_owner_decision.sql`.
+> Снято 2026-09-20 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1006_stay_can_say_unknown.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -827,7 +827,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 **accommodations** · 25 кол. · PK id · partner_id → partners.id · на неё ссылаются: accommodation_assets, accommodation_availability, accommodation_bookings, accommodation_reviews, accommodation_rooms · индексов 7 · триггеры: trg_accommodations_updated_at
 
-`id uuid!=` `partner_id uuid` `name varchar!` `type varchar!` `description text` `short_description varchar` `address varchar!` `coordinates jsonb!` `location_zone varchar` `star_rating integer` `total_rooms integer!` `check_in_time time without time zone=` `check_out_time time without time zone=` `amenities jsonb=` `languages jsonb=` `price_per_night_from numeric!` `price_per_night_to numeric` `currency varchar=` `rating numeric=` `review_count integer=` `is_active boolean=` `is_verified boolean=` `created_at timestamptz=` `updated_at timestamptz=` `cancellation_policy text`
+`id uuid!=` `partner_id uuid` `name varchar!` `type varchar!` `description text` `short_description varchar` `address varchar` `coordinates jsonb!` `location_zone varchar` `star_rating integer` `total_rooms integer` `check_in_time time without time zone=` `check_out_time time without time zone=` `amenities jsonb=` `languages jsonb=` `price_per_night_from numeric` `price_per_night_to numeric` `currency varchar=` `rating numeric` `review_count integer=` `is_active boolean=` `is_verified boolean=` `created_at timestamptz=` `updated_at timestamptz=` `cancellation_policy text`
 
 **driver_documents** · 13 кол. · PK id · driver_id → drivers.id · индексов 4
 

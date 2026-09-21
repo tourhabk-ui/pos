@@ -17,15 +17,18 @@ const accommodationSchema = z.object({
   type: z.enum(['hotel', 'hostel', 'apartment', 'guesthouse', 'resort', 'camping', 'glamping', 'cottage'], {
     message: 'Выберите тип размещения'
   }),
-  address: z.string().min(5, 'Укажите адрес'),
+  // Необязательные с 20.09: у базы за городом адреса в привычном виде может
+  // не быть (есть координата), цена живёт у КОМНАТЫ, а число номеров может
+  // быть просто не записано. Требовать их значило требовать выдумки (§4.0).
+  address: z.string().min(5, 'Укажите адрес').optional(),
   coordinates: z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
   }),
   locationZone: z.enum(['city_center', 'airport', 'nature', 'beach']).optional(),
   starRating: z.number().min(1).max(5).optional(),
-  totalRooms: z.number().min(1, 'Укажите количество номеров'),
-  pricePerNightFrom: z.number().min(0, 'Цена не может быть отрицательной'),
+  totalRooms: z.number().min(1, 'Номеров не может быть меньше одного').optional(),
+  pricePerNightFrom: z.number().min(0, 'Цена не может быть отрицательной').optional(),
   pricePerNightTo: z.number().min(0).optional(),
   currency: z.string().default('RUB'),
   amenities: z.array(z.string()).optional().default([]),
@@ -114,12 +117,12 @@ export async function POST(request: NextRequest) {
         description,
         shortDescription || description.substring(0, 100),
         type,
-        address,
+        address ?? null,
         JSON.stringify(coordinates),
         locationZone || null,
         starRating || null,
-        totalRooms,
-        pricePerNightFrom,
+        totalRooms ?? null,
+        pricePerNightFrom ?? null,
         pricePerNightTo || null,
         currency,
         JSON.stringify(amenities),
