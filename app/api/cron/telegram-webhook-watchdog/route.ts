@@ -9,6 +9,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { checkAndRestoreWebhook } from '@/lib/telegram/operator-availability';
 import { pool } from '@/lib/db-pool';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,9 @@ export async function GET(req: Request) {
   if (!timingSafeCompare(secret, cronSecret)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('telegram-webhook-watchdog', 30, 'external');
+  if (!shouldRun(lease)) return Response.json(leaseSkipBody('telegram-webhook-watchdog', 30));
 
   const startedAt = new Date();
   const t0 = Date.now();

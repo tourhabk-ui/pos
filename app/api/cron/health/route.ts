@@ -17,6 +17,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { SKIP_REASON_LABELS } from '@/lib/agents/scout-digest';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 
@@ -369,6 +370,9 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, cronSecret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('health', 60, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('health', 60));
 
   const started = Date.now();
   const issues: HealthIssue[] = [];

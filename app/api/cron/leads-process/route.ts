@@ -13,6 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { getCronSecret } from '@/lib/auth/cron';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -23,6 +24,9 @@ export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   if (!timingSafeCompare(secret, cronSecret)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const lease = await claimCronWindow('leads-process', 30, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('leads-process', 30));
 
   // Лиды 'new' старше 2 минут, без processed_at, с достаточным качеством
   const { rows } = await pool.query<{ id: string; name: string }>(

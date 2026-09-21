@@ -28,6 +28,7 @@ import {
   sweepApprovedInitiatives,
 } from '@/lib/agents/kernel/adapters/initiative-tasks';
 import { reapExpiredLeases } from '@/lib/agents/kernel/kernel';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -44,6 +45,9 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, cronSecret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('kernel-worker', 30, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('kernel-worker', 30));
 
   const startedAt = new Date();
 
