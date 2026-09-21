@@ -35,7 +35,7 @@
  * реле, не заводит второй копии правил реле, и — главное — не пишет здоровье
  * канала, когда сходить не смог.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fetchTelegramPreview } from '@/lib/services/safety/telegram-source';
@@ -131,13 +131,87 @@ describe('путь чтения виден снаружи', () => {
   });
 });
 
-describe('живое поведение без сети: отказ называется, а не глотается', () => {
-  it('пустой ответ — не «постов нет», а неудача с причиной', async () => {
-    // В среде теста сети нет: прямой запрос не дойдёт, реле не настроено.
+/**
+ * Живое поведение — на подставленном fetch, а не на настоящей сети.
+ *
+ * ── Почему подстановка (21.09, ценой красного прогона) ────────────────────
+ *
+ * Первая редакция этого блока звала `fetchTelegramPreview` без подстановки и
+ * писала в комментарии «в среде теста сети нет». Посылка оказалась ложной:
+ * раннер GitHub ходит в t.me свободно, запрос ушёл ПО-НАСТОЯЩЕМУ и вернул
+ * страницу канала — тест упал на `expect(r.html).toBeNull()`.
+ *
+ * Упал он правильно, и чинить надо было не ожидание, а сам тест: юнит,
+ * который лезет в сеть, судит не код, а погоду. На раннере он красный, на
+ * проде (где t.me закрыт) был бы зелёный — то есть один и тот же код
+ * получал бы разные приговоры в зависимости от того, где его прогнали.
+ *
+ * Теперь fetch подставлен, и проверяются ЧЕТЫРЕ ветки, а не одна: у каждой
+ * свой исход и свой адрес починки (§4.0).
+ */
+describe('живое поведение: отказ называется, а не глотается', () => {
+  const RELAY_ENV = {
+    SCOUT_RELAY_BASE: 'https://vedar-ai-relay.tourhabk.workers.dev',
+    CRON_SECRET: 'x'.repeat(32),
+  } as unknown as NodeJS.ProcessEnv;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('сеть не дошла и реле не настроено — причина зовёт в панель Timeweb', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }));
+
     const r = await fetchTelegramPreview('eqkam', {} as NodeJS.ProcessEnv);
     expect(r.html).toBeNull();
     expect(r.via).toBeNull();
     expect(r.reason, 'причина обязана быть названа словами').toBeTruthy();
     expect(r.reason).toContain('реле не настроено');
+  });
+
+  it('403 у t.me и живое реле — страница приходит, и путь назван «relay»', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.startsWith('https://t.me/')) return { ok: false, status: 403 };
+      return { ok: true, status: 200, text: async () => '<html>посты</html>' };
+    }));
+
+    const r = await fetchTelegramPreview('eqkam', RELAY_ENV);
+    expect(r.html).toBe('<html>посты</html>');
+    // Путь чтения — ДРУГАЯ зависимость и другая поломка, и она обязана быть
+    // видна снаружи, а не раствориться в «страница получена».
+    expect(r.via).toBe('relay');
+    expect(r.directStatus).toBe(403);
+    expect(calls[0]).toContain('t.me/s/eqkam');
+    expect(calls[1], 'второй заход обязан идти через реле').toContain('workers.dev');
+  });
+
+  it('404 на реле не идёт — реле не зовут вовсе', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(url);
+      return { ok: false, status: 404 };
+    }));
+
+    const r = await fetchTelegramPreview('eqkam', RELAY_ENV);
+    expect(r.html).toBeNull();
+    expect(r.via).toBeNull();
+    expect(calls.length, 'на 404 второго захода быть не должно: ленты нет по этому адресу').toBe(1);
+    expect(r.reason).toContain('404');
+  });
+
+  it('HTTP 200 с пустым телом — отказ, а не «постов нет»', async () => {
+    // Самая коварная ветка: страница есть, код успешный, содержимого нет.
+    // Засчитать такое за поход значило бы записать «канал жив, постов ноль» —
+    // и сделать источник вечно свежим на вид.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '   ' })));
+
+    const r = await fetchTelegramPreview('eqkam', {} as NodeJS.ProcessEnv);
+    expect(r.html).toBeNull();
+    expect(r.via).toBeNull();
+    expect(r.reason).toBeTruthy();
   });
 });
