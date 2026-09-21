@@ -12,6 +12,8 @@ import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
 import { MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
 import { routeCardNavigability, hasCoords, type WaypointRow } from '@/lib/routes/card-navigability';
+import { explainNavigability, type ExplainedDecision } from '@/lib/explain/navigability-explainer';
+import { z } from 'zod';
 import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
 import { trackEvidence } from '@/lib/routes/track-evidence';
 import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
@@ -48,11 +50,26 @@ function logQueryFailure(part: string, err: unknown, routeId: string): void {
   });
 }
 
+/**
+ * Объяснение вердикта спрашивается ЯВНО и стоит денег: за ним идёт вызов
+ * модели. На каждое открытие карточки его не просят — только когда человек
+ * нажал «Что это значит».
+ */
+const ExplainQuery = z.object({ explain: z.enum(['0', '1']).optional() });
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const queryParsed = ExplainQuery.safeParse({
+    explain: new URL(_req.url).searchParams.get('explain') ?? undefined,
+  });
+  if (!queryParsed.success) {
+    return NextResponse.json({ success: false, error: 'Некорректный параметр explain' }, { status: 400 });
+  }
+  const wantExplain = queryParsed.data.explain === '1';
 
   if (!id || !/^[0-9a-f-]{36}$/.test(id)) {
     return NextResponse.json({ success: false, error: 'Некорректный ID' }, { status: 400 });
@@ -356,6 +373,23 @@ export async function GET(
     });
 
     /**
+     * Пересказ вердикта человеческим языком — по запросу и поверх решения.
+     *
+     * Решает код, пересказывает модель, проверяет снова код
+     * (`lib/explain/no-invention`). Вердикт от этого не меняется: объяснение
+     * едет ОТДЕЛЬНЫМ полем, а `navigability` остаётся ровно тем, что вынесла
+     * черта. Модель молчит или противоречит фактам — поля просто нет, и
+     * человек видит сухие причины, как раньше.
+     */
+    let explanation: ExplainedDecision | null = null;
+    if (wantExplain) {
+      explanation = await explainNavigability(
+        cardNavigability,
+        wpRowsWithCoords.map(w => w.place_name ?? null),
+      );
+    }
+
+    /**
      * Вычисленные этапы (Ф3 плана).
      *
      * Считаются ТОЛЬКО когда путь не описан: у маршрута есть линия и меньше
@@ -488,6 +522,8 @@ export async function GET(
          * Правило одно на всю платформу — lib/routes/navigability.
          */
         navigability: cardNavigability,
+        /** Пересказ вердикта. `null` — не просили либо объяснения нет. */
+        navigabilityExplanation: explanation,
         /**
          * Происхождение линии — как ЗАПИСАНО в геометрии, без догадок.
          *
