@@ -92,18 +92,32 @@ export interface TelegramFetchResult {
   directStatus: number | null;
 }
 
-async function fetchOnce(url: string, headers: Record<string, string>): Promise<{ status: number | null; body: string | null }> {
+/**
+ * Один поход за страницей.
+ *
+ * `error` не декорация: сеть, DNS и таймаут — три разные поломки, и
+ * различает их только текст исключения. Сегодня же, 21.09, я потерял целый
+ * прогон сверки с OSM ровно потому, что причину отказа выбросили и
+ * восстановить её было нечем. Здесь она доезжает до вызывающего и до лога.
+ */
+async function fetchOnce(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ status: number | null; body: string | null; error: string | null }> {
   try {
     const res = await fetch(url, {
       headers,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!res.ok) return { status: res.status, body: null };
+    if (!res.ok) return { status: res.status, body: null, error: `HTTP ${res.status}` };
     const body = await res.text();
-    return { status: res.status, body };
-  } catch {
-    // Сеть, DNS, таймаут — прямой запрос не дошёл. Это не «страницы нет».
-    return { status: null, body: null };
+    return { status: res.status, body, error: null };
+  } catch (e) {
+    // Сеть, DNS, таймаут — запрос не дошёл. Это не «страницы нет», и молчать
+    // об этом нельзя: пустой catch превращает поломку в «данных нет» (§4.0).
+    const error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    console.error(`[telegram-source] запрос не дошёл (${url.slice(0, 80)}):`, error.slice(0, 200));
+    return { status: null, body: null, error: error.slice(0, 200) };
   }
 }
 
@@ -138,7 +152,7 @@ export async function fetchTelegramPreview(
     return {
       html: null,
       via: null,
-      reason: `прямой запрос не прошёл (${direct.status ?? 'сеть'}), реле не настроено: ${relayStatus(env)}`,
+      reason: `прямой запрос не прошёл (${direct.error ?? direct.status ?? 'причина не названа'}), реле не настроено: ${relayStatus(env)}`,
       directStatus: direct.status,
     };
   }
@@ -154,7 +168,7 @@ export async function fetchTelegramPreview(
   return {
     html: null,
     via: null,
-    reason: `прямой ${direct.status ?? 'сеть'}, реле ${viaRelay.status ?? 'сеть'} — страницу не получили`,
+    reason: `прямой — ${direct.error ?? 'пустое тело'}; реле — ${viaRelay.error ?? 'пустое тело'}; страницу не получили`,
     directStatus: direct.status,
   };
 }
