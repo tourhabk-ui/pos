@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { fetchTelegramPreview } from '@/lib/services/safety/telegram-source';
 import type { FetchVia } from '@/lib/agents/scout-relay';
-import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { fetchEmsdPage } from '@/lib/services/safety/emsd-fetch';
+import { EMSD_HOME_URL } from '@/lib/services/safety/emsd-quakes';
+import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
@@ -591,6 +593,26 @@ function buildResponse(
       ingested: boolean;
       ingest_error: string | null;
     };
+    /**
+     * Таблица землетрясений emsd.ru (24.09): дошли ли, чем раскодировали,
+     * сколько разобрали и куда делись строки. «Не дошли» обязано быть видно
+     * здесь словами, а не только отсутствием новых толчков в ленте.
+     */
+    emsdFetch?: {
+      url: string;
+      reached: boolean;
+      http_status: number | null;
+      decoded_by: string | null;
+      error: string | null;
+      threshold_ml: number | null;
+      rows_parsed: number | null;
+      rows_rejected: number | null;
+      inserted: number | null;
+      skipped_expired: number | null;
+      skipped_same_quake: number | null;
+      same_quake_unknown: number | null;
+      problems: string[];
+    };
   },
   // Уборка могла не пройти — тогда приходит причина, а не результат. Приём
   // от этого не страдает (см. safely), но молчать об ошибке нельзя: она
@@ -730,6 +752,7 @@ function buildResponse(
     // Путь чтения каналов t.me: 'direct' | 'relay' | null с причиной. Есть
     // только у heartbeat — POST получает разметку готовой от раннера.
     telegram_fetch: extras?.telegramFetch,
+    emsd_fetch: extras?.emsdFetch,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -847,12 +870,26 @@ export async function GET(req: Request) {
   // чтение t.me). Воркфлоу остаётся вторым путём и ничего не теряет:
   // saveEvent идемпотентен по внешнему id, повторный разбор той же страницы
   // ничего не удваивает.
-  const [ingestAllResult, firmsResult, kbgsrasPage, eqkamPage] = await Promise.all([
+  //
+  // ── Главный источник сейсмики — emsd.ru (24.09, решение владельца) ─────
+  //
+  // «нам нужно переключиться на этот ресурс, tg не активен у них». Таблица
+  // «Последние 10 землетрясений Ml > 4,0» с главной КФ ФИЦ ЕГС РАН закрывает
+  // диапазон M4.0–4.9, который шёл ТОЛЬКО из EQKam: USGS у нас спрашивается
+  // с M5.0. Скачивается параллельно с остальными, а ЗАПИСЫВАЕТСЯ ниже, после
+  // того как USGS уже записал своё: одновременная запись двух источников не
+  // увидела бы друг друга, и один толчок стал бы двумя предупреждениями.
+  const [ingestAllResult, firmsResult, kbgsrasPage, eqkamPage, emsdPage] = await Promise.all([
     ingestAll(),
     ingestFirmsWildfires(),
     fetchTelegramPreview('kbgsras'),
     fetchTelegramPreview('eqkam'),
+    fetchEmsdPage(EMSD_HOME_URL),
   ]);
+  const emsdResult: EmsdIngestResult | { error: string } | null = emsdPage.html !== null
+    ? await safely('emsd-ingest', () => ingestEmsdQuakes(emsdPage.html as string))
+    : null;
+  const emsdOk = emsdResult !== null && !('error' in emsdResult);
   // Разбор — только когда есть ОБЕ страницы: ingestFromHtml принимает их
   // парой. Пустую строку вместо непрочитанной страницы подставлять нельзя —
   // парсер разберёт её как «канал прислал ноль постов», то есть выдаст
@@ -870,8 +907,10 @@ export async function GET(req: Request) {
     ...(telegramOk
       ? { kbgsras: telegramResult.kbgsras, eqkam: telegramResult.eqkam }
       : {}),
+    ...(emsdOk ? { emsd: emsdResult } : {}),
     total_inserted: ingestAllResult.total_inserted + firmsResult.inserted
-      + (telegramOk ? telegramResult.total_inserted : 0),
+      + (telegramOk ? telegramResult.total_inserted : 0)
+      + (emsdOk ? emsdResult.inserted : 0),
   };
   // Жанровые стражи применяются и к уже лежащему, а не только на приёме.
   // Перепись 11.08: 137 маршрутов из 421 стояли «Не сегодня» из-за одной
@@ -912,6 +951,12 @@ export async function GET(req: Request) {
           { label: 'EQKam (t.me)', errors: telegramResult.eqkam.errors, inserted: telegramResult.eqkam.inserted },
         ]
       : []),
+    // emsd.ru — как t.me: входит в статус, только когда за ним сходили.
+    // Не дошли — строка emsd_fetch в ответе и тишина в здоровье источника,
+    // а не «частичный прогон» из-за чужого сервера.
+    ...(emsdOk
+      ? [{ label: 'КФ ЕГС — землетрясения (emsd.ru)', errors: emsdResult.errors, inserted: emsdResult.inserted }]
+      : []),
     { label: 'МЧС RSS (41.mchs)', errors: ingestResult.mchs.errors, inserted: ingestResult.mchs.inserted },
     { label: 'USGS', errors: ingestResult.usgs.errors, inserted: ingestResult.usgs.inserted },
     { label: 'новостные ленты', errors: ingestResult.news.errors, inserted: ingestResult.news.inserted },
@@ -946,6 +991,10 @@ export async function GET(req: Request) {
           entryFor('eqkam', 'EMSD/EQKam (сейсмо)', telegramResult.eqkam),
         ]
       : []),
+    // Записывается ТОЛЬКО после похода, который дошёл и разобрался. Таблица
+    // по определению не пустеет, поэтому тишина здесь значит одно: не можем
+    // прочитать emsd.ru. Её и ловит порог в SAFETY_SOURCE_EXPECTATIONS.
+    ...(emsdOk ? [entryFor('emsd_quakes', 'КФ ЕГС — землетрясения (emsd.ru)', emsdResult)] : []),
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
@@ -969,6 +1018,21 @@ export async function GET(req: Request) {
         eqkam: { via: eqkamPage.via, reason: eqkamPage.reason, direct_status: eqkamPage.directStatus },
         ingested: telegramOk,
         ingest_error: telegramResult !== null && 'error' in telegramResult ? telegramResult.error : null,
+      },
+      emsdFetch: {
+        url: EMSD_HOME_URL,
+        reached: emsdPage.html !== null,
+        http_status: emsdPage.status,
+        decoded_by: emsdPage.decodedBy,
+        error: emsdPage.error ?? (emsdResult !== null && 'error' in emsdResult ? emsdResult.error : null),
+        threshold_ml: emsdOk ? emsdResult.table.threshold : null,
+        rows_parsed: emsdOk ? emsdResult.table.rows.length : null,
+        rows_rejected: emsdOk ? emsdResult.table.rejected.length : null,
+        inserted: emsdOk ? emsdResult.inserted : null,
+        skipped_expired: emsdOk ? emsdResult.skippedExpired : null,
+        skipped_same_quake: emsdOk ? emsdResult.skippedSameQuake : null,
+        same_quake_unknown: emsdOk ? emsdResult.sameQuakeUnknown : null,
+        problems: emsdOk ? emsdResult.table.problems : [],
       },
     }, pruned, roadAnchors);
 }

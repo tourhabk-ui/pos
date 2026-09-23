@@ -49,6 +49,13 @@ import { ZONES } from '@/lib/services/safety/zone-weather';
  */
 export const MAX_RELEVANT_KM = 250;
 
+/**
+ * Петропавловск-Камчатский — точка отсчёта «км от ПК» в сейсмических
+ * сообщениях. Та же, что в запросе к USGS (53.01, 158.65): расстояние,
+ * посчитанное от другой точки, дало бы одному толчку два разных «от ПК».
+ */
+export const PETROPAVLOVSK = { lat: 53.01, lng: 158.65 } as const;
+
 /** Расстояние по большому кругу, км. */
 export function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;

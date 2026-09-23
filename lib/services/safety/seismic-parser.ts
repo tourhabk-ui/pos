@@ -10,7 +10,8 @@
 
 import { query } from '@/lib/database';
 import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
-import { zonesForEpicenter } from '@/lib/services/safety/seismic-zones';
+import { zonesForEpicenter, distanceKm, PETROPAVLOVSK } from '@/lib/services/safety/seismic-zones';
+import { parseEmsdQuakes, EMSD_HOME_URL, type EmsdQuakeTable } from '@/lib/services/safety/emsd-quakes';
 import { decodeHtmlEntities } from '@/lib/html/entities';
 import { stripTags } from '@/lib/html/text';
 import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
@@ -276,7 +277,7 @@ function classifyMessage(id: string, text: string, datetime: string): SeismicEve
 
       // Бюллетень (не одиночное событие) — severity всегда 0 (информация, не угроза)
       const isBulletin = /за неделю|сейсмическая обстановка|по состоянию на/i.test(text);
-      const severity: 0 | 1 | 2 | 3 = isBulletin ? 0 : mag >= 7 ? 3 : mag >= 6 ? 2 : mag >= 5 ? 1 : 0;
+      const severity: 0 | 1 | 2 | 3 = isBulletin ? 0 : severityForMagnitude(mag);
 
       return {
         source_id: id,
@@ -315,6 +316,20 @@ function classifyMessage(id: string, text: string, datetime: string): SeismicEve
   return null;
 }
 
+/**
+ * Важность землетрясения по магнитуде. ОДНО правило на все источники.
+ *
+ * До 24.09 это выражение стояло в трёх местах буквально (КБГС, EQKam, USGS),
+ * и четвёртый источник — таблица emsd.ru — завёл бы четвёртую копию. Копии
+ * одного правила расходятся молча: стоит кому-то поднять порог у одного
+ * источника, и одинаковый толчок станет у нас двумя разными угрозами (§12).
+ *
+ * Пороги прежние, ни одно значение не изменилось.
+ */
+export function severityForMagnitude(mag: number): 0 | 1 | 2 | 3 {
+  return mag >= 7 ? 3 : mag >= 6 ? 2 : mag >= 5 ? 1 : 0;
+}
+
 // ── Парсер формата eqkam (структурированные сообщения) ───────────────────
 // Пример: «Время UTC: 15 MAR 2026  12:07:52\nКоординаты: 51.27, 159.73\n...Магнитуда (Ml): 4.8»
 
@@ -344,7 +359,7 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
   else if (lat >= 52 && lon >= 161) zones.push('eastern');
   else zones.push('avachinsky');
 
-  const severity: 0 | 1 | 2 | 3 = mag >= 7 ? 3 : mag >= 6 ? 2 : mag >= 5 ? 1 : 0;
+  const severity: 0 | 1 | 2 | 3 = severityForMagnitude(mag);
   const epicenter = distKm !== undefined
     ? `${distKm} км от Петропавловска-Камчатского`
     : `${lat.toFixed(2)}°N ${lon.toFixed(2)}°E`;
@@ -361,6 +376,12 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
     magnitude: mag,
     depth_km: depthKm,
     epicenter,
+    // Координаты пишутся, только когда они РАЗОБРАНЫ. Выше для зоны стоит
+    // запас 52/158, если строки «Координаты:» нет, — для зоны это грубо, но
+    // терпимо, а на карте и в сверке с другими источниками это была бы
+    // выдуманная точка. До 24.09 координаты EQKam не писались вовсе, и сверка
+    // «тот же толчок уже пришёл от emsd.ru/USGS» его бы не увидела.
+    ...(coordMatch ? { lat, lng: lon } : {}),
     expires_hours: severity >= 2 ? 48 : 24,
   };
 }
@@ -698,7 +719,7 @@ export async function ingestUsgs(): Promise<ParseResult> {
   // USGS FDSN: M5.0+ в радиусе 500 км от ПКО (53.01°N, 158.65°E)
   const url =
     'https://earthquake.usgs.gov/fdsnws/event/1/query' +
-    '?format=geojson&minmagnitude=5.0&latitude=53.01&longitude=158.65' +
+    `?format=geojson&minmagnitude=5.0&latitude=${PETROPAVLOVSK.lat}&longitude=${PETROPAVLOVSK.lng}` +
     '&maxradiuskm=500&orderby=time&limit=20';
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
@@ -711,7 +732,7 @@ export async function ingestUsgs(): Promise<ParseResult> {
       const place = f.properties.place ?? 'Камчатка';
       const [lng, lat] = f.geometry.coordinates;
       const publishedAt = new Date(f.properties.time);
-      const severity: 0 | 1 | 2 | 3 = mag >= 7 ? 3 : mag >= 6 ? 2 : mag >= 5 ? 1 : 0;
+      const severity: 0 | 1 | 2 | 3 = severityForMagnitude(mag);
 
       // Зона по РАССТОЯНИЮ, а не по делению координат пополам. Прежний код
       // привязывал событие в 450 км от ближайшего маршрута так же уверенно,
@@ -736,6 +757,14 @@ export async function ingestUsgs(): Promise<ParseResult> {
       };
 
       result.events.push(event);
+      // Тот же толчок уже мог прийти от emsd.ru (с 24.09 он покрывает и M5+).
+      // Сверка в ОБЕ стороны — здесь и в ingestEmsdQuakes: кто пришёл вторым,
+      // тот и не пишет, в каком бы порядке их ни принесло.
+      const same = await findSameQuake(event);
+      if (typeof same === 'string') {
+        result.skipped++;
+        continue;
+      }
       try {
         const status = await saveEvent(event);
         if (status === 'inserted') result.inserted++;
@@ -746,6 +775,178 @@ export async function ingestUsgs(): Promise<ParseResult> {
     }
   } catch (e) {
     result.errors.push(`usgs fetch: ${(e as Error).message}`);
+  }
+  return result;
+}
+
+// ── Один толчок — одно предупреждение, сколько бы агентств о нём ни сообщили ─
+//
+// Контент-дедуп saveEvent сравнивает ЗАГОЛОВКИ. Для сводок МЧС это верно, для
+// землетрясений — нет: USGS пишет «M5.1 — 94 km SE of Petropavlovsk», КФ ЕГС —
+// «ML 5.2 — 88 км от Петропавловска-Камчатского», и это один толчок, у которого
+// разные агентства дали разные решения. По заголовку — два предупреждения и,
+// с M5, два пуша туристу.
+//
+// Пока сейсмика шла из EQKam (M<5) и USGS (M5+), диапазоны не пересекались и
+// дубль был невозможен. С 24.09 таблица emsd.ru покрывает всё от Ml 4 — и
+// пересечение с USGS появилось в тот же день, что и источник.
+//
+// Сверка — по физике события: время очага, место, магнитуда.
+//
+//  ±30 с — разные агентства дают время очага с расхождением в секунды;
+//          30 — с запасом на разные решения, но не на следующий толчок.
+//  60 км — разброс эпицентров у разных сетей для одного события: 10–30 км
+//          (оперативное и уточнённое решение самого emsd.ru для толчка 21.09
+//          стоят в ~10 км друг от друга).
+//  Δ ≤ 1 — магнитуды разных шкал (Ml, Mw, mb) у одного события расходятся на
+//          доли единицы. Без этого условия афтершок через 20 с после главного
+//          толчка в 40 км слился бы с ним и пропал из ленты: сильный афтершок
+//          обычно на единицу и больше слабее главного.
+
+/** Окно сверки по времени очага, секунд. */
+export const SAME_QUAKE_SECONDS = 30;
+/** Окно сверки по расстоянию между эпицентрами, км. */
+export const SAME_QUAKE_KM = 60;
+/** Наибольшее расхождение магнитуд одного события у разных агентств. */
+export const SAME_QUAKE_MAG_DELTA = 1;
+
+/**
+ * Найти уже записанное предупреждение о ТОМ ЖЕ толчке от другого источника.
+ *
+ * Три исхода, и третий отдельный (§4.0):
+ *   строка    — нашли: external_id совпавшей записи;
+ *   null      — точно нет такого;
+ *   'unknown' — проверить не смогли (нет координат, отказ БД).
+ *
+ * На 'unknown' вызывающий ПИШЕТ. Цена несимметрична, как у аренды окна:
+ * лишний дубль стоит второго сообщения, пропущенное землетрясение — того, что
+ * турист на склоне о нём не узнает.
+ */
+export async function findSameQuake(event: SeismicEvent): Promise<string | null | 'unknown'> {
+  if (event.lat === undefined || event.lng === undefined || event.magnitude === undefined) {
+    return 'unknown';
+  }
+  try {
+    const { rows } = await query<{ external_id: string; lat: number; lng: number; magnitude: number | null }>(
+      `SELECT external_id, lat::float8 AS lat, lng::float8 AS lng, magnitude::float8 AS magnitude
+         FROM external_alerts
+        WHERE alert_type = 'earthquake'
+          AND lat IS NOT NULL
+          AND lng IS NOT NULL
+          AND created_at BETWEEN $1::timestamptz - ($3::int * INTERVAL '1 second')
+                             AND $1::timestamptz + ($3::int * INTERVAL '1 second')
+          AND external_id IS DISTINCT FROM $2`,
+      [event.published_at, event.source_id, SAME_QUAKE_SECONDS],
+    );
+    for (const r of rows) {
+      if (distanceKm(event.lat, event.lng, r.lat, r.lng) > SAME_QUAKE_KM) continue;
+      if (r.magnitude !== null && Math.abs(r.magnitude - event.magnitude) > SAME_QUAKE_MAG_DELTA) continue;
+      return r.external_id;
+    }
+    return null;
+  } catch (e) {
+    // Отказ не глушится: имя проверки и причина — в лог (§4.0).
+    console.error('[seismic-parser] findSameQuake: сверка не выполнилась:', (e as Error).message);
+    return 'unknown';
+  }
+}
+
+// ── КФ ФИЦ ЕГС РАН: таблица землетрясений с главной emsd.ru (24.09) ────────
+//
+// Решение владельца: «нам нужно переключиться на этот ресурс, tg не активен у
+// них». Разбор таблицы — lib/services/safety/emsd-quakes.ts, скачивание —
+// emsd-fetch.ts. Здесь — превращение строки в предупреждение ленты по ТЕМ ЖЕ
+// правилам, что у остальных источников: важность — severityForMagnitude,
+// зоны — zonesForEpicenter, запись — saveEvent.
+
+export interface EmsdIngestResult extends ParseResult {
+  /** Что разобралось из таблицы — для ответа heartbeat и разбора. */
+  table: EmsdQuakeTable;
+  /** Событие уже истекло бы к моменту записи — это история, а не угроза. */
+  skippedExpired: number;
+  /** Тот же толчок уже записан от другого источника. */
+  skippedSameQuake: number;
+  /** Сверку «тот же толчок» провести не смогли — записали на всякий случай. */
+  sameQuakeUnknown: number;
+}
+
+/**
+ * Внешний id: время очага до секунды. Уточнённое решение того же события
+ * (магнитуда 4.1 → 4.2, время 03:09:36 → 03:09:35.9) попадает на тот же id и
+ * гасится ON CONFLICT, а не становится вторым толчком. Дробные секунды
+ * отброшены намеренно: они у источника разной длины и меняются при уточнении.
+ */
+export function emsdQuakeId(timeUtc: string): string {
+  return `www.emsd.ru/eq/${timeUtc.replace(/\.\d+Z$/, 'Z')}`;
+}
+
+export async function ingestEmsdQuakes(html: string, nowMs: number = Date.now()): Promise<EmsdIngestResult> {
+  const table = parseEmsdQuakes(html);
+  const result: EmsdIngestResult = {
+    events: [],
+    inserted: 0,
+    skipped: 0,
+    // Жалобы разбора — это ОТКАЗЫ источника, и они обязаны сделать прогон
+    // частичным, а не раствориться в «вставлено ноль».
+    errors: [...table.problems],
+    rawItems: table.rows.length,
+    table,
+    skippedExpired: 0,
+    skippedSameQuake: 0,
+    sameQuakeUnknown: 0,
+  };
+
+  for (const q of table.rows) {
+    const severity = severityForMagnitude(q.ml);
+    const expiresHours = severity >= 2 ? 48 : 24;
+    const publishedAt = new Date(q.timeUtc);
+    // В таблице десять последних событий, и при спокойной сейсмике они
+    // растягиваются на дни. Истёкшее предупреждение — история: писать его
+    // значило бы в первый же прогон выпустить в ленту толчки недельной
+    // давности как свежие.
+    if (publishedAt.getTime() + expiresHours * 3_600_000 < nowMs) {
+      result.skippedExpired++;
+      continue;
+    }
+
+    const distKm = Math.round(distanceKm(PETROPAVLOVSK.lat, PETROPAVLOVSK.lng, q.lat, q.lng));
+    const epicenter = `${distKm} км от Петропавловска-Камчатского`;
+    const ml = q.ml.toFixed(1);
+    const event: SeismicEvent = {
+      source_id: emsdQuakeId(q.timeUtc),
+      source_url: EMSD_HOME_URL,
+      published_at: publishedAt,
+      alert_type: 'earthquake',
+      severity,
+      title: `Землетрясение ML ${ml} — ${epicenter}`,
+      description:
+        `Ml ${ml}, глубина ${q.depthKm} км, эпицентр ${q.lat}, ${q.lng} — ${epicenter}. ` +
+        `Время очага ${q.timeUtc.replace('T', ' ').replace(/\.\d+Z$/, '')} UTC. ` +
+        'Источник: КФ ФИЦ ЕГС РАН (emsd.ru).',
+      affected_zones: zonesForEpicenter(q.lat, q.lng),
+      magnitude: q.ml,
+      depth_km: q.depthKm,
+      epicenter,
+      lat: q.lat,
+      lng: q.lng,
+      expires_hours: expiresHours,
+    };
+
+    const same = await findSameQuake(event);
+    if (typeof same === 'string') {
+      result.skippedSameQuake++;
+      continue;
+    }
+    if (same === 'unknown') result.sameQuakeUnknown++;
+
+    result.events.push(event);
+    try {
+      const status = await saveEvent(event);
+      if (status === 'inserted') result.inserted++;
+      else result.skipped++;
+    } catch (e) {
+      result.errors.push((e as Error).message);
+    }
   }
   return result;
 }

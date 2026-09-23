@@ -46,6 +46,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
+import { fetchEmsdPage } from '@/lib/services/safety/emsd-fetch';
 import {
   parseVmon,
   elevatedRows,
@@ -58,61 +59,6 @@ export const maxDuration = 60;
 
 /** Маркер версии: по нему видно, та ли сборка отвечает (см. wait-for-deploy). */
 const PROBE = 'emsd_vmon_probe_v1';
-
-const FETCH_TIMEOUT_MS = 30_000;
-
-/**
- * Скачать и раскодировать. Кодировка берётся из заголовка, если он её назвал,
- * иначе из meta самой страницы, иначе windows-1251 по умолчанию — так
- * страница и отдаётся сегодня.
- *
- * Возвращаемое `decodedBy` не украшение: если однажды придут кракозябры,
- * первый вопрос будет «чем разбирали», и ответ должен лежать в ответе пробы,
- * а не восстанавливаться по памяти.
- */
-async function fetchDecoded(url: string): Promise<{
-  html: string | null;
-  status: number | null;
-  decodedBy: string | null;
-  bytes: number | null;
-  error: string | null;
-}> {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-    if (!res.ok) {
-      return { html: null, status: res.status, decodedBy: null, bytes: null, error: `HTTP ${res.status}` };
-    }
-    const buf = new Uint8Array(await res.arrayBuffer());
-    const header = res.headers.get('content-type') ?? '';
-    const headerCharset = header.match(/charset=([\w-]+)/i)?.[1];
-    // Для поиска meta хватает латиницы: атрибут charset=... в любой кодировке
-    // записан ASCII-символами.
-    const head = new TextDecoder('latin1').decode(buf.subarray(0, 4096));
-    const metaCharset = head.match(/charset=["']?([\w-]+)/i)?.[1];
-    const charset = (headerCharset || metaCharset || 'windows-1251').toLowerCase();
-    try {
-      const html = new TextDecoder(charset).decode(buf);
-      return { html, status: res.status, decodedBy: charset, bytes: buf.length, error: null };
-    } catch (e) {
-      // Нет такого декодера в рантайме (урезанное ICU). Это «не смог», и оно
-      // обязано звучать так: разобрать байты как UTF-8 значило бы отдать
-      // кракозябры, которые парсер примет за пустую сводку (§4.0).
-      const why = e instanceof Error ? e.message : String(e);
-      console.error(`[emsd-vmon-probe] декодер «${charset}» недоступен в рантайме:`, why);
-      return {
-        html: null,
-        status: res.status,
-        decodedBy: null,
-        bytes: buf.length,
-        error: `страница скачана (${buf.length} байт), но декодер «${charset}» в рантайме недоступен: ${why}`,
-      };
-    }
-  } catch (e) {
-    const why = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-    console.error(`[emsd-vmon-probe] запрос не дошёл (${url}):`, why);
-    return { html: null, status: null, decodedBy: null, bytes: null, error: why.slice(0, 300) };
-  }
-}
 
 /** Что у нас уже записано по вулканам от KVERT. Только SELECT. */
 async function ourVolcanoStatus(): Promise<{
@@ -147,7 +93,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
 
-  const [page, ours] = await Promise.all([fetchDecoded(EMSD_VMON_URL), ourVolcanoStatus()]);
+  const [page, ours] = await Promise.all([fetchEmsdPage(EMSD_VMON_URL, 30_000), ourVolcanoStatus()]);
 
   if (!page.html) {
     // Не дошли — это НЕ «вулканы спокойны». Отвечаем отказом явно, чтобы

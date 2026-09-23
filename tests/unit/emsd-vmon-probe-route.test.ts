@@ -52,19 +52,30 @@ describe('проба только читает', () => {
 });
 
 describe('кодировка названа, а не подразумевается', () => {
+  // Скачивание и раскодирование живут в общем модуле emsd-fetch: его зовут и
+  // эта проба, и приём сейсмики. Проверяется там, где правило записано, плюс
+  // то, что проба им пользуется, а не держит свою копию (§12).
+  const FETCH = readFileSync(join(ROOT, 'lib/services/safety/emsd-fetch.ts'), 'utf-8');
+  const fetchCode = FETCH.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  it('проба скачивает общим модулем, а не своей копией', () => {
+    expect(code).toContain('fetchEmsdPage(');
+    expect(code, 'в пробе снова своё скачивание').not.toMatch(/\bfetch\(/);
+  });
+
   it('байты берутся сырыми, а не через res.text()', () => {
     // res.text() разобрал бы windows-1251 как UTF-8 и отдал кракозябры,
     // которые парсер примет за «вулканов ноль».
-    expect(code).toContain('arrayBuffer()');
-    expect(code, 'res.text() вернул бы кракозябры на cp1251').not.toMatch(/res\.text\(\)/);
+    expect(fetchCode).toContain('arrayBuffer()');
+    expect(fetchCode, 'res.text() вернул бы кракозябры на cp1251').not.toMatch(/res\.text\(\)/);
   });
 
   it('отказ декодера называется словами, а не глушится', () => {
     // TextDecoder('windows-1251') требует полного ICU, а рантайм —
     // node:22-alpine. Нет декодера — это «не смог», и оно обязано звучать.
-    expect(code).toContain('TextDecoder');
-    expect(code).toMatch(/декодер/);
-    expect(code).toContain('console.error');
+    expect(fetchCode).toContain('TextDecoder');
+    expect(fetchCode).toMatch(/декодер/);
+    expect(fetchCode).toContain('console.error');
   });
 
   it('чем разобрали — в ответе', () => {
