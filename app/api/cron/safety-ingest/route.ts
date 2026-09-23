@@ -610,7 +610,6 @@ function buildResponse(
       inserted: number | null;
       skipped_expired: number | null;
       skipped_same_quake: number | null;
-      same_quake_unknown: number | null;
       problems: string[];
     };
   },
@@ -1031,7 +1030,6 @@ export async function GET(req: Request) {
         inserted: emsdOk ? emsdResult.inserted : null,
         skipped_expired: emsdOk ? emsdResult.skippedExpired : null,
         skipped_same_quake: emsdOk ? emsdResult.skippedSameQuake : null,
-        same_quake_unknown: emsdOk ? emsdResult.sameQuakeUnknown : null,
         problems: emsdOk ? emsdResult.table.problems : [],
       },
     }, pruned, roadAnchors);

@@ -694,7 +694,7 @@ export async function ingestEqkam(): Promise<ParseResult> {
 
       result.events.push(event);
       try {
-        const status = await saveEvent(event);
+        const status = await saveQuakeOnce(event);
         if (status === 'inserted') result.inserted++;
         else result.skipped++;
       } catch (e) {
@@ -758,15 +758,9 @@ export async function ingestUsgs(): Promise<ParseResult> {
 
       result.events.push(event);
       // Тот же толчок уже мог прийти от emsd.ru (с 24.09 он покрывает и M5+).
-      // Сверка в ОБЕ стороны — здесь и в ingestEmsdQuakes: кто пришёл вторым,
-      // тот и не пишет, в каком бы порядке их ни принесло.
-      const same = await findSameQuake(event);
-      if (typeof same === 'string') {
-        result.skipped++;
-        continue;
-      }
+      // saveQuakeOnce сверяет по физике: кто пришёл вторым — не пишет.
       try {
-        const status = await saveEvent(event);
+        const status = await saveQuakeOnce(event);
         if (status === 'inserted') result.inserted++;
         else result.skipped++;
       } catch (e) {
@@ -851,6 +845,27 @@ export async function findSameQuake(event: SeismicEvent): Promise<string | null 
   }
 }
 
+/**
+ * Записать событие, если о ТОМ ЖЕ толчке ещё никто не сообщил. Единственный
+ * путь записи землетрясений из источников, которые могут перекрываться.
+ *
+ * Отдельной функцией, а не строкой в каждом приёме: путей записи землетрясений
+ * четыре (USGS, EQKam с сервера, EQKam от раннера, emsd.ru), и сверка, стоящая
+ * в трёх из четырёх, работала бы в одну сторону — кто пришёл вторым через
+ * четвёртый путь, тот и писал бы дубль. Первая редакция 24.09 так и вышла:
+ * EQKam сверки не имел, и толчок, записанный emsd.ru, он повторил бы.
+ *
+ * Не землетрясения идут в saveEvent напрямую: у сводок МЧС свой, контентный
+ * дедуп, и физическая сверка им не нужна.
+ */
+export async function saveQuakeOnce(event: SeismicEvent): Promise<'inserted' | 'skipped' | 'same_quake'> {
+  if (event.alert_type === 'earthquake') {
+    const same = await findSameQuake(event);
+    if (typeof same === 'string') return 'same_quake';
+  }
+  return saveEvent(event);
+}
+
 // ── КФ ФИЦ ЕГС РАН: таблица землетрясений с главной emsd.ru (24.09) ────────
 //
 // Решение владельца: «нам нужно переключиться на этот ресурс, tg не активен у
@@ -866,8 +881,6 @@ export interface EmsdIngestResult extends ParseResult {
   skippedExpired: number;
   /** Тот же толчок уже записан от другого источника. */
   skippedSameQuake: number;
-  /** Сверку «тот же толчок» провести не смогли — записали на всякий случай. */
-  sameQuakeUnknown: number;
 }
 
 /**
@@ -893,7 +906,6 @@ export async function ingestEmsdQuakes(html: string, nowMs: number = Date.now())
     table,
     skippedExpired: 0,
     skippedSameQuake: 0,
-    sameQuakeUnknown: 0,
   };
 
   for (const q of table.rows) {
@@ -932,17 +944,11 @@ export async function ingestEmsdQuakes(html: string, nowMs: number = Date.now())
       expires_hours: expiresHours,
     };
 
-    const same = await findSameQuake(event);
-    if (typeof same === 'string') {
-      result.skippedSameQuake++;
-      continue;
-    }
-    if (same === 'unknown') result.sameQuakeUnknown++;
-
     result.events.push(event);
     try {
-      const status = await saveEvent(event);
+      const status = await saveQuakeOnce(event);
       if (status === 'inserted') result.inserted++;
+      else if (status === 'same_quake') result.skippedSameQuake++;
       else result.skipped++;
     } catch (e) {
       result.errors.push((e as Error).message);
@@ -2084,7 +2090,7 @@ export async function ingestFromHtml(
       if (!event) continue;
       result.events.push(event);
       try {
-        const status = await saveEvent(event);
+        const status = await saveQuakeOnce(event);
         if (status === 'inserted') result.inserted++;
         else result.skipped++;
       } catch (e) {

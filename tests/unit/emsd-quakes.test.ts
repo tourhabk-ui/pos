@@ -33,6 +33,7 @@ import {
   ingestEmsdQuakes,
   emsdQuakeId,
   findSameQuake,
+  saveQuakeOnce,
   severityForMagnitude,
   SAME_QUAKE_KM,
   type SeismicEvent,
@@ -261,15 +262,31 @@ describe('«тот же толчок» — по физике, и афтершо�
   });
 });
 
-describe('сверка в ОБЕ стороны', () => {
-  it('USGS тоже сверяется перед записью', () => {
-    // Иначе сработала бы только половина: emsd не пишет, если USGS был
-    // первым, а USGS, пришедший вторым, писал бы дубль.
-    const src = readFileSync(join(process.cwd(), 'lib/services/safety/seismic-parser.ts'), 'utf-8');
-    const at = src.indexOf('export async function ingestUsgs');
-    const body = src.slice(at, src.indexOf('\n}\n', at));
-    expect(body).toContain('findSameQuake(event)');
-  });
+describe('сверка — во ВСЕХ путях записи землетрясений', () => {
+  const SRC = readFileSync(join(process.cwd(), 'lib/services/safety/seismic-parser.ts'), 'utf-8');
+  const bodyOf = (sig: string) => {
+    const at = SRC.indexOf(sig);
+    expect(at, `${sig} не найден`).toBeGreaterThan(0);
+    return SRC.slice(at, SRC.indexOf('\n}\n', at));
+  };
+
+  // Четыре пути, и сверка обязана стоять в каждом. Первая редакция 24.09
+  // поставила её в два: EQKam сверки не имел, и толчок, уже записанный от
+  // emsd.ru, он повторил бы под своим заголовком. Коммит при этом утверждал,
+  // что дубли с телеграм-резервом гасятся, — утверждение было ложным, пока
+  // этой проверки не было.
+  for (const sig of [
+    'export async function ingestUsgs',
+    'export async function ingestEqkam',
+    'export async function ingestFromHtml',
+    'export async function ingestEmsdQuakes',
+  ]) {
+    it(`${sig.replace('export async function ', '')}: пишет через saveQuakeOnce, а не мимо`, () => {
+      const body = bodyOf(sig);
+      expect(body).toContain('saveQuakeOnce(event)');
+      expect(body, 'прямой saveEvent в обход сверки').not.toMatch(/await saveEvent\(/);
+    });
+  }
 
   it('emsd пишется ПОСЛЕ USGS, а не одновременно', () => {
     // Одновременная запись: оба сверились, оба не нашли, оба записали.
@@ -282,5 +299,49 @@ describe('сверка в ОБЕ стороны', () => {
     expect(ingestAt, 'запись emsd стоит внутри того же Promise.all, что и USGS').toBeGreaterThan(fetchAt);
     const promiseAllEnd = route.indexOf(']);', allAt);
     expect(ingestAt).toBeGreaterThan(promiseAllEnd);
+  });
+});
+
+describe('saveQuakeOnce', () => {
+  const quake: SeismicEvent = {
+    source_id: 't.me/eqkam/5514',
+    source_url: 'https://t.me/eqkam/5514',
+    published_at: new Date('2026-09-21T03:09:36Z'),
+    alert_type: 'earthquake',
+    severity: 0,
+    title: 'Землетрясение ML 4.1 — 110 км от Петропавловска-Камчатского',
+    description: 'x',
+    affected_zones: ['avachinsky'],
+    magnitude: 4.1,
+    lat: 52.1218,
+    lng: 159.1017,
+    expires_hours: 24,
+  };
+  let inserts: number;
+
+  beforeEach(() => {
+    inserts = 0;
+    queryMock.mockReset();
+  });
+
+  it('EQKam после emsd.ru — тот же толчок, второй записи нет', async () => {
+    // Оперативное решение EQKam (52.1218, 159.1017, Ml 4.1) и табличное
+    // emsd.ru (52.08, 159.24, Ml 4.2) — одно событие в ~10 км.
+    queryMock.mockImplementation(async (sql: string) => {
+      if (/lat::float8 AS lat/.test(sql)) {
+        return { rows: [{ external_id: 'www.emsd.ru/eq/2026-09-21T03:09:35Z', lat: 52.08, lng: 159.24, magnitude: 4.2 }], rowCount: 1 };
+      }
+      if (/INSERT INTO external_alerts/.test(sql)) inserts++;
+      return { rows: [], rowCount: 0 };
+    });
+    expect(await saveQuakeOnce(quake)).toBe('same_quake');
+    expect(inserts).toBe(0);
+  });
+
+  it('не землетрясение — физическая сверка не спрашивается', async () => {
+    queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+    await saveQuakeOnce({ ...quake, alert_type: 'flood', source_id: 'mchs/1' });
+    const asked = queryMock.mock.calls.some((c) => /lat::float8 AS lat/.test(String(c[0])));
+    expect(asked, 'сводку МЧС сверили как землетрясение').toBe(false);
   });
 });
