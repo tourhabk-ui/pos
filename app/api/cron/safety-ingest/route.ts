@@ -10,7 +10,7 @@ import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { buildAnchorIndex, matchAlertAnchor, ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
 import { pushCopy } from '@/lib/services/safety/push-copy';
 import {
@@ -130,7 +130,7 @@ function authError(req: Request): Response | null {
   const secret = getCronSecret(req);
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
-  if (!timingSafeCompare(secret, cronSecret)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!timingSafeCompare(secret, cronSecret)) return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   return null;
 }
 

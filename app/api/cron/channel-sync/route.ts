@@ -7,13 +7,13 @@
 import { syncAllChannels } from '@/lib/channels/channel-manager';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export async function GET(req: Request) {
   const secret = getCronSecret(req);
   if (!process.env.CRON_SECRET) return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
-  if (!timingSafeCompare(secret, process.env.CRON_SECRET)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET)) return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
 
   const lease = await claimCronWindow('channel-sync', 30, 'external');
   if (!shouldRun(lease)) return Response.json(leaseSkipBody('channel-sync', 30));
