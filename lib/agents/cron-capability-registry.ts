@@ -72,6 +72,11 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'editor-job': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'editor-result': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'elevation-backfill': ['db_read'],
+  // Перепись, а не производитель: читает суточную сводку вулканов КФ ФИЦ ЕГС
+  // РАН (net_out) и наш volcano_status для сверки (db_read). Отсутствие
+  // db_write здесь — не забывчивость, а свойство: писать в поле, которое уже
+  // ведёт KVERT, без решения владельца нельзя (сторож emsd-vmon-probe-route).
+  'emsd-vmon-probe': ['db_read', 'net_out'],
   'engagement': ['db_read', 'db_write', 'net_out', 'telegram'],
   'enrich-passports': ['db_read', 'db_write', 'net_out', 'ai'],
   'enrich-routes': ['db_read', 'db_write', 'net_out', 'ai'],

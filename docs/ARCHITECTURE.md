@@ -69,7 +69,7 @@ Guard-тест `tests/unit/platform-counts.test.ts` не даёт разнобо
 |----------|-------|
 | `tours/` | tour.service, booking.service, booking-funnel-stages, dynamic-pricing, tours-visitkamchatka |
 | `routes/` | route-description-cache, route-preflight-safety, routes-geometry-health, places-quality, geocode |
-| `safety/` | emergency-contacts, rescue-coverage, seismic-feed, seismic-parser, seismic-zones, air-quality, zone-weather, kvert-vona, kvert-activity-ru, volcano-status, volcano-match, wildfire-firms, alert-delivery-health, alert-prune, feed-types, ingest-outcome, push-copy, source-health, telegram-source |
+| `safety/` | emergency-contacts, rescue-coverage, seismic-feed, seismic-parser, seismic-zones, air-quality, zone-weather, kvert-vona, kvert-activity-ru, volcano-status, volcano-match, wildfire-firms, alert-delivery-health, alert-prune, feed-types, ingest-outcome, push-copy, source-health, telegram-source, emsd-vmon |
 | `operators/` | operator-registry.service, partner.service, lead-processor.service, notification.service, operator-tour-scraper, review.service, support.service, chat.service |
 | `ingest/` | visitkamchatka-importer, visitkamchatka-audit, visitkamchatka-gpx-importer, visitkamchatka-guides, visitkamchatka-operators, legislation-importer, osm-traces-scout, firecrawl, brightdata-unlocker, mistral-ocr, wikimedia-photos, ai-image-generator, pollinations-url, track-parse, track-place-match |
 | `intelligence/` | page-links |
