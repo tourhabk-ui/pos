@@ -54,6 +54,23 @@ export class VolcanoMesh {
   private reconnectDelay = 1000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ICE-кандидаты, пришедшие раньше remoteDescription (#1993). В мобильных
+  // сетях (LTE/CGNAT — типичный случай в поле) сигнальные сообщения обгоняют
+  // друг друга: `ice` приходит до `offer`/`answer`, и addIceCandidate бросает
+  // InvalidStateError. Раньше отказ глушился, кандидат терялся, и соединение
+  // либо не собиралось, либо собиралось через худший маршрут.
+  private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
+  // Верхняя граница на peer: кандидатов у соединения обычно меньше тридцати,
+  // а буфер по чужому deviceId без offer — иначе бесконечная память.
+  private static readonly MAX_PENDING_CANDIDATES = 64;
+
+  // `disconnected` в WebRTC — состояние временное, ICE восстанавливается сам
+  // за секунды (смена соты, короткий провал LTE). Убивать peer сразу значило
+  // рвать канал у соседа, который через две секунды был бы снова на связи —
+  // а он может оказаться единственным ретранслятором SOS.
+  private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly DISCONNECT_GRACE_MS = 4000;
+
   constructor() {
     if (typeof window === 'undefined') throw new Error('VolcanoMesh: client only');
     this.deviceId = localStorage.getItem('mesh-device-id') ?? genDeviceId();
@@ -115,9 +132,14 @@ export class VolcanoMesh {
       this.sse = null;
     }
     if (this.positionInterval) clearInterval(this.positionInterval);
+    this.disconnectTimers.forEach((t) => clearTimeout(t));
+    this.disconnectTimers.clear();
+    this.pendingCandidates.clear();
+    // Каналы раньше соединений: pc.close() закрывает и их, но явно надёжнее.
+    this.channels.forEach((ch) => ch.close());
+    this.channels.clear();
     this.pcs.forEach((pc) => pc.close());
     this.pcs.clear();
-    this.channels.clear();
     this.peers.clear();
     this.onStatusChange?.('idle');
   }
@@ -147,12 +169,7 @@ export class VolcanoMesh {
         await this.createOffer(peerId);
       }
     } else if (type === 'peer-left') {
-      const peerId = msg.deviceId as string;
-      this.pcs.get(peerId)?.close();
-      this.pcs.delete(peerId);
-      this.channels.delete(peerId);
-      this.peers.delete(peerId);
-      this.onPeersChange?.(peerId, null as unknown as MeshPeer);
+      this.cleanupPeerImmediate(msg.deviceId as string);
     } else if (type === 'offer') {
       await this.handleOffer(
         msg.from as string,
@@ -180,6 +197,10 @@ export class VolcanoMesh {
   }
 
   private createPeerConnection(peerId: string): RTCPeerConnection {
+    // Повторный сигналинг того же peer (быстрый reconnect соседа) без этой
+    // уборки оставлял прежний RTCPeerConnection сиротой: из карты его
+    // вытесняли, но не закрывали.
+    if (this.pcs.has(peerId)) this.cleanupPeerImmediate(peerId);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     this.pcs.set(peerId, pc);
 
@@ -198,15 +219,54 @@ export class VolcanoMesh {
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
-        this.pcs.delete(peerId);
-        this.channels.delete(peerId);
-        this.peers.delete(peerId);
-        this.onPeersChange?.(peerId, null as unknown as MeshPeer);
+      const state = pc.connectionState;
+      if (state === 'connected') {
+        this.clearDisconnectTimer(peerId);
+      } else if (state === 'failed' || state === 'closed') {
+        this.cleanupPeerImmediate(peerId);
+      } else if (state === 'disconnected') {
+        this.scheduleDisconnectCleanup(peerId, pc);
       }
     };
 
     return pc;
+  }
+
+  private scheduleDisconnectCleanup(peerId: string, pc: RTCPeerConnection): void {
+    this.clearDisconnectTimer(peerId);
+    const timer = setTimeout(() => {
+      this.disconnectTimers.delete(peerId);
+      // За время паузы peer могли пересоздать (createPeerConnection) — тогда
+      // в карте уже другой pc, и он не наш.
+      if (this.pcs.get(peerId) !== pc) return;
+      if (pc.connectionState !== 'connected') this.cleanupPeerImmediate(peerId);
+    }, this.DISCONNECT_GRACE_MS);
+    this.disconnectTimers.set(peerId, timer);
+  }
+
+  private clearDisconnectTimer(peerId: string): void {
+    const timer = this.disconnectTimers.get(peerId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.disconnectTimers.delete(peerId);
+  }
+
+  /**
+   * Освободить всё, что держит peer. Из карт удаляется ДО close(): если
+   * браузер на close() дёрнет обработчик состояния, повторный вход найдёт
+   * пустоту, а не зациклится.
+   */
+  private cleanupPeerImmediate(peerId: string): void {
+    this.clearDisconnectTimer(peerId);
+    const channel = this.channels.get(peerId);
+    this.channels.delete(peerId);
+    channel?.close();
+    const pc = this.pcs.get(peerId);
+    this.pcs.delete(peerId);
+    pc?.close();
+    this.pendingCandidates.delete(peerId);
+    this.peers.delete(peerId);
+    this.onPeersChange?.(peerId, null as unknown as MeshPeer);
   }
 
   private setupChannel(peerId: string, channel: RTCDataChannel): void {
@@ -254,6 +314,7 @@ export class VolcanoMesh {
   ): Promise<void> {
     const pc = this.createPeerConnection(peerId);
     await pc.setRemoteDescription(sdp);
+    await this.drainPendingCandidates(peerId, pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     await this.relay(peerId, { type: 'answer', from: this.deviceId, sdp: answer });
@@ -266,6 +327,7 @@ export class VolcanoMesh {
     const pc = this.pcs.get(peerId);
     if (!pc) return;
     await pc.setRemoteDescription(sdp);
+    await this.drainPendingCandidates(peerId, pc);
   }
 
   private async handleIce(
@@ -273,8 +335,29 @@ export class VolcanoMesh {
     candidate: RTCIceCandidateInit,
   ): Promise<void> {
     const pc = this.pcs.get(peerId);
-    if (!pc) return;
+    if (!pc || !pc.remoteDescription) {
+      // Кандидату некуда: SDP ещё не пришёл (у ответчика — и pc ещё нет).
+      // Ждёт в буфере, drainPendingCandidates применит после SDP.
+      const list = this.pendingCandidates.get(peerId) ?? [];
+      if (list.length >= VolcanoMesh.MAX_PENDING_CANDIDATES) list.shift();
+      list.push(candidate);
+      this.pendingCandidates.set(peerId, list);
+      return;
+    }
+    // После remoteDescription отказ значит «кандидат устарел или битый», а
+    // не «потерян»: браузер уже собрал маршрут, потребителя у ошибки нет.
     await pc.addIceCandidate(candidate).catch(() => {});
+  }
+
+  private async drainPendingCandidates(peerId: string, pc: RTCPeerConnection): Promise<void> {
+    const list = this.pendingCandidates.get(peerId);
+    // Снимаем ДО обхода: кандидат, пришедший во время await, уже увидит
+    // remoteDescription и уйдёт в pc напрямую, а не в список, который мы льём.
+    this.pendingCandidates.delete(peerId);
+    if (!list) return;
+    for (const candidate of list) {
+      await pc.addIceCandidate(candidate).catch(() => {});
+    }
   }
 
   private handleDataMessage(peerId: string, msg: MeshMessage): void {
