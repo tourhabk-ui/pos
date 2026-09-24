@@ -46,16 +46,19 @@ describe('живой tools-цикл Кузьмича остаётся на бы�
   // ответа ждёт человек в поле, резолва модели через /v1/models нет — он стоит
   // лишний сетевой round-trip на холодном кэше. Теперь первичный там DeepSeek,
   // и требование переезжает на него, а не исчезает вместе с прежним первым.
-  const body = bodyOf('callDeepSeekWithTools');
+  // 24.09 Qwen вернулся второй ногой — требование держится на обеих.
+  for (const fn of ['callDeepSeekWithTools', 'callQwenWithTools']) {
+    const body = bodyOf(fn);
 
-  it('функция найдена', () => {
-    expect(body).not.toBe('');
-  });
+    it(`${fn}: функция найдена`, () => {
+      expect(body).not.toBe('');
+    });
 
-  it('резолв туда НЕ подключён — там ждёт человек', () => {
-    expect(body).not.toContain('resolveChatModel');
-    expect(body).not.toContain('resolveContentModel');
-  });
+    it(`${fn}: резолв туда НЕ подключён — там ждёт человек`, () => {
+      expect(body).not.toContain('resolveChatModel');
+      expect(body).not.toContain('resolveContentModel');
+    });
+  }
 });
 
 describe('резолвер чата: свой кэш и прежний override', () => {

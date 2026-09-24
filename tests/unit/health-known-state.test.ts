@@ -106,29 +106,41 @@ describe('known не уходит в Telegram, но остаётся в отве
   });
 });
 
-describe('Qwen: снят с текстовых путей, а не заглушен в алерте', () => {
-  it('водопад инструментов Кузьмича начинается с DeepSeek', () => {
-    // Ступени идут ПОСЛЕДОВАТЕЛЬНО. Пока первым стоял отвергнутый ключ, каждое
-    // сообщение человека в поле ждало заведомого отказа перед живым ответом.
+describe('Qwen: возвращён в текстовые пути (24.09), зрение — главное в алерте', () => {
+  // 08.09 снимался («qwen не используем», ключ отвергнут), 24.09 возвращён
+  // решением владельца после пополнения баланса. Держится порядок и то, что
+  // предупреждение называет зрение — у текста есть следующие ступени, у фото нет.
+  it('водопад инструментов Кузьмича начинается с DeepSeek, Qwen — второй', () => {
     const body = PROVIDERS.slice(
       PROVIDERS.indexOf('export async function callToolsWaterfall'),
       PROVIDERS.indexOf('export async function callAIWithModel'),
     );
-    expect(body).toMatch(/callDeepSeekWithTools\(messages, tools\)/);
-    expect(body).not.toMatch(/callQwenWithTools\(messages, tools\)/);
+    const ds = body.indexOf('callDeepSeekWithTools(messages, tools)');
+    const qw = body.indexOf('callQwenWithTools(messages, tools)');
+    expect(ds).toBeGreaterThan(-1);
+    expect(qw).toBeGreaterThan(ds);
   });
 
-  it('первая фаза scout-innovator больше не ходит в Qwen', () => {
+  it('первая фаза scout-innovator снова начинается с Qwen, с запасным путём', () => {
     const src = readFileSync(join(process.cwd(), 'lib/agents/scout-innovator.ts'), 'utf-8');
-    expect(src).not.toMatch(/callQwen\(/);
+    expect(src).toMatch(/callQwen\(messages, \{ maxTokens: 3000 \}\)/);
+    expect(src).toMatch(/qwen\?\.trim\(\) \? qwen : await callAIQualityOrNull\(messages, \{ maxTokens: 3000/);
+  });
+
+  it('callQwen не глушит отказ', () => {
+    const i = PROVIDERS.indexOf('export async function callQwen(');
+    const body = PROVIDERS.slice(i, PROVIDERS.indexOf('\n}\n', i));
+    expect(body).not.toMatch(/catch\s*\{/);
+    expect(body).toContain("recordAiLegFailure('qwen', 'no_key')");
+    expect(body).toContain('httpFailureReason(');
+    expect(body).toContain('errorFailureReason(');
   });
 
   it('предупреждение называет то, что реально сломано: зрение', () => {
-    // Не «Qwen недоступен» — провайдер, которым не пользуются, недоступным быть
-    // не может. Зрение (qwen-vl) на том же ключе осталось, замены ему с прода
-    // нет, и молчать об этом было бы враньём в другую сторону.
     expect(HEALTH).toMatch(/Зрение Кузьмича не работает/);
     expect(HEALTH).not.toMatch(/text: `Qwen недоступен/);
+    // Прежняя фраза стала бы ложью после возврата.
+    expect(HEALTH).not.toMatch(/Текстовые пути Qwen не используют/);
   });
 });
 

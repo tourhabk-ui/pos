@@ -12,7 +12,7 @@ import { readFile, readdir } from 'fs/promises';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { join } from 'path';
-import { callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callQwen, callAIQualityOrNull, callAIFast, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
@@ -304,11 +304,12 @@ ${gitSection}
     // заблокированный OpenRouter/Anthropic-роут, вызов падал — эволюция
     // переставала рождать предложения. Отсюда путь через достижимых из РФ.
     //
-    // Первой ступенью здесь стоял Qwen (DashScope). Снят 08.09 решением
-    // владельца («qwen не используем»): ключ отвергнут в ОБОИХ регионах
-    // DashScope, и с 05.09 эта ступень не отвечала ни разу — прогон 390 показал
-    // отказ по квоте, а не редкий сбой. Ступень, которая всегда возвращает
-    // null, — не запас, а лишний круг перед тем, кто и так отвечает.
+    // Первой ступенью здесь стоит Qwen (DashScope, сильнейшая модель из
+    // каталога). Снимался 08.09 — ключ был отвергнут в обоих регионах, и
+    // ступень, которая всегда возвращает null, была лишним кругом. Возвращён
+    // 24.09 решением владельца после пополнения баланса (проба 571: ключ
+    // принят). Если снова начнёт отказывать — причина уходит в failure-trace
+    // и видна в diag ниже, а не пропадает.
     //
     // 3000 токенов, а не умолчание 800 (05.09): три предложения с шагами и
     // критериями по-русски — это 2500-4000 знаков JSON, и на 800 токенах
@@ -331,8 +332,11 @@ ${gitSection}
     //
     // Отказ приходит null, а не строкой-извинением: иначе он уезжает в разбор
     // и превращается в «нет JSON-массива» (экран владельца 04.09).
-    const raw = await callAIQualityOrNull(messages, { maxTokens: 3000, deepThinking: false });
-    const model_used = 'quality';
+    // Потолок 3000 — у ОБЕИХ ступеней: поднятый у одной Qwen, он не спасал
+    // запасной путь (прогон 390).
+    const qwen = await callQwen(messages, { maxTokens: 3000 });
+    const raw = qwen?.trim() ? qwen : await callAIQualityOrNull(messages, { maxTokens: 3000, deepThinking: false });
+    const model_used = qwen?.trim() ? 'qwen' : 'quality';
     if (raw === null) {
       const why = describeRecentAiFailures() ?? 'причины не записаны';
       console.error(`[scout-innovator] Phase 1 (модель=${model_used}): провайдеры отказали — ${why}`);
