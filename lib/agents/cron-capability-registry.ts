@@ -131,6 +131,12 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'legislation-sync': ['db_read', 'db_write', 'net_out', 'ai'],
   'llm-budget-check': ['db_read', 'db_write', 'net_out', 'telegram'],
   'locked-out-partners': ['db_read'],
+  // Проба канала КБГС в MAX (24.09): читает страницу (net_out) и гоняет
+  // классификатор вхолостую. db_read/db_write здесь ТРАНЗИТИВНЫЕ: классификатор
+  // КБГС живёт в seismic-parser рядом с saveEvent, и граф импортов их
+  // приносит. Сама проба ничего не пишет — это держит сторож
+  // max-channel-probe.test.ts (ни saveEvent, ни ingest*, ни SQL записи).
+  'max-channel-probe': ['db_read', 'db_write', 'net_out'],
   'max-webhook': ['net_out'],
   'memory-contradiction': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'memory-reflect': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],

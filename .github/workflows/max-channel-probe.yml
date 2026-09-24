@@ -1,0 +1,114 @@
+name: MAX kbgsras — что на странице канала КБГС и что из неё родилось бы (проба)
+
+# GET /api/cron/max-channel-probe (24.09): читает публичную страницу канала
+# КБГС в MAX (https://max.ru/kbgsras) и говорит, что на ней есть, нашлись ли
+# посты С ДАТАМИ и какую тревогу классификатор выпустил бы из каждого текста.
+#
+# Проба ТОЛЬКО ЧИТАЕТ — ни UPDATE, ни INSERT. Приём цунами из MAX пишется по
+# её итогу: без дат на постах старое «Угроза цунами» стало бы свежей тревогой
+# для всех туристов.
+#
+# Запуск: workflow_dispatch (кнопка) или push в main, меняющий
+# .github/triggers/max-channel-probe.json.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/max-channel-probe.json'
+
+permissions:
+  contents: read
+
+# Новый прогон отменяет старый: проба только читает, и две копии лишь дважды
+# дёргают чужой сервер ради одного ответа.
+concurrency:
+  group: max-channel-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+
+      # Маркер едет в main тем же пушем, что и сам роут, а Timeweb собирает
+      # образ 5–20 минут. REQUIRE_FRESH=1: не дождались своей сборки —
+      # спрашивать нечего, и прогон обязан покраснеть на своей причине, а не
+      # получить 404 со старого прода (сторож marker-waits-for-deploy).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+          ATTEMPTS: '110'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Проба
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          URL="https://vedarai.ru/api/cron/max-channel-probe"
+          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 90 "$URL") || RESP=""
+
+          # Отказ не выдаётся за успех (урок сверки с OSM, 20.09): пустой
+          # ответ и неразобранный JSON — отдельные громкие исходы, а вердикт
+          # выносится по полю success, а не по тому, что json разобрался.
+          if [ -z "$RESP" ]; then
+            echo "::error::Проба не ответила вовсе: curl не дошёл (таймаут 90 с или сеть). Это «не смогли спросить», а не «в канале тихо»."
+            exit 1
+          fi
+
+          echo "$RESP" | python3 -c "
+          import json, sys
+          raw = sys.stdin.read()
+          try:
+              d = json.loads(raw)
+          except ValueError:
+              print('Ответ не разобрался как JSON. Первые 2000 знаков:')
+              print(raw[:2000])
+              sys.exit(1)
+
+          print(json.dumps({k: d.get(k) for k in (
+              'success', 'probe', 'reachable', 'http_status', 'final_url', 'content_type',
+              'bytes', 'title', 'signals', 'dated_posts_total', 'lines_total',
+          )}, ensure_ascii=False, indent=2))
+
+          if d.get('success') is not True:
+              print('::error::Прод не получил страницу канала. Пустота ниже НЕ означает, что в канале тихо.')
+              print('Тело ответа целиком:')
+              print(json.dumps(d, ensure_ascii=False)[:4000])
+              sys.exit(1)
+
+          print()
+          print('── Посты С ДАТАМИ (только из них можно принимать угрозы) ──')
+          for it in d.get('dated_posts') or []:
+              wb = it.get('would_be') or {}
+              print(f\"  {it.get('time')} [{wb.get('type')}/{wb.get('severity')}] {it.get('text','')[:160]}\")
+          if not (d.get('dated_posts') or []):
+              print('  НЕТ — датировать посты нечем, приём угроз из этой страницы невозможен')
+
+          print()
+          print('── Сухой прогон строк страницы с датой «сейчас» (так сделал бы приём по образцу МЧС) ──')
+          for it in d.get('lines_dry_run_as_now') or []:
+              wb = it.get('would_be')
+              mark = '!! ЛОЖНАЯ ТРЕВОГА? ' if wb and wb.get('type') == 'tsunami_warning' else ''
+              print(f\"  {mark}[{(wb or {}).get('type')}/{(wb or {}).get('severity')}] цунами={it.get('tsunami_status')} | {it.get('text','')[:160]}\")
+
+          print()
+          print('── Начало текста страницы ──')
+          print(d.get('text_head'))
+          "
+
+          {
+            echo "## max-channel-probe"
+            echo
+            echo '```json'
+            echo "$RESP" | python3 -m json.tool | head -c 30000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
