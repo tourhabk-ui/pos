@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { fetchTelegramPreview } from '@/lib/services/safety/telegram-source';
 import type { FetchVia } from '@/lib/agents/scout-relay';
 import { fetchEmsdPage } from '@/lib/services/safety/emsd-fetch';
-import { EMSD_HOME_URL } from '@/lib/services/safety/emsd-quakes';
+import { EMSD_QUAKES_URL } from '@/lib/services/safety/emsd-quakes';
 import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
@@ -883,7 +883,7 @@ export async function GET(req: Request) {
     ingestFirmsWildfires(),
     fetchTelegramPreview('kbgsras'),
     fetchTelegramPreview('eqkam'),
-    fetchEmsdPage(EMSD_HOME_URL),
+    fetchEmsdPage(EMSD_QUAKES_URL),
   ]);
   const emsdResult: EmsdIngestResult | { error: string } | null = emsdPage.html !== null
     ? await safely('emsd-ingest', () => ingestEmsdQuakes(emsdPage.html as string))
@@ -1019,7 +1019,7 @@ export async function GET(req: Request) {
         ingest_error: telegramResult !== null && 'error' in telegramResult ? telegramResult.error : null,
       },
       emsdFetch: {
-        url: EMSD_HOME_URL,
+        url: EMSD_QUAKES_URL,
         reached: emsdPage.html !== null,
         http_status: emsdPage.status,
         decoded_by: emsdPage.decodedBy,

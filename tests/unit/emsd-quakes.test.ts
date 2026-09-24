@@ -291,7 +291,7 @@ describe('сверка — во ВСЕХ путях записи землетр�
   it('emsd пишется ПОСЛЕ USGS, а не одновременно', () => {
     // Одновременная запись: оба сверились, оба не нашли, оба записали.
     const route = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8');
-    const fetchAt = route.indexOf('fetchEmsdPage(EMSD_HOME_URL)');
+    const fetchAt = route.indexOf('fetchEmsdPage(EMSD_QUAKES_URL)');
     const ingestAt = route.indexOf('ingestEmsdQuakes(');
     const allAt = route.indexOf('ingestAll(),');
     expect(fetchAt).toBeGreaterThan(0);
@@ -343,5 +343,19 @@ describe('saveQuakeOnce', () => {
     await saveQuakeOnce({ ...quake, alert_type: 'flood', source_id: 'mchs/1' });
     const asked = queryMock.mock.calls.some((c) => /lat::float8 AS lat/.test(String(c[0])));
     expect(asked, 'сводку МЧС сверили как землетрясение').toBe(false);
+  });
+});
+
+describe('таблица читается со страницы, где она есть (24.09)', () => {
+  // Проба 574: в HTML главной таблицы нет — её рисует скрипт в браузере.
+  it('адрес чтения — /maheqkam, а не главная', async () => {
+    const { EMSD_QUAKES_URL } = await import('@/lib/services/safety/emsd-quakes');
+    expect(EMSD_QUAKES_URL).toBe('https://www.emsd.ru/maheqkam');
+  });
+
+  it('отказ разбора несёт кусок текста страницы, а не одно «не найден»', () => {
+    const t = parseEmsdQuakes('<html><body><h1>Интерактивная карта</h1><p>Ощутили землетрясение?</p></body></html>');
+    expect(t.rows).toEqual([]);
+    expect(t.problems[0]).toMatch(/фрагмент: «.*Интерактивная карта.*»/);
   });
 });
