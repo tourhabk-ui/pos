@@ -1,23 +1,14 @@
 {
-  "note": "24.09, прогон 568. ТОЛЬКО ЧТЕНИЕ. Владелец прислал скрины /map: юг Камчатки на зуме 4.8-5.8 рисуется прямоугольниками серого и голубого, суша обрывается ровной чертой около 51° с.ш. На раннере (снимки map-snapshots, 07.09) обзор с океаном рисуется ровно. Разница, по всей видимости, в том, какой файл океана получает телефон. Первый шаг — адрес хранилища пакетов из самой страницы (mapPackBaseUrl в данных страницы), чтобы следующей пробой прочитать заголовки и рамку океана так, как их видит браузер.",
-  "run": 568,
+  "note": "24.09, прогон 569. ТОЛЬКО ЧТЕНИЕ. Файл океана обзора и рельеф обзора — так, как их получает браузер: заголовки кэша (Cache-Control, ETag, Last-Modified), рамка bbox и built_at в начале GeoJSON. На раннере (07.09) рамка океана 135-180 / 41-66.5; если телефон держит копию с рамкой края 155-175 / 51-65, это объясняет прямоугольники на юге.",
+  "run": 569,
   "timeout": 60,
   "retries": 2,
   "retryDelay": 30,
   "allowStale": true,
-  "bytes": 300,
-  "around": [
-    "twcstorage",
-    "mapPackBaseUrl"
-  ],
-  "aroundLines": 2,
-  "aroundBefore": 1,
-  "aroundHits": 3,
-  "grep": [
-    "twcstorage",
-    "mapPackBaseUrl"
-  ],
+  "bytes": 600,
+  "grep": ["built_at", "bbox", "no-cache", "immutable"],
   "urls": [
-    "https://vedarai.ru/map"
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.ocean.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.places.geojson"
   ]
 }
