@@ -1,0 +1,289 @@
+{
+  "theme": "dark",
+  "base": "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5",
+  "outcome": "ok",
+  "ok": 16,
+  "broken": 0,
+  "timeout": 0,
+  "proxy": {
+    "requests": 995,
+    "failed": 0,
+    "bytes": 36788411,
+    "failures": [],
+    "retried": 0
+  },
+  "shots": [
+    {
+      "pack": "cell-51n158e",
+      "zoom": 8,
+      "center": {
+        "lat": 51.5,
+        "lng": 158.5
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [],
+      "tiles": "terrain: loaded@z9=9 | terrain-krai-overview:  | terrain-paratunka:  | terrain-mutnovsky-gorely: loaded@z9=2 | terrain-south-kamchatka: loaded@z9=12 | terrain-cell-52n157e: loaded@z9=4 | terrain-cell-50n156e: loaded@z9=1 | terrain-cell-51n156e: loaded@z9=3 | terrain-cell-51n157e: loaded@z9=6 | terrain-cell-52n156e: loaded@z9=2 | terrain-cell-52n158e: loaded@z9=6",
+      "waitedMs": 4300,
+      "file": "cell-51n158e.z8.dark.png"
+    },
+    {
+      "pack": "cell-51n158e",
+      "zoom": 10,
+      "center": {
+        "lat": 51.5,
+        "lng": 158.5
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-51n158e.vector.pmtiles/10/962/339",
+        "cell-51n157e.vector.pmtiles/10/961/340",
+        "cell-51n157e.vector.pmtiles/10/961/341",
+        "south-kamchatka.vector.pmtiles/10/962/340",
+        "south-kamchatka.vector.pmtiles/10/962/341",
+        "south-kamchatka.vector.pmtiles/10/962/339",
+        "south-kamchatka.vector.pmtiles/10/961/340",
+        "south-kamchatka.vector.pmtiles/10/961/341"
+      ],
+      "tiles": "terrain: loaded@z11=20 | terrain-krai-overview:  | terrain-south-kamchatka: loaded@z11=12 | terrain-cell-51n157e: ",
+      "waitedMs": 3744,
+      "file": "cell-51n158e.z10.dark.png"
+    },
+    {
+      "pack": "cell-51n158e",
+      "zoom": 12,
+      "center": {
+        "lat": 51.5,
+        "lng": 158.5
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "south-kamchatka.vector.pmtiles/12/3851/1362",
+        "south-kamchatka.vector.pmtiles/12/3851/1361",
+        "south-kamchatka.vector.pmtiles/12/3850/1362",
+        "south-kamchatka.vector.pmtiles/12/3850/1361"
+      ],
+      "tiles": "terrain: loaded@z13=20 | terrain-krai-overview:  | terrain-south-kamchatka: loaded@z13=12",
+      "waitedMs": 3942,
+      "file": "cell-51n158e.z12.dark.png"
+    },
+    {
+      "pack": "cell-51n158e",
+      "zoom": 8.8,
+      "center": {
+        "lat": 51.6,
+        "lng": 158.9
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [],
+      "tiles": "terrain: loaded@z10=16 | terrain-krai-overview:  | terrain-mutnovsky-gorely:  | terrain-south-kamchatka: loaded@z10=8 | terrain-cell-52n157e: loaded@z10=1 | terrain-cell-51n157e: loaded@z10=4 | terrain-cell-52n158e: loaded@z10=4",
+      "waitedMs": 3207,
+      "file": "cell-51n158e.view.51.60n158.90e.z8.8.dark.png"
+    },
+    {
+      "pack": "cell-51n158e",
+      "zoom": 8.8,
+      "center": {
+        "lat": 52.3,
+        "lng": 159.4
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [],
+      "tiles": "terrain: loaded@z10=2 | terrain-krai-overview:  | terrain-avacha-group:  | terrain-paratunka: loaded@z10=1 | terrain-mutnovsky-gorely: loaded@z10=3 | terrain-south-kamchatka:  | terrain-cell-52n157e:  | terrain-cell-51n157e:  | terrain-cell-52n158e: loaded@z10=8",
+      "waitedMs": 2178,
+      "file": "cell-51n158e.view.52.30n159.40e.z8.8.dark.png"
+    },
+    {
+      "pack": "cell-51n158e",
+      "zoom": 9.5,
+      "center": {
+        "lat": 51.2,
+        "lng": 158.4
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [],
+      "tiles": "terrain: loaded@z11=30 | terrain-krai-overview:  | terrain-south-kamchatka: loaded@z11=20 | terrain-cell-51n157e: loaded@z11=5",
+      "waitedMs": 6045,
+      "file": "cell-51n158e.view.51.20n158.40e.z9.5.dark.png"
+    },
+    {
+      "pack": "cell-51n158e",
+      "zoom": 8,
+      "center": {
+        "lat": 51.03,
+        "lng": 158.05
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [],
+      "tiles": "terrain: loaded@z9=9 | terrain-krai-overview:  | terrain-mutnovsky-gorely:  | terrain-south-kamchatka: loaded@z9=9 | terrain-cell-52n157e: loaded@z9=2 | terrain-cell-50n156e: loaded@z9=2 | terrain-cell-51n156e: loaded@z9=3 | terrain-cell-51n157e: loaded@z9=6 | terrain-cell-52n156e: loaded@z9=1 | terrain-cell-52n158e: loaded@z9=3",
+      "waitedMs": 2735,
+      "file": "cell-51n158e.corner.z8.dark.png"
+    },
+    {
+      "pack": "cell-51n158e",
+      "zoom": 10,
+      "center": {
+        "lat": 51.03,
+        "lng": 158.05
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-51n157e.vector.pmtiles/10/961/342",
+        "cell-51n157e.vector.pmtiles/10/960/342",
+        "cell-51n157e.vector.pmtiles/10/961/341",
+        "cell-51n157e.vector.pmtiles/10/960/341",
+        "south-kamchatka.vector.pmtiles/10/961/342",
+        "south-kamchatka.vector.pmtiles/10/962/342",
+        "south-kamchatka.vector.pmtiles/10/960/342",
+        "south-kamchatka.vector.pmtiles/10/961/341",
+        "south-kamchatka.vector.pmtiles/10/962/341",
+        "south-kamchatka.vector.pmtiles/10/960/341"
+      ],
+      "tiles": "terrain: loaded@z11=9 | terrain-krai-overview:  | terrain-south-kamchatka: loaded@z11=12 | terrain-cell-51n157e: loaded@z11=6",
+      "waitedMs": 3173,
+      "file": "cell-51n158e.corner.z10.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 8,
+      "center": {
+        "lat": 52.5,
+        "lng": 158.5
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-52n158e.vector.pmtiles/8/241/83",
+        "cell-52n158e.vector.pmtiles/8/241/84"
+      ],
+      "tiles": "terrain: loaded@z9=12 | terrain-krai-overview:  | terrain-avacha-group: loaded@z9=4 | terrain-paratunka: loaded@z9=4 | terrain-mutnovsky-gorely: loaded@z9=6 | terrain-nalychevo: loaded@z9=3 | terrain-south-kamchatka: loaded@z9=6 | terrain-cell-52n157e: loaded@z9=8 | terrain-cell-51n156e: loaded@z9=1 | terrain-cell-51n157e: loaded@z9=2 | terrain-cell-51n158e: loaded@z9=3 | terrain-cell-52n156e: loaded@z9=4 | terrain-cell-53n156e: loaded@z9=1 | terrain-cell-53n157e: loaded@z9=2 | terrain-cell-53n158e: loaded@z9=3 | terrain-cell-53n159e: loaded@z9=2",
+      "waitedMs": 3600,
+      "file": "cell-52n158e.z8.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 10,
+      "center": {
+        "lat": 52.5,
+        "lng": 158.5
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "paratunka.vector.pmtiles/10/963/336"
+      ],
+      "tiles": "terrain: loaded@z11=20 | terrain-krai-overview:  | terrain-paratunka: loaded@z11=4 | terrain-mutnovsky-gorely: loaded@z11=20 | terrain-south-kamchatka: loaded@z11=6 | terrain-cell-52n157e: ",
+      "waitedMs": 5587,
+      "file": "cell-52n158e.z10.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 12,
+      "center": {
+        "lat": 52.5,
+        "lng": 158.5
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-52n158e.vector.pmtiles/12/3852/1343",
+        "cell-52n158e.vector.pmtiles/12/3852/1344",
+        "cell-52n158e.vector.pmtiles/12/3852/1342",
+        "mutnovsky-gorely.vector.pmtiles/12/3852/1343",
+        "mutnovsky-gorely.vector.pmtiles/12/3852/1344",
+        "mutnovsky-gorely.vector.pmtiles/12/3852/1342"
+      ],
+      "tiles": "terrain: loaded@z13=20 | terrain-krai-overview:  | terrain-mutnovsky-gorely: loaded@z13=20",
+      "waitedMs": 4255,
+      "file": "cell-52n158e.z12.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 8.8,
+      "center": {
+        "lat": 51.6,
+        "lng": 158.9
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-52n158e.vector.pmtiles/8/241/84"
+      ],
+      "tiles": "terrain: loaded@z10=4 | terrain-krai-overview:  | terrain-mutnovsky-gorely:  | terrain-south-kamchatka: loaded@z10=8 | terrain-cell-52n157e: loaded@z10=1 | terrain-cell-51n157e: loaded@z10=4 | terrain-cell-51n158e: loaded@z10=16",
+      "waitedMs": 3419,
+      "file": "cell-52n158e.view.51.60n158.90e.z8.8.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 8.8,
+      "center": {
+        "lat": 52.3,
+        "lng": 159.4
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-52n158e.vector.pmtiles/8/241/84",
+        "cell-52n158e.vector.pmtiles/8/241/83"
+      ],
+      "tiles": "terrain: loaded@z10=8 | terrain-krai-overview:  | terrain-avacha-group:  | terrain-paratunka: loaded@z10=1 | terrain-mutnovsky-gorely: loaded@z10=3 | terrain-south-kamchatka:  | terrain-cell-52n157e:  | terrain-cell-51n157e:  | terrain-cell-51n158e: loaded@z10=2",
+      "waitedMs": 1786,
+      "file": "cell-52n158e.view.52.30n159.40e.z8.8.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 9.5,
+      "center": {
+        "lat": 51.2,
+        "lng": 158.4
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [],
+      "tiles": "terrain:  | terrain-krai-overview:  | terrain-south-kamchatka: loaded@z11=20 | terrain-cell-51n157e: loaded@z11=5 | terrain-cell-51n158e: loaded@z11=30",
+      "waitedMs": 5775,
+      "file": "cell-52n158e.view.51.20n158.40e.z9.5.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 8,
+      "center": {
+        "lat": 52.03,
+        "lng": 158.05
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-52n158e.vector.pmtiles/8/241/84",
+        "cell-52n158e.vector.pmtiles/8/241/83"
+      ],
+      "tiles": "terrain: loaded@z9=9 | terrain-krai-overview:  | terrain-avacha-group: loaded@z9=2 | terrain-paratunka: loaded@z9=2 | terrain-mutnovsky-gorely: loaded@z9=4 | terrain-nalychevo:  | terrain-south-kamchatka: loaded@z9=9 | terrain-cell-52n157e: loaded@z9=6 | terrain-cell-50n156e:  | terrain-cell-51n156e: loaded@z9=2 | terrain-cell-51n157e: loaded@z9=4 | terrain-cell-51n158e: loaded@z9=6 | terrain-cell-52n156e: loaded@z9=3 | terrain-cell-53n155e:  | terrain-cell-53n156e:  | terrain-cell-53n157e:  | terrain-cell-53n158e:  | terrain-cell-53n159e: ",
+      "waitedMs": 3705,
+      "file": "cell-52n158e.corner.z8.dark.png"
+    },
+    {
+      "pack": "cell-52n158e",
+      "zoom": 10,
+      "center": {
+        "lat": 52.03,
+        "lng": 158.05
+      },
+      "verdict": "ok",
+      "errors": [],
+      "missing": [
+        "cell-52n158e.vector.pmtiles/10/960/338",
+        "cell-52n157e.vector.pmtiles/10/962/338"
+      ],
+      "tiles": "terrain: loaded@z11=9 | terrain-krai-overview:  | terrain-mutnovsky-gorely: loaded@z11=4 | terrain-south-kamchatka: loaded@z11=16 | terrain-cell-52n157e: loaded@z11=6 | terrain-cell-51n157e: loaded@z11=4 | terrain-cell-51n158e: loaded@z11=6",
+      "waitedMs": 4153,
+      "file": "cell-52n158e.corner.z10.dark.png"
+    }
+  ]
+}
