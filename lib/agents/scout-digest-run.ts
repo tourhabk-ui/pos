@@ -58,6 +58,9 @@ export async function runScoutDigestJournaled(trigger: ScoutTrigger): Promise<Jo
         // Выпуск ушёл, но без вычеркнутых пунктов (02.09): число и какие.
         claims_dropped: result.claims_dropped ?? null,
         claims_dropped_detail: result.claims_dropped_detail ?? null,
+        // Оборванный хвост, отрезанный перед отправкой (24.09): сама строка.
+        tail_dropped: result.tail_dropped ?? null,
+        ai_tail_dropped: result.ai_tail_dropped ?? null,
         // Второй канал — отдельная судьба: дайджест мог уйти, а пост — нет.
         ai_channel_sent: result.ai_channel_sent ?? null,
         ai_channel_skip_reason: result.ai_channel_skip_reason ?? null,

@@ -39,7 +39,9 @@ import {
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
-import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT } from '@/lib/notifications/telegram-html';
+import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT, repairTelegramHtml } from '@/lib/notifications/telegram-html';
+import { polishDigest } from '@/lib/text/digest-polish';
+import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
 // Правило возраста используется здесь и переэкспортируется ниже: re-export
 // имя в область видимости НЕ вносит, поэтому импорт нужен отдельно.
 import { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
@@ -154,6 +156,14 @@ export interface DigestResult {
   claims_dropped_detail?: string;
   /** То же для AI-канала: пост ушёл, но без этих пунктов. */
   ai_claims_dropped?: number;
+  /**
+   * Оборванный хвост, отрезанный перед отправкой (24.09): модель упёрлась в
+   * бюджет токенов и не дописала последнюю строку. Выпуск ушёл без неё —
+   * здесь сама строка, чтобы «ушёл» и «ушёл без обрывка» были различимы.
+   */
+  tail_dropped?: string;
+  /** То же для AI-канала. */
+  ai_tail_dropped?: string;
   /**
    * Итог линзы «ИИ-фичи для Ведара» (03.09): сколько материалов ушло
    * решателю, сколько предложений прошло машинную проверку улик, что
@@ -1322,6 +1332,13 @@ export async function runScoutDigest(): Promise<DigestResult> {
     expires_at: new Date(now + 60 * 24 * 60 * 60 * 1000), // renew 60d; internal filter handles 30d per-entry
   });
 
+  // Последняя правка — после фактчека (он сверяет числа в английской записи
+  // источника): оборванный хвост и русская запись разрядов (lib/text/digest-polish).
+  const polished = polishDigest(digest);
+  digest = polished.text;
+  const tailDropped = polished.dropped.length > 0 ? polished.dropped.join(' | ').slice(0, 200) : undefined;
+  if (tailDropped) console.error('[scout-digest] оборванный хвост выпуска отрезан:', tailDropped);
+
   let sendDetail: string | undefined;
   const sent = await tgSend(digest, (reason) => { sendDetail = reason; });
 
@@ -1336,6 +1353,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   let aiSkip: string | undefined = 'ai_digest_aborted';
   let aiSkipDetail: string | undefined;
   let aiClaimsDropped: number | undefined;
+  let aiTailDropped: string | undefined;
   const aiChannelId = process.env.TELEGRAM_AI_CHANNEL_ID;
   if (!aiChannelId) {
     aiSkip = 'ai_channel_not_configured';
@@ -1483,6 +1501,15 @@ export async function runScoutDigest(): Promise<DigestResult> {
       }
 
       if (aiDigest) {
+        const aiPolished = polishDigest(aiDigest);
+        aiDigest = aiPolished.text;
+        if (aiPolished.dropped.length > 0) {
+          aiTailDropped = aiPolished.dropped.join(' | ').slice(0, 200);
+          console.error('[scout-digest] оборванный хвост AI-поста отрезан:', aiTailDropped);
+        }
+      }
+
+      if (aiDigest) {
         const buttons = aiItems
           .filter(i => i.url)
           .slice(0, 3)
@@ -1497,7 +1524,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
           'ai',
           hashStr(aiDigest) % 9_999_999,
         );
-        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined, cover.url, (reason) => { aiSkipDetail = reason; });
+        // Подвал с реферальными ссылками владельца — после фактчека и обложки
+        // (обложка строится по заголовкам самого выпуска, не по подвалу).
+        const aiPost = withAiChannelFooter(aiDigest, TELEGRAM_TEXT_LIMIT, repairTelegramHtml);
+        aiSent = await tgSendRich(aiChannelId, aiPost, buttons.length > 0 ? buttons : undefined, cover.url, (reason) => { aiSkipDetail = reason; });
         aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }
@@ -1532,6 +1562,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
         claims_dropped: claimsDropped ?? null,
         claims_dropped_detail: claimsDroppedDetail ?? null,
         ai_claims_dropped: aiClaimsDropped ?? null,
+        tail_dropped: tailDropped ?? null,
+        ai_tail_dropped: aiTailDropped ?? null,
       },
       agent_id: 'scout',
     });
@@ -1560,6 +1592,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
     ...(aiSkipDetail ? { ai_channel_skip_detail: aiSkipDetail } : {}),
     ...(claimsDropped ? { claims_dropped: claimsDropped, claims_dropped_detail: claimsDroppedDetail } : {}),
     ...(aiClaimsDropped ? { ai_claims_dropped: aiClaimsDropped } : {}),
+    ...(tailDropped ? { tail_dropped: tailDropped } : {}),
+    ...(aiTailDropped ? { ai_tail_dropped: aiTailDropped } : {}),
     duration_ms: Date.now() - start,
     ...health,
     repeats_suppressed,

@@ -7,6 +7,8 @@
  */
 
 import { query } from '@/lib/database';
+import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
+import { ruThousands } from '@/lib/text/digest-polish';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail } from '@/lib/notifications/post-validation';
@@ -1249,7 +1251,10 @@ ${signalCtx}
     }
   }
 
-  // 5. Publish to AI channel (photo + caption)
+  // 5. Publish to AI channel (photo + caption). После ворот: русская запись
+  //    разрядов (судья сверял английскую из источника) и подвал с реферальными
+  //    ссылками владельца. Потолок подписи — 1024: ужимается тело, не подвал.
+  postText = withAiChannelFooter(ruThousands(postText), TELEGRAM_CAPTION_LIMIT, repairTelegramHtml);
   const result = await tgPostPhoto(channelId, cover.url, postText);
 
   // 5. Log action
