@@ -1,11 +1,16 @@
 {
-  "note": "24.09, прогон 573. Владелец: «на радаре их нет и данные устаревшие». Проба 572: /api/safety/seismic отдаёт 3 события, все kbgsras (EQKam-текст) и все с lat/lng null — радар рисует только с координатами. Строк emsd.ru с координатами в ленте нет. Вопрос к самому приёму: emsd_fetch в ответе safety-ingest — дошли ли, сколько строк разобрано/отвергнуто, сколько вставлено, сколько пропущено как истёкшие и как тот же толчок. Повторный прогон ингеста безвреден доказанно (контент-дедуп + ON CONFLICT, alert-dedup.pg.test.ts).",
-  "run": 573,
-  "timeout": 120,
+  "note": "24.09, прогон 575. ТОЛЬКО ЧТЕНИЕ. Проба 574: главная www.emsd.ru — Django, таблицы землетрясений в HTML нет (её рисует JS «интерактивной карты»), /maheqkam — 403 (SvelteKit, сервер kittenx). Ищем адрес данных: в каком запросе скрипт главной берёт события (ajax/fetch/json/api, sdis.emsd.ru).",
+  "run": 575,
+  "timeout": 60,
   "retries": 1,
   "retryDelay": 30,
-  "bytes": 40000,
+  "bytes": 200,
+  "around": ["ajax", "fetch(", ".json", "/api/", "sdis", "earthquake", "event", "quake", "catalog"],
+  "aroundLines": 2,
+  "aroundBefore": 1,
+  "aroundHits": 6,
   "urls": [
-    "https://vedarai.ru/api/cron/safety-ingest"
+    "https://www.emsd.ru/static/cache/js/output.a4d943cb28c4.js",
+    "https://www.emsd.ru/"
   ]
 }

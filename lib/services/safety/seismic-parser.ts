@@ -793,10 +793,18 @@ interface UsgsFeature {
 
 export async function ingestUsgs(): Promise<ParseResult> {
   const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
-  // USGS FDSN: M5.0+ в радиусе 500 км от ПКО (53.01°N, 158.65°E)
+  // USGS FDSN: M4.0+ в радиусе 500 км от ПКО (53.01°N, 158.65°E).
+  //
+  // Порог был 5.0, пока диапазон M4–4.9 давал канал EQKam. Канал замолчал,
+  // а таблица emsd.ru, поставленная ему на смену, на проде не разобралась
+  // (проба 573, 24.09: страница пришла, заголовка таблицы в ней нет). Итог —
+  // радар без единой точки при живой ленте: три толчка за двое суток, все без
+  // координат. USGS отдаёт координаты всегда, и M4 у Камчатки он видит.
+  // Пересечение с emsd.ru, когда тот заработает, гасит saveQuakeOnce по
+  // физике толчка — второго предупреждения не будет.
   const url =
     'https://earthquake.usgs.gov/fdsnws/event/1/query' +
-    `?format=geojson&minmagnitude=5.0&latitude=${PETROPAVLOVSK.lat}&longitude=${PETROPAVLOVSK.lng}` +
+    `?format=geojson&minmagnitude=4.0&latitude=${PETROPAVLOVSK.lat}&longitude=${PETROPAVLOVSK.lng}` +
     '&maxradiuskm=500&orderby=time&limit=20';
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
