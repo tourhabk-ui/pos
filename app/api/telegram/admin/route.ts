@@ -28,7 +28,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { callAIWaterfall, callOpenrouter } from '@/lib/ai/providers';
+import { callAIWaterfall, callOpenrouter, callDeepSeek, callQwen, callXai } from '@/lib/ai/providers';
 import { postKuzmichRoute, postKuzmichTip } from '@/lib/notifications/telegram-channel';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
@@ -157,13 +157,24 @@ async function checkHealth(): Promise<string> {
     try {
       const r = await Promise.race([
         fn(ping),
-        new Promise<null>((res) => setTimeout(() => res(null), 7000)),
+        // 15 с, а не 7: лёгкая модель xAI отвечает за ~13 с (замер 04.09),
+        // и на семи секундах она всегда выглядела бы мёртвой. Пробы идут
+        // параллельно — ответ приходит за время самой медленной.
+        new Promise<null>((res) => setTimeout(() => res(null), 15_000)),
       ]);
       return !!r;
     } catch { return false; }
   };
 
-  const orOk = await probe(callOpenrouter);
+  // Спрашиваем тех, кто РЕАЛЬНО отвечает на проде (24.09, скрин владельца:
+  // «AI: OpenRouter=X»). Прежняя строка знала одного OpenRouter — а он с
+  // прода закрыт гео-блоком давно и заведомо (§8, уровень known), так что
+  // команда показывала «X» всегда и ничего не говорила о Кузьмиче, который
+  // живёт на DeepSeek → Qwen → xAI. Параллельно: пять секунд вместо двадцати.
+  const [dsOk, qwenOk, xaiOk, orOk] = await Promise.all([
+    probe(callDeepSeek), probe(callQwen), probe(callXai), probe(callOpenrouter),
+  ]);
+  const mark = (ok: boolean) => (ok ? 'OK' : 'X');
 
   // DB checks
   const issues: string[] = [];
@@ -182,10 +193,18 @@ async function checkHealth(): Promise<string> {
     );
     const n = parseInt(stuck.rows[0]?.cnt ?? '0', 10);
     if (n > 3) issues.push(`${n} лидов без обработки > 6ч`);
-  } catch { /* skip */ }
+  } catch (e) {
+    // «Не смог проверить» — не «всё хорошо» (§4.0).
+    console.error('[telegram-admin] проверка лидов не выполнилась:', (e as Error).message);
+    issues.push('Не смог проверить лиды');
+  }
 
   return [
-    `AI: OpenRouter=${orOk ? 'OK' : 'X'}`,
+    `AI: DeepSeek=${mark(dsOk)} · Qwen=${mark(qwenOk)} · xAI=${mark(xaiOk)}`,
+    // OpenRouter отдельной строкой и с причиной: «X» у него — известное
+    // положение (гео-блок с прода), а не новость; работу, которой он нужен,
+    // делает раннер GitHub.
+    `OpenRouter=${orOk ? 'OK' : 'X (гео-блок с прода — известно, работа идёт с раннера)'}`,
     `БД: ${issues.length === 0 ? 'OK' : issues.join('; ')}`,
     `Сайт: https://vedarai.ru`,
   ].join('\n');

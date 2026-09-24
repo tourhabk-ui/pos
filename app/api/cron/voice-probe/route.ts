@@ -44,6 +44,10 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getQwenConfig } from '@/lib/ai/providers';
 import { runPlace } from '@/lib/ai/key-identity';
+import { nativeBase } from '@/lib/ai/tts';
+
+// Правило адреса одно на синтез и пробу — живёт в lib/ai/tts.
+export { nativeBase };
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -80,15 +84,6 @@ type Attempt = {
   error: string | null;
   ms: number;
 };
-
-/**
- * Нативный API DashScope живёт на том же хосте, что OpenAI-совместимый, без
- * хвоста `/compatible-mode/v1`. Хост берётся из того же QWEN_BASE_URL, что
- * уже работает на тексте: другой регион значил бы другой ключ.
- */
-export function nativeBase(compatBase: string): string {
-  return compatBase.replace(/\/compatible-mode\/v1$/, '');
-}
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

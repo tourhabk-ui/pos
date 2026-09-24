@@ -33,6 +33,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/partners': ['GET'],
   '/api/eco-points': ['GET'],
   '/api/ai/chat': ['POST', 'GET'],
+  '/api/ai/speak': ['POST'],       // озвучка ответа Кузьмича (#1992): чат открыт анонимам — и голос тоже; частота по IP и дневной потолок внутри
   '/api/ai/debug-waterfall': ['GET'],  // protected by CRON_SECRET inside handler
   '/api/ai/crew-plan': ['POST'],
   '/api/ai/health': ['GET'],

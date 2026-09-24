@@ -138,6 +138,9 @@ jobs:
           OPENROUTER_MANAGEMENT_KEY: ${{ secrets.OPENROUTER_MANAGEMENT_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # xAI — ступень решателя между Anthropic и DeepSeek. До 24.09 на
+          # раннере её не было («xai — ключа нет»): секрет завёл владелец.
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           # Сдвиг окна добора теперь берёт scripts/evo-judge.ts сам — УТС-сутки,
           # а не номер прогона. github.run_number раньше сдвигал окно на
