@@ -33,8 +33,20 @@
 import { stripTags } from '@/lib/html/text';
 import { decodeHtmlEntities } from '@/lib/html/entities';
 
-/** Главная сайта — там живёт таблица. Одна константа на всю платформу. */
+/** Главная сайта — адрес источника в предупреждениях (source_url, alertOrigin). */
 export const EMSD_HOME_URL = 'https://www.emsd.ru/';
+
+/**
+ * Откуда ЧИТАЕТСЯ таблица. Не главная: проба 574 (24.09) показала, что в
+ * HTML главной таблицы нет — её рисует скрипт «интерактивной карты» уже в
+ * браузере, и разбор главной не дал ни одной строки ни разу (алерт
+ * safety-ingest владельцу: «ни разу не дал данных»). Таблицу владелец
+ * копировал со страницы /maheqkam. С раннера GitHub (вне РФ) она отвечает
+ * 403, с прода (РФ) — проверяется первым же прогоном: emsd_fetch в ответе
+ * safety-ingest покажет, пришла ли таблица, а при нуле строк — кусок текста
+ * страницы, по которому разбор правится без гадания.
+ */
+export const EMSD_QUAKES_URL = 'https://www.emsd.ru/maheqkam';
 
 /**
  * Грубый конверт региона: Камчатка, Командоры, Северные Курилы с запасом.
@@ -84,6 +96,19 @@ const ROW = /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?\s+(-?\d
 /** Сколько текста после заголовка считать таблицей. Десять строк — это ~500 знаков. */
 const TABLE_WINDOW = 4000;
 
+/**
+ * Кусок текста страницы для отчёта об отказе разбора. Сначала — около первой
+ * даты вида 2026-09-21 (там таблица, если она есть), иначе около «Ml», иначе
+ * начало. Без этого «заголовок не найден» оставлял гадать, что пришло вместо
+ * таблицы, и на гадание ушёл день (24.09). Страница публичная — ПД в ней нет.
+ */
+function textSample(text: string): string {
+  const at = text.search(/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/);
+  const ml = at >= 0 ? at : text.search(/\bMl\b/);
+  const from = Math.max(0, (ml >= 0 ? ml : 0) - 120);
+  return text.slice(from, from + 400).trim();
+}
+
 export function parseEmsdQuakes(html: string): EmsdQuakeTable {
   const problems: string[] = [];
   const text = decodeHtmlEntities(stripTags(html, ' ')).replace(/[\s ]+/g, ' ');
@@ -97,7 +122,10 @@ export function parseEmsdQuakes(html: string): EmsdQuakeTable {
       threshold: null,
       rows: [],
       rejected: [],
-      problems: ['заголовок таблицы «Последние … землетрясений … Ml > …» не найден — страница сменилась или пришла не она'],
+      problems: [
+        'заголовок таблицы «Последние … землетрясений … Ml > …» не найден — страница сменилась или пришла не она'
+        + ` (${text.length} знаков текста; фрагмент: «${textSample(text)}»)`,
+      ],
     };
   }
   const threshold = Number(heading[1].replace(',', '.'));
