@@ -1,13 +1,26 @@
 /**
  * GET /api/search
- * Унифицированный поиск: маршруты + места + инструменты.
- * Используется GlobalSearchModal (Ctrl+K).
+ * Унифицированный поиск: туры + маршруты + места + инструменты.
+ * Используется GlobalSearchModal (Ctrl+K, лупа в шапке).
+ *
+ * Туры — ПЕРВЫМИ (аудит П7, 24.09). До этого роут не знал `operator_tours`
+ * вовсе: на «рыбалка» при семи рыболовных турах в продаже поиск отвечал
+ * «Ничего не найдено». Туры берутся через движок ПОИСК
+ * (`lib/search/tour-query-match` → `queryMarketplaceTours`), своего SQL здесь
+ * нет и заводить нельзя — иначе «живой тур» опять определялся бы двумя
+ * условиями в двух местах.
+ *
+ * Два источника — туры и география — падают НЕЗАВИСИМО, и отказ каждого
+ * называется в ответе полем `unavailable` (§4.0): «туров нет» и «туры не
+ * искались» — разные ответы. Отказ обоих — 500, а не пустой успех.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
 import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
+import { findToursForQuery, tourPriceFrom } from '@/lib/search/tour-query-match';
+import { activityLabel } from '@/lib/tours/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +52,7 @@ const STATIC_PAGES = [
   { id: 'map', title: 'Карта Камчатки', subtitle: 'Интерактивная карта маршрутов', href: '/map' },
   { id: 'safety', title: 'Безопасность', subtitle: 'Статус вулканов и МЧС', href: '/safety' },
   { id: 'routes', title: 'Все маршруты', subtitle: 'Каталог маршрутов', href: '/routes' },
-  { id: 'marketplace', title: 'Туры', subtitle: 'Маркетплейс операторов', href: '/marketplace' },
+  { id: 'catalog', title: 'Туры', subtitle: 'Все туры в продаже', href: '/catalog' },
 ];
 
 export async function GET(request: NextRequest) {
@@ -106,8 +119,25 @@ export async function GET(request: NextRequest) {
     return rows;
   }
 
-  try {
-    const [placesResult, routeRows, parksResult] = await Promise.all([
+  // Туры — отдельной веткой: их отказ не должен ронять места, и наоборот.
+  async function findTours(): Promise<Array<{ id: string; type: 'tour'; title: string; subtitle: string; href: string }>> {
+    const tours = await findToursForQuery(q, limit);
+    return tours.map(t => {
+      const price = tourPriceFrom(t.base_price);
+      const kind = activityLabel(t.activity_type);
+      return {
+        id: `tour-${String(t.id)}`,
+        type: 'tour' as const,
+        title: t.title,
+        // Цена — только настоящая; нет её — подпись без цены, не «от 0 ₽».
+        subtitle: [price, kind].filter(Boolean).join(' · ') || 'Тур',
+        href: `/catalog/tours/${String(t.id)}`,
+      };
+    });
+  }
+
+  async function findGeo() {
+    return Promise.all([
       query(
         // Ищем по имени И по псевдонимам: «Авачинский вулкан» обязан находить
         // «Вулкан Авачинский» — это один вулкан, просто разные источники
@@ -133,8 +163,32 @@ export async function GET(request: NextRequest) {
          ORDER BY display_name
          LIMIT 3`,
         [pattern]
-      ).catch(() => ({ rows: [] })),
+      ).catch((err: unknown) => {
+        console.error('[search] парки недоступны:', err instanceof Error ? err.message : String(err));
+        return { rows: [] as Array<Record<string, unknown>> };
+      }),
     ]);
+  }
+
+  const [toursSettled, geoSettled] = await Promise.allSettled([findTours(), findGeo()]);
+  const unavailable: Array<'tours' | 'geo'> = [];
+  if (toursSettled.status === 'rejected') {
+    unavailable.push('tours');
+    console.error('[search] туры недоступны:', toursSettled.reason instanceof Error ? toursSettled.reason.message : String(toursSettled.reason));
+  }
+  if (geoSettled.status === 'rejected') {
+    unavailable.push('geo');
+    console.error('[search] места и маршруты недоступны:', geoSettled.reason instanceof Error ? geoSettled.reason.message : String(geoSettled.reason));
+  }
+
+  try {
+    if (toursSettled.status === 'rejected' && geoSettled.status === 'rejected') {
+      throw toursSettled.reason;
+    }
+    const tourItems = toursSettled.status === 'fulfilled' ? toursSettled.value : [];
+    const [placesResult, routeRows, parksResult] = geoSettled.status === 'fulfilled'
+      ? geoSettled.value
+      : [{ rows: [] as Array<Record<string, unknown>> }, [] as Array<Record<string, unknown>>, { rows: [] as Array<Record<string, unknown>> }];
 
     const lq = q.toLowerCase();
     const matchingTools = STATIC_TOOLS.filter(t =>
@@ -145,6 +199,7 @@ export async function GET(request: NextRequest) {
     );
 
     const results = [
+      ...tourItems,
       ...routeRows.map(r => ({
         id: `route-${r.id as string}`,
         type: 'route' as const,
@@ -176,10 +231,13 @@ export async function GET(request: NextRequest) {
       // Третье состояние: маршруты найдены без семантики. Клиент решает сам,
       // показать ли «поиск по смыслу временно недоступен».
       ...(semanticDown ? { degraded: { semantic: 'unavailable' as const, reason: semanticDown } } : {}),
+      // Какой источник не ответил: 'tours' | 'geo'. Клиент обязан сказать
+      // это словами, а не показать пустоту как «ничего не найдено».
+      ...(unavailable.length > 0 ? { unavailable } : {}),
     });
     // Деградированный ответ не кэшируется: иначе минутный сбой модели
     // раздавался бы всем ещё полминуты после того, как она ожила.
-    response.headers.set('Cache-Control', semanticDown ? 'no-store' : 'public, s-maxage=10, stale-while-revalidate=30');
+    response.headers.set('Cache-Control', semanticDown || unavailable.length > 0 ? 'no-store' : 'public, s-maxage=10, stale-while-revalidate=30');
     return response;
   } catch (err) {
     console.error('[search] отказ поиска:', err instanceof Error ? err.message : String(err));

@@ -119,10 +119,19 @@ describe('SOS — в общей шапке (§2, #1775)', () => {
     expect(SOURCES.get(HEADER)!).toMatch(/<EmergencyAction\b/);
   });
 
-  it('карточка тура (без общей шапки) несёт SOS сама', () => {
-    // Единственная реализация карточки тура (§11) рисует свой герой вместо
-    // Header — значит SOS обязана стоять в нём, и не под условием статуса дня.
-    expect(SOURCES.get(TOUR_CARD)!).toMatch(/<EmergencyAction\b/);
+  it('карточка тура несёт общую шапку, а с ней SOS — и своей копии не ставит', () => {
+    // До 24.09 здесь стояло «карточка тура (без общей шапки) несёт SOS сама»:
+    // карточка рисовала свой герой без Header, и EmergencyAction жила в нём
+    // absolute — уезжала при прокрутке вместе с фото. Посылка отпала (аудит
+    // П6, #29/#31): карточка монтирует общую шапку поверх фото (overPhoto), а
+    // SOS в ней фиксирована на каждом экране (§2). Вторая EmergencyAction в
+    // герое дала бы две кнопки одного действия на экране (#887) — поэтому
+    // сторож держит обе половины: шапка есть, своей SOS нет.
+    const src = SOURCES.get(TOUR_CARD)!;
+    expect(src, 'карточка тура осталась без общей шапки — и без SOS')
+      .toMatch(/<Header\b[^>]*\boverPhoto\b/);
+    expect(src, 'в карточке тура снова своя SOS рядом с шапкой')
+      .not.toMatch(/<EmergencyAction\b/);
   });
 
   it('«На маршруте» (без общей шапки) несёт SOS в полосе вкладок', () => {
@@ -138,7 +147,8 @@ describe('SOS — в общей шапке (§2, #1775)', () => {
     // полевом экране остаются законными (там они в сетке действий, не в шапке).
     const offenders = [...SOURCES.entries()]
       .filter(([path]) => path !== HEADER)
-      .filter(([, src]) => /<Header\b/.test(src) && /<EmergencyAction\s*\/>/.test(src))
+      // overPhoto — проп вида пилюли шапки (24.09): с ним это та же пилюля.
+      .filter(([, src]) => /<Header\b/.test(src) && /<EmergencyAction(\s+overPhoto(=\{[^}]*\})?)?\s*\/>/.test(src))
       .filter(([path, src]) => !exclusiveByTab(path, src))
       .map(([path]) => path);
     expect(offenders, 'на экране с Header стоит вторая SOS-пилюля').toEqual([]);

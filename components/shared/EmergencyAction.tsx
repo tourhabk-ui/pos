@@ -59,9 +59,21 @@ interface Props {
   children?: React.ReactNode;
   /** Видимый текст при className без children (по умолчанию «SOS»). */
   label?: string;
+  /**
+   * Только для `header`: под кнопкой фото (шапка над героем, `Header overPhoto`
+   * до прокрутки). Тогда пилюля — СПЛОШНАЯ `--danger` с белым текстом.
+   *
+   * Повод (приёмка П6, 24.09): на карточке тура SOS переехала из героя в общую
+   * шапку, и сплошная красная кнопка стала красным текстом на 8%-подкраске
+   * поверх фото — на светлом небе тура 9 «SOS» терялась. §2: критичные
+   * действия (SOS) всегда непрозрачные, максимум тонкая стеклянная кромка.
+   * На сплошном фоне шапки прежний тихий вид остаётся — там он читается.
+   * Сторож: tests/unit/header-over-photo.test.tsx.
+   */
+  overPhoto?: boolean;
 }
 
-export function EmergencyAction({ variant = 'header', onOfflineFallback, className, style, children, label }: Props) {
+export function EmergencyAction({ variant = 'header', onOfflineFallback, className, style, children, label, overPhoto = false }: Props) {
   const router = useRouter();
 
   const handleClick = useCallback(
@@ -117,8 +129,16 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback, classNa
           padding: '0 12px',
           borderRadius: '999px',
           fontSize: '11px',
-          border: '1px solid color-mix(in srgb, var(--danger) 45%, transparent)',
-          background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
+          ...(overPhoto
+            ? {
+                color: 'rgb(255,255,255)',
+                background: 'var(--danger)',
+                border: '1px solid rgba(255,255,255,0.35)',
+              }
+            : {
+                border: '1px solid color-mix(in srgb, var(--danger) 45%, transparent)',
+                background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
+              }),
         }
       : variant === 'field'
       ? {
@@ -130,7 +150,7 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback, classNa
           width: '100%',
           borderRadius: '12px',
           fontSize: '14px',
-          color: '#fff',
+          color: 'rgb(255,255,255)',
           background: 'var(--danger)',
           border: '1px solid var(--danger)',
         }

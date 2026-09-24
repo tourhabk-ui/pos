@@ -136,7 +136,9 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           alignItems: 'center',
           justifySelf: 'start',
           gridColumn: 1,
-          color: 'var(--text-primary)',
+          // Поверх фото — белый, как иконки: тёмный знак на тёмном небе героя
+          // сливался (приёмка П6, 24.09).
+          color: onPhoto ? 'rgba(255,255,255,0.9)' : 'var(--text-primary)',
           textDecoration: 'none',
           flexShrink: 0,
         }}
@@ -272,7 +274,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           вспомнил положить её рядом с заголовком. Одна кнопка — в одной
           шапке; экран со своей копией рядом с заголовком показывал бы две.
         */}
-        <EmergencyAction />
+        <EmergencyAction overPhoto={onPhoto} />
 
         {/*
           Вход. Значок аккаунта стоял здесь ВСЕГДА — и у вошедшего, и у

@@ -59,6 +59,29 @@ describe('цвет шапки', () => {
     expect(header.style.background).toMatch(/gradient/);
   });
 
+  // Приёмка П6 (24.09): SOS карточки тура переехала из героя в шапку и поверх
+  // фото стала красным текстом на 8%-подкраске — §2 требует непрозрачную SOS.
+  it('поверх фото SOS — сплошная --danger с белым текстом', () => {
+    const { header } = parts(true);
+    const sos = header.querySelector('[data-emergency-action]') as HTMLElement;
+    expect(sos.style.background, 'SOS поверх фото полупрозрачная').toBe('var(--danger)');
+    expect(sos.style.color).toMatch(/^(#fff|rgb\(255,\s*255,\s*255\))$/);
+  });
+
+  it('без фото SOS остаётся тихой пилюлей на токене', () => {
+    const { header } = parts();
+    const sos = header.querySelector('[data-emergency-action]') as HTMLElement;
+    expect(sos.style.background).toMatch(/color-mix/);
+    expect(sos.style.color).toBe('var(--danger)');
+  });
+
+  it('поверх фото логотип белый, без фото — токеном', () => {
+    const logo = (o?: boolean) => (parts(o).header.querySelector('a[aria-label="Ведар"]') as HTMLElement).style.color;
+    expect(logo(true), 'тёмный знак на тёмном небе героя сливается').toMatch(/255,\s*255,\s*255/);
+    cleanup();
+    expect(logo()).toBe('var(--text-primary)');
+  });
+
   it('карточка места объявляет фото под шапкой', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/places/[id]/_PlaceDetailClient.tsx', 'utf-8');

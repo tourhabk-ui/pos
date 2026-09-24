@@ -148,9 +148,15 @@ interface RoutesPageClientProps {
    * разделов /places и /routes. Если задан, kind фиксирован и таб скрыт.
    */
   lockedKind?: KindValue;
+  /**
+   * Блок «Туры по запросу» (аудит П7): серверный компонент, который
+   * RSC-страница /routes рисует при непустом q. Клиент только ставит его
+   * над вкладками — сам туры не ищет.
+   */
+  toursSlot?: React.ReactNode;
 }
 
-export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind }: RoutesPageClientProps) {
+export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot }: RoutesPageClientProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -401,6 +407,8 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             {meta.total.toLocaleString('ru-RU')} {KIND_TABS.find(t => t.value === kind)?.desc}
           </p>
         </div>
+
+        {toursSlot}
 
         {/* ── Kind tabs (скрыты в заблокированном разделе /places|/routes) ── */}
         {!lockedKind && (

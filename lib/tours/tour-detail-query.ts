@@ -73,6 +73,18 @@ export interface TourCardRow {
    * дальше по коду его читают как объект и не гадают о форме.
    */
   operator_contacts: Record<string, unknown> | null;
+  /**
+   * Проверен ли партнёр платформой — `partners.is_verified`. До 24.09 карточка
+   * печатала «проверен платформой» литералом у ЛЮБОГО оператора (аудит П6,
+   * #138): обещание без источника. NULL — «не записано», и отметки нет.
+   */
+  operator_verified: boolean | null;
+  /**
+   * Связь тура с маршрутом — `operator_tours.route_id`. Только при ней
+   * карточка вправе сказать, что маршрут проходит через контур безопасности
+   * платформы: без маршрута контуру не на что опереться.
+   */
+  route_id: string | null;
 }
 
 /**
@@ -137,10 +149,12 @@ function buildSql(withOptional: boolean): string {
       ot.season_start, ot.season_end, ot.seasonal_only,
       ot.weather_dependent,
       ot.rating, ot.review_count,
+      ot.route_id,
       ${withOptional ? OPTIONAL_COLUMNS : ''}
       p.name AS operator_name, p.id AS operator_id,
       p.logo_image AS operator_logo,
-      p.contacts AS operator_contacts
+      p.contacts AS operator_contacts,
+      p.is_verified AS operator_verified
     FROM operator_tours ot
     JOIN partners p ON ot.operator_id = p.id
     WHERE ot.id = $1

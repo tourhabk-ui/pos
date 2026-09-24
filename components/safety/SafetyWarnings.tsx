@@ -51,28 +51,35 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Anchor,
 };
 
+/**
+ * Оттенки уровней — через color-mix в произвольных свойствах Tailwind.
+ * Прежние классы вида `bg-[var(--danger)]/10` Tailwind 3 не собирает вовсе
+ * (прозрачность к var() не применяется): блок безопасности терял цветовой код
+ * и получал белую рамку preflight вместо янтарной (аудит П6, #139).
+ * Сторож: tests/unit/tour-card-shell.test.ts.
+ */
 const LEVEL_STYLES: Record<string, { bg: string; border: string; text: string; badge: string }> = {
   critical: {
-    bg: 'bg-[var(--danger)]/10',
-    border: 'border-[var(--danger)]/30',
+    bg: '[background-color:color-mix(in_srgb,var(--danger)_10%,transparent)]',
+    border: '[border-color:color-mix(in_srgb,var(--danger)_30%,transparent)]',
     text: 'text-[var(--danger)]',
     badge: 'bg-[var(--danger)] text-white',
   },
   danger: {
-    bg: 'bg-[var(--danger)]/8',
-    border: 'border-[var(--danger)]/20',
+    bg: '[background-color:color-mix(in_srgb,var(--danger)_8%,transparent)]',
+    border: '[border-color:color-mix(in_srgb,var(--danger)_20%,transparent)]',
     text: 'text-[var(--danger)]',
-    badge: 'bg-[var(--danger)]/80 text-white',
+    badge: '[background-color:color-mix(in_srgb,var(--danger)_80%,transparent)] text-white',
   },
   warning: {
-    bg: 'bg-[var(--warning)]/10',
-    border: 'border-[var(--warning)]/25',
+    bg: '[background-color:color-mix(in_srgb,var(--warning)_10%,transparent)]',
+    border: '[border-color:color-mix(in_srgb,var(--warning)_25%,transparent)]',
     text: 'text-[var(--warning)]',
     badge: 'bg-[var(--warning)] text-[var(--text-primary)]',
   },
   info: {
-    bg: 'bg-[var(--ocean)]/8',
-    border: 'border-[var(--ocean)]/20',
+    bg: '[background-color:color-mix(in_srgb,var(--ocean)_8%,transparent)]',
+    border: '[border-color:color-mix(in_srgb,var(--ocean)_20%,transparent)]',
     text: 'text-[var(--ocean)]',
     badge: 'bg-[var(--ocean)] text-white',
   },
@@ -188,7 +195,7 @@ export default function SafetyWarnings({ tourId, routeId, compact = false }: Saf
       {/* Zone risk alert */}
       {data.zone_risk && data.zone_risk.risk_level !== 'low' && (
         <div className="px-4 pb-2">
-          <div className="flex items-center gap-2 text-xs bg-[var(--danger)]/15 text-[var(--danger)] px-3 py-2 rounded">
+          <div className="flex items-center gap-2 text-xs [background-color:color-mix(in_srgb,var(--danger)_15%,transparent)] text-[var(--danger)] px-3 py-2 rounded">
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
             <span>
               Зона: уровень риска {data.zone_risk.risk_level} ({data.zone_risk.risk_score}/100).
@@ -279,7 +286,7 @@ export default function SafetyWarnings({ tourId, routeId, compact = false }: Saf
                   <a
                     key={i}
                     href={`tel:${c.phone.replace(/\s/g, '')}`}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded bg-[var(--bg-hover)] text-xs hover:bg-[var(--accent)]/10 transition-colors"
+                    className="flex items-center gap-2 px-2 py-1.5 rounded bg-[var(--bg-hover)] text-xs hover:[background-color:color-mix(in_srgb,var(--accent)_10%,transparent)] transition-colors"
                   >
                     <Phone className="w-3 h-3 text-[var(--accent)]" />
                     <div>

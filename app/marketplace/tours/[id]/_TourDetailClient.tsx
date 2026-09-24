@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -17,7 +17,11 @@ import { photoSrc } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
-import EmergencyAction from '@/components/shared/EmergencyAction';
+// SOS здесь не импортируется: её несёт общая шапка (§2, #887). До 24.09
+// карточка шапки не имела и ставила EmergencyAction в герой — кнопка уезжала
+// при прокрутке вместе с фото (аудит П6, #29/#31).
+import { Header } from '@/components/layout/Header';
+import { Footer } from '@/components/layout/Footer';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
 import { detectFishSpecies } from '@/lib/fish-species';
@@ -39,6 +43,14 @@ import {
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
 const FM = 'var(--font-jetbrains, ui-monospace, monospace)';
+/**
+ * Цифры цены — выровненные по строке. Playfair по умолчанию рисует
+ * «старостильные» цифры: «13 000» читалось как «13 ooo» (аудит П6, #109).
+ */
+const NUMS: React.CSSProperties = { fontVariantNumeric: 'lining-nums tabular-nums' };
+
+/** Крошка поверх фото: белая альфа допустима (§2), высота тач-цели 44px. */
+const CRUMB = 'pointer-events-auto inline-flex items-center min-h-[44px] px-1 text-white/85 hover:text-white visited:text-white/85 hover:no-underline transition-colors';
 
 /* ─── Types ─── */
 
@@ -98,6 +110,10 @@ interface TourFull {
   operator_contacts: Record<string, unknown> | null;
   /** Логотип партнёра — partners.logo_image. Нет логотипа — буквенный кружок. */
   operator_logo?: string | null;
+  /** partners.is_verified: true — отметка «проверен платформой», иначе её нет. */
+  operator_verified?: boolean | null;
+  /** operator_tours.route_id: без маршрута нет и «контура безопасности». */
+  route_id?: string | null;
 }
 
 interface TourReview {
@@ -370,6 +386,43 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const [openStep, setOpenStep] = useState<number | null>(0);
   const [packed, setPacked] = useState<Set<number>>(new Set());
 
+  /**
+   * Нижняя панель цены (телефон) — только когда она нужна (аудит П6, #69/#74/#140).
+   * Показывается, когда карточка решения ушла за верх экрана, и прячется, пока
+   * форма #booking в зоне видимости: иначе на первом экране цена стояла
+   * дважды, а над формой панель продолжала звать «Выбрать дату» и закрывала
+   * настоящую кнопку отправки.
+   */
+  const decisionRef = useRef<HTMLDivElement>(null);
+  const bookingRef = useRef<HTMLDivElement>(null);
+  const [decisionAbove, setDecisionAbove] = useState(false);
+  const [bookingInView, setBookingInView] = useState(false);
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') {
+      // Без наблюдателя положения не узнать — панель показывается всегда:
+      // лишняя кнопка лучше пропавшего пути к заявке.
+      setDecisionAbove(true);
+      return;
+    }
+    const obs: IntersectionObserver[] = [];
+    const card = decisionRef.current;
+    if (card) {
+      const o = new IntersectionObserver(([e]) => {
+        setDecisionAbove(!e.isIntersecting && e.boundingClientRect.bottom < 0);
+      });
+      o.observe(card);
+      obs.push(o);
+    }
+    const form = bookingRef.current;
+    if (form) {
+      const o = new IntersectionObserver(([e]) => setBookingInView(e.isIntersecting));
+      o.observe(form);
+      obs.push(o);
+    }
+    return () => obs.forEach(o => o.disconnect());
+  }, []);
+  const barShown = decisionAbove && !bookingInView;
+
   // Реальное состояние избранного при загрузке. Раньше wishlisted всегда
   // стартовал false: после перезагрузки тур «выпадал» из избранного, а ошибки
   // глотались молча — снаружи это «кнопка не работает» (владелец 07.08).
@@ -481,10 +534,16 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   }
 
   return (
-    // Мобайл-отступ снизу больше обычного: под контентом стоят контекстная
-    // панель цены (~60px) и нижняя навигация (~60px + safe-area) — при
-    // прежних 96px последняя секция скрывалась под ними.
-    <div className="pb-40 lg:pb-24" style={{ background: 'var(--bg-primary)' }}>
+    // Мобайл-отступ снизу — под контекстную панель цены (64px + safe-area).
+    // Нижней навигации на карточке тура НЕТ (решение владельца 24.09,
+    // развилка 5: навигацию даёт общая шапка), поэтому и резерва под неё нет —
+    // прежние pb-40 и mb-[60px] держали пустую полосу под то, чего нет.
+    <div className="pb-24 lg:pb-0" style={{ background: 'var(--bg-primary)' }}>
+      {/* Общая шапка: логотип, тема, ЛК и единственная SOS. Над фото героя —
+          прозрачная, после прокрутки — сплошная (overPhoto). Монтируется здесь,
+          в клиенте, а не в page.tsx: обе страницы карточки (§11) получают её
+          сами. */}
+      <Header overPhoto />
       {/* ═══ Кино-герой ═══ */}
       <header className="relative overflow-hidden" style={{ height: 'min(64vh, 560px)', minHeight: 380, background: 'var(--bg-hover)' }}>
         {heroImg ? (
@@ -503,40 +562,34 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
         ) : (
           <div className="absolute inset-0 flex items-center justify-center"><MapPin className="w-16 h-16 text-[var(--text-muted)]" /></div>
         )}
-        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(8,11,14,.55) 0%, rgba(8,11,14,0) 26%, rgba(8,11,14,0) 42%, rgba(8,11,14,.82) 100%)' }} />
+        {/* Скрим без прозрачного «окна» посередине: прежний градиент был
+            полностью прозрачен на 26–42% высоты, и белый заголовок ложился на
+            снег и небо (аудит П6, #67/#72). Верх держит шапку, низ — текст. */}
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(8,11,14,.55) 0%, rgba(8,11,14,.18) 20%, rgba(8,11,14,.35) 40%, rgba(8,11,14,.88) 100%)' }} />
 
-        {/* Верхняя полоса героя: статус дня (стекло разрешено — это контекст)
-            и SOS (непрозрачный — это действие, §2 контракт стекла). Карточка
-            тура не несёт общей шапки, поэтому SOS стоит здесь сам, а не
-            только при наличии статуса дня: до 10.09 на карточке тура SOS не
-            было вовсе (#1775). Своей кнопки нет — общий EmergencyAction. */}
-        <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-2 z-[2]">
-          <div className="flex items-start gap-2">
-            {dayStatus && (
-              <Link
-                href="/safety"
-                className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
-                style={{ fontFamily: FM, minHeight: 44 }}
-              >
-                <span
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ background: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}
-                />
-                {/* Подпись именно «в крае»: индикатор отражает обстановку по
-                    Камчатке целиком, а не по этому туру. Без такой подписи точка
-                    читалась бы как оценка безопасности конкретной поездки. */}
-                Обстановка в крае
-              </Link>
-            )}
+        {/* Под шапкой: статус дня (стекло разрешено — это контекст, §2).
+            SOS здесь больше нет — она в общей шапке, фиксированной на каждом
+            экране; вторая кнопка того же действия на экране запрещена (#887). */}
+        {dayStatus && (
+          <div className="absolute left-4 right-4 z-[2] flex items-start" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 72px)' }}>
+            <Link
+              href="/safety"
+              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
+              style={{ fontFamily: FM, minHeight: 44 }}
+            >
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ background: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}
+              />
+              {/* Подпись именно «в крае»: индикатор отражает обстановку по
+                  Камчатке целиком, а не по этому туру. Без такой подписи точка
+                  читалась бы как оценка безопасности конкретной поездки. */}
+              Обстановка в крае
+            </Link>
             {/* Пилюли сезона здесь НЕТ: сезон уже стоит в полосе фактов внизу
-                героя. Два одинаковых «Июн — Сен» на одном экране в 300 px друг
-                от друга — не акцент, а небрежность. */}
+                героя. Два одинаковых «Июн — Сен» на одном экране — небрежность. */}
           </div>
-          <EmergencyAction
-            className="inline-flex items-center justify-center rounded-full px-4 text-[11px] font-bold uppercase tracking-wider text-white bg-[var(--danger)] shadow-md transition-colors hover:brightness-110"
-            style={{ fontFamily: FM, minHeight: 44, minWidth: 44, textDecoration: 'none' }}
-          />
-        </div>
+        )}
 
         {/* Заголовок конкретного события здесь НЕ печатаем. /api/public/safety-status
             отдаёт максимальный по краю алерт без привязки к географии тура: на
@@ -546,14 +599,20 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
             настоящему: релевантные предупреждения даёт SafetyWarnings по
             tourId — ниже по странице, и они действительно про этот тур. */}
 
-        <div className="absolute inset-x-0 bottom-0 pointer-events-none">
+        {/* Подложка привязана к текстовому блоку, а не к процентам героя:
+            тёмный низ начинается над крошками и держит заголовок, описание и
+            полосу фактов на любом кадре (аудит П6, #67/#72). */}
+        <div className="absolute inset-x-0 bottom-0 pointer-events-none bg-gradient-to-t from-black/70 via-black/40 to-transparent pt-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-9">
-            <nav className="flex items-center gap-2 text-[12px] mb-4" style={{ fontFamily: FM, color: 'rgba(255,255,255,.72)' }}>
-              <Link href="/" className="pointer-events-auto hover:text-white">Главная</Link>
-              <ChevronRight className="w-3 h-3 opacity-60" />
-              <Link href="/catalog" className="pointer-events-auto hover:text-white">Туры</Link>
-              <ChevronRight className="w-3 h-3 opacity-60" />
-              <Link href={`/marketplace?activity_type=${tour.activity_type}`} className="pointer-events-auto hover:text-white">{activity}</Link>
+            {/* Цвет — на КАЖДОЙ ссылке: цвет, заданный на <nav>, перебивало
+                глобальное a{color:var(--ocean)}, и крошки выходили бирюзой по
+                небу (1.4–2:1). Зона нажатия — 44px (аудит П6, #31/#32/#66). */}
+            <nav aria-label="Хлебные крошки" className="flex items-center gap-1 text-[13px] mb-2 -ml-1" style={{ fontFamily: FM }}>
+              <Link href="/" className={CRUMB}>Главная</Link>
+              <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
+              <Link href="/catalog" className={CRUMB}>Туры</Link>
+              <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
+              <Link href={`/marketplace?activity_type=${tour.activity_type}`} className={CRUMB}>{activity}</Link>
             </nav>
 
             <div className="flex items-center gap-2.5 mb-3">
@@ -586,11 +645,17 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
             </div>
 
             {instrument.length > 0 && (
-              <div className="mt-6 inline-flex flex-wrap rounded-2xl overflow-hidden pointer-events-auto backdrop-blur-md bg-black/40 border border-white/15">
+              // На телефоне — одна строка сеткой: при flex-wrap «Сложность»
+              // уходила одна во второй ряд, оставляя ~260px пустого стекла
+              // (аудит П6, #140). С sm — прежняя пилюля по содержимому.
+              <div
+                className="mt-6 grid sm:inline-flex sm:flex-wrap rounded-2xl overflow-hidden pointer-events-auto backdrop-blur-md bg-black/40 border border-white/15"
+                style={{ gridTemplateColumns: `repeat(${instrument.length}, minmax(0, 1fr))` }}
+              >
                 {instrument.map((c, i) => (
-                  <div key={c.k} className="px-4 py-2.5" style={i > 0 ? { boxShadow: 'inset 1px 0 0 rgba(255,255,255,.12)' } : undefined}>
-                    <div className="text-[10px] uppercase tracking-[0.14em]" style={{ fontFamily: FM, color: 'rgba(255,255,255,.55)' }}>{c.k}</div>
-                    <div className="text-[14px] font-semibold text-white mt-1" style={{ fontFamily: FD }}>{c.v}</div>
+                  <div key={c.k} className="min-w-0 px-2.5 sm:px-4 py-2.5" style={i > 0 ? { boxShadow: 'inset 1px 0 0 rgba(255,255,255,.12)' } : undefined}>
+                    <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.06em] sm:tracking-[0.14em] truncate" style={{ fontFamily: FM, color: 'rgba(255,255,255,.7)' }}>{c.k}</div>
+                    <div className="text-[13px] sm:text-[14px] font-semibold text-white mt-1 whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
                   </div>
                 ))}
               </div>
@@ -601,48 +666,52 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
 
-        {/* ═══ Филмстрип остальных фото ═══ */}
-        {stripPhotos.length > 0 && (
-          <div className="pt-5 grid grid-cols-4 sm:grid-cols-6 gap-2">
-            {stripPhotos.slice(0, 6).map((src, i) => (
-              <button key={i} onClick={() => setLightbox(i + 1)} className="relative aspect-square rounded-lg overflow-hidden bg-[var(--bg-hover)] group">
-                {/* Та же причина, что у героя: центровка режет головы на
-                    портретных кадрах, а в филмстрипе плитка ещё уже. */}
-                <Image src={photoSrc(src, 640)} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" loading="lazy" style={{ objectPosition: '50% 30%' }} className="object-cover group-hover:scale-105 transition-transform duration-500" />
-                {i === 5 && stripPhotos.length > 6 && (
-                  <span className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-sm font-semibold">+{stripPhotos.length - 6}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* ═══ Карточка решения — только мобайл (аудит мобильной компоновки,
-            этап 1). До неё цена и путь к заявке жили в aside, который при
-            grid-cols-1 оказывался ПОСЛЕДНИМ блоком: чтобы узнать стоимость,
-            человек листал описание, программу, снаряжение, безопасность,
-            оператора и отзывы. Это НЕ вторая форма — только цена и переход к
-            единственной существующей форме (#booking): полная форма выше
-            рассказа о туре дала бы обратную проблему — раннюю нагрузку полями.
-            Сплошной фон → сплошная карточка, без стекла (§5). */}
-        <div className="lg:hidden mt-5 ds-card p-5">
-          <div className="flex items-baseline gap-2">
-            {priceOld && priceOld > price && <span className="text-sm text-[var(--text-muted)] line-through">{formatPrice(priceOld)}</span>}
-            <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 26, letterSpacing: '-0.02em' }}>{formatPrice(price)}</span>
-            <span className="text-sm text-[var(--text-muted)]">{priceLabel}</span>
-          </div>
-          <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
-            Дату и детали подтверждает оператор — оплата только после подтверждения.
-          </p>
-          <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
-            Выбрать дату и оставить заявку
-          </a>
-        </div>
-
         {/* ═══ Колонки: контент 8/12 · липкая бронь 4/12 ═══ */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 pt-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 pt-5">
 
           <div className="lg:col-span-8 space-y-12">
+            <div className={`space-y-5${stripPhotos.length > 0 ? '' : ' lg:hidden'}`}>
+              {/* ═══ Филмстрип остальных фото ═══
+                  Внутри колонки 8/12, а не над сеткой: колонка брони начинается
+                  вровень с ним, и цена с кнопкой попадают в первый экран десктопа
+                  (аудит П6, #18). Карточка решения при этом остаётся lg:hidden. */}
+              {stripPhotos.length > 0 && (
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {stripPhotos.slice(0, 6).map((src, i) => (
+                    <button key={i} onClick={() => setLightbox(i + 1)} className="relative aspect-square rounded-lg overflow-hidden bg-[var(--bg-hover)] group">
+                      {/* Та же причина, что у героя: центровка режет головы на
+                          портретных кадрах, а в филмстрипе плитка ещё уже. */}
+                      <Image src={photoSrc(src, 640)} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" loading="lazy" style={{ objectPosition: '50% 30%' }} className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                      {i === 5 && stripPhotos.length > 6 && (
+                        <span className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-sm font-semibold">+{stripPhotos.length - 6}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* ═══ Карточка решения — только мобайл (аудит мобильной компоновки,
+                  этап 1). До неё цена и путь к заявке жили в aside, который при
+                  grid-cols-1 оказывался ПОСЛЕДНИМ блоком: чтобы узнать стоимость,
+                  человек листал описание, программу, снаряжение, безопасность,
+                  оператора и отзывы. Это НЕ вторая форма — только цена и переход к
+                  единственной существующей форме (#booking): полная форма выше
+                  рассказа о туре дала бы обратную проблему — раннюю нагрузку полями.
+                  Сплошной фон → сплошная карточка, без стекла (§5). */}
+              <div ref={decisionRef} className="lg:hidden ds-card p-5">
+                <div className="flex items-baseline gap-2">
+                  {priceOld && priceOld > price && <span className="text-sm text-[var(--text-muted)] line-through">{formatPrice(priceOld)}</span>}
+                  <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 26, letterSpacing: '-0.02em', ...NUMS }}>{formatPrice(price)}</span>
+                  <span className="text-sm text-[var(--text-secondary)]">{priceLabel}</span>
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+                  Дату и детали подтверждает оператор — оплата только после подтверждения.
+                </p>
+                <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
+                  Выбрать дату и оставить заявку
+                </a>
+              </div>
+            </div>
 
             {/* О туре. short_description отсюда переехал в герой (SEO-аудит
                 06.08, цитируемость первого экрана) — здесь остаётся полное
@@ -664,7 +733,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                   <span className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--border)] text-[var(--text-secondary)]"><Calendar className="w-3 h-3 inline mr-1 -mt-0.5" />{seasonLabel}</span>
                 )}
                 {tour.weather_dependent && (
-                  <span className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--warning)]/40 text-[var(--warning)]"><AlertTriangle className="w-3 h-3 inline mr-1 -mt-0.5" />Зависит от погоды</span>
+                  <span className="text-xs font-medium px-3 py-1 rounded-full border text-[var(--warning)]" style={{ borderColor: 'color-mix(in srgb, var(--warning) 40%, transparent)' }}><AlertTriangle className="w-3 h-3 inline mr-1 -mt-0.5" />Зависит от погоды</span>
                 )}
               </div>
             </section>
@@ -730,7 +799,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                     <div key={item} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-primary)]">{item}</span></div>
                   ))}
                   {notIncluded.map(item => (
-                    <div key={item} className="flex items-start gap-2.5"><XCircle className="w-5 h-5 text-[var(--text-muted)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-muted)]">{item}</span></div>
+                    <div key={item} className="flex items-start gap-2.5"><XCircle className="w-5 h-5 text-[var(--text-secondary)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-secondary)]">{item}</span></div>
                   ))}
                 </div>
               </section>
@@ -802,11 +871,14 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 </div>
               )}
 
+              {/* Только то, чему есть источник (§4.0, аудит П6, #138).
+                  Обещание о скорости ответа оператора снято: время
+                  ответа никто не измерял. «Контур безопасности» — только при
+                  связи тура с маршрутом (operator_tours.route_id). */}
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   'Условия и детали подтверждаются оператором до оплаты',
-                  'Оператор обычно отвечает в течение 2 часов',
-                  'Маршрут проходит через контур безопасности платформы',
+                  ...(tour.route_id ? ['Маршрут проходит через контур безопасности платформы'] : []),
                   `Группа: ${tour.min_participants ?? 1}–${tour.max_participants} чел.`,
                 ].map(t => (
                   <div key={t} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-secondary)]">{t}</span></div>
@@ -871,7 +943,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
             <section>
               <Eyebrow>Кто проводит</Eyebrow>
               <div className="ds-card p-5">
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-4">
                   {/* Логотип партнёра, если он есть в partners.logo_image
                       (804): своё лицо оператора вызывает больше доверия, чем
                       буква в кружке. Нет логотипа — остаётся буква. */}
@@ -893,9 +965,14 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                       {tour.operator_name.charAt(0).toUpperCase()}
                     </div>
                   )}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-[10rem]">
                     <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>{tour.operator_name}</p>
-                    <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5"><CheckCircle2 className="w-3.5 h-3.5 text-[var(--success)]" />Проводит этот тур сам · проверен платформой</p>
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">Проводит этот тур сам</p>
+                    {/* Отметка — из partners.is_verified, а не литерал у любого
+                        оператора (аудит П6, #68/#138). Не записано — отметки нет. */}
+                    {tour.operator_verified === true && (
+                      <p className="text-[13px] text-[var(--success)] flex items-center gap-1.5 mt-1"><CheckCircle2 className="w-4 h-4 shrink-0" />Проверен платформой</p>
+                    )}
                   </div>
                   <MessageOperatorButton operatorPartnerId={tour.operator_id} tourId={tour.id} tourTitle={tour.title} />
                 </div>
@@ -949,7 +1026,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                     <div key={r.id} className="pb-5 border-b border-[var(--border)] last:border-0 last:pb-0">
                       <div className="flex items-start justify-between gap-4 mb-2">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0"><span className="text-sm font-bold text-[var(--accent)]">{r.author_name.charAt(0)}</span></div>
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)' }}><span className="text-sm font-bold text-[var(--accent)]">{r.author_name.charAt(0)}</span></div>
                           <div>
                             <p className="text-sm font-medium text-[var(--text-primary)]">{r.author_name}</p>
                             {r.author_city && <p className="text-xs text-[var(--text-muted)]">{r.author_city}</p>}
@@ -994,11 +1071,19 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
             </section>
 
             {/* Кузьмич */}
-            <Link href={`/planner?hint=${encodeURIComponent(tour.activity_type)}`} className="flex items-center gap-4 p-5 rounded-lg border border-[var(--ocean)]/25 bg-[var(--ocean)]/5 hover:bg-[var(--ocean)]/10 transition-colors">
+            {/* Оттенки — через color-mix: классы вида border-[var(--x)]/25
+                Tailwind 3 не собирает, и карточка получала белую рамку
+                preflight вместо цвета (аудит П6, #139). */}
+            <Link
+              href={`/planner?hint=${encodeURIComponent(tour.activity_type)}`}
+              className="flex items-center gap-4 p-5 rounded-lg border no-underline hover:no-underline transition-colors [border-color:color-mix(in_srgb,var(--ocean)_25%,transparent)] [background-color:color-mix(in_srgb,var(--ocean)_5%,transparent)] hover:[background-color:color-mix(in_srgb,var(--ocean)_10%,transparent)]"
+            >
               <div className="w-11 h-11 rounded-full bg-[var(--ocean)] flex items-center justify-center shrink-0 text-white" style={{ fontFamily: FD, fontWeight: 700 }}>К</div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-[var(--text-primary)] text-sm">Спросить Кузьмича</p>
-                <p className="text-xs text-[var(--text-muted)] mt-0.5">Подходит ли детям, что с погодой в вашу дату, как одеться — Кузьмич знает Камчатку.</p>
+                {/* Обещания про погоду на выбранную дату здесь нет: планировщик, куда ведёт карточка, о туре
+                    и выбранной дате не знает (аудит П6, #63). */}
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Подходит ли детям, как одеться, что взять — Кузьмич знает Камчатку.</p>
               </div>
               <ChevronRight className="w-4 h-4 text-[var(--ocean)] shrink-0" />
             </Link>
@@ -1006,25 +1091,44 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
 
           {/* ─── Липкая бронь ─── */}
           <aside className="lg:col-span-4">
-            <div className="lg:sticky lg:top-20 space-y-4">
+            {/* Липкая колонка не выше окна: прежняя (1700+ px при окне 900)
+                прилипала верхом, и кнопка «Оставить заявку» оставалась под
+                экраном почти всю прокрутку (аудит П6, #16/#20/#77). Теперь
+                колонка прокручивается сама, и низ формы достижим всегда. */}
+            {/* Без overscroll-contain: дойдя до конца, колесо над колонкой
+                должно листать страницу, а не упираться (приёмка П6, #4). */}
+            <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:pb-2 space-y-4">
               <div className="ds-card p-6">
                 <div className="flex items-baseline gap-2 mb-1">
                   {priceOld && priceOld > price && <span className="text-base text-[var(--text-muted)] line-through">{formatPrice(priceOld)}</span>}
-                  <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 30, letterSpacing: '-0.02em' }}>{formatPrice(price)}</span>
+                  <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 30, letterSpacing: '-0.02em', ...NUMS }}>{formatPrice(price)}</span>
                 </div>
-                <p className="text-sm text-[var(--text-muted)] mb-5">{priceLabel}</p>
+                <p className="text-sm text-[var(--text-secondary)] mb-4">{priceLabel}</p>
+
+                {/* Действие — сразу под ценой, в первом экране десктопа. Без него
+                    на 1440×900 цена стояла на y≈605, а первая кнопка (submit) —
+                    на y≈1850: щит, заголовок формы и календарь съедали экран
+                    (приёмка П6, «Цена и CTA — в первых 900px»). Это не вторая
+                    форма — переход к единственной (#booking). На телефоне ту же
+                    роль играет карточка решения (lg:hidden), поэтому здесь —
+                    только lg. */}
+                <a href="#booking" data-testid="aside-cta" className="hidden lg:flex ds-btn ds-btn-primary w-full mb-4 justify-center text-sm" style={{ minHeight: 44 }}>
+                  Выбрать дату и оставить заявку
+                </a>
+
+                {/* Щит — НАД формой: главная гарантия стоит до действия, а не
+                    после кнопки (аудит П6, #144). */}
+                <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] p-3 flex items-start gap-2">
+                  <Shield className="w-4 h-4 text-[var(--success)] shrink-0 mt-0.5" />
+                  <p className="text-xs leading-relaxed text-[var(--text-secondary)]">Оплата — только после того, как оператор подтвердит детали, погоду и даты. Без скрытых комиссий.</p>
+                </div>
 
                 {/* scroll-mt: на якорь ведут карточка решения и нижняя панель —
-                    без отступа форма прилипает к самому верху вьюпорта. */}
-                <div id="booking" className="scroll-mt-24">
+                    без отступа форма уходит под фиксированную шапку. */}
+                <div id="booking" ref={bookingRef} className="scroll-mt-24">
                   <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
                     priceUnit={tour.price_unit}
                     duration={{ multi_day_count: tour.multi_day_count, duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours) }} />
-                </div>
-
-                <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] p-3 flex items-start gap-2">
-                  <Shield className="w-4 h-4 text-[var(--success)] shrink-0 mt-0.5" />
-                  <p className="text-xs leading-relaxed text-[var(--text-secondary)]">Оплата — только после того, как оператор подтвердит детали, погоду и даты. Без скрытых комиссий.</p>
                 </div>
               </div>
 
@@ -1056,12 +1160,15 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
       {/* ═══ Контекстная нижняя панель — только мобайл (аудит мобильной
           компоновки, этап 2). Заменяет на карточке тура глобальную кнопку
           «Хочу тур» (StickyLeadButton здесь скрыт): безадресная заявка рядом
-          с заявкой на конкретный тур — два контура бронирования, и на ширине
-          меньше sm кнопка теряла подпись, оставляя одну иконку без цены и
-          следующего шага. Панель — ДЕЙСТВИЕ, поэтому непрозрачная (§5), стоит
-          над нижней навигацией (до md) и учитывает safe-area. */}
+          с заявкой на конкретный тур — два контура бронирования. Панель —
+          ДЕЙСТВИЕ, поэтому непрозрачная (§5), и учитывает safe-area.
+          Нижней навигации под ней нет (развилка 5, решение владельца 24.09),
+          поэтому и резерва под неё нет. Видна только между карточкой решения
+          и формой (barShown, IntersectionObserver выше). */}
       <div
-        className="lg:hidden fixed inset-x-0 z-40 border-t"
+        data-testid="tour-bottom-bar"
+        aria-hidden={!barShown}
+        className={`lg:hidden fixed inset-x-0 z-40 border-t transition-transform duration-200 ${barShown ? 'translate-y-0' : 'translate-y-full pointer-events-none'}`}
         style={{
           bottom: 0,
           background: 'var(--bg-card)',
@@ -1069,17 +1176,23 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
-        <div className="flex items-center gap-3 px-4 py-2.5 mb-[60px] md:mb-0">
+        <div className="flex items-center gap-3 px-4 py-2.5">
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-[var(--accent)] whitespace-nowrap" style={{ fontFamily: FD, fontWeight: 700, fontSize: 19, letterSpacing: '-0.02em' }}>{formatPrice(price)}</span>
-              <span className="text-xs text-[var(--text-muted)] truncate">{priceLabel}</span>
+              <span className="text-[var(--accent)] whitespace-nowrap" style={{ fontFamily: FD, fontWeight: 700, fontSize: 19, letterSpacing: '-0.02em', ...NUMS }}>{formatPrice(price)}</span>
+              <span className="text-xs text-[var(--text-secondary)] truncate">{priceLabel}</span>
             </div>
           </div>
-          <a href="#booking" className="ds-btn ds-btn-primary text-sm shrink-0" style={{ minHeight: 44 }}>
+          <a href="#booking" tabIndex={barShown ? undefined : -1} className="ds-btn ds-btn-primary text-sm shrink-0" style={{ minHeight: 44 }}>
             Выбрать дату
           </a>
         </div>
+      </div>
+
+      {/* Футер — только desktop (§2): юрлицо, ИНН, оферта и контакты на
+          странице, где продаём (аудит П6, #30). */}
+      <div className="hidden md:block">
+        <Footer />
       </div>
 
       {lightbox !== null && allPhotos.length > 0 && (

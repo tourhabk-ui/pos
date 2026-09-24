@@ -2,9 +2,13 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import RoutesPageClient from './_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
+import { findToursForQuery } from '@/lib/search/tour-query-match';
+import { ToursForQuery, type ToursForQueryState } from '@/components/search/ToursForQuery';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
+/** Сколько туров показать над выдачей мест: три ряда на десктопе. */
+const TOURS_LIMIT = 9;
 
 export const metadata: Metadata = {
   title: 'Места Камчатки — вулканы, источники, озёра, бухты',
@@ -80,6 +84,34 @@ export default async function RoutesPage({ searchParams }: PageProps) {
     sort: 'recommended',
   };
 
+  /*
+   * Туры по запросу (аудит П7, решение владельца 24.09 №9). Поиск героя
+   * главной на обоих деревьях ведёт сюда, а выдача ниже знает только места и
+   * маршруты — «рыбалка» при семи рыболовных турах в продаже отвечала
+   * «Ничего не найдено». Поиск остаётся здесь (места нужны), а туры по тому
+   * же q спрашиваются у движка ПОИСК и встают над выдачей. Своего SQL по
+   * турам на странице нет. Отказ — состояние `unavailable`, а не пустой
+   * список: «туров нет» и «туры не искались» — разные ответы (§4.0).
+   */
+  const toursPromise: Promise<ToursForQueryState | null> = q.trim()
+    ? findToursForQuery(q, TOURS_LIMIT).then(
+        (tours): ToursForQueryState => ({
+          status: 'ok',
+          tours: tours.map(t => ({
+            id: t.id,
+            title: t.title,
+            operator_name: t.operator_name,
+            activity_type: t.activity_type,
+            base_price: t.base_price,
+          })),
+        }),
+        (err: unknown): ToursForQueryState => {
+          console.error('[routes] туры по запросу не найдены из-за отказа:', err instanceof Error ? err.message : String(err));
+          return { status: 'unavailable' };
+        },
+      )
+    : Promise.resolve(null);
+
   let initial: CatalogResult | null = null;
   try {
     initial = await queryCatalogForPage(filters);
@@ -87,6 +119,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
     // Честно отдаём клиенту флаг ошибки — он покажет состояние и даст повторить.
     initial = null;
   }
+  const toursState = await toursPromise;
 
   const initialKey = JSON.stringify({
     kind,
@@ -126,6 +159,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
           initialMeta={initial ? { total: initial.meta.total, pages: initial.meta.pages } : { total: 0, pages: 1 }}
           initialError={initial === null}
           initialKey={initialKey}
+          toursSlot={toursState ? <ToursForQuery q={q} state={toursState} /> : null}
         />
       </Suspense>
     </>

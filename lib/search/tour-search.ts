@@ -52,6 +52,12 @@ export interface MarketplaceTourRow {
   season_end: string | null;
   operator_name: string;
   operator_id: string;
+  /**
+   * `partners.is_verified` как есть: true — проверен, false — нет, null — в
+   * записи не установлено. Карточка каталога пишет «проверен» ТОЛЬКО при true
+   * (§4.0): безусловная отметка была бы обещанием без источника.
+   */
+  operator_verified: boolean | null;
   bookings_count: number;
   has_availability: boolean;
 }
@@ -60,6 +66,17 @@ export interface MarketplaceToursResult {
   tours: MarketplaceTourRow[];
   total: number;
 }
+
+/**
+ * Что считается живым туром витрины — одно условие на листинг и на сводку
+ * (`queryCatalogSummary`). Две копии условия дали бы герою «8 туров», а сетке
+ * другое число, как уже было с константой «13 туров» (#1780).
+ */
+const LIVE_TOUR_CONDITIONS = [
+  'ot.deleted_at IS NULL',
+  'ot.is_active = true',
+  'ot.is_published = true',
+] as const;
 
 export async function queryMarketplaceTours(filters: MarketplaceToursFilters): Promise<MarketplaceToursResult> {
   const {
@@ -90,6 +107,7 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
       ot.season_end,
       p.name as operator_name,
       p.id as operator_id,
+      p.is_verified as operator_verified,
       COUNT(ob.id)::INT as bookings_count,
       EXISTS (
         SELECT 1 FROM tour_availability ta
@@ -106,11 +124,7 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
     JOIN partners p ON ot.operator_id = p.id
     LEFT JOIN operator_bookings ob ON ob.operator_tour_id = ot.id`;
 
-  const conditions: string[] = [
-    'ot.deleted_at IS NULL',
-    'ot.is_active = true',
-    'ot.is_published = true',
-  ];
+  const conditions: string[] = [...LIVE_TOUR_CONDITIONS];
   const params: unknown[] = [];
   let idx = 1;
 
@@ -186,7 +200,59 @@ export async function queryMarketplaceToursForPage(filters: MarketplaceToursFilt
   if (filters.search) return queryMarketplaceTours(filters);
   return unstable_cache(
     () => queryMarketplaceTours(filters),
-    ['marketplace-tours-query', JSON.stringify(filters)],
+    // v2: строка получила operator_verified (аудит П5). Смена формы строки —
+    // смена ключа, иначе кэш 600с отдаёт карточке строки без поля.
+    ['marketplace-tours-query-v2', JSON.stringify(filters)],
     { revalidate: 600 }
   )();
+}
+
+/**
+ * Сводка витрины для первого экрана каталога: сколько живых туров, от какой
+ * цены и сколько по каждому направлению. Считается на сервере одним запросом
+ * без фильтров — чтобы в первом кадре стояло число из данных, а не «—» до
+ * второго клиентского запроса и не константа (аудит П5, #130/#137).
+ *
+ * Направления без единого тура сюда не попадают по построению (GROUP BY по
+ * существующим турам): мёртвых чипов витрина нарисовать не может.
+ */
+export interface CatalogSummary {
+  total: number;
+  /** null — туров нет, минимальной цены не существует. */
+  minPrice: number | null;
+  byActivity: { activity_type: string; count: number }[];
+}
+
+export async function queryCatalogSummary(): Promise<CatalogSummary> {
+  const { rows } = await pool.query<{ activity_type: string | null; n: number; min_price: string | number | null }>(
+    `SELECT ot.activity_type, COUNT(*)::INT AS n, MIN(ot.base_price) AS min_price
+       FROM operator_tours ot
+       JOIN partners p ON ot.operator_id = p.id
+      WHERE ${LIVE_TOUR_CONDITIONS.join(' AND ')}
+      GROUP BY ot.activity_type
+      ORDER BY n DESC, ot.activity_type ASC`,
+  );
+  return summarizeCatalogRows(rows);
+}
+
+/** Чистая свёртка строк GROUP BY — отдельно, чтобы её держал тест без БД. */
+export function summarizeCatalogRows(
+  rows: { activity_type: string | null; n: number; min_price: string | number | null }[],
+): CatalogSummary {
+  let total = 0;
+  let minPrice: number | null = null;
+  const byActivity: CatalogSummary['byActivity'] = [];
+  for (const r of rows) {
+    const n = Number(r.n) || 0;
+    total += n;
+    const price = r.min_price == null ? null : Number(r.min_price);
+    if (price != null && Number.isFinite(price) && (minPrice == null || price < minPrice)) minPrice = price;
+    if (r.activity_type && n > 0) byActivity.push({ activity_type: r.activity_type, count: n });
+  }
+  return { total, minPrice, byActivity };
+}
+
+/** Сводка для RSC-страницы каталога: кэш 600с, как у листинга. */
+export async function queryCatalogSummaryForPage(): Promise<CatalogSummary> {
+  return unstable_cache(() => queryCatalogSummary(), ['catalog-summary'], { revalidate: 600 })();
 }
