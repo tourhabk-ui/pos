@@ -14,7 +14,7 @@
  *     сушу края, и клетка — самый детальный слой (z8-13);
  *   - если ни одной клетки нет — районные пакеты, которые рамку задевают;
  *   - обзор края (z4-7) всегда: без него при отдалении экран пустой;
- *   - глифы подписей — те диапазоны, в которых живут наши подписи.
+ *   - глифы подписей — диапазоны из реестра заливки (PACK_GLYPHS).
  *
  * Каждый адрес — РОВНО тот, что просит карта (с эпохой кэша `e=`):
  * service worker ищет файл в кэше по точному адресу запроса. Префикс
@@ -24,17 +24,11 @@
 import type { RegionPack, ViewBounds } from '@/lib/map/field-base-map';
 import { isGridCellId } from '@/lib/geo/grid-cells';
 import { isOverviewId } from '@/lib/geo/regions';
+import { PACK_GLYPHS } from '@/lib/map/pack-source';
 
 /** Кэш, в который страница кладёт файлы и из которого их отдаёт service worker. */
 export const PACK_CACHE_NAME = 'kh-packs-v1';
 
-/**
- * Диапазоны глифов подписей. Кириллица (1024-1279) и латиница с «ёлочками» и
- * градусом (0-255) — сами имена; 256-511 — латиница с диакритикой в
- * названиях OSM; 8192-8447 — тире и кавычки-«лапки». Диапазон, которого в
- * хранилище нет, не валит сохранение — его отказ называется отдельно.
- */
-export const GLYPH_RANGES = ['0-255', '256-511', '1024-1279', '8192-8447'] as const;
 
 /** Поле вокруг рамки маршрута: точка у самого края клетки берёт и соседнюю. */
 export const PACK_BOUNDS_PAD_DEG = 0.02;
@@ -115,7 +109,10 @@ export function planPackFiles(
   const glyphs = all.map(p => p.source.glyphsUrl).find((u): u is string => typeof u === 'string');
   const font = all.map(p => p.source.glyphsFont).find((u): u is string => typeof u === 'string') ?? 'Noto Sans Regular';
   if (glyphs) {
-    for (const range of GLYPH_RANGES) {
+    // Диапазоны — из реестра заливки (PACK_GLYPHS): свой список разошёлся
+    // бы с хранилищем. Первая редакция 24.09 просила 256-511, которого там
+    // нет, — прогон offline-pack-check 1 получил на него 403.
+    for (const range of PACK_GLYPHS.ranges) {
       // Тот же адрес, что соберёт MapLibre: шрифт в адресе кодируется
       // (пробел → %20), иначе ключ кэша не совпадёт с запросом карты.
       push({

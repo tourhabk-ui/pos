@@ -250,9 +250,11 @@ async function main(): Promise<number> {
     for (const e of r1.errors.slice(0, 8)) console.log(`  ошибка: ${e}`);
     for (const h of bucket.state.afterOffline.slice(0, 12)) console.log(`  мимо кэша: ${h}`);
     await ctx.close();
+    // Запросы мимо кэша — только основного прогона. Попытки контроля идут в
+    // тот же счётчик позже, и прогон 1 (24.09) принял их за утечку.
+    const hitsBefore = bucket.state.afterOffline.length;
 
     // ── Контроль: чистый профиль, без закачки, связи нет ──
-    const hitsBefore = bucket.state.afterOffline.length;
     const ctx2 = await browser.newContext({ viewport: { width: 900, height: 700 } });
     const page2 = await ctx2.newPage();
     await page2.goto(origin);
@@ -264,7 +266,7 @@ async function main(): Promise<number> {
     await ctx2.close();
 
     await writeFile(join(args.out, 'report.json'), JSON.stringify(report, null, 2));
-    const offlineOk = r1.idle && r1.errors.length === 0 && bucket.state.afterOffline.length === 0 && dl.saved > 0;
+    const offlineOk = r1.idle && r1.errors.length === 0 && hitsBefore === 0 && dl.saved > 0;
     const controlFailed = r2.errors.length > 0;
     if (!controlFailed) { console.log('ИТОГ: контроль нарисовался без связи — проверка ничего не доказала'); return 3; }
     if (!offlineOk) { console.log('ИТОГ: сохранённая карта без связи НЕ открылась целиком'); return 1; }

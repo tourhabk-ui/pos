@@ -918,10 +918,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         return;
       }
       const measured = await measurePackFiles(plan.files);
-      // Диапазона глифов, которого в хранилище нет (404), нет и в плане:
-      // качать нечего, а «не лёг» у него делало бы карту вечно неполной.
-      // Прочие 404 остаются — это пропавший файл пакета, и о нём скажут.
-      const sized = measured.filter(f => !(f.kind === 'glyphs' && f.status === 404));
+      // Диапазона глифов, которого в хранилище нет, нет и в плане: качать
+      // нечего, а «не лёг» у него делало бы карту вечно неполной. Хранилище
+      // на отсутствующий ключ отвечает 403, а не 404 (offline-pack-check,
+      // прогон 1). Прочие отказы остаются — это пропавший файл пакета, и о
+      // нём скажут при закачке.
+      const sized = measured.filter(f => !(f.kind === 'glyphs' && (f.status === 403 || f.status === 404)));
       const { mb, unknown } = totalMb(sized);
       setMapPlanError(null);
       setMapPlan({

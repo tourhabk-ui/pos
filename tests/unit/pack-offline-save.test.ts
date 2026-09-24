@@ -21,7 +21,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { planPackFiles, networkUrl, PACK_CACHE_NAME, GLYPH_RANGES } from '@/lib/offline/pack-files';
+import { planPackFiles, networkUrl, PACK_CACHE_NAME } from '@/lib/offline/pack-files';
+import { PACK_GLYPHS } from '@/lib/map/pack-source';
 import { downloadPackFiles, measurePackFiles, totalFromContentRange, totalMb } from '@/lib/offline/pack-download';
 import { builtRegionPacks, type RegionPack } from '@/lib/map/field-base-map';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
@@ -40,7 +41,10 @@ describe('выбор файлов под маршрут', () => {
     expect(plan.packs).toEqual([OVERVIEW_ID, 'cell-53n158e']);
     const kinds = plan.files.filter(f => f.pack === 'cell-53n158e').map(f => f.kind).sort();
     expect(kinds).toEqual(['contours', 'manifest', 'places', 'terrain', 'vector']);
-    expect(plan.files.filter(f => f.kind === 'glyphs')).toHaveLength(GLYPH_RANGES.length);
+    // Глифы — ровно диапазоны реестра заливки: свой список уже расходился
+    // с хранилищем (256-511 → 403 в прогоне offline-pack-check 1).
+    const glyphRanges = plan.files.filter(f => f.kind === 'glyphs').map(f => f.url.match(/\/(\d+-\d+)\.pbf/)?.[1]);
+    expect(glyphRanges).toEqual([...PACK_GLYPHS.ranges]);
     expect(plan.files.some(f => f.kind === 'ocean')).toBe(true);
   });
 
