@@ -13,6 +13,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { detectTourIntent, findRelevantTours } from './booking-intent';
+import { detectEmergency } from '@/lib/safety/sos-detector';
 import { semanticSearch } from './embeddings';
 import { distanceKm, regionName, type UserLocation } from '@/lib/geo/kamchatka';
 
@@ -266,7 +267,9 @@ export async function buildRAGContext(
   const [fulltextRoutes, semanticResults, tours] = await Promise.all([
     findRoutesByText(message, 8),
     semanticSearch(message, 8).catch(() => []),
-    intent.detected
+    // При признаках ЧП туры в контекст модели не идут: иначе модель
+    // предложит тур тому, кто пишет «заблудился» (разбор 24.09).
+    intent.detected && !detectEmergency(message).detected
       ? findRelevantTours(intent.activityType, intent.rawWords, 3)
       : Promise.resolve([]),
   ]);

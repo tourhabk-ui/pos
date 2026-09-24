@@ -35,7 +35,7 @@ import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
-import { withSosBlock } from '@/lib/safety/sos-detector';
+import { withSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
 
 export const dynamic = 'force-dynamic';
 
@@ -236,6 +236,12 @@ export async function POST(request: NextRequest) {
 
     // Build AI prompt
     const rawMessage = message.trim();
+    // Признак ЧП — тем же детектором, что ниже добавит блок 112 к ответу.
+    // Считается один раз и раньше всего, что продаёт: человеку, который
+    // пишет «я турист, заблудился» или «медведь у палатки», нельзя в том же
+    // ответе показывать туры, форму брони или запускать агента бронирования
+    // (разбор 24.09: «тур» в «турист» и «медвед» в ключах интереса к туру).
+    const emergencyNow = detectEmergency(rawMessage).detected;
     const messageWithVision = visionDescription
       ? `[Фото пользователя: ${visionDescription}]${rawMessage ? `\n\n${rawMessage}` : ''}`
       : rawMessage;
@@ -309,7 +315,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Agentic Booking: authenticated tourists with booking/tour intent → SDK tool calling
-    if (!answer && safeRole === 'tourist' && isAuthenticated) {
+    if (!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow) {
       const intentResult = detectTourIntent(message.trim());
       if (intentResult.detected) {
         try {
@@ -351,9 +357,9 @@ export async function POST(request: NextRequest) {
 
     answer ??= await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
 
-    // Tour suggestions — only for tourist role (fire-and-forget fetch, non-blocking)
+    // Tour suggestions — only for tourist role, и никогда при признаках ЧП.
     let tourSuggestions: TourSuggestion[] = [];
-    if (safeRole === 'tourist') {
+    if (safeRole === 'tourist' && !emergencyNow) {
       const intentResult = detectTourIntent(rawMessage);
       if (intentResult.detected) {
         tourSuggestions = await findRelevantTours(intentResult.activityType, intentResult.rawWords);

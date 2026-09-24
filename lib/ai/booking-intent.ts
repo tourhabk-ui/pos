@@ -31,6 +31,21 @@ const INTENT_KEYWORDS = [
   'fishing', 'trekking', 'helicopter', 'booking', 'tour',
 ];
 
+/**
+ * «тур» и «tour» — только как начало слова и не «турист»/«tourist»: подстрока
+ * «тур» сидит в слове «турист», и сообщение «я турист, заблудился» считалось
+ * интересом к туру (разбор 24.09). «туры», «турбаза», «турагентство» — по-прежнему да.
+ */
+const WORD_START_KEYWORDS: Record<string, RegExp> = {
+  'тур': /(?<![а-яё])тур(?!ист)/,
+  'tour': /(?<![a-z])tour(?!ist)/,
+};
+
+function keywordHit(lower: string, kw: string): boolean {
+  const rx = WORD_START_KEYWORDS[kw];
+  return rx ? rx.test(lower) : lower.includes(kw);
+}
+
 // Maps message tokens → operator_tours.activity_type values
 const ACTIVITY_MAP: Record<string, string> = {
   рыбалк: 'fishing',    fishing:    'fishing',
@@ -54,7 +69,7 @@ export function detectTourIntent(text: string): {
 } {
   const lower = text.toLowerCase();
 
-  const detected = INTENT_KEYWORDS.some(kw => lower.includes(kw));
+  const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw));
   if (!detected) return { detected: false, activityType: null, rawWords: '' };
 
   let activityType: string | null = null;

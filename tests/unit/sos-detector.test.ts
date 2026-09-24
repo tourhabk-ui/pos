@@ -127,3 +127,28 @@ describe('withSosBlock', () => {
     expect(text).toContain('vedarai.ru/sos');
   });
 });
+
+describe('detectEmergency — пропуски, найденные разбором 24.09', () => {
+  for (const [text, category] of [
+    ['Друг ушёл вперёд по тропе четыре часа назад и не отвечает на звонки', 'group_missing'],
+    ['жена не выходит на связь с утра', 'group_missing'],
+    ['ребёнок упал и не встаёт', 'injury'],
+    ['не могу дышать на высоте', 'injury'],
+    ['ошпарило паром у гейзера', 'injury'],
+    ['напарник задыхается', 'injury'],
+    ['сын получил ожог у источника', 'injury'],
+    ['помогите', 'distress'],
+    ['Помогите!!!', 'distress'],
+    ['помогите, срочно', 'distress'],
+  ] as const) {
+    it(text, () => {
+      expect(detectEmergency(text).categories).toContain(category);
+    });
+  }
+
+  it('«помогите» внутри обычной просьбы — не ЧП', () => {
+    for (const text of ['помогите выбрать тур на Авачинский', 'друг не отвечает, какой тур выбрать', 'как не упасть на курумнике']) {
+      expect(detectEmergency(text).detected, text).toBe(false);
+    }
+  });
+});
