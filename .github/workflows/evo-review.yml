@@ -75,10 +75,14 @@ jobs:
           # примерно вчетверо: $3.1 → $0.8 за прогон.
           #
           # Задаётся ВЕНДОР, а не id: §8 запрещает привязку к модели, и
-          # resolveFlagshipModel сам берёт сильнейшую z.ai из каталога. На
-          # 09.09 это glm-5.3; «облегчённые» варианты (-air, -flash, -turbo)
-          # в флагманы не попадают — сторож flagship-resolver.
-          EVO_DECISION_FLAGSHIP_VENDOR: z-ai
+          # resolveFlagshipModel сам берёт сильнейшую из каталога вендора.
+          #
+          # 24.09 — снова Anthropic, решение владельца «сделай сам opus 5.5
+          # решателем». Резолвер ставит тир opus выше всех и читает версию
+          # из opus-5.5 и opus-5-5 одинаково, поэтому выберет Opus 5.5, а не
+          # Opus 5, Fable или Sonnet. Экономия GLM (вчетверо, см. выше)
+          # этим отдаётся обратно — осознанно. Вернуть GLM: z-ai.
+          EVO_DECISION_FLAGSHIP_VENDOR: anthropic
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           # Расход в книги платформы: БД Timeweb с раннера закрыта файрволом,
           # и прямой INSERT в llm_usage_log падал здесь всегда. Отправку на

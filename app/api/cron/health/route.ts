@@ -14,9 +14,10 @@ import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagno
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { SKIP_REASON_LABELS } from '@/lib/agents/scout-digest';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 
@@ -367,8 +368,11 @@ export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
 
   if (!timingSafeCompare(secret, cronSecret)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('health', 60, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('health', 60));
 
   const started = Date.now();
   const issues: HealthIssue[] = [];

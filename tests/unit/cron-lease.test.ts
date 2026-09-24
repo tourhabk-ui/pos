@@ -85,29 +85,41 @@ describe('аренда не притворяется прогоном', () => {
   });
 });
 
-describe('safety-роуты берут аренду', () => {
-  const ROUTES: Array<[string, string]> = [
-    ['watchdog', 'app/api/cron/watchdog/route.ts'],
-    ['sos-events-bridge', 'app/api/cron/sos-events-bridge/route.ts'],
-    ['danger-analysis', 'app/api/cron/danger-analysis/route.ts'],
-    ['rescue', 'app/api/cron/rescue/route.ts'],
-    ['checkin-watchdog', 'app/api/cron/checkin-watchdog/route.ts'],
-  ];
+/**
+ * 401 у крона, которого зовут двумя планировщиками, обязан называть причину.
+ *
+ * Владелец 29.08 получил голый `{"error":"Unauthorized"}` пять раз подряд и не
+ * мог отличить «секрет не дошёл» от «секрет не тот» и от «CRON_SECRET не задан
+ * на сервере». Три беды, три разных места починки.
+ *
+ * ── Список берётся из кода (правка 21.09) ─────────────────────────────────
+ *
+ * Здесь стоял захардкоженный перечень пяти роутов. 21.09 супервизор вырос до
+ * одиннадцати задач, и пять новых под правило не попали: у всех пяти 401 был
+ * голым. Перечень в тесте не краснеет от того, что мир вырос, — он просто
+ * перестаёт покрывать; поэтому теперь ноги читаются из `start.js`.
+ *
+ * Про АРЕНДУ здесь проверок больше нет намеренно. Она проверяется в
+ * `cron-second-leg.test.ts`, и там же живёт единственное освобождение
+ * (`safety-ingest`, у которого повторный прогон безвреден доказанно). Две
+ * проверки одного правила — это два правила (§12), и они разошлись бы на
+ * первом же освобождении: здешняя копия потребовала бы аренду у того, кому
+ * та не нужна.
+ */
+describe('401 крона, которого зовут двумя планировщиками, объясняет себя', () => {
+  const START_SRC = readFileSync(join(process.cwd(), 'start.js'), 'utf-8');
+  const LEG_PATHS = [...START_SRC.matchAll(/path:\s*'\/api\/cron\/([a-z0-9-]+)'/g)].map((m) => m[1]);
 
-  for (const [agent, path] of ROUTES) {
-    it(`${agent} — аренда до работы`, () => {
-      const src = readFileSync(join(process.cwd(), path), 'utf-8');
-      expect(src, `${agent} остался без аренды: два планировщика сделают его работу дважды`)
-        .toMatch(/claimCronWindow\(/);
-      expect(src).toMatch(new RegExp(`claimCronWindow\\('${agent}'`));
-    });
+  it('ноги супервизора разобраны', () => {
+    // Ноль ног при нулевом разборе — отказ, а не успех (§4.0): сломайся
+    // regexp, и цикл ниже стал бы пустым, а файл — зелёным.
+    expect(LEG_PATHS.length, 'список задач супервизора не разобран из start.js').toBeGreaterThanOrEqual(11);
+  });
 
-    it(`${agent} — 401 объясняет себя`, () => {
-      // Владелец 29.08 получил голый {"error":"Unauthorized"} пять раз
-      // подряд и не мог отличить «секрет не дошёл» от «секрет не тот» и от
-      // «CRON_SECRET не задан на сервере». Три беды, три разных места.
-      const src = readFileSync(join(process.cwd(), path), 'utf-8');
-      expect(src, `${agent}: 401 снова молчит о причине`).toMatch(/diagnoseCronAuth\(/);
+  for (const ep of LEG_PATHS) {
+    it(`${ep} — 401 объясняет себя`, () => {
+      const src = readFileSync(join(process.cwd(), 'app/api/cron', ep, 'route.ts'), 'utf-8');
+      expect(src, `${ep}: 401 молчит о причине`).toMatch(/diagnoseCronAuth\(/);
     });
   }
 });
@@ -115,7 +127,10 @@ describe('safety-роуты берут аренду', () => {
 describe('супервизор ведёт весь safety-разряд', () => {
   const START = readFileSync(join(process.cwd(), 'start.js'), 'utf-8');
 
-  it('в списке все шесть кронов, а не один ингест', () => {
+  it('safety-разряд ведётся супервизором целиком, а не одним ингестом', () => {
+    // Это ПОЛ, а не перечень: список задач растёт (21.09 — с шести до
+    // одиннадцати), и проверять здесь его длину значило бы заново
+    // заморозить число. Полноту по реестру держит `cron-second-leg`.
     for (const p of [
       'safety-ingest', 'sos-events-bridge', 'danger-analysis',
       'rescue', 'watchdog', 'checkin-watchdog',
@@ -125,10 +140,34 @@ describe('супервизор ведёт весь safety-разряд', () => {
     }
   });
 
-  it('старты разнесены — залпом шести задач два ядра не занимаем', () => {
-    const offsets = [...START.matchAll(/startAfterMs:\s*(\d+)/g)].map(m => Number(m[1]));
-    expect(offsets.length).toBe(6);
-    expect(new Set(offsets).size, 'смещения совпали — задачи стартуют залпом').toBe(6);
+  it('старты разнесены — залпом задачи два ядра не занимают', () => {
+    // ── Правка 21.09: проверяется свойство, а не число ───────────────────
+    //
+    // Здесь стояло `expect(offsets.length).toBe(6)`. Замороженное число
+    // устаревает молча — ровно та болезнь, что «778 мест» и «20 туров»
+    // (CLAUDE.md §7); список вырос до одиннадцати, и сторож упал НЕ на
+    // нарушении, а на собственной устарелости. Такое падение учит правку
+    // цифры, а не разбор.
+    //
+    // Заодно требование стало строже. `new Set(offsets).size === length`
+    // отвергало только ПОЛНОЕ совпадение: 45000 и 45001 прошли бы как
+    // «разнесены», хотя это тот же залп. Теперь спрашивается минимальный
+    // зазор — то есть то, ради чего проверка написана.
+    const jobs = [...START.matchAll(/path:\s*'\/api\/cron\/[a-z0-9-]+'/g)].length;
+    const offsets = [...START.matchAll(/startAfterMs:\s*(\d+)/g)].map((m) => Number(m[1]));
+
+    expect(jobs, 'задачи супервизора не разобраны').toBeGreaterThanOrEqual(11);
+    expect(offsets.length, 'у какой-то задачи нет своего смещения старта').toBe(jobs);
+    expect(new Set(offsets).size, 'смещения совпали — задачи стартуют залпом').toBe(offsets.length);
+
+    const sorted = [...offsets].sort((a, b) => a - b);
+    const minGap = Math.min(...sorted.slice(1).map((v, i) => v - sorted[i]));
+    const MIN_GAP_MS = 10_000;
+    expect(
+      minGap,
+      `минимальный зазор между стартами ${minGap} мс — при двух ядрах это залп, ` +
+        'а не разнесение: задачи будут драться за CPU с обслуживанием живых запросов',
+    ).toBeGreaterThanOrEqual(MIN_GAP_MS);
   });
 
   it('секрет уходит заголовком, а не в адресной строке', () => {

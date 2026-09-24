@@ -1,0 +1,129 @@
+name: EMSD vmon — видит ли прод сводку по вулканам (проба)
+
+# GET /api/cron/emsd-vmon-probe (23.09): читает суточную сводку КФ ФИЦ ЕГС РАН
+# о состоянии вулканов Камчатки и Курил (https://www.emsd.ru/vmon/) и говорит
+# три вещи: дошли ли, той ли кодировкой разобрали, и расходится ли она с
+# авиационными кодами KVERT, которые у нас уже записаны.
+#
+# Проба ТОЛЬКО ЧИТАЕТ — ни UPDATE, ни INSERT (сторож emsd-vmon-probe-route.test.ts).
+# Из контейнера разработки ни один из трёх вопросов не проверяется: www.emsd.ru
+# не в списке разрешённых хостов, а FTP через прокси не ходит вовсе.
+#
+# Запуск: workflow_dispatch (кнопка) или push в main, меняющий
+# .github/triggers/emsd-vmon-probe.json.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/emsd-vmon-probe.json'
+
+permissions:
+  contents: read
+
+# Новый прогон отменяет старый: проба только читает, и две копии лишь дважды
+# дёргают чужой сервер ради одного ответа.
+concurrency:
+  group: emsd-vmon-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+
+      # Маркер едет в main тем же пушем, что и сам роут, а Timeweb собирает
+      # образ 5–20 минут. REQUIRE_FRESH=1: не дождались своей сборки —
+      # спрашивать нечего, и прогон обязан покраснеть на своей причине, а не
+      # получить 404 со старого прода (сторож marker-waits-for-deploy).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+          ATTEMPTS: '110'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Проба
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          URL="https://vedarai.ru/api/cron/emsd-vmon-probe"
+          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 90 "$URL") || RESP=""
+
+          # Отказ не выдаётся за успех (урок сверки с OSM, 20.09): пустой
+          # ответ и неразобранный JSON — отдельные громкие исходы, а вердикт
+          # выносится по полю success, а не по тому, что json разобрался.
+          if [ -z "$RESP" ]; then
+            echo "::error::Проба не ответила вовсе: curl не дошёл (таймаут 90 с или сеть). Это «не смогли спросить», а не «сводка пуста»."
+            exit 1
+          fi
+
+          echo "$RESP" | python3 -c "
+          import json, sys
+          raw = sys.stdin.read()
+          try:
+              d = json.loads(raw)
+          except ValueError:
+              print('Ответ не разобрался как JSON. Первые 2000 знаков:')
+              print(raw[:2000])
+              sys.exit(1)
+
+          print(json.dumps({k: d.get(k) for k in (
+              'success', 'probe', 'reachable', 'http_status', 'bytes', 'decoded_by',
+              'observed_date', 'volcanoes_total', 'parse_problems',
+              'elevated_total', 'unknown_color_total',
+              'kvert_rows_total', 'disagreements_total', 'kvert_compare_error',
+          )}, ensure_ascii=False, indent=2))
+
+          if d.get('success') is not True:
+              print('::error::Прод не получил сводку. Пустота ниже НЕ означает, что вулканы спокойны.')
+              print('Тело ответа целиком:')
+              print(json.dumps(d, ensure_ascii=False)[:4000])
+              sys.exit(1)
+
+          # Дошли, но ничего не разобрали — тоже отказ, а не тихая сводка:
+          # ноль вулканов при живой странице значит смену вёрстки или
+          # неверную кодировку (§4.0).
+          if not d.get('volcanoes_total'):
+              print('::error::Страница получена, но вулканов разобрано ноль. Смотри decoded_by и parse_problems.')
+              print(json.dumps(d, ensure_ascii=False)[:4000])
+              sys.exit(1)
+
+          print()
+          print('── Повышенные (выше спокойного) ──')
+          for it in d.get('elevated') or []:
+              print(f\"  {it.get('color'):8} {it.get('name')} — {it.get('seismicity')}\")
+          if not (d.get('elevated') or []):
+              print('  нет')
+
+          print()
+          print('── Код не разобран (значение нам неизвестно) ──')
+          for it in d.get('unknown_color') or []:
+              print(f\"  «{it.get('raw')}» {it.get('name')} — {it.get('seismicity')}\")
+          if not (d.get('unknown_color') or []):
+              print('  нет')
+
+          print()
+          print('── Сверка с KVERT (факт, не вердикт: чей цвет вернее, проба не решает) ──')
+          cmp = d.get('kvert_compare')
+          if cmp is None:
+              print(f\"  сравнить не смогли: {d.get('kvert_compare_error')}\")
+          else:
+              for it in cmp:
+                  print(f\"  {it.get('state'):32} {it.get('name'):22} emsd={it.get('emsd')} kvert={it.get('kvert')} ({it.get('kvert_observed_at')})\")
+          "
+
+          {
+            echo "## emsd-vmon-probe"
+            echo
+            echo '```json'
+            echo "$RESP" | python3 -m json.tool | head -c 30000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
