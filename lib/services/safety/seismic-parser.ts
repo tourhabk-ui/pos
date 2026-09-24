@@ -177,7 +177,7 @@ export function detectRoadRestriction(text: string): { severity: 1 | 2 } | null 
 
 // ── Классификатор событий ─────────────────────────────────────────────────
 
-function classifyMessage(id: string, text: string, datetime: string): SeismicEvent | null {
+export function classifyMessage(id: string, text: string, datetime: string): SeismicEvent | null {
   const t = text.toLowerCase();
   const publishedAt = new Date(datetime);
 
@@ -232,8 +232,14 @@ function classifyMessage(id: string, text: string, datetime: string): SeismicEve
   // Проверяется ДО парсинга магнитуды — официальный статус важнее порога M6+.
   // Реальный случай: M5.8 + M5.3 → официальное предупреждение МЧС/112 → цунами-угроза.
 
-  if (/угроза\s+цунами|предупреждение\s+о\s+цунами|tsunami\s+warning|цунами\s+объявлен/i.test(t)) {
-    const isAllClear = /отбой|снята\s+угроза|all\s+clear/i.test(t);
+  // «Угрозы нет» (tsunamiStatus → no_threat) — не предупреждение: ветка
+  // пропускается, и пост идёт дальше, к разбору магнитуды, — обычно это
+  // сообщение о самом толчке.
+  const tsunami = /угроза\s+цунами|предупреждение\s+о\s+цунами|tsunami\s+warning|цунами\s+объявлен/i.test(t)
+    ? tsunamiStatus(text)
+    : null;
+  if (tsunami === 'warning' || tsunami === 'all_clear') {
+    const isAllClear = tsunami === 'all_clear';
     return {
       source_id: id,
       source_url: `https://${id}`,
@@ -314,6 +320,77 @@ function classifyMessage(id: string, text: string, datetime: string): SeismicEve
   }
 
   return null;
+}
+
+// ── Цунами: угроза, отбой или «угрозы нет» (24.09) ─────────────────────────
+//
+// Два классификатора (КБГС и МЧС) решали это по-разному, и оба ошибались в
+// сторону ТРЕВОГИ:
+//
+//   МЧС  — любое слово «цунами» давало tsunami_warning с важностью 3. После
+//          каждого заметного толчка МЧС Камчатки пишет «угрозы цунами нет»,
+//          и такой пост становился у нас тревогой цунами для всех туристов;
+//   КБГС — отбоем считались только «отбой», «снята угроза» и «all clear».
+//          «Угроза цунами отменена», «угроза цунами снята» (другой порядок
+//          слов) и «угроза цунами не ожидается» давали важность 3.
+//
+// Ложная тревога цунами — не безобидная перестраховка. Это эвакуация без
+// причины у тех, кто поверил, и выученное недоверие у тех, кто нет: второй
+// раз настоящую тревогу прочтут как очередную ошибку.
+//
+// Правило одно на оба источника (§12) и работает ПО ПРЕДЛОЖЕНИЯМ: отрицание и
+// отбой снимают тревогу, только если стоят в том же предложении, что и
+// «цунами», и рядом с ним. Иначе пост «Объявлена угроза цунами. Если нет
+// возможности эвакуироваться, поднимитесь выше» потерял бы тревогу из-за
+// постороннего «нет».
+//
+// Если хоть одно предложение про цунами — без отрицания и без отбоя, исход
+// «угроза». При сомнении правило ошибается в сторону тревоги: пропущенное
+// цунами дороже ложного.
+
+export type TsunamiStatus = 'warning' | 'all_clear' | 'no_threat';
+
+const NEG_VERB = 'не\\s+(?:ожида|прогноз|угрожа|зарегистр|зафиксир|предвид|возник|объявл|будет)';
+
+/** «Угрозы нет»: отрицание рядом со словом «цунами». */
+const TSUNAMI_NO_THREAT = new RegExp(
+  `цунами[^.]{0,40}?${NEG_VERB}` +
+  `|${NEG_VERB}[^.]{0,25}?цунами` +
+  '|(?:угроз[аыу]?|опасност[иь])\\s+(?:возникновения\\s+)?цунами\\s+(?:для\\s+[^.]{0,40}?)?(?:нет|отсутств)' +
+  '|без\\s+угрозы\\s+(?:возникновения\\s+)?цунами' +
+  '|цунами\\s+нет',
+);
+
+/** Отбой. «Не отменена» и «не снята» — не отбой. */
+const TSUNAMI_ALL_CLEAR = /отбой|all\s+clear|(?<!не\s)(?:отмен|снят|сняли|миновал)/;
+
+/**
+ * Обещание отбоя в будущем — это ещё угроза: «Отбой угрозы цунами будет
+ * объявлен дополнительно» стоит в тексте ДЕЙСТВУЮЩЕГО предупреждения.
+ */
+const TSUNAMI_ALL_CLEAR_LATER = /(?:будет|последует|дополнительно|позже)/;
+
+export function tsunamiStatus(text: string): TsunamiStatus | null {
+  const t = String(text || '').toLowerCase().replace(/ё/g, 'е');
+  if (!/цунами|tsunami/.test(t)) return null;
+
+  const sentences = t.split(/[.!?;\n]+/).filter((s) => /цунами|tsunami/.test(s));
+  let sawAllClear = false;
+  let sawNoThreat = false;
+  for (const s of sentences) {
+    if (TSUNAMI_ALL_CLEAR.test(s) && !TSUNAMI_ALL_CLEAR_LATER.test(s)) {
+      sawAllClear = true;
+      continue;
+    }
+    if (TSUNAMI_NO_THREAT.test(s)) {
+      sawNoThreat = true;
+      continue;
+    }
+    return 'warning';
+  }
+  if (sawAllClear) return 'all_clear';
+  if (sawNoThreat) return 'no_threat';
+  return 'warning';
 }
 
 /**
@@ -1487,8 +1564,15 @@ export function classifyMchsItem(
   let severity: 0 | 1 | 2 | 3 = 0;
   let expires_hours = 24;
 
-  if (/цунами/.test(text)) {
+  // Статус цунами — общим правилом (tsunamiStatus), а не «есть слово —
+  // тревога»: иначе «угрозы цунами нет» становилось тревогой цунами. «Угрозы
+  // нет» проходит дальше по веткам — у такого поста обычно нет другой
+  // категории, и он отбрасывается как неинтересный.
+  const tsunami = tsunamiStatus(text);
+  if (tsunami === 'warning') {
     alert_type = 'tsunami_warning'; severity = 3; expires_hours = 12;
+  } else if (tsunami === 'all_clear') {
+    alert_type = 'info'; severity = 0; expires_hours = 1;
   } else if (/лавин/.test(text)) {
     // Лавины — ДО погодной ветки, а не после: лавинное предупреждение МЧС
     // почти всегда идёт вместе с метелью и сильным ветром, и ветка «ураган |
