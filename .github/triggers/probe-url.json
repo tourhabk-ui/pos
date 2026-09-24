@@ -1,14 +1,11 @@
 {
-  "note": "24.09, прогон 570. ТОЛЬКО ЧТЕНИЕ. Отдаёт ли хранилище файл пакета по адресу с лишним параметром запроса (?v=...) — тем же телом и тем же ETag. Это предпосылка починки: телефон владельца держит ответы до 05.09, закэшированные как immutable на год (рамка океана 155/51 и рельеф, обрезанный на 51°, — ровно та сборка), и новый адрес — единственный способ обойти чужой кэш. PMTiles проверяется диапазоном, как его читает карта.",
-  "run": 570,
-  "timeout": 60,
-  "retries": 1,
-  "retryDelay": 20,
-  "allowStale": true,
-  "bytes": 200,
-  "grep": ["built_at", "etag", "436362094fdb43ff9d047971f2949303"],
+  "note": "24.09, прогон 571. ТОЛЬКО ЧТЕНИЕ. Владелец пополнил баланс Qwen (DashScope). Вопрос: ожило ли зрение Кузьмича с прода. vision-probe шлёт вшитый 310-байтный PNG по водопаду зрения и печатает исход каждой ступени с причиной; verdict ok — снимок дошёл и цвет назван. Если qwen-vl отвечает 403 AllocationQuota.FreeTierOnly — деньги не помогли без снятия переключателя «free tier only» в Model Studio; 401 — ключ не принят, баланс ни при чём.",
+  "run": 571,
+  "timeout": 120,
+  "retries": 2,
+  "retryDelay": 60,
+  "bytes": 4000,
   "urls": [
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.ocean.geojson?v=2026-09-24",
-    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.places.geojson?v=2026-09-24"
+    "https://vedarai.ru/api/cron/vision-probe"
   ]
 }

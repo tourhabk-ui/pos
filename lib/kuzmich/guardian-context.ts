@@ -1,5 +1,6 @@
 import { pool } from '@/lib/db-pool';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { kfegsPhrase, kfegsIsFresh, levelForColor, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
 import { placeNameSearchSql } from '@/lib/places/name-match';
@@ -28,6 +29,11 @@ interface GuardianPlaceRow {
   volcano_acc: string | null;
   volcano_ash_height_m: number | null;
   volcano_observed_at: string | null;
+  /** Последняя строка сводки КФ ЕГС по этому месту (миграция 1010). */
+  kfegs_color: ScaleColor | null;
+  kfegs_raw: string | null;
+  kfegs_seismicity: string | null;
+  kfegs_date: string | null;
 }
 
 /** Наблюдённый ACC вулкана (unassigned/отсутствие → null — без ложного «спокоен»). */
@@ -43,6 +49,32 @@ function accLine(color: AccColor, p: GuardianPlaceRow): string {
     ? ` (наблюдение ${new Date(p.volcano_observed_at).toLocaleDateString('ru-RU')})`
     : '';
   return `Авиационный цветовой код KVERT: ${meta.short.toUpperCase()} — ${meta.label.toLowerCase()}.${ash}${seen}`;
+}
+
+/**
+ * Вторая шкала — сводка КФ ЕГС (24.09). До этого MCP и Кузьмич отвечали про
+ * Мутновский «KVERT: ЗЕЛЁНЫЙ — спокоен» при жёлтом у КФ ЕГС (сейсмичность
+ * выше фона, сотни событий за сутки): авиационный код — не про тропу.
+ *
+ * Строки в сводке нет — вулкан ею не охвачен, молчим (как с KVERT). Строка
+ * есть, но устарела — говорим, что устарела, а не выдаём старый цвет за
+ * текущий и не молчим, будто её не было (§4.0).
+ */
+function kfegsLine(p: GuardianPlaceRow, nowMs: number = Date.now()): string | null {
+  if (!p.kfegs_date || p.kfegs_raw === null) return null;
+  if (!kfegsIsFresh(p.kfegs_date, nowMs)) {
+    const [, m, d] = p.kfegs_date.split('-');
+    return `Сводка КФ ЕГС по вулкану устарела (последняя за ${d}.${m}) — текущего уровня по ней нет.`;
+  }
+  const phrase = kfegsPhrase({
+    color: p.kfegs_color, raw: p.kfegs_raw, seismicity: p.kfegs_seismicity, date: p.kfegs_date,
+  });
+  // Пояснение — только при повышенном уровне: у зелёного и неразобранного
+  // кода «повышенная сейсмичность» была бы неправдой.
+  const why = levelForColor(p.kfegs_color)
+    ? ' Это не авиационный код: по этой шкале выше зелёного — повышенная сейсмичность и эмиссия газов.'
+    : '';
+  return `Шкала ${phrase}.${why}`;
 }
 
 interface AlertRow {
@@ -187,11 +219,22 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
          lrs.tourists_today,
          vs.aviation_color_code AS volcano_acc,
          vs.ash_height_m        AS volcano_ash_height_m,
-         vs.observed_at         AS volcano_observed_at
+         vs.observed_at         AS volcano_observed_at,
+         kb.color               AS kfegs_color,
+         kb.color_raw           AS kfegs_raw,
+         kb.seismicity          AS kfegs_seismicity,
+         kb.observed_date::text AS kfegs_date
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
        LEFT JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
+       LEFT JOIN LATERAL (
+         SELECT b.color, b.color_raw, b.seismicity, b.observed_date
+           FROM volcano_bulletin_kfegs b
+          WHERE b.place_ark_id = p.ark_id
+          ORDER BY b.observed_date DESC
+          LIMIT 1
+       ) kb ON TRUE
        WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
        ORDER BY char_length(p.name) ASC
        LIMIT 3`,
@@ -286,6 +329,10 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       if (lowAcc === 'orange' || lowAcc === 'red') {
         parts.push(`Но по похожему названию вулкан под кодом KVERT ${ACC_META[lowAcc].short.toUpperCase()} (${ACC_META[lowAcc].label.toLowerCase()}) — уточни, тот ли это вулкан.`);
       }
+      // То же для шкалы КФ ЕГС: критичный уровень свежей сводки не роняется.
+      if (levelForColor(p.kfegs_color) === 'critical' && kfegsIsFresh(p.kfegs_date)) {
+        parts.push(`Но по похожему названию у вулкана уровень КФ ЕГС ${p.kfegs_color === 'red' ? 'красный' : 'оранжевый'} — уточни, тот ли это вулкан.`);
+      }
       continue;
     }
 
@@ -301,6 +348,8 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     // алертов: прямой safety-сигнал. Наблюдённого кода нет → молчим (не «зелёный»).
     const acc = accOf(p);
     if (acc) parts.push(accLine(acc, p));
+    const kfegs = kfegsLine(p);
+    if (kfegs) parts.push(kfegs);
 
     if (p.tourists_today !== null && p.capacity_per_day) {
       parts.push(`Сегодня посетило: ${p.tourists_today} чел. (норма ${p.capacity_per_day}/день).`);

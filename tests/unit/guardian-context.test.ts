@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { gradeNameMatch, getGuardianContext } from '@/lib/kuzmich/guardian-context';
 
 const mockQuery = vi.fn();
@@ -351,5 +351,81 @@ describe('getGuardianContext — раздел каталога в заголов
     expect(ctx).toContain('Безымянная точка [КРАСНЫЙ]');
     expect(ctx).not.toContain('(место)');
     expect(ctx).not.toContain('Безымянная точка (');
+  });
+});
+
+describe('getGuardianContext — вторая шкала вулкана, КФ ЕГС (24.09)', () => {
+  // Проверено через MCP 24.09: про Мутновский контекст отвечал только
+  // «KVERT: ЗЕЛЁНЫЙ — спокоен (наблюдение 17.09)», хотя сводка КФ ЕГС за
+  // 22.09 держала его жёлтым (сейсмичность выше фона, 255 событий). Радар
+  // уже знал обе шкалы (#1998), Кузьмич и MCP — нет.
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.useRealTimers());
+
+  const row = {
+    name: 'Вулкан Мутновский', description: null, location_type: 'volcano', lat: 52.45, lng: 158.2,
+    hazard_types: ['thermal'], difficulty_level: null, altitude_m: null, nearest_medical_km: null,
+    sat_communicator_required: null, capacity_per_day: null, open_from_date: null, open_to_date: null,
+    is_open: null, current_crowds: null, active_alerts: null, recommender_status: null,
+    alert_message: null, alert_severity: null, tourists_today: null,
+    volcano_acc: 'green', volcano_ash_height_m: null, volcano_observed_at: '2026-09-17T00:00:00Z',
+    kfegs_color: 'yellow', kfegs_raw: 'Желтый',
+    kfegs_seismicity: 'R=3.2; Ks пред.=4.0 Выше фона. Количество событий в районе вулкана 255.',
+    kfegs_date: '2026-09-22',
+  };
+
+  function mockPlace(r: Record<string, unknown>) {
+    mockQuery.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: sql.includes('FROM places') ? [r] : [] }));
+  }
+
+  it('жёлтый КФ ЕГС виден рядом с зелёным KVERT, со смыслом шкалы', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-24T03:00:00Z'));
+    mockPlace(row);
+    const ctx = await getGuardianContext('Мутновский вулкан');
+    expect(ctx).toContain('KVERT: ЗЕЛЁНЫЙ');
+    expect(ctx).toContain('КФ ЕГС (сейсмичность, за 22.09): жёлтый');
+    expect(ctx).toContain('255');
+    expect(ctx).toContain('не авиационный код');
+  });
+
+  it('устаревшая сводка названа устаревшей, её цвет за текущий не выдаётся', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T03:00:00Z'));
+    mockPlace(row);
+    const ctx = await getGuardianContext('Мутновский вулкан');
+    expect(ctx).toContain('Сводка КФ ЕГС по вулкану устарела (последняя за 22.09)');
+    expect(ctx).not.toContain('жёлтый');
+  });
+
+  it('вулкан сводкой не охвачен — строки нет, без ложного «зелёный»', async () => {
+    mockPlace({ ...row, kfegs_color: null, kfegs_raw: null, kfegs_seismicity: null, kfegs_date: null });
+    expect(await getGuardianContext('Мутновский вулкан')).not.toContain('КФ ЕГС');
+  });
+
+  it('зелёный КФ ЕГС — без пояснения про повышенную сейсмичность', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-24T03:00:00Z'));
+    mockPlace({ ...row, kfegs_color: 'green', kfegs_raw: 'Зеленый', kfegs_seismicity: null });
+    const ctx = await getGuardianContext('Мутновский вулкан');
+    expect(ctx).toContain('КФ ЕГС (сейсмичность, за 22.09): зелёный');
+    expect(ctx).not.toContain('повышенная сейсмичность');
+  });
+
+  it('оранжевый КФ ЕГС не теряется при слабом совпадении имени', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-24T03:00:00Z'));
+    mockPlace({ ...row, name: 'Мутновская ГеоЭС дальний участок', volcano_acc: null, kfegs_color: 'orange' });
+    const ctx = await getGuardianContext('Мутновский вулкан');
+    expect(ctx).toContain('неточное совпадение');
+    expect(ctx).toContain('уровень КФ ЕГС оранжевый');
+  });
+
+  it('запрос берёт ПОСЛЕДНЮЮ строку сводки по месту', async () => {
+    mockPlace(row);
+    await getGuardianContext('Мутновский вулкан');
+    const sql = mockQuery.mock.calls.find(([s]) => (s as string).includes('FROM places'))![0] as string;
+    expect(sql).toMatch(/FROM volcano_bulletin_kfegs b\s+WHERE b\.place_ark_id = p\.ark_id\s+ORDER BY b\.observed_date DESC\s+LIMIT 1/);
   });
 });
