@@ -1,6 +1,24 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
+
+/**
+ * Где приглашение установить приложение НЕ показывается: путь покупки.
+ *
+ * Карточка встаёт снизу через 30 с после beforeinstallprompt и на карточке
+ * тура ложилась поверх цены и «Выбрать дату» (оранжевая «Установить» прямо
+ * над оранжевой кнопкой брони), на десктопе — в угол «Хочу тур» (аудит П1,
+ * #100/#115). В витрине, на карточке тура и на экране успеха человек занят
+ * покупкой; приложение ему предлагают в поле, а не посреди брони.
+ * Сторож: tests/unit/install-prompt-placement.test.tsx.
+ */
+export const INSTALL_PROMPT_HIDDEN_PREFIXES = ['/catalog', '/marketplace', '/booking-success'];
+
+export function installPromptHiddenOn(pathname: string | null): boolean {
+  if (!pathname) return true;
+  return INSTALL_PROMPT_HIDDEN_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
+}
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -8,6 +26,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export function InstallPrompt() {
+  const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
   const [hidden, setHidden] = useState(true);
@@ -49,7 +68,7 @@ export function InstallPrompt() {
   };
 
   // Не показывать если: скрыт, не ready, или нет deferredPrompt
-  if (hidden || !show || !deferredPrompt) return null;
+  if (hidden || !show || !deferredPrompt || installPromptHiddenOn(pathname)) return null;
 
   return (
     <div className="fixed bottom-24 left-4 right-4 md:bottom-4 md:left-auto md:right-4 md:w-96 bg-[var(--bg-card)] shadow-lg rounded-lg p-4 z-[110] border border-[var(--border)]">
@@ -68,13 +87,13 @@ export function InstallPrompt() {
           <div className="flex gap-2 mt-3">
             <button
               onClick={handleInstall}
-              className="px-4 py-2 bg-[var(--accent)] text-white rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
+              className="px-4 min-h-[44px] bg-[var(--accent)] text-white rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
             >
               Установить
             </button>
             <button
               onClick={handleDismiss}
-              className="px-4 py-2 text-[var(--text-secondary)] text-sm hover:text-[var(--text-primary)] transition-colors"
+              className="px-4 min-h-[44px] text-[var(--text-secondary)] text-sm hover:text-[var(--text-primary)] transition-colors"
             >
               Позже
             </button>

@@ -35,6 +35,7 @@ import { dataFreshness, freshnessDot, geometryCoverage, coverageDot } from '@/li
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -141,8 +142,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // главная жила в собственной теме, и переключатель на ней не влиял на
   // остальные страницы — а глобальный не влиял на главную).
   useEffect(() => {
-    const t = document.documentElement.getAttribute('data-theme');
-    if (t === 'light' || t === 'dark') setTheme(t);
+    setTheme(readDomTheme());
   }, []);
 
   const chooseTheme = (t: 'light' | 'dark') => {
@@ -150,7 +150,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     const r = document.documentElement;
     r.setAttribute('data-theme', t);
     r.classList.toggle('dark', t === 'dark');
-    try { localStorage.setItem('kh-theme', t); } catch { /* приватный режим */ }
+    try { localStorage.setItem(THEME_STORAGE_KEY, t); } catch { /* приватный режим */ }
   };
 
   // Карусель «Куда сегодня»: автопрокрутка + точки, пауза при касании.

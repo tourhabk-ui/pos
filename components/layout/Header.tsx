@@ -28,7 +28,22 @@ const iconBtnBase: React.CSSProperties = {
   flexShrink: 0,
 };
 
-export function Header() {
+interface HeaderProps {
+  /**
+   * Под непрокрученной шапкой лежит фото (герой во всю ширину от самого
+   * верха страницы). Только тогда иконки и ссылки белые, а под ними —
+   * затемняющий градиент.
+   *
+   * До 24.09 белыми они были ВСЕГДА до прокрутки, независимо от того, что
+   * под шапкой: на кремовом фоне светлой темы поиск, тема, вход и «Ещё»
+   * давали контраст 1.48:1 (аудит П1, #102/#104/#118). По умолчанию шапка
+   * теперь красится токенами; белый — объявление страницы, что под ней фото.
+   * Сторож: tests/unit/header-over-photo.test.tsx.
+   */
+  overPhoto?: boolean;
+}
+
+export function Header({ overPhoto = false }: HeaderProps = {}) {
   const scrollY = useScrollY();
   /**
    * Вошёл ли смотрящий. `null` — ещё не спросили или сеть не ответила: это
@@ -51,7 +66,8 @@ export function Header() {
   }, []);
   const scrolled = scrollY > 60;
   const { isDark, toggleTheme } = useTheme();
-  const iconColor = scrolled ? 'var(--text-secondary)' : 'rgba(255,255,255,0.85)';
+  const onPhoto = overPhoto && !scrolled;
+  const iconColor = onPhoto ? 'rgba(255,255,255,0.85)' : 'var(--text-secondary)';
   const iconBtn: React.CSSProperties = {
     ...iconBtnBase,
     color: iconColor,
@@ -101,9 +117,13 @@ export function Header() {
         padding: 'calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px',
         fontFamily: FO,
         transition: 'background 0.3s, box-shadow 0.3s',
+        // Градиент — только вместе с белыми иконками поверх фото; без фото
+        // он давал мутную серую полосу на кремовом фоне (#104).
         background: scrolled
           ? 'var(--bg-card)'
-          : 'linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 100%)',
+          : onPhoto
+            ? 'linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 100%)'
+            : 'transparent',
         boxShadow: scrolled ? '0 1px 0 var(--border)' : 'none',
       }}
     >
@@ -115,6 +135,7 @@ export function Header() {
           display: 'flex',
           alignItems: 'center',
           justifySelf: 'start',
+          gridColumn: 1,
           color: 'var(--text-primary)',
           textDecoration: 'none',
           flexShrink: 0,
@@ -139,9 +160,16 @@ export function Header() {
         двух касаниях. Меню, закрывающее собой SOS, хуже меню, убранного в
         «Ещё».
       */}
+      {/*
+        Дорожки заданы явно (gridColumn), а не авторазмещением: скрытая ниже
+        xl навигация (display:none) выпадает из сетки, и ряд кнопок уезжал в
+        центральную дорожку — на 1024-1279 поиск, SOS и «Ещё» висели
+        посередине шапки (аудит П1, #108/#119).
+      */}
       <nav style={{
         alignItems: 'center',
         justifySelf: 'center',
+        gridColumn: 2,
         gap: '2px',
       }} className="hidden xl:flex">
         {[
@@ -177,7 +205,42 @@ export function Header() {
       </nav>
 
       {/* Right side — icon buttons */}
-      <div style={{ display: 'flex', alignItems: 'center', justifySelf: 'end', gap: '2px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifySelf: 'end', gridColumn: 3, gap: '2px' }}>
+        {/*
+          «Туры» на md–xl. Таб-бар скрыт с md, а десять пунктов навигации
+          показываются только с xl — между ними (iPad, ноутбук 1024-1279) в
+          каркасе не было ни одного пути к турам (аудит П1, #101/#119). Одна
+          короткая ссылка помещается там, где ряд из десяти — нет. Вне <nav>:
+          навигация с её порогом xl остаётся как есть (header-actions-reachable).
+        */}
+        <Link
+          href="/catalog"
+          className="hidden md:inline-flex xl:hidden"
+          style={{
+            alignItems: 'center',
+            minHeight: '44px',
+            padding: '0 12px',
+            borderRadius: '22px',
+            fontFamily: FO,
+            fontSize: '14px',
+            fontWeight: 600,
+            gap: '6px',
+            // Текст — --text-primary, акцент — отдельной точкой. Акцентом
+            // сам текст 14px/600 не проходит AA в светлой теме: #D44A0C на
+            // кремовом 3.88:1, на --bg-card 4.39:1 (нужно 4.5). Сторож:
+            // tests/unit/header-over-photo.test.tsx.
+            color: onPhoto ? 'rgba(255,255,255,0.95)' : 'var(--text-primary)',
+            textDecoration: 'none',
+          }}
+        >
+          <span
+            aria-hidden
+            data-accent-dot
+            style={{ width: '6px', height: '6px', borderRadius: '9999px', background: 'var(--accent)', flexShrink: 0 }}
+          />
+          Туры
+        </Link>
+
         {/* Search */}
         <button
           onClick={() => window.dispatchEvent(new Event('open-search'))}

@@ -187,6 +187,25 @@ describe('баннер согласия — действие, а не украш
     expect(targets.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('прозрачный отступ обёртки не ловит касания — ловит только карточка', () => {
+    // Аудит П1, #28/#88: обёртка fixed bottom-0 z-[60] с отступом снизу
+    // 116px лежала поверх липкой панели брони (z-40). При первом визите тап
+    // по «Выбрать дату» попадал в div[role=dialog] и не делал ничего.
+    // Отступ нужен (карточка уступает место полосам), касания — нет.
+    const dialog = BANNER.slice(BANNER.indexOf('role="dialog"'));
+    // Только выражение className={...} обёртки: в её атрибутах лежит
+    // JSX-комментарий, который сам называет pointer-events-none, — поиск по
+    // всему отрезку до '>' совпадал бы с комментарием, а не с классом
+    // (приёмка П1: мутация «убрать класс» оставляла тест зелёным).
+    const wrapperClass = dialog.slice(0, dialog.indexOf('>')).match(/className=\{([\s\S]*?)\}\s*\n/)?.[1] ?? '';
+    expect(wrapperClass, 'у обёртки диалога не найден className={...}').toMatch(/fixed/);
+    expect(wrapperClass, 'обёртка диалога снова перехватывает тапы по тому, что под ней').toMatch(/pointer-events-none/);
+    const card = dialog.slice(dialog.indexOf('>') + 1);
+    const cardClass = card.match(/className="([^"]*)"/)?.[1] ?? '';
+    expect(cardClass, 'карточка согласия не принимает касания — кнопки мёртвые').toMatch(/pointer-events-auto/);
+    expect(cardClass).toMatch(/bg-\[var\(--bg-card\)\]/);
+  });
+
   it('называет, что происходит, и ведёт в политику', () => {
     expect(BANNER).toMatch(/за пределы\s*\n?\s*России|за пределы России/);
     expect(BANNER).toMatch(/\/legal\/privacy/);

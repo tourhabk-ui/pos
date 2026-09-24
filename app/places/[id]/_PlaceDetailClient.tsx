@@ -281,7 +281,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
   return (
     <>
-      <Header />
+      <Header overPhoto />
       <OfflineGPSBanner />
 
       {/* 1. Hero — full-width photo with name overlay */}
