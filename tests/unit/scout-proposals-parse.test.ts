@@ -50,10 +50,9 @@ describe('оборванный по потолку токенов массив (
     // 390: Qwen отказал по квоте, запасной голый водопад оборвался там же —
     // потолок обязан быть у того, кто отвечает, а не только у первого.
     //
-    // 08.09 первая ступень (Qwen) снята решением владельца: она не отвечала
-    // вовсе — ключ DashScope отвергнут в обоих регионах. Требование к потолку
-    // от этого не ослабло, а сузилось до единственного оставшегося пути.
-    expect(INNOVATOR).not.toMatch(/callQwen\(/);
+    // 08.09 первая ступень (Qwen) снималась, 24.09 возвращена решением
+    // владельца. Потолок обязан стоять у ОБЕИХ ступеней.
+    expect(INNOVATOR).toMatch(/callQwen\(messages, \{ maxTokens: \d{4} \}\)/);
     expect(INNOVATOR).toMatch(/callAIQualityOrNull\(messages, \{ maxTokens: \d{4}, deepThinking: false \}\)/);
     expect(INNOVATOR).not.toMatch(/callAIWaterfallOrNull\(messages\)/);
     expect(PROVIDERS).toMatch(/max_tokens: maxTokens/);

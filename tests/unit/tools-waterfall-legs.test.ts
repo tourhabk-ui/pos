@@ -64,13 +64,17 @@ describe('цикл инструментов стоит не на одной но
     expect(order.indexOf('xai')).toBeLessThan(order.indexOf('openrouter'));
   });
 
-  it('снятый с текстовых путей Qwen в очередь не вернулся', () => {
-    expect(legs().map(l => l.provider)).not.toContain('qwen');
+  it('Qwen возвращён (24.09) вторым: после DeepSeek, до xAI', () => {
+    // Решение владельца «верни Qwen в текстовые пути». Не первым — первичный
+    // DeepSeek отвечает за доли секунды; не после xAI — у того 13-43 с.
+    const order = legs().map(l => l.provider);
+    expect(order[1]).toBe('qwen');
+    expect(order.indexOf('qwen')).toBeLessThan(order.indexOf('xai'));
   });
 });
 
 describe('ни одна нога не молчит об отказе', () => {
-  const FNS = ['callDeepSeekWithTools', 'callXaiWithTools', 'callOpenRouterWithTools'];
+  const FNS = ['callDeepSeekWithTools', 'callQwenWithTools', 'callXaiWithTools', 'callOpenRouterWithTools'];
 
   for (const fn of FNS) {
     it(`${fn}: у каждого выхода в null названа причина`, () => {
@@ -118,5 +122,19 @@ describe('xAI зовётся по правилам §8', () => {
   it('хост xAI уже стоит в замороженном реестре D2', () => {
     const registry = readFileSync(join(process.cwd(), 'lib/agents/compliance/provider-registry.ts'), 'utf8');
     expect(registry).toContain('api.x.ai');
+  });
+});
+
+describe('Qwen в цикле зовётся по правилам живого пути', () => {
+  const body = fnBody('callQwenWithTools');
+
+  it('модель из конфига, без резолва: лишний round-trip ждёт человек в поле', () => {
+    expect(body).toContain('getQwenConfig()');
+    expect(body).not.toContain('resolveChatModel');
+  });
+
+  it('хост DashScope уже стоит в замороженном реестре D2', () => {
+    const registry = readFileSync(join(process.cwd(), 'lib/agents/compliance/provider-registry.ts'), 'utf8');
+    expect(registry).toContain('dashscope-intl.aliyuncs.com');
   });
 });

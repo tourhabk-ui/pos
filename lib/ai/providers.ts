@@ -23,7 +23,8 @@
  *   EVO_DECISION_QWEN_MODEL — фоллбэк-решатель (Qwen, default qwen-max-latest)
  *   QWEN_MODEL              — override модели Qwen. Без него callQwen резолвит
  *                             сильнейшую из /v1/models. Tools-цикл Кузьмича
- *                             через Qwen не идёт с 08.09 (решение владельца).
+ *                             (callQwenWithTools) берёт QWEN_MODEL как есть —
+ *                             без резолва, ради задержки живого пути.
  *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
  *                             (по умолчанию https://openrouter.ai/api/v1)
  *   ANTHROPIC_BASE_URL      — необязательно: релей вне РФ для api.anthropic.com
@@ -993,16 +994,70 @@ export async function callDeepSeekWithTools(
 // живёт она ниже, вместе с остальным xAI: ей нужен resolveXaiModel, а
 // соседние пробы режут этот файл по границам функций и на имени-приставке
 // «callXai...» ловят не ту.
-// Qwen tool-calling здесь БЫЛ и снят 08.09 решением владельца («qwen не
-// используем»). Функция удалена, а не оставлена «на всякий случай»: ключ
-// DashScope отвергнут в обоих регионах, вызывать её было неоткуда, и
-// экспортируемая функция, которую никто не зовёт, — забытая работа с виду
-// живого пути (перепись экспортов её и поймала).
+// Qwen tool-calling (OpenAI-совместимый, Alibaba DashScope). Снят 08.09
+// («qwen не используем»: ключ отвергнут в обоих регионах, ступень отвечала
+// отказом на каждое сообщение) и ВОЗВРАЩЁН 24.09 решением владельца «верни
+// Qwen в текстовые пути» — после пополнения баланса. Возврат подтверждён
+// замером, а не ожиданием: проба 571 с прода, qwen-vl-max на том же ключе
+// ответил за 1,1 с.
 //
-// Зрение (qwen-vl) на том же ключе ОСТАЛОСЬ и живёт отдельно — в загрузке
-// снимков и в разборе фото чата. Замены ему с прода нет: Gemini
-// гео-блокируется из РФ, Anthropic отвечает «credit balance is too low».
-// Текст и зрение — разные решения, и снятие первого не снимает второе.
+// Модель СОЗНАТЕЛЬНО не резолвится через /v1/models, в отличие от callQwen:
+// это живой путь Кузьмича, где ответа ждёт человек — в поле, иногда на плохой
+// связи. Резолв добавил бы сетевой round-trip на холодном кэше, а сильная
+// модель ещё и отвечает дольше. Качество здесь вытягивают инструменты и
+// заземление в БД, а не тир модели. Нужен другой тир — QWEN_MODEL.
+//
+// В прежней редакции каждый отказ глушился (`if (!res.ok) return null`,
+// `catch { return null }`), и «нет ключа», квота и таймаут были снаружи
+// неразличимы — именно поэтому отвергнутый ключ неделями стоял первым в
+// очереди. Теперь у каждого выхода в null названа причина.
+export async function callQwenWithTools(
+  messages: ToolMsg[],
+  tools: ToolDefinition[],
+  timeoutMs = 25_000,
+): Promise<ToolsCallResult | null> {
+  const { apiKey, base, model } = getQwenConfig();
+  if (!apiKey) { recordAiLegFailure('qwen:tools', 'no_key'); return null; }
+
+  try {
+    const res = await fetchWithRetry(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        max_tokens: 1000,
+        messages,
+        tools,
+        tool_choice: 'auto',
+      }),
+    }, { timeoutMs, label: `qwen-tools:${model}` });
+
+    if (!res.ok) {
+      recordAiLegFailure('qwen:tools', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
+
+    const data = await res.json() as {
+      choices?: Array<{
+        message?: { content?: string | null; tool_calls?: ToolCall[] };
+      }>;
+    };
+    const msg = data?.choices?.[0]?.message;
+    if (!msg) { recordAiLegFailure('qwen:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
+
+    return {
+      content: msg.content ?? null,
+      tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+    };
+  } catch (e) {
+    recordAiLegFailure('qwen:tools', errorFailureReason(e));
+    return null;
+  }
+}
 
 /** Первый непустой результат из списка попыток; поздние не зовём после успеха. */
 /**
@@ -1045,23 +1100,23 @@ export async function firstNonNullToolLabelled(
 // купленные ни за что. OpenRouter из очереди не убран: гео-блок снимут — он
 // вернётся сам, а гадать об этом не нужно.
 //
-// Qwen стоял здесь ПЕРВЫМ и снят 08.09 решением владельца («qwen не
-// используем»). Цена промедления была не абстрактной: ступени идут
-// ПОСЛЕДОВАТЕЛЬНО, а ключ DashScope отвергнут в обоих регионах — значит на
-// каждое сообщение Кузьмичу мы сперва ходили к провайдеру, который заведомо
-// ответит отказом, и только потом к живому. Ждёт этого человек в поле, иногда
-// на плохой связи.
+// Qwen (24.09, решение владельца «верни Qwen в текстовые пути») стоит ВТОРЫМ,
+// между DeepSeek и xAI. Не первым: DeepSeek первичный с 08.09 и отвечает за
+// доли секунды, менять первичного на живом пути — отдельное решение по замеру
+// задержки, а не следствие возврата. И не после xAI: у того лёгкая модель
+// отвечает 13 с, сильная — 43 (замер 04.09), а Qwen доступен из РФ напрямую —
+// значит при отказе DeepSeek человек в поле получит ответ быстрее.
 //
-// Зрение (qwen-vl) на Qwen ОСТАЛОСЬ и снято отсюда быть не может: Gemini
-// гео-блокируется из РФ, Anthropic с прода отвечает «credit balance is too
-// low», и другого достижимого зрения у нас нет. Текст и зрение здесь — разные
-// решения, а не одно.
+// Урок 08.09 остаётся в силе: нога, которая отвечает отказом всегда, впереди
+// живой — это секунды ожидания, купленные ни за что. Поэтому отказ Qwen теперь
+// пишется с причиной (failure-trace), а health будит, когда ключ не принят.
 export async function callToolsWaterfall(
   messages: ToolMsg[],
   tools: ToolDefinition[],
 ): Promise<ToolsCallResult | null> {
   return firstNonNullToolLabelled([
     { provider: 'deepseek',   run: () => callDeepSeekWithTools(messages, tools) },   // первичный: доступен из РФ
+    { provider: 'qwen',       run: () => callQwenWithTools(messages, tools) },       // возвращён 24.09: из РФ напрямую, быстрее xAI
     { provider: 'xai',        run: () => callXaiWithTools(messages, tools) },        // вторая ЖИВАЯ нога (19.09)
     { provider: 'openrouter', run: () => callOpenRouterWithTools(messages, tools) }, // последний шанс (авто-восстановление если разблокируют)
   ]);
@@ -1264,7 +1319,7 @@ export async function callXai(
  * выглядит как ответ.
  *
  * Почему xAI. Из достижимых с прода провайдеров с function-calling он
- * единственный, кого не надо чинить: Qwen снят с текстовых путей 08.09,
+ * единственный, кого не надо чинить: Qwen снят с текстовых путей 08.09 (вернулся 24.09),
  * Anthropic отвечает «credit balance is too low», Gemini гео-блокируется,
  * Timeweb-шлюз игнорирует параметр `model` и каталога не отдаёт вовсе.
  *
@@ -1631,7 +1686,7 @@ export async function callQwen(
   opts: { maxTokens?: number } = {},
 ): Promise<string | null> {
   const { apiKey, base } = getQwenConfig();
-  if (!apiKey) return null;
+  if (!apiKey) { recordAiLegFailure('qwen', 'no_key'); return null; }
   // 800 по умолчанию — чат Кузьмича; структурные ответы (JSON-массив
   // предложений эволюции) просят больше явно, иначе рвутся на полуслове.
   const maxTokens = opts.maxTokens ?? 800;
@@ -1653,7 +1708,10 @@ export async function callQwen(
         messages: payload,
       }),
     }, { timeoutMs: 25_000, label: `qwen:${model}` });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      recordAiLegFailure('qwen', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
     const data = await res.json() as {
       choices?: Array<{ message?: { content?: string } }>;
       usage?: ProviderUsage;
@@ -1663,8 +1721,9 @@ export async function callQwen(
       logLLMUsage(`qwen:${answeredModel(model, data)}`, data.usage);
       return text;
     }
+    recordAiLegFailure('qwen', 'empty');
     return null;
-  } catch { return null; }
+  } catch (e) { recordAiLegFailure('qwen', errorFailureReason(e)); return null; }
 }
 
 // ── Решатель агентов эволюции ─────────────────────────────────
@@ -2053,9 +2112,9 @@ export async function probeFlagshipRelay(): Promise<{
  * тир, тогда как решатель и контент рядом уже брали сильнейшее из /v1/models.
  * Значение имело: на callQwen висела первая фаза scout-innovator, которая
  * рождает предложения эволюции, — там качество модели превращалось в качество
- * задач. С 08.09 та фаза идёт мимо Qwen (решение владельца), и единственный
- * оставшийся вызов callQwen — проба ключа DashScope в health-кроне: на том же
- * ключе стоит зрение (qwen-vl), которому замены с прода нет.
+ * задач. С 08.09 по 24.09 та фаза шла мимо Qwen (ключ был отвергнут); 24.09
+ * владелец вернул Qwen в текстовые пути, и первая фаза снова начинается с него.
+ * Второй вызов callQwen — проба ключа DashScope в health-кроне.
  *
  * Назначение 'chat' — свой ключ кэша, чтобы override одного пути не протекал в
  * другой. Override сохранён прежним (`QWEN_MODEL`): у кого он выставлен, ничего
