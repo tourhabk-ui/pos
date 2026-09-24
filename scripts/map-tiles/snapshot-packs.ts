@@ -48,7 +48,7 @@ import { readFile, mkdir, writeFile, stat } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import {
-  buildVedarStyle, buildRegionOverlay, DETAIL_MIN_ZOOM, type VedarMapTheme, type VedarStyleSources, type RegionTier,
+  buildVedarStyle, buildRegionOverlay, DETAIL_MIN_ZOOM, OCEAN_UNDER_PREFIX, oceanUnderAnchor, type VedarMapTheme, type VedarStyleSources, type RegionTier,
 } from '@/lib/map/vedar-style';
 import { builtRegionPacks, regionsIntersecting } from '@/lib/map/field-base-map';
 import {
@@ -583,9 +583,14 @@ async function main(): Promise<number> {
           for (const [id, srcDef] of Object.entries(ov.sources)) if (!(id in style.sources)) style.sources[id] = srcDef;
           for (const layer of ov.layers) {
             if (style.layers.some((l) => l.id === layer.id)) continue;
-            // Заливки соседа — под его же тенью (как в VedarMap), остальное — сверху.
+            // Подложка воды — под весь рельеф, сразу над фоном; заливки соседа —
+            // под его же тенью (как в VedarMap), остальное — сверху.
             const hillIdx = style.layers.findIndex((l) => l.id === `hillshade-${region}`);
-            if (layer.type === 'fill' && hillIdx >= 0) style.layers.splice(hillIdx, 0, layer);
+            const under = String(layer.id).startsWith(OCEAN_UNDER_PREFIX)
+              ? style.layers.findIndex((l) => l.id === oceanUnderAnchor(style.layers.map((x) => String(x.id))))
+              : -1;
+            if (under >= 0) style.layers.splice(under, 0, layer);
+            else if (layer.type === 'fill' && hillIdx >= 0) style.layers.splice(hillIdx, 0, layer);
             else style.layers.push(layer);
           }
         }

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { compressImageToLimit } from '@/lib/images/compress-client';
 import BookingAccessLink from '@/components/bookings/BookingAccessLink';
+import SpeakButton from '@/components/kuzmich/SpeakButton';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -546,6 +547,7 @@ export default function KuzmichClient() {
                       {msg.content}
                     </div>
                   )}
+                  {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}
 
                   {/* Карточки туров */}
                   {msg.tours && msg.tours.length > 0 && (
