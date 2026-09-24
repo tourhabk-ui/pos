@@ -19,12 +19,16 @@ const DIGEST = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), '
 const CODE = DIGEST.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 describe('обложка дайджеста', () => {
-  it('выпуск в AI-канал получает обложку тем же путём, что новости канала', () => {
+  it('выпуск в AI-канал всегда уходит с обложкой: карточка выпуска, генератор — запасом', () => {
+    // 24.09 (снимок владельца): генератор по одному заголовку нарисовал серое
+    // здание к выпуску про TTS и AutoCAD. Обложка теперь — своя карточка с
+    // датой и заголовками (lib/notifications/digest-cover.ts), а прежний путь
+    // генератора остался запасом на случай, когда подписать ссылку нечем.
+    // Требование 02.09 — «не голым текстом» — не изменилось.
+    expect(CODE).toMatch(/let coverUrl = digestCoverUrl\(today, digestCoverTitles\(aiDigest\)\)/);
     expect(CODE).toMatch(/resolveCoverImage\(\s*digestHeadlines\(aiDigest\),\s*'ai'/);
     // Обложка передаётся в отправку, исход отправки по-прежнему присваивается.
-    // С 04.09 после cover.url идёт сток причины отказа Telegram — обложка
-    // по-прежнему передаётся тем же вызовом.
-    expect(CODE).toMatch(/aiSent = await tgSendRich\([^)]*cover\.url[,)]/);
+    expect(CODE).toMatch(/aiSent = await tgSendRich\([^)]*coverUrl[,)]/);
   });
 
   it('обложка — превью над полным текстом, а не подпись к фото', () => {

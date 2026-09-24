@@ -42,6 +42,7 @@ import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-f
 import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT, repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { polishDigest } from '@/lib/text/digest-polish';
 import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
+import { digestCoverUrl, digestCoverTitles } from '@/lib/notifications/digest-cover';
 // Правило возраста используется здесь и переэкспортируется ниже: re-export
 // имя в область видимости НЕ вносит, поэтому импорт нужен отдельно.
 import { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
@@ -1514,20 +1515,24 @@ export async function runScoutDigest(): Promise<DigestResult> {
           .filter(i => i.url)
           .slice(0, 3)
           .map(i => [{ text: i.title.slice(0, 45) + (i.title.length > 45 ? '…' : ''), url: i.url }]);
-        // Обложка — как у новостей того же канала (postAINewsToChannel):
-        // сюжет от заголовков выпуска, seed от текста. До 02.09 дайджест
-        // уходил голым текстом среди постов с картинкой (скрин владельца).
-        // resolveCoverImage не бросает и всегда отдаёт URL; но покажет ли
-        // Telegram превью — решает его фетчер, и отказ превью отсюда не виден.
-        const cover = await resolveCoverImage(
-          digestHeadlines(aiDigest),
-          'ai',
-          hashStr(aiDigest) % 9_999_999,
-        );
+        // Обложка — своя карточка выпуска (24.09): дата и заголовки материалов.
+        // Генератор рисовал сцену по одному заголовку — из «AutoCAD» вышло
+        // серое здание, а выпуск из трёх разных тем одной сценой не описать
+        // (lib/notifications/digest-cover.ts). Подписать ссылку нечем (нет
+        // CRON_SECRET) — прежняя обложка генератора, и это сказано в лог.
+        let coverUrl = digestCoverUrl(today, digestCoverTitles(aiDigest));
+        if (!coverUrl) {
+          console.error('[scout-digest] карточка-обложка не собрана (нет секрета или заголовков) — обложка генератора');
+          coverUrl = (await resolveCoverImage(
+            digestHeadlines(aiDigest),
+            'ai',
+            hashStr(aiDigest) % 9_999_999,
+          )).url;
+        }
         // Подвал с реферальными ссылками владельца — после фактчека и обложки
         // (обложка строится по заголовкам самого выпуска, не по подвалу).
         const aiPost = withAiChannelFooter(aiDigest, TELEGRAM_TEXT_LIMIT, repairTelegramHtml);
-        aiSent = await tgSendRich(aiChannelId, aiPost, buttons.length > 0 ? buttons : undefined, cover.url, (reason) => { aiSkipDetail = reason; });
+        aiSent = await tgSendRich(aiChannelId, aiPost, buttons.length > 0 ? buttons : undefined, coverUrl, (reason) => { aiSkipDetail = reason; });
         aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }
