@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -76,7 +77,12 @@ export default function CheckoutClient() {
   const contactsFilled = contacts.tourist_name.length >= 2 && contacts.tourist_phone.length >= 10;
 
   const total = pendingItems.reduce(
-    (sum, i) => sum + i.price * (parseInt(getForm(i.tourId).participants_count) || 1), 0
+    // Единица цены — как на сервере (reserve.ts): тур «за группу» не множится.
+    (sum, i) => sum + bookingTotal({
+      basePrice: i.price,
+      priceUnit: i.priceUnit,
+      participants: parseInt(getForm(i.tourId).participants_count) || 1,
+    }), 0
   );
 
   const handleSubmit = async (e: React.FormEvent) => {

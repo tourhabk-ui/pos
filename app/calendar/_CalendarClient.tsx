@@ -29,6 +29,7 @@ interface Tour {
   activityLabel: string | null;
   locationName: string | null;
   price: number;
+  priceUnit?: string | null;
   durationHours: number | null;
   durationType: string | null;
   freeSlots: number;
@@ -541,6 +542,8 @@ export default function CalendarClient() {
           tourName={bookingTour.title}
           operatorName={bookingTour.operator.name}
           priceBase={bookingTour.price}
+          priceUnit={bookingTour.priceUnit}
+          duration={{ multi_day_count: null, duration_hours: bookingTour.durationHours }}
           minGroupSize={null}
           maxGroupSize={bookingTour.availableSlots}
           nextDeparture={selectedDate}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -30,6 +31,8 @@ interface BookingFormData {
   tourId: number;
   tourTitle: string;
   tourPrice: number;
+  priceUnit?: string | null;
+  duration?: { multi_day_count: number | null; duration_hours: number | null };
   tourImage: string | null;
   operatorName: string;
 }
@@ -81,7 +84,13 @@ function BookingFormCard({
    */
   const [accessToken, setAccessToken] = useState('');
 
-  const total = (data.tourPrice * participants).toLocaleString('ru-RU');
+  // Та же сумма, что запишет сервер (reserve.ts) и выставит QR.
+  const total = bookingTotal({
+    basePrice: Number(data.tourPrice),
+    priceUnit: data.priceUnit,
+    participants,
+    duration: data.duration,
+  }).toLocaleString('ru-RU');
   const minDate = new Date();
   minDate.setDate(minDate.getDate() + 1);
   const minDateStr = minDate.toISOString().split('T')[0];

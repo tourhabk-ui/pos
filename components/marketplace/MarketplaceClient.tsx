@@ -341,6 +341,7 @@ function TourCard({
         title: tour.title,
         operatorName: tour.operator_name,
         price: basePrice,
+        priceUnit: tour.price_unit,
         activityType: tour.activity_type,
         image: tour.tour_image,
       });

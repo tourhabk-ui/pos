@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
@@ -72,12 +73,14 @@ export async function POST(request: NextRequest) {
       multi_day_count: number | null;
       duration_hours: number | null;
       duration_type: string | null;
+      price_unit: string | null;
       operator_name: string; commission_current: string;
     }>(
       `SELECT ot.id, ot.title, ot.base_price, ot.currency, ot.operator_id,
               ot.min_participants, ot.max_participants, ot.is_active,
               ot.is_published, ot.deleted_at,
               ot.multi_day_count, ot.duration_hours, ot.duration_type,
+              ot.price_unit,
               p.name AS operator_name,
               -- Запасное значение — единая ставка платформы (10%, решение
               -- владельца 04.08). Раньше здесь стояло 15 и расходилось с 12%
@@ -198,7 +201,14 @@ export async function POST(request: NextRequest) {
     // v_tour_daily_occupancy и от счётчика не зависит.
 
     // 7. Финансовый расчёт
-    const baseTotal      = pricePerPerson * participants;
+    // pricePerPerson — это base_price (или цена дня из календаря), а за что
+    // она — решает единица: «за группу» не умножается на участников.
+    const baseTotal      = bookingTotal({
+      basePrice: pricePerPerson,
+      priceUnit: tour.price_unit,
+      participants,
+      duration: tour,
+    });
     const finalPrice     = baseTotal;
     // `Number(null)` здесь давало 0 — то есть НУЛЕВУЮ комиссию платформы,
     // молча, у любого партнёра без записанной ставки. Исход «ставка не

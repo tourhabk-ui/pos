@@ -1817,6 +1817,8 @@ export default function RouteDetailClient({ id }: { id: string }) {
           tourName={bookingOffer.tourName}
           operatorName={bookingOffer.operator.name}
           priceBase={bookingOffer.priceBase}
+          priceUnit={bookingOffer.priceUnit}
+          duration={{ multi_day_count: bookingOffer.multiDayCount, duration_hours: bookingOffer.durationHours }}
           minGroupSize={bookingOffer.minGroupSize}
           maxGroupSize={bookingOffer.maxGroupSize}
           nextDeparture={calendarDate ?? bookingOffer.nextDeparture}

@@ -7,6 +7,9 @@ export interface CartItem {
   title: string;
   operatorName: string;
   price: number;
+  /** operator_tours.price_unit. Нет у позиций, положенных до 24.09, — тогда
+   *  «за человека» (DEFAULT колонки); сумму заявки всё равно считает сервер. */
+  priceUnit?: string | null;
   activityType: string;
   image: string | null;
   addedAt: string;

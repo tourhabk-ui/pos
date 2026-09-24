@@ -61,6 +61,7 @@
  */
 
 import type { PoolClient } from 'pg';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import { transaction } from '@/lib/database';
 import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
 
@@ -151,9 +152,10 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       max_participants: number | null;
       multi_day_count: number | null;
       duration_hours: number | null;
+      price_unit: string | null;
     }>(
       `SELECT ot.operator_id, ot.title, ot.base_price, ot.max_participants,
-              ot.multi_day_count, ot.duration_hours
+              ot.multi_day_count, ot.duration_hours, ot.price_unit
          FROM operator_tours ot
         WHERE ot.id = $1 AND ot.is_active = true AND ot.is_published = true
           AND ot.deleted_at IS NULL
@@ -255,7 +257,14 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       }
     }
 
-    const totalPrice = Number(tour.base_price) * input.participants;
+    // Единица цены решает, на что умножать (lib/tours/booking-total.ts):
+    // тур «за группу» стоит base_price при любом числе участников.
+    const totalPrice = bookingTotal({
+      basePrice: Number(tour.base_price),
+      priceUnit: tour.price_unit,
+      participants: input.participants,
+      duration: tour,
+    });
 
     const inserted = await client.query<{ id: number; access_token: string }>(
       `INSERT INTO operator_bookings (

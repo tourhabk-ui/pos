@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { bookingTotal, normalizePriceUnit } from '@/lib/tours/booking-total';
+import { tourDurationDays } from '@/lib/bookings/duration';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Phone, Mail, User, ChevronRight } from 'lucide-react';
 import TourDateField from '@/components/marketplace/TourDateField';
@@ -11,6 +13,10 @@ import { funnelBeacon } from '@/lib/funnel/beacon';
 interface BookingFormProps {
   tourId: number;
   basePrice: number;
+  /** operator_tours.price_unit — за что стоит basePrice (lib/tours/booking-total). */
+  priceUnit?: string | null;
+  /** Длительность — нужна для «за человека в день». */
+  duration?: { multi_day_count: number | null; duration_hours: number | null };
   maxParticipants?: number;
   tourTitle?: string;
 }
@@ -19,7 +25,7 @@ function formatPrice(p: number): string {
   return new Intl.NumberFormat('ru-RU').format(p) + ' ₽';
 }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration }: BookingFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -63,7 +69,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const [pdConsent, setPdConsent] = useState(false);
 
   const participants = parseInt(formData.participants_count) || 1;
-  const totalPrice = basePrice * participants;
+  // Та же функция, что считает сумму заявки на сервере (reserve.ts): сумма
+  // на экране и в заявке совпадают, и тур «за группу» не множится на людей.
+  const totalPrice = bookingTotal({ basePrice, priceUnit, participants, duration });
+  const unit = normalizePriceUnit(priceUnit);
+  const days = unit === 'per_day_per_person' && duration ? tourDurationDays(duration) : 1;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -270,7 +280,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-sm text-[var(--text-muted)]">
-              {formatPrice(basePrice)} × {participants} чел.
+              {unit === 'per_tour'
+                ? `${formatPrice(basePrice)} за группу · ${participants} чел.`
+                : unit === 'per_day_per_person' && days > 1
+                ? `${formatPrice(basePrice)} × ${participants} чел. × ${days} дн.`
+                : `${formatPrice(basePrice)} × ${participants} чел.`}
             </p>
             <p className="text-2xl font-bold text-[var(--text-primary)]">
               {formatPrice(totalPrice)}
