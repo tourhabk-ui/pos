@@ -37,7 +37,7 @@ export interface PackTilesInfo {
   total: number;
   failed: number;
   droppedZooms: number[];
-  coverage: 'corridor' | 'bbox';
+  coverage: 'corridor' | 'bbox' | 'packs';
   bufferKm: number | null;
   mb: number;
   /** Пример URL тайлов для выборочной проверки Cache Storage. */

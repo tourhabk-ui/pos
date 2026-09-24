@@ -1,0 +1,81 @@
+name: Карта без связи — проверка делом (Chromium на раннере)
+
+# Скрин владельца 24.09 «Карта не сохраняеться»: кнопка «Сохранить» на
+# полевом экране слала список растровых тайлов OSM, закачка которых
+# выключена с 28.08. Её перевели на свои пакеты (lib/offline/pack-files.ts,
+# pack-download.ts, ветка пакетов в public/sw.js). Юнит-тесты держат части;
+# этот прогон — связку: настоящий sw.js и настоящий модуль закачки в
+# Chromium, настоящие файлы пакета, обрыв связи, карта из сохранённого — и
+# контроль без сохранения, который обязан НЕ нарисоваться.
+#
+# Где исполняется (§8): раннер достаёт до бакета; контейнер Claude — нет.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/offline-pack-check.json'
+
+permissions:
+  # write — только ради ветки offline-check с кадрами и отчётом.
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Chromium для Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Сохранить пакет, оборвать связь, открыть карту
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::Секрета S3_BUCKET нет — брать пакет неоткуда."
+            exit 2
+          fi
+          PACK=$(python3 -c "import json;print(json.load(open('.github/triggers/offline-pack-check.json')).get('pack','cell-53n158e'))")
+          set +e
+          npx tsx scripts/map-tiles/offline-pack-check.ts --pack "$PACK" --out .cache/offline-check | tee offline-check.log
+          code=${PIPESTATUS[0]}
+          set -e
+          mkdir -p .cache/offline-check && cp offline-check.log .cache/offline-check/
+          {
+            echo '### Карта без связи'
+            echo '```'
+            cat offline-check.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+
+      # Кадры и отчёт — в ветку offline-check (orphan, force): артефакт
+      # прогона из контейнера Claude не скачать, а файл ветки читается.
+      - name: Кадры и отчёт — в ветку offline-check
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -d .cache/offline-check ]; then echo "отчёта нет — ветку не трогаю"; exit 0; fi
+          TMP=$(mktemp -d)
+          cp .cache/offline-check/* "$TMP"/
+          cd "$TMP"
+          git init -q -b offline-check
+          git config user.name "offline-pack-check"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Карта без связи: прогон ${GITHUB_RUN_ID}, ${GITHUB_REF_NAME} @ ${GITHUB_SHA:0:8}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/offline-check

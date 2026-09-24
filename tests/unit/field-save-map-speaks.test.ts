@@ -28,9 +28,11 @@
  * ── Что держит сторож ─────────────────────────────────────────────────────
  *
  * Не текст сообщений, а отсутствие немых выходов: у каждой ветки отказа есть
- * слова, и полоса действий их показывает. Сторож НЕ требует, чтобы карта
- * качалась: закачка выключена владельцем, и включать её обратно — отдельное
- * решение. Требуется только, чтобы отказ был назван.
+ * слова, и полоса действий их показывает.
+ *
+ * С 24.09 (скрин владельца «Карта не сохраняеться») кнопка качает свои
+ * пакеты карты — растровая закачка OSM остаётся выключенной (M0, 28.08), но
+ * полевой экран её больше не зовёт.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -81,14 +83,18 @@ describe('у сохранения карты нет немых выходов', 
   });
 
   it('исключение не глушится пустым catch', () => {
-    // Проверяется ВНЕШНИЙ catch — тот, что закрывает отправку сообщения
-    // service worker'у. Внутренний `catch { /* ignore */ }` у записи в
-    // localStorage законен и остаётся: приватный режим отказывает в записи,
-    // а пакет при этом уже сохранён, и пугать этим человека нечем.
-    expect(body).toMatch(/sw\.postMessage\(\{ type: 'CACHE_TILES'[\s\S]{0,80}\}\);\s*\} catch \(err\)/);
+    // Проверяется ВНЕШНИЙ catch — тот, что закрывает закачку пакетов.
+    // Внутренний `catch { /* ignore */ }` у записи в localStorage законен и
+    // остаётся: приватный режим отказывает в записи, а карта при этом уже
+    // сохранена, и пугать этим человека нечем.
+    expect(body).toMatch(/await downloadPackFiles\([\s\S]*?\} catch \(err\)/);
     expect(body).toMatch(/console\.error\('\[field-pack\]/);
     // Прогресс обязан сняться: иначе кнопка навсегда останется «занята».
     expect(body).toMatch(/catch \(err\)[\s\S]*?setTileDl\(null\)/);
+  });
+
+  it('нет Cache Storage — сказано, что хранить негде', () => {
+    expect(body).toMatch(/if \(typeof caches === 'undefined'\) \{[\s\S]*?setSaveMapError\(/);
   });
 });
 
@@ -110,23 +116,44 @@ describe('полоса действий показывает отказ сохр
 });
 
 describe('ответ «закачка недоступна» доходит до человека', () => {
-  it('service worker отвечает именно так, а не молчит', () => {
-    // Пока это так, кнопка не может добиться успеха НИ РАЗУ — и тем важнее,
-    // чтобы она говорила. Включать закачку обратно — решение владельца
-    // (M0, 28.08), сторож на него не покушается.
+  it('service worker на CACHE_TILES по-прежнему отвечает отказом словами', () => {
+    // Растровая массовая закачка OSM выключена (M0, 28.08) и остаётся
+    // выключенной: её ещё зовут другие экраны, и им отказ должен быть назван.
     expect(SW).toMatch(/type: 'TILES_UNAVAILABLE'/);
     expect(SW).toMatch(/reason: 'Массовая закачка карты временно недоступна/);
   });
+});
 
-  it('экран разбирает этот ответ и кладёт причину в отказ', () => {
-    const body = saveMapBody();
-    expect(body).toMatch(/TILES_UNAVAILABLE/);
-    expect(body).toMatch(/setSaveMapError\(m\.reason/);
+describe('полевой экран сохраняет СВОИ пакеты и называет каждую неудачу (24.09)', () => {
+  // Скрин владельца 24.09 «Карта не сохраняеться»: кнопка слала CACHE_TILES,
+  // service worker честно отвечал «недоступно» — и так было всегда, успеха
+  // у кнопки не было ни одного. Теперь она качает свои пакеты.
+  const body = saveMapBody();
+
+  it('не зовёт выключенную растровую закачку', () => {
+    expect(body).not.toMatch(/CACHE_TILES/);
+    expect(body).toMatch(/await downloadPackFiles\(mapPlan\.files/);
   });
 
-  it('и снимает индикатор прогресса, а не оставляет кнопку занятой', () => {
-    const body = saveMapBody();
-    const branch = body.slice(body.indexOf('TILES_UNAVAILABLE'));
-    expect(branch.slice(0, 400)).toMatch(/setTileDl\(null\)/);
+  it('ноль сохранённых — отказ с первой причиной, а не запись «сохранено»', () => {
+    expect(body).toMatch(/if \(res\.saved === 0\) \{\s*setSaveMapError\(`Карта не сохранилась: \$\{res\.failed\[0\]\?\.why/);
+    // Запись о сохранении идёт ПОСЛЕ проверки нуля.
+    expect(body.indexOf('res.saved === 0')).toBeLessThan(body.indexOf('setSavedMap(rec)'));
+  });
+
+  it('частичная закачка названа: сколько из скольких и что не легло', () => {
+    expect(body).toMatch(/Сохранено \$\{res\.saved\} из \$\{mapPlan\.tiles\} файлов карты — не легли/);
+    expect(body).toMatch(/assemblePack\(routeId, res\.failed\.length, persisted\)/);
+  });
+
+  it('место проверяется до закачки, а не после сотни мегабайт', () => {
+    expect(body.indexOf('navigator.storage?.estimate')).toBeGreaterThan(-1);
+    expect(body.indexOf('navigator.storage?.estimate')).toBeLessThan(body.indexOf('await downloadPackFiles'));
+    expect(body).toMatch(/Не хватит места: карта ~\$\{mapPlan\.mb\} МБ/);
+  });
+
+  it('прогресс снимается и после удачи, и после отказа', () => {
+    const after = body.slice(body.indexOf('await downloadPackFiles'));
+    expect(after.indexOf('setTileDl(null)')).toBeLessThan(after.indexOf('res.saved === 0'));
   });
 });

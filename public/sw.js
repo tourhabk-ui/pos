@@ -21,6 +21,16 @@ const TILE_CACHE_PREFIX = 'kh-tiles-';
 const TILE_CACHE_VERSION = 6; // bumped: .cz → OSM, старый кеш kh-tiles-5 будет удалён
 const TILE_HOST = 'tile.openstreetmap.org';
 
+// Свои пакеты карты (24.09): страница кладёт файлы в этот кэш по кнопке
+// «Сохранить карту» (lib/offline/pack-download.ts), отсюда они отдаются карте
+// без связи. Имя — то же, что PACK_CACHE_NAME в lib/offline/pack-files.ts
+// (сторож держит равенство). Хранилище пакетов — s3.twcstorage.ru, путь
+// /map-packs/: и рельеф, и горизонтали, и места, и глифы подписей.
+const PACK_CACHE_NAME = 'kh-packs-v1';
+function isPackRequest(url) {
+  return url.hostname.endsWith('twcstorage.ru') && url.pathname.includes('/map-packs/');
+}
+
 // Массовая закачка тайлов с tile.openstreetmap.org — УБРАНА (владелец 28.08,
 // M0-безопасность по итогам аудита).
 //
@@ -154,7 +164,10 @@ self.addEventListener('activate', (event) => {
         keys
           .filter((key) => key !== CACHE_NAME
             && key !== `${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`
-            && key !== API_CACHE_NAME)
+            && key !== API_CACHE_NAME
+            // Сохранённая карта переживает обновление service worker'а:
+            // без этой строки первая же выкатка стирала бы её молча.
+            && key !== PACK_CACHE_NAME)
           .map((key) => caches.delete(key))
       );
     }).then(() => self.clients.claim())
@@ -289,6 +302,52 @@ async function handleTileRequest(request) {
     // прозрачный PNG fallback честнее, чем пустой прямоугольник.
     return makeTransparentPngResponse();
   }
+}
+
+// ─── Свои пакеты карты ─────────────────────────────────────────────────────
+
+/**
+ * Отдать файл пакета: из кэша, если он сохранён, иначе из сети.
+ *
+ * Читатель PMTiles просит куски файла заголовком Range, а в кэше лежит файл
+ * целиком (Cache Storage не хранит частичные ответы). Кусок режется из
+ * сохранённого Blob — нарезка ленивая, файл в память целиком не читается.
+ * ETag сохранённого файла едет в каждый кусок: читатель сверяет его между
+ * запросами и на расхождении бросает архив.
+ *
+ * Не сохранено и сети нет — отказ сети, как и без service worker'а. Разметку
+ * /offline сюда не подсовываем никогда: читатель ждёт байты, а не HTML.
+ */
+async function servePack(request) {
+  let hit;
+  try {
+    const cache = await caches.open(PACK_CACHE_NAME);
+    hit = await cache.match(request.url);
+  } catch (err) {
+    hit = undefined;
+  }
+  if (!hit) return fetch(request);
+
+  const range = request.headers.get('Range');
+  if (!range) return hit;
+  const m = /^bytes=(\d+)-(\d*)$/.exec(range.trim());
+  const blob = await hit.blob();
+  const size = blob.size;
+  if (!m) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+  const start = Number(m[1]);
+  const end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
+  if (start >= size || end < start) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+  }
+  const headers = new Headers({
+    'Content-Type': hit.headers.get('Content-Type') || 'application/octet-stream',
+    'Content-Length': String(end - start + 1),
+    'Content-Range': `bytes ${start}-${end}/${size}`,
+    'Accept-Ranges': 'bytes',
+  });
+  const etag = hit.headers.get('ETag');
+  if (etag) headers.set('ETag', etag);
+  return new Response(blob.slice(start, end + 1), { status: 206, statusText: 'Partial Content', headers });
 }
 
 // ─── postMessage: управление tile cache ───────────────────────────────────
@@ -465,6 +524,15 @@ self.addEventListener('fetch', (event) => {
   // горизонталей — HTML вместо GeoJSON. Cache API к тому же не хранит
   // частичные ответы (cache.put на 206 отказывает), так что кэшировать
   // здесь всё равно нечего. Офлайн-пакет карты — отдельный слой, не этот.
+  // Файл своего пакета карты: сохранённый — из кэша (с нарезкой Range для
+  // читателя PMTiles), несохранённый — из сети как есть. Закачка и замер веса
+  // идут с cache: 'no-store' — им нужна сеть, а не прежняя копия.
+  if (isPackRequest(url)) {
+    if (request.cache === 'no-store') return;
+    event.respondWith(servePack(request));
+    return;
+  }
+
   if (url.origin !== self.location.origin && url.hostname !== TILE_HOST) return;
 
   // RSC-запрос Next (клиентский переход по <Link>): просят ПЕЙЛОАД, не документ.

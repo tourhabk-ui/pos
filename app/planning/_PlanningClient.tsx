@@ -36,6 +36,8 @@ import {
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { builtRegionPacks, chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
+import { planPackFiles, type PackFile } from '@/lib/offline/pack-files';
+import { measurePackFiles, downloadPackFiles, totalMb } from '@/lib/offline/pack-download';
 import { coverageNotice, parsePackManifest } from '@/lib/map/pack-manifest';
 import { VedarZoomButtons, VEDAR_ATTRIBUTION, type VedarMapHandle, type VedarMapLine, type VedarMapPoint } from '@/components/shared/VedarMap';
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
@@ -784,13 +786,17 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const previewCacheRef = useRef<Map<string, {
     wps: SavedWaypoint[]; grade: PassportGrade | null; navigability: PreviewNavigability | null;
   }>>(new Map());
-  const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
+  const [tileDl, setTileDl] = useState<{ done: number; total: number; unit: 'МБ' | 'файлов' } | null>(null);
   /** Массовая закачка карты отключена (M0, владелец 28.08) — причина словами. */
   const [saveMapError, setSaveMapError] = useState<string | null>(null);
   /** План скачивания: сколько это будет весить, пока не скачано. */
   const [mapPlan, setMapPlan] = useState<{
     tiles: number; mb: number; zooms: number[]; dropped: number[];
-    coverage: 'corridor' | 'bbox'; bufferKm: number | null; urls: string[];
+    coverage: 'corridor' | 'bbox' | 'packs'; bufferKm: number | null; urls: string[];
+    /** Файлы своих пакетов (24.09) — то, что кнопка кладёт в телефон. */
+    files: PackFile[];
+    /** Сколько файлов сервер не назвал по весу: МБ на кнопке — нижняя граница. */
+    unknownSize: number;
   } | null>(null);
   /**
    * Почему плана НЕТ — третье состояние (§4.0).
@@ -893,22 +899,42 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         setMapPlanError(`Сервер не отдал план карты (${why})`);
         return;
       }
-      if (!Array.isArray(data.tile_urls) || data.tile_urls.length === 0) {
-        // Ноль тайлов при живом ответе — не «карта не нужна»: у маршрута
-        // нет линии или координат, и коридор построить не из чего.
-        console.error('[offline-bundle] план пуст: тайлов ноль');
-        setMapPlanError('Для этого маршрута карту нарезать не из чего: нет линии или координат');
+      // Карта в поле — свои пакеты (24.09), а не растровые тайлы OSM: их
+      // массовая закачка выключена с 28.08, и кнопка не могла сохранить ни
+      // разу. Сервер отдаёт рамку маршрута; клетки по ней выбираются здесь,
+      // из того же реестра пакетов, которым карта рисует поле.
+      const b = (data.route_bounds ?? data.bbox) as Record<string, unknown> | undefined;
+      const bounds = b && [b.south, b.west, b.north, b.east].every(x => typeof x === 'number' && Number.isFinite(x))
+        ? { south: b.south as number, west: b.west as number, north: b.north as number, east: b.east as number }
+        : null;
+      const plan = planPackFiles(bounds, regionPacks);
+      if (!plan || plan.files.length === 0) {
+        // Ноль файлов при живом ответе — не «карта не нужна»: либо у
+        // маршрута нет координат, либо пакетов под ним не собрано.
+        console.error('[offline-bundle] план пуст:', bounds ? 'под рамкой нет пакетов' : 'рамки нет');
+        setMapPlanError(bounds
+          ? 'Под этим маршрутом нет собранных пакетов карты — сохранить нечего'
+          : 'Для этого маршрута карту выбрать не из чего: нет линии или координат');
         return;
       }
+      const measured = await measurePackFiles(plan.files);
+      // Диапазона глифов, которого в хранилище нет (404), нет и в плане:
+      // качать нечего, а «не лёг» у него делало бы карту вечно неполной.
+      // Прочие 404 остаются — это пропавший файл пакета, и о нём скажут.
+      const sized = measured.filter(f => !(f.kind === 'glyphs' && f.status === 404));
+      const { mb, unknown } = totalMb(sized);
       setMapPlanError(null);
       setMapPlan({
-        tiles: Number(data.tile_count) || data.tile_urls.length,
-        mb: Number(data.estimate_mb) || 0,
-        zooms: Array.isArray(data.zoom_levels) ? data.zoom_levels : [],
-        dropped: Array.isArray(data.dropped_zooms) ? data.dropped_zooms : [],
-        coverage: data.tile_coverage === 'bbox' ? 'bbox' : 'corridor',
-        bufferKm: typeof data.corridor_buffer_km === 'number' ? data.corridor_buffer_km : null,
-        urls: data.tile_urls as string[],
+        tiles: sized.length,
+        mb,
+        // Обзор края — зумы 4-7, клетки и районы — 8-13 (pack-source).
+        zooms: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        dropped: [],
+        coverage: 'packs',
+        bufferKm: null,
+        urls: sized.map(f => f.url),
+        files: sized.map(({ url, kind, pack }) => ({ url, kind, pack })),
+        unknownSize: unknown,
       });
     } catch (err) {
       // Молчать нельзя: без плана нет и кнопки сохранения.
@@ -916,7 +942,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       console.error('[offline-bundle] запрос плана не выполнен:', why);
       setMapPlanError('Не смогли спросить сервер о карте — проверьте связь и повторите');
     }
-  }, []);
+  }, [regionPacks]);
 
   /**
    * Сверить заявление о скачанной карте с тем, что в телефоне НА САМОМ ДЕЛЕ.
@@ -1064,12 +1090,22 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     // «кнопка скачать не работает». Кнопка при этом отрабатывала штатно и
     // молчала — а молчание на экране подготовки к выходу читается как
     // «сохранилось» (§4.0).
+    //
+    // С 24.09 кнопка качает СВОИ пакеты карты (клетки под маршрутом, обзор
+    // края, глифы подписей) в Cache Storage, откуда их отдаёт service worker.
+    // До этого она слала список растровых тайлов OSM, закачка которых
+    // выключена с 28.08, — и не сохранила ни разу (скрин владельца 24.09
+    // «Карта не сохраняеться»).
     if (!mapPlan) {
       setSaveMapError('План карты ещё не посчитан — подождите или обновите экран');
       return;
     }
     if (!navigator.serviceWorker) {
       setSaveMapError('Браузер не умеет сохранять карту офлайн (нет service worker)');
+      return;
+    }
+    if (typeof caches === 'undefined') {
+      setSaveMapError('Браузер не даёт хранилища для карты (нет Cache Storage)');
       return;
     }
     // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
@@ -1079,47 +1115,61 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     try {
       const reg = await navigator.serviceWorker.ready;
       const sw = reg.active;
+      // Без активного service worker'а файлы лягут в кэш, но отдать их карте
+      // без связи будет некому.
       if (!sw) {
         setSaveMapError('Офлайн-хранилище ещё не проснулось — повторите через несколько секунд');
         return;
       }
+      // Места — до закачки, а не после сотни мегабайт трафика.
+      const est = await navigator.storage?.estimate?.().catch(() => null);
+      if (est && typeof est.quota === 'number' && typeof est.usage === 'number' && mapPlan.mb > 0) {
+        const freeMb = Math.floor((est.quota - est.usage) / 1e6);
+        if (freeMb < mapPlan.mb * 1.1) {
+          setSaveMapError(`Не хватит места: карта ~${mapPlan.mb} МБ, свободно ~${freeMb} МБ`);
+          return;
+        }
+      }
       setSaveMapError(null);
-      setTileDl({ done: 0, total: mapPlan.tiles });
-      const onMsg = (e: MessageEvent) => {
-        if ((e.data as { regionId?: string })?.regionId !== routeId) return;
-        const m = e.data as { type: string; done: number; failed?: number; total: number; reason?: string };
-        if (m.type === 'TILE_PROGRESS') setTileDl({ done: m.done, total: m.total });
-        // Массовая закачка отключена (M0, владелец 28.08): SW отвечает этим
-        // ВМЕСТО TILES_DONE — честно, без попытки скачать хоть один тайл.
-        if (m.type === 'TILES_UNAVAILABLE') {
-          setTileDl(null);
-          setSaveMapError(m.reason || 'Скачивание карты для офлайна временно недоступно');
-          navigator.serviceWorker.removeEventListener('message', onMsg);
-        }
-        if (m.type === 'TILES_DONE') {
-          setTileDl(null);
-          const rec: SavedMapRecord = {
-            at: Date.now(), tiles: mapPlan.tiles, mb: mapPlan.mb,
-            zooms: mapPlan.zooms, droppedZooms: mapPlan.dropped,
-            coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, persisted,
-            sampleUrls: evenSample(mapPlan.urls, SAVED_PROBE_SIZE),
-          };
-          setSavedMap(rec);
-          try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
-          navigator.serviceWorker.removeEventListener('message', onMsg);
-          // Пакет собирается той же кнопкой: карта, линия, точки и снимок
-          // условий — один шаг, а не три разных «сохранить».
-          void assemblePack(routeId, m.failed ?? 0, persisted);
-        }
+      const totalMbPlan = mapPlan.mb;
+      setTileDl(totalMbPlan > 0
+        ? { done: 0, total: totalMbPlan, unit: 'МБ' }
+        : { done: 0, total: mapPlan.tiles, unit: 'файлов' });
+      const res = await downloadPackFiles(mapPlan.files, (p) => {
+        setTileDl(totalMbPlan > 0
+          ? { done: Math.min(totalMbPlan, Math.floor(p.bytesDone / 1e6)), total: totalMbPlan, unit: 'МБ' }
+          : { done: p.done, total: p.total, unit: 'файлов' });
+      });
+      setTileDl(null);
+      if (res.failed.length > 0) {
+        console.error('[field-pack] не легли файлы карты, маршрут', routeId,
+          res.failed.map(f => `${f.kind}: ${f.why}`).join('; '));
+      }
+      if (res.saved === 0) {
+        setSaveMapError(`Карта не сохранилась: ${res.failed[0]?.why ?? 'причина неизвестна'}`);
+        return;
+      }
+      if (res.failed.length > 0) {
+        setSaveMapError(`Сохранено ${res.saved} из ${mapPlan.tiles} файлов карты — не легли: `
+          + res.failed.map(f => f.kind).join(', ') + '. Повторите, пока есть связь');
+      }
+      const rec: SavedMapRecord = {
+        at: Date.now(), tiles: mapPlan.tiles, mb: Math.round(res.bytes / 1e6) || mapPlan.mb,
+        zooms: mapPlan.zooms, droppedZooms: mapPlan.dropped,
+        coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, persisted,
+        sampleUrls: evenSample(mapPlan.urls, SAVED_PROBE_SIZE),
       };
-      navigator.serviceWorker.addEventListener('message', onMsg);
-      sw.postMessage({ type: 'CACHE_TILES', tiles: mapPlan.urls, regionId: routeId });
+      setSavedMap(rec);
+      try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
+      // Пакет собирается той же кнопкой: карта, линия, точки и снимок
+      // условий — один шаг, а не три разных «сохранить».
+      void assemblePack(routeId, res.failed.length, persisted);
     } catch (err) {
       // Пустой catch превращал поломку в «данных нет» — здесь он превращал её
       // в «ничего не случилось», что перед выходом в поле дороже.
       setTileDl(null);
-      setSaveMapError('Не удалось начать сохранение карты. Попробуйте ещё раз.');
-      console.error('[field-pack] сохранение карты не началось, маршрут',
+      setSaveMapError('Не удалось сохранить карту. Попробуйте ещё раз.');
+      console.error('[field-pack] сохранение карты не удалось, маршрут',
         routeId, err instanceof Error ? err.message : err);
     }
   }, [mapPlan, assemblePack]);
@@ -3623,7 +3673,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         icon: <Download className="w-6 h-6" />,
         busy: downloading,
         hint: downloading
-          ? `${tileDl!.done}/${tileDl!.total}`
+          ? `${tileDl!.done}/${tileDl!.total} ${tileDl!.unit}`
           : (mapPlan.mb > 0 ? `${mapPlan.mb} МБ` : null),
         onPress: () => { const id = crumbsRouteRef.current; if (id) void saveMap(id); },
       });
@@ -3982,7 +4032,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                     onClick={() => { const id = crumbsRouteRef.current; if (id) void saveMap(id); }}
                     className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
                     style={{ background: 'var(--warning)', color: 'var(--bg-primary)', opacity: downloading ? 0.7 : 1 }}>
-                    {downloading ? `${tileDl!.done}/${tileDl!.total}` : 'Сохранить'}
+                    {downloading ? `${tileDl!.done}/${tileDl!.total} ${tileDl!.unit}` : 'Сохранить'}
                   </button>
                 )}
               </div>
@@ -4652,7 +4702,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           {tileDl && tileDl.total > 0 ? (
             <div className="flex items-center gap-2">
               <Download className="w-3.5 h-3.5 animate-pulse" style={{ color: 'var(--success)' }} />
-              Сохраняем карту: {tileDl.done} / {tileDl.total}
+              Сохраняем карту: {tileDl.done} / {tileDl.total} {tileDl.unit}
               <span className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: '#21262d' }}>
                 <span className="block h-full rounded-full"
                   style={{ width: `${Math.round((tileDl.done / tileDl.total) * 100)}%`, background: 'var(--success)' }} />
@@ -4754,9 +4804,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                 {mapPlan.mb > 0 ? `Сохранить полевой пакет · ${mapPlan.mb} МБ` : 'Сохранить полевой пакет'}
               </button>
               <span>
-                {mapPlan.coverage === 'corridor' && mapPlan.bufferKm
-                  ? `полоса ${mapPlan.bufferKm} км вдоль маршрута`
-                  : 'квадрат вокруг места'}
+                {mapPlan.coverage === 'packs'
+                  ? `клетки карты вокруг маршрута целиком, файлов ${mapPlan.tiles}`
+                    + (mapPlan.unknownSize > 0 ? ` (у ${mapPlan.unknownSize} вес неизвестен)` : '')
+                  : mapPlan.coverage === 'corridor' && mapPlan.bufferKm
+                    ? `полоса ${mapPlan.bufferKm} км вдоль маршрута`
+                    : 'квадрат вокруг места'}
               </span>
               {saveMapError && (
                 <span className="w-full" style={{ color: 'var(--warning)' }}>{saveMapError}</span>

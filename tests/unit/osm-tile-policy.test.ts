@@ -190,11 +190,12 @@ describe('LeafletMap.tsx — стадия отказа диагностируе�
 });
 
 describe('CACHE_TILES-отправители честно обрабатывают TILES_UNAVAILABLE', () => {
-  it('app/planning/_PlanningClient.tsx (сохранение полевого пакета)', () => {
-    expect(PLANNING).toContain("m.type === 'TILES_UNAVAILABLE'");
-    const at = PLANNING.indexOf("m.type === 'TILES_UNAVAILABLE'");
-    const body = PLANNING.slice(at, at + 250);
-    expect(body).toContain('setSaveMapError(');
+  it('app/planning/_PlanningClient.tsx — больше не отправитель: карта из своих пакетов (24.09)', () => {
+    // Полевой экран слал CACHE_TILES и честно показывал отказ — но сохранить
+    // не мог ни разу. С 24.09 кнопка качает свои пакеты (lib/offline/
+    // pack-download.ts) и к tile.openstreetmap.org массово не ходит вовсе.
+    expect(PLANNING).not.toContain("type: 'CACHE_TILES'");
+    expect(PLANNING).toMatch(/await downloadPackFiles\(mapPlan\.files/);
   });
 
   it('app/routes/[id]/_RouteDetailClient.tsx (офлайн-бандл маршрута)', () => {

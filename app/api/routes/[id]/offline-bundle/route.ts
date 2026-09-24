@@ -134,6 +134,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     : [];
 
   const corridor = track.length >= 2 ? planCorridor(track) : null;
+
+  // Рамка маршрута по линии И точкам, без полей (24.09): по ней экран выбирает
+  // клетки своих пакетов карты для офлайна. `bbox` выше собран только по
+  // точкам — у маршрута, чья линия уходит от точек, клетка с хвостом трека
+  // не попала бы в закачку.
+  const allLats = [...lats, ...track.map(([la]) => la)];
+  const allLngs = [...lngs, ...track.map(([, ln]) => ln)];
+  const routeBounds = {
+    south: Math.min(...allLats), north: Math.max(...allLats),
+    west: Math.min(...allLngs), east: Math.max(...allLngs),
+  };
   const tileUrls = corridor
     ? corridor.urls
     : tilesForBbox(bbox.north, bbox.south, bbox.east, bbox.west).slice(0, MAX_TILES);
@@ -165,6 +176,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // что «предупреждений нет». Пусть решает, глядя на дату.
     built_at: new Date().toISOString(),
     bbox,
+    route_bounds: routeBounds,
     tile_urls: tileUrls,
     tile_count: tileUrls.length,
     zoom_levels: corridor ? corridor.zooms : ZOOMS,

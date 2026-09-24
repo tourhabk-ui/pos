@@ -32,8 +32,11 @@ export interface SavedMapRecord {
   zooms: number[];
   /** Зумы, отброшенные потолком: карта есть, но грубее обещанной. */
   droppedZooms: number[];
-  /** Коридор по треку или квадрат вокруг точки. */
-  coverage: 'corridor' | 'bbox';
+  /**
+   * Коридор по треку или квадрат вокруг точки (растровые тайлы, до 28.08) —
+   * либо клетки своих пакетов целиком (с 24.09).
+   */
+  coverage: 'corridor' | 'bbox' | 'packs';
   bufferKm: number | null;
   /**
    * Закреплено ли хранилище. Без закрепления система вправе вычистить кэш при
@@ -76,7 +79,7 @@ export function parseSavedMap(raw: string | null): SavedMapRecord | null {
       mb: typeof d.mb === 'number' ? d.mb : 0,
       zooms: Array.isArray(d.zooms) ? (d.zooms as number[]) : [],
       droppedZooms: Array.isArray(d.droppedZooms) ? (d.droppedZooms as number[]) : [],
-      coverage: d.coverage === 'bbox' ? 'bbox' : 'corridor',
+      coverage: d.coverage === 'bbox' ? 'bbox' : d.coverage === 'packs' ? 'packs' : 'corridor',
       bufferKm: typeof d.bufferKm === 'number' ? d.bufferKm : null,
       persisted: d.persisted === true,
       sampleUrls: Array.isArray(d.sampleUrls)
@@ -109,6 +112,8 @@ export function savedMapSummary(rec: SavedMapRecord, now = Date.now()): string {
     parts.unshift(`полоса ${rec.bufferKm} км вдоль маршрута`);
   } else if (rec.coverage === 'bbox') {
     parts.unshift('квадрат вокруг места');
+  } else if (rec.coverage === 'packs') {
+    parts.unshift('клетки карты вокруг маршрута целиком');
   }
   return parts.join(' · ');
 }
