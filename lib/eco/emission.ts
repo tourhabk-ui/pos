@@ -38,6 +38,13 @@ export interface EmissionRule {
    * тестом, чтобы автоматический путь не появился по недосмотру.
    */
   requiresModeration?: boolean;
+  /**
+   * Выдаётся только за то, что человек сделал ПОСЛЕ завершённой поездки:
+   * отзыв о туре пишется лишь при брони в статусе completed и один на тур
+   * (POST /api/reviews/tour/[tourId]). Этот гейт и есть защита от фарма —
+   * без оплаченной и завершённой поездки начислить нечего.
+   */
+  requiresCompletedBooking?: boolean;
   /** Полевое событие: координаты обязаны быть в границах Камчатки. */
   requiresKamchatkaGeo?: boolean;
   /** Через сколько дней сгорает. null — не сгорает. */
@@ -62,7 +69,10 @@ export const EMISSION_RULES: Record<string, EmissionRule> = {
     amount: 50,
     description: 'Отзыв',
     perDayLimit: 3,
-    requiresModeration: true,
+    // До 24.09 стояло requiresModeration, а модерации у отзывов о турах нет
+    // (публикуются сразу, скрываются после) — и начисления не было вовсе:
+    // кошелёк обещал «+50», не платя никому. Гейт — завершённая поездка.
+    requiresCompletedBooking: true,
     expiresInDays: YEAR,
   },
   photo: {
@@ -70,7 +80,7 @@ export const EMISSION_RULES: Record<string, EmissionRule> = {
     amount: 20,
     description: 'Фото к отзыву',
     perDayLimit: 3,
-    requiresModeration: true,
+    requiresCompletedBooking: true,
     expiresInDays: YEAR,
   },
   first_booking: {

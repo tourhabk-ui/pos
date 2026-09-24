@@ -1017,7 +1017,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 {/* scroll-mt: на якорь ведут карточка решения и нижняя панель —
                     без отступа форма прилипает к самому верху вьюпорта. */}
                 <div id="booking" className="scroll-mt-24">
-                  <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title} />
+                  <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
+                    priceUnit={tour.price_unit}
+                    duration={{ multi_day_count: tour.multi_day_count, duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours) }} />
                 </div>
 
                 <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] p-3 flex items-start gap-2">

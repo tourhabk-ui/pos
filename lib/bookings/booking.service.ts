@@ -12,6 +12,7 @@
  */
 
 import { PoolClient } from 'pg';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import { query, transaction } from '@/lib/database';
 import { notifyBookingConfirmed, notifyBookingCancelled } from '@/lib/notifications/booking-notifications';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
@@ -367,7 +368,7 @@ export async function rescheduleBooking(
 
     // Получаем целевой тур
     const targetTourResult = await client.query(
-      `SELECT id, operator_id, max_participants, base_price, title, is_active FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT id, operator_id, max_participants, base_price, price_unit, multi_day_count, duration_hours, title, is_active FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
       [input.targetTourId]
     );
 
@@ -410,7 +411,15 @@ export async function rescheduleBooking(
       throw new Error('Недостаточно мест на выбранную дату');
     }
 
-    const newTotalPrice = Number(targetTour.base_price) * participants;
+    const newTotalPrice = bookingTotal({
+      basePrice: Number(targetTour.base_price),
+      priceUnit: targetTour.price_unit,
+      participants,
+      duration: {
+        multi_day_count: targetTour.multi_day_count == null ? null : Number(targetTour.multi_day_count),
+        duration_hours: targetTour.duration_hours == null ? null : Number(targetTour.duration_hours),
+      },
+    });
     const oldTotalPrice = Number(bookingRow.total_price ?? 0);
     const nextPaymentStatus = newTotalPrice === oldTotalPrice
       ? String(bookingRow.payment_status ?? 'pending')

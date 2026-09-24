@@ -12,6 +12,10 @@ export interface TourSuggestion {
   title: string;
   description: string | null;
   base_price: number;
+  /** За что стоит base_price — нужно форме брони в чате (lib/tours/booking-total). */
+  price_unit: string | null;
+  multi_day_count: number | null;
+  duration_hours: number | null;
   activity_type: string | null;
   location_type: string | null;
   location: string | null;
@@ -81,6 +85,7 @@ export async function findRelevantTours(
          ot.title,
          LEFT(ot.description, 120) AS description,
          ot.base_price,
+         ot.price_unit, ot.multi_day_count, ot.duration_hours::float AS duration_hours,
          ot.activity_type,
          ot.location_type,
          ot.location_name AS location,
@@ -102,6 +107,7 @@ export async function findRelevantTours(
            ot.id, ot.title,
            LEFT(ot.description, 120) AS description,
            ot.base_price, ot.activity_type,
+           ot.price_unit, ot.multi_day_count, ot.duration_hours::float AS duration_hours,
            ot.location_type, ot.location_name AS location, ot.tour_image,
            p.name AS operator_name
          FROM operator_tours ot

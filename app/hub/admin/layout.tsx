@@ -33,6 +33,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/content/tours', label: 'Модерация туров', icon: FileText, section: 'Контент' },
   { href: '/hub/admin/content/routes', label: 'Модерация маршрутов', icon: Route, section: 'Контент' },
   { href: '/hub/admin/content/reviews', label: 'Отзывы', icon: MessageSquareText, section: 'Контент' },
+  { href: '/hub/admin/content/tour-reviews', label: 'Отзывы о турах', icon: MessageSquareText, section: 'Контент' },
   { href: '/hub/admin/moderation', label: 'Модерация отзывов', icon: ShieldCheck, section: 'Контент' },
   { href: '/hub/admin/content/partners', label: 'Партнёры', icon: Briefcase, section: 'Контент' },
   { href: '/hub/admin/guide-certifications', label: 'Сертификаты гидов', icon: Award, section: 'Контент' },

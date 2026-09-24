@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
       perDayLimit: rule.perDayLimit,
       oncePerUser: rule.oncePerUser ?? false,
       requiresModeration: rule.requiresModeration ?? false,
+      requiresCompletedBooking: rule.requiresCompletedBooking ?? false,
     }));
 
     const spending = Object.values(ECO_SINKS).map((sink) => ({

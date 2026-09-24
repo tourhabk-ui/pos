@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import { requireOperator } from '@/lib/auth/middleware';
 import { PaginationSchema } from '@/lib/api/operator-tours';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
@@ -138,7 +139,7 @@ export async function POST(request: NextRequest) {
 
     // Verify tour belongs to this operator
     const tourResult = await query(
-      `SELECT id, title, base_price FROM operator_tours
+      `SELECT id, title, base_price, price_unit, multi_day_count, duration_hours FROM operator_tours
        WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL LIMIT 1`,
       [tourId, operator_id]
     );
@@ -148,7 +149,16 @@ export async function POST(request: NextRequest) {
     const tour = tourResult.rows[0];
     const tourTitle = tour.title as string;
     const basePrice = Number(tour.base_price);
-    const finalPrice = input.final_price ?? basePrice * input.participants;
+    const computedTotal = bookingTotal({
+      basePrice,
+      priceUnit: tour.price_unit as string | null,
+      participants: input.participants,
+      duration: {
+        multi_day_count: tour.multi_day_count == null ? null : Number(tour.multi_day_count),
+        duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
+      },
+    });
+    const finalPrice = input.final_price ?? computedTotal;
 
     const result = await query(
       `INSERT INTO operator_bookings (
@@ -168,7 +178,7 @@ export async function POST(request: NextRequest) {
         input.participants,
         input.adult_count || null,
         input.child_count || null,
-        basePrice * input.participants,
+        computedTotal,
         finalPrice,
         input.payment_status,
         input.payment_method || null,

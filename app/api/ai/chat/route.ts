@@ -437,7 +437,7 @@ export async function POST(request: NextRequest) {
         ...(tourSuggestions.length > 0 ? { tours: tourSuggestions } : {}),
         ...(sos.emergency ? { emergency: true } : {}),
         ...(visionDescription ? { visionDescription } : {}),
-        ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name } } : {}),
+        ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, priceUnit: bookingFormTour.price_unit, duration: { multi_day_count: bookingFormTour.multi_day_count, duration_hours: bookingFormTour.duration_hours }, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name } } : {}),
       },
     });
   } catch (error) {

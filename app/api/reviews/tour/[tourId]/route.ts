@@ -207,10 +207,34 @@ export async function POST(
       [id]
     ).catch(() => { /* рейтинг догонит следующий отзыв — сам отзыв уже сохранён */ });
 
+    // Эко за отзыв (+50) и за фото к нему (+20) — решение владельца 24.09
+    // «начисли баллы за отзыв и фото». До этого правила в кошельке обещали
+    // их, а начисления не звал никто. Гейт — завершённая бронь выше и «один
+    // отзыв на тур»; дедуп по (source, source_ref) внутри award, квоты там же.
+    // Отказ начисления не отменяет отзыв, но и не глушится: он в ответе и в логе.
+    const reviewRef = `tour_review:${String(result.rows[0].id)}`;
+    const eco: { review: number; photo: number; errors: string[] } = { review: 0, photo: 0, errors: [] };
+    try {
+      const { loyaltySystem } = await import('@/lib/loyalty/loyalty-system');
+      const r = await loyaltySystem.earnActivityPoints(userId, 'review', reviewRef);
+      if (r.success) eco.review = r.pointsEarned; else eco.errors.push(`review: ${r.message}`);
+      if (photos.length > 0) {
+        const p = await loyaltySystem.earnActivityPoints(userId, 'photo', reviewRef);
+        if (p.success) eco.photo = p.pointsEarned; else eco.errors.push(`photo: ${p.message}`);
+      }
+    } catch (err) {
+      eco.errors.push(err instanceof Error ? err.message : String(err));
+    }
+    if (eco.errors.length > 0) {
+      console.error('[reviews/tour] эко за отзыв не начислены:', reviewRef, eco.errors.join('; '));
+    }
+
     return NextResponse.json({
       success: true,
-      data: result.rows[0],
-      message: 'Отзыв опубликован',
+      data: { ...result.rows[0], eco: { review: eco.review, photo: eco.photo } },
+      message: eco.review + eco.photo > 0
+        ? `Отзыв опубликован. Начислено ${eco.review + eco.photo} эко`
+        : 'Отзыв опубликован',
     } as ApiResponse<unknown>);
   } catch (error) {
     // Причина наружу словами: «Ошибка при создании отзыва» без деталей уже

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import Script from 'next/script';
 import Link from 'next/link';
 import {
@@ -20,6 +21,10 @@ interface TourPaymentModalProps {
   tourName: string;
   operatorName: string;
   priceBase: number | null;
+  /** operator_tours.price_unit — «за группу» не множится на участников. */
+  priceUnit?: string | null;
+  /** Для «за человека в день»: без неё сумма считалась бы как за один день. */
+  duration?: { multi_day_count: number | null; duration_hours: number | null };
   minGroupSize: number | null;
   maxGroupSize: number | null;
   nextDeparture: string | null;
@@ -65,6 +70,8 @@ export default function TourPaymentModal({
   tourName,
   operatorName,
   priceBase,
+  priceUnit,
+  duration,
   minGroupSize,
   maxGroupSize,
   nextDeparture,
@@ -139,7 +146,9 @@ export default function TourPaymentModal({
   const minP   = minGroupSize ?? 1;
   const maxP   = maxGroupSize ?? 20;
   const price  = priceBase;
-  const total  = price != null ? price * participants : null;
+  // Та же функция, что считает сумму на сервере (/api/bookings/tour): сумма
+  // на кнопке «Перейти к оплате» обязана совпасть со списанием.
+  const total  = price != null ? bookingTotal({ basePrice: price, priceUnit, participants, duration }) : null;
 
   // ── Guest lead submit (unauthenticated) ─────────────────────────────────────
 

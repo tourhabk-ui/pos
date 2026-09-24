@@ -19,6 +19,7 @@ interface TourRow {
   location_name: string | null;
   base_price: string;
   price_override: string | null;
+  price_unit: string | null;
   duration_hours: string | null;
   duration_type: string | null;
   max_participants: number;
@@ -73,6 +74,7 @@ export async function GET(request: NextRequest) {
          t.activity_type,
          t.location_name,
          t.base_price::text,
+         t.price_unit,
          ta.base_price_override::text                                        AS price_override,
          t.duration_hours::text,
          t.duration_type,
@@ -116,6 +118,7 @@ export async function GET(request: NextRequest) {
       activityLabel:  r.activity_type ? (ACTIVITY_RU[r.activity_type] ?? r.activity_type) : null,
       locationName:   r.location_name,
       price:          r.price_override !== null ? Number(r.price_override) : Number(r.base_price),
+      priceUnit:      r.price_unit,
       durationHours:  r.duration_hours !== null ? Number(r.duration_hours) : null,
       durationType:   r.duration_type,
       maxParticipants: r.max_participants,

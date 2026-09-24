@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { bookingTotal } from '@/lib/tours/booking-total';
 import { ApiResponse, AgentBooking, AgentBookingFormData } from '@/types';
 import { requireAgent } from '@/lib/auth/middleware';
 import { z } from 'zod';
@@ -142,13 +143,17 @@ export async function POST(request: NextRequest) {
 
     // Получаем информацию о туре
     const tourQuery = `
-      SELECT t.id, t.title, t.base_price, p.company_name as operator_name, p.commission_current as commission_rate
+      SELECT t.id, t.title, t.base_price, t.price_unit, t.multi_day_count, t.duration_hours,
+             p.company_name as operator_name, p.commission_current as commission_rate
       FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
       WHERE t.id = $1 AND t.is_published = true AND t.deleted_at IS NULL
     `;
 
-    const tourResult = await query<{ base_price: string; commission_rate: string }>(tourQuery, [tourId]);
+    const tourResult = await query<{
+      base_price: string; commission_rate: string; price_unit: string | null;
+      multi_day_count: number | null; duration_hours: string | null;
+    }>(tourQuery, [tourId]);
     if (tourResult.rows.length === 0) {
       return NextResponse.json({
         success: false,
@@ -159,7 +164,15 @@ export async function POST(request: NextRequest) {
     const tour = tourResult.rows[0];
 
     // Рассчитываем стоимость
-    let totalPrice = parseFloat(tour.base_price) * guestsCount;
+    let totalPrice = bookingTotal({
+      basePrice: parseFloat(tour.base_price),
+      priceUnit: tour.price_unit,
+      participants: guestsCount,
+      duration: {
+        multi_day_count: tour.multi_day_count,
+        duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
+      },
+    });
     let discountAmount = 0;
 
     // Применяем промокод если указан (из таблицы promo_codes)
