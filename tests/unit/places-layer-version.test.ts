@@ -31,7 +31,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PLACES_LAYER_VERSION, resolvePackSource, BUILT_PACK_REGIONS } from '@/lib/map/pack-source';
+import { PLACES_LAYER_VERSION, resolvePackSource, BUILT_PACK_REGIONS, withCacheEpoch } from '@/lib/map/pack-source';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -66,8 +66,10 @@ describe('адрес слоя несёт версию', () => {
     const r = resolvePackSource('cell-53n158e', BUILT_PACK_REGIONS, 'https://packs.example');
     expect(r.state).toBe('ready');
     if (r.state !== 'ready') return;
+    // Версия слоя остаётся первой; эпоха кэша пакетов (24.09) идёт вторым
+    // параметром — у них разные причины, и одна не заменяет другую.
     expect(r.placesUrl).toBe(
-      `https://packs.example/map-packs/cell-53n158e.places.geojson?v=${PLACES_LAYER_VERSION}`,
+      withCacheEpoch(`https://packs.example/map-packs/cell-53n158e.places.geojson?v=${PLACES_LAYER_VERSION}`),
     );
   });
 

@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import {
   placesKey, PLACES_BUILT, PLACES_ATTRIBUTION, resolvePackSource,
   BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT, OVERVIEW_MIN_ZOOM,
-  PLACES_LAYER_VERSION,
+  PLACES_LAYER_VERSION, withCacheEpoch,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
 import { packKeysToVerify } from '@/scripts/map-tiles/verify-packs';
@@ -55,7 +55,7 @@ describe('ключ и реестр', () => {
       // `?v=` — версия слоя в адресе (17.09): новая заливка — новый адрес,
       // старому файлу на телефоне неоткуда взяться. Связку версия/маркер/
       // чтение обратно держит tests/unit/places-layer-version.test.ts.
-      if (r.placesUrl) expect(r.placesUrl).toBe(`${B}/${placesKey(id)}?v=${PLACES_LAYER_VERSION}`);
+      if (r.placesUrl) expect(r.placesUrl).toBe(withCacheEpoch(`${B}/${placesKey(id)}?v=${PLACES_LAYER_VERSION}`));
     }
   });
 

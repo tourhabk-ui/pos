@@ -143,7 +143,7 @@ const PAGE = `<!doctype html>
     if (url.includes('.terrain.pmtiles')) {
       const h = init && init.headers;
       const range = h instanceof Headers ? h.get('range') : h ? (h.range || h.Range || null) : null;
-      const rec = { key: url.replace(/^.*\\/bucket\\/map-packs\\//, ''), range, status: r.status,
+      const rec = { key: url.replace(/^.*\\/bucket\\/map-packs\\//, '').replace(/\\?[^/]*/, ''), range, status: r.status,
         len: r.headers.get('content-length'), cr: r.headers.get('content-range'), bodyLen: null };
       state.fetches.push(rec);
       try { rec.bodyLen = (await r.clone().arrayBuffer()).byteLength; } catch (err) { rec.bodyLen = 'отказ: ' + (err && err.message); }
@@ -152,7 +152,9 @@ const PAGE = `<!doctype html>
   };
   try {
     const protocol = new pmtiles.Protocol();
-    const shortKey = (url) => url.replace(/^pmtiles:\\/\\/[^ ]*?\\/bucket\\/map-packs\\//, '');
+    // Эпоха кэша (e=) стоит в адресе архива перед /z/x/y — из ключа её
+    // убираем, иначе «.terrain.pmtiles/» в ключе тайла не нашёлся бы.
+    const shortKey = (url) => url.replace(/^pmtiles:\\/\\/[^ ]*?\\/bucket\\/map-packs\\//, '').replace(/\\?[^/]*/, '');
     maplibregl.addProtocol('pmtiles', async (params, ctrl) => {
       const r = await protocol.tile(params, ctrl);
       const key = shortKey(params.url);

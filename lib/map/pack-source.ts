@@ -397,6 +397,72 @@ export type PackSource =
   | { state: 'not_built'; reason: string };
 
 /**
+ * Эпоха кэша пакетов карты — уходит в КАЖДЫЙ адрес пакета как `e=`.
+ *
+ * ── Зачем (24.09) ─────────────────────────────────────────────────────────
+ *
+ * Скрины владельца с /map: юг Камчатки на зуме 4.8 и 5.8 рисуется
+ * прямоугольниками серого и голубого, суша обрывается ровной чертой на 51°.
+ * Тот же вид, снятый на раннере тем же стилем и из тех же файлов (снимки
+ * map-pack-snapshot, прогон 8), ровный: море сплошное, рельеф доходит до
+ * мыса Лопатка. Разница — в том, КАКИЕ файлы у телефона.
+ *
+ * Край моря на скрине идёт ровно по 155° в. д. и 51° с. ш. — это рамка
+ * первых сборок океана 05.09, до расширения по тайлам z4 (прогон 6). Рельеф
+ * обрывается на 51° — это обзор до пересборки «с запасом DEM». Оба файла
+ * лежали в хранилище с `public, max-age=31536000, immutable`: так до 05.09
+ * заливался любой объект (см. lib/map/pack-cache-policy.ts). Заголовок
+ * потом сменили и объекты перештамповали, но ответ, УЖЕ лежащий в кэше
+ * браузера с «immutable на год», браузер не перепроверяет никогда — новых
+ * заголовков он просто не спросит.
+ *
+ * Достать такой ответ из чужого кэша нельзя; можно перестать его просить.
+ * Новый адрес — новый ключ кэша: старая копия остаётся лежать, но карта к
+ * ней больше не обращается. Хранилище параметр запроса не читает и отдаёт
+ * тот же объект (проба 570).
+ *
+ * ── Почему одна эпоха на всё, а не версия на каждую сборку ─────────────────
+ *
+ * Лечится один раз: всё, что залито после 05.09, идёт с `no-cache` или
+ * `no-store` и сверяется с хранилищем на каждом чтении. Застрять навсегда
+ * мог только то, что закэшировано ДО смены политики, — и это все роды
+ * файлов пакета разом (рельеф, горизонтали, вектор, OSM, глифы, паспорта,
+ * океан). Эпоху снова двигать нужно только если когда-нибудь снова уйдёт
+ * объект с `immutable`; политику держит pack-cache-policy и его сторож.
+ *
+ * Слой мест сверх этого несёт свою версию (`v=`, PLACES_LAYER_VERSION): там
+ * причина другая и она по-прежнему в силе. Параметры не мешают друг другу.
+ *
+ * Сторож: tests/unit/pack-cache-epoch.test.ts.
+ */
+export const PACK_CACHE_EPOCH = '20260924';
+
+/** Адрес с эпохой кэша; уже несущий параметры адрес получает её через `&`. */
+export function withCacheEpoch(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}e=${PACK_CACHE_EPOCH}`;
+}
+
+type ReadyPackSource = Extract<PackSource, { state: 'ready' }>;
+
+/** Все адреса готового пакета — с эпохой кэша; одно правило на три ветки. */
+function stampCacheEpoch(src: ReadyPackSource): ReadyPackSource {
+  const stamp = (u: string | null): string | null => (u === null ? null : withCacheEpoch(u));
+  return {
+    ...src,
+    terrainUrl: withCacheEpoch(src.terrainUrl),
+    contoursUrl: withCacheEpoch(src.contoursUrl),
+    glyphsUrl: stamp(src.glyphsUrl),
+    osmUrls: Object.fromEntries(
+      Object.entries(src.osmUrls).map(([k, u]) => [k, typeof u === 'string' ? withCacheEpoch(u) : u]),
+    ) as ReadyPackSource['osmUrls'],
+    vectorUrl: stamp(src.vectorUrl),
+    placesUrl: stamp(src.placesUrl),
+    manifestUrl: stamp(src.manifestUrl),
+    oceanUrl: stamp(src.oceanUrl),
+  };
+}
+
+/**
  * Адреса пакета региона — или названная причина, почему их нет.
  *
  * `builtRegions` приходит извне (реестр собранных пакетов), а не угадывается
@@ -425,7 +491,7 @@ export function resolvePackSource(
     if (!OVERVIEW_BUILT) {
       return { state: 'not_built', reason: 'Обзорный пакет края ещё не собран.' };
     }
-    return {
+    return stampCacheEpoch({
       state: 'ready',
       terrainUrl: `pmtiles://${base}/${packKey(region, 'terrain')}`,
       contoursUrl: `${base}/${packKey(region, 'contours')}`,
@@ -438,7 +504,7 @@ export function resolvePackSource(
       placesUrl: placesUrlFor(region, base),
     manifestUrl: manifestUrlFor(region, base),
     oceanUrl: oceanUrlFor(region, base),
-    };
+    });
   }
   // Клетка сетки собирается всем конвейером сразу (рельеф, горизонтали,
   // OSM, вектор), и обещание у неё одно — BUILT_GRID_CELLS.
@@ -446,7 +512,7 @@ export function resolvePackSource(
     if (!BUILT_GRID_CELLS.includes(region)) {
       return { state: 'not_built', reason: 'Пакет карты для этой клетки ещё не собран.' };
     }
-    return {
+    return stampCacheEpoch({
       state: 'ready',
       terrainUrl: `pmtiles://${base}/${packKey(region, 'terrain')}`,
       contoursUrl: `${base}/${packKey(region, 'contours')}`,
@@ -458,7 +524,7 @@ export function resolvePackSource(
       placesUrl: placesUrlFor(region, base),
     manifestUrl: manifestUrlFor(region, base),
     oceanUrl: oceanUrlFor(region, base),
-    };
+    });
   }
   if (!builtRegions.includes(region)) {
     return {
@@ -466,7 +532,7 @@ export function resolvePackSource(
       reason: 'Пакет карты для этого района ещё не собран.',
     };
   }
-  return {
+  return stampCacheEpoch({
     state: 'ready',
     // pmtiles:// — протокол читателя PMTiles: он берёт куски файла
     // Range-запросами, а не качает целиком ради одного тайла.
@@ -482,7 +548,7 @@ export function resolvePackSource(
     placesUrl: placesUrlFor(region, base),
     manifestUrl: manifestUrlFor(region, base),
     oceanUrl: oceanUrlFor(region, base),
-  };
+  });
 }
 
 /**

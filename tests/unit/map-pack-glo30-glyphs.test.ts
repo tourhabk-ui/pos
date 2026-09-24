@@ -17,7 +17,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  PACK_TERRAIN_MAXZOOM, PACK_GLYPHS, glyphKey, resolvePackSource,
+  PACK_TERRAIN_MAXZOOM, PACK_GLYPHS, glyphKey, resolvePackSource, withCacheEpoch,
 } from '@/lib/map/pack-source';
 import { buildVedarStyle } from '@/lib/map/vedar-style';
 import { packKeysToVerify } from '@/scripts/map-tiles/verify-packs';
@@ -58,7 +58,7 @@ describe('глифы — свои, из одного места', () => {
     const r = resolvePackSource('avacha-group', ['avacha-group'], 'https://s3.example.ru/b/');
     expect(r.state).toBe('ready');
     if (r.state !== 'ready') return;
-    expect(r.glyphsUrl).toBe('https://s3.example.ru/b/map-packs/glyphs/{fontstack}/{range}.pbf');
+    expect(r.glyphsUrl).toBe(withCacheEpoch('https://s3.example.ru/b/map-packs/glyphs/{fontstack}/{range}.pbf'));
     expect(r.glyphsFont).toBe(PACK_GLYPHS.fontstack);
     expect(glyphKey('Noto Sans Regular', '0-255')).toBe('map-packs/glyphs/Noto Sans Regular/0-255.pbf');
   });

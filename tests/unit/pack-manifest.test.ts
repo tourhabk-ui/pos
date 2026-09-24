@@ -14,7 +14,7 @@ import {
   buildPackManifest, parsePackManifest, coverageNotice, countGeoJsonFeatures, PACK_MANIFEST_V,
 } from '@/lib/map/pack-manifest';
 import {
-  manifestKey, MANIFEST_BUILT, OSM_LAYERS, resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS,
+  manifestKey, MANIFEST_BUILT, OSM_LAYERS, resolvePackSource, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, withCacheEpoch,
   OVERVIEW_BUILT, OSM_BUILT_REGIONS, type OsmLayer,
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
@@ -98,7 +98,7 @@ describe('ключ и реестр', () => {
       const r = resolvePackSource(id, BUILT_PACK_REGIONS, B);
       if (r.state !== 'ready') continue;
       expect(r.manifestUrl !== null, id).toBe(MANIFEST_BUILT.includes(id));
-      if (r.manifestUrl) expect(r.manifestUrl).toBe(`${B}/${manifestKey(id)}`);
+      if (r.manifestUrl) expect(r.manifestUrl).toBe(withCacheEpoch(`${B}/${manifestKey(id)}`));
     }
   });
 

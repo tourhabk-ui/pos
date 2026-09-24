@@ -24,7 +24,7 @@ import { join } from 'node:path';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
 import {
-  OSM_LAYERS, VECTOR_LAYERS, VECTOR_BUILT_REGIONS, vectorKey, resolvePackSource,
+  OSM_LAYERS, VECTOR_LAYERS, VECTOR_BUILT_REGIONS, vectorKey, resolvePackSource, withCacheEpoch,
 } from '@/lib/map/pack-source';
 
 const ROOT = process.cwd();
@@ -61,7 +61,7 @@ describe('список слоёв пакета — один на конвейе�
     expect(r.state).toBe('ready');
     if (r.state !== 'ready') return;
     if (VECTOR_BUILT_REGIONS.includes('avacha-group')) {
-      expect(r.vectorUrl).toBe(`pmtiles://${base}/map-packs/avacha-group.vector.pmtiles`);
+      expect(r.vectorUrl).toBe(withCacheEpoch(`pmtiles://${base}/map-packs/avacha-group.vector.pmtiles`));
     } else {
       expect(r.vectorUrl).toBeNull();
     }
