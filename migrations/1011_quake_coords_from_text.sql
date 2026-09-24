@@ -23,24 +23,13 @@
 -- Идемпотентна: второй прогон не найдёт строк с пустыми координатами и
 -- нужным текстом.
 
-UPDATE external_alerts ea
-   SET lat = c.lat,
-       lng = c.lng
-  FROM (
-    SELECT id,
-           (m)[1]::numeric AS lat,
-           (m)[2]::numeric AS lng
-      FROM (
-        SELECT id,
-               regexp_match(description, 'Координаты:\s*([0-9]{1,2}\.[0-9]+),\s*([0-9]{2,3}\.[0-9]+)') AS m
-          FROM external_alerts
-         WHERE alert_type = 'earthquake'
-           AND lat IS NULL
-           AND lng IS NULL
-           AND description LIKE '%Координаты:%'
-      ) s
-     WHERE m IS NOT NULL
-  ) c
- WHERE ea.id = c.id
-   AND c.lat BETWEEN 45 AND 65
-   AND c.lng BETWEEN 150 AND 175;
+-- Одна таблица и одна строка за раз: без самосоединения по id, координата
+-- считается из description той же строки, которую и правит.
+UPDATE external_alerts
+   SET lat = (regexp_match(description, 'Координаты:\s*([0-9]{1,2}\.[0-9]+),\s*([0-9]{2,3}\.[0-9]+)'))[1]::numeric,
+       lng = (regexp_match(description, 'Координаты:\s*([0-9]{1,2}\.[0-9]+),\s*([0-9]{2,3}\.[0-9]+)'))[2]::numeric
+ WHERE alert_type = 'earthquake'
+   AND lat IS NULL
+   AND lng IS NULL
+   AND (regexp_match(description, 'Координаты:\s*([0-9]{1,2}\.[0-9]+),\s*([0-9]{2,3}\.[0-9]+)'))[1]::numeric BETWEEN 45 AND 65
+   AND (regexp_match(description, 'Координаты:\s*([0-9]{1,2}\.[0-9]+),\s*([0-9]{2,3}\.[0-9]+)'))[2]::numeric BETWEEN 150 AND 175;

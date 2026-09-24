@@ -42,7 +42,7 @@ describe('миграция 1011 не выдумывает координат', (
   });
 
   it('точка вне края не пишется', () => {
-    expect(MIG).toMatch(/c\.lat BETWEEN 45 AND 65/);
-    expect(MIG).toMatch(/c\.lng BETWEEN 150 AND 175/);
+    expect(MIG).toMatch(/\[1\]::numeric BETWEEN 45 AND 65/);
+    expect(MIG).toMatch(/\[2\]::numeric BETWEEN 150 AND 175/);
   });
 });
