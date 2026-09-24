@@ -63,6 +63,9 @@ jobs:
           OPENROUTER_MANAGEMENT_KEY: ${{ secrets.OPENROUTER_MANAGEMENT_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # xAI — ступень решателя между Anthropic и DeepSeek. До 24.09 на
+          # раннере её не было («xai — ключа нет»): секрет завёл владелец.
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           # Флагман решателя — z.ai (GLM), а не Anthropic. Решение владельца
           # 09.09 («если это экономит деньги переключай на GLM флагман»),
           # проверено каталогом OpenRouter в тот же день (openrouter-models,
