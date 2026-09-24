@@ -128,6 +128,16 @@ interface VedarMapProps {
    * накрывал нижний лист — скрин владельца 02.09 08:18.
    */
   showZoomButtons?: boolean;
+  /**
+   * Атрибуцию выводит экран снаружи, строкой `VEDAR_ATTRIBUTION` там, где её
+   * реально видно (24.09, экран «На маршруте»): угол top-right на нём закрыт
+   * липкой полосой вкладок и стеклянной плашкой статуса, и развёрнутый
+   * контрол торчал из-под них обрезанной белой полосой «…DEM (ESA)» — скрин
+   * владельца «похож на помойку». По умолчанию — false, остальные
+   * поверхности получают прежний контрол в top-right. Читается при создании
+   * карты: у вызывающего это не меняется за жизнь экрана.
+   */
+  attributionOutside?: boolean;
   /** Точки на живой карте — концы рассчитанного автопути. */
   points?: VedarMapPoint[];
   /**
@@ -256,6 +266,14 @@ export { DETAIL_MIN_ZOOM } from '@/lib/map/vedar-style';
 export const PACK_MIN_ZOOM = 8;
 
 /**
+ * Атрибуция своей карты словами — для экранов, которые выводят её сами
+ * (`attributionOutside`). Те же правообладатели, что в источниках стиля:
+ * OSM (векторный пакет, ODbL) и Copernicus DEM (рельеф). По лицензии ODbL
+ * она не выбор, а обязанность, — выключить её можно, только показав здесь.
+ */
+export const VEDAR_ATTRIBUTION = '© OpenStreetMap contributors · © Copernicus DEM (ESA)';
+
+/**
  * Кнопки масштаба — одна реализация на карту и на приборный ряд снаружи.
  * В перчатке и на морозе щипок не всегда выходит, а «+»/«−» есть у любого
  * навигатора. Действие — непрозрачное (§2).
@@ -275,29 +293,35 @@ export function VedarZoomButtons({ handle }: { handle: VedarMapHandle | null }) 
     });
   }, [handle]);
   if (!handle) return null;
+  // Одна плашка вместо трёх отдельных (24.09, скрин владельца «похож на
+  // помойку»): «+», число и «−» стопкой в общем корпусе, как у навигаторов.
+  // Три коробки с зазорами были на 26 px выше, и колонка вместе с «Все
+  // места» уходила под нижний лист, закрывая главную цифру.
   const box = {
     width: 44, borderRadius: 12,
     background: 'var(--bg-card)', color: 'var(--text-primary)',
     border: '1px solid var(--border)',
     boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+    overflow: 'hidden',
   } as const;
+  const btn = { width: '100%', height: 44, display: 'grid', placeItems: 'center' } as const;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {([['Приблизить', 1, Plus], ['Отдалить', -1, Minus]] as const).map(([label, dir, Icon]) => (
-        <button key={label} type="button" aria-label={label}
-          onClick={() => { if (dir > 0) handle.zoomIn(); else handle.zoomOut(); }}
-          style={{ ...box, height: 44, display: 'grid', placeItems: 'center' }}>
-          <Icon className="w-5 h-5" />
-        </button>
-      ))}
+    <div style={{ ...box, display: 'flex', flexDirection: 'column' }}>
+      <button type="button" aria-label="Приблизить" onClick={() => handle.zoomIn()} style={btn}>
+        <Plus className="w-5 h-5" />
+      </button>
       {/* Показание, не действие: непрозрачное, как и кнопки (§2). */}
       {zoom !== null && (
         <div aria-label={`Зум ${zoom.toFixed(1)}`}
-          style={{ ...box, padding: '5px 0', textAlign: 'center', lineHeight: 1.1 }}>
+          style={{ padding: '3px 0', textAlign: 'center', lineHeight: 1.05,
+            borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
           <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: 0.3 }}>зум</div>
-          <div className="tabular-nums" style={{ fontSize: 13, fontWeight: 700 }}>{zoom.toFixed(1)}</div>
+          <div className="tabular-nums" style={{ fontSize: 12, fontWeight: 700 }}>{zoom.toFixed(1)}</div>
         </div>
       )}
+      <button type="button" aria-label="Отдалить" onClick={() => handle.zoomOut()} style={btn}>
+        <Minus className="w-5 h-5" />
+      </button>
     </div>
   );
 }
@@ -473,6 +497,7 @@ export default function VedarMap({
   packs = [],
   baseRegion,
   showZoomButtons = true,
+  attributionOutside = false,
   onMapClick,
   onUserClick,
   onPlaceClick,
@@ -632,7 +657,9 @@ export default function VedarMap({
           dragRotate: false,
           touchZoomRotate: true,
         });
-        map.addControl(new maplibre.AttributionControl({ compact: true }), 'top-right');
+        if (!attributionOutside) {
+          map.addControl(new maplibre.AttributionControl({ compact: true }), 'top-right');
+        }
         map.touchZoomRotate.disableRotation();
         mapRef.current = map;
         // Тап по карте — наружу, через ref: инлайновая стрелка вызывающего

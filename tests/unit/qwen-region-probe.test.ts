@@ -79,3 +79,29 @@ describe('health отдаёт ответ вместо гипотезы', () => {
     expect(health).toMatch(/regions\.verdict/);
   });
 });
+
+describe('403 DashScope — не всегда мёртвый ключ (24.09)', () => {
+  // Health прислал «ключ отвергнут в ОБОИХ регионах — перевыпустить», а
+  // проба 571 тем же ключом разобрала снимок на qwen-vl-max. 403 шёл от
+  // квоты одной модели: перевыпуск ключа это не лечит.
+  it('квота модели — отдельный исход, ключ принят', async () => {
+    const { qwenRefusalKind } = await import('@/lib/ai/providers');
+    expect(qwenRefusalKind(403, '{"error":{"code":"AllocationQuota.FreeTierOnly","message":"The free tier of the model has been exhausted."}}')).toBe('quota');
+    expect(qwenRefusalKind(403, '{"code":"Arrearage","message":"Access denied, please make sure your account is in good standing."}')).toBe('arrears');
+    expect(qwenRefusalKind(401, '{"error":{"code":"invalid_api_key","message":"Incorrect API key provided."}}')).toBe('invalid_key');
+    expect(qwenRefusalKind(403, 'forbidden')).toBe('refused');
+    expect(qwenRefusalKind(200, '')).toBeNull();
+  });
+
+  it('вердикт по квоте не зовёт перевыпускать ключ', () => {
+    expect(probe).toMatch(/qwenRefusalKind\(r\.http_status, r\.detail\) === 'quota'/);
+    expect(probe).toMatch(/перевыпуск ключа не поможет/);
+    // Квота проверяется ДО вывода «отвергнут в ОБОИХ».
+    expect(probe.indexOf("=== 'quota'")).toBeLessThan(probe.indexOf('отвергнут в ОБОИХ'));
+  });
+
+  it('health не заявляет «зрение не работает» по квоте текстовой модели', () => {
+    expect(health).toMatch(/const keyAlive = kind === 'quota' \|\| kind === 'arrears'/);
+    expect(health).toMatch(/зрение идёт на другой модели и этой пробой не проверяется/);
+  });
+});

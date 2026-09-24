@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -467,9 +467,18 @@ export async function GET(request: NextRequest) {
         const regions = await probeQwenRegions().catch(() => null);
         if (regions) why = `: ${regions.verdict}`;
       }
+      // Квота одной модели — не мёртвый ключ (24.09): проба шлёт ping
+      // ТЕКСТОВОЙ модели, а зрение идёт на своей модели со своей квотой.
+      // Заявлять «зрение не работает» по отказу квоты чужой модели — ложь:
+      // в тот день health так и написал, а проба 571 тем же ключом разобрала
+      // снимок. Про зрение говорим только когда отвергнут сам ключ.
+      const kind = qwenKeyDiag ? qwenRefusalKind(qwenKeyDiag.http_status, qwenKeyDiag.detail) : null;
+      const keyAlive = kind === 'quota' || kind === 'arrears';
       providerIssues.push({
         level: 'warn',
-        text: `Зрение Кузьмича не работает — ключ DashScope не принят${why}. Разбирать фото с прода больше нечем; в цикле инструментов и первой фазе разведчика Qwen пропускается, отвечают следующие ступени`,
+        text: keyAlive
+          ? `Qwen (текст, ${qwenKeyDiag?.model ?? 'модель'}) не отвечает${why}. В цикле инструментов и первой фазе разведчика Qwen пропускается, отвечают следующие ступени; зрение идёт на другой модели и этой пробой не проверяется`
+          : `Зрение Кузьмича не работает — ключ DashScope не принят${why}. Разбирать фото с прода больше нечем; в цикле инструментов и первой фазе разведчика Qwen пропускается, отвечают следующие ступени`,
         reason: `Qwen${why}`,
       });
     }

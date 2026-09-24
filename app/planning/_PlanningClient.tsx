@@ -37,7 +37,7 @@ import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, t
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { builtRegionPacks, chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
 import { coverageNotice, parsePackManifest } from '@/lib/map/pack-manifest';
-import { VedarZoomButtons, type VedarMapHandle, type VedarMapLine, type VedarMapPoint } from '@/components/shared/VedarMap';
+import { VedarZoomButtons, VEDAR_ATTRIBUTION, type VedarMapHandle, type VedarMapLine, type VedarMapPoint } from '@/components/shared/VedarMap';
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
 import { useDocumentTheme } from '@/hooks/useDocumentTheme';
 import {
@@ -529,6 +529,18 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    * всё, что было. Выбор запоминается на телефоне.
    */
   const [sheetOpen, setSheetOpen] = useState(false);
+  /**
+   * Низ приборного ряда (масштаб, «Все места», компас) в пикселях окна —
+   * потолок нижнего листа. Скрин владельца 24.09 («наш маршрут похож на
+   * помойку»): развёрнутый лист (60vh) вставал ВЫШЕ этого ряда, и колонка
+   * «+ / − / зум / Все места» ложилась поверх главной цифры «76.1 км», а
+   * компас — на ручку листа. Ряд стоит в обычном потоке под плашкой статуса,
+   * и его высота зависит от длины предупреждений в плашке — угадать её числом
+   * нельзя (тот же урок, что fixed top-28 у компаса 29.08). Поэтому меряется:
+   * лист не поднимается выше ряда, а его содержимое прокручивается внутри.
+   */
+  const instrumentRowRef = useRef<HTMLDivElement | null>(null);
+  const [instrumentBottom, setInstrumentBottom] = useState<number | null>(null);
   useEffect(() => {
     try { setSheetOpen(window.localStorage.getItem(SHEET_OPEN_KEY) === '1'); } catch { /* нет хранилища — свёрнут */ }
   }, []);
@@ -3667,6 +3679,25 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   }, [recorder, sendingTrack, stopAndSendTrack, activeRouteTitle, obsQueueLen, trackRefusal,
     hasRoute, mapPlan, savedMap, tileDl, saveMap]);
 
+  // Замер низа приборного ряда — потолок нижнего листа (см. instrumentBottom).
+  // Ряд меняет высоту вместе с плашкой статуса над ним (предупреждения
+  // появляются и уходят) и с поворотом экрана — отсюда ResizeObserver на
+  // самом ряду и на его родителе, а не разовый замер.
+  useLayoutEffect(() => {
+    const el = instrumentRowRef.current;
+    if (!el || showMap) { setInstrumentBottom(null); return; }
+    const measure = () => {
+      const b = el.getBoundingClientRect().bottom;
+      setInstrumentBottom(prev => (prev !== null && Math.abs(prev - b) < 1 ? prev : b));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    if (el.parentElement) ro?.observe(el.parentElement);
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [showMap, hasRoute, isLoadingRoute, mapCtl]);
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -3727,6 +3758,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             // В режиме «Карта» приборный столбец скрыт — тогда кнопки
             // масштаба рисует сама карта; иначе они в приборном ряду.
             showZoomButtons={showMap}
+            // Атрибуция — строкой внизу листа (VEDAR_ATTRIBUTION): угол
+            // top-right здесь закрыт вкладками и плашкой статуса, контрол
+            // торчал из-под них обрезанной белой полосой (скрин 24.09).
+            attributionOutside
             // Тап по карте — булавка и карточка точки; тап по своей точке —
             // карточка «я» (по образцу навигатора, владелец 05.09).
             onMapClick={p => setPointCard({ kind: 'pin', ...p })}
@@ -3904,7 +3939,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           ничего не угадывается пикселями (02.09: кнопки внутри карты на
           середине высоты ушли под нижний лист). */}
       {!showMap && (hasRoute || isLoadingRoute || mapCtl) && (
-        <div className="relative z-20 flex justify-between items-start px-3 pt-2">
+        <div ref={instrumentRowRef} className="relative z-20 flex justify-between items-start px-3 pt-2">
           <div className="flex flex-col gap-2">
             <VedarZoomButtons handle={mapCtl} />
             {/* Тумблер слоя мест — рядом с масштабом, в том же столбце
@@ -3972,6 +4007,13 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           действия — всегда непрозрачные»). */}
       <div className={`fixed inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl ${sheetOpen ? 'max-h-[60vh]' : 'max-h-[32vh]'}`}
         style={{
+          // Потолок по низу приборного ряда (см. instrumentBottom): класс
+          // выше задаёт прежний предел, а замер не пускает лист выше ряда.
+          // Пол в 200 px — героическая цифра и панель действий должны
+          // оставаться видны даже на совсем низком экране.
+          ...(instrumentBottom !== null && !showMap
+            ? { maxHeight: `min(${sheetOpen ? 60 : 32}vh, max(200px, calc(100dvh - ${Math.round(instrumentBottom) + 8}px)))` }
+            : {}),
           background: 'var(--bg-card)',
           borderTop: '1px solid var(--border)',
           boxShadow: '0 -8px 24px rgba(0,0,0,0.35)',
@@ -4742,6 +4784,15 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           <FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError ?? saveMapError} />
         </div>
       )}
+      {/* Атрибуция своей карты — здесь, на непрозрачном листе, который виден
+          всегда (VedarMap attributionOutside). Мелко и приглушённо: это
+          обязанность по лицензии, а не прибор. */}
+      {fieldBaseMap.kind === 'vedar' && !showMap && (
+        <p className="shrink-0 px-4 pb-1 text-center text-[10px] leading-tight"
+          style={{ color: 'var(--text-muted)' }}>
+          {VEDAR_ATTRIBUTION}
+        </p>
+      )}
       </div>
       {/* Конец bottom sheet — см. открывающий div с комментарием выше. */}
 
@@ -4916,6 +4967,13 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           <div className="pointer-events-auto absolute inset-x-0 bottom-0 px-4"
             style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
             <FieldActionBar actions={fieldActions} error={fieldBarError ?? saveMapError} />
+            {/* Атрибуция и в режиме «Карта»: лист с её строкой здесь скрыт. */}
+            {fieldBaseMap.kind === 'vedar' && (
+              <p className="mt-1 text-center text-[10px] leading-tight"
+                style={{ color: 'rgba(255,255,255,0.8)', textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>
+                {VEDAR_ATTRIBUTION}
+              </p>
+            )}
           </div>
         </div>
       )}

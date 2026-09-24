@@ -69,7 +69,12 @@ export function FieldActionBar({ actions, error, compact }: FieldActionBarProps)
             aria-pressed={a.active ? true : undefined}
             aria-label={compact ? a.label : undefined}
             className="flex flex-col items-center gap-1.5 shrink-0"
-            style={compact ? undefined : { width: 84 }}
+            // Развёрнутая панель делит ширину поровну (24.09, скрин владельца
+            // «похож на помойку»): при четырёх действиях 4×84 px с зазорами
+            // шире листа, и «Наблюдение» резалось краем экрана до «Наблк».
+            // Кружок под палец (TAP) не меняется, делится только ширина под
+            // подписью; прокрутка остаётся запасом, если действий станет пять.
+            style={compact ? undefined : { flex: '1 1 0', minWidth: 72, maxWidth: 96 }}
           >
             <span
               className="relative flex items-center justify-center rounded-2xl"
