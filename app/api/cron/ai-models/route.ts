@@ -27,7 +27,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import {
-  probeProviderModels, getQwenConfig,
+  probeProviderModels, getQwenConfig, qwenRefusalKind,
   resolveChatModel, resolveContentModel, resolveDecisionModel,
 } from '@/lib/ai/providers';
 import { pickBestModel } from '@/lib/ai/model-resolver';
@@ -85,6 +85,45 @@ async function describe(provider: Provider) {
   };
 }
 
+/**
+ * `?ping=1` — ответит ли КАЖДАЯ нужная модель Qwen (25.09).
+ *
+ * Health пробует одну модель (qwen-plus) и сообщает «у модели нет квоты».
+ * Владелец: «Проверь Qwen». Одна модель не отвечает на вопрос, что сломано:
+ * квоты DashScope считаются по моделям раздельно, и «Free tier only»
+ * режет только те, у которых бесплатная квота кончилась. Здесь каждая
+ * модель, которой платформа реально ходит (настроенная, выбранные
+ * резолвером, зрение), получает запрос на один токен — и отвечает своим
+ * исходом. Все «quota» — переключатель стоит на всех; часть — только у них.
+ *
+ * Токен на модель — копейки и только по явной просьбе (?ping=1).
+ */
+async function pingQwen(models: string[]) {
+  const { apiKey, base } = getQwenConfig();
+  if (!apiKey) return { key_set: false, results: [] as unknown[] };
+  const results = await Promise.all(models.map(async (model) => {
+    const started = Date.now();
+    try {
+      const res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = (await res.text()).slice(0, 400);
+      const kind = res.ok ? 'ok' : (qwenRefusalKind(res.status, body) ?? 'error');
+      const code = body.match(/"code"\s*:\s*"([^"]{1,60})"/)?.[1] ?? null;
+      return { model, http_status: res.status, verdict: kind, code, ms: Date.now() - started,
+        detail: res.ok ? null : body.replace(/\s+/g, ' ').slice(0, 160) };
+    } catch (err) {
+      // Сеть не дошла — «не смог», а не «нет квоты» (§4.0).
+      return { model, http_status: null, verdict: 'net', code: null, ms: Date.now() - started,
+        detail: err instanceof Error ? err.message : String(err) };
+    }
+  }));
+  return { key_set: true, base, results };
+}
+
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
@@ -93,7 +132,16 @@ export async function GET(request: NextRequest) {
 
   try {
     const providers = await Promise.all(PROVIDERS.map(describe));
-    return NextResponse.json({ success: true, probe: 'ai_models_v1', providers });
+    if (request.nextUrl.searchParams.get('ping') !== '1') {
+      return NextResponse.json({ success: true, probe: 'ai_models_v1', providers });
+    }
+    const q = providers.find(p => p.provider === 'qwen');
+    const wanted = [
+      q?.configured, q?.resolved.chat, q?.resolved.content, q?.resolved.decision,
+      process.env.QWEN_VISION_MODEL || 'qwen-vl-max',
+    ].filter((m): m is string => typeof m === 'string' && m.length > 0);
+    const models = [...new Set(wanted)];
+    return NextResponse.json({ success: true, probe: 'ai_models_v1', providers, qwen_ping: await pingQwen(models) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка перечня моделей';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
