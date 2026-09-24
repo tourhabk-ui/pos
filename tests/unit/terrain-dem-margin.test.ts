@@ -75,3 +75,39 @@ describe('мозаика на стыке широтных полос (24.09)', (
   });
 });
 
+describe('пересборка рельефа списком (24.09)', () => {
+  // Клетки, собранные до починки мозаики, пересобираются только рельефом:
+  // тем же сборщиком, с тем же самотестом, одним файлом на клетку.
+  const RB = readFileSync(join(ROOT, '.github/workflows/map-terrain-rebuild.yml'), 'utf-8');
+  const MARK = JSON.parse(readFileSync(join(ROOT, '.github/triggers/map-terrain-rebuild.json'), 'utf-8')) as {
+    regions?: unknown; upload?: unknown;
+  };
+
+  it('самотест мозаики — до сборки', () => {
+    // По командам запуска, не по словам: шапка файла называет оба скрипта.
+    const test = RB.indexOf('python3 scripts/map-tiles/check_mosaic_bands.py');
+    const build = RB.indexOf('python3 scripts/map-tiles/build_terrain.py');
+    expect(test).toBeGreaterThan(-1);
+    expect(build).toBeGreaterThan(-1);
+    expect(test).toBeLessThan(build);
+  });
+
+  it('заливка — только рельеф, остального в хранилище не трогает', () => {
+    expect(RB).toMatch(/upload-pack\.ts "\$R" "\.cache\/packs\/\$R\.terrain\.pmtiles" --terrain-only/);
+  });
+
+  it('bbox — из реестра, а не из маркера', () => {
+    expect(RB).toMatch(/region-bbox\.ts "\$R"/);
+  });
+
+  it('ноль готовых или любой отказ красит прогон', () => {
+    expect(RB).toMatch(/\[ -z "\$failed" \] && \[ "\$ok" -eq "\$TOTAL" \]/);
+  });
+
+  it('маркер просит только собранные клетки', async () => {
+    const { BUILT_GRID_CELLS } = await import('@/lib/map/pack-source');
+    expect(Array.isArray(MARK.regions)).toBe(true);
+    for (const r of MARK.regions as string[]) expect(BUILT_GRID_CELLS as readonly string[], r).toContain(r);
+  });
+});
+

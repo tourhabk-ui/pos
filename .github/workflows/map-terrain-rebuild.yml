@@ -1,0 +1,87 @@
+name: Пересборка рельефа клеток списком (только terrain)
+
+# 24.09: мозаика DEM брала шаг по долготе у первой клетки, а запас тянет
+# клетки соседней широтной полосы — у Copernicus шаг меняется на 50° и 60°.
+# Сборщик починен (build_terrain.py, самотест check_mosaic_bands.py), но
+# восемнадцать клеток на 59-60° с.ш. собраны старым: у клеток на 60° рельеф
+# сжат на весь градус, у клеток на 59° — у верхнего края.
+#
+# Основная сборка (map-pack-build.yml) берёт ОДИН район на прогон, а ручной
+# запуск из сессии закрыт (403). Этот workflow пересобирает только рельеф
+# СПИСКОМ, теми же скриптами, с тем же самотестом, и кладёт ровно один файл
+# на клетку (upload-pack --terrain-only): горизонтали, OSM, вектор и паспорт
+# в хранилище не трогаются — их мозаика строится по bbox клетки из одной
+# полосы и дефектом не задета.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/map-terrain-rebuild.json'
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Инструменты сборки
+        run: |
+          pip install --quiet rasterio pmtiles pillow
+          npm ci --ignore-scripts
+
+      - name: Самотест мозаики DEM на стыке широтных полос
+        run: python3 scripts/map-tiles/check_mosaic_bands.py
+
+      - name: Рельеф списком — сборка и заливка
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -uo pipefail
+          REGIONS=$(python3 -c "import json;print(' '.join(json.load(open('.github/triggers/map-terrain-rebuild.json'))['regions']))")
+          UPLOAD=$(python3 -c "import json;print('true' if json.load(open('.github/triggers/map-terrain-rebuild.json')).get('upload') else 'false')")
+          if [ -z "$REGIONS" ]; then echo "::error::Список клеток пуст — пересобирать нечего"; exit 1; fi
+          if [ "$UPLOAD" = "true" ] && [ -z "${S3_BUCKET:-}" ]; then
+            echo "::error::Секреты S3 не заданы в репозитории (§8)"; exit 1
+          fi
+          mkdir -p .cache/packs
+          ok=0; failed=""
+          for R in $REGIONS; do
+            echo "::group::$R"
+            BBOX=$(npx tsx scripts/map-tiles/region-bbox.ts "$R") || { failed="$failed $R(bbox)"; echo "::endgroup::"; continue; }
+            if ! python3 scripts/map-tiles/build_terrain.py --bbox "$BBOX" --out ".cache/packs/$R.terrain.pmtiles"; then
+              failed="$failed $R(сборка)"; echo "::endgroup::"; continue
+            fi
+            ls -lh ".cache/packs/$R.terrain.pmtiles"
+            if [ "$UPLOAD" = "true" ]; then
+              if ! npx tsx scripts/map-tiles/upload-pack.ts "$R" ".cache/packs/$R.terrain.pmtiles" --terrain-only; then
+                failed="$failed $R(заливка)"; echo "::endgroup::"; continue
+              fi
+            fi
+            rm -f ".cache/packs/$R.terrain.pmtiles"
+            ok=$((ok+1))
+            echo "::endgroup::"
+          done
+          TOTAL=$(echo $REGIONS | wc -w)
+          {
+            echo '### Пересборка рельефа списком'
+            echo "готово: $ok из $TOTAL · заливка: $UPLOAD"
+            [ -n "$failed" ] && echo "ОТКАЗЫ:$failed"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          # Ноль готовых из непустого списка — отказ, а не успех (§4.0);
+          # любой отказ красит прогон.
+          [ -z "$failed" ] && [ "$ok" -eq "$TOTAL" ]
