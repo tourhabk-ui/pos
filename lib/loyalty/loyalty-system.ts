@@ -117,7 +117,11 @@ export class LoyaltySystem {
     const transactions: BonusTransaction[] = history.map(r => ({
       id: r.id,
       userId,
-      type: LEDGER_OP_TO_TYPE[r.operation],
+      // Корректировка и перевод бывают в обе стороны: направление решает
+      // incoming, иначе списание за скрытый отзыв показывалось бы с «+».
+      type: (r.operation === 'adjust' || r.operation === 'transfer') && !r.incoming
+        ? 'redeem'
+        : LEDGER_OP_TO_TYPE[r.operation],
       source: r.source,
       amount: r.amount,
       description: r.description,
