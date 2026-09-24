@@ -85,6 +85,8 @@ import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
 import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
 import { PlacesLayerButton } from '@/components/field/PlacesLayerButton';
+import { LEAFLET_ATTRIBUTION } from '@/components/shared/leaflet-types';
+import type { LeafletZoomHandle } from '@/components/shared/LeafletMap';
 import { bearingDeg } from '@/lib/on-route/bearing';
 import { isUuid } from '@/lib/text/slugify';
 import { coordIsTrustworthy, coordSourceLabel, asCoordSource, type CoordSource } from '@/lib/places/coord-source';
@@ -597,6 +599,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    * владельца 02.09 08:18: тёмный квадрат торчал из-под карточки).
    */
   const [mapCtl, setMapCtl] = useState<VedarMapHandle | null>(null);
+  // Ручка масштаба запасной Leaflet-подложки — только для кнопок «+ / −» в
+  // приборном ряду (макет 24.09). fitLine и прочее своё ей не положено:
+  // у Leaflet вид по маркерам строится внутри него самого.
+  const [leafletZoomCtl, setLeafletZoomCtl] = useState<LeafletZoomHandle | null>(null);
   /**
    * Карточка точки — как в навигаторе (владелец 05.09, «посмотри, как у
    * референсов навигационных это работает»): тап по карте ставит булавку и
@@ -1559,7 +1565,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const hasRoute = waypoints.length > 0 || Boolean(activeRouteTitle);
 
   /** Одна строка — самое важное действие сейчас. Всё хорошо — строки нет. */
-  const status = useMemo((): { tone: 'warn' | 'info'; text: string; cta?: 'compass' } | null => {
+  const status = useMemo((): { tone: 'warn' | 'info'; text: string; detail?: string; cta?: 'compass' } | null => {
     if (gpsError) return { tone: 'warn', text: 'Геолокация запрещена — включите её в настройках браузера' };
     // Порядок этих двух веток важен, и до 08.09 он был обратным.
     //
@@ -1603,7 +1609,16 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
      */
     const targetCoordSource = waypoints[currentWpIdx]?.coordSource;
     if (targetCoordSource && !coordIsTrustworthy(targetCoordSource)) {
-      return { tone: 'warn', text: `Координата точки: ${coordSourceLabel(targetCoordSource)} — не полагайтесь только на азимут и время` };
+      // Коротко — в одну строку плашки (макет владельца 24.09): прежние три
+      // строки «происхождение не записано — не полагайтесь…» занимали
+      // треть шапки. Полная формулировка с родом координаты — в detail
+      // (всплывающая подсказка), смысл тот же: цифрам прибора вслепую не
+      // верить.
+      return {
+        tone: 'warn',
+        text: 'Точка не проверена — сверяйтесь с картой',
+        detail: `Координата точки: ${coordSourceLabel(targetCoordSource)} — не полагайтесь только на азимут и время`,
+      };
     }
     return null;
   }, [gpsError, fix, gpsMessage, isOffline, compassState, waypoints, currentWpIdx]);
@@ -2353,6 +2368,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     : offRoute.approachKm !== null
       ? `Вы ещё не на маршруте: до линии ${fmtKm(offRoute.approachKm)} по прямой. Пешее время не считаем — так этот путь не проходят.`
       : 'Вы ещё не на маршруте: до точки дальше, чем весь маршрут целиком. Пешее время не считаем — сначала нужно добраться до места старта.';
+  /** То же для свёрнутого листа — в одну строку (макет владельца 24.09). */
+  const offRouteShort = offRoute === null
+    ? null
+    : offRoute.approachKm !== null
+      ? `Вы не на маршруте · ${fmtKm(offRoute.approachKm)} до линии по прямой`
+      : 'Вы не на маршруте · до точки дальше, чем весь маршрут';
   /**
    * Пока темпа нет — говорим об этом вслух. Молчаливый прочерк турист читает
    * как поломку (ровно так читалось «0ч 00м» на скрине), а честная строка
@@ -3598,6 +3619,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       list.push({
         id: 'save_pack',
         label: 'Сохранить карту',
+        short: 'Карта',
         icon: <Download className="w-6 h-6" />,
         busy: downloading,
         hint: downloading
@@ -3614,6 +3636,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         // экраном (UX-коррекция владельца 27.08): там «место» — цель
         // маршрута, здесь — полевая находка. Разные вещи, разные слова.
         label: 'Сообщить о месте',
+        short: 'Место',
         icon: <MapPinPlus className="w-6 h-6" />,
         // ЖЁСТКИЙ переход, не Link и не router.push. Это не небрежность —
         // единственное, что работает без сети, и проверено по public/sw.js:
@@ -3630,6 +3653,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       list.push({
         id: 'track',
         label: recorder.recording ? 'Остановить' : 'Записать трек',
+        short: recorder.recording ? 'Стоп' : 'Трек',
         // Глиф — из пака владельца (vedara_field_icons_v2, lucide route):
         // цвет не зашивается, красится токенами панели.
         icon: recorder.recording
@@ -3670,6 +3694,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     list.push({
       id: 'observation',
       label: 'Наблюдение',
+      short: 'Наблюдение',
       icon: <Binoculars className="w-6 h-6" />,
       badge: obsQueueLen > 0 ? obsQueueLen : null,
       onPress: () => setObsOpen(true),
@@ -3795,6 +3820,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             // у VedarMap 04.09. Zoom-контрол Leaflet уже стоит в topright —
             // topleft здесь его собственными оверлеями не занят.
             attributionPosition="topleft"
+            // Вне режима «Карта» масштаб — в приборном ряду слева, а
+            // атрибуция — строкой внизу листа (макет владельца 24.09):
+            // встроенные контролы в верхних углах ложились на плашку
+            // маршрута и компас. В «Карте» приборов нет — контролы свои.
+            attribution={showMap}
+            onZoomHandle={showMap ? undefined : setLeafletZoomCtl}
             // Сверху лежит липкая полоса вкладок. Без этого отступа контролы
             // карты честно существовали и были недостижимы: замер 08.09 —
             // «+» целиком под полосой, «−» наполовину, атрибуция
@@ -3819,7 +3850,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           («критичные приборы и действия... offline/предупреждения...
           всегда непрозрачные») и своё место НИЖЕ компаса и дистанции
           (recovery.ts, правило 3) — не трогаем её позицию и фон. */}
-      {(hasRoute || status) && (
+      {(hasRoute || (status && status.tone !== 'warn')) && (
         <div className="fx-glass mx-3 mt-3 rounded-2xl overflow-hidden">
           {hasRoute && (
             <FieldStatusStrip
@@ -3844,11 +3875,15 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               checkpoint={!calculatedPreview && waypoints.length > 1
                 ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
                 : null}
+              // «Не сохранена» — предупреждение, и живёт оно не здесь, а в
+              // непрозрачной плашке ниже вместе с кнопкой «Сохранить» (макет
+              // 24.09; §2: предупреждения не на стекле). Здесь — только
+              // спокойное «сохранена».
               dataLine={savedMap
                 ? `Карта сохранена${packStates?.find(s => s.kind === 'safety_snapshot')?.note
                     ? ` · ${packStates.find(s => s.kind === 'safety_snapshot')!.note.toLowerCase()}`
                     : ''}`
-                : 'Карта не сохранена — в поле не откроется'}
+                : null}
               dataOk={Boolean(savedMap)}
             />
           )}
@@ -3903,16 +3938,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               29.08). Остальные ветки status (разрешение геолокации,
               офлайн-ступень, компас) recovery
               не знает вовсе — их подавлять нечем и незачем. */}
-          {status && !(hasRoute && recovery.kind === 'stale_fix') && (
+          {status && status.tone !== 'warn' && !(hasRoute && recovery.kind === 'stale_fix') && (
             <div
               className="flex items-center gap-2 px-4 py-2 text-xs"
-              style={{
-                color: status.tone === 'warn' ? 'var(--warning)' : 'var(--text-secondary)',
-              }}
+              // Здесь только спокойные (info) строки: предупреждения ушли в
+              // непрозрачную плашку ниже (макет 24.09).
+              style={{ color: 'var(--text-secondary)' }}
             >
-              {status.tone === 'warn'
-                ? <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                : isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
+              {isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
               <span className="flex-1">{status.text}</span>
               {/* Кнопки «Включить» здесь больше нет: лекарство живёт на самом
                   приборе (две кнопки одного действия расходятся поведением —
@@ -3921,6 +3954,48 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           )}
         </div>
       )}
+
+      {/* Предупреждения — отдельной НЕПРОЗРАЧНОЙ плашкой под стеклом (макет
+          владельца 24.09). §2: «стекло для контекста, непрозрачность для
+          действия» — предупреждение не блюрится. По одной строке на
+          предупреждение: на скрине владельца два предупреждения занимали
+          треть шапки (одно — в три строки). У «карта не сохранена» здесь же
+          кнопка: говорить о беде и не давать лекарства рядом — полдела. */}
+      {(() => {
+        const unsaved = hasRoute && !savedMap;
+        const warn = status && status.tone === 'warn' && !(hasRoute && recovery.kind === 'stale_fix') ? status : null;
+        if (!unsaved && !warn) return null;
+        const downloading = tileDl !== null && tileDl.total > 0;
+        return (
+          <div className="mx-3 mt-1.5 rounded-xl px-3 py-2 flex flex-col gap-1.5 text-[13px] leading-tight"
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid color-mix(in srgb, var(--warning) 45%, transparent)',
+              color: 'var(--warning)',
+            }}>
+            {unsaved && (
+              <div className="flex items-center gap-2 min-h-[28px]">
+                <Download className="w-4 h-4 shrink-0" />
+                <span className="flex-1 min-w-0 truncate">Карта не сохранена — офлайн не откроется</span>
+                {mapPlan && (
+                  <button type="button" disabled={downloading}
+                    onClick={() => { const id = crumbsRouteRef.current; if (id) void saveMap(id); }}
+                    className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                    style={{ background: 'var(--warning)', color: 'var(--bg-primary)', opacity: downloading ? 0.7 : 1 }}>
+                    {downloading ? `${tileDl!.done}/${tileDl!.total}` : 'Сохранить'}
+                  </button>
+                )}
+              </div>
+            )}
+            {warn && (
+              <div className="flex items-center gap-2 min-h-[20px]" title={warn.detail ?? warn.text}>
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span className="flex-1 min-w-0 truncate">{warn.text}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Компас — над картой, справа, НЕ fixed (правка 29.08 №2, по живому
           скрину владельца: fixed top-28 угадывал отступ пиксельно и наехал
@@ -3938,17 +4013,17 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           обычном потоке под плашкой статуса — ничто их не накрывает и
           ничего не угадывается пикселями (02.09: кнопки внутри карты на
           середине высоты ушли под нижний лист). */}
-      {!showMap && (hasRoute || isLoadingRoute || mapCtl) && (
+      {!showMap && (hasRoute || isLoadingRoute || mapCtl || leafletZoomCtl) && (
         <div ref={instrumentRowRef} className="relative z-20 flex justify-between items-start px-3 pt-2">
           <div className="flex flex-col gap-2">
-            <VedarZoomButtons handle={mapCtl} />
+            <VedarZoomButtons handle={mapCtl ?? leafletZoomCtl} />
             {/* Тумблер слоя мест — рядом с масштабом, в том же столбце
                 управления картой. Второй его экземпляр стоит в режиме
                 «Карта» (ниже): одновременно смонтирован ровно один — этот
                 ряд рисуется только при !showMap, тот только при showMap, —
                 и состояние у них общее (showAllPlaces), так что разойтись
                 поведением им нечем. */}
-            {canTogglePlaces && <PlacesLayerButton on={showAllPlaces} onToggle={toggleAllPlaces} />}
+            {canTogglePlaces && <PlacesLayerButton on={showAllPlaces} onToggle={toggleAllPlaces} compact />}
           </div>
           {(hasRoute || isLoadingRoute) && (
           <div className="flex flex-col items-center gap-2 ml-auto">
@@ -3958,7 +4033,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                 ширины и закрывали карту — «не юзабельно». 104 — как у
                 мокапа: азимут и стрелка читаются, карта под ним видна. */}
             <FieldCompass heading={effHeading} state={effCompassState}
-              targetBearing={calculatedPreview ? calcBearing : targetBearing} headingSource={headingSource} size={104} />
+              targetBearing={calculatedPreview ? calcBearing : targetBearing} headingSource={headingSource} size={100} />
             {/* Лекарство — на самом приборе: кнопка в строке статуса от
                 мёртвого компаса жила в другом углу экрана, и их не связывали. */}
             {compassState === 'blocked' && (
@@ -4145,17 +4220,20 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                     именно здесь «138 км» стояло рядом с «всего 64.3 км». Без
                     этой строки противоречие осталось бы в самом заметном
                     месте экрана и объяснялось бы только в развёрнутом. */}
+                {/* Одна строка (макет 24.09): на скрине владельца она
+                    обрезалась краем листа на полуслове («…17.6 км по»).
+                    Полный текст — в развёрнутом листе и во всплывающей
+                    подсказке. */}
                 {!calculatedPreview && offRouteNote && distLabel !== null && (
-                  <p className="text-[11px] leading-tight" style={{ color: 'var(--warning)' }}>
-                    {offRouteNote}
+                  <p className="text-xs leading-tight truncate" title={offRouteNote}
+                    style={{ color: 'var(--warning)' }}>
+                    {offRouteShort ?? offRouteNote}
                   </p>
                 )}
               </div>
-              <button type="button" onClick={toggleSheet} aria-label="Развернуть приборы"
-                className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center"
-                style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
-                <ChevronUp className="w-5 h-5" />
-              </button>
+              {/* Квадратной кнопки «развернуть» здесь больше нет (макет
+                  24.09): у листа уже есть ручка, и две кнопки одного
+                  действия справа и сверху читались как две разные. */}
             </div>
           </div>
         ) : (
@@ -4561,7 +4639,15 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           Раньше строка появлялась только на время фоновой докачки, а
           проверить готовность было нечем: единственный момент, когда это
           выясняется, наступал уже без связи. */}
+      {/* Свёрнутый лист (макет владельца 24.09) эту строку не дублирует:
+          «Сохранить» и прогресс уже стоят в карточке предупреждений под
+          шапкой. Остаётся только то, чего там нет, — ПОЧЕМУ плана нет, и
+          пропавшая из телефона карта. */}
       {hasRoute && (tileDl || savedMap || mapPlan || mapPlanError) && (
+        sheetOpen
+        || (!mapPlan && !!mapPlanError && !tileDl)
+        || (!!savedMap && !tileDl && (mapCoverage?.state === 'none' || mapCoverage?.state === 'partial'))
+      ) && (
         <div className="px-4 py-3 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid #21262d' }}>
           {tileDl && tileDl.total > 0 ? (
             <div className="flex items-center gap-2">
@@ -4702,8 +4788,11 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 
       {/* Карточка доверия: род линии + состояние пакета + качество фикса
           одной строкой с раскрытием. partial никогда не зелёный; отсутствие
-          линии у points_only — природа маршрута, не дефект пакета. */}
-      {hasRoute && (
+          линии у points_only — природа маршрута, не дефект пакета.
+          Только в развёрнутом листе (макет владельца 24.09): в свёрнутом
+          она обрезалась пополам краем листа, а род линии там и так говорит
+          сама линия — пунктир с подписью (§12). */}
+      {hasRoute && sheetOpen && (
         <div className="px-4 pb-2">
           <TrustCard
             fidelity={lineFidelity}
@@ -4732,7 +4821,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           и по своей же охране внутри EmergencyAction («критичное действие
           стеклом не делаем»). Три остальные — контекстные переходы, им
           стекло положено; fx-glass-dense уже несёт фолбэк на
-          prefers-reduced-transparency и @supports (globals.css). */}
+          prefers-reduced-transparency и @supports (globals.css).
+          Только в развёрнутом листе (макет 24.09): в свёрнутом плитки
+          обрезались краем листа наполовину. */}
+      {sheetOpen && (
       <div className="grid grid-cols-2 gap-2 p-4">
         <button onClick={() => {
             setMapCenter(coords ? [coords.lat, coords.lng] : (waypoints[0] ? [waypoints[0].lat, waypoints[0].lng] : undefined));
@@ -4764,6 +4856,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             и полевой экран — последнее место, где это допустимо. */}
         <EmergencyAction variant="field" />
       </div>
+      )}
       </div>
       {/* Конец тела листа. */}
 
@@ -4787,10 +4880,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       {/* Атрибуция своей карты — здесь, на непрозрачном листе, который виден
           всегда (VedarMap attributionOutside). Мелко и приглушённо: это
           обязанность по лицензии, а не прибор. */}
-      {fieldBaseMap.kind === 'vedar' && !showMap && (
+      {fieldBaseMap.kind !== 'pending' && !showMap && (
         <p className="shrink-0 px-4 pb-1 text-center text-[10px] leading-tight"
           style={{ color: 'var(--text-muted)' }}>
-          {VEDAR_ATTRIBUTION}
+          {fieldBaseMap.kind === 'vedar' ? VEDAR_ATTRIBUTION : LEAFLET_ATTRIBUTION}
         </p>
       )}
       </div>
@@ -5620,24 +5713,33 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
         <div className="max-w-2xl mx-auto px-4 flex gap-0">
           <button
             onClick={() => switchTab('planning')}
-            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+            className={`flex items-center gap-2 px-3 min-[440px]:px-5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
               tab === 'planning'
                 ? 'border-[var(--accent)] text-[var(--accent)]'
                 : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <Navigation className="w-4 h-4" /> Планирование
+            <Navigation className="w-4 h-4 hidden min-[400px]:block" /> Планирование
           </button>
           <button
             onClick={() => switchTab('trail')}
-            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+            className={`flex items-center gap-2 px-3 min-[440px]:px-5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
               tab === 'trail'
                 ? 'border-[var(--success)] text-[var(--success)]'
                 : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <MapPin className="w-4 h-4" /> На маршруте
+            <MapPin className="w-4 h-4 hidden min-[400px]:block" /> На маршруте
           </button>
+          {/* SOS на «На маршруте» — в полосе вкладок: общей шапки (где он
+              стоит на каждом экране, #887) здесь нет, а плитка SOS в листе
+              видна только в развёрнутом состоянии. Тот же общий компонент —
+              копией поведения он не расходится. */}
+          {tab === 'trail' && (
+            <div className="ml-auto self-center">
+              <EmergencyAction />
+            </div>
+          )}
         </div>
       </div>
 

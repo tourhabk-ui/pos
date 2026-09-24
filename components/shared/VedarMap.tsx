@@ -278,7 +278,9 @@ export const VEDAR_ATTRIBUTION = '© OpenStreetMap contributors · © Copernicus
  * В перчатке и на морозе щипок не всегда выходит, а «+»/«−» есть у любого
  * навигатора. Действие — непрозрачное (§2).
  */
-export function VedarZoomButtons({ handle }: { handle: VedarMapHandle | null }) {
+// Кнопкам нужна только эта часть ручки — её же отдаёт запасной Leaflet
+// (LeafletMap onZoomHandle), чтобы у экрана была одна плашка масштаба.
+export function VedarZoomButtons({ handle }: { handle: Pick<VedarMapHandle, 'zoomIn' | 'zoomOut' | 'getZoom' | 'onZoom'> | null }) {
   // Число зума под кнопками — просьба владельца 05.09 («чтоб отражался зум
   // для инфы, рядом с + и −»). Читается с карты через ту же ручку, что и
   // кнопки, — одно число на карте и в приборном ряду снаружи, второго

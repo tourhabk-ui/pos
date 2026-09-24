@@ -91,6 +91,20 @@ describe('у SOS одна реализация', () => {
 });
 
 const HEADER = 'components/layout/Header.tsx';
+
+/**
+ * /planning рисует общую шапку ТОЛЬКО на вкладке «Планирование», а на
+ * «На маршруте» шапки нет — там SOS стоит в полосе вкладок (макет 24.09;
+ * до этого на полевом экране SOS был лишь плиткой в листе, которую в
+ * свёрнутом листе не видно). Два экземпляра на одном экране не сходятся
+ * никогда — но только пока оба условия записаны именно так; разойдись они,
+ * исключение само перестаёт действовать.
+ */
+function exclusiveByTab(path: string, src: string): boolean {
+  return path === 'app/planning/_PlanningClient.tsx'
+    && /\{tab === 'planning' && <Header \/>\}/.test(src)
+    && /\{tab === 'trail' && \(\s*<div[^>]*>\s*<EmergencyAction \/>/.test(src);
+}
 const TOUR_CARD = 'app/marketplace/tours/[id]/_TourDetailClient.tsx';
 
 describe('SOS — в общей шапке (§2, #1775)', () => {
@@ -111,6 +125,12 @@ describe('SOS — в общей шапке (§2, #1775)', () => {
     expect(SOURCES.get(TOUR_CARD)!).toMatch(/<EmergencyAction\b/);
   });
 
+  it('«На маршруте» (без общей шапки) несёт SOS в полосе вкладок', () => {
+    const src = SOURCES.get('app/planning/_PlanningClient.tsx')!;
+    expect(exclusiveByTab('app/planning/_PlanningClient.tsx', src),
+      'полевой экран без шапки остался без видимой SOS').toBe(true);
+  });
+
   it('экран с общей шапкой не ставит вторую SOS рядом с заголовком', () => {
     // Два экземпляра одного действия на одном экране — не разъезд поведения,
     // но обещание «одна кнопка в одном месте» они ломают. Бесатрибутный
@@ -119,6 +139,7 @@ describe('SOS — в общей шапке (§2, #1775)', () => {
     const offenders = [...SOURCES.entries()]
       .filter(([path]) => path !== HEADER)
       .filter(([, src]) => /<Header\b/.test(src) && /<EmergencyAction\s*\/>/.test(src))
+      .filter(([path, src]) => !exclusiveByTab(path, src))
       .map(([path]) => path);
     expect(offenders, 'на экране с Header стоит вторая SOS-пилюля').toEqual([]);
   });

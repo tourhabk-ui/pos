@@ -110,7 +110,7 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
   }
 
   return (
-    <div className="relative mx-auto flex flex-col items-center" style={{ width: badge ? size + 24 : size }}>
+    <div className="relative mx-auto flex flex-col items-center" style={{ width: badge ? size + 8 : size }}>
     <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
         {/* Корпус прибора: непрозрачный, с фаской по краю */}
@@ -184,9 +184,31 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
           оно остаётся единственным честным ответом прибора. На крупном
           приборе — под осью внутри шкалы, на бейдже — под циферблатом
           (см. BADGE_MAX). */}
-      {targetBearing !== null && (
-        <div className={badge ? 'flex flex-col items-center mt-1' : 'absolute inset-x-0 flex flex-col items-center'}
-          style={badge ? undefined : { top: '54%' }}>
+      {targetBearing !== null && badge && (
+        // Бейдж (макет владельца 24.09): одна компактная плашка — число и
+        // короткая родословная курса строкой под ним. Прежняя плашка была
+        // шириной в полприбора и в три строки («На точку:», число, «азимут —
+        // магнитный датчик»). Смысл тот же: полная формулировка — в title.
+        // Непрозрачная (§2: критичные приборы не блюрятся).
+        <div className="mt-1 flex flex-col items-center rounded-lg px-2.5 py-1"
+          title={trusted
+            ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')
+            : 'стрелка скрыта: азимут не подтверждён'}
+          style={{ background: 'rgba(10,14,18,0.92)', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <span className="font-bold tabular-nums leading-none"
+            style={{ color: trusted ? 'var(--success)' : 'var(--text-muted)', fontSize: 20 }}>
+            {formatBearing(targetBearing)}
+          </span>
+          <span className="leading-tight whitespace-nowrap" style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10, marginTop: 2 }}>
+            {trusted
+              ? (headingSource === 'motion' ? 'на точку · по GPS' : 'на точку · датчик')
+              : 'стрелка скрыта'}
+          </span>
+        </div>
+      )}
+      {targetBearing !== null && !badge && (
+        <div className="absolute inset-x-0 flex flex-col items-center"
+          style={{ top: '54%' }}>
           {/* Плашка под числом. Раньше подписи лежали прямо на засечках и на
               стрелке — на 110 пикселях это каша, а число азимута и есть
               главный ответ прибора, когда стрелки нет вовсе (правило 21.08).
@@ -211,16 +233,13 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
               }}>
               {formatBearing(targetBearing)}
             </span>
-            {/* Родословная курса — словами, как у линий на карте. Внутри той
-                же плашки и с ограниченной шириной: без этого строка
-                растягивалась во всю ширину прибора и ложилась на букву «Ю»
-                (живой скрин владельца 01.09). */}
+            {/* Родословная курса — словами, как у линий на карте. */}
             <span className="text-center leading-tight"
               style={{
                 color: 'rgba(255,255,255,0.5)',
                 fontSize: Math.max(8, 10 * k),
                 marginTop: Math.max(1, 2 * k),
-                maxWidth: badge ? size + 16 : size * 0.6,
+                maxWidth: size * 0.6,
               }}>
               {trusted
                 ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')

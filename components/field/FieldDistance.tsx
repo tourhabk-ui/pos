@@ -49,31 +49,39 @@ export function FieldDistance(p: FieldDistanceProps) {
   const unit = m ? m[2] : '';
 
   if (p.compact) {
+    // Макет владельца 24.09 («делай по макету»): цифра слева крупно, подпись
+    // и чипы — колонкой справа. Прежняя строка переносила чипы под цифру в
+    // случайных местах, и свёрнутый лист на телефоне владельца выглядел
+    // набором разрозненных строк.
     const color = p.live ? 'var(--text-primary)' : 'var(--text-muted)';
     return (
-      <div className="w-full flex items-center flex-wrap gap-x-3 gap-y-1">
-        <div className="flex items-end gap-1">
-          <span className="font-bold leading-none tabular-nums" style={{ fontSize: 34, letterSpacing: '-1px', color }}>
+      <div className="w-full flex items-end gap-3">
+        <div className="flex items-end gap-1 shrink-0">
+          <span className="font-bold leading-none tabular-nums" style={{ fontSize: 44, letterSpacing: '-1.5px', color }}>
             {value}
           </span>
-          {unit && <span className="font-bold pb-0.5" style={{ fontSize: 15, color }}>{unit}</span>}
+          {unit && <span className="font-bold pb-1" style={{ fontSize: 18, color }}>{unit}</span>}
         </div>
-        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{p.caption}</span>
-        {p.etaLabel && (
-          <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--ocean)' }}>
-            <Clock className="w-3.5 h-3.5 shrink-0" />{p.etaLabel}
-          </span>
-        )}
-        {p.ascentLabel && (
-          <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--ocean)' }}>
-            <Mountain className="w-3.5 h-3.5 shrink-0" />{p.ascentLabel}
-          </span>
-        )}
-        {p.totalLabel && (
-          <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <Route className="w-3.5 h-3.5 shrink-0" />{p.totalLabel}
-          </span>
-        )}
+        <div className="ml-auto min-w-0 flex flex-col items-end gap-0.5 text-right pb-0.5">
+          <span className="text-xs max-w-full truncate" style={{ color: 'var(--text-secondary)' }}>{p.caption}</span>
+          <div className="flex flex-wrap justify-end gap-x-3 gap-y-0.5">
+            {p.etaLabel && (
+              <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--ocean)' }}>
+                <Clock className="w-3.5 h-3.5 shrink-0" />{p.etaLabel}
+              </span>
+            )}
+            {p.ascentLabel && (
+              <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--ocean)' }}>
+                <Mountain className="w-3.5 h-3.5 shrink-0" />{p.ascentLabel}
+              </span>
+            )}
+            {p.totalLabel && (
+              <span className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                <Route className="w-3.5 h-3.5 shrink-0" />{p.totalLabel}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

@@ -112,7 +112,9 @@ describe('форма листа (02.09 08:18)', () => {
   });
 
   it('масштаб карты — в приборном ряду у компаса, карта свои кнопки не рисует', () => {
-    expect(SRC).toMatch(/<VedarZoomButtons handle=\{mapCtl\} \/>/);
+    // Та же плашка — и у запасного Leaflet (макет 24.09): одна ручка на экран.
+    expect(SRC).toMatch(/<VedarZoomButtons handle=\{mapCtl \?\? leafletZoomCtl\} \/>/);
+    expect(SRC).toMatch(/onZoomHandle=\{showMap \? undefined : setLeafletZoomCtl\}/);
     expect(SRC).toMatch(/showZoomButtons=\{showMap\}/);
     expect(SRC).toMatch(/onControls=\{setMapCtl\}/);
     expect(MAP).toMatch(/\{ready && showZoomButtons && \(/);

@@ -55,3 +55,10 @@ export interface MapMarker {
    */
   geometryOnly?: boolean;
 }
+
+/**
+ * Атрибуция тайлов Leaflet-подложки. Вынесена сюда (без импорта leaflet),
+ * чтобы экран, показывающий её строкой вне карты (На маршруте, 24.09), брал
+ * тот же текст, что и контрол, — второй копии нет.
+ */
+export const LEAFLET_ATTRIBUTION = '© OpenStreetMap | OpenTopoMap (CC-BY-SA)';

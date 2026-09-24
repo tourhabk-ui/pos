@@ -8,7 +8,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
 export { MarkerType } from '@/components/shared/leaflet-types';
 export type { MapMarkerGeometry, MapMarker } from '@/components/shared/leaflet-types';
-import type { MapMarker, MapMarkerGeometry } from '@/components/shared/leaflet-types';
+import { LEAFLET_ATTRIBUTION, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { placeMarkerSvg } from '@/lib/map/place-marker-icons';
 
 interface LeafletMapProps {
@@ -78,6 +78,25 @@ interface LeafletMapProps {
    * передан — поведение как раньше (центрирует один раз за жизнь инстанса).
    */
   autoPanDoneRef?: { current: boolean };
+  /**
+   * Свои кнопки масштаба у вызывающего вместо встроенного контрола Leaflet.
+   *
+   * «На маршруте» по макету владельца 24.09 держит масштаб слева, под
+   * плашкой статуса, одной плашкой «+ / зум / −» — той же, что у своей
+   * карты. Встроенный контрол стоял в topright и ложился на плашку
+   * маршрута и компас. Передан — встроенного контрола нет, а ручка живёт
+   * всю жизнь компонента и переживает ремонт инстанса карты (зовёт тот,
+   * что сейчас в mapRef).
+   */
+  onZoomHandle?: (handle: LeafletZoomHandle | null) => void;
+}
+
+/** Ручка масштаба — та же форма, что у VedarMapHandle, для VedarZoomButtons. */
+export interface LeafletZoomHandle {
+  zoomIn(): void;
+  zoomOut(): void;
+  getZoom(): number;
+  onZoom(cb: (zoom: number) => void): () => void;
 }
 
 const COLOR_MAP: Record<string, string> = {
@@ -184,9 +203,33 @@ export default function LeafletMap({
   showUserLocation = false,
   locationPriority = 'highAccuracy',
   autoPanDoneRef,
+  onZoomHandle,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LMap | null>(null);
+  // Подписчики зума живут дольше любого инстанса карты: ремонт пересоздаёт
+  // L.map, и подписка на старый инстанс умерла бы вместе с ним.
+  const zoomListenersRef = useRef(new Set<(zoom: number) => void>());
+  const zoomPropRef = useRef(zoom);
+  zoomPropRef.current = zoom;
+  const onZoomHandleRef = useRef(onZoomHandle);
+  onZoomHandleRef.current = onZoomHandle;
+  const ownZoomButtons = onZoomHandle !== undefined;
+  useEffect(() => {
+    const report = onZoomHandleRef.current;
+    if (!report) return;
+    const handle: LeafletZoomHandle = {
+      zoomIn: () => { mapRef.current?.zoomIn(); },
+      zoomOut: () => { mapRef.current?.zoomOut(); },
+      getZoom: () => mapRef.current?.getZoom() ?? zoomPropRef.current,
+      onZoom: (cb) => {
+        zoomListenersRef.current.add(cb);
+        return () => { zoomListenersRef.current.delete(cb); };
+      },
+    };
+    report(handle);
+    return () => { report(null); };
+  }, []);
   const clusterRef = useRef<unknown>(null);
   /**
    * Вид карты переживает НЕПРОШЕНЫЙ ремонт инстанса.
@@ -408,7 +451,12 @@ export default function LeafletMap({
       }
 
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
-      L.control.zoom({ position: 'topright' }).addTo(map);
+      // Свои кнопки у вызывающего (onZoomHandle) — встроенного контрола нет.
+      if (!ownZoomButtons) L.control.zoom({ position: 'topright' }).addTo(map);
+      map.on('zoom', () => {
+        const z = map.getZoom();
+        zoomListenersRef.current.forEach(cb => cb(z));
+      });
 
       // Верх занят чужой панелью — сдвигаем ОБА верхних угла Leaflet вниз.
       // Иначе контролы честно существуют и честно недостижимы: замер 08.09
@@ -451,7 +499,7 @@ export default function LeafletMap({
       let tileErrors = 0;
       const tileLayer = L.tileLayer(TILE_URLS[0], {
         maxZoom: 17,
-        attribution: attribution !== false ? '© OpenStreetMap | OpenTopoMap (CC-BY-SA)' : '',
+        attribution: attribution !== false ? LEAFLET_ATTRIBUTION : '',
       }).addTo(map);
       tileLayer.on('tileerror', () => {
         tileErrors++;
@@ -733,7 +781,7 @@ export default function LeafletMap({
   // identity массива карта пересоздавалась бы на каждый рендер родителя.
   // Обработчики ушли в ref по той же причине.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [center[0], center[1], zoom, attribution, showUserLocation, locationPriority, retry]);
+  }, [center[0], center[1], zoom, attribution, showUserLocation, locationPriority, retry, ownZoomButtons]);
 
   /**
    * Отрисовка маркеров НА ЖИВОЙ карте — без пересоздания инстанса.
