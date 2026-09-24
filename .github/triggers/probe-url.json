@@ -1,16 +1,16 @@
 {
-  "note": "24.09, прогон 574. ТОЛЬКО ЧТЕНИЕ. Проба 573: с прода www.emsd.ru отвечает 200 (decoded_by utf-8), но parseEmsdQuakes не находит заголовок «Последние … землетрясений … Ml > …». Модуль писался по ТЕКСТУ, вставленному владельцем, живой вёрстки никто не видел. Снять её: где на странице таблица (или она во фрейме / отдельном адресе вроде /maheqkam), в какой кодировке и какими словами подписана.",
-  "run": 574,
+  "note": "24.09, прогон 575. ТОЛЬКО ЧТЕНИЕ. Проба 574: главная www.emsd.ru — Django, таблицы землетрясений в HTML нет (её рисует JS «интерактивной карты»), /maheqkam — 403 (SvelteKit, сервер kittenx). Ищем адрес данных: в каком запросе скрипт главной берёт события (ajax/fetch/json/api, sdis.emsd.ru).",
+  "run": 575,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 30,
-  "bytes": 3000,
-  "around": ["землетрясен", "Ml", "iframe", "frame", "charset", "maheqkam"],
-  "aroundLines": 3,
+  "bytes": 200,
+  "around": ["ajax", "fetch(", ".json", "/api/", "sdis", "earthquake", "event", "quake", "catalog"],
+  "aroundLines": 2,
   "aroundBefore": 1,
-  "aroundHits": 4,
+  "aroundHits": 6,
   "urls": [
-    "https://www.emsd.ru/",
-    "https://www.emsd.ru/maheqkam"
+    "https://www.emsd.ru/static/cache/js/output.a4d943cb28c4.js",
+    "https://www.emsd.ru/"
   ]
 }
