@@ -212,6 +212,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'place-audit':                { kind: 'manual', writes: false, note: 'поиск places по имени независимо от видимости/слияния + профиль безопасности, только чтение' },
   'place-activity-census':     { kind: 'manual', writes: false, note: 'перепись мест, чьё имя называет коммерческую активность, не факт местности (§9) — «Река Авача — рыбалка» найдена 07.09; только чтение, ничего не скрывает и не удаляет' },
   'sos-census':                { kind: 'manual', writes: false, note: 'кто шлёт SOS: сырые строки sos_events с IP, user-agent, сессией и сводки по ним, только чтение' },
+  'kuzmich-load-census':       { kind: 'manual', writes: false, note: 'сколько обращений к Кузьмичу по каналам и верхняя граница расхода на модели — решить, окупится ли роутер намерений (#1995); только числа, текстов не отдаёт' },
   // 'place-coords' объявления здесь не несёт с 03.09: его зовёт place-coords.yml
   // (сухой прогон и правка по маркеру — Верхне-Опальские в 29 км от места);
   // объявление тут было бы вторым ответом на тот же вопрос, как у route-endpoints.
