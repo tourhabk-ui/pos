@@ -81,8 +81,12 @@ export default function StaysClient() {
   useEffect(() => { load(); }, [load]);
 
   async function cancel(booking: StayBooking) {
-    const policyNote = booking.cancellationPolicy ? `\n\nУсловия отмены: ${booking.cancellationPolicy}` : '';
-    if (!window.confirm(`Отменить бронь «${booking.accommodationName}»?${policyNote}`)) return;
+    // Условия — те, что платформа исполняет (lib/stay/refund-policy.ts), а не
+    // текст объекта, которого расчёт никогда не читал.
+    const refundNote = booking.paymentStatus === 'paid'
+      ? '\n\nОплата вернётся полностью. Перевод выполняет владелец объекта вручную — это не мгновенно.'
+      : '';
+    if (!window.confirm(`Отменить бронь «${booking.accommodationName}»?${refundNote}`)) return;
     setBusyId(booking.id);
     setError(null);
     setNotice(null);
@@ -99,7 +103,7 @@ export default function StaysClient() {
       const refund = d.data?.refundAmount ?? 0;
       setNotice(
         refund > 0
-          ? `Бронь отменена. К возврату ${formatMoney(refund)}${d.data?.refundPercent != null ? ` (${d.data.refundPercent}%)` : ''} — поступит на карту в течение нескольких дней.`
+          ? `Бронь отменена. К возврату ${formatMoney(refund)}. Перевод выполняет владелец объекта вручную — когда он отметит возврат, здесь появится «Возвращено».`
           : 'Бронь отменена.'
       );
       load();
@@ -165,11 +169,13 @@ export default function StaysClient() {
               </div>
               {b.status === 'cancelled' && b.refundAmount != null && b.refundAmount > 0 && (
                 <p className="text-xs text-[var(--text-secondary)] mt-2">
-                  Возврат: {formatMoney(b.refundAmount)}{b.refundPercent != null && ` (${b.refundPercent}%)`}
+                  {b.paymentStatus === 'refunded'
+                    ? `Возвращено: ${formatMoney(b.refundAmount)}`
+                    : `К возврату: ${formatMoney(b.refundAmount)} — ожидает перевода`}
                 </p>
               )}
-              {b.cancellable && b.cancellationPolicy && (
-                <p className="text-xs text-[var(--text-muted)] mt-2">Условия отмены: {b.cancellationPolicy}</p>
+              {b.cancellable && b.paymentStatus === 'paid' && (
+                <p className="text-xs text-[var(--text-muted)] mt-2">При отмене оплата возвращается полностью.</p>
               )}
             </div>
             <div className="flex flex-col gap-2 shrink-0">

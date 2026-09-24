@@ -6,6 +6,13 @@ import Link from 'next/link';
 import { Users, Target, Leaf, Mountain, Clock, Circle } from 'lucide-react';
 import type { RecommendedTour, RecommendationStrategy } from '@/lib/search';
 
+/** duration приходит из operator_tours.duration_hours — это ЧАСЫ, не дни. */
+function formatHours(h: number): string {
+  if (!Number.isFinite(h) || h <= 0) return '';
+  if (h < 24) return `${Math.round(h)} ч`;
+  return `${Math.round(h / 24)} дн.`;
+}
+
 interface RecommendationCardProps {
   tour: RecommendedTour;
   onCardClick?: (tourId: string, strategy: RecommendationStrategy) => void;
@@ -50,7 +57,8 @@ export default function RecommendationCard({ tour, onCardClick }: Recommendation
 
   return (
     <Link
-      href={`/tours/${tour.id}`}
+      // /tours/[id] страницы нет (404) — карточка тура живёт в маркетплейсе (§11).
+      href={`/marketplace/tours/${tour.id}`}
       onClick={handleClick}
       className="
         group relative rounded-lg overflow-hidden
@@ -103,7 +111,7 @@ export default function RecommendationCard({ tour, onCardClick }: Recommendation
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-            {tour.duration && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {tour.duration} дн.</span>}
+            {tour.duration && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatHours(Number(tour.duration))}</span>}
             {tour.difficulty && (
               <span className="capitalize flex items-center gap-1">
                 <Circle className={`w-2.5 h-2.5 fill-current ${
@@ -119,9 +127,9 @@ export default function RecommendationCard({ tour, onCardClick }: Recommendation
             )}
           </div>
 
-          {tour.price && (
+          {Number(tour.price) > 0 && (
             <span className="text-sm font-bold text-[var(--accent)]">
-              {tour.price.toLocaleString('ru-RU')} ₽
+              {Number(tour.price).toLocaleString('ru-RU')} ₽
             </span>
           )}
         </div>

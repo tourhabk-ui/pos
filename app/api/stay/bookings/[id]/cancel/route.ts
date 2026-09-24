@@ -66,12 +66,10 @@ export async function POST(
         ? calculateStayRefund(Number(b.total_price ?? 0), new Date(b.check_in_date), false)
         : null;
 
-      // payment_status: полный возврат → refunded; частичный → partially_refunded;
-      // 0% или неоплаченная → без изменения статуса оплаты.
-      let nextPaymentStatus: string | null = null;
-      if (refund && refund.amount > 0) {
-        nextPaymentStatus = refund.percent >= 100 ? 'refunded' : 'partially_refunded';
-      }
+      // payment_status НЕ трогаем: отмена денег не возвращает. До 24.09 здесь
+      // сразу ставилось refunded — в базе деньги числились возвращёнными, а
+      // гостю писали «поступит на карту», хотя переводить их было некому.
+      // Отметку ставит владелец/админ, когда перевёл (refund_done).
 
       await client.query(
         `UPDATE accommodation_bookings
@@ -80,7 +78,6 @@ export async function POST(
              refund_amount = $2,
              refund_percent = $3,
              refund_reason = $4,
-             payment_status = COALESCE($5, payment_status),
              updated_at = NOW()
          WHERE id = $1`,
         [
@@ -88,7 +85,6 @@ export async function POST(
           refund ? refund.amount : null,
           refund ? refund.percent : null,
           refund ? refund.reason : null,
-          nextPaymentStatus,
         ]
       );
 
@@ -141,7 +137,8 @@ export async function POST(
         wasPaid: outcome.wasPaid,
       },
     });
-  } catch {
+  } catch (err) {
+    console.error('[stay/cancel] отмена не записана:', err);
     return NextResponse.json({ success: false, error: 'Ошибка при отмене брони' }, { status: 500 });
   }
 }

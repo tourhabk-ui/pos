@@ -140,7 +140,7 @@ async function getOpenMeteoWeather(lat: number, lng: number, location?: string):
       feelsLike: Math.round(hourly.apparent_temperature[i]),
       condition: getWeatherCondition(hourly.weather_code[i]),
       precipitation: hourly.precipitation[i] || 0,
-      windSpeed: Math.round(hourly.wind_speed_10m[i] * 3.6),
+      windSpeed: Math.round(hourly.wind_speed_10m[i]),
       humidity: hourly.relative_humidity_2m[i],
     });
   }
@@ -158,7 +158,7 @@ async function getOpenMeteoWeather(lat: number, lng: number, location?: string):
       conditionText: getWeatherConditionText(getWeatherCondition(daily.weather_code[i])),
       precipitation: daily.precipitation_sum[i] || 0,
       precipitationProbability: daily.precipitation_probability_max[i] || 0,
-      windSpeed: Math.round(daily.wind_speed_10m_max[i] * 3.6),
+      windSpeed: Math.round(daily.wind_speed_10m_max[i]),
       // Дневной влажности у Open-Meteo нет — берём среднее почасовых за эту
       // дату; нет и их — null, а не «60» (#1774).
       humidity: meanHourlyForDate(hourly.time, hourly.relative_humidity_2m, daily.time[i]),
@@ -174,8 +174,10 @@ async function getOpenMeteoWeather(lat: number, lng: number, location?: string):
   const visibilityKm = hourlyVisibilityKm(hourly.time, hourly.visibility, current.time);
   const temp = Math.round(current.temperature_2m);
   const feelsLike = Math.round(current.apparent_temperature);
-  const windSpeed = Math.round(current.wind_speed_10m * 3.6);
-  const windGust = current.wind_gusts_10m ? Math.round(current.wind_gusts_10m * 3.6) : undefined;
+  // Open-Meteo без wind_speed_unit отдаёт км/ч — умножать на 3.6 нельзя:
+  // до 24.09 ветер 17 км/ч показывался как 61 и значок уходил в «Опасно».
+  const windSpeed = Math.round(current.wind_speed_10m);
+  const windGust = current.wind_gusts_10m ? Math.round(current.wind_gusts_10m) : undefined;
 
   const weather: Weather = {
     location: location || `${lat.toFixed(2)}, ${lng.toFixed(2)}`,

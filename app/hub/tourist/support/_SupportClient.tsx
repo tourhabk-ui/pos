@@ -86,6 +86,7 @@ export default function SupportClient() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [replyError, setReplyError] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
@@ -172,7 +173,10 @@ export default function SupportClient() {
       });
       const json = await res.json();
       if (!json.success) {
-        setFormError(json.error ?? json.errors ? JSON.stringify(json.errors) : 'Ошибка создания заявки');
+        // Скобки обязательны: без них `??` связывался с тернарником, и при
+        // строковом error из роута в поле уходил JSON.stringify(undefined) —
+        // отказ создания заявки не показывался вовсе.
+        setFormError(typeof json.error === 'string' ? json.error : 'Ошибка создания заявки');
         return;
       }
       setFormSuccess(true);
@@ -192,6 +196,7 @@ export default function SupportClient() {
   const sendReply = useCallback(async () => {
     if (!replyText.trim() || !selectedTicket) return;
     setSubmittingReply(true);
+    setReplyError('');
     try {
       const res = await fetch(`/api/support/tickets/${selectedTicket.id}/messages`, {
         method: 'POST',
@@ -202,9 +207,12 @@ export default function SupportClient() {
       if (json.success && json.data) {
         setMessages((m) => [...m, json.data as Message]);
         setReplyText('');
+      } else {
+        // Текст остаётся в поле — но человек должен знать, что он не ушёл.
+        setReplyError(typeof json.error === 'string' ? json.error : 'Сообщение не отправлено');
       }
     } catch {
-      // silent
+      setReplyError('Сообщение не отправлено — нет связи');
     } finally {
       setSubmittingReply(false);
     }
@@ -454,7 +462,9 @@ export default function SupportClient() {
             </div>
 
             {/* Reply */}
-            {!['RESOLVED', 'CLOSED'].includes(selectedTicket.status) && (
+            {/* Статусы в базе строчные (TICKET_STATUSES) — капс не совпадал
+                никогда, и поле ответа висело у закрытых заявок. */}
+            {!['resolved', 'closed'].includes(String(selectedTicket.status).toLowerCase()) && (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
                 <label className="ds-label">Ответить</label>
                 <textarea
@@ -472,6 +482,9 @@ export default function SupportClient() {
                   {submittingReply ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                   Отправить
                 </button>
+                {replyError && (
+                  <p className="mt-2 text-sm text-[var(--danger)]">{replyError}</p>
+                )}
               </div>
             )}
           </div>

@@ -39,9 +39,7 @@ interface EcoWallet {
 interface UserLevel {
   name: string;
   minSpent: number;
-  discount: number;
   earnMultiplier: number;
-  benefits: string[];
   color: string;
 }
 
@@ -204,9 +202,9 @@ export default function LoyaltyClient() {
                   <p className="text-2xl font-bold font-playfair text-[var(--text-primary)]">
                     {currentLevelName}
                   </p>
-                  {(stats?.currentLevel?.discount ?? 0) > 0 && (
+                  {(stats?.currentLevel?.earnMultiplier ?? 1) > 1 && (
                     <p className="text-sm text-[var(--success)]">
-                      Скидка {((stats?.currentLevel.discount ?? 0) * 100).toFixed(0)}% на все туры
+                      Баллы за бронь ×{stats?.currentLevel.earnMultiplier}
                     </p>
                   )}
                 </div>
@@ -358,8 +356,7 @@ export default function LoyaltyClient() {
                       <tr className="border-t border-[var(--border)] bg-[var(--bg-primary)]">
                         <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Уровень</th>
                         <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">От (расходов)</th>
-                        <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Скидка</th>
-                        <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs hidden sm:table-cell">Привилегии</th>
+                        <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Баллы за бронь</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -387,10 +384,7 @@ export default function LoyaltyClient() {
                                 {lvl.minSpent === 0 ? '---' : fmtMoney(lvl.minSpent)}
                               </td>
                               <td className="px-4 py-3 text-[var(--text-secondary)]">
-                                {lvl.discount === 0 ? '---' : `${(lvl.discount * 100).toFixed(0)}%`}
-                              </td>
-                              <td className="px-4 py-3 text-[var(--text-secondary)] hidden sm:table-cell text-xs">
-                                {lvl.benefits.join(', ')}
+                                ×{lvl.earnMultiplier}
                               </td>
                             </tr>
                           );

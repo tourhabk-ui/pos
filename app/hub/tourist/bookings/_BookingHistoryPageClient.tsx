@@ -21,8 +21,10 @@ export default function BookingHistoryPageClient() {
 
   // Bug 1 fix: correct generic types and transform to extract the bookings array
   // from the API envelope { data: { bookings: [...], total, limit, offset } }
-  const { data: bookings, loading, refetch } = useApiFetch<BookingsApiPayload, BookingWithDetails[]>(
-    '/api/bookings',
+  // limit явно: по умолчанию сервер отдаёт 10, и старшие брони молча
+  // пропадали из списка вместе со счётчиком «Все (N)».
+  const { data: bookings, loading, error, refetch } = useApiFetch<BookingsApiPayload, BookingWithDetails[]>(
+    '/api/bookings?limit=100',
     (d) => d?.bookings ?? [],
   );
 
@@ -168,10 +170,22 @@ export default function BookingHistoryPageClient() {
         })}
       </div>
 
-      {filteredBookings.length === 0 ? (
+      {error && list.length === 0 ? (
+        /* Отказ загрузки — не «броней нет» (§4.0): человек с бронью на
+           завтра не должен читать, что её не существует. */
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
+          <p className="text-[var(--danger)] text-base">Не удалось загрузить бронирования</p>
+          <button type="button" onClick={() => void refetch()}
+            className="mt-5 inline-block px-6 py-2.5 border border-[var(--border)] rounded-md text-sm font-semibold text-[var(--text-primary)]">
+            Повторить
+          </button>
+        </div>
+      ) : filteredBookings.length === 0 ? (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
           <Calendar className="w-12 h-12 mx-auto mb-4 text-[var(--text-muted)]" />
-          <p className="text-[var(--text-secondary)] text-base">У вас пока нет бронирований</p>
+          <p className="text-[var(--text-secondary)] text-base">
+            {list.length === 0 ? 'У вас пока нет бронирований' : 'В этом разделе бронирований нет'}
+          </p>
           <Link
             href="/hub/tourist"
             className="mt-5 inline-block px-6 py-2.5 bg-[var(--accent)] text-[var(--bg-card)] rounded-md text-sm font-semibold transition-colors"

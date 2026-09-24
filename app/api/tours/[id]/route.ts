@@ -128,7 +128,13 @@ export async function GET(
       return [];
     };
 
-    const rawImages = parseJsonField(row.images) as string[];
+    // У operator_tours нет колонок images/price/category — есть photos
+    // (text[]), tour_image и base_price. Прежнее чтение отдавало каждому туру
+    // price = 0 и пустую галерею (избранное туриста показывало заглушку без цены).
+    const photoList = parseJsonField(row.photos).filter((u): u is string => typeof u === 'string' && u.length > 0);
+    const rawImages = photoList.length > 0
+      ? photoList
+      : typeof row.tour_image === 'string' && row.tour_image ? [row.tour_image] : parseJsonField(row.images) as string[];
     const images = rawImages.length > 0
       ? rawImages
       : (CATEGORY_IMAGES[row.category as string] ? [CATEGORY_IMAGES[row.category as string]] : []);
@@ -141,7 +147,7 @@ export async function GET(
       category:         (row.category || 'adventure') as string,
       difficulty:       (row.difficulty || 'medium') as 'easy' | 'medium' | 'hard',
       duration:         parseInt(String(row.minDuration || row.duration || 0)),
-      price:            parseFloat(String(row.pricePerDay || row.price || 0)),
+      price:            parseFloat(String(row.base_price ?? row.pricePerDay ?? row.price ?? 0)),
       currency:         (row.currency || 'RUB') as string,
       season:           parseJsonField(row.season),
       coordinates:      parseJsonField(row.coordinates),

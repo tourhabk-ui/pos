@@ -104,6 +104,26 @@ export default function BookingsClient() {
 
   useEffect(() => { load(); }, [load]);
 
+  async function markRefunded(booking: BookingRow) {
+    if (!window.confirm(`Подтвердите: ${formatMoney(booking.refund_amount ?? 0)} переведены гостю? Гость увидит «Возвращено».`)) return;
+    setBusyId(booking.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stay/bookings/${booking.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refund_done: true }),
+      });
+      const d = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || !d.success) setError(d.error || 'Не удалось отметить возврат');
+      else load();
+    } catch {
+      setError('Не удалось отметить возврат');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function changeStatus(booking: BookingRow, next: string) {
     setBusyId(booking.id);
     setError(null);
@@ -194,10 +214,21 @@ export default function BookingsClient() {
                 {[booking.guest_name, booking.guest_email].filter(Boolean).join(' · ') || 'Гость не указан'}
               </p>
               {booking.status === 'cancelled' && booking.refund_amount != null && Number(booking.refund_amount) > 0 && (
-                <p className="text-xs font-medium text-[var(--danger)] mt-1">
-                  К возврату гостю: {formatMoney(booking.refund_amount)}
-                  {booking.refund_percent != null && ` (${booking.refund_percent}%)`} — вручную по CloudPayments
-                </p>
+                booking.payment_status === 'refunded' ? (
+                  <p className="text-xs font-medium text-[var(--text-secondary)] mt-1">
+                    Возвращено гостю: {formatMoney(booking.refund_amount)}
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <p className="text-xs font-medium text-[var(--danger)]">
+                      К возврату гостю: {formatMoney(booking.refund_amount)} — переведите и отметьте
+                    </p>
+                    <button type="button" onClick={() => markRefunded(booking)} disabled={busyId === booking.id}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--text-primary)] disabled:opacity-60">
+                      Возврат выполнен
+                    </button>
+                  </div>
+                )
               )}
               {booking.special_requests && (
                 <p className="text-xs text-[var(--text-muted)] mt-1">{booking.special_requests}</p>

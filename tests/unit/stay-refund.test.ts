@@ -1,12 +1,12 @@
 /**
  * tests/unit/stay-refund.test.ts
  *
- * Честный возврат при отмене жилья (PR 1 цикла возвратов):
- * - политика calculateStayRefund по всем тирам;
- * - гостевой cancel оплаченной брони → payment_status refunded/partially_refunded
- *   + refund_amount + уведомление владельцу с суммой;
- * - неоплаченной (pending) → без смены payment_status, без суммы;
- * - владельческий PATCH оплаченной брони в cancelled → 100%.
+ * Честный возврат при отмене жилья (24.09, решение владельца «сделай отмену
+ * жилья честной»):
+ * - возврат всегда 100% (как у туров, 11.09) — лестницы 100/50/0 больше нет;
+ * - отмена НЕ ставит payment_status=refunded: денег она не возвращает;
+ * - «возвращено» ставит владелец/админ отдельным действием refund_done;
+ * - неоплаченной (pending) → без суммы.
  * Физический возврат по CloudPayments — офлайн (в коде не эмулируется).
  */
 
@@ -30,16 +30,9 @@ describe('calculateStayRefund', () => {
     expect(r.amount).toBe(10000);
   });
 
-  it('гость 24–48ч → 50% (floor)', () => {
-    const r = calculateStayRefund(9999, future(36), false);
-    expect(r.percent).toBe(50);
-    expect(r.amount).toBe(4999); // floor(9999*0.5)
-  });
-
-  it('гость <24ч → 0%', () => {
-    const r = calculateStayRefund(10000, future(5), false);
-    expect(r.percent).toBe(0);
-    expect(r.amount).toBe(0);
+  it('гость за 24–48ч и меньше суток — тоже 100% (лестница снята)', () => {
+    expect(calculateStayRefund(9999, future(36), false)).toMatchObject({ percent: 100, amount: 9999 });
+    expect(calculateStayRefund(10000, future(5), false)).toMatchObject({ percent: 100, amount: 10000 });
   });
 });
 
@@ -95,7 +88,7 @@ describe('POST /cancel — возврат при отмене гостем', () 
     });
   }
 
-  it('оплаченная будущая (>48ч) → payment_status=refunded, refund_amount=total, notify с суммой', async () => {
+  it('оплаченная → refund_amount=total, payment_status НЕ меняется, notify с суммой', async () => {
     selectRow({
       status: 'confirmed', payment_status: 'paid', total_price: '20000',
       is_future: true, check_in_date: farFuture, check_out_date: farFuture,
@@ -105,10 +98,11 @@ describe('POST /cancel — возврат при отмене гостем', () 
     expect(res.status).toBe(200);
 
     const updateCall = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('UPDATE accommodation_bookings'))!;
-    // params: [id, refund_amount, refund_percent, refund_reason, nextPaymentStatus]
+    // params: [id, refund_amount, refund_percent, refund_reason]
     expect(updateCall[1][1]).toBe(20000);
     expect(updateCall[1][2]).toBe(100);
-    expect(updateCall[1][4]).toBe('refunded');
+    expect(updateCall[1]).toHaveLength(4);
+    expect(String(updateCall[0])).not.toMatch(/payment_status/);
 
     expect(notifyCancelMock).toHaveBeenCalledTimes(1);
     const arg = notifyCancelMock.mock.calls[0][0];
@@ -128,13 +122,12 @@ describe('POST /cancel — возврат при отмене гостем', () 
 
     const updateCall = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('UPDATE accommodation_bookings'))!;
     expect(updateCall[1][1]).toBeNull();       // refund_amount
-    expect(updateCall[1][4]).toBeNull();       // nextPaymentStatus → COALESCE не тронет
     expect(notifyCancelMock.mock.calls[0][0].wasPaid).toBe(false);
   });
 });
 
 describe('PATCH /[id] — отмена владельцем оплаченной брони → 100%', () => {
-  it('confirmed(paid) → cancelled: payment_status=refunded, notify byOwner', async () => {
+  it('confirmed(paid) → cancelled: 100% к возврату, payment_status не тронут, notify byOwner', async () => {
     requireAuthMock.mockResolvedValue({ userId: 'admin-1', role: 'admin' });
     clientQueryMock.mockImplementation((sql: string) => {
       if (sql.includes('FOR UPDATE OF b')) {
@@ -157,13 +150,40 @@ describe('PATCH /[id] — отмена владельцем оплаченной
     expect(res.status).toBe(200);
 
     const updateCall = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('UPDATE accommodation_bookings'))!;
-    // params: [nextStatus, id, refund_amount, refund_percent, refund_reason, nextPaymentStatus]
+    // params: [nextStatus, id, refund_amount, refund_percent, refund_reason]
     expect(updateCall[1][2]).toBe(15000);
     expect(updateCall[1][3]).toBe(100);
-    expect(updateCall[1][5]).toBe('refunded');
+    expect(updateCall[1]).toHaveLength(5);
+    expect(String(updateCall[0])).not.toMatch(/payment_status/);
 
     expect(notifyCancelMock).toHaveBeenCalledTimes(1);
     expect(notifyCancelMock.mock.calls[0][0].byOwner).toBe(true);
     expect(notifyCancelMock.mock.calls[0][0].refundAmount).toBe(15000);
+  });
+});
+
+describe('PATCH /[id] refund_done — «деньги переведены»', () => {
+  it('ставит refunded только у отменённой оплаченной брони своего объекта', async () => {
+    requireAuthMock.mockResolvedValue({ userId: 'owner-1', role: 'tourist' });
+    clientQueryMock.mockImplementation(() => Promise.resolve({ rowCount: 1, rows: [{ id: BOOKING_ID }] }));
+    const res = await ownerPatch(
+      req(`http://localhost/api/stay/bookings/${BOOKING_ID}`, 'PATCH', { refund_done: true }),
+      routeParams(BOOKING_ID)
+    );
+    expect(res.status).toBe(200);
+    const [sql, params] = clientQueryMock.mock.calls[0];
+    expect(String(sql)).toMatch(/SET payment_status = 'refunded'/);
+    expect(String(sql)).toMatch(/b\.status = 'cancelled' AND b\.payment_status = 'paid'/);
+    expect(String(sql)).toMatch(/AND a\.partner_id = \$2/);
+    expect(params).toEqual([BOOKING_ID, 'partner-1']);
+  });
+
+  it('нечего отмечать — 422, а не молчаливый успех', async () => {
+    clientQueryMock.mockImplementation(() => Promise.resolve({ rowCount: 0, rows: [] }));
+    const res = await ownerPatch(
+      req(`http://localhost/api/stay/bookings/${BOOKING_ID}`, 'PATCH', { refund_done: true }),
+      routeParams(BOOKING_ID)
+    );
+    expect(res.status).toBe(422);
   });
 });

@@ -1,15 +1,19 @@
 /**
  * lib/stay/refund-policy.ts
  *
- * Политика возврата при отмене брони жилья. Зеркало тур-политики
- * (lib/bookings/booking.service.ts calculateRefund), формулировки под
- * «заезд». Физический возврат по CloudPayments — офлайн (живого refund-API
- * в коде нет; app/api/payments не трогаем, CLAUDE.md §7); здесь только
- * расчёт суммы для фиксации в accommodation_bookings и уведомления.
+ * Возврат при отмене брони жилья — 100%, как у туров (решение владельца
+ * 11.09 для туров, распространено на жильё 24.09: «сделай отмену жилья
+ * честной»).
  *
- * Правила:
- * - Отмена владельцем/админом → всегда 100%.
- * - Отмена гостем: >48ч до заезда → 100%; 24–48ч → 50%; <24ч → 0%.
+ * До 24.09 здесь стояла лестница 100/50/0% по часам до заезда — копия
+ * calculateRefund, которую владелец снял 11.09. Она к тому же не читала
+ * accommodations.cancellation_policy, а диалог отмены показывал гостю именно
+ * текст объекта: соглашался гость с одним, считалось ему другое.
+ *
+ * Физического возврата по платёжному API здесь НЕТ (не подключён, §7): сумма
+ * — то, что предстоит вернуть вручную. Отметку «возвращено» ставит владелец
+ * объекта или админ отдельным действием (PATCH /api/stay/bookings/[id],
+ * refund_done), а не сама отмена.
  */
 
 export interface StayRefundResult {
@@ -20,40 +24,15 @@ export interface StayRefundResult {
 
 export function calculateStayRefund(
   totalPrice: number,
-  checkInDate: Date,
+  _checkInDate: Date,
   isOwnerCancel: boolean,
 ): StayRefundResult {
   const total = Number.isFinite(totalPrice) && totalPrice > 0 ? totalPrice : 0;
-
-  if (isOwnerCancel) {
-    return {
-      percent: 100,
-      amount: total,
-      reason: 'Отмена со стороны объекта/администрации. Полный возврат.',
-    };
-  }
-
-  const hoursUntilCheckIn = (checkInDate.getTime() - Date.now()) / (1000 * 60 * 60);
-
-  if (hoursUntilCheckIn > 48) {
-    return {
-      percent: 100,
-      amount: total,
-      reason: 'Отмена более чем за 48 часов до заезда. Полный возврат.',
-    };
-  }
-
-  if (hoursUntilCheckIn >= 24) {
-    return {
-      percent: 50,
-      amount: Math.floor(total * 0.5),
-      reason: 'Отмена за 24–48 часов до заезда. Возврат 50%.',
-    };
-  }
-
   return {
-    percent: 0,
-    amount: 0,
-    reason: 'Отмена менее чем за 24 часа до заезда. Возврат не предусмотрен.',
+    percent: 100,
+    amount: total,
+    reason: isOwnerCancel
+      ? 'Отмена со стороны объекта или администрации. Полный возврат.'
+      : 'Отмена гостем. Полный возврат.',
   };
 }

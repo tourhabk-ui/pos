@@ -222,16 +222,23 @@ class ChatService {
 
     // Fetch messages with sender info
     values.push(limit, offset);
+    // Окно — ПОСЛЕДНИЕ limit сообщений (offset считается от новых), а
+    // показываются они по возрастанию. Прежний ORDER BY ASC LIMIT отдавал
+    // САМЫЕ СТАРЫЕ сто: в беседе длиннее ста новые сообщения не появлялись
+    // вовсе, а только что отправленное исчезало на следующем опросе.
     const messagesResult = await query<MessageWithSenderRow>(
-      `SELECT m.*, u.name as sender_name,
-              COALESCE(cp.role, 'unknown') as sender_role
-       FROM conversation_messages m
-       JOIN users u ON u.id = m.sender_id
-       LEFT JOIN conversation_participants cp
-         ON cp.conversation_id = m.conversation_id AND cp.user_id = m.sender_id
-       WHERE ${whereClause}
-       ORDER BY m.created_at ASC
-       LIMIT $${idx} OFFSET $${idx + 1}`,
+      `SELECT * FROM (
+         SELECT m.*, u.name as sender_name,
+                COALESCE(cp.role, 'unknown') as sender_role
+         FROM conversation_messages m
+         JOIN users u ON u.id = m.sender_id
+         LEFT JOIN conversation_participants cp
+           ON cp.conversation_id = m.conversation_id AND cp.user_id = m.sender_id
+         WHERE ${whereClause}
+         ORDER BY m.created_at DESC
+         LIMIT $${idx} OFFSET $${idx + 1}
+       ) last_window
+       ORDER BY created_at ASC`,
       values
     );
 

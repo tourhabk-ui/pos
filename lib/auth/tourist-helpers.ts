@@ -11,7 +11,9 @@ import { query } from '@/lib/database';
 export async function getTouristProfile(userId: string): Promise<Record<string, unknown> | null> {
   try {
     let result = await query(
-      `SELECT id, user_id, full_name, total_trips, total_spent, loyalty_points, created_at, updated_at FROM tourist_profiles WHERE user_id = $1`,
+      // phone и bio — поля формы профиля: без них форма после каждой загрузки
+      // показывала их пустыми, хотя в базе они лежали.
+      `SELECT id, user_id, full_name, phone, bio, avatar_url, total_trips, total_spent, loyalty_points, created_at, updated_at FROM tourist_profiles WHERE user_id = $1`,
       [userId]
     );
 
@@ -35,6 +37,10 @@ export async function getTouristProfile(userId: string): Promise<Record<string, 
 
     return result.rows[0];
   } catch (error) {
+    // null здесь читается вызывающим как «профиля нет» (404) — причину
+    // отказа обязательно оставить в логе (§4.0).
+    const e = error as Error & { code?: string };
+    console.error('[getTouristProfile] отказ базы', { sqlstate: e?.code, message: e?.message });
     return null;
   }
 }

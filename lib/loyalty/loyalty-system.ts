@@ -21,9 +21,7 @@ import { resolveSink } from '@/lib/eco/sinks';
 interface UserLevel {
   name: string;
   minSpent: number;
-  discount: number;
   earnMultiplier: number;
-  benefits: string[];
   color: string;
 }
 
@@ -75,12 +73,20 @@ const LEDGER_OP_TO_TYPE: Record<ledger.EcoOperation, BonusTransaction['type']> =
  */
 
 export class LoyaltySystem {
+  /**
+   * Уровень даёт ровно одно — множитель баллов за бронь (earnPoints ниже его
+   * применяет). Скидки 2–15%, «персональный менеджер», «эксклюзивные туры» и
+   * прочие привилегии стояли здесь до 24.09 и не исполнялись НИГДЕ: ни один
+   * путь цены их не читал, туристу обещали деньги, которые не начислялись.
+   * Сняты решением владельца («убери обещания лояльности»). Возвращать —
+   * только вместе с кодом, который их исполняет (§10.09).
+   */
   private levels: UserLevel[] = [
-    { name: 'Новичок', minSpent: 0, discount: 0, earnMultiplier: 1.0, benefits: ['Базовые уведомления'], color: '#6B7280' },
-    { name: 'Бронза', minSpent: 5000, discount: 0.02, earnMultiplier: 1.2, benefits: ['2% скидка', 'Приоритетная поддержка'], color: '#CD7F32' },
-    { name: 'Серебро', minSpent: 15000, discount: 0.05, earnMultiplier: 1.5, benefits: ['5% скидка', 'Ранний доступ к турам'], color: '#C0C0C0' },
-    { name: 'Золото', minSpent: 50000, discount: 0.10, earnMultiplier: 2.0, benefits: ['10% скидка', 'VIP поддержка', 'Персональный менеджер'], color: '#FFD700' },
-    { name: 'Платина', minSpent: 100000, discount: 0.15, earnMultiplier: 3.0, benefits: ['15% скидка', 'Максимальный приоритет', 'Эксклюзивные туры'], color: '#E5E4E2' },
+    { name: 'Новичок', minSpent: 0, earnMultiplier: 1.0, color: '#6B7280' },
+    { name: 'Бронза', minSpent: 5000, earnMultiplier: 1.2, color: '#CD7F32' },
+    { name: 'Серебро', minSpent: 15000, earnMultiplier: 1.5, color: '#C0C0C0' },
+    { name: 'Золото', minSpent: 50000, earnMultiplier: 2.0, color: '#FFD700' },
+    { name: 'Платина', minSpent: 100000, earnMultiplier: 3.0, color: '#E5E4E2' },
   ];
 
   private earnRate = 0.01;
@@ -169,7 +175,7 @@ export class LoyaltySystem {
     source: string = 'booking'
   ): Promise<{ success: boolean; pointsEarned: number; message: string }> {
     try {
-      // Множитель уровня: уровни обещают ×1.2–×3.0 (benefits в levels),
+      // Множитель уровня ×1.2–×3.0 — единственное, что уровень даёт,
       // раньше он нигде не применялся — Золото получало столько же, сколько Новичок.
       const spentResult = await query<{ total_spent: string }>(
         'SELECT COALESCE(total_spent, 0) as total_spent FROM users WHERE id = $1',
@@ -437,10 +443,6 @@ export class LoyaltySystem {
       if (totalSpent < level.minSpent) return level;
     }
     return null;
-  }
-
-  getLevelDiscount(totalSpent: number): number {
-    return this.getUserLevel(totalSpent).discount;
   }
 
   getAllLevels(): UserLevel[] {

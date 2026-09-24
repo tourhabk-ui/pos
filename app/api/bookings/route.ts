@@ -61,10 +61,10 @@ export async function GET(request: NextRequest) {
     let combinedTotal = legacyTotal;
 
     if (listRole === 'tourist') {
-      const STATUS_MAP: Record<string, string> = {
-        new: 'pending', confirmed: 'confirmed',
-        completed: 'completed', cancelled: 'cancelled', no_show: 'completed',
-      };
+      // Статус отдаётся как есть: клиент и первая выборка говорят теми же
+      // значениями booking_status. Прежняя карта переводила new в 'pending'
+      // (у клиента такого нет — сырое слово и ни кнопки «Отменить») и no_show
+      // в 'completed' (пропущенный тур предлагал «Оставить отзыв»).
       const opResult = await query<{
         id: string; booking_status: string; payment_status: string;
         tour_id: string; tour_title: string; tour_price: string;
@@ -87,6 +87,12 @@ export async function GET(request: NextRequest) {
          JOIN operator_tours ot ON ot.id = ob.operator_tour_id
          LEFT JOIN booking_waivers bw ON bw.booking_id = ob.id
          WHERE ob.metadata->>'user_id' = $1
+           AND ob.deleted_at IS NULL
+           -- Бронь, у которой хозяин записан и в колонке, уже пришла первой
+           -- выборкой (listBookings, b.user_id). С 14.09 reserve.ts пишет
+           -- ОБА поля — без этого условия каждая новая бронь была в кабинете
+           -- дважды: карточкой «<id>» и карточкой «op-<id>».
+           AND (ob.user_id IS NULL OR ob.user_id::text <> $1)
          ORDER BY ob.created_at DESC
          LIMIT 1000`,
         [auth.userId]
@@ -95,12 +101,11 @@ export async function GET(request: NextRequest) {
       const opBookings: BookingWithDetails[] = opResult.rows
         .filter(r => {
           if (!status) return true;
-          const mapped = STATUS_MAP[r.booking_status] ?? 'pending';
-          return mapped === status;
+          return r.booking_status === status;
         })
         .map(r => ({
           id: `op-${r.id}`,
-          status: (STATUS_MAP[r.booking_status] ?? 'pending') as BookingWithDetails['status'],
+          status: r.booking_status as BookingWithDetails['status'],
           tour: { id: r.tour_id, title: r.tour_title, price: Number(r.tour_price) },
           tourist: { id: r.tourist_id ?? auth.userId, name: r.tourist_name ?? '', email: r.tourist_email ?? '' },
           date: new Date(r.booking_date),
@@ -134,6 +139,7 @@ export async function GET(request: NextRequest) {
       },
     } as ApiResponse<{ bookings: BookingWithDetails[]; total: number; limit: number; offset: number }>);
   } catch (error) {
+    console.error('[api/bookings] список не собран:', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при получении бронирований' } as ApiResponse<null>,
       { status: 500 }
