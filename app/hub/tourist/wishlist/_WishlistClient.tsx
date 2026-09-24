@@ -93,11 +93,14 @@ export default function WishlistClient() {
   }, [data]);
 
   const handleRemove = async (itemId: string) => {
+    const before = data;
     setData((prev) => (prev ?? []).filter((t) => t.id !== itemId));
-    try {
-      await fetch(`/api/tourist/wishlist?id=${itemId}`, { method: 'DELETE' });
-    } catch {
-      // silent
+    // Оптимистично убираем, но отказ возвращает карточку и говорит об этом:
+    // прежде она исчезала молча и воскресала после перезагрузки.
+    const res = await fetch(`/api/tourist/wishlist?id=${itemId}`, { method: 'DELETE' }).catch(() => null);
+    if (!res?.ok) {
+      setData(before);
+      alert('Не удалось убрать из избранного. Попробуйте ещё раз.');
     }
   };
 

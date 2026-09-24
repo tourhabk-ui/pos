@@ -69,9 +69,11 @@ export default function MessagesClient() {
   const [inputValue, setInputValue] = useState('');
   const [sending, setSending] = useState(false);
 
-  const fetchConversations = useCallback(async () => {
+  // Спиннер — только на первой загрузке: опрос раз в 10 с прежде каждый раз
+  // гасил список и ветку до спиннера и сбрасывал прокрутку переписки.
+  const fetchConversations = useCallback(async (quiet = false) => {
     if (!userId) return;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const res = await fetch('/api/chat/conversations?limit=50');
       const result = await res.json();
@@ -97,12 +99,12 @@ export default function MessagesClient() {
 
   // Poll conversations every 10s
   useEffect(() => {
-    const interval = setInterval(fetchConversations, 10000);
+    const interval = setInterval(() => fetchConversations(true), 10000);
     return () => clearInterval(interval);
   }, [fetchConversations]);
 
-  const fetchMessages = useCallback(async (convId: string) => {
-    setMessagesLoading(true);
+  const fetchMessages = useCallback(async (convId: string, quiet = false) => {
+    if (!quiet) setMessagesLoading(true);
     try {
       const res = await fetch(`/api/chat/conversations/${convId}/messages?limit=100`);
       const result = await res.json();
@@ -129,7 +131,7 @@ export default function MessagesClient() {
   useEffect(() => {
     if (!activeId) return;
     fetchMessages(activeId);
-    const interval = setInterval(() => fetchMessages(activeId), 10000);
+    const interval = setInterval(() => fetchMessages(activeId, true), 10000);
     return () => clearInterval(interval);
   }, [activeId, fetchMessages]);
 
@@ -168,9 +170,15 @@ export default function MessagesClient() {
           senderName: 'Вы',
           senderRole: '',
         }]);
+      } else {
+        // Отказ сервера (403/500) — текст возвращается в поле, а не пропадает
+        // молча: человек должен видеть, что сообщение не ушло.
+        setInputValue(text);
+        alert(typeof result.error === 'string' ? result.error : 'Сообщение не отправлено');
       }
     } catch {
       setInputValue(text);
+      alert('Сообщение не отправлено — нет связи');
     }
     setSending(false);
   };

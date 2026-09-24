@@ -32,8 +32,15 @@ function TripCard({ trip, onDelete }: { trip: TripListItem; onDelete: (id: strin
     e.preventDefault();
     if (!confirm('Удалить маршрут?')) return;
     setDeleting(true);
-    await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' });
-    onDelete(trip.id);
+    // Карточка уходит только когда сервер удалил: прежде она пропадала и при
+    // 404/500 — и возвращалась после перезагрузки.
+    const res = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' }).catch(() => null);
+    if (res?.ok) {
+      onDelete(trip.id);
+    } else {
+      setDeleting(false);
+      alert('Не удалось удалить маршрут. Попробуйте ещё раз.');
+    }
   }
 
   return (

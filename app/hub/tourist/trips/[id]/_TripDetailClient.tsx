@@ -193,7 +193,9 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
             <Link href="/planner"
               className="ds-btn ds-btn-secondary flex items-center gap-2 px-3 py-2 text-xs font-medium shrink-0">
               <Pencil className="w-3.5 h-3.5" />
-              Изменить
+              {/* Планер не открывает сохранённый маршрут по id — «Изменить»
+                  обещало правку, а давало пустой планер и новую копию. */}
+              Собрать заново
             </Link>
           </div>
 

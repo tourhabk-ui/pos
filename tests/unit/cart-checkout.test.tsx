@@ -74,6 +74,9 @@ async function fillFormAndDates() {
   document.querySelectorAll('input[type="date"]').forEach(input => {
     fireEvent.change(input, { target: { value: futureDate() } });
   });
+
+  // Согласие на ПД — как у формы тура: без галочки заявка не уходит.
+  fireEvent.click(document.getElementById('pd-consent-cart-checkout') as HTMLElement);
 }
 
 beforeEach(() => {
@@ -194,6 +197,33 @@ describe('Чекаут корзины', () => {
       expect(pushMock).toHaveBeenCalledWith(
         '/booking-success/401?t=11111111-2222-3333-4444-555555555555',
       );
+    });
+  });
+});
+
+describe('Чекаут корзины — согласие на ПД (24.09)', () => {
+  it('без галочки кнопка заблокирована; с ней в теле запроса pd_consent: true', async () => {
+    let counter = 500;
+    createHandler = () => Promise.resolve({ status: 200, json: { booking_id: ++counter } });
+    render(<CartProvider><CheckoutClient /></CartProvider>);
+    fireEvent.change(screen.getByPlaceholderText('Иван Иванов'), { target: { value: 'Иван Иванов' } });
+    fireEvent.change(screen.getByPlaceholderText('+7 900 000 00 00'), { target: { value: '+79991234567' } });
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="date"]').length).toBeGreaterThan(0);
+    });
+    document.querySelectorAll('input[type="date"]').forEach(input => {
+      fireEvent.change(input, { target: { value: futureDate() } });
+    });
+    const submit = screen.getByRole('button', { name: /Оформить заявки/ });
+    expect(submit).toBeDisabled();
+    fireEvent.click(document.getElementById('pd-consent-cart-checkout') as HTMLElement);
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => {
+      const calls = (global.fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls
+        .filter(([u]) => String(u).includes('/api/hub/bookings/create'));
+      expect(calls.length).toBeGreaterThan(0);
+      expect(JSON.parse(String(calls[0][1]?.body))).toMatchObject({ pd_consent: true });
     });
   });
 });

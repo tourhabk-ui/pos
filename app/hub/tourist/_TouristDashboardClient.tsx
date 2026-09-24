@@ -189,8 +189,11 @@ export default function TouristDashboardClient() {
     ]);
 
     if (statsRes.status === 'fulfilled') {
-      const d = await statsRes.value.json();
-      if (d.success) setStats(d.data);
+      // Не-JSON (502 прокси) прежде бросал здесь, и setLoading(false) не
+      // наступал никогда — «Обзор» крутил спиннер вечно.
+      const d = await statsRes.value.json().catch(() => null);
+      if (d?.success) setStats(d.data);
+      else console.error('[tourist-dashboard] сводка не получена', statsRes.value.status);
     }
     if (bookingsRes.status === 'fulfilled') {
       const d = await bookingsRes.value.json().catch(() => null);
@@ -365,11 +368,13 @@ export default function TouristDashboardClient() {
             <span className={`ds-label px-2.5 py-1 rounded-lg ${
               weather.safetyLevel === 'excellent' || weather.safetyLevel === 'good'
                 ? 'bg-[var(--success)]/10 text-[var(--success)]'
-                : weather.safetyLevel === 'difficult'
+                : weather.safetyLevel === 'moderate' || weather.safetyLevel === 'difficult'
                   ? 'bg-[var(--warning)]/10 text-[var(--warning)]'
                   : 'bg-[var(--danger)]/10 text-[var(--danger)]'
             }`}>
-              {weather.safetyLevel === 'excellent' ? 'Отлично' : weather.safetyLevel === 'good' ? 'Хорошо' : weather.safetyLevel === 'difficult' ? 'Сложно' : 'Опасно'}
+              {/* 'moderate' (обычный дождь/снег) прежде проваливался в «Опасно»:
+                  красный — только для тревоги. */}
+              {weather.safetyLevel === 'excellent' ? 'Отлично' : weather.safetyLevel === 'good' ? 'Хорошо' : weather.safetyLevel === 'moderate' ? 'Умеренно' : weather.safetyLevel === 'difficult' ? 'Сложно' : 'Опасно'}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
@@ -456,7 +461,7 @@ export default function TouristDashboardClient() {
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">Ближайшие поездки</h2>
           </div>
           <div className="divide-y divide-[var(--border)]">
-            {stats.upcoming_trips.map(trip => (
+            {stats.upcoming_trips.filter(trip => trip.start_date).map(trip => (
               <div key={trip.id} className="flex items-center gap-3 px-5 py-3.5">
                 <MapPin className="w-4 h-4 text-[var(--accent)] shrink-0" />
                 <span className="text-sm text-[var(--text-primary)] flex-1 truncate">{trip.title}</span>

@@ -7,9 +7,12 @@ import { getTouristProfile } from '@/lib/auth/tourist-helpers';
 import { touristTravelStats, touristAchievements } from '@/lib/tourist/cabinet';
 
 const UpdateProfileSchema = z.object({
-  full_name: z.string().min(1, 'Имя не может быть пустым').optional(),
-  phone: z.string().optional(),
-  bio: z.string().optional(),
+  // null — «очистить поле»: клиент профиля шлёт пустое поле именно так, и
+  // прежняя схема без .nullable() отвечала на это 400 с английским текстом
+  // Zod — сохранить профиль было нельзя, пока не заполнишь все три поля.
+  full_name: z.string().min(1, 'Имя не может быть пустым').nullable().optional(),
+  phone: z.string().max(40, 'Телефон слишком длинный').nullable().optional(),
+  bio: z.string().max(2000, 'Текст «О себе» слишком длинный').nullable().optional(),
   date_of_birth: z.string().optional(),
   gender: z.string().optional(),
   nationality: z.string().optional(),
@@ -162,6 +165,8 @@ export async function PUT(request: NextRequest) {
       data: result.rows[0]
     } as ApiResponse<unknown>);
   } catch (error) {
+    const e = error as Error & { code?: string };
+    console.error('[tourist/profile] обновление не записано', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
       { success: false, error: 'Ошибка при обновлении профиля' } as ApiResponse<null>,
       { status: 500 }

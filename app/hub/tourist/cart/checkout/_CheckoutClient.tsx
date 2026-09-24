@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useCart, type CartItem } from '@/contexts/CartContext';
 import TourDateField from '@/components/marketplace/TourDateField';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 /**
  * Чекаут корзины: контакты — один раз, дата/участники — на каждый тур.
@@ -42,6 +43,10 @@ export default function CheckoutClient() {
   const [forms, setForms] = useState<Record<number, PerTourForm>>({});
   const [results, setResults] = useState<Record<number, TourResult>>({});
   const [submitting, setSubmitting] = useState(false);
+  // Корзина собирает имя, телефон и email — ПД, как и форма тура. Без галочки
+  // каждая бронь из корзины записывалась с pd_consent_at = NULL, хотя её
+  // заполнил человек (152-ФЗ; форма тура — BookingFormClient).
+  const [pdConsent, setPdConsent] = useState(false);
   const [rateLimited, setRateLimited] = useState<string | null>(null);
   const [doneCount, setDoneCount] = useState(0);
 
@@ -76,7 +81,7 @@ export default function CheckoutClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || !pdConsent) return;
     setSubmitting(true);
     setRateLimited(null);
 
@@ -103,6 +108,7 @@ export default function CheckoutClient() {
             booking_date: form.booking_date,
             participants_count: parseInt(form.participants_count) || 1,
             special_requests: form.special_requests || undefined,
+            pd_consent: pdConsent,
           }),
         });
 
@@ -275,6 +281,8 @@ export default function CheckoutClient() {
             </div>
           )}
 
+          <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-cart-checkout" />
+
           {/* Итог */}
           <div className="ds-card p-5">
             <div className="flex items-center justify-between">
@@ -285,7 +293,7 @@ export default function CheckoutClient() {
               </div>
               <button
                 type="submit"
-                disabled={submitting || !allDatesChosen || !contactsFilled}
+                disabled={submitting || !allDatesChosen || !contactsFilled || !pdConsent}
                 className="ds-btn ds-btn-primary flex items-center gap-2 px-6"
               >
                 {submitting ? (

@@ -20,10 +20,15 @@ interface Registration {
   leader_phone: string;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
+  /** Срок, по которому поднимется тревога, — считает сервер (resolveControlTime). */
+  control_at: string | null;
 }
 
-function controlTime(r: Registration): Date {
-  return new Date(r.expected_return_at ?? `${r.end_date}T23:59:00`);
+/** null — срок неизвестен; «не знаю» не рисуется ни зелёным, ни красным. */
+function controlTime(r: Registration): Date | null {
+  if (!r.control_at) return null;
+  const d = new Date(r.control_at);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function fmt(d: Date): string {
@@ -33,6 +38,7 @@ function fmt(d: Date): string {
 export default function SafetyClient() {
   const [regs, setRegs] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -40,8 +46,13 @@ export default function SafetyClient() {
     try {
       const res = await fetch('/api/tourist/safety-registrations');
       const d = await res.json();
-      if (d.success) setRegs(d.data);
-    } catch { /* ignore */ }
+      if (d.success) { setRegs(d.data); setLoadError(false); }
+      else setLoadError(true);
+    } catch {
+      // Отказ загрузки — не «регистраций нет»: иначе человек с открытым
+      // сроком читает, что его регистрации не существует (§4.0).
+      setLoadError(true);
+    }
     setLoading(false);
   }, []);
 
@@ -49,6 +60,9 @@ export default function SafetyClient() {
 
   const markReturned = async (r: Registration) => {
     if (busyId) return;
+    // Отметка закрывает срок и гасит все будущие тревоги по нему — случайное
+    // касание в поле не должно отключать страховку.
+    if (!window.confirm(`Подтвердите: вы вернулись с маршрута «${r.route_name}»? После этого тревога по сроку не поднимется.`)) return;
     setBusyId(r.id);
     try {
       const res = await fetch('/api/safety/return', {
@@ -101,7 +115,16 @@ export default function SafetyClient() {
           {/* Активные контрольные сроки */}
           <section className="space-y-3">
             <p className="ds-label">Активные</p>
-            {active.length === 0 ? (
+            {loadError && active.length === 0 ? (
+              <div className="bg-[var(--bg-card)] border border-[var(--danger)]/40 rounded-lg px-5 py-8 text-center">
+                <ShieldAlert className="w-8 h-8 text-[var(--danger)] mx-auto mb-3" />
+                <p className="text-sm text-[var(--text-primary)]">Не удалось загрузить регистрации — мы не знаем, есть ли у вас открытый срок.</p>
+                <button type="button" onClick={() => void load()}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--text-primary)]">
+                  <RefreshCw className="w-4 h-4" /> Повторить
+                </button>
+              </div>
+            ) : active.length === 0 ? (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-5 py-10 text-center">
                 <ShieldCheck className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
                 <p className="text-sm text-[var(--text-muted)]">Нет активных регистраций. Перед выходом на маршрут — зарегистрируйтесь выше.</p>
@@ -109,7 +132,7 @@ export default function SafetyClient() {
             ) : (
               active.map((r) => {
                 const ct = controlTime(r);
-                const overdue = now > ct.getTime();
+                const overdue = ct !== null && now > ct.getTime();
                 return (
                   <div key={r.id} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
                     <div className="flex items-start justify-between gap-3 mb-3">
@@ -122,18 +145,20 @@ export default function SafetyClient() {
                         )}
                       </div>
                       <span className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${
-                        overdue
+                        ct === null
+                          ? 'bg-[var(--warning)]/10 text-[var(--warning)]'
+                          : overdue
                           ? 'bg-[var(--danger)]/10 text-[var(--danger)]'
                           : 'bg-[var(--success)]/10 text-[var(--success)]'
                       }`}>
-                        {overdue ? <ShieldAlert className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-                        {overdue ? 'Просрочен' : 'Активен'}
+                        {overdue || ct === null ? <ShieldAlert className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                        {ct === null ? 'Срок не известен' : overdue ? 'Просрочен' : 'Активен'}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] mb-3">
                       <Clock className="w-4 h-4 text-[var(--accent)]" />
-                      Вернуться до: <span className="font-medium text-[var(--text-primary)]">{fmt(ct)}</span>
+                      Вернуться до: <span className="font-medium text-[var(--text-primary)]">{ct ? fmt(ct) : 'не указано'}</span>
                     </div>
 
                     {r.emergency_contact_name && (
@@ -170,7 +195,7 @@ export default function SafetyClient() {
                   <div key={r.id} className="flex items-center gap-3 px-5 py-3">
                     <CheckCircle2 className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
                     <span className="text-sm text-[var(--text-secondary)] flex-1 truncate">{r.route_name}</span>
-                    <span className="text-xs text-[var(--text-muted)]">{fmt(controlTime(r))}</span>
+                    <span className="text-xs text-[var(--text-muted)]">{(() => { const t = controlTime(r); return t ? fmt(t) : '—'; })()}</span>
                   </div>
                 ))}
               </div>

@@ -193,12 +193,24 @@ export async function POST(
       role === 'operator' ? 'operator' : 'admin';
 
     // 4. Бизнес-логика в транзакции
-    const { booking, refund } = await cancelBooking(
+    const { booking, refund: priceRefund } = await cancelBooking(
       bookingId,
       auth.userId,
       cancelRole,
       reason
     );
+
+    // Возврат обещается только тому, кто ПЛАТИЛ — та же проверка, что в ветке
+    // op- выше (tour_payments в HELD). calculateRefund считает от цены брони,
+    // и неоплаченная бронь получала письмо «Возврат 15 000 ₽». После того как
+    // кабинет перестал дублировать брони (24.09), почти все отмены идут сюда.
+    const paidRow = await query<{ retail_amount: string }>(
+      `SELECT retail_amount FROM tour_payments WHERE booking_id = $1 AND status = 'HELD' LIMIT 1`,
+      [bookingId]
+    );
+    const refund = paidRow.rows[0]
+      ? { ...priceRefund, amount: Number(paidRow.rows[0].retail_amount) }
+      : null;
 
     // Уведомляем туриста по email о возврате средств
     const userEmail = booking.tourist?.email;
@@ -213,9 +225,9 @@ export async function POST(
             <p><strong>Дата:</strong> ${booking.date.toLocaleDateString('ru-RU')}</p>
             <p><strong>Участники:</strong> ${booking.participants}</p>
             ${reason ? `<p><strong>Причина:</strong> ${reason}</p>` : ''}
-            ${refund.amount > 0
-              ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${refund.reason}</p>`
-              : '<p>Возврат средств не предусмотрен условиями отмены.</p>'
+            ${refund
+              ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${refund.reason} Возврат оформляет администрация платформы.</p>`
+              : '<p>Оплаты по этой брони не было — возвращать нечего.</p>'
             }
             <p>Если у вас есть вопросы — <a href="mailto:support@kamhub.ru">support@kamhub.ru</a></p>
           `,
@@ -231,9 +243,9 @@ export async function POST(
         booking,
         refund,
       },
-      message: refund.amount > 0
-        ? `Бронирование отменено. ${refund.reason}`
-        : 'Бронирование отменено. Возврат средств не предусмотрен.',
+      message: refund
+        ? `Бронирование отменено. Возврат ${refund.amount.toLocaleString('ru-RU')} ₽ оформляет администрация платформы.`
+        : 'Бронирование отменено. Оплаты по этой брони не было.',
     } as ApiResponse<{ booking: typeof booking; refund: typeof refund }>);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Внутренняя ошибка сервера';

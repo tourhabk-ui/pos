@@ -25,6 +25,7 @@ const QUICK_LINKS = [
 export function MyKamchatkaClient() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   // Один запрос вместо двух: /api/eco-points/user читал user_eco_points —
   // таблицу, которой нет ни в одной миграции. Оба слоя эко приходят в summary
@@ -32,8 +33,13 @@ export function MyKamchatkaClient() {
   useEffect(() => {
     fetch('/api/tourist/summary')
       .then(r => r.json())
-      .then(j => (j.ok ? setSummary(j.data) : null))
-      .catch(() => {})
+      .then(j => {
+        if (j.ok) setSummary(j.data);
+        else setFailed(true);
+      })
+      // Отказ — не «истории нет»: нули и «начните копить эко» на упавшем
+      // запросе рассказывали туристу неправду о нём самом (§4.0).
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -43,9 +49,9 @@ export function MyKamchatkaClient() {
       {/* Hero stat strip */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Туров', value: loading ? '—' : String(summary?.bookings_count ?? 0), icon: Calendar },
-          { label: 'Завершено', value: loading ? '—' : String(summary?.bookings_completed ?? 0), icon: TrendingUp },
-          { label: 'Эко к трате', value: loading ? '—' : String(summary?.eco_utility ?? 0), icon: Leaf },
+          { label: 'Туров', value: loading || failed ? '—' : String(summary?.bookings_count ?? 0), icon: Calendar },
+          { label: 'Завершено', value: loading || failed ? '—' : String(summary?.bookings_completed ?? 0), icon: TrendingUp },
+          { label: 'Эко к трате', value: loading || failed ? '—' : String(summary?.eco_utility ?? 0), icon: Leaf },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="ds-card p-4 text-center">
             <Icon size={18} className="text-[var(--accent)] mx-auto mb-1" />
@@ -97,7 +103,11 @@ export function MyKamchatkaClient() {
       </div>
 
       {/* Призыв, пока вклада нет */}
-      {!loading && (summary?.eco_contribution ?? 0) === 0 && (
+      {failed && (
+        <p className="text-sm text-[var(--danger)]">Не удалось загрузить вашу историю — цифры выше не известны.</p>
+      )}
+
+      {!loading && !failed && (summary?.eco_contribution ?? 0) === 0 && (
         <div className="ds-card p-4 text-center space-y-2">
           <Leaf size={24} className="text-[var(--success)] mx-auto" />
           <p className="text-sm font-medium text-[var(--text-primary)]">Начните копить эко</p>
