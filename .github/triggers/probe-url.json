@@ -1,11 +1,11 @@
 {
-  "note": "24.09, прогон 571. ТОЛЬКО ЧТЕНИЕ. Владелец пополнил баланс Qwen (DashScope). Вопрос: ожило ли зрение Кузьмича с прода. vision-probe шлёт вшитый 310-байтный PNG по водопаду зрения и печатает исход каждой ступени с причиной; verdict ok — снимок дошёл и цвет назван. Если qwen-vl отвечает 403 AllocationQuota.FreeTierOnly — деньги не помогли без снятия переключателя «free tier only» в Model Studio; 401 — ключ не принят, баланс ни при чём.",
-  "run": 571,
-  "timeout": 120,
-  "retries": 2,
-  "retryDelay": 60,
-  "bytes": 4000,
+  "note": "24.09, прогон 572. ТОЛЬКО ЧТЕНИЕ. Владелец: «нет сейсмособытий на карте». /map слоя землетрясений не имеет вовсе (по коду); радар /safety#radar берёт их из getSeismicFeed — external_alerts alert_type='earthquake' за 48 ч, с координатами. Вопрос: что лента отдаёт на проде сейчас — сколько событий, есть ли lat/lng, откуда (source_url: USGS / emsd / EQKam), и работает ли фолбэк USGS.",
+  "run": 572,
+  "timeout": 60,
+  "retries": 1,
+  "retryDelay": 30,
+  "bytes": 6000,
   "urls": [
-    "https://vedarai.ru/api/cron/vision-probe"
+    "https://vedarai.ru/api/safety/seismic"
   ]
 }
