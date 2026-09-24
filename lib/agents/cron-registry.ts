@@ -126,6 +126,15 @@ export const CRON_REGISTRY: CronEntry[] = [
 
   // ── Операции ─────────────────────────────────────────────────────────────
   {
+    // Суточная сводка КФ ФИЦ ЕГС РАН о вулканах — вторая шкала для радара
+    // рядом с авиационным кодом KVERT (решение владельца 24.09).
+    key: 'emsd-vmon-sync', label: 'Сводка вулканов КФ ЕГС',
+    description: 'Суточная сводка КФ ФИЦ ЕГС РАН (emsd.ru/vmon) → volcano_bulletin_kfegs; радар показывает её рядом с KVERT.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждый час (аренда окна)',
+    everyMin: 60, tier: 'safety', agentId: 'emsd-vmon-sync', triggerable: false,
+    endpoint: 'emsd-vmon-sync',
+  },
+  {
     key: 'volcano-merge-gate', label: 'Volcano OS Merge Gate',
     description: 'Единственный human gate: readiness agent-PR, карточка решения, label needs-owner-merge, Telegram владельцу.',
     workflow: 'volcano-merge-gate.yml', cron: '23,53 * * * *', schedule: 'каждые 30 мин + события PR',
@@ -485,6 +494,10 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'danger-analysis': 'broken',
   // KVERT публикует коды по действующим вулканам постоянно.
   'kvert-acc': 'broken',
+  // Суточная сводка КФ ЕГС перечисляет все пятнадцать вулканов всегда:
+  // ноль записанных — не «спокойно», а «не прочитали». Отказ похода и так
+  // пишется 'failed'; сюда попадает пройденный прогон, не записавший ничего.
+  'emsd-vmon-sync': 'broken',
   'safety-check': 'unknown',
 
   // ── Операции ────────────────────────────────────────────────────────────

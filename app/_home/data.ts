@@ -19,6 +19,7 @@ import {
   sightingAgeLabel,
 } from '@/lib/safety/bear-sightings';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
+import { volcanoMarks, kfegsIsFresh, type KfegsReading, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
@@ -356,19 +357,66 @@ async function fetchRadarBase(): Promise<{ hazards: Hazard[]; degraded: boolean 
   const hazards: Hazard[] = [];
   let degraded = false;
   try {
-    const volc = await query<{ name: string; lat: string; lng: string; acc: string }>(
-      `SELECT p.name, p.lat::text, p.lng::text, vs.aviation_color_code AS acc
-         FROM places p JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
-        WHERE vs.aviation_color_code IN ('yellow','orange','red')
-          AND p.is_visible = TRUE AND p.lat IS NOT NULL AND p.lng IS NOT NULL`,
+    // ── Вулканы по ДВУМ шкалам (решение владельца 24.09) ────────────────────
+    //
+    // До этой правки радар знал вулкан только по коду KVERT — авиационному,
+    // про пепел для самолётов. 22.09 Мутновский и Горелый стояли жёлтыми по
+    // шкале КФ ЕГС (сейсмичность выше фона: 255 и 221 событие за сутки), а
+    // KVERT держал их зелёными — и на радаре их не было вовсе. Шкалы разные,
+    // победителя нет: метка ставится, если вулкан повышен хотя бы по одной,
+    // и в подписи стоят обе. Сборка — lib/services/safety/volcano-scales.
+    const kvertRows = await query<{ ark: string; acc: string }>(
+      `SELECT place_ark_id::text AS ark, aviation_color_code AS acc
+         FROM volcano_status
+        WHERE place_ark_id IS NOT NULL`,
     );
-    for (const v of volc.rows) {
-      hazards.push({
-        lat: parseFloat(v.lat), lng: parseFloat(v.lng),
-        level: v.acc === 'yellow' ? 'danger' : 'critical',
-        kind: 'volcano', label: v.name,
-        note: `Вулкан, KVERT ${ACC_LABEL_SHORT[v.acc] ?? v.acc}. Держитесь вне закрытой зоны.`,
-      });
+    const kvert = new Map(kvertRows.rows.map((r) => [r.ark, r.acc]));
+
+    // Вторая шкала — своим try: её отказ (таблицы ещё нет, сводка не пришла)
+    // не должен гасить первую. Нет свежей сводки — на круге показано не всё,
+    // и это `degraded`, а не молчаливое «вулканы спокойны».
+    const kfegs = new Map<string, KfegsReading>();
+    try {
+      const latest = await query<{ d: string | null }>(
+        `SELECT MAX(observed_date)::text AS d FROM volcano_bulletin_kfegs`,
+      );
+      const d = latest.rows[0]?.d ?? null;
+      if (!d || !kfegsIsFresh(d)) {
+        degraded = true;
+      } else {
+        const b = await query<{ ark: string | null; color: ScaleColor | null; raw: string; seismicity: string | null }>(
+          `SELECT place_ark_id::text AS ark, color, color_raw AS raw, seismicity
+             FROM volcano_bulletin_kfegs
+            WHERE observed_date = $1::date`,
+          [d],
+        );
+        for (const r of b.rows) {
+          if (r.ark) {
+            kfegs.set(r.ark, { color: r.color, raw: r.raw, seismicity: r.seismicity, date: d });
+          } else if (r.color && r.color !== 'green') {
+            // Повышенный вулкан без места в каталоге — метку ставить некуда.
+            // Это «показано не всё», а не «рядом чисто».
+            degraded = true;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[home] радар: сводка КФ ЕГС не выбралась:', err);
+      degraded = true;
+    }
+
+    const ids = [...new Set([...kvert.keys(), ...kfegs.keys()])];
+    const placeRows = ids.length === 0 ? { rows: [] as Array<{ ark: string; name: string; lat: string; lng: string }> } :
+      await query<{ ark: string; name: string; lat: string; lng: string }>(
+        `SELECT ark_id::text AS ark, name, lat::text, lng::text
+           FROM places
+          WHERE ark_id = ANY($1::uuid[])
+            AND is_visible = TRUE AND lat IS NOT NULL AND lng IS NOT NULL`,
+        [ids],
+      );
+    const places = new Map(placeRows.rows.map((r) => [r.ark, { name: r.name, lat: parseFloat(r.lat), lng: parseFloat(r.lng) }]));
+    for (const m of volcanoMarks(kvert, kfegs, places)) {
+      hazards.push({ ...m, kind: 'volcano' });
     }
     // Опасный код БЕЗ привязки к точке — знание, которое некуда положить.
     //

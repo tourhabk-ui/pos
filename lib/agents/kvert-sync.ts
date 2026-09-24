@@ -88,7 +88,7 @@ export interface KvertSyncResult {
  * не с чем, и это надо сказать вызывающему (§4.0), а не отчитаться нулём
  * совпадений, который выглядит как «вулканы не совпали».
  */
-async function loadVolcanoIndex(): Promise<VolcanoIndex> {
+export async function loadVolcanoIndex(): Promise<VolcanoIndex> {
   const { rows } = await pool.query<{ ark_id: string; name: string }>(
     `SELECT ark_id::text AS ark_id, name FROM places
       WHERE location_type = 'volcano' AND ark_id IS NOT NULL

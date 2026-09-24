@@ -128,7 +128,10 @@ export async function GET(request: NextRequest) {
       state: !mine ? 'нет у KVERT'
         : r.color === null ? 'код emsd не разобран — сравнивать нечем'
         : mine.color === r.color ? 'совпало'
-        : 'РАСХОЖДЕНИЕ',
+        // Не «расхождение»: у КФ ЕГС своя шкала (сейсмичность, газ, пепел —
+        // легенда в самой сводке), у KVERT — авиационный код ICAO. Слова
+        // цветов совпадают, определения нет (поправка 24.09).
+        : 'цвета разные (разные шкалы)',
     };
   });
 
@@ -156,6 +159,6 @@ export async function GET(request: NextRequest) {
     kvert_compare: comparison,
     kvert_compare_error: ours.error,
     kvert_rows_total: ours.rows?.length ?? null,
-    disagreements_total: comparison?.filter((c) => c.state === 'РАСХОЖДЕНИЕ').length ?? null,
+    disagreements_total: comparison?.filter((c) => c.state === 'цвета разные (разные шкалы)').length ?? null,
   });
 }
