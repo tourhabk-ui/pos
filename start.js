@@ -137,6 +137,9 @@ const SAFETY_JOBS = [
   { path: '/api/cron/telegram-webhook-watchdog', everyMin: 30, timeoutMs: 30000,  startAfterMs: 270000 },
   { path: '/api/cron/channel-sync',              everyMin: 30, timeoutMs: 120000, startAfterMs: 300000 },
   { path: '/api/cron/health',                    everyMin: 60, timeoutMs: 60000,  startAfterMs: 330000 },
+  // Сводка вулканов КФ ЕГС для радара (24.09, «показывай обе шкалы»).
+  // Суточная сводка — раз в час хватает; аренда окна 60 мин в роуте.
+  { path: '/api/cron/emsd-vmon-sync',            everyMin: 60, timeoutMs: 60000,  startAfterMs: 360000 },
 ];
 
 function triggerCron(job) {
