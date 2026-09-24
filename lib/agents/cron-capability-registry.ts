@@ -121,6 +121,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'kml-inbox': ['db_read', 'db_write'],
   'kuzmich': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kuzmich-eval': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
+  'kuzmich-load-census': ['db_read'],
   'kuzmich-places': ['db_read', 'db_write', 'net_out', 'ai'],
   'kuzmich-redteam': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kvert-acc': ['db_read', 'db_write', 'net_out'],
