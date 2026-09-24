@@ -79,7 +79,7 @@ jobs:
           {
             echo '### Океан обзорного яруса'
             echo '```'
-            grep -E 'полигонов|доля суши|океан:|ОТКАЗ|время сборки' .cache/ocean-build.log || echo 'лог не найден'
+            grep -E 'полигонов|доля суши|квадратов без DEM|океан:|ОТКАЗ|время сборки' .cache/ocean-build.log || echo 'лог не найден'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

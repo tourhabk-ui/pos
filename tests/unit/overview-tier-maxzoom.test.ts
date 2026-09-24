@@ -17,7 +17,7 @@
  * так же: `minzoom` у слоёв пакета/клетки, ровно на границе с обзором.
  */
 import { describe, it, expect } from 'vitest';
-import { buildVedarStyle, buildRegionOverlay, OVERVIEW_LAYER_MAXZOOM, OCEAN_UNDER_PREFIX, type VedarStyleSources } from '@/lib/map/vedar-style';
+import { buildVedarStyle, buildRegionOverlay, OVERVIEW_LAYER_MAXZOOM, OCEAN_UNDER_PREFIX, OCEAN_VOID_PREFIX, type VedarStyleSources } from '@/lib/map/vedar-style';
 import { OVERVIEW_MAX_ZOOM, PACK_TERRAIN_MAXZOOM } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 
@@ -34,11 +34,12 @@ function sources(terrainMaxZoom: number): VedarStyleSources {
 
 type Layer = { id: string; type: string; maxzoom?: number; minzoom?: number };
 
-// Подложка воды (vedar-ocean-under) — не ярус обзора, а вода ПОД рельефом с
-// z8: её пределы держит ocean-under-relief.test.ts. Здесь она исключена по
-// имени, а не по типу — обзорная заливка океана остаётся под этим сторожем.
+// Подложка воды (vedar-ocean-under) и квадраты без DEM (vedar-ocean-void) —
+// не ярус обзора, а вода с z8: их пределы держит ocean-under-relief.test.ts.
+// Здесь они исключены по имени, а не по типу — обзорная заливка океана
+// остаётся под этим сторожем.
 function terrainLayers(layers: unknown[]): Layer[] {
-  return (layers as Layer[]).filter((l) => !l.id.startsWith(OCEAN_UNDER_PREFIX)
+  return (layers as Layer[]).filter((l) => !l.id.startsWith(OCEAN_UNDER_PREFIX) && !l.id.startsWith(OCEAN_VOID_PREFIX)
     && (l.type === 'color-relief' || l.type === 'hillshade' || l.id.startsWith('vedar-ocean')));
 }
 

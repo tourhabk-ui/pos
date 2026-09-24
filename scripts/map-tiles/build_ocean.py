@@ -43,6 +43,25 @@ z7 берег плыл бы на два-три пикселя. Для клето
 (--tile-zoom 4): суша за рамкой края тоже вычитается — полигоны суши OSM
 на весь мир, — и море остаётся морем до края тайла.
 
+── Квадраты без DEM — вторым объектом, kind=void (24.09) ─────────────────
+
+Скрин владельца «закрась море» (зум 8.8) и кадры снимков после подложки
+воды: море синее, но по нему тонкая тёмная рамка. Рамка лежит ровно по
+целым градусам — это края квадратов, для которых Copernicus тайла НЕ
+публикует (52N159E, 50N158E...). Внутри такого квадрата сборщик рельефа
+пишет «нет данных» (-500 м), снаружи — море 0 м, и тень рельефа рисует
+перепад в 500 м обрывом.
+
+Квадрат без тайла Copernicus — не «не знаю»: GLO-30 покрывает всю сушу
+мира, и отсутствие тайла в его же списке (tileList.txt) значит «здесь
+суши нет». Поэтому эти квадраты — второй объект файла, kind=void:
+квадрат, раздутый на VOID_PAD_DEG (тень рисует шов по обе стороны края),
+и пересечённый с океаном по OSM — раздутый край не заходит на сушу
+соседнего квадрата. Стиль кладёт его ПОВЕРХ тени с z8.
+
+Список не скачался или не похож на список — отказ всей сборки, а не
+файл без квадратов: без них шов вернулся бы молча.
+
     python3 scripts/map-tiles/build_ocean.py \
         --bbox 155,50,175,65 --out .cache/packs/krai-overview.ocean.geojson
 """
@@ -83,6 +102,37 @@ SOURCE_URL = 'https://osmdata.openstreetmap.de/download/simplified-land-polygons
 ATTRIBUTION = '© OpenStreetMap contributors'
 # Допуск упрощения, градусы: ~200 м — втрое мельче пикселя z7.
 SIMPLIFY_DEG = 0.002
+# Список тайлов Copernicus GLO-30 — тот же бакет, что читает build_terrain.py.
+DEM_TILE_LIST_URL = 'https://copernicus-dem-30m.s3.amazonaws.com/tileList.txt'
+# Запас квадрата без DEM: шов тени — пиксель-два по обе стороны края, на z8
+# пиксель ~0.0027°. 0.01° (~1 км) накрывает шов с запасом, а суша соседнего
+# квадрата отрезается пересечением с океаном OSM.
+VOID_PAD_DEG = 0.01
+# Контрольный тайл: юг Камчатки. Нет его в списке — скачано не то.
+DEM_TILE_CONTROL = 'Copernicus_DSM_COG_10_N53_00_E158_00_DEM'
+
+
+def dem_tile_name(lat: int, lng: int) -> str:
+    """Имя тайла Copernicus по левому нижнему углу — как в build_terrain.py."""
+    ns = 'N' if lat >= 0 else 'S'
+    ew = 'E' if lng >= 0 else 'W'
+    return f'Copernicus_DSM_COG_10_{ns}{abs(lat):02d}_00_{ew}{abs(lng):03d}_00_DEM'
+
+
+def missing_dem_squares(names: set[str], west: float, south: float, east: float, north: float) -> list[tuple[int, int]]:
+    """Целоградусные квадраты рамки, для которых Copernicus тайла не публикует."""
+    out = []
+    for lat in range(math.floor(south), math.ceil(north)):
+        for lng in range(math.floor(west), math.ceil(east)):
+            if dem_tile_name(lat, lng) not in names:
+                out.append((lat, lng))
+    return out
+
+
+def fetch_dem_tile_list(url: str) -> set[str]:
+    with urllib.request.urlopen(url, timeout=120) as r:
+        text = r.read().decode('utf-8', 'replace')
+    return {line.strip() for line in text.splitlines() if line.strip()}
 
 
 def download(url: str, dest: str) -> None:
@@ -108,6 +158,7 @@ def main() -> int:
     ap.add_argument('--out', required=True)
     ap.add_argument('--source-url', default=SOURCE_URL)
     ap.add_argument('--cache-dir', default='.cache/land-polygons')
+    ap.add_argument('--dem-tile-list', default=DEM_TILE_LIST_URL)
     ap.add_argument('--tile-zoom', type=int, default=4,
                     help='расширить рамку до границ тайлов этого зума (0 — не расширять)')
     args = ap.parse_args()
@@ -181,10 +232,33 @@ def main() -> int:
         print('ОТКАЗ: доля суши неправдоподобна для края с морем по трём сторонам.', file=sys.stderr)
         return 1
 
-    ocean = frame_4326.difference(land).simplify(SIMPLIFY_DEG, preserve_topology=True)
+    ocean_full = frame_4326.difference(land)
+    ocean = ocean_full.simplify(SIMPLIFY_DEG, preserve_topology=True)
     if ocean.is_empty:
         print('ОТКАЗ: океан пуст после вычитания.', file=sys.stderr)
         return 1
+
+    # ── Квадраты без DEM (см. шапку, kind=void) ──
+    try:
+        names = fetch_dem_tile_list(args.dem_tile_list)
+    except Exception as e:  # noqa: BLE001 — без списка шов вернулся бы молча
+        print(f'ОТКАЗ: список тайлов Copernicus не скачался: {e}', file=sys.stderr)
+        return 1
+    if len(names) < 20000 or DEM_TILE_CONTROL not in names:
+        print(f'ОТКАЗ: список тайлов Copernicus не похож на список ({len(names)} имён, контрольного {DEM_TILE_CONTROL} нет или мало имён).', file=sys.stderr)
+        return 1
+    squares = missing_dem_squares(names, west, south, east, north)
+    if not squares:
+        print('ОТКАЗ: в рамке с морем по трём сторонам нет ни одного квадрата без DEM — список не тот.', file=sys.stderr)
+        return 1
+    void = unary_union([
+        box(lng - VOID_PAD_DEG, lat - VOID_PAD_DEG, lng + 1 + VOID_PAD_DEG, lat + 1 + VOID_PAD_DEG)
+        for lat, lng in squares
+    ]).intersection(ocean_full).simplify(SIMPLIFY_DEG / 4, preserve_topology=True)
+    if void.is_empty:
+        print('ОТКАЗ: квадраты без DEM не пересеклись с океаном.', file=sys.stderr)
+        return 1
+    print(f'квадратов без DEM в рамке: {len(squares)} (запас {VOID_PAD_DEG}°, пересечены с океаном OSM)')
     # Ориентация колец — RFC 7946: внешнее против часовой, дыры по часовой.
     # GEOS отдаёт наоборот, а MapLibre судит «внешнее или дыра» по ЗНАКУ
     # площади кольца, не по порядку. Прогон 1 (05.09) залил океан без этого
@@ -200,6 +274,16 @@ def main() -> int:
     print(f'частей океана: {len(parts)}, дыр (островов суши внутри): {holes}, кольца ориентированы по RFC 7946')
     ocean = MultiPolygon(parts) if len(parts) > 1 else parts[0]
     geom = mapping(ocean)
+    void_parts = list(void.geoms) if hasattr(void, 'geoms') else [void]
+    void_parts = [orient(pg, 1.0) for pg in void_parts if isinstance(pg, Polygon) and not pg.is_empty]
+    for pg in void_parts:
+        if not pg.exterior.is_ccw or any(r.is_ccw for r in pg.interiors):
+            print('ОТКАЗ: ориентация колец квадратов без DEM не RFC 7946.', file=sys.stderr)
+            return 1
+    if not void_parts:
+        print('ОТКАЗ: у квадратов без DEM не осталось многоугольников.', file=sys.stderr)
+        return 1
+    void_geom = mapping(MultiPolygon(void_parts) if len(void_parts) > 1 else void_parts[0])
     vertices = sum(len(ring) for poly in (geom['coordinates'] if geom['type'] == 'MultiPolygon' else [geom['coordinates']]) for ring in poly)
 
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
@@ -213,6 +297,10 @@ def main() -> int:
             'type': 'Feature',
             'properties': {'kind': 'ocean', 'land_share': round(land_share, 4)},
             'geometry': geom,
+        }, {
+            'type': 'Feature',
+            'properties': {'kind': 'void', 'squares': len(squares), 'source': args.dem_tile_list},
+            'geometry': void_geom,
         }],
     }
     with open(args.out, 'w', encoding='utf-8') as f:

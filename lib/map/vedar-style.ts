@@ -1132,9 +1132,24 @@ function vedarOceanLayers(sources: VedarStyleSources, p: MapPalette, ns: string)
     // Только на обзорных зумах: с z8 клетка читает DEM на полной сетке, и
     // берег в 200 м упрощения лёг бы поверх честного берега по высоте.
     maxzoom: OVERVIEW_LAYER_MAXZOOM,
+    filter: ['==', ['get', 'kind'], 'ocean'],
+    paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
+  }, {
+    // Квадраты, для которых Copernicus тайла не публикует (build_ocean.py,
+    // kind=void): суши там нет по списку самого Copernicus. Внутри клетка
+    // пишет «нет данных» (-500 м) рядом с морем 0 м, и тень рисовала по
+    // краю квадрата обрыв — тонкую рамку посреди моря (кадры 24.09 после
+    // подложки воды). Эта заливка — ПОВЕРХ тени и только с z8: ниже шов
+    // закрывает обзорная заливка океана.
+    id: `${OCEAN_VOID_PREFIX}${ns}`, type: 'fill', source: `vedar-ocean${ns}`,
+    minzoom: OVERVIEW_LAYER_MAXZOOM,
+    filter: ['==', ['get', 'kind'], 'void'],
     paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
   }];
 }
+
+/** Префикс заливки квадратов без DEM — её не перекрывает ничья тень. */
+export const OCEAN_VOID_PREFIX = 'vedar-ocean-void';
 
 /** Префикс подложки воды — по нему карта и снимки кладут её под весь рельеф. */
 export const OCEAN_UNDER_PREFIX = 'vedar-ocean-under';
@@ -1157,6 +1172,7 @@ function vedarOceanUnderLayers(sources: VedarStyleSources, p: MapPalette, ns: st
     id: `${OCEAN_UNDER_PREFIX}${ns}`, type: 'fill', source: `vedar-ocean${ns}`,
     // Встык с обзорной заливкой: та кончается на z8 (исключающий maxzoom).
     minzoom: OVERVIEW_LAYER_MAXZOOM,
+    filter: ['==', ['get', 'kind'], 'ocean'],
     paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
   }];
 }
@@ -1169,6 +1185,34 @@ function vedarOceanUnderLayers(sources: VedarStyleSources, p: MapPalette, ns: st
 export function oceanUnderAnchor(layerIds: readonly string[]): string | undefined {
   const bg = layerIds.indexOf('bg');
   return bg >= 0 ? layerIds[bg + 1] : layerIds[0];
+}
+
+/**
+ * Перед каким слоем карта ставит слой соседа (VedarMap и снимки на раннере —
+ * одно правило на оба места, иначе снимок показал бы не то, что телефон).
+ *
+ *   - подложка воды — под весь рельеф, сразу над фоном;
+ *   - гипсометрия и тень — под заливку квадратов без DEM, если она уже
+ *     стоит: иначе тень клетки, подложенной позже обзора, снова нарисовала
+ *     бы рамку поверх воды;
+ *   - прочие заливки — под тень своего района (лес получает рельеф);
+ *   - остальное — под линию маршрута: путь читается поверх карты.
+ */
+export function neighborLayerAnchor(
+  layer: { id?: unknown; type?: unknown },
+  regionId: string,
+  layerIds: readonly string[],
+): string | undefined {
+  const id = String(layer.id);
+  const has = (x: string) => layerIds.includes(x);
+  if (id.startsWith(OCEAN_UNDER_PREFIX)) return oceanUnderAnchor(layerIds);
+  if (layer.type === 'color-relief' || layer.type === 'hillshade') {
+    const voidId = layerIds.find((x) => x.startsWith(OCEAN_VOID_PREFIX));
+    if (voidId) return voidId;
+  } else if (layer.type === 'fill' && !id.startsWith(OCEAN_VOID_PREFIX) && has(`hillshade-${regionId}`)) {
+    return `hillshade-${regionId}`;
+  }
+  return has('route-trail') ? 'route-trail' : undefined;
 }
 
 /**

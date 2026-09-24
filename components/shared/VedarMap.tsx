@@ -34,7 +34,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
   buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex, DETAIL_MIN_ZOOM,
-  OCEAN_UNDER_PREFIX, oceanUnderAnchor,
+  neighborLayerAnchor,
   type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
@@ -1046,14 +1046,10 @@ export default function VedarMap({
               if (map.getLayer(id)) continue;
               // Гипсометрия снята после сбоя кадра — соседу её тоже не дать.
               if (reliefOffRef.current && layer.type === 'color-relief') continue;
-              // Всё под линией маршрута: путь читается поверх карты. Заливки
-              // соседа — под его же тенью, иначе лес лёг бы поверх рельефа.
-              // Подложка воды — под ВЕСЬ рельеф, сразу над фоном: иначе она
-              // закрыла бы клетки, подложенные раньше неё.
-              const hill = `hillshade-${region}`;
-              const before = id.startsWith(OCEAN_UNDER_PREFIX)
-                ? oceanUnderAnchor(map.getStyle().layers.map(l => l.id))
-                : layer.type === 'fill' && map.getLayer(hill) ? hill : 'route-trail';
+              // Место слоя — по одному правилу с снимками (neighborLayerAnchor):
+              // подложка воды под весь рельеф, рельеф под заливку квадратов
+              // без DEM, заливки под свою тень, остальное под маршрут.
+              const before = neighborLayerAnchor(layer, region, map.getLayersOrder());
               map.addLayer(layer as never, before && map.getLayer(before) ? before : undefined);
             }
             // Сосед мог принести свой слой мест — фильтр действующий на

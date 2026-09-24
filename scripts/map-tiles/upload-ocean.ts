@@ -5,9 +5,9 @@
  * горизонтали + …», а океан — один файл к уже залитому обзору, и гонять
  * ради него пересборку рельефа (два часа чтения DEM) незачем.
  *
- * Перед заливкой файл читается: FeatureCollection с одним объектом-океаном
- * и ненулевой геометрией. Пустой или чужой файл не заливается — карта
- * покрасила бы им край.
+ * Перед заливкой файл читается: FeatureCollection с объектом-океаном и
+ * объектом квадратов без DEM (kind=void). Пустой, чужой или неполный файл
+ * не заливается — карта покрасила бы им край или вернула шов по морю.
  *
  *   S3_ACCESS_KEY=… S3_SECRET_KEY=… S3_BUCKET=… \
  *     npx tsx scripts/map-tiles/upload-ocean.ts .cache/packs/krai-overview.ocean.geojson
@@ -38,10 +38,19 @@ async function main(): Promise<number> {
     console.error(`Файл не JSON: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }
-  const f = Array.isArray(parsed.features) ? parsed.features[0] : undefined;
-  if (parsed.type !== 'FeatureCollection' || !f || f.properties?.kind !== 'ocean'
-    || (f.geometry?.type !== 'Polygon' && f.geometry?.type !== 'MultiPolygon')) {
-    console.error('Это не слой океана (ждём FeatureCollection с одним Polygon/MultiPolygon kind=ocean) — не заливаю.');
+  const feats = Array.isArray(parsed.features) ? parsed.features : [];
+  const polygonal = (x: (typeof feats)[number]) => x.geometry?.type === 'Polygon' || x.geometry?.type === 'MultiPolygon';
+  const ocean = feats.filter((x) => x.properties?.kind === 'ocean');
+  const voids = feats.filter((x) => x.properties?.kind === 'void');
+  if (parsed.type !== 'FeatureCollection' || ocean.length !== 1 || !polygonal(ocean[0])
+    || feats[0]?.properties?.kind !== 'ocean') {
+    console.error('Это не слой океана (ждём FeatureCollection, первым — один Polygon/MultiPolygon kind=ocean) — не заливаю.');
+    return 1;
+  }
+  // Квадраты без DEM (kind=void, 24.09): без них по морю с z8 вернулась бы
+  // рамка тени — молча, потому что файл «океан» при этом выглядел бы целым.
+  if (voids.length !== 1 || !polygonal(voids[0]) || feats.length !== 2) {
+    console.error('В файле нет квадратов без DEM (ждём второй объект kind=void) — не заливаю.');
     return 1;
   }
   const res = await uploadToS3(oceanKey(OVERVIEW_ID), body, 'application/geo+json', packCacheControl(oceanKey(OVERVIEW_ID)));

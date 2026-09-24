@@ -19,7 +19,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
-import { buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
+import { buildVedarStyle, buildRegionOverlay, neighborLayerAnchor } from '@/lib/map/vedar-style';
 import { builtRegionPacks, regionsIntersecting } from '@/lib/map/field-base-map';
 import { OSM_LAYERS, BUILT_PACK_REGIONS, BUILT_GRID_CELLS, OVERVIEW_BUILT } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, OVERVIEW_BBOX } from '@/lib/geo/regions';
@@ -145,7 +145,14 @@ describe('карта подкладывает соседей сама', () => {
   });
 
   it('слои соседа ложатся под линию маршрута, заливки — под его тень', () => {
-    expect(MAP).toMatch(/layer\.type === 'fill' && map\.getLayer\(hill\) \? hill : 'route-trail'/);
+    // С 24.09 правило живёт в neighborLayerAnchor (одно на карту и снимки).
+    expect(MAP).toMatch(/const before = neighborLayerAnchor\(layer, region, map\.getLayersOrder\(\)\);/);
+    const ids = ['bg', 'relief', 'hillshade-r', 'route-trail'];
+    expect(neighborLayerAnchor({ id: 'osm-forest-r', type: 'fill' }, 'r', ids)).toBe('hillshade-r');
+    expect(neighborLayerAnchor({ id: 'contour-r', type: 'line' }, 'r', ids)).toBe('route-trail');
+    expect(neighborLayerAnchor({ id: 'hillshade-r2', type: 'hillshade' }, 'r2', ids)).toBe('route-trail');
+    // Своей тени нет — заливка под маршрут, а не в конец поверх него.
+    expect(neighborLayerAnchor({ id: 'osm-forest-q', type: 'fill' }, 'q', ids)).toBe('route-trail');
   });
 
   it('отказ подкладки не глотается', () => {

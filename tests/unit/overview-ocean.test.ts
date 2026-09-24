@@ -126,7 +126,9 @@ describe('сборщик и заливка — отказ, не пустой о�
   });
 
   it('upload-ocean.ts проверяет файл и заливает под ключ обзора', () => {
-    expect(UP).toMatch(/f\.properties\?\.kind !== 'ocean'/);
+    // С 24.09 в файле два объекта: первым — океан (один), вторым — квадраты без DEM.
+    expect(UP).toMatch(/ocean\.length !== 1 \|\| !polygonal\(ocean\[0\]\)/);
+    expect(UP).toMatch(/feats\[0\]\?\.properties\?\.kind !== 'ocean'/);
     expect(UP).toMatch(/uploadToS3\(oceanKey\(OVERVIEW_ID\)/);
   });
 

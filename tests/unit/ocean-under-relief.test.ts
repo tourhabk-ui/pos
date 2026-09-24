@@ -17,15 +17,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  buildVedarStyle, buildRegionOverlay, vedarMapPalette, OCEAN_UNDER_PREFIX, oceanUnderAnchor,
-  OVERVIEW_LAYER_MAXZOOM, type VedarStyleSources,
+  buildVedarStyle, buildRegionOverlay, vedarMapPalette, OCEAN_UNDER_PREFIX, OCEAN_VOID_PREFIX, oceanUnderAnchor,
+  neighborLayerAnchor, OVERVIEW_LAYER_MAXZOOM, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { PACK_TERRAIN_MAXZOOM, OVERVIEW_MAX_ZOOM } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 
 const ROOT = process.cwd();
-type Layer = { id: string; type: string; source?: string; minzoom?: number; maxzoom?: number; paint?: Record<string, unknown> };
+type Layer = { id: string; type: string; source?: string; minzoom?: number; maxzoom?: number; filter?: unknown; paint?: Record<string, unknown> };
 const OVERVIEW: VedarStyleSources = {
   terrainUrl: 'pmtiles://https://example.test/map-packs/krai-overview.terrain.pmtiles',
   contoursUrl: 'https://example.test/map-packs/krai-overview.contours.geojson',
@@ -113,11 +113,104 @@ describe('подкладка соседа: вода под рельефом кл
     expect(oceanUnderAnchor(['relief', 'hillshade'])).toBe('relief');
   });
 
-  it('карта и снимки кладут подложку по якорю, а не поверх (одно правило на два места)', () => {
+  it('карта и снимки ставят слои соседа одним правилом — neighborLayerAnchor', () => {
     const vm = readFileSync(join(ROOT, 'components/shared/VedarMap.tsx'), 'utf-8');
-    expect(vm).toMatch(/id\.startsWith\(OCEAN_UNDER_PREFIX\)\s*\n\s*\? oceanUnderAnchor\(map\.getStyle\(\)\.layers\.map/);
+    expect(vm).toMatch(/const before = neighborLayerAnchor\(layer, region, map\.getLayersOrder\(\)\);/);
     const snap = readFileSync(join(ROOT, 'scripts/map-tiles/snapshot-packs.ts'), 'utf-8');
-    expect(snap).toMatch(/String\(layer\.id\)\.startsWith\(OCEAN_UNDER_PREFIX\)\s*\n\s*\? style\.layers\.findIndex\(\(l\) => l\.id === oceanUnderAnchor\(/);
-    expect(snap).toMatch(/if \(under >= 0\) style\.layers\.splice\(under, 0, layer\);/);
+    expect(snap).toMatch(/const before = neighborLayerAnchor\(layer, region, style\.layers\.map/);
+    expect(snap).toMatch(/if \(at >= 0\) style\.layers\.splice\(at, 0, layer\);/);
+  });
+});
+
+describe('квадраты без DEM: вода поверх тени (рамка по морю, 24.09)', () => {
+  // Кадры снимков после подложки воды: море синее, но по нему тонкая тёмная
+  // рамка ровно по целым градусам (159° в. д., 53° и 51° с. ш.) — края
+  // квадратов, для которых Copernicus тайла не публикует. Внутри «нет
+  // данных» (-500 м), снаружи море 0 м — тень рисует обрыв.
+  const layers = () => (buildVedarStyle('dark', OVERVIEW) as { layers: Layer[] }).layers;
+
+  it('заливка есть при адресе океана, с z8, только объекты kind=void, цвет воды', () => {
+    const v = layers().find((l) => l.id === OCEAN_VOID_PREFIX);
+    expect(v?.type).toBe('fill');
+    expect(v?.source).toBe('vedar-ocean');
+    expect(v?.minzoom).toBe(OVERVIEW_LAYER_MAXZOOM);
+    expect(v?.maxzoom).toBeUndefined();
+    expect(v?.filter).toEqual(['==', ['get', 'kind'], 'void']);
+    expect(v?.paint?.['fill-color']).toBe(vedarMapPalette('dark').water);
+    const bare = (buildVedarStyle('dark', { ...OVERVIEW, oceanUrl: null }) as { layers: Layer[] }).layers;
+    expect(bare.some((l) => l.id.startsWith(OCEAN_VOID_PREFIX))).toBe(false);
+  });
+
+  it('океан и подложка берут только kind=ocean — квадраты не рисуются дважды разными правилами', () => {
+    for (const id of ['vedar-ocean', OCEAN_UNDER_PREFIX]) {
+      expect(layers().find((l) => l.id === id)?.filter, id).toEqual(['==', ['get', 'kind'], 'ocean']);
+    }
+  });
+
+  it('в основном стиле — над тенью', () => {
+    const ids = layers().map((l) => l.id);
+    expect(ids.indexOf(OCEAN_VOID_PREFIX)).toBeGreaterThan(ids.indexOf('hillshade'));
+    expect(ids.indexOf(OCEAN_VOID_PREFIX)).toBeGreaterThan(ids.indexOf('relief'));
+  });
+
+  it('подкладка соседа: тень и гипсометрия клетки, пришедшие ПОСЛЕ обзора, встают под заливку', () => {
+    // Основной стиль — клетка; сначала подкладывается обзор, потом соседняя клетка.
+    const ids = (buildVedarStyle('dark', CELL) as { layers: Layer[] }).layers.map((l) => l.id);
+    const add = (layer: { id: string; type: string }, region: string) => {
+      const before = neighborLayerAnchor(layer, region, ids);
+      const at = before ? ids.indexOf(before) : -1;
+      if (at >= 0) ids.splice(at, 0, layer.id); else ids.push(layer.id);
+    };
+    for (const l of buildRegionOverlay('dark', OVERVIEW, OVERVIEW_ID, 'base').layers) add(l as never, OVERVIEW_ID);
+    for (const l of buildRegionOverlay('dark', CELL, 'cell-50n158e', 'base').layers) add(l as never, 'cell-50n158e');
+    const v = ids.indexOf(`${OCEAN_VOID_PREFIX}-${OVERVIEW_ID}`);
+    expect(v).toBeGreaterThan(0);
+    for (const id of ['relief-cell-50n158e', 'hillshade-cell-50n158e', 'relief', 'hillshade', `hillshade-${OVERVIEW_ID}`]) {
+      expect(ids.indexOf(id), id).toBeGreaterThanOrEqual(0);
+      expect(ids.indexOf(id), id).toBeLessThan(v);
+    }
+    // Подложка — сразу над фоном; маршрут — над всем этим.
+    expect(ids.indexOf(`${OCEAN_UNDER_PREFIX}-${OVERVIEW_ID}`)).toBe(ids.indexOf('bg') + 1);
+    expect(ids.indexOf('route-trail')).toBeGreaterThan(v);
+  });
+
+  it('прочие заливки соседа — под его тень, как прежде; сама заливка квадратов — нет', () => {
+    const ids = ['bg', 'relief', 'hillshade-r', 'route-trail'];
+    expect(neighborLayerAnchor({ id: 'osm-forest-r', type: 'fill' }, 'r', ids)).toBe('hillshade-r');
+    expect(neighborLayerAnchor({ id: `${OCEAN_VOID_PREFIX}-r`, type: 'fill' }, 'r', ids)).toBe('route-trail');
+    expect(neighborLayerAnchor({ id: 'contour-r', type: 'line' }, 'r', ids)).toBe('route-trail');
+  });
+});
+
+describe('квадраты без DEM: сборщик и заливка', () => {
+  const PY = readFileSync(join(ROOT, 'scripts/map-tiles/build_ocean.py'), 'utf-8');
+  const UP = readFileSync(join(ROOT, 'scripts/map-tiles/upload-ocean.ts'), 'utf-8');
+
+  it('список — у самого Copernicus, тем же бакетом, что читает рельеф', () => {
+    const terrain = readFileSync(join(ROOT, 'scripts/map-tiles/build_terrain.py'), 'utf-8');
+    const bucket = terrain.match(/^DEM_BUCKET = '([^']+)'/m)?.[1];
+    expect(bucket).toBeTruthy();
+    expect(PY).toContain(`DEM_TILE_LIST_URL = '${bucket}/tileList.txt'`);
+  });
+
+  it('имя тайла — той же формулы, что у сборщика рельефа (иначе «пустым» стал бы каждый квадрат)', () => {
+    expect(PY).toMatch(/f'Copernicus_DSM_COG_10_\{ns\}\{abs\(lat\):02d\}_00_\{ew\}\{abs\(lng\):03d\}_00_DEM'/);
+    const terrain = readFileSync(join(ROOT, 'scripts/map-tiles/build_terrain.py'), 'utf-8');
+    expect(terrain).toMatch(/^DEM_RES_CODE = '10'$/m);
+  });
+
+  it('квадраты пересекаются с океаном OSM — раздутый край не ложится на сушу соседа', () => {
+    expect(PY).toMatch(/\]\)\.intersection\(ocean_full\)/);
+    expect(PY).toMatch(/'kind': 'void'/);
+  });
+
+  it('не скачался, не похож, пуст — отказ сборки, а не файл без квадратов', () => {
+    expect(PY).toMatch(/ОТКАЗ: список тайлов Copernicus не скачался/);
+    expect(PY).toMatch(/len\(names\) < 20000 or DEM_TILE_CONTROL not in names/);
+    expect(PY).toMatch(/ОТКАЗ: в рамке с морем по трём сторонам нет ни одного квадрата без DEM/);
+  });
+
+  it('заливка в хранилище требует объект kind=void', () => {
+    expect(UP).toMatch(/voids\.length !== 1 \|\| !polygonal\(voids\[0\]\)/);
   });
 });
