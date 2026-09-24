@@ -2659,6 +2659,37 @@ export async function probeQwenKeyStatus(): Promise<{
   }
 }
 
+/**
+ * Чем именно DashScope отказал. 403 у него — не всегда «ключ плохой».
+ *
+ * 24.09 health прислал «ключ отвергнут в ОБОИХ регионах — перевыпустить», а
+ * часом раньше проба с прода тем же ключом разобрала снимок на qwen-vl-max.
+ * Ключ был жив: 403 шёл от КВОТЫ одной модели (qwen-plus, которой health
+ * шлёт ping) — у DashScope квоты раздельные по моделям, а переключатель
+ * «Free tier only» не даёт тратить пополненный баланс (§8 CLAUDE.md,
+ * AllocationQuota.FreeTierOnly). Совет «перевыпустить» в этом случае
+ * бесполезен, лечится снятием переключателя.
+ *
+ * Поэтому исходов четыре, а не один: квота (ключ принят), неоплата, неверный
+ * ключ и «отказал, а чем — по телу не понять». Последний не сводится ни к
+ * одному из первых: угадывание здесь уже стоило ложной тревоги.
+ */
+export type QwenRefusal = 'quota' | 'arrears' | 'invalid_key' | 'refused';
+
+export function qwenRefusalKind(status: number | null, body: string): QwenRefusal | null {
+  if (status !== 401 && status !== 403) return null;
+  if (/AllocationQuota|FreeTierOnly|free\s*tier|quota/i.test(body)) return 'quota';
+  if (/Arrearage|overdue|arrears/i.test(body)) return 'arrears';
+  if (status === 401 || /InvalidApiKey|Incorrect API key|invalid.{0,20}api.?key/i.test(body)) return 'invalid_key';
+  return 'refused';
+}
+
+/** Код ошибки из тела DashScope — коротко, для текста алерта. */
+function qwenErrorCode(body: string): string {
+  const m = body.match(/"code"\s*:\s*"([^"]{1,60})"/);
+  return m ? m[1] : body.replace(/\s+/g, ' ').slice(0, 80);
+}
+
 /** Два независимых шлюза DashScope. Ключ одного даёт 401 в другом. */
 export const QWEN_BASE_INTL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 export const QWEN_BASE_CN   = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -2719,13 +2750,33 @@ export async function probeQwenRegions(): Promise<{
     return { key_set: true, model, configured_base: configured, results, working_base: ok.base, verdict };
   }
 
+  // Ключ ПРИНЯТ, но у модели кончилась квота — это не «отвергнут». Проверка
+  // первой: квоту шлюз отдаёт тем же 403, и без неё вердикт ниже звал бы
+  // перевыпускать живой ключ (24.09).
+  const quota = results.find(r => qwenRefusalKind(r.http_status, r.detail) === 'quota');
+  if (quota) {
+    return {
+      key_set: true, model, configured_base: configured, results, working_base: quota.base,
+      verdict: `ключ принят на ${quota.region}, но у модели ${model} нет квоты (${qwenErrorCode(quota.detail)}) — `
+        + 'снять «Free tier only» в Model Studio → Model Usage → Free Quota; перевыпуск ключа не поможет',
+    };
+  }
+  const arrears = results.find(r => qwenRefusalKind(r.http_status, r.detail) === 'arrears');
+  if (arrears) {
+    return {
+      key_set: true, model, configured_base: configured, results, working_base: arrears.base,
+      verdict: `ключ принят на ${arrears.region}, но счёт не оплачен (${qwenErrorCode(arrears.detail)}) — пополнить баланс`,
+    };
+  }
+
   // Ни один не принял. Различаем «ключ отвергнут» и «до шлюза не достучались»:
   // первое лечится перевыпуском, второе — сетью, и путать их дорого.
   const rejected = results.filter(r => r.http_status === 401 || r.http_status === 403);
   if (rejected.length === results.length) {
     return {
       key_set: true, model, configured_base: configured, results, working_base: null,
-      verdict: 'ключ отвергнут в ОБОИХ регионах — перевыпустить в консоли Model Studio',
+      verdict: 'ключ отвергнут в ОБОИХ регионах — перевыпустить в консоли Model Studio'
+        + ` (${results.map(r => `${r.region}:${r.http_status} ${qwenErrorCode(r.detail)}`).join('; ')})`,
     };
   }
   const unreachable = results.filter(r => r.http_status === null).map(r => r.region);
@@ -2929,8 +2980,13 @@ export function explainQwenFailure(probe: {
 }): string {
   const where = `${probe.base.includes('-intl') ? 'intl' : 'cn'}/${probe.model}`;
   if (!probe.key_set) return 'DASHSCOPE_API_KEY не задан на Timeweb';
-  if (probe.http_status === 401 || probe.http_status === 403) {
-    return `ключ отвергнут (${probe.http_status}, шлюз ${where}) — проверь регион консоли`;
+  const kind = qwenRefusalKind(probe.http_status, probe.detail);
+  if (kind === 'quota') {
+    return `ключ принят, но у модели нет квоты (${probe.http_status} ${qwenErrorCode(probe.detail)}, ${where}) — снять «Free tier only» в Model Studio`;
+  }
+  if (kind === 'arrears') return `счёт не оплачен (${probe.http_status} ${qwenErrorCode(probe.detail)}, ${where})`;
+  if (kind !== null) {
+    return `ключ отвергнут (${probe.http_status} ${qwenErrorCode(probe.detail)}, шлюз ${where}) — проверь регион консоли`;
   }
   if (probe.http_status === 402) return `нет средств на балансе (402, ${where})`;
   if (probe.http_status === 404) return `модель не найдена (404, ${where}) — линейка сменилась?`;

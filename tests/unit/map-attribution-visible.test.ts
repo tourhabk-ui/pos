@@ -31,6 +31,13 @@ describe('VedarMap: атрибуция не в мёртвом углу', () => {
     expect(MAP).toMatch(/map\.addControl\(new maplibre\.AttributionControl\(\{ compact: true \}\), 'top-right'\)/);
   });
 
+  it('на экране «На маршруте» и top-right закрыт — там строка на листе (24.09)', () => {
+    // Вкладки и плашка статуса лежат поверх верха карты, и развёрнутый
+    // контрол торчал из-под них обрезанной полосой. Сам текст не пропал:
+    // его выводит экран — сторож field-screen-no-overlap.
+    expect(MAP).toMatch(/if \(!attributionOutside\)/);
+  });
+
   it('не откатились обратно на дефолтный bottom-right', () => {
     expect(MAP).not.toMatch(/attributionControl:\s*\{\s*compact:\s*true\s*\}/);
   });

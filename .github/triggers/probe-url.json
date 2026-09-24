@@ -1,16 +1,12 @@
 {
-  "note": "24.09, прогон 575. ТОЛЬКО ЧТЕНИЕ. Проба 574: главная www.emsd.ru — Django, таблицы землетрясений в HTML нет (её рисует JS «интерактивной карты»), /maheqkam — 403 (SvelteKit, сервер kittenx). Ищем адрес данных: в каком запросе скрипт главной берёт события (ajax/fetch/json/api, sdis.emsd.ru).",
-  "run": 575,
-  "timeout": 60,
+  "note": "24.09, прогон 576. ТОЛЬКО ЧТЕНИЕ. После выкатки #2005 (USGS M4 + миграция 1011): отдаёт ли /api/safety/seismic события с lat/lng — то есть есть ли что рисовать радару. Второй адрес — /api/cron/health: код отказа DashScope для текстовой модели Qwen (после выкатки #2008 он в тексте предупреждения).",
+  "run": 576,
+  "timeout": 90,
   "retries": 1,
   "retryDelay": 30,
-  "bytes": 200,
-  "around": ["ajax", "fetch(", ".json", "/api/", "sdis", "earthquake", "event", "quake", "catalog"],
-  "aroundLines": 2,
-  "aroundBefore": 1,
-  "aroundHits": 6,
+  "bytes": 12000,
   "urls": [
-    "https://www.emsd.ru/static/cache/js/output.a4d943cb28c4.js",
-    "https://www.emsd.ru/"
+    "https://vedarai.ru/api/safety/seismic",
+    "https://vedarai.ru/api/cron/health"
   ]
 }

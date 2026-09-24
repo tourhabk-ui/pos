@@ -85,7 +85,9 @@ describe('своя карта принимает жесты', () => {
     // карте и в приборном ряду; кнопки зовут её, она зовёт карту.
     expect(MAP).toMatch(/zoomIn: \(\) => map\.zoomIn\(\)/);
     expect(MAP).toMatch(/zoomOut: \(\) => map\.zoomOut\(\)/);
-    expect(MAP).toMatch(/if \(dir > 0\) handle\.zoomIn\(\); else handle\.zoomOut\(\);/);
-    expect(MAP).toMatch(/aria-label=\{label\}/);
+    // 24.09 кнопки собраны в одну плашку «+ / зум / −» (field-screen-no-overlap):
+    // держится то же — кнопки зовут ручку и подписаны для экранных читалок.
+    expect(MAP).toMatch(/aria-label="Приблизить" onClick=\{\(\) => handle\.zoomIn\(\)\}/);
+    expect(MAP).toMatch(/aria-label="Отдалить" onClick=\{\(\) => handle\.zoomOut\(\)\}/);
   });
 });

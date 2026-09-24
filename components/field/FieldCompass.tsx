@@ -49,8 +49,20 @@ const CARDINALS = [
 /** Оцифровка через 30°, кроме сторон света — там буквы. */
 const DEGREE_LABELS = [30, 60, 120, 150, 210, 240, 300, 330];
 
+/**
+ * Ниже этого размера прибор — бейдж на карте (полевой экран, 104 px), а не
+ * герой колонки. На бейдже (24.09, скрин владельца «похож на помойку»):
+ *  - оцифровка через 30° шла кеглем 5 px — не читается, а засоряет шкалу;
+ *    стороны света буквами остаются;
+ *  - плашка азимута лежала ПОВЕРХ нижней половины шкалы и вылезала за
+ *    прибор вниз — «На точку: 292°» по цифрам «З» и «150». Теперь она под
+ *    циферблатом, отдельной строкой: ни одна надпись не лежит на другой.
+ */
+const BADGE_MAX = 160;
+
 export function FieldCompass({ heading, state, targetBearing, size = 300, headingSource }: FieldCompassProps) {
   const trusted = state === 'ok';
+  const badge = size < BADGE_MAX;
   const c = size / 2;
   /**
    * Всё внутри считается ДОЛЕЙ размера, а не пикселями.
@@ -98,7 +110,8 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
   }
 
   return (
-    <div className="relative mx-auto" style={{ width: size, height: size }}>
+    <div className="relative mx-auto flex flex-col items-center" style={{ width: badge ? size + 24 : size }}>
+    <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
         {/* Корпус прибора: непрозрачный, с фаской по краю */}
         <circle cx={c} cy={c} r={rOuter} fill="#12181f" stroke="rgba(255,255,255,0.14)" strokeWidth={2 * k} />
@@ -108,7 +121,7 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
         <g transform={`rotate(${ringRotation} ${c} ${c})`}
           style={{ transition: 'transform 0.3s ease' }}>
           {ticks}
-          {DEGREE_LABELS.map(a => {
+          {!badge && DEGREE_LABELS.map(a => {
             const rad = (a * Math.PI) / 180;
             const rr = rTickOuter - 30 * k;
             return (
@@ -166,11 +179,14 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
         <circle cx={c} cy={c} r={size * 0.022} fill="#0a0e12" />
       </svg>
 
-      {/* Азимут словами под осью — то же число, что показывает стрелка.
-          Без стрелки оно остаётся единственным честным ответом прибора. */}
+      </div>
+      {/* Азимут словами — то же число, что показывает стрелка. Без стрелки
+          оно остаётся единственным честным ответом прибора. На крупном
+          приборе — под осью внутри шкалы, на бейдже — под циферблатом
+          (см. BADGE_MAX). */}
       {targetBearing !== null && (
-        <div className="absolute inset-x-0 flex flex-col items-center"
-          style={{ top: '54%' }}>
+        <div className={badge ? 'flex flex-col items-center mt-1' : 'absolute inset-x-0 flex flex-col items-center'}
+          style={badge ? undefined : { top: '54%' }}>
           {/* Плашка под числом. Раньше подписи лежали прямо на засечках и на
               стрелке — на 110 пикселях это каша, а число азимута и есть
               главный ответ прибора, когда стрелки нет вовсе (правило 21.08).
@@ -204,7 +220,7 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
                 color: 'rgba(255,255,255,0.5)',
                 fontSize: Math.max(8, 10 * k),
                 marginTop: Math.max(1, 2 * k),
-                maxWidth: size * 0.6,
+                maxWidth: badge ? size + 16 : size * 0.6,
               }}>
               {trusted
                 ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')
