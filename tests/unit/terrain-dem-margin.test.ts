@@ -104,6 +104,14 @@ describe('пересборка рельефа списком (24.09)', () => {
     expect(RB).toMatch(/\[ -z "\$failed" \] && \[ "\$ok" -eq "\$TOTAL" \]/);
   });
 
+  it('сводка не красит удачный прогон: под bash -e ложная проверка роняет шаг', () => {
+    // Прогон 1 (24.09) покраснел после «готово: 18 из 18» на строке
+    // «[ -n "$failed" ] && echo»: при пустом списке она возвращает ложь.
+    const code = RB.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    expect(code).not.toMatch(/\[ -n "\$failed" \] &&/);
+    expect(code).toMatch(/if \[ -n "\$failed" \]; then echo/);
+  });
+
   it('маркер просит только собранные клетки', async () => {
     const { BUILT_GRID_CELLS } = await import('@/lib/map/pack-source');
     expect(Array.isArray(MARK.regions)).toBe(true);
