@@ -114,7 +114,7 @@ export interface StayBookingCancelPayload {
 export async function notifyStayBookingCancelled(p: StayBookingCancelPayload): Promise<void> {
   const refundLine = p.wasPaid
     ? (p.refundAmount && p.refundAmount > 0
-        ? `К возврату гостю: ${money(p.refundAmount)}${p.refundPercent != null ? ` (${p.refundPercent}%)` : ''}. Возврат — вручную по CloudPayments.`
+        ? `К возврату гостю: ${money(p.refundAmount)}${p.refundPercent != null ? ` (${p.refundPercent}%)` : ''}. Переведите вручную по CloudPayments и отметьте «Возврат выполнен» в разделе броней — до этого гость видит «ожидает перевода».`
         : (p.refundReason || 'Возврат не предусмотрен по условиям отмены.'))
     : `Предоплаты не было — возврат не требуется.`;
 

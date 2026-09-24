@@ -14,7 +14,7 @@ import StaysClient from '@/app/hub/tourist/stays/_StaysClient';
 const CANCELLED_WITH_REFUND = {
   id: 'b1',
   status: 'cancelled',
-  paymentStatus: 'partially_refunded',
+  paymentStatus: 'paid',
   checkInDate: '2099-08-01',
   checkOutDate: '2099-08-03',
   nights: 2,
@@ -43,12 +43,11 @@ afterEach(() => {
 });
 
 describe('StaysClient — строка возврата', () => {
-  it('у отменённой брони с возвратом показывает сумму и процент', async () => {
+  it('у отменённой брони, где деньги ещё не переведены, — «ожидает перевода», а не «возвращено»', async () => {
     render(<StaysClient />);
     await waitFor(() => expect(screen.getByText('Дом у вулкана')).toBeTruthy());
     // narrow no-break space в ru-RU форматировании → regex по цифрам
-    const refund = screen.getByText(/Возврат:\s*10\s*000/);
-    expect(refund).toBeTruthy();
-    expect(refund.textContent).toContain('50%');
+    const refund = screen.getByText(/К возврату:\s*10\s*000/);
+    expect(refund.textContent).toContain('ожидает перевода');
   });
 });

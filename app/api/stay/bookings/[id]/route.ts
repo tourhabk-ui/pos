@@ -11,11 +11,16 @@ export const dynamic = 'force-dynamic';
 
 const paramsSchema = z.object({ id: z.string().uuid('Некорректный ID брони') });
 
-const UpdateBookingStatusSchema = z.object({
-  status: z.enum(['confirmed', 'cancelled', 'completed', 'no_show'], {
-    message: 'Некорректный статус',
+const UpdateBookingStatusSchema = z.union([
+  z.object({
+    status: z.enum(['confirmed', 'cancelled', 'completed', 'no_show'], {
+      message: 'Некорректный статус',
+    }),
   }),
-});
+  // «Деньги гостю переведены» — отдельное действие, а не следствие отмены:
+  // отмена денег не возвращает (платёжного API возврата нет, §7).
+  z.object({ refund_done: z.literal(true) }),
+]);
 
 // Жизненный цикл брони жилья: заявка → подтверждение → заезд состоялся / no-show.
 // completed, cancelled и no_show — терминальные.
@@ -65,6 +70,29 @@ export async function PATCH(
         { status: 400 }
       );
     }
+    if ('refund_done' in parsed.data) {
+      const marked = await transaction(async (client) => {
+        const r = await client.query(
+          `UPDATE accommodation_bookings b
+              SET payment_status = 'refunded', updated_at = NOW()
+             FROM accommodations a
+            WHERE b.id = $1 AND a.id = b.accommodation_id
+              ${isAdmin ? '' : 'AND a.partner_id = $2'}
+              AND b.status = 'cancelled' AND b.payment_status = 'paid'
+              AND COALESCE(b.refund_amount, 0) > 0
+            RETURNING b.id`,
+          isAdmin ? [bookingId] : [bookingId, partnerId],
+        );
+        return r.rowCount ?? 0;
+      });
+      if (marked === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Отметить возврат можно только у отменённой оплаченной брони с суммой к возврату' } as ApiResponse<null>,
+          { status: 422 }
+        );
+      }
+      return NextResponse.json({ success: true, message: 'Возврат отмечен' } as ApiResponse<null>);
+    }
     const nextStatus = parsed.data.status;
 
     const outcome = await transaction(async (client) => {
@@ -104,9 +132,8 @@ export async function PATCH(
       const refund = isCancel && wasPaid
         ? calculateStayRefund(Number(booking.total_price ?? 0), new Date(booking.check_in_date), true)
         : null;
-      const nextPaymentStatus = refund && refund.amount > 0
-        ? (refund.percent >= 100 ? 'refunded' : 'partially_refunded')
-        : null;
+      // payment_status не трогаем — «возвращено» ставит refund_done выше,
+      // когда деньги действительно переведены.
 
       const updated = await client.query(
         `UPDATE accommodation_bookings
@@ -115,7 +142,6 @@ export async function PATCH(
              refund_amount = COALESCE($3, refund_amount),
              refund_percent = COALESCE($4, refund_percent),
              refund_reason = COALESCE($5, refund_reason),
-             payment_status = COALESCE($6, payment_status),
              updated_at = NOW()
          WHERE id = $2 RETURNING *`,
         [
@@ -123,7 +149,6 @@ export async function PATCH(
           refund ? refund.amount : null,
           refund ? refund.percent : null,
           refund ? refund.reason : null,
-          nextPaymentStatus,
         ]
       );
 
