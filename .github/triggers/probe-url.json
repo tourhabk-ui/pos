@@ -1,11 +1,15 @@
 {
-  "note": "24.09, прогон 572. ТОЛЬКО ЧТЕНИЕ. Владелец: «нет сейсмособытий на карте». /map слоя землетрясений не имеет вовсе (по коду); радар /safety#radar берёт их из getSeismicFeed — external_alerts alert_type='earthquake' за 48 ч, с координатами. Вопрос: что лента отдаёт на проде сейчас — сколько событий, есть ли lat/lng, откуда (source_url: USGS / emsd / EQKam), и работает ли фолбэк USGS.",
-  "run": 572,
-  "timeout": 60,
+  "note": "24.09, прогон 573. Владелец: «на радаре их нет и данные устаревшие». Проба 572: /api/safety/seismic отдаёт 3 события, все kbgsras (EQKam-текст) и все с lat/lng null — радар рисует только с координатами. Строк emsd.ru с координатами в ленте нет. Вопрос к самому приёму: emsd_fetch в ответе safety-ingest — дошли ли, сколько строк разобрано/отвергнуто, сколько вставлено, сколько пропущено как истёкшие и как тот же толчок. Повторный прогон ингеста безвреден доказанно (контент-дедуп + ON CONFLICT, alert-dedup.pg.test.ts).",
+  "run": 573,
+  "timeout": 120,
   "retries": 1,
   "retryDelay": 30,
-  "bytes": 6000,
+  "bytes": 400,
+  "around": ["emsd_fetch", "\"usgs\"", "eqkam"],
+  "aroundLines": 30,
+  "aroundBefore": 0,
+  "aroundHits": 2,
   "urls": [
-    "https://vedarai.ru/api/safety/seismic"
+    "https://vedarai.ru/api/cron/safety-ingest"
   ]
 }
