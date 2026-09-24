@@ -120,6 +120,38 @@ jobs:
             echo ""
           }
 
+          # ── Не гасить чужую сборку (24.09) ──────────────────────────────
+          #
+          # Каждый коммит собирался ДВАЖДЫ: сразу вебхуком Timeweb и ещё раз
+          # этой просьбой — через 15 минут, после CI. Timeweb новую сборку
+          # запускает, ОСТАНАВЛИВАЯ идущую. Итог 24.09: восемь сборок подряд
+          # в статусе stopped, прод три часа на образе 07:47 при двенадцати
+          # мержах — просьба про СТАРЫЙ коммит гасила уже идущую сборку более
+          # нового (вебхук успевал взять голову main, в том числе авто-коммит
+          # README-stats). Просим только когда просить есть о чём:
+          #  1) main ушёл вперёд — нашу правку повезёт более новая сборка
+          #     (вебхук или прогон этого workflow про новую голову);
+          #  2) Timeweb уже собирает или собрал коммит, содержащий наш.
+          # Отказ проверки — не повод молчать: тогда просим, как раньше.
+          git fetch --quiet origin main || true
+          HEAD_MAIN=$(git rev-parse origin/main 2>/dev/null || echo "")
+          if [ -n "$HEAD_MAIN" ] && [ "${HEAD_MAIN:0:7}" != "${EXPECTED_SHA:0:7}" ] \
+             && git merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_MAIN" 2>/dev/null; then
+            echo "main ушёл вперёд (${HEAD_MAIN:0:7}) — сборку не просим, её повезёт более новый коммит. Судит проверка ниже."
+            exit 0
+          fi
+          LIST=$(curl -sS --max-time 30 -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploys?limit=5&offset=0" 2>/dev/null || echo "")
+          COVERING=$(printf '%s' "$LIST" | jq -r '(.deploys // .app_deploys // [])[] | select(.status == "building" or .status == "deploy" or .status == "success" or .status == "active") | "\(.status) \(.commit_sha // .commit.sha // "")"' 2>/dev/null || true)
+          while read -r ST C; do
+            [ -n "$C" ] || continue
+            if [ "${C:0:7}" = "${EXPECTED_SHA:0:7}" ] || \
+               { git cat-file -e "${C}^{commit}" 2>/dev/null && git merge-base --is-ancestor "$EXPECTED_SHA" "$C" 2>/dev/null; }; then
+              echo "Timeweb уже $ST коммит ${C:0:7}, содержащий наш — вторую сборку не просим (она остановила бы эту)."
+              exit 0
+            fi
+          done <<< "$COVERING"
+
           ask "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploy"
 
           # Путь взят из документации провайдера (метод createDeploy) и из этой
