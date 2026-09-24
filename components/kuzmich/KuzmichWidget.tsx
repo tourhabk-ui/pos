@@ -6,6 +6,7 @@ import { Sparkles, Send, Loader2, X, MessageCircle, Camera, ExternalLink, Fish, 
 import Link from 'next/link';
 import Image from 'next/image';
 import { useGeo } from '@/contexts/GeoContext';
+import SpeakButton from '@/components/kuzmich/SpeakButton';
 
 // Страницы где виджет не нужен
 const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
@@ -451,6 +452,7 @@ export default function KuzmichWidget() {
                       {msg.content}
                     </div>
                   )}
+                  {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}
                   {/* Форма бронирования */}
                   {msg.bookingForm && !msg.bookingConfirmed && (
                     <BookingWidget
