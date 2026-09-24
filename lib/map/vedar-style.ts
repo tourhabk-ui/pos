@@ -485,6 +485,9 @@ export function buildVedarStyle(
       // Фон — «не знаю»: сквозь прозрачные дыры покрытия и за краем пакетов
       // виден он, а не цвет страницы.
       { id: 'bg', type: 'background', paint: { 'background-color': p.nodata } },
+      // Вода с z8 — под всем рельефом: проступает только в дырах DEM над
+      // морем (см. vedarOceanUnderLayers).
+      ...vedarOceanUnderLayers(sources, p, ''),
       // Гипсометрия — под всем: цвет высоты, поверх него заливки и тень.
       reliefLayer(p, '', tierMaxzoom(sources), tierMinzoom(sources)),
       // Заливки ПОД тенью: лес и ледник получают рельеф, вода плоская и так.
@@ -750,6 +753,8 @@ export function buildRegionOverlay(
         ...vedarPlacesSource(sources, ns),
       },
       layers: [
+        // Подложку воды карта переставит под весь рельеф (oceanUnderAnchor).
+        ...vedarOceanUnderLayers(sources, p, ns),
         reliefLayer(p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         hillshadeLayer(theme, p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         ...vedarOceanLayers(sources, p, ns),
@@ -1129,6 +1134,41 @@ function vedarOceanLayers(sources: VedarStyleSources, p: MapPalette, ns: string)
     maxzoom: OVERVIEW_LAYER_MAXZOOM,
     paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
   }];
+}
+
+/** Префикс подложки воды — по нему карта и снимки кладут её под весь рельеф. */
+export const OCEAN_UNDER_PREFIX = 'vedar-ocean-under';
+
+/**
+ * Подложка воды с z8 (24.09, скрин владельца «закрась море», зум 8.8): тот
+ * же океан, но ПОД всем рельефом, сразу над фоном «не знаю».
+ *
+ * С z8 обзорная заливка кончается, и море красит только DEM клетки. Над
+ * открытым морем у Copernicus тайлов нет — клетка там прозрачна, и сквозь
+ * неё проступал серый фон: прямоугольник «не знаю» посреди океана, хотя
+ * берег OSM знает, что там вода. Снизу подложка не спорит с высотой: где
+ * DEM есть, берег рисует он, а вода проступает только в дырах покрытия.
+ * Суша в полигон океана не входит, поэтому дыра DEM на суше остаётся
+ * серой — там «не знаю» честное.
+ */
+function vedarOceanUnderLayers(sources: VedarStyleSources, p: MapPalette, ns: string): unknown[] {
+  if (!sources.oceanUrl) return [];
+  return [{
+    id: `${OCEAN_UNDER_PREFIX}${ns}`, type: 'fill', source: `vedar-ocean${ns}`,
+    // Встык с обзорной заливкой: та кончается на z8 (исключающий maxzoom).
+    minzoom: OVERVIEW_LAYER_MAXZOOM,
+    paint: { 'fill-color': p.water, 'fill-opacity': 1, 'fill-antialias': true },
+  }];
+}
+
+/**
+ * Куда вставить подложку воды в уже собранный список слоёв: перед первым
+ * слоем над фоном. Подложки соседей приходят позже основного стиля, и без
+ * явного места они легли бы поверх рельефа клеток.
+ */
+export function oceanUnderAnchor(layerIds: readonly string[]): string | undefined {
+  const bg = layerIds.indexOf('bg');
+  return bg >= 0 ? layerIds[bg + 1] : layerIds[0];
 }
 
 /**
