@@ -44,3 +44,34 @@ describe('пересборка «только рельеф»', () => {
     expect(UP).toMatch(/только рельеф: горизонтали, OSM, вектор, глифы и паспорт не трогались/);
   });
 });
+
+describe('мозаика на стыке широтных полос (24.09)', () => {
+  // Запас DEM тянет клетки соседней полосы, а у Copernicus шаг по долготе
+  // меняется на 50° и 60°. Шаг первой клетки на всю мозаику сжимал градус
+  // чужой полосы — у мыса Лопатка пропал кончик полуострова.
+  const FIX = PY.slice(PY.indexOf('def build_mosaic('), PY.indexOf('def sample_bilinear('));
+
+  it('шаг сетки — самый мелкий из клеток, не шаг первой', () => {
+    expect(FIX).toMatch(/res_x = rx if res_x is None else min\(res_x, rx\)/);
+    expect(FIX).not.toMatch(/with rasterio\.open\(paths\[0\]\) as s0:/);
+  });
+
+  it('каждая клетка пересчитывается на общую сетку по своему шагу', () => {
+    expect(FIX).toMatch(/src_rx, src_ry = src\.res/);
+    expect(FIX).toMatch(/a = a\[np\.ix_\(ys, xs\)\]/);
+  });
+
+  it('самотест мозаики стоит в сборке ДО рельефа и валит её при отказе', () => {
+    const test = WF.indexOf('python3 scripts/map-tiles/check_mosaic_bands.py');
+    const terrain = WF.indexOf('scripts/map-tiles/build_terrain.py');
+    expect(test).toBeGreaterThan(-1);
+    expect(test).toBeLessThan(terrain);
+    const selfTest = readFileSync(join(ROOT, 'scripts/map-tiles/check_mosaic_bands.py'), 'utf-8');
+    expect(selfTest).toMatch(/return 1/);
+    // Оба стыка и оба порядка чтения — иначе сторож прошёл бы на удачном порядке.
+    expect(selfTest).toMatch(/мелкая первой/);
+    expect(selfTest).toMatch(/крупная первой/);
+    expect(selfTest).toMatch(/'59-60'/);
+  });
+});
+

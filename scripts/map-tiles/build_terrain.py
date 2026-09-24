@@ -169,10 +169,33 @@ def build_mosaic(paths, bbox, extent=None):
     import rasterio
 
     west, south, east, north = extent if extent is not None else bbox
-    # Шаг берём у первой клетки — у Copernicus DEM он одинаков в пределах
-    # широтной полосы, а регион пробы в одну полосу и укладывается.
-    with rasterio.open(paths[0]) as s0:
-        res_x, res_y = s0.res
+    # Шаг сетки — САМЫЙ МЕЛКИЙ из клеток, и каждая клетка пересчитывается на
+    # него по СВОЕМУ шагу (24.09).
+    #
+    # Здесь стоял шаг первой клетки с оговоркой «у Copernicus он одинаков в
+    # пределах широтной полосы, а регион пробы в одну полосу и укладывается».
+    # Оговорка перестала быть правдой, когда появился запас DEM (05.09): запас
+    # в градус по широте тянет в мозаику клетки СОСЕДНЕЙ полосы. У Copernicus
+    # шаг по долготе меняется на 50° (1" -> 1.5") и на 60° (1.5" -> 2"), по
+    # широте он везде 1". Клетка чужой полосы копировалась пиксель в пиксель:
+    # её 2400 столбцов ложились на сетку в 3600 на градус и занимали две трети
+    # градуса, сжатые, а восточная треть оставалась «нет данных».
+    #
+    # Нашлось на клетке мыса Лопатка (cell-50n156e): запас взял полосу 49°,
+    # первой прочиталась она, и весь градус 50° лёг сжатым — кончик
+    # полуострова, стоящий в восточной трети, пропал (снимки map-pack-snapshot,
+    # прогоны 10-12; перепись: тайл 10/958/344 — дыра 100%). Та же ловушка у
+    # клеток на 60° с.ш.: их запас начинается в полосе 59°.
+    #
+    # Самый мелкий шаг, а не первый: крупная клетка растягивается ближайшим
+    # отсчётом без потери, мелкая на крупной сетке теряла бы разрешение.
+    res_y = None
+    res_x = None
+    for p in paths:
+        with rasterio.open(p) as s:
+            rx, ry = s.res
+            res_x = rx if res_x is None else min(res_x, rx)
+            res_y = ry if res_y is None else min(res_y, ry)
 
     width = int(round((east - west) / res_x))
     height = int(round((north - south) / res_y))
@@ -184,6 +207,15 @@ def build_mosaic(paths, bbox, extent=None):
             if src.nodata is not None:
                 a[a == src.nodata] = np.nan
             b = src.bounds
+            src_rx, src_ry = src.res
+            # Клетка — на общую сетку по своему шагу: столбец мозаики берёт
+            # отсчёт, в чей пиксель попадает центр этого столбца.
+            ncols = int(round((b.right - b.left) / res_x))
+            nrows = int(round((b.top - b.bottom) / res_y))
+            if ncols != a.shape[1] or nrows != a.shape[0]:
+                xs = np.clip(((np.arange(ncols) + 0.5) * res_x / src_rx).astype(np.int64), 0, a.shape[1] - 1)
+                ys = np.clip(((np.arange(nrows) + 0.5) * res_y / src_ry).astype(np.int64), 0, a.shape[0] - 1)
+                a = a[np.ix_(ys, xs)]
             # Куда эта клетка ложится в мозаике.
             col0 = int(round((b.left - west) / res_x))
             row0 = int(round((north - b.top) / res_y))

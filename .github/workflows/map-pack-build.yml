@@ -114,6 +114,16 @@ jobs:
           echo "value=$BBOX" >> "$GITHUB_OUTPUT"
           echo "bbox района ${{ steps.cfg.outputs.region }}: $BBOX"
 
+      - name: Самотест мозаики DEM на стыке широтных полос
+        run: |
+          set -euo pipefail
+          # 24.09: мозаика брала шаг по долготе у первой клетки DEM, а запас
+          # тянет клетки соседней полосы (шаг Copernicus меняется на 50° и
+          # 60°) — градус чужой полосы ложился сжатым, у мыса Лопатка пропал
+          # кончик полуострова. Кривая мозаика — отказ ДО сборки, а не
+          # «зелёный» пакет с дырой.
+          python3 scripts/map-tiles/check_mosaic_bands.py
+
       - name: Рельеф — terrain-RGB в PMTiles
         run: |
           mkdir -p .cache/packs
