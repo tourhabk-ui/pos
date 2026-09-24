@@ -83,6 +83,16 @@ describe('пост с датой отличается от строки без �
     expect(empty.datedPosts).toEqual([]);
   });
 
+  it('закрывающий тег скрипта читается как браузером', () => {
+    // CodeQL js/bad-tag-filter, 24.09: `</script\t\n bar>` закрывает скрипт,
+    // а строгое `</script\s*>` его пропускало.
+    const odd = censusMaxPage(
+      '<script type="application/json">{"id":"1","text":"Землетрясение ML=4.2 в 110 км от Петропавловска.","date":1790000000}</script\t\n bar>' +
+      '<p>хвост страницы</p>',
+    );
+    expect(odd.datedPosts.length).toBe(1);
+  });
+
   it('неправдоподобное время датой не считается', () => {
     const bad = censusMaxPage('<script type="application/json">{"text":"Объявлена угроза цунами для побережья.","time":12}</script>');
     expect(bad.datedPosts).toEqual([]);

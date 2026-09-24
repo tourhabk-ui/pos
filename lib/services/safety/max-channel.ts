@@ -105,7 +105,11 @@ function walkForPosts(node: unknown, out: DatedPost[], depth = 0): void {
  * подвала, — неизвестно, а приписать дату не тому тексту хуже, чем не найти.
  */
 export function censusMaxPage(html: string): MaxPageCensus {
-  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
+  // Закрывающий тег — как его читает браузер: `</script\t\n foo>` тоже
+  // закрывает скрипт. Строгое `</script\s*>` пропустило бы такой конец и
+  // склеило тело скрипта со всем, что идёт дальше (CodeQL js/bad-tag-filter,
+  // 24.09 — ровно та ошибка, что описана в lib/html/text.js).
+  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)];
   const datedPosts: DatedPost[] = [];
   let jsonScripts = 0;
   for (const [, attrs, body] of scripts) {
@@ -138,7 +142,7 @@ export function censusMaxPage(html: string): MaxPageCensus {
   }
 
   const flat = text.replace(/\s+/g, ' ').trim();
-  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title\s*>/i)?.[1];
+  const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title\b[^>]*>/i)?.[1];
 
   // Дубли одного поста (встречается дважды в разных ветках JSON) — один раз.
   const uniq = new Map<string, DatedPost>();
