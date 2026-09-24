@@ -183,8 +183,16 @@ export const REGIONS_LIST: Region[] = Object.values(REGIONS);
  */
 export const OVERVIEW_ID = 'krai-overview' as const;
 export type OverviewId = typeof OVERVIEW_ID;
-/** Охват края: объединение bbox всех районов и клеток сетки (замер 04.09). */
-export const OVERVIEW_BBOX: RegionBbox = { west: 155, south: 51, east: 175, north: 65 };
+/**
+ * Охват края: объединение bbox всех районов и клеток сетки (замер 04.09).
+ *
+ * Юг — 50, а не 51, с 24.09: клетка cell-50n156e (мыс Лопатка, см.
+ * CELLS_BELOW_LAND_THRESHOLD в lib/geo/grid-cells.ts). Сборщик обзора берёт
+ * охват отсюда и округляет вниз до градуса, так что следующая пересборка
+ * обзора возьмёт и эту полосу; уже залитый обзор кончик полуострова рисует
+ * (снимки map-pack-snapshot, прогон 8), океан обзора накрывает её давно.
+ */
+export const OVERVIEW_BBOX: RegionBbox = { west: 155, south: 50, east: 175, north: 65 };
 
 export type PackRegionId = RegionId | GridCellId | OverviewId;
 

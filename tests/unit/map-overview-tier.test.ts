@@ -15,6 +15,7 @@
  * читателя.
  */
 import { describe, it, expect } from 'vitest';
+import { GRID_CELLS } from '@/lib/geo/grid-cells';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -86,6 +87,14 @@ describe('обзорный ярус: место в реестре', () => {
       expect(r.bbox.east, r.id).toBeLessThanOrEqual(OVERVIEW_BBOX.east);
       expect(r.bbox.south, r.id).toBeGreaterThanOrEqual(OVERVIEW_BBOX.south);
       expect(r.bbox.north, r.id).toBeLessThanOrEqual(OVERVIEW_BBOX.north);
+    }
+    // Клетки тоже: до 24.09 заголовок обещал это, а проверялись только
+    // районы — и охват остановился на 51°, пока южнее не было ни одной клетки.
+    for (const c of GRID_CELLS) {
+      expect(c.bbox.west, c.id).toBeGreaterThanOrEqual(OVERVIEW_BBOX.west);
+      expect(c.bbox.east, c.id).toBeLessThanOrEqual(OVERVIEW_BBOX.east);
+      expect(c.bbox.south, c.id).toBeGreaterThanOrEqual(OVERVIEW_BBOX.south);
+      expect(c.bbox.north, c.id).toBeLessThanOrEqual(OVERVIEW_BBOX.north);
     }
   });
 });

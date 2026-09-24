@@ -44,7 +44,7 @@ z7 берег плыл бы на два-три пикселя. Для клето
 на весь мир, — и море остаётся морем до края тайла.
 
     python3 scripts/map-tiles/build_ocean.py \
-        --bbox 155,51,175,65 --out .cache/packs/krai-overview.ocean.geojson
+        --bbox 155,50,175,65 --out .cache/packs/krai-overview.ocean.geojson
 """
 from __future__ import annotations
 

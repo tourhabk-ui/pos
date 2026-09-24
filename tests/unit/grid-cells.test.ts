@@ -5,7 +5,7 @@
  * район прежде клетки.
  */
 import { describe, it, expect } from 'vitest';
-import { GRID_CELLS, gridCellId, gridCellById, isGridCellId, gridCellsForPoint } from '@/lib/geo/grid-cells';
+import { GRID_CELLS, gridCellId, gridCellById, isGridCellId, gridCellsForPoint, CELLS_BELOW_LAND_THRESHOLD } from '@/lib/geo/grid-cells';
 import { REGIONS_LIST, packRegionBbox, packRegionCenter, isRegionId } from '@/lib/geo/regions';
 import { regionsForPoint, builtRegionPacks } from '@/lib/map/field-base-map';
 import { BUILT_GRID_CELLS, BUILT_PACK_REGIONS, resolvePackSource } from '@/lib/map/pack-source';
@@ -18,7 +18,11 @@ describe('сетка клеток края', () => {
       expect(c.bbox.north - c.bbox.south).toBe(1);
       expect(c.bbox.east - c.bbox.west).toBe(1);
       expect(Number.isInteger(c.bbox.south) && Number.isInteger(c.bbox.west)).toBe(true);
-      expect(c.landDeg2).toBeGreaterThanOrEqual(0.02);
+      // Ниже порога — только поимённое исключение с причиной (мыс Лопатка).
+      if (c.landDeg2 < 0.02) {
+        expect(CELLS_BELOW_LAND_THRESHOLD[c.id], `${c.id}: ниже порога без решения`).toMatch(/\S{8,}/);
+      }
+      expect(c.landDeg2).toBeGreaterThan(0);
       expect(c.landDeg2).toBeLessThanOrEqual(1);
       expect(ids.has(c.id), `дубль ${c.id}`).toBe(false);
       ids.add(c.id);
@@ -31,6 +35,20 @@ describe('сетка клеток края', () => {
       expect(c.bbox.east).toBeLessThanOrEqual(175);
     }
     expect(GRID_CELLS.length).toBeGreaterThan(100);
+  });
+
+  it('исключение из порога — только для клетки, которая порог и правда не проходит', () => {
+    // Самоустаревающий список: клетка, набравшая порог сама, из него уходит.
+    for (const [id, reason] of Object.entries(CELLS_BELOW_LAND_THRESHOLD)) {
+      const c = gridCellById(id);
+      expect(c, `${id}: исключение без клетки в сетке`).not.toBeNull();
+      expect(c!.landDeg2, id).toBeLessThan(0.02);
+      expect(reason, id).toMatch(/\S{8,}/);
+    }
+  });
+
+  it('мыс Лопатка (50.87/156.67) накрыт клеткой', () => {
+    expect(gridCellsForPoint(50.9, 156.75).map(c => c.id)).toEqual(['cell-50n156e']);
   });
 
   it('клетки не попадают в список районов для человека', () => {

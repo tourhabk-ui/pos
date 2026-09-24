@@ -40,7 +40,7 @@ GLO-30 это порядка двух миллиардов точек float32, �
 
 Использование:
     python3 scripts/map-tiles/build_overview.py \
-        --bbox 155,51,175,65 --out .cache/packs/overview.terrain.pmtiles \
+        --bbox 155,50,175,65 --out .cache/packs/overview.terrain.pmtiles \
         --contours-out .cache/packs/overview.contours.geojson
 """
 from __future__ import annotations
