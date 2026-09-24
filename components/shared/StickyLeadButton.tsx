@@ -9,6 +9,12 @@ import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 type State = 'idle' | 'form' | 'sending' | 'done' | 'error';
 
 /**
+ * Отступ кнопки снизу: высота таб-бара (переменная, которую выставляет
+ * BottomNav; где бара нет — 0px) либо safe-area, плюс 16px воздуха.
+ */
+const FAB_BOTTOM = 'calc(max(var(--bottom-nav-h, 0px), env(safe-area-inset-bottom, 0px)) + 16px)';
+
+/**
  * Глобальная sticky-кнопка "Хочу тур" — видна на всех страницах.
  * Открывает компактную форму лида прямо в попапе.
  * Скрывается на страницах /hub/* (внутренние дашборды).
@@ -39,7 +45,11 @@ export default function StickyLeadButton() {
   // висела поверх навигатора рядом с компасом. В поле не продают.
   // /kuzmich — там уже живой чат, вторая кнопка ложилась поверх текста;
   // /auth — на входе перекрывала «Вернуться на главную» (#1780).
-  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/planning', '/field-check', '/kuzmich', '/auth'];
+  // /booking-success — заявка только что создана; безадресная вторая заявка
+  // рядом с ней — тот же второй контур, что и на карточке тура, и на
+  // телефоне кнопка ложилась на «Договор (PDF)» и «Мои бронирования»
+  // (аудит П1, #143/#145/#148).
+  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/booking-success', '/planning', '/field-check', '/kuzmich', '/auth'];
   if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/') return null;
 
   async function submitLead(e: React.FormEvent) {
@@ -80,22 +90,12 @@ export default function StickyLeadButton() {
 
   return (
     <>
-      <style>{`
-        @keyframes pulse-ring {
-          0% { box-shadow: 0 0 0 0 rgba(212, 74, 12, 0.7); }
-          50% { box-shadow: 0 0 0 10px rgba(212, 74, 12, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(212, 74, 12, 0); }
-        }
-        .lead-button-pulse {
-          animation: pulse-ring 2s infinite;
-        }
-      `}</style>
 
-      {/* Popover form */}
+      {/* Popover form — над кнопкой, то есть тоже над таб-баром */}
       {open && (
         <div
-          className="fixed bottom-24 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl shadow-2xl border overflow-hidden"
-          style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+          className="fixed right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl shadow-2xl border overflow-hidden"
+          style={{ bottom: `calc(${FAB_BOTTOM} + 68px)`, background: 'var(--bg-card)', borderColor: 'var(--border)' }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
@@ -191,7 +191,15 @@ export default function StickyLeadButton() {
         </div>
       )}
 
-      {/* FAB button */}
+      {/*
+        FAB. До 24.09: в покое прозрачность 70%, вечная пульсация на
+        @keyframes внутри компонента (запрещено §3), на телефоне одна иконка
+        без подписи и `bottom-4` без учёта таб-бара — на /menu кнопка лежала
+        под пунктом «На маршруте» и не нажималась (аудит П1, #61/#107/#131).
+        Теперь: непрозрачная, с подписью на любой ширине, над баром по его
+        собственной высоте (--bottom-nav-h, выставляет BottomNav).
+        Сторож: tests/unit/sticky-lead-fab.test.tsx.
+      */}
       <button
         onClick={() => {
           setOpen(v => !v);
@@ -199,11 +207,12 @@ export default function StickyLeadButton() {
             trackLeadEvent({ ...LEAD_EVENTS.CLICK_LEAD_BUTTON, source: 'sticky_button' });
           }
         }}
-        className={`fixed bottom-4 right-4 z-50 flex items-center justify-center gap-2 px-5 py-4 rounded-full shadow-2xl text-sm font-bold text-white transition-[opacity,transform] duration-150 hover:scale-105 active:scale-[0.96] sm:opacity-100 ${open ? 'opacity-100' : 'opacity-70 hover:opacity-100'} ${!open ? 'lead-button-pulse' : ''}`}
-        style={{ background: 'var(--accent)' }}
+        className="fixed right-4 z-50 flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-full shadow-lg text-sm font-bold text-white transition-transform duration-200 hover:scale-105 active:scale-[0.96]"
+        style={{ bottom: FAB_BOTTOM, background: 'var(--accent)' }}
         aria-label="Оставить заявку на тур"
       >
         <MessageSquarePlus className="w-5 h-5" />
+        <span className="sm:hidden">Подобрать тур</span>
         <span className="hidden sm:inline">Хочу тур</span>
       </button>
     </>

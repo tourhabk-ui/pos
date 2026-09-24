@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { House, Map, Compass, Navigation, Ticket, type LucideIcon } from 'lucide-react';
 
@@ -44,9 +45,39 @@ interface BottomNavProps {
   onNavClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
 }
 
+/**
+ * Высота бара — CSS-переменная `--bottom-nav-h` на <html>.
+ *
+ * Плавающие элементы над баром (StickyLeadButton) ставились по своим
+ * отступам и не знали, есть ли под ними бар: на /menu кнопка «Хочу тур»
+ * легла под пункт «На маршруте», и нажать её было нельзя (аудит П1, #107).
+ * Бар сам говорит, сколько места занимает; где его нет или он скрыт (md+),
+ * переменная — 0px. Сторож: tests/unit/sticky-lead-fab.test.tsx.
+ */
+export const BOTTOM_NAV_HEIGHT_VAR = '--bottom-nav-h';
+
 export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty(BOTTOM_NAV_HEIGHT_VAR, `${el.offsetHeight}px`);
+    publish();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publish) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', publish);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', publish);
+      root.style.removeProperty(BOTTOM_NAV_HEIGHT_VAR);
+    };
+  }, []);
+
   return (
     <nav
+      ref={ref}
       className="flex md:hidden"
       aria-label="Основная навигация"
       style={{
@@ -72,8 +103,14 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             aria-label={label}
             onClick={onNavClick}
             // Типографика north-star (полевой скриншот 01.08): капс 8px читался
-            // мелкой технической подписью. Обычный регистр 10.5px + активная
-            // точка под подписью вместо пилюли-подложки.
+            // мелкой технической подписью. Обычный регистр + активная точка под
+            // подписью вместо пилюли-подложки.
+            //
+            // Неактивный пункт — --text-secondary, не --text-muted, и 11px в одну строку, не
+            // 10.5: muted давал 1.84:1 в тёмной теме и 2.97:1 в светлой, и
+            // «Туры» — единственный постоянный вход в коммерцию на телефоне —
+            // почти не читался (аудит П1, #41/#110/#117). Сторож:
+            // tests/unit/sticky-lead-fab.test.tsx.
             style={{
               flex: 1,
               display: 'flex',
@@ -81,10 +118,11 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
               alignItems: 'center',
               gap: '4px',
               padding: '9px 0 calc(8px + env(safe-area-inset-bottom))',
-              color: isActive ? 'var(--accent)' : 'var(--text-muted)',
+              color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
               textDecoration: 'none',
               fontFamily: FO,
-              fontSize: '10.5px',
+              fontSize: '11px',
+              whiteSpace: 'nowrap',
               fontWeight: 600,
               letterSpacing: '0.01em',
               transition: 'color 220ms ease',
@@ -157,7 +195,7 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                   /* Неактивное состояние — МАСКА в currentColor, а не фильтр:
                      обесцвеченный коралловый PNG на тёмной теме превращался в
                      невидимое пятно (полевой скриншот 01.08, 17:08). Маска
-                     красится в text-muted пункта и живёт в обеих темах.
+                     красится в цвет подписи пункта и живёт в обеих темах.
                      Светлый контр-круг пина в маске заливается — для
                      приглушённого силуэта это норма, полноцветная гравюра
                      остаётся в активном состоянии. */

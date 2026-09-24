@@ -64,7 +64,7 @@ export default function ThirdPartyScripts() {
           role="dialog"
           aria-labelledby="consent-title"
           className={
-            'fixed inset-x-0 bottom-0 z-[60] p-3 sm:p-4 ' +
+            'pointer-events-none fixed inset-x-0 bottom-0 z-[60] p-3 sm:p-4 ' +
             'pb-[calc(env(safe-area-inset-bottom)+116px)] ' +
             'sm:pb-[calc(env(safe-area-inset-bottom)+72px)]'
           }
@@ -83,9 +83,15 @@ export default function ThirdPartyScripts() {
            * Клиренс считан по двум полосам карточки места — SOS (~52px со
            * safe-area) и бар с GPX (~58px); на страницах, где полос меньше,
            * карточка просто висит чуть выше.
+           *
+           * Обёртка прозрачна для касаний (pointer-events-none), карточка —
+           * нет (pointer-events-auto). Иначе прозрачный отступ ловил тапы по
+           * тому, что под ним: на карточке тура при первом визите «Выбрать
+           * дату» в нижней панели не нажималась вовсе (аудит П1, #28/#88).
+           * Сторож: tests/unit/legal-disclosure.test.ts.
            */
         >
-          <div className="mx-auto max-w-3xl rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 shadow-lg sm:p-5">
+          <div className="pointer-events-auto mx-auto max-w-3xl rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 shadow-lg sm:p-5">
             <div className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--ocean)]" aria-hidden />
               <div className="min-w-0">
