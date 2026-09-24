@@ -1,18 +1,23 @@
 {
-  "note": "24.09, прогон 565. ТОЛЬКО ЧТЕНИЕ. Владелец прислал три кадра с подписью «Малкинские горячие источники». Прежде чем класть — какая запись живая, не слита ли, и что на ней лежит сейчас (карточки кандидатов — вторым шагом, после ответа переписи). Маркер свежести не нужен: роуты старые.",
-  "run": 565,
+  "note": "24.09, прогон 567. ТОЛЬКО ЧТЕНИЕ. Проверка миграции 1009: владелец назвал автора («это мои фотографии из личных поездок»), подпись ставится на герои и галереи Толмачёва и Малок. Маркер свежести — имя 1009 в schema-audit (recent либо failures). Затем обе карточки: photoAttribution должен нести «владелец платформы» вместо null.",
+  "run": 567,
   "timeout": 60,
-  "retries": 2,
-  "retryDelay": 30,
-  "allowStale": true,
-  "bytes": 5000,
+  "retries": 14,
+  "retryDelay": 90,
+  "until": "1009_tolmacheva",
+  "bytes": 400,
   "grep": [
-    "Малкин",
-    "is_visible\":true",
-    "merged_into_id\":null"
+    "1009_tolmacheva",
+    "unapplied\":[]",
+    "failures\":[]",
+    "\"author\":\"владелец платформы\"",
+    "\"photoAttribution\":null",
+    "\"photoCount\":6",
+    "\"photoCount\":2"
   ],
   "urls": [
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%BC%D0%B0%D0%BB%D0%BA%D0%B8%D0%BD",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%BC%D0%B0%D0%BB%D0%BA%D0%B8"
+    "https://vedarai.ru/api/cron/schema-audit",
+    "https://vedarai.ru/api/places/2512ca75-547c-4348-a219-86c7e6937940",
+    "https://vedarai.ru/api/places/284c862f-a339-409d-988a-da4107324b60"
   ]
 }
