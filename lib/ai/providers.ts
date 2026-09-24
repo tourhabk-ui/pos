@@ -379,6 +379,21 @@ async function logLLMUsage(model: string, usage: ProviderUsage | undefined): Pro
   });
 }
 
+/**
+ * Расход синтеза речи (голос Кузьмича, #1992) — в те же книги, что текст.
+ * DashScope считает синтез токенами ввода/вывода; цены синтеза в каталоге нет,
+ * и строка ляжет с cost NULL: бюджет увидит «цена неизвестна», а не ноль.
+ * false — провайдер usage не отдал, и вызывающий обязан сказать это вслух.
+ */
+export async function logSpeechUsage(model: string, usage: unknown): Promise<boolean> {
+  const u = (usage ?? null) as { input_tokens?: unknown; output_tokens?: unknown } | null;
+  const prompt = typeof u?.input_tokens === 'number' ? u.input_tokens : 0;
+  const completion = typeof u?.output_tokens === 'number' ? u.output_tokens : 0;
+  if (prompt + completion === 0) return false;
+  await logLLMUsage(`qwen-tts:${model}`, { prompt_tokens: prompt, completion_tokens: completion });
+  return true;
+}
+
 // ── Retry с exponential backoff + jitter (Roitman §18.7.1) ────
 // Транзиентный 429/5xx или сетевой сбой у провайдера раньше выбивал модель
 // из цепочки без повтора — падаем сразу на следующую, часто более дорогую.
