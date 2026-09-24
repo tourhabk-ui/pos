@@ -1,0 +1,25 @@
+{
+  "pack": "cell-53n158e",
+  "files": 9,
+  "base": "http://s3.twcstorage.ru:<port>/bucket",
+  "sw_controls_page": true,
+  "download": {
+    "saved": 9,
+    "of": 9,
+    "mb": 104.1,
+    "failed": []
+  },
+  "offline": {
+    "idle": true,
+    "loaded_tiles": 33,
+    "errors": [],
+    "bucket_hits_after_cutoff": [],
+    "page_errors": []
+  },
+  "control": {
+    "idle": true,
+    "loaded_tiles": 6,
+    "errors": 3,
+    "bucket_hits": 3
+  }
+}
