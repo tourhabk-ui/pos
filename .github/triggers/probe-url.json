@@ -1,11 +1,11 @@
 {
-  "note": "25.09, прогон 580. ТОЛЬКО ЧТЕНИЕ. Владелец: «сделал» (платёжные данные / Free tier only в QwenCloud). Та же проба, что prod-check 66 (qwen-plus и qwen3.8-max — 403 AllocationQuota.FreeTierOnly, qwen-vl-max ok): ответит ли каждая модель теперь. Код пробы уже на проде — сборку не ждём.",
-  "run": 580,
+  "note": "25.09, прогон 581. ТОЛЬКО ЧТЕНИЕ. Владелец: «сделал» (платёжные данные / Free tier only в QwenCloud). Та же проба, что prod-check 66 (qwen-plus и qwen3.8-max — 403 AllocationQuota.FreeTierOnly, qwen-vl-max ok): ответит ли каждая модель теперь. Код пробы уже на проде — сборку не ждём. Прогон 580 напечатал только голову (400 байт), а qwen_ping в конце ответа — тело целиком.",
+  "run": 581,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 20,
   "allowStale": true,
-  "bytes": 400,
+  "bytes": 6500,
   "around": [
     "qwen_ping"
   ],
