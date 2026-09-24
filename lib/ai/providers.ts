@@ -2840,6 +2840,97 @@ export async function probeDeepSeekKeyStatus(): Promise<{
 }
 
 /**
+ * Диагностика Anthropic — та же форма, что у probeDeepSeekKeyStatus, плюс
+ * хост пути: ANTHROPIC_BASE бывает релеем (воркер Cloudflare), бывает прямым.
+ *
+ * Зачем (24.09): владелец переслал «Anthropic недоступен с прода — и
+ * напрямую, и через OpenRouter» — единственное предупреждение сводки без
+ * причины. У соседей по водопаду диагностика есть, и разница не косметика:
+ * замер 03.09 (anthropic-path-probe) показал, что путь через релей открыт,
+ * а отказывает баланс ключа («credit balance is too low»), — то есть чинится
+ * пополнением, а не сетью и не ключом. Одно слово «недоступен» этих троих не
+ * различает.
+ *
+ * Модель — та же, что у callAnthropic: проба спрашивает то, что платформа
+ * реально зовёт. max_tokens 1 — цена пробы ничтожна, а при нулевом балансе
+ * запрос не тарифицируется вовсе.
+ */
+export async function probeAnthropicKeyStatus(): Promise<{
+  key_set: boolean;
+  route_host: string;
+  http_status: number | null;
+  detail: string;
+}> {
+  const apiKey = getAnthropicKey();
+  let route_host = ANTHROPIC_BASE;
+  try { route_host = new URL(ANTHROPIC_BASE).host; } catch { /* адрес битый — покажем как есть */ }
+  if (!apiKey) return { key_set: false, route_host, http_status: null, detail: 'ключ не задан' };
+  try {
+    const res = await relayFetch(`${ANTHROPIC_BASE}/v1/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: process.env.ANTHROPIC_MODEL ?? 'claude-fable-5',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'ping' }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await res.text()).slice(0, 300);
+    return { key_set: true, route_host, http_status: res.status, detail: body };
+  } catch (e) {
+    return {
+      key_set: true,
+      route_host,
+      http_status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+    };
+  }
+}
+
+/**
+ * Причина отказа Anthropic — человеком, в текст алерта.
+ *
+ * Форма ответа решает, ДОШЛИ ли мы до Anthropic (тот же признак, что у
+ * anthropic-path-probe 03.09): тело `{"type":"error",...}` — это ответ самого
+ * Anthropic, и путь открыт; 403 без такого тела — путь закрыт по дороге.
+ * Сообщение Anthropic цитируется: у него своя точная формулировка, и
+ * пересказ потерял бы, что именно чинить.
+ */
+export function explainAnthropicFailure(probe: {
+  key_set: boolean;
+  route_host: string;
+  http_status: number | null;
+  detail: string;
+}): string {
+  if (!probe.key_set) return 'ANTHROPIC_API_KEY не задан на Timeweb';
+  if (diagnosticSaysAlive(probe.http_status)) {
+    return `ответил HTTP ${probe.http_status} через ${probe.route_host} — провайдер жив, отказа нет`;
+  }
+  if (probe.http_status === null) return `через ${probe.route_host}: ${probe.detail}`;
+  let message: string | null = null;
+  let fromAnthropic = false;
+  try {
+    const j: unknown = JSON.parse(probe.detail);
+    if (j && typeof j === 'object' && (j as { type?: unknown }).type === 'error') {
+      fromAnthropic = true;
+      const err = (j as { error?: { message?: unknown } }).error;
+      if (typeof err?.message === 'string') message = err.message;
+    }
+  } catch { /* не JSON — значит отвечал не Anthropic (обрезка тела тоже сюда) */ }
+  if (!fromAnthropic && /"type"\s*:\s*"error"/.test(probe.detail)) fromAnthropic = true;
+  if (fromAnthropic && /credit balance/i.test(probe.detail)) {
+    return `путь через ${probe.route_host} открыт, но на балансе ключа нет денег (HTTP ${probe.http_status}: «credit balance is too low») — чинится пополнением в console.anthropic.com, не сетью и не ключом`;
+  }
+  if (fromAnthropic && probe.http_status === 401) return `ключ отвергнут самим Anthropic (401) через ${probe.route_host}`;
+  if (probe.http_status === 403 && !fromAnthropic) {
+    return `путь через ${probe.route_host} закрыт до Anthropic (403, ответил не Anthropic): ${probe.detail.slice(0, 100)}`;
+  }
+  const said = message ?? probe.detail.slice(0, 120);
+  return `HTTP ${probe.http_status} через ${probe.route_host}${fromAnthropic ? ' (ответ самого Anthropic)' : ''}: ${said}`;
+}
+
+/**
  * Диагностика ответила успехом — провайдер ЖИВ, чем бы ни кончилась быстрая
  * проба здоровья.
  *

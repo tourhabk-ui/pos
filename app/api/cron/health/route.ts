@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeAnthropicKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainAnthropicFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -387,7 +387,7 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [orProbe, anthropicProbe, dsProbe, fuguProbe, qwenProbe, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag, timewebDiag] = await Promise.all([
+  const [orProbe, anthropicProbe, dsProbe, fuguProbe, qwenProbe, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag, timewebDiag, anthropicKeyDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
@@ -408,6 +408,9 @@ export async function GET(request: NextRequest) {
     // проверять, не сбой. Не заводит алертов: это диагностика, а не критичный
     // путь (решатель падает на OpenRouter/Anthropic/DeepSeek без него).
     Object.keys(getTimewebAgents()).length > 0 ? probeTimewebAgentStatus().catch(() => null) : Promise.resolve(null),
+    // Диагностика Anthropic (24.09): предупреждение о нём было единственным
+    // без причины, а причин у отказа три разных — баланс, ключ, путь.
+    process.env.ANTHROPIC_API_KEY ? probeAnthropicKeyStatus().catch(() => null) : Promise.resolve(null),
   ]);
 
   // Быстрая проба сказала «ок» ЛИБО диагностика того же провайдера ответила
@@ -528,10 +531,13 @@ export async function GET(request: NextRequest) {
       });
     }
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
+      // Причина — из диагностики, как у DeepSeek и OpenRouter. Без неё
+      // «недоступен» не отличал пустой баланс от закрытого пути и от ключа.
+      const why = anthropicKeyDiag ? `: ${explainAnthropicFailure(anthropicKeyDiag)}` : ' (диагностика не собралась)';
       providerIssues.push({
         level: 'warn',
-        text: 'Anthropic недоступен с прода — и напрямую, и через OpenRouter',
-        reason: 'Anthropic: недоступен с прода, и напрямую, и через OpenRouter',
+        text: `Anthropic недоступен с прода — и напрямую, и через OpenRouter${why}`,
+        reason: `Anthropic: недоступен с прода, и напрямую, и через OpenRouter${why}`,
       });
     }
     if (process.env.FUGU_API_KEY && !fuguOk) {
@@ -654,6 +660,7 @@ export async function GET(request: NextRequest) {
     operator_registration: regSpike,
     qwen_key_diag: qwenKeyDiag,
     deepseek_key_diag: dsKeyDiag,
+    anthropic_key_diag: anthropicKeyDiag,
     timeweb_agent_diag: timewebDiag,
     safety_ingest_age_min: seismic.ageMin,
     eco_ledger: eco,
