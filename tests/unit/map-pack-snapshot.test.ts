@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { zoomsFor, centerFor, snapshotTargets } from '@/scripts/map-tiles/snapshot-packs';
+import { zoomsFor, centerFor, snapshotTargets, parseViews, viewFrameName } from '@/scripts/map-tiles/snapshot-packs';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { gridCellById } from '@/lib/geo/grid-cells';
 
@@ -17,7 +17,7 @@ const ROOT = process.cwd();
 const SCRIPT = readFileSync(join(ROOT, 'scripts/map-tiles/snapshot-packs.ts'), 'utf-8');
 const WF = readFileSync(join(ROOT, '.github/workflows/map-pack-snapshot.yml'), 'utf-8');
 const MARKER = JSON.parse(readFileSync(join(ROOT, '.github/triggers/map-pack-snapshot.json'), 'utf-8')) as {
-  packs?: unknown; theme?: unknown;
+  packs?: unknown; theme?: unknown; views?: unknown;
 };
 
 describe('снимок — тем же стилем, что карта в поле', () => {
@@ -109,5 +109,35 @@ describe('план кадров', () => {
     expect(Array.isArray(MARKER.packs)).toBe(true);
     for (const p of MARKER.packs as string[]) expect(all.has(p), p).toBe(true);
     expect(['dark', 'light']).toContain(MARKER.theme);
+  });
+});
+
+describe('вид по жалобе — кадр ровно того места, что на скрине (24.09)', () => {
+  // Центр обзора — на 58° с.ш.: юг края в его кадры не попадал никогда, и
+  // жалоба владельца на юг Камчатки была непроверяема снимком. Вид — место
+  // и зум со скрина, тем же стилем и теми же соседями, что у кадров пакета.
+  it('вид читается как lat,lng,z и попадает в план того же пакета', () => {
+    expect(parseViews('51.6,157.2,4.8;52,157.5,5.8')).toEqual([
+      { lat: 51.6, lng: 157.2, zoom: 4.8 }, { lat: 52, lng: 157.5, zoom: 5.8 },
+    ]);
+    expect(viewFrameName(OVERVIEW_ID, { lat: 51.6, lng: 157.2, zoom: 4.8 })).toBe('krai-overview.view.51.60n157.20e.z4.8');
+    expect(SCRIPT).toMatch(/for \(const v of views\) frames\.push/);
+  });
+
+  it('нечитаемый вид — отказ, а не молча пропущенный кадр', () => {
+    expect(() => parseViews('51.6;157')).toThrow(/не читается/);
+    expect(() => parseViews('95,157,5')).toThrow(/не читается/);
+    expect(parseViews('')).toEqual([]);
+  });
+
+  it('workflow передаёт виды из маркера скрипту', () => {
+    expect(WF).toMatch(/get\('views',\[\]\)/);
+    expect(WF).toMatch(/--views \$\{\{ steps\.cfg\.outputs\.views \}\}/);
+    if (MARKER.views !== undefined) {
+      expect(Array.isArray(MARKER.views)).toBe(true);
+      for (const v of MARKER.views as string[]) expect(() => parseViews(v), v).not.toThrow();
+      // Пробелы в виде разбили бы аргумент на два при подстановке в FLAGS.
+      for (const v of MARKER.views as string[]) expect(v, v).not.toMatch(/\s/);
+    }
   });
 });

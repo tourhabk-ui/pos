@@ -440,9 +440,34 @@ async function probeWebgl(page: Page, origin: string): Promise<string | null> {
   return null;
 }
 
+export interface SnapshotView { lat: number; lng: number; zoom: number }
+
+/**
+ * Разбор `--views`: `lat,lng,z` через точку с запятой. Строка, которую не
+ * удалось прочесть, — отказ, а не молча пропущенный кадр: пропуск выглядел
+ * бы как «вид снят и в порядке».
+ */
+export function parseViews(raw: string): SnapshotView[] {
+  const out: SnapshotView[] = [];
+  for (const part of raw.split(';').map((x) => x.trim()).filter(Boolean)) {
+    const [lat, lng, zoom] = part.split(',').map((x) => Number(x.trim()));
+    if (![lat, lng, zoom].every(Number.isFinite) || lat < -85 || lat > 85 || lng < -180 || lng > 180 || zoom < 0 || zoom > 22) {
+      throw new Error(`вид не читается: «${part}» (нужно lat,lng,z)`);
+    }
+    out.push({ lat, lng, zoom });
+  }
+  return out;
+}
+
+/** Имя кадра вида: пакет, координата и зум — по имени файла ясно, что снято. */
+export function viewFrameName(pack: string, v: SnapshotView): string {
+  return `${pack}.view.${v.lat.toFixed(2)}n${v.lng.toFixed(2)}e.z${v.zoom}`;
+}
+
 function parseArgs(argv: string[]): {
   packs: string[] | null; theme: VedarMapTheme; out: string; budgetMs: number; forceOcean: boolean;
   probes: Array<{ pack: string; zxy: [number, number, number] }>;
+  views: SnapshotView[];
 } {
   let packs: string[] | null = null;
   let theme: VedarMapTheme = 'dark';
@@ -455,6 +480,10 @@ function parseArgs(argv: string[]): {
   // Пробы декодера (pack:z/x/y) — тайлы, на которые MapLibre жаловался в
   // прошлом прогоне; тот же разбор строки, что у переписи (pack-census).
   const probes: Array<{ pack: string; zxy: [number, number, number] }> = [];
+  // Виды по жалобе (--views lat,lng,z;lat,lng,z): кадр ровно того места и
+  // зума, что на скрине человека. Центр пакета их не покрывает — у обзора он
+  // на 58° с.ш., и юг края в его кадры не попадает вовсе (24.09).
+  let views: SnapshotView[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--packs') packs = (argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -462,13 +491,16 @@ function parseArgs(argv: string[]): {
     else if (a === '--out') out = argv[++i] ?? out;
     else if (a === '--budget-ms') budgetMs = Number(argv[++i]) || budgetMs;
     else if (a === '--force-ocean') forceOcean = true;
-    else if (a === '--probe') for (const s of (argv[++i] ?? '').split(',')) if (s.trim()) probes.push(parseProbe(s));
+    else if (a === '--probe') {
+      for (const s of (argv[++i] ?? '').split(',')) if (s.trim()) probes.push(parseProbe(s));
+    }
+    else if (a === '--views') views = parseViews(argv[++i] ?? '');
   }
-  return { packs, theme, out, budgetMs, forceOcean, probes };
+  return { packs, theme, out, budgetMs, forceOcean, probes, views };
 }
 
 async function main(): Promise<number> {
-  const { packs: wanted, theme, out, budgetMs, forceOcean, probes } = parseArgs(process.argv.slice(2));
+  const { packs: wanted, theme, out, budgetMs, forceOcean, probes, views } = parseArgs(process.argv.slice(2));
   const base = process.env.MAP_PACK_BASE_URL
     || (process.env.S3_BUCKET
       ? `${process.env.S3_ENDPOINT || 'https://s3.twcstorage.ru'}/${process.env.S3_BUCKET}`
@@ -523,6 +555,7 @@ async function main(): Promise<number> {
     // на z8 и z10: там сходятся четыре клетки, и стыки видны все сразу.
     const frames: Array<{ zoom: number; center: { lat: number; lng: number }; name: string }> = [];
     for (const zoom of zoomsFor(pack)) frames.push({ zoom, center, name: `${pack}.z${zoom}` });
+    for (const v of views) frames.push({ zoom: v.zoom, center: { lat: v.lat, lng: v.lng }, name: viewFrameName(pack, v) });
     const cell = gridCellById(pack);
     if (cell) {
       const corner = { lat: cell.bbox.south + 0.03, lng: cell.bbox.west + 0.05 };

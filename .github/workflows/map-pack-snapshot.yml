@@ -72,6 +72,9 @@ jobs:
           # прошлом кадре; только из файла-триггера.
           PROBE=$(python3 -c "import json;print(','.join(json.load(open('.github/triggers/map-pack-snapshot.json')).get('probe',[])))")
           echo "probe=$PROBE" >> "$GITHUB_OUTPUT"
+          # Виды по жалобе: lat,lng,z — кадр ровно того места, что на скрине.
+          VIEWS=$(python3 -c "import json;print(';'.join(json.load(open('.github/triggers/map-pack-snapshot.json')).get('views',[])))")
+          echo "views=$VIEWS" >> "$GITHUB_OUTPUT"
           echo "пакеты: ${PACKS:-<все собранные>}, тема: $THEME, пробы: ${PROBE:-нет}"
 
       # Перепись архивов ДО кадров (05.09, прогон 8): каталог PMTiles против
@@ -118,6 +121,9 @@ jobs:
           if [ -n "${{ steps.cfg.outputs.packs }}" ]; then FLAGS="$FLAGS --packs ${{ steps.cfg.outputs.packs }}"; fi
           if [ "${{ steps.cfg.outputs.force_ocean }}" = "true" ]; then FLAGS="$FLAGS --force-ocean"; fi
           if [ -n "${{ steps.cfg.outputs.probe }}" ]; then FLAGS="$FLAGS --probe ${{ steps.cfg.outputs.probe }}"; fi
+          # Виды без пробелов (lat,lng,z;...): «;» внутри подстановки — не
+          # разделитель команд, слово остаётся одним аргументом.
+          if [ -n "${{ steps.cfg.outputs.views }}" ]; then FLAGS="$FLAGS --views ${{ steps.cfg.outputs.views }}"; fi
           npx tsx scripts/map-tiles/snapshot-packs.ts $FLAGS | tee snapshot.log
           code=${PIPESTATUS[0]}
           set -e
