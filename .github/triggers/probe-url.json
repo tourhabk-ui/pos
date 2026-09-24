@@ -1,23 +1,23 @@
 {
-  "note": "24.09, прогон 567. ТОЛЬКО ЧТЕНИЕ. Проверка миграции 1009: владелец назвал автора («это мои фотографии из личных поездок»), подпись ставится на герои и галереи Толмачёва и Малок. Маркер свежести — имя 1009 в schema-audit (recent либо failures). Затем обе карточки: photoAttribution должен нести «владелец платформы» вместо null.",
-  "run": 567,
+  "note": "24.09, прогон 568. ТОЛЬКО ЧТЕНИЕ. Владелец прислал скрины /map: юг Камчатки на зуме 4.8-5.8 рисуется прямоугольниками серого и голубого, суша обрывается ровной чертой около 51° с.ш. На раннере (снимки map-snapshots, 07.09) обзор с океаном рисуется ровно. Разница, по всей видимости, в том, какой файл океана получает телефон. Первый шаг — адрес хранилища пакетов из самой страницы (mapPackBaseUrl в данных страницы), чтобы следующей пробой прочитать заголовки и рамку океана так, как их видит браузер.",
+  "run": 568,
   "timeout": 60,
-  "retries": 14,
-  "retryDelay": 90,
-  "until": "1009_tolmacheva",
-  "bytes": 400,
+  "retries": 2,
+  "retryDelay": 30,
+  "allowStale": true,
+  "bytes": 300,
+  "around": [
+    "twcstorage",
+    "mapPackBaseUrl"
+  ],
+  "aroundLines": 2,
+  "aroundBefore": 1,
+  "aroundHits": 3,
   "grep": [
-    "1009_tolmacheva",
-    "unapplied\":[]",
-    "failures\":[]",
-    "\"author\":\"владелец платформы\"",
-    "\"photoAttribution\":null",
-    "\"photoCount\":6",
-    "\"photoCount\":2"
+    "twcstorage",
+    "mapPackBaseUrl"
   ],
   "urls": [
-    "https://vedarai.ru/api/cron/schema-audit",
-    "https://vedarai.ru/api/places/2512ca75-547c-4348-a219-86c7e6937940",
-    "https://vedarai.ru/api/places/284c862f-a339-409d-988a-da4107324b60"
+    "https://vedarai.ru/map"
   ]
 }
