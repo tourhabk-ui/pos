@@ -1,0 +1,220 @@
+/**
+ * lib/services/safety/emsd-vmon.ts — суточная сводка КФ ФИЦ ЕГС РАН о состоянии
+ * вулканов Камчатки и Курил (`https://www.emsd.ru/vmon/`).
+ *
+ * ── Зачем (23.09) ─────────────────────────────────────────────────────────
+ *
+ * Владелец спросил 21.09: «странно ни предупреждений по вулканам 3 дня ни
+ * сейсмики?» Сейсмическая половина оказалась транспортной поломкой и
+ * починена. Вулканическая — другая: предупреждать было НЕЧЕМ.
+ *
+ * Единственный производитель события ленты `volcanic_eruption` — парсер
+ * телеграм-канала КБГС, молчащего с 24 марта. KVERT (`kvert-acc`) идёт по
+ * расписанию, но пишет только `volcano_status`: авиационный код виден на
+ * карточке места и тревогой не становится ни при каком цвете.
+ *
+ * Эта сводка — второй независимый наблюдатель тех же вулканов, и в снимке
+ * владельца за 20.09 она показывала то, чего у нас на экране не было вовсе:
+ * Мутновский жёлтый (372 события за сутки), Горелый жёлтый (571 событие и
+ * непрерывное спазматическое дрожание), Шивелуч оранжевый. Мутновский и
+ * Горелый — маршруты, по которым туристы ходят пешком.
+ *
+ * ── Что этот модуль делает и чего НЕ делает ───────────────────────────────
+ *
+ * Только разбор текста: ни сети, ни БД, ни решений — как `kvert-vona.ts`
+ * рядом. Он НЕ пишет `volcano_status` и НЕ производит событий ленты.
+ *
+ * Это намеренно. У нас уже есть источник авиационных кодов (KVERT, другое
+ * учреждение — ИВиС ДВО РАН), и два наблюдателя одного вулкана могут
+ * разойтись в цвете. Кто из них пишет в общее поле и что показывать при
+ * расхождении — решение владельца, а не следствие появления парсера.
+ * Сначала перепись говорит, КАК ЧАСТО они расходятся, потом решается правило.
+ *
+ * ── «Белый» — цвет, которого мы не знаем ──────────────────────────────────
+ *
+ * В сводке встречается код **Белый**, которого нет ни в ICAO-наборе, ни в
+ * нашем `AccColor`. У всех трёх белых вулканов снимка (Карымский, Алаид,
+ * Эбеко) в графе сейсмичности стоит «нет данных по техническим причинам» либо
+ * «корректный сейсмический мониторинг невозможен» — но это совпадение по ТРЁМ
+ * строкам, а не определение. Сама страница отсылает за расшифровкой к
+ * отдельным «Пояснениям», которых в снимке нет.
+ *
+ * Поэтому «Белый» НЕ приводится ни к `unassigned`, ни тем более к `green`:
+ * `color` остаётся `null`, а `colorUnknownReason` называет причину словами.
+ * Догадка, записанная в поле цвета, через неделю станет фактом для читателя
+ * (§4.0: место, где нельзя сказать «не знаю», заполняется враньём).
+ *
+ * Зелёный при неработающем мониторинге был бы худшим из возможных исходов:
+ * человек читает «спокоен» там, где обсерватория сказала «не вижу».
+ */
+
+import { decodeHtmlEntities } from '@/lib/html/entities';
+import { stripTags } from '@/lib/html/text';
+import { normalizeVolcanoName, parseColor, type AccColor } from '@/lib/services/safety/kvert-vona';
+
+/** Адрес сводки. Один на всю платформу — второй экземпляр строки разошёлся бы. */
+export const EMSD_VMON_URL = 'https://www.emsd.ru/vmon/';
+
+/** Месяцы родительного падежа: «20 СЕНТЯБРЯ 2026 г.». */
+const MONTHS_GENITIVE = [
+  'январ', 'феврал', 'март', 'апрел', 'мая', 'июн',
+  'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр',
+];
+
+export interface VmonRow {
+  /** Русское имя как в сводке. */
+  nameRu: string;
+  /** Латинское имя как в сводке; null — колонка его не дала. */
+  nameEn: string | null;
+  /** Канонический slug из общего словаря `kvert-vona`; null — вулкан незнаком. */
+  nameSlug: string | null;
+  /** Строка цвета дословно — хранится ВСЕГДА, даже когда разобрана. */
+  colorRaw: string;
+  /** Разобранный код; null — не распознан, и тогда причина названа ниже. */
+  color: AccColor | null;
+  /** Почему цвета нет. null, когда `color` есть. */
+  colorUnknownReason: string | null;
+  seismicity: string;
+  visual: string;
+  extra: string;
+}
+
+export interface VmonBulletin {
+  /** Дата суток, ЗА которые сводка, в ISO (YYYY-MM-DD); null — не разобрана. */
+  observedDate: string | null;
+  /** Та же дата словами, как напечатана. Нужна для разбора, когда ISO нет. */
+  observedDateRaw: string | null;
+  rows: VmonRow[];
+  /**
+   * Что не получилось — словами. Пустой массив значит «разобрано целиком»,
+   * и только он. Молчаливый пустой разбор запрещён: сводка без строк — это
+   * отказ источника или смена вёрстки, а не «вулканов сегодня нет».
+   */
+  problems: string[];
+}
+
+/**
+ * Разметка ячейки в текст. Снятие тегов — ОБЩЕЕ (`lib/html/text`), своего нет
+ * намеренно: моя первая редакция писала `.replace(/<[^>]+>/g, ' ')`, и сторож
+ * `html-text` поймал её по делу. У этой формы две дыры, обе задокументированы
+ * в общем модуле по находкам CodeQL: тело `<script>` остаётся в «тексте
+ * страницы», а снятие за один проход может СОБРАТЬ новый тег из `<<a>script>`.
+ * Здесь читается чужая страница, то есть ровно тот случай, ради которого
+ * общая реализация и заведена.
+ */
+function textOf(fragment: string): string {
+  return decodeHtmlEntities(stripTags(fragment, ' ')).replace(/[\s ]+/g, ' ').trim();
+}
+
+/**
+ * «...ЗА ПРОШЕДШИЕ СУТКИ 20 СЕНТЯБРЯ 2026 г.» → 2026-09-20.
+ *
+ * Год берётся из строки, а не из часов сервера: сводка читается и задним
+ * числом, и подставленный «текущий» год молча переписал бы прошлогоднюю.
+ */
+export function parseVmonDate(text: string): { iso: string | null; raw: string | null } {
+  const m = text.match(/(\d{1,2})\s+([А-Яа-яЁё]+)\s+(\d{4})/);
+  if (!m) return { iso: null, raw: null };
+  const raw = m[0];
+  const day = Number(m[1]);
+  const monthWord = m[2].toLowerCase().replace(/ё/g, 'е');
+  const monthIdx = MONTHS_GENITIVE.findIndex((stem) => monthWord.startsWith(stem));
+  if (monthIdx < 0 || day < 1 || day > 31) return { iso: null, raw };
+  const iso = `${m[3]}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { iso, raw };
+}
+
+/**
+ * Первая ячейка — «Шивелуч Sheveluch»: русское и латинское имя подряд.
+ * Делим по первой латинской букве, а не по пробелу: «Плоский Толбачик
+ * Plosky Tolbachik» — два слова с каждой стороны.
+ */
+function splitNames(cell: string): { ru: string; en: string | null } {
+  const at = cell.search(/[A-Za-z]/);
+  if (at < 0) return { ru: cell.trim(), en: null };
+  const ru = cell.slice(0, at).trim();
+  const en = cell.slice(at).trim();
+  return { ru: ru || cell.trim(), en: en || null };
+}
+
+/**
+ * Разбор сводки.
+ *
+ * Шапку таблицы отличаем по содержимому («Вулканы»/«Код»), а не по номеру
+ * строки: перестановка строк в источнике не должна превращать заголовок в
+ * вулкан по имени «Вулканы» с цветом «Код».
+ */
+export function parseVmon(html: string): VmonBulletin {
+  const problems: string[] = [];
+  const plain = textOf(html);
+
+  const { iso, raw } = parseVmonDate(plain);
+  if (!iso) {
+    problems.push(
+      raw
+        ? `дата сводки найдена как «${raw}», но не разобралась в календарную`
+        : 'даты сводки на странице не нашлось — за какие сутки эти наблюдения, неизвестно',
+    );
+  }
+
+  const rows: VmonRow[] = [];
+  const trs = html.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+  for (const tr of trs) {
+    const cells = [...tr.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => textOf(m[1]));
+    if (cells.length < 5) continue;
+
+    const [nameCell, colorCell, seismicity, visual, extra] = cells;
+    if (/^вулканы$/i.test(nameCell.trim()) || /^код$/i.test(colorCell.trim())) continue;
+    if (!nameCell) continue;
+
+    const { ru, en } = splitNames(nameCell);
+    const color = parseColor(colorCell);
+    rows.push({
+      nameRu: ru,
+      nameEn: en,
+      nameSlug: normalizeVolcanoName(en || ru)?.slug ?? null,
+      colorRaw: colorCell,
+      color,
+      colorUnknownReason: color
+        ? null
+        : colorCell
+          ? `код «${colorCell}» не входит в авиационный набор (зелёный/жёлтый/оранжевый/красный) и его значение нам неизвестно`
+          : 'колонка кода пуста',
+      seismicity,
+      visual,
+      extra,
+    });
+  }
+
+  if (rows.length === 0) {
+    // Ноль строк при непустой странице — отказ, а не тихая сводка (§4.0).
+    problems.push(
+      `таблица вулканов не разобрана: строк ${trs.length}, подходящих ноль — ` +
+        'либо страница сменила вёрстку, либо пришла не она',
+    );
+  }
+
+  return { observedDate: iso, observedDateRaw: raw, rows, problems };
+}
+
+/**
+ * Вулканы, чей код выше спокойного. Сортировка по убыванию опасности.
+ *
+ * Неразобранный цвет сюда НЕ попадает и попадать не должен: «мы не поняли
+ * код» — это не «повышенная активность». Такие строки считаются отдельно
+ * вызывающим, по `colorUnknownReason`.
+ */
+const SEVERITY: Record<AccColor, number> = {
+  green: 0, yellow: 1, orange: 2, red: 3, unassigned: -1,
+};
+
+export function elevatedRows(bulletin: VmonBulletin): VmonRow[] {
+  return bulletin.rows
+    .filter((r) => r.color !== null && SEVERITY[r.color] >= 1)
+    .sort((a, b) => SEVERITY[b.color as AccColor] - SEVERITY[a.color as AccColor]);
+}
+
+/** Строки, чей код не разобран, — отдельный список, а не примесь к спокойным. */
+export function unknownColorRows(bulletin: VmonBulletin): VmonRow[] {
+  return bulletin.rows.filter((r) => r.color === null);
+}

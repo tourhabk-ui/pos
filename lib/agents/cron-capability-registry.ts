@@ -72,6 +72,11 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'editor-job': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'editor-result': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'elevation-backfill': ['db_read'],
+  // Перепись, а не производитель: читает суточную сводку вулканов КФ ФИЦ ЕГС
+  // РАН (net_out) и наш volcano_status для сверки (db_read). Отсутствие
+  // db_write здесь — не забывчивость, а свойство: писать в поле, которое уже
+  // ведёт KVERT, без решения владельца нельзя (сторож emsd-vmon-probe-route).
+  'emsd-vmon-probe': ['db_read', 'net_out'],
   'engagement': ['db_read', 'db_write', 'net_out', 'telegram'],
   'enrich-passports': ['db_read', 'db_write', 'net_out', 'ai'],
   'enrich-routes': ['db_read', 'db_write', 'net_out', 'ai'],
@@ -126,6 +131,12 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'legislation-sync': ['db_read', 'db_write', 'net_out', 'ai'],
   'llm-budget-check': ['db_read', 'db_write', 'net_out', 'telegram'],
   'locked-out-partners': ['db_read'],
+  // Проба канала КБГС в MAX (24.09): читает страницу (net_out) и гоняет
+  // классификатор вхолостую. db_read/db_write здесь ТРАНЗИТИВНЫЕ: классификатор
+  // КБГС живёт в seismic-parser рядом с saveEvent, и граф импортов их
+  // приносит. Сама проба ничего не пишет — это держит сторож
+  // max-channel-probe.test.ts (ни saveEvent, ни ingest*, ни SQL записи).
+  'max-channel-probe': ['db_read', 'db_write', 'net_out'],
   'max-webhook': ['net_out'],
   'memory-contradiction': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'memory-reflect': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],

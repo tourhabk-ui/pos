@@ -47,6 +47,9 @@ const MCHS = 'МЧС России по Камчатскому краю';
 const RULES: readonly OriginRule[] = [
   { test: (id) => id.startsWith('t.me/kbgsras/'),  origin: { key: 'kbgsras',  label: 'КБГС РАН' } },
   { test: (id) => id.startsWith('t.me/eqkam/'),    origin: { key: 'eqkam',    label: 'КФ ФИЦ ЕГС РАН (EQKam)' } },
+  // Таблица землетрясений с главной emsd.ru (24.09). Ключ совпадает с
+  // source_key в source-health, как требует шапка интерфейса.
+  { test: (id) => id.startsWith('www.emsd.ru/eq/'), origin: { key: 'emsd_quakes', label: 'КФ ФИЦ ЕГС РАН (emsd.ru)' } },
   { test: (id) => id.startsWith('usgs/'),          origin: { key: 'usgs',     label: 'USGS' } },
   { test: (id) => id.startsWith('firms/'),         origin: { key: 'firms',    label: 'NASA FIRMS' } },
   { test: (id) => id.startsWith('mchs/'),          origin: { key: 'mchs_rss', label: MCHS } },

@@ -21,13 +21,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import {
   drainInitiativeQueue,
   sweepApprovedInitiatives,
 } from '@/lib/agents/kernel/adapters/initiative-tasks';
 import { reapExpiredLeases } from '@/lib/agents/kernel/kernel';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -42,8 +43,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
   if (!timingSafeCompare(secret, cronSecret)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('kernel-worker', 30, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('kernel-worker', 30));
 
   const startedAt = new Date();
 

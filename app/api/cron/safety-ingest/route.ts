@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { fetchTelegramPreview } from '@/lib/services/safety/telegram-source';
+import type { FetchVia } from '@/lib/agents/scout-relay';
+import { fetchEmsdPage } from '@/lib/services/safety/emsd-fetch';
+import { EMSD_HOME_URL } from '@/lib/services/safety/emsd-quakes';
+import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
@@ -8,7 +12,7 @@ import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { buildAnchorIndex, matchAlertAnchor, ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
 import { pushCopy } from '@/lib/services/safety/push-copy';
 import {
@@ -128,7 +132,7 @@ function authError(req: Request): Response | null {
   const secret = getCronSecret(req);
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
-  if (!timingSafeCompare(secret, cronSecret)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!timingSafeCompare(secret, cronSecret)) return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   return null;
 }
 
@@ -578,7 +582,37 @@ function buildResponse(
   durationMs: number,
   pushResult?: { dispatched: number; suppressed?: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
-  extras?: { delegated_to_heartbeat?: string[]; telegramSeismicAgeMin?: number | null; knownDormantSources?: KnownDormantSource[] },
+  extras?: {
+    delegated_to_heartbeat?: string[];
+    telegramSeismicAgeMin?: number | null;
+    knownDormantSources?: KnownDormantSource[];
+    /** Каким путём heartbeat прочитал каналы t.me и почему не смог. */
+    telegramFetch?: {
+      kbgsras: { via: FetchVia | null; reason: string | null; direct_status: number | null };
+      eqkam: { via: FetchVia | null; reason: string | null; direct_status: number | null };
+      ingested: boolean;
+      ingest_error: string | null;
+    };
+    /**
+     * Таблица землетрясений emsd.ru (24.09): дошли ли, чем раскодировали,
+     * сколько разобрали и куда делись строки. «Не дошли» обязано быть видно
+     * здесь словами, а не только отсутствием новых толчков в ленте.
+     */
+    emsdFetch?: {
+      url: string;
+      reached: boolean;
+      http_status: number | null;
+      decoded_by: string | null;
+      error: string | null;
+      threshold_ml: number | null;
+      rows_parsed: number | null;
+      rows_rejected: number | null;
+      inserted: number | null;
+      skipped_expired: number | null;
+      skipped_same_quake: number | null;
+      problems: string[];
+    };
+  },
   // Уборка могла не пройти — тогда приходит причина, а не результат. Приём
   // от этого не страдает (см. safely), но молчать об ошибке нельзя: она
   // должна быть видна в ответе, иначе чистка перестанет работать незаметно.
@@ -714,6 +748,10 @@ function buildResponse(
     // Принятое молчание (knownDormant в SAFETY_SOURCE_EXPECTATIONS): в Telegram
     // не уходит, в теле ответа обязано быть — «не шумим» ≠ «не знаем».
     known_dormant_sources: extras?.knownDormantSources ?? [],
+    // Путь чтения каналов t.me: 'direct' | 'relay' | null с причиной. Есть
+    // только у heartbeat — POST получает разметку готовой от раннера.
+    telegram_fetch: extras?.telegramFetch,
+    emsd_fetch: extras?.emsdFetch,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -818,11 +856,60 @@ export async function GET(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const [ingestAllResult, firmsResult] = await Promise.all([ingestAll(), ingestFirmsWildfires()]);
+  // ── Сейсмика больше не ждёт планировщика GitHub (21.09) ─────────────────
+  //
+  // EQKam приходит страницей t.me, и до сегодня её приносил ТОЛЬКО воркфлоу.
+  // Замер за 5,3 суток: 40 прогонов вместо 1524 при объявленных `*/5`;
+  // медианный разрыв 188 минут при SLA, который сам воркфлоу объясняет так:
+  // «цунами от 185 км ≈ 15 мин». Отказов не было — планировщик просто не
+  // запускал, и потому не краснело ничего.
+  //
+  // Теперь страницу берёт heartbeat: напрямую, а при блокировочном отказе
+  // через реле (infra/safety-relay — воркер, который 03.09 и доказал замером
+  // чтение t.me). Воркфлоу остаётся вторым путём и ничего не теряет:
+  // saveEvent идемпотентен по внешнему id, повторный разбор той же страницы
+  // ничего не удваивает.
+  //
+  // ── Главный источник сейсмики — emsd.ru (24.09, решение владельца) ─────
+  //
+  // «нам нужно переключиться на этот ресурс, tg не активен у них». Таблица
+  // «Последние 10 землетрясений Ml > 4,0» с главной КФ ФИЦ ЕГС РАН закрывает
+  // диапазон M4.0–4.9, который шёл ТОЛЬКО из EQKam: USGS у нас спрашивается
+  // с M5.0. Скачивается параллельно с остальными, а ЗАПИСЫВАЕТСЯ ниже, после
+  // того как USGS уже записал своё: одновременная запись двух источников не
+  // увидела бы друг друга, и один толчок стал бы двумя предупреждениями.
+  const [ingestAllResult, firmsResult, kbgsrasPage, eqkamPage, emsdPage] = await Promise.all([
+    ingestAll(),
+    ingestFirmsWildfires(),
+    fetchTelegramPreview('kbgsras'),
+    fetchTelegramPreview('eqkam'),
+    fetchEmsdPage(EMSD_HOME_URL),
+  ]);
+  const emsdResult: EmsdIngestResult | { error: string } | null = emsdPage.html !== null
+    ? await safely('emsd-ingest', () => ingestEmsdQuakes(emsdPage.html as string))
+    : null;
+  const emsdOk = emsdResult !== null && !('error' in emsdResult);
+  // Разбор — только когда есть ОБЕ страницы: ingestFromHtml принимает их
+  // парой. Пустую строку вместо непрочитанной страницы подставлять нельзя —
+  // парсер разберёт её как «канал прислал ноль постов», то есть выдаст
+  // неудачу похода за молчанием канала (§4.0, разбор в source-health.ts).
+  const telegramPages = kbgsrasPage.html !== null && eqkamPage.html !== null
+    ? { kbgsras: kbgsrasPage.html, eqkam: eqkamPage.html }
+    : null;
+  const telegramResult = telegramPages
+    ? await safely('telegram-ingest', () => ingestFromHtml(telegramPages.kbgsras, telegramPages.eqkam))
+    : null;
+  const telegramOk = telegramResult !== null && !('error' in telegramResult);
   const ingestResult = {
     ...ingestAllResult,
     firms: firmsResult,
-    total_inserted: ingestAllResult.total_inserted + firmsResult.inserted,
+    ...(telegramOk
+      ? { kbgsras: telegramResult.kbgsras, eqkam: telegramResult.eqkam }
+      : {}),
+    ...(emsdOk ? { emsd: emsdResult } : {}),
+    total_inserted: ingestAllResult.total_inserted + firmsResult.inserted
+      + (telegramOk ? telegramResult.total_inserted : 0)
+      + (emsdOk ? emsdResult.inserted : 0),
   };
   // Жанровые стражи применяются и к уже лежащему, а не только на приёме.
   // Перепись 11.08: 137 маршрутов из 421 стояли «Не сегодня» из-за одной
@@ -854,6 +941,21 @@ export async function GET(req: Request) {
   // ниже): kbgsras/eqkam сюда НЕ входят, t.me с хостинга гео-закрыт, и по ним
   // GET был бы «частичным» вечно.
   const getSources: RunSource[] = [
+    // Телеграм-каналы входят в статус ТОЛЬКО когда мы за ними ходили. Не
+    // смогли — это отдельная строка отчёта ниже (telegram_fetch), а не
+    // «частичный прогон» навсегда: путь может быть закрыт не у нас.
+    ...(telegramOk
+      ? [
+          { label: 'КБГС РАН (t.me)', errors: telegramResult.kbgsras.errors, inserted: telegramResult.kbgsras.inserted },
+          { label: 'EQKam (t.me)', errors: telegramResult.eqkam.errors, inserted: telegramResult.eqkam.inserted },
+        ]
+      : []),
+    // emsd.ru — как t.me: входит в статус, только когда за ним сходили.
+    // Не дошли — строка emsd_fetch в ответе и тишина в здоровье источника,
+    // а не «частичный прогон» из-за чужого сервера.
+    ...(emsdOk
+      ? [{ label: 'КФ ЕГС — землетрясения (emsd.ru)', errors: emsdResult.errors, inserted: emsdResult.inserted }]
+      : []),
     { label: 'МЧС RSS (41.mchs)', errors: ingestResult.mchs.errors, inserted: ingestResult.mchs.inserted },
     { label: 'USGS', errors: ingestResult.usgs.errors, inserted: ingestResult.usgs.inserted },
     { label: 'новостные ленты', errors: ingestResult.news.errors, inserted: ingestResult.news.inserted },
@@ -868,13 +970,30 @@ export async function GET(req: Request) {
     startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'heartbeat_get',
     ingestRunStatus(getSources), ingestRunDetail(getSources),
   );
-  // kbgsras и eqkam здесь НЕ пишутся. t.me для хостинга гео-закрыт — heartbeat
-  // их получить не может по построению, и его запись «пусто» каждые пять минут
-  // делала канал вечно свежим на вид независимо от того, доставил воркфлоу или
-  // нет. Владение здоровьем этих двух отдано POST'у: тогда их last_run_at
-  // означает ровно «когда воркфлоу принёс», и задержка становится видимой.
-  // Обратная сторона той же меры уже есть — delegated_to_heartbeat в POST.
+  // kbgsras и eqkam пишутся ТОЛЬКО когда heartbeat их реально прочитал.
+  //
+  // Прежде их здоровье принадлежало POST'у целиком, и довод был верен: t.me
+  // с хостинга не читался, heartbeat писал бы «пусто» каждые пять минут, и
+  // канал выглядел бы вечно свежим независимо от того, доставил воркфлоу или
+  // нет. Теперь heartbeat читать УМЕЕТ — но не всегда сможет (реле может
+  // отказать, t.me может закрыться плотнее), и довод обязан пережить это
+  // изменение, а не исчезнуть вместе с ним.
+  //
+  // Поэтому условие ровно то же, только проверяется делом: сходили и
+  // разобрали — владеем и пишем; не сходили — молчим, и last_run_at
+  // по-прежнему означает «когда принёс воркфлоу». Запись «пусто» после
+  // неудачного похода была бы той же ложью, от которой правило и защищало.
   const knownDormantGet = await watchSourceHealth(await Promise.all([
+    ...(telegramOk
+      ? [
+          entryFor('kbgsras', 'КБГС РАН (сейсмо)', telegramResult.kbgsras),
+          entryFor('eqkam', 'EMSD/EQKam (сейсмо)', telegramResult.eqkam),
+        ]
+      : []),
+    // Записывается ТОЛЬКО после похода, который дошёл и разобрался. Таблица
+    // по определению не пустеет, поэтому тишина здесь значит одно: не можем
+    // прочитать emsd.ru. Её и ловит порог в SAFETY_SOURCE_EXPECTATIONS.
+    ...(emsdOk ? [entryFor('emsd_quakes', 'КФ ЕГС — землетрясения (emsd.ru)', emsdResult)] : []),
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
@@ -885,7 +1004,35 @@ export async function GET(req: Request) {
   ]));
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get',
-    { telegramSeismicAgeMin: await telegramSeismicAgeMin(), knownDormantSources: knownDormantGet }, pruned, roadAnchors);
+    {
+      telegramSeismicAgeMin: await telegramSeismicAgeMin(),
+      knownDormantSources: knownDormantGet,
+      // КАКИМ ПУТЁМ прочитаны каналы. Без этого через месяц не отличить
+      // «читается из РФ» от «читается через Cloudflare», а это разные
+      // зависимости и разные поломки — правило самого реле (scout-relay).
+      // Причина неудачи стоит здесь же: «не смогли сходить» обязано быть
+      // видно в теле, а не только по отсутствию цифр.
+      telegramFetch: {
+        kbgsras: { via: kbgsrasPage.via, reason: kbgsrasPage.reason, direct_status: kbgsrasPage.directStatus },
+        eqkam: { via: eqkamPage.via, reason: eqkamPage.reason, direct_status: eqkamPage.directStatus },
+        ingested: telegramOk,
+        ingest_error: telegramResult !== null && 'error' in telegramResult ? telegramResult.error : null,
+      },
+      emsdFetch: {
+        url: EMSD_HOME_URL,
+        reached: emsdPage.html !== null,
+        http_status: emsdPage.status,
+        decoded_by: emsdPage.decodedBy,
+        error: emsdPage.error ?? (emsdResult !== null && 'error' in emsdResult ? emsdResult.error : null),
+        threshold_ml: emsdOk ? emsdResult.table.threshold : null,
+        rows_parsed: emsdOk ? emsdResult.table.rows.length : null,
+        rows_rejected: emsdOk ? emsdResult.table.rejected.length : null,
+        inserted: emsdOk ? emsdResult.inserted : null,
+        skipped_expired: emsdOk ? emsdResult.skippedExpired : null,
+        skipped_same_quake: emsdOk ? emsdResult.skippedSameQuake : null,
+        problems: emsdOk ? emsdResult.table.problems : [],
+      },
+    }, pruned, roadAnchors);
 }
 
 const HtmlBodySchema = z.object({

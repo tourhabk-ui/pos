@@ -75,6 +75,14 @@ export const CRON_REGISTRY: CronEntry[] = [
     description: 'Единственный сторож: SOS-таймаут, брони без подтверждения, лиды, мёртвый сейсмо-крон.',
     workflow: 'cron-watchdog.yml', cron: '*/30 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'safety', agentId: 'watchdog', triggerable: true,
+    // Свой эндпоинт назван явно, хотя файл у записи собственный: вывести его
+    // из workflow нельзя — `cron-watchdog.yml` зовёт ТРИ адреса
+    // (/api/cron/watchdog, /api/cron/telegram-webhook-watchdog и
+    // /api/cron/llm-budget-check), и «чей это /api/cron/*» из файла
+    // неоднозначно ровно так же, как в общем cron-safety-heartbeat.yml.
+    // Найдено 21.09 сторожем `cron-second-leg`, который на неоднозначности
+    // отказался гадать.
+    endpoint: 'watchdog',
   },
   {
     key: 'sos-bridge', label: 'SOS Events Bridge',
