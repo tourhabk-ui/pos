@@ -274,6 +274,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // заниженная запись сделала бы следующую настоящую правку невидимой.
   // Снимок вшит в код и синтетический: ни чужого фото, ни строки ПД.
   'vision-probe': ['net_out', 'ai', 'db_read', 'db_write'],
+  'voice-probe': ['net_out', 'ai', 'db_read', 'db_write'],
   'weathernext-probe': ['net_out'],
   'web-routes-census': ['db_read'],
 };
