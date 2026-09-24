@@ -7,14 +7,19 @@
  *   1. Атрибут data-theme="dark"|"light" на <html> -- для CSS variables
  *   2. Класс `dark` на <html> -- для Tailwind darkMode: 'class'
  *
- * Сохраняется в localStorage['kh-theme'].
- * Дефолт: dark (светлая — по желанию пользователя). Первый кадр красит
- * анти-вспышка-скрипт в app/layout.tsx до гидрации.
+ * Значение по умолчанию и ключ хранилища — lib/theme.ts, одни на скрипт
+ * против вспышки (app/layout.tsx) и на этот провайдер. Первый кадр красит
+ * скрипт; провайдер после гидрации берёт тему из `data-theme`, который скрипт
+ * уже выставил, а не выводит свою (до 24.09 выводил 'dark' и перекрашивал
+ * страницу новому посетителю, #6/#103).
+ *
+ * localStorage[THEME_STORAGE_KEY] пишется только в toggleTheme — когда человек сам
+ * выбрал тему. Провайдер всегда отдаёт Provider: замена Fragment на Provider
+ * после монтирования меняла тип корня и перемонтировала всё дерево.
  */
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-
-type Theme = 'light' | 'dark';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { DEFAULT_THEME, THEME_STORAGE_KEY, readDomTheme, type Theme } from '@/lib/theme';
 
 interface ThemeContextValue {
   theme: Theme;
@@ -23,9 +28,9 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: 'dark',
+  theme: DEFAULT_THEME,
   toggleTheme: () => {},
-  isDark: true,
+  isDark: DEFAULT_THEME === 'dark',
 });
 
 function applyThemeToDOM(theme: Theme): void {
@@ -39,28 +44,27 @@ function applyThemeToDOM(theme: Theme): void {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
-  const [mounted, setMounted] = useState(false);
+  // Сервер и первый клиентский рендер обязаны совпасть — поэтому стартуем
+  // с DEFAULT_THEME, а тему, уже покрашенную скриптом, читаем после монтирования.
+  const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
 
   useEffect(() => {
-    const saved = localStorage.getItem('kh-theme') as Theme | null;
-    const initial: Theme = saved ?? 'dark';
-    setTheme(initial);
-    applyThemeToDOM(initial);
-    setMounted(true);
+    setTheme(readDomTheme());
   }, []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    applyThemeToDOM(theme);
-    localStorage.setItem('kh-theme', theme);
-  }, [theme, mounted]);
-
-  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
-
-  if (!mounted) {
-    return <>{children}</>;
-  }
+  const toggleTheme = useCallback(() => {
+    // От того, что реально на странице, а не от состояния провайдера:
+    // тему может переключить и мобильная главная (HomeV8), мимо провайдера.
+    const next: Theme = readDomTheme() === 'light' ? 'dark' : 'light';
+    applyThemeToDOM(next);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {
+      // Хранилище закрыто (приватное окно): выбор живёт до перезагрузки.
+      console.error('[theme] выбор темы не сохранён — хранилище недоступно');
+    }
+    setTheme(next);
+  }, []);
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, isDark: theme === 'dark' }}>

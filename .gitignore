@@ -218,3 +218,7 @@ sarif-results/
 .claude/skills/*/evals/results/
 .cache/
 __pycache__/
+
+# Временные артефакты локального аудита интерфейса (скриншоты и скрипты
+# Playwright). Ниже `!**/*.mjs`, иначе то правило разрешило бы скрипты.
+/.audit-*

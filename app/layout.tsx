@@ -161,6 +161,7 @@ import ThirdPartyScripts from '@/components/legal/ThirdPartyScripts'
 import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
+import { themeBootScript } from '@/lib/theme'
 import { InstallTracker } from '@/components/PWA/InstallTracker'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
 import { OfflineBanner } from '@/components/PWA/OfflineBanner'
@@ -172,12 +173,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" suppressHydrationWarning>
       <head>
-        {/* Анти-вспышка темы: красим <html> до отрисовки. Дефолт — кремовая
-            светлая (документированный язык платформы, редизайн 31.07);
-            сохранённый выбор пользователя (kh-theme) имеет приоритет. */}
+        {/* Анти-вспышка темы: красим <html> до отрисовки. Умолчание и ключ —
+            lib/theme.ts, те же, что у ThemeProvider (решение владельца 24.09:
+            светлая); сохранённый выбор пользователя (kh-theme) имеет приоритет. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('kh-theme');if(t!=='light'&&t!=='dark')t='light';var r=document.documentElement;r.setAttribute('data-theme',t);r.classList.toggle('dark',t==='dark');}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`,
+            __html: themeBootScript(),
           }}
         />
         <link rel="dns-prefetch" href="//mc.yandex.ru" />
