@@ -3,7 +3,7 @@
  * Использует PDFKit (чистый Node.js, без браузера).
  *
  * Структура PDF:
- *   — Шапка: логотип TourHab + дата
+ *   — Шапка: знак «Ведар» + дата
  *   — Заголовок: персонализированный headline
  *   — Секция "Для вас подобрали": summary
  *   — Highlights: 4 ключевых преимущества
@@ -13,7 +13,7 @@
  */
 
 import PDFDocument from 'pdfkit';
-import { registerCyrillicFonts } from '@/lib/pdf/fonts';
+import { registerCyrillicFonts, FONT_BODY, FONT_BOLD } from '@/lib/pdf/fonts';
 import type { LeadProposalData } from '@/lib/services/operators/lead-processor.service';
 
 interface GenerateOptions {
@@ -30,7 +30,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
       margins: { top: 60, bottom: 60, left: 60, right: 60 },
       info: {
         Title: proposal.headline,
-        Author: 'TourHab — Камчатка',
+        Author: 'Ведар — Камчатка',
         Subject: `Персональное предложение для ${clientName}`,
         CreationDate: new Date(),
       },
@@ -56,11 +56,11 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
 
     doc.fillColor('#FFFFFF')
        .fontSize(22)
-       .font('Helvetica-Bold')
-       .text('TourHab', 60, 28);
+       .font(FONT_BOLD)
+       .text('Ведар', 60, 28);
 
     doc.fontSize(10)
-       .font('Helvetica')
+       .font(FONT_BODY)
        .text('Туристическая платформа Камчатки', 60, 54);
 
     const dateStr = new Date().toLocaleDateString('ru-RU', {
@@ -75,19 +75,19 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
 
     doc.fillColor(ACCENT)
        .fontSize(9)
-       .font('Helvetica')
+       .font(FONT_BODY)
        .text('ПЕРСОНАЛЬНОЕ ПРЕДЛОЖЕНИЕ', { characterSpacing: 2 });
 
     doc.fillColor(TEXT_MAIN)
        .fontSize(20)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text(proposal.headline, { lineGap: 4 });
 
     doc.moveDown(0.4);
 
     doc.fillColor(TEXT_MUTED)
        .fontSize(10)
-       .font('Helvetica')
+       .font(FONT_BODY)
        .text(`Подготовлено специально для ${clientName}`, { lineGap: 2 });
 
     doc.moveDown(1);
@@ -103,7 +103,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
 
     doc.fillColor(TEXT_MAIN)
        .fontSize(11)
-       .font('Helvetica')
+       .font(FONT_BODY)
        .text(proposal.summary, { lineGap: 4, paragraphGap: 6 });
 
     doc.moveDown(1.2);
@@ -112,7 +112,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
 
     doc.fillColor(TEXT_MAIN)
        .fontSize(13)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text('Ключевые преимущества');
 
     doc.moveDown(0.5);
@@ -127,7 +127,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
       doc.rect(60, startY + 3, 8, 8).fill(ACCENT);
       doc.fillColor(TEXT_MAIN)
          .fontSize(11)
-         .font('Helvetica')
+         .font(FONT_BODY)
          .text(h, 76, startY, { width: PAGE_WIDTH - 16, lineGap: 2 });
       doc.moveDown(0.3);
     }
@@ -145,29 +145,29 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
 
       doc.fillColor(ACCENT)
          .fontSize(9)
-         .font('Helvetica')
+         .font(FONT_BODY)
          .text('РЕКОМЕНДУЕМЫЙ ТУР', 68, boxY + 4, { characterSpacing: 1.5 });
 
       doc.fillColor(TEXT_MAIN)
          .fontSize(14)
-         .font('Helvetica-Bold')
+         .font(FONT_BOLD)
          .text(t.title, 68, boxY + 18, { width: PAGE_WIDTH - 20 });
 
       // Цена + длительность
       doc.fillColor(ACCENT)
          .fontSize(16)
-         .font('Helvetica-Bold')
+         .font(FONT_BOLD)
          .text(`${t.price.toLocaleString('ru-RU')} ₽/чел`, 68, boxY + 40);
 
       doc.fillColor(TEXT_MUTED)
          .fontSize(10)
-         .font('Helvetica')
+         .font(FONT_BODY)
          .text(`${t.duration_days} дн. · ${formatActivity(t.activity_type)}`, 68, boxY + 62);
 
       if (t.description) {
         doc.fillColor(TEXT_MAIN)
            .fontSize(10)
-           .font('Helvetica')
+           .font(FONT_BODY)
            .text(t.description.slice(0, 200) + (t.description.length > 200 ? '...' : ''),
              68, boxY + 80, { width: PAGE_WIDTH - 20, lineGap: 2 });
       }
@@ -181,7 +181,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
     if (proposal.alt_tours.length > 0) {
       doc.fillColor(TEXT_MAIN)
          .fontSize(13)
-         .font('Helvetica-Bold')
+         .font(FONT_BOLD)
          .text('Также рассмотрите');
 
       doc.moveDown(0.5);
@@ -189,10 +189,10 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
       for (const t of proposal.alt_tours) {
         doc.fillColor(OCEAN)
            .fontSize(11)
-           .font('Helvetica-Bold')
+           .font(FONT_BOLD)
            .text(`${t.title}`, { continued: true })
            .fillColor(TEXT_MUTED)
-           .font('Helvetica')
+           .font(FONT_BODY)
            .fontSize(10)
            .text(`  —  ${t.price.toLocaleString('ru-RU')} ₽ · ${t.duration_days} дн.`);
         doc.moveDown(0.3);
@@ -207,9 +207,9 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
          .strokeColor('#E5E0DB').lineWidth(1).stroke();
       doc.moveDown(0.8);
 
-      doc.fillColor(TEXT_MUTED).fontSize(10).font('Helvetica')
+      doc.fillColor(TEXT_MUTED).fontSize(10).font(FONT_BODY)
          .text('Стоимость туров', { continued: true });
-      doc.fillColor(TEXT_MAIN).font('Helvetica-Bold').fontSize(12)
+      doc.fillColor(TEXT_MAIN).font(FONT_BOLD).fontSize(12)
          .text(
            `  от ${proposal.price_from.toLocaleString('ru-RU')} ₽` +
            (proposal.price_to && proposal.price_to !== proposal.price_from
@@ -227,12 +227,12 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
 
     doc.fillColor('#FFFFFF')
        .fontSize(10)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text('Ведар — Туризм на Камчатке', 60, footerY);
 
     doc.fillColor('#9A9590')
        .fontSize(9)
-       .font('Helvetica')
+       .font(FONT_BODY)
        .text('vedarai.ru · Предложение действительно 7 дней', 60, footerY + 18);
 
     doc.fillColor('#9A9590')

@@ -7,9 +7,10 @@ import Script from 'next/script';
 import {
   CheckCircle, Copy, Home, Calendar, Users, Phone,
   MessageSquare, Loader2, AlertCircle, CreditCard, BadgeCheck, ExternalLink,
-  FileText, Ticket, QrCode,
+  FileText, Ticket, QrCode, XCircle, Info,
 } from 'lucide-react';
 import SbpQrPayment from '@/components/marketplace/SbpQrPayment';
+import { canOfferPayment, hasOperatorContacts, successHeadline } from '@/lib/bookings/success-view';
 
 interface BookingData {
   id: number;
@@ -53,12 +54,36 @@ export default function BookingSuccessClient() {
    *
    * Читается из window, а не из серверных searchParams: страница клиентская,
    * а ключ не должен попасть ни в кэш, ни в разметку.
+   *
+   * `null` — ключ ЕЩЁ НЕ ПРОЧИТАН (первый рендер, до эффекта), `''` — прочитан
+   * и его нет. До 24.09 оба состояния были пустой строкой: первый прогон
+   * эффекта загрузки решал «не найдено» раньше, чем ключ успевали прочесть, и
+   * сразу после настоящей заявки человек видел «Бронирование не найдено» под
+   * «Заявка создана» — на медленной сети секундами (аудит П3, #24/#27).
    */
-  const [accessToken, setAccessToken] = useState('');
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   useEffect(() => {
     try {
       setAccessToken(new URLSearchParams(window.location.search).get('t') ?? '');
-    } catch { /* ключа нет — ниже будет честное «не найдено» */ }
+    } catch { setAccessToken(''); /* ключа нет — ниже будет честное «не найдено» */ }
+  }, []);
+
+  /**
+   * Вошёл ли смотрящий: `null` — не знаем (не спросили или сеть не ответила).
+   * «Мои бронирования» показываются только при `true`: гостевая бронь
+   * хранится без user_id, и гостя эта кнопка вела на вход, после которого
+   * заявки в списке всё равно нет (#76/#86/#92).
+   */
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/auth/state', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { data?: { authenticated?: boolean } } | null) => {
+        if (alive && typeof d?.data?.authenticated === 'boolean') setAuthed(d.data.authenticated);
+      })
+      .catch(() => { /* связи нет — остаётся «не знаем», кнопку не показываем */ });
+    return () => { alive = false; };
   }, []);
 
   const [booking,  setBooking]  = useState<BookingData | null>(null);
@@ -84,11 +109,18 @@ export default function BookingSuccessClient() {
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (accessToken === null) return;  // ключ ещё не прочитан — решать рано, крутится спиннер
     if (!accessToken) { setFailure('not_found'); setLoading(false); return; }  // без ключа роут ответит 404
+    // Каждый запрос начинается с чистого листа: иначе исход прошлого прогона
+    // («не найдено», «не дозвонились») висит на экране, пока идёт новый.
+    setLoading(true);
+    setFailure(null);
+    let alive = true;
     void (async () => {
       try {
         const res  = await fetch(`/api/hub/bookings/${bookingId}?token=${encodeURIComponent(accessToken)}`);
         const json = await res.json().catch(() => null) as { success?: boolean; data?: BookingData } | null;
+        if (!alive) return;
         if (res.ok && json?.success && json.data) {
           setBooking(json.data);
           setFailure(null);
@@ -101,11 +133,12 @@ export default function BookingSuccessClient() {
         }
       } catch {
         // Сети не было вовсе — это не «брони нет».
-        setFailure('unknown');
+        if (alive) setFailure('unknown');
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
+    return () => { alive = false; };
   }, [bookingId, accessToken, attempt]);
 
   const handleCopy = () => {
@@ -151,14 +184,23 @@ export default function BookingSuccessClient() {
     );
   }, [booking, cpReady]);
 
+  // Без «г.»: «28 сентября 2026 / г.» переносилось в узкой колонке (#87).
   const fmtDate  = (d: string) =>
-    new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+    new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(/\s*г\.$/, '');
   const fmtPrice = (p: number) =>
     p.toLocaleString('ru-RU') + ' ₽';
 
   const alreadyPaid  = paid || booking?.payment_status === 'paid';
-  const needsPayment = booking && !alreadyPaid &&
-    ['new', 'pending_payment', 'confirmed'].includes(booking.status ?? '');
+  /**
+   * Оплата — только после подтверждения оператором (решение владельца 24.09,
+   * развилка 4). Карточка тура обещает «оплата только после подтверждения»;
+   * до этой правки статус 'new' сразу получал крупную «Перейти к оплате».
+   * Правило живёт в lib/bookings/success-view (сторож booking-success-page).
+   */
+  const needsPayment = Boolean(booking && !alreadyPaid && canOfferPayment(booking.status));
+  /** Заявка ещё у оператора: даты он не подтвердил, платить рано. */
+  const awaitingOperator = Boolean(booking && !alreadyPaid && booking.status === 'new');
+  const contactsShown = booking ? hasOperatorContacts(booking) : false;
 
   // Способы считаются ПООТДЕЛЬНОСТИ. До 04.09 вкладка СБП была вложена внутрь
   // проверки ключа CloudPayments: настроенная Точка не помогала, если у карты
@@ -167,6 +209,11 @@ export default function BookingSuccessClient() {
   const canPayCard = Boolean(needsPayment && booking?.cp_public_id);
   const canPaySbp  = Boolean(needsPayment && booking?.sbp_available);
   const noPayWay   = Boolean(needsPayment && !canPayCard && !canPaySbp);
+  // Заголовок — из правила в success-view: «подтвердил… к оплате» только
+  // при реально предлагаемой оплате, у отмены/завершения свои слова.
+  const headline = booking
+    ? successHeadline({ status: booking.status, alreadyPaid, needsPayment, noPayWay })
+    : null;
 
   useEffect(() => {
     if (payMethod === 'card' && !canPayCard && canPaySbp) setPayMethod('sbp');
@@ -177,7 +224,7 @@ export default function BookingSuccessClient() {
     /Telegram/i.test(navigator.userAgent);
 
   return (
-    <div className="ds-page min-h-[100dvh] flex items-start justify-center py-6 sm:py-12 px-4">
+    <div className="ds-page min-h-[100dvh] flex items-start justify-center pb-6 sm:pb-12 px-4">
       <Script
         src="https://widget.cloudpayments.ru/bundles/cloudpayments.js"
         onLoad={() => setCpReady(true)}
@@ -186,25 +233,32 @@ export default function BookingSuccessClient() {
 
       <div className="w-full max-w-lg">
 
-        {/* Header */}
+        {/* Заголовок. «Заявка создана» — только когда бронь РЕАЛЬНО прочитана;
+            до ответа — нейтральное «Проверяем заявку…» (#27). */}
         <div className="text-center mb-6">
           <div className="inline-block mb-4">
-            {alreadyPaid
-              ? <BadgeCheck size={56} className="text-[var(--success)]" />
-              : <CheckCircle size={56} className="text-[var(--success)]" />
+            {headline
+              ? headline.tone === 'paid'
+                ? <BadgeCheck size={56} className="text-[var(--success)]" />
+                : headline.tone === 'created'
+                  ? <CheckCircle size={56} className="text-[var(--success)]" />
+                  : headline.tone === 'cancelled'
+                    ? <XCircle size={56} className="text-[var(--text-muted)]" />
+                    : <Info size={56} className="text-[var(--text-muted)]" />
+              : loading
+                ? null /* спиннер один — в карточке ниже */
+                : <AlertCircle size={56} className="text-[var(--text-muted)]" />
             }
           </div>
           <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-1"
             style={{ fontFamily: 'var(--font-playfair)' }}>
-            {alreadyPaid ? 'Оплата получена' : 'Заявка создана'}
+            {!headline
+              ? loading ? 'Проверяем заявку…' : 'Не удалось открыть заявку'
+              : headline.title}
           </h1>
-          <p className="text-sm text-[var(--text-secondary)]">
-            {alreadyPaid
-              ? 'Оператор получил уведомление об оплате и подтвердит дальнейшие детали поездки.'
-              : noPayWay
-                ? 'Заявка у оператора. Онлайн-оплата сейчас недоступна — оператор свяжется с вами и подскажет, как оплатить.'
-                : 'Проверьте данные заявки и переходите к оплате, если всё подходит.'}
-          </p>
+          {headline?.subtitle && (
+            <p className="text-sm text-[var(--text-secondary)]">{headline.subtitle}</p>
+          )}
         </div>
 
         {/* Нет email — эта ссылка единственная (#1889): закрыл вкладку без
@@ -222,15 +276,8 @@ export default function BookingSuccessClient() {
                   Почту при бронировании не указывали — значит письма с этой ссылкой не будет,
                   и вернуться к заявке, оплате и документам можно только по ней. Закроешь вкладку
                   без сохранения — доступ к брони и своим данным восстановить будет нечем.
+                  Кнопка «Скопировать ссылку на заявку» — внизу страницы.
                 </p>
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className="ds-btn ds-btn-secondary text-xs mt-3 flex items-center gap-1.5"
-                >
-                  <Copy size={13} />
-                  {linkCopied ? 'Ссылка скопирована' : 'Скопировать ссылку'}
-                </button>
               </div>
             </div>
           </div>
@@ -274,8 +321,9 @@ export default function BookingSuccessClient() {
                   <p className="text-[11px] text-[var(--text-muted)] mb-0.5">Номер брони</p>
                   <p className="text-2xl font-bold text-[var(--accent)]">#{booking.id}</p>
                 </div>
-                <button onClick={handleCopy}
-                  className="flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:text-[var(--accent)] transition-colors">
+                {/* 44px — минимальная тач-цель DS; была 16px (#86). */}
+                <button type="button" onClick={handleCopy}
+                  className="min-h-[44px] px-2 -mr-2 flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:text-[var(--accent)] transition-colors">
                   <Copy size={14} />
                   {copied ? 'Скопировано' : 'Копировать'}
                 </button>
@@ -293,7 +341,7 @@ export default function BookingSuccessClient() {
                   <Calendar className="w-4 h-4 text-[var(--accent)] mt-0.5 shrink-0" />
                   <div>
                     <p className="text-[11px] text-[var(--text-muted)]">Дата</p>
-                    <p className="text-sm font-medium text-[var(--text-primary)]">{fmtDate(booking.booking_date)}</p>
+                    <p className="text-sm font-medium text-[var(--text-primary)] whitespace-nowrap">{fmtDate(booking.booking_date)}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
@@ -311,18 +359,41 @@ export default function BookingSuccessClient() {
                 <p className="text-2xl font-bold text-[var(--text-primary)]">{fmtPrice(booking.total_price)}</p>
               </div>
 
+              {/* Заявка ещё у оператора — следующий шаг словами, а не кнопка
+                  оплаты (развилка 4). Контакты упоминаются, только если они
+                  на экране есть (#75/#87). */}
+              {awaitingOperator && (
+                <div className="pt-1 px-4 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
+                  <p className="text-sm font-semibold text-[var(--text-primary)] mb-2">Что дальше</p>
+                  <ol className="space-y-1.5 text-xs text-[var(--text-secondary)] leading-relaxed list-decimal pl-4">
+                    <li>
+                      Оператор подтверждает дату и детали.{' '}
+                      {contactsShown
+                        ? 'Если есть вопросы — его контакты ниже.'
+                        : 'Он свяжется с вами по телефону, который вы указали.'}
+                    </li>
+                    <li>
+                      После подтверждения оплата откроется на этой странице
+                      {booking.has_email ? ' — та же ссылка есть в письме о заявке.' : '.'}
+                    </li>
+                  </ol>
+                </div>
+              )}
+
               {/* Оплатить нечем — говорим вслух, а не прячем блок.
                   Спрятанный блок читается как «так задумано», и турист уходит
-                  думать, что бронь оплаты не требует. */}
+                  думать, что бронь оплаты не требует. Тон нейтральный: это
+                  следующий шаг, а не отказ (#87). */}
               {noPayWay && (
-                <div className="pt-1 flex items-start gap-2.5 px-4 py-3 rounded-lg border border-[var(--warning)]"
-                  style={{ background: 'color-mix(in srgb, var(--warning) 10%, transparent)' }}>
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--warning)]" />
+                <div className="pt-1 flex items-start gap-2.5 px-4 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
+                  <CreditCard className="w-4 h-4 shrink-0 mt-0.5 text-[var(--ocean)]" />
                   <div>
                     <p className="text-sm font-semibold text-[var(--text-primary)]">Онлайн-оплата недоступна</p>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-                      Заявка сохранена, номер выше — он же и подтверждение. Оператор получил уведомление
-                      и свяжется с вами; оплатить можно будет напрямую по его контактам ниже.
+                      Заявка сохранена под номером выше. Мы передали её оператору,
+                      {contactsShown
+                        ? ' оплатить можно будет напрямую по его контактам ниже.'
+                        : ' он свяжется с вами по телефону, который вы указали, и подскажет, как оплатить.'}
                     </p>
                   </div>
                 </div>
@@ -370,7 +441,7 @@ export default function BookingSuccessClient() {
                       {/* Telegram WebView warning */}
                       {isInTgWebView && (
                         <a
-                          href={`https://vedarai.ru/booking-success/${booking.id}?t=${encodeURIComponent(accessToken)}`}
+                          href={`https://vedarai.ru/booking-success/${booking.id}?t=${encodeURIComponent(accessToken ?? "")}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] transition-colors"
@@ -416,7 +487,7 @@ export default function BookingSuccessClient() {
               )}
 
               {/* Operator */}
-              {(booking.operator_phone || booking.operator_telegram) && (
+              {contactsShown && (
                 <div className="pt-3 border-t border-[var(--border)]">
                   <p className="text-[11px] text-[var(--text-muted)] mb-2">Оператор</p>
                   <p className="text-sm font-medium text-[var(--text-primary)] mb-2">{booking.operator_name}</p>
@@ -450,7 +521,7 @@ export default function BookingSuccessClient() {
         {booking && (
           <div className="flex gap-3 mb-3">
             <a
-              href={`/api/hub/bookings/${booking.id}/pdf?type=voucher&token=${encodeURIComponent(accessToken)}`}
+              href={`/api/hub/bookings/${booking.id}/pdf?type=voucher&token=${encodeURIComponent(accessToken ?? "")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
@@ -459,7 +530,7 @@ export default function BookingSuccessClient() {
               Ваучер (PDF)
             </a>
             <a
-              href={`/api/hub/bookings/${booking.id}/pdf?type=contract&token=${encodeURIComponent(accessToken)}`}
+              href={`/api/hub/bookings/${booking.id}/pdf?type=contract&token=${encodeURIComponent(accessToken ?? "")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
@@ -470,16 +541,30 @@ export default function BookingSuccessClient() {
           </div>
         )}
 
-        {/* CTAs */}
+        {/* CTAs. Главная кнопка одна. У гостя это «Скопировать ссылку на
+            заявку»: гостевая бронь живёт по ссылке, а «Мои бронирования» вели
+            его на вход, после которого заявки там нет (#76/#86/#92). Когда
+            открыта оплата, главная — она, а ссылка уходит во вторые.
+            Ссылки — сами <Link className="ds-btn">, без вложенной <button>. */}
         <div className="flex flex-col gap-3">
-          <Link href="/hub/tourist/bookings">
-            <button className="ds-btn ds-btn-primary w-full">Мои бронирования</button>
-          </Link>
-          <Link href="/marketplace">
-            <button className="ds-btn ds-btn-secondary w-full flex items-center justify-center gap-2">
-              <Home size={16} />
-              В каталог
+          {booking && (
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              className={`ds-btn ${canPayCard || canPaySbp ? 'ds-btn-secondary' : 'ds-btn-primary'} w-full flex items-center justify-center gap-2`}
+            >
+              <Copy size={16} />
+              {linkCopied ? 'Ссылка скопирована' : 'Скопировать ссылку на заявку'}
             </button>
+          )}
+          {authed === true && (
+            <Link href="/hub/tourist/bookings" className="ds-btn ds-btn-secondary w-full flex items-center justify-center gap-2">
+              Мои бронирования
+            </Link>
+          )}
+          <Link href="/marketplace" className="ds-btn ds-btn-secondary w-full flex items-center justify-center gap-2">
+            <Home size={16} />
+            В каталог
           </Link>
         </div>
 

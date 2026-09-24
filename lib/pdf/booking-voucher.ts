@@ -6,7 +6,7 @@
 
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
-import { registerCyrillicFonts } from '@/lib/pdf/fonts';
+import { registerCyrillicFonts, FONT_BODY, FONT_BOLD } from '@/lib/pdf/fonts';
 
 export interface VoucherInput {
   id: string;
@@ -49,14 +49,14 @@ export async function generateBookingVoucherPDF(v: VoucherInput): Promise<Buffer
       const left = 50;
       const accent = '#D44A0C';
 
-      doc.font('Helvetica-Bold').fontSize(22).fillColor(accent).text('Ваучер бронирования', left, 55);
-      doc.font('Helvetica').fontSize(10).fillColor('#666666').text('Ведар · KamchatourHub', left, 84);
+      doc.font(FONT_BOLD).fontSize(22).fillColor(accent).text('Ваучер бронирования', left, 55);
+      doc.font(FONT_BODY).fontSize(10).fillColor('#666666').text('Ведар · KamchatourHub', left, 84);
 
       if (qr) doc.image(qr, doc.page.width - 50 - 110, 50, { width: 110 });
 
       doc.moveTo(left, 110).lineTo(doc.page.width - 50, 110).strokeColor('#DDDDDD').stroke();
 
-      doc.font('Helvetica-Bold').fontSize(16).fillColor('#1A1714').text(v.tourName, left, 128, { width: doc.page.width - 100 - 120 });
+      doc.font(FONT_BOLD).fontSize(16).fillColor('#1A1714').text(v.tourName, left, 128, { width: doc.page.width - 100 - 120 });
 
       const rows: Array<[string, string]> = [
         ['Оператор', v.operatorName || '—'],
@@ -69,13 +69,13 @@ export async function generateBookingVoucherPDF(v: VoucherInput): Promise<Buffer
 
       let y = 168;
       for (const [k, val] of rows) {
-        doc.font('Helvetica').fontSize(11).fillColor('#6B6560').text(k, left, y, { width: 140 });
-        doc.font('Helvetica-Bold').fontSize(11).fillColor('#1A1714').text(val, left + 150, y, { width: 260 });
+        doc.font(FONT_BODY).fontSize(11).fillColor('#6B6560').text(k, left, y, { width: 140 });
+        doc.font(FONT_BOLD).fontSize(11).fillColor('#1A1714').text(val, left + 150, y, { width: 260 });
         y += 26;
       }
 
       y += 14;
-      doc.font('Helvetica').fontSize(9).fillColor('#9A9590')
+      doc.font(FONT_BODY).fontSize(9).fillColor('#9A9590')
         .text(`Номер бронирования: ${v.id}`, left, y, { width: doc.page.width - 100 });
       doc.moveDown(0.5)
         .text('Покажите этот ваучер гиду или оператору при встрече. Детали и статус — в личном кабинете на vedarai.ru.', { width: doc.page.width - 100 });

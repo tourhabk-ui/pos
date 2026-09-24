@@ -8,7 +8,7 @@
  */
 
 import PDFDocument from 'pdfkit';
-import { registerCyrillicFonts } from '@/lib/pdf/fonts';
+import { registerCyrillicFonts, FONT_BODY, FONT_BOLD } from '@/lib/pdf/fonts';
 import QRCode from 'qrcode';
 import { getPublicBaseUrl } from '@/lib/config';
 import { hazardLabel } from '@/lib/safety/hazard-labels';
@@ -56,7 +56,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
       margins: { top: 48, bottom: 48, left: 52, right: 52 },
       info: {
         Title: `${place.name} — офлайн карточка`,
-        Author: 'TourHab — Камчатка',
+        Author: 'Ведар — Камчатка',
         Subject: 'Офлайн карточка места',
         CreationDate: new Date(),
       },
@@ -79,14 +79,14 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     doc.fillColor('#FFFFFF')
        .fontSize(9)
-       .font('Helvetica')
-       .text('TOURHAB · КАМЧАТКА', 52, 20, { characterSpacing: 2 });
+       .font(FONT_BODY)
+       .text('ВЕДАР · КАМЧАТКА', 52, 20, { characterSpacing: 2 });
 
     doc.fontSize(8)
        .text('ОФЛАЙН КАРТОЧКА МЕСТА', 0, 20, { align: 'right', width: doc.page.width - 52 });
 
     doc.fontSize(20)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text(place.name, 52, 36);
 
     doc.moveDown(0);
@@ -97,12 +97,12 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     doc.fillColor('#000000')
        .fontSize(10)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text(typeLabel.toUpperCase(), 52, y, { characterSpacing: 1.5 });
 
     if (place.zone) {
       doc.fillColor('#444444')
-         .font('Helvetica')
+         .font(FONT_BODY)
          .text(` · ${place.zone}`, { continued: false });
     }
 
@@ -117,23 +117,23 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     doc.fillColor('#000000')
        .fontSize(9)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text('GPS КООРДИНАТЫ', 52, y, { characterSpacing: 1 });
     y = doc.y + 4;
 
     doc.fontSize(18)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text(`${place.lat.toFixed(6)}, ${place.lng.toFixed(6)}`, 52, y);
     y = doc.y + 4;
 
     doc.fontSize(8)
-       .font('Helvetica')
+       .font(FONT_BODY)
        .fillColor('#444444')
        .text('Скопируй в Organic Maps / Google Maps для навигации без интернета', 52, y);
     y = doc.y + 16;
 
     if (place.altitudeM) {
-      doc.fontSize(9).font('Helvetica').fillColor('#000000')
+      doc.fontSize(9).font(FONT_BODY).fillColor('#000000')
          .text(`Высота: ${place.altitudeM} м н.у.м.`, 52, y);
       y = doc.y + 10;
     }
@@ -148,14 +148,14 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
     if (place.hazardTypes && place.hazardTypes.length > 0) {
       doc.fillColor('#000000')
          .fontSize(9)
-         .font('Helvetica-Bold')
+         .font(FONT_BOLD)
          .text('ОПАСНОСТИ', 52, y, { characterSpacing: 1 });
       y = doc.y + 6;
 
       for (const h of place.hazardTypes) {
         const label = hazardLabel(h);
         doc.fontSize(10)
-           .font('Helvetica')
+           .font(FONT_BODY)
            .fillColor('#000000')
            .text(`• ${label}`, 60, y);
         y = doc.y + 2;
@@ -171,7 +171,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
       doc.fillColor('#000000')
          .fontSize(9)
-         .font('Helvetica-Bold')
+         .font(FONT_BOLD)
          .text('НЕОБХОДИМОЕ СНАРЯЖЕНИЕ', 52, y, { characterSpacing: 1 });
       y = doc.y + 6;
 
@@ -184,11 +184,11 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
       const gearY = y;
 
       if (leftGear) {
-        doc.fontSize(9).font('Helvetica').fillColor('#000000')
+        doc.fontSize(9).font(FONT_BODY).fillColor('#000000')
            .text(leftGear, 60, gearY, { width: colW });
       }
       if (rightGear) {
-        doc.fontSize(9).font('Helvetica').fillColor('#000000')
+        doc.fontSize(9).font(FONT_BODY).fillColor('#000000')
            .text(rightGear, 60 + colW + 10, gearY, { width: colW });
       }
 
@@ -203,19 +203,19 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
       doc.fillColor('#000000')
          .fontSize(9)
-         .font('Helvetica-Bold')
+         .font(FONT_BOLD)
          .text('СЕЗОН ПОСЕЩЕНИЯ', 52, y, { characterSpacing: 1 });
       y = doc.y + 6;
 
       const from = place.openFromDate ?? '—';
       const to   = place.openToDate   ?? '—';
-      doc.fontSize(10).font('Helvetica').fillColor('#000000')
+      doc.fontSize(10).font(FONT_BODY).fillColor('#000000')
          .text(`${from} — ${to}`, 60, y);
       y = doc.y + 10;
     }
 
     if (place.registrationRequired) {
-      doc.fontSize(9).font('Helvetica-Bold').fillColor('#000000')
+      doc.fontSize(9).font(FONT_BOLD).fillColor('#000000')
          .text('! Требуется регистрация в МЧС перед выходом', 52, y);
       y = doc.y + 10;
     }
@@ -227,32 +227,32 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     doc.fillColor('#000000')
        .fontSize(9)
-       .font('Helvetica-Bold')
+       .font(FONT_BOLD)
        .text('ЭКСТРЕННЫЕ КОНТАКТЫ', 52, y, { characterSpacing: 1 });
     y = doc.y + 6;
 
     // 112
-    doc.fontSize(20).font('Helvetica-Bold').fillColor('#000000').text('112', 60, y);
-    doc.fontSize(9).font('Helvetica').fillColor('#444444').text('Единый экстренный', 60, doc.y + 2);
+    doc.fontSize(20).font(FONT_BOLD).fillColor('#000000').text('112', 60, y);
+    doc.fontSize(9).font(FONT_BODY).fillColor('#444444').text('Единый экстренный', 60, doc.y + 2);
 
     const col2x = 52 + W / 2;
     // Без выдуманных номеров: если у точки нет верифицированного номера в БД —
     // показываем федеральный короткий 101 (см. lib/safety/emergency-numbers.ts).
-    doc.fontSize(14).font('Helvetica-Bold').fillColor('#000000')
+    doc.fontSize(14).font(FONT_BOLD).fillColor('#000000')
        .text(place.phoneRangerMches ?? '101', col2x, y);
-    doc.fontSize(9).font('Helvetica').fillColor('#444444')
+    doc.fontSize(9).font(FONT_BODY).fillColor('#444444')
        .text('МЧС · пожарные и спасатели', col2x, doc.y + 2);
 
     y = doc.y + 16;
 
     if (place.satCommunicatorRequired) {
-      doc.fontSize(9).font('Helvetica-Bold').fillColor('#000000')
+      doc.fontSize(9).font(FONT_BOLD).fillColor('#000000')
          .text('! Рекомендуется спутниковый коммуникатор', 52, y);
       y = doc.y + 6;
     }
 
     if (place.nearestMedicalKm) {
-      doc.fontSize(9).font('Helvetica').fillColor('#000000')
+      doc.fontSize(9).font(FONT_BODY).fillColor('#000000')
          .text(`До ближайшей медпомощи: ${place.nearestMedicalKm} км`, 52, y);
       y = doc.y + 10;
     }
@@ -264,7 +264,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
     const qrY = doc.page.height - 48 - qrSize - 20;
 
     doc.image(qrBuffer, qrX, qrY, { width: qrSize });
-    doc.fontSize(7).font('Helvetica').fillColor('#444444')
+    doc.fontSize(7).font(FONT_BODY).fillColor('#444444')
        .text('Актуальная версия страницы', qrX, qrY + qrSize + 4, { width: qrSize, align: 'center' });
 
     // ── Описание (если осталось место) ────────────────────────────────────────
@@ -274,7 +274,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
       doc.strokeColor('#CCCCCC').lineWidth(0.5).moveTo(52, y).lineTo(52 + W, y).stroke();
       y += 14;
 
-      doc.fillColor('#000000').fontSize(9).font('Helvetica-Bold')
+      doc.fillColor('#000000').fontSize(9).font(FONT_BOLD)
          .text('О МЕСТЕ', 52, y, { characterSpacing: 1 });
       y = doc.y + 6;
 
@@ -283,7 +283,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
         ? place.description.slice(0, maxDescLen) + '...'
         : place.description;
 
-      doc.fontSize(9).font('Helvetica').fillColor('#333333')
+      doc.fontSize(9).font(FONT_BODY).fillColor('#333333')
          .text(desc, 52, y, { width: W - qrSize - 20, lineGap: 2 });
     }
 
@@ -293,7 +293,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
     doc.strokeColor('#CCCCCC').lineWidth(0.5)
        .moveTo(52, footerY - 10).lineTo(52 + W, footerY - 10).stroke();
 
-    doc.fontSize(7).font('Helvetica').fillColor('#888888')
+    doc.fontSize(7).font(FONT_BODY).fillColor('#888888')
        .text(
          `Сгенерировано: ${new Date().toLocaleDateString('ru-RU')} · vedarai.ru · ${pageUrl}`,
          52, footerY,

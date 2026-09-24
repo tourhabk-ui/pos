@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { bookingTotal, normalizePriceUnit } from '@/lib/tours/booking-total';
 import { tourDurationDays } from '@/lib/bookings/duration';
 import { useRouter } from 'next/navigation';
-import { Calendar, Users, Phone, Mail, User, ChevronRight } from 'lucide-react';
+import { Calendar, Users, Phone, Mail, User, ChevronRight, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
 import TourDateField from '@/components/marketplace/TourDateField';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
@@ -21,14 +21,42 @@ interface BookingFormProps {
   tourTitle?: string;
 }
 
+/** Неразрывный пробел перед ₽: «52 000 / ₽» на двух строках — аудит 24.09. */
 function formatPrice(p: number): string {
-  return new Intl.NumberFormat('ru-RU').format(p) + ' ₽';
+  return new Intl.NumberFormat('ru-RU').format(p) + '\u00a0₽';
+}
+
+/** Поля формы, которые умеет назвать ответ сервера (`field` из Zod) или своя проверка. */
+type FormField = 'booking_date' | 'participants_count' | 'tourist_name' | 'tourist_phone' | 'tourist_email' | 'special_requests' | 'pd_consent';
+const FORM_FIELDS: readonly FormField[] = ['booking_date', 'participants_count', 'tourist_name', 'tourist_phone', 'tourist_email', 'special_requests', 'pd_consent'];
+function asFormField(v: unknown): FormField | null {
+  return typeof v === 'string' && (FORM_FIELDS as readonly string[]).includes(v) ? (v as FormField) : null;
+}
+
+/**
+ * Отказ формы. `kind` различает «вы ввели не то» (проверка поля) и «отправка
+ * не удалась» (сеть, сервер, лимит частоты): совет подождать и повторить
+ * уместен только во втором случае — раньше он висел под кнопкой всегда.
+ */
+interface FormError {
+  message: string;
+  field: FormField | null;
+  kind: 'validation' | 'send';
 }
 
 export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration }: BookingFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<FormError | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  // Сообщение об ошибке обязано оказаться на экране: кнопка внизу длинной
+  // формы, над ней липкая панель, и отказ, выведенный вне видимой зоны,
+  // для человека не существует. `center` оставляет его выше нижней панели.
+  useEffect(() => {
+    const el = errorRef.current;
+    if (!error || !el || typeof el.scrollIntoView !== 'function') return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [error]);
   // Предвыбор даты из ?date= (день плана, «Мой план 2.0» B-3): клик
   // «забронировать» из дня плана не должен заставлять вводить дату, которую
   // план уже знает. Читаем на клиенте через window.location — серверный
@@ -75,21 +103,36 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const unit = normalizePriceUnit(priceUnit);
   const days = unit === 'per_day_per_person' && duration ? tourDurationDays(duration) : 1;
 
+  // Человек начал править — прежний отказ больше не про то, что на экране.
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    setError(null);
   };
+  const setDate = (date: string) => {
+    setFormData(prev => ({ ...prev, booking_date: date }));
+    setError(null);
+  };
+  const setConsent = (v: boolean) => {
+    setPdConsent(v);
+    setError(null);
+  };
+  /** Подсветка поля, которое назвал отказ: рамка --danger и aria-invalid. */
+  const invalid = (f: FormField) => error?.field === f;
+  const invalidProps = (f: FormField) => invalid(f)
+    ? { 'aria-invalid': true as const, 'aria-describedby': 'booking-error', style: { borderColor: 'var(--danger)' } }
+    : {};
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.booking_date) {
-      setError('Выберите дату заезда');
+      setError({ message: 'Выберите дату заезда', field: 'booking_date', kind: 'validation' });
       return;
     }
     // Согласие проверяется и здесь, а не только выключенной кнопкой: гейт,
     // держащийся одним `disabled`, переживает ровно до первой правки вёрстки.
     if (!pdConsent) {
-      setError('Нужно согласие на обработку данных, чтобы мы могли связаться с вами');
+      setError({ message: 'Нужно согласие на обработку данных, чтобы мы могли связаться с вами', field: 'pd_consent', kind: 'validation' });
       return;
     }
     /**
@@ -104,11 +147,13 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
      */
     const phone = normalizePhone(formData.tourist_phone);
     if (!phone) {
-      setError('Проверьте телефон: нужен номер из 10–15 цифр, например +7 900 000 00 00');
+      setError({ message: 'Проверьте телефон: нужен номер из 10–15 цифр, например +7 900 000 00 00', field: 'tourist_phone', kind: 'validation' });
       return;
     }
     setLoading(true);
-    setError('');
+    setError(null);
+    // Поле, которое назвал сервер, — чтобы подсветить именно его.
+    let serverField: FormField | null = null;
 
     try {
       const res = await fetch('/api/hub/bookings/create', {
@@ -120,6 +165,10 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           tour_id: Number(tourId),
           ...formData,
           tourist_phone: phone,
+          // Почта необязательна (решение владельца 24.09): пустую строку не
+          // шлём вовсе — сервер ждёт `email().optional()`, и '' он отверг бы
+          // как «неверный формат».
+          tourist_email: formData.tourist_email.trim() || undefined,
           participants_count: participants,
           // СОСТОЯНИЕ галочки, а не литерал `true`. Девять соседних форм шлют
           // литерал, и это работает лишь пока кнопка выключена: снимут
@@ -138,6 +187,9 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         // (английские) заменяем на понятное, а причину оставляем консоли.
         const msg = /[А-Яа-яЁё]/.test(raw) ? raw : 'Не удалось отправить заявку. Проверьте поля и попробуйте ещё раз.';
         if (!/[А-Яа-яЁё]/.test(raw)) console.error('[BookingForm] отказ сервера', res.status, raw);
+        serverField = typeof data === 'object' && data !== null && 'field' in data
+          ? asFormField((data as Record<string, unknown>).field)
+          : null;
         throw new Error(msg);
       }
 
@@ -152,7 +204,14 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         : '';
       router.push(`/booking-success/${id}?t=${encodeURIComponent(token)}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
+      // Отказ не глушится (§4.0): сообщение — человеку, причина сети — в консоль.
+      const ours = err instanceof Error && /[А-Яа-яЁё]/.test(err.message);
+      if (!ours) console.error('[BookingForm] отправка не удалась', err);
+      const message = ours
+        ? (err as Error).message
+        : 'Не удалось отправить заявку. Проверьте связь и попробуйте ещё раз.';
+      // Поле назвал сервер — это отказ по вводу, повтор тут не поможет.
+      setError({ message, field: serverField, kind: serverField ? 'validation' : 'send' });
     } finally {
       setLoading(false);
     }
@@ -161,18 +220,18 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const maxOpts = Math.min(maxParticipants, 12);
 
   return (
-    <form onSubmit={handleSubmit} onFocusCapture={markFunnelStart} className="ds-card p-6 space-y-5">
+    // Без ds-card: форма стоит внутри карточки aside (_TourDetailClient), и
+    // вторая рамка с p-6 съедала 48px ширины — итог рвался на «52 000 / ₽»,
+    // кнопка на две строки, ячейки календаря 32px (аудит 24.09, П2).
+    <form onSubmit={handleSubmit} onFocusCapture={markFunnelStart} className="space-y-5">
       <div>
         <h2 className="ds-h2 mb-0.5">Оставить заявку на тур</h2>
         {tourTitle && <p className="text-sm text-[var(--text-secondary)]">{tourTitle}</p>}
-        <p className="text-xs text-[var(--text-muted)] mt-2">
-          Сначала фиксируем заявку и детали поездки. Финальные условия участия подтверждаются перед оплатой.
-        </p>
       </div>
 
       {/* Дата — первое поле */}
       <div>
-        <label className="ds-label flex items-center gap-1.5 mb-1.5">
+        <label htmlFor="booking-date" className="ds-label flex items-center gap-1.5 mb-1.5">
           <Calendar className="w-3.5 h-3.5" />
           Дата заезда *
         </label>
@@ -180,21 +239,25 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           tourId={tourId}
           tourTitle={tourTitle}
           value={formData.booking_date}
-          onChange={(date) => setFormData(prev => ({ ...prev, booking_date: date }))}
+          onChange={setDate}
+          inputId="booking-date"
+          invalid={invalid('booking_date')}
         />
       </div>
 
       {/* Участники */}
       <div>
-        <label className="ds-label flex items-center gap-1.5 mb-1.5">
+        <label htmlFor="booking-participants" className="ds-label flex items-center gap-1.5 mb-1.5">
           <Users className="w-3.5 h-3.5" />
           Количество участников *
         </label>
         <select
+          id="booking-participants"
           name="participants_count"
           value={formData.participants_count}
           onChange={handleChange}
           className="ds-input w-full"
+          {...invalidProps('participants_count')}
         >
           {Array.from({ length: maxOpts }, (_, i) => i + 1).map(n => (
             <option key={n} value={n}>{n} {n === 1 ? 'человек' : n < 5 ? 'человека' : 'человек'}</option>
@@ -205,129 +268,176 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
       {/* Контакты */}
       <div className="grid grid-cols-1 gap-4">
         <div>
-          <label className="ds-label flex items-center gap-1.5 mb-1.5">
+          <label htmlFor="booking-name" className="ds-label flex items-center gap-1.5 mb-1.5">
             <User className="w-3.5 h-3.5" />
             Имя *
           </label>
           <input
+            id="booking-name"
             type="text"
             name="tourist_name"
+            autoComplete="name"
             value={formData.tourist_name}
             onChange={handleChange}
             placeholder="Иван Иванов"
             className="ds-input w-full"
             required
+            {...invalidProps('tourist_name')}
           />
         </div>
         <div>
-          <label className="ds-label flex items-center gap-1.5 mb-1.5">
+          <label htmlFor="booking-phone" className="ds-label flex items-center gap-1.5 mb-1.5">
             <Phone className="w-3.5 h-3.5" />
             Телефон *
           </label>
           <input
+            id="booking-phone"
             type="tel"
+            inputMode="tel"
             name="tourist_phone"
+            autoComplete="tel"
             value={formData.tourist_phone}
             onChange={handleChange}
             placeholder="+7 900 000 00 00"
             className="ds-input w-full"
             required
+            {...invalidProps('tourist_phone')}
           />
         </div>
         <div>
-          <label className="ds-label flex items-center gap-1.5 mb-1.5">
+          {/* Почта необязательна (решение владельца 24.09): сервер принимает
+              её как optional, у страницы успеха есть ветка без почты. Подпись
+              говорит, ЗАЧЕМ она: письмо со ссылкой — путь назад к заявке. */}
+          <label htmlFor="booking-email" className="ds-label flex items-center gap-1.5 mb-1.5">
             <Mail className="w-3.5 h-3.5" />
-            Email *
+            Email (необязательно)
           </label>
           <input
+            id="booking-email"
             type="email"
             name="tourist_email"
+            autoComplete="email"
             value={formData.tourist_email}
             onChange={handleChange}
             placeholder="ivan@example.com"
             className="ds-input w-full"
-            required
+            aria-describedby="booking-email-hint"
+            {...invalidProps('tourist_email')}
           />
+          <p id="booking-email-hint" className="mt-1.5 text-xs text-[var(--text-secondary)]">
+            Пришлём ссылку на заявку, чтобы к ней можно было вернуться.
+          </p>
         </div>
       </div>
 
       <div>
-        <label className="ds-label mb-1.5">Пожелания оператору</label>
+        <label htmlFor="booking-requests" className="ds-label flex items-center gap-1.5 mb-1.5">
+          <MessageSquare className="w-3.5 h-3.5" />
+          Пожелания оператору
+        </label>
         <textarea
+          id="booking-requests"
           name="special_requests"
           value={formData.special_requests}
           onChange={handleChange}
           className="ds-input w-full resize-none"
           rows={3}
           placeholder="Особые пожелания, вопросы по снаряжению..."
+          {...invalidProps('special_requests')}
         />
       </div>
 
+      <PdConsentCheckbox checked={pdConsent} onChange={setConsent} id="pd-consent-tour-booking" />
+
+      {/* Отказ — бледная подложка из --danger и текст --danger. Прежняя
+          `bg-[var(--danger)] bg-opacity-10` в Tailwind 3 давала СПЛОШНОЙ
+          красный фон: красный текст на красном, сообщение не читалось вовсе
+          (аудит 24.09). bg-opacity на var()-цвет не действует — только
+          color-mix. Стоит над итогом, у кнопки, где человек смотрит. */}
       {error && (
-        <div className="bg-[var(--danger)] bg-opacity-10 border border-[var(--danger)] text-[var(--danger)] p-3 rounded-lg text-sm">
-          {error}
+        <div
+          ref={errorRef}
+          id="booking-error"
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border p-3 text-sm text-[var(--danger)] scroll-mt-24"
+          style={{
+            background: 'color-mix(in srgb, var(--danger) 10%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--danger) 40%, transparent)',
+          }}
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="space-y-1">
+            <p>{error.message}</p>
+            {/* Совет про повтор — только когда отправка не удалась. Про повтор
+                говорим ЧЕСТНО: идемпотентности у создания брони нет (ни ключа,
+                ни ON CONFLICT — проверено 14.09), и обещание «заявка не
+                продублируется» было бы прямым враньём. Ограничение частоты
+                5/мин повтор не отменяет. */}
+            {error.kind === 'send' && (
+              <p className="text-xs">
+                Подождите минуту и попробуйте снова, а не нажимайте несколько раз подряд.
+              </p>
+            )}
+          </div>
         </div>
       )}
 
-      <p className="text-xs text-[var(--text-muted)]">
-        Отправляя заявку, вы понимаете, что даты, наличие мест и точная стоимость уточняются перед оплатой.
-      </p>
-
-      <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-tour-booking" />
-
-      {/* Итог */}
-      <div className="border-t border-[var(--border)] pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-sm text-[var(--text-muted)]">
-              {unit === 'per_tour'
-                ? `${formatPrice(basePrice)} за группу · ${participants} чел.`
-                : unit === 'per_day_per_person' && days > 1
-                ? `${formatPrice(basePrice)} × ${participants} чел. × ${days} дн.`
-                : `${formatPrice(basePrice)} × ${participants} чел.`}
-            </p>
-            <p className="text-2xl font-bold text-[var(--text-primary)]">
-              {formatPrice(totalPrice)}
-            </p>
-          </div>
-          {/* Без даты кнопка выключена — и обязана ВЫГЛЯДЕТЬ выключенной и
-              говорить почему: прогулка 10.09 нашла её оранжевой и молчащей
-              (issue #1780), человек жал и не понимал, что не так. */}
-          <button
-            type="submit"
-            disabled={loading || !formData.booking_date || !pdConsent}
-            aria-describedby={!formData.booking_date || !pdConsent ? 'booking-submit-hint' : undefined}
-            className="ds-btn ds-btn-primary flex items-center gap-2 px-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-          >
-            {loading ? (
-              <span className="animate-spin rounded-full h-4 w-4 border border-white border-t-transparent" />
-            ) : (
-              <>
-                Оставить заявку
-                <ChevronRight className="w-4 h-4" />
-              </>
-            )}
-          </button>
+      {/* Итог — колонкой: сумма целиком одной строкой, под ней кнопка во всю
+          ширину. В строку с кнопкой сумма не помещалась и рвалась. */}
+      <div className="border-t border-[var(--border)] pt-4 space-y-3">
+        <div>
+          <p className="text-sm text-[var(--text-secondary)]">
+            {unit === 'per_tour'
+              ? `${formatPrice(basePrice)} за группу · ${participants} чел.`
+              : unit === 'per_day_per_person' && days > 1
+              ? `${formatPrice(basePrice)} × ${participants} чел. × ${days} дн.`
+              : `${formatPrice(basePrice)} × ${participants} чел.`}
+          </p>
+          <p className="text-2xl font-bold whitespace-nowrap text-[var(--text-primary)]">
+            {formatPrice(totalPrice)}
+          </p>
         </div>
+        {/* Без даты кнопка выключена — и обязана ВЫГЛЯДЕТЬ выключенной и
+            говорить почему: прогулка 10.09 нашла её оранжевой и молчащей
+            (issue #1780), человек жал и не понимал, что не так.
+            При отправке текст остаётся рядом со спиннером — ширина кнопки
+            не прыгает, и видно, что происходит. */}
+        <button
+          type="submit"
+          disabled={loading || !formData.booking_date || !pdConsent}
+          aria-describedby={!formData.booking_date || !pdConsent ? 'booking-submit-hint' : undefined}
+          aria-busy={loading || undefined}
+          className="ds-btn ds-btn-primary w-full inline-flex items-center justify-center gap-2 whitespace-nowrap px-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              Отправляем…
+            </>
+          ) : (
+            <>
+              Оставить заявку
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
+            </>
+          )}
+        </button>
         {/* Причина, по которой кнопка выключена, называется КОНКРЕТНАЯ. Одно
             «заполните форму» на два разных препятствия заставляет искать
-            глазами, чего не хватает (урок #1780). */}
+            глазами, чего не хватает (урок #1780). Текст — основным цветом,
+            предупреждает иконка: жёлтый текст на белом давал 2.5:1. */}
         {!formData.booking_date ? (
-          <p id="booking-submit-hint" className="text-xs text-[var(--warning)]">
+          <p id="booking-submit-hint" className="flex items-start gap-1.5 text-xs text-[var(--text-primary)]">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--warning)]" aria-hidden="true" />
             Сначала выберите дату заезда в календаре выше.
           </p>
         ) : !pdConsent ? (
-          <p id="booking-submit-hint" className="text-xs text-[var(--warning)]">
+          <p id="booking-submit-hint" className="flex items-start gap-1.5 text-xs text-[var(--text-primary)]">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--warning)]" aria-hidden="true" />
             Отметьте согласие на обработку данных — без него мы не сможем связаться с вами.
           </p>
         ) : (
-          <p className="text-xs text-[var(--text-muted)]">
+          <p className="text-xs text-[var(--text-secondary)]">
             После создания заявки откроется страница бронирования с дальнейшими шагами. Оператор получит уведомление автоматически.
-            {/* Про повтор говорим ЧЕСТНО: идемпотентности у создания брони нет
-                (ни ключа, ни ON CONFLICT — проверено 14.09), и обещание
-                «заявка не продублируется» было бы прямым враньём. Ограничение
-                частоты 5/мин повтор не отменяет. */}
-            {' '}Если отправка не удалась — подождите минуту и попробуйте снова, а не нажимайте несколько раз подряд.
           </p>
         )}
       </div>

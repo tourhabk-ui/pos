@@ -36,6 +36,19 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
  *  7. ЧИСЛО МЕСТ БЫЛО СПРЯТАНО в title. «Осталось 2» — это то, ради чего
  *     календарь и открывают; выносим в ячейку.
  *
+ *  8. ВЫБОР ЖИЛ В ДВУХ МЕСТАХ (аудит 24.09, П2). Календарь держал свою копию
+ *     даты, форма — свою. Повторный тап снимал выделение здесь, но наверх всё
+ *     равно уходила дата; листание месяца сбрасывало выделение молча. Итог:
+ *     форма отправляла день, которого на экране не видно. Теперь календарь
+ *     УПРАВЛЯЕМЫЙ, когда владелец передаёт `value`: выделение — это значение
+ *     формы, повторный тап зовёт `onDateClear`, листание выбор не трогает, а
+ *     строка «Выбрано: …» стоит над сеткой при любом месяце. Без `value`
+ *     (страница маршрута) календарь держит выбор сам, но и там повторный тап
+ *     больше не рапортует снятую дату как выбранную.
+ *
+ *  9. «Сентябрь 2026 Г.» — класс `capitalize` поднимал каждое слово. Заглавной
+ *     делаем только первую букву месяца, год без «г.».
+ *
  * Честность: сетка рисует ровно то, что вернул /api/tours/[id]/slots (там
  * занятость считается по реальным броням). Нет дат — говорим прямо и отдаём
  * решение наверх через `onEmpty`, а не изображаем доступность.
@@ -64,28 +77,50 @@ interface AvailabilityCalendarProps {
    * ли рисовать календарь.
    */
   onEmpty?: () => void;
+  /**
+   * Выбранная дата от владельца (YYYY-MM-DD, '' — не выбрана). Передан —
+   * календарь управляемый и своей копии выбора не держит (п.8 шапки).
+   */
+  value?: string | null;
+  /** Повторный тап по выбранной дате: снять выбор у владельца. */
+  onDateClear?: () => void;
 }
 
 /** Ключ месяца для сравнения без возни с датами. */
 const monthKey = (d: Date) => d.getFullYear() * 12 + d.getMonth();
 const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
 
+/** «сентябрь 2026» → «Сентябрь 2026»: заглавная только у месяца, без «г.». */
+export function monthTitle(d: Date): string {
+  const m = d.toLocaleDateString('ru-RU', { month: 'long' });
+  return `${m.charAt(0).toUpperCase()}${m.slice(1)} ${d.getFullYear()}`;
+}
+
+/** «28 сентября» — родительный падеж, как говорят о дате. */
+function dayMonth(iso: string): string {
+  return new Date(iso + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
 function isoOf(year: number, monthIdx: number, day: number): string {
   return `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty }: AvailabilityCalendarProps) {
+export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty, value, onDateClear }: AvailabilityCalendarProps) {
   const [slots, setSlots] = useState<Map<string, number>>(new Map());
   const [slotTours, setSlotTours] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [ownDate, setOwnDate] = useState<string | null>(null);
   const [month, setMonth] = useState<Date | null>(null);
+
+  // Один источник правды: передан value — выбор принадлежит владельцу.
+  const controlled = value !== undefined;
+  const selectedDate = controlled ? (value || null) : ownDate;
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
 
   useEffect(() => {
     let alive = true;
-    setSelectedDate(null);
+    if (!controlled) setOwnDate(null);
     if (offers.length === 0) { setLoading(false); return; }
 
     const tourIds = [...new Set(offers.map(o => o.tourId))];
@@ -115,6 +150,9 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty }: 
     });
 
     return () => { alive = false; };
+    // controlled намеренно не в зависимостях: сброс своей копии нужен только
+    // при смене набора туров, а не при каждом выборе даты.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offers, onEmpty]);
 
   /** Границы доступности — из самих дат, а не из предположений о сезоне. */
@@ -127,29 +165,42 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty }: 
     };
   }, [slots]);
 
-  // Открываемся на первом месяце, где даты ЕСТЬ (см. п.4 в шапке файла).
+  // Открываемся на месяце выбранной даты, если она в границах доступности;
+  // иначе — на первом месяце, где даты ЕСТЬ (см. п.4 и п.8 в шапке файла).
   useEffect(() => {
     if (!bounds || month) return;
-    setMonth(new Date(bounds.first.getFullYear(), bounds.first.getMonth(), 1));
-  }, [bounds, month]);
+    const sel = selectedDate ? new Date(selectedDate + 'T00:00:00') : null;
+    const start = sel && !Number.isNaN(sel.getTime())
+      && monthKey(sel) >= monthKey(bounds.first) && monthKey(sel) <= monthKey(bounds.last)
+      ? sel : bounds.first;
+    setMonth(new Date(start.getFullYear(), start.getMonth(), 1));
+  }, [bounds, month, selectedDate]);
 
   const view = month ?? new Date(today.getFullYear(), today.getMonth(), 1);
   const canPrev = !!bounds && monthKey(view) > monthKey(bounds.first);
   const canNext = !!bounds && monthKey(view) < monthKey(bounds.last);
 
+  // Листание выбор НЕ трогает: дата стоит в форме, и строка «Выбрано» над
+  // сеткой называет её при любом месяце (п.8).
   const step = useCallback((delta: number) => {
     setMonth(new Date(view.getFullYear(), view.getMonth() + delta, 1));
-    setSelectedDate(null);
   }, [view]);
 
   const pick = useCallback((iso: string, free: number) => {
     if (free <= 0) return;
-    setSelectedDate(prev => (prev === iso ? null : iso));
+    // Повторный тап снимает выбор — и сообщает об этом наверх, а не шлёт
+    // снятую дату как выбранную.
+    if (selectedDate === iso) {
+      if (!controlled) setOwnDate(null);
+      onDateClear?.();
+      return;
+    }
+    if (!controlled) setOwnDate(iso);
     if (onDateSelect) {
       const tourId = slotTours.get(iso) ?? offers[0]?.tourId;
       if (tourId !== undefined) onDateSelect(iso, tourId);
     }
-  }, [onDateSelect, slotTours, offers]);
+  }, [selectedDate, controlled, onDateClear, onDateSelect, slotTours, offers]);
 
   if (loading) {
     return (
@@ -178,19 +229,39 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty }: 
   const mIdx = view.getMonth();
   const daysInMonth = new Date(year, mIdx + 1, 0).getDate();
   const firstWeekday = new Date(year, mIdx, 1).getDay(); // 0 = вс
-  const offset = firstWeekday === 0 ? 6 : firstWeekday - 1; // неделя с понедельника
+  const fullOffset = firstWeekday === 0 ? 6 : firstWeekday - 1; // неделя с понедельника
+  // В текущем месяце целиком прошедшие недели не рисуем: четыре ряда серых
+  // дней на телефоне отодвигали живые даты на 200px вниз (аудит 24.09, #147).
+  // Сетка начинается с понедельника текущей недели.
+  const isThisMonth = year === today.getFullYear() && mIdx === today.getMonth();
+  const todayOffset = (today.getDay() + 6) % 7;
+  const weekStart = today.getDate() - todayOffset; // день месяца понедельника
+  const firstDay = isThisMonth && weekStart > 1 ? weekStart : 1;
+  const offset = firstDay === 1 ? fullOffset : 0;
 
   return (
     // Доступное имя, а не видимый заголовок: внутри формы бронирования поле уже
     // подписано «Дата заезда», и третья подпись над сеткой была бы шумом. Но
     // сетка из чисел без имени непонятна скринридеру — отсюда role+aria-label.
     <div className="space-y-3" role="group" aria-label="Доступные даты">
+      {/* Выбор называется над сеткой при ЛЮБОМ месяце: листание не должно
+          прятать дату, которая уйдёт в заявку (п.8). */}
+      {selectedDate && (
+        <p className="text-sm text-[var(--text-secondary)]" aria-live="polite">
+          Выбрано:{' '}
+          <span className="font-semibold text-[var(--text-primary)]">{dayMonth(selectedDate)}</span>
+          {/* Дату обещает не платформа, а оператор — хвост держит сторож
+              bystraya-tour-dates; из формы брони сняты ДРУГИЕ повторы. */}
+          {' '}— оператор подтвердит дату при бронировании.
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <span
-          className="text-sm font-semibold capitalize text-[var(--text-primary)]"
+          className="text-sm font-semibold text-[var(--text-primary)]"
           style={{ fontFamily: 'var(--font-playfair)' }}
         >
-          {view.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+          {monthTitle(view)}
         </span>
         <div className="flex items-center gap-1">
           {/* Стрелки гаснут на границе доступности: листать в месяцы, где тура
@@ -214,16 +285,17 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty }: 
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1.5">
+      {/* gap-1, а не 1.5: на 390px ячейка выходит ≥40px в ширину (аудит 24.09). */}
+      <div className="grid grid-cols-7 gap-1">
         {WEEKDAYS.map(d => (
-          <div key={d} className="text-center text-[10px] font-bold uppercase pb-1 text-[var(--text-muted)]">
+          <div key={d} className="text-center text-[10px] font-bold uppercase pb-1 text-[var(--text-secondary)]">
             {d}
           </div>
         ))}
 
         {Array.from({ length: offset }).map((_, i) => <div key={`pad-${i}`} />)}
 
-        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+        {Array.from({ length: daysInMonth - firstDay + 1 }, (_, i) => firstDay + i).map(day => {
           const iso = isoOf(year, mIdx, day);
           const free = slots.get(iso) ?? 0;
           const isPast = new Date(year, mIdx, day) < today;
@@ -251,12 +323,14 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty }: 
               type="button"
               onClick={() => pick(iso, free)}
               aria-pressed={selected}
-              aria-label={`${day} ${view.toLocaleDateString('ru-RU', { month: 'long' })}, свободно мест: ${free}`}
+              aria-label={`${dayMonth(iso)}, свободно мест: ${free}`}
               className="flex flex-col items-center justify-center rounded-lg transition-all duration-200 cursor-pointer"
               style={{
                 height: 44,
                 background: selected ? 'var(--accent)' : `color-mix(in srgb, ${tone} 14%, transparent)`,
-                color: selected ? 'var(--bg-card)' : tone,
+                // Номер дня — текстовым токеном: зелёный на зелёной заливке
+                // давал 2.5:1. Цвет доступности остаётся заливке и рамке.
+                color: selected ? 'var(--bg-card)' : 'var(--text-primary)',
                 border: `1px solid ${selected ? 'var(--accent)' : `color-mix(in srgb, ${tone} 30%, transparent)`}`,
                 fontWeight: 600,
               }}
@@ -270,17 +344,7 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty }: 
         })}
       </div>
 
-      {selectedDate && (
-        <p className="text-xs text-[var(--text-secondary)]">
-          Выбрано:{' '}
-          <span className="font-semibold text-[var(--text-primary)]">
-            {new Date(selectedDate + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
-          </span>
-          {' '}— оператор подтвердит дату при бронировании.
-        </p>
-      )}
-
-      <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2 border-t border-[var(--border)] text-[10px] text-[var(--text-muted)]">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2 border-t border-[var(--border)] text-[10px] text-[var(--text-secondary)]">
         <span className="inline-flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-sm" style={{ background: 'color-mix(in srgb, var(--success) 45%, transparent)' }} />
           есть места
