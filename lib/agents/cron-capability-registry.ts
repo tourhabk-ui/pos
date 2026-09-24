@@ -77,6 +77,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // db_write здесь — не забывчивость, а свойство: писать в поле, которое уже
   // ведёт KVERT, без решения владельца нельзя (сторож emsd-vmon-probe-route).
   'emsd-vmon-probe': ['db_read', 'net_out'],
+  // Суточная сводка вулканов КФ ЕГС → volcano_bulletin_kfegs (24.09, «обе шкалы
+  // на радаре»). db_write — СВОЯ таблица; volcano_status (KVERT) не трогается —
+  // это держит сторож volcano-scales.test.ts.
+  'emsd-vmon-sync': ['db_read', 'db_write', 'net_out'],
   'engagement': ['db_read', 'db_write', 'net_out', 'telegram'],
   'enrich-passports': ['db_read', 'db_write', 'net_out', 'ai'],
   'enrich-routes': ['db_read', 'db_write', 'net_out', 'ai'],
