@@ -30,6 +30,7 @@ interface EcoWallet {
     perDayLimit: number;
     oncePerUser: boolean;
     requiresModeration: boolean;
+    requiresCompletedBooking?: boolean;
   }>;
   spending: Array<{ key: string; label: string; description: string; maxShareOfCheck: number }>;
   dailyCap: number;
@@ -273,6 +274,7 @@ export default function LoyaltyClient() {
                               ? 'один раз'
                               : `не больше ${w.perDayLimit} в сутки`}
                             {w.requiresModeration ? ' · после проверки' : ''}
+                            {w.requiresCompletedBooking ? ' · после завершённой поездки' : ''}
                           </p>
                         </div>
                         <span className="text-sm font-medium text-[var(--success)] flex-shrink-0">

@@ -12,6 +12,8 @@
  * ВАЖНО: конкретные ставки и лимиты в EMISSION_RULES — предмет решения
  * владельца, а не модели. Тесты проверяют механику, а не «правильность» цифр.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   EMISSION_RULES,
@@ -93,11 +95,23 @@ describe('EMISSION_RULES — свойства реестра правил', () =
     }
   });
 
-  it('пользовательский контент выдаётся только после модерации', () => {
-    // Отзыв и фото человек создаёт сам — автоматическое начисление за них
-    // и есть открытая дверь для фарма.
-    expect(EMISSION_RULES.review.requiresModeration).toBe(true);
-    expect(EMISSION_RULES.photo.requiresModeration).toBe(true);
+  it('пользовательский контент выдаётся только за завершённую поездку', () => {
+    // Отзыв и фото человек создаёт сам — начисление без гейта было бы дверью
+    // для фарма. Гейт — бронь в completed и один отзыв на тур (24.09).
+    expect(EMISSION_RULES.review.requiresCompletedBooking).toBe(true);
+    expect(EMISSION_RULES.photo.requiresCompletedBooking).toBe(true);
+  });
+
+  it('роут отзыва проверяет завершённую бронь и повтор ДО начисления', () => {
+    const src = readFileSync(join(process.cwd(), 'app/api/reviews/tour/[tourId]/route.ts'), 'utf8');
+    const gate = src.indexOf("booking_status = 'completed'");
+    const once = src.indexOf('Вы уже оставили отзыв на этот тур');
+    const earn = src.indexOf("earnActivityPoints(userId, 'review'");
+    expect(gate).toBeGreaterThan(-1);
+    expect(once).toBeGreaterThan(-1);
+    expect(earn).toBeGreaterThan(gate);
+    expect(earn).toBeGreaterThan(once);
+    expect(src).toMatch(/if \(photos\.length > 0\) \{\s*const p = await loyaltySystem\.earnActivityPoints\(userId, 'photo'/);
   });
 
   it('ни одно правило в одиночку не пробивает дневной потолок', () => {
