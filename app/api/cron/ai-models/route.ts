@@ -110,11 +110,13 @@ async function pingQwen(models: string[]) {
         body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
         signal: AbortSignal.timeout(15_000),
       });
-      const body = (await res.text()).slice(0, 400);
+      // Сообщение DashScope — целиком: в его хвосте сказано, ГДЕ снять
+      // ограничение, и срез на 160 знаках обрывал ровно эту часть (25.09).
+      const body = (await res.text()).slice(0, 800);
       const kind = res.ok ? 'ok' : (qwenRefusalKind(res.status, body) ?? 'error');
       const code = body.match(/"code"\s*:\s*"([^"]{1,60})"/)?.[1] ?? null;
       return { model, http_status: res.status, verdict: kind, code, ms: Date.now() - started,
-        detail: res.ok ? null : body.replace(/\s+/g, ' ').slice(0, 160) };
+        detail: res.ok ? null : body.replace(/\s+/g, ' ').slice(0, 600) };
     } catch (err) {
       // Сеть не дошла — «не смог», а не «нет квоты» (§4.0).
       return { model, http_status: null, verdict: 'net', code: null, ms: Date.now() - started,
