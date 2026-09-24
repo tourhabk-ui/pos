@@ -31,7 +31,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isAcceptedOpenRouterGeoBlock } from '@/lib/ai/providers';
+import { isAcceptedOpenRouterGeoBlock, isAcceptedAnthropicFromProd } from '@/lib/ai/providers';
 
 const HEALTH = readFileSync(join(process.cwd(), 'app/api/cron/health/route.ts'), 'utf-8');
 const PROVIDERS = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
@@ -86,6 +86,26 @@ describe('принятым считается только гео-блок пр�
 
   it('диагностика не собралась вовсе — тем более не принято', () => {
     expect(isAcceptedOpenRouterGeoBlock(null)).toBe(false);
+  });
+});
+
+describe('Anthropic с прода: принят отказ в доступе, остальное будит (24.09)', () => {
+  // Владелец: «Anthropic с прода геоблок ты забыл», «мне надоело». Замер:
+  // прямой адрес 403 (гео-блок), через релей 401 «API key is invalid».
+  const d = (http_status: number | null, key_set = true) => ({ key_set, http_status });
+  it('403 напрямую и 401 через релей — принято', () => {
+    expect(isAcceptedAnthropicFromProd(d(403))).toBe(true);
+    expect(isAcceptedAnthropicFromProd(d(401))).toBe(true);
+  });
+  it('сеть не дошла, 5xx, 429, баланс (400) — новость', () => {
+    for (const s of [null, 500, 502, 529, 429, 400]) expect(isAcceptedAnthropicFromProd(d(s)), String(s)).toBe(false);
+  });
+  it('ключа нет или диагностика не собралась — не принято', () => {
+    expect(isAcceptedAnthropicFromProd(d(401, false))).toBe(false);
+    expect(isAcceptedAnthropicFromProd(null)).toBe(false);
+  });
+  it('health ставит known по этому предикату, а не безусловно', () => {
+    expect(HEALTH).toMatch(/level: isAcceptedAnthropicFromProd\(anthropicKeyDiag\) \? 'known' : 'warn'/);
   });
 });
 

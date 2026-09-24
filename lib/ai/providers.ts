@@ -2931,6 +2931,30 @@ export function explainAnthropicFailure(probe: {
 }
 
 /**
+ * Отказ Anthropic с прода — то положение, которое владелец принял, или новость?
+ *
+ * Решение владельца 24.09 («Anthropic с прода геоблок ты забыл», «мне
+ * надоело»): с прода Anthropic не рабочий путь, и будить им не надо. Всё,
+ * чему нужен флагман, считается на раннере GitHub — решатель эволюции идёт
+ * на Opus 5.5 через OpenRouter оттуда. Ровно то же решение, что 08.09 для
+ * OpenRouter (isAcceptedOpenRouterGeoBlock).
+ *
+ * Измерено (anthropic-path-probe, прогоны 10-13): прямой адрес — 403
+ * «Request not allowed», гео-блок; через релей и AI Gateway доходим до
+ * самого Anthropic и получаем 401 «API key is invalid». Оба — отказ в
+ * ДОСТУПЕ, и оба принимаются. Сеть не дошла, 5xx, 429, баланс, иной ответ и
+ * несобранная диагностика — новость: они говорят, что сломалось что-то ещё
+ * (релей, общий для OpenRouter; сам Anthropic), и будят.
+ */
+export function isAcceptedAnthropicFromProd(probe: {
+  key_set: boolean;
+  http_status: number | null;
+} | null): boolean {
+  if (!probe || !probe.key_set) return false;
+  return probe.http_status === 401 || probe.http_status === 403;
+}
+
+/**
  * Диагностика ответила успехом — провайдер ЖИВ, чем бы ни кончилась быстрая
  * проба здоровья.
  *

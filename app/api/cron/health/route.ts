@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeAnthropicKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainAnthropicFailure, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeAnthropicKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainAnthropicFailure, isAcceptedAnthropicFromProd, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -535,7 +535,10 @@ export async function GET(request: NextRequest) {
       // «недоступен» не отличал пустой баланс от закрытого пути и от ключа.
       const why = anthropicKeyDiag ? `: ${explainAnthropicFailure(anthropicKeyDiag)}` : ' (диагностика не собралась)';
       providerIssues.push({
-        level: 'warn',
+        // 24.09 владелец принял: с прода Anthropic не рабочий путь (гео-блок
+        // напрямую, отказ ключа через релей) — в known, как гео-блок
+        // OpenRouter. Прочие причины будят (см. isAcceptedAnthropicFromProd).
+        level: isAcceptedAnthropicFromProd(anthropicKeyDiag) ? 'known' : 'warn',
         text: `Anthropic недоступен с прода — и напрямую, и через OpenRouter${why}`,
         reason: `Anthropic: недоступен с прода, и напрямую, и через OpenRouter${why}`,
       });
