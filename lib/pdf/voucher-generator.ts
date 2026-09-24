@@ -1,10 +1,10 @@
 /**
  * Генератор PDF: Маршрутная квитанция / Туристический ваучер.
- * Составлен AI Юристом TourHab (апрель 2026).
+ * Составлен AI-юристом платформы (апрель 2026), бренд — Ведар.
  */
 
 import PDFDocument from 'pdfkit';
-import { registerCyrillicFonts } from '@/lib/pdf/fonts';
+import { registerCyrillicFonts, FONT_BODY, FONT_BOLD } from '@/lib/pdf/fonts';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export interface VoucherData {
@@ -28,6 +28,8 @@ export interface VoucherData {
   whatToBring?: string;
   totalPrice: number;
   paymentStatus: string;
+  /** 'new' — оператор ещё не подтвердил: платить пока нечего (решение 24.09). */
+  bookingStatus?: string;
   paymentDate?: string;
   operatorName: string;
   operatorPhone?: string;
@@ -42,7 +44,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
       margins: { top: 45, bottom: 45, left: 50, right: 50 },
       info: {
         Title: `Ваучер №${data.bookingId}`,
-        Author: 'TourHab — Камчатка',
+        Author: 'Ведар — Камчатка',
         Subject: `Тур: ${data.tourName}`,
         CreationDate: new Date(),
       },
@@ -62,35 +64,43 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     const LINE   = '#E8E3DE';
     const GREEN  = '#3FB950';
 
+    // Без «г.» — как на странице брони: хвост «г.» отрывался переносом.
     const fmt = (iso: string) =>
-      new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+      new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+        .replace(/\s*г\.$/, '');
     const money = (n: number) => n.toLocaleString('ru-RU') + ' ₽';
 
     // ── Шапка ─────────────────────────────────────────────────────────────────
     doc.rect(50, 40, W, 52).fill('#F5F0EB');
-    doc.fontSize(18).font('Helvetica-Bold').fillColor(ACCENT)
-       .text('TourHab', 65, 52, { continued: true })
-       .fontSize(9).font('Helvetica').fillColor(MUTED)
+    doc.fontSize(18).font(FONT_BOLD).fillColor(ACCENT)
+       .text('Ведар', 65, 52, { continued: true })
+       .fontSize(9).font(FONT_BODY).fillColor(MUTED)
        .text('  Туристическая платформа Камчатки · vedarai.ru');
-    doc.fontSize(9).font('Helvetica').fillColor(MUTED)
+    doc.fontSize(9).font(FONT_BODY).fillColor(MUTED)
        .text('МАРШРУТНАЯ КВИТАНЦИЯ / ТУРИСТИЧЕСКИЙ ВАУЧЕР', 65, 74);
     doc.y = 100;
     doc.moveDown(0.6);
 
     // ── Номер и даты ──────────────────────────────────────────────────────────
-    doc.fontSize(22).font('Helvetica-Bold').fillColor(DARK)
+    doc.fontSize(22).font(FONT_BOLD).fillColor(DARK)
        .text(`Бронь №${data.bookingId}`, { align: 'center' });
     doc.moveDown(0.2);
-    doc.fontSize(9).font('Helvetica').fillColor(MUTED)
+    doc.fontSize(9).font(FONT_BODY).fillColor(MUTED)
        .text(`Выдан: ${fmt(data.issueDate)}   ·   Действителен до: ${fmt(data.tourDate)}`, { align: 'center' });
     doc.moveDown(0.8);
 
     // ── Статус оплаты ─────────────────────────────────────────────────────────
     const paid = data.paymentStatus === 'paid';
     const statusColor = paid ? GREEN : '#D29922';
-    const statusText  = paid ? `ОПЛАЧЕНО · ${money(data.totalPrice)}` : `К ОПЛАТЕ · ${money(data.totalPrice)}`;
-    doc.rect(50, doc.y, W, 28).fill(paid ? '#3FB95015' : '#D2992215');
-    doc.fontSize(11).font('Helvetica-Bold').fillColor(statusColor)
+    const statusText  = paid
+      ? `ОПЛАЧЕНО · ${money(data.totalPrice)}`
+      : data.bookingStatus === 'new'
+        ? `ЖДЁТ ПОДТВЕРЖДЕНИЯ ОПЕРАТОРА · ${money(data.totalPrice)}`
+        : `К ОПЛАТЕ · ${money(data.totalPrice)}`;
+    // Подложка — цвет с прозрачностью через fillOpacity: восьмизначный hex
+    // ('#D2992215') PDFKit не понимает и заливал плашку почти чёрным (П3).
+    doc.save().rect(50, doc.y, W, 28).fillOpacity(0.12).fill(statusColor).restore();
+    doc.fontSize(11).font(FONT_BOLD).fillColor(statusColor)
        .text(statusText, 50, doc.y + 8, { align: 'center', width: W });
     doc.y += 36;
     doc.moveDown(0.8);
@@ -117,7 +127,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     ]);
     if (data.meetingDescription) {
       doc.moveDown(0.3);
-      doc.fontSize(9).font('Helvetica').fillColor(MUTED)
+      doc.fontSize(9).font(FONT_BODY).fillColor(MUTED)
          .text(data.meetingDescription, { width: W, indent: 10 });
     }
     doc.moveDown(0.8);
@@ -137,8 +147,8 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     divider(doc, LINE, W);
     blockTitle(doc, 'ВАЖНЫЕ ИНСТРУКЦИИ', OCEAN);
 
-    doc.fontSize(9).font('Helvetica-Bold').fillColor(DARK).text('Что взять с собой:');
-    doc.font('Helvetica').fillColor(MUTED).fontSize(9).text(
+    doc.fontSize(9).font(FONT_BOLD).fillColor(DARK).text('Что взять с собой:');
+    doc.font(FONT_BODY).fillColor(MUTED).fontSize(9).text(
       data.whatToBring ??
       'Треккинговая обувь, тёплые слои одежды, дождевик, личные документы, ' +
       'вода (1–2 л), солнцезащитный крем, полный заряд телефона.',
@@ -146,29 +156,33 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     );
     doc.moveDown(0.5);
 
-    doc.fontSize(9).font('Helvetica-Bold').fillColor(DARK).text('Как нас найти:');
-    doc.font('Helvetica').fillColor(MUTED).text(
+    doc.fontSize(9).font(FONT_BOLD).fillColor(DARK).text('Как нас найти:');
+    doc.font(FONT_BODY).fillColor(MUTED).text(
       'Покажите этот ваучер гиду на месте сбора. При себе иметь документ, удостоверяющий личность.',
       { width: W, indent: 10 }
     );
     doc.moveDown(0.5);
 
     // Экстренные контакты
-    doc.rect(50, doc.y, W, 44).fill('#DC262608');
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#DC2626')
-       .text('ЭКСТРЕННЫЕ КОНТАКТЫ', 65, doc.y + 6);
-    doc.font('Helvetica').fillColor(MUTED).fontSize(9)
+    // Та же поломка, что у плашки оплаты: '#DC262608' давал тёмный блок, на
+    // котором серые 112 и телефон оператора не читались. Координаты — от
+    // верха блока, а не от сдвинутого заголовком doc.y (текст вылезал за край).
+    const sosTop = doc.y;
+    doc.save().rect(50, sosTop, W, 44).fillOpacity(0.08).fill('#DC2626').restore();
+    doc.fontSize(9).font(FONT_BOLD).fillColor('#DC2626')
+       .text('ЭКСТРЕННЫЕ КОНТАКТЫ', 65, sosTop + 8);
+    doc.font(FONT_BODY).fillColor(DARK).fontSize(9)
        .text(
          `Единый номер спасения: 112 (работает без баланса и SIM)   ·   Оператор: ${data.operatorPhone ?? '—'}`,
-         65, doc.y + 20, { width: W - 20 }
+         65, sosTop + 24, { width: W - 20 }
        );
-    doc.y += 52;
+    doc.y = Math.max(doc.y, sosTop + 44) + 8;
     doc.moveDown(0.8);
 
     // ── Ссылка ────────────────────────────────────────────────────────────────
     divider(doc, LINE, W);
     doc.moveDown(0.4);
-    doc.fontSize(9).font('Helvetica').fillColor(MUTED).text(
+    doc.fontSize(9).font(FONT_BODY).fillColor(MUTED).text(
       data.accessToken
         ? `Детали бронирования: ${getPublicBaseUrl().replace(/^https?:\/\//, '')}/booking-success/${data.bookingId}?t=${data.accessToken}`
         // Ключа не передали — печатать мёртвую ссылку хуже, чем не печатать:
@@ -180,7 +194,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
 
     // ── Подвал ─────────────────────────────────────────────────────────────────
     doc.fontSize(8).fillColor(MUTED).text(
-      `Ваучер №${data.bookingId} · Ведар (vedarai.ru) · support@tourhab.ru · ${fmt(data.issueDate)}`,
+      `Ваучер №${data.bookingId} · Ведар (vedarai.ru) · info@vedarai.ru · ${fmt(data.issueDate)}`,
       { align: 'center', width: W }
     );
 
@@ -196,7 +210,7 @@ function divider(doc: PDFKit.PDFDocument, color: string, w: number) {
 }
 
 function blockTitle(doc: PDFKit.PDFDocument, title: string, color: string) {
-  doc.fontSize(10).font('Helvetica-Bold').fillColor(color).text(title);
+  doc.fontSize(10).font(FONT_BOLD).fillColor(color).text(title);
   doc.moveDown(0.3);
 }
 
@@ -205,9 +219,12 @@ function twoCol(
   rows: [string, string][],
 ) {
   for (const [label, value] of rows) {
-    doc.fontSize(9).font('Helvetica-Bold').fillColor(dark)
-       .text(label + ':', 50, doc.y, { continued: true, width: 120 })
-       .font('Helvetica').fillColor(muted).text(value, { width: w - 120 });
+    // Подпись без узкой колонки: с width у continued-сегмента PDFKit
+    // переносит и ЗНАЧЕНИЕ в ту же узкую колонку («Сплав по / реке…»).
+    // Пробел после двоеточия — иначе «ФИО:Аудит Тест».
+    doc.fontSize(9).font(FONT_BOLD).fillColor(dark)
+       .text(label + ': ', 50, doc.y, { continued: true, width: w })
+       .font(FONT_BODY).fillColor(muted).text(value, { width: w });
     doc.moveDown(0.2);
   }
 }

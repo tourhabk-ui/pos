@@ -23,7 +23,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { generateContractPDF, type ContractData } from '@/lib/pdf/contract-generator';
+import { generateContractPDF, contractPaymentMethod, type ContractData } from '@/lib/pdf/contract-generator';
+import { paymentAvailability } from '@/lib/payments/availability';
 import { generateVoucherPDF, type VoucherData } from '@/lib/pdf/voucher-generator';
 import { bookingTokenFrom, verifyBookingAccess } from '@/lib/bookings/access';
 
@@ -76,6 +77,8 @@ export async function GET(
       operator_telegram: string | null;
       operator_email: string | null;
       operator_inn: string | null;
+      cancellation_policy: string | null;
+      payment_method: string | null;
     }>(`
       SELECT
         b.id,
@@ -96,7 +99,9 @@ export async function GET(
         COALESCE(p.contacts->>'phone', u.phone)         AS operator_phone,
         COALESCE(p.contacts->>'telegram', u.telegram_username) AS operator_telegram,
         COALESCE(p.contacts->>'email', u.email)         AS operator_email,
-        NULL::text                                       AS operator_inn
+        NULL::text                                       AS operator_inn,
+        t.cancellation_policy,
+        b.payment_method
       FROM operator_bookings b
       JOIN operator_tours t    ON t.id = b.operator_tour_id
       LEFT JOIN partners p     ON p.id = t.operator_id
@@ -129,13 +134,22 @@ export async function GET(
         totalPrice:    finalPrice,
         paymentDate:   r.paid_at ?? undefined,
         paymentStatus: r.payment_status,
+        bookingStatus: r.booking_status,
         operatorName:  r.operator_name,
         operatorPhone: r.operator_phone ?? undefined,
         operatorEmail: r.operator_email ?? undefined,
         operatorInn:   r.operator_inn ?? undefined,
+        // Раздел 5 — условия ЭТОГО тура, способ оплаты — из записанного и
+        // настроенного, не литералы генератора (аудит П3, #23).
+        cancellationPolicy: r.cancellation_policy,
+        paymentMethod: contractPaymentMethod({
+          paid: r.payment_status === 'paid',
+          recordedMethod: r.payment_method,
+          availability: paymentAvailability(),
+        }),
       };
       pdfBuffer = await generateContractPDF(data);
-      filename  = `tourhab-contract-${r.id}.pdf`;
+      filename  = `vedar-contract-${r.id}.pdf`;
     } else {
       const data: VoucherData = {
         bookingId:     r.id,
@@ -150,6 +164,7 @@ export async function GET(
         tourDuration:  r.tour_duration ?? '—',
         totalPrice:    finalPrice,
         paymentStatus: r.payment_status,
+        bookingStatus: r.booking_status,
         paymentDate:   r.paid_at ?? undefined,
         operatorName:  r.operator_name,
         operatorPhone: r.operator_phone ?? undefined,
@@ -157,7 +172,7 @@ export async function GET(
         operatorEmail: r.operator_email ?? undefined,
       };
       pdfBuffer = await generateVoucherPDF(data);
-      filename  = `tourhab-voucher-${r.id}.pdf`;
+      filename  = `vedar-voucher-${r.id}.pdf`;
     }
 
     // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.

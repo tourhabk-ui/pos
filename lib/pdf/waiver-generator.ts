@@ -6,7 +6,7 @@
  */
 
 import PDFDocument from 'pdfkit';
-import { registerCyrillicFonts } from '@/lib/pdf/fonts';
+import { registerCyrillicFonts, FONT_BODY, FONT_BOLD } from '@/lib/pdf/fonts';
 
 export interface WaiverPdfInput {
   bookingId: string;
@@ -33,23 +33,23 @@ export async function generateWaiverPDF(w: WaiverPdfInput): Promise<Buffer> {
       const width = doc.page.width - 100;
       const accent = '#D44A0C';
 
-      doc.font('Helvetica-Bold').fontSize(22).fillColor(accent)
+      doc.font(FONT_BOLD).fontSize(22).fillColor(accent)
         .text('Согласие с рисками', left, 55);
-      doc.font('Helvetica').fontSize(10).fillColor('#666666')
+      doc.font(FONT_BODY).fontSize(10).fillColor('#666666')
         .text('Ведар · KamchatourHub', left, 84);
 
       doc.moveTo(left, 110).lineTo(doc.page.width - 50, 110).strokeColor('#DDDDDD').stroke();
 
-      doc.font('Helvetica-Bold').fontSize(16).fillColor('#1A1714')
+      doc.font(FONT_BOLD).fontSize(16).fillColor('#1A1714')
         .text(w.tourName, left, 128, { width });
       if (w.reason) {
-        doc.font('Helvetica').fontSize(10).fillColor('#D29922')
+        doc.font(FONT_BODY).fontSize(10).fillColor('#D29922')
           .text(`Высокорисковый тур: ${w.reason}`, left, doc.y + 2, { width });
       }
 
       // Текст согласия
       doc.moveDown(0.8);
-      doc.font('Helvetica').fontSize(10).fillColor('#1A1714').text(
+      doc.font(FONT_BODY).fontSize(10).fillColor('#1A1714').text(
         'Я осознаю, что участие в данном туре сопряжено с повышенным риском для ' +
         'жизни и здоровья (сложный рельеф, погодные условия, удалённость от ' +
         'медицинской помощи, природные опасности). Я подтверждаю, что физически ' +
@@ -73,14 +73,14 @@ export async function generateWaiverPDF(w: WaiverPdfInput): Promise<Buffer> {
 
       let y = doc.y + 18;
       for (const [k, val] of rows) {
-        doc.font('Helvetica').fontSize(11).fillColor('#6B6560').text(k, left, y, { width: 180 });
-        const valHeight = doc.font('Helvetica-Bold').fontSize(11).heightOfString(val, { width: width - 190 });
+        doc.font(FONT_BODY).fontSize(11).fillColor('#6B6560').text(k, left, y, { width: 180 });
+        const valHeight = doc.font(FONT_BOLD).fontSize(11).heightOfString(val, { width: width - 190 });
         doc.fillColor('#1A1714').text(val, left + 190, y, { width: width - 190 });
         y += Math.max(26, valHeight + 10);
       }
 
       y += 10;
-      doc.font('Helvetica').fontSize(8).fillColor('#9A9590')
+      doc.font(FONT_BODY).fontSize(8).fillColor('#9A9590')
         .text(`Номер бронирования: ${w.bookingId}. Документ сформирован платформой Ведар (vedarai.ru) ` +
               'на основании электронного согласия туриста.', left, y, { width });
 

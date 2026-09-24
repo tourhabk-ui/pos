@@ -14,6 +14,11 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
  * чтобы решить, рисовать ли календарь, — а календарь внутри спрашивал тот же
  * эндпоинт второй раз. Теперь слоты грузит только календарь, а о пустоте
  * сообщает наверх через onEmpty.
+ *
+ * Выбор даты живёт в ОДНОМ месте — в `value` владельца. Календарь получает его
+ * и управляется им: повторный тап по дате зовёт `onChange('')`, и форма
+ * снимает дату вместе с календарём (аудит 24.09, П2: раньше календарь снимал
+ * выделение, а форма молча держала прежний день и отправляла его).
  */
 
 /** Минимальная дата ручного ввода — завтра: сегодняшний выезд уже не собрать. */
@@ -30,9 +35,16 @@ interface TourDateFieldProps {
   onChange: (date: string) => void;
   /** name для ручного input (совместимость с формами) */
   inputName?: string;
+  /** id ручного input — чтобы подпись поля владельца была с ним связана. */
+  inputId?: string;
+  /** Поле отмечено сервером/проверкой как ошибочное — подсветить ручной ввод. */
+  invalid?: boolean;
 }
 
-export default function TourDateField({ tourId, tourTitle, value, onChange, inputName = 'booking_date' }: TourDateFieldProps) {
+/** Тач-цель 44px у текстовых переключателей режима (DS: минимум 44). */
+const MODE_BTN = 'inline-flex items-center min-h-[44px] text-sm text-[var(--ocean)] hover:underline';
+
+export default function TourDateField({ tourId, tourTitle, value, onChange, inputName = 'booking_date', inputId, invalid }: TourDateFieldProps) {
   /** none — календарь ещё может показать даты; empty — их нет; manual — так решил турист. */
   const [mode, setMode] = useState<'calendar' | 'empty' | 'manual'>('calendar');
 
@@ -48,11 +60,14 @@ export default function TourDateField({ tourId, tourTitle, value, onChange, inpu
   const manualInput = (
     <input
       type="date"
+      id={inputId}
       name={inputName}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       min={minDate()}
       className="ds-input w-full"
+      aria-invalid={invalid || undefined}
+      style={invalid ? { borderColor: 'var(--danger)' } : undefined}
       required
     />
   );
@@ -64,7 +79,7 @@ export default function TourDateField({ tourId, tourTitle, value, onChange, inpu
         <button
           type="button"
           onClick={() => setMode('calendar')}
-          className="text-xs text-[var(--ocean)] hover:underline"
+          className={MODE_BTN}
         >
           Показать календарь свободных дат
         </button>
@@ -77,7 +92,9 @@ export default function TourDateField({ tourId, tourTitle, value, onChange, inpu
       <AvailabilityCalendar
         offers={calendarOffers}
         onEmpty={handleEmpty}
+        value={value}
         onDateSelect={(date) => onChange(date)}
+        onDateClear={() => onChange('')}
       />
       {/* Дат нет — календарь уже сказал об этом словами, показываем поле ввода.
           Даты есть — оставляем ручной ввод доступным одной кнопкой: у оператора
@@ -86,7 +103,7 @@ export default function TourDateField({ tourId, tourTitle, value, onChange, inpu
         <button
           type="button"
           onClick={() => setMode('manual')}
-          className="text-xs text-[var(--ocean)] hover:underline"
+          className={MODE_BTN}
         >
           Ввести дату вручную
         </button>
