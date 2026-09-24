@@ -181,6 +181,10 @@ export const PLACES_BUILT: readonly PackRegionId[] = [
   // Прогон map-places-build run 2 (33945055783, main, 05.09): 123 пакета
   // залиты, отказов 0. Порядок — тот же, что у placesTargets(): обзор,
   // 10 районов, 112 клеток. Новая клетка сюда попадает ПОСЛЕ своего прогона.
+  // 24.09: мыс Лопатка — вносится вместе с маркером прогона 19, который
+  // заливает слой мест во ВСЕ пакеты, включая эту клетку. Прогон проверяется
+  // по логу заливки и обратному чтению, до этого обещание не подтверждено.
+  'cell-50n156e',
   'krai-overview',
   'avacha-group', 'paratunka', 'mutnovsky-gorely', 'nalychevo', 'central-volcanoes',
   'klyuchevskoy', 'south-kamchatka', 'esso-bystrinsky', 'kronotsky', 'commander-islands',
@@ -233,7 +237,7 @@ export const PLACES_BUILT: readonly PackRegionId[] = [
  * адресе снимает вопрос: новая заливка — новый адрес, старому файлу неоткуда
  * взяться. Чтение обратно в скрипте заливки ходит ПО ЭТОМУ ЖЕ адресу.
  */
-export const PLACES_LAYER_VERSION = 18;
+export const PLACES_LAYER_VERSION = 19;
 
 /** Адрес слоя мест — одно правило на все три ветки resolvePackSource. */
 function placesUrlFor(region: PackRegionId, base: string): string | null {
@@ -257,6 +261,9 @@ export function manifestKey(region: PackRegionId): string {
  * карта не просит его и не судит о покрытии: «не знаю», не «пусто».
  */
 export const MANIFEST_BUILT: readonly PackRegionId[] = [
+  // 24.09: паспорт мыса Лопатка записан самой сборкой пакета (прогон 215,
+  // «manifest: 18 из 18 слоёв посчитано»).
+  'cell-50n156e',
   // Прогон map-pack-manifest run 1 (33952537390, 05.09): 122 паспорта записаны,
   // отказов 0. Порядок — manifestTargets(): районы с OSM, затем все клетки.
   'avacha-group', 'paratunka', 'mutnovsky-gorely', 'nalychevo', 'central-volcanoes',
@@ -612,6 +619,12 @@ export const BUILT_GRID_CELLS: readonly GridCellId[] = [
   // 03.09, прогон 91 (run 33742877180): проба клетки — Верхне-Опальские,
   // Асача, Опала. Рельеф 2 мин, Overpass 25 мин, вектор 11.54 МБ.
   'cell-52n157e',
+  // 24.09, прогон 215 (run 35954720259, main): мыс Лопатка — южная
+  // оконечность края, клетка ниже порога суши по решению владельца (см.
+  // CELLS_BELOW_LAND_THRESHOLD). Рельеф 4.58 МБ, вектор 1.20 МБ, OSM 18 из
+  // 18 слоёв, паспорт записан — заливка подтверждена логом шага, не
+  // предположением. Слой мест этой клетки ещё не собран (PLACES_BUILT).
+  'cell-50n156e',
   // 03.09, волна 1 (прогоны 92-101) — юг полуострова десятью клетками
   // одним залпом, порядок здесь — порядок запуска. Долгий шаг везде один и
   // тот же: Overpass, 15-40 мин на клетку; рельеф и вектор — минуты.
