@@ -107,3 +107,19 @@ describe('профиль, сообщения, поддержка, избранн
     expect(C).toMatch(/pd_consent: pdConsent/);
   });
 });
+
+describe('обещания без исполнения сняты (решение владельца 24.09)', () => {
+  it('уровни лояльности не обещают скидок и привилегий', () => {
+    const L = read('lib/loyalty/loyalty-system.ts');
+    expect(L).not.toMatch(/benefits:/);
+    expect(L).not.toMatch(/discount: 0\.\d/);
+    const C = read('app/hub/tourist/loyalty/_LoyaltyClient.tsx');
+    expect(C).not.toMatch(/на все туры/);
+    expect(C).not.toMatch(/Привилегии/);
+  });
+
+  it('настроек уведомлений без отправителя нет — ни экрана, ни роута', () => {
+    expect(read('app/hub/tourist/notifications/_NotificationsClient.tsx')).not.toMatch(/notification-preferences/);
+    expect(existsSync(join(process.cwd(), 'app/api/tourist/notification-preferences/route.ts'))).toBe(false);
+  });
+});
