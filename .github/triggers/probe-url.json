@@ -1,11 +1,27 @@
 {
-  "note": "24.09, прогон 578. ТОЛЬКО ЧТЕНИЕ. Повтор 577 через ~50 мин: переключился ли прод на сборку новее 07:47 UTC (в ней нет заливки квадратов без DEM, 045fb08).",
-  "run": 578,
-  "timeout": 30,
+  "note": "24.09, прогон 579. ТОЛЬКО ЧТЕНИЕ. Полевой экран: «Сохранить карту» зовёт выключенную 28.08 закачку растровых тайлов OSM; перевести её на свои пакеты (PMTiles) — нужны размеры файлов пакета и заголовки CORS/Range. Range bytes=0-0 даёт полный размер в Content-Range; паспорта — целиком.",
+  "run": 579,
+  "timeout": 40,
   "retries": 1,
   "retryDelay": 20,
-  "bytes": 600,
+  "bytes": 1500,
+  "range": "bytes=0-0",
+  "origin": "https://vedarai.ru",
   "urls": [
-    "https://vedarai.ru/version.json"
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/cell-53n158e.manifest.json",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.manifest.json",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/cell-53n158e.terrain.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/cell-53n158e.vector.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/cell-53n158e.contours.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/cell-53n158e.places.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.terrain.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.vector.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.contours.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.terrain.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.ocean.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.contours.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.places.geojson",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/cell-52n158e.terrain.pmtiles",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/cell-56n160e.terrain.pmtiles"
   ]
 }
