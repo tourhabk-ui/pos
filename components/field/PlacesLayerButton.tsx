@@ -35,14 +35,38 @@ export interface PlacesLayerButtonProps {
   onToggle: () => void;
   /** Тёмный вариант — поверх карты в режиме «Карта», где нет светлой подложки. */
   overMap?: boolean;
+  /**
+   * Квадрат 44×52 под плашкой масштаба (макет владельца 24.09): иконка и
+   * подпись «Места» под ней. Подпись словами остаётся (решение 14.09),
+   * короче — потому что рядом с масштабом не место кнопке шириной в треть
+   * экрана.
+   */
+  compact?: boolean;
 }
 
-export function PlacesLayerButton({ on, onToggle, overMap = false }: PlacesLayerButtonProps) {
+export function PlacesLayerButton({ on, onToggle, overMap = false, compact = false }: PlacesLayerButtonProps) {
   const label = on ? 'Скрыть все места на карте' : 'Показать все места на карте';
   const base = overMap
     ? { background: 'rgba(13,17,23,0.85)', color: '#fff', border: '1px solid #30363d' }
     : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' };
   const active = { background: 'var(--ocean)', color: '#fff', border: '1px solid var(--ocean)' };
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={on}
+        aria-label={label}
+        title={label}
+        className="w-11 h-[52px] rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all duration-200"
+        style={{ ...(on ? active : base), boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}
+      >
+        <Layers className="w-5 h-5 flex-none" />
+        <span className="text-[10px] font-semibold leading-none">Места</span>
+      </button>
+    );
+  }
 
   return (
     <button

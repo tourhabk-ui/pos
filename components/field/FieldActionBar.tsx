@@ -27,6 +27,12 @@ const TAP = 56;
 export interface FieldAction {
   id: string;
   label: string;
+  /**
+   * Короткое имя для свёрнутого листа — одно слово (макет владельца 24.09:
+   * «Карта / Место / Трек / Наблюдение»). Без подписей четыре одинаковых
+   * квадрата читались как загадка; полное имя 07.09 съедало карту.
+   */
+  short?: string;
   icon: ReactNode;
   onPress: () => void;
   /** Действие сейчас идёт (запись трека). */
@@ -68,13 +74,13 @@ export function FieldActionBar({ actions, error, compact }: FieldActionBarProps)
             disabled={a.busy}
             aria-pressed={a.active ? true : undefined}
             aria-label={compact ? a.label : undefined}
-            className="flex flex-col items-center gap-1.5 shrink-0"
+            className={`flex flex-col items-center shrink-0 ${compact ? 'gap-1' : 'gap-1.5'}`}
             // Развёрнутая панель делит ширину поровну (24.09, скрин владельца
             // «похож на помойку»): при четырёх действиях 4×84 px с зазорами
             // шире листа, и «Наблюдение» резалось краем экрана до «Наблк».
             // Кружок под палец (TAP) не меняется, делится только ширина под
             // подписью; прокрутка остаётся запасом, если действий станет пять.
-            style={compact ? undefined : { flex: '1 1 0', minWidth: 72, maxWidth: 96 }}
+            style={{ flex: '1 1 0', minWidth: compact ? 60 : 72, maxWidth: 96 }}
           >
             <span
               className="relative flex items-center justify-center rounded-2xl"
@@ -100,6 +106,14 @@ export function FieldActionBar({ actions, error, compact }: FieldActionBarProps)
                 </span>
               )}
             </span>
+            {/* Свёрнутый лист — короткое слово (макет 24.09), развёрнутый —
+                полное имя и строка состояния. */}
+            {compact && (
+              <span className="text-[11px] leading-none text-center whitespace-nowrap"
+                style={{ color: a.active ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                {a.short ?? a.label}
+              </span>
+            )}
             {!compact && (
               <span className="text-[11.5px] leading-tight text-center"
                 style={{ color: 'var(--text-secondary)' }}>

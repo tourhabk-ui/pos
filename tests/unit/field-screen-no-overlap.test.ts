@@ -41,7 +41,9 @@ describe('атрибуция своей карты — там, где её ви�
 
   it('полевой экран выводит строку и на листе, и в режиме «Карта»', () => {
     expect(CLIENT).toMatch(/\n\s+attributionOutside\n/);
-    expect(CLIENT.match(/\{VEDAR_ATTRIBUTION\}/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    // Лист: строка по подложке (своя или запасной Leaflet); «Карта»: своя.
+    expect(CLIENT).toMatch(/fieldBaseMap\.kind === 'vedar' \? VEDAR_ATTRIBUTION : LEAFLET_ATTRIBUTION/);
+    expect(CLIENT.match(/\{VEDAR_ATTRIBUTION\}/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
     expect(MAP).toMatch(/VEDAR_ATTRIBUTION = '© OpenStreetMap contributors · © Copernicus DEM \(ESA\)'/);
   });
 });
@@ -53,7 +55,9 @@ describe('компас-бейдж: ни одна надпись не лежит 
   });
 
   it('азимут на бейдже — под циферблатом, в потоке, не поверх шкалы', () => {
-    expect(COMPASS).toMatch(/className=\{badge \? 'flex flex-col items-center mt-1' : 'absolute inset-x-0/);
+    expect(COMPASS).toMatch(/\{targetBearing !== null && badge && \(/);
+    const at = COMPASS.indexOf('{targetBearing !== null && badge && (');
+    expect(COMPASS.slice(at, at + 900)).not.toMatch(/absolute/);
   });
 });
 
@@ -65,7 +69,54 @@ describe('масштаб и действия не вылезают за свои
     expect(body.match(/<button /g)?.length).toBe(2);
   });
 
-  it('развёрнутая панель делит ширину, а не режет последнее действие', () => {
-    expect(BAR).toMatch(/\{ flex: '1 1 0', minWidth: 72, maxWidth: 96 \}/);
+  it('панель делит ширину, а не режет последнее действие', () => {
+    expect(BAR).toMatch(/\{ flex: '1 1 0', minWidth: compact \? 60 : 72, maxWidth: 96 \}/);
+  });
+});
+
+describe('макет владельца 24.09 («делай по макету»)', () => {
+  it('предупреждения — непрозрачной плашкой, по строке, с кнопкой «Сохранить»', () => {
+    expect(CLIENT).toMatch(/Карта не сохранена — офлайн не откроется/);
+    const at = CLIENT.indexOf('Предупреждения — отдельной НЕПРОЗРАЧНОЙ плашкой');
+    const block = CLIENT.slice(at, at + 3000);
+    expect(block).toMatch(/background: 'var\(--bg-card\)'/);
+    expect(block).not.toMatch(/fx-glass|backdrop/);
+    expect(block).toMatch(/void saveMap\(id\)/);
+    expect(block.match(/truncate/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('координатное предупреждение — коротко, полная формулировка в подсказке', () => {
+    expect(CLIENT).toMatch(/text: 'Точка не проверена — сверяйтесь с картой'/);
+    expect(CLIENT).toMatch(/detail: `Координата точки: \$\{coordSourceLabel\(targetCoordSource\)\}/);
+  });
+
+  it('свёрнутый лист: одна строка «не на маршруте», без второй кнопки «развернуть»', () => {
+    expect(CLIENT).toMatch(/\{offRouteShort \?\? offRouteNote\}/);
+    expect(CLIENT).not.toMatch(/aria-label="Развернуть приборы"/);
+  });
+
+  it('кнопки действий подписаны и в свёрнутом листе', () => {
+    expect(BAR).toMatch(/\{a\.short \?\? a\.label\}/);
+    for (const w of ["short: 'Карта'", "short: 'Место'", "'Трек'", "short: 'Наблюдение'"]) expect(CLIENT).toContain(w);
+  });
+
+  it('«Места» — компактной кнопкой рядом с масштабом, со словом', () => {
+    expect(CLIENT).toMatch(/<PlacesLayerButton on=\{showAllPlaces\} onToggle=\{toggleAllPlaces\} compact \/>/);
+    expect(read('components/field/PlacesLayerButton.tsx')).toMatch(/>Места<\/span>/);
+  });
+});
+
+describe('запасной Leaflet на «На маршруте» (рендер 24.09 на 412 px)', () => {
+  const LEAFLET = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf8');
+
+  it('свои кнопки масштаба у вызывающего — встроенного контрола в углу нет', () => {
+    // Встроенный «+/−» в topright ложился на плашку маршрута и компас.
+    expect(LEAFLET).toMatch(/if \(!ownZoomButtons\) L\.control\.zoom/);
+    expect(CLIENT).toMatch(/attribution=\{showMap\}/);
+  });
+
+  it('свёрнутый лист не режет пополам плитки и карточку доверия', () => {
+    expect(CLIENT).toMatch(/\{hasRoute && sheetOpen && \(\s*<div className="px-4 pb-2">\s*<TrustCard/);
+    expect(CLIENT).toMatch(/\{sheetOpen && \(\s*<div className="grid grid-cols-2 gap-2 p-4">/);
   });
 });
