@@ -98,6 +98,9 @@ describe('шапка: меню не лежит поверх кнопок', () =>
     // SOS был перекрыт: если его однажды заменят локальной кнопкой, разбор
     // «почему SOS не нажимается» начнётся заново и с другого места.
     const src = code(HEADER);
-    expect(src, 'SOS в шапке больше не EmergencyAction').toContain('<EmergencyAction />');
+    // С 24.09 (приёмка П6) шапка передаёт overPhoto — вид пилюли поверх фото
+    // (сплошная --danger). Это проп вида, а не своя копия: className/style/
+    // children по-прежнему запрещены — они и были бы своей кнопкой.
+    expect(src, 'SOS в шапке больше не EmergencyAction').toMatch(/<EmergencyAction(\s+overPhoto=\{onPhoto\})?\s*\/>/);
   });
 });

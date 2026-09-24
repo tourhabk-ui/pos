@@ -2,29 +2,38 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Map, Route, Wrench, FileText, X, ArrowRight, TreePine } from 'lucide-react';
+import Link from 'next/link';
+import { Search, Map, Route, Wrench, FileText, X, ArrowRight, TreePine, Ticket, MessageCircle } from 'lucide-react';
 
 interface SearchResult {
   id: string;
-  type: 'route' | 'place' | 'park' | 'tool' | 'page';
+  type: 'tour' | 'route' | 'place' | 'park' | 'tool' | 'chat' | 'page';
   title: string;
   subtitle?: string;
   href: string;
 }
 
 const TYPE_CONFIG = {
+  tour:   { label: 'Тур',     icon: Ticket,    color: 'var(--accent)' },
   route:  { label: 'Маршрут', icon: Route,    color: 'var(--accent)' },
   place:  { label: 'Место',   icon: Map,       color: 'var(--ocean)' },
   park:   { label: 'Парк',    icon: TreePine,  color: 'var(--success)' },
   tool:   { label: 'Утилита', icon: Wrench,    color: 'var(--success)' },
+  chat:   { label: 'Кузьмич', icon: MessageCircle, color: 'var(--ocean)' },
   page:   { label: 'Раздел',  icon: FileText,  color: 'var(--text-muted)' },
 };
 
+/*
+ * «Туры» — первым (аудит П7, #97/#106/#111): до 24.09 в быстром переходе не
+ * было ни одного пути к тому, что платформа продаёт. Кузьмичу — иконка чата,
+ * а не гаечный ключ: это разговор, а не утилита.
+ */
 const QUICK_LINKS = [
+  { title: 'Туры',                     href: '/catalog',      type: 'tour' as const },
   { title: 'Карта маршрутов',          href: '/map',          type: 'page' as const },
   { title: 'Чек-лист снаряжения',      href: '/tools/equipment', type: 'tool' as const },
   { title: 'Анализатор безопасности',  href: '/tools/safety', type: 'tool' as const },
-  { title: 'Спросить Кузьмича',        href: '/ai-assistant', type: 'tool' as const },
+  { title: 'Спросить Кузьмича',        href: '/ai-assistant', type: 'chat' as const },
 ];
 
 export function GlobalSearchModal() {
@@ -33,6 +42,14 @@ export function GlobalSearchModal() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  /*
+   * Исход поиска — три состояния, не два (§4.0). До 24.09 отказ API
+   * (`success:false`, 500, сеть) глотался немым catch и показывался текстом «Ничего не найдено» — турист читал «туров нет»
+   * там, где поиск просто не ответил.
+   */
+  const [status, setStatus] = useState<'idle' | 'ok' | 'failed'>('idle');
+  /** Какой источник не ответил, хотя остальные ответили (поле `unavailable`). */
+  const [partial, setPartial] = useState<Array<'tours' | 'geo'>>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,6 +58,8 @@ export function GlobalSearchModal() {
     setOpen(true);
     setQuery('');
     setResults([]);
+    setStatus('idle');
+    setPartial([]);
     setActiveIndex(-1);
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
@@ -49,6 +68,8 @@ export function GlobalSearchModal() {
     setOpen(false);
     setQuery('');
     setResults([]);
+    setStatus('idle');
+    setPartial([]);
   }, []);
 
   // Ctrl+K / Cmd+K
@@ -74,14 +95,26 @@ export function GlobalSearchModal() {
   // Debounced search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) { setResults([]); setLoading(false); return; }
+    if (!query.trim()) { setResults([]); setStatus('idle'); setPartial([]); setLoading(false); return; }
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}&limit=10`);
-        const json = await res.json() as { success: boolean; data?: SearchResult[] };
-        if (json.success && json.data) setResults(json.data);
-      } catch { /* silent */ } finally {
+        const json = await res.json().catch(() => null) as
+          | { success: boolean; data?: SearchResult[]; unavailable?: Array<'tours' | 'geo'>; error?: string }
+          | null;
+        if (!res.ok || !json || !json.success || !Array.isArray(json.data)) {
+          throw new Error(`HTTP ${res.status}${json?.error ? `: ${json.error}` : ''}`);
+        }
+        setResults(json.data);
+        setPartial(Array.isArray(json.unavailable) ? json.unavailable : []);
+        setStatus('ok');
+      } catch (err) {
+        console.error('[search-modal] поиск не ответил:', err instanceof Error ? err.message : String(err));
+        setResults([]);
+        setPartial([]);
+        setStatus('failed');
+      } finally {
         setLoading(false);
       }
     }, 200);
@@ -97,9 +130,21 @@ export function GlobalSearchModal() {
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActiveIndex(i => Math.max(i - 1, -1));
-    } else if (e.key === 'Enter' && activeIndex >= 0 && allItems[activeIndex]) {
+    } else if (e.key === 'Enter') {
+      // Enter без выделения — первый результат: человек набрал «сплав» и
+      // нажал «ввод», он не обязан сперва стрелкой выбирать единственный тур.
+      // Пока ответ на новый запрос не пришёл, «первый» — это первый результат
+      // ПРЕЖНЕГО запроса: в каталог по набранному, а не в чужой тур.
+      if (loading && activeIndex < 0 && query.trim()) {
+        e.preventDefault();
+        router.push(`/catalog?search=${encodeURIComponent(query.trim())}`);
+        closeModal();
+        return;
+      }
+      const target = activeIndex >= 0 ? allItems[activeIndex] : allItems[0];
+      if (!target) return;
       e.preventDefault();
-      router.push(allItems[activeIndex].href);
+      router.push(target.href);
       closeModal();
     }
   };
@@ -154,15 +199,22 @@ export function GlobalSearchModal() {
               value={query}
               onChange={e => { setQuery(e.target.value); setActiveIndex(-1); }}
               onKeyDown={handleKeyDown}
-              placeholder="Поиск по Камчатке..."
-              className="flex-1 bg-transparent text-[var(--text-primary)] placeholder-[var(--text-muted)] text-sm outline-none"
+              placeholder="Туры, места, маршруты…"
+              aria-label="Что ищем"
+              // 16px на телефоне: при text-sm iOS увеличивает страницу на фокусе.
+              className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder-[var(--text-muted)] text-base md:text-sm outline-none"
               autoComplete="off"
             />
             {loading && (
               <span className="w-4 h-4 border-2 border-[var(--text-muted)] border-t-transparent rounded-full animate-spin flex-shrink-0" />
             )}
-            <button onClick={closeModal} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors">
-              <X size={16} />
+            <button
+              type="button"
+              onClick={closeModal}
+              aria-label="Закрыть поиск"
+              className="-mr-2 w-11 h-11 flex items-center justify-center rounded-lg text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex-shrink-0"
+            >
+              <X size={18} />
             </button>
           </div>
 
@@ -176,10 +228,35 @@ export function GlobalSearchModal() {
               </div>
             )}
 
-            {allItems.length === 0 && query.trim() && !loading && (
+            {query.trim() && !loading && status === 'failed' && (
+              <div role="alert" className="px-4 py-8 text-center">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Поиск сейчас не работает</p>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">Это сбой у нас, а не пустой каталог.</p>
+                <Link
+                  href="/catalog"
+                  onClick={closeModal}
+                  className="mt-3 inline-flex items-center gap-1 min-h-[44px] text-sm font-semibold text-[var(--accent)]"
+                >
+                  Открыть каталог туров <ArrowRight size={14} aria-hidden />
+                </Link>
+              </div>
+            )}
+
+            {query.trim() && !loading && status === 'ok' && allItems.length === 0 && (
               <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">
                 Ничего не найдено по &laquo;{query}&raquo;
               </div>
+            )}
+
+            {query.trim() && status === 'ok' && partial.length > 0 && (
+              <p className="px-4 pt-3 text-xs text-[var(--text-secondary)]">
+                {partial.includes('tours')
+                  ? 'Туры сейчас не ищутся — это сбой, а не пустой каталог. '
+                  : 'Места и маршруты сейчас не ищутся — показаны только туры.'}
+                {partial.includes('tours') && (
+                  <Link href="/catalog" onClick={closeModal} className="font-semibold text-[var(--accent)]">Каталог туров</Link>
+                )}
+              </p>
             )}
 
             {allItems.map((item, idx) => {
@@ -212,7 +289,8 @@ export function GlobalSearchModal() {
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--border)] bg-[var(--bg-hover)]">
+          {/* Легенда клавиш — только там, где есть клавиатура (с md). */}
+          <div className="hidden md:flex items-center justify-between px-4 py-2 border-t border-[var(--border)] bg-[var(--bg-hover)]">
             <div className="flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
               <span className="flex items-center gap-1">
                 <kbd className="px-1 py-0.5 rounded border border-[var(--border)] font-mono bg-[var(--bg-card)]">↑↓</kbd>

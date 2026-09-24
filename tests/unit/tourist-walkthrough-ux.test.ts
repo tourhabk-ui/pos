@@ -50,17 +50,32 @@ describe('экран SOS: позвонить — первым (#1779)', () => {
 });
 
 describe('честные цифры витрины и главной (#1780)', () => {
-  it('каталог: герой и сводка считаются по живым турам, констант нет', () => {
+  // Переписано осознанно 24.09 (аудит П5, #130/#132/#137). Живые числа
+  // остались правилом, сменился их источник: сводка StatsBar и сетка плиток
+  // удалены, а число туров, цена «от» и счётчики направлений считаются на
+  // СЕРВЕРЕ одним запросом (queryCatalogSummary) — второй клиентский fetch
+  // ?limit=100 оставлял в первом кадре «—» и делал пустые плитки нажимаемыми.
+  // Мёртвых направлений нет по построению: чипы строятся из GROUP BY по
+  // существующим турам, «disabled» больше не нужен.
+  it('каталог: герой и чипы считаются по живым турам на сервере, констант нет', () => {
     const src = read('components/marketplace/MarketplaceClient.tsx');
-    expect(src).not.toMatch(/<Mountain className="w-3 h-3" \/>\s*13 туров/);
+    expect(src).not.toMatch(/13 туров/);
     expect(src).not.toMatch(/value: '8'/);
     expect(src).not.toMatch(/value: '2\+'/);
     expect(src).not.toMatch(/value: '100%'/);
-    expect(src).toMatch(/fetch\('\/api\/hub\/marketplace\/tours\?limit=100'\)/);
-    expect(src).toMatch(/directions: new Set\(allTours\.map\(t => t\.activity_type\)/);
-    expect(src).toMatch(/operators: new Set\(allTours\.map\(t => t\.operator_id\)/);
-    // Плитка без туров не нажимается.
-    expect(src).toMatch(/disabled=\{empty\}/);
+    // Комментарии рассказывают историю удаления — судится код.
+    const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(codeOnly).not.toMatch(/function StatsBar/);
+    expect(codeOnly).not.toMatch(/CATEGORY_DATA/);
+    expect(src).toMatch(/summary\.total/);
+    expect(src).toMatch(/summary\?\.byActivity/);
+    const search = read('lib/search/tour-search.ts');
+    expect(search).toMatch(/export async function queryCatalogSummary\(/);
+    expect(search).toMatch(/GROUP BY ot\.activity_type/);
+    for (const page of ['app/catalog/page.tsx', 'app/marketplace/page.tsx']) {
+      expect(read(page)).toMatch(/queryCatalogSummaryForPage\(\)/);
+      expect(read(page)).toMatch(/summary=\{summary\}/);
+    }
   });
 
   it('главная: подписи склоняются, «рег. МЧС» и «SAR» раскрыты словами', () => {

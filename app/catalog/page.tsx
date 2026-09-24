@@ -2,7 +2,14 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
 import MarketplaceClient from '@/components/marketplace/MarketplaceClient';
-import { queryMarketplaceToursForPage, type MarketplaceToursResult } from '@/lib/search';
+import BottomNav from '@/components/shared/BottomNav';
+import { CatalogFooter } from '@/components/marketplace/CatalogFooter';
+import {
+  queryMarketplaceToursForPage,
+  queryCatalogSummaryForPage,
+  type MarketplaceToursResult,
+  type CatalogSummary,
+} from '@/lib/search';
 import { parseMarketplaceSearchParams, buildToursItemListJsonLd } from '@/lib/tours/marketplace-page';
 
 export const dynamic = 'force-dynamic';
@@ -50,11 +57,19 @@ export default async function CatalogPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const { filters, initialKey } = parseMarketplaceSearchParams(sp);
 
-  let initial: MarketplaceToursResult | null = null;
-  try {
-    initial = await queryMarketplaceToursForPage(filters);
-  } catch {
-    initial = null;
+  // Отказ не глушится (§4.0): null — «не знаю», клиент дозапросит туры сам,
+  // а в лог уходит имя запроса и SQLSTATE.
+  const [toursRes, summaryRes] = await Promise.allSettled([
+    queryMarketplaceToursForPage(filters),
+    queryCatalogSummaryForPage(),
+  ]);
+  const initial: MarketplaceToursResult | null = toursRes.status === 'fulfilled' ? toursRes.value : null;
+  const summary: CatalogSummary | null = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+  for (const [name, r] of [['tours', toursRes], ['summary', summaryRes]] as const) {
+    if (r.status === 'rejected') {
+      const e = r.reason as { code?: string; message?: string } | undefined;
+      console.error('[/catalog] SSR: запрос ' + name + ' не выполнен', { sqlstate: e?.code, message: e?.message });
+    }
   }
 
   const structuredData = initial ? buildToursItemListJsonLd(initial.tours, SITE, '/catalog') : null;
@@ -73,8 +88,14 @@ export default async function CatalogPage({ searchParams }: PageProps) {
           initialTours={initial?.tours ?? []}
           initialTotal={initial?.total ?? 0}
           initialKey={initial === null ? null : initialKey}
+          summary={summary}
         />
       </Suspense>
+      <CatalogFooter />
+      {/* Таб-бар с активным «Туры»: пункт объявлен activeOn для этих путей
+          (BottomNav.tsx), а страницы его не рендерили — подсветка не
+          срабатывала нигде (аудит П5, #56/#62/#98). На md+ он скрыт сам. */}
+      <BottomNav activePath="/catalog" />
     </>
   );
 }

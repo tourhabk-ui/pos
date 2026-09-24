@@ -6,13 +6,16 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
 import {
-  MapPin, Users, ChevronRight, Heart, ShoppingCart, Check,
+  MapPin, ChevronRight, Heart, BadgeCheck,
   AlertCircle, Clock, Sparkles, Search, SlidersHorizontal,
   X, ChevronDown, Flame, ThermometerSun, Fish,
-  PawPrint, Helicopter, Waves, Snowflake, Star, TrendingUp,
-  Calendar, Mountain, ArrowRight, Anchor,
+  PawPrint, Helicopter, Waves, Snowflake,
+  Mountain, ArrowRight, Anchor, Send,
 } from 'lucide-react';
-import { useCart } from '@/contexts/CartContext';
+import type { CatalogSummary } from '@/lib/search/tour-search';
+import {
+  catalogAvailability, isInSeason, AVAILABILITY_LABEL, type CatalogAvailability,
+} from '@/lib/tours/catalog-availability';
 
 /* ─── Types ─── */
 
@@ -30,6 +33,8 @@ interface Tour {
   tour_image: string | null;
   operator_name: string;
   operator_id: string;
+  /** partners.is_verified: «проверен» пишется только при true (§4.0). */
+  operator_verified?: boolean | null;
   bookings_count: number;
   duration_hours: number | null;
   duration_type: string | null;
@@ -38,6 +43,12 @@ interface Tour {
   included: string[] | null;
   season_start: string | null;
   season_end: string | null;
+  /**
+   * Есть ли открытая дата со свободными местами — сервер считает это в
+   * lib/search/tour-search. Необязательное в типе намеренно: не пришло —
+   * значит «не знаем», и карточка говорит «Даты по запросу», а не «Есть даты».
+   */
+  has_availability?: boolean | null;
 }
 
 /* ─── Constants ─── */
@@ -46,7 +57,13 @@ interface Tour {
  * Подписи — из единого словаря (lib/tours/labels). Свои копии здесь и привели
  * к тому, что `boat_trip` в каталоге назывался «Морской тур», в карточке
  * «Морские туры», а кое-где «Сплав» — то есть морская прогулка выдавалась за
- * сплав. Короткие подписи для чипов остались, но живут в том же словаре.
+ * сплав. Короткие подписи для чипов живут в том же словаре (ACTIVITY_SHORT).
+ *
+ * Сетка плиток направлений (CATEGORY_DATA) и сводка StatsBar удалены (аудит
+ * П5, #47/#54/#60/#130): плитки и чипы были двумя фильтрами одного состояния
+ * с разными названиями, шесть из восьми плиток были мёртвыми, а сводка
+ * показывала «—» до второго запроса. Остался один фильтр — чипы по
+ * направлениям, где туры ЕСТЬ, со счётчиком из серверной сводки.
  */
 import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
@@ -63,18 +80,6 @@ const ACTIVITY_IMAGES: Record<string, string> = {
   bears:      '/images/categories/medvedi.jpg',
   snowmobile: '/images/activities/snowmobile.jpg',
 };
-
-const ACTIVITY_OPTIONS = [
-  { value: '',           label: 'Все' },
-  { value: 'fishing',    label: 'Рыбалка' },
-  { value: 'trekking',   label: 'Треккинг' },
-  { value: 'rafting',    label: 'Сплав' },
-  { value: 'thermal',    label: 'Термальные' },
-  { value: 'helicopter', label: 'Вертолёт' },
-  { value: 'boat_trip',  label: 'Морской тур' },
-  { value: 'bears',      label: 'Медведи' },
-  { value: 'snowmobile', label: 'Снегоход' },
-];
 
 const SORT_OPTIONS = [
   { value: 'recommended', label: 'Рекомендуемые' },
@@ -96,29 +101,33 @@ const DURATION_OPTIONS = [
   { value: 'multi_day', label: 'Многодневный' },
 ];
 
-const DIFFICULTY_BADGE: Record<string, { label: string; style: React.CSSProperties }> = {
-  easy:   { label: 'Лёгкий',  style: { background: 'color-mix(in srgb, var(--success) 15%, transparent)', color: 'var(--success)' } },
-  medium: { label: 'Средний', style: { background: 'color-mix(in srgb, var(--warning) 15%, transparent)', color: 'var(--warning)' } },
-  hard:   { label: 'Сложный', style: { background: 'color-mix(in srgb, var(--danger) 15%, transparent)', color: 'var(--danger)' } },
+const DIFFICULTY_BADGE: Record<string, { label: string }> = {
+  easy:   { label: 'Лёгкий' },
+  medium: { label: 'Средний' },
+  hard:   { label: 'Сложный' },
 };
 
-const CATEGORY_DATA = [
-  { key: 'trekking',   label: 'Вулканы',   icon: Flame,          color: 'from-orange-500/20 to-red-500/10',    iconColor: 'text-orange-400',  ring: 'ring-orange-400' },
-  { key: 'thermal',    label: 'Термальные', icon: ThermometerSun, color: 'from-rose-500/20 to-pink-500/10',     iconColor: 'text-rose-400',    ring: 'ring-rose-400' },
-  { key: 'fishing',    label: 'Рыбалка',   icon: Fish,           color: 'from-sky-500/20 to-blue-500/10',      iconColor: 'text-sky-400',     ring: 'ring-sky-400' },
-  { key: 'bears',      label: 'Медведи',   icon: PawPrint,       color: 'from-amber-500/20 to-yellow-500/10',  iconColor: 'text-amber-400',   ring: 'ring-amber-400' },
-  { key: 'helicopter', label: 'Вертолёт',  icon: Helicopter,     color: 'from-violet-500/20 to-purple-500/10', iconColor: 'text-violet-400',  ring: 'ring-violet-400' },
-  { key: 'boat_trip',  label: 'Море',      icon: Waves,          color: 'from-cyan-500/20 to-teal-500/10',     iconColor: 'text-cyan-400',    ring: 'ring-cyan-400' },
-  { key: 'rafting',    label: 'Сплав',     icon: Waves,          color: 'from-emerald-500/20 to-green-500/10', iconColor: 'text-emerald-400', ring: 'ring-emerald-400' },
-  { key: 'snowmobile', label: 'Снегоход',  icon: Snowflake,      color: 'from-slate-400/20 to-blue-400/10',    iconColor: 'text-slate-300',   ring: 'ring-slate-400' },
-];
+/**
+ * Прозрачность токена — через color-mix, а не классом `bg-[var(--x)]/N`:
+ * Tailwind 3.4 не накладывает /N на var(), такой класс не генерируется вовсе,
+ * и у пилюли героя, рамки баннера и подложки ошибки фона не было (аудит П5,
+ * #53). Сторож: tests/unit/catalog-storefront.test.ts.
+ */
+const mix = (token: string, pct: number) => `color-mix(in srgb, var(${token}) ${pct}%, transparent)`;
+
+/** Чипы/варианты фильтра — цель нажатия не меньше 44px (аудит П5, #136). */
+const CHIP_BASE = 'min-h-[44px] px-4 rounded-lg text-sm font-medium border transition-all duration-200 inline-flex items-center';
+// Текст на акценте — цвет фона страницы: в тёмной теме он тёмный (≈6:1 на
+// лаве тёмной темы против ≈3:1 у белого), в светлой — почти белый.
+const CHIP_ON = 'bg-[var(--accent)] border-[var(--accent)] text-[var(--bg-primary)]';
+const CHIP_OFF = 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-card)]';
 
 /* ─── Helpers ─── */
 
 function formatDuration(tour: Tour): string | null {
   if (tour.duration_type === 'multi_day' && tour.multi_day_count) {
     const d = tour.multi_day_count;
-    return `${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'}`;
+    return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
   }
   if (tour.duration_type === 'half_day') return 'Полдня';
   if (tour.duration_type === 'day') return '1 день';
@@ -126,24 +135,12 @@ function formatDuration(tour: Tour): string | null {
     const h = Number(tour.duration_hours);
     if (h < 24) return `${h} ч`;
     const d = Math.round(h / 24);
-    return `${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'}`;
+    return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
   }
   return null;
 }
 
-function isInSeason(tour: Tour): boolean {
-  if (!tour.season_start || !tour.season_end) return false;
-  const now = new Date();
-  return now >= new Date(tour.season_start) && now <= new Date(tour.season_end);
-}
-
-function getSeasonLabel(): string {
-  const month = new Date().getMonth();
-  if (month >= 5 && month <= 8) return 'Лето';
-  if (month >= 2 && month <= 4) return 'Весна';
-  if (month >= 9 && month <= 10) return 'Осень';
-  return 'Зима';
-}
+const rub = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 
 /* ─── Skeleton ─── */
 
@@ -164,106 +161,65 @@ function TourCardSkeleton() {
 
 /* ─── Hero Section ─── */
 
-function HeroSection({ toursTotal }: { toursTotal: number | null }) {
+/**
+ * Герой — на всю ширину БЕЗ отрицательных полей. Прежний `-mx-4 sm:-mx-6
+ * lg:-mx-8` был рассчитан на родителя с px-4, а у .ds-page боковых отступов
+ * нет: страница выходила шире экрана на 16/32px, fixed-шапка с SOS уезжала
+ * вверх, кнопка заявки — за нижний край (аудит П5, #8/#12/#113).
+ *
+ * Факт в герое — из серверной сводки: «8 туров от 13 000 ₽». Сводки нет —
+ * строки нет, а не выдуманное число и не «—» (§4.0).
+ */
+function HeroSection({ summary }: { summary: CatalogSummary | null }) {
+  const fact = summary && summary.total > 0
+    ? `${summary.total} ${plural(summary.total, 'тур', 'тура', 'туров')}${summary.minPrice != null ? ` от ${rub(summary.minPrice)}` : ''}`
+    : null;
   return (
-    <div className="relative -mx-4 sm:-mx-6 lg:-mx-8 mb-10 overflow-hidden rounded-none sm:rounded-lg">
-      <div className="relative h-[320px] sm:h-[380px] lg:h-[420px]">
-        <Image
-          src="/images/marketplace/hero-marketplace.jpg"
-          alt="Камчатка — земля вулканов"
-          fill
-          priority
-          className="object-cover"
-          sizes="100vw"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-
-        <div className="relative h-full flex flex-col justify-end p-6 sm:p-10 lg:p-12 max-w-2xl">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--accent)]/90 text-white text-xs font-semibold ">
-              <TrendingUp className="w-3 h-3" />
-              {getSeasonLabel()} 2026
-            </span>
-            {/* Живое число, не константа: «13 туров» в герое при 8 живых
-                внизу (#1780). Пока не посчитано — бейджа нет. */}
-            {toursTotal != null && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 text-white text-xs font-medium ">
-                <Mountain className="w-3 h-3" />
-                {toursTotal} {plural(toursTotal, 'тур', 'тура', 'туров')}
-              </span>
-            )}
-          </div>
-
-          <h1
-            className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white leading-tight mb-3"
-            style={{ fontFamily: 'var(--font-playfair)' }}
-          >
-            Туры Камчатки
-          </h1>
-          <p className="text-sm sm:text-base text-white/80 leading-relaxed mb-5 max-w-lg">
-            Реальные предложения от проверенных операторов. Вулканы, медведи, океан, термальные источники — выберите своё приключение.
+    <section className="relative overflow-hidden mb-4 sm:mb-8" aria-label="Туры Камчатки">
+      <Image
+        src="/images/marketplace/hero-marketplace.jpg"
+        alt="Камчатка — земля вулканов"
+        fill
+        priority
+        className="object-cover"
+        sizes="100vw"
+      />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/55 to-black/20" />
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-12 lg:py-14">
+        <h1
+          className="text-[28px] sm:text-4xl lg:text-5xl font-bold text-white leading-tight"
+          style={{ fontFamily: 'var(--font-playfair)' }}
+        >
+          Туры Камчатки
+        </h1>
+        {fact && (
+          <p className="mt-1 text-base sm:text-lg text-white/90 font-medium tabular-nums">
+            {fact}
           </p>
-
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/planner"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-semibold transition-all duration-200 shadow-lg shadow-[var(--accent)]/30"
-            >
-              <Sparkles className="w-4 h-4" />
-              Подобрать с Кузьмичом
-            </Link>
-            <a
-              href="#tours"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-black/25 hover:bg-black/40 text-white text-sm font-medium transition-all duration-200 border border-white/30"
-            >
-              Смотреть все туры
-              <ArrowRight className="w-4 h-4" />
-            </a>
-          </div>
+        )}
+        <p className="hidden sm:block mt-2 text-base text-white/80 leading-relaxed max-w-lg">
+          Готовые туры от операторов: состав, цена и даты — до заявки.
+        </p>
+        <div className="flex gap-2 sm:gap-3 mt-3 sm:mt-6">
+          <a href="#tours" className="ds-btn ds-btn-primary px-4 sm:px-5 whitespace-nowrap">
+            Смотреть туры
+            <ArrowRight className="w-4 h-4" />
+          </a>
+          <Link
+            href="/planner"
+            className="ds-btn px-3 sm:px-4 whitespace-nowrap text-white border border-white/30 bg-black/40 hover:bg-black/60 transition-all duration-200"
+          >
+            <Sparkles className="w-4 h-4" aria-hidden />
+            <span className="sm:hidden">С Кузьмичом</span>
+            <span className="hidden sm:inline">Подобрать с Кузьмичом</span>
+          </Link>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
-/* ─── Stats Bar ─── */
-
-/**
- * Сводка каталога по ЖИВЫМ турам (facets из полного списка), а не по константам
- * «8 направлений · 2+ операторов · 100 % проверенные» (#1780). Пока список не
- * пришёл — прочерк, не выдуманное число (§4.0).
- */
-interface CatalogFacets { directions: number; operators: number; tours: number }
-
-function StatsBar({ facets }: { facets: CatalogFacets | null }) {
-  const n = (v: number | undefined) => (v == null ? '—' : String(v));
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-      {[
-        { icon: Mountain, label: 'Направлений', value: n(facets?.directions), color: 'text-[var(--accent)]' },
-        { icon: Calendar, label: 'Сезон', value: getSeasonLabel(), color: 'text-[var(--success)]' },
-        { icon: Users, label: 'Операторов', value: n(facets?.operators), color: 'text-[var(--ocean)]' },
-        { icon: Star, label: 'Туров в продаже', value: n(facets?.tours), color: 'text-[var(--warning)]' },
-      ].map((stat, i) => (
-        <div
-          key={i}
-          className="flex items-center gap-3 p-3.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border)] hover:border-[var(--border-strong)] transition-colors"
-        >
-          <div className={`w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center ${stat.color}`}>
-            <stat.icon className="w-4.5 h-4.5" />
-          </div>
-          <div>
-            <p className="text-base font-bold text-[var(--text-primary)] leading-none">{stat.value}</p>
-            <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{stat.label}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ─── Tour Card (Premium Redesign) ─── */
+/* ─── Tour Card ─── */
 
 /* Рейл фич каталожной карточки: иконки выводим детерминированно из активности
    и ключевых слов названия/описания тура (медведи/рыбалка/сплав/источники и
@@ -307,6 +263,33 @@ function deriveFeatures(tour: Tour): { Icon: React.ElementType; label: string }[
   return out.slice(0, 4);
 }
 
+/** Точка статуса дат: зелёная — есть даты, приглушённая — по запросу. */
+const AVAILABILITY_DOT: Record<CatalogAvailability, string> = {
+  dates: 'var(--success)',
+  on_request: 'var(--warning)',
+  season_over: 'var(--text-muted)',
+};
+
+/**
+ * Карточка: фото на всю карточку, стекло поверх фото (контекст), CTA —
+ * непрозрачная (действие). Контракт §2: «стекло — для контекста,
+ * непрозрачность — для действия».
+ *
+ * Нижняя панель — bg-black/60 («плотнее, когда под стеклом сложный фон, а на
+ * карточке текст/CTA»). Прежний `bg-black/22` не генерировался Tailwind, и
+ * текст держался только на blur (аудит П5, #55/#58). При
+ * prefers-reduced-transparency панель становится сплошной var(--bg-card) без
+ * blur, а текст внутри — цветом темы: всё, что внутри, красится от
+ * currentColor панели, поэтому фолбэк меняет один цвет, а не двадцать.
+ *
+ * Шрифты — Playfair (заголовок) и Outfit (остальное) по §3 (решение владельца
+ * 24.09, развилка 7): Unbounded и JetBrains Mono на карточке были третьим и
+ * четвёртым голосом одного продукта (#133).
+ *
+ * Корзины на карточке нет (решение владельца 24.09, развилка 6): у гостя
+ * /cart ведёт на вход, в шапке её нет — зелёная галочка «в корзине» была
+ * подтверждением действия, у которого нет продолжения (#50/#57/#59).
+ */
 function TourCard({
   tour,
   isLiked,
@@ -316,8 +299,6 @@ function TourCard({
   isLiked: boolean;
   onToggleLike: (tourId: number) => void;
 }) {
-  const { add, remove, has } = useCart();
-  const inCart = has(tour.id);
   const activity = activityLabel(tour.activity_type, true);
   const location = locationLabel(tour.location_type);
   // 640-вариант: оптимизатор Next выключен, без нарезки карточка каталога
@@ -325,79 +306,78 @@ function TourCard({
   const imageSrc = photoSrc(tour.tour_image ?? ACTIVITY_IMAGES[tour.activity_type] ?? '/images/activities/volcanoes.jpg', 640);
   const diffBadge = tour.difficulty ? DIFFICULTY_BADGE[tour.difficulty] : null;
   const duration = formatDuration(tour);
-  const inSeason = isInSeason(tour);
+  const availability = catalogAvailability(tour);
+  // «● Сезон» — только когда есть даты: иначе зелёная точка обещала то,
+  // чего нет (тур 7 без дат и тур 5 с сезоном до 15.08 несли её, #51).
+  const showSeason = availability === 'dates' && isInSeason(tour);
   const priceOld = tour.price_old ? Number(tour.price_old) : null;
   const basePrice = Number(tour.base_price);
   const features = deriveFeatures(tour);
-
-  const toggleCart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (inCart) {
-      remove(tour.id);
-    } else {
-      add({
-        tourId: tour.id,
-        title: tour.title,
-        operatorName: tour.operator_name,
-        price: basePrice,
-        priceUnit: tour.price_unit,
-        activityType: tour.activity_type,
-        image: tour.tour_image,
-      });
-    }
+  const included = (tour.included ?? []).filter(s => typeof s === 'string' && s.trim()).slice(0, 3);
+  const href = `/catalog/tours/${tour.id}`;
+  const chipStyle: React.CSSProperties = {
+    background: 'color-mix(in srgb, currentColor 12%, transparent)',
+    borderColor: 'color-mix(in srgb, currentColor 28%, transparent)',
   };
 
   return (
-    <div className="group relative aspect-[17/25] rounded-2xl overflow-hidden bg-[var(--bg-hover)] shadow-sm hover:shadow-2xl transition-all duration-300">
+    <div className="group relative aspect-[5/6] sm:aspect-[17/25] rounded-2xl overflow-hidden bg-[var(--bg-hover)] shadow-sm hover:shadow-xl transition-all duration-300">
       {/* Фото на всю карточку */}
       <Image
         src={imageSrc}
         alt={tour.title}
         fill
         sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
-        className="object-cover group-hover:scale-[1.05] transition-transform duration-700 ease-out"
+        className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
         style={{ filter: 'saturate(1.12) contrast(1.04)' }}
       />
       {/* Затемнение только внизу под текстом — краски фото играют */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/10" />
 
-      {/* Навигация по всей карточке (под оверлеями) */}
-      <Link href={`/marketplace/tours/${tour.id}`} className="absolute inset-0 z-[1]" aria-label={tour.title} />
+      {/* Навигация по всей карточке (под оверлеями) — сразу на канонический
+          адрес: /marketplace/* уходит 308-редиректом и теряет #booking (#129). */}
+      <Link href={href} className="absolute inset-0 z-[1]" aria-label={tour.title} />
 
       {/* Рейл фич — стекло поверх фото */}
       {features.length > 0 && (
-        <div className="absolute top-3 left-3 z-[2] flex flex-col gap-0.5 p-1.5 rounded-2xl backdrop-blur-md bg-black/25 border border-white/25 pointer-events-none">
+        <div
+          className="absolute top-3 left-3 z-[2] flex flex-col gap-0.5 p-1.5 rounded-2xl backdrop-blur-md bg-black/40 border border-white/15 pointer-events-none"
+          role="list"
+          aria-label="Что в туре"
+        >
           {features.map((f) => (
-            <span key={f.label} title={f.label} className="w-8 h-8 grid place-items-center text-white">
-              <f.Icon className="w-[18px] h-[18px]" />
+            <span key={f.label} role="listitem" title={f.label} aria-label={f.label} className="w-8 h-8 grid place-items-center text-white">
+              <f.Icon className="w-[18px] h-[18px]" aria-hidden />
             </span>
           ))}
         </div>
       )}
 
-      {/* Избранное — стекло */}
+      {/* Избранное — стекло, цель 44px */}
       <button
+        type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleLike(tour.id); }}
         aria-label={isLiked ? 'Убрать из избранного' : 'В избранное'}
-        className="absolute top-3 right-3 z-[3] w-9 h-9 rounded-full grid place-items-center backdrop-blur-md bg-black/25 border border-white/25 transition-transform hover:scale-110"
+        aria-pressed={isLiked}
+        className="absolute top-2 right-2 z-[3] w-11 h-11 rounded-full grid place-items-center backdrop-blur-md bg-black/40 border border-white/15 transition-transform duration-200 hover:scale-105"
       >
-        <Heart className={`w-4 h-4 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
+        <Heart className={`w-5 h-5 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
       </button>
 
-      {/* Нижняя стеклянная панель — компактная и лёгкая, чтобы фото дышало */}
-      <div className="absolute left-3 right-3 bottom-3 z-[2] p-3.5 rounded-2xl backdrop-blur-md bg-black/22 border border-white/15 pointer-events-none">
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-white px-2 py-0.5 rounded-full bg-white/15 border border-white/20" style={{ fontFamily: 'var(--font-jetbrains, monospace)' }}>
-            {activity}
+      {/* Нижняя панель: стекло для контекста (текст), кнопка — непрозрачная */}
+      <div
+        className="absolute left-2.5 right-2.5 bottom-2.5 z-[2] p-3.5 rounded-2xl text-white backdrop-blur-md bg-black/60 border border-white/15 pointer-events-none [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none [@media(prefers-reduced-transparency:reduce)]:bg-[var(--bg-card)] [@media(prefers-reduced-transparency:reduce)]:text-[var(--text-primary)] [@media(prefers-reduced-transparency:reduce)]:border-[var(--border)]"
+        style={{ fontFamily: 'var(--font-outfit)' }}
+      >
+        <div className="flex flex-wrap items-center gap-1.5 mb-1.5 text-[11px] font-semibold">
+          <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{activity}</span>
+          {diffBadge && <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{diffBadge.label}</span>}
+          <span className="inline-flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: AVAILABILITY_DOT[availability] }} />
+            <span className={availability === 'dates' ? '' : 'font-medium opacity-90'}>{AVAILABILITY_LABEL[availability]}</span>
           </span>
-          {diffBadge && (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-white px-2 py-0.5 rounded-full bg-white/10 border border-white/15" style={{ fontFamily: 'var(--font-jetbrains, monospace)' }}>
-              {diffBadge.label}
-            </span>
-          )}
-          {inSeason && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+          {showSeason && (
+            <span className="inline-flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--success)' }} />
               Сезон
             </span>
@@ -405,55 +385,91 @@ function TourCard({
         </div>
 
         <h3
-          className="text-white leading-none line-clamp-2 mb-1.5"
-          style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))', fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.02em', textShadow: '0 1px 14px rgba(0,0,0,.45)' }}
+          className="text-xl font-bold leading-tight line-clamp-2 mb-1"
+          style={{ fontFamily: 'var(--font-playfair)', textWrap: 'balance' }}
         >
           {tour.title}
         </h3>
 
         {(tour.short_description || tour.description) && (
-          <p className="text-[12.5px] text-white/85 line-clamp-1 mb-2" style={{ textShadow: '0 1px 8px rgba(0,0,0,.4)' }}>
+          <p className="text-[13px] leading-snug opacity-90 line-clamp-2 mb-1.5">
             {tour.short_description ?? tour.description}
           </p>
         )}
 
-        <div className="flex items-center gap-3 text-[11px] text-white/75 mb-2">
-          <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tour.location_name ?? location}</span>
-          {duration && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{duration}</span>}
-        </div>
+        {included.length > 0 && (
+          <ul className="flex flex-nowrap sm:flex-wrap overflow-hidden gap-1 mb-1.5 text-[11px]" aria-label="Входит в цену">
+            {included.map(item => (
+              <li key={item} className="shrink-0 max-w-[11rem] truncate px-2 py-0.5 rounded-full border" style={chipStyle} title={item}>
+                {item}
+              </li>
+            ))}
+          </ul>
+        )}
 
-        <div className="flex items-baseline gap-2 mb-2.5">
-          {priceOld && priceOld > basePrice && (
-            <span className="text-xs text-white/50 line-through">{priceOld.toLocaleString('ru-RU')} ₽</span>
-          )}
-          <span className="text-white" style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))', fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.01em' }}>
-            {basePrice.toLocaleString('ru-RU')} ₽
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs opacity-90 mb-2">
+          <span className="inline-flex items-center gap-1">
+            {tour.operator_name}
+            {tour.operator_verified === true && (
+              <span className="inline-flex items-center gap-0.5 font-semibold">
+                <BadgeCheck className="w-3.5 h-3.5" aria-hidden /> проверен
+              </span>
+            )}
           </span>
-          <span className="text-[11px] text-white/60">{priceUnitLabel(tour.price_unit, true)}</span>
+          {duration && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" aria-hidden />{duration}</span>}
+          {(tour.location_name ?? location) && (
+            <span className="hidden sm:inline-flex items-center gap-1 min-w-0"><MapPin className="w-3.5 h-3.5 shrink-0" aria-hidden /><span className="truncate">{tour.location_name ?? location}</span></span>
+          )}
         </div>
 
-        <div className="flex items-center gap-2 pointer-events-auto">
+
+        {/* Цена строкой выше, кнопка — слева и по своей ширине: правый нижний
+            угол карточки свободен, и плавающая «Подобрать тур» (StickyLeadButton,
+            right-4) при любой прокрутке ложится на пустое место, а не на бронь. */}
+        <div className="flex flex-col items-start gap-1.5 pointer-events-auto">
+          <div className="flex flex-col min-w-0">
+            {priceOld && priceOld > basePrice && (
+              <span className="text-xs opacity-60 line-through tabular-nums">{rub(priceOld)}</span>
+            )}
+            <span className="whitespace-nowrap leading-tight">
+              <span className="text-lg font-bold tabular-nums">{rub(basePrice)}</span>{' '}
+              <span className="text-[11px] opacity-75">{priceUnitLabel(tour.price_unit, true)}</span>
+            </span>
+          </div>
           <Link
-            href={`/marketplace/tours/${tour.id}#booking`}
+            href={`${href}#booking`}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 text-center rounded-xl py-3 text-sm font-bold text-white border border-white/30 bg-white/15 backdrop-blur-md transition-colors hover:bg-[var(--accent)] hover:border-[var(--accent)]"
-            style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))' }}
+            className="ds-btn ds-btn-primary px-4 whitespace-nowrap"
           >
-            Забронировать
+            {availability === 'dates' ? 'Забронировать' : 'Оставить заявку'}
           </Link>
-          <button
-            onClick={toggleCart}
-            title={inCart ? 'Убрать из корзины' : 'В корзину'}
-            aria-label={inCart ? 'Убрать из корзины' : 'В корзину'}
-            className={`w-11 h-11 rounded-xl grid place-items-center border backdrop-blur-md transition-colors ${
-              inCart ? 'bg-[var(--success)] border-[var(--success)] text-white' : 'border-white/30 bg-white/15 text-white hover:bg-white/25'
-            }`}
-          >
-            {inCart ? <Check className="w-4 h-4" /> : <ShoppingCart className="w-4 h-4" />}
-          </button>
         </div>
       </div>
     </div>
+  );
+}
+
+/* ─── Planner Banner ─── */
+
+function PlannerBanner() {
+  return (
+    <Link
+      href="/planner"
+      className="col-span-full group flex items-center gap-4 p-5 rounded-lg border transition-all duration-200 hover:shadow-md"
+      style={{
+        borderColor: mix('--accent', 25),
+        background: `linear-gradient(90deg, ${mix('--accent', 10)}, ${mix('--accent', 3)})`,
+      }}
+    >
+      <div className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0" style={{ background: mix('--accent', 15) }}>
+        <Sparkles className="w-5 h-5 text-[var(--accent)]" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-[var(--text-primary)] mb-0.5">Не знаете, что выбрать?</p>
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">Кузьмич подберёт тур по вашим датам, бюджету и физической подготовке</p>
+      </div>
+      <ChevronRight className="w-5 h-5 text-[var(--accent)] shrink-0 group-hover:translate-x-1 transition-transform duration-200" />
+    </Link>
   );
 }
 
@@ -465,12 +481,21 @@ interface MarketplaceClientProps {
   initialTotal?: number;
   /** Ключ фильтров серверного рендера — чтобы не дублировать fetch на маунте. */
   initialKey?: string | null;
+  /**
+   * Сводка витрины (без фильтров), посчитанная на сервере: число туров, цена
+   * «от» и счётчики направлений. null — не посчитана (отказ записан в лог
+   * страницей): герой без факта, чипов направлений нет.
+   */
+  summary?: CatalogSummary | null;
 }
+
+type Notice = { text: string; href?: string; hrefLabel?: string } | null;
 
 export default function MarketplaceClient({
   initialTours,
   initialTotal = 0,
   initialKey = null,
+  summary = null,
 }: MarketplaceClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -478,33 +503,9 @@ export default function MarketplaceClient({
 
   const [tours, setTours] = useState<Tour[]>(initialTours ?? []);
   const [total, setTotal] = useState(initialTotal);
-  // Полный список живых туров — один раз, без фильтров: из него считаются
-  // сводка (направления, операторы) и счётчики плиток направлений. Отказ —
-  // null, и витрина показывает прочерк, а не старые константы (#1780).
-  const [allTours, setAllTours] = useState<Tour[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetch('/api/hub/marketplace/tours?limit=100')
-      .then(r => (r.ok ? r.json() : null))
-      .then((d: { tours?: Tour[] } | null) => { if (alive && Array.isArray(d?.tours)) setAllTours(d.tours); })
-      .catch(err => console.error('[catalog] полный список туров не загружен', err instanceof Error ? err.message : err));
-    return () => { alive = false; };
-  }, []);
-  const facets = useMemo<CatalogFacets | null>(() => {
-    if (!allTours) return null;
-    return {
-      tours: allTours.length,
-      directions: new Set(allTours.map(t => t.activity_type).filter(Boolean)).size,
-      operators: new Set(allTours.map(t => t.operator_id).filter(Boolean)).size,
-    };
-  }, [allTours]);
-  const countByActivity = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const t of allTours ?? []) m.set(t.activity_type, (m.get(t.activity_type) ?? 0) + 1);
-    return m;
-  }, [allTours]);
   const [loading, setLoading] = useState(initialKey === null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState<Notice>(null);
 
   // Search (deep-link параметры должны работать одинаково для SSR и клиента)
   const initialSearch = urlParams.get('search') ?? '';
@@ -535,6 +536,18 @@ export default function MarketplaceClient({
     [difficulty, priceRange, durationType],
   );
 
+  /**
+   * Чипы направлений — только те, где туры есть (сводка GROUP BY по живым
+   * турам), с числом: «Рыбалка · 7», «Сплав · 1». Направление, пришедшее
+   * deep-link'ом без туров, показывается выбранным с нулём — чтобы его было
+   * видно и можно было снять, а не чтобы звать в него.
+   */
+  const chips = useMemo(() => {
+    const list = (summary?.byActivity ?? []).map(a => ({ value: a.activity_type, count: a.count }));
+    if (activityFilter && !list.some(c => c.value === activityFilter)) list.push({ value: activityFilter, count: 0 });
+    return list;
+  }, [summary, activityFilter]);
+
   const getPriceParams = useCallback(() => {
     const range = PRICE_RANGES.find(r => r.value === priceRange);
     return { price_min: range?.min, price_max: range?.max };
@@ -547,7 +560,14 @@ export default function MarketplaceClient({
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [searchTerm]);
 
-  // Load wishlist
+  // Тост гаснет сам
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  // Load wishlist. У гостя 401 — ожидаемый ответ «не вошёл», не поломка.
   useEffect(() => {
     fetch('/api/tourist/wishlist?type=tour')
       .then(r => r.ok ? r.json() : null)
@@ -560,7 +580,7 @@ export default function MarketplaceClient({
           setLikedMap(map);
         }
       })
-      .catch(() => {});
+      .catch(err => console.warn('[catalog] избранное не загружено', err instanceof Error ? err.message : err));
   }, []);
 
   // Fetch tours
@@ -593,14 +613,17 @@ export default function MarketplaceClient({
     setError('');
     fetch(`/api/hub/marketplace/tours?${params}`)
       .then(r => {
-        if (!r.ok) throw new Error('Ошибка загрузки');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
       .then(data => {
         if (data?.tours) setTours(data.tours);
         if (data?.total != null) setTotal(data.total);
       })
-      .catch(() => setError('Не удалось загрузить туры. Попробуйте обновить страницу.'))
+      .catch(err => {
+        console.error('[catalog] туры не загружены', err instanceof Error ? err.message : err);
+        setError('Не удалось загрузить туры. Попробуйте обновить страницу.');
+      })
       .finally(() => setLoading(false));
   }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, getPriceParams]);
 
@@ -616,29 +639,55 @@ export default function MarketplaceClient({
     router.replace(`${pathname}${p.size ? '?' + p : ''}`, { scroll: false });
   }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, pathname, router]);
 
+  /**
+   * Отказ избранного не глушится (§4.0, аудит П5 #50/#59): раньше сердце у
+   * гостя молча откатывалось. 401 — «войдите», и это ожидаемый исход, в лог
+   * уходит предупреждением; иной отказ — ошибкой с кодом.
+   */
+  const reportWishlistFailure = useCallback((status: number | null, op: 'add' | 'remove') => {
+    if (status === 401) {
+      console.warn(`[catalog] избранное: ${op} → 401, гость`);
+      setNotice({ text: 'Войдите, чтобы сохранить тур в избранное', href: `/auth/login?from=${encodeURIComponent(pathname ?? '/catalog')}`, hrefLabel: 'Войти' });
+    } else {
+      console.error(`[catalog] избранное: ${op} не удалось`, status ?? 'сеть');
+      setNotice({ text: 'Не удалось сохранить. Попробуйте ещё раз.' });
+    }
+  }, [pathname]);
+
   const handleToggleLike = useCallback(async (tourId: number) => {
     const wishlistRowId = likedMap.get(tourId);
     const isLiked = likedMap.has(tourId);
 
     if (isLiked && wishlistRowId) {
       setLikedMap(prev => { const next = new Map(prev); next.delete(tourId); return next; });
-      const res = await fetch(`/api/tourist/wishlist?id=${wishlistRowId}`, { method: 'DELETE' });
-      if (!res.ok) setLikedMap(prev => { const next = new Map(prev); next.set(tourId, wishlistRowId); return next; });
+      let status: number | null = null;
+      try {
+        const res = await fetch(`/api/tourist/wishlist?id=${wishlistRowId}`, { method: 'DELETE' });
+        if (res.ok) return;
+        status = res.status;
+      } catch { /* сеть: status остаётся null и называется в логе */ }
+      setLikedMap(prev => { const next = new Map(prev); next.set(tourId, wishlistRowId); return next; });
+      reportWishlistFailure(status, 'remove');
     } else {
       setLikedMap(prev => { const next = new Map(prev); next.set(tourId, ''); return next; });
-      const res = await fetch('/api/tourist/wishlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemType: 'tour', itemId: String(tourId) }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { data?: { id?: string | number } };
-        setLikedMap(prev => { const next = new Map(prev); next.set(tourId, String(data?.data?.id ?? '')); return next; });
-      } else {
-        setLikedMap(prev => { const next = new Map(prev); next.delete(tourId); return next; });
-      }
+      let status: number | null = null;
+      try {
+        const res = await fetch('/api/tourist/wishlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemType: 'tour', itemId: String(tourId) }),
+        });
+        if (res.ok) {
+          const data = await res.json() as { data?: { id?: string | number } };
+          setLikedMap(prev => { const next = new Map(prev); next.set(tourId, String(data?.data?.id ?? '')); return next; });
+          return;
+        }
+        status = res.status;
+      } catch { /* сеть: status остаётся null и называется в логе */ }
+      setLikedMap(prev => { const next = new Map(prev); next.delete(tourId); return next; });
+      reportWishlistFailure(status, 'add');
     }
-  }, [likedMap]);
+  }, [likedMap, reportWishlistFailure]);
 
   const resetFilters = () => {
     setDifficulty('');
@@ -646,310 +695,259 @@ export default function MarketplaceClient({
     setDurationType('');
   };
 
-  return (
-    <div className="ds-page pb-20">
-      {/* ─── Hero ─── */}
-      <HeroSection toursTotal={facets?.tours ?? null} />
+  const sortSelect = (extra: string) => (
+    <select
+      value={sort}
+      onChange={e => setSort(e.target.value)}
+      aria-label="Сортировка"
+      className={`ds-input min-h-[44px] pr-8 text-sm rounded-lg ${extra}`}
+    >
+      {SORT_OPTIONS.map(opt => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+  );
 
-      {/* ─── Stats ─── */}
-      <StatsBar facets={facets} />
-
-      {/* ─── Visual Category Grid ─── */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
-            Выберите направление
-          </h2>
-          {activityFilter && (
-            <button
-              onClick={() => setActivityFilter('')}
-              className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1"
-            >
-              Сбросить
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
-          {CATEGORY_DATA.map(cat => {
-            // Плитка живёт по факту наличия туров (#1780): направление без
-            // единого тура — приглушено и не нажимается, с турами — несёт
-            // число. Пока полный список не пришёл — все плитки активны.
-            const cnt = allTours ? (countByActivity.get(cat.key) ?? 0) : null;
-            const empty = cnt === 0;
-            return (
-            <button
-              key={cat.key}
-              onClick={() => setActivityFilter(activityFilter === cat.key ? '' : cat.key)}
-              disabled={empty}
-              aria-disabled={empty}
-              title={empty ? 'Пока нет туров в этом направлении' : undefined}
-              className={`group relative flex flex-col items-center gap-2 py-4 px-2 rounded-lg border transition-all duration-300 ${
-                activityFilter === cat.key
-                  ? `bg-gradient-to-b ${cat.color} border-transparent ring-2 ${cat.ring} ring-offset-2 ring-offset-[var(--bg-page)] scale-[1.02]`
-                  : empty
-                    ? 'border-[var(--border)] bg-[var(--bg-card)] opacity-40 cursor-not-allowed'
-                    : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-strong)] hover:scale-[1.03] hover:shadow-md'
-              }`}
-            >
-              {cnt != null && cnt > 0 && activityFilter !== cat.key && (
-                <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--bg-hover)] text-[10px] font-bold text-[var(--text-secondary)] flex items-center justify-center">
-                  {cnt}
-                </span>
-              )}
-              <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                activityFilter === cat.key
-                  ? `bg-gradient-to-b ${cat.color} ${cat.iconColor}`
-                  : `bg-[var(--bg-hover)] text-[var(--text-muted)] group-hover:${cat.iconColor}`
-              }`}>
-                <cat.icon className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
-              </div>
-              <span className={`text-[11px] sm:text-xs font-semibold text-center leading-tight transition-colors ${
-                activityFilter === cat.key
-                  ? 'text-[var(--text-primary)]'
-                  : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
-              }`}>
-                {cat.label}
-              </span>
-              {activityFilter === cat.key && (
-                <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[var(--accent)] flex items-center justify-center">
-                  <Check className="w-2.5 h-2.5 text-white" />
-                </div>
-              )}
-            </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ─── AI Planner Banner ─── */}
-      <Link
-        href="/planner"
-        className="group flex items-center gap-4 p-5 rounded-lg border border-[var(--accent)]/20 bg-gradient-to-r from-[var(--accent)]/8 to-[var(--accent)]/3 hover:from-[var(--accent)]/12 hover:to-[var(--accent)]/6 transition-all duration-300 mb-8"
-      >
-        <div className="w-11 h-11 rounded-xl bg-[var(--accent)]/15 flex items-center justify-center shrink-0 group-hover:bg-[var(--accent)]/25 transition-colors">
-          <Sparkles className="w-5 h-5 text-[var(--accent)]" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-[var(--text-primary)] mb-0.5">Не знаете что выбрать?</p>
-          <p className="text-xs text-[var(--text-muted)] leading-relaxed">Кузьмич подберёт тур по вашим датам, бюджету и физической подготовке</p>
-        </div>
-        <ChevronRight className="w-5 h-5 text-[var(--accent)] shrink-0 group-hover:translate-x-1 transition-transform" />
-      </Link>
-
-      {/* ─── Tours Section ─── */}
-      <div id="tours">
-        {/* Search + Sort + Filters */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-            <input
-              type="text"
-              placeholder="Поиск по названию..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="ds-input w-full pl-10 pr-10 rounded-xl"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value)}
-            className="ds-input w-auto pr-8 text-sm rounded-xl"
-          >
-            {SORT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-
+  const optionGroup = (
+    title: string,
+    options: { value: string; label: string }[],
+    value: string,
+    set: (v: string) => void,
+  ) => (
+    <div>
+      <p className="ds-label mb-2.5 text-xs font-semibold uppercase tracking-wider">{title}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map(opt => (
           <button
-            onClick={() => setShowFilters(v => !v)}
-            className={`relative ds-btn ds-btn-secondary flex items-center gap-2 text-sm rounded-xl ${
-              showFilters ? 'border-[var(--accent)] text-[var(--accent)]' : ''
-            }`}
+            key={opt.value}
+            type="button"
+            aria-pressed={value === opt.value}
+            onClick={() => set(value === opt.value ? '' : opt.value)}
+            className={`${CHIP_BASE} ${value === opt.value ? CHIP_ON : CHIP_OFF}`}
           >
-            <SlidersHorizontal className="w-4 h-4" />
-            <span className="hidden sm:inline">Фильтры</span>
-            {activeFiltersCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[var(--accent)] text-white text-[10px] flex items-center justify-center font-bold">
-                {activeFiltersCount}
-              </span>
-            )}
-            <ChevronDown className={`w-3 h-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+            {opt.label}
           </button>
-        </div>
-
-        {/* Activity Chips */}
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-none">
-          {ACTIVITY_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => setActivityFilter(opt.value)}
-              className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl text-sm font-medium border transition-all duration-200 ${
-                activityFilter === opt.value
-                  ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-md shadow-[var(--accent)]/20'
-                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 hover:text-[var(--text-primary)] bg-[var(--bg-card)]'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Expandable Filter Panel */}
-        {showFilters && (
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5 mb-5 shadow-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-              <div>
-                <p className="ds-label mb-2.5 text-xs font-semibold uppercase tracking-wider">Цена</p>
-                <div className="flex flex-wrap gap-2">
-                  {PRICE_RANGES.map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setPriceRange(priceRange === opt.value ? '' : opt.value)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all duration-150 ${
-                        priceRange === opt.value
-                          ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-                          : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 bg-[var(--bg-card)]'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="ds-label mb-2.5 text-xs font-semibold uppercase tracking-wider">Сложность</p>
-                <div className="flex flex-wrap gap-2">
-                  {DIFFICULTY_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setDifficulty(difficulty === opt.value ? '' : opt.value)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all duration-150 ${
-                        difficulty === opt.value
-                          ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-                          : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 bg-[var(--bg-card)]'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="ds-label mb-2.5 text-xs font-semibold uppercase tracking-wider">Длительность</p>
-                <div className="flex flex-wrap gap-2">
-                  {DURATION_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setDurationType(durationType === opt.value ? '' : opt.value)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all duration-150 ${
-                        durationType === opt.value
-                          ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-                          : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 bg-[var(--bg-card)]'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {activeFiltersCount > 0 && (
-              <button
-                onClick={resetFilters}
-                className="mt-4 ds-btn ds-btn-secondary text-xs rounded-xl"
-              >
-                Сбросить фильтры
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Results count */}
-        {!loading && !error && (
-          <div className="flex items-center justify-between mb-6">
-            <p className="text-sm text-[var(--text-muted)]">
-              {total > 0
-                ? `${total} ${total === 1 ? 'тур' : total < 5 ? 'тура' : 'туров'}`
-                : null}
-            </p>
-          </div>
-        )}
-
-        {/* Grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }).map((_, i) => <TourCardSkeleton key={i} />)}
-          </div>
-        ) : error ? (
-          <div className="flex items-center gap-3 text-[var(--danger)] bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-lg p-5">
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            <p className="text-sm">{error}</p>
-          </div>
-        ) : tours.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center mx-auto mb-4">
-              <Search className="w-7 h-7 text-[var(--text-muted)]" />
-            </div>
-            <p className="ds-h2 mb-2">Туров по этому запросу немного</p>
-            <p className="text-sm text-[var(--text-muted)] mb-5 max-w-md mx-auto">
-              Попробуйте изменить фильтры. Но Камчатка — это не только готовые туры:
-              сотни маршрутов и мест, поездку можно собрать самому.
-            </p>
-            {(activeFiltersCount > 0 || activityFilter || searchTerm) && (
-              <button
-                onClick={() => { resetFilters(); setActivityFilter(''); setSearchTerm(''); }}
-                className="ds-btn ds-btn-secondary text-sm rounded-xl mb-6"
-              >
-                Сбросить все фильтры
-              </button>
-            )}
-            {/* Тупик «нет туров» → путь к настоящему богатству платформы:
-                маршруты/места и планировщик (с ~20 турами это главный контент,
-                а не запасной). Числа не хардкодим — они меняются (CLAUDE.md).
-                КОНТЕКСТНО: искал «Сплав» и туров нет → ведём на сплав-МАРШРУТЫ,
-                а не в общий список (жалоба Ярослава: искал сплавы → пусто). */}
-            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-              <Link
-                href={activityFilter ? `/routes?kind=route&activity_type=${encodeURIComponent(activityFilter)}` : '/routes'}
-                className="ds-btn ds-btn-secondary text-sm rounded-xl inline-flex items-center gap-2"
-              >
-                <Mountain className="w-4 h-4" />
-                {activityFilter
-                  ? `Маршруты: ${activityLabel(activityFilter)}`
-                  : 'Все маршруты'}
-              </Link>
-              <Link href="/planner" className="ds-btn ds-btn-primary text-sm rounded-xl inline-flex items-center gap-2">
-                <Sparkles className="w-4 h-4" /> Собрать поездку
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tours.map(tour => (
-              <TourCard
-                key={tour.id}
-                tour={tour}
-                isLiked={likedMap.has(tour.id)}
-                onToggleLike={handleToggleLike}
-              />
-            ))}
-          </div>
-        )}
+        ))}
       </div>
     </div>
+  );
+
+  // «По направлению» — только когда пустоту дал сам выбор направления, а не
+  // поиск или фильтры поверх него (у «Сплав · 1» туры есть).
+  const emptyTitle = activityFilter && !debouncedSearch && activeFiltersCount === 0
+    ? 'Готовых туров по направлению пока нет'
+    : 'Туров по этому запросу нет';
+
+  return (
+    <div className="ds-page pb-8">
+      {/* ─── Hero (на всю ширину, без отрицательных полей) ─── */}
+      <HeroSection summary={summary} />
+
+      {/* Локальная обёртка контента: поля и ширина. Общий .ds-page не трогаем. */}
+      <div className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        {/* ─── Tours Section ─── */}
+        <div id="tours" className="scroll-mt-20">
+          {/* Направления — одна строка чипов со счётчиком */}
+          {chips.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-1 mb-3 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0" role="group" aria-label="Направления">
+              <button
+                type="button"
+                aria-pressed={activityFilter === ''}
+                onClick={() => setActivityFilter('')}
+                className={`flex-shrink-0 ${CHIP_BASE} ${activityFilter === '' ? CHIP_ON : CHIP_OFF}`}
+              >
+                Все{summary ? ` · ${summary.total}` : ''}
+              </button>
+              {chips.map(c => (
+                <button
+                  key={c.value}
+                  type="button"
+                  aria-pressed={activityFilter === c.value}
+                  onClick={() => setActivityFilter(activityFilter === c.value ? '' : c.value)}
+                  className={`flex-shrink-0 ${CHIP_BASE} ${activityFilter === c.value ? CHIP_ON : CHIP_OFF}`}
+                >
+                  {activityLabel(c.value, true)} · {c.count}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Поиск + сортировка + фильтры: на телефоне одна строка */}
+          <div className="flex gap-2 sm:gap-3 mb-3 sm:mb-4">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" aria-hidden />
+              <input
+                type="search"
+                placeholder="Поиск по названию"
+                aria-label="Поиск тура по названию"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="ds-input w-full min-h-[44px] pl-10 pr-11 rounded-lg [&::-webkit-search-cancel-button]:appearance-none"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  aria-label="Очистить поиск"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 grid place-items-center text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {sortSelect('hidden sm:block w-auto')}
+
+            <button
+              type="button"
+              onClick={() => setShowFilters(v => !v)}
+              aria-expanded={showFilters}
+              aria-controls="catalog-filters"
+              className={`relative ds-btn ds-btn-secondary shrink-0 text-sm rounded-lg ${
+                showFilters ? 'border-[var(--accent)] text-[var(--accent)]' : ''
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" aria-hidden />
+              <span>Фильтры</span>
+              {activeFiltersCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[var(--accent)] text-white text-[11px] flex items-center justify-center font-bold">
+                  {activeFiltersCount}
+                </span>
+              )}
+              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} aria-hidden />
+            </button>
+          </div>
+
+          {/* Expandable Filter Panel */}
+          {showFilters && (
+            <div id="catalog-filters" className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5 mb-5 shadow-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                <div className="sm:hidden">
+                  <p className="ds-label mb-2.5 text-xs font-semibold uppercase tracking-wider">Сортировка</p>
+                  {sortSelect('w-full')}
+                </div>
+                {optionGroup('Цена', PRICE_RANGES, priceRange, setPriceRange)}
+                {optionGroup('Сложность', DIFFICULTY_OPTIONS, difficulty, setDifficulty)}
+                {optionGroup('Длительность', DURATION_OPTIONS, durationType, setDurationType)}
+              </div>
+
+              {activeFiltersCount > 0 && (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="mt-4 ds-btn ds-btn-secondary text-sm rounded-lg"
+                >
+                  Сбросить фильтры
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Results count (на телефоне число уже в чипах и герое) */}
+          {!loading && !error && total > 0 && (
+            <p className="hidden sm:block text-sm text-[var(--text-secondary)] mb-5">
+              {total} {plural(total, 'тур', 'тура', 'туров')}
+            </p>
+          )}
+
+          {/* Grid */}
+          {loading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+              {Array.from({ length: 6 }).map((_, i) => <TourCardSkeleton key={i} />)}
+            </div>
+          ) : error ? (
+            <div
+              role="alert"
+              className="flex items-center gap-3 text-[var(--danger)] border rounded-lg p-5"
+              style={{ background: mix('--danger', 10), borderColor: mix('--danger', 30) }}
+            >
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <p className="text-sm">{error}</p>
+            </div>
+          ) : tours.length === 0 ? (
+            <div className="text-center py-14">
+              <div className="w-16 h-16 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center mx-auto mb-4">
+                <Search className="w-7 h-7 text-[var(--text-muted)]" />
+              </div>
+              <p className="ds-h2 mb-2">{emptyTitle}</p>
+              <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-md mx-auto">
+                Оставьте заявку — оператор предложит поездку под ваши даты. Но
+                Камчатка — это не только готовые туры: сотни маршрутов и мест,
+                поездку можно собрать самому.
+              </p>
+              {/* Первой — заявка через существующую форму /request (продажа не
+                  теряется в тупике), второй — маршруты. КОНТЕКСТНО: искал
+                  «Сплав» и туров нет → ведём на сплав-МАРШРУТЫ, а не в общий
+                  список (жалоба Ярослава). Числа не хардкодим (CLAUDE.md). */}
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <Link href="/request" className="ds-btn ds-btn-primary text-sm rounded-lg">
+                  <Send className="w-4 h-4" /> Оставить заявку
+                </Link>
+                <Link
+                  href={activityFilter ? `/routes?kind=route&activity_type=${encodeURIComponent(activityFilter)}` : '/routes'}
+                  className="ds-btn ds-btn-secondary text-sm rounded-lg"
+                >
+                  <Mountain className="w-4 h-4" />
+                  {activityFilter
+                    ? `Маршруты: ${activityLabel(activityFilter)}`
+                    : 'Все маршруты'}
+                </Link>
+              </div>
+              {(activeFiltersCount > 0 || activityFilter || searchTerm) && (
+                <button
+                  type="button"
+                  onClick={() => { resetFilters(); setActivityFilter(''); setSearchTerm(''); }}
+                  className="mt-4 min-h-[44px] px-3 text-sm text-[var(--ocean)] hover:underline"
+                >
+                  Сбросить все фильтры
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+              {tours.map((tour, i) => (
+                <FragmentWithBanner key={tour.id} showBanner={i === Math.min(2, tours.length - 1)}>
+                  <TourCard
+                    tour={tour}
+                    isLiked={likedMap.has(tour.id)}
+                    onToggleLike={handleToggleLike}
+                  />
+                </FragmentWithBanner>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Тост: непрозрачный, над таб-баром и кнопкой заявки */}
+      {notice && (
+        <div
+          role="status"
+          className="fixed left-4 right-4 sm:left-auto sm:right-6 sm:max-w-sm z-[110] flex items-center gap-3 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] shadow-lg text-sm text-[var(--text-primary)]"
+          style={{ bottom: 'calc(var(--bottom-nav-h, 0px) + 84px)' }}
+        >
+          <span className="flex-1">{notice.text}</span>
+          {notice.href && (
+            <Link href={notice.href} className="ds-btn ds-btn-primary shrink-0">{notice.hrefLabel}</Link>
+          )}
+          <button type="button" onClick={() => setNotice(null)} aria-label="Закрыть" className="w-11 h-11 -m-2 grid place-items-center text-[var(--text-secondary)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Баннер планировщика — после третьей карточки (или после последней, если
+ * туров меньше), а не над выдачей: на первом экране должен быть тур (#7/#9).
+ */
+function FragmentWithBanner({ showBanner, children }: { showBanner: boolean; children: React.ReactNode }) {
+  return (
+    <>
+      {children}
+      {showBanner && <PlannerBanner />}
+    </>
   );
 }

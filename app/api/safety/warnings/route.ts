@@ -24,6 +24,10 @@ export async function GET(req: Request) {
       );
     }
 
+    // Запрос по tour_id — это тур оператора: общая погода с авиакатастрофой
+    // на нём не выводится (hazard-signals, `operator_tour`).
+    const operatorTour = Boolean(tourId);
+
     let routeInfo: {
       location_type: string | null;
       activity_type: string | null;
@@ -47,10 +51,14 @@ export async function GET(req: Request) {
         alert_severity: number;
         alert_message: string | null;
       }>(
+        // Фолбэк на тип активности самого тура (решение владельца 24.09): у
+        // живых туров связи с маршрутом нет (agent_route_id не ставит ни одна
+        // миграция), и опасности не выводились ниоткуда, кроме общей погоды
+        // (аудит П6, #64). Связь есть — прав маршрут.
         `SELECT
            ot.title,
            ark.location_type,
-           ark.activity_type,
+           COALESCE(ark.activity_type, ot.activity_type) AS activity_type,
            lsp.hazard_types,
            ark.zone,
            COALESCE(lrs.is_open, true) AS is_open,
@@ -108,6 +116,7 @@ export async function GET(req: Request) {
       activity_type: routeInfo.activity_type ?? undefined,
       hazard_types: routeInfo.hazard_types ?? undefined,
       zone: routeInfo.zone ?? undefined,
+      operator_tour: operatorTour,
     });
 
     const dangerLevel = getOverallDangerLevel({
@@ -115,6 +124,7 @@ export async function GET(req: Request) {
       activity_type: routeInfo.activity_type ?? undefined,
       hazard_types: routeInfo.hazard_types ?? undefined,
       zone: routeInfo.zone ?? undefined,
+      operator_tour: operatorTour,
     });
 
     // Активные алерты из danger_assessments
@@ -191,7 +201,7 @@ export async function GET(req: Request) {
         icon: s.icon,
       })),
       emergency_contacts: emergencyContacts,
-      disclaimer: 'Платформа TourHab предупреждает об известных опасностях, но не несёт ответственность за решение о выходе на маршрут. Запрет маршрута возможен только при официальном закрытии зоны.',
+      disclaimer: 'Платформа Ведар предупреждает об известных опасностях, но не несёт ответственность за решение о выходе на маршрут. Запрет маршрута возможен только при официальном закрытии зоны.',
     });
   } catch (err) {
     return NextResponse.json(

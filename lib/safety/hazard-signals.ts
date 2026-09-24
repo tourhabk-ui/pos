@@ -296,7 +296,20 @@ interface RouteInfo {
   activity_type?: string;
   hazard_types?: string[];
   zone?: string;
+  /**
+   * Сигналы для тура ОПЕРАТОРА (решение владельца 24.09, развилка 8).
+   * Общий погодный сигнал на таком туре не выводится: его текст — про
+   * авиакатастрофу у Курильского озера и совет туристу самому
+   * зарегистрироваться в МЧС за 10 рабочих дней. На семейном сплаве это было
+   * единственное «ВНИМАНИЕ» (аудит П6, #64), а группу оператора регистрирует
+   * не турист. Формулировку для туров оператора даёт владелец — до неё
+   * сигнала нет, а не придуманный текст.
+   */
+  operator_tour?: boolean;
 }
+
+/** Опасности, которые на туре оператора не выводятся (см. `operator_tour`). */
+export const OPERATOR_TOUR_SUPPRESSED: ReadonlySet<HazardType> = new Set<HazardType>(['weather']);
 
 /**
  * Собирает все предупредительные сигналы для конкретного маршрута.
@@ -330,6 +343,12 @@ export function getHazardSignals(route: RouteInfo): HazardSignal[] {
 
   // 5. Погода — всегда актуальна на Камчатке
   hazardSet.add('weather');
+
+  // 6. Тур оператора: погодный сигнал с авиакатастрофой и советом про МЧС
+  //    не показываем — ни общий, ни пришедший из типа активности.
+  if (route.operator_tour) {
+    for (const h of OPERATOR_TOUR_SUPPRESSED) hazardSet.delete(h);
+  }
 
   // Собираем сигналы, сортируем по приоритету
   const levelPriority: Record<SignalLevel, number> = {
