@@ -1,11 +1,11 @@
 {
-  "note": "25.09, прогон 582. ТОЛЬКО ЧТЕНИЕ. Повтор через 10 минут после «сделал»: прогон 581 (10:47 KMT) — qwen-plus и qwen3.8-max всё ещё 403 AllocationQuota.FreeTierOnly, qwen-vl-max ok. Дошла ли настройка консоли до шлюза.",
-  "run": 582,
+  "note": "25.09, прогон 583. ТОЛЬКО ЧТЕНИЕ. Владелец: «я выпустил новый ключ» (после покупки тарифного плана Token Lite в QwenCloud). Что прод видит сейчас: каждая модель Qwen — ответ или отказ, и сообщение DashScope целиком (e9f0da5).",
+  "run": 583,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 20,
   "allowStale": true,
-  "bytes": 6500,
+  "bytes": 9000,
   "around": [
     "qwen_ping"
   ],
