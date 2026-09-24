@@ -83,6 +83,23 @@ function seismicityGist(s: string | null): string | null {
 }
 
 /**
+ * Фраза о вулкане по шкале КФ ЕГС — одна на радар и на контекст Кузьмича/MCP
+ * (`lib/kuzmich/guardian-context.ts`). Две копии одной фразы разошлись бы, и
+ * турист прочёл бы на радаре одно, а от Кузьмича — другое.
+ *
+ * null — свежей сводки нет: так и сказано, а не пропущено.
+ */
+export function kfegsPhrase(k: KfegsReading | null): string {
+  if (!k) return 'КФ ЕГС: свежей сводки нет';
+  const date = ruDate(k.date);
+  if (k.color) {
+    const gist = seismicityGist(k.seismicity);
+    return `КФ ЕГС (сейсмичность, за ${date}): ${RU[k.color]}${gist ? ` — ${gist}` : ''}`;
+  }
+  return `КФ ЕГС (за ${date}): код «${k.raw}» — значение неизвестно, наблюдение не оценено`;
+}
+
+/**
  * Собрать метки вулканов для радара.
  *
  * @param kvert  код KVERT по ark_id места (все известные, не только повышенные)
@@ -110,18 +127,7 @@ export function volcanoMarks(
     if (levels.length === 0) continue;
     const level = levels.sort((a, b) => RANK[b] - RANK[a])[0];
 
-    const parts: string[] = [];
-    if (k) {
-      const date = ruDate(k.date);
-      if (k.color) {
-        const gist = seismicityGist(k.seismicity);
-        parts.push(`КФ ЕГС (сейсмичность, за ${date}): ${RU[k.color]}${gist ? ` — ${gist}` : ''}`);
-      } else {
-        parts.push(`КФ ЕГС (за ${date}): код «${k.raw}» — значение неизвестно, наблюдение не оценено`);
-      }
-    } else {
-      parts.push('КФ ЕГС: свежей сводки нет');
-    }
+    const parts: string[] = [kfegsPhrase(k)];
     parts.push(acc
       ? `KVERT (авиация): ${RU[acc as ScaleColor] ?? acc}`
       : 'KVERT (авиация): кода нет');
