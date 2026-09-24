@@ -27,6 +27,31 @@ describe('isResolutionNotice', () => {
     expect(isResolutionNotice('Не рекомендуется посещение вулкана Мутновский')).toBe(false);
   });
 
+  // Первая редакция правила читала отрицание как отбой — и уводила вниз
+  // «Наиболее значимого» тревогу, которая как раз действует.
+  it('отрицание окончания — не отбой, а действующая тревога', () => {
+    expect(isResolutionNotice('Паводковая обстановка не стабилизировалась, уровень воды растёт')).toBe(false);
+    expect(isResolutionNotice('Обстановка так и не нормализовалась')).toBe(false);
+    expect(isResolutionNotice('Не снят режим повышенной готовности')).toBe(false);
+    expect(isResolutionNotice('Очаг возгорания пока не ликвидирован')).toBe(false);
+    expect(isResolutionNotice('Угроза не устранена')).toBe(false);
+    expect(isResolutionNotice('Угроза не миновала')).toBe(false);
+  });
+
+  it('обещанный отбой — ещё не отбой', () => {
+    expect(isResolutionNotice('Отбой угрозы цунами будет объявлен дополнительно')).toBe(false);
+    expect(isResolutionNotice('Отбой штормового предупреждения')).toBe(true);
+  });
+
+  it('ё и е в окончании — одно слово', () => {
+    expect(isResolutionNotice('Последствия циклона устранён')).toBe(true);
+    expect(isResolutionNotice('Угроза устранена')).toBe(true);
+  });
+
+  it('отмена рейсов — тревога, не отбой', () => {
+    expect(isResolutionNotice('Авиарейсы отменены из-за метели')).toBe(false);
+  });
+
   it('пустой заголовок — не отбой', () => {
     expect(isResolutionNotice(null)).toBe(false);
     expect(isResolutionNotice(undefined)).toBe(false);
