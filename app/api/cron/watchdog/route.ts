@@ -3,6 +3,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
+import { pingHeartbeat, watchdogSignal } from '@/lib/agents/heartbeat-ping';
 
 /**
  * GET /api/cron/watchdog
@@ -57,7 +58,13 @@ export async function GET(req: Request) {
           : null,
       },
     });
-    return Response.json({ success: failedChecks === 0, ...result });
+    // Сигнал внешнему сторожу (healthchecks.io) — после прогона, с исходом
+    // в ответе: «не дошло» должно быть видно в логе workflow, а не угадываться.
+    const heartbeat = await pingHeartbeat(
+      watchdogSignal(result.checks.total, failedChecks),
+      `проверок ${result.checks.total}, не выполнилось ${failedChecks}, тревог ${result.alerts.length}`,
+    );
+    return Response.json({ success: failedChecks === 0, ...result, heartbeat });
   } catch (err) {
     void logAgentRun({
       agent_id: 'watchdog',
@@ -67,8 +74,9 @@ export async function GET(req: Request) {
       errors_count: 1,
       error_msg: err instanceof Error ? err.message : String(err),
     });
+    const heartbeat = await pingHeartbeat('fail', 'прогон Watchdog упал целиком');
     return Response.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { error: err instanceof Error ? err.message : 'Unknown error', heartbeat },
       { status: 500 },
     );
   }
