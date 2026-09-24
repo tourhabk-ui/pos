@@ -79,7 +79,10 @@ function ruDate(iso: string): string {
 function seismicityGist(s: string | null): string | null {
   if (!s) return null;
   const cleaned = s.replace(/R\s*[=~]\s*[\d.]+;?/g, '').replace(/Ks\s*пред\.\s*=\s*[\d.]+;?/g, '').trim();
-  return cleaned ? cleaned.slice(0, 160) : null;
+  // Хвостовая точка снимается: фразу замыкает вызывающий, и в ответе MCP
+  // стояло «событий 255.. Это не авиационный код» (проверка 24.09).
+  const cut = cleaned.slice(0, 160).replace(/[.\s]+$/, '');
+  return cut || null;
 }
 
 /**

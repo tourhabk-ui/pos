@@ -70,16 +70,33 @@ jobs:
           alerts = live.get('alerts') or []
           print('ВЕРДИКТ ПОТОКА:', d.get('verdict', '(нет)'))
           print('живых тревог:', live.get('total'), '| в ленте:', live.get('in_feed'),
-                '| отбраковал бы страж:', live.get('rejected_by_genre'))
+                '| отбраковал бы страж:', live.get('rejected_by_genre'),
+                '| спорных:', live.get('contested'),
+                '| важность не записана:', live.get('contested_severity_unknown'))
           print()
           for a in alerts:
               print('---')
               print(' тип:', a.get('alert_type'), '| в ленте:', a.get('in_feed'),
                     '| жанр:', a.get('rejected_genre'), '| жанр заголовка:', a.get('rejected_genre_title'),
                     '| важность:', a.get('severity'))
+              print(' отбой в заголовке:', a.get('stand_down_title'), '| в теле:', a.get('stand_down_description'),
+                    '| спорно:', a.get('contested'), '| пуш ушёл:', a.get('push_sent'))
               print(' создана:', a.get('created_at'), '| до:', a.get('expires_at'))
               print(' заголовок:', a.get('title'))
               print(' тело (%d симв.):' % (a.get('description_len') or 0), a.get('description_head'))
+
+          # Спорные — ПРЕДУПРЕЖДЕНИЕ, а не красный: слова отбоя в заголовке
+          # записи с severity >= 1 — улика, а не доказательство, и решает по
+          # ней человек. Печатаются до приёмки, чтобы красный их не заслонил.
+          contested = [a for a in alerts if a.get('contested') is True]
+          unknown = [a for a in alerts if a.get('contested') is None]
+          if contested or unknown:
+              print()
+              print('ВНИМАНИЕ: отбой по словам, записанный угрозой, —', len(contested),
+                    '| слова отбоя при незаписанной важности —', len(unknown))
+              for a in contested + unknown:
+                  print('  [%s, важность %s, пуш %s] %s' % (
+                      a.get('alert_type'), a.get('severity'), a.get('push_sent'), a.get('title')))
 
           # ПРИЁМКА, а не отчёт. Отчёт читает человек и верит на слово тому, кто
           # его показал; здесь приговор выносит прогон.

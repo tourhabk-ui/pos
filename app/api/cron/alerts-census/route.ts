@@ -26,6 +26,28 @@
  *
  * Третий исход — тот, ради которого перепись и написана: он выглядит как
  * второй и означает противоположное.
+ *
+ * ── Спорные записи: отбой, записанный тревогой ─────────────────────────────
+ *
+ * 21.09 верхней строкой `safety_status` стояло «Стабилизировалась паводковая
+ * обстановка в Соболевском округе» — с severity 1, как у настоящих тревог
+ * (#1984). Классификатор приёма узнаёт ЯВЛЕНИЕ (паводок) и не спрашивает,
+ * объявлено оно или закончилось, поэтому отбой пишется тем же типом и той
+ * же важностью, что и тревога.
+ *
+ * Перепись классификацию НЕ меняет и приговора «это отбой» не выносит:
+ * формулировка — улика, а не доказательство. Она называет запись спорной
+ * (`contested`), когда заголовок говорит словами отбоя (то же правило, что
+ * опускает отбой в `safety_status`, — `lib/safety/resolution-notice.ts`), а
+ * хранится запись как угроза (severity ≥ 1). Важность не записана — спорность
+ * `null`: «не знаю» не выдаётся ни за «спорно», ни за «чисто» (§4.0).
+ *
+ * Совпадения в теле показаны отдельным полем и спорности не дают: сводка
+ * МЧС в одном тексте объявляет новый пожар и сообщает, что прошлый
+ * ликвидирован, — по телу спорным стало бы всё подряд.
+ *
+ * `push_sent` рядом — потому что цена ошибки не в строке ленты, а в пуше:
+ * отбой, ушедший туристу предупреждением, будит его зря.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -35,6 +57,7 @@ import { pool } from '@/lib/db-pool';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { rejectedGenre } from '@/lib/services/safety/alert-prune';
 import { isFeedAlertType } from '@/lib/services/safety/feed-types';
+import { isResolutionNotice } from '@/lib/safety/resolution-notice';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -54,7 +77,7 @@ interface TypeRow { alert_type: string | null; n: number; newest_age_min: number
 interface LiveRow {
   id: string; title: string | null; description: string | null;
   alert_type: string | null; severity: number | null;
-  created_at: string; expires_at: string | null;
+  created_at: string; expires_at: string | null; push_sent: boolean;
 }
 interface RunRow { agent_id: string; status: string; started_at: string; age_min: number }
 
@@ -101,7 +124,8 @@ export async function GET(request: NextRequest) {
     // либо видно в этих полях, либо его нет.
     const { rows: live } = await pool.query<LiveRow>(
       `SELECT id::text, title, description, alert_type, severity::int AS severity,
-              created_at::text, expires_at::text
+              created_at::text, expires_at::text,
+              (push_sent_at IS NOT NULL) AS push_sent
          FROM external_alerts
         WHERE expires_at IS NULL OR expires_at > NOW()
         ORDER BY created_at DESC
@@ -110,6 +134,7 @@ export async function GET(request: NextRequest) {
     const live_alerts = live.map((r) => {
       const title = r.title ?? '';
       const description = r.description ?? '';
+      const standDownTitle = isResolutionNotice(title);
       return {
         id: r.id,
         alert_type: r.alert_type,
@@ -124,6 +149,11 @@ export async function GET(request: NextRequest) {
         // записи, где заголовок отчёт, а тело говорит о другом: разойтись эти
         // два приговора могут только так, и тогда это видно, а не гадается.
         rejected_genre_title: title.trim() === '' ? null : rejectedGenre(title),
+        // Слова отбоя — улика, не приговор; см. шапку файла.
+        stand_down_title: standDownTitle,
+        stand_down_description: isResolutionNotice(description),
+        contested: !standDownTitle ? false : r.severity === null ? null : r.severity >= 1,
+        push_sent: r.push_sent,
         title: r.title,
         // 300 символов оказалось мало: в прогоне 1 отбраковку жанра снимала
         // фраза из ХВОСТА суточной сводки, и по обрезанному телу вывод был
@@ -167,6 +197,9 @@ export async function GET(request: NextRequest) {
         // Больше нуля — чистка не доехала; ноль при жанровой строке на
         // экране — страж её не узнаёт, и в `alerts` ниже видно, какую.
         rejected_by_genre: live_alerts.filter((a) => a.rejected_genre !== null).length,
+        // Отбой по словам, записанный угрозой. Решает человек, не перепись.
+        contested: live_alerts.filter((a) => a.contested === true).length,
+        contested_severity_unknown: live_alerts.filter((a) => a.contested === null).length,
         alerts: live_alerts,
       },
       // Пусто — ни один из наполняющих агентов не отметился за неделю. Это
