@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { plural } from '@/lib/home/data-freshness';
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 
 interface Fact {
   num: string;
@@ -32,8 +33,8 @@ export function EditorialSection({ mchsRoutes, safetyProfiles }: EditorialSectio
   ];
 
   return (
-    <section className="py-24 md:py-32 bg-[var(--bg-card)] overflow-hidden">
-      <div className="container mx-auto px-6">
+    <section className="py-16 md:py-20 bg-[var(--bg-card)] overflow-hidden">
+      <div className={HOME_CONTAINER}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-center">
           {/* Text Content */}
           <div className="lg:col-span-7 order-2 lg:order-1">

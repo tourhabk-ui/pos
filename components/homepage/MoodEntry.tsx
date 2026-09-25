@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Mountain, Waves, Users, Camera, Fish, Sparkles } from 'lucide-react';
+import { HOME_CONTAINER, HOME_SECTION } from '@/lib/home/desktop-layout';
 
 const MOODS = [
   {
@@ -56,7 +57,7 @@ const MOODS = [
 
 export function MoodEntry() {
   return (
-    <section className="px-4 py-10 max-w-6xl mx-auto">
+    <section className={`${HOME_CONTAINER} ${HOME_SECTION}`}>
       <div className="mb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-[var(--accent)] mb-2">
           Куда вас тянет?

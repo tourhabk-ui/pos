@@ -1,6 +1,7 @@
 'use client';
 
 import { plural } from '@/lib/home/data-freshness';
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 
 export interface PlatformStats {
   routes: number;
@@ -27,40 +28,34 @@ export function StatsBand({ stats }: StatsBandProps) {
         ]
       : []),
     { num: '24 / 7', label: 'мониторинг угроз' },
-    { num: '2026',   label: 'сезон открыт' },
   ];
 
+  // Статичная полоса в общей сетке вместо бегущей строки (25.09): бегущая
+  // строка шла во всю ширину мимо сетки главной и крутила по кругу слоганы
+  // вперемешку с фактами. Цифры — те же, из БД; слоган про открытый сезон
+  // снят: это не факт.
+  // Ноль не выставляется витриной: «0 маршрутов в базе» читается как
+  // пустая платформа, а не как факт (тот же приём, что у LiveOnTrails).
+  const shown = items.filter((s) => s.num !== '0');
+
   return (
-    <div className="overflow-hidden border-y border-[var(--border)] bg-[var(--bg-card)] group">
-      {/* Marquee — two copies for seamless loop */}
-      <div className="flex animate-marquee whitespace-nowrap py-6 group-hover:[animation-play-state:paused]" aria-hidden>
-        {[...items, ...items].map((s, i) => (
-          <div
-            key={i}
-            className="inline-flex items-baseline gap-3 px-10 md:px-16 border-r border-[var(--border)] last:border-r-0 flex-shrink-0"
-          >
-            <span
+    <section className={`${HOME_CONTAINER} pt-6`} aria-label="Платформа в цифрах">
+      <dl className="flex flex-wrap gap-px overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--border)]">
+        {shown.map((s) => (
+          <div key={s.label} className="flex-1 min-w-[180px] bg-[var(--bg-card)] px-5 py-4 flex flex-col-reverse">
+            {/* dt раньше dd по разметке списка, цифра визуально сверху. */}
+            <dt className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--text-secondary)] font-medium">
+              {s.label}
+            </dt>
+            <dd
               className="font-playfair font-bold text-[var(--text-primary)] lining-nums tabular-nums"
-              style={{ fontSize: 'clamp(1.5rem, 2.5vw, 2.2rem)' }}
+              style={{ fontSize: 'clamp(1.5rem, 2.2vw, 2rem)' }}
             >
               {s.num}
-            </span>
-            <span className="text-xs tracking-[0.2em] uppercase text-[var(--text-secondary)] font-medium">
-              {s.label}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Accessible static version for screen readers */}
-      <dl className="sr-only">
-        {items.map(s => (
-          <div key={s.label}>
-            <dt>{s.label}</dt>
-            <dd>{s.num}</dd>
+            </dd>
           </div>
         ))}
       </dl>
-    </div>
+    </section>
   );
 }

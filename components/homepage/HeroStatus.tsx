@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AlertTriangle, Info, ArrowRight, Search, Sunrise, CalendarDays, Compass } from 'lucide-react';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { clip } from '@/components/safety/LiveStatus';
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 
 export interface SafetyStatusData {
   hasAlert: boolean;
@@ -119,7 +120,8 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
       : null;
 
   return (
-    <div className="relative mx-4 mt-4 mb-0 rounded-lg overflow-hidden h-[380px]">
+    <div className={`${HOME_CONTAINER} pt-4`}>
+    <div className="relative rounded-lg overflow-hidden h-[380px] lg:h-[460px]">
       <Image
         src="/images/hero/hero-light.jpeg"
         alt="Камчатка"
@@ -129,7 +131,7 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
       />
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-black/75" />
 
-      <div className="absolute inset-0 flex flex-col justify-between p-5 md:p-6">
+      <div className="absolute inset-0 flex flex-col justify-between p-5 md:p-8 lg:p-10">
         {/* Top row: status badge + source chip */}
         <div className="flex items-start justify-between gap-3">
           <div
@@ -239,6 +241,7 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

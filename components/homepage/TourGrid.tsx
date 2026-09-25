@@ -5,6 +5,7 @@ import { plateFacts } from '@/lib/home/plate-facts';
 import { activityLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 
 /**
  * Сетка туров под «Турами сезона» на десктопной главной.
@@ -27,8 +28,8 @@ import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
  */
 export function TourGrid({ plates }: { plates: readonly Plate[] }) {
   return (
-    <section className="px-4 pt-4 pb-10" aria-label="Все туры сезона">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <section className={`${HOME_CONTAINER} pt-4 pb-4`} aria-label="Все туры сезона">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {plates.map((p) => {
           const f = plateFacts(p);
           const activity = p.category && p.category !== 'tour' ? activityLabel(p.category) : null;

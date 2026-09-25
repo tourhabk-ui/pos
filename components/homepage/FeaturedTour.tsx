@@ -6,6 +6,7 @@ import { plateDuration } from '@/lib/home/plate-facts';
 import { priceUnitLabel, activityLabel } from '@/lib/tours/labels';
 import { priceFrom } from '@/lib/tours/price-label';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 
 /**
  * Реальный тур на главной вместо выдуманной «истории путешественницы».
@@ -46,8 +47,8 @@ export function FeaturedTour({ tour, total }: FeaturedTourProps) {
   const blurb = tour.description || null;
 
   return (
-    <section className="px-4 mb-2" aria-labelledby="home-tours-title">
-      <div className="max-w-6xl mx-auto">
+    <section className={`${HOME_CONTAINER} pt-12`} aria-labelledby="home-tours-title">
+      <div>
         <div className="flex items-baseline justify-between mb-3">
           <h2
             id="home-tours-title"
