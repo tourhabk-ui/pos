@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
@@ -89,15 +90,14 @@ export async function GET(
     // Получаем отзывы (последние 10)
     const reviewsResult = await query<{
       id: string; rating: string; comment: unknown; created_at: unknown;
-      user_name: string | null; user_email: string | null;
+      user_name: string | null;
     }>(
       `SELECT
         r.id,
         r.overall_rating as rating,
         r.comment,
         r.created_at,
-        u.name as user_name,
-        u.email as user_email
+        u.name as user_name
       FROM accommodation_reviews r
       LEFT JOIN users u ON r.user_id = u.id
       WHERE r.accommodation_id = $1 AND r.is_visible = true
@@ -187,9 +187,9 @@ export async function GET(
         rating: parseFloat(review.rating),
         comment: review.comment,
         createdAt: review.created_at,
+        // Публичный ответ: без email и фамилии (lib/reviews/public-name).
         user: {
-          name: review.user_name,
-          email: review.user_email,
+          name: publicReviewerName(review.user_name),
         },
       })),
       similar: similarResult.rows.map(item => ({
