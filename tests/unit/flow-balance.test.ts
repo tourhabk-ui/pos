@@ -25,7 +25,7 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const ENGINE = read('lib/planner/engine.ts');
 const LOAD = read('lib/planner/place-load.ts');
 const ADMIN = read('app/api/admin/places/[id]/visitor-limit/route.ts');
-const MIGRATION = read('migrations/1016_places_visitor_limit.sql');
+const MIGRATION = read('migrations/1017_places_visitor_limit.sql');
 
 const place = (p: Partial<PlaceLoad>): PlaceLoad => ({
   placeId: 'p', name: 'Долина гейзеров', planned: 0, limit: null, limitSource: null, ...p,

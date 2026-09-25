@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 /**
  * POST /api/admin/places/[id]/visitor-limit — природоохранный лимит места.
  *
- * Единственный писатель places.visitor_limit_per_day (миграция 1016).
+ * Единственный писатель places.visitor_limit_per_day (миграция 1017).
  * Читает его планировщик (lib/planner/place-load → flow-balance): место
  * сверх лимита на даты поездки не предлагается.
  *
