@@ -28,7 +28,7 @@ import { alertStamp as stampAlert } from '@/components/safety/LiveStatus';
 import { alertBody } from '@/lib/home/alert-body';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
-import { INTENT_CHIPS, type ChipLogic } from '@/lib/home/intent-chips';
+import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
 import {
@@ -235,17 +235,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     }
   };
 
-  // Чипы одной логики — туровые или маршрутные (IntentChip.logic).
-  const chipLinks = (logic: ChipLogic) => INTENT_CHIPS.filter((c) => c.logic === logic).map((c) => {
-    const Ic = CHIP_ICON[c.key];
-    return (
-      <Link key={c.key} href={c.href} className="hchip">
-        {Ic && <Ic size={17} strokeWidth={2} aria-hidden />}
-        <span className="hc-l">{c.label}</span>
-      </Link>
-    );
-  });
-
   const heroImg = theme === 'dark' ? '/images/hero/hero-dark.jpeg' : '/images/hero/hero-light.jpeg';
 
   return (
@@ -363,37 +352,34 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
       <div className="wrap">
 
-        {/* ДВЕ ЛОГИКИ ПУТЕШЕСТВИЯ (решение владельца 25.09: «нужно разделить
-            поиск туров и самостоятельного маршрута — 2 логики для путешествий,
-            это прямо очень серьёзное решение»; из трёх вариантов выбран «два
-            блока подряд» — ничего не спрятано за переключателем).
+        {/* ОДИН ПОТОК, А НЕ ДВЕ ДВЕРИ (владелец 25.09). Разделение на блоки
+            «Тур с оператором» / «Сам по маршруту» снято тем же вечером:
+            «мы нагромождаем — можно же самому подобрать план: сегодня сам,
+            завтра с оператором, потом отдых, и так на всё время на Камчатке».
+            Поездка — смесь родов дня, а не выбор одной из двух логик; главная
+            не заставляет выбирать на входе.
 
-            «Тур с оператором» — купить готовое: тур, цена, бронь, витрина
-            /catalog. «Сам по маршруту» — идти самому: места, маршруты,
-            планировщик, обстановка. Чип принадлежит одной логике
-            (IntentChip.logic), и сторож держит, что туровый чип ведёт в
-            витрину туров, а маршрутный — нет.
-
-            Строки поиска больше нет (владелец 25.09: «поиск лишний — всё, что
-            он делает, это открывает то, что и так открывается»): она вела в
-            выдачу маршрутов по запросу, куда же ведут чипы и «Маршруты». Поиск по сайту
-            остался в самих выдачах. */}
-        <section className="lg lg-tour" aria-labelledby="lg-tour-h">
-          <div className="shead"><h2 id="lg-tour-h">Тур с оператором</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
-          {/* ПЕРВЫЙ ТУР — сразу вверху (решение владельца 24.09, пакет П4б).
-              Решение 29.07 «тур — не первое обещание главной» пересмотрено под
-              цель первых продаж: аудит на 390×844 нашёл первую карточку тура на
-              894px, то есть на первом экране не было ни тура, ни цены. Карточка
-              компактная — фото 16:9 вместо почти квадратного 10/11, — чтобы
-              название и цена попадали в первый экран над таб-баром.
-              Бейдж — только при спокойной И свежей обстановке: «Сегодня
-              спокойно» по недоступной сводке — незнание, выданное за покой (#37).
-              Рекламировать тревогу на коммерческой карточке тоже нельзя, поэтому
-              в прочих состояниях бейджа нет вовсе. */}
-          {plates[0] && (() => {
-            const fp = plates[0];
-            const f = plateFacts(fp);
-            return (
+            Строки поиска нет (владелец 25.09: «поиск лишний — всё, что он
+            делает, это открывает то, что и так открывается»): она вела в
+            выдачу маршрутов по запросу, куда же ведут чипы. */}
+        {/* ТУРЫ СЕЗОНА — первыми под героем (решение владельца 24.09, пакет П4б).
+            Решение 29.07 «тур — не первое обещание главной» пересмотрено под
+            цель первых продаж: аудит на 390×844 нашёл первую карточку тура на
+            894px, то есть на первом экране не было ни тура, ни цены. Карточка
+            компактная — фото 16:9 вместо почти квадратного 10/11, — чтобы
+            название и цена попадали в первый экран над таб-баром.
+            Заголовок нейтральный: «Подходит вам сейчас» обещал подбор,
+            которого нет (это просто первый тур витрины по датам и сезону).
+            Бейдж — только при спокойной И свежей обстановке: «Сегодня
+            спокойно» по недоступной сводке — незнание, выданное за покой (#37).
+            Рекламировать тревогу на коммерческой карточке тоже нельзя, поэтому
+            в прочих состояниях бейджа нет вовсе. */}
+        {plates[0] && (() => {
+          const fp = plates[0];
+          const f = plateFacts(fp);
+          return (
+            <section className="fp-sec">
+              <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
               <Link href={fp.kind === 'tour' ? `/marketplace/tours/${fp.id}` : `/routes/${fp.id}`} className="firstpick">
                 {/* 1280-вариант вместо оригинала: фон не умеет srcset, но вес
                     режется нарезкой (см. scripts/optimize-images.mjs) — владелец
@@ -415,70 +401,72 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   <span className="fp-cta">{fp.kind === 'tour' ? 'Смотреть тур' : 'Открыть маршрут'}</span>
                 </div>
               </Link>
+            </section>
+          );
+        })()}
+        <div className="hero-chips">
+          {INTENT_CHIPS.map((c) => {
+            const Ic = CHIP_ICON[c.key];
+            return (
+              <Link key={c.key} href={c.href} className="hchip">
+                {Ic && <Ic size={17} strokeWidth={2} aria-hidden />}
+                <span className="hc-l">{c.label}</span>
+              </Link>
             );
-          })()}
-          <div className="hero-chips tour-chips">
-            {chipLinks('tour')}
-          </div>
-        </section>
+          })}
+        </div>
 
-        <section className="lg lg-self" aria-labelledby="lg-self-h">
-          <div className="shead"><h2 id="lg-self-h">Сам по маршруту</h2><span className="line" /><Link className="all" href="/routes">Маршруты</Link></div>
-          <div className="hero-chips">
-            {chipLinks('self')}
-          </div>
+        {/* ИНСТРУМЕНТЫ — две плитки-иконки в один ряд (владелец 25.09:
+            «планировщик модной иконкой и радар модной иконкой, экономить место
+            на мобильной»). Было две полноширинные карточки — плашка
+            планировщика и блок обстановки на две строки; стало ~64px на обе.
 
-          {/* ИНСТРУМЕНТЫ — две плитки-иконки в один ряд (владелец 25.09:
-              «планировщик модной иконкой и радар модной иконкой, экономить место
-              на мобильной»). Было две полноширинные карточки — плашка
-              планировщика и блок обстановки на две строки; стало ~64px на обе.
+            Планировщик — по-прежнему дверь с честным именем (владелец 01.08:
+            чип «На 3–5 дней» планировщиком не читался). Движок lib/planner.
 
-              Планировщик — по-прежнему дверь с честным именем (владелец 01.08:
-              чип «На 3–5 дней» планировщиком не читался). Движок lib/planner.
-
-              Радар несёт оба прибора бывшего блока обстановки, и ни один не
-              сокращён до украшения: свежесть — оценкой-точкой на иконке и
-              возрастом словами (три состояния: зелёная, жёлтая, у «нет данных»
-              точки нет — только контур); доля линий для офлайн-карты — второй
-              строкой со своей точкой (#1643, мягкая формулировка владельца
-              06.09). Полные строки — в aria-label и title: сокращён
-              вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
-              строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
-          <nav className="qtools" aria-label="Инструменты поездки">
-            <Link href="/planner" className="qt qt-plan" aria-label="Планировщик поездки: соберёт маршрут по дням — даты, зоны, реальная занятость">
-              <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
-              <span className="qt-tx"><b>Планировщик</b><span>по дням</span></span>
-            </Link>
-            <Link
-              href="/safety#radar"
-              className="qt qt-radar"
-              aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
-              title={`${fresh.label}. ${coverage.label}`}
-            >
-              <span className="qt-ic">
-                <Radar size={19} strokeWidth={1.8} aria-hidden />
+            Радар несёт оба прибора бывшего блока обстановки, и ни один не
+            сокращён до украшения: свежесть — оценкой-точкой на иконке и
+            возрастом словами (три состояния: зелёная, жёлтая, у «нет данных»
+            точки нет — только контур); доля линий для офлайн-карты — второй
+            строкой со своей точкой (#1643, мягкая формулировка владельца
+            06.09). Полные строки — в aria-label и title: сокращён
+            вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
+            строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
+        <nav className="qtools" aria-label="Инструменты поездки">
+          <Link href="/planner" className="qt qt-plan" aria-label="Планировщик поездки: соберёт маршрут по дням — даты, зоны, реальная занятость">
+            <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-tx"><b>Планировщик</b><span>по дням</span></span>
+          </Link>
+          <Link
+            href="/safety#radar"
+            className="qt qt-radar"
+            aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
+            title={`${fresh.label}. ${coverage.label}`}
+          >
+            <span className="qt-ic">
+              <Radar size={19} strokeWidth={1.8} aria-hidden />
+              <i
+                className="qt-badge"
+                style={freshnessDot(fresh.state)
+                  ? { background: freshnessDot(fresh.state) as string }
+                  : { border: '1px solid var(--text-muted)', background: 'var(--bg-card)' }}
+              />
+            </span>
+            <span className="qt-tx">
+              <b>Радар</b>
+              <span className="qt-st">{freshnessShort(fresh)}</span>
+              <span className="qt-st qt-cov">
                 <i
-                  className="qt-badge"
-                  style={freshnessDot(fresh.state)
-                    ? { background: freshnessDot(fresh.state) as string }
-                    : { border: '1px solid var(--text-muted)', background: 'var(--bg-card)' }}
+                  style={coverageDot(coverage.state)
+                    ? { background: coverageDot(coverage.state) as string }
+                    : { border: '1px solid var(--text-muted)' }}
                 />
+                {coverageShort(coverage)}
               </span>
-              <span className="qt-tx">
-                <b>Радар</b>
-                <span className="qt-st">{freshnessShort(fresh)}</span>
-                <span className="qt-st qt-cov">
-                  <i
-                    style={coverageDot(coverage.state)
-                      ? { background: coverageDot(coverage.state) as string }
-                      : { border: '1px solid var(--text-muted)' }}
-                  />
-                  {coverageShort(coverage)}
-                </span>
-              </span>
-            </Link>
-          </nav>
-        </section>
+            </span>
+          </Link>
+        </nav>
+
 
         {/* ЧТО ИМЕННО СЛУЧИЛОСЬ. Пилюля в шапке и строка выше сообщают
             СОСТОЯНИЕ — цветную точку и одно слово. Содержания опасности на
@@ -1066,18 +1054,15 @@ const CSS = `
 .v7 .hero-photo .sub{margin-top:12px;font:500 14px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92);max-width:34ch}
 .v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
-/* Две логики путешествия — два блока подряд (владелец 25.09). Первый встаёт
-   на растворяющийся низ фото — место, где раньше лежала строка поиска. */
-.v7 section.lg{margin-top:22px}
-.v7 section.lg-tour{position:relative;z-index:2;margin-top:-6px}
-.v7 .lg .shead{margin-bottom:8px}
-/* Чипы логики — ОДИН ряд плиток (владелец 25.09: «занимают 2 строчки, не
+/* Первый блок встаёт на растворяющийся низ фото — место, где раньше лежала
+   строка поиска (снята 25.09). */
+.v7 section.fp-sec{position:relative;z-index:2;margin-top:-6px}
+.v7 .fp-sec .shead{margin-bottom:8px}
+/* Чипы — ОДИН ряд плиток (владелец 25.09: «занимают 2 строчки, не
    экономно»). Иконка над подписью: в ширину телефона 360px пилюли в строку не
    входят, а столбиком входят — 56px вместо двух рядов по 44. Колонок столько,
-   сколько чипов у логики: grid-auto-flow:column, числа в CSS нет.
-   У туровой логики чип один — там он строкой в 44px, иконка слева. */
+   сколько чипов: grid-auto-flow:column, числа в CSS нет. */
 .v7 .hero-chips{margin-top:10px;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
-.v7 .tour-chips .hchip{min-height:44px;flex-direction:row;gap:8px;font-size:12px}
 .v7 .hchip{min-height:56px;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:6px 2px;border-radius:14px;text-decoration:none;color:var(--text-primary);font:600 10.5px/1.15 var(--font-outfit),system-ui,sans-serif;text-align:center;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .hchip .hc-l{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .hchip svg{color:var(--text-secondary)}
@@ -1172,7 +1157,7 @@ const CSS = `
 .v7 .mchsline .qt-ic{color:color-mix(in srgb,var(--warning) 80%,var(--text-primary));background:color-mix(in srgb,var(--warning) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warning) 28%,transparent)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 /* платы */
-/* Первая карточка тура — вверху блока «Тур с оператором» (П4б, 24.09).
+/* «Туры сезона» — первая карточка тура, первой под героем (П4б, 24.09).
    Компактная: фото 16:9 (было 10/11 — почти квадрат на весь экран), название
    и факты поверх нижней тени фото, CTA — под фото на сплошном фоне карточки.
    Текст на фото читается за счёт собственной нижней тени (.fp-shade). */

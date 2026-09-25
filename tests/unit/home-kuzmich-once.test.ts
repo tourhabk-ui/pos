@@ -16,8 +16,8 @@ const NAV = strip(readFileSync(join(ROOT, 'components/shared/BottomNav.tsx'), 'u
 describe('Кузьмич на первом экране — один раз', () => {
   it('на первом экране над таб-баром нет ни медведя, ни портрета', () => {
     // Строки поиска, где стоял медведь, с 25.09 нет вовсе (владелец: «поиск
-    // лишний»). Первый экран — герой и блок «Тур с оператором».
-    const first = HOME.slice(HOME.indexOf('<div className="wrap">'), HOME.indexOf('aria-labelledby="lg-self-h"'));
+    // лишний»). Первый экран — герой и «Туры сезона».
+    const first = HOME.slice(HOME.indexOf('<div className="wrap">'), HOME.indexOf('<div className="hero-chips">'));
     expect(first.length).toBeGreaterThan(0);
     expect(first).not.toMatch(/brand\/bear|kuzmich\/portrait/);
   });

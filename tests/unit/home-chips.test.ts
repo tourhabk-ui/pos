@@ -128,17 +128,3 @@ describe('сложность переживает перезагрузку ст�
   });
 });
 
-describe('у чипа одна логика — тур с оператором или свой маршрут (владелец 25.09)', () => {
-  it('туровый чип ведёт в витрину туров, маршрутный — нет', () => {
-    for (const chip of INTENT_CHIPS) {
-      const { path } = chipTarget(chip);
-      if (chip.logic === 'tour') expect(path, `${chip.key}: туровый чип мимо витрины`).toBe('/catalog');
-      else expect(path, `${chip.key}: маршрутный чип продаёт тур`).not.toBe('/catalog');
-    }
-  });
-
-  it('у обеих логик есть хотя бы один чип', () => {
-    expect(INTENT_CHIPS.some((c) => c.logic === 'tour')).toBe(true);
-    expect(INTENT_CHIPS.some((c) => c.logic === 'self')).toBe(true);
-  });
-});

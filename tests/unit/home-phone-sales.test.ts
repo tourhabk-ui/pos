@@ -41,9 +41,9 @@ function pos(marker: string): number {
 }
 
 describe('тур с ценой — на первом экране', () => {
-  it('первая карточка тура стоит первой в блоке «Тур с оператором» — раньше чипов, планировщика и строки обстановки', () => {
+  it('первая карточка тура стоит первой под героем — раньше чипов, планировщика и строки обстановки', () => {
     // С 25.09 строки поиска нет (владелец: «поиск лишний»); тур открывает главную.
-    const block = pos('<section className="lg lg-tour"');
+    const block = pos('<section className="fp-sec"');
     const first = pos('className="firstpick"');
     expect(first).toBeGreaterThan(block);
     for (const later of ['<div className="hero-chips">', 'className="qtools"']) {
@@ -69,7 +69,7 @@ describe('тур с ценой — на первом экране', () => {
 
   it('заголовок не обещает подбора, которого нет', () => {
     expect(JSX).not.toMatch(/<h2>Подходит вам сейчас<\/h2>/);
-    expect(JSX).toMatch(/<h2 id="lg-tour-h">Тур с оператором<\/h2>/);
+    expect(JSX).toMatch(/<h2>Туры сезона<\/h2>/);
   });
 
   it('на карточках — факты из данных, а не слово-заглушка', () => {

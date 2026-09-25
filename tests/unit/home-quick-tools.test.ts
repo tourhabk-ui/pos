@@ -124,32 +124,18 @@ describe('строки поиска на главной нет (владелец
   });
 });
 
-describe('две логики путешествия (владелец 25.09: «разделить поиск туров и самостоятельного маршрута»)', () => {
-  const block = (id: string) => {
-    const at = HOME.indexOf(`aria-labelledby="${id}"`);
-    return at === -1 ? '' : HOME.slice(at, HOME.indexOf('</section>', at));
-  };
-  const tour = block('lg-tour-h');
-  const self = block('lg-self-h');
-
-  it('два блока подряд с честными заголовками, тур первым', () => {
-    expect(tour).toContain('<h2 id="lg-tour-h">Тур с оператором</h2>');
-    expect(self).toContain('<h2 id="lg-self-h">Сам по маршруту</h2>');
-    expect(HOME.indexOf('lg-tour-h')).toBeLessThan(HOME.indexOf('lg-self-h'));
+describe('один поток, а не две двери (владелец 25.09: «мы нагромождаем»)', () => {
+  it('блоков «Тур с оператором» / «Сам по маршруту» нет — поездка смешивает роды дня', () => {
+    expect(HOME).not.toMatch(/lg-tour|lg-self|Тур с оператором<\/h2>|Сам по маршруту<\/h2>/);
   });
 
-  it('туровый блок: первый тур, туровые чипы, витрина туров', () => {
-    expect(tour).toContain('className="firstpick"');
-    expect(tour).toContain("chipLinks('tour')");
-    expect(tour).toContain('href="/catalog"');
-    expect(tour).not.toContain("chipLinks('self')");
-  });
-
-  it('маршрутный блок: чипы мест и маршрутов, планировщик, радар — и никакого тура', () => {
-    expect(self).toContain("chipLinks('self')");
-    expect(self).toContain('href="/routes"');
-    expect(self).toContain('href="/planner"');
-    expect(self).toContain('href="/safety#radar"');
-    expect(self).not.toMatch(/firstpick|chipLinks\('tour'\)|\/catalog/);
+  it('первый тур, затем все чипы одним рядом, затем инструменты', () => {
+    const first = HOME.indexOf('className="firstpick"');
+    const chips = HOME.indexOf('<div className="hero-chips">');
+    const tools = HOME.indexOf('<nav className="qtools" aria-label="Инструменты поездки">');
+    expect(first).toBeGreaterThan(-1);
+    expect(chips).toBeGreaterThan(first);
+    expect(tools).toBeGreaterThan(chips);
+    expect(HOME).toMatch(/\{INTENT_CHIPS\.map\(/);
   });
 });

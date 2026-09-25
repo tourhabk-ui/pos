@@ -23,13 +23,6 @@
  * применяет `queryMarketplaceTours` — сторож home-chips проверяет это
  * вызовом разбора, а не списком.
  *
- * Две логики (решение владельца 25.09: «разделить поиск туров и
- * самостоятельного маршрута — 2 логики для путешествий»). У каждого чипа
- * ровно одна: `tour` — купить готовое у оператора, ведёт в витрину туров
- * `/catalog`; `self` — идти самому, ведёт к местам и маршрутам. Главная рисует
- * чипы в блоке своей логики, сторож home-chips держит, что туровый чип ведёт
- * в витрину, а маршрутный — нет: иначе блок «Сам по маршруту» продавал бы тур.
- *
  * Ссылки на типы мест берём из `elementHref()` — того же справочника, по
  * которому живут «Стихии» и десктопный BentoSection. Второй список ссылок на
  * те же вулканы разъехался бы с первым, это уже было.
@@ -37,23 +30,19 @@
 
 import { elementHref } from '@/lib/stats/element-groups';
 
-/** Логика путешествия: тур с оператором или свой маршрут. */
-export type ChipLogic = 'tour' | 'self';
-
 export interface IntentChip {
   /** Стабильный ключ — для аналитики и тестов, не для показа. */
   key: string;
   label: string;
   href: string;
-  logic: ChipLogic;
 }
 
 export const INTENT_CHIPS: IntentChip[] = [
-  { key: 'volcano', label: 'Вулканы',    href: elementHref('fire'),  logic: 'self' },
-  { key: 'thermal', label: 'Термальные', href: elementHref('therm'), logic: 'self' },
+  { key: 'volcano', label: 'Вулканы',    href: elementHref('fire') },
+  { key: 'thermal', label: 'Термальные', href: elementHref('therm') },
   // Маршруты, а не места: «первый раз» — про то, куда пойти, а не что посмотреть.
-  { key: 'easy',    label: 'Первый раз', href: '/routes?kind=route&difficulty=easy', logic: 'self' },
-  { key: 'fishing', label: 'Рыбалка',    href: '/catalog?activity_type=fishing', logic: 'tour' },
+  { key: 'easy',    label: 'Первый раз', href: '/routes?kind=route&difficulty=easy' },
+  { key: 'fishing', label: 'Рыбалка',    href: '/catalog?activity_type=fishing' },
 ];
 
 /** Путь и параметры чипа — общий разбор для UI и сторожа. */
