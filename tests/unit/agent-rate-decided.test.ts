@@ -36,7 +36,7 @@
  * У брони, оформленной агентом за клиента, ссылки нет, и ставка на ссылке
  * оставила бы такие продажи без ставки навсегда. Рука владельца теперь
  * назначает ставку АГЕНТУ (POST /api/admin/agent-commission/rate,
- * partners.agent_commission_rate, миграция 1025); рука ссылок снята. Всё
+ * partners.agent_commission_rate, миграция 1023); рука ссылок снята. Всё
  * прочее держится так же: автор, основание, ноль ≠ пустота.
  */
 import { describe, it, expect } from 'vitest';
@@ -70,7 +70,7 @@ const ROOT = process.cwd();
 const CABINET  = readFileSync(join(ROOT, 'app/api/hub/agent/referral/route.ts'), 'utf-8');
 const ADMIN    = readFileSync(join(ROOT, 'app/api/admin/agent-commission/rate/route.ts'), 'utf-8');
 const MONEY    = readFileSync(join(ROOT, 'lib/payments/agent-commission.ts'), 'utf-8');
-const RATE_MIGRATION = readFileSync(join(ROOT, 'migrations/1025_agent_commission_rate.sql'), 'utf-8');
+const RATE_MIGRATION = readFileSync(join(ROOT, 'migrations/1023_agent_commission_rate.sql'), 'utf-8');
 const UI       = readFileSync(join(ROOT, 'app/hub/agent/referral/_ReferralClient.tsx'), 'utf-8');
 const MIGRATION = readFileSync(join(ROOT, 'migrations/1005_agent_rate_is_owner_decision.sql'), 'utf-8');
 

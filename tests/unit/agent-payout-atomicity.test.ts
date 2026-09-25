@@ -9,7 +9,7 @@
  * lib/payments/agent-commission.ts), но правило то же: всё в одной
  * транзакции, запись агента берётся FOR UPDATE (без SKIP LOCKED — второй
  * запрос обязан дождаться и получить честный отказ, а не пустую заявку), и
- * страховка в базе — уникальные индексы миграции 1026.
+ * страховка в базе — уникальные индексы миграции 1024.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -17,7 +17,7 @@ import { join } from 'node:path';
 
 const SRC = readFileSync(join(process.cwd(), 'app/api/agent/commissions/request-payout/route.ts'), 'utf-8');
 const LIB = readFileSync(join(process.cwd(), 'lib/payments/agent-commission.ts'), 'utf-8');
-const MIGRATION = readFileSync(join(process.cwd(), 'migrations/1026_agent_payouts.sql'), 'utf-8');
+const MIGRATION = readFileSync(join(process.cwd(), 'migrations/1024_agent_payouts.sql'), 'utf-8');
 /** Код без комментариев: прежний дефект в них описан намеренно. */
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const CODE = strip(SRC);

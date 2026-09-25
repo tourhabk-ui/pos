@@ -200,8 +200,8 @@ describe('одобрение: онбординг агента подаёт за�
     expect(src).toMatch(/submit_for_review/);
   });
 
-  it('миграция 1027 переводит уже прошедших онбординг агентов в очередь', () => {
-    const sql = read('migrations/1027_agent_onboarded_to_pending.sql');
+  it('миграция 1025 переводит уже прошедших онбординг агентов в очередь', () => {
+    const sql = read('migrations/1025_agent_onboarded_to_pending.sql');
     expect(sql).toMatch(/category = 'agent'[\s\S]*onboarding_completed = TRUE[\s\S]*profile_status = 'none'/);
   });
 

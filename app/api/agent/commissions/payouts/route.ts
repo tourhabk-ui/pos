@@ -1,7 +1,7 @@
 /**
  * GET /api/agent/commissions/payouts — заявки агента на выплату.
  *
- * Только заявки из продаж (commission_payouts.from_sales, миграция 1026);
+ * Только заявки из продаж (commission_payouts.from_sales, миграция 1024);
  * статусы — ровно те, что пишет код: pending → paid | rejected. Прежний роут
  * принимал любой статус строкой и перечислял несуществующие
  * (processing/completed/failed), а позиции искал в agent_commissions — таблице
