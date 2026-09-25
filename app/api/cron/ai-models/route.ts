@@ -27,7 +27,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import {
-  probeProviderModels, getQwenConfig, qwenRefusalKind,
+  probeProviderModels, getQwenConfig, qwenRefusalKind, probeQwenKeyStatus,
   resolveChatModel, resolveContentModel, resolveDecisionModel,
 } from '@/lib/ai/providers';
 import { pickBestModel } from '@/lib/ai/model-resolver';
@@ -143,7 +143,10 @@ export async function GET(request: NextRequest) {
       process.env.QWEN_VISION_MODEL || 'qwen-vl-max',
     ].filter((m): m is string => typeof m === 'string' && m.length > 0);
     const models = [...new Set(wanted)];
-    return NextResponse.json({ success: true, probe: 'ai_models_v1', providers, qwen_ping: await pingQwen(models) });
+    // Цикл инструментов той же цепочкой, что живой путь: исчерпанная бесплатная
+    // квота обходится снимком (25.09, lib/ai/qwen-free-quota).
+    const [qwenPing, qwenToolsPath] = await Promise.all([pingQwen(models), probeQwenKeyStatus()]);
+    return NextResponse.json({ success: true, probe: 'ai_models_v1', providers, qwen_ping: qwenPing, qwen_tools_path: qwenToolsPath });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка перечня моделей';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
