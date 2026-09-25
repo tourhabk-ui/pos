@@ -41,6 +41,17 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const SRC = readFileSync(join(ROOT, 'app/planning/_PlanningClient.tsx'), 'utf-8');
 const SW  = readFileSync(join(ROOT, 'public/sw.js'), 'utf-8');
+// С 25.09 закачку и её отказы ведёт общий модуль: его зовут полевой экран и
+// карточка маршрута. Сторож идёт за кодом, а не за прежним адресом.
+const LIB = readFileSync(join(ROOT, 'lib/offline/route-map-save.ts'), 'utf-8');
+const ROUTE_CARD = readFileSync(join(ROOT, 'app/routes/[id]/_RouteDetailClient.tsx'), 'utf-8');
+
+/** Тело saveRouteMap — общей закачки обеих кнопок. */
+function libSaveBody(): string {
+  const from = LIB.indexOf('export async function saveRouteMap(');
+  expect(from, 'saveRouteMap исчез — сторож ослеп').toBeGreaterThan(-1);
+  return LIB.slice(from, LIB.indexOf('\n}\n', from));
+}
 
 /** Тело saveMap — от объявления до закрывающего useCallback-хвоста. */
 function saveMapBody(): string {
@@ -74,12 +85,19 @@ describe('у сохранения карты нет немых выходов', 
     expect(body).toMatch(/if \(!mapPlan\) \{[\s\S]*?setSaveMapError\(/);
   });
 
+  it('отказ общей закачки доходит до экрана, а не глотается', () => {
+    expect(body).toMatch(/const res = await saveRouteMap\(routeId, mapPlan, setTileDl\)/);
+    expect(body).toMatch(/if \(!res\.ok\) \{\s*setSaveMapError\(res\.error\);/);
+  });
+
+  const lib = libSaveBody();
+
   it('нет service worker — сказано, что сохранять нечем', () => {
-    expect(body).toMatch(/if \(!navigator\.serviceWorker\) \{[\s\S]*?setSaveMapError\(/);
+    expect(lib).toMatch(/!navigator\.serviceWorker\) \{\s*return \{ ok: false, error: '/);
   });
 
   it('service worker ещё не активен — сказано, а не проглочено', () => {
-    expect(body).toMatch(/if \(!sw\) \{[\s\S]*?setSaveMapError\(/);
+    expect(lib).toMatch(/if \(!reg\.active\) \{\s*return \{ ok: false, error: '/);
   });
 
   it('исключение не глушится пустым catch', () => {
@@ -87,14 +105,16 @@ describe('у сохранения карты нет немых выходов', 
     // Внутренний `catch { /* ignore */ }` у записи в localStorage законен и
     // остаётся: приватный режим отказывает в записи, а карта при этом уже
     // сохранена, и пугать этим человека нечем.
-    expect(body).toMatch(/await downloadPackFiles\([\s\S]*?\} catch \(err\)/);
-    expect(body).toMatch(/console\.error\('\[field-pack\]/);
+    expect(lib).toMatch(/await downloadPackFiles\([\s\S]*?\} catch \(err\)/);
+    expect(lib).toMatch(/catch \(err\) \{[\s\S]*?console\.error\('\[field-pack\][\s\S]*?return \{ ok: false, error:/);
     // Прогресс обязан сняться: иначе кнопка навсегда останется «занята».
-    expect(body).toMatch(/catch \(err\)[\s\S]*?setTileDl\(null\)/);
+    // Снимает его экран — после ЛЮБОГО исхода общей закачки.
+    expect(body.indexOf('setTileDl(null)')).toBeGreaterThan(body.indexOf('await saveRouteMap('));
+    expect(body.indexOf('setTileDl(null)')).toBeLessThan(body.indexOf('if (!res.ok)'));
   });
 
   it('нет Cache Storage — сказано, что хранить негде', () => {
-    expect(body).toMatch(/if \(typeof caches === 'undefined'\) \{[\s\S]*?setSaveMapError\(/);
+    expect(lib).toMatch(/if \(typeof caches === 'undefined'\) \{\s*return \{ ok: false, error: '/);
   });
 });
 
@@ -129,31 +149,63 @@ describe('полевой экран сохраняет СВОИ пакеты и 
   // service worker честно отвечал «недоступно» — и так было всегда, успеха
   // у кнопки не было ни одного. Теперь она качает свои пакеты.
   const body = saveMapBody();
+  const lib = libSaveBody();
 
   it('не зовёт выключенную растровую закачку', () => {
     expect(body).not.toMatch(/CACHE_TILES/);
-    expect(body).toMatch(/await downloadPackFiles\(mapPlan\.files/);
+    expect(lib).not.toMatch(/CACHE_TILES/);
+    expect(lib).toMatch(/await downloadPackFiles\(plan\.files/);
   });
 
   it('ноль сохранённых — отказ с первой причиной, а не запись «сохранено»', () => {
-    expect(body).toMatch(/if \(res\.saved === 0\) \{\s*setSaveMapError\(`Карта не сохранилась: \$\{res\.failed\[0\]\?\.why/);
-    // Запись о сохранении идёт ПОСЛЕ проверки нуля.
-    expect(body.indexOf('res.saved === 0')).toBeLessThan(body.indexOf('setSavedMap(rec)'));
+    expect(lib).toMatch(/if \(res\.saved === 0\) \{\s*return \{ ok: false, error: `Карта не сохранилась: \$\{res\.failed\[0\]\?\.why/);
+    // Запись о сохранении идёт ПОСЛЕ проверки нуля — и в модуле, и на экране.
+    expect(lib.indexOf('res.saved === 0')).toBeLessThan(lib.indexOf('localStorage.setItem(savedMapKey'));
+    expect(body.indexOf('if (!res.ok)')).toBeLessThan(body.indexOf('setSavedMap(res.rec)'));
   });
 
   it('частичная закачка названа: сколько из скольких и что не легло', () => {
-    expect(body).toMatch(/Сохранено \$\{res\.saved\} из \$\{mapPlan\.tiles\} файлов карты — не легли/);
-    expect(body).toMatch(/assemblePack\(routeId, res\.failed\.length, persisted\)/);
+    expect(lib).toMatch(/Сохранено \$\{res\.saved\} из \$\{plan\.tiles\} файлов карты — не легли/);
+    expect(body).toMatch(/setSaveMapError\(res\.warning\)/);
+    expect(body).toMatch(/assemblePack\(routeId, res\.failed\.length, res\.persisted\)/);
   });
 
   it('место проверяется до закачки, а не после сотни мегабайт', () => {
-    expect(body.indexOf('navigator.storage?.estimate')).toBeGreaterThan(-1);
-    expect(body.indexOf('navigator.storage?.estimate')).toBeLessThan(body.indexOf('await downloadPackFiles'));
-    expect(body).toMatch(/Не хватит места: карта ~\$\{mapPlan\.mb\} МБ/);
+    expect(lib.indexOf('navigator.storage?.estimate')).toBeGreaterThan(-1);
+    expect(lib.indexOf('navigator.storage?.estimate')).toBeLessThan(lib.indexOf('await downloadPackFiles'));
+    expect(lib).toMatch(/Не хватит места: карта ~\$\{plan\.mb\} МБ/);
+  });
+});
+
+describe('карточка маршрута сохраняет тем же правилом (25.09)', () => {
+  // «Скачать для похода» слала CACHE_TILES после выключения растровой
+  // закачки (28.08) и не сохранила ни разу, а без service worker'а сразу
+  // рисовала «Готово к офлайн», не положив ни байта.
+  it('зовёт общий план и общую закачку, а не выключенную растровую', () => {
+    expect(ROUTE_CARD).not.toMatch(/CACHE_TILES/);
+    expect(ROUTE_CARD).toMatch(/await planRouteMap\(id, regionPacks\)/);
+    expect(ROUTE_CARD).toMatch(/await saveRouteMap\(id, planned\.plan, setDlProgress\)/);
   });
 
-  it('прогресс снимается и после удачи, и после отказа', () => {
-    const after = body.slice(body.indexOf('await downloadPackFiles'));
-    expect(after.indexOf('setTileDl(null)')).toBeLessThan(after.indexOf('res.saved === 0'));
+  it('«готово» ставится только после удачной закачки без недокачанного', () => {
+    const at = ROUTE_CARD.indexOf('const downloadOfflineBundle = useCallback(');
+    const fn = ROUTE_CARD.slice(at, ROUTE_CARD.indexOf('}, [id, dlState, regionPacks]);', at));
+    const dones = fn.match(/setDlState\('done'\)/g) ?? [];
+    expect(dones.length, 'второй путь к «готово» в обход проверок').toBe(1);
+    // Обе проверки обязаны СУЩЕСТВОВАТЬ: сравнение позиций с -1 прошло бы
+    // и без них (мутация 25.09 — снятая проверка недокачанного не краснела).
+    expect(fn).toMatch(/if \(!saved\.ok\) \{ setDlState\('error'\)/);
+    expect(fn).toMatch(/if \(saved\.warning\) \{ setDlState\('error'\)/);
+    expect(fn.indexOf("setDlState('done')")).toBeGreaterThan(fn.indexOf('if (!saved.ok)'));
+    expect(fn.indexOf("setDlState('done')")).toBeGreaterThan(fn.indexOf('if (saved.warning)'));
+  });
+
+  it('причина отказа видна под кнопкой словами', () => {
+    expect(ROUTE_CARD).toMatch(/setDlNote\(planned\.error\)/);
+    expect(ROUTE_CARD).toMatch(/setDlNote\(saved\.error\)/);
+    const shown = ROUTE_CARD.match(/\{dlNote && \(/g) ?? [];
+    const buttons = ROUTE_CARD.match(/onClick=\{downloadOfflineBundle\}/g) ?? [];
+    expect(buttons.length).toBeGreaterThanOrEqual(1);
+    expect(shown.length, 'у какой-то кнопки нет строки причины').toBe(buttons.length);
   });
 });

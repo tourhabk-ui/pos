@@ -98,7 +98,7 @@ rounded-2xl        → rounded-lg (кроме glass-элементов и bento-
   решение владельца 29.07, #887) — в таб-баре его НЕТ и возвращать нельзя:
   две кнопки одного действия расходятся поведением (уже случалось)
 - Футер: только desktop
-- Homepage: `components/homepage/` (HeroStatus, BentoSection, EditorialSection, StoriesRail,
+- Homepage: `components/homepage/` (HeroStatus, BentoSection, EditorialSection,
   FeaturedTour, KuzmichBriefing, LiveOnTrails, StatsBand, MoodEntry, OperatorPromo,
   AgentModelSection, MessengerAgentsSection, HomeMapPreview, TourGrid).
   TrailReportSheet удалён 27.08: создание наблюдения переехало на экран

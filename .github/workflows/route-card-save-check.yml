@@ -1,0 +1,60 @@
+name: Кнопка «Скачать для похода» — проверка делом на проде
+
+# 25.09: кнопка на карточке маршрута слала растровую закачку OSM,
+# выключенную с 28.08, и не сохранила ни разу; без service worker'а сразу
+# писала «Готово к офлайн». Теперь она зовёт то же правило, что полевой
+# экран (lib/offline/route-map-save). Этот прогон жмёт кнопку на проде в
+# настоящем Chromium, считает сохранённые файлы и без связи просит один из
+# них у service worker. Только чтение: на проде ничего не пишется.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/route-card-save-check.json'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Chromium для Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Нажать кнопку на проде
+        run: |
+          SINCE=$(python3 -c "import json;print(json.load(open('.github/triggers/route-card-save-check.json')).get('since',''))")
+          ROUTE=$(python3 -c "import json;print(json.load(open('.github/triggers/route-card-save-check.json')).get('route',''))")
+          mkdir -p .cache
+          set +e
+          if [ -n "$ROUTE" ]; then
+            SINCE="$SINCE" npx tsx scripts/map-tiles/route-card-save-check.ts --route "$ROUTE" | tee check.log
+          else
+            SINCE="$SINCE" npx tsx scripts/map-tiles/route-card-save-check.ts | tee check.log
+          fi
+          code=${PIPESTATUS[0]}
+          set -e
+          body=$(sed -e 's/%/%25/g' check.log | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=route-card-save-check::${body}"
+          exit $code
+
+      - name: Кадр кнопки
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: route-card-save
+          path: .cache/route-card-save.png
+          if-no-files-found: ignore

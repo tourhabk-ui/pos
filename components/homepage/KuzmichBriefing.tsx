@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, Bot, CloudSun, Compass, Flame, HelpCircle } from 'lucide-react';
 import { briefingStatus, briefingUpdatedAt, type BriefingSafety } from '@/lib/home/briefing';
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 
 /**
  * Утренняя сводка Кузьмича на десктопной главной: погода, обстановка, туры.
@@ -117,7 +118,7 @@ export function KuzmichBriefing({ tours }: { tours: readonly BriefingTour[] }) {
   }[status];
 
   return (
-    <section className="px-4 py-3 max-w-6xl mx-auto">
+    <section className={`${HOME_CONTAINER} pb-3`}>
       <div
         className="rounded-lg p-4 md:p-5 transition-colors"
         style={{

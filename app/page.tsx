@@ -4,7 +4,7 @@ import { pool } from '@/lib/db-pool'
 import { getCurrentSafetyStatus } from '@/lib/safety/current-status'
 import { Header } from '@/components/layout/Header'
 import { HeroStatus, type SafetyStatusData } from '@/components/homepage/HeroStatus'
-import { StoriesRail } from '@/components/homepage/StoriesRail'
+import { HOME_CONTAINER, HOME_SECTION } from '@/lib/home/desktop-layout'
 import { FeaturedTour } from '@/components/homepage/FeaturedTour'
 import { LiveOnTrails } from '@/components/homepage/LiveOnTrails'
 import { StatsBand, type PlatformStats } from '@/components/homepage/StatsBand'
@@ -120,11 +120,14 @@ export default async function Page() {
       <OnSiteBanner />
       <main className="flex-1 pt-[56px] pb-16 md:pb-0">
 
-        {/* Hero — статус дня: уровень безопасности + поиск маршрута */}
+        {/* Одна сетка (lib/home/desktop-layout, 25.09): у каждой секции тот же
+            левый край и тот же ритм. «Истории» и бегущая строка — мобильные
+            приёмы — с десктопа сняты; цифры встали статичной полосой под
+            героем. */}
         <HeroStatus safety={safety} fetchedAt={fetchedAt} />
 
-        {/* Stories rail */}
-        <StoriesRail />
+        {/* Платформа в цифрах — сразу под героем: довод «почему нам верить» */}
+        <StatsBand stats={platformStats} />
 
         {/* Туры сезона — первый тур витрины крупно, остальные сеткой, последняя
             клетка — заявка (#33). Один источник — fetchPlates, второй выборки нет. */}
@@ -133,22 +136,23 @@ export default async function Page() {
         </SectionErrorBoundary>
         {plates.length > 0 && <TourGrid plates={plates.slice(1)} />}
 
-        {/* Живые счётчики: при нулях блока нет (честная пустота, #36/#40) */}
-        <LiveOnTrails />
-
-        {/* Кузьмич: обстановка + туры сезона из той же витрины */}
-        <SectionErrorBoundary>
-          <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, title: p.title }))} />
-        </SectionErrorBoundary>
-
-        {/* Stats marquee */}
-        <StatsBand stats={platformStats} />
-
         {/* Mood/vibe entry — emotional starting point */}
         <MoodEntry />
 
         {/* Event-driven travel, пилот на рыбе (issue #1421) — не рендерится в межсезонье */}
         <SeasonNow />
+
+        {/* Кузьмич одним блоком: живые счётчики (при нулях их нет, #36/#40),
+            обстановка и туры сезона из той же витрины, каналы связи. */}
+        <div className="pt-4 pb-12">
+          <LiveOnTrails />
+          <SectionErrorBoundary>
+            <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, title: p.title }))} />
+          </SectionErrorBoundary>
+          <div className={HOME_CONTAINER}>
+            <MessengerAgentsSection />
+          </div>
+        </div>
 
         {/* Explore by element — 6 categories */}
         <BentoSection />
@@ -156,13 +160,12 @@ export default async function Page() {
         {/* Editorial strip — цифры из единого источника, не хардкод */}
         <EditorialSection mchsRoutes={counts?.mchsRoutes ?? null} safetyProfiles={counts?.safetyProfiles ?? null} />
 
-        {/* Kuzmich channels */}
-        <MessengerAgentsSection />
-
-        {/* Map preview — lazy, full-width */}
+        {/* Map preview — lazy, в общей сетке */}
         <SectionErrorBoundary>
-          <div className="border-t border-[var(--border)] h-[380px] md:h-[440px]">
-            <HomeMapPreviewLazy />
+          <div className={`${HOME_CONTAINER} ${HOME_SECTION}`}>
+            <div className="rounded-lg overflow-hidden border border-[var(--border)] h-[380px] md:h-[440px]">
+              <HomeMapPreviewLazy />
+            </div>
           </div>
         </SectionErrorBoundary>
 

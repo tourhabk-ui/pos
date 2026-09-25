@@ -193,16 +193,17 @@ describe('CACHE_TILES-отправители честно обрабатываю
   it('app/planning/_PlanningClient.tsx — больше не отправитель: карта из своих пакетов (24.09)', () => {
     // Полевой экран слал CACHE_TILES и честно показывал отказ — но сохранить
     // не мог ни разу. С 24.09 кнопка качает свои пакеты (lib/offline/
-    // pack-download.ts) и к tile.openstreetmap.org массово не ходит вовсе.
+    // pack-download.ts) и к tile.openstreetmap.org массово не ходит вовсе;
+    // с 25.09 — через общий lib/offline/route-map-save.
     expect(PLANNING).not.toContain("type: 'CACHE_TILES'");
-    expect(PLANNING).toMatch(/await downloadPackFiles\(mapPlan\.files/);
+    expect(PLANNING).toMatch(/await saveRouteMap\(routeId, mapPlan/);
   });
 
-  it('app/routes/[id]/_RouteDetailClient.tsx (офлайн-бандл маршрута)', () => {
-    expect(ROUTE_DETAIL).toContain("e.data.type === 'TILES_UNAVAILABLE'");
-    const at = ROUTE_DETAIL.indexOf("e.data.type === 'TILES_UNAVAILABLE'");
-    const body = ROUTE_DETAIL.slice(at, at + 200);
-    expect(body).toContain("setDlState('error')");
+  it('app/routes/[id]/_RouteDetailClient.tsx — больше не отправитель (25.09)', () => {
+    // «Скачать для похода» шла тем же выключенным путём и не сохранила ни
+    // разу; теперь — тем же правилом, что полевой экран.
+    expect(ROUTE_DETAIL).not.toContain("type: 'CACHE_TILES'");
+    expect(ROUTE_DETAIL).toMatch(/await saveRouteMap\(id, planned\.plan/);
   });
 });
 

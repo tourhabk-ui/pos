@@ -21,37 +21,47 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const SRC = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf8');
+// С 25.09 план считает общий модуль — его зовут и полевой экран, и карточка
+// маршрута. Сторож идёт за кодом: исходы судятся там, где они рождаются.
+const LIB = readFileSync(join(process.cwd(), 'lib/offline/route-map-save.ts'), 'utf8');
 
 // Тело загрузчика плана — судим его, а не весь файл: «return» в тысяче
 // других мест к этому вопросу отношения не имеет.
 const loader = (() => {
   const at = SRC.indexOf('const loadMapPlan = useCallback');
-  const end = SRC.indexOf('}, []);', at);
+  const end = SRC.indexOf('}, [regionPacks]);', at);
   return SRC.slice(at, end);
+})();
+
+const plan = (() => {
+  const at = LIB.indexOf('export async function planRouteMap(');
+  const end = LIB.indexOf('\n}\n', at);
+  return LIB.slice(at, end);
 })();
 
 describe('отказ плана карты называется словами', () => {
   it('немого catch у запроса плана больше нет', () => {
-    // Судим ИМЕННО тот catch, что был дефектом. Соседний, вокруг чтения
-    // localStorage, молчит по делу: хранилище может быть закрыто, и на
-    // вопрос «сохранена ли карта» это не отвечает, а лишь не роняет экран.
-    expect(loader).not.toContain('план — удобство, а не условие выхода');
-    const planCatch = loader.slice(loader.indexOf('offline-bundle`'));
+    expect(loader.length, 'загрузчик плана исчез — сторож ослеп').toBeGreaterThan(0);
+    expect(plan.length, 'planRouteMap исчез — сторож ослеп').toBeGreaterThan(0);
+    expect(plan).not.toContain('план — удобство, а не условие выхода');
+    const planCatch = plan.slice(plan.indexOf('offline-bundle`'));
     expect(planCatch).toMatch(/catch \(err\)/);
-    expect(loader).toContain("console.error('[offline-bundle]");
-    expect(loader).toContain('setMapPlanError');
+    expect(plan).toContain("console.error('[offline-bundle]");
+    // Экран не глотает отказ модуля: причина уходит в mapPlanError.
+    expect(loader).toMatch(/await planRouteMap\(routeId, regionPacks\)/);
+    expect(loader).toMatch(/if \(!res\.ok\) \{ setMapPlanError\(res\.error\); return; \}/);
   });
 
   it('у каждого исхода свой ответ, а не общий «плана нет»', () => {
     // HTTP-отказ, пустой план и обрыв — разные вещи и стоят разного.
-    expect(loader).toContain('Сервер не отдал план карты');
-    expect(loader).toContain('нет линии или координат');
-    expect(loader).toContain('проверьте связь и повторите');
+    expect(plan).toContain('Сервер не отдал план карты');
+    expect(plan).toContain('нет линии или координат');
+    expect(plan).toContain('проверьте связь и повторите');
   });
 
   it('офлайн — «не посчитать», а не «сохранять нечего»', () => {
-    expect(loader).toContain('navigator.onLine === false');
-    expect(loader).toContain('Нет связи');
+    expect(plan).toContain('navigator.onLine === false');
+    expect(plan).toContain('Нет связи');
   });
 
   it('успех гасит прежнюю причину', () => {

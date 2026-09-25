@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation';
  * Страница была полноценным лендингом: свой h1 в 8xl, четыре инструмента,
  * шесть карточек-стихий со ссылками в `/routes?...`, свой CTA. То есть делала
  * ровно ту работу, что делает главная (`components/homepage/`: HeroStatus,
- * BentoSection, StoriesRail, EditorialSection).
+ * BentoSection, EditorialSection).
  *
  * При этом на неё не вела ни одна ссылка и её не было в sitemap — а
  * `robots: 'index, follow'` велел поисковику её индексировать. Получалось
