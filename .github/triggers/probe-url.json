@@ -1,12 +1,49 @@
 {
-  "note": "25.09, прогон 595. ТОЛЬКО ЧТЕНИЕ. Владелец: в канале в сентябре вышел пост «Летняя рыбалка на чавычу и нерку». Смотрим сроки сезона у живых туров.",
-  "run": 595,
+  "note": "25.09, прогон 596. ТОЛЬКО ЧТЕНИЕ. Владелец: «почему visitkamchatka.ru нас обгоняет, посмотри насколько они продвинулись» и карточка «Зелёной кнопки» в App Store. Из контейнера Claude оба домена закрыты — читаем раннером. Маркеры — сервисы туриста, которые есть или нет у краевого портала.",
+  "run": 596,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 30000,
+  "bytes": 3000,
+  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36",
   "urls": [
-    "https://vedarai.ru/api/tours?limit=50"
-  ]
+    "https://visitkamchatka.ru/",
+    "https://tours.visitkamchatka.ru/tours",
+    "https://passport.visitkamchatka.ru/",
+    "https://visitkamchatka.ru/registry/",
+    "https://apps.apple.com/ru/app/id1658152262"
+  ],
+  "grep": [
+    "Зелёная кнопка",
+    "Зеленая кнопка",
+    "Паспорт путешественника",
+    "МЧС",
+    "регистрац",
+    "Забронировать",
+    "бронирован",
+    "Госуслуг",
+    "App Store",
+    "Google Play",
+    "RuStore",
+    "English",
+    "карта",
+    "погод",
+    "ИИ",
+    "чат",
+    "Личный кабинет",
+    "медвед",
+    "разрешени"
+  ],
+  "count": [
+    "/tours/",
+    "href=\"/"
+  ],
+  "around": [
+    "<title>",
+    "og:description",
+    "\"description\""
+  ],
+  "aroundLines": 2,
+  "aroundHits": 1
 }

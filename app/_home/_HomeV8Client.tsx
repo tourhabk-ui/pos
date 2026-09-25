@@ -433,9 +433,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
             строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
         <nav className="qtools" aria-label="Инструменты поездки">
-          <Link href="/planner" className="qt qt-plan" aria-label="Планировщик поездки: соберёт маршрут по дням — даты, зоны, реальная занятость">
+          {/* «Своя поездка» (владелец 25.09: «сегодня сам, завтра с оператором,
+              потом отдых — на всё время на Камчатке»). Обещание подписи
+              держит движок: день плана несёт род (lib/planner/day-mode). */}
+          <Link href="/planner" className="qt qt-plan" aria-label="Своя поездка по дням: дни самостоятельно, туры операторов и отдых на всё время на Камчатке">
             <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
-            <span className="qt-tx"><b>Планировщик</b><span>по дням</span></span>
+            <span className="qt-tx"><b>Своя поездка</b><span>сам, тур, отдых</span></span>
           </Link>
           <Link
             href="/safety#radar"
@@ -624,11 +627,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <Link
               href="/register"
               className="qt mchsline"
-              aria-label="Зарегистрируй маршрут в МЧС заранее. Бесплатно. С гидом или сам — спасателям это спасает жизни"
-              title="Зарегистрируй маршрут в МЧС заранее — бесплатно, с гидом или сам"
+              aria-label="Регистрация перед выходом: маршрут в МЧС заранее, бесплатно, и разрешение природного парка — «Зелёная кнопка»"
+              title="Маршрут в МЧС заранее — бесплатно; в природный парк — ещё разрешение, «Зелёная кнопка»"
             >
               <span className="qt-ic"><ClipboardCheck size={19} strokeWidth={1.8} aria-hidden /></span>
-              <span className="qt-tx"><b>Регистрация</b><span>в МЧС заранее</span></span>
+              <span className="qt-tx"><b>Регистрация</b><span>МЧС и парк</span></span>
             </Link>
 
             <Link

@@ -65,6 +65,12 @@ export default function ParkPermitAction({
   parkApprovalUrl,
   variant = 'full',
 }: Props) {
+  // Оба магазина, когда адрес известен. iPhone без подтверждённого адреса —
+  // не ссылка наугад, а строка «ищите по названию» ниже (§4.0).
+  const stores: Array<{ label: string; href: string }> = [
+    { label: 'Android', href: GREEN_BUTTON.androidUrl },
+    ...(GREEN_BUTTON.iosUrl ? [{ label: 'iPhone', href: GREEN_BUTTON.iosUrl }] : []),
+  ];
   // Зона свободного посещения — не «нет данных», а названный факт парка.
   // Молчать о ней нельзя: турист иначе пойдёт оформлять ненужное разрешение.
   if (isFreeVisitArea(title)) {
@@ -84,16 +90,24 @@ export default function ParkPermitAction({
 
   if (variant === 'compact') {
     return (
-      <a
-        href={GREEN_BUTTON.androidUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={GREEN_BUTTON.what}
-        className="inline-flex min-h-[44px] items-center gap-1.5 py-1 text-sm font-semibold text-[var(--success)] hover:underline"
-      >
-        <Leaf className="h-3.5 w-3.5" aria-hidden />
-        {GREEN_BUTTON.name}
-      </a>
+      <span className="inline-flex flex-wrap items-center gap-x-3">
+        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--success)]">
+          <Leaf className="h-3.5 w-3.5" aria-hidden />
+          {GREEN_BUTTON.name}:
+        </span>
+        {stores.map((st) => (
+          <a
+            key={st.label}
+            href={st.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`${GREEN_BUTTON.what} — ${st.label}`}
+            className="inline-flex min-h-[44px] items-center py-1 text-sm font-semibold text-[var(--success)] hover:underline"
+          >
+            {st.label}
+          </a>
+        ))}
+      </span>
     );
   }
 
@@ -113,16 +127,19 @@ export default function ParkPermitAction({
 
       <div className="space-y-4 px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <a
-            href={GREEN_BUTTON.androidUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${BTN} border border-[var(--success)] text-[var(--success)]`}
-            style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)' }}
-          >
-            <Leaf className="h-4 w-4" aria-hidden />
-            {GREEN_BUTTON.name}
-          </a>
+          {stores.map((st) => (
+            <a
+              key={st.label}
+              href={st.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${BTN} border border-[var(--success)] text-[var(--success)]`}
+              style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)' }}
+            >
+              <Leaf className="h-4 w-4" aria-hidden />
+              {GREEN_BUTTON.name} · {st.label}
+            </a>
+          ))}
 
           {parkApprovalUrl && (
             <a
@@ -138,11 +155,10 @@ export default function ParkPermitAction({
         </div>
 
         {/* Одна строка вместо абзаца: что это за кнопка и куда она ведёт.
-            Про iPhone сказано прямо — адрес в App Store не подтверждён, и
-            ссылка наугад отправила бы человека в никуда. */}
+            Нет адреса под iPhone — сказано прямо, а не ссылкой наугад. */}
         <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
-          Приложение парка: разрешение, маршруты, правила. Ссылка ведёт в Google Play
-          {GREEN_BUTTON.iosUrl ? '' : '; для iPhone ищите по названию в App Store'}.
+          Приложение парка: разрешение, маршруты, правила
+          {GREEN_BUTTON.iosUrl ? '.' : '. Ссылка ведёт в Google Play; для iPhone ищите по названию в App Store.'}
         </p>
 
         {/* Разрешение парка ≠ регистрация в МЧС. Строка короткая намеренно:

@@ -20,8 +20,9 @@ import {
   Send, ShieldAlert, Info, Baby, Dumbbell, Wallet,
   ArrowLeftRight, Coffee, CloudOff,
   CheckCircle, Download, MessageCircle, Eye,
-  Share2, Copy,
+  Share2, Copy, UserCheck, Compass,
 } from 'lucide-react';
+import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { funnelBeacon } from '@/lib/funnel/beacon';
@@ -292,6 +293,14 @@ function DayCard({
     activity:  { label: '',          Icon: Sparkles,       color: 'var(--accent)' },
   };
   const typeConf = dayTypeConfig[day.type] ?? dayTypeConfig.activity;
+  // Род активного дня (владелец 25.09: «сегодня сам, завтра с оператором,
+  // потом отдых»). Производит движок; нет поля — метки нет, не угадываем.
+  const modeConfig = {
+    operator: { Icon: UserCheck, color: 'var(--accent)' },
+    self:     { Icon: Footprints, color: 'var(--success)' },
+    open:     { Icon: Compass, color: 'var(--text-muted)' },
+  } as const;
+  const mode = day.type === 'activity' && day.activityMode ? day.activityMode : null;
 
   return (
     <Reorder.Item
@@ -340,6 +349,19 @@ function DayCard({
                   {typeConf.label}
                 </span>
               )}
+              {mode && (() => {
+                const m = modeConfig[mode];
+                return (
+                  <span
+                    title={ACTIVITY_MODE_LABEL[mode].hint}
+                    className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap"
+                    style={{ background: `color-mix(in srgb, ${m.color} 15%, transparent)`, color: m.color }}
+                  >
+                    <m.Icon className="w-2.5 h-2.5" aria-hidden />
+                    {ACTIVITY_MODE_LABEL[mode].label}
+                  </span>
+                );
+              })()}
               {flightBadge && !isSpecialDay && (
                 <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[var(--ocean)]/15 text-[var(--ocean)] text-[9px] font-bold shrink-0 whitespace-nowrap">
                   <FlightIcon className="w-2.5 h-2.5" />
@@ -1366,7 +1388,7 @@ ${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' :
   <div class="day-header">
     <div class="day-num">${i + 1}</div>
     <div class="day-title">${d.title}</div>
-    ${d.type !== 'activity' ? `<span class="day-badge">${dayTypeLabels[d.type] ?? d.type}</span>` : ''}
+    ${d.type !== 'activity' ? `<span class="day-badge">${dayTypeLabels[d.type] ?? d.type}</span>` : d.activityMode ? `<span class="day-badge">${ACTIVITY_MODE_LABEL[d.activityMode].label}</span>` : ''}
     <span class="day-price">от ${fmt(d.priceFrom)} ₽</span>
   </div>
   ${d.description ? `<div class="day-desc">${d.description}</div>` : ''}
@@ -1561,7 +1583,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           Маршрут по Камчатке
         </h1>
         <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-          Выберите интересы — AI подберёт программу
+          Дни сам, дни с оператором и отдых — на всё время на Камчатке
         </p>
       </div>
 

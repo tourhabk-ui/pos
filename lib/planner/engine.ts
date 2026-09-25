@@ -30,6 +30,9 @@ import {
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { tourDaySpan } from '@/lib/planner/tour-span';
+import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
+import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, type PlaceLoad } from '@/lib/planner/flow-balance';
+import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -68,6 +71,12 @@ export interface DayPlan {
   childFriendly: boolean;
   minChildAge: number;
   dayWarnings: string[];
+  /**
+   * Род активного дня: тур оператора, самостоятельный выход или «на выбор»
+   * (см. lib/planner/day-mode). Только у `type: 'activity'`; у прилёта,
+   * отдыха и резерва рода нет — их род и есть `type`.
+   */
+  activityMode?: ActivityMode;
   // Reality-aware fields (all optional for backward compat)
   realTour?: {
     tourId: string;
@@ -804,6 +813,8 @@ interface DayPlanResult {
   spanUnknown: string[];
   /** Туры, не поместившиеся в срок: пропущены целиком, а не урезаны. */
   tooLong: string[];
+  /** Места, не предложенные из-за природоохранного лимита на даты поездки. */
+  overLimit: string[];
 }
 
 async function generateDayPlans(
@@ -815,7 +826,7 @@ async function generateDayPlans(
   catalogueOpen: Set<string> | null,
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [] };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [] };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -846,7 +857,7 @@ async function generateDayPlans(
     childFriendly: true, minChildAge: 0, dayWarnings: [],
   });
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [] };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [] };
 
   // ── Active days budget ──
   const departureDays = 1;
@@ -889,6 +900,8 @@ async function generateDayPlans(
   const spanUnknown = new Set<string>();
   /** Туры длиннее, чем дней в зоне: не поставлены и не урезаны. */
   const tooLong = new Set<string>();
+  /** Места сверх природоохранного лимита на даты поездки — не предложены. */
+  const overLimit = new Set<string>();
 
   // Insert travel days between different zones
   let prevZone: ZoneId = 'avachinsky';
@@ -924,7 +937,26 @@ async function generateDayPlans(
     const routesOrNull = realTours.length >= block.activeDays
       ? []
       : await fetchRoutesForZone(block.zone, primaryInterest, block.activeDays - realTours.length + 2);
-    const dbRoutes = routesOrNull ?? [];
+    let dbRoutes = routesOrNull ?? [];
+
+    // Распределение потока (владелец 25.09: «всех туристов нельзя в один
+    // поток — 500 человек на одну локацию с природоохранными
+    // ограничениями»). Окно — дни поездки в этой зоне. Без дат прилёта
+    // загрузку не к чему привязать: порядок не трогается (lib/planner/flow-balance).
+    const windowFrom = profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum) : null;
+    const windowTo = profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum + block.activeDays - 1) : null;
+    const group = groupSize(profile);
+    let tourLoads: Map<string, PlaceLoad[]> | null = null;
+    if (windowFrom && windowTo) {
+      if (dbRoutes.length > 0) {
+        const { ranked, blocked } = rankByLoad(dbRoutes, await fetchCandidateLoads(dbRoutes.map(r => r.id), windowFrom, windowTo), group);
+        dbRoutes = ranked;
+        for (const b of blocked) overLimit.add(`${b.candidate.title} — ${overLimitText(b.place)}`);
+      }
+      // Тур — продукт оператора и его слоты: из плана не убирается, но
+      // упор места в лимит называется на самом дне.
+      if (realTours.length > 0) tourLoads = await fetchTourLoads(realTours.map(t => t.tourId), windowFrom, windowTo);
+    }
 
     // Отказ запроса запоминается ИМЕННО как отказ. День при этом собирается
     // как прежде — общий день по паре «зона + активность» не лжёт: активность
@@ -1008,6 +1040,10 @@ async function generateDayPlans(
         dayWarnings.push(`Детям < ${c.minChildAge}: ${c.childAlternative}`);
       }
       if (c.safetyNotes) dayWarnings.push(...c.safetyNotes);
+      const tourOver = realTour && tourLoads ? firstOverLimit(tourLoads.get(realTour.tourId) ?? [], group) : null;
+      if (tourOver) {
+        dayWarnings.unshift(`Природоохранный лимит в ваши даты: ${overLimitText(tourOver)}. Уточните у оператора другую дату.`);
+      }
 
       // Health compatibility check
       const healthCheck = assessHealthCompatibility(
@@ -1120,6 +1156,7 @@ async function generateDayPlans(
         childFriendly: childOk,
         minChildAge: c.minChildAge,
         dayWarnings,
+        activityMode: activityMode({ realTour, route }),
         realTour: realTourData,
         realPrice,
         availableDate,
@@ -1143,6 +1180,7 @@ async function generateDayPlans(
           allowedTransports: allowed.length > 0 ? allowed : [transport],
           difficulty: (realTour?.difficulty as DayPlan['difficulty']) ?? c.difficulty,
           childFriendly: childOk, minChildAge: c.minChildAge, dayWarnings: [],
+          activityMode: activityMode({ realTour, route }),
           // Тот же тур — значит и ночь его, и смета её не считает отдельно.
           realTour: realTourData,
         });
@@ -1219,6 +1257,8 @@ async function generateDayPlans(
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0, dayWarnings: [],
+      // Город пешком — самостоятельный день, тура за ним нет.
+      activityMode: 'self',
     });
   }
 
@@ -1244,7 +1284,7 @@ async function generateDayPlans(
     });
   }
 
-  return { days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong] };
+  return { days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit] };
 }
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
@@ -1410,7 +1450,19 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const { days, unchecked, spanUnknown, tooLong } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const { days, unchecked, spanUnknown, tooLong, overLimit } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+
+  // Место не предложено из-за природоохранного лимита — говорим, какое и
+  // чья норма. Молча подменить место другим значило бы спрятать причину.
+  if (overLimit.length > 0) {
+    warnings.push({
+      type: 'crowd',
+      severity: 'important',
+      message: `В ваши даты заполнено по норме и потому не предложено: ${overLimit.slice(0, 3).join('; ')}`
+        + (overLimit.length > 3 ? ` и ещё ${overLimit.length - 3}` : '')
+        + '. Поток распределяется, чтобы не превышать ограничения мест.',
+    });
+  }
 
   // «Не смогли посмотреть каталог» — отдельное предупреждение и отдельными
   // словами. Раньше отказ запроса возвращался пустым списком и был
