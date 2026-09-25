@@ -41,12 +41,16 @@ function pos(marker: string): number {
 }
 
 describe('тур с ценой — на первом экране', () => {
-  it('первая карточка тура стоит первой под героем — раньше чипов, планировщика и строки обстановки', () => {
-    // С 25.09 строки поиска нет (владелец: «поиск лишний»); тур открывает главную.
+  it('над туром — только ряд «Своя поездка / Радар» (владелец 26.09); чипы и предупреждения — ниже тура', () => {
+    // С 25.09 строки поиска нет (владелец: «поиск лишний»). 26.09 владелец
+    // поставил планировщик и радар над «Турами сезона»; тур остаётся первым
+    // КОНТЕНТОМ под этим рядом, а чипы и строка обстановки — после него.
+    const tools = pos('<nav className="qtools qt-top"');
     const block = pos('<section className="fp-sec"');
     const first = pos('className="firstpick"');
+    expect(block).toBeGreaterThan(tools);
     expect(first).toBeGreaterThan(block);
-    for (const later of ['<div className="hero-chips">', 'className="qtools"']) {
+    for (const later of ['<div className="hero-chips">', 'className="alerts-now"']) {
       expect(pos(later), `${later} снова выше первого тура`).toBeGreaterThan(first);
     }
   });

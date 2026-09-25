@@ -337,7 +337,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             </>
           ) : (
             <>
-              <h1>Камчатка —<br />без сюрпризов</h1>
+              {/* Заголовок — слово владельца 26.09: «Камчатка по сезону и по
+                  силам» (было «Камчатка — без сюрпризов»). Обещает то, что
+                  платформа и делает: сезон — из каталога и прогноза, силы —
+                  сложность и форма в планировщике. */}
+              <h1 className="h1-home">Камчатка<br />по сезону<br />и по силам</h1>
               <p className="sub">Подберём маршрут по вашим датам и реальной обстановке.</p>
             </>
           )}
@@ -362,7 +366,65 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             Строки поиска нет (владелец 25.09: «поиск лишний — всё, что он
             делает, это открывает то, что и так открывается»): она вела в
             выдачу маршрутов по запросу, куда же ведут чипы. */}
-        {/* ТУРЫ СЕЗОНА — первыми под героем (решение владельца 24.09, пакет П4б).
+        {/* ИНСТРУМЕНТЫ — первыми под героем, над «Турами сезона» (владелец
+            26.09: «над туром сезона вставь планировщик и радар»). Ряд встаёт
+            на растворяющийся низ фото — место, где раньше стоял первый тур.
+            Две плитки-иконки в один ряд (владелец 25.09:
+            «планировщик модной иконкой и радар модной иконкой, экономить место
+            на мобильной»). Было две полноширинные карточки — плашка
+            планировщика и блок обстановки на две строки; стало ~64px на обе.
+
+            Планировщик — по-прежнему дверь с честным именем (владелец 01.08:
+            чип «На 3–5 дней» планировщиком не читался). Движок lib/planner.
+
+            Радар несёт оба прибора бывшего блока обстановки, и ни один не
+            сокращён до украшения: свежесть — оценкой-точкой на иконке и
+            возрастом словами (три состояния: зелёная, жёлтая, у «нет данных»
+            точки нет — только контур); доля линий для офлайн-карты — второй
+            строкой со своей точкой (#1643, мягкая формулировка владельца
+            06.09). Полные строки — в aria-label и title: сокращён
+            вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
+            строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
+        <nav className="qtools qt-top" aria-label="Инструменты поездки">
+          {/* «Своя поездка» (владелец 25.09: «сегодня сам, завтра с оператором,
+              потом отдых — на всё время на Камчатке»). Обещание подписи
+              держит движок: день плана несёт род (lib/planner/day-mode). */}
+          <Link href="/planner" className="qt qt-plan" aria-label="Своя поездка по дням: дни самостоятельно, туры операторов и отдых на всё время на Камчатке">
+            <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-tx"><b>Своя поездка</b><span>сам, тур, отдых</span></span>
+          </Link>
+          <Link
+            href="/safety#radar"
+            className="qt qt-radar"
+            aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
+            title={`${fresh.label}. ${coverage.label}`}
+          >
+            <span className="qt-ic">
+              <Radar size={19} strokeWidth={1.8} aria-hidden />
+              <i
+                className="qt-badge"
+                style={freshnessDot(fresh.state)
+                  ? { background: freshnessDot(fresh.state) as string }
+                  : { border: '1px solid var(--text-muted)', background: 'var(--bg-card)' }}
+              />
+            </span>
+            <span className="qt-tx">
+              <b>Радар</b>
+              <span className="qt-st">{freshnessShort(fresh)}</span>
+              <span className="qt-st qt-cov">
+                <i
+                  style={coverageDot(coverage.state)
+                    ? { background: coverageDot(coverage.state) as string }
+                    : { border: '1px solid var(--text-muted)' }}
+                />
+                {coverageShort(coverage)}
+              </span>
+            </span>
+          </Link>
+        </nav>
+
+        {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09); первый
+            тур с ценой по-прежнему в первом экране (решение владельца 24.09, П4б).
             Решение 29.07 «тур — не первое обещание главной» пересмотрено под
             цель первых продаж: аудит на 390×844 нашёл первую карточку тура на
             894px, то есть на первом экране не было ни тура, ни цены. Карточка
@@ -416,59 +478,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           })}
         </div>
 
-        {/* ИНСТРУМЕНТЫ — две плитки-иконки в один ряд (владелец 25.09:
-            «планировщик модной иконкой и радар модной иконкой, экономить место
-            на мобильной»). Было две полноширинные карточки — плашка
-            планировщика и блок обстановки на две строки; стало ~64px на обе.
-
-            Планировщик — по-прежнему дверь с честным именем (владелец 01.08:
-            чип «На 3–5 дней» планировщиком не читался). Движок lib/planner.
-
-            Радар несёт оба прибора бывшего блока обстановки, и ни один не
-            сокращён до украшения: свежесть — оценкой-точкой на иконке и
-            возрастом словами (три состояния: зелёная, жёлтая, у «нет данных»
-            точки нет — только контур); доля линий для офлайн-карты — второй
-            строкой со своей точкой (#1643, мягкая формулировка владельца
-            06.09). Полные строки — в aria-label и title: сокращён
-            вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
-            строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
-        <nav className="qtools" aria-label="Инструменты поездки">
-          {/* «Своя поездка» (владелец 25.09: «сегодня сам, завтра с оператором,
-              потом отдых — на всё время на Камчатке»). Обещание подписи
-              держит движок: день плана несёт род (lib/planner/day-mode). */}
-          <Link href="/planner" className="qt qt-plan" aria-label="Своя поездка по дням: дни самостоятельно, туры операторов и отдых на всё время на Камчатке">
-            <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
-            <span className="qt-tx"><b>Своя поездка</b><span>сам, тур, отдых</span></span>
-          </Link>
-          <Link
-            href="/safety#radar"
-            className="qt qt-radar"
-            aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
-            title={`${fresh.label}. ${coverage.label}`}
-          >
-            <span className="qt-ic">
-              <Radar size={19} strokeWidth={1.8} aria-hidden />
-              <i
-                className="qt-badge"
-                style={freshnessDot(fresh.state)
-                  ? { background: freshnessDot(fresh.state) as string }
-                  : { border: '1px solid var(--text-muted)', background: 'var(--bg-card)' }}
-              />
-            </span>
-            <span className="qt-tx">
-              <b>Радар</b>
-              <span className="qt-st">{freshnessShort(fresh)}</span>
-              <span className="qt-st qt-cov">
-                <i
-                  style={coverageDot(coverage.state)
-                    ? { background: coverageDot(coverage.state) as string }
-                    : { border: '1px solid var(--text-muted)' }}
-                />
-                {coverageShort(coverage)}
-              </span>
-            </span>
-          </Link>
-        </nav>
 
 
         {/* ЧТО ИМЕННО СЛУЧИЛОСЬ. Пилюля в шапке и строка выше сообщают
@@ -1030,7 +1039,7 @@ const CSS = `
    осталось: видно, что страница продолжается, и шов между фото и подложкой
    не режет глаз (dvh — чтобы панель браузера не дёргала высоту; vh —
    запасной для старых движков). */
-.v7 .hero-photo{position:relative;min-height:50vh;min-height:50dvh;background-size:cover;background-position:center;display:flex;color:#fff}
+.v7 .hero-photo{position:relative;min-height:46vh;min-height:46dvh;background-size:cover;background-position:center;display:flex;color:#fff}
 @media (min-width:768px){.v7 .hero-photo{min-height:70vh;min-height:70dvh}}
 /* Тени — отдельными слоями, а не в background-image строки: верхняя вуаль под
    вордмарк, нижняя под заголовок, и поверх обеих — растворение в крем.
@@ -1038,7 +1047,7 @@ const CSS = `
    светлая/тёмная не оставляет чужого шва под героем. */
 .v7 .hero-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.44) 0%,rgba(10,14,12,.10) 30%,rgba(10,14,12,.46) 68%,rgba(10,14,12,.30) 100%)}
 .v7 .hero-fade{position:absolute;left:0;right:0;bottom:-1px;height:110px;background:linear-gradient(180deg,transparent 0%,var(--bg-primary) 92%)}
-.v7 .hero-in{position:relative;max-width:480px;margin:0 auto;padding:16px 20px 96px;width:100%;display:flex;flex-direction:column;align-items:flex-start;text-align:left}
+.v7 .hero-in{position:relative;max-width:480px;margin:0 auto;padding:16px 20px 80px;width:100%;display:flex;flex-direction:column;align-items:flex-start;text-align:left}
 /* Лого — вулканы штрихом + вордмарк. Живёт на фото: в шапке ему не
    хватало бюджета ширины (см. комментарий у .topbar). */
 .v7 .hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;width:100%}
@@ -1053,13 +1062,19 @@ const CSS = `
    рвёт слова, на 480px не превращается в плакат. */
 .v7 .hero-photo h1{font:600 clamp(38px,11.6vw,48px)/1.06 var(--font-playfair),Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 28px rgba(0,0,0,.45)}
 .v7 .hero-photo h1.h1-trip{font-size:clamp(30px,9vw,40px);line-height:1.12}
+/* «Камчатка / по сезону / и по силам» (владелец 26.09) — три строки по
+   смыслу, а не как ляжет: иначе рвалось «по сезону и по / силам». Кегль чуть
+   меньше прежнего, чтобы над «Турами сезона» встал ряд «Своя поездка / Радар»
+   и цена первого тура осталась в первом экране над таб-баром (П4б, 24.09). */
+.v7 .hero-photo h1.h1-home{font-size:clamp(34px,10.4vw,44px);line-height:1.04}
 .v7 .hero-kick{margin-bottom:10px;font:600 10px/1.4 var(--fm);letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .sub{margin-top:12px;font:500 14px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92);max-width:34ch}
 .v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* Первый блок встаёт на растворяющийся низ фото — место, где раньше лежала
    строка поиска (снята 25.09). */
-.v7 section.fp-sec{position:relative;z-index:2;margin-top:-6px}
+.v7 nav.qt-top{position:relative;z-index:2;margin:-16px 0 0}
+.v7 section.fp-sec{margin-top:12px}
 .v7 .fp-sec .shead{margin-bottom:8px}
 /* Чипы — ОДИН ряд плиток (владелец 25.09: «занимают 2 строчки, не
    экономно»). Иконка над подписью: в ширину телефона 360px пилюли в строку не
@@ -1074,7 +1089,13 @@ const CSS = `
 .v7 .qt:hover{background:var(--bg-hover)}
 .v7 .qt:active{transform:scale(.98)}
 .v7 .qt-ic{position:relative;flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--ocean);background:color-mix(in srgb,var(--ocean) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ocean) 18%,transparent)}
-.v7 .qt-radar .qt-ic{color:var(--text-primary);background:var(--bg-hover);box-shadow:inset 0 0 0 1px var(--border)}
+/* Радар — зелёный (владелец 26.09: «радар сделай зелёным»). Зелёный здесь —
+   цвет прибора, как тёплая подложка у МЧС, а НЕ состояние: свежесть и доля
+   линий по-прежнему говорят свои точки (жёлтая — устарело, без точки — нет
+   данных). Иначе зелёная плитка при устаревшей сводке читалась бы «всё
+   спокойно» (§4.0). */
+.v7 .qt-radar{background:color-mix(in srgb,var(--success) 10%,var(--bg-card));border-color:color-mix(in srgb,var(--success) 32%,transparent)}
+.v7 .qt-radar .qt-ic{color:color-mix(in srgb,var(--success) 78%,var(--text-primary));background:color-mix(in srgb,var(--success) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--success) 30%,transparent)}
 .v7 .qt-badge{position:absolute;top:-3px;right:-3px;width:11px;height:11px;border-radius:50%;box-sizing:border-box;outline:2px solid var(--bg-card)}
 .v7 .qt-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
 .v7 .qt-tx b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}

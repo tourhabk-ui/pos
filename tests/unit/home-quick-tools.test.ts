@@ -52,7 +52,7 @@ describe('короткие подписи', () => {
 });
 
 describe('плитки на главной', () => {
-  const tools = HOME.slice(HOME.indexOf('<nav className="qtools"'), HOME.indexOf('</nav>', HOME.indexOf('<nav className="qtools"')));
+  const tools = HOME.slice(HOME.indexOf('<nav className="qtools qt-top"'), HOME.indexOf('</nav>', HOME.indexOf('<nav className="qtools qt-top"')));
 
   it('один ряд из двух плиток вместо двух полноширинных карточек', () => {
     expect(tools).not.toBe('');
@@ -73,6 +73,20 @@ describe('плитки на главной', () => {
     expect(tools).toContain('<CalendarDays');
     expect(tools).toContain('<Radar');
     expect(tools).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+});
+
+describe('радар зелёный, но цвет не выдаёт себя за состояние (владелец 26.09)', () => {
+  it('плитка и иконка радара — в --success', () => {
+    expect(HOME).toMatch(/\.v7 \.qt-radar\{background:color-mix\(in srgb,var\(--success\)/);
+    expect(HOME).toMatch(/\.v7 \.qt-radar \.qt-ic\{color:color-mix\(in srgb,var\(--success\)/);
+  });
+
+  it('состояние по-прежнему несут точки свежести и покрытия, а не зелень плитки', () => {
+    expect(HOME).toContain('freshnessDot(fresh.state)');
+    expect(HOME).toContain('coverageDot(coverage.state)');
+    // «нет данных» — контур без заливки, а не зелёная точка.
+    expect(HOME).toMatch(/: \{ border: '1px solid var\(--text-muted\)', background: 'var\(--bg-card\)' \}/);
   });
 });
 
@@ -129,13 +143,13 @@ describe('один поток, а не две двери (владелец 25.09
     expect(HOME).not.toMatch(/lg-tour|lg-self|Тур с оператором<\/h2>|Сам по маршруту<\/h2>/);
   });
 
-  it('первый тур, затем все чипы одним рядом, затем инструменты', () => {
+  it('планировщик и радар над «Турами сезона», затем первый тур, затем чипы (владелец 26.09)', () => {
+    const tools = HOME.indexOf('<nav className="qtools qt-top" aria-label="Инструменты поездки">');
     const first = HOME.indexOf('className="firstpick"');
     const chips = HOME.indexOf('<div className="hero-chips">');
-    const tools = HOME.indexOf('<nav className="qtools" aria-label="Инструменты поездки">');
-    expect(first).toBeGreaterThan(-1);
+    expect(tools).toBeGreaterThan(-1);
+    expect(first).toBeGreaterThan(tools);
     expect(chips).toBeGreaterThan(first);
-    expect(tools).toBeGreaterThan(chips);
     expect(HOME).toMatch(/\{INTENT_CHIPS\.map\(/);
   });
 });
