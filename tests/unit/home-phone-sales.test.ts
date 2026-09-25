@@ -45,7 +45,7 @@ describe('тур с ценой — на первом экране', () => {
     const find = pos('<form className="find"');
     const first = pos('className="firstpick"');
     expect(first).toBeGreaterThan(find);
-    for (const later of ['<div className="hero-chips">', 'className="planline"', '<section className="live">']) {
+    for (const later of ['<div className="hero-chips">', 'className="qtools"']) {
       expect(pos(later), `${later} снова выше первого тура`).toBeGreaterThan(first);
     }
   });
@@ -56,11 +56,14 @@ describe('тур с ценой — на первом экране', () => {
     expect(photo).not.toMatch(/aspect-ratio:10\/11/);
   });
 
-  it('карусель туров стоит перед радаром, а радар — одна строка-ссылка без заголовка', () => {
+  it('карусель туров стоит перед секцией радара; сам радар — плитка, без заголовка и без дубля', () => {
     expect(pos('className="plates"')).toBeLessThan(pos('id="radar"'));
     expect(JSX).not.toMatch(/<h2>Радар обстановки<\/h2>/);
+    // С 25.09 дверь радара — плитка в ряду инструментов (владелец: «экономить
+    // место на мобильной»); строка-дубль в секции #radar снята.
+    expect(JSX).toMatch(/href="\/safety#radar"\s+className="qt qt-radar"/);
     const radar = JSX.slice(pos('id="radar"'), JSX.indexOf('</section>', pos('id="radar"')));
-    expect(radar).toContain('href="/safety#radar"');
+    expect(radar).not.toContain('radarline');
   });
 
   it('заголовок не обещает подбора, которого нет', () => {
