@@ -279,7 +279,7 @@ describe('xAI: живой провайдер, а не украшение', () =>
     expect(PROVIDERS).toMatch(/mini\|fast\|flash\|lite\|build/);
     // Живой путь Кузьмича: 43 с флагмана — это «не ответил», а не «медленно».
     expect(PROVIDERS).toMatch(/callXai\(messages, \{ purpose: 'fast' \}\)/);
-    expect(PROVIDERS).toMatch(/callXai\(messages, \{ purpose: 'strong', timeoutMs: 90_000, maxTokens \}\)/);
+    expect(PROVIDERS).toMatch(/callXai\(messages, \{ purpose: 'strong', timeoutMs: 90_000, maxTokens, rejectTruncated: true \}\)/);
   });
 
   it('водопад его наконец зовёт', () => {

@@ -1284,11 +1284,30 @@ export async function probeXaiReachable(): Promise<{ reached: boolean | null; de
   }
 }
 
+/**
+ * Ответ оборван по потолку токенов (26.09).
+ *
+ * Владелец прислал AI-дайджест 25.09: единственный материал, и тот обрывается
+ * на «получает собственную перси». Провайдер вернул HTTP 200 с
+ * `finish_reason: "length"`, путь генерации текста взял непустой `content`
+ * как готовый ответ, а срезатель хвоста (`lib/text/digest-polish`) обрыв не
+ * узнал: он судит по соседним строкам, а соседей у обрывка не было.
+ *
+ * Обрыв — не ответ, а отказ ступени с причиной (§4.0): текст, который
+ * прочитают люди, либо целый, либо его нет. Решение принимается по полю
+ * провайдера, а не по виду текста — угадывать обрыв по последней букве
+ * значит ошибаться в обе стороны.
+ */
+export function completionTruncated(data: unknown): boolean {
+  const reason = (data as { choices?: Array<{ finish_reason?: string | null }> } | null)?.choices?.[0]?.finish_reason;
+  return reason === 'length';
+}
+
 export async function callXai(
   messages: ChatMessage[],
-  opts: { purpose?: 'strong' | 'fast'; timeoutMs?: number; maxTokens?: number } = {},
+  opts: { purpose?: 'strong' | 'fast'; timeoutMs?: number; maxTokens?: number; rejectTruncated?: boolean } = {},
 ): Promise<string | null> {
-  const { purpose = 'fast', timeoutMs = purpose === 'fast' ? 30_000 : 90_000, maxTokens = 800 } = opts;
+  const { purpose = 'fast', timeoutMs = purpose === 'fast' ? 30_000 : 90_000, maxTokens = 800, rejectTruncated = false } = opts;
   const apiKey = getXaiKey();
   if (!apiKey) { recordAiLegFailure('xai', 'no_key'); return null; }
   const model = await resolveXaiModel(purpose);
@@ -1321,8 +1340,14 @@ export async function callXai(
       recordAiLegFailure('xai', httpFailureReason(res.status, await res.text().catch(() => '')));
       return null;
     }
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }> };
     const text = data?.choices?.[0]?.message?.content;
+    // Только по просьбе вызывающего: путь текста для людей (callAIQuality)
+    // обрывок не берёт, а живой чат решает за себя отдельно.
+    if (text?.trim() && rejectTruncated && completionTruncated(data)) {
+      recordAiLegFailure('xai', `truncated (${model}): finish_reason=length, ответ ${text.length} знаков при maxTokens=${maxTokens}`);
+      return null;
+    }
     if (text?.trim()) return text;
     recordAiLegFailure('xai', `empty (${model}): ${describeEmptyCompletion(data)}`);
     return null;
@@ -1617,10 +1642,19 @@ export async function callDeepSeek(
       return null;
     }
     const data = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>;
       usage?: ProviderUsage;
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
+    // Обрыв по потолку — отказ ступени, не ответ (completionTruncated, 26.09):
+    // в гонке водопада его место займёт целый ответ другого провайдера, а
+    // человеку в чате фраза про медведя, оборванная на полуслове, хуже её
+    // отсутствия.
+    if (text?.trim() && completionTruncated(data)) {
+      logLLMUsage(answeredModel(model, data), data.usage);
+      recordAiLegFailure('deepseek', `truncated (${model}): finish_reason=length, ответ ${text.length} знаков при maxTokens=${opts?.maxTokens ?? 800}`);
+      return null;
+    }
     if (text?.trim()) {
       logLLMUsage(answeredModel(model, data), data.usage);
       return text;
@@ -4744,11 +4778,16 @@ export async function callAIQuality(
       }, { timeoutMs: 90_000, label: 'deepseek:content' });
       if (res.ok) {
         const data = await res.json() as {
-          choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+          choices?: Array<{ message?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }>;
           usage?: ProviderUsage;
         };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) {
+        if (text?.trim() && completionTruncated(data)) {
+          // Токены потрачены — в книги, но ответом обрывок не считается.
+          logLLMUsage(answeredModel(model, data), data.usage);
+          const reasoningLen = data?.choices?.[0]?.message?.reasoning_content?.length ?? 0;
+          recordAiLegFailure('deepseek:content', `truncated (${model}): finish_reason=length, ответ ${text.length} знаков, размышление ${reasoningLen} знаков, maxTokens=${maxTokens}`);
+        } else if (text?.trim()) {
           logLLMUsage(answeredModel(model, data), data.usage);
           // Диагностика для следующего разбора обрыва (см. пояснение выше у
           // `deepThinking`): без этой строки узнать, сколько бюджета съело
@@ -4759,8 +4798,9 @@ export async function callAIQuality(
             console.error(`[AI] deepseek:content размышление=${reasoningLen}знаков ответ=${text.length}знаков maxTokens=${maxTokens}`);
           }
           return text;
+        } else {
+          recordAiLegFailure('deepseek:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
         }
-        recordAiLegFailure('deepseek:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
       } else {
         recordAiLegFailure('deepseek:content', httpFailureReason(res.status, await res.text().catch(() => '')));
       }
@@ -4779,13 +4819,17 @@ export async function callAIQuality(
         body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload, ...format }),
       }, { timeoutMs: 45_000, label: 'qwen:content' });
       if (res.ok) {
-        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) {
+        if (text?.trim() && completionTruncated(data)) {
+          logLLMUsage(answeredModel(model, data), data.usage);
+          recordAiLegFailure('qwen:content', `truncated (${model}): finish_reason=length, ответ ${text.length} знаков, maxTokens=${maxTokens}`);
+        } else if (text?.trim()) {
           logLLMUsage(answeredModel(model, data), data.usage);
           return text;
+        } else {
+          recordAiLegFailure('qwen:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
         }
-        recordAiLegFailure('qwen:content', `empty (${model}): ${describeEmptyCompletion(data)}`);
       } else {
         recordAiLegFailure('qwen:content', httpFailureReason(res.status, await res.text().catch(() => '')));
       }
@@ -4796,7 +4840,7 @@ export async function callAIQuality(
   //    grok-4.6 отвечает за 43 с). Здесь генерируется ТЕКСТ для людей, и
   //    ночному крону эти секунды по карману; ставить его выше DeepSeek
   //    незачем — тот отвечает за треть секунды.
-  const xaiText = await callXai(messages, { purpose: 'strong', timeoutMs: 90_000, maxTokens });
+  const xaiText = await callXai(messages, { purpose: 'strong', timeoutMs: 90_000, maxTokens, rejectTruncated: true });
   if (xaiText?.trim()) return xaiText;
 
   // 4. Общий waterfall — включая флагманы, если релей настроен.

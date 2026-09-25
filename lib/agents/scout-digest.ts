@@ -31,8 +31,6 @@ import {
 } from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { stripTags } from '@/lib/html/text';
-import { resolveCoverImage } from '@/lib/notifications/cover-image';
-import { hashStr } from '@/lib/notifications/post-image';
 import {
   relayBase, relayBaseProblem, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
   type FetchVia, type RelayStatus,
@@ -42,7 +40,6 @@ import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-f
 import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT, repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { polishDigest } from '@/lib/text/digest-polish';
 import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
-import { digestCoverUrl, digestCoverTitles } from '@/lib/notifications/digest-cover';
 // Правило возраста используется здесь и переэкспортируется ниже: re-export
 // имя в область видимости НЕ вносит, поэтому импорт нужен отдельно.
 import { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
@@ -620,20 +617,6 @@ async function tgSendRich(
   return true;
 }
 
-/**
- * Заголовки материалов выпуска — тема для обложки. Первая жирная строка
- * («AI-дайджест · дата») — шапка, не тема; берутся следующие две. Если
- * жирных строк нет (модель нарушила формат) — тема из первых 200 знаков
- * текста без тегов, чтобы обложка всё равно была про выпуск.
- */
-export function digestHeadlines(digestHtml: string): string {
-  const titles = [...digestHtml.matchAll(/<b>([^<]+)<\/b>/g)]
-    .map((m) => m[1].trim())
-    .filter((t) => !/^AI-дайджест/i.test(t) && !/^Почему важно/i.test(t));
-  if (titles.length > 0) return titles.slice(0, 2).join('. ');
-  return stripTags(digestHtml).replace(/\s+/g, ' ').trim().slice(0, 200);
-}
-
 async function tgSend(text: string, onError?: SendErrorSink): Promise<boolean> {
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!chatId) { onError?.('TELEGRAM_CHAT_ID не задан'); return false; }
@@ -775,6 +758,7 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // Везде judgeClaims, у которого исход именной.
 import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySections, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
+import { aiPostTooThin, aiPostButtons, aiPostMaterials, kamchatkaDate } from '@/lib/notifications/ai-post-shape';
 
 /**
  * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
@@ -971,7 +955,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
   if (freshItems.length === 0) {
     const sent = await tgSend(
-      `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
+      `<b>Дайджест ${kamchatkaDate(new Date(), {})}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
     );
     return { signals_found: 0, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
@@ -1070,11 +1054,19 @@ export async function runScoutDigest(): Promise<DigestResult> {
     {
       role: 'system',
       content: `Ты разведчик туристической платформы TourHab (Камчатка).
-Твоя задача — прочитать сигналы из RSS-лент и выделить 3-5 наиболее важных инсайтов.
+Твоя задача — прочитать сигналы из RSS-лент и выбрать из них то немногое, что касается НАС. Выпуск — от 3 до 7 пунктов на все разделы вместе, не больше. Сигналов десятки, и почти все проходят мимо — это нормально.
 
-ПРАВИЛА ВКЛЮЧЕНИЯ (широкие — лучше включить лишнее, чем потерять нужное):
-- Раздел "AI & Tech" — любые новые модели, инструменты, агенты, обновления Claude/GPT/Gemini/Cursor, автоматизация, веб-разработка. Мы активно используем AI в разработке — даже косвенно полезное включай.
-- Раздел "Туриндустрия" — туризм в РФ и мире, онлайн-бронирование, OTA, CRM для туроператоров, новые тренды. Другие регионы — допустимы как контекст или аналогия.
+ЧТО ТАКОЕ «КАСАЕТСЯ НАС». Пункт попадает в выпуск, только если по нему можно что-то решить или сделать одному из трёх:
+  1) туристу или оператору на Камчатке;
+  2) нашей платформе — бронирование, планировщик поездок, карты и офлайн, ИИ-помощник, работа с операторами;
+  3) нам как разработчикам — модели, агенты и инструменты, которыми мы пишем код.
+Не проходит: чужие курорты и страны, спорт, погода в других регионах, конкурсы и символы чужих брендов, статистика о других городах, кадровые и зарплатные заявления, если из них ничего не следует для трёх адресатов выше. Сомневаешься — не включай: пропущенная мелочь дешевле выпуска, который читатель пролистывает.
+
+Пункт — не пересказ заголовка. Одна-две фразы: что произошло (конкретика из сигнала) и, если связь настоящая, что это значит для нас. Из нескольких сигналов об одном — один пункт.
+
+ПРАВИЛА РАЗДЕЛОВ:
+- Раздел "AI & Tech" — новые модели, агенты и инструменты разработки, которые мы можем применить: Claude/GPT/Gemini/Cursor, MCP, автоматизация. Релиз «вообще» без того, что с ним делать, — мимо.
+- Раздел "Туриндустрия" — только то, что меняет условия для туризма на Камчатке или для наших операторов: правила и законы РФ о туризме, внутренний туризм, бронирование, OTA, CRM для туроператоров. Чужой регион или страна — только если сигнал сам говорит о последствиях для внутреннего туризма.
 - Раздел "Референсы и рынок" — передовые travel-tech продукты и новинки (Skift, Product Hunt): конкретные фичи/паттерны, которые можно перенять на нашу платформу (планировщик, бронирование, ИИ-помощник, офлайн, карты). Пиши, ЧТО именно сделали и что из этого нам стоит рассмотреть.
 - Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен. Сигналы с пометкой [Safety-слой] — события из нашего собственного мониторинга безопасности региона (сейсмика, вулканы, дороги, пожары): излагай сам факт из заголовка, это и есть новость региона.
 - СОСЕДНИЙ РЕГИОН — НЕ КАМЧАТКА. Если в сигнале назван Дальний Восток, федеральный округ, Сахалин, Приморье или "регионы ДФО", а Камчатский край или место на нём НЕ названы — в этот раздел сигнал не идёт. Не переписывай его как камчатский и не додумывай, что край сюда входит: включает или нет — этого в сигнале нет. Такой сигнал место найдёт в "Туриндустрии", если он про туризм. Пустой раздел уже разрешён выше и честнее расширенного: подменять регион соседним — то же враньё, что выдумывать факт, только тише.
@@ -1107,10 +1099,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
 <b>Дайджест [дата]</b>
 
 <b>AI & Tech</b>
-- [что произошло, конкретика из сигнала]
+- [что произошло, конкретика из сигнала; что это значит для нас — если связь настоящая]
 
 <b>Туриндустрия</b>
-- [краткий инсайт]
+- [что меняется для туризма на Камчатке или для наших операторов]
 
 <b>Референсы и рынок</b>
 - [какую фичу/паттерн внедрил передовой продукт и что нам стоит рассмотреть]
@@ -1124,7 +1116,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       role: 'user',
       // Сигналы — заголовки чужих лент и каналов: обрамляются как данные.
       // Контекст (наш) остаётся снаружи забора.
-      content: `${contextSection ? contextSection + '\n\n' : ''}Сигналы за ${new Date().toLocaleDateString('ru-RU')}:\n\n${wrapUntrusted('сигналы разведки', signalsList)}`,
+      content: `${contextSection ? contextSection + '\n\n' : ''}Сигналы за ${kamchatkaDate(new Date(), {})}:\n\n${wrapUntrusted('сигналы разведки', signalsList)}`,
     },
   ];
 
@@ -1369,7 +1361,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
     if (aiItems.length === 0) {
       aiSkip = 'ai_no_items';
     } else {
-      const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+      // Дата по Камчатке: вечерний прогон идёт уже в следующих камчатских сутках.
+      const today = kamchatkaDate(new Date(), { day: 'numeric', month: 'long' });
       // Тянем текст статей (фон, cron) — чтобы модель опиралась на содержание, а не на заголовок
       const aiTop = aiItems.slice(0, 3);
       const withText = await Promise.all(
@@ -1510,27 +1503,29 @@ export async function runScoutDigest(): Promise<DigestResult> {
         }
       }
 
+      // Выпуск — минимум два полных материала (26.09): один оборванный пункт
+      // под шапкой «дайджест» ушёл на 6,8 тыс. подписчиков. Такой день канал
+      // пропускает, и причина пишется в отчёт (lib/notifications/ai-post-shape).
       if (aiDigest) {
-        const buttons = aiItems
-          .filter(i => i.url)
-          .slice(0, 3)
-          .map(i => [{ text: i.title.slice(0, 45) + (i.title.length > 45 ? '…' : ''), url: i.url }]);
-        // Обложка — своя карточка выпуска (24.09): дата и заголовки материалов.
-        // Генератор рисовал сцену по одному заголовку — из «AutoCAD» вышло
-        // серое здание, а выпуск из трёх разных тем одной сценой не описать
-        // (lib/notifications/digest-cover.ts). Подписать ссылку нечем (нет
-        // CRON_SECRET) — прежняя обложка генератора, и это сказано в лог.
-        let coverUrl = digestCoverUrl(today, digestCoverTitles(aiDigest));
-        if (!coverUrl) {
-          console.error('[scout-digest] карточка-обложка не собрана (нет секрета или заголовков) — обложка генератора');
-          coverUrl = (await resolveCoverImage(
-            digestHeadlines(aiDigest),
-            'ai',
-            hashStr(aiDigest) % 9_999_999,
-          )).url;
-        }
-        // Подвал с реферальными ссылками владельца — после фактчека и обложки
-        // (обложка строится по заголовкам самого выпуска, не по подвалу).
+        const thin = aiPostTooThin(aiDigest);
+        if (thin) { aiDigest = null; aiSkip = 'ai_post_too_thin'; aiSkipDetail = thin; }
+      }
+
+      if (aiDigest) {
+        // Кнопки — на материалы САМОГО поста, его русскими заголовками. До
+        // 26.09 они строились из первых трёх сигналов ленты: английские
+        // заголовки, и один вёл на материал, которого в посте не было.
+        const buttons = aiPostButtons(aiDigest);
+        // Над постом — превью ПЕРВОЙ статьи выпуска (решение владельца 26.09,
+        // вариант «а»). Своя карточка-обложка 24.09 повторяла заголовок,
+        // стоящий прямо под ней, и читалась шаблоном («полный кринж»); сцена
+        // генератора до неё рисовала серое здание к выпуску про AutoCAD.
+        // Превью статьи — настоящая картинка источника, и пост по-прежнему не
+        // голый текст (требование 02.09). Ссылка задаётся явно: иначе Telegram
+        // взял бы первую ссылку текста, а в подвале — реферальные.
+        // Материалов не меньше двух — это проверено воротами выше.
+        const coverUrl = aiPostMaterials(aiDigest)[0]?.url;
+        // Подвал с реферальными ссылками владельца — после фактчека.
         const aiPost = withAiChannelFooter(aiDigest, TELEGRAM_TEXT_LIMIT, repairTelegramHtml);
         aiSent = await tgSendRich(aiChannelId, aiPost, buttons.length > 0 ? buttons : undefined, coverUrl, (reason) => { aiSkipDetail = reason; });
         aiSkip = aiSent ? undefined : 'ai_send_failed';
