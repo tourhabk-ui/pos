@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { formatSafetyStatusForAgent, SAFETY_FEEDS_TEXT } from '@/lib/safety/current-status';
-import { NEWS_FEED_PREFIXES } from '@/lib/services/safety/seismic-parser';
+import { NEWS_FEED_PREFIXES, VK_MCHS_PREFIX, MAX_MCHS_PREFIX, MCHS_FEED_PREFIX } from '@/lib/services/safety/seismic-parser';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -63,6 +63,25 @@ describe('происхождение тревоги узнаётся по фор
       expect(alertOrigin(id, url)?.label).toBe(label);
     });
   }
+
+  it('соцканалы МЧС узнаются по той форме id, что реально уходит в базу (25.09)', () => {
+    // Сверка MCP 25.09: паводок у Соболево из VK шёл «источник не записан».
+    // В базу пишется id события `${prefix}/<день>/t…`, а не id поста, — и
+    // префиксы читаются из кода ленты, а не из этого файла. Адрес пустой:
+    // узнавание обязано идти по id, спасение по адресу (max.ru) — случайность.
+    for (const prefix of [MCHS_FEED_PREFIX, VK_MCHS_PREFIX, MAX_MCHS_PREFIX]) {
+      const o = alertOrigin(`${prefix}/2026-09-25/tabcd`, null);
+      expect(o, `${prefix}: лента МЧС пишет тревоги, а правило её не узнаёт`).not.toBeNull();
+      expect(o!.label).toMatch(/^МЧС России по Камчатскому краю/);
+    }
+    expect(alertOrigin(`${VK_MCHS_PREFIX}/2026-09-25/tabcd`, null)!.label).toContain('(VK)');
+    expect(alertOrigin(`${MAX_MCHS_PREFIX}/2026-09-25/tabcd`, null)!.label).toContain('(MAX)');
+  });
+
+  it('префиксы соцканалов не зашиты строками в вызовах — только константами', () => {
+    const parser = read('lib/services/safety/seismic-parser.ts');
+    expect(parser).not.toMatch(/classifyMchsItems\([^)]*'(vk_mchs|max_mchs)'\)/);
+  });
 
   it('каждый префикс новостных лент из кода классификатора узнаётся — перепись не ручная', () => {
     /**

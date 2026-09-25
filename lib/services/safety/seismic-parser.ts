@@ -2009,6 +2009,16 @@ export async function ingestMchsAlerts(): Promise<ParseResult> {
  */
 export const MCHS_FEED_PREFIX = 'mchs';
 
+/**
+ * Префиксы `external_id` соцканалов МЧС (VK и MAX). До 25.09 стояли строками
+ * прямо в вызовах classifyMchsItems, и перепись форм id их не видела: сверка
+ * MCP того дня нашла верхнюю тревогу — паводок у Соболево из VK — подписанной
+ * «источник не записан». Правило происхождения ждало `vk.com/mchs_kamchatka/`,
+ * а в базу уходил `vk_mchs/<день>/t…`.
+ */
+export const VK_MCHS_PREFIX = 'vk_mchs';
+export const MAX_MCHS_PREFIX = 'max_mchs';
+
 const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?: boolean }> = [
   // С сервера НЕ тянется: оба вызывающих (heartbeat-GET в ingestAll и POST в
   // route.ts) передают skipPrefixes ['kamgov'] — kamgov.ru с Timeweb закрыт,
@@ -2179,7 +2189,7 @@ export async function ingestVkMchs(): Promise<ParseResult> {
       // Множественная форма: суточная сводка несёт несколько тем сразу, и
       // каждая должна попасть на свои маршруты со своей зоной. Для RSS ниже
       // остаётся одиночная — там один item и есть одно предупреждение.
-      for (const event of classifyMchsItems(id, '', text, pubDate, link, 'vk_mchs')) {
+      for (const event of classifyMchsItems(id, '', text, pubDate, link, VK_MCHS_PREFIX)) {
         result.events.push(event);
         try {
           const status = await saveEvent(event);
@@ -2221,7 +2231,7 @@ export async function ingestMaxItems(
     // title пустой — у MAX-постов нет заголовка, весь текст в description.
     // classifyMchsItems вернёт пустой массив для мусора — это и есть сортировка,
     // и она же разбирает суточную сводку на самостоятельные темы.
-    for (const event of classifyMchsItems(id, '', text, pubDate, link, 'max_mchs')) {
+    for (const event of classifyMchsItems(id, '', text, pubDate, link, MAX_MCHS_PREFIX)) {
       result.events.push(event);
       try {
         const status = await saveEvent(event);

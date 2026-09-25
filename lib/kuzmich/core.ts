@@ -1929,19 +1929,8 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const want = (args.activity_type ?? '').trim().toLowerCase();
       if (!want) return ctx;
       const { activityLabel } = await import('@/lib/tours/labels');
-      const lines = ctx.split('\n');
-      const isTourLine = (l: string) => /^ID\d+:/.test(l);
-      const matches = (l: string) => {
-        const type = (l.match(/тип:(\S+)/)?.[1] ?? '').toLowerCase();
-        const label = activityLabel(type).toLowerCase();
-        return type.includes(want) || label.includes(want) || (label.length > 2 && want.includes(label));
-      };
-      const kept = lines.filter((l) => !isTourLine(l) || matches(l));
-      if (kept.filter(isTourLine).length === 0) {
-        // Пустой фильтр — не тупик: агент видит весь каталог и предлагает замену.
-        return `По типу «${want}» туров сейчас нет. Полный каталог:\n${ctx}`;
-      }
-      return kept.join('\n');
+      const { filterTourCatalog } = await import('@/lib/kuzmich/tour-filter');
+      return filterTourCatalog(ctx, want, activityLabel);
     }
     if (name === 'get_tour_details') {
       const q = args.name ?? args.query ?? '';
@@ -1950,47 +1939,11 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     }
     if (name === 'get_place_info') {
       const placeName = args.name ?? '';
-      // Слова, не буквальная фраза (issue #1987): «Горелый вулкан» не
-      // содержится подстрокой в «Вулкан Горелый» — обратный порядок ломал
-      // ILIKE '%…%' целиком, где человек и каталог называют место по-разному.
-      const placeMatch = placeNameSearchSql('name', placeName, 1);
-      const [pr, kr] = await Promise.all([
-        pool.query<{ name: string; description: string | null; category: string; district: string | null }>(
-          // Слитые дубли отсекаются — то же правило, что у getGuardianContext
-          // и resolvePlaceForLink, и та же сортировка «кратчайшее имя первым».
-          // Без них (19.09) инструмент отвечал из ПОВТОРНОЙ записи: мой дубль
-          // каньона, слитый миграцией 988 в «Крылья Гамулов», продолжал
-          // отзываться на запрос пустой строкой «Каньон на Шивелуче [null]»,
-          // пока настоящая запись с описанием владельца лежала рядом. Слияние
-          // затем и делается, чтобы об объекте отвечала одна запись.
-          //
-          // is_visible здесь НЕ фильтруется намеренно: у стража это записанное
-          // решение — «может знать скрытое место, но ссылку на невидимую
-          // страницу не даём» (комментарий resolvePlaceForLink), — и менять
-          // его походя, заодно с починкой дублей, значило бы смешать две
-          // правки. Здесь восстанавливается только паритет со стражем.
-          `SELECT name, description, category, district FROM places
-            WHERE merged_into_id IS NULL AND (${placeMatch.clause})
-            ORDER BY char_length(name) ASC
-            LIMIT 3`,
-          placeMatch.params,
-        ),
-        pool.query<{ title: string; compiled_truth: string }>(
-          // type <> 'outcome' — по той же причине, и это не теория: 20.09
-          // живой вызов get_place_info про озеро вернул туристу строку
-          // «Оценка ответа: 6/10. Проблемы: отсутствие конкретных цифр» —
-          // служебную запись о КАЧЕСТВЕ ответа, совпавшую по ILIKE.
-          `SELECT title, compiled_truth FROM agent_knowledge
-            WHERE agent_id='kuzmich' AND type <> 'outcome'
-              AND (title ILIKE $1 OR compiled_truth ILIKE $1) LIMIT 3`,
-          [`%${placeName}%`],
-        ),
-      ]);
-      const lines = [
-        ...pr.rows.map(p => `${p.name} [${p.category}]${p.district ? ` (${p.district})` : ''}${p.description ? ': ' + p.description : ''}`),
-        ...kr.rows.map(k => `${k.title}: ${k.compiled_truth}`),
-      ];
-      if (lines.length > 0) return lines.join('\n\n');
+      // Об ОДНОМ месте: соседи по названию — именами, заметки — только по
+      // заголовку (lib/kuzmich/place-info-tool, сверка MCP 25.09).
+      const { placeInfoForKuzmich } = await import('@/lib/kuzmich/place-info-tool');
+      const info = await placeInfoForKuzmich(placeName);
+      if (info) return info;
       return await searchWeb(placeName) || noPlaceInBase(placeName);
     }
     if (name === 'get_guardian_context') {

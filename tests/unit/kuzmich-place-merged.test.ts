@@ -25,15 +25,21 @@ const ROOT = process.cwd();
 const core = readFileSync(join(ROOT, 'lib/kuzmich/core.ts'), 'utf-8');
 const guardian = readFileSync(join(ROOT, 'lib/kuzmich/guardian-context.ts'), 'utf-8');
 
-/** Тело запроса инструмента get_place_info — от SELECT до LIMIT. */
+/**
+ * Тело запроса инструмента get_place_info — от FROM places до LIMIT.
+ * С 25.09 выборка живёт в lib/kuzmich/place-info-tool (сверка MCP: ответ
+ * смешивал соседние объекты); core.ts зовёт её, и сторож идёт за кодом.
+ */
 function placeInfoSql(): string {
   const at = core.indexOf("if (name === 'get_place_info')");
   expect(at, 'инструмент get_place_info исчез из core.ts — тест нужно переписать, а не удалять').toBeGreaterThan(0);
-  const from = core.indexOf('FROM places', at);
-  const to = core.indexOf('LIMIT 3', from);
+  expect(core.slice(at, at + 600)).toContain("import('@/lib/kuzmich/place-info-tool')");
+  const tool = readFileSync(join(ROOT, 'lib/kuzmich/place-info-tool.ts'), 'utf-8');
+  const from = tool.indexOf('FROM places');
+  const to = tool.indexOf('LIMIT 3', from);
   expect(from).toBeGreaterThan(0);
   expect(to).toBeGreaterThan(from);
-  return core.slice(from, to + 'LIMIT 3'.length);
+  return tool.slice(from, to + 'LIMIT 3'.length);
 }
 
 describe('get_place_info', () => {

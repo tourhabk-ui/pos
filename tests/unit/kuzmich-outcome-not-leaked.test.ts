@@ -40,7 +40,10 @@ function knowledgeQueries(src: string): string[] {
 
 describe('ни один читающий запрос не берёт оценки', () => {
   it('в core.ts все выборки из agent_knowledge отсекают type = outcome', () => {
-    const qs = knowledgeQueries(core);
+    // Выборка get_place_info с 25.09 — в lib/kuzmich/place-info-tool: считаем
+    // её вместе с core, иначе порог «не меньше двух» ослеп бы от переезда.
+    const placeInfo = readFileSync(join(ROOT, 'lib/kuzmich/place-info-tool.ts'), 'utf-8');
+    const qs = [...knowledgeQueries(core), ...knowledgeQueries(placeInfo)];
     expect(qs.length).toBeGreaterThanOrEqual(2);
     for (const q of qs) {
       expect(q, `запрос без фильтра: ${q.slice(0, 120)}`).toMatch(/type\s*<>\s*'outcome'/);

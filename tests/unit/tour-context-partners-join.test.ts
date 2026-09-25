@@ -63,12 +63,18 @@ describe('перф-аудит 08.08, пп. 4-5: тонкий каталог и �
 });
 
 describe('get_tours: фильтр по типу активности применяется', () => {
+  // С 25.09 фильтр — чистая функция lib/kuzmich/tour-filter (сверка MCP:
+  // «вулканы» не тип и уходили в каталог рыбалки); её поведение держит
+  // tour-filter.test.ts, здесь — что core её зовёт и правило не потерялось.
+  const FILTER = readFileSync(join(process.cwd(), 'lib/kuzmich/tour-filter.ts'), 'utf-8');
+
   it('аргумент activity_type фильтрует строки каталога по слагу и метке', () => {
     expect(CORE).toMatch(/const want = \(args\.activity_type \?\? ''\)\.trim\(\)\.toLowerCase\(\)/);
-    expect(CORE).toMatch(/type\.includes\(want\) \|\| label\.includes\(want\)/);
+    expect(CORE).toMatch(/filterTourCatalog\(ctx, want, activityLabel\)/);
+    expect(FILTER).toMatch(/type\.includes\(want\) \|\| label\.includes\(want\)/);
   });
 
-  it('пустой результат фильтра — не тупик: агент получает полный каталог', () => {
-    expect(CORE).toMatch(/туров сейчас нет\. Полный каталог:/);
+  it('пустой результат фильтра — не тупик: агент получает полный каталог, но как замену', () => {
+    expect(FILTER).toMatch(/Весь каталог — для замены с явной оговоркой:\\n\$\{ctx\}/);
   });
 });

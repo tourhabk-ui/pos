@@ -166,7 +166,7 @@ function sourcesLine(input: VolcanoInput, nowMs: number): { text: string; comple
     const latest = input.kvert.map((k) => k.observed_at).filter((x): x is string => !!x).sort().pop() ?? null;
     if (input.kvert.length === 0 || !latest) { parts.push('KVERT: кодов нет'); complete = false; }
     else if (isVolcanoObservationStale(latest, nowMs)) { parts.push(`KVERT: последнее наблюдение ${ruDate(latest)} — устарело`); complete = false; }
-    else parts.push(`KVERT: ${input.kvert.length} вулканов, последнее наблюдение ${ruDate(latest)}`);
+    else parts.push(`KVERT: ${input.kvert.length} вулканов, самое свежее наблюдение ${ruDate(latest)} (у каждого вулкана своя дата — в его строке)`);
   }
   if (input.kfegs === null) {
     parts.push('КФ ЕГС: не смог прочитать');

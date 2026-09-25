@@ -53,9 +53,12 @@ const RULES: readonly OriginRule[] = [
   { test: (id) => id.startsWith('usgs/'),          origin: { key: 'usgs',     label: 'USGS' } },
   { test: (id) => id.startsWith('firms/'),         origin: { key: 'firms',    label: 'NASA FIRMS' } },
   { test: (id) => id.startsWith('mchs/'),          origin: { key: 'mchs_rss', label: MCHS } },
-  { test: (id) => id.startsWith('vk.com/mchs_kamchatka/'), origin: { key: 'vk_mchs', label: `${MCHS} (VK)` } },
+  // VK: в базу уходит id события `vk_mchs/<день>/t…` (VK_MCHS_PREFIX), а не
+  // id поста — 25.09 все тревоги МЧС из VK подписывались «источник не записан».
+  // Прежняя форма оставлена для старых строк.
+  { test: (id) => id.startsWith('vk_mchs/') || id.startsWith('vk.com/mchs_kamchatka/'), origin: { key: 'vk_mchs', label: `${MCHS} (VK)` } },
   {
-    test: (id, url) => id.startsWith('max/') || /^https?:\/\/max\.ru\//.test(url),
+    test: (id, url) => id.startsWith('max_mchs/') || id.startsWith('max/') || /^https?:\/\/max\.ru\//.test(url),
     origin: { key: 'max_mchs', label: `${MCHS} (MAX)` },
   },
   { test: (id) => id.startsWith('kamgov/'),        origin: { key: 'kamgov',   label: 'Правительство Камчатского края' } },
