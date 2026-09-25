@@ -122,10 +122,14 @@ export async function notifyBookingCancelled(
         `Возврат: <b>${(booking.refundAmount ?? 0).toLocaleString('ru-RU')} ₽</b> (${booking.refundPercent ?? 0}%)`,
         booking.refundReason ? `<i>${esc(booking.refundReason)}</i>` : '',
         '',
-        'Средства поступят на карту в течение 3-5 рабочих дней.',
+        // Платёжного API возврата нет: деньги переводит администратор
+        // вручную. Срок «3-5 рабочих дней» был обещанием без исполнителя.
+        'Возврат оформляет администрация платформы.',
       );
-    } else {
-      lines.push('', 'Возврат не предусмотрен согласно условиям отмены.');
+    } else if (booking.refundReason) {
+      // Ноль — это либо «оплаты не было», либо условия оператора; причина
+      // говорит, какое из двух, а не общее «не предусмотрен».
+      lines.push('', esc(booking.refundReason));
     }
     lines.push('', `<a href="https://vedarai.ru/hub/tourist/bookings">История бронирований →</a>`);
 

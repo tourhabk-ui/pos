@@ -15,6 +15,7 @@ import { PoolClient } from 'pg';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { query, transaction } from '@/lib/database';
 import { notifyBookingConfirmed, notifyBookingCancelled } from '@/lib/notifications/booking-notifications';
+import { recordRefundDue } from '@/lib/payments/record-refund-due';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import {
   BookingStatus,
@@ -217,9 +218,10 @@ export async function confirmBooking(
  * возвращается вызывающему (для email/ответа API), а не пишется в
  * несуществующие колонки `refund_amount`/`cancelled_by`.
  *
- * Логика возврата зависит от роли:
- * - Турист отменяет: > 48ч — 100%, 24-48ч — 50%, < 24ч — 0%
- * - Оператор отменяет: всегда 100%
+ * Возврат — по условиям тура (решение владельца 24.09, `computeTourRefund`):
+ * турист до срока — 100%, позже — процент оператора; оператор или админ —
+ * всегда 100%; условий у тура нет — 100%. Считается от оплаты в HELD и
+ * записывается в `tour_payments.refund_due`; оплаты не было — `refund: null`.
  *
  * Фактический возврат денег этой функцией не выполняется — платформа не
  * вызывает ни один платёжный refund API для туровых броней (#1813).
@@ -229,7 +231,7 @@ export async function cancelBooking(
   userId: string,
   role: 'tourist' | 'operator' | 'admin',
   reason?: string
-): Promise<{ booking: BookingWithDetails; refund: RefundResult }> {
+): Promise<{ booking: BookingWithDetails; refund: RefundResult | null }> {
   return transaction(async (client) => {
     const result = await client.query(
       `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
@@ -244,13 +246,6 @@ export async function cancelBooking(
     const isOperatorCancel = role === 'operator' || role === 'admin';
 
     validateTransition(currentStatus, 'cancelled');
-
-    // Рассчитываем возврат (только для ответа/уведомления — см. шапку функции)
-    const refund = calculateRefund(
-      Number(row.total_price),
-      new Date(String(row.date ?? row.start_date)),
-      isOperatorCancel
-    );
 
     const cancellationReason = (
       reason ?? (isOperatorCancel ? 'Отменено оператором' : 'Отменено туристом')
@@ -272,13 +267,21 @@ export async function cancelBooking(
     // отменили» хватает, чтобы дата больше не приняла оплату (#1816).
     await releaseSlotsForCancelledBooking(client, bookingId);
 
+    // Сколько вернуть — по условиям тура, от оплаты в HELD; сумма пишется в
+    // tour_payments.refund_due в этой же транзакции (после UPDATE выше —
+    // чтобы дата отмены была записанной, а не угаданной). Оплаты не было —
+    // null: возвращать нечего, и это не «возврат 0».
+    const refund = await recordRefundDue(client, bookingId, isOperatorCancel);
+
     await logStatusChange(
       client,
       bookingId,
       currentStatus,
       'cancelled',
       userId,
-      `${cancellationReason} — возврат: ${refund.percent}% (${refund.amount} руб.) — ${refund.reason}`
+      refund
+        ? `${cancellationReason} — возврат: ${refund.percent}% (${refund.amount} руб.) — ${refund.reason}`
+        : `${cancellationReason} — оплаты не было`
     );
 
     const updated = await client.query(
@@ -294,9 +297,9 @@ export async function cancelBooking(
       date: cancelled.date instanceof Date ? cancelled.date.toISOString().slice(0, 10) : String(cancelled.date),
       participants: cancelled.participants,
       totalPrice: cancelled.totalAmount,
-      refundAmount: refund.amount,
-      refundPercent: refund.percent,
-      refundReason: refund.reason,
+      refundAmount: refund?.amount ?? 0,
+      refundPercent: refund?.percent ?? 0,
+      refundReason: refund?.reason ?? 'Оплаты по этой брони не было — возвращать нечего.',
     });
 
     return { booking: cancelled, refund };
@@ -494,36 +497,6 @@ export async function completeBooking(
   });
 }
 
-/**
- * Расчёт суммы возврата при отмене.
- *
- * Решение владельца 11.09 (#1813): пока 100% всегда, независимо от того, кто
- * отменяет и за сколько часов до тура. До этой правки здесь жила лестница
- * 100/50/0% по времени — но она была декоративной: расчёт возвращался
- * вызывающему для письма/ответа API, а сам возврат денег этой функцией не
- * выполнялся (`cancelBooking` его не запускает, платёжного API не вызывает,
- * см. шапку функции). Турист читал «возврат 50%» в письме, хотя реального
- * механизма, который бы удержал разницу, не существовало. Обещанная
- * дифференциация была честнее фикции: раз тиражирования нет, то и
- * тиражированного числа быть не должно, пока владелец не решит его отдельно.
- *
- * `tourDate` больше не читается: параметр оставлен ради сигнатуры вызывающих
- * (`cancelBooking` передаёт дату брони) — время до тура на решение больше
- * не влияет, а не смена сигнатуры на каждую политику дешевле для истории.
- */
-export function calculateRefund(
-  totalPrice: number,
-  _tourDate: Date,
-  isOperatorCancel: boolean
-): RefundResult {
-  return {
-    percent: 100,
-    amount: totalPrice,
-    reason: isOperatorCancel
-      ? 'Оператор отменил бронирование. Полный возврат.'
-      : 'Отмена бронирования. Полный возврат (решение владельца 11.09).',
-  };
-}
 
 // ========================================
 // Функции чтения (без транзакций)

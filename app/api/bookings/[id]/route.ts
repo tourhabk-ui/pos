@@ -199,9 +199,9 @@ export async function DELETE(
     return NextResponse.json({
       success: true,
       data: { booking, refund },
-      message: refund.amount > 0
-        ? `Бронирование отменено. ${refund.reason}`
-        : 'Бронирование отменено. Возврат не предусмотрен.',
+      message: refund
+        ? `Бронирование отменено. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
+        : 'Бронирование отменено. Оплаты по этой брони не было.',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ошибка';

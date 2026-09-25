@@ -1382,9 +1382,9 @@ export async function POST(request: NextRequest) {
           id:            match[0],
           tourTitle:     booking.tour.title,
           cancelledBy:   'operator',
-          refundPercent: refund.percent,
-          refundAmount:  refund.amount,
-          refundReason:  refund.reason,
+          refundPercent: refund?.percent ?? 0,
+          refundAmount:  refund?.amount ?? 0,
+          refundReason:  refund?.reason ?? 'Оплаты по этой брони не было — возвращать нечего.',
         });
       } catch (err) {
         await telegramService.answerCallback(cq.id, err instanceof Error ? err.message : 'Ошибка');

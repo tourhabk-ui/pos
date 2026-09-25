@@ -31,6 +31,12 @@ vi.mock('@/lib/database', () => ({
     cb({ query: (...a: unknown[]) => queryMock(...a) }),
 }));
 
+// Сумма возврата (recordRefundDue) — своё правило со своим сторожем
+// (tour-refund-terms); здесь проверяется только, куда пишет cancelBooking.
+vi.mock('@/lib/payments/record-refund-due', () => ({
+  recordRefundDue: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('@/lib/payments/slot-counter', () => ({
   releaseSlotsForCancelledBooking: (...args: unknown[]) => releaseMock(...args),
 }));

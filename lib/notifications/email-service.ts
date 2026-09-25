@@ -314,7 +314,7 @@ class EmailService {
               <td style="padding:20px 24px;">
                 ${this.detailRow('Возврат', `${amountStr}\u00A0\u20BD (${data.refundPercent}%)`)}
                 ${data.refundReason ? this.detailRow('Основание', this.esc(data.refundReason)) : ''}
-                ${this.detailRow('Срок', '3\u20135 рабочих дней')}
+                ${this.detailRow('Кто вернёт', 'Администрация платформы, вручную')}
               </td>
             </tr>
           </table>
@@ -323,7 +323,7 @@ class EmailService {
       <tr>
         <td style="padding:0 32px;">
           <p style="font-size:14px;color:#6B6560;line-height:1.6;">
-            Согласно условиям отмены, возврат средств не предусмотрен.
+            ${data.refundReason ? this.esc(data.refundReason) : 'Оплаты по этой брони не было — возвращать нечего.'}
           </p>
         </td>
       </tr>`}
