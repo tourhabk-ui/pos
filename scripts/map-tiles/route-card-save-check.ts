@@ -89,6 +89,12 @@ async function main(): Promise<number> {
     const button = page.locator('button:visible', { hasText: 'Скачать для похода' }).first();
     const shown = await button.waitFor({ timeout: 60_000 }).then(() => true).catch(() => false);
     if (!shown) { console.log('ИТОГ: кнопки «Скачать для похода» на карточке нет'); return 2; }
+    // Как человек: сперва ответить на баннер согласия (он лежит поверх низа
+    // экрана и перехватывает нажатие — прогон 2), потом довести кнопку до
+    // середины экрана, где её не закрывают шапка и нижняя навигация.
+    const consent = page.locator('button:visible', { hasText: 'Только необходимое' }).first();
+    if (await consent.count() > 0) await consent.click().catch(() => undefined);
+    await button.evaluate(el => el.scrollIntoView({ block: 'center' }));
     const started = Date.now();
     await button.click();
 
