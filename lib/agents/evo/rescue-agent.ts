@@ -15,6 +15,10 @@
  *      неотличим от безоблачного.
  *   2. Операторы без бронирований >7 дней (сигнал оттока, severity info)
  *   3. Опасность по зонам — оценки крона danger-analysis (с 22.08.2026)
+ *   4. Официальные предупреждения на день брони (с 25.09): паводок, запрет
+ *      сплава, ОЯ из ленты external_alerts в зоне маршрута тура. Повод —
+ *      сводка Минтура 25.09 «сплавы по рекам зоны предупреждения исключить»:
+ *      Rescue смотрел только модель погоды и такой запрет не видел.
  *
  * SOS и брони >24ч → Watchdog. Не возвращать их сюда — расширять того сторожа.
  *
@@ -26,18 +30,21 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { fetchWeatherForecast } from '@/lib/planner/intelligence';
+import { fetchForecastDays } from '@/lib/planner/intelligence';
 import {
   ZONES, ZONE_NAMES, getZoneAssessment, getFullDangerSummary,
 } from '@/lib/agents/agencies/danger-analyst-agency';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
-import { DANGEROUS_WMO_CODES, wmoHazardLabel } from '@/lib/weather/wmo-hazard';
 import {
-  fetchEnsembleOutlook, ensembleDayFor, describeEnsembleDay, hazardBreakdown,
+  fetchEnsembleOutlook, ensembleDayFor, describeEnsembleDay, hazardBreakdown, isoDate,
 } from '@/lib/weather/ensemble';
+import {
+  judgeForecastDay, matchOfficialAlerts, isWaterTour,
+  type UpcomingBooking, type OfficialAlert,
+} from '@/lib/agents/evo/rescue-judge';
 
 export interface RescueAlert {
-  type: 'weather_threat' | 'operator_no_response' | 'zone_danger' | 'check_failed';
+  type: 'weather_threat' | 'official_warning' | 'operator_no_response' | 'zone_danger' | 'check_failed';
   severity: 'critical' | 'warning' | 'info';
   title: string;
   body: string;
@@ -103,6 +110,9 @@ export async function runRescueScan(): Promise<RescueScanResult> {
   // Погодные угрозы для ближайших туров (уникально для Rescue).
   take('погодные угрозы', await checkWeatherThreats());
 
+  // Официальные предупреждения на день брони — паводок, запрет сплава, ОЯ.
+  take('официальные предупреждения', await checkOfficialAlerts());
+
   // Операторы без бронирований >7 дней — сигнал оттока (severity info).
   // NB: это НЕ то же, что Watchdog.checkOperatorNoResponse (там оператор
   // игнорирует конкретную бронь >48ч) — здесь про тишину/отток.
@@ -133,32 +143,40 @@ export async function runRescueScan(): Promise<RescueScanResult> {
 
 // ── Weather Threat Check ──────────────────────────────────────────────────
 
+/** Окно Rescue: сегодня и три дня вперёд. Прогноз берётся с запасом на сутки. */
+const LOOKAHEAD_DAYS = 3;
+const FORECAST_DAYS = LOOKAHEAD_DAYS + 2;
+
+type BookingRow = UpcomingBooking & { location_name: string | null; operator_name: string };
+
+/** Ближайшие живые брони с тем, что нужно обеим проверкам: место, род тура, зона. */
+async function loadUpcomingBookings(): Promise<BookingRow[]> {
+  const { rows } = await pool.query<BookingRow>(`
+    SELECT ob.id, ot.title AS tour_title, ob.booking_date,
+           ob.participants, ot.location_name,
+           ot.activity_type, ot.location_type, kr.zone,
+           COALESCE(p.name, 'Оператор') AS operator_name
+    FROM operator_bookings ob
+    JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+    LEFT JOIN partners p ON p.id = ot.operator_id
+    LEFT JOIN kamchatka_routes kr ON kr.id = ot.route_id
+    WHERE ob.booking_status IN ('new', 'confirmed')
+      AND ob.booking_date >= CURRENT_DATE
+      AND ob.booking_date <= CURRENT_DATE + make_interval(days => $1)
+      AND ob.deleted_at IS NULL
+    ORDER BY ob.booking_date ASC
+    LIMIT 20
+  `, [LOOKAHEAD_DAYS]);
+  return rows;
+}
+
 async function checkWeatherThreats(): Promise<CheckResult> {
   const alerts: RescueAlert[] = [];
   const unassessed: string[] = [];
 
-  // Получаем ближайшие активные бронирования (следующие 3 дня)
   try {
-    const { rows: bookings } = await pool.query<{
-      id: number; tour_title: string; booking_date: string;
-      participants: number; location_name: string | null;
-      operator_name: string;
-    }>(`
-      SELECT ob.id, ot.title AS tour_title, ob.booking_date,
-             ob.participants, ot.location_name,
-             COALESCE(p.name, 'Оператор') AS operator_name
-      FROM operator_bookings ob
-      JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-      LEFT JOIN partners p ON p.id = ot.operator_id
-      WHERE ob.booking_status IN ('new', 'confirmed')
-        AND ob.booking_date >= CURRENT_DATE
-        AND ob.booking_date <= CURRENT_DATE + INTERVAL '3 days'
-        AND ob.deleted_at IS NULL
-      ORDER BY ob.booking_date ASC
-      LIMIT 20
-    `);
+    const bookings = await loadUpcomingBookings();
 
-    // Для каждого бронирования проверяем погоду
     for (const booking of bookings) {
       const location = booking.location_name ?? '';
       const coords = findClosestZone(location);
@@ -170,32 +188,52 @@ async function checkWeatherThreats(): Promise<CheckResult> {
         continue;
       }
 
-      const daysAhead = daysUntil(booking.booking_date);
-      if (daysAhead < 0 || daysAhead > 5) continue;
-
-      const forecast = await fetchWeatherForecast(coords[0], coords[1], 3);
-      if (forecast.length <= daysAhead) continue;
+      // День ищется по ДАТЕ, а не по номеру в массиве: номер считался от
+      // «сейчас» в поясе сервера и на стыке суток мог указать на соседний
+      // день, а бронь на третий день вперёд просто выпадала за край.
+      const date = isoDate(booking.booking_date);
+      if (!date) {
+        unassessed.push(`бронь #${booking.id}: дата не прочиталась`);
+        continue;
+      }
+      const verdict = judgeForecastDay(await fetchForecastDays(coords[0], coords[1], FORECAST_DAYS), date);
+      if (verdict.kind === 'unknown') {
+        unassessed.push(`бронь #${booking.id}: ${verdict.reason}`);
+        continue;
+      }
 
       // Вероятностный прогноз того же дня: ансамбль WeatherNext 2 (#1787).
       // Он не заменяет детерминированный, а называет уверенность — и умеет
       // сказать «не знаю» там, где один прогон говорит «дождя нет».
       // Кэш внутри модуля: двадцать броней одной зоны — один запрос.
-      const outlook = await fetchEnsembleOutlook(coords[0], coords[1], 5);
-      const ensembleDay = ensembleDayFor(outlook, booking.booking_date);
+      const outlook = await fetchEnsembleOutlook(coords[0], coords[1], FORECAST_DAYS);
+      const ensembleDay = ensembleDayFor(outlook, date);
       const confidence = describeEnsembleDay(ensembleDay);
+      const who = `${booking.tour_title} — бронь #${booking.id} (${booking.participants} чел.)`;
 
-      const dayWeather = forecast[daysAhead];
-      if (DANGEROUS_WMO_CODES.has(dayWeather.weatherCode)) {
-        const weatherLabel = wmoHazardLabel(dayWeather.weatherCode) ?? 'опасная погода';
+      if (verdict.kind === 'hazard') {
+        const what = verdict.labels.join(', ');
         alerts.push({
           type: 'weather_threat',
           severity: 'warning',
-          title: `⛈️ Погода: ${weatherLabel} на ${formatDate(booking.booking_date)}`,
+          title: `Погода: ${what} на ${formatDate(date)}`,
           // Имя туриста в алерт не идёт: алерт уходит в Telegram, а находят
           // бронь по номеру. Оператору его достаточно, чтобы открыть карточку.
-          body: `${booking.tour_title} — бронь #${booking.id} (${booking.participants} чел.)`,
-          action: `Предложить альтернативу или перенести. ${weatherLabel}, `
-            + `ветер ${dayWeather.windKmh} км/ч. ${confidence}.`,
+          body: who,
+          action: `Предложить альтернативу или перенести. ${confidence}.`,
+        });
+        continue;
+      }
+
+      if (verdict.kind === 'fog') {
+        // Туман — не отмена, а вопрос видимости: на склоне и на воде он
+        // решает, на прогулке по городу — нет. Поэтому info, а не warning.
+        alerts.push({
+          type: 'weather_threat',
+          severity: 'info',
+          title: `Погода: туман на ${formatDate(date)}`,
+          body: who,
+          action: 'Проверить с оператором видимость на маршруте и план на случай, если туман не уйдёт.',
         });
         continue;
       }
@@ -209,9 +247,9 @@ async function checkWeatherThreats(): Promise<CheckResult> {
         alerts.push({
           type: 'weather_threat',
           severity: 'warning',
-          title: `Погода: прогнозы расходятся на ${formatDate(booking.booking_date)}`,
-          body: `${booking.tour_title} — бронь #${booking.id} (${booking.participants} чел.)`,
-          action: `Основной прогноз спокоен (${dayWeather.description}), но ${confidence}`
+          title: `Погода: прогнозы расходятся на ${formatDate(date)}`,
+          body: who,
+          action: `Основной прогноз спокоен (${verdict.description}), но ${confidence}`
             + `${kinds.length ? `. Виды угроз: ${kinds.join('; ')}` : ''}`
             + '. Проверить план и запасной вариант с оператором.',
         });
@@ -230,10 +268,75 @@ async function checkWeatherThreats(): Promise<CheckResult> {
       severity: 'info',
       title: `Погода не проверена: ${unassessed.length} брон.`,
       body: unassessed.slice(0, 5).join('; '),
-      action: 'Место брони не сопоставлено ни с одной зоной. Прогноза по ним нет — тишина здесь не значит «безопасно».',
+      action: 'Прогноза по этим броням нет — тишина здесь не значит «безопасно».',
     });
   }
 
+  return { alerts, failure: null };
+}
+
+// ── Official Alerts Check ─────────────────────────────────────────────────
+
+/**
+ * Официальные предупреждения на день брони.
+ *
+ * Уровень в Telegram: из Rescue туда уходит только critical. Critical — ОЯ
+ * (severity 3) или паводок severity 2+ на туре по воде: это ровно «сплавы
+ * исключить», и бронь на завтра требует действия, а не записи в журнале.
+ * Прочее — warning в журнале прогона, как у погодных угроз.
+ */
+async function checkOfficialAlerts(): Promise<CheckResult> {
+  const alerts: RescueAlert[] = [];
+  try {
+    const bookings = await loadUpcomingBookings();
+    if (bookings.length === 0) return { alerts, failure: null };
+
+    const { rows: official } = await pool.query<OfficialAlert>(`
+      SELECT id, alert_type, severity, title, description, affected_zones,
+             expires_at, source_url
+      FROM external_alerts
+      WHERE expires_at > NOW()
+        AND (severity >= 2 OR alert_type = 'flood')
+      ORDER BY severity DESC, created_at DESC
+      LIMIT 200
+    `);
+
+    const { matches, unassessed } = matchOfficialAlerts(bookings, official);
+    for (const { booking, alert, unplaced } of matches) {
+      const water = isWaterTour(booking.activity_type, booking.location_type);
+      const waterFlood = water && alert.alert_type === 'flood';
+      const critical = alert.severity >= 3 || (waterFlood && alert.severity >= 2);
+      const date = isoDate(booking.booking_date) ?? String(booking.booking_date);
+      const text = (alert.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      alerts.push({
+        type: 'official_warning',
+        severity: critical ? 'critical' : 'warning',
+        title: `Официальное предупреждение на ${formatDate(date)}: ${alert.title}`.slice(0, 200),
+        body: `${booking.tour_title} — бронь #${booking.id} (${booking.participants} чел.)`
+          + (text ? `. ${text}` : ''),
+        action: (unplaced
+          ? 'Место предупреждения не установлено — сверить, та ли это река, что у тура. '
+          : '')
+          + (waterFlood
+            ? 'Выход на воду в зоне паводка — перенести или заменить, связаться с оператором.'
+            : 'Сверить с оператором, проводится ли тур, и запасной вариант.')
+          + (alert.source_url ? ` Источник: ${alert.source_url}` : ''),
+      });
+    }
+
+    if (unassessed.length > 0) {
+      alerts.push({
+        type: 'check_failed',
+        severity: 'info',
+        title: `Официальные предупреждения не сверены: ${unassessed.length} брон.`,
+        body: unassessed.slice(0, 5).join('; '),
+        action: 'Зона тура неизвестна — действующие предупреждения по зонам к этим броням не приложить. Привязать тур к маршруту.',
+      });
+    }
+  } catch (err) {
+    logSwallowedFailure('rescue', 'официальные предупреждения на день брони', err);
+    return { alerts, failure: err instanceof Error ? err.message : String(err) };
+  }
   return { alerts, failure: null };
 }
 
@@ -265,7 +368,7 @@ async function checkOperatorResponse(): Promise<CheckResult> {
         alerts.push({
           type: 'operator_no_response',
           severity: 'info',
-          title: `🏢 ${op.name} — ${days} дней без бронирований`,
+          title: `Отток: ${op.name} — ${days} дней без бронирований`,
           body: `Последнее бронирование: ${op.last_booking_at ? formatDate(String(op.last_booking_at)) : 'неизвестно'}`,
           action: 'Проверить — оператор ушёл или просто тишина.',
         });
@@ -356,7 +459,10 @@ async function sendCriticalAlerts(alerts: RescueAlert[]): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: text + summary, parse_mode: 'HTML' }),
     });
-  } catch { /* silent */ }
+  } catch (err) {
+    // Критическое сообщение не ушло — это не «тишина», а недоставка.
+    logSwallowedFailure('rescue', 'отправка критических тревог в Telegram', err);
+  }
 }
 
 /**
@@ -382,12 +488,6 @@ function findClosestZone(locationName: string): [number, number] | null {
   if (lower.includes('курил') || lower.includes('kuril')) return ZONE_COORDS.kurilskoe;
   if (lower.includes('ключ') || lower.includes('klyuch')) return ZONE_COORDS.klyuchevskoy;
   return null;
-}
-
-function daysUntil(dateStr: string): number {
-  const target = new Date(dateStr);
-  const now = new Date();
-  return Math.round((target.getTime() - now.getTime()) / 86400000);
 }
 
 function formatDate(dateStr: string): string {
