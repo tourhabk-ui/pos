@@ -775,6 +775,7 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // Везде judgeClaims, у которого исход именной.
 import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySections, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
+import { aiPostTooThin, aiPostButtons, kamchatkaDate } from '@/lib/notifications/ai-post-shape';
 
 /**
  * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
@@ -971,7 +972,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
   if (freshItems.length === 0) {
     const sent = await tgSend(
-      `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
+      `<b>Дайджест ${kamchatkaDate(new Date(), {})}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
     );
     return { signals_found: 0, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed , ...AI_CHANNEL_ABORTED };
   }
@@ -1124,7 +1125,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       role: 'user',
       // Сигналы — заголовки чужих лент и каналов: обрамляются как данные.
       // Контекст (наш) остаётся снаружи забора.
-      content: `${contextSection ? contextSection + '\n\n' : ''}Сигналы за ${new Date().toLocaleDateString('ru-RU')}:\n\n${wrapUntrusted('сигналы разведки', signalsList)}`,
+      content: `${contextSection ? contextSection + '\n\n' : ''}Сигналы за ${kamchatkaDate(new Date(), {})}:\n\n${wrapUntrusted('сигналы разведки', signalsList)}`,
     },
   ];
 
@@ -1369,7 +1370,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
     if (aiItems.length === 0) {
       aiSkip = 'ai_no_items';
     } else {
-      const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+      // Дата по Камчатке: вечерний прогон идёт уже в следующих камчатских сутках.
+      const today = kamchatkaDate(new Date(), { day: 'numeric', month: 'long' });
       // Тянем текст статей (фон, cron) — чтобы модель опиралась на содержание, а не на заголовок
       const aiTop = aiItems.slice(0, 3);
       const withText = await Promise.all(
@@ -1510,11 +1512,19 @@ export async function runScoutDigest(): Promise<DigestResult> {
         }
       }
 
+      // Выпуск — минимум два полных материала (26.09): один оборванный пункт
+      // под шапкой «дайджест» ушёл на 6,8 тыс. подписчиков. Такой день канал
+      // пропускает, и причина пишется в отчёт (lib/notifications/ai-post-shape).
       if (aiDigest) {
-        const buttons = aiItems
-          .filter(i => i.url)
-          .slice(0, 3)
-          .map(i => [{ text: i.title.slice(0, 45) + (i.title.length > 45 ? '…' : ''), url: i.url }]);
+        const thin = aiPostTooThin(aiDigest);
+        if (thin) { aiDigest = null; aiSkip = 'ai_post_too_thin'; aiSkipDetail = thin; }
+      }
+
+      if (aiDigest) {
+        // Кнопки — на материалы САМОГО поста, его русскими заголовками. До
+        // 26.09 они строились из первых трёх сигналов ленты: английские
+        // заголовки, и один вёл на материал, которого в посте не было.
+        const buttons = aiPostButtons(aiDigest);
         // Обложка — своя карточка выпуска (24.09): дата и заголовки материалов.
         // Генератор рисовал сцену по одному заголовку — из «AutoCAD» вышло
         // серое здание, а выпуск из трёх разных тем одной сценой не описать
