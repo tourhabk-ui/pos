@@ -109,7 +109,7 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
     ]);
 
     if (paymentResult.rows.length === 0) {
-      console.error('[payments/webhook] оплата не сопоставлена ни с одной записью:', `invoice=${forLog(invoice)}`);
+      console.error('[payments/webhook] оплата не сопоставлена ни с одной записью:', `invoice_len=${invoice.length}`, `uuid=${UUID_RE.test(invoice)}`);
       return;
     }
 
@@ -254,15 +254,9 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
     }
 }
 
-/**
- * Значение из тела вебхука — в лог только в безопасном виде: номер счёта и
- * сумма состоят из букв, цифр, точки и дефиса; всё прочее (переводы строк,
- * управляющие символы) подделало бы соседние записи лога.
- */
-function forLog(v: unknown): string {
-  return String(v).replace(/[^\w.\-]/g, '?').slice(0, 64);
-}
-
+// В лог — только то, что взято из нашей базы, и числа: сырые строки из тела
+// вебхука (номер счёта) туда не пишутся, чтобы переводом строки нельзя было
+// подделать соседние записи.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Сумма из вебхука против цены брони: расхождение больше рубля — не оплата. */
@@ -292,7 +286,7 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
     if (tp.status !== 'PENDING' && tp.status !== 'FAILED') return { kind: 'duplicate' as const, bookingId: tp.booking_id };
     if (!amountMatches(tp.retail_amount, webhook.Amount)) {
       console.error('[payments/webhook] сумма не совпала с платежом тура — не подтверждаем:',
-        `invoice=${forLog(invoiceId)}`, `expected=${forLog(tp.retail_amount)}`, `paid=${forLog(webhook.Amount)}`);
+        `booking=${tp.booking_id}`, `expected=${tp.retail_amount}`, `paid=${Number(webhook.Amount).toFixed(2)}`);
       return { kind: 'mismatch' as const, bookingId: tp.booking_id };
     }
 
@@ -366,13 +360,13 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
     );
     const b = locked.rows[0];
     if (!b) {
-      console.error('[payments/webhook] оплата на несуществующую бронь:', `invoice=${forLog(invoiceId)}`);
+      console.error('[payments/webhook] оплата на несуществующую бронь:', `booking=${Number(invoiceId)}`);
       return null;
     }
     if (b.payment_status === 'paid') return null;
     if (!amountMatches(b.final_price, webhook.Amount)) {
       console.error('[payments/webhook] сумма не совпала с бронью — не подтверждаем:',
-        `booking=${forLog(invoiceId)}`, `expected=${forLog(b.final_price)}`, `paid=${forLog(webhook.Amount)}`);
+        `booking=${b.id}`, `expected=${b.final_price}`, `paid=${Number(webhook.Amount).toFixed(2)}`);
       return null;
     }
     await markBookingPaid(client, b.id, transactionId);
