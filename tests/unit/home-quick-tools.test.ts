@@ -75,3 +75,67 @@ describe('плитки на главной', () => {
     expect(tools).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
+
+describe('чипы интересов — один ряд (владелец 25.09: «занимают 2 строчки, не экономно»)', () => {
+  it('сетка на столько колонок, сколько чипов у логики, без переноса и без числа в CSS', () => {
+    const rule = /\.v7 \.hero-chips\{([^}]*)\}/.exec(HOME)?.[1] ?? '';
+    expect(rule).toContain('grid-auto-flow:column');
+    expect(rule).toContain('grid-auto-columns:minmax(0,1fr)');
+    expect(rule).not.toMatch(/flex-wrap:wrap|grid-template-columns/);
+  });
+
+  it('подпись в одну строку, зона нажатия не меньше 44px', () => {
+    expect(HOME).toMatch(/\.v7 \.hchip\{[^}]*min-height:56px/);
+    expect(HOME).toMatch(/\.v7 \.hchip \.hc-l\{[^}]*white-space:nowrap/);
+    expect(HOME).toContain('<span className="hc-l">{c.label}</span>');
+  });
+});
+
+describe('полевые инструменты — сеткой 2×2 (владелец 25.09: «место жалко на главной»)', () => {
+  const at = HOME.indexOf('<nav className="qtools stools"');
+  const grid = at === -1 ? '' : HOME.slice(at, HOME.indexOf('</nav>', at));
+
+  it('четыре плитки в секции #radar, а не четыре полноширинные строки', () => {
+    expect(grid).not.toBe('');
+    expect((grid.match(/className="qt(?: mchsline)?"/g) ?? []).length).toBe(4);
+    expect(HOME).not.toMatch(/className="protoline|className="reportbtn/);
+    const radar = HOME.slice(HOME.indexOf('id="radar"'), HOME.indexOf('</section>', HOME.indexOf('id="radar"')));
+    expect(radar).toContain('<nav className="qtools stools"');
+  });
+
+  it('навигатор и наблюдение — жёсткие ссылки <a> (офлайн грузит закэшированную страницу)', () => {
+    expect(grid).toMatch(/<a\s+href="\/planning\?mode=trail"/);
+    expect(grid).toMatch(/<a\s+href="\/planning\?mode=trail&obs=1"/);
+  });
+
+  it('полная фраза каждой плитки — в aria-label, короткая подпись не длиннее 16 знаков', () => {
+    expect((grid.match(/aria-label="[^"]{20,}"/g) ?? []).length).toBe(4);
+    const captions = [...grid.matchAll(/<b>[^<]+<\/b><span>([^<]+)<\/span>/g)].map((m) => m[1]);
+    expect(captions).toHaveLength(4);
+    for (const c of captions) expect(c.length, c).toBeLessThanOrEqual(16);
+  });
+});
+
+describe('строки поиска на главной нет (владелец 25.09: «поиск лишний — открывает то, что и так открывается»)', () => {
+  it('ни формы поиска, ни перехода /routes?q=', () => {
+    expect(HOME).not.toMatch(/<form className="find"|role="search"/);
+    expect(HOME).not.toContain('/routes?q=');
+    expect(HOME).not.toMatch(/\.v7 \.find\b/);
+  });
+});
+
+describe('один поток, а не две двери (владелец 25.09: «мы нагромождаем»)', () => {
+  it('блоков «Тур с оператором» / «Сам по маршруту» нет — поездка смешивает роды дня', () => {
+    expect(HOME).not.toMatch(/lg-tour|lg-self|Тур с оператором<\/h2>|Сам по маршруту<\/h2>/);
+  });
+
+  it('первый тур, затем все чипы одним рядом, затем инструменты', () => {
+    const first = HOME.indexOf('className="firstpick"');
+    const chips = HOME.indexOf('<div className="hero-chips">');
+    const tools = HOME.indexOf('<nav className="qtools" aria-label="Инструменты поездки">');
+    expect(first).toBeGreaterThan(-1);
+    expect(chips).toBeGreaterThan(first);
+    expect(tools).toBeGreaterThan(chips);
+    expect(HOME).toMatch(/\{INTENT_CHIPS\.map\(/);
+  });
+});

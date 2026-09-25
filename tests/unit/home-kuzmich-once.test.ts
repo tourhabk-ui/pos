@@ -14,11 +14,12 @@ const HOME = strip(readFileSync(join(ROOT, 'app/_home/_HomeV8Client.tsx'), 'utf-
 const NAV = strip(readFileSync(join(ROOT, 'components/shared/BottomNav.tsx'), 'utf-8'));
 
 describe('Кузьмич на первом экране — один раз', () => {
-  it('в строке поиска нет ни медведя, ни портрета', () => {
-    const form = HOME.match(/<form className="find"[\s\S]*?<\/form>/)?.[0];
-    expect(form, 'форма поиска на месте').toBeDefined();
-    expect(form).not.toMatch(/brand\/bear|kuzmich\/portrait|<img/);
-    expect(form).toContain('<Search');
+  it('на первом экране над таб-баром нет ни медведя, ни портрета', () => {
+    // Строки поиска, где стоял медведь, с 25.09 нет вовсе (владелец: «поиск
+    // лишний»). Первый экран — герой и «Туры сезона».
+    const first = HOME.slice(HOME.indexOf('<div className="wrap">'), HOME.indexOf('<div className="hero-chips">'));
+    expect(first.length).toBeGreaterThan(0);
+    expect(first).not.toMatch(/brand\/bear|kuzmich\/portrait/);
   });
 
   it('медальон таб-бара — медведь из брендового набора', () => {
