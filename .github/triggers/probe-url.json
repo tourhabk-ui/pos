@@ -1,22 +1,64 @@
 {
-  "note": "25.09, прогон 591. ТОЛЬКО ЧТЕНИЕ. Прогон 590 принял оба инструмента; после правки даты сводки и «в сводке нет» — перепроверка вулканов.",
-  "run": 591,
+  "note": "25.09, прогон 592. ТОЛЬКО ЧТЕНИЕ. Приёмка правок по сверке MCP (33ff289): источник тревог VK МЧС, place-info об одном месте, туры по слову. Датчик — шапка get_volcano_status.",
+  "run": 592,
   "timeout": 60,
   "retries": 50,
   "retryDelay": 60,
   "allowStale": false,
-  "until": "в сводке этого вулкана нет",
+  "until": "самое свежее наблюдение",
   "bytes": 4000,
   "post": [
     {
       "url": "https://vedarai.ru/api/mcp",
       "body": {
         "jsonrpc": "2.0",
-        "id": 5,
+        "id": 1,
         "method": "tools/call",
         "params": {
           "name": "get_volcano_status",
+          "arguments": {
+            "volcano": "Авачинский"
+          }
+        }
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+          "name": "safety_status",
           "arguments": {}
+        }
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "get_place_info",
+          "arguments": {
+            "name": "Курильское озеро"
+          }
+        }
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+          "name": "get_tours",
+          "arguments": {
+            "activity_type": "вулканы"
+          }
         }
       }
     }
