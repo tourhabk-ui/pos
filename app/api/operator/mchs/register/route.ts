@@ -27,7 +27,14 @@ const emergencyContactSchema = z.object({
 });
 
 const createRegistrationSchema = z.object({
-  bookingId: z.string().uuid(),
+  // Номер брони оператора — operator_bookings.id, BIGINT. Раньше здесь стоял
+  // .uuid(): форма просила «UUID бронирования», которого у брони оператора
+  // нет, а сверка uuid-строки с bigint-колонкой падала 22P02 — запись не
+  // создавалась никогда (миграция 1016). Принимаем число или его строку.
+  bookingId: z.coerce
+    .number({ message: 'Номер брони должен быть числом' })
+    .int({ message: 'Номер брони должен быть целым числом' })
+    .positive({ message: 'Номер брони должен быть положительным числом' }),
   groupComposition: z.array(groupMemberSchema).min(1).max(100),
   route: z.string().min(3).max(5000),
   startDate: z.string().min(1),
@@ -69,7 +76,8 @@ type MchsStatus = 'pending' | 'submitted' | 'confirmed' | 'rejected';
 
 interface MchsRegistrationListRow {
   id: string;
-  booking_id: string;
+  /** operator_bookings.id (bigint приходит из pg строкой); NULL у старых записей по bookings. */
+  operator_booking_id: string | null;
   route: string;
   start_date: string;
   end_date: string;
@@ -85,6 +93,15 @@ interface MchsSummaryRow {
   submitted: string;
   confirmed: string;
   rejected: string;
+}
+
+/** §4.0: отказ не глушится — имя шага и SQLSTATE в лог, текст PostgreSQL наружу не уходит. */
+function logMchsFailure(step: string, error: unknown): void {
+  const code = (error as { code?: unknown } | null)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(
+    `[operator/mchs/register] ${step}: отказ${typeof code === 'string' ? ` SQLSTATE ${code}` : ''} — ${message}`,
+  );
 }
 
 const listQuerySchema = z.object({
@@ -129,7 +146,7 @@ export async function GET(request: NextRequest) {
     const listResult = await query<MchsRegistrationListRow>(
       `SELECT
          id,
-         booking_id,
+         operator_booking_id::text AS operator_booking_id,
          route,
          start_date,
          end_date,
@@ -170,7 +187,7 @@ export async function GET(request: NextRequest) {
       data: {
         registrations: listResult.rows.map(row => ({
           id: row.id,
-          bookingId: row.booking_id,
+          bookingId: row.operator_booking_id,
           route: row.route,
           startDate: row.start_date,
           endDate: row.end_date,
@@ -189,6 +206,7 @@ export async function GET(request: NextRequest) {
       },
     } as ApiResponse<unknown>);
   } catch (error) {
+    logMchsFailure('GET', error);
     return NextResponse.json(
       { success: false, error: 'Не удалось загрузить регистрации МЧС' } as ApiResponse<null>,
       { status: 500 }
@@ -221,29 +239,46 @@ export async function POST(request: NextRequest) {
     const validation = createRegistrationSchema.safeParse(payload);
 
     if (!validation.success) {
+      // Текстом, а не массивом issues: форма показывает строку, и «Не удалось»
+      // вместо причины оставляло оператора гадать, что не так (аудит).
+      const first = validation.error.issues[0];
+      const field = first?.path.join('.') ?? '';
       return NextResponse.json(
-        { success: false, error: validation.error.issues } as unknown as ApiResponse<null>,
+        {
+          success: false,
+          error: `Проверьте поле${field ? ` «${field}»` : ''}: ${first?.message ?? 'некорректные данные'}`,
+          details: validation.error.issues,
+        } as unknown as ApiResponse<null>,
         { status: 400 }
       );
     }
 
     const data = validation.data;
 
-    // Проверка владения бронированием: оператор может регистрировать
-    // только группы по своим бронированиям (через tours.operator_id)
+    // Проверка владения бронированием: operator_bookings -> operator_tours ->
+    // partners, где partners.user_id — текущий пользователь, а категория —
+    // оператор. operatorId уже получен тем же условием (getOperatorPartnerId),
+    // JOIN на partners держит связку явно в самом запросе.
     const ownershipResult = await query<{ id: string }>(
-      `SELECT b.id
+      `SELECT b.id::text AS id
        FROM operator_bookings b
        JOIN operator_tours t ON t.id = b.operator_tour_id
-       WHERE b.id = $1 AND t.operator_id = $2
+       JOIN partners p ON p.id = t.operator_id
+       WHERE b.id = $1::bigint
+         AND t.operator_id = $2
+         AND p.user_id = $3
+         AND p.category = 'operator'
          AND b.deleted_at IS NULL AND t.deleted_at IS NULL
        LIMIT 1`,
-      [data.bookingId, operatorId]
+      [data.bookingId, operatorId, userOrResponse.userId]
     );
 
     if (ownershipResult.rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Бронирование не найдено или недоступно' } as ApiResponse<null>,
+        {
+          success: false,
+          error: `Бронь №${data.bookingId} не найдена среди броней ваших туров`,
+        } as ApiResponse<null>,
         { status: 404 }
       );
     }
@@ -260,7 +295,7 @@ export async function POST(request: NextRequest) {
       created_at: string;
     }>(
       `INSERT INTO mchs_registrations (
-         booking_id,
+         operator_booking_id,
          operator_id,
          group_composition,
          route,
@@ -272,7 +307,7 @@ export async function POST(request: NextRequest) {
          created_at,
          updated_at
        ) VALUES (
-         $1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8::jsonb,
+         $1::bigint, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8::jsonb,
          'pending', now(), now()
        )
        RETURNING id, status, created_at`,
@@ -295,7 +330,7 @@ export async function POST(request: NextRequest) {
         success: true,
         data: {
           id: created.id,
-          bookingId: data.bookingId,
+          bookingId: String(data.bookingId),
           status: created.status,
           createdAt: created.created_at,
         },
@@ -312,8 +347,9 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    logMchsFailure('POST', error);
     return NextResponse.json(
-      { success: false, error: 'Не удалось создать регистрацию МЧС' } as ApiResponse<null>,
+      { success: false, error: 'Не удалось сохранить регистрацию МЧС. Попробуйте ещё раз или обратитесь в поддержку.' } as ApiResponse<null>,
       { status: 500 }
     );
   }

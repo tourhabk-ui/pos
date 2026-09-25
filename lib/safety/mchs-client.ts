@@ -127,3 +127,49 @@ export async function registerGroupWithMchs(
     clearTimeout(timeoutId);
   }
 }
+
+/**
+ * Что сказать оператору после попытки отправки — строго по тому, что код
+ * сделал на самом деле.
+ *
+ * Прежний ответ для всех исходов, кроме `failed`, был «Группа автоматически
+ * зарегистрирована в МЧС». Это ложь для `submitted`: registerGroupWithMchs
+ * лишь POST-ит заявку на адрес из env MCHS_API_URL, и `submitted` значит
+ * «адрес ответил 2xx без подтверждения регистрации». Настоящая регистрация
+ * группы — forms.mchs.gov.ru или телефон. Оператор, прочитавший
+ * «зарегистрирована», мог не зарегистрировать группу нигде — это цена
+ * ошибки на маршруте.
+ */
+export function mchsOutcomeMessage(
+  status: MchsRegistrationStatus,
+  requestId: string | null,
+  errorMessage: string | null,
+): string {
+  const selfRegister =
+    'Зарегистрируйте группу самостоятельно на forms.mchs.gov.ru или по телефону МЧС Камчатки.';
+  switch (status) {
+    case 'registered':
+      return (
+        'Адрес приёма заявок ответил, что группа зарегистрирована' +
+        (requestId ? ` (номер заявки ${requestId})` : '') +
+        '. Сверьте регистрацию с МЧС до выхода группы.'
+      );
+    case 'submitted':
+      return (
+        'Заявка передана на адрес приёма заявок' +
+        (requestId ? ` (номер ${requestId})` : '') +
+        ', но подтверждения регистрации в МЧС нет. ' +
+        selfRegister
+      );
+    case 'rejected':
+      return 'Заявка отклонена адресом приёма заявок. ' + selfRegister;
+    case 'failed':
+    default:
+      return (
+        'Запись сохранена в кабинете, но в МЧС не отправлена' +
+        (errorMessage ? ` (${errorMessage})` : '') +
+        '. ' +
+        selfRegister
+      );
+  }
+}

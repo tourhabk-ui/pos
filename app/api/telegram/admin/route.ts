@@ -562,14 +562,14 @@ function agentLabel(intent: string): string {
 // ── Free text → PlatformAgent + conversation history ─────────────────────────
 
 async function handleFreeText(text: string, chatId: number): Promise<void> {
-  const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '171286547', 10);
-
   await saveAdminMessage(chatId, 'user', text);
 
   try {
+    // userId не передаётся: TELEGRAM_OWNER_ID — id в Telegram, а не users.id
+    // (UUID). Раньше число уходило в `SELECT role FROM users WHERE id = $1`
+    // и роняло запрос; роль admin задана здесь явно.
     const result = await PlatformAgent.dispatch({
       message: text,
-      userId: ownerId,
       role: 'admin',
     });
 

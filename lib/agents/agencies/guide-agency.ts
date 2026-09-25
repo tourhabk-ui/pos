@@ -70,7 +70,7 @@ export class GuideAgency {
    * агентства опирались на несуществующие operator_tours.guide_id и
    * operator_bookings.departure_id → всегда пусто/ошибка.
    */
-  private async resolveGuideOperatorId(userId: number | undefined): Promise<string | null> {
+  private async resolveGuideOperatorId(userId: string | undefined): Promise<string | null> {
     if (!userId) return null;
     const { rows } = await pool.query<{ guide_operator_id: string | null }>(
       `SELECT p.guide_operator_id

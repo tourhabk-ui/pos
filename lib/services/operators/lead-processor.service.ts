@@ -42,7 +42,12 @@ export interface MatchedTour {
 export interface AdversarialVerdict {
   bullSignals: string[];
   bearRisks: string[];
-  conversionProb: number;
+  /**
+   * Вероятность оплаты по оценке Arbiter, 0-100. NULL — Arbiter не ответил
+   * (ИИ недоступен, ответ не разобрался): честное «не оценено». Раньше на
+   * этом месте стояла заглушка 50, и лид получал ai_score ~50 «из воздуха».
+   */
+  conversionProb: number | null;
   recommendedAction: 'call_immediately' | 'send_proposal' | 'nurture' | 'skip';
   callStrategy: string;
   urgency: 'hot' | 'warm' | 'cold';
@@ -59,14 +64,35 @@ export interface LeadProposalData {
   duration_days: number | null;
   primary_tour: MatchedTour | null;
   alt_tours: MatchedTour[];
-  ai_score: number;
+  /** 0-100; NULL — лид не оценён (ИИ был недоступен или запись старая). */
+  ai_score: number | null;
   intent: LeadIntent;
   generation_ms: number;
   adversarial?: AdversarialVerdict;
 }
 
+/**
+ * Результат process(): предложение, по которому оценка ЕСТЬ. Когда Arbiter
+ * не ответил, process() не выдумывает число, а бросает LeadNotScoredError —
+ * лид остаётся «новым» с ai_score NULL, его подхватит повтор крона или
+ * человек (Watchdog «лид без реакции > 2 ч»).
+ */
+export interface ProcessedLeadProposal extends LeadProposalData {
+  ai_score: number;
+}
+
+/** ИИ не дал оценку лида — «не оценено», а не заглушка. */
+export class LeadNotScoredError extends Error {
+  constructor() {
+    super('ИИ недоступен: лид не оценён. Статус возвращён в «Новый» — повторите обработку позже или свяжитесь с клиентом сами.');
+    this.name = 'LeadNotScoredError';
+  }
+}
+
 interface LeadRow {
   id: string;
+  /** partners.id оператора лида; NULL — лид платформы, ничей. */
+  operator_id: string | null;
   name: string;
   phone: string;
   email: string | null;
@@ -121,7 +147,7 @@ export class LeadProcessorService {
    * Полный пайплайн обработки лида.
    * Бросает Error если лид не найден или уже обработан.
    */
-  async process(leadId: string): Promise<LeadProposalData> {
+  async process(leadId: string): Promise<ProcessedLeadProposal> {
     const start = Date.now();
 
     // 1. Загружаем лид
@@ -143,17 +169,24 @@ export class LeadProcessorService {
       // 3. AI-квалификация
       const intent = await this.qualifyLead(lead);
 
-      // 4. Подбираем туры
-      const tours = await this.matchTours(intent, lead.route_title ?? null);
+      // 4. Подбираем туры — только оператора лида, если он есть
+      const tours = await this.matchTours(intent, lead.route_title ?? null, lead.operator_id);
 
       // 4.5. Adversarial analysis: Bull + Bear параллельно → Arbiter
       const verdict = await this.runAdversarialAnalysis(lead, intent, tours);
+
+      // Arbiter не ответил — оценки нет. Не сохраняем предложение с
+      // выдуманным числом: catch ниже вернёт лид в «new», ai_score останется
+      // NULL («не оценено»).
+      if (verdict.conversionProb === null) {
+        throw new LeadNotScoredError();
+      }
 
       // 5. Генерируем предложение (с учётом возражений Bear-агента)
       const proposal = await this.generateProposal(lead, intent, tours, verdict);
 
       // 6. Считаем AI-score (на основе verdict.conversionProb)
-      const aiScore = this.computeScore(intent, tours, verdict);
+      const aiScore = this.computeScore(intent, tours, verdict.conversionProb);
 
       // 7. Сохраняем в БД
       const proposalId = await this.saveProposal({
@@ -231,7 +264,7 @@ export class LeadProcessorService {
 
   private async getLead(id: string): Promise<LeadRow | null> {
     const { rows } = await pool.query<LeadRow>(
-      `SELECT id, name, phone, email, comment, route_title, source_data,
+      `SELECT id, operator_id::text AS operator_id, name, phone, email, comment, route_title, source_data,
               group_size, budget_rub, desired_dates, status
        FROM leads WHERE id = $1`,
       [id]
@@ -296,23 +329,42 @@ export class LeadProcessorService {
     }, 'qualify_intent');
   }
 
-  private async matchTours(intent: LeadIntent, routeTitle: string | null): Promise<MatchedTour[]> {
-    const activityFilter = intent.activity_types.length > 0
-      ? `AND (activity_type = ANY($1) OR title ILIKE ANY($2))`
-      : '';
-    const keywords = [...intent.interests, ...(routeTitle ? [routeTitle] : [])];
-    const keywordFilter = keywords.map(k => `%${k}%`);
-
+  /**
+   * Подбор туров под намерение лида.
+   *
+   * Лид оператора получает ТОЛЬКО туры этого оператора: раньше подбор шёл по
+   * всему каталогу, и предложение, которое оператор отправлял клиенту от
+   * своего имени, могло рекламировать туры конкурента. Лид платформы
+   * (operator_id NULL) — весь каталог.
+   *
+   * Пустой подбор — честно пустой. Раньше при нуле совпадений подставлялись
+   * «любые активные туры» ORDER BY RANDOM() с подписью «рекомендован по
+   * популярности» — популярность никто не считал, это была лотерея.
+   */
+  private async matchTours(
+    intent: LeadIntent,
+    routeTitle: string | null,
+    operatorId: string | null,
+  ): Promise<MatchedTour[]> {
     const params: unknown[] = [];
+    const filters: string[] = [];
+
     if (intent.activity_types.length > 0) {
+      const keywords = [...intent.interests, ...(routeTitle ? [routeTitle] : [])];
+      const keywordFilter = keywords.map(k => `%${k}%`);
       params.push(intent.activity_types);
       params.push(keywordFilter.length > 0 ? keywordFilter : ['%%']);
+      filters.push(`AND (activity_type = ANY($${params.length - 1}) OR title ILIKE ANY($${params.length}))`);
     }
 
-    let budgetFilter = '';
     if (intent.budget_rub) {
       params.push(Math.round(Number(intent.budget_rub) * 1.2));
-      budgetFilter = `AND base_price <= $${params.length}`;
+      filters.push(`AND base_price <= $${params.length}`);
+    }
+
+    if (operatorId) {
+      params.push(operatorId);
+      filters.push(`AND operator_id = $${params.length}::uuid`);
     }
 
     const { rows } = await pool.query<TourRow>(
@@ -321,23 +373,11 @@ export class LeadProcessorService {
               activity_type, description
        FROM operator_tours
        WHERE is_active = true AND deleted_at IS NULL
-         ${activityFilter}
-         ${budgetFilter}
-       ORDER BY RANDOM()
-       LIMIT 10`,
+         ${filters.join('\n         ')}
+       ORDER BY id DESC
+       LIMIT 30`,
       params
     );
-
-    if (rows.length === 0) {
-      // Fallback — любые активные туры
-      const { rows: fallback } = await pool.query<TourRow>(
-        `SELECT id::text, title, ROUND(base_price)::int AS price,
-                CEIL(COALESCE(duration_hours, 8) / 8.0)::int AS duration_days,
-                activity_type, description
-         FROM operator_tours WHERE is_active = true AND deleted_at IS NULL ORDER BY RANDOM() LIMIT 5`
-      );
-      return this.rankTours(fallback, intent).slice(0, 3);
-    }
 
     return this.rankTours(rows, intent).slice(0, 3);
   }
@@ -378,7 +418,9 @@ export class LeadProcessorService {
     if (intent.budget_rub && tour.price <= intent.budget_rub) {
       reasons.push('укладывается в бюджет');
     }
-    if (reasons.length === 0) reasons.push('рекомендован по популярности');
+    // Популярность никто не считал — не пишем её. Если совпадений нет,
+    // так и говорим: тур из каталога без прямого совпадения с запросом.
+    if (reasons.length === 0) reasons.push('активный тур каталога, прямых совпадений с запросом нет');
     return reasons.join(', ');
   }
 
@@ -473,12 +515,13 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
     ]).catch(() => '{}');
 
     const arbiter = safeJSON<{
-      conversion_prob: number;
+      conversion_prob: number | null;
       recommended_action: string;
       call_strategy: string;
       urgency: string;
     }>(arbiterRaw, {
-      conversion_prob: 50,
+      // NULL, а не 50: Arbiter не ответил — оценки нет (§4.0).
+      conversion_prob: null,
       recommended_action: 'send_proposal',
       call_strategy: 'Уточните детали поездки и предложите лучший тур.',
       urgency: 'warm',
@@ -487,7 +530,9 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
     return {
       bullSignals:        bull.signals.slice(0, 5),
       bearRisks:          bear.risks.slice(0, 5),
-      conversionProb:     Math.max(0, Math.min(100, arbiter.conversion_prob ?? 50)),
+      conversionProb:     typeof arbiter.conversion_prob === 'number' && Number.isFinite(arbiter.conversion_prob)
+                            ? Math.round(Math.max(0, Math.min(100, arbiter.conversion_prob)))
+                            : null,
       recommendedAction:  (['call_immediately', 'send_proposal', 'nurture', 'skip'] as const)
                             .includes(arbiter.recommended_action as 'call_immediately')
                             ? arbiter.recommended_action as AdversarialVerdict['recommendedAction']
@@ -572,26 +617,19 @@ ${toursText}
     };
   }
 
-  private computeScore(intent: LeadIntent, tours: MatchedTour[], verdict?: AdversarialVerdict): number {
-    // Если есть вердикт Arbiter — он первичен (70%), эвристика — вторична (30%)
-    if (verdict) {
-      let heuristic = 30;
-      if (intent.activity_types.length > 0) heuristic += 5;
-      if (intent.budget_rub) heuristic += 5;
-      if (intent.desired_dates) heuristic += 5;
-      if (intent.urgency === 'high') heuristic += 5;
-      if (tours.length > 0) heuristic += 5;
-      heuristic = Math.min(25, heuristic - 30); // нормируем добавку
-      return Math.min(100, Math.round(verdict.conversionProb * 0.7 + (50 + heuristic) * 0.3));
-    }
-    let score = 50;
-    if (intent.activity_types.length > 0) score += 15;
-    if (intent.budget_rub) score += 10;
-    if (intent.group_size > 1) score += 5;
-    if (intent.desired_dates) score += 10;
-    if (intent.urgency === 'high') score += 10;
-    if (tours.length > 0) score += 10;
-    return Math.min(100, score);
+  /**
+   * AI-score лида: Arbiter первичен (70%), эвристика по фактам — вторична (30%).
+   * Без оценки Arbiter числа нет — process() до сюда не доходит.
+   */
+  private computeScore(intent: LeadIntent, tours: MatchedTour[], conversionProb: number): number {
+    let heuristic = 30;
+    if (intent.activity_types.length > 0) heuristic += 5;
+    if (intent.budget_rub) heuristic += 5;
+    if (intent.desired_dates) heuristic += 5;
+    if (intent.urgency === 'high') heuristic += 5;
+    if (tours.length > 0) heuristic += 5;
+    heuristic = Math.min(25, heuristic - 30); // нормируем добавку
+    return Math.min(100, Math.round(conversionProb * 0.7 + (50 + heuristic) * 0.3));
   }
 
   private async saveProposal(data: {
@@ -689,6 +727,36 @@ ${toursText}
       match_reason:  '',
     } : null;
 
+    // Альтернативные туры — из alt_tour_ids предложения. Раньше отдавался
+    // пустой массив, и ни экран лида, ни PDF альтернатив не показывали.
+    const altIds: string[] = Array.isArray(r.alt_tour_ids)
+      ? (r.alt_tour_ids as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    let altTours: MatchedTour[] = [];
+    if (altIds.length > 0) {
+      const { rows: altRows } = await pool.query<TourRow>(
+        `SELECT id::text, title, ROUND(base_price)::int AS price,
+                CEIL(COALESCE(duration_hours, 8) / 8.0)::int AS duration_days,
+                activity_type, description
+           FROM operator_tours
+          WHERE id::text = ANY($1::text[])`,
+        [altIds]
+      );
+      const byId = new Map(altRows.map(t => [t.id, t]));
+      altTours = altIds
+        .map(id => byId.get(id))
+        .filter((t): t is TourRow => t !== undefined)
+        .map(t => ({
+          id:            t.id,
+          title:         t.title,
+          price:         Number(t.price),
+          duration_days: t.duration_days ?? 1,
+          activity_type: t.activity_type ?? 'other',
+          description:   (t.description ?? '').slice(0, 300),
+          match_reason:  '',
+        }));
+    }
+
     return {
       lead_id:      r.lead_id,
       proposal_id:  r.id,
@@ -699,10 +767,12 @@ ${toursText}
       price_to:     r.price_to ? Number(r.price_to) : null,
       duration_days: r.duration_days ? Number(r.duration_days) : null,
       primary_tour: primaryTour,
-      alt_tours:    [],
-      ai_score:     r.ai_score ?? 0,
+      alt_tours:    altTours,
+      // NULL — «не оценено», а не 0: ноль читался как «безнадёжный лид».
+      ai_score:     typeof r.ai_score === 'number' ? r.ai_score : null,
       intent:       typeof r.ai_intent === 'string' ? JSON.parse(r.ai_intent) : (r.ai_intent ?? {}),
       generation_ms: r.generation_ms ?? 0,
+      adversarial:  verdictFromRow(r),
     };
   }
 
@@ -725,6 +795,40 @@ ${toursText}
 }
 
 export const leadProcessor = new LeadProcessorService();
+
+const ACTIONS: readonly AdversarialVerdict['recommendedAction'][] = ['call_immediately', 'send_proposal', 'nurture', 'skip'];
+const URGENCIES: readonly AdversarialVerdict['urgency'][] = ['hot', 'warm', 'cold'];
+
+function jsonStringArray(v: unknown): string[] {
+  const arr: unknown = typeof v === 'string' ? (() => { try { return JSON.parse(v); } catch { return []; } })() : v;
+  return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/**
+ * Разбор adversarial-анализа из строки lead_proposals. Предложения до
+ * появления разбора (все поля пусты) — undefined: блока нет, а не пустой.
+ * conversion_prob хранится в процентах 0-100 (CHECK в схеме).
+ */
+export function verdictFromRow(r: Record<string, unknown>): AdversarialVerdict | undefined {
+  const action = r.recommended_action;
+  const urgency = r.verdict_urgency;
+  const bull = jsonStringArray(r.bull_signals);
+  const bear = jsonStringArray(r.bear_risks);
+  const prob = r.conversion_prob === null || r.conversion_prob === undefined ? null : Number(r.conversion_prob);
+  const hasAny = bull.length > 0 || bear.length > 0 || prob !== null
+    || typeof action === 'string' || typeof r.call_strategy === 'string';
+  if (!hasAny) return undefined;
+  return {
+    bullSignals: bull,
+    bearRisks: bear,
+    conversionProb: prob !== null && Number.isFinite(prob) ? prob : null,
+    recommendedAction: ACTIONS.includes(action as AdversarialVerdict['recommendedAction'])
+      ? (action as AdversarialVerdict['recommendedAction']) : 'send_proposal',
+    callStrategy: typeof r.call_strategy === 'string' ? r.call_strategy : '',
+    urgency: URGENCIES.includes(urgency as AdversarialVerdict['urgency'])
+      ? (urgency as AdversarialVerdict['urgency']) : 'warm',
+  };
+}
 
 /** Convenience wrapper for batch routes — fetches lead from DB by ID */
 export async function processSingleLead(leadId: string, _data?: unknown): Promise<void> {
