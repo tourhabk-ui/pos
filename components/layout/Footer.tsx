@@ -10,11 +10,13 @@ import { PLATFORM_LINKS as PLATFORM, LEGAL_LINKS as LEGAL } from '@/lib/navigati
 export function Footer() {
   return (
     <footer className="border-t border-[var(--border)] bg-[var(--bg-primary)]">
-      <div className="max-w-6xl mx-auto px-6 py-12">
-        <div className="grid md:grid-cols-3 gap-10">
+      <div className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 py-12">
+        {/* Сетка шириной главной (lib/home/desktop-layout); длинный список
+            «Платформа» — колонками, а не одной лентой на 40 строк (25.09). */}
+        <div className="grid md:grid-cols-4 lg:grid-cols-6 gap-10">
 
           {/* Brand */}
-          <div>
+          <div className="md:col-span-1 lg:col-span-2">
             <Link href="/" className="flex items-center gap-2.5 mb-4">
               <Image
                 src="/logo-kamchatka.svg"
@@ -57,11 +59,11 @@ export function Footer() {
           </div>
 
           {/* Platform links */}
-          <div>
+          <div className="md:col-span-2 lg:col-span-3">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4">
               Платформа
             </p>
-            <ul className="space-y-2.5">
+            <ul className="columns-2 lg:columns-3 gap-x-8 [&>li]:mb-2.5 [&>li]:break-inside-avoid">
               {PLATFORM.map((item) => (
                 <li key={item.href}>
                   <Link

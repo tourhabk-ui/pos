@@ -22,7 +22,7 @@ const PAGE = read('app/page.tsx');
 const DESKTOP = PAGE.slice(PAGE.indexOf('Десктоп-дерево'));
 const HOME = 'components/homepage';
 const DESKTOP_COMPONENTS = [
-  'HeroStatus', 'StoriesRail', 'FeaturedTour', 'TourGrid', 'LiveOnTrails', 'KuzmichBriefing',
+  'HeroStatus', 'FeaturedTour', 'TourGrid', 'LiveOnTrails', 'KuzmichBriefing',
   'StatsBand', 'MoodEntry', 'SeasonNow', 'BentoSection', 'EditorialSection', 'MessengerAgentsSection',
 ];
 
@@ -115,11 +115,12 @@ describe('подписи фото (#121)', () => {
     expect(e).toContain(CONE);
     expect(e).not.toMatch(/Мутновский, Южная Камчатка/);
     expect(e).toMatch(/Ключевская сопка/);
-    expect(code(`${HOME}/StoriesRail.tsx`)).toMatch(new RegExp(`label: 'Ключевской',\\s+image: '${CONE}'`));
+    // «Истории» с десктопа сняты 25.09 (одна сетка главной) — подпись кадра
+    // держат оставшиеся поверхности.
   });
 
   it('кадр с рогозом (bento/mutnovsky.jpg) не выдаётся за вулкан', () => {
-    for (const c of ['StoriesRail', 'BentoSection']) {
+    for (const c of ['BentoSection']) {
       expect(code(`${HOME}/${c}.tsx`)).not.toContain('/images/bento/mutnovsky.jpg');
     }
   });
