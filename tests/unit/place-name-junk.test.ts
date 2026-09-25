@@ -29,5 +29,8 @@ describe('несколько объектов в одном названии', (
     expect(typeMismatch('Озеро Толмачёва', 'lake')).toBeNull();
     expect(typeMismatch('Озеро Толмачёва', 'volcano')).toContain('«озеро»');
     expect(typeMismatch('Сопка Любви', 'mountain')).toBeNull();
+    // Перепись 25.09: прилагательное от имени реки — не «озеро».
+    expect(typeMismatch('Озерновские термальные источники', 'hot_spring')).toBeNull();
+    expect(typeMismatch('Озёра Голубые', 'lake')).toBeNull();
   });
 });
