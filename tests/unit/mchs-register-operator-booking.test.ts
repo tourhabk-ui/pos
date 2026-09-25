@@ -138,7 +138,7 @@ describe('исход отправки в МЧС называется по фак
     const m = mchsOutcomeMessage('submitted', null, null);
     expect(m).not.toMatch(/зарегистрирована/i);
     expect(m).toMatch(/подтверждения регистрации в МЧС нет/);
-    expect(m).toMatch(/forms\.mchs\.gov\.ru/);
+    expect(m.includes('forms.mchs.gov.ru')).toBe(true);
   });
   it('failed — сохранено, но не отправлено, с причиной', () => {
     const m = mchsOutcomeMessage('failed', null, 'MCHS_API_URL не настроен');

@@ -16,6 +16,11 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Для значения атрибута (href): кавычки тоже, иначе адрес закрывает атрибут. */
+function escAttr(s: string): string {
+  return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 async function getTouristTelegramId(userId: string): Promise<string | null> {
   try {
     const res = await query<{ telegram_id: string }>(
@@ -119,7 +124,7 @@ export function notifyTouristBookingConfirmed(
             ? 'Теперь бронь можно оплатить — кнопка оплаты на странице брони.'
             : 'Подготовьтесь к поездке — оператор свяжется с вами ближе к дате.',
           '',
-          `<a href="${esc(booking.url ?? 'https://vedarai.ru/hub/tourist/bookings')}">Детали брони →</a>`,
+          `<a href="${escAttr(booking.url ?? 'https://vedarai.ru/hub/tourist/bookings')}">Детали брони →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
       });
