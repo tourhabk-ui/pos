@@ -19,7 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { buildIssueTitle, buildIssueBody, selectReportable, isAutoRunnable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
 import { verifyAgainstSource, isCredibleFinding } from '@/lib/agents/evo/finding-guard';
-import { decidePublish, applyPublishDecision, issueVerdict, nextPublishGateStreak } from '@/lib/agents/evo/precision';
+import { decidePublish, applyPublishDecision, issueVerdict, nextPublishGateStreak, PRECISION_WINDOW_DAYS } from '@/lib/agents/evo/precision';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { z } from 'zod';
 
@@ -191,7 +191,10 @@ export async function GET(req: NextRequest) {
         fault_side = 'model'
         OR (fault_side IS NULL AND category NOT IN ('ux', 'security', 'tech_debt'))
       )
-  `);
+      -- Окно по дате вердикта (PRECISION_WINDOW_DAYS, решение владельца
+      -- 25.09): за всю историю старые отказы держали тормоз вечно.
+      AND COALESCE(resolved_at, created_at) >= NOW() - INTERVAL '1 day' * $1
+  `, [PRECISION_WINDOW_DAYS]);
 
   // Раздельная точность: видно, где на самом деле горит. Разбор наших сбоев
   // 04–05.08 показал, что дороже всего обходился ГРЕЙДЕР — измеритель,
@@ -261,10 +264,11 @@ export async function GET(req: NextRequest) {
       FROM evo_growth_issues
      WHERE model IS NOT NULL
        AND github_issue_url IS NOT NULL
+       AND COALESCE(resolved_at, created_at) >= NOW() - INTERVAL '1 day' * $1
      GROUP BY model
      ORDER BY COUNT(*) DESC
      LIMIT 10
-  `).catch(() => ({ rows: [] as Array<{ model: string | null; accepted: string; rejected: string }> }));
+  `, [PRECISION_WINDOW_DAYS]).catch(() => ({ rows: [] as Array<{ model: string | null; accepted: string; rejected: string }> }));
 
   const precisionByModel = byModel.map((r) => {
     const a = Number(r.accepted); const rj = Number(r.rejected);
@@ -395,6 +399,7 @@ export async function GET(req: NextRequest) {
     guesses_held: guessesHeld,
     probe_slots: decision.allowGuesses ? 0 : decision.probeSlots,
     precision_note: decision.reason,
+    precision_window_days: PRECISION_WINDOW_DAYS,
     // Кто именно врёт: точность в разрезе моделей-авторов находок.
     precision_by_model: precisionByModel,
     // Где горит на самом деле: ребро взаимодействия и виновная сторона.

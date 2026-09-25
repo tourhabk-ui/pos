@@ -78,3 +78,25 @@ describe('петля знаний (learned-lessons): дайджест отказ
     expect(block).not.toMatch(/status IN \('rejected', 'ignored'\)/);
   });
 });
+
+describe('точность считается окном, а не всей историей (решение владельца 25.09)', () => {
+  // Тормоз держал запрет 30 прогонов подряд: 57 из 92 вердиктов были старыми
+  // находками без записанной модели, и при одном пробнике в сутки старый
+  // хвост не отпустил бы его больше месяца.
+  const src = read('app/api/cron/evo-report/route.ts');
+
+  it('и общая точность, и разрез по моделям — в окне по дате вердикта', () => {
+    const windowed = src.match(/COALESCE\(resolved_at, created_at\) >= NOW\(\) - INTERVAL '1 day' \* \$1/g) ?? [];
+    expect(windowed.length).toBe(2);
+    expect((src.match(/\[PRECISION_WINDOW_DAYS\]/g) ?? []).length).toBe(2);
+  });
+
+  it('окно названо в ответе — «28% за всё время» и «за 60 дней» различимы', () => {
+    expect(src).toContain('precision_window_days: PRECISION_WINDOW_DAYS');
+  });
+
+  it('окно — одно число в одном месте', async () => {
+    const { PRECISION_WINDOW_DAYS } = await import('@/lib/agents/evo/precision');
+    expect(PRECISION_WINDOW_DAYS).toBe(60);
+  });
+});
