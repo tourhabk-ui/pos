@@ -104,6 +104,21 @@ describe('отказ одного эндпоинта не глушит оста�
     expect(SRC).toContain('steps.kernel_worker.outcome');
   });
 
+  it('kernel-worker: «окно занято другим планировщиком» — не отказ (25.09)', async () => {
+    // Супервизор прода и cron-job.org часто успевают раньше GitHub, и ответ
+    // leaseSkipBody падал в «incomplete: status=invalid-response» — весь
+    // прогон краснел через раз при исправной ОС.
+    const step = SRC.slice(SRC.indexOf('api/cron/kernel-worker'), SRC.indexOf('Kernel worker OK'));
+    const lease = step.indexOf(`.skipped == "lease_held"`);
+    expect(lease, 'пропуск по аренде не распознаётся').toBeGreaterThan(-1);
+    expect(lease).toBeLessThan(step.indexOf('.status == "completed"'));
+    // Распознаётся ровно то, что отдаёт аренда, — а не любой 200.
+    const { leaseSkipBody } = await import('@/lib/agents/cron-lease');
+    const body = leaseSkipBody('kernel-worker', 30);
+    expect(body.success).toBe(true);
+    expect(body.skipped).toBe('lease_held');
+  });
+
   it('итоговый шаг красит job при отказе — не просто печатает', () => {
     const summaryBlock = SRC.slice(SRC.indexOf('name: Summarize'));
     expect(summaryBlock).toMatch(/exit 1/);

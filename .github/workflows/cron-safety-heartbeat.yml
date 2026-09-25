@@ -146,6 +146,17 @@ jobs:
             exit 1
           fi
 
+          # Окно уже отработал другой планировщик (супервизор прода или
+          # cron-job.org, lib/agents/cron-lease): это не отказ, а «дубля не
+          # будет». Семь соседних шагов так и читают этот ответ; здесь он
+          # до 25.09 падал в «incomplete: status=invalid-response» и красил
+          # весь прогон через раз. Прогон окна записан тем, кто его сделал, —
+          # его и судит Watchdog по agent_run_history.
+          if jq -e '.success == true and .skipped == "lease_held"' /tmp/worker.json >/dev/null 2>&1; then
+            echo "Kernel worker: окно уже отработал другой планировщик — это не отказ"
+            exit 0
+          fi
+
           if ! jq -e '.success == true and .status == "completed"' /tmp/worker.json >/dev/null 2>&1; then
             STATUS=$(jq -r '.status // "invalid-response"' /tmp/worker.json 2>/dev/null || echo "invalid-response")
             FAILED=$(jq -r '.failed // "?"' /tmp/worker.json 2>/dev/null || echo "?")
