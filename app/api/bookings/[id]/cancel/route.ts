@@ -211,7 +211,7 @@ export async function POST(
               ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${refund.reason} Возврат оформляет администрация платформы.</p>`
               : '<p>Оплаты по этой брони не было — возвращать нечего.</p>'
             }
-            <p>Если у вас есть вопросы — <a href="mailto:support@kamhub.ru">support@kamhub.ru</a></p>
+            <p>Если у вас есть вопросы — <a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>
           `,
         });
       } catch {

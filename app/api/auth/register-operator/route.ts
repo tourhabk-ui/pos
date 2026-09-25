@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
           <li>Туристы увидят ваши туры в каталоге</li>
         </ol>
         <p>Комиссия платформы: <b>15%</b> от стоимости тура. Выплаты — еженедельно по пятницам.</p>
-        <p>Вопросы? Пишите: <a href="mailto:${adminEmail ?? 'info@tourhab.ru'}">${adminEmail ?? 'info@tourhab.ru'}</a></p>
+        <p>Вопросы? Пишите: <a href="mailto:${adminEmail ?? 'info@vedarai.ru'}">${adminEmail ?? 'info@vedarai.ru'}</a></p>
         <hr>
         <p style="color:#888;font-size:12px">Ведар — vedarai.ru</p>
       `,

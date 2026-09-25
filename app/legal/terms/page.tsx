@@ -68,7 +68,7 @@ export default function TermsPage() {
               Пользователь несёт ответственность за сохранность учётных данных (логин, пароль) и за
               все действия, совершённые с использованием его учётной записи. При обнаружении
               несанкционированного доступа Пользователь обязан незамедлительно уведомить Оператора
-              по адресу: <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">support@tourhab.ru</a>.
+              по адресу: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>.
             </p>
             <p>
               Оператор вправе приостановить или удалить учётную запись в случае нарушения настоящего
@@ -195,8 +195,8 @@ export default function TermsPage() {
               ОГРН: {REQUISITES.ogrn}<br />
               Юридический адрес: {REQUISITES.address}<br />
               Генеральный директор: {REQUISITES.director}<br />
-              Email: <a href="mailto:legal@tourhab.ru" className="text-[var(--ocean)] hover:underline">legal@tourhab.ru</a><br />
-              Поддержка пользователей: <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">support@tourhab.ru</a>
+              Email: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a><br />
+              Поддержка пользователей: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>
             </p>
           </section>
         </div>

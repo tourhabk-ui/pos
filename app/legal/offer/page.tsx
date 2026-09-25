@@ -204,8 +204,8 @@ export default function OfferPage() {
               Банк: ООО «Банк Точка»<br />
               Расчётный счёт: 40702810102500044777<br />
               БИК: 044525104<br />
-              Email для партнёров: <a href="mailto:partners@tourhab.ru" className="text-[var(--ocean)] hover:underline">partners@tourhab.ru</a><br />
-              Email для правовых вопросов: <a href="mailto:legal@tourhab.ru" className="text-[var(--ocean)] hover:underline">legal@tourhab.ru</a>
+              Email для партнёров: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a><br />
+              Email для правовых вопросов: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>
             </p>
           </section>
         </div>

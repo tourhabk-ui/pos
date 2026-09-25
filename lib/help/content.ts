@@ -36,10 +36,9 @@ export interface HelpArticle {
 }
 
 /**
- * Контакты поддержки — те же, что в футере, на /about и в разметке сайта
- * (app/layout.tsx). В юридических реквизитах (lib/legal/requisites.ts) стоит
- * другой адрес, support@tourhab.ru: какой из двух верный, решает владелец —
- * вопрос задан 26.09.
+ * Контакты поддержки — единые для всего сайта (решение владельца 26.09:
+ * «адрес везде vedarai.ru»): футер, /about, разметка сайта, реквизиты
+ * (lib/legal/requisites.ts), письма и юридические документы.
  */
 export const SUPPORT = {
   email: 'info@vedarai.ru',

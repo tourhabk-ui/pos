@@ -182,7 +182,7 @@ class EmailService {
         <td style="padding:20px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;line-height:1.6;">
             ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedarai.ru<br>
-            Это автоматическое письмо. Для связи: <a href="mailto:support@tourhab.ru" style="color:#D44A0C;text-decoration:none;">support@tourhab.ru</a>
+            Это автоматическое письмо. Для связи: <a href="mailto:info@vedarai.ru" style="color:#D44A0C;text-decoration:none;">info@vedarai.ru</a>
           </p>
         </td>
       </tr>
@@ -339,7 +339,7 @@ class EmailService {
         <td style="padding:16px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;">
             ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedarai.ru<br>
-            Вопросы: <a href="mailto:support@tourhab.ru" style="color:#D44A0C;text-decoration:none;">support@tourhab.ru</a>
+            Вопросы: <a href="mailto:info@vedarai.ru" style="color:#D44A0C;text-decoration:none;">info@vedarai.ru</a>
           </p>
         </td>
       </tr>
