@@ -19,6 +19,7 @@
  */
 
 import { stripTags } from '@/lib/html/text';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 export interface AiMaterial {
   title: string;
@@ -31,9 +32,9 @@ export const AI_POST_MIN_MATERIALS = 2;
 /** Потолок подписи кнопки: длиннее Telegram режет сам, и режет некрасиво. */
 export const AI_BUTTON_LABEL_MAX = 40;
 
-function decodeEntities(s: string): string {
-  return s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-}
+// Разворот сущностей — один проход в одном месте (lib/html/entities, сторож
+// html-entities): цепочка replace(&amp;)… разворачивала «&amp;lt;» дважды.
+const decodeEntities = decodeHtmlEntities;
 
 /**
  * Материалы поста по порядку. Блоки разделены пустой строкой; шапка
