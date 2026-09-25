@@ -16,7 +16,8 @@ interface KamchatkaRoute {
 
 interface TourFormProps {
   initialData?: Partial<TourFormData>;
-  onSubmit: (data: TourFormData) => Promise<void>;
+  /** Второй аргумент — название выбранного маршрута (где проходит тур). */
+  onSubmit: (data: TourFormData, routeTitle?: string) => Promise<void>;
   onCancel: () => void;
   isEdit?: boolean;
 }
@@ -81,7 +82,11 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
     fetch(`/api/kamchatka-routes?limit=200`)
       .then(r => r.json())
       .then(j => { if (j.success) setRoutes(j.data ?? []); })
-      .catch(() => setRoutes([]));
+      .catch((err: unknown) => {
+        // Без списка форма работает (маршрут необязателен), но отказ не молчит.
+        console.error('[TourForm] список маршрутов не загружен:', err instanceof Error ? err.message : String(err));
+        setRoutes([]);
+      });
   }, []);
 
   function handleChange<K extends keyof TourFormData>(field: K, value: TourFormData[K]) {
@@ -142,7 +147,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
 
     setLoading(true);
     try {
-      await onSubmit(formData);
+      await onSubmit(formData, routes.find(r => r.id === formData.routeId)?.title);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Ошибка при сохранении тура');
     } finally {

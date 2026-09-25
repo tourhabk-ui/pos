@@ -53,9 +53,10 @@ export async function POST(
       id: string;
       title: string;
       photos: string[];
-      images: string[];
     }>(
-      `SELECT id, title, photos, images
+      // Колонки images в operator_tours нет (DB_SCHEMA): запрос с ней
+      // отвечал 500 всегда.
+      `SELECT id, title, photos
        FROM operator_tours
        WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
       [tourId, operatorId]
@@ -70,10 +71,9 @@ export async function POST(
 
     const tour = tourResult.rows[0];
 
-    // Собираем URL фотографий (photos или images поле)
+    // Собираем URL фотографий
     const photoUrls: string[] = [
       ...(Array.isArray(tour.photos) ? tour.photos : []),
-      ...(Array.isArray(tour.images) ? tour.images : []),
     ].filter((url) => typeof url === 'string' && url.startsWith('http'));
 
     if (photoUrls.length === 0) {

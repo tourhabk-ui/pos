@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { createTour, CreateTourSchema } from '@/lib/api/operator-tours';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,13 +112,9 @@ function mapRow(row: Record<string, string>): z.infer<typeof CreateTourSchema> {
 // Handler
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const result = await query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return (result.rows[0]?.id as string) || null;
-}
+// Партнёр оператора — общим правилом (category='operator'): прежний
+// `LIMIT 1` без категории у «гида и оператора» мог привязать туры к гиду.
+const getOperatorId = getOperatorPartnerId;
 
 export async function POST(request: NextRequest) {
   const authOrResponse = await requireOperator(request);
