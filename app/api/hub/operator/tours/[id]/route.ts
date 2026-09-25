@@ -131,6 +131,22 @@ export async function PATCH(
       }
     }
 
+    // Числа условий отмены (1012) выведены из ПРЕЖНЕГО текста. Оператор
+    // переписал текст — числа больше ему не соответствуют, и счёт возврата
+    // разошёлся бы с тем, что турист читает на карточке. Сбрасываем их в NULL
+    // («условия не записаны» → 100%, lib/payments/tour-refund.ts): пробел в
+    // данных безопаснее для туриста, чем число от чужой фразы. RHS в SET
+    // читает старое значение строки, поэтому сравнение — со старым текстом.
+    const policyInput = (input as Record<string, unknown>).cancellation_policy;
+    if (policyInput !== undefined) {
+      const p = `$${idx++}`;
+      values.push(policyInput);
+      fields.push(
+        `cancellation_free_days = CASE WHEN cancellation_policy IS DISTINCT FROM ${p}::text THEN NULL ELSE cancellation_free_days END`,
+        `cancellation_late_refund_percent = CASE WHEN cancellation_policy IS DISTINCT FROM ${p}::text THEN NULL ELSE cancellation_late_refund_percent END`,
+      );
+    }
+
     if (fields.length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }

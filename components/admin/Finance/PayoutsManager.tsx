@@ -32,6 +32,9 @@ interface ReadyGroup {
 interface PendingRefund {
   id: string;
   retail_amount: string;
+  /** К возврату по условиям тура (посчитано при отмене). */
+  refund_due: string;
+  refund_due_reason: string | null;
   booking_id: string;
   operator_name: string;
   tour_title: string;
@@ -131,7 +134,8 @@ export function PayoutsManager() {
     // просим её здесь же, а не отправляем пустую строку и не показываем
     // отдельную форму: это единичное разовое действие, не мастер.
     const reason = prompt(
-      `Возврат ${formatRub(payment.retail_amount)} туристу ${payment.tourist_name}.\n`
+      `Возврат ${formatRub(payment.refund_due)} из оплаченных ${formatRub(payment.retail_amount)} туристу ${payment.tourist_name}.\n`
+      + (payment.refund_due_reason ? `${payment.refund_due_reason}\n` : '')
       + 'Укажите подтверждение перевода (номер операции, скриншот и т.п.) — это войдёт в запись:',
     );
     if (reason === null) return; // отменено пользователем, не пустой ввод
@@ -229,7 +233,7 @@ export function PayoutsManager() {
               <div key={r.id} className="flex items-center justify-between px-4 py-2.5">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-[var(--text-primary)] truncate">
-                    {r.tourist_name} · {formatRub(r.retail_amount)}
+                    {r.tourist_name} · к возврату {formatRub(r.refund_due)}{r.refund_due !== r.retail_amount ? ` из ${formatRub(r.retail_amount)}` : ''}
                   </p>
                   <p className="text-[10px] text-[var(--text-muted)] truncate">
                     {r.tour_title} · {r.operator_name} · отменено {formatDate(r.cancelled_at)}

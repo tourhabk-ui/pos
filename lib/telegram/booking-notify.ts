@@ -150,7 +150,7 @@ export function notifyTouristBookingCancelled(
 
       const refundLine = booking.refundAmount > 0
         ? `\n<b>Возврат:</b> ${booking.refundAmount.toLocaleString('ru-RU')} ₽ (${booking.refundPercent}%)`
-        : '\n<b>Возврат:</b> не предусмотрен';
+        : booking.refundReason ? `\n<b>Возврат:</b> ${esc(booking.refundReason)}` : '';
 
       await telegramService.sendMessage({
         chatId,

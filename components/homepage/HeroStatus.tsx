@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { AlertTriangle, Info, ArrowRight, Search, Sunrise, CalendarDays } from 'lucide-react';
+import { AlertTriangle, Info, ArrowRight, Search, Sunrise, CalendarDays, Compass } from 'lucide-react';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { clip } from '@/components/safety/LiveStatus';
 
@@ -119,7 +119,7 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
       : null;
 
   return (
-    <div className="relative mx-4 mt-4 mb-0 rounded-lg overflow-hidden h-[320px] md:h-[380px]">
+    <div className="relative mx-4 mt-4 mb-0 rounded-lg overflow-hidden h-[380px]">
       <Image
         src="/images/hero/hero-light.jpeg"
         alt="Камчатка"
@@ -165,10 +165,14 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
             расшифровывает сервис (стратегия 14.08). Планировщик — та же дверь,
             что на мобильной v8 («Планировщик поездки» → /planner). */}
         <div>
-          <h2 className="font-playfair text-2xl md:text-4xl text-white font-bold leading-tight mb-1.5 max-w-md">
+          {/* Единственный h1 десктопного дерева (#45/#126): это дерево получают
+              и поисковые боты, а в нём не было ни одного h1 — первым
+              заголовком страницы шёл h2. Размер — голос первого экрана, а не
+              подпись в углу: ниже на странице есть заголовки крупнее. */}
+          <h1 className="font-playfair text-2xl sm:text-3xl md:text-5xl text-white font-bold leading-tight mb-2 max-w-2xl">
             Соберите безопасную поездку на Камчатку
-          </h2>
-          <p className="text-white/75 text-sm md:text-base mb-4 max-w-md">
+          </h1>
+          <p className="text-white/80 text-sm md:text-base mb-4 max-w-xl">
             Подберём варианты по сезону, нагрузке и реальным условиям маршрутов.
           </p>
 
@@ -182,8 +186,18 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
               Собрать план
             </Link>
 
+            {/* Вторая дверь — сразу к турам (#126): до этого из героя к турам
+                пути не было вовсе. Витрина одна на платформе — /catalog. */}
+            <Link
+              href="/catalog"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-white rounded-full px-5 py-2.5 backdrop-blur-md bg-black/40 border border-white/25 transition-transform hover:scale-105 active:scale-95"
+            >
+              <Compass size={16} />
+              Смотреть туры
+            </Link>
+
             {/* «Я уже знаю маршрут» — прежний поиск, второй ролью, не конкурентом */}
-            <form action="/routes" method="get" className="flex items-center gap-2 flex-1 min-w-[220px]">
+            <form action="/routes" method="get" className="flex items-center gap-2 flex-1 min-w-[220px] max-w-xl">
               <div
                 className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-full"
                 style={{

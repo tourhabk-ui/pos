@@ -17,21 +17,20 @@
  * пишет в `operator_bookings`, статус отмены один — `cancelled` (колонки под
  * «кто отменил» в таблице нет — это `cancellation_reason`, текст).
  *
- * ── Про возврат денег (обновлено 11.09, решение владельца по #1813) ───────
+ * ── Про возврат денег (#1813; решение владельца 24.09: «как у оператора») ─
  *
- * Возврат — 100%, без исключений по срокам (владелец: «пока 100%»). Обе
- * ветки сообщают эту сумму туристу — но НИ ОДНА не переводит деньги: API
- * CloudPayments/Точки для возврата не подключён (отдельное решение). Ответ
- * называет обязанность платформы, не факт зачисления. Сам возврат
- * администратор оформляет через `POST /api/admin/finance/refunds`, отмечая
- * в `tour_payments` кто, когда и почему — это и есть источник правды о том,
+ * Сколько вернуть — по условиям тура (`operator_tours.cancellation_free_days`
+ * и `cancellation_late_refund_percent`, миграция 1012): до срока — 100%,
+ * позже — процент оператора; отменил оператор или условий нет — 100%.
+ * Правило одно — `computeTourRefund` (lib/payments/tour-refund.ts); обе
+ * ветки зовут его через `recordRefundDue`, который в той же транзакции
+ * записывает сумму в `tour_payments.refund_due`.
+ *
+ * НИ ОДНА ветка не переводит деньги: API CloudPayments/Точки для возврата не
+ * подключён (отдельное решение). Ответ называет обязанность платформы, не
+ * факт зачисления. Сам возврат администратор оформляет через
+ * `POST /api/admin/finance/refunds` — это и есть источник правды о том,
  * вернулись ли деньги на самом деле.
- *
- * Раньше здесь стояла докстрока, обещавшая лестницу 100/50/0% внутри
- * неисполнимой ветки, — дефект кода по правилу 10.09, убранный, а не
- * переписанный красивее. Теперь обещания и код совпадают: `refund` в ответе
- * — реальная сумма из `tour_payments.retail_amount` (если бронь была
- * оплачена) с плоским процентом 100, не догадка.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -42,6 +41,7 @@ import { cancelBooking } from '@/lib/bookings/booking.service';
 import { emailService } from '@/lib/notifications/email-service';
 import type { AuthRole } from '@/lib/auth';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
+import { recordRefundDue } from '@/lib/payments/record-refund-due';
 
 export async function POST(
   request: NextRequest,
@@ -110,15 +110,10 @@ export async function POST(
         // отменили» хватало, чтобы дата больше не приняла оплату.
         await releaseSlotsForCancelledBooking(client, opId);
 
-        // Сколько турист заплатил — единственный источник суммы для честного
-        // ответа. HELD — единственный статус, на котором возврат ещё не
-        // случился и не сгорел в RELEASED; на PENDING деньги ещё не
-        // подтверждены платёжной системой.
-        const paid = await client.query<{ retail_amount: string }>(
-          `SELECT retail_amount FROM tour_payments WHERE booking_id = $1 AND status = 'HELD' LIMIT 1`,
-          [opId]
-        );
-        return { retailAmount: paid.rows[0] ? Number(paid.rows[0].retail_amount) : null };
+        // Сколько вернуть — по условиям тура (решение владельца 24.09: «как у
+        // оператора»), от оплаты в HELD; сумма записывается в tour_payments
+        // в этой же транзакции. Ветку op- зовёт только сам турист.
+        return { refund: await recordRefundDue(client, opId, false) };
       });
 
       if (cancelled === null) {
@@ -128,21 +123,16 @@ export async function POST(
         );
       }
 
-      // Решение владельца 11.09 (#1813): возврат — 100%. Технического
-      // возврата через платёжный API здесь НЕТ (не подключён — отдельное
-      // решение); сумма ниже — то, что администратор обязан вернуть вручную
-      // и отметить через /api/admin/finance/refunds, а не подтверждение, что
-      // деньги уже пришли. Турист не платил вовсе (retailAmount === null,
-      // бронь была без оплаты) — тогда возврат неприменим, а не ноль: ноль
-      // читался бы как отказ в возврате оплаченного.
-      const refund = cancelled.retailAmount !== null
-        ? { percent: 100, amount: cancelled.retailAmount, reason: 'Отмена бронирования. Полный возврат (решение владельца 11.09).' }
-        : null;
+      // Технического возврата через платёжный API здесь НЕТ (не подключён —
+      // отдельное решение); сумма — то, что администратор обязан вернуть
+      // вручную и отметить через /api/admin/finance/refunds, а не
+      // подтверждение, что деньги уже пришли. Оплаты не было — refund null.
+      const refund = cancelled.refund;
 
       return NextResponse.json({
         success: true,
         message: refund
-          ? `Бронирование отменено. Возврат ${refund.amount.toLocaleString('ru-RU')} ₽ оформляет администрация платформы.`
+          ? `Бронирование отменено. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
           : 'Бронирование отменено. Оплаты по этой брони не было.',
         data: { booking: { id: bookingId }, refund },
       });
@@ -193,24 +183,16 @@ export async function POST(
       role === 'operator' ? 'operator' : 'admin';
 
     // 4. Бизнес-логика в транзакции
-    const { booking, refund: priceRefund } = await cancelBooking(
+    const { booking, refund } = await cancelBooking(
       bookingId,
       auth.userId,
       cancelRole,
       reason
     );
 
-    // Возврат обещается только тому, кто ПЛАТИЛ — та же проверка, что в ветке
-    // op- выше (tour_payments в HELD). calculateRefund считает от цены брони,
-    // и неоплаченная бронь получала письмо «Возврат 15 000 ₽». После того как
-    // кабинет перестал дублировать брони (24.09), почти все отмены идут сюда.
-    const paidRow = await query<{ retail_amount: string }>(
-      `SELECT retail_amount FROM tour_payments WHERE booking_id = $1 AND status = 'HELD' LIMIT 1`,
-      [bookingId]
-    );
-    const refund = paidRow.rows[0]
-      ? { ...priceRefund, amount: Number(paidRow.rows[0].retail_amount) }
-      : null;
+    // cancelBooking считает возврат по условиям тура от оплаты в HELD и
+    // записывает его в tour_payments; неоплаченная бронь получает null, а не
+    // письмо «Возврат 15 000 ₽».
 
     // Уведомляем туриста по email о возврате средств
     const userEmail = booking.tourist?.email;
@@ -244,7 +226,7 @@ export async function POST(
         refund,
       },
       message: refund
-        ? `Бронирование отменено. Возврат ${refund.amount.toLocaleString('ru-RU')} ₽ оформляет администрация платформы.`
+        ? `Бронирование отменено. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
         : 'Бронирование отменено. Оплаты по этой брони не было.',
     } as ApiResponse<{ booking: typeof booking; refund: typeof refund }>);
   } catch (error) {

@@ -2,22 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowRight, Bot, CloudSun, Flame, MapPin } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bot, CloudSun, Compass, Flame, HelpCircle } from 'lucide-react';
+import { briefingStatus, briefingUpdatedAt, type BriefingSafety } from '@/lib/home/briefing';
 
-interface SafetyStatus {
-  hasAlert: boolean;
-  maxSeverity: number;
-  activeCount: number;
-  topTitle: string | null;
-  topType: string | null;
-}
-
-interface RouteRec {
-  id: number;
-  title: string;
-  reason: string;
-  safety_score: number;
-}
+/**
+ * Утренняя сводка Кузьмича на десктопной главной: погода, обстановка, туры.
+ *
+ * Аудит 24.09 (#37) — три заявления без источника рядом с продажей:
+ *   - «обновлено 12:45» бралось из new Date() в момент рендера, то есть
+ *     называло время открытия страницы, а не данных. Теперь — время из
+ *     dataUpdatedAt ответа safety-status; его нет — строки «обновлено» нет;
+ *   - «Норма» зелёным рисовалась и при safety = null (источник недоступен).
+ *     Теперь у статуса три исхода (lib/home/briefing): норма — только при
+ *     живых данных со временем, иначе «Обстановка неизвестна» словами (§4.0);
+ *   - при пустом ответе рекомендаций подставлялся захардкоженный список мест
+ *     (Авачинский, Мутновский, Халактырский) — выдача без источника. Убран.
+ * Рекомендует Кузьмич теперь ТУРЫ сезона, а не места: их передаёт страница
+ * из той же витрины, что сетка туров (fetchPlates — правило сезона каталога,
+ * туры с кончившимся сезоном отсеяны на стороне страницы). Своего подбора у
+ * Кузьмича нет (§4, «Подбор тура — 3 движка + Кузьмич»). Нет туров — нет и
+ * строки «Рекомендую».
+ */
 
 interface WeatherData {
   temperature: number;
@@ -25,9 +30,13 @@ interface WeatherData {
 }
 
 interface BriefingData {
-  safety: SafetyStatus | null;
-  routes: RouteRec[];
+  safety: BriefingSafety | null;
   weather: WeatherData | null;
+}
+
+export interface BriefingTour {
+  id: string;
+  title: string;
 }
 
 function severityBorderColor(s: number) {
@@ -36,12 +45,18 @@ function severityBorderColor(s: number) {
   return 'var(--border)';
 }
 
-function buildText(weather: WeatherData | null, safety: SafetyStatus | null): string {
+function fmtTemp(t: number): string {
+  const r = Math.round(t);
+  return r > 0 ? `+${r}` : String(r);
+}
+
+function buildText(weather: WeatherData | null, safety: BriefingSafety | null, hasTours: boolean): string {
   const parts: string[] = [];
   if (weather) {
-    parts.push(`Сегодня в Петропавловске +${Math.round(weather.temperature)}°C.`);
+    parts.push(`Сегодня в Петропавловске ${fmtTemp(weather.temperature)}°C.`);
   }
-  if (safety?.hasAlert && safety.maxSeverity >= 2) {
+  const status = briefingStatus(safety);
+  if (safety && (status === 'danger' || status === 'caution')) {
     if (safety.topTitle) {
       parts.push(`Внимание: ${safety.topTitle}.`);
     } else {
@@ -50,34 +65,35 @@ function buildText(weather: WeatherData | null, safety: SafetyStatus | null): st
   } else if (safety) {
     // «Благоприятные» говорим только когда данные ЕСТЬ и в них тихо.
     // Без данных (источник недоступен) молчим: «мы не знаем» — не «спокойно».
-    parts.push('Условия благоприятные.');
+    if (status === 'calm') parts.push('Условия благоприятные.');
   }
-  if (parts.length > 0) {
-    parts.push('Рекомендую:');
-  }
+  if (hasTours) parts.push('Туры сезона:');
   return parts.join(' ');
 }
 
-export function KuzmichBriefing() {
+export function KuzmichBriefing({ tours }: { tours: readonly BriefingTour[] }) {
   const [data, setData] = useState<BriefingData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    const fail = (what: string) => (err: unknown) => {
+      // Отказ не глушится (§4.0): блок покажет «неизвестно», а причина — в консоли.
+      console.warn(`[home] KuzmichBriefing: отказ загрузки (${what}):`, err instanceof Error ? err.message : err);
+      return null;
+    };
 
     Promise.all([
-      fetch('/api/public/safety-status').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/api/weather?lat=53.0375&lng=158.6556').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/api/safety/routes?mode=safe_only&limit=3').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([safetyRes, weatherRes, routesRes]) => {
+      fetch('/api/public/safety-status').then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))).catch(fail('safety-status')),
+      fetch('/api/weather?lat=53.0375&lng=158.6556').then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))).catch(fail('погода')),
+    ]).then(([safetyRes, weatherRes]) => {
       if (cancelled) return;
       // unavailable — источник недоступен: данных нет, safety = null,
       // и текст не притворяется, что условия известны.
-      const safety: SafetyStatus | null =
+      const safety: BriefingSafety | null =
         safetyRes?.success && safetyRes.data?.unavailable !== true ? safetyRes.data : null;
       const weather: WeatherData | null = weatherRes?.success ? weatherRes.data : null;
-      const routes: RouteRec[] = Array.isArray(routesRes?.data) ? routesRes.data.slice(0, 3) : [];
-      setData({ safety, weather, routes });
+      setData({ safety, weather });
       setLoading(false);
     });
 
@@ -86,14 +102,24 @@ export function KuzmichBriefing() {
 
   if (!loading && !data) return null;
 
-  const severity = data?.safety?.maxSeverity ?? 0;
-  const borderColor = severityBorderColor(severity);
-  const briefText = data ? buildText(data.weather, data.safety) : '';
+  const safety = data?.safety ?? null;
+  const status = briefingStatus(safety);
+  const severity = safety?.maxSeverity ?? 0;
+  const borderColor = severityBorderColor(status === 'unknown' ? 0 : severity);
+  const briefText = data ? buildText(data.weather, safety, tours.length > 0) : '';
+  const updatedAt = briefingUpdatedAt(safety);
+
+  const statusView = {
+    danger:  { label: 'Опасно',                 color: 'var(--danger)',         Icon: Flame },
+    caution: { label: 'Осторожно',              color: 'var(--warning)',        Icon: Flame },
+    calm:    { label: 'Норма',                  color: 'var(--success)',        Icon: Flame },
+    unknown: { label: 'Обстановка неизвестна',  color: 'var(--text-secondary)', Icon: HelpCircle },
+  }[status];
 
   return (
-    <section className="px-4 py-3 max-w-7xl mx-auto">
+    <section className="px-4 py-3 max-w-6xl mx-auto">
       <div
-        className="rounded-xl p-4 md:p-5 transition-colors"
+        className="rounded-lg p-4 md:p-5 transition-colors"
         style={{
           background: 'var(--bg-card)',
           border: `1px solid ${borderColor}`,
@@ -116,19 +142,19 @@ export function KuzmichBriefing() {
                 <Bot className="w-5 h-5 text-white" />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--text-muted)] mb-1">
-                  Кузьмич · обновлено {new Date().getHours().toString().padStart(2, '0')}:{new Date().getMinutes().toString().padStart(2, '0')}
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-secondary)] mb-1">
+                  Кузьмич{updatedAt ? ` · данные на ${updatedAt}` : ''}
                 </p>
 
                 {/* Severity indicator */}
-                {severity >= 2 && (
+                {status !== 'unknown' && severity >= 2 && (
                   <div className="flex items-center gap-1 mb-1">
                     <AlertTriangle
                       size={12}
                       style={{ color: severity >= 3 ? 'var(--danger)' : 'var(--warning)' }}
                     />
                     <span
-                      className="text-[11px] font-semibold"
+                      className="text-xs font-semibold"
                       style={{ color: severity >= 3 ? 'var(--danger)' : 'var(--warning)' }}
                     >
                       {severity >= 3 ? 'Высокий уровень риска' : 'Повышенная осторожность'}
@@ -136,41 +162,23 @@ export function KuzmichBriefing() {
                   </div>
                 )}
 
-                <p className="text-sm text-[var(--text-secondary)] leading-snug mb-3">{briefText}</p>
+                {briefText && <p className="text-sm text-[var(--text-secondary)] leading-snug mb-3">{briefText}</p>}
 
-                {/* Route pills */}
-                <div className="flex flex-wrap gap-2">
-                  {data!.routes.length > 0 ? (
-                    data!.routes.map(r => (
+                {/* Туры сезона — из витрины страницы; своих «запасных» нет */}
+                {tours.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {tours.map(t => (
                       <Link
-                        key={r.id}
-                        href={`/routes/${r.id}`}
+                        key={t.id}
+                        href={`/marketplace/tours/${t.id}`}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
-                        title={r.reason}
                       >
-                        <MapPin size={10} className="flex-shrink-0" />
-                        {r.title}
+                        <Compass size={12} className="flex-shrink-0" />
+                        {t.title}
                       </Link>
-                    ))
-                  ) : (
-                    <>
-                      {[
-                        { label: 'Авачинский',        href: '/routes?q=авачинский' },
-                        { label: 'Мутновский',        href: '/routes?q=мутновский' },
-                        { label: 'Халактырский пляж', href: '/routes?q=халактырский' },
-                      ].map(r => (
-                        <Link
-                          key={r.href}
-                          href={r.href}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
-                        >
-                          <MapPin size={10} className="flex-shrink-0" />
-                          {r.label}
-                        </Link>
-                      ))}
-                    </>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -178,17 +186,17 @@ export function KuzmichBriefing() {
             <div className="flex sm:flex-col items-center sm:items-end gap-2 flex-shrink-0">
               <div className="flex items-center gap-3">
                 {data!.weather && (
-                  <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                  <span className="flex items-center gap-1 text-xs text-[var(--text-secondary)] lining-nums">
                     <CloudSun size={12} />
-                    +{Math.round(data!.weather.temperature)}°
+                    {fmtTemp(data!.weather.temperature)}°
                   </span>
                 )}
                 <span
                   className="flex items-center gap-1 text-xs font-semibold"
-                  style={{ color: severity >= 2 ? (severity >= 3 ? 'var(--danger)' : 'var(--warning)') : 'var(--success)' }}
+                  style={{ color: statusView.color }}
                 >
-                  <Flame size={12} />
-                  {severity >= 3 ? 'Опасно' : severity >= 2 ? 'Осторожно' : 'Норма'}
+                  <statusView.Icon size={12} />
+                  {statusView.label}
                 </span>
               </div>
               <Link

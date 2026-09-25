@@ -36,7 +36,12 @@ describe('полоса поездки: источник и гейт фаз', () 
   });
 
   it('в полосе нет выдуманных обещаний', () => {
-    const strip = code.slice(code.indexOf('className="tripstrip"'), code.indexOf('I. РАДАР') > -1 ? code.indexOf('</section>', code.indexOf('className="tripstrip"')) : undefined);
+    // Граница полосы — её собственный </section>. Прежде срез зависел от
+    // маркера-комментария «I. РАДАР»: 24.09 (П4б) радар свернулся в строку,
+    // маркер ушёл, и срез растягивался до конца файла — в него попадал CSS.
+    const at = code.indexOf('className="tripstrip"');
+    expect(at, 'полоса поездки не найдена').toBeGreaterThan(0);
+    const strip = code.slice(at, code.indexOf('</section>', at));
     expect(strip).not.toMatch(/следующая точка|кордон/i);
     expect(strip).not.toMatch(/\d+\s*\/\s*\d+/); // дробей вида 12/16 нет
   });

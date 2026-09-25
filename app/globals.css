@@ -30,6 +30,9 @@
   --accent: #E8734A;       /* lava -- главный CTA, цвет лавы */
   --accent-hover: #d4623c;
   --accent-muted: rgba(232,115,74,0.1);
+  /* Текст на заливке --accent: на светлой лаве тёмной темы белый даёт ≈3:1,
+     тёмный ≈6:1; на тёмной лаве светлой темы — наоборот (белый ≈4.8:1). */
+  --on-accent: #0D1117;
   --ocean: #00A8CC;        /* ocean -- ссылки, иконки */
   --telegram: #2AABEE;     /* Telegram brand color */
   --success: #3FB950;      /* moss -- успех, эко */
@@ -64,6 +67,7 @@
   --accent: #D44A0C;
   --accent-hover: #B83E0A;
   --accent-muted: rgba(212,74,12,0.1);
+  --on-accent: #FFFFFF;
   --ocean: #2568B0;
   /* До 24.09 светлого --telegram не было: кнопка Telegram в «Хочу тур»
      становилась прозрачной с белым текстом на белой карточке (аудит П1, #102). */
@@ -98,6 +102,7 @@
   --accent: #D44A0C;
   --accent-hover: #B83E0A;
   --accent-muted: rgba(212,74,12,0.1);
+  --on-accent: #FFFFFF;
   --ocean: #2568B0;
   --telegram: #2AABEE;
   --success: #3FB950;
@@ -401,7 +406,7 @@ a:focus-visible {
   .ds-btn:active { transform: scale(0.96); }
   .ds-btn-primary {
     background: var(--accent);
-    color: #0D1117;
+    color: var(--on-accent);
   }
   .ds-btn-primary:hover {
     opacity: 0.9;

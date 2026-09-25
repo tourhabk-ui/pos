@@ -115,6 +115,10 @@ export async function GET(request: NextRequest) {
    */
   const pendingRefundsResult = await query(
     `SELECT tp.id, tp.retail_amount, tp.booking_id,
+            -- К возврату — посчитано при отмене по условиям тура (1012);
+            -- NULL у отмен до 1012 — тогда действовало «100%».
+            COALESCE(tp.refund_due, tp.retail_amount) AS refund_due,
+            tp.refund_due_reason,
             p.company_name AS operator_name,
             ot.title       AS tour_title,
             ob.tourist_name, ob.booking_date,

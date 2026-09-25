@@ -31,9 +31,13 @@ describe('брони: каждая — один раз', () => {
   });
 
   it('отмена неоплаченной брони не обещает возврат цены', () => {
+    // Сумма считается только от оплаты в HELD (recordRefundDue, 24.09) —
+    // обе двери отмены зовут его; без оплаты — «возвращать нечего».
     const C = read('app/api/bookings/[id]/cancel/route.ts');
-    expect(C).toMatch(/FROM tour_payments WHERE booking_id = \$1 AND status = 'HELD'/g);
-    expect(C.match(/status = 'HELD'/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    const R = read('lib/payments/record-refund-due.ts');
+    expect(R).toMatch(/tp\.status = 'HELD'/);
+    expect(C.match(/recordRefundDue\(/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
+    expect(read('lib/bookings/booking.service.ts')).toMatch(/recordRefundDue\(/);
     expect(C).toMatch(/Оплаты по этой брони не было — возвращать нечего/);
   });
 });
