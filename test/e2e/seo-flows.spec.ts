@@ -157,13 +157,23 @@ test.describe('Живые действия в шапке', () => {
     const toggle = page.getByRole('button', { name: /(Тёмная|Светлая) тема/ }).first();
     await expect(toggle, 'в шапке нет переключателя темы').toBeVisible({ timeout: 15_000 });
 
-    const before = await page.locator('html').getAttribute('class');
-    await toggle.click();
-    await expect
-      .poll(() => page.locator('html').getAttribute('class'), {
-        message: 'класс html не изменился — тема не переключилась',
-        timeout: 5_000,
-      })
-      .not.toBe(before);
+    // Тема читается по data-theme — его ставят оба переключателя (шапка и
+    // главная, lib/theme.ts). Класс html до нажатия бывает null (светлая
+    // тема по умолчанию с #2020), и по нему не отличить «не переключилось».
+    const before = await page.locator('html').getAttribute('data-theme');
+    // Кнопка видна раньше, чем React её оживит: разметка приходит с сервера,
+    // а обработчик — после гидратации. Ночной прогон 25.09 (#2039) нажимал в
+    // этот зазор трижды подряд — главная потяжелела за день на три правки.
+    // Повторное нажатие отличает «ещё не ожила» от «сломана»: сломанная
+    // кнопка не переключит тему ни с какой попытки, и проверка покраснеет.
+    let attempts = 0;
+    await expect(async () => {
+      attempts += 1;
+      await toggle.click();
+      await expect
+        .poll(() => page.locator('html').getAttribute('data-theme'), { timeout: 1_500 })
+        .not.toBe(before);
+    }, 'тема не переключилась ни с одного нажатия за 15 с — переключатель сломан').toPass({ timeout: 15_000 });
+    test.info().annotations.push({ type: 'theme-toggle-attempts', description: String(attempts) });
   });
 });
