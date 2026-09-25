@@ -50,6 +50,7 @@ import { usageSinkEnabled, sendUsageToProd } from '@/lib/ai/usage-sink';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
 import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key-identity';
 import { openRouterAttribution } from '@/lib/ai/attribution';
+import { isFreeQuotaExhausted, markFreeQuotaExhausted, isMarkedExhausted, exhaustedModels, freeQuotaSiblings, firstUnexhausted } from '@/lib/ai/qwen-free-quota';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -1031,47 +1032,58 @@ export async function callQwenWithTools(
   tools: ToolDefinition[],
   timeoutMs = 25_000,
 ): Promise<ToolsCallResult | null> {
-  const { apiKey, base, model } = getQwenConfig();
+  const { apiKey, base, model: configured } = getQwenConfig();
   if (!apiKey) { recordAiLegFailure('qwen:tools', 'no_key'); return null; }
 
-  try {
-    const res = await fetchWithRetry(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.3,
-        max_tokens: 1000,
-        messages,
-        tools,
-        tool_choice: 'auto',
-      }),
-    }, { timeoutMs, label: `qwen-tools:${model}` });
+  // Квота кончается по моделям (25.09, lib/ai/qwen-free-quota): исчерпанная
+  // модель помечается, и тот же вызов идёт на её снимок. Три попытки — потолок
+  // задержки для человека в поле; дальше ответит следующая ступень.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const model = await nextQwenToolsModel(configured);
+    if (!model) break;
+    try {
+      const res = await fetchWithRetry(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.3,
+          max_tokens: 1000,
+          messages,
+          tools,
+          tool_choice: 'auto',
+        }),
+      }, { timeoutMs, label: `qwen-tools:${model}` });
 
-    if (!res.ok) {
-      recordAiLegFailure('qwen:tools', httpFailureReason(res.status, await res.text().catch(() => '')));
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        if (isFreeQuotaExhausted(res.status, body)) { markFreeQuotaExhausted(model); continue; }
+        recordAiLegFailure('qwen:tools', httpFailureReason(res.status, body));
+        return null;
+      }
+
+      const data = await res.json() as {
+        choices?: Array<{
+          message?: { content?: string | null; tool_calls?: ToolCall[] };
+        }>;
+      };
+      const msg = data?.choices?.[0]?.message;
+      if (!msg) { recordAiLegFailure('qwen:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
+
+      return {
+        content: msg.content ?? null,
+        tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+      };
+    } catch (e) {
+      recordAiLegFailure('qwen:tools', errorFailureReason(e));
       return null;
     }
-
-    const data = await res.json() as {
-      choices?: Array<{
-        message?: { content?: string | null; tool_calls?: ToolCall[] };
-      }>;
-    };
-    const msg = data?.choices?.[0]?.message;
-    if (!msg) { recordAiLegFailure('qwen:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
-
-    return {
-      content: msg.content ?? null,
-      tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
-    };
-  } catch (e) {
-    recordAiLegFailure('qwen:tools', errorFailureReason(e));
-    return null;
   }
+  recordAiLegFailure('qwen:tools', `free_quota_exhausted: ${exhaustedModels().join(', ')}`);
+  return null;
 }
 
 /** Первый непустой результат из списка попыток; поздние не зовём после успеха. */
@@ -1706,39 +1718,48 @@ export async function callQwen(
   // предложений эволюции) просят больше явно, иначе рвутся на полуслове.
   const maxTokens = opts.maxTokens ?? 800;
 
-  try {
-    // Сильнейшая доступная, а не прибитый средний тир (CLAUDE.md §8).
+  // Сильнейшая доступная, а не прибитый средний тир (CLAUDE.md §8). Кончилась
+  // бесплатная квота у сильнейшей — резолвер её пропускает, и тот же вызов
+  // идёт на следующую (25.09, lib/ai/qwen-free-quota).
+  for (let attempt = 0; attempt < 3; attempt++) {
     const model = await resolveChatModel('qwen');
-    const payload = messages.map(({ role, content }) => ({ role, content }));
-    const res = await fetchWithRetry(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.4,
-        max_tokens: maxTokens,
-        messages: payload,
-      }),
-    }, { timeoutMs: 25_000, label: `qwen:${model}` });
-    if (!res.ok) {
-      recordAiLegFailure('qwen', httpFailureReason(res.status, await res.text().catch(() => '')));
+    if (isMarkedExhausted(model)) break;
+    try {
+      const payload = messages.map(({ role, content }) => ({ role, content }));
+      const res = await fetchWithRetry(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.4,
+          max_tokens: maxTokens,
+          messages: payload,
+        }),
+      }, { timeoutMs: 25_000, label: `qwen:${model}` });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        if (isFreeQuotaExhausted(res.status, body)) { markFreeQuotaExhausted(model); continue; }
+        recordAiLegFailure('qwen', httpFailureReason(res.status, body));
+        return null;
+      }
+      const data = await res.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: ProviderUsage;
+      };
+      const text: string | undefined = data?.choices?.[0]?.message?.content;
+      if (text?.trim()) {
+        logLLMUsage(`qwen:${answeredModel(model, data)}`, data.usage);
+        return text;
+      }
+      recordAiLegFailure('qwen', 'empty');
       return null;
-    }
-    const data = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: ProviderUsage;
-    };
-    const text: string | undefined = data?.choices?.[0]?.message?.content;
-    if (text?.trim()) {
-      logLLMUsage(`qwen:${answeredModel(model, data)}`, data.usage);
-      return text;
-    }
-    recordAiLegFailure('qwen', 'empty');
-    return null;
-  } catch (e) { recordAiLegFailure('qwen', errorFailureReason(e)); return null; }
+    } catch (e) { recordAiLegFailure('qwen', errorFailureReason(e)); return null; }
+  }
+  recordAiLegFailure('qwen', `free_quota_exhausted: ${exhaustedModels().join(', ')}`);
+  return null;
 }
 
 // ── Решатель агентов эволюции ─────────────────────────────────
@@ -1984,6 +2005,25 @@ export async function getProviderModelIds(provider: 'deepseek' | 'qwen'): Promis
   return apiKey ? fetchModelIds(`${base}/models`, apiKey) : [];
 }
 
+let qwenCatalogCache: string[] | null = null;
+let qwenCatalogAt = 0;
+
+/**
+ * Модель цикла инструментов: настроенная, а если её бесплатная квота кончилась —
+ * её же снимок или алиас `-latest` (lib/ai/qwen-free-quota). Каталог
+ * спрашивается только после отметки: пока настроенная жива, живой путь лишнего
+ * round-trip не платит. `null` — квота кончилась у всех замен.
+ */
+export async function nextQwenToolsModel(configured: string): Promise<string | null> {
+  if (!isMarkedExhausted(configured)) return configured;
+  if (!qwenCatalogCache || Date.now() - qwenCatalogAt >= DECISION_MODEL_TTL_MS) {
+    const ids = await getProviderModelIds('qwen');
+    // Пустой список — «не смогли спросить», а не «замен нет»: не кэшируем.
+    if (ids.length) { qwenCatalogCache = ids; qwenCatalogAt = Date.now(); }
+  }
+  return firstUnexhausted(freeQuotaSiblings(configured, qwenCatalogCache ?? []));
+}
+
 /**
  * Автоопределение сильнейшей модели провайдера без привязки к id:
  * env-override → кэш → /v1/models + pickBestModel → безопасный алиас.
@@ -2001,9 +2041,11 @@ async function resolveBestModel(
 
   const cacheKey = `${purpose}:${provider}` as const;
   const cached = PURPOSE_MODEL_CACHE.get(cacheKey);
-  if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
+  // Модель с исчерпанной бесплатной квотой из кэша не отдаём (25.09): иначе
+  // час после отметки вызов стучался бы в ту же стену.
+  if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS && !isMarkedExhausted(cached.id)) return cached.id;
 
-  const ids = await getProviderModelIds(provider);
+  const ids = (await getProviderModelIds(provider)).filter((id) => !isMarkedExhausted(id));
   const picked = pickBestModel(ids) ?? DECISION_FALLBACK[provider];
   PURPOSE_MODEL_CACHE.set(cacheKey, { id: picked, at: Date.now() });
   return picked;
@@ -2642,36 +2684,45 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
 }
 
 // Диагностика ПРИЧИНЫ, почему callQwen молчит: реальный POST в
-// /chat/completions с настроенной моделью. 401/403 = ключ, 404 = не та
+// /chat/completions с моделью ЦИКЛА ИНСТРУМЕНТОВ. 401/403 = ключ, 404 = не та
 // модель, conn/timeout = база или RF-блок хоста.
+//
+// С 25.09 проба идёт той же цепочкой, что живой путь: настроенная модель, а
+// если её бесплатная квота кончилась — её снимок (lib/ai/qwen-free-quota).
+// Иначе health будил «Qwen не отвечает» про модель, в которую живой путь уже
+// не ходит. Замещённые — в `exhausted`, чтобы подмена была видна.
 export async function probeQwenKeyStatus(): Promise<{
   key_set: boolean;
   base: string;
   model: string;
   http_status: number | null;
   detail: string;
+  exhausted: string[];
 }> {
-  const { apiKey, base, model } = getQwenConfig();
-  if (!apiKey) return { key_set: false, base, model, http_status: null, detail: 'ключ не задан' };
+  const { apiKey, base, model: configured } = getQwenConfig();
+  if (!apiKey) return { key_set: false, base, model: configured, http_status: null, detail: 'ключ не задан', exhausted: [] };
 
-  try {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    const body = (await res.text()).slice(0, 300);
-    return { key_set: true, base, model, http_status: res.status, detail: body };
-  } catch (e) {
-    return {
-      key_set: true,
-      base,
-      model,
-      http_status: null,
-      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
-    };
+  let last = { model: configured, http_status: null as number | null, detail: 'квота кончилась у всех замен' };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const model = await nextQwenToolsModel(configured);
+    if (!model) break;
+    try {
+      const res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const body = (await res.text()).slice(0, 300);
+      last = { model, http_status: res.status, detail: body };
+      if (!isFreeQuotaExhausted(res.status, body)) break;
+      markFreeQuotaExhausted(model);
+    } catch (e) {
+      last = { model, http_status: null, detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}` };
+      break;
+    }
   }
+  return { key_set: true, base, ...last, exhausted: exhaustedModels() };
 }
 
 /**
@@ -4304,8 +4355,10 @@ export async function preflightProviders(): Promise<{
   }
 
   async function probeQwen() {
-    const { apiKey, base, model } = getQwenConfig();
+    const { apiKey, base, model: configured } = getQwenConfig();
     if (!apiKey) return { ok: false, error: 'DASHSCOPE_API_KEY not set' };
+    // Та модель, в которую сейчас ходит живой путь (квота по моделям, 25.09).
+    const model = (await nextQwenToolsModel(configured)) ?? configured;
     try {
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
@@ -4315,7 +4368,8 @@ export async function preflightProviders(): Promise<{
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
-        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+        if (isFreeQuotaExhausted(res.status, body)) markFreeQuotaExhausted(model);
+        return { ok: false, status: res.status, error: `HTTP ${res.status} (${model}): ${body.slice(0, 120)}` };
       }
       return { ok: true };
     } catch (e) { return { ok: false, error: String(e) }; }

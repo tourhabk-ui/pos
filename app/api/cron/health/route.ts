@@ -485,6 +485,17 @@ export async function GET(request: NextRequest) {
         reason: `Qwen${why}`,
       });
     }
+    // Бесплатная квота кончилась у части моделей, а Qwen отвечает на соседних
+    // (25.09, lib/ai/qwen-free-quota). Владелец решил остаться на бесплатной —
+    // положение принято, будить нечем, но подмена обязана быть видна.
+    const exhausted = qwenKeyDiag?.exhausted ?? [];
+    if (process.env.DASHSCOPE_API_KEY && qwenOk && exhausted.length) {
+      providerIssues.push({
+        level: 'known',
+        text: `Qwen: бесплатная квота кончилась у ${exhausted.join(', ')} — отвечают соседние модели (цикл инструментов: ${qwenKeyDiag?.model ?? 'не установлено'})`,
+        reason: `Qwen: бесплатная квота кончилась у ${exhausted.join(', ')}`,
+      });
+    }
     // DeepSeek — первичный решатель эволюции. Молчим, если ключ просто не
     // задан (как для Qwen/Fugu/Anthropic: не настроен ≠ сбой), а если задан —
     // называем причину, а не просто «недоступен».
