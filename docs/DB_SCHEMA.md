@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-25 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1021_guide_schedule_operator_booking.sql`.
+> Снято 2026-09-25 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1022_operator_bookings_agent.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 247 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3282 |
-| Внешних ключей | 272 |
+| Колонок | 3283 |
+| Внешних ключей | 273 |
 | Таблиц без единого FK в обе стороны | 72 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -129,6 +129,7 @@ erDiagram
     uuid referral_link_id FK
     uuid user_id FK
     uuid guide_partner_id FK
+    uuid agent_user_id FK
     varchar tourist_email
     varchar tourist_phone
     varchar tourist_name
@@ -257,9 +258,9 @@ erDiagram
   partners ||--o{ leads : "operator_id"
   places ||--o{ location_real_time_status : "agent_route_id"
   places ||--o{ location_safety_profile : "agent_route_id"
+  users ||--o{ operator_bookings : "agent_user_id"
   operator_tours ||--o{ operator_bookings : "alternative_offered_tour_id"
   partners ||--o{ operator_bookings : "guide_partner_id"
-  users ||--o{ operator_bookings : "user_id"
   operator_bookings ||--o{ operator_commissions : "booking_id"
   partners ||--o{ operator_commissions : "operator_id"
   users ||--o{ operator_tours : "created_by"
@@ -595,9 +596,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `api_key_id uuid!` `booking_id bigint` `event varchar!` `url varchar!` `status_code integer` `success boolean!=` `request_body jsonb` `response_body text` `duration_ms integer` `created_at timestamp=`
 
-**operator_bookings** · 57 кол. · PK id · alternative_offered_tour_id → operator_tours.id, guide_partner_id → partners.id, octo_api_key_id → octo_api_keys.id, operator_tour_id → operator_tours.id, option_id → tour_options.id, referral_link_id → agent_referral_links.id, user_id → users.id · на неё ссылаются: agent_referral_events, booking_change_requests, booking_group_members, booking_logs, booking_waivers, guide_schedule, mchs_registrations, octo_booking_log, octo_webhook_log, operator_commissions, refund_requests, tour_payments, weather_alert_bookings · индексов 24 · триггеры: trigger_operator_bookings_timestamp
+**operator_bookings** · 58 кол. · PK id · agent_user_id → users.id, alternative_offered_tour_id → operator_tours.id, guide_partner_id → partners.id, octo_api_key_id → octo_api_keys.id, operator_tour_id → operator_tours.id, option_id → tour_options.id, referral_link_id → agent_referral_links.id, user_id → users.id · на неё ссылаются: agent_referral_events, booking_change_requests, booking_group_members, booking_logs, booking_waivers, guide_schedule, mchs_registrations, octo_booking_log, octo_webhook_log, operator_commissions, refund_requests, tour_payments, weather_alert_bookings · индексов 25 · триггеры: trigger_operator_bookings_timestamp
 
-`id bigint!=` `operator_tour_id bigint!` `tourist_email varchar` `tourist_phone varchar` `tourist_name varchar` `booking_date date!` `participants integer!` `adult_count integer` `child_count integer` `base_total_price numeric` `discount_percent integer=` `discount_reason varchar` `final_price numeric` `currency varchar=` `payment_status varchar!=` `payment_method varchar` `payment_id varchar` `paid_at timestamp` `booking_status varchar!=` `cancellation_reason varchar` `cancelled_at timestamp` `weather_alert_triggered boolean=` `alternative_offered_tour_id bigint` `customer_chose_alternative boolean=` `alternative_booked_date date` `confirmation_sent boolean=` `reminder_sent_24h boolean=` `weather_alert_sent boolean=` `special_requests text` `notes text` `metadata jsonb` `created_at timestamp=` `updated_at timestamp=` `created_via varchar` `deleted_at timestamp` `octo_uuid uuid=` `octo_api_key_id uuid` `hold_expires_at timestamp` `option_id bigint` `availability_id varchar` `tochka_qr_id varchar` `paid_amount numeric` `end_date date` `duration_days integer` `uon_request_id integer` `uon_synced_at timestamptz` `referral_link_id uuid` `user_id uuid` `reseller_reference varchar` `admin_notes text` `review_requested_at timestamptz` `access_token uuid!=` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `guide_partner_id uuid`
+`id bigint!=` `operator_tour_id bigint!` `tourist_email varchar` `tourist_phone varchar` `tourist_name varchar` `booking_date date!` `participants integer!` `adult_count integer` `child_count integer` `base_total_price numeric` `discount_percent integer=` `discount_reason varchar` `final_price numeric` `currency varchar=` `payment_status varchar!=` `payment_method varchar` `payment_id varchar` `paid_at timestamp` `booking_status varchar!=` `cancellation_reason varchar` `cancelled_at timestamp` `weather_alert_triggered boolean=` `alternative_offered_tour_id bigint` `customer_chose_alternative boolean=` `alternative_booked_date date` `confirmation_sent boolean=` `reminder_sent_24h boolean=` `weather_alert_sent boolean=` `special_requests text` `notes text` `metadata jsonb` `created_at timestamp=` `updated_at timestamp=` `created_via varchar` `deleted_at timestamp` `octo_uuid uuid=` `octo_api_key_id uuid` `hold_expires_at timestamp` `option_id bigint` `availability_id varchar` `tochka_qr_id varchar` `paid_amount numeric` `end_date date` `duration_days integer` `uon_request_id integer` `uon_synced_at timestamptz` `referral_link_id uuid` `user_id uuid` `reseller_reference varchar` `admin_notes text` `review_requested_at timestamptz` `access_token uuid!=` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `guide_partner_id uuid` `agent_user_id uuid`
 
 **operator_tour_reviews** · 15 кол. · PK id · tour_id → operator_tours.id, user_id → users.id · индексов 4
 
