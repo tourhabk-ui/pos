@@ -1,12 +1,13 @@
 {
-  "note": "25.09, прогон 586. ТОЛЬКО ЧТЕНИЕ. 12:40 KMT, владелец в консоли QwenCloud (главная). Прогон 585: ключ принят, qwen-vl-max ok, qwen-plus и qwen3.8-max — 403 FreeTierOnly. Снят ли режим «use free tier only».",
-  "run": 586,
+  "note": "25.09, прогон 587. ТОЛЬКО ЧТЕНИЕ. Владелец: «работаем на бесплатной». После выката обхода исчерпанной квоты (5c81f16, 533c32c): в какую модель теперь идёт цикл инструментов Qwen (qwen_tools_path) и какие помечены исчерпанными.",
+  "run": 587,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 20,
-  "allowStale": true,
-  "bytes": 9000,
+  "allowStale": false,
+  "bytes": 12000,
   "around": [
+    "qwen_tools_path",
     "qwen_ping"
   ],
   "aroundLines": 0,
