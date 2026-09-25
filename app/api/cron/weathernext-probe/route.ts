@@ -29,7 +29,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { ZONES, type ZoneKey } from '@/lib/services/safety/zone-weather';
-import { fetchWeatherForecast } from '@/lib/planner/intelligence';
+import { fetchForecastDays } from '@/lib/planner/intelligence';
 import { DANGEROUS_WMO_CODES, wmoHazardLabel } from '@/lib/weather/wmo-hazard';
 import {
   fetchEnsembleOutlook, ensembleDayFor, hazardBreakdown,
@@ -128,7 +128,10 @@ export async function GET(request: NextRequest) {
     const zone = ZONES[key];
     // Последовательно по зонам: обе пробы делят один исходящий адрес и один
     // бесплатный лимит Open-Meteo.
-    const forecast = await fetchWeatherForecast(zone.lat, zone.lon, HORIZON_DAYS);
+    // Отказ прогона — пустой набор дней: сравнивать не с чем, и строки дня
+    // честно покажут null в детерминированной колонке.
+    const run = await fetchForecastDays(zone.lat, zone.lon, HORIZON_DAYS);
+    const forecast = run.ok ? run.days : [];
     const outlook = await fetchEnsembleOutlook(zone.lat, zone.lon, HORIZON_DAYS);
 
     // Даты берём из ансамбля, если он ответил, иначе из прогона: набор дней
@@ -140,14 +143,15 @@ export async function GET(request: NextRequest) {
     const days: DayRow[] = dates.map((date) => {
       const det = forecast.find((d) => d.date === date) ?? null;
       const ens = ensembleDayFor(outlook, date);
-      const detDangerous = det ? DANGEROUS_WMO_CODES.has(det.weatherCode) : null;
+      const detCode = det?.weatherCode ?? null;
+      const detDangerous = detCode === null ? null : DANGEROUS_WMO_CODES.has(detCode);
       const ensParts = ensembleRow(ens);
       return {
         date,
-        deterministic_code: det?.weatherCode ?? null,
-        deterministic_label: det ? wmoHazardLabel(det.weatherCode) : null,
+        deterministic_code: detCode,
+        deterministic_label: detCode === null ? null : wmoHazardLabel(detCode),
         deterministic_dangerous: detDangerous,
-        deterministic_wind_kmh: det ? Math.round(det.windKmh) : null,
+        deterministic_wind_kmh: det?.windKmh == null ? null : Math.round(det.windKmh),
         ...ensParts,
         verdict: classifyDivergence(detDangerous, ensParts.ensemble_share),
       };

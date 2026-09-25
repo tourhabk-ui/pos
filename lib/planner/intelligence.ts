@@ -8,16 +8,6 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // ── Weather Forecast ─────────────────────────────────────────────────────────
 
-export interface DayForecast {
-  date: string;
-  tempMax: number;
-  tempMin: number;
-  precipMm: number;
-  windKmh: number;
-  weatherCode: number;
-  description: string;
-}
-
 const WMO_DESCRIPTIONS: Record<number, string> = {
   0: 'Ясно', 1: 'Малооблачно', 2: 'Переменная облачность', 3: 'Пасмурно',
   45: 'Туман', 48: 'Изморозь', 51: 'Морось', 53: 'Морось', 55: 'Сильная морось',
@@ -127,28 +117,45 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
   return result;
 }
 
+const DAY_MS = 86_400_000;
+
+/** Сегодняшняя дата на Камчатке: от неё Open-Meteo считает дни (timezone=Asia/Kamchatka). */
+function kamchatkaToday(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now);
+}
+
+function addDaysIso(iso: string, n: number): string {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+}
+
 /**
- * Прежний загрузчик для планера: пустой список при отказе, пропуски — нулями.
+ * Даты дней поездки и горизонт прогноза, который до них достаёт.
  *
- * Оставлен ради потребителей, которые берут день ПО НОМЕРУ (`forecast[day - 1]`
- * в lib/planner/engine.ts и compose.ts): выбросить неполный день значило бы
- * сдвинуть им все последующие. Нули здесь — известная ложь, а не решение;
- * новый код берёт `fetchForecastDays`. Отказ теперь хотя бы пишется в лог.
+ * До 25.09 планер брал прогноз от СЕГОДНЯ и раскладывал его по дням плана
+ * по номеру: при приезде через неделю первый день получал сегодняшнюю погоду,
+ * и она же уходила в промпт планера. День плана ищется по ДАТЕ; поездка
+ * целиком за 16 днями прогноза (или в прошлом) — `null`: погоды у такого
+ * плана нет, и это честнее чужого дня.
  */
-export async function fetchWeatherForecast(
-  lat: number, lng: number, days: number
-): Promise<DayForecast[]> {
-  const r = await fetchForecastDays(lat, lng, days);
-  if (!r.ok) return [];
-  return r.days.map((d) => ({
-    date: d.date,
-    tempMax: d.tempMax ?? 0,
-    tempMin: d.tempMin ?? 0,
-    precipMm: d.precipMm ?? 0,
-    windKmh: d.windKmh ?? 0,
-    weatherCode: d.weatherCode ?? 0,
-    description: d.description ?? wmoDescription(0),
-  }));
+export function tripForecastWindow(
+  arrivalDate: string,
+  dayCount: number,
+  now: Date = new Date(),
+): { dates: string[]; horizon: number } | null {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(arrivalDate) || dayCount < 1) return null;
+  const arrival = arrivalDate.slice(0, 10);
+  const offset = Math.round(
+    (Date.parse(`${arrival}T00:00:00Z`) - Date.parse(`${kamchatkaToday(now)}T00:00:00Z`)) / DAY_MS,
+  );
+  if (!Number.isFinite(offset)) return null;
+  const lastOffset = offset + dayCount - 1;
+  if (lastOffset < 0 || offset > 15) return null;
+  return {
+    dates: Array.from({ length: dayCount }, (_, i) => addDaysIso(arrival, i)),
+    horizon: Math.min(16, lastOffset + 1),
+  };
 }
 
 // ── Quality Score ────────────────────────────────────────────────────────────

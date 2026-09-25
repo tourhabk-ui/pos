@@ -306,6 +306,12 @@ interface RouteInfo {
    * сигнала нет, а не придуманный текст.
    */
   operator_tour?: boolean;
+  /**
+   * Сигналы, скрытые на этом туре решением владельца
+   * (`operator_tours.hazards_hidden`, миграция 1013) — когда вывод из типа
+   * активности противоречит самому туру (сплав «без опасных порогов»).
+   */
+  hidden_hazards?: readonly string[];
 }
 
 /** Опасности, которые на туре оператора не выводятся (см. `operator_tour`). */
@@ -349,6 +355,9 @@ export function getHazardSignals(route: RouteInfo): HazardSignal[] {
   if (route.operator_tour) {
     for (const h of OPERATOR_TOUR_SUPPRESSED) hazardSet.delete(h);
   }
+
+  // 7. Скрытые на этом туре решением владельца — из любого источника.
+  for (const h of route.hidden_hazards ?? []) hazardSet.delete(h as HazardType);
 
   // Собираем сигналы, сортируем по приоритету
   const levelPriority: Record<SignalLevel, number> = {

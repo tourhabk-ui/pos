@@ -37,6 +37,8 @@ export async function GET(req: Request) {
       is_open: boolean;
       alert_severity: number;
       alert_message: string | null;
+      /** Только у тура: скрытые решением владельца сигналы (1013). */
+      hazards_hidden?: string[] | null;
     } | null = null;
 
     if (tourId) {
@@ -50,6 +52,7 @@ export async function GET(req: Request) {
         is_open: boolean;
         alert_severity: number;
         alert_message: string | null;
+        hazards_hidden: string[] | null;
       }>(
         // Фолбэк на тип активности самого тура (решение владельца 24.09): у
         // живых туров связи с маршрутом нет (agent_route_id не ставит ни одна
@@ -63,7 +66,8 @@ export async function GET(req: Request) {
            ark.zone,
            COALESCE(lrs.is_open, true) AS is_open,
            COALESCE(lrs.alert_severity, 0) AS alert_severity,
-           lrs.alert_message
+           lrs.alert_message,
+           ot.hazards_hidden
          FROM operator_tours ot
          LEFT JOIN agent_route_knowledge ark ON ot.agent_route_id = ark.id
          LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = ark.id
@@ -117,6 +121,7 @@ export async function GET(req: Request) {
       hazard_types: routeInfo.hazard_types ?? undefined,
       zone: routeInfo.zone ?? undefined,
       operator_tour: operatorTour,
+      hidden_hazards: routeInfo.hazards_hidden ?? undefined,
     });
 
     const dangerLevel = getOverallDangerLevel({
@@ -125,6 +130,7 @@ export async function GET(req: Request) {
       hazard_types: routeInfo.hazard_types ?? undefined,
       zone: routeInfo.zone ?? undefined,
       operator_tour: operatorTour,
+      hidden_hazards: routeInfo.hazards_hidden ?? undefined,
     });
 
     // Активные алерты из danger_assessments
