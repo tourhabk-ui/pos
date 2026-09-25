@@ -105,6 +105,27 @@ export function dataFreshness({ updatedAt, source, now = new Date() }: Freshness
   return { state: 'fresh', ageMinutes, label: `Обновлено ${humanAge(ageMinutes)}` };
 }
 
+/** Возраст коротко, для тесной плитки: «5 мин назад», «9 ч назад», «2 дн назад». */
+export function humanAgeShort(minutes: number): string {
+  if (minutes < 1) return 'только что';
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч назад`;
+  return `${Math.floor(hours / 24)} дн назад`;
+}
+
+/**
+ * Свежесть одной короткой строкой — для плитки «Радар» на телефоне (владелец
+ * 25.09: «экономить место»). Замер на 360px: в строку входит ~16 знаков, и
+ * «обновлено 20 мин назад» обрезалось. Поэтому строка — ВОЗРАСТ, а оценку
+ * «свежо / устарело» несёт цвет точки на иконке (freshnessDot); полная строка
+ * остаётся в aria-label и title. «Не знаем» — словами, без возраста.
+ */
+export function freshnessShort(f: Freshness): string {
+  if (f.state === 'unavailable' || f.ageMinutes === null) return 'нет данных';
+  return humanAgeShort(f.ageMinutes);
+}
+
 /** Цветовой токен точки. У «недоступно» точки нет вовсе — см. тест. */
 export function freshnessDot(state: FreshnessState): string | null {
   if (state === 'fresh') return 'var(--success)';
@@ -213,6 +234,15 @@ export function geometryCoverage({ total, withoutTrack }: GeometryCoverageInput)
     pct,
     label: `Линия для офлайн-карты есть у ${pct}% маршрутов`,
   };
+}
+
+/**
+ * Покрытие одной короткой строкой — для той же плитки: «офлайн 74%», с
+ * положительного конца, как решил владелец 06.09. «Не посчитано» остаётся
+ * своим словом (н/д — «нет данных»), а не нулём.
+ */
+export function coverageShort(c: GeometryCoverage): string {
+  return c.pct === null ? 'офлайн: н/д' : `офлайн ${c.pct}%`;
 }
 
 /** Точка покрытия по тем же правилам, что и у свежести: «не посчитано» — без точки. */

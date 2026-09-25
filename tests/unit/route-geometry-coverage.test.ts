@@ -164,22 +164,36 @@ describe('главная показывает покрытие и не теря�
     expect(DATA).toMatch(/geometry:\s*RouteGeometryGap \| null/);
   });
 
-  it('живой блок рисует строку покрытия через geometryCoverage и coverageDot', () => {
-    const live = HOME.slice(HOME.indexOf('<section className="live">'), HOME.indexOf('</section>', HOME.indexOf('<section className="live">')));
-    expect(live).toContain('{coverage.label}');
-    expect(live).toContain('coverageDot(coverage.state)');
+  // С 25.09 блок обстановки свёрнут в плитку «Радар» (владелец: «экономить
+  // место на мобильной»). Прибор не снят: доля линий живёт второй строкой
+  // плитки со своей точкой, полная строка — в aria-label и title.
+  const radarTile = (() => {
+    const at = HOME.indexOf('className="qt qt-radar"');
+    return at === -1 ? '' : HOME.slice(at, HOME.indexOf('</Link>', at));
+  })();
+
+  it('плитка «Радар» рисует покрытие через geometryCoverage и coverageDot', () => {
+    expect(radarTile, 'плитки «Радар» на главной нет').not.toBe('');
+    expect(radarTile).toContain('coverageShort(coverage)');
+    expect(radarTile).toContain('coverageDot(coverage.state)');
+    expect(radarTile).toContain('${coverage.label}');
     // «Не посчитано» — без цветной точки, только контур, как у свежести.
-    expect(live).toMatch(/lv-cov[\s\S]*border: '1px solid var\(--text-muted\)'/);
+    expect(radarTile).toMatch(/qt-cov[\s\S]*border: '1px solid var\(--text-muted\)'/);
     expect(HOME).toContain("geometryCoverage({");
   });
 
   it('состояние несёт точка, а не жирный алярм-текст (владелец 06.09, мягче)', () => {
     // Порог давно пройден (~27% > 20%), и жирный красный текст на каждом
-    // заходе на главную читался бы постоянной тревогой. Строка одного
-    // начертания для обоих состояний — цвет и слово несёт coverageDot и
-    // сама geometryCoverage, не отдельный CSS-класс тревоги.
-    expect(HOME).not.toMatch(/lv-warn/);
-    expect(HOME).toContain('className="lv-row lv-cov"');
+    // заходе на главную читался бы постоянной тревогой. Состояние несёт
+    // coverageDot, а не отдельный CSS-класс тревоги.
+    expect(HOME).not.toMatch(/lv-warn|qt-warn/);
+    expect(radarTile).toContain('className="qt-st qt-cov"');
+  });
+
+  it('свежесть — на той же плитке: точка на иконке и слова, три состояния', () => {
+    expect(radarTile).toContain('freshnessDot(fresh.state)');
+    expect(radarTile).toContain('freshnessShort(fresh)');
+    expect(radarTile).toContain('${fresh.label}');
   });
 
   it('порог «ok» на /hub/admin/health — то же число, что и порог тревоги главной', () => {
