@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, ArrowRight, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -338,7 +338,19 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           ) : (
             <>
               <h1>Камчатка —<br />без сюрпризов</h1>
-              <p className="sub">Подберём маршрут по вашим датам и реальной обстановке.</p>
+              {/* Чем мы отличаемся — одной строкой (владелец 25.09: «мы должны
+                  быть универсальным помощником и умным туроператором с гидом и
+                  безопасностью в одном наборе»). Сравнение с краевым порталом
+                  (проба 596): у него каталог и справочник, но нет ни помощника,
+                  ни живых предупреждений, ни плана поездки по дням. */}
+              <p className="sub">Помощник, туры с гидом и безопасность — в одном наборе.</p>
+              {/* Главное действие — поездка целиком: дни сам, дни с оператором и
+                  отдых (lib/planner/day-mode). Кнопка непрозрачная: это действие,
+                  а не контекст (§2), поэтому не стекло поверх фото. */}
+              <Link href="/planner" className="hero-cta">
+                Собрать поездку
+                <ArrowRight size={18} strokeWidth={2.2} aria-hidden />
+              </Link>
             </>
           )}
           {safety.volcanoes[0] && (
@@ -1055,6 +1067,11 @@ const CSS = `
 .v7 .hero-photo h1.h1-trip{font-size:clamp(30px,9vw,40px);line-height:1.12}
 .v7 .hero-kick{margin-bottom:10px;font:600 10px/1.4 var(--fm);letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .sub{margin-top:12px;font:500 14px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92);max-width:34ch}
+/* Главное действие на фото — сплошная кнопка акцента, не стекло: действие
+   непрозрачно (§2). 48px высоты — палец в перчатке. */
+.v7 .hero-cta{margin-top:16px;display:inline-flex;align-items:center;gap:8px;min-height:48px;padding:0 20px;border-radius:12px;background:var(--accent);color:var(--on-accent);font:700 15px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.01em;text-decoration:none;box-shadow:0 10px 28px -12px rgba(0,0,0,.55);transition:transform .13s ease,filter .2s ease}
+.v7 .hero-cta:active{transform:scale(.97)}
+@media (prefers-reduced-motion: reduce){.v7 .hero-cta:active{transform:none}}
 .v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* Первый блок встаёт на растворяющийся низ фото — место, где раньше лежала
