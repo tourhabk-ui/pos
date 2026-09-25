@@ -63,8 +63,8 @@ export async function POST(request: NextRequest) {
   let rejection: { status: number; error: string } | null = null;
 
   const result = await transaction(async (client) => {
-    const found = await client.query<{ id: string; retail_amount: string }>(
-      `SELECT tp.id, tp.retail_amount
+    const found = await client.query<{ id: string; refund_due: string }>(
+      `SELECT tp.id, COALESCE(tp.refund_due, tp.retail_amount) AS refund_due
          FROM tour_payments tp
         WHERE tp.id = ANY($1::uuid[])
           AND tp.status = 'HELD'
@@ -92,13 +92,16 @@ export async function POST(request: NextRequest) {
     }
 
     const confirmedIds = found.rows.map((r) => r.id);
-    const totalRefunded = found.rows.reduce((sum, r) => sum + parseFloat(r.retail_amount), 0);
+    const totalRefunded = found.rows.reduce((sum, r) => sum + parseFloat(r.refund_due), 0);
 
     await client.query(
       `UPDATE tour_payments
           SET status = 'REFUNDED',
               refunded_at = NOW(),
-              refund_amount = retail_amount,
+              -- Сумма — посчитанная при отмене по условиям тура (1012,
+              -- lib/payments/tour-refund.ts), не вход запроса. NULL —
+              -- отмена до 1012, когда действовало «100%».
+              refund_amount = COALESCE(refund_due, retail_amount),
               refund_reason = $2,
               refunded_by = $3,
               updated_at = NOW()
