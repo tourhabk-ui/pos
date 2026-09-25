@@ -1,10 +1,10 @@
 {
-  "note": "25.09, прогон 588. ТОЛЬКО ЧТЕНИЕ. Прогон 587 снял сборку 02:07 (с 5c81f16): callQwen уже ушёл на qwen3.8-max-0902. Ждём выката 533c32c (маркер qwen_tools_path) — куда идёт цикл инструментов при исчерпанном qwen-plus.",
-  "run": 588,
+  "note": "25.09, прогон 589. ТОЛЬКО ЧТЕНИЕ. Прогон 588 покраснел зря: маркер until проверялся и на version.json. Сборка 02:41 уже после 533c32c — снимаем qwen_tools_path.",
+  "run": 589,
   "timeout": 60,
-  "retries": 50,
-  "retryDelay": 60,
-  "allowStale": false,
+  "retries": 1,
+  "retryDelay": 20,
+  "allowStale": true,
   "bytes": 12000,
   "around": [
     "qwen_tools_path",
@@ -14,8 +14,6 @@
   "aroundBefore": 0,
   "aroundHits": 2,
   "urls": [
-    "https://vedarai.ru/version.json",
     "https://vedarai.ru/api/cron/ai-models?ping=1"
-  ],
-  "until": "qwen_tools_path"
+  ]
 }
