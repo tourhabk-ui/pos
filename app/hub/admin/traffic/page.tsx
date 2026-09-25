@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut } from 'lucide-react';
+import { internalHref, externalHref } from '@/lib/analytics/traffic-links';
 
 interface TrafficData {
   totals: {
@@ -37,6 +38,26 @@ function fmtDwell(ms: number | null): string {
 
 function pct(part: number, whole: number): number {
   return whole > 0 ? Math.round((part / whole) * 100) : 0;
+}
+
+/**
+ * Путь из журнала — ссылкой на саму страницу, в новой вкладке: сводка остаётся
+ * открытой (владелец 25.09). Не путь сайта — текстом (lib/analytics/traffic-links).
+ */
+function PathLink({ path, className }: { path: string; className: string }) {
+  const href = internalHref(path);
+  if (!href) return <span className={className} title={path}>{path}</span>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener"
+      title={`Открыть ${path}`}
+      className={`${className} hover:text-[var(--ocean)] hover:underline underline-offset-2`}
+    >
+      {path}
+    </a>
+  );
 }
 
 export default function AdminTrafficPage() {
@@ -191,7 +212,7 @@ export default function AdminTrafficPage() {
                 <div className="space-y-1.5">
                   {data.top_paths.map(p => (
                     <div key={p.path} className="flex items-center gap-3">
-                      <span className="text-xs font-mono text-[var(--text-secondary)] flex-1 truncate" title={p.path}>{p.path}</span>
+                      <PathLink path={p.path} className="text-xs font-mono text-[var(--text-secondary)] flex-1 truncate" />
                       <div className="w-24 h-3.5 bg-[var(--bg-hover)] rounded overflow-hidden shrink-0">
                         <div className="h-full bg-[var(--accent)] rounded" style={{ width: `${(p.hits / maxPathHits) * 100}%` }} />
                       </div>
@@ -211,13 +232,29 @@ export default function AdminTrafficPage() {
                 </p>
               ) : (
                 <div className="space-y-1.5">
-                  {data.top_referrers.map(r => (
-                    <div key={r.referrer} className="flex items-center gap-2">
-                      <ExternalLink className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
-                      <span className="text-xs text-[var(--text-secondary)] flex-1 truncate" title={r.referrer}>{r.referrer}</span>
-                      <span className="text-xs font-mono text-[var(--text-primary)] shrink-0">{r.hits}</span>
-                    </div>
-                  ))}
+                  {data.top_referrers.map(r => {
+                    // Referer пишет посетитель — ссылкой только http(s), иначе текстом.
+                    const href = externalHref(r.referrer);
+                    return (
+                      <div key={r.referrer} className="flex items-center gap-2">
+                        <ExternalLink className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
+                        {href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer nofollow"
+                            title={`Открыть ${r.referrer}`}
+                            className="text-xs text-[var(--text-secondary)] flex-1 truncate hover:text-[var(--ocean)] hover:underline underline-offset-2"
+                          >
+                            {r.referrer}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-[var(--text-secondary)] flex-1 truncate" title={r.referrer}>{r.referrer}</span>
+                        )}
+                        <span className="text-xs font-mono text-[var(--text-primary)] shrink-0">{r.hits}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -234,9 +271,9 @@ export default function AdminTrafficPage() {
               <div className="space-y-1.5">
                 {data.edges.map(e => (
                   <div key={`${e.from}->${e.to}`} className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-[var(--text-muted)] flex-1 truncate text-right" title={e.from}>{e.from}</span>
+                    <PathLink path={e.from} className="text-xs font-mono text-[var(--text-muted)] flex-1 truncate text-right" />
                     <ArrowRight className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
-                    <span className="text-xs font-mono text-[var(--text-secondary)] flex-1 truncate" title={e.to}>{e.to}</span>
+                    <PathLink path={e.to} className="text-xs font-mono text-[var(--text-secondary)] flex-1 truncate" />
                     <div className="w-16 h-3.5 bg-[var(--bg-hover)] rounded overflow-hidden shrink-0">
                       <div className="h-full bg-[var(--ocean)] rounded" style={{ width: `${(e.hits / maxEdgeHits) * 100}%` }} />
                     </div>
@@ -270,7 +307,9 @@ export default function AdminTrafficPage() {
                   <tbody>
                     {data.pages.map(p => (
                       <tr key={p.path} className="border-t border-[var(--border)]">
-                        <td className="py-1.5 pr-3 font-mono text-[var(--text-secondary)] max-w-0 truncate" title={p.path}>{p.path}</td>
+                        <td className="py-1.5 pr-3 max-w-0 truncate">
+                          <PathLink path={p.path} className="font-mono text-[var(--text-secondary)]" />
+                        </td>
                         <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{p.views}</td>
                         <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{fmtDwell(p.medianMs)}</td>
                         <td className="py-1.5 text-right font-mono tabular-nums" style={{ color: pct(p.exits, p.views) >= 70 ? 'var(--warning)' : 'var(--text-primary)' }}>
@@ -313,7 +352,9 @@ export default function AdminTrafficPage() {
                   <tbody>
                     {data.top_exit_pages.map(p => (
                       <tr key={p.path} className="border-t border-[var(--border)]">
-                        <td className="py-1.5 pr-3 font-mono text-[var(--text-secondary)] max-w-0 truncate" title={p.path}>{p.path}</td>
+                        <td className="py-1.5 pr-3 max-w-0 truncate">
+                          <PathLink path={p.path} className="font-mono text-[var(--text-secondary)]" />
+                        </td>
                         <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{p.views}</td>
                         <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{fmtDwell(p.medianMs)}</td>
                         <td className="py-1.5 text-right font-mono tabular-nums" style={{ color: 'var(--warning)' }}>
@@ -361,7 +402,16 @@ export default function AdminTrafficPage() {
                       return (
                         <tr key={f.tourId} className="border-t border-[var(--border)]">
                           <td className="py-1.5 pr-3 text-[var(--text-secondary)] max-w-0 truncate" title={f.title}>
-                            {f.title}{!f.isPublished && <span className="text-[var(--text-muted)]"> · скрыт</span>}
+                            {/* Карточка тура — единственная реализация (CLAUDE.md §11). */}
+                            <a
+                              href={`/marketplace/tours/${f.tourId}`}
+                              target="_blank"
+                              rel="noopener"
+                              className="hover:text-[var(--ocean)] hover:underline underline-offset-2"
+                            >
+                              {f.title}
+                            </a>
+                            {!f.isPublished && <span className="text-[var(--text-muted)]"> · скрыт</span>}
                           </td>
                           <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{f.views}</td>
                           <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{f.viewerDays}</td>
@@ -390,7 +440,7 @@ export default function AdminTrafficPage() {
               <div className="space-y-1.5">
                 {data.not_found.map(n => (
                   <div key={n.path} className="flex items-center gap-3">
-                    <span className="text-xs font-mono text-[var(--text-secondary)] flex-1 truncate" title={n.path}>{n.path}</span>
+                    <PathLink path={n.path} className="text-xs font-mono text-[var(--text-secondary)] flex-1 truncate" />
                     <span className="text-xs font-mono text-[var(--text-primary)] shrink-0">{n.hits}</span>
                   </div>
                 ))}
