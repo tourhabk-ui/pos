@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
-import { Star, MessageSquare, Loader2, AlertTriangle, Reply } from 'lucide-react';
+import { Star, MessageSquare, Loader2, AlertTriangle, Reply, Send, Pencil, Trash2 } from 'lucide-react';
 
 /**
  * Отзывы гида — живой экран.
@@ -15,6 +15,10 @@ import { Star, MessageSquare, Loader2, AlertTriangle, Reply } from 'lucide-react
  *
  * Фильтры соответствуют контракту API (all/positive/negative/unreplied), а не
  * произвольной клиентской фильтрации по звёздам.
+ *
+ * Ответ на отзыв — через POST/PUT/DELETE /api/guide/reviews/[id]/reply: роуты
+ * были, а формы не было. Писателя отзывов о гиде в платформе пока нет (турист
+ * оставить его не может), поэтому пустой экран — честное «отзывов пока нет».
  */
 
 interface GuideReview {
@@ -29,8 +33,97 @@ interface GuideReview {
 
 interface ReviewStats {
   totalReviews: number;
-  avgRating: string;
+  /** null — отзывов нет; средняя из пустоты не ноль. */
+  avgRating: number | null;
   unrepliedCount: number;
+}
+
+/** Ответ гида: написать, поправить, удалить. Ошибка сервера — видна. */
+function ReplyBox({ review, onSaved }: { review: GuideReview; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(review.guideReply ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function send(method: 'POST' | 'PUT' | 'DELETE') {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/guide/reviews/${review.id}/reply`, {
+        method,
+        headers: method === 'DELETE' ? undefined : { 'Content-Type': 'application/json' },
+        body: method === 'DELETE' ? undefined : JSON.stringify({ reply: text.trim() }),
+      });
+      const json: unknown = await res.json().catch(() => null);
+      if (!res.ok || (json as { success?: boolean } | null)?.success !== true) {
+        setErr((json as { error?: string } | null)?.error ?? `Ответ не сохранён (HTTP ${res.status})`);
+        return;
+      }
+      setEditing(false);
+      onSaved();
+    } catch {
+      setErr('Сеть недоступна — ответ не сохранён');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (review.guideReply && !editing) {
+    return (
+      <div className="mb-2">
+        <p className="text-sm text-[var(--text-secondary)] border-l-2 border-[var(--ocean)] pl-3">
+          <span className="text-[var(--text-muted)]">Ваш ответ: </span>
+          {review.guideReply}
+        </p>
+        <div className="flex gap-3 mt-1.5 pl-3">
+          <button type="button" onClick={() => { setText(review.guideReply ?? ''); setEditing(true); }}
+            className="inline-flex items-center gap-1 text-xs text-[var(--ocean)] hover:underline">
+            <Pencil className="w-3 h-3" /> Изменить
+          </button>
+          <button type="button" disabled={busy} onClick={() => void send('DELETE')}
+            className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--danger)] disabled:opacity-50">
+            <Trash2 className="w-3 h-3" /> Удалить
+          </button>
+        </div>
+        {err && <p className="text-xs text-[var(--danger)] mt-1 pl-3">{err}</p>}
+      </div>
+    );
+  }
+
+  if (!editing) {
+    return (
+      <button type="button" onClick={() => setEditing(true)}
+        className="inline-flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline mb-2">
+        <Reply className="w-3.5 h-3.5" /> Ответить
+      </button>
+    );
+  }
+
+  return (
+    <div className="mb-2 space-y-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        maxLength={1000}
+        rows={3}
+        placeholder="Ответ увидит турист"
+        className="w-full px-3 py-2 text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+      />
+      {err && <p className="text-xs text-[var(--danger)]">{err}</p>}
+      <div className="flex gap-2">
+        <button type="button" disabled={busy || text.trim().length === 0}
+          onClick={() => void send(review.guideReply ? 'PUT' : 'POST')}
+          className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg bg-[var(--accent)] text-white text-sm disabled:opacity-50">
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+          Отправить
+        </button>
+        <button type="button" onClick={() => { setEditing(false); setErr(null); }}
+          className="min-h-[36px] px-3 rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
 }
 
 const FILTERS: Array<{ value: string; label: string }> = [
@@ -70,7 +163,7 @@ export default function GuideReviewsClient() {
 
   useEffect(() => { void load(filter); }, [filter, load]);
 
-  const avg = stats ? Number(stats.avgRating) : 0;
+  const avg = stats?.avgRating ?? null;
 
   return (
     <Protected roles={['guide', 'admin']}>
@@ -87,13 +180,13 @@ export default function GuideReviewsClient() {
           <div className="flex items-center gap-6 mb-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
             <div className="text-center">
               <p className="text-4xl font-bold text-[var(--text-primary)]">
-                {stats.totalReviews > 0 ? avg.toFixed(1) : '—'}
+                {avg !== null ? avg.toFixed(1) : '—'}
               </p>
               <div className="flex items-center gap-0.5 mt-1">
                 {[1, 2, 3, 4, 5].map((s) => (
                   <Star
                     key={s}
-                    className={`w-4 h-4 ${s <= Math.round(avg) ? 'text-[var(--warning)] fill-[var(--warning)]' : 'text-[var(--text-muted)]'}`}
+                    className={`w-4 h-4 ${avg !== null && s <= Math.round(avg) ? 'text-[var(--warning)] fill-[var(--warning)]' : 'text-[var(--text-muted)]'}`}
                   />
                 ))}
               </div>
@@ -165,12 +258,7 @@ export default function GuideReviewsClient() {
                 {review.comment && (
                   <p className="text-sm text-[var(--text-secondary)] mb-2">{review.comment}</p>
                 )}
-                {review.guideReply && (
-                  <p className="text-sm text-[var(--text-secondary)] border-l-2 border-[var(--ocean)] pl-3 mb-2">
-                    <span className="text-[var(--text-muted)]">Ваш ответ: </span>
-                    {review.guideReply}
-                  </p>
-                )}
+                <ReplyBox key={`${review.id}:${review.guideReply ?? ''}`} review={review} onSaved={() => void load(filter)} />
                 <p className="text-xs text-[var(--text-muted)]">
                   {new Date(review.createdAt).toLocaleDateString('ru-RU')}
                 </p>

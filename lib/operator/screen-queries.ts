@@ -201,6 +201,13 @@ export const ANALYTICS_SQL = {
  * $1 — partners.id оператора. Колонки `specializations` у partners нет и не
  * было; вместо неё — подтверждённые аттестации из `guide_certifications`
  * (у них есть производитель: кабинет гида).
+ *
+ * `tours_count` — назначения гида на живые брони ЭТОГО оператора
+ * (operator_bookings.guide_partner_id, миграция 1018). До 25.09 здесь
+ * считались записи личного календаря гида (guide_schedule) — у любых
+ * операторов и вперемешку с личными делами, а подписывались «выходами».
+ * Членство — partners.guide_operator_id; пишет его только принятие
+ * приглашения (/api/guide/team).
  */
 export const GUIDES_SQL = `
   SELECT
@@ -208,13 +215,17 @@ export const GUIDES_SQL = `
     g.name,
     g.rating,
     g.is_available,
-    COUNT(DISTINCT gs.id)::text AS tours_count,
-    (COUNT(DISTINCT gc.id) FILTER (WHERE gc.is_verified))::text AS verified_certifications
+    (SELECT COUNT(*)
+       FROM operator_bookings ob
+       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+      WHERE ob.guide_partner_id = g.id
+        AND ot.operator_id = $1
+        AND ob.deleted_at IS NULL
+        AND ob.booking_status NOT IN ('cancelled', 'rejected', 'no_show'))::text AS tours_count,
+    (SELECT COUNT(*) FROM guide_certifications gc
+      WHERE gc.guide_id = g.id AND gc.is_verified)::text AS verified_certifications
   FROM partners g
-  LEFT JOIN guide_schedule gs ON gs.guide_id = g.id
-  LEFT JOIN guide_certifications gc ON gc.guide_id = g.id
   WHERE g.category = 'guide' AND g.guide_operator_id = $1
-  GROUP BY g.id, g.name, g.rating, g.is_available
   ORDER BY g.name NULLS LAST`;
 
 /** Отказ запроса пишется с именем экрана и SQLSTATE — «не смог» не выдаётся за «пусто» (§4.0). */

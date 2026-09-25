@@ -1108,34 +1108,9 @@ export interface GuideActivityTrailRow {
   latitude: string;
 }
 
-export interface GuideScheduleRow {
-  id: string;
-  guide_id: string;
-  start_time: Date;
-  end_time: Date;
-  title: string;
-  description: string | null;
-  tour_id: string | null;
-  tour_title: string | null;
-  booking_id: string | null;
-  booking_status: string | null;
-  max_participants: number;
-  current_participants: number;
-  location_name: string | null;
-  status: string;
-  notes: string | null;
-  created_at: Date;
-  updated_at: Date;
-  latitude: string | null;
-  longitude: string | null;
-}
-
-export interface GuideScheduleCheckRow {
-  guide_id: string;
-  start_time: string;
-  end_time: string;
-  tour_id: string | null;
-}
+// GuideScheduleRow / GuideScheduleCheckRow удалены 25.09 (миграция 1019):
+// описывали колонки tour_id/booking_id/current_participants, которых у
+// guide_schedule нет. Форма записи календаря — lib/guides/schedule-shape.ts.
 
 export interface GuideUserRow {
   id: string;

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
-import { User, Save, Loader2, Languages, Award, Mountain, AlertTriangle, Check } from 'lucide-react';
+import { User, Save, Loader2, Languages, Award, Mountain, AlertTriangle, Check, Clock, ShieldCheck, Send } from 'lucide-react';
+import { profileStatusView } from '@/lib/operator/profile-status';
+import GuideCertificationsBlock from './_GuideCertificationsBlock';
 
 /**
  * Профиль гида — живой экран.
@@ -12,6 +14,14 @@ import { User, Save, Loader2, Languages, Award, Mountain, AlertTriangle, Check }
  * ничего не отправляла. При этом GET/PUT /api/guide/profile существовали,
  * были под requireRole(['guide','admin']) и писали в users + partners.
  * Экран приведён к этому контракту.
+ *
+ * Пакет A (25.09): «О себе» пишется в partners.description (колонки bio нет —
+ * сохранение падало всегда); очищенный телефон уходит пустой строкой и
+ * стирается, а не остаётся старым; опыт 0 лет — допустимое значение; имя на
+ * витрине применяется и тогда, когда оно не менялось с загрузки. Не загрузилось
+ * — формы нет вовсе: сохранить пустые поля поверх настоящих было бы хуже ошибки.
+ * Статус проверки платформой виден и отсюда подаётся заявка: на публичной
+ * витрине /guides только одобренные гиды.
  */
 
 /** Специализации в API — фиксированный перечень (Zod-enum в роуте). */
@@ -31,10 +41,14 @@ const SPECIALIZATIONS: Array<{ value: string; label: string }> = [
 interface ProfileResponse {
   user: { id: string; email: string; name: string | null };
   partner: {
-    bio?: string | null;
-    languages?: string[] | null;
-    specializations?: string[] | null;
-    contact?: Record<string, unknown> | null;
+    name: string;
+    description: string | null;
+    languages: string[];
+    specializations: string[];
+    contact: Record<string, unknown> | null;
+    experienceYears: number | null;
+    profileStatus: string;
+    profileReviewComment: string | null;
   } | null;
 }
 
@@ -47,9 +61,16 @@ export default function GuideProfileClient() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  const [loaded, setLoaded] = useState(false);
+  const [hasPartner, setHasPartner] = useState(false);
   const [name, setName] = useState('');
+  const [partnerName, setPartnerName] = useState('');
   const [email, setEmail] = useState('');
   const [bio, setBio] = useState('');
+  const [experience, setExperience] = useState('');
+  const [status, setStatus] = useState<string>('none');
+  const [reviewComment, setReviewComment] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [phone, setPhone] = useState('');
   const [languages, setLanguages] = useState('');
   const [specializations, setSpecializations] = useState<string[]>([]);
@@ -65,13 +86,20 @@ export default function GuideProfileClient() {
         return;
       }
       const data = json.data as ProfileResponse;
-      const contact = (data.partner?.contact ?? {}) as Record<string, unknown>;
+      const p = data.partner;
+      const contact = (p?.contact ?? {}) as Record<string, unknown>;
+      setHasPartner(p !== null);
       setName(data.user.name ?? '');
       setEmail(data.user.email ?? '');
-      setBio(data.partner?.bio ?? '');
+      setPartnerName(p?.name ?? '');
+      setBio(p?.description ?? '');
+      setExperience(p?.experienceYears == null ? '' : String(p.experienceYears));
       setPhone(typeof contact.phone === 'string' ? contact.phone : '');
-      setLanguages((data.partner?.languages ?? []).join(', '));
-      setSpecializations(data.partner?.specializations ?? []);
+      setLanguages((p?.languages ?? []).join(', '));
+      setSpecializations(p?.specializations ?? []);
+      setStatus(p?.profileStatus ?? 'none');
+      setReviewComment(p?.profileReviewComment ?? null);
+      setLoaded(true);
     } catch {
       setError('Сеть недоступна. Профиль не загружен.');
     } finally {
@@ -89,6 +117,15 @@ export default function GuideProfileClient() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    const exp = experience.trim();
+    if (exp !== '' && !/^\d{1,2}$/.test(exp)) {
+      setError('Опыт — целое число лет от 0 до 60 (или оставьте поле пустым)');
+      return;
+    }
+    if (!name.trim() || !partnerName.trim()) {
+      setError('ФИО и имя на витрине не могут быть пустыми');
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -97,11 +134,14 @@ export default function GuideProfileClient() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim() || undefined,
-          bio,
+          name: name.trim(),
+          partnerName: partnerName.trim(),
+          description: bio,
+          experienceYears: exp === '' ? null : Number(exp),
           languages: languages.split(',').map((l) => l.trim()).filter(Boolean),
           specializations,
-          contact: phone.trim() ? { phone: phone.trim() } : undefined,
+          // Пустая строка — явная очистка телефона на сервере.
+          phone: phone.trim(),
         }),
       });
       const json = await res.json();
@@ -118,6 +158,30 @@ export default function GuideProfileClient() {
     }
   }
 
+  async function submitForReview() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/guide/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submitForReview: true }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setError(json?.error || 'Заявку отправить не удалось');
+        return;
+      }
+      await load();
+    } catch {
+      setError('Сеть недоступна. Заявка не отправлена.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const statusView = profileStatusView(status);
+
   return (
     <Protected roles={['guide', 'admin']}>
       <div className="max-w-3xl mx-auto p-6">
@@ -126,11 +190,48 @@ export default function GuideProfileClient() {
           <h1 className="text-2xl font-bold text-[var(--text-primary)]">Профиль гида</h1>
         </div>
 
-        {loading ? (
+        {loading && !loaded ? (
           <div className="flex justify-center py-16">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
           </div>
+        ) : !loaded ? (
+          <div className="flex items-start gap-2 p-4 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
+            <AlertTriangle className="w-4 h-4 mt-0.5 text-[var(--danger)] flex-shrink-0" />
+            <span>{error ?? 'Профиль не загружен.'}</span>
+          </div>
+        ) : !hasPartner ? (
+          <div className="p-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] text-sm text-[var(--text-secondary)]">
+            У этого аккаунта нет профиля гида — здесь нечего показывать.
+          </div>
         ) : (
+          <div className="space-y-5">
+          <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5 flex items-start gap-3">
+            <span className="flex items-center justify-center w-11 h-11 rounded-full bg-[var(--ocean)]/10 shrink-0">
+              {status === 'approved'
+                ? <ShieldCheck className="w-[22px] h-[22px] text-[var(--success)]" strokeWidth={1.75} />
+                : <Clock className="w-[22px] h-[22px] text-[var(--ocean)]" strokeWidth={1.75} />}
+            </span>
+            <div className="min-w-0 text-sm">
+              <p className="font-semibold text-[var(--text-primary)]">
+                Проверка платформой: <span className={statusView.color}>{statusView.label}</span>
+              </p>
+              <p className="text-[var(--text-secondary)] mt-1">
+                {status === 'approved' && 'Ваш профиль виден туристам в реестре гидов.'}
+                {status === 'pending' && 'Администратор проверяет профиль. До одобрения туристы его не видят.'}
+                {(status === 'none' || status === 'rejected') && 'В реестре гидов на сайте показываются только профили, одобренные платформой.'}
+              </p>
+              {status === 'rejected' && reviewComment && (
+                <p className="text-[var(--text-secondary)] mt-1">Причина отказа: {reviewComment}</p>
+              )}
+              {(status === 'none' || status === 'rejected') && (
+                <button type="button" onClick={() => void submitForReview()} disabled={submitting}
+                  className="mt-3 inline-flex items-center gap-2 min-h-[40px] px-4 rounded-lg bg-[var(--accent)] text-white text-sm font-medium disabled:opacity-50">
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {status === 'rejected' ? 'Отправить на проверку снова' : 'Отправить на проверку'}
+                </button>
+              )}
+            </div>
+          </section>
           <form onSubmit={handleSave} className="space-y-5">
             {error && (
               <div className="flex items-start gap-2 p-4 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
@@ -151,6 +252,19 @@ export default function GuideProfileClient() {
                   <User className="w-4 h-4" /> ФИО
                 </span>
                 <input value={name} onChange={(e) => setName(e.target.value)} className={INPUT} />
+              </label>
+
+              <label className="block">
+                <span className="text-sm text-[var(--text-secondary)] flex items-center gap-1.5 mb-1.5">
+                  <User className="w-4 h-4" /> Имя на витрине гидов
+                </span>
+                <input value={partnerName} onChange={(e) => setPartnerName(e.target.value)} className={INPUT} />
+              </label>
+
+              <label className="block">
+                <span className="text-sm text-[var(--text-secondary)] mb-1.5 block">Опыт работы гидом, лет</span>
+                <input value={experience} onChange={(e) => setExperience(e.target.value)} inputMode="numeric"
+                  className={INPUT} placeholder="Например, 5" />
               </label>
 
               <label className="block">
@@ -221,6 +335,8 @@ export default function GuideProfileClient() {
               Сохранить
             </button>
           </form>
+          <GuideCertificationsBlock />
+          </div>
         )}
       </div>
     </Protected>

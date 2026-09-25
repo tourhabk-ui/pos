@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
-import { Users, Star, Loader2, Search, UserCheck, UserX, AlertTriangle, RefreshCw, BadgeCheck } from 'lucide-react';
+import { Users, Star, Loader2, Search, UserCheck, UserX, AlertTriangle, RefreshCw, BadgeCheck, UserMinus } from 'lucide-react';
 import { plural } from '@/lib/home/data-freshness';
+import GuideInvites from './_GuideInvites';
 
 /**
  * Гиды оператора — живой экран.
@@ -12,6 +13,11 @@ import { plural } from '@/lib/home/data-freshness';
  * придуманными рейтингами и кнопка «Отключить», которая меняла только
  * локальный стейт. Экран переведён на GET/PATCH /api/operator/guides
  * поверх partners.guide_operator_id (миграция 121).
+ *
+ * 25.09 (миграция 1018): у связи появился писатель — приглашение по e-mail
+ * гида (_GuideInvites) и его принятие в кабинете гида. Здесь же — исключение
+ * из команды: оно снимает гида с будущих броней оператора. «Назначения» —
+ * брони этого оператора, на которые гид назначен.
  */
 
 interface Guide {
@@ -29,6 +35,7 @@ export default function GuidesClient() {
   const [guides, setGuides] = useState<Guide[]>([]);
   const [search, setSearch] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<Guide | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +83,29 @@ export default function GuidesClient() {
     }
   }
 
+  async function remove(guide: Guide) {
+    setConfirmRemove(null);
+    setBusyId(guide.id);
+    setError(null);
+    try {
+      const res = await fetch('/api/operator/guides', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guideId: guide.id }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setError(json.error || 'Не удалось исключить гида');
+        return;
+      }
+      setGuides((prev) => prev.filter((g) => g.id !== guide.id));
+    } catch {
+      setError('Сеть недоступна. Гид не исключён.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const filtered = guides.filter((g) => g.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -96,6 +126,26 @@ export default function GuidesClient() {
             />
           </div>
         </div>
+
+        <GuideInvites />
+
+        {confirmRemove && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
+            role="dialog" aria-modal="true" aria-labelledby="remove-guide-title">
+            <div className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
+              <h2 id="remove-guide-title" className="text-base font-semibold text-[var(--text-primary)]">
+                Исключить {confirmRemove.name} из команды?
+              </h2>
+              <p className="text-sm text-[var(--text-secondary)]">
+                Гид будет снят со всех будущих броней и перестанет видеть контакты туристов. Вернуть его можно новым приглашением.
+              </p>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setConfirmRemove(null)} className="flex-1 ds-btn ds-btn-secondary">Не надо</button>
+                <button type="button" onClick={() => void remove(confirmRemove)} className="flex-1 ds-btn ds-btn-danger">Исключить</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/*
           Три исхода, не два: «не смогли загрузить» — отдельное состояние с
@@ -127,7 +177,7 @@ export default function GuidesClient() {
           <div className="text-center py-16">
             <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3" />
             <p className="text-[var(--text-secondary)]">
-              {guides.length === 0 ? 'К вашей компании пока не привязан ни один гид' : 'Никто не найден'}
+              {guides.length === 0 ? 'В команде пока нет гидов — пригласите гида по e-mail его аккаунта' : 'Никто не найден'}
             </p>
           </div>
         ) : (
@@ -157,7 +207,7 @@ export default function GuidesClient() {
                         {guide.rating.toFixed(1)}
                       </span>
                     )}
-                    <span>{guide.toursCount} {plural(guide.toursCount, 'выход', 'выхода', 'выходов')}</span>
+                    <span>{guide.toursCount} {plural(guide.toursCount, 'назначение', 'назначения', 'назначений')}</span>
                     {guide.verifiedCertifications > 0 && (
                       <span className="flex items-center gap-1">
                         <BadgeCheck className="w-3.5 h-3.5 text-[var(--success)]" />
@@ -166,19 +216,28 @@ export default function GuidesClient() {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => toggle(guide)}
-                  disabled={busyId === guide.id}
-                  className="min-h-[44px] px-3 py-2 rounded-lg text-sm border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 transition-colors inline-flex items-center gap-1.5"
-                >
-                  {busyId === guide.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : guide.isAvailable ? (
-                    <><UserX className="w-4 h-4" /> Отключить</>
-                  ) : (
-                    <><UserCheck className="w-4 h-4" /> Включить</>
-                  )}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => toggle(guide)}
+                    disabled={busyId === guide.id}
+                    className="min-h-[44px] px-3 py-2 rounded-lg text-sm border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 transition-colors inline-flex items-center gap-1.5"
+                  >
+                    {busyId === guide.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : guide.isAvailable ? (
+                      <><UserX className="w-4 h-4" /> Отключить</>
+                    ) : (
+                      <><UserCheck className="w-4 h-4" /> Включить</>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setConfirmRemove(guide)}
+                    disabled={busyId === guide.id}
+                    className="min-h-[44px] px-3 py-2 rounded-lg text-sm border border-[var(--border)] text-[var(--danger)] hover:bg-[var(--bg-hover)] disabled:opacity-50 transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <UserMinus className="w-4 h-4" /> Исключить
+                  </button>
+                </div>
               </div>
             ))}
           </div>

@@ -365,12 +365,32 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          krl.geometry->>'source'     AS geometry_source,
          (krl.id IS NOT NULL AND EXISTS (
             SELECT 1 FROM route_waypoints rww WHERE rww.route_id = krl.id
-         )) AS has_route_waypoints
+         )) AS has_route_waypoints,
+         wp.photo_id AS waypoint_photo_id
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = ark.id
        LEFT JOIN kamchatka_routes krl
          ON ark.kind = 'route' AND (krl.id = ark.id OR krl.ark_id = ark.id)
+       -- Снимок главной ТОЧКИ ПУТИ маршрута (card-image.ts, решение 26.09):
+       -- только link_kind = 'waypoint' — место «рядом» не про этот путь;
+       -- главная — чьё имя ближе к названию маршрута, при равенстве дальняя
+       -- по ходу (у радиального маршрута это цель, а не парковка).
+       LEFT JOIN LATERAL (
+         SELECT p.ark_id::text AS photo_id
+           FROM route_waypoints rw
+           JOIN places p ON p.id = rw.place_id
+          WHERE krl.id IS NOT NULL
+            AND rw.route_id = krl.id
+            AND rw.link_kind = 'waypoint'
+            AND p.ark_id IS NOT NULL
+            AND p.is_visible IS NOT FALSE
+            AND p.merged_into_id IS NULL
+            AND EXISTS (SELECT 1 FROM ai_route_images wpi
+                         WHERE wpi.route_id = p.ark_id AND ${shownPhotoSql('wpi.model')})
+          ORDER BY similarity(ark.title, p.name) DESC, rw.position DESC
+          LIMIT 1
+       ) wp ON TRUE
        ${where}
        ORDER BY ${orderBy}
        LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -397,6 +417,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       // считает запись местом и не подставляет — но маршрут тогда терял бы
       // свою картинку молча.
       kind: (r.kind as 'place' | 'route' | 'tour' | null) ?? 'place',
+      waypointPhotoId: (r.waypoint_photo_id as string | null) ?? null,
     }).url;
 
     return {

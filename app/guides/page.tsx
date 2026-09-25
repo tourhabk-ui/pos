@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { Shield, Award, Star } from 'lucide-react';
+import { publicGuideWhere } from '@/lib/guides/visibility';
 
 export const metadata: Metadata = {
   title: 'Сертифицированные гиды Камчатки',
-  description: '112 аттестованных гидов. Лицензии, специализации, отзывы туристов. Выбирайте проверенного гида для безопасного путешествия по Камчатке.',
+  description: 'Гиды Камчатки, проверенные платформой Ведар: аттестаты, специализации, отзывы туристов. Выбирайте проверенного гида для безопасного путешествия.',
   openGraph: {
     title: 'Сертифицированные гиды Камчатки',
-    description: '112 аттестованных гидов с лицензиями и отзывами туристов.',
+    description: 'Гиды Камчатки, проверенные платформой: аттестаты и отзывы туристов.',
     url: 'https://vedarai.ru/guides',
     siteName: 'Ведар',
     locale: 'ru_RU',
@@ -20,43 +21,56 @@ interface Guide {
   name: string;
   company_name: string | null;
   description: string | null;
-  rating: number;
+  /** null — оценок нет; 0.0 по умолчанию колонки оценкой не является. */
+  rating: number | null;
   review_count: number;
   is_verified: boolean;
   certifications: string[];
 }
 
-async function getGuides(): Promise<Guide[]> {
+// Кто виден: только гиды, одобренные платформой (решение владельца 25.09),
+// одно условие на список, профиль и перепись — lib/guides/visibility.ts.
+// null — запрос не выполнился: «гидов нет» и «не смогли спросить» на
+// витрине доверия — разные вещи (§4.0).
+
+async function getGuides(): Promise<Guide[] | null> {
   try {
     const { rows } = await pool.query<{
       id: string; name: string; company_name: string | null;
-      description: string | null; rating: number; review_count: number;
+      description: string | null; rating: string | null; review_count: number;
       is_verified: boolean; certs: string | null;
     }>(
       `SELECT p.id, p.name, p.company_name, p.description,
-              COALESCE(p.rating, 0) AS rating,
+              CASE WHEN COALESCE(p.review_count, 0) > 0 THEN p.rating END AS rating,
               COALESCE(p.review_count, 0) AS review_count,
               COALESCE(p.is_verified, false) AS is_verified,
               STRING_AGG(gc.name, '||') AS certs
        FROM partners p
        LEFT JOIN guide_certifications gc ON gc.guide_id = p.id AND gc.is_verified = true
-       WHERE p.category = 'guide' AND p.profile_status = 'active'
+       WHERE ${publicGuideWhere('p')}
        GROUP BY p.id, p.name, p.company_name, p.description, p.rating, p.review_count, p.is_verified
-       ORDER BY p.is_verified DESC, p.rating DESC, p.review_count DESC
+       ORDER BY p.is_verified DESC, p.rating DESC NULLS LAST, p.review_count DESC
        LIMIT 100`
     );
     return rows.map(r => ({
       ...r,
+      rating: r.rating == null ? null : Number(r.rating),
       certifications: r.certs ? r.certs.split('||').filter(Boolean) : [],
     }));
-  } catch {
-    return [];
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    console.error('[guides] список не прочитан:', `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
+    return null;
   }
 }
 
 export default async function GuidesPage() {
-  const guides = await getGuides();
+  const loaded = await getGuides();
+  const failed = loaded === null;
+  const guides = loaded ?? [];
   const verifiedCount = guides.filter(g => g.is_verified).length;
+  // Средняя — только по гидам с оценками; гид без отзывов в неё нулём не идёт.
+  const rated = guides.filter((g): g is Guide & { rating: number } => g.rating !== null);
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -97,9 +111,9 @@ export default async function GuidesPage() {
           {/* Trust stats */}
           <div className="flex flex-wrap gap-6 mt-8">
             {[
-              { icon: Shield, label: 'Верифицировано', value: `${verifiedCount} гидов` },
-              { icon: Award, label: 'С аттестатами', value: `${guides.filter(g => g.certifications.length > 0).length} гидов` },
-              { icon: Star, label: 'Средний рейтинг', value: guides.length > 0 ? (guides.reduce((s, g) => s + g.rating, 0) / guides.length).toFixed(1) : '—' },
+              { icon: Shield, label: 'Верифицировано', value: failed ? '—' : `${verifiedCount} гидов` },
+              { icon: Award, label: 'С аттестатами', value: failed ? '—' : `${guides.filter(g => g.certifications.length > 0).length} гидов` },
+              { icon: Star, label: 'Средний рейтинг', value: rated.length > 0 ? (rated.reduce((s, g) => s + g.rating, 0) / rated.length).toFixed(1) : '—' },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className="flex items-center gap-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-5 py-3">
                 <Icon size={18} className="text-[var(--accent)]" />
@@ -113,9 +127,13 @@ export default async function GuidesPage() {
         </div>
 
         {/* Guides grid */}
-        {guides.length === 0 ? (
+        {failed ? (
           <div className="ds-card text-center py-16">
-            <p className="text-[var(--text-muted)]">Реестр гидов скоро будет опубликован</p>
+            <p className="text-[var(--text-muted)]">Не удалось загрузить реестр гидов. Попробуйте обновить страницу.</p>
+          </div>
+        ) : guides.length === 0 ? (
+          <div className="ds-card text-center py-16">
+            <p className="text-[var(--text-muted)]">Проверенных платформой гидов пока нет — профили на проверке.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -134,7 +152,7 @@ export default async function GuidesPage() {
                       <p className="text-xs text-[var(--text-muted)] truncate">{guide.company_name}</p>
                     )}
                   </div>
-                  {guide.rating > 0 && (
+                  {guide.rating !== null && (
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <Star size={13} className="text-[var(--warning)] fill-[var(--warning)]" />
                       <span className="text-sm font-medium text-[var(--text-primary)]">

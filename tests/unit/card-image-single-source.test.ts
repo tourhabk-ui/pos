@@ -72,15 +72,32 @@ describe('род картинки называется честно', () => {
     expect(cardImage({ hasShownPhoto: false, id: 'abc', category: 'vulkani' }).kind).toBe('gradient');
   });
 
-  it('у МАРШРУТА и ТУРА подстановка осталась — это другое решение', () => {
-    // У места карточка утверждает географический факт: вот место, вот его
-    // снимок. У тура карточка — витрина предложения оператора, и кадр
-    // оператора там не подменяет собой объект. Владелец менял первое.
-    for (const kind of ['route', 'tour'] as const) {
-      const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'termalnye_istochniki', kind });
-      expect(r.kind, kind).toBe('category_fallback');
-      expect(r.url, kind).toContain('/images/partners/kamchatintour/');
-    }
+  it('у ТУРА подстановка осталась — это другое решение', () => {
+    // У тура карточка — витрина предложения оператора, и кадр оператора там
+    // не подменяет собой объект.
+    const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'termalnye_istochniki', kind: 'tour' });
+    expect(r.kind).toBe('category_fallback');
+    expect(r.url).toContain('/images/partners/kamchatintour/');
+  });
+
+  it('у МАРШРУТА без своего снимка — снимок главной точки пути, не кадр категории (26.09)', () => {
+    // Скрин владельца 26.09: «Однодневный поход к Авачинскому вулкану» с
+    // кратером Горелого — заглушкой всей категории trekking.
+    const withPoint = cardImage({ hasShownPhoto: false, id: 'route-1', category: 'trekking', kind: 'route', waypointPhotoId: 'place-ark-9' });
+    expect(withPoint).toEqual({ kind: 'waypoint_place', url: '/api/images/route/place-ark-9' });
+    const noPoint = cardImage({ hasShownPhoto: false, id: 'route-1', category: 'trekking', kind: 'route' });
+    expect(noPoint).toEqual({ kind: 'gradient', url: null });
+  });
+
+  it('свой снимок маршрута важнее снимка точки', () => {
+    const r = cardImage({ hasShownPhoto: true, id: 'route-1', kind: 'route', waypointPhotoId: 'place-ark-9' });
+    expect(r).toEqual({ kind: 'own', url: '/api/images/route/route-1' });
+  });
+
+  it('каталог берёт снимок только ТОЧКИ ПУТИ, не места «рядом»', () => {
+    const q = readFileSync(join(process.cwd(), 'lib/routes/catalog-query.ts'), 'utf-8');
+    expect(q).toMatch(/rw\.link_kind = 'waypoint'/);
+    expect(q).toMatch(/waypointPhotoId: \(r\.waypoint_photo_id/);
   });
 
   it('категория незнакомая — градиент, и адреса нет', () => {

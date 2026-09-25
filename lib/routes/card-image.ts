@@ -42,9 +42,11 @@
  *
  * Это записано здесь, а не выяснено заново, потому что 20.09 я едва не завёл
  * переписи строку «сколько мест показывают картинку из payload». Такая строка
- * вернула бы ноль ПО ПОСТРОЕНИЮ — ровно та тавтология, за которую в тот же
- * день пришлось поправлять счёт гидов (`profile_status = 'active'` при CHECK
- * без такого значения). Ноль, который не мог быть другим, — не измерение.
+ * вернула бы ноль ПО ПОСТРОЕНИЮ — ровно та тавтология, что жила в счёте гидов
+ * (`profile_status = 'active'` при CHECK без такого значения). Замечена она
+ * была в тот же день, а исправлена только 25.09 (пакет A): все три копии
+ * условия заменены одной — `publicGuideWhere` в lib/guides/visibility.ts.
+ * Ноль, который не мог быть другим, — не измерение.
  */
 
 /** Красивые фото-плейсхолдеры по категориям. Кадры оператора, не наши. */
@@ -129,7 +131,7 @@ export function categoryFallbackImage(category: string | null): string | null {
  *
  * `gradient` — картинки нет, рисуется честный градиент по `location_type`.
  */
-export type CardImageKind = 'own' | 'payload_link' | 'category_fallback' | 'gradient';
+export type CardImageKind = 'own' | 'payload_link' | 'waypoint_place' | 'category_fallback' | 'gradient';
 
 export interface CardImageInput {
   /** Есть ли у записи снимок, проходящий правило показа. */
@@ -144,6 +146,13 @@ export interface CardImageInput {
    * дешевле, чем в сторону «подставить чужое».
    */
   kind?: 'place' | 'route' | 'tour' | null;
+  /**
+   * Только у маршрута: ark_id места — ТОЧКИ ПУТИ (`link_kind = 'waypoint'`),
+   * у которого есть показываемый снимок; из точек пути берётся главная —
+   * та, чьё имя ближе всего к названию маршрута (catalog-query). Снимок
+   * места «рядом» сюда не попадает: он не про этот путь.
+   */
+  waypointPhotoId?: string | null;
 }
 
 export interface CardImage {
@@ -185,8 +194,27 @@ export function cardImage(input: CardImageInput): CardImage {
    * Род не передан — считается местом: ошибиться в сторону «не подставлять»
    * дешевле, чем в сторону «подставить чужое» (§4.0, умолчание консервативно).
    */
-  const isPlace = (input.kind ?? 'place') === 'place';
-  if (!isPlace) {
+  /**
+   * ── У МАРШРУТА — снимок его главной точки пути (решение владельца 26.09) ─
+   *
+   * Кадр оператора по категории у маршрута показывал чужой объект под именем
+   * маршрута: у всей категории `trekking` заглушкой стоял кратер Горелого с
+   * бирюзовым озером, и «Однодневный поход к Авачинскому вулкану» выходил на
+   * витрину с чужим вулканом (скрин владельца). Та же ложь, что у мест 20.09,
+   * только решение тогда касалось мест.
+   *
+   * Владелец выбрал «фото главной точки маршрута»: настоящий снимок места, к
+   * которому ведёт путь. Нет такого снимка — градиент, чужого кадра нет.
+   * Тур кадр оператора сохраняет: его карточка — витрина предложения.
+   */
+  const kind = input.kind ?? 'place';
+  if (kind === 'route') {
+    if (input.waypointPhotoId) {
+      return { kind: 'waypoint_place', url: `/api/images/route/${input.waypointPhotoId}` };
+    }
+    return { kind: 'gradient', url: null };
+  }
+  if (kind === 'tour') {
     const fallback = categoryFallbackImage(input.category ?? null);
     if (fallback) return { kind: 'category_fallback', url: fallback };
   }
