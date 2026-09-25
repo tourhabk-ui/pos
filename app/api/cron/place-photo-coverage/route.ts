@@ -286,7 +286,7 @@ export async function GET(req: NextRequest) {
     );
 
     const byCardKind: Record<CardImageKind, number> = {
-      own: 0, payload_link: 0, category_fallback: 0, gradient: 0,
+      own: 0, payload_link: 0, waypoint_place: 0, category_fallback: 0, gradient: 0,
     };
     for (const row of noPhotoCats) {
       const kind = cardImage({ hasShownPhoto: false, id: 'x', category: row.category, kind: 'place' }).kind;
