@@ -23,6 +23,9 @@ import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
+import { planRouteMap, saveRouteMap, type RouteMapProgress } from '@/lib/offline/route-map-save';
+import { parseSavedMap, savedMapKey } from '@/lib/offline/saved-map';
+import { builtRegionPacks } from '@/lib/map/field-base-map';
 import { trackLine } from '@/lib/map/line-standard';
 // Сложность — из ЕДИНОГО словаря (lib/tours/labels). Здесь лежали свои
 // DIFFICULTY_RU и DIFFICULTY_COLOR, знавшие три написания из семи: у
@@ -429,7 +432,7 @@ function OfferCard({ offer, activityType, onBook }: {
   );
 }
 
-export default function RouteDetailClient({ id }: { id: string }) {
+export default function RouteDetailClient({ id, mapPackBaseUrl }: { id: string; mapPackBaseUrl: string | null }) {
   const router = useRouter();
   const [route, setRoute] = useState<RouteDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -448,36 +451,40 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const [fromCache, setFromCache] = useState(false);
   const [showMchsModal, setShowMchsModal] = useState(false);
   const [dlState, setDlState] = useState<'idle'|'loading'|'downloading'|'done'|'error'>('idle');
-  const [dlProgress, setDlProgress] = useState({ done: 0, total: 0 });
+  const [dlProgress, setDlProgress] = useState<RouteMapProgress>({ done: 0, total: 0, unit: 'МБ' });
+  /** Итог закачки словами: причина отказа, недокачанное или вес сохранённого. */
+  const [dlNote, setDlNote] = useState<string | null>(null);
   useSourceTracker();
+  const regionPacks = useMemo(() => builtRegionPacks(mapPackBaseUrl), [mapPackBaseUrl]);
 
+  // Карта уже в телефоне (с этой кнопки или с полевого экрана — запись одна).
+  useEffect(() => {
+    try {
+      const rec = parseSavedMap(localStorage.getItem(savedMapKey(id)));
+      if (rec) { setDlState('done'); setDlNote(`Карта маршрута в телефоне: ${rec.mb} МБ`); }
+    } catch { /* хранилище закрыто — значит, записи нет */ }
+  }, [id]);
+
+  /**
+   * «Скачать для похода» — свои пакеты карты тем же правилом, что полевой
+   * экран (lib/offline/route-map-save, 25.09). До этого кнопка слала
+   * растровую закачку OSM, выключенную с 28.08, и не сохраняла ни разу, а без
+   * service worker'а сразу рисовала «Готово к офлайн», не положив ни байта.
+   */
   const downloadOfflineBundle = useCallback(async () => {
     if (dlState === 'downloading' || dlState === 'loading') return;
     setDlState('loading');
-    try {
-      const res = await fetch(`/api/routes/${id}/offline-bundle`);
-      const data = await res.json() as { tile_urls: string[]; tile_count: number; route: unknown; waypoints: unknown };
-      if (!res.ok || !data.tile_urls) throw new Error('bundle failed');
-      try { localStorage.setItem(`offline_route_${id}`, JSON.stringify({ route: data.route, waypoints: data.waypoints, ts: Date.now() })); } catch { /* ignore */ }
-      if (!navigator.serviceWorker) { setDlState('done'); return; }
-      // Use serviceWorker.ready so the SW is active even if not yet controlling this page
-      const reg = await navigator.serviceWorker.ready;
-      const sw = reg.active;
-      if (!sw) { setDlState('done'); return; }
-      setDlState('downloading');
-      setDlProgress({ done: 0, total: data.tile_count });
-      const onMsg = (e: MessageEvent) => {
-        if (e.data?.regionId !== id) return;
-        if (e.data.type === 'TILE_PROGRESS') setDlProgress({ done: e.data.done, total: e.data.total });
-        if (e.data.type === 'TILES_DONE') { setDlState('done'); navigator.serviceWorker.removeEventListener('message', onMsg); }
-        // Массовая закачка тайлов отключена (M0, владелец 28.08) — SW
-        // отвечает этим честно, вместо тихого «готово» без единого тайла.
-        if (e.data.type === 'TILES_UNAVAILABLE') { setDlState('error'); navigator.serviceWorker.removeEventListener('message', onMsg); }
-      };
-      navigator.serviceWorker.addEventListener('message', onMsg);
-      sw.postMessage({ type: 'CACHE_TILES', tiles: data.tile_urls, regionId: id });
-    } catch { setDlState('error'); }
-  }, [id, dlState]);
+    setDlNote(null);
+    const planned = await planRouteMap(id, regionPacks);
+    if (!planned.ok) { setDlState('error'); setDlNote(planned.error); return; }
+    setDlState('downloading');
+    const saved = await saveRouteMap(id, planned.plan, setDlProgress);
+    if (!saved.ok) { setDlState('error'); setDlNote(saved.error); return; }
+    // Легло не всё — это не «готово»: запись есть, но кнопка зовёт повторить.
+    if (saved.warning) { setDlState('error'); setDlNote(saved.warning); return; }
+    setDlState('done');
+    setDlNote(`Карта маршрута в телефоне: ${saved.rec.mb} МБ`);
+  }, [id, dlState, regionPacks]);
 
   const CACHE_KEY = `route_cache_${id}`;
   const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 часа
@@ -1433,10 +1440,13 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     <Download className="w-4 h-4" />
                     {dlState === 'idle' && 'Скачать для похода'}
                     {dlState === 'loading' && 'Подготовка…'}
-                    {dlState === 'downloading' && `Тайлы ${dlProgress.done}/${dlProgress.total}`}
+                    {dlState === 'downloading' && `Карта ${dlProgress.done}/${dlProgress.total} ${dlProgress.unit}`}
                     {dlState === 'done' && 'Готово к офлайн'}
-                    {dlState === 'error' && 'Ошибка — повторить'}
+                    {dlState === 'error' && 'Повторить'}
                   </button>
+                  {dlNote && (
+                    <p className="text-xs" style={{ color: dlState === 'error' ? 'var(--danger)' : 'var(--text-muted)' }}>{dlNote}</p>
+                  )}
                 </div>
               </section>
             )}
@@ -1600,10 +1610,13 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       <Download className="w-3 h-3" />
                       {dlState === 'idle' && 'Скачать для похода'}
                       {dlState === 'loading' && 'Подготовка…'}
-                      {dlState === 'downloading' && `${dlProgress.done}/${dlProgress.total} тайлов`}
+                      {dlState === 'downloading' && `${dlProgress.done}/${dlProgress.total} ${dlProgress.unit}`}
                       {dlState === 'done' && 'Готово к офлайн'}
-                      {dlState === 'error' && 'Ошибка — повторить'}
+                      {dlState === 'error' && 'Повторить'}
                     </button>
+                    {dlNote && (
+                      <p className="text-xs" style={{ color: dlState === 'error' ? 'var(--danger)' : 'var(--text-muted)' }}>{dlNote}</p>
+                    )}
                   </div>
                 </div>
               )}

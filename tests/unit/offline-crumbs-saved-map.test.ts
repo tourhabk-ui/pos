@@ -225,7 +225,12 @@ describe('экран «На маршруте» пользуется этим', (
   });
 
   it('хранилище закрепляется тем же жестом', () => {
-    expect(SCREEN).toMatch(/await requestPersistentStorage\(\)/);
+    // С 25.09 закачку ведёт общий модуль (его зовёт и карточка маршрута);
+    // закрепление — внутри него, до закачки, в том же нажатии.
+    const lib = readFileSync(join(process.cwd(), 'lib/offline/route-map-save.ts'), 'utf-8');
+    expect(SCREEN).toMatch(/await saveRouteMap\(routeId, mapPlan/);
+    expect(lib).toMatch(/await requestPersistentStorage\(\)/);
+    expect(lib.indexOf('await requestPersistentStorage()')).toBeLessThan(lib.indexOf('await downloadPackFiles('));
   });
 
   it('отказ в закреплении и урезанные зумы названы человеку', () => {

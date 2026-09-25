@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { cache } from 'react';
 import { notFound, permanentRedirect } from 'next/navigation';
 import RouteDetailClient from './_RouteDetailClient';
+import { MAP_PACK_BASE_URL_ENV } from '@/lib/map/pack-source';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
@@ -433,7 +434,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     <>
       <JsonLd data={jsonLd} />
       <JsonLd data={breadcrumbLd} />
-      <RouteDetailClient id={route.id} />
+      <RouteDetailClient id={route.id} mapPackBaseUrl={process.env[MAP_PACK_BASE_URL_ENV] || null} />
     </>
   );
 }

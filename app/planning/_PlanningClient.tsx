@@ -36,8 +36,8 @@ import {
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
 import { builtRegionPacks, chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
-import { planPackFiles, type PackFile } from '@/lib/offline/pack-files';
-import { measurePackFiles, downloadPackFiles, totalMb } from '@/lib/offline/pack-download';
+import type { PackFile } from '@/lib/offline/pack-files';
+import { planRouteMap, saveRouteMap } from '@/lib/offline/route-map-save';
 import { coverageNotice, parsePackManifest } from '@/lib/map/pack-manifest';
 import { VedarZoomButtons, VEDAR_ATTRIBUTION, type VedarMapHandle, type VedarMapLine, type VedarMapPoint } from '@/components/shared/VedarMap';
 import { readLastFix, writeLastFix, type LastFix } from '@/lib/offline/last-fix';
@@ -47,7 +47,7 @@ import {
   type CalculatedCarRoute,
 } from '@/lib/on-route/calculated-route';
 import {
-  parseSavedMap, savedMapKey, savedMapSummary, savedAtLabel, requestPersistentStorage,
+  parseSavedMap, savedMapKey, savedMapSummary, savedAtLabel,
   SAVED_PROBE_SIZE,
   type SavedMapRecord,
 } from '@/lib/offline/saved-map';
@@ -885,65 +885,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       // список нужных тайлов из плана сервера и запись о закачке.
     } catch { /* хранилище может быть закрыто — не повод падать */ }
     if (typeof navigator === 'undefined') return;
-    if (navigator.onLine === false) {
-      // Связи нет — план посчитать нечем, и это НЕ «сохранять нечего».
-      setMapPlanError('Нет связи — размер пакета не посчитать. Подключитесь, пока не ушли в поле');
-      return;
-    }
-    try {
-      const res = await fetch(`/api/routes/${routeId}/offline-bundle`);
-      const data = await res.json();
-      if (!res.ok) {
-        const why = typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`;
-        console.error('[offline-bundle] план не посчитан:', why);
-        setMapPlanError(`Сервер не отдал план карты (${why})`);
-        return;
-      }
-      // Карта в поле — свои пакеты (24.09), а не растровые тайлы OSM: их
-      // массовая закачка выключена с 28.08, и кнопка не могла сохранить ни
-      // разу. Сервер отдаёт рамку маршрута; клетки по ней выбираются здесь,
-      // из того же реестра пакетов, которым карта рисует поле.
-      const b = (data.route_bounds ?? data.bbox) as Record<string, unknown> | undefined;
-      const bounds = b && [b.south, b.west, b.north, b.east].every(x => typeof x === 'number' && Number.isFinite(x))
-        ? { south: b.south as number, west: b.west as number, north: b.north as number, east: b.east as number }
-        : null;
-      const plan = planPackFiles(bounds, regionPacks);
-      if (!plan || plan.files.length === 0) {
-        // Ноль файлов при живом ответе — не «карта не нужна»: либо у
-        // маршрута нет координат, либо пакетов под ним не собрано.
-        console.error('[offline-bundle] план пуст:', bounds ? 'под рамкой нет пакетов' : 'рамки нет');
-        setMapPlanError(bounds
-          ? 'Под этим маршрутом нет собранных пакетов карты — сохранить нечего'
-          : 'Для этого маршрута карту выбрать не из чего: нет линии или координат');
-        return;
-      }
-      const measured = await measurePackFiles(plan.files);
-      // Диапазона глифов, которого в хранилище нет, нет и в плане: качать
-      // нечего, а «не лёг» у него делало бы карту вечно неполной. Хранилище
-      // на отсутствующий ключ отвечает 403, а не 404 (offline-pack-check,
-      // прогон 1). Прочие отказы остаются — это пропавший файл пакета, и о
-      // нём скажут при закачке.
-      const sized = measured.filter(f => !(f.kind === 'glyphs' && (f.status === 403 || f.status === 404)));
-      const { mb, unknown } = totalMb(sized);
-      setMapPlanError(null);
-      setMapPlan({
-        tiles: sized.length,
-        mb,
-        // Обзор края — зумы 4-7, клетки и районы — 8-13 (pack-source).
-        zooms: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-        dropped: [],
-        coverage: 'packs',
-        bufferKm: null,
-        urls: sized.map(f => f.url),
-        files: sized.map(({ url, kind, pack }) => ({ url, kind, pack })),
-        unknownSize: unknown,
-      });
-    } catch (err) {
-      // Молчать нельзя: без плана нет и кнопки сохранения.
-      const why = err instanceof Error ? err.message : String(err);
-      console.error('[offline-bundle] запрос плана не выполнен:', why);
-      setMapPlanError('Не смогли спросить сервер о карте — проверьте связь и повторите');
-    }
+    // План и его отказы — в lib/offline/route-map-save: то же правило зовёт
+    // карточка маршрута, и двух правил больше нет (25.09).
+    const res = await planRouteMap(routeId, regionPacks);
+    if (!res.ok) { setMapPlanError(res.error); return; }
+    setMapPlanError(null);
+    setMapPlan(res.plan);
   }, [regionPacks]);
 
   /**
@@ -1087,93 +1034,31 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   }, []);
 
   const saveMap = useCallback(async (routeId: string) => {
-    // Три немых `return` ниже стояли здесь до 15.09, и каждый из них означал
-    // для человека одно: нажал — не произошло НИЧЕГО. Снимок владельца:
-    // «кнопка скачать не работает». Кнопка при этом отрабатывала штатно и
-    // молчала — а молчание на экране подготовки к выходу читается как
-    // «сохранилось» (§4.0).
+    // Три немых `return` стояли здесь до 15.09, и каждый из них означал для
+    // человека одно: нажал — не произошло НИЧЕГО (снимок владельца «кнопка
+    // скачать не работает»). Молчание на экране подготовки к выходу читается
+    // как «сохранилось» (§4.0).
     //
-    // С 24.09 кнопка качает СВОИ пакеты карты (клетки под маршрутом, обзор
-    // края, глифы подписей) в Cache Storage, откуда их отдаёт service worker.
-    // До этого она слала список растровых тайлов OSM, закачка которых
-    // выключена с 28.08, — и не сохранила ни разу (скрин владельца 24.09
-    // «Карта не сохраняеться»).
+    // Закачка своих пакетов и все её отказы — в lib/offline/route-map-save:
+    // тем же правилом сохраняет карточка маршрута (25.09).
     if (!mapPlan) {
       setSaveMapError('План карты ещё не посчитан — подождите или обновите экран');
       return;
     }
-    if (!navigator.serviceWorker) {
-      setSaveMapError('Браузер не умеет сохранять карту офлайн (нет service worker)');
+    setSaveMapError(null);
+    const res = await saveRouteMap(routeId, mapPlan, setTileDl);
+    // Прогресс снимается и после удачи, и после отказа: иначе кнопка
+    // навсегда останется «занята».
+    setTileDl(null);
+    if (!res.ok) {
+      setSaveMapError(res.error);
       return;
     }
-    if (typeof caches === 'undefined') {
-      setSaveMapError('Браузер не даёт хранилища для карты (нет Cache Storage)');
-      return;
-    }
-    // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
-    // нехватке места — без предупреждения и, по закону подлости, перед
-    // выходом. Отказ браузера не скрываем, он попадёт в запись.
-    const persisted = await requestPersistentStorage();
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const sw = reg.active;
-      // Без активного service worker'а файлы лягут в кэш, но отдать их карте
-      // без связи будет некому.
-      if (!sw) {
-        setSaveMapError('Офлайн-хранилище ещё не проснулось — повторите через несколько секунд');
-        return;
-      }
-      // Места — до закачки, а не после сотни мегабайт трафика.
-      const est = await navigator.storage?.estimate?.().catch(() => null);
-      if (est && typeof est.quota === 'number' && typeof est.usage === 'number' && mapPlan.mb > 0) {
-        const freeMb = Math.floor((est.quota - est.usage) / 1e6);
-        if (freeMb < mapPlan.mb * 1.1) {
-          setSaveMapError(`Не хватит места: карта ~${mapPlan.mb} МБ, свободно ~${freeMb} МБ`);
-          return;
-        }
-      }
-      setSaveMapError(null);
-      const totalMbPlan = mapPlan.mb;
-      setTileDl(totalMbPlan > 0
-        ? { done: 0, total: totalMbPlan, unit: 'МБ' }
-        : { done: 0, total: mapPlan.tiles, unit: 'файлов' });
-      const res = await downloadPackFiles(mapPlan.files, (p) => {
-        setTileDl(totalMbPlan > 0
-          ? { done: Math.min(totalMbPlan, Math.floor(p.bytesDone / 1e6)), total: totalMbPlan, unit: 'МБ' }
-          : { done: p.done, total: p.total, unit: 'файлов' });
-      });
-      setTileDl(null);
-      if (res.failed.length > 0) {
-        console.error('[field-pack] не легли файлы карты, маршрут', routeId,
-          res.failed.map(f => `${f.kind}: ${f.why}`).join('; '));
-      }
-      if (res.saved === 0) {
-        setSaveMapError(`Карта не сохранилась: ${res.failed[0]?.why ?? 'причина неизвестна'}`);
-        return;
-      }
-      if (res.failed.length > 0) {
-        setSaveMapError(`Сохранено ${res.saved} из ${mapPlan.tiles} файлов карты — не легли: `
-          + res.failed.map(f => f.kind).join(', ') + '. Повторите, пока есть связь');
-      }
-      const rec: SavedMapRecord = {
-        at: Date.now(), tiles: mapPlan.tiles, mb: Math.round(res.bytes / 1e6) || mapPlan.mb,
-        zooms: mapPlan.zooms, droppedZooms: mapPlan.dropped,
-        coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, persisted,
-        sampleUrls: evenSample(mapPlan.urls, SAVED_PROBE_SIZE),
-      };
-      setSavedMap(rec);
-      try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
-      // Пакет собирается той же кнопкой: карта, линия, точки и снимок
-      // условий — один шаг, а не три разных «сохранить».
-      void assemblePack(routeId, res.failed.length, persisted);
-    } catch (err) {
-      // Пустой catch превращал поломку в «данных нет» — здесь он превращал её
-      // в «ничего не случилось», что перед выходом в поле дороже.
-      setTileDl(null);
-      setSaveMapError('Не удалось сохранить карту. Попробуйте ещё раз.');
-      console.error('[field-pack] сохранение карты не удалось, маршрут',
-        routeId, err instanceof Error ? err.message : err);
-    }
+    setSaveMapError(res.warning);
+    setSavedMap(res.rec);
+    // Пакет собирается той же кнопкой: карта, линия, точки и снимок
+    // условий — один шаг, а не три разных «сохранить».
+    void assemblePack(routeId, res.failed.length, res.persisted);
   }, [mapPlan, assemblePack]);
 
   // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
