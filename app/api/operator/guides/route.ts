@@ -1,6 +1,10 @@
 /**
  * GET   /api/operator/guides — гиды, привязанные к оператору
  * PATCH /api/operator/guides — включить/выключить доступность гида
+ * DELETE /api/operator/guides — исключить гида из команды (25.09, миграция 1018):
+ *   членство снимается, принятое приглашение закрывается как revoked, гид
+ *   снимается с БУДУЩИХ броней оператора — после исключения имя и телефон
+ *   туриста ему не отдаются. Приглашения — /api/operator/guides/invites.
  *
  * Появился по итогам аудита бизнес-процессов 25.07: экран /hub/operator/guides
  * полгода показывал трёх выдуманных гидов («Иван Петров», «Мария Сидорова»,
@@ -14,11 +18,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { requireRole } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import type { ApiResponse } from '@/types';
 import { GUIDES_SQL, logScreenQueryFailure } from '@/lib/operator/screen-queries';
+import { TEAM_SQL } from '@/lib/guides/team-queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +39,10 @@ interface GuideRow {
 const PatchSchema = z.object({
   guideId: z.string().min(1, 'guideId обязателен'),
   isAvailable: z.boolean(),
+});
+
+const RemoveSchema = z.object({
+  guideId: z.string().uuid('Некорректный гид'),
 });
 
 async function operatorPartnerId(request: NextRequest) {
@@ -113,6 +122,46 @@ export async function PATCH(request: NextRequest) {
     logScreenQueryFailure('guides.patch', error);
     return NextResponse.json(
       { success: false, error: 'Не удалось изменить доступность гида. Попробуйте ещё раз.' } as ApiResponse<null>,
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const partnerId = await operatorPartnerId(request);
+  if (partnerId instanceof NextResponse) return partnerId;
+
+  const parsed = RemoveSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' } as ApiResponse<null>,
+      { status: 400 },
+    );
+  }
+  const guideId = parsed.data.guideId;
+
+  try {
+    const removed = await transaction<boolean>(async (client) => {
+      // Порядок блокировок тот же, что у гида: сначала строка гида.
+      await client.query(TEAM_SQL.lockGuide, [guideId]);
+      const cleared = await client.query(TEAM_SQL.clearMembership, [guideId, partnerId]);
+      if (cleared.rows.length === 0) return false;
+      await client.query(TEAM_SQL.closeAcceptedInvites, [guideId, partnerId, 'revoked']);
+      await client.query(TEAM_SQL.unassignFutureBookings, [guideId, partnerId]);
+      return true;
+    });
+
+    if (!removed) {
+      return NextResponse.json(
+        { success: false, error: 'Гид не найден среди ваших' } as ApiResponse<null>,
+        { status: 404 },
+      );
+    }
+    return NextResponse.json({ success: true, message: 'Гид исключён из команды' } as ApiResponse<null>);
+  } catch (error) {
+    logScreenQueryFailure('guides.remove', error);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось исключить гида. Попробуйте ещё раз.' } as ApiResponse<null>,
       { status: 500 },
     );
   }

@@ -140,25 +140,6 @@ export async function ensureGuidePartnerExists(userId: string): Promise<string |
 }
 
 /**
- * Verify user owns a schedule entry
- */
-export async function verifyScheduleOwnership(userId: string, scheduleId: string): Promise<boolean> {
-  try {
-    const result = await query(
-      `SELECT gs.id 
-       FROM guide_schedule gs
-       JOIN partners p ON gs.guide_id = p.id
-       WHERE p.user_id = $1 AND gs.id = $2`,
-      [userId, scheduleId]
-    );
-    
-    return result.rows.length > 0;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
  * Verify user owns a review (for replying)
  */
 export async function verifyReviewOwnership(userId: string, reviewId: string): Promise<boolean> {
@@ -180,76 +161,14 @@ export async function verifyReviewOwnership(userId: string, reviewId: string): P
   }
 }
 
-/**
- * Check for schedule conflicts
- * Returns true if NO conflicts exist
- */
-export async function checkScheduleConflicts(
-  guideId: string,
-  startTime: string,
-  endTime: string,
-  excludeId?: string
-): Promise<boolean> {
-  try {
-    const params: (string | null)[] = [guideId, startTime, endTime];
-    const paramIndex = 4;
-    
-    let queryStr = `
-      SELECT check_schedule_conflicts($1, $2, $3`;
-    
-    if (excludeId) {
-      queryStr += `, $${paramIndex}`;
-      params.push(excludeId);
-    } else {
-      queryStr += `, NULL`;
-    }
-    
-    queryStr += `) as no_conflicts`;
-    
-    const result = await query(queryStr, params);
-    
-    return result.rows[0]?.no_conflicts === true;
-  } catch (error) {
-    return false;
-  }
-}
-
-export async function hasTourDayConflict(params: {
-  guideId: string;
-  tourId?: string | null;
-  startTime?: string;
-  excludeId?: string;
-}): Promise<boolean> {
-  const { guideId, tourId, startTime, excludeId } = params;
-
-  if (!guideId || !tourId || !startTime) {
-    return false;
-  }
-
-  try {
-    const queryParams: (string | null)[] = [guideId, tourId, startTime];
-    let queryStr = `
-      SELECT 1
-      FROM guide_schedule
-      WHERE guide_id = $1
-        AND tour_id = $2
-        AND DATE(start_time) = DATE($3::timestamptz)
-        AND status != 'cancelled'
-    `;
-
-    if (excludeId) {
-      queryStr += ' AND id != $4';
-      queryParams.push(excludeId);
-    }
-
-    queryStr += ' LIMIT 1';
-
-    const result = await query(queryStr, queryParams);
-    return result.rows.length > 0;
-  } catch (error) {
-    return false;
-  }
-}
+// Проверок календаря гида здесь больше нет — они в lib/guides/schedule.ts.
+//
+// `checkScheduleConflicts` звал SQL-функцию check_schedule_conflicts, которой
+// нет в схеме, и в catch отвечал «конфликт есть»: каждый POST расписания
+// получал 409. `hasTourDayConflict` сравнивал time с timestamptz и в catch
+// отвечал «конфликта нет». `verifyScheduleOwnership` глушил отказ базы как
+// «запись не ваша». Теперь у каждой проверки три исхода ('ok' | 'conflict' |
+// 'unknown'), и отказ пишется в лог с SQLSTATE (миграция 1019, пакет B).
 
 // Расчёта и записи заработка гида здесь нет — и это не пропуск.
 //
@@ -372,42 +291,11 @@ export async function getGuideStats(userId: string): Promise<GuideStats | null> 
 // читали guide_availability — таблицу, в которую НИКТО не пишет: ни экрана,
 // ни импорта, ни API. Читатели пустоты гарантированно возвращали «гид
 // недоступен» — и не звались ниоткуда (перепись 22.08.2026). Занятость гида
-// сегодня живёт в guide_schedule с EXCLUDE-ограничением пересечений; подбор
+// сегодня живёт в guide_schedule — личном календаре гида (пересечения
+// проверяет lib/guides/schedule.ts; EXCLUDE-ограничения в схеме нет); подбор
 // гида начнётся с формы, которой гид заполняет свои окна, а не с читателей.
 
-/**
- * Get guide's expertise zones for map display
- */
-export async function getGuideExpertiseZones(guideId: string): Promise<Record<string, unknown>[]> {
-  try {
-    // Get tours associated with this guide
-    const result = await query(
-      `SELECT DISTINCT
-        t.id,
-        t.title,
-        ST_X(t.location::geometry) as longitude,
-        ST_Y(t.location::geometry) as latitude,
-        t.duration_hours AS duration,
-        t.difficulty_level
-      FROM operator_tours t
-      WHERE t.guide_id = $1
-        AND t.location IS NOT NULL
-        AND t.deleted_at IS NULL
-      ORDER BY t.title`,
-      [guideId]
-    );
-    
-    return result.rows.map(row => ({
-      tourId: row.id,
-      title: row.title,
-      location: {
-        lat: parseFloat(row.latitude as string),
-        lng: parseFloat(row.longitude as string)
-      },
-      duration: row.duration,
-      difficultyLevel: row.difficulty_level
-    }));
-  } catch (error) {
-    return [];
-  }
-}
+// getGuideExpertiseZones удалена вместе с единственным вызывающим —
+// /api/guide/map: читала несуществующие operator_tours.guide_id и
+// operator_tours.location (PostGIS в схеме нет), а catch отдавал [] как
+// «зон нет». Экрана у карты гида не было.

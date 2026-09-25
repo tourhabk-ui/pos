@@ -43,9 +43,11 @@ export async function GET(
               b.booking_date::text AS booking_date,
               t.title as tour_title,
               t.location_name,
-              t.base_price as tour_base_price
+              t.base_price as tour_base_price,
+              g.name AS guide_name
        FROM operator_bookings b
        JOIN operator_tours t ON b.operator_tour_id = t.id
+       LEFT JOIN partners g ON g.id = b.guide_partner_id
        WHERE b.id = $1 AND t.operator_id = $2 AND b.deleted_at IS NULL LIMIT 1`,
       [BigInt(id), operator_id]
     );

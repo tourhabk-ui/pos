@@ -1,346 +1,194 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { verifyScheduleOwnership, checkScheduleConflicts, hasTourDayConflict } from '@/lib/auth/guide-helpers';
+import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { requireRole } from '@/lib/auth/middleware';
-import { GuideScheduleRow, GuideScheduleCheckRow } from '@/lib/types/db-rows';
-import { z } from 'zod';
-
-const UpdateScheduleEntrySchema = z.object({
-  startTime: z.string().optional(),
-  endTime: z.string().optional(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  maxParticipants: z.number().int().positive('maxParticipants должно быть положительным числом').optional(),
-  currentParticipants: z.number().int().min(0, 'currentParticipants не может быть отрицательным').optional(),
-  locationName: z.string().optional(),
-  notes: z.string().optional(),
-  tourId: z.string().optional(),
-  status: z.string().optional(),
-  location: z.object({ lat: z.number(), lng: z.number() }).optional(),
-}).refine(
-  (data) => Object.values(data).some((v) => v !== undefined),
-  { message: 'Укажите хотя бы одно поле для обновления' }
-);
+import { SCHEDULE_SQL } from '@/lib/guides/team-queries';
+import { logGuideFailure, UUID_RE } from '@/lib/guides/team';
+import { checkScheduleOverlap, scheduleOwnership } from '@/lib/guides/schedule';
+import { mapScheduleRow, DATE_RE, TIME_RE, SCHEDULE_STATUSES, type ScheduleRow } from '@/lib/guides/schedule-shape';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/guide/schedule/[id]
- * Get specific schedule entry
+ * GET/PUT/DELETE /api/guide/schedule/[id] — одна запись личного календаря
+ * гида. Владение — `guide_id` записи = профиль гида из JWT; три исхода
+ * (ok / не ваша / не смогли проверить → 503), а не «не найдена» на отказ базы.
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const guideOrResponse = await requireRole(request, ['guide', 'admin']);
-    if (guideOrResponse instanceof NextResponse) return guideOrResponse;
-    const userId = guideOrResponse.userId;
 
-    const { id } = await params;
-    const isOwner = await verifyScheduleOwnership(userId, id);
-    
-    if (!isOwner) {
-      return NextResponse.json({
-        success: false,
-        error: 'Запись расписания не найдена или у вас нет прав'
-      } as ApiResponse<null>, { status: 404 });
-    }
+const UpdateSchema = z.object({
+  date: z.string().regex(DATE_RE, 'Дата — в формате ГГГГ-ММ-ДД').optional(),
+  startTime: z.string().regex(TIME_RE, 'Время начала — ЧЧ:ММ').optional(),
+  endTime: z.string().regex(TIME_RE, 'Время окончания — ЧЧ:ММ').optional(),
+  title: z.string().trim().min(1, 'Название не может быть пустым').max(200).optional(),
+  description: z.string().max(2000).optional(),
+  status: z.enum(SCHEDULE_STATUSES).optional(),
+  maxParticipants: z.number().int().positive('Мест должно быть больше нуля').max(500).optional(),
+  participantsCount: z.number().int().min(0, 'Число участников не может быть отрицательным').max(500).optional(),
+  locationName: z.string().max(300).optional(),
+  notes: z.string().max(2000).optional(),
+}).refine((d) => Object.values(d).some((v) => v !== undefined), {
+  message: 'Укажите хотя бы одно поле для обновления',
+});
 
-    const result = await query<GuideScheduleRow>(
-      `SELECT
-        gs.*,
-        t.title as tour_title,
-        b.booking_status as booking_status,
-        ST_X(gs.location::geometry) as longitude,
-        ST_Y(gs.location::geometry) as latitude
-      FROM guide_schedule gs
-      LEFT JOIN operator_tours t ON gs.tour_id = t.id
-      LEFT JOIN operator_bookings b ON gs.booking_id = b.id
-      WHERE gs.id = $1`,
-      [id]
+/** Поле API → колонка. Имена колонок только отсюда: в SQL не попадает ничего чужого. */
+const COLUMN: Record<string, string> = {
+  date: 'tour_date',
+  startTime: 'start_time',
+  endTime: 'end_time',
+  title: 'title',
+  description: 'description',
+  status: 'status',
+  maxParticipants: 'max_participants',
+  participantsCount: 'participants_count',
+  locationName: 'location_name',
+  notes: 'notes',
+};
+
+const notFound = () => NextResponse.json(
+  { success: false, error: 'Запись расписания не найдена' } as ApiResponse<null>,
+  { status: 404 },
+);
+const unavailable = () => NextResponse.json(
+  { success: false, error: 'Не удалось проверить расписание. Попробуйте ещё раз через минуту.' } as ApiResponse<null>,
+  { status: 503 },
+);
+
+async function resolve(request: NextRequest, params: Promise<{ id: string }>) {
+  const auth = await requireRole(request, ['guide', 'admin']);
+  if (auth instanceof NextResponse) return auth;
+  const guideId = await getGuidePartnerId(auth.userId);
+  if (!guideId) {
+    return NextResponse.json(
+      { success: false, error: 'Профиль гида не найден' } as ApiResponse<null>,
+      { status: 404 },
     );
+  }
+  const { id } = await params;
+  if (!UUID_RE.test(id)) return notFound();
+  const own = await scheduleOwnership(id, guideId);
+  if (own.state === 'unknown') return unavailable();
+  if (own.state === 'denied') return notFound();
+  return { guideId, id, operatorBookingId: own.operatorBookingId };
+}
 
-    if (result.rows.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Запись расписания не найдена'
-      } as ApiResponse<null>, { status: 404 });
-    }
-
-    const row = result.rows[0];
-    
-    return NextResponse.json({
-      success: true,
-      data: {
-        id: row.id,
-        guideId: row.guide_id,
-        startTime: row.start_time,
-        endTime: row.end_time,
-        title: row.title,
-        description: row.description,
-        tourId: row.tour_id,
-        tourTitle: row.tour_title,
-        bookingId: row.booking_id,
-        bookingStatus: row.booking_status,
-        maxParticipants: row.max_participants,
-        currentParticipants: row.current_participants,
-        location: row.latitude && row.longitude ? {
-          lat: parseFloat(row.latitude),
-          lng: parseFloat(row.longitude)
-        } : null,
-        locationName: row.location_name,
-        status: row.status,
-        notes: row.notes,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-      }
-    } as ApiResponse<unknown>);
-
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await resolve(request, params);
+  if (ctx instanceof NextResponse) return ctx;
+  try {
+    const { rows } = await query<ScheduleRow>(SCHEDULE_SQL.one, [ctx.id, ctx.guideId]);
+    if (rows.length === 0) return notFound();
+    return NextResponse.json({ success: true, data: mapScheduleRow(rows[0]) } as ApiResponse<unknown>);
   } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при получении записи расписания'
-    } as ApiResponse<null>, { status: 500 });
+    logGuideFailure('guide.schedule.one', error);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось загрузить запись расписания' } as ApiResponse<null>,
+      { status: 500 },
+    );
   }
 }
 
-/**
- * PUT /api/guide/schedule/[id]
- * Update schedule entry
- */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await resolve(request, params);
+  if (ctx instanceof NextResponse) return ctx;
+
+  const parsed = UpdateSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' } as ApiResponse<null>,
+      { status: 400 },
+    );
+  }
+  const patch = parsed.data;
+
+  let current: ScheduleRow;
   try {
-    const guideOrResponse = await requireRole(request, ['guide', 'admin']);
-    if (guideOrResponse instanceof NextResponse) return guideOrResponse;
-    const userId = guideOrResponse.userId;
+    const { rows } = await query<ScheduleRow>(SCHEDULE_SQL.one, [ctx.id, ctx.guideId]);
+    if (rows.length === 0) return notFound();
+    current = rows[0];
+  } catch (error) {
+    logGuideFailure('guide.schedule.current', error);
+    return unavailable();
+  }
 
-    const { id } = await params;
-    const isOwner = await verifyScheduleOwnership(userId, id);
-      
-      if (!isOwner) {
-        return NextResponse.json({
-          success: false,
-          error: 'Запись расписания не найдена или у вас нет прав'
-        } as ApiResponse<null>, { status: 404 });
-      }
+  const date = patch.date ?? current.tour_date;
+  const start = patch.startTime ?? current.start_time;
+  const end = patch.endTime ?? current.end_time;
+  if (end !== null && end <= start) {
+    return NextResponse.json(
+      { success: false, error: 'Время окончания должно быть позже времени начала' } as ApiResponse<null>,
+      { status: 400 },
+    );
+  }
 
-      const body = await request.json();
-      const parsed = UpdateScheduleEntrySchema.safeParse(body);
-      if (!parsed.success) {
-        return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
-      }
-
-      const scheduleResult = await query<GuideScheduleCheckRow>(
-        'SELECT guide_id, start_time, end_time, tour_id FROM guide_schedule WHERE id = $1',
-        [id]
+  const nextStatus = patch.status ?? current.status;
+  const touchesTime = patch.date !== undefined || patch.startTime !== undefined || patch.endTime !== undefined
+    || (patch.status !== undefined && patch.status !== 'cancelled' && current.status === 'cancelled');
+  if (touchesTime && nextStatus !== 'cancelled') {
+    const overlap = await checkScheduleOverlap({
+      guideId: ctx.guideId, date, startTime: start, endTime: end ?? '23:59', excludeId: ctx.id,
+    });
+    if (overlap === 'unknown') return unavailable();
+    if (overlap === 'conflict') {
+      return NextResponse.json(
+        { success: false, error: 'Новое время пересекается с другой вашей записью' } as ApiResponse<null>,
+        { status: 409 },
       );
-
-      const scheduleRow = scheduleResult.rows[0];
-
-      if (!scheduleRow) {
-        return NextResponse.json({
-          success: false,
-          error: 'Запись расписания не найдена'
-        } as ApiResponse<null>, { status: 404 });
-      }
-
-      const nextStartTime = parsed.data.startTime ?? scheduleRow.start_time;
-      const nextEndTime = parsed.data.endTime ?? scheduleRow.end_time;
-
-      if (!nextStartTime || !nextEndTime) {
-        return NextResponse.json({
-          success: false,
-          error: 'startTime и endTime не могут быть пустыми'
-        } as ApiResponse<null>, { status: 400 });
-      }
-
-      const parsedStart = new Date(nextStartTime);
-      const parsedEnd = new Date(nextEndTime);
-
-      if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
-        return NextResponse.json({
-          success: false,
-          error: 'Некорректный формат даты/времени'
-        } as ApiResponse<null>, { status: 400 });
-      }
-
-      if (parsedStart >= parsedEnd) {
-        return NextResponse.json({
-          success: false,
-          error: 'Время окончания должно быть позже времени начала'
-        } as ApiResponse<null>, { status: 400 });
-      }
-
-      const guideId = scheduleRow.guide_id;
-
-      if (guideId) {
-        const noConflicts = await checkScheduleConflicts(
-          guideId,
-          nextStartTime,
-          nextEndTime,
-          id
-        );
-        
-        if (!noConflicts) {
-          return NextResponse.json({
-            success: false,
-            error: 'Конфликт расписания! Новое время пересекается с другим мероприятием.'
-          } as ApiResponse<null>, { status: 409 });
-        }
-
-        const nextTourId = parsed.data.tourId ?? scheduleRow.tour_id;
-        if (await hasTourDayConflict({
-          guideId,
-          tourId: nextTourId,
-          startTime: nextStartTime,
-          excludeId: id,
-        })) {
-          return NextResponse.json({
-            success: false,
-            error: 'У вас уже есть слот для этого тура на выбранный день'
-          } as ApiResponse<null>, { status: 409 });
-        }
-      }
-
-    const updateFields = [];
-    const updateValues = [];
-    let paramIndex = 1;
-
-      const allowedFields = [
-        'startTime', 'endTime', 'title', 'description', 'status',
-        'maxParticipants', 'currentParticipants', 'locationName', 'notes', 'tourId'
-      ];
-
-      const dbFieldMap: Record<string, string> = {
-        startTime: 'start_time',
-        endTime: 'end_time',
-        maxParticipants: 'max_participants',
-        currentParticipants: 'current_participants',
-        locationName: 'location_name',
-        tourId: 'tour_id'
-      };
-
-    for (const [key, value] of Object.entries(parsed.data)) {
-        if (key === 'location') continue; // handled separately below
-        if (allowedFields.includes(key)) {
-          if (key === 'maxParticipants' && (typeof value !== 'number' || value <= 0)) {
-            return NextResponse.json({
-              success: false,
-              error: 'maxParticipants должно быть положительным числом'
-            } as ApiResponse<null>, { status: 400 });
-          }
-
-          if (key === 'currentParticipants' && (typeof value !== 'number' || value < 0)) {
-            return NextResponse.json({
-              success: false,
-              error: 'currentParticipants не может быть отрицательным'
-            } as ApiResponse<null>, { status: 400 });
-          }
-
-        const dbKey = dbFieldMap[key] || key.replace(/([A-Z])/g, '_$1').toLowerCase();
-        updateFields.push(`${dbKey} = $${paramIndex++}`);
-        updateValues.push(value);
-      }
     }
+  }
 
-    if (parsed.data.location && parsed.data.location.lat && parsed.data.location.lng) {
-      updateFields.push(`location = ST_SetSRID(ST_MakePoint($${paramIndex}, $${paramIndex + 1}), 4326)::geography`);
-      updateValues.push(parsed.data.location.lng, parsed.data.location.lat);
-      paramIndex += 2;
-    }
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    const col = COLUMN[key];
+    if (!col) continue;
+    values.push(value);
+    const cast = col === 'tour_date' ? '::date' : col === 'start_time' || col === 'end_time' ? '::time' : '';
+    sets.push(`${col} = $${values.length}${cast}`);
+  }
+  values.push(ctx.id, ctx.guideId);
 
-    if (updateFields.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Нет полей для обновления'
-      } as ApiResponse<null>, { status: 400 });
-    }
-
-    updateValues.push(id);
-
-    const result = await query(
-      `UPDATE guide_schedule 
-       SET ${updateFields.join(', ')}, updated_at = NOW()
-       WHERE id = $${paramIndex}
-       RETURNING *`,
-      updateValues
+  try {
+    const { rows } = await query<{ id: string }>(
+      `UPDATE guide_schedule SET ${sets.join(', ')}, updated_at = NOW()
+        WHERE id = $${values.length - 1}::uuid AND guide_id = $${values.length}
+        RETURNING id`,
+      values,
     );
-
-    return NextResponse.json({
-      success: true,
-      data: result.rows[0],
-      message: 'Расписание успешно обновлено'
-    } as ApiResponse<unknown>);
-
+    if (rows.length === 0) return notFound();
+    return NextResponse.json({ success: true, data: { id: rows[0].id }, message: 'Расписание обновлено' } as ApiResponse<unknown>);
   } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при обновлении расписания'
-    } as ApiResponse<null>, { status: 500 });
+    logGuideFailure('guide.schedule.update', error);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось обновить запись. Попробуйте ещё раз.' } as ApiResponse<null>,
+      { status: 500 },
+    );
   }
 }
 
-/**
- * DELETE /api/guide/schedule/[id]
- * Delete schedule entry
- */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await resolve(request, params);
+  if (ctx instanceof NextResponse) return ctx;
+
   try {
-    const guideOrResponse = await requireRole(request, ['guide', 'admin']);
-    if (guideOrResponse instanceof NextResponse) return guideOrResponse;
-    const userId = guideOrResponse.userId;
-
-    const { id } = await params;
-    const isOwner = await verifyScheduleOwnership(userId, id);
-    
-    if (!isOwner) {
-      return NextResponse.json({
-        success: false,
-        error: 'Запись расписания не найдена или у вас нет прав'
-      } as ApiResponse<null>, { status: 404 });
-    }
-
-    // Instead of hard delete, mark as cancelled if has bookings
-    const checkResult = await query(
-      'SELECT booking_id FROM guide_schedule WHERE id = $1',
-      [id]
-    );
-
-    if (checkResult.rows[0]?.booking_id) {
-      // Has associated booking, mark as cancelled
+    // Запись по назначенной брони не стирается, а отменяется: след того, что
+    // гид её планировал, нужен при разборе. Личная запись удаляется.
+    if (ctx.operatorBookingId) {
       await query(
-        `UPDATE guide_schedule 
-         SET status = 'cancelled', updated_at = NOW()
-         WHERE id = $1`,
-        [id]
+        `UPDATE guide_schedule SET status = 'cancelled', updated_at = NOW() WHERE id = $1::uuid AND guide_id = $2`,
+        [ctx.id, ctx.guideId],
       );
-      
-      return NextResponse.json({
-        success: true,
-        message: 'Мероприятие отменено (связанное бронирование сохранено)'
-      } as ApiResponse<null>);
-    } else {
-      // No booking, safe to delete
-      await query('DELETE FROM guide_schedule WHERE id = $1', [id]);
-      
-      return NextResponse.json({
-        success: true,
-        message: 'Запись расписания удалена'
-      } as ApiResponse<null>);
+      return NextResponse.json({ success: true, message: 'Запись отменена (бронь сохранена)' } as ApiResponse<null>);
     }
-
+    await query('DELETE FROM guide_schedule WHERE id = $1::uuid AND guide_id = $2', [ctx.id, ctx.guideId]);
+    return NextResponse.json({ success: true, message: 'Запись удалена' } as ApiResponse<null>);
   } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при удалении записи расписания'
-    } as ApiResponse<null>, { status: 500 });
+    logGuideFailure('guide.schedule.delete', error);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось удалить запись. Попробуйте ещё раз.' } as ApiResponse<null>,
+      { status: 500 },
+    );
   }
 }

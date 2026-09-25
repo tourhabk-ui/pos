@@ -47,6 +47,10 @@ const ROOT = process.cwd();
 // починены по настоящей схеме (tour_payments.retail_amount, аттестации гидов
 // вместо несуществующих specializations), а оба profile-роута удалены вместе с
 // operator_settings.id — их не звал никто, и каждый отвечал 500.
+// 25.09 (кабинет гида, пакет B) — минус семь: /api/guide/map удалён вместе с
+// getGuideExpertiseZones (operator_tours.guide_id/location/difficulty_level —
+// карта без экрана), «Мои туры» гида больше не читают несуществующие
+// includes_guide/includes_equipment.
 const BASELINE = new Set<string>([
   "app/api/ai/knowledge-base/route.ts → partners.contact_info",
   "app/api/ai/knowledge-base/route.ts → partners.specialization",
@@ -54,10 +58,6 @@ const BASELINE = new Set<string>([
   "app/api/eco-points/route.ts → eco_points.total_points",
   "app/api/eco-points/route.ts → eco_points.trees_equivalent",
   "app/api/eco-points/route.ts → eco_points.updated_at",
-  "app/api/guide/map/route.ts → operator_tours.guide_id",
-  "app/api/guide/map/route.ts → operator_tours.location",
-  "app/api/guide/tours/route.ts → operator_tours.includes_equipment",
-  "app/api/guide/tours/route.ts → operator_tours.includes_guide",
   "app/api/hub/operator/notifications/route.ts → users.full_name",
   "app/api/hub/operator/profile/route.ts → partners.features",
   "app/api/import/asset/route.ts → assets.bytes",
@@ -90,9 +90,6 @@ const BASELINE = new Set<string>([
   "lib/agents/sdk/tourist-tools.ts → users.company_name",
   "lib/agents/tools/board-executor-tools.ts → ai_actions_log.agent_name",
   "lib/agents/tools/board-executor-tools.ts → ai_actions_log.result",
-  "lib/auth/guide-helpers.ts → operator_tours.difficulty_level",
-  "lib/auth/guide-helpers.ts → operator_tours.guide_id",
-  "lib/auth/guide-helpers.ts → operator_tours.location",
   "lib/auth/guide-helpers.ts → partners.experience_years",
   "lib/eco/compensation.ts → partners.is_active",
   "lib/events/agent-bus.ts → ai_actions_log.agent_id",

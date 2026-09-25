@@ -9,6 +9,7 @@ import {
 import { Weather } from '@/types';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 import { FEDERATIONS, REATTESTATION_DEADLINE, type ReattestationStatus } from '@/lib/guides/reattestation';
+import GuideTeamPanel from './_GuideTeamPanel';
 
 // Быстрая навигация по разделам прямо на «Обзоре» — тот же формат, что в ЛК
 // туриста: на телефоне сайдбар спрятан под бургер, а отсюда любой раздел в
@@ -239,6 +240,9 @@ export default function GuideDashboardClient() {
       {reattestation && (reattestation.status === 'needed' || reattestation.status === 'unknown') && (
         <ReattestationBanner info={reattestation} />
       )}
+
+      {/* Команда оператора: приглашения, текущий оператор, ближайшие назначения */}
+      <GuideTeamPanel />
 
       {/* Погода зоны как свойство безопасности гида (честно: нет данных — нет карточки) */}
       {weather && <WeatherStrip weather={weather} />}
