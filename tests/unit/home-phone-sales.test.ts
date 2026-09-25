@@ -41,10 +41,11 @@ function pos(marker: string): number {
 }
 
 describe('тур с ценой — на первом экране', () => {
-  it('первая карточка тура стоит сразу под поиском — раньше чипов, планировщика и строки обстановки', () => {
-    const find = pos('<form className="find"');
+  it('первая карточка тура стоит первой под героем — раньше чипов, планировщика и строки обстановки', () => {
+    // С 25.09 строки поиска нет (владелец: «поиск лишний»); тур открывает главную.
+    const block = pos('<section className="fp-sec"');
     const first = pos('className="firstpick"');
-    expect(first).toBeGreaterThan(find);
+    expect(first).toBeGreaterThan(block);
     for (const later of ['<div className="hero-chips">', 'className="qtools"']) {
       expect(pos(later), `${later} снова выше первого тура`).toBeGreaterThan(first);
     }

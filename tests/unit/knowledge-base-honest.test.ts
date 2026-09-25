@@ -51,7 +51,7 @@ function declaredDocPaths(): string[] {
  */
 function copiedIntoRunner(): string[] {
   const runner = DOCKERFILE.slice(DOCKERFILE.indexOf('AS runner'));
-  return [...runner.matchAll(/^COPY\s+(?:--from=\S+\s+)?(\S+)/gm)]
+  return [...runner.matchAll(/^COPY\s+(?:--\S+\s+)*(\S+)/gm)]
     .map((m) => m[1].replace(/^\/app\//, ''))
     .filter((p) => p !== '.');
 }

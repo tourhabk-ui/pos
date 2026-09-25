@@ -63,7 +63,12 @@ export async function GET(request: NextRequest) {
   // `photo` отдельно от `ok`: пост мог уйти, а снимок — нет. До 07.09 эти два
   // случая были неразличимы снаружи, и «ни одной фотографии» жило незамеченным
   // при зелёных прогонах крона (§4.0).
-  let result: { ok: boolean; error?: string; routeId?: string; tourId?: number; photo?: string; photoError?: string };
+  let result: {
+    ok: boolean; error?: string; routeId?: string; tourId?: number; photo?: string; photoError?: string;
+    // Для туров: чем подтверждён сезон выбранного и кто отсеян как «не сезон»
+    // (25.09) — отсеянный молча выглядел бы как «туров нет».
+    season?: string; skipped?: Array<{ title: string; reason: string }>;
+  };
 
   if (postType === 'friend') {
     const slug = searchParams.get('slug') ?? '';
@@ -79,7 +84,7 @@ export async function GET(request: NextRequest) {
 
   if (!result.ok) {
     return NextResponse.json(
-      { success: false, type: postType, requested: resolved.requested ?? null, error: result.error },
+      { success: false, type: postType, requested: resolved.requested ?? null, error: result.error, skipped_out_of_season: result.skipped ?? null },
       { status: 500 }
     );
   }
@@ -92,6 +97,8 @@ export async function GET(request: NextRequest) {
     tourId: result.tourId ?? null,
     photo: result.photo ?? 'unknown',
     photo_error: result.photoError ?? null,
+    season: result.season ?? null,
+    skipped_out_of_season: result.skipped ?? null,
     timestamp: new Date().toISOString(),
   });
 }

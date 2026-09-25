@@ -127,3 +127,4 @@ describe('сложность переживает перезагрузку ст�
       .toMatch(/searchParams\.get\('difficulty'\)/);
   });
 });
+

@@ -110,7 +110,10 @@ describe('подвал с реферальными ссылками', () => {
     expect(telegramHtmlIssue(footer)).toBeNull();
     expect(footer).toContain('utm_source=invitation&amp;utm_medium=social&amp;utm_campaign=system_share');
     expect(footer).not.toMatch(/\p{Extended_Pictographic}/u);
-    expect(footer.split('\n')).toHaveLength(3);
+    // Одна строка (решение владельца 26.09): три строки читались рекламой.
+    expect(footer.split('\n')).toHaveLength(1);
+    expect(footer.match(/<a href=/g)).toHaveLength(3);
+    expect(footer.replace(/<[^>]+>/g, '')).toBe('Карта для оплаты AI · Claude Pro на неделю · Manus');
   });
 
   it('длинная подпись к фото: ужимается тело, подвал цел и влезает в 1024', () => {

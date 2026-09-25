@@ -161,3 +161,29 @@ describe('вид по дизайн-системе', () => {
     expect(component).not.toMatch(/@keyframes|animate-\[/);
   });
 });
+
+describe('«Зелёная кнопка» там, где человек регистрируется (владелец 25.09: «где зелёная кнопка регистрации?»)', () => {
+  const register = readFileSync(join(ROOT, 'app/register/page.tsx'), 'utf-8');
+  const home = readFileSync(join(ROOT, 'app/_home/_HomeV8Client.tsx'), 'utf-8');
+
+  it('адрес под iPhone — карточка App Store id1658152262, присланная владельцем', () => {
+    expect(GREEN_BUTTON.iosUrl).toBe('https://apps.apple.com/ru/app/id1658152262');
+  });
+
+  it('блок даёт оба магазина, когда оба адреса известны', () => {
+    expect(component).toMatch(/label: 'Android', href: GREEN_BUTTON\.androidUrl/);
+    expect(component).toMatch(/GREEN_BUTTON\.iosUrl \? \[\{ label: 'iPhone', href: GREEN_BUTTON\.iosUrl \}\]/);
+  });
+
+  it('страница регистрации маршрута показывает разрешение парка — строкой на первом шаге и блоком после заявки', () => {
+    expect(register).toMatch(/import ParkPermitAction from '@\/components\/safety\/ParkPermitAction'/);
+    expect(register).toMatch(/<ParkPermitAction variant="compact" \/>/);
+    expect(register).toMatch(/<ParkPermitAction \/>/);
+    expect(register).toMatch(/отдельно от МЧС/);
+  });
+
+  it('плитка «Регистрация» на главной называет обе обязанности', () => {
+    expect(home).toMatch(/<b>Регистрация<\/b><span>МЧС и парк<\/span>/);
+    expect(home).toMatch(/aria-label="[^"]*Зелёная кнопка[^"]*"/);
+  });
+});

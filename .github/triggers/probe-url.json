@@ -1,66 +1,49 @@
 {
-  "note": "25.09, прогон 592. ТОЛЬКО ЧТЕНИЕ. Приёмка правок по сверке MCP (33ff289): источник тревог VK МЧС, place-info об одном месте, туры по слову. Датчик — шапка get_volcano_status.",
-  "run": 592,
+  "note": "25.09, прогон 596. ТОЛЬКО ЧТЕНИЕ. Владелец: «почему visitkamchatka.ru нас обгоняет, посмотри насколько они продвинулись» и карточка «Зелёной кнопки» в App Store. Из контейнера Claude оба домена закрыты — читаем раннером. Маркеры — сервисы туриста, которые есть или нет у краевого портала.",
+  "run": 596,
   "timeout": 60,
-  "retries": 50,
-  "retryDelay": 60,
-  "allowStale": false,
-  "until": "самое свежее наблюдение",
-  "bytes": 4000,
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-          "name": "get_volcano_status",
-          "arguments": {
-            "volcano": "Авачинский"
-          }
-        }
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {
-          "name": "safety_status",
-          "arguments": {}
-        }
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "tools/call",
-        "params": {
-          "name": "get_place_info",
-          "arguments": {
-            "name": "Курильское озеро"
-          }
-        }
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 4,
-        "method": "tools/call",
-        "params": {
-          "name": "get_tours",
-          "arguments": {
-            "activity_type": "вулканы"
-          }
-        }
-      }
-    }
-  ]
+  "retries": 1,
+  "retryDelay": 10,
+  "allowStale": true,
+  "bytes": 3000,
+  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36",
+  "urls": [
+    "https://visitkamchatka.ru/",
+    "https://tours.visitkamchatka.ru/tours",
+    "https://passport.visitkamchatka.ru/",
+    "https://visitkamchatka.ru/registry/",
+    "https://apps.apple.com/ru/app/id1658152262"
+  ],
+  "grep": [
+    "Зелёная кнопка",
+    "Зеленая кнопка",
+    "Паспорт путешественника",
+    "МЧС",
+    "регистрац",
+    "Забронировать",
+    "бронирован",
+    "Госуслуг",
+    "App Store",
+    "Google Play",
+    "RuStore",
+    "English",
+    "карта",
+    "погод",
+    "ИИ",
+    "чат",
+    "Личный кабинет",
+    "медвед",
+    "разрешени"
+  ],
+  "count": [
+    "/tours/",
+    "href=\"/"
+  ],
+  "around": [
+    "<title>",
+    "og:description",
+    "\"description\""
+  ],
+  "aroundLines": 2,
+  "aroundHits": 1
 }
