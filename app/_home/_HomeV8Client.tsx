@@ -26,6 +26,7 @@ export { alertStamp, clip } from '@/components/safety/LiveStatus';
 // одном предупреждении обязаны говорить одинаково.
 import { alertStamp as stampAlert } from '@/components/safety/LiveStatus';
 import { alertBody } from '@/lib/home/alert-body';
+import { radarAlertsLine, radarVolcanoLine, alertsCountLabel } from '@/lib/home/radar-summary';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
@@ -95,6 +96,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [plateIdx, setPlateIdx] = useState(0);
   const [sosOpen, setSosOpen] = useState(false);
   const [openAlert, setOpenAlert] = useState<number | null>(null);
+  const [radarOpen, setRadarOpen] = useState(false);
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
 
@@ -393,11 +395,17 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
             <span className="qt-tx"><b>Своя поездка</b><span>сам, тур, отдых</span></span>
           </Link>
-          <Link
-            href="/safety#radar"
+          {/* Радар раскрывается по тапу (владелец 26.09, вариант 1 из трёх):
+              сводка встаёт под рядом, повторный тап сворачивает. Переход на
+              /safety#radar — ссылкой внутри сводки. */}
+          <button
+            type="button"
             className="qt qt-radar"
+            aria-expanded={radarOpen}
+            aria-controls="radar-panel"
             aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
             title={`${fresh.label}. ${coverage.label}`}
+            onClick={() => setRadarOpen((o) => !o)}
           >
             <span className="qt-ic">
               <Radar size={19} strokeWidth={1.8} aria-hidden />
@@ -420,8 +428,20 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 {coverageShort(coverage)}
               </span>
             </span>
-          </Link>
+            <ChevronDown className="qt-chev" size={15} strokeWidth={2} aria-hidden />
+          </button>
         </nav>
+        {radarOpen && (
+          <div id="radar-panel" className="radar-panel" role="region" aria-label="Сводка радара">
+            <dl>
+              <div><dt>Сводка</dt><dd>{fresh.label}</dd></div>
+              <div><dt>Предупреждения</dt><dd>{radarAlertsLine(safety)}</dd></div>
+              <div><dt>Вулканы</dt><dd>{radarVolcanoLine(safety.volcanoes, safety.degraded, ACC_LABEL)}</dd></div>
+              <div><dt>Офлайн-карта</dt><dd>{coverage.label}</dd></div>
+            </dl>
+            <Link className="an-go" href="/safety#radar">Открыть радар →</Link>
+          </div>
+        )}
 
         {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09); первый
             тур с ценой по-прежнему в первом экране (решение владельца 24.09, П4б).
@@ -526,7 +546,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             </ul>
             <Link className="an-go" href="/safety">
               {safety.alerts.length > 2
-                ? `Все предупреждения (${safety.alerts.length}) →`
+                ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)}) →`
                 : 'Подробности →'}
             </Link>
           </section>
@@ -1089,6 +1109,16 @@ const CSS = `
 .v7 .qt:hover{background:var(--bg-hover)}
 .v7 .qt:active{transform:scale(.98)}
 .v7 .qt-ic{position:relative;flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--ocean);background:color-mix(in srgb,var(--ocean) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ocean) 18%,transparent)}
+.v7 button.qt{font:inherit;color:inherit;text-align:left;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.v7 .qt-radar{position:relative}
+.v7 .qt-chev{position:absolute;top:8px;right:8px;color:var(--text-secondary);transition:transform .2s ease}
+.v7 .qt-radar[aria-expanded="true"] .qt-chev{transform:rotate(180deg)}
+/* Сводка радара — непрозрачная карточка под рядом: это прибор, не стекло (§2). */
+.v7 .radar-panel{position:relative;z-index:2;margin:8px 0 0;padding:10px 14px 4px;background:var(--bg-card);border:1px solid color-mix(in srgb,var(--success) 32%,transparent);border-radius:16px}
+.v7 .radar-panel dl{margin:0;display:grid;gap:10px}
+.v7 .radar-panel dl > div{display:grid;gap:2px}
+.v7 .radar-panel dt{font:600 10.5px/1.3 var(--font-outfit),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary)}
+.v7 .radar-panel dd{margin:0;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 /* Радар — зелёный (владелец 26.09: «радар сделай зелёным»). Зелёный здесь —
    цвет прибора, как тёплая подложка у МЧС, а НЕ состояние: свежесть и доля
    линий по-прежнему говорят свои точки (жёлтая — устарело, без точки — нет
@@ -1128,7 +1158,7 @@ const CSS = `
 .v7 .alerts-now i.sev-lo{background:var(--ocean)}
 .v7 .alerts-now .an-tx{flex:1;font:500 12.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .alerts-now .an-st{display:block;margin-top:2px;font:400 10.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
-.v7 .alerts-now .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
+.v7 .alerts-now .an-go,.v7 .radar-panel .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
 /* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
    теряется, а без него человек с клавиатурой или switch-control не понимает,
    где находится. Не снимаем outline без замены. */
