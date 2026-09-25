@@ -1,62 +1,13 @@
 {
-  "note": "25.09, прогон 593. ТОЛЬКО ЧТЕНИЕ. Проверка миграции 1016 (251b1ee): перевалы с видом pass, фумарола переименована, мусор не всплывает среди похожих у Курильского озера.",
-  "run": 593,
+  "note": "25.09, прогон 594. ТОЛЬКО ЧТЕНИЕ. Владелец прислал ссылку docs.docker.com/ai/skills — из контейнера Claude домен закрыт, читаем раннером.",
+  "run": 594,
   "timeout": 60,
-  "retries": 50,
-  "retryDelay": 60,
-  "allowStale": false,
-  "until": "Тенуева",
-  "bytes": 3000,
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-          "name": "get_place_info",
-          "arguments": {
-            "name": "Искусственная фумарола"
-          }
-        }
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {
-          "name": "get_place_info",
-          "arguments": {
-            "name": "Курильское озеро"
-          }
-        }
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "tools/call",
-        "params": {
-          "name": "get_place_info",
-          "arguments": {
-            "name": "Камчатка. Такие места"
-          }
-        }
-      }
-    }
-  ],
-  "around": [
-    "Тенуева"
-  ],
-  "aroundLines": 0,
-  "aroundHits": 3,
+  "retries": 1,
+  "retryDelay": 10,
+  "allowStale": true,
+  "bytes": 20000,
   "urls": [
-    "https://vedarai.ru/api/cron/places-by-type?type=pass&limit=50"
+    "https://docs.docker.com/ai/skills.md",
+    "https://docs.docker.com/ai/skills/"
   ]
 }
