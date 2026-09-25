@@ -42,6 +42,7 @@ import { emailService } from '@/lib/notifications/email-service';
 import type { AuthRole } from '@/lib/auth';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import { recordRefundDue } from '@/lib/payments/record-refund-due';
+import { escapeHtml } from '@/lib/text/escape-html';
 
 export async function POST(
   request: NextRequest,
@@ -203,15 +204,15 @@ export async function POST(
           subject: `Бронирование отменено: ${booking.tour.title}`,
           html: `
             <h2>Ваше бронирование отменено</h2>
-            <p><strong>Тур:</strong> ${booking.tour.title}</p>
+            <p><strong>Тур:</strong> ${escapeHtml(booking.tour.title)}</p>
             <p><strong>Дата:</strong> ${booking.date.toLocaleDateString('ru-RU')}</p>
             <p><strong>Участники:</strong> ${booking.participants}</p>
-            ${reason ? `<p><strong>Причина:</strong> ${reason}</p>` : ''}
+            ${reason ? `<p><strong>Причина:</strong> ${escapeHtml(reason)}</p>` : ''}
             ${refund
-              ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${refund.reason} Возврат оформляет администрация платформы.</p>`
+              ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${escapeHtml(refund.reason)} Возврат оформляет администрация платформы.</p>`
               : '<p>Оплаты по этой брони не было — возвращать нечего.</p>'
             }
-            <p>Если у вас есть вопросы — <a href="mailto:support@kamhub.ru">support@kamhub.ru</a></p>
+            <p>Если у вас есть вопросы — <a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>
           `,
         });
       } catch {

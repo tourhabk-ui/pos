@@ -89,6 +89,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/help`,                 lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.65 },
     { url: `${BASE}/help/tourists`,        lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.65 },
     { url: `${BASE}/help/operators`,       lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.6 },
+    { url: `${BASE}/help/guides`,          lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.55 },
     { url: `${BASE}/contact`,              lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.6 },
     { url: `${BASE}/legal/privacy`,        lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE}/legal/terms`,          lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },

@@ -15,7 +15,7 @@ const options: swaggerJsdoc.Options = {
       description: 'Туристическая платформа Камчатки - API документация',
       contact: {
         name: 'Tourhab Support',
-        email: 'support@kamhub.ru',
+        email: 'info@vedarai.ru',
       },
     },
     servers: [

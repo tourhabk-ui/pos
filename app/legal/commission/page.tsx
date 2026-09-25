@@ -228,8 +228,8 @@ export default function CommissionPage() {
               {REQUISITES.shortName}, ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn}<br />
               {REQUISITES.address}<br />
               Генеральный директор: {REQUISITES.director}<br />
-              Финансовые вопросы: <a href="mailto:finance@tourhab.ru" className="text-[var(--ocean)] hover:underline">finance@tourhab.ru</a><br />
-              Вопросы сотрудничества: <a href="mailto:partners@tourhab.ru" className="text-[var(--ocean)] hover:underline">partners@tourhab.ru</a>
+              Финансовые вопросы: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a><br />
+              Вопросы сотрудничества: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>
             </p>
           </section>
         </div>

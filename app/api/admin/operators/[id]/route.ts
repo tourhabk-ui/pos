@@ -149,7 +149,7 @@ export async function PATCH(
              <p>К сожалению, ${isGuide ? 'профиль гида' : 'заявка компании'} <b>${partner.company_name}</b> не прошла проверку.</p>
              ${isGuide ? '<p>Исправьте профиль в кабинете гида и отправьте его на проверку снова.</p>' : ''}
              ${comment ? `<p><b>Комментарий:</b> ${comment}</p>` : ''}
-             <p>По вопросам: <a href="mailto:info@tourhab.ru">info@tourhab.ru</a></p>`,
+             <p>По вопросам: <a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>`,
     }).catch(logSendFailure('email'));
 
     return NextResponse.json({ success: true, message: 'Заявка отклонена' });

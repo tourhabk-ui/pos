@@ -28,6 +28,7 @@ import { holdTourPayment } from '@/lib/payments/hold-tour-payment';
 import { getSBPPaymentStatus } from '@/lib/payments/tochka';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { settleSeatPaymentByQr } from '@/lib/transfers/seat-payment';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -289,7 +290,7 @@ async function notifyOperator(bookingId: number, touristName: string, amount: nu
     `Турист: ${touristName}`,
     `Сумма: ${amount.toLocaleString('ru-RU')} р.`,
     '',
-    `tourhab.ru/hub/operator/bookings`,
+    `${getPublicBaseUrl()}/hub/operator/bookings`,
   ].join('\n'));
 }
 
