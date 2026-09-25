@@ -26,6 +26,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { orderPlates } from '@/lib/home/plate-facts';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
+import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
 import { countRoutesWithoutGeometry, type RouteGeometryGap } from '@/lib/services/routes/routes-geometry-health';
 
 export interface SafetyAlert {
@@ -206,7 +207,7 @@ async function fetchSafety(): Promise<SafetySnapshot> {
               ORDER BY lower(title), severity DESC, created_at DESC
            ) t
           ORDER BY severity DESC, created_at DESC
-          LIMIT 5`,
+          LIMIT ${HOME_ALERTS_LIMIT}`,
         [[...FEED_ALERT_TYPES]],
       ),
       query<{ name: string; acc: string }>(

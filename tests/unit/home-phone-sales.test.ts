@@ -41,12 +41,16 @@ function pos(marker: string): number {
 }
 
 describe('тур с ценой — на первом экране', () => {
-  it('первая карточка тура стоит первой под героем — раньше чипов, планировщика и строки обстановки', () => {
-    // С 25.09 строки поиска нет (владелец: «поиск лишний»); тур открывает главную.
+  it('над туром — только ряд «Своя поездка / Радар» (владелец 26.09); чипы и предупреждения — ниже тура', () => {
+    // С 25.09 строки поиска нет (владелец: «поиск лишний»). 26.09 владелец
+    // поставил планировщик и радар над «Турами сезона»; тур остаётся первым
+    // КОНТЕНТОМ под этим рядом, а чипы и строка обстановки — после него.
+    const tools = pos('<nav className="qtools qt-top"');
     const block = pos('<section className="fp-sec"');
     const first = pos('className="firstpick"');
+    expect(block).toBeGreaterThan(tools);
     expect(first).toBeGreaterThan(block);
-    for (const later of ['<div className="hero-chips">', 'className="qtools"']) {
+    for (const later of ['<div className="hero-chips">', 'className="alerts-now"']) {
       expect(pos(later), `${later} снова выше первого тура`).toBeGreaterThan(first);
     }
   });
@@ -62,7 +66,10 @@ describe('тур с ценой — на первом экране', () => {
     expect(JSX).not.toMatch(/<h2>Радар обстановки<\/h2>/);
     // С 25.09 дверь радара — плитка в ряду инструментов (владелец: «экономить
     // место на мобильной»); строка-дубль в секции #radar снята.
-    expect(JSX).toMatch(/href="\/safety#radar"\s+className="qt qt-radar"/);
+    // С 26.09 плитка радара раскрывает сводку (вариант 1 владельца), переход
+    // на /safety#radar — ссылкой внутри сводки.
+    expect(JSX).toMatch(/className="qt qt-radar"\s+aria-expanded=\{radarOpen\}/);
+    expect(JSX).toMatch(/id="radar-panel"[\s\S]{0,900}href="\/safety#radar"/);
     const radar = JSX.slice(pos('id="radar"'), JSX.indexOf('</section>', pos('id="radar"')));
     expect(radar).not.toContain('radarline');
   });
