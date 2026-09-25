@@ -29,11 +29,30 @@ describe('главная: реальный тур вместо фейка', () =
     expect(PAGE).toContain("from '@/components/homepage/FeaturedTour'");
   });
 
-  it('FeaturedTour берёт тур из operator_tours по фильтру видимости каталога', () => {
-    expect(FEATURED).toContain('FROM operator_tours');
-    expect(FEATURED).toContain('is_published = true');
-    expect(FEATURED).toContain('is_active = true');
-    expect(FEATURED).toContain('deleted_at IS NULL');
+  // Переписано осознанно 25.09 (П8, аудит #33/#120): у карточки была своя
+  // выборка «самый новый тур с фото», LIMIT 1 — мимо правила сезона, и первым
+  // мог стоять тур с кончившимся сезоном, пока телефон уводил его в конец.
+  // Теперь тур приходит из витрины fetchPlates (app/_home/data.ts) — той же,
+  // что у мобильной главной и сетки туров под карточкой. Фильтр видимости
+  // каталога живёт там (LIVE_TOUR_CONDITIONS + JOIN partners), и сторож
+  // проверяет его там, а у карточки — что своего SQL у неё больше нет.
+  it('FeaturedTour не держит своей выборки — тур приходит из витрины fetchPlates', () => {
+    expect(FEATURED).not.toMatch(/FROM operator_tours/);
+    expect(FEATURED).not.toMatch(/pool\.query|from '@\/lib\/db-pool'/);
+    expect(PAGE).toMatch(/<FeaturedTour tour=\{plates\[0\] \?\? null\}/);
+    expect(PAGE).toMatch(/fetchPlates\(\)/);
+  });
+
+  it('витрина fetchPlates берёт тур из operator_tours по фильтру видимости каталога', () => {
+    const DATA = read('app/_home/data.ts');
+    const body = DATA.slice(DATA.indexOf('export async function fetchPlates'));
+    expect(body).toContain('FROM operator_tours');
+    expect(body).toContain("LIVE_TOUR_CONDITIONS.join(' AND ')");
+    expect(body).toContain('JOIN partners p');
+    const SEARCH = read('lib/search/tour-search.ts');
+    expect(SEARCH).toContain("'ot.is_published = true'");
+    expect(SEARCH).toContain("'ot.is_active = true'");
+    expect(SEARCH).toContain("'ot.deleted_at IS NULL'");
   });
 
   it('честная деградация: нет тура → null, а не заглушка', () => {

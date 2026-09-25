@@ -20,6 +20,8 @@
  * себя место: пилюля стоит в шапке и обновляется с каждым рендером.
  */
 
+import type { FreshnessState } from '@/lib/home/data-freshness';
+
 export type SafetyTone = 'calm' | 'warning' | 'danger' | 'unknown';
 
 export interface SafetyPill {
@@ -54,9 +56,23 @@ export interface SafetyPillInput {
    * несуществующей колонке (#1090): зелёная плашка, посчитанная из нуля данных.
    */
   degraded?: boolean;
+  /**
+   * Свежесть сводки обстановки (`dataFreshness(...).state`).
+   *
+   * Аудит 24.09 (#37/#44): на одном экране шапка писала «Спокойно», строка
+   * ниже — «Обстановка недоступна», а карточка тура — «Сегодня спокойно».
+   * Пилюля считала спокойствие по нулю предупреждений и на свежесть не
+   * смотрела, то есть «ничего не знаем» читалось как «всё тихо».
+   *
+   * Правило: 'unavailable' отменяет только СПОКОЙНЫЙ вывод. Известная
+   * опасность (предупреждения пришли из ленты) незнанием другого источника
+   * не глушится — промолчать о ней хуже, чем сказать «Нет данных».
+   * Не задано — как раньше (вызывающий свежесть не знает).
+   */
+  freshness?: FreshnessState;
 }
 
-export function safetyPill({ activeCount, maxSeverity, limit = 5, degraded = false }: SafetyPillInput): SafetyPill {
+export function safetyPill({ activeCount, maxSeverity, limit = 5, degraded = false, freshness }: SafetyPillInput): SafetyPill {
   // Молчание источника — не спокойствие. Проверяется ПЕРВОЙ: при сбое
   // счётчики нулевые, и любая ветка ниже прочла бы их как хорошую новость.
   // «Нет данных», а не «Обстановка неизвестна»: то же «не знаю» (§4.0), но
@@ -64,7 +80,11 @@ export function safetyPill({ activeCount, maxSeverity, limit = 5, degraded = fal
   // уносила ЛК на вторую строку (скрин владельца 02.09) — бюджет ширины
   // шапки считается по самому длинному состоянию (scripts/measure-header-budget.mjs).
   if (degraded) return { tone: 'unknown', text: 'Нет данных' };
-  if (activeCount <= 0) return { tone: 'calm', text: 'Спокойно' };
+  if (activeCount <= 0) {
+    // Ноль предупреждений при недоступной сводке — не спокойствие, а незнание.
+    if (freshness === 'unavailable') return { tone: 'unknown', text: 'Нет данных' };
+    return { tone: 'calm', text: 'Спокойно' };
+  }
   // severity 2+ — тот же порог, по которому уходит push-рассылка и краснеет
   // recommender_status. Одно правило на всю платформу, не отдельное для витрины.
   if (maxSeverity >= 2) return { tone: 'danger', text: 'Опасность' };

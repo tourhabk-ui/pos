@@ -3,12 +3,12 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { plural } from '@/lib/home/data-freshness';
 
 interface Fact {
   num: string;
   text: string;
   href?: string;
-  danger?: boolean;
 }
 
 interface EditorialSectionProps {
@@ -20,10 +20,15 @@ interface EditorialSectionProps {
 export function EditorialSection({ mchsRoutes, safetyProfiles }: EditorialSectionProps) {
   // Вневременной факт остаётся статикой; цифры платформы — из БД, не хардкод
   // (раньше 154/763 жили здесь и расходились со StatsBand).
+  //
+  // Аудит 24.09 (#126): факт о гибели стоял ПЕРВЫМ и цветом --danger, а
+  // --danger по токенам (§2) закреплён за SOS и ошибками: красная цифра рядом
+  // с продажей читалась как тревога сейчас. Факт остаётся — это правда о
+  // горах, — но цветом текста и последним.
   const FACTS: Fact[] = [
-    { num: '6', text: 'туристов погибло на Ключевском — 2022', href: '/safety/incidents', danger: true },
-    ...(mchsRoutes != null ? [{ num: mchsRoutes.toLocaleString('ru-RU'), text: 'маршрута требуют регистрации в МЧС', href: '/routes?kind=route' }] : []),
-    ...(safetyProfiles != null ? [{ num: safetyProfiles.toLocaleString('ru-RU'), text: 'точки с профилем безопасности', href: '/places' }] : []),
+    ...(mchsRoutes != null ? [{ num: mchsRoutes.toLocaleString('ru-RU'), text: `${plural(mchsRoutes, 'маршрут требует', 'маршрута требуют', 'маршрутов требуют')} регистрации в МЧС`, href: '/routes?kind=route' }] : []),
+    ...(safetyProfiles != null ? [{ num: safetyProfiles.toLocaleString('ru-RU'), text: `${plural(safetyProfiles, 'точка', 'точки', 'точек')} с профилем безопасности`, href: '/places' }] : []),
+    { num: '6', text: 'туристов погибло на Ключевском — 2022', href: '/safety/incidents' },
   ];
 
   return (
@@ -50,14 +55,14 @@ export function EditorialSection({ mchsRoutes, safetyProfiles }: EditorialSectio
             <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-10 border-t border-[var(--border)] pt-12">
               {FACTS.map((f, i) => (
                 <div key={i}>
-                  <p className={`text-4xl font-playfair font-bold mb-2 ${f.danger ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'}`}>
+                  <p className="text-4xl font-playfair font-bold mb-2 text-[var(--text-primary)] lining-nums tabular-nums">
                     {f.num}
                   </p>
-                  <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold leading-relaxed">
+                  <p className="text-xs uppercase tracking-widest text-[var(--text-secondary)] font-bold leading-relaxed">
                     {f.text}
                   </p>
                   {f.href && (
-                    <Link href={f.href} className="text-[10px] text-[var(--accent)] font-bold uppercase tracking-widest mt-2 inline-block hover:underline">
+                    <Link href={f.href} className="text-xs text-[var(--accent)] font-bold uppercase tracking-widest mt-2 inline-block hover:underline">
                       Подробнее →
                     </Link>
                   )}
@@ -71,14 +76,18 @@ export function EditorialSection({ mchsRoutes, safetyProfiles }: EditorialSectio
             <div className="relative z-10 rounded-lg overflow-hidden shadow-2xl bg-[var(--bg-primary)] aspect-[4/5]">
               <Image 
                 src="/images/hero/IMG_20260316_133026.jpg" 
-                alt="Kamchatka Editorial" 
+                alt="Ключевская сопка" 
                 fill
                 className="object-cover opacity-80"
               />
               <div className="absolute inset-0 ring-1 ring-[var(--border)] ring-inset" />
-              <div className="absolute bottom-6 left-6 right-6 p-4 bg-[var(--bg-card)]/80 border border-[var(--border)]">
-                <p className="text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-widest mb-1">Локация</p>
-                <p className="text-[var(--text-primary)] font-playfair italic text-lg">Вулкан Мутновский, Южная Камчатка</p>
+              <div className="absolute bottom-6 left-6 right-6 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
+                {/* Подпись к кадру, а не к тексту рядом (#121): этот же снимок —
+                    правильный конус с линзовидным облаком — в «Историях» подписан
+                    «Ключевской». Мутновский — плоский массив с кратерами, конусом
+                    он не выглядит; две подписи одного кадра не могут быть обе верны. */}
+                <p className="text-[var(--text-primary)] text-xs font-bold uppercase tracking-widest mb-1">Локация</p>
+                <p className="text-[var(--text-primary)] font-playfair italic text-lg">Ключевская сопка</p>
               </div>
             </div>
             

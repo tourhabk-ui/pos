@@ -20,7 +20,9 @@ import { MoodEntry } from '@/components/homepage/MoodEntry'
 import { SeasonNow } from '@/components/homepage/SeasonNow'
 import BottomNav from '@/components/shared/BottomNav'
 import HomeV8Client from './_home/_HomeV8Client'
-import { getHomeV8Data } from './_home/data'
+import { getHomeV8Data, fetchPlates } from './_home/data'
+import { homeTreeFor } from '@/lib/home/device-tree'
+import { TourGrid } from '@/components/homepage/TourGrid'
 import { getPlatformCounts } from '@/lib/stats/platform-counts'
 
 export const dynamic = 'force-dynamic'
@@ -80,10 +82,10 @@ export default async function Page() {
   // Боты — ВСЕГДА десктоп (SEO): Google/Yandex индексируют mobile-first, и лёгкое
   // v8-дерево лишило бы их editorial/stats/маршрутов — весь SSR-SEO Шага 3.
   // Неоднозначный UA → десктоп (безопасный дефолт: полный, SEO-богатый лейаут).
-  const ua = (await headers()).get('user-agent') ?? '';
-  const isBot = /bot|crawler|spider|googlebot|yandex|bingbot|duckduckbot|slurp|baiduspider|facebookexternalhit|telegram|whatsapp|twitterbot|applebot|petalbot/i.test(ua);
-  const isPhone = /android|iphone|ipod|opera mini|iemobile|blackberry|webos|mobile safari/i.test(ua) && !/ipad|tablet/i.test(ua);
-  const isMobile = isPhone && !isBot;
+  // Какое дерево — решает lib/home/device-tree (чистая функция со сторожем):
+  // маркеры называют краулеров, а не приложения — встроенный браузер
+  // Telegram-Android и приложение Яндекса это люди с телефоном (#43).
+  const isMobile = homeTreeFor((await headers()).get('user-agent')) === 'mobile';
 
   // ── Мобильное дерево: только v8, только для телефонов ──────────────
   if (isMobile) {
@@ -101,8 +103,11 @@ export default async function Page() {
   }
 
   // ── Десктоп-дерево (и все боты/SEO): единый источник цифр ──────────
-  const [safety, counts] = await Promise.all([
-    getSafetyStatus(), getPlatformCounts().catch(() => null),
+  // Витрина туров — та же выборка, что у телефона (fetchPlates): порядок,
+  // фильтр живого тура и правило сезона одни на оба дерева. Отказ fetchPlates
+  // пишет в лог сам и отдаёт [] — блоки туров тогда честно не рисуются.
+  const [safety, counts, plates] = await Promise.all([
+    getSafetyStatus(), getPlatformCounts().catch(() => null), fetchPlates(),
   ]);
   const platformStats: PlatformStats | null = counts
     ? { routes: counts.routes, places: counts.places, mchsRoutes: counts.mchsRoutes, safetyProfiles: counts.safetyProfiles }
@@ -121,17 +126,19 @@ export default async function Page() {
         {/* Stories rail */}
         <StoriesRail />
 
-        {/* Тур недели — реальный опубликованный тур из БД (не выдуманная история) */}
+        {/* Туры сезона — первый тур витрины крупно, остальные сеткой, последняя
+            клетка — заявка (#33). Один источник — fetchPlates, второй выборки нет. */}
         <SectionErrorBoundary>
-          <FeaturedTour />
+          <FeaturedTour tour={plates[0] ?? null} total={plates.length} />
         </SectionErrorBoundary>
+        {plates.length > 0 && <TourGrid plates={plates.slice(1)} />}
 
-        {/* Social proof + style badge */}
+        {/* Живые счётчики: при нулях блока нет (честная пустота, #36/#40) */}
         <LiveOnTrails />
 
-        {/* Kuzmich live briefing — weather + alerts + route picks */}
+        {/* Кузьмич: обстановка + туры сезона из той же витрины */}
         <SectionErrorBoundary>
-          <KuzmichBriefing />
+          <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, title: p.title }))} />
         </SectionErrorBoundary>
 
         {/* Stats marquee */}
@@ -161,7 +168,11 @@ export default async function Page() {
 
       </main>
       {/* Футер — только desktop (CLAUDE.md §2); на мобильном — своя нижняя навигация v8 */}
-      <Footer />
+      {/* hidden md:block: это дерево получает и телефон с неопознанным UA, а
+          футер из десятков ссылок на телефоне — 2000 пикселей (#43). */}
+      <div className="hidden md:block">
+        <Footer />
+      </div>
       {/* §2/§10.09 (issue #1839): это дерево рендерится не только настоящему
           десктопу, но и любому UA, который серверная эвристика выше не
           распознала как телефон (неоднозначный UA — безопасный дефолт).

@@ -16,6 +16,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { INTENT_CHIPS, chipTarget } from '@/lib/home/intent-chips';
 import { knownLocationTypes } from '@/lib/stats/element-groups';
+import { parseMarketplaceSearchParams } from '@/lib/tours/marketplace-page';
+import { ACTIVITY_LABELS } from '@/lib/tours/labels';
 
 const ROOT = process.cwd();
 const ROUTES_PAGE = readFileSync(join(ROOT, 'app/routes/page.tsx'), 'utf-8');
@@ -49,10 +51,34 @@ describe('чип — это настоящий фильтр', () => {
     ).toEqual([]);
   });
 
-  it('ведёт либо в каталог, либо в планировщик — третьего адреса нет', () => {
+  it('ведёт в каталог мест, в витрину туров или в планировщик — четвёртого адреса нет', () => {
+    // Расширено осознанно 24.09 (решение владельца, пакет П4б): '/catalog' —
+    // витрина туров, та же, что в BottomNav «Туры». До этого все двери
+    // первого экрана вели к местам, и тура с ценой на нём не было. Новый адрес
+    // сюда добавляется только вместе с проверкой, что он фильтр применяет
+    // (см. тест ниже про /catalog).
     for (const chip of INTENT_CHIPS) {
       const { path } = chipTarget(chip);
-      expect(['/routes', '/planner'], `${chip.key}: неожиданный адрес ${path}`).toContain(path);
+      expect(['/routes', '/catalog', '/planner'], `${chip.key}: неожиданный адрес ${path}`).toContain(path);
+    }
+  });
+
+  it('чип витрины туров: каждый его параметр доходит до фильтра выдачи', () => {
+    // Проверяется ВЫЗОВОМ того же разбора, которым /catalog строит SSR-выдачу:
+    // параметр, который разбор выбросил, — кнопка, делающая вид, что сузила выбор.
+    const catalogChips = INTENT_CHIPS.filter((c) => chipTarget(c).path === '/catalog');
+    for (const chip of catalogChips) {
+      const { params } = chipTarget(chip);
+      expect(Object.keys(params).length, `${chip.key}: чип без фильтра — это просто ссылка`).toBeGreaterThan(0);
+      const { filters } = parseMarketplaceSearchParams(params);
+      const applied = filters as unknown as Record<string, unknown>;
+      for (const [k, v] of Object.entries(params)) {
+        expect(applied[k], `${chip.key}: /catalog не применяет ${k}=${v}`).toBe(v);
+      }
+      if (params.activity_type) {
+        expect(Object.keys(ACTIVITY_LABELS), `${chip.key}: фантомный вид активности ${params.activity_type}`)
+          .toContain(params.activity_type);
+      }
     }
   });
 

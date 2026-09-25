@@ -40,12 +40,12 @@ export function StatsBand({ stats }: StatsBandProps) {
             className="inline-flex items-baseline gap-3 px-10 md:px-16 border-r border-[var(--border)] last:border-r-0 flex-shrink-0"
           >
             <span
-              className="font-playfair font-bold text-[var(--text-primary)] tabular-nums"
+              className="font-playfair font-bold text-[var(--text-primary)] lining-nums tabular-nums"
               style={{ fontSize: 'clamp(1.5rem, 2.5vw, 2.2rem)' }}
             >
               {s.num}
             </span>
-            <span className="text-xs tracking-[0.2em] uppercase text-[var(--text-muted)] font-medium">
+            <span className="text-xs tracking-[0.2em] uppercase text-[var(--text-secondary)] font-medium">
               {s.label}
             </span>
           </div>

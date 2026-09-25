@@ -17,8 +17,16 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const poolQueryMock = vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>();
+// Журнал MCP в этих тестах — «вызовы были». Иначе пустые строки мока читаются
+// как ноль вызовов, и с 25.09 (окно 7–14 суток после MCP_CATALOG_LAUNCH_DATE)
+// в «чистый» прогон проникает mcp_silent — тест начинает зависеть от даты.
 vi.mock('@/lib/db-pool', () => ({
-  pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) },
+  pool: {
+    query: (sql: string, params?: unknown[]) =>
+      String(sql).includes('FROM mcp_tool_calls')
+        ? Promise.resolve({ rows: [{ calls: '5', callers: '2' }] })
+        : poolQueryMock(sql, params),
+  },
 }));
 
 vi.mock('@/lib/agents/memory/agent-knowledge', () => ({

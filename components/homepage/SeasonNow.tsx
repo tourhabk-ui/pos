@@ -1,6 +1,8 @@
 import Link from 'next/link';
-import { Fish } from 'lucide-react';
+import { Fish, ArrowRight } from 'lucide-react';
 import { getActiveSpecies } from '@/lib/fish-species';
+import { queryCatalogSummary } from '@/lib/search/tour-search';
+import { fishingTourCount } from '@/lib/home/season-fishing';
 
 /**
  * «Сейчас на Камчатке» — event-driven travel, пилот на реальных данных
@@ -14,14 +16,33 @@ import { getActiveSpecies } from '@/lib/fish-species';
  *
  * Межсезонье (нет активных видов) — законный результат: блок просто не
  * рендерится, а не показывает пустую рамку или последний известный сезон.
+ *
+ * Аудит 24.09 (#126): карточки видов вели только в справочник /fish, и из
+ * блока «идёт ход лосося» к турам на рыбалку пути не было. Под сеткой —
+ * ссылка «Туры на рыбалку (N)» в витрину /catalog с фильтром рыбалки. N —
+ * из сводки каталога (queryCatalogSummary: то же условие живого тура, что у
+ * листинга), своего счёта нет. Туров на рыбалку нет — нет и ссылки (в пустую
+ * витрину не зовём). Сводка не прочиталась — ссылка без числа, а отказ в
+ * логе (§4.0): число, которого мы не знаем, не пишем.
  */
-export function SeasonNow() {
+async function fishingCount(): Promise<number | null> {
+  try {
+    return fishingTourCount(await queryCatalogSummary());
+  } catch (err) {
+    const e = err as { code?: string; message?: string } | undefined;
+    console.error('[home] SeasonNow: сводка каталога не прочитана', { sqlstate: e?.code, message: e?.message });
+    return null;
+  }
+}
+
+export async function SeasonNow() {
   const month = Number(
     new Intl.DateTimeFormat('ru-RU', { timeZone: 'Asia/Kamchatka', month: 'numeric' }).format(new Date()),
   );
   const active = getActiveSpecies(month);
 
   if (active.length === 0) return null;
+  const fishing = await fishingCount();
 
   return (
     <section className="px-4 py-10 max-w-6xl mx-auto">
@@ -49,11 +70,21 @@ export function SeasonNow() {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-[var(--text-primary)] leading-snug">{species.name}</p>
-              <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-snug">{species.season}</p>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-snug">{species.season}</p>
             </div>
           </Link>
         ))}
       </div>
+
+      {fishing !== 0 && (
+        <Link
+          href="/catalog?activity_type=fishing"
+          className="mt-5 inline-flex items-center min-h-[44px] gap-2 text-sm font-semibold text-[var(--accent)] hover:underline"
+        >
+          <span className="lining-nums">Туры на рыбалку{fishing != null ? ` (${fishing})` : ''}</span>
+          <ArrowRight size={16} aria-hidden />
+        </Link>
+      )}
     </section>
   );
 }

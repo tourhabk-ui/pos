@@ -72,11 +72,35 @@ export interface MarketplaceToursResult {
  * (`queryCatalogSummary`). Две копии условия дали бы герою «8 туров», а сетке
  * другое число, как уже было с константой «13 туров» (#1780).
  */
-const LIVE_TOUR_CONDITIONS = [
+export const LIVE_TOUR_CONDITIONS = [
   'ot.deleted_at IS NULL',
   'ot.is_active = true',
   'ot.is_published = true',
 ] as const;
+
+/**
+ * «У тура есть свободные даты» — одно условие для каталога и главной.
+ *
+ * Главная (app/_home/data.ts, fetchPlates) решает по нему «даты есть / по
+ * запросу / сезон кончился» тем же правилом catalogAvailability. Первая
+ * редакция П4 (24.09) держала там ручную копию этого EXISTS — правка условия
+ * здесь развела бы витрины для одного и того же тура, как с «13 турами»
+ * (#1780). Сторож: tests/unit/home-plates-tours.test.ts.
+ *
+ * Алиас тура — `ot` (как в LIVE_TOUR_CONDITIONS); брони внутри — `ob2`,
+ * чтобы не спорить с внешним `ob` листинга.
+ */
+export function hasAvailabilitySql(): string {
+  return `EXISTS (
+        SELECT 1 FROM tour_availability ta
+        WHERE ta.operator_tour_id = ot.id
+          AND ta.date >= CURRENT_DATE
+          AND ta.deleted_at IS NULL
+          AND ta.is_cancelled = false
+          AND ta.available_slots > (${occupiedOnDaySql({ booking: 'ob2', day: 'ta.date', tourId: 'ot.id' })}
+          )
+      )`;
+}
 
 export async function queryMarketplaceTours(filters: MarketplaceToursFilters): Promise<MarketplaceToursResult> {
   const {
@@ -109,15 +133,7 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
       p.id as operator_id,
       p.is_verified as operator_verified,
       COUNT(ob.id)::INT as bookings_count,
-      EXISTS (
-        SELECT 1 FROM tour_availability ta
-        WHERE ta.operator_tour_id = ot.id
-          AND ta.date >= CURRENT_DATE
-          AND ta.deleted_at IS NULL
-          AND ta.is_cancelled = false
-          AND ta.available_slots > (${occupiedOnDaySql({ booking: 'ob2', day: 'ta.date', tourId: 'ot.id' })}
-          )
-      ) as has_availability`;
+      ${hasAvailabilitySql()} as has_availability`;
 
   const from = `
     FROM operator_tours ot

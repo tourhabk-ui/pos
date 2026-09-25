@@ -16,7 +16,9 @@ const ELEMENTS = [
     subtitle: 'Вулканы и мощь земли',
     icon: Flame,
     href: elementHref('fire'),
-    image: '/images/bento/mutnovsky.jpg',
+    // Кадр извержения — огонь буквально. Прежде здесь стоял bento/mutnovsky.jpg
+    // (рогоз в сухой траве), а извержение висело на «Снеге» (#121).
+    image: '/images/hero/hero-dark.jpeg',
   },
   {
     number: '02',
@@ -24,7 +26,8 @@ const ELEMENTS = [
     subtitle: 'Хели-ски и ледники',
     icon: Snowflake,
     href: elementHref('snow'),
-    image: '/images/hero/hero-dark.jpeg',
+    // Заснеженный конус: ледники вместо извержения под подписью «Хели-ски».
+    image: '/images/hero/IMG_20260316_133026.jpg',
   },
   {
     number: '03',
@@ -66,7 +69,7 @@ export function BentoSection() {
       <div className="container mx-auto px-6">
         <div className="flex flex-col md:flex-row justify-between items-end mb-12 gap-6">
           <div>
-            <span className="text-[var(--accent)] font-bold tracking-[0.4em] uppercase text-[10px] mb-4 inline-block">
+            <span className="text-[var(--accent)] font-bold tracking-[0.4em] uppercase text-xs mb-4 inline-block">
               Исследовать по стихии
             </span>
             <h2 className="font-playfair text-4xl md:text-6xl font-bold leading-tight text-[var(--text-primary)]">
