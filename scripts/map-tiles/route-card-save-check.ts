@@ -81,11 +81,14 @@ async function main(): Promise<number> {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page = await context.newPage();
     page.on('console', m => { if (m.type() === 'error') console.log(`  [console] ${m.text().slice(0, 300)}`); });
-    await page.goto(`${SITE}/routes/${routeId}`, { waitUntil: 'networkidle', timeout: 90_000 });
+    // Не networkidle: прод никогда не затихает (аналитика, опросы), и
+    // прогон 1 простоял 90 с до нажатия. Ждём загрузку и саму кнопку.
+    await page.goto(`${SITE}/routes/${routeId}`, { waitUntil: 'load', timeout: 90_000 });
     await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
 
     const button = page.locator('button:visible', { hasText: 'Скачать для похода' }).first();
-    if (await button.count() === 0) { console.log('ИТОГ: кнопки «Скачать для похода» на карточке нет'); return 2; }
+    const shown = await button.waitFor({ timeout: 60_000 }).then(() => true).catch(() => false);
+    if (!shown) { console.log('ИТОГ: кнопки «Скачать для похода» на карточке нет'); return 2; }
     const started = Date.now();
     await button.click();
 
