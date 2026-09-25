@@ -5,7 +5,7 @@
  *   - external_alerts        → лента безопасности (severity/title/type/expires)
  *   - volcano_status (KVERT) → ACC-статус вулканов (aviation_color_code)
  *   - location_real_time_status → открыто/закрыто зон + свежесть
- *   - operator_tours         → платы «Подходит вам сейчас» (реальные туры: фото, цена)
+ *   - operator_tours         → платы «Туры сезона» (реальные туры: фото, цена, оператор)
  *   - operator_bookings …    → живой журнал
  *   - places counts          → «Стихии» и «В цифрах»
  * Каждая выборка в своём try/catch: сбой одного блока не роняет страницу.
@@ -23,6 +23,9 @@ import { volcanoMarks, kfegsIsFresh, type KfegsReading, type ScaleColor } from '
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
+import { orderPlates } from '@/lib/home/plate-facts';
+import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
+import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
 import { countRoutesWithoutGeometry, type RouteGeometryGap } from '@/lib/services/routes/routes-geometry-health';
 
 export interface SafetyAlert {
@@ -72,6 +75,17 @@ export interface Plate {
   category: string;
   locationType: string | null;
   volcanoStatus: string | null;
+  /** operator_tours.price_unit; null — как в каталоге, за человека. */
+  priceUnit: string | null;
+  /** partners.name; null — имя не записано, и его не выдумываем. */
+  operatorName: string | null;
+  durationType: string | null;
+  multiDayCount: number | null;
+  durationHours: number | null;
+  /** Дословно operator_tours.cancellation_policy; null — не записано. */
+  cancellationPolicy: string | null;
+  /** Исход по датам и сезону — тем же правилом, что карточка каталога. */
+  availability: CatalogAvailability;
 }
 export interface FeedItem { text: string }
 export interface Stat { value: string; label: string; href?: string }
@@ -253,41 +267,91 @@ async function fetchZones(): Promise<ZonesSnapshot> {
   }
 }
 
-async function fetchPlates(): Promise<Plate[]> {
-  // «Подходит вам сейчас» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
+/** Витрина туров — один источник для обоих деревьев главной (десктоп читает её в app/page.tsx, П8). */
+export async function fetchPlates(): Promise<Plate[]> {
+  // «Туры сезона» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
   // места/маршруты. Прежде тянули из agent_route_knowledge (места+маршруты,
   // туров там нет) и добивали маршрутами — на телефоне коммерция была спрятана.
   // Теперь только коммерция: опубликованные туры, сначала с фото. Нет туров →
   // пустой массив (блок честно не рисуется), никаких мест-заглушек.
+  //
+  // Аудит 24.09 (#39/#120/#122): карточка знала только цену. Теперь выборка
+  // несёт то, что карточка обещает словами — имя оператора, длительность,
+  // единицу цены и условия отмены (дословно из поля тура, решение владельца
+  // 24.09 п.3), — и то, чем решается порядок: даты и сезон. Тур с кончившимся
+  // сезоном не прячется, а уходит в конец — тем же правилом, что в каталоге
+  // (lib/tours/catalog-availability), без своей копии порогов. LIMIT шире
+  // витрины: сортировка по сезону идёт после выборки, и закрытый тур не
+  // должен занимать место открытого.
+  //
+  // «Живой тур» и «даты есть» — не свои копии, а фрагменты каталога
+  // (lib/search/tour-search: LIVE_TOUR_CONDITIONS, hasAvailabilitySql): та же
+  // витрина, тот же ответ для того же тура. JOIN partners — как в каталоге и
+  // его сводке: тур без оператора каталог не показывает, и главная не должна.
   try {
     const { rows } = await query<{
       id: string; title: string; description: string | null;
       image_url: string | null; base_price: string | null; activity_type: string | null;
+      price_unit: string | null; operator_name: string | null;
+      duration_hours: string | null; duration_type: string | null; multi_day_count: number | null;
+      season_start: string | null; season_end: string | null;
+      cancellation_policy: string | null; has_availability: boolean;
     }>(`
       SELECT ot.id::text, ot.title,
              COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
              COALESCE(ot.tour_image, (ot.photos)[1])                              AS image_url,
              ot.base_price::text,
-             ot.activity_type
+             ot.activity_type,
+             ot.price_unit,
+             p.name AS operator_name,
+             ot.duration_hours::text, ot.duration_type, ot.multi_day_count,
+             ot.season_start::text, ot.season_end::text,
+             NULLIF(btrim(ot.cancellation_policy), '') AS cancellation_policy,
+             ${hasAvailabilitySql()} AS has_availability
         FROM operator_tours ot
-       WHERE ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
+        JOIN partners p ON ot.operator_id = p.id
+       WHERE ${LIVE_TOUR_CONDITIONS.join(' AND ')}
        ORDER BY (ot.tour_image IS NOT NULL
                  OR (ot.photos IS NOT NULL AND array_length(ot.photos, 1) > 0)) DESC,
                 ot.created_at DESC
-       LIMIT 8
+       LIMIT 24
     `);
-    return rows.map((r) => ({
-      id: r.id,
-      kind: 'tour',
-      title: r.title,
-      description: (r.description || '').slice(0, 140),
-      imageUrl: r.image_url,
-      priceFrom: r.base_price != null ? Number(r.base_price) : null,
-      category: r.activity_type ?? 'tour',
-      locationType: null,
-      volcanoStatus: null,
-    }));
-  } catch {
+    const plates: Plate[] = rows.map((r) => {
+      const multi = r.multi_day_count == null ? null : Number(r.multi_day_count);
+      const hours = r.duration_hours == null ? null : Number(r.duration_hours);
+      return {
+        id: r.id,
+        kind: 'tour',
+        title: r.title,
+        description: (r.description || '').slice(0, 140),
+        imageUrl: r.image_url,
+        priceFrom: r.base_price != null ? Number(r.base_price) : null,
+        category: r.activity_type ?? 'tour',
+        locationType: null,
+        volcanoStatus: null,
+        priceUnit: r.price_unit,
+        operatorName: r.operator_name,
+        durationType: r.duration_type,
+        multiDayCount: multi,
+        durationHours: hours,
+        cancellationPolicy: r.cancellation_policy,
+        availability: catalogAvailability({
+          has_availability: r.has_availability,
+          season_start: r.season_start,
+          season_end: r.season_end,
+          duration_type: r.duration_type,
+          multi_day_count: multi,
+          duration_hours: hours,
+        }),
+      };
+    });
+    // Порядок и потолок витрины — чистая функция (lib/home/plate-facts), со сторожем.
+    return orderPlates(plates);
+  } catch (err) {
+    // Пустой массив — блок не рисуется, но отказ обязан быть виден в логе:
+    // «туров нет» и «запрос упал» снаружи иначе неотличимы (§4.0).
+    const e = err as { code?: string; message?: string } | undefined;
+    console.error('[home] fetchPlates не выполнен', { sqlstate: e?.code, message: e?.message });
     return [];
   }
 }

@@ -1,103 +1,66 @@
 import React from 'react';
 import Link from 'next/link';
-import { MapPin, Clock, Mountain, ArrowRight } from 'lucide-react';
-import { pool } from '@/lib/db-pool';
+import { MapPin, Clock, ArrowRight, CalendarX } from 'lucide-react';
+import type { Plate } from '@/app/_home/data';
+import { plateDuration } from '@/lib/home/plate-facts';
+import { priceUnitLabel, activityLabel } from '@/lib/tours/labels';
+import { priceFrom } from '@/lib/tours/price-label';
+import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 
 /**
  * Реальный тур на главной вместо выдуманной «истории путешественницы».
  *
  * Прежний TravelerCard рисовал фейк: несуществующую Марию, придуманную цитату
  * и «47 лайков». Платформа обещает не врать (§7) — на витрине это особенно
- * важно. Здесь — настоящий опубликованный тур из operator_tours (тот же фильтр
- * видимости, что и каталог: is_active + is_published + deleted_at IS NULL).
+ * важно. Здесь — настоящий опубликованный тур из operator_tours.
  *
- * Честная деградация (§8): нет опубликованных туров или упала БД → компонент
- * возвращает null, а не заглушку. Пусто честнее фейка.
+ * Аудит 24.09 (#33, #120, #123): своей выборки у карточки больше нет. Прежде
+ * она брала «самый новый тур с фото» (LIMIT 1) отдельным запросом — мимо
+ * правила сезона, и тур с кончившимся сезоном мог стоять первым, пока
+ * мобильная витрина того же тура уводила его в конец. Теперь тур приходит
+ * из той же витрины, что и на телефоне (fetchPlates в app/_home/data.ts:
+ * фильтр живого тура каталога, JOIN partners, порядок orderPlates по датам
+ * и сезону), — первым элементом; остальные идут сеткой ниже (TourGrid).
+ * Заголовок «Тур недели» снят: редакторского выбора за ним не было.
+ *
+ * Честная деградация: нет туров или упала БД → fetchPlates отдаёт [] (и
+ * пишет отказ в лог), компонент возвращает null, а не заглушку.
  */
 
-/** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
-import { activityLabel, difficultyLabel } from '@/lib/tours/labels';
-
-interface FeaturedTourRow {
-  id: number;
-  title: string;
-  short_description: string | null;
-  description: string | null;
-  base_price: string | null;
-  tour_image: string | null;
-  photos: string[] | null;
-  activity_type: string | null;
-  difficulty: string | null;
-  duration_hours: string | null;
-  duration_type: string | null;
-  multi_day_count: number | null;
-  location_name: string | null;
-  operator_name: string | null;
+interface FeaturedTourProps {
+  /** Первый тур витрины (fetchPlates) либо null — туров нет. */
+  tour: Plate | null;
+  /** Сколько туров в витрине всего — для ссылки «Все туры». */
+  total: number;
 }
 
-function fmtPrice(v: string | null): string | null {
-  if (v == null) return null;
-  const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return `${n.toLocaleString('ru-RU')} ₽`;
-}
-
-function fmtDuration(r: FeaturedTourRow): string | null {
-  if (r.multi_day_count && r.multi_day_count > 1) return `${r.multi_day_count} дн.`;
-  if (r.duration_type === 'multi_day') return 'Несколько дней';
-  const h = r.duration_hours ? Number(r.duration_hours) : NaN;
-  if (Number.isFinite(h) && h > 0) return h >= 8 ? '1 день' : `${h} ч`;
-  return null;
-}
-
-async function getFeaturedTour(): Promise<FeaturedTourRow | null> {
-  try {
-    const { rows } = await pool.query<FeaturedTourRow>(`
-      SELECT ot.id, ot.title, ot.short_description, ot.description,
-             ot.base_price::text, ot.tour_image, ot.photos,
-             ot.activity_type, ot.difficulty,
-             ot.duration_hours::text, ot.duration_type, ot.multi_day_count,
-             ot.location_name,
-             p.name AS operator_name
-        FROM operator_tours ot
-        JOIN partners p ON p.id = ot.operator_id
-       WHERE ot.is_active = true
-         AND ot.is_published = true
-         AND ot.deleted_at IS NULL
-       ORDER BY (ot.tour_image IS NOT NULL
-                 OR (ot.photos IS NOT NULL AND array_length(ot.photos, 1) > 0)) DESC,
-                ot.created_at DESC
-       LIMIT 1
-    `);
-    return rows[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export async function FeaturedTour() {
-  const tour = await getFeaturedTour();
+export function FeaturedTour({ tour, total }: FeaturedTourProps) {
   if (!tour) return null; // честная пустота вместо фейка
 
-  const image = tour.tour_image ?? tour.photos?.[0] ?? null;
-  const activity = tour.activity_type ? activityLabel(tour.activity_type) : null;
-  const difficulty = tour.difficulty ? difficultyLabel(tour.difficulty, true) : null;
-  const duration = fmtDuration(tour);
-  const price = fmtPrice(tour.base_price);
-  const blurb = tour.short_description ?? (tour.description ? tour.description.slice(0, 130) : null);
+  const image = tour.imageUrl;
+  const activity = tour.category && tour.category !== 'tour' ? activityLabel(tour.category) : null;
+  const duration = plateDuration(tour);
+  // «13 000 ₽» либо null — цена не записана (priceFrom: null на входе — null на выходе).
+  const price = priceFrom(tour.priceFrom, '₽')?.replace(/^от /, '') ?? null;
+  const unit = priceUnitLabel(tour.priceUnit, true);
+  const blurb = tour.description || null;
 
   return (
-    <section className="px-4 mb-2" aria-label="Тур недели">
-      <div className="max-w-5xl mx-auto">
+    <section className="px-4 mb-2" aria-labelledby="home-tours-title">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-baseline justify-between mb-3">
           <h2
+            id="home-tours-title"
             className="text-2xl md:text-3xl font-bold text-[var(--text-primary)]"
             style={{ fontFamily: 'var(--font-playfair)' }}
           >
-            Тур недели
+            Туры сезона
           </h2>
-          <Link href="/routes?kind=tour" className="text-sm text-[var(--ocean)] hover:opacity-80 transition-all duration-200">
-            Все туры
+          {/* Одна витрина «всех туров» на платформе — /catalog, та же, что
+              «Туры» в шапке и таб-баре. Прежде здесь стоял /routes?kind=tour,
+              откуда middleware уводил 301-м на /marketplace (#123). */}
+          <Link href="/catalog" className="text-sm text-[var(--ocean)] hover:opacity-80 transition-all duration-200">
+            Все туры{total > 1 ? ` (${total})` : ''}
           </Link>
         </div>
 
@@ -132,7 +95,7 @@ export async function FeaturedTour() {
 
           <div className="absolute inset-0 flex flex-col justify-end p-5 md:p-7">
             {activity && (
-              <span className="inline-flex items-center gap-1.5 self-start text-[11px] uppercase tracking-wide text-white/85 mb-2">
+              <span className="inline-flex items-center gap-1.5 self-start text-xs uppercase tracking-wide text-white/85 mb-2">
                 <MapPin size={12} />
                 {activity}
               </span>
@@ -159,15 +122,15 @@ export async function FeaturedTour() {
                   {duration}
                 </span>
               )}
-              {difficulty && (
+              {tour.availability === 'season_over' && (
                 <span className="inline-flex items-center gap-1.5 text-xs text-white backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl px-3 py-1.5">
-                  <Mountain size={13} />
-                  {difficulty}
+                  <CalendarX size={13} />
+                  {AVAILABILITY_LABEL.season_over}
                 </span>
               )}
-              {tour.operator_name && (
-                <span className="text-xs text-white/70 px-1 py-1.5">
-                  {tour.operator_name}
+              {tour.operatorName && (
+                <span className="text-xs text-white/80 px-1 py-1.5">
+                  {tour.operatorName}
                 </span>
               )}
             </div>
@@ -176,9 +139,13 @@ export async function FeaturedTour() {
               <div className="text-white">
                 {price ? (
                   <>
-                    <span className="text-xs text-white/70">от </span>
-                    <span className="text-xl md:text-2xl font-bold" style={{ fontFamily: 'var(--font-playfair)' }}>{price}</span>
-                    <span className="text-xs text-white/70"> / чел</span>
+                    {/* lining-nums: у Playfair старостильные цифры, и «13 000»
+                        читалось как «13 ooo» (#124). Единица — из общего словаря
+                        (priceUnitLabel), не литералом «/ чел»: у тура за группу
+                        она другая. */}
+                    <span className="text-xs text-white/80">от </span>
+                    <span className="text-xl md:text-2xl font-bold lining-nums tabular-nums" style={{ fontFamily: 'var(--font-playfair)' }}>{price}</span>
+                    <span className="text-xs text-white/80"> {unit}</span>
                   </>
                 ) : (
                   <span className="text-sm text-white/85">Цена по запросу</span>

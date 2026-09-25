@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, Search, Map as MapIcon, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, Search, Fish, Map as MapIcon, CalendarX, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -31,7 +31,9 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
-import { dataFreshness, freshnessDot, geometryCoverage, coverageDot } from '@/lib/home/data-freshness';
+import { dataFreshness, freshnessDot, geometryCoverage, coverageDot, plural } from '@/lib/home/data-freshness';
+import { plateFacts } from '@/lib/home/plate-facts';
+import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
@@ -45,7 +47,7 @@ const CHIPS = ['Вулканы', 'Рыбалка', 'Медведи', 'Океан
 
 // Иконки чипов быстрого подбора — по стабильному ключу, не по подписи.
 const CHIP_ICON: Record<string, LucideIcon> = {
-  volcano: Mountain, thermal: Droplets, easy: Footprints, days: CalendarDays,
+  volcano: Mountain, thermal: Droplets, easy: Footprints, days: CalendarDays, fishing: Fish,
 };
 
 const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -95,10 +97,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const platesRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
 
-  // Состояние обстановки словом. Дроби нет: районного статуса в базе не
-  // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
-  const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity, degraded: safety.degraded });
-
   // Режим «я в поездке» (коммит 5): единственный источник — auth-scoped
   // GET /api/trips/active (identity из сессии, data:null без режима).
   // Рисуем ТОЛЬКО подтверждённые фазы: during («День N из M» — честная
@@ -121,6 +119,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // данным и «спокойно» по свежим — разные утверждения, и человек должен
   // видеть, какое из них ему показали.
   const fresh = dataFreshness({ updatedAt: safety.updatedAt, source: 'safety' });
+  // Состояние обстановки словом. Дроби нет: районного статуса в базе не
+  // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
+  // Свежесть передаётся внутрь (аудит 24.09, #44): «Спокойно» в шапке при
+  // «Обстановка недоступна» строкой ниже — это незнание, выданное за покой.
+  const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity, degraded: safety.degraded, freshness: fresh.state });
   // Наличие линии у маршрута (#1643): без связи карта покажет только её.
   // Считается НАЛИЧИЕ, не право вести — право вести решает §12/navigability.
   // null от счётчика — «не посчитано», без точки; не ноль и не 100%.
@@ -153,51 +156,40 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     try { localStorage.setItem(THEME_STORAGE_KEY, t); } catch { /* приватный режим */ }
   };
 
-  // Карусель «Куда сегодня»: автопрокрутка + точки, пауза при касании.
+  // Карусель туров: свайп + точки. Автопрокрутки НЕТ (аудит 24.09, #42):
+  // карточка уезжала из-под пальца каждые 5 с, пока человек читал цену, а
+  // кнопки паузы не было (WCAG 2.2.2). Смещение считается по offsetLeft
+  // карточки, а не `i * ширина`: вместе с scroll-padding-inline это держит
+  // текст карточки на отступе страницы, а не у самой кромки экрана (#38).
+  const PLATES_GUTTER = 20;
+  const plateLeft = (c: HTMLElement, i: number): number => {
+    const el = c.children[i] as HTMLElement | undefined;
+    return el ? Math.max(0, el.offsetLeft - PLATES_GUTTER) : 0;
+  };
   useEffect(() => {
     const c = platesRef.current;
     if (!c || plates.length < 2) return;
-    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const stride = () => {
-      const first = c.firstElementChild as HTMLElement | null;
-      return first ? first.getBoundingClientRect().width + 14 : c.clientWidth;
-    };
-    let idx = 0;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    let pauseTimer: ReturnType<typeof setTimeout>;
-    const go = (i: number) => {
-      idx = (i + plates.length) % plates.length;
-      c.scrollTo({ left: idx * stride(), behavior: rm ? 'auto' : 'smooth' });
-      setPlateIdx(idx);
-    };
+    let t: ReturnType<typeof setTimeout>;
     const onScroll = () => {
-      clearTimeout(pauseTimer);
-      pauseTimer = setTimeout(() => {
-        const i = Math.round(c.scrollLeft / stride());
-        if (i !== idx) { idx = i; setPlateIdx(i); }
+      clearTimeout(t);
+      t = setTimeout(() => {
+        // Активная точка — карточка, чей левый край ближе всего к позиции.
+        let best = 0;
+        for (let i = 0; i < c.children.length; i++) {
+          if (Math.abs(plateLeft(c, i) - c.scrollLeft) < Math.abs(plateLeft(c, best) - c.scrollLeft)) best = i;
+        }
+        setPlateIdx(best);
       }, 90);
     };
-    const start = () => { if (!rm && !timer) timer = setInterval(() => go(idx + 1), 5000); };
-    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
-    const onUp = () => { setTimeout(start, 8000); };
     c.addEventListener('scroll', onScroll, { passive: true });
-    c.addEventListener('pointerdown', stop, { passive: true });
-    c.addEventListener('pointerup', onUp);
-    start();
-    return () => {
-      stop(); clearTimeout(pauseTimer);
-      c.removeEventListener('scroll', onScroll);
-      c.removeEventListener('pointerdown', stop);
-      c.removeEventListener('pointerup', onUp);
-    };
+    return () => { clearTimeout(t); c.removeEventListener('scroll', onScroll); };
   }, [plates.length]);
 
   const goPlate = (i: number) => {
     const c = platesRef.current;
     if (!c) return;
-    const first = c.firstElementChild as HTMLElement | null;
-    const stride = first ? first.getBoundingClientRect().width + 14 : c.clientWidth;
-    c.scrollTo({ left: i * stride, behavior: 'smooth' });
+    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    c.scrollTo({ left: plateLeft(c, i), behavior: rm ? 'auto' : 'smooth' });
     setPlateIdx(i);
   };
 
@@ -207,9 +199,24 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
   const submitLead = async () => {
     setErr(null);
-    if (name.trim().length < 2) { setErr('Укажите имя'); return; }
-    if (phone.trim().length < 7) { setErr('Укажите телефон или Telegram'); return; }
-    if (!pdConsent) { setErr('Необходимо согласие на обработку персональных данных'); return; }
+    // Кнопка не выключается галочкой (аудит 24.09, #3/#5): бледная кнопка
+    // без объяснения молчала, а эта ветка была недостижима. Теперь гейт —
+    // здесь: запрос без согласия не уходит, человек видит причину рядом с
+    // галочкой, и фокус переводится туда, где её исправить.
+    const fail = (msg: string, focusId: string) => {
+      setErr(msg);
+      // focus() не прокручивает, если поле формально в окне — а его может
+      // закрывать фиксированный таб-бар. Прокручиваем к ошибке сами, когда
+      // она отрисуется.
+      document.getElementById(focusId)?.focus({ preventScroll: true });
+      requestAnimationFrame(() => {
+        const target = document.querySelector('.lead [role=alert]') ?? document.getElementById(focusId);
+        target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    };
+    if (name.trim().length < 2) { fail('Укажите имя', 'lead-name'); return; }
+    if (phone.trim().length < 7) { fail('Укажите телефон или Telegram', 'lead-phone'); return; }
+    if (!pdConsent) { fail('Необходимо согласие на обработку персональных данных', 'pd-consent-home'); return; }
     setSending(true);
     try {
       const interests = CHIPS.filter((c) => chips[c]);
@@ -373,6 +380,48 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           />
           <button type="submit">Найти</button>
         </form>
+        {/* ТУРЫ СЕЗОНА — сразу под поиском (решение владельца 24.09, пакет П4б).
+            Решение 29.07 «тур — не первое обещание главной» пересмотрено под
+            цель первых продаж: аудит на 390×844 нашёл первую карточку тура на
+            894px, то есть на первом экране не было ни тура, ни цены. Карточка
+            компактная — фото 16:9 вместо почти квадратного 10/11, — чтобы
+            название и цена попадали в первый экран над таб-баром.
+            Заголовок нейтральный: «Подходит вам сейчас» обещал подбор,
+            которого нет (это просто первый тур витрины по датам и сезону).
+            Бейдж — только при спокойной И свежей обстановке: «Сегодня
+            спокойно» по недоступной сводке — незнание, выданное за покой (#37).
+            Рекламировать тревогу на коммерческой карточке тоже нельзя, поэтому
+            в прочих состояниях бейджа нет вовсе. */}
+        {plates[0] && (() => {
+          const fp = plates[0];
+          const f = plateFacts(fp);
+          return (
+            <section className="fp-sec">
+              <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
+              <Link href={fp.kind === 'tour' ? `/marketplace/tours/${fp.id}` : `/routes/${fp.id}`} className="firstpick">
+                {/* 1280-вариант вместо оригинала: фон не умеет srcset, но вес
+                    режется нарезкой (см. scripts/optimize-images.mjs) — владелец
+                    с полевого EDGE ждал оригинал десятки секунд. */}
+                <div className="fp-photo" style={fp.imageUrl ? { backgroundImage: `url('${photoSrc(fp.imageUrl, 1280)}')` } : undefined}>
+                  {!fp.imageUrl && <span className="noimg" />}
+                  <span className="fp-shade" aria-hidden />
+                  {pill.tone === 'calm' && fresh.state === 'fresh' && <span className="fp-badge"><i aria-hidden />Сегодня спокойно</span>}
+                  <div className="fp-over">
+                    <b>{fp.title}</b>
+                    <span className="fp-facts">
+                      {f.price ? <em>{f.price}</em> : <em>Цена по запросу</em>}
+                      {(f.duration || f.operator) && <span>{[f.duration, f.operator].filter(Boolean).join(' · ')}</span>}
+                    </span>
+                  </div>
+                </div>
+                <div className="fp-body">
+                  {fp.availability === 'season_over' && <span className="fp-avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</span>}
+                  <span className="fp-cta">{fp.kind === 'tour' ? 'Смотреть тур' : 'Открыть маршрут'}</span>
+                </div>
+              </Link>
+            </section>
+          );
+        })()}
         <div className="hero-chips">
           {INTENT_CHIPS.map((c) => {
             const Ic = CHIP_ICON[c.key];
@@ -492,47 +541,73 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </section>
         )}
 
-        {/* 0. ПЕРВЫЙ РЕЗУЛЬТАТ — доказательство, что подбор работает.
-            Никаких «совпадает с вашим запросом»: запроса у гостя ещё не было.
-            Бейдж — та же safetyPill, что в шапке, и ТОЛЬКО в спокойном
-            состоянии: рекламировать тревогу на коммерческой карточке нельзя,
-            а выдумывать «район открыт» — тем более (районного статуса нет). */}
-        {plates[0] && (
+        {/* ИССЛЕДОВАТЬ — одна дверь вместо трёх.
+            Было: «Куда сегодня», «Стихии» и «Разделы» — три самостоятельные
+            секции, ведущие в один и тот же каталог. Это не богатство выбора, а
+            нерешительность: человеку предлагали выбрать между тремя входами в
+            одну комнату. Теперь один вход и три глубины: конкретные карточки →
+            выбор по стихии → разделы платформы.
+            Стоит ПЕРЕД радаром (П4б, 24.09): раньше между первым туром и
+            остальными семью лежал радар из пяти плиток. «Весь каталог» ведёт
+            в витрину туров /catalog — ту же, что «Туры» в таб-баре: над
+            каруселью туров ссылка вела в /routes, где туров нет (#123). */}
+        {plates.length > 0 && (
           <section>
-            <div className="shead"><h2>Подходит вам сейчас</h2><span className="line" /><Link className="all" href="/catalog">Все</Link></div>
-            <Link href={plates[0].kind === 'tour' ? `/marketplace/tours/${plates[0].id}` : `/routes/${plates[0].id}`} className="firstpick">
-              {/* 1280-вариант вместо оригинала: фон не умеет srcset, но вес
-                  режется нарезкой (см. scripts/optimize-images.mjs) — владелец
-                  с полевого EDGE ждал оригинал десятки секунд. */}
-              <div className="fp-photo" style={plates[0].imageUrl ? { backgroundImage: `url('${photoSrc(plates[0].imageUrl, 1280)}')` } : undefined}>
-                {!plates[0].imageUrl && <span className="noimg" />}
-                <span className="fp-shade" aria-hidden />
-                {pill.tone === 'calm' && <span className="fp-badge">Сегодня спокойно</span>}
-                <div className="fp-over">
-                  <b>{plates[0].title}</b>
-                  <span className="fp-facts">
-                    {fmtPrice(plates[0].priceFrom)
-                      ? <em>от {fmtPrice(plates[0].priceFrom)}</em>
-                      : <em>Цена по запросу</em>}
-                    <span>{plates[0].kind === 'tour' ? 'тур оператора' : 'маршрут'}</span>
-                  </span>
-                  <span className="fp-cta">{plates[0].kind === 'tour' ? 'Смотреть тур' : 'Открыть маршрут'}</span>
-                </div>
+            <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/catalog">Весь каталог</Link></div>
+            <div className="plates" ref={platesRef}>
+              {plates.map((p, i) => {
+                const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
+                const f = plateFacts(p);
+                const meta = [f.duration, f.operator].filter(Boolean).join(' · ');
+                return (
+                  <figure className="plate" key={p.id} role="group" aria-label={`Тур ${i + 1} из ${plates.length}`}>
+                    <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
+                      {!p.imageUrl && <span className="noimg" />}
+                    </div></Link>
+                    <div className="row"><b>{p.title}</b></div>
+                    {p.description && <div className="cap">{p.description}</div>}
+                    <div className="facts">
+                      {f.price ? <span className="price">{f.price}</span> : <span className="price muted">Цена по запросу</span>}
+                      {meta && <span className="meta">{meta}</span>}
+                    </div>
+                    {/* Условия отмены — дословно из поля тура (решение владельца
+                        24.09 п.3): своей сетки сроков и процентов здесь нет. */}
+                    {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
+                    {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
+                    <div className="buy">
+                      <Link className="buy-cta" href={href}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
+                    </div>
+                  </figure>
+                );
+              })}
+            </div>
+            {plates.length > 1 && (
+              <div className="pl-dots">
+                {plates.map((_, i) => (
+                  <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Тур ${i + 1} из ${plates.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
+                ))}
               </div>
-            </Link>
+            )}
+            {feed.length > 0 && (
+              <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
+            )}
           </section>
         )}
 
-        {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
-        <section id="radar">
-          <div className="shead"><h2>Радар обстановки</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
-
-          {/* P0-3b: тяжёлая реализация радара живёт на /safety#radar —
-              главная даёт статус (пилюля сверху) и дорогу к подробностям.
-              Плитка, не виджет: главная не дублирует спасательский экран. */}
-          <Link href="/safety#radar" className="protoline">
-            Радар обстановки: сейсмика, вулканы КВЕРТ, наблюдения туристов
-            <b>смотреть вживую →</b>
+        {/* РАДАР — одной строкой-ссылкой (пакет П4б, решение владельца 24.09).
+            Раньше здесь стояла секция с заголовком и пятью плитками между
+            первым туром и остальными семью. Подробности радара живут на
+            /safety#radar; якорь #radar оставлен — на него ведёт пилюля шапки.
+            Полевые инструменты безопасности (МЧС, «что делать при ЧП»,
+            навигатор, наблюдение) не удалены — они ниже тем же столбиком,
+            просто без заголовка-двери. */}
+        <section id="radar" className="sub radar-sec">
+          <Link href="/safety#radar" className="protoline radarline">
+            <Radar size={18} strokeWidth={1.8} aria-hidden />
+            <span>
+              Радар обстановки: сейсмика, вулканы КВЕРТ, наблюдения туристов{' '}
+              <b>смотреть вживую →</b>
+            </span>
           </Link>
 
           <Link href="/register" className="mchsline">
@@ -565,47 +640,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </a>
 
         </section>
-
-        {/* ИССЛЕДОВАТЬ — одна дверь вместо трёх.
-            Было: «Куда сегодня», «Стихии» и «Разделы» — три самостоятельные
-            секции, ведущие в один и тот же каталог. Это не богатство выбора, а
-            нерешительность: человеку предлагали выбрать между тремя входами в
-            одну комнату. Теперь один вход и три глубины: конкретные карточки →
-            выбор по стихии → разделы платформы. */}
-        {plates.length > 0 && (
-          <section>
-            <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/routes">Весь каталог</Link></div>
-            <div className="plates" ref={platesRef}>
-              {plates.map((p) => {
-                const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
-                const price = fmtPrice(p.priceFrom);
-                return (
-                  <figure className="plate" key={p.id}>
-                    <Link href={href}><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
-                      {!p.imageUrl && <span className="noimg" />}
-                    </div></Link>
-                    <div className="row"><b>{p.title}</b></div>
-                    {p.description && <div className="cap">{p.description}</div>}
-                    <div className="buy">
-                      {price ? <span className="price">от {price}</span> : <span className="price muted">Цена по запросу</span>}
-                      <Link href={href}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
-                    </div>
-                  </figure>
-                );
-              })}
-            </div>
-            {plates.length > 1 && (
-              <div className="pl-dots">
-                {plates.map((_, i) => (
-                  <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Плата ${i + 1}`} onClick={() => goPlate(i)} />
-                ))}
-              </div>
-            )}
-            {feed.length > 0 && (
-              <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
-            )}
-          </section>
-        )}
 
         {/* III. КУЗЬМИЧ */}
         <section>
@@ -650,7 +684,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                     <span className="glass">
                       <Icon className="eicon" size={24} strokeWidth={1.6} aria-hidden />
                       <b>{el.label}</b>
-                      <span className="ecnt">{el.count} мест</span>
+                      <span className="ecnt">{el.count} {plural(el.count, 'место', 'места', 'мест')}</span>
                     </span>
                   </Link>
                 );
@@ -687,16 +721,16 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               ))}
             </div>
             <div className="field2">
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Как вас зовут" aria-label="Имя" />
+              <input id="lead-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Как вас зовут" aria-label="Имя" />
               <div className="field">
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Телефон или Telegram" aria-label="Контакт" />
-                <button onClick={submitLead} disabled={sending || !pdConsent}>{sending ? '…' : 'Отправить'}</button>
+                <input id="lead-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Телефон или Telegram" aria-label="Контакт" />
+                <button onClick={submitLead} disabled={sending}>{sending ? '…' : 'Отправить'}</button>
               </div>
             </div>
             <div className="fine">
               <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-home" />
             </div>
-            {err && <div className="err">{err}</div>}
+            {err && <div className="err" role="alert">{err}</div>}
             <div className="fine">Данные уходят только операторам по вашему запросу. Без спама.</div>
             <div className="ok">Заявка принята. Кузьмич собирает подборку — оператор ответит в течение дня.</div>
           </div>
@@ -996,9 +1030,9 @@ const CSS = `
    мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */
 .v7 .find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:var(--text-primary);font:500 14.5px/1.2 var(--font-outfit),system-ui,sans-serif}
 .v7 .find input::placeholder{color:var(--text-muted)}
-.v7 .find button{flex:none;min-height:44px;padding:0 16px;border:0;border-radius:999px;background:var(--accent);color:#fff;font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
+.v7 .find button{flex:none;min-height:44px;padding:0 16px;border:0;border-radius:999px;background:var(--accent);color:var(--on-accent);font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
 .v7 .find button:active{transform:scale(.96)}
-.v7 .hero-chips{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+.v7 .hero-chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
 .v7 .hchip{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:999px;text-decoration:none;color:var(--text-primary);font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .hchip svg{color:var(--text-secondary)}
 .v7 .planline{margin-top:10px;display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--ocean);transition:transform .13s ease}
@@ -1047,7 +1081,9 @@ const CSS = `
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
 .v7 .shead h2{font:600 16px/1.2 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
 .v7 .shead .line{flex:1;height:1px;background:color-mix(in srgb,var(--border) 55%,transparent)}
-.v7 .shead .all{font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean)}
+/* Ссылка заголовка — полноценная цель 44px (аудит 24.09, #127: была 10px в
+   высоту шрифтом 9.5px). Видимая строка та же, зона нажатия — по высоте. */
+.v7 .shead .all{display:inline-flex;align-items:center;min-height:44px;margin:-14px 0;font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);white-space:nowrap}
 /* радар безопасности */
 /* безопасность */
 .v7 .volc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
@@ -1070,14 +1106,23 @@ const CSS = `
 .v7 .ts-tile b{font:700 12px/1.2 var(--font-outfit),system-ui,sans-serif;margin-top:auto}
 .v7 .ts-tile span{font:500 9.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Действия безопасности — карточки, а не «поля формы»: заливка --plate +
-   семантическая левая грань (МЧС=danger, офлайн-инструменты=tide, наблюдение=
-   amber) + мягкая тень + подъём. Пунктир убран (читался как поле ввода). */
-.v7 .mchsline{display:flex;flex-direction:column;gap:2px;margin-top:14px;padding:12px 14px 12px 15px;border-radius:14px;text-decoration:none;background:color-mix(in srgb,var(--danger) 9%,transparent);border:1px solid color-mix(in srgb,var(--danger) 22%,transparent);border-left:3px solid color-mix(in srgb,var(--danger) 48%,transparent)}
+   семантическая левая грань (МЧС=warning, офлайн-инструменты=tide, наблюдение=
+   amber) + мягкая тень + подъём. Пунктир убран (читался как поле ввода).
+   МЧС-строка была --danger намеренно («МЧС=danger»), но красный в дизайн-
+   системе закреплён за SOS и ошибками: карточка-совет в красной рамке спорила
+   с кнопкой СОС в шапке. Решение владельца 24.09 (развилка 2): --warning —
+   это предупреждение «сделай заранее», а не авария. */
+.v7 .mchsline{display:flex;flex-direction:column;gap:2px;margin-top:8px;padding:12px 14px 12px 15px;border-radius:14px;text-decoration:none;background:color-mix(in srgb,var(--warning) 10%,transparent);border:1px solid color-mix(in srgb,var(--warning) 26%,transparent);border-left:3px solid color-mix(in srgb,var(--warning) 70%,transparent)}
 .v7 .mchsline b{font:700 12px/1.3 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
 .v7 .mchsline span{font:500 10px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .mchsline:active{transform:scale(.99)}
 .v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;text-decoration:none;background:var(--bg-hover);border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-left:3px solid color-mix(in srgb,var(--ocean) 68%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);font:500 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);transition:transform .2s ease,box-shadow .2s ease}
 .v7 .protoline b{font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+/* Радар одной строкой (П4б): та же плитка, что у офлайн-инструментов, плюс
+   иконка — это вход в подробности на /safety#radar, а не секция. */
+.v7 .radar-sec{margin-top:28px}
+.v7 .radarline{flex-wrap:nowrap;align-items:center;gap:12px;min-height:44px;margin-top:0}
+.v7 .radarline svg{color:var(--ocean);flex:none}
 .v7 .protoline:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
 .v7 .protoline:active{transform:scale(.99)}
 .v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;background:var(--bg-hover);border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-left:3px solid color-mix(in srgb,var(--warning) 62%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;font:600 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);font-family:var(--font-outfit),system-ui,sans-serif;transition:transform .2s ease,box-shadow .2s ease}
@@ -1086,25 +1131,39 @@ const CSS = `
 .v7 .reportbtn:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 /* платы */
-/* первый результат подбора — богатая фото-карточка north-star макета:
-   serif-заголовок поверх фото, пунктирная линейка, факты, оранжевый CTA.
-   Текст читается за счёт собственной нижней тени (.fp-shade), а не удачи. */
-.v7 .firstpick{position:relative;display:block;text-decoration:none;color:#fff;border-radius:18px;overflow:hidden;background:var(--bg-hover)}
+/* «Туры сезона» — первая карточка тура, сразу под поиском (П4б, 24.09).
+   Компактная: фото 16:9 (было 10/11 — почти квадрат на весь экран), название
+   и факты поверх нижней тени фото, CTA — под фото на сплошном фоне карточки.
+   Текст на фото читается за счёт собственной нижней тени (.fp-shade). */
+.v7 section.fp-sec{margin-top:18px}
+.v7 .fp-sec .shead{margin-bottom:8px}
+.v7 .firstpick{position:relative;display:block;text-decoration:none;color:#fff;border-radius:18px;overflow:hidden;background:var(--bg-card);border:1px solid var(--border)}
 /* Верхняя привязка — та же причина, что у .plate .img: фото туров
-   вертикальные, и центрирование срезает голову. Здесь рамка почти
-   квадратная (10/11), запас меньше, но тот же снимок попадает и сюда. */
-.v7 .firstpick .fp-photo{position:relative;aspect-ratio:10/11;background:center top/cover no-repeat}
+   вертикальные, и центрирование срезает голову. */
+.v7 .firstpick .fp-photo{position:relative;aspect-ratio:16/9;background:center top/cover no-repeat}
 .v7 .firstpick .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
-.v7 .firstpick .fp-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.10) 32%,rgba(10,14,12,.80) 84%)}
-.v7 .firstpick .fp-badge{position:absolute;top:14px;left:14px;padding:8px 11px;border-radius:9px;background:var(--success);color:#fff;font:700 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}
-.v7 .firstpick .fp-over{position:absolute;left:0;right:0;bottom:0;padding:16px;display:flex;flex-direction:column;align-items:flex-start;gap:10px}
-.v7 .firstpick .fp-over b{font:600 27px/1.12 var(--font-playfair),Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 18px rgba(0,0,0,.45)}
-.v7 .firstpick .fp-facts{align-self:stretch;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.42);font:500 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92)}
-.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;color:#fff}
-.v7 .firstpick .fp-cta{display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border-radius:12px;background:var(--accent);color:#fff;font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.04em}
-.v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
+.v7 .firstpick .fp-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.08) 20%,rgba(10,14,12,.82) 92%)}
+/* Бейдж — стекло поверх фото (контекст, §2), а не сплошная зелёная плашка:
+   самым ярким пятном карточки должна быть цена и кнопка, а не он (#39). */
+.v7 .firstpick .fp-badge{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.15);color:#fff;font:600 11px/1 var(--font-outfit),system-ui,sans-serif}
+.v7 .firstpick .fp-badge i{width:7px;height:7px;border-radius:50%;background:var(--success)}
+@media (prefers-reduced-transparency:reduce){.v7 .firstpick .fp-badge{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--bg-card);color:var(--text-primary);border-color:var(--border)}}
+.v7 .firstpick .fp-over{position:absolute;left:0;right:0;bottom:0;padding:12px 14px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.v7 .firstpick .fp-over b{font:600 20px/1.15 var(--font-playfair),Georgia,serif;letter-spacing:-.015em;text-shadow:0 2px 14px rgba(0,0,0,.5);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.v7 .firstpick .fp-facts{align-self:stretch;display:flex;flex-direction:column;gap:2px;font:500 12.5px/1.3 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92)}
+.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;font-size:15px;color:#fff}
+.v7 .firstpick .fp-body{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.v7 .firstpick .fp-avail{flex:1;display:inline-flex;align-items:center;gap:6px;font:500 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .firstpick .fp-avail svg,.v7 .plate .avail svg{flex:none;color:var(--warning)}
+/* Текст на акценте — цвет фона страницы, как в каталоге: в тёмной теме белый
+   на светлой лаве давал ~2.9:1. */
+.v7 .firstpick .fp-cta{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:12px;background:var(--accent);color:var(--on-accent);font:700 13px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em}
+/* scroll-padding-inline = отступ страницы (аудит 24.09, #38): без него точка
+   привязки прижимала карточку к x=0, и текст начинался в 2px от кромки.
+   position:relative — чтобы offsetLeft карточек считался от ленты (goPlate). */
+.v7 .plates{position:relative;display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:20px;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
-.v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}
+.v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
 /* Точка остаётся 6px, а нажимается зона 26x44: сама точка рисуется вложенным
    ::after, кнопка вокруг неё прозрачная. Иначе переключатель плат — цель
    размером с крупинку, и в перчатке в него не попасть вовсе.
@@ -1126,13 +1185,21 @@ const CSS = `
 .v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--bg-hover) center top/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
-.v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 2px 0}
+.v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 12px 0}
 .v7 .plate .row b{font:600 14px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.015em}
-.v7 .plate .cap{padding:5px 2px 0;font:400 11px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-.v7 .plate .buy{margin-top:9px;padding:9px 2px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;align-items:baseline;gap:10px}
-.v7 .plate .buy .price{font:600 14px/1 var(--font-playfair),Georgia,serif}
-.v7 .plate .buy .price.muted{color:var(--text-muted);font-weight:500;font-size:12px}
-.v7 .plate .buy a{margin-left:auto;font:700 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);border-bottom:1px solid color-mix(in srgb,var(--accent) 45%,transparent);padding-bottom:3px}
+.v7 .plate .cap{padding:5px 12px 0;font:400 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+/* Факты карточки: цена с единицей, длительность и оператор (#39/#122). */
+.v7 .plate .facts{margin-top:9px;padding:9px 12px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;flex-direction:column;gap:4px}
+.v7 .plate .facts .price{font:600 15px/1.2 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
+.v7 .plate .facts .price.muted{color:var(--text-secondary);font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif}
+.v7 .plate .facts .meta{font:500 12px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .cancel,.v7 .plate .avail{padding:5px 12px 0;font:400 12px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+/* Текст «сезон кончился» — --text-secondary: --warning (#D29922) на белой
+   карточке даёт ~2.5:1 при 12px, ниже AA. Предупреждение несёт иконка. */
+.v7 .plate .avail{display:flex;align-items:center;gap:6px}
+.v7 .plate .buy{margin-top:auto;padding:12px}
+/* CTA — кнопка 44px, 13px (была текст-ссылка 9.5px, 91×14px, #38/#127). */
+.v7 .plate .buy-cta{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;background:var(--accent);color:var(--on-accent);font:700 13px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em}
 .v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
 .v7 .arrivals .k{font:600 8.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted);flex:none}
 .v7 .arrivals .t{font:500 11.5px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
@@ -1147,9 +1214,11 @@ const CSS = `
 .v7 .guide .sig .caps{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--text-secondary)}
 .v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
 .v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
-.v7 .guide .acts{margin-top:14px;display:flex;gap:22px;align-items:center}
-.v7 .guide .acts a{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--success);border-bottom:1px solid color-mix(in srgb,var(--success) 35%,transparent);padding-bottom:3px;cursor:pointer}
-.v7 .guide .acts a.golead{color:var(--accent);border-bottom-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.v7 .guide .acts{margin-top:14px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+/* Цели 44px (#127). «Подобрать тур» — единственный переход к лид-форме,
+   поэтому кнопка-заливка, а не подпись. */
+.v7 .guide .acts a{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--success);cursor:pointer}
+.v7 .guide .acts a.golead{padding:0 16px;border-radius:12px;background:var(--accent);color:var(--on-accent);letter-spacing:.04em;text-transform:none;font-size:13px;font-weight:700}
 /* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */
 .v7 .elements{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .v7 .etile{position:relative;display:block;min-height:110px;border-radius:22px;overflow:hidden;isolation:isolate;
@@ -1189,6 +1258,13 @@ const CSS = `
 .v7 .dl .n{font:600 23px/1 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
 .v7 .dl .t{margin-top:6px;font:600 8.5px/1.4 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--text-secondary);white-space:nowrap}
 .v7 .dl.link .t{color:var(--ocean)}
+/* На телефоне ряд цифр переносится (#128): скрытый горизонтальный скролл
+   обрезал третью подпись («МАРШРУТОВ С РЕГИСТ…») без признака прокрутки. */
+@media (max-width:480px){
+  .v7 .dataline{flex-wrap:wrap;overflow:visible;row-gap:16px}
+  .v7 .dl{flex:1 1 40%;border-right:0;margin-right:0;padding-right:12px}
+  .v7 .dl .t{white-space:normal}
+}
 /* лид */
 .v7 .lead{border:1px solid var(--border);padding:20px 18px}
 .v7 .lead h3{font:600 20px/1.22 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
@@ -1200,18 +1276,25 @@ const CSS = `
 .v7 .lead .field2{margin-top:14px;display:flex;flex-direction:column;gap:10px}
 .v7 .lead .field2>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
 .v7 .lead .field{display:flex;border:1px solid var(--border);background:var(--bg-card)}
-.v7 .lead .field input{flex:1;border:0;background:none;padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
+/* min-width:0 (аудит 24.09, #3/#35): без него поле не ужималось ниже своей
+   встроенной ширины, и «Отправить» выезжала за рамку (на 360px — за экран,
+   scrollWidth 367). */
+.v7 .lead .field input{flex:1;min-width:0;border:0;background:none;padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
 .v7 .lead .field input::placeholder,.v7 .lead .field2>input::placeholder{color:var(--text-muted)}
-.v7 .lead .field button{border:0;background:var(--accent);color:#fff;font:700 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;padding:0 18px;cursor:pointer}
+.v7 .lead .field button{flex:none;min-height:44px;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:0 16px;cursor:pointer}
 .v7 .lead .field button:disabled{opacity:.6}
-.v7 .lead .err{margin-top:10px;font:500 11px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
-.v7 .lead .fine{margin-top:9px;font:400 8.5px/1.5 var(--fm);color:var(--text-muted)}
+.v7 .lead .err{margin-top:6px;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
+/* Сноски формы — Outfit 12px --text-secondary (было JetBrains Mono 8.5px
+   --text-muted, ~2.3:1). Ссылка на политику — --ocean с подчёркиванием:
+   общее .v7 a{color:inherit} перебивало её до цвета текста. */
+.v7 .lead .fine{margin-top:9px;font:400 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .lead .fine a{color:var(--ocean);text-decoration:underline;text-underline-offset:2px}
 .v7 .lead .ok{margin-top:14px;padding:12px;border:1px solid color-mix(in srgb,var(--success) 40%,transparent);font:500 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--success);display:none}
 .v7 .lead.sent .ok{display:block}
 .v7 .lead.sent .field2,.v7 .lead.sent .chips,.v7 .lead.sent .fine,.v7 .lead.sent .err{display:none}
 /* хабы */
-.v7 .hubline{display:flex;flex-wrap:wrap;gap:12px 24px}
-.v7 .hubline a{font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--text-secondary);padding-bottom:4px;border-bottom:1px solid transparent}
+.v7 .hubline{display:flex;flex-wrap:wrap;gap:0 24px}
+.v7 .hubline a{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary);border-bottom:1px solid transparent}
 .v7 .hubline a:active{color:var(--text-primary);border-bottom-color:var(--text-primary)}
 .v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--border);font:400 9px/1.7 var(--fm);color:var(--text-muted)}
 /* навигация */

@@ -42,6 +42,32 @@ describe('пилюля обстановки', () => {
     expect(p.tone).toBe('warning');
   });
 
+  it('ноль предупреждений при недоступной сводке — «Нет данных», а не «Спокойно»', () => {
+    // Аудит 24.09 (#37/#44): «Спокойно» в шапке рядом с «Обстановка
+    // недоступна» строкой ниже. Незнание — третий исход (§4.0), не хорошая новость.
+    expect(safetyPill({ activeCount: 0, maxSeverity: 0, freshness: 'unavailable' }))
+      .toEqual({ tone: 'unknown', text: 'Нет данных' });
+    expect(safetyPill({ activeCount: 0, maxSeverity: 0, freshness: 'fresh' }).tone).toBe('calm');
+  });
+
+  it('недоступная сводка не глушит известную опасность', () => {
+    // Предупреждения пришли из ленты — о них надо сказать, даже если другой
+    // источник молчит.
+    expect(safetyPill({ activeCount: 2, maxSeverity: 2, freshness: 'unavailable' }).tone).toBe('danger');
+    expect(safetyPill({ activeCount: 1, maxSeverity: 1, freshness: 'unavailable' }).tone).toBe('warning');
+  });
+
+  it('главная передаёт в пилюлю свежесть, а бейдж «Сегодня спокойно» требует и спокойствия, и свежести', () => {
+    const src = readFileSync(join(process.cwd(), 'app/_home/_HomeV8Client.tsx'), 'utf-8');
+    const call = /safetyPill\(\{[^}]*\}\)/.exec(src)?.[0] ?? '';
+    expect(call, 'пилюля снова считается без свежести').toMatch(/freshness:\s*fresh\.state/);
+    const badgeAt = src.indexOf('Сегодня спокойно</span>');
+    expect(badgeAt, 'бейдж не найден').toBeGreaterThan(0);
+    const guard = src.slice(Math.max(0, badgeAt - 200), badgeAt);
+    expect(guard).toMatch(/pill\.tone === 'calm'/);
+    expect(guard, 'бейдж снова не смотрит на свежесть').toMatch(/fresh\.state === 'fresh'/);
+  });
+
   it('дроби в тексте нет ни при каком состоянии', () => {
     // Сторож против возвращения «12 из 16»: знаменателя у нас не существует.
     for (const input of [

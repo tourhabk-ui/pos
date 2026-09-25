@@ -117,9 +117,9 @@ const mix = (token: string, pct: number) => `color-mix(in srgb, var(${token}) ${
 
 /** Чипы/варианты фильтра — цель нажатия не меньше 44px (аудит П5, #136). */
 const CHIP_BASE = 'min-h-[44px] px-4 rounded-lg text-sm font-medium border transition-all duration-200 inline-flex items-center';
-// Текст на акценте — цвет фона страницы: в тёмной теме он тёмный (≈6:1 на
-// лаве тёмной темы против ≈3:1 у белого), в светлой — почти белый.
-const CHIP_ON = 'bg-[var(--accent)] border-[var(--accent)] text-[var(--bg-primary)]';
+// Текст на акценте — токен --on-accent (globals.css): тёмный в тёмной теме,
+// белый в светлой; контраст выше 4.5:1 в обеих.
+const CHIP_ON = 'bg-[var(--accent)] border-[var(--accent)] text-[var(--on-accent)]';
 const CHIP_OFF = 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-card)]';
 
 /* ─── Helpers ─── */

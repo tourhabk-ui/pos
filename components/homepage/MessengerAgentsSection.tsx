@@ -58,7 +58,7 @@ export function MessengerAgentsSection() {
       id="chat"
       className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] px-4 py-3 md:px-6 md:py-4"
     >
-      <p className="mb-2 text-[9px] uppercase tracking-[0.2em] text-[var(--text-muted)] font-medium">
+      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[var(--text-secondary)] font-medium">
         AI-консьерж Кузьмич
       </p>
       <div className="grid grid-cols-3 gap-2">
@@ -69,7 +69,7 @@ export function MessengerAgentsSection() {
               <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
                 {title}
               </span>
-              <ArrowUpRight className="h-3.5 w-3.5 text-[var(--text-muted)] ml-auto shrink-0" />
+              <ArrowUpRight className="h-3.5 w-3.5 text-[var(--text-secondary)] ml-auto shrink-0" />
             </>
           );
           const className =

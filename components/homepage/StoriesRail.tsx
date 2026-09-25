@@ -21,7 +21,11 @@ const STORIES = [
   { label: 'Халактырский', image: '/images/bento/khalaktyr.jpg',           href: '/routes?kind=place&q=%D1%85%D0%B0%D0%BB%D0%B0%D0%BA%D1%82%D1%8B%D1%80' },
   { label: 'Курильское',   image: '/images/hero/bears-kurilskoye.jpg',     href: '/routes?kind=place&q=%D0%BA%D1%83%D1%80%D0%B8%D0%BB%D1%8C%D1%81%D0%BA' },
   { label: 'Паратунка',    image: '/images/bento/paratunka.jpg',           href: '/routes?kind=place&location_type=hot_spring' },
-  { label: 'Мутновский',   image: '/images/bento/mutnovsky.jpg',           href: '/routes?kind=place&location_type=volcano' },
+  // «Мутновский» стоял на кадре с рогозом в сухой траве и далёкими сопками
+  // (bento/mutnovsky.jpg) и вёл в тот же список вулканов, что «Ключевской» —
+  // подпись без кадра и без своего адреса (#121). Кадра Мутновского в
+  // public/images нет; на его месте — Три Брата: скалы узнаются однозначно.
+  { label: 'Три Брата',    image: '/images/hero/IMG_20260316_133142.jpg', href: '/routes?kind=place&q=%D1%82%D1%80%D0%B8%20%D0%B1%D1%80%D0%B0%D1%82' },
   { label: 'Мыс',          image: '/images/bento/cape.jpg',                href: '/routes?kind=place&location_type=cape' },
 ];
 
@@ -44,7 +48,7 @@ export function StoriesRail() {
             <div className="relative w-[68px] h-[68px] rounded-full overflow-hidden ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-primary)] group-hover:ring-offset-0 transition-all">
               <Image src={s.image} alt={s.label} fill className="object-cover group-hover:scale-110 transition-transform duration-500" />
             </div>
-            <span className="text-[10px] font-medium text-[var(--text-secondary)] text-center max-w-[68px] truncate">
+            <span className="text-xs font-medium text-[var(--text-secondary)] text-center max-w-[72px] truncate">
               {s.label}
             </span>
           </Link>

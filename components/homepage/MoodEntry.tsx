@@ -73,7 +73,7 @@ export function MoodEntry() {
             <Link
               key={mood.id}
               href={mood.href}
-              className="ds-card flex flex-col items-center text-center gap-2.5 py-5 hover:border-[var(--accent)] transition-all group"
+              className="no-underline hover:no-underline ds-card flex flex-col items-center text-center gap-2.5 py-5 hover:border-[var(--accent)] transition-all group"
             >
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110"
@@ -88,7 +88,7 @@ export function MoodEntry() {
                 <p className="text-sm font-semibold text-[var(--text-primary)] leading-snug">
                   {mood.label}
                 </p>
-                <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-snug">
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-snug">
                   {mood.sub}
                 </p>
               </div>
