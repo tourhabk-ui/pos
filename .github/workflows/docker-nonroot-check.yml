@@ -1,0 +1,102 @@
+name: Docker — образ собирается и работает не от root
+
+# Проверка перед выкатом (25.09): runner-стадия Dockerfile переведена на
+# пользователя `node`. Собрать тот же Dockerfile, что собирает Timeweb, поднять
+# контейнер и спросить у него самого: кто он, отвечает ли /api/health и может
+# ли писать туда, куда пишет прод (кэш Next и запасной путь загрузок в public/).
+#
+# Без базы: миграция при старте падает и start.js продолжает (так он устроен),
+# health-прокси на :3000 отвечает сам. Ничего не пишет ни в БД, ни в репозиторий.
+#
+# Запуск: push, меняющий .github/triggers/docker-nonroot-check.json, в ЛЮБОЙ
+# ветке — проверка нужна ДО main, потому что push в main и есть выкат.
+
+on:
+  push:
+    paths:
+      - '.github/triggers/docker-nonroot-check.json'
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build and run
+        id: run
+        run: |
+          set -u
+          exec > >(tee /tmp/check-out.txt) 2>&1
+          fail=0
+          docker build -t pos:check . > /tmp/build.log 2>&1 || { echo "СБОРКА УПАЛА"; tail -60 /tmp/build.log; exit 1; }
+          echo "сборка: ok"
+          docker image inspect pos:check --format 'образ: {{.Size}} байт, Config.User={{.Config.User}}'
+          docker run --rm --entrypoint sh pos:check -c 'du -sm /app | cut -f1' | sed 's/^/\/app, МБ: /'
+
+          docker run -d --name pos -p 3000:3000 pos:check
+          ok=no
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:3000/api/health || true)
+            if [ "$code" = "200" ]; then ok=yes; break; fi
+            sleep 3
+          done
+          echo "health :3000 -> $code"; head -c 400 /tmp/health.json; echo
+          [ "$ok" = yes ] || fail=1
+
+          uid=$(docker exec pos id -u); echo "id -u = $uid ($(docker exec pos id -un))"
+          [ "$uid" != "0" ] || { echo "ПРОЦЕСС ОТ ROOT"; fail=1; }
+          echo "процессы:"; docker exec pos ps -o user,pid,args | head -10
+
+          # Next поднялся за прокси? Ждём ответ :3001 изнутри.
+          nx=no
+          for i in $(seq 1 40); do
+            if docker exec pos wget -q -O /dev/null -S http://127.0.0.1:3001/version.json 2>/tmp/nx.txt; then nx=yes; break; fi
+            sleep 3
+          done
+          echo "Next :3001 /version.json -> $nx"; head -3 /tmp/nx.txt
+          [ "$nx" = yes ] || fail=1
+
+          for d in /app/.next/cache /app/public/uploads /app/public/images/tours /app/public/videos /app/public/design /tmp; do
+            if docker exec pos sh -c "mkdir -p '$d' && touch '$d/.w' && rm '$d/.w'"; then echo "запись $d: ok"
+            else echo "запись $d: НЕТ"; fail=1; fi
+          done
+
+          echo "--- хвост лога контейнера ---"; docker logs pos 2>&1 | tail -25
+          docker rm -f pos >/dev/null
+          echo "ИТОГ: $([ $fail = 0 ] && echo ok || echo ПРОВАЛ)"
+          exit $fail
+
+      - name: Publish output as check-run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          p = '/tmp/check-out.txt'
+          text = open(p, encoding='utf-8', errors='replace').read() if os.path.exists(p) else '(вывод шага не записан)'
+          if len(text) > 60000:
+              text = '…(обрезано: показан хвост)\n' + text[-60000:]
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'docker-nonroot-output',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {'title': f"Docker non-root: {outcome}", 'summary': 'Копия вывода шага Build and run.', 'text': text},
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={'Authorization': f"Bearer {os.environ['GH_TOKEN']}", 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              print('check-run', json.load(r)['id'])
+          PY
