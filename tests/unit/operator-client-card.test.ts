@@ -117,7 +117,7 @@ describe('PATCH заметок о клиенте', () => {
 
 describe('миграция 1017', () => {
   it('таблица operator_client_notes с PK (operator_id, user_id)', () => {
-    const sql = readFileSync(join(process.cwd(), 'migrations/1017_operator_client_notes.sql'), 'utf8');
+    const sql = readFileSync(join(process.cwd(), 'migrations/1015_operator_client_notes.sql'), 'utf8');
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS operator_client_notes/);
     expect(sql).toMatch(/operator_id UUID NOT NULL REFERENCES partners\(id\)/);
     expect(sql).toMatch(/user_id\s+UUID NOT NULL REFERENCES users\(id\)/);

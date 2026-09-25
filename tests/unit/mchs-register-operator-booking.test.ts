@@ -126,7 +126,7 @@ describe('форма МЧС в кабинете', () => {
 });
 
 describe('миграция 1016', () => {
-  const sql = read('migrations/1016_mchs_registrations_operator_booking.sql');
+  const sql = read('migrations/1014_mchs_registrations_operator_booking.sql');
   it('заводит operator_booking_id BIGINT с FK на operator_bookings, идемпотентно', () => {
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS operator_booking_id BIGINT/);
     expect(sql).toMatch(/REFERENCES operator_bookings\(id\)/);
