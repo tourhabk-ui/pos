@@ -19,6 +19,7 @@
  */
 
 import { stripTags } from '@/lib/html/text';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 export interface AiMaterial {
   title: string;
@@ -30,10 +31,6 @@ export const AI_POST_MIN_MATERIALS = 2;
 
 /** Потолок подписи кнопки: длиннее Telegram режет сам, и режет некрасиво. */
 export const AI_BUTTON_LABEL_MAX = 40;
-
-function decodeEntities(s: string): string {
-  return s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-}
 
 /**
  * Материалы поста по порядку. Блоки разделены пустой строкой; шапка
@@ -48,7 +45,7 @@ export function aiPostMaterials(html: string): AiMaterial[] {
     const title = titles[0];
     const why = /<b>\s*Почему важно/i.test(block);
     const href = block.match(/<a\s+href="([^"]+)"/i)?.[1];
-    if (title && why && href) out.push({ title, url: decodeEntities(href) });
+    if (title && why && href) out.push({ title, url: decodeHtmlEntities(href) });
   }
   return out;
 }
