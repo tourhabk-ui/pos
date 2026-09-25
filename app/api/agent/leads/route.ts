@@ -1,6 +1,6 @@
 /**
  * GET  /api/agent/leads  — входящие лиды платформы для агента
- * Auth: agent | admin
+ * Auth: admin (агентам закрыто 26.09 — ПД туристов, см. ниже)
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -19,6 +19,19 @@ const QuerySchema = z.object({
 export async function GET(req: NextRequest) {
   const auth = await requireAgent(req);
   if (auth instanceof NextResponse) return auth;
+
+  // Заявки платформы — ПД туристов (имя, телефон, комментарий). До 26.09 их
+  // читал и правил любой аккаунт с ролью agent, а её выдаёт самостоятельная
+  // регистрация: персональные данные всех туристов — любому, кто
+  // зарегистрировался. Владения лидом у агента в схеме нет (leads.operator_id —
+  // оператор), поэтому доступ закрыт целиком, пока не решено, какие лиды агенту
+  // положены. Администратор работает с ними как раньше.
+  if (auth.role !== 'admin') {
+    return NextResponse.json(
+      { success: false, error: 'Заявки платформы агентам недоступны' },
+      { status: 403 },
+    );
+  }
 
   const sp = new URL(req.url).searchParams;
   const parsed = QuerySchema.safeParse({

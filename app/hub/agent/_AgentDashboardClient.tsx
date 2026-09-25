@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { AgentMetricsGrid } from '@/components/agent/Dashboard/AgentMetricsGrid';
 import { RecentClientsTable } from '@/components/agent/Dashboard/RecentClientsTable';
 import { UpcomingBookingsTable } from '@/components/agent/Dashboard/UpcomingBookingsTable';
 import {
-  Users, Calendar, Loader2, Inbox, Search, Handshake, CreditCard,
+  Users, Calendar, Loader2, Search, Handshake, CreditCard,
   Link2, Ticket, TrendingUp, User, ArrowRight, type LucideIcon,
 } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
@@ -14,7 +14,6 @@ import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 // Обзор агента в общем формате кабинетов (гид/турист): плитки разделов с
 // икон-чипами + сводка метрик + живые таблицы. Референс агентских CRM
 // (лид-пайплайн -> брони -> follow-up) закрыт тем, что есть в данных честно:
-// новые заявки — баннером наверху (вершина воронки, Watchdog алертит их >2ч),
 // брони и клиенты — таблицами. Выдуманных виджетов нет.
 
 // Быстрая навигация по разделам — реальные страницы кабинета (sidebar в
@@ -24,7 +23,6 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
   {
     title: 'Продажи',
     items: [
-      { href: '/hub/agent/leads',    label: 'Заявки',    icon: Inbox },
       { href: '/hub/agent/find',     label: 'Найти тур', icon: Search },
       { href: '/hub/agent/clients',  label: 'Клиенты',   icon: Users },
       { href: '/hub/agent/bookings', label: 'Сделки',    icon: Handshake },
@@ -92,44 +90,6 @@ function SectionHeader({ icon: Icon, title }: { icon: LucideIcon; title: string 
   );
 }
 
-/**
- * Новые заявки — вершина воронки (референс CRM: lead pipeline первым),
- * Watchdog алертит лиды без ответа >2ч. Есть новые — говорим сразу и громко;
- * нет — баннер не рендерится (честная тишина, не ноль ради ноля).
- */
-function NewLeadsBanner() {
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/agent/leads?status=new&limit=1')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (active && d?.success) setCount(d.meta?.total ?? 0); })
-      .catch(() => { /* не смогли проверить — молчим, не пугаем */ });
-    return () => { active = false; };
-  }, []);
-
-  if (count === 0) return null;
-
-  return (
-    <Link
-      href="/hub/agent/leads"
-      className="flex items-center gap-3 p-4 bg-[var(--bg-card)] border border-[var(--warning)]/40 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
-    >
-      <span className="flex items-center justify-center w-11 h-11 rounded-full bg-[var(--warning)]/10 shrink-0">
-        <Inbox className="w-[22px] h-[22px] text-[var(--warning)]" strokeWidth={1.75} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold text-[var(--text-primary)]">
-          {count === 1 ? 'Новая заявка ждёт ответа' : `Новых заявок ждут ответа: ${count}`}
-        </p>
-        <p className="text-sm text-[var(--text-secondary)]">Чем быстрее ответ — тем выше конверсия в бронь</p>
-      </div>
-      <ArrowRight className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
-    </Link>
-  );
-}
-
 export default function AgentDashboardClient() {
   const [period, setPeriod] = useState('30');
   // Гвард онбординга: незаполненный профиль агента уводит в визард
@@ -167,7 +127,6 @@ export default function AgentDashboardClient() {
       </header>
 
       {/* Новые заявки — если есть, это первое, что видит агент */}
-      <NewLeadsBanner />
 
       {/* Сводка метрик */}
       <AgentMetricsGrid period={period} />

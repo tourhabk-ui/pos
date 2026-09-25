@@ -1,11 +1,10 @@
-import type { Metadata } from 'next';
-import LeadsClient from './_LeadsClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Входящие заявки | Кабинет агента',
-  robots: 'noindex, nofollow',
-};
-
+/**
+ * Заявки платформы агентам закрыты (26.09): это персональные данные туристов,
+ * а роль агента выдаётся самостоятельной регистрацией (agent-leads-closed).
+ * Старые ссылки ведут в «Клиенты» — там агент ведёт своих клиентов.
+ */
 export default function AgentLeadsPage() {
-  return <LeadsClient />;
+  redirect('/hub/agent/clients');
 }

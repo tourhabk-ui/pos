@@ -33,15 +33,16 @@ describe('обзор агента — формат кабинетов', () => {
     const hrefs = [...layout.matchAll(/href: '(\/hub\/agent[^']*)'/g)]
       .map((m) => m[1])
       .filter((h) => h !== '/hub/agent');
-    expect(hrefs.length).toBeGreaterThanOrEqual(9);
+    // 9 → 8 (26.09): «Заявки» ушли из кабинета агента — ПД туристов (agent-leads-closed).
+    expect(hrefs.length).toBeGreaterThanOrEqual(8);
     for (const href of hrefs) {
       expect(dashboard, href).toContain(`href: '${href}'`);
     }
   });
 
-  it('новые заявки видны на обзоре (вершина воронки — референс CRM)', () => {
-    expect(dashboard).toMatch(/NewLeadsBanner/);
-    expect(dashboard).toMatch(/\/api\/agent\/leads\?status=new/);
+  it('заявок платформы на обзоре агента нет — это ПД туристов (26.09)', () => {
+    expect(dashboard).not.toMatch(/NewLeadsBanner/);
+    expect(dashboard).not.toMatch(/\/api\/agent\/leads/);
   });
 
   it('Ваучеры и Статистика вернулись в меню', () => {
