@@ -1,0 +1,36 @@
+name: Qwen — проба ключа с раннера
+
+# Где принимают ключ DASHSCOPE_API_KEY из секретов и какого он рода (25.09):
+# владелец купил план Token и выпустил новый ключ, а прод с ним получает 401
+# на международном шлюзе. Только чтение; ключ наружу не выходит.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/qwen-key-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Проба ключа
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: npx tsx scripts/qwen-key-probe.ts | tee probe.log
+      - name: Итог — в аннотацию
+        if: always()
+        run: |
+          body=$(sed -e 's/%/%25/g' probe.log 2>/dev/null | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=qwen-key-probe::${body}"
