@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-25 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1015_operator_client_notes.sql`.
+> Снято 2026-09-25 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1016_places_visitor_limit.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 246 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3268 |
+| Колонок | 3271 |
 | Внешних ключей | 267 |
 | Таблиц без единого FK в обе стороны | 72 |
 
@@ -461,9 +461,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `place_id text!` `user_id uuid` `is_ok boolean!=` `conditions text[]!=` `note text` `reporter_lat numeric` `reporter_lng numeric` `created_at timestamptz!=`
 
-**places** · 42 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, place_description_drafts, reviews, route_waypoints, volcano_status · индексов 8
+**places** · 45 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, place_description_drafts, reviews, route_waypoints, volcano_status · индексов 8
 
-`id text!` `name text!` `description text` `category text` `category_slug text` `lat numeric!` `lng numeric!` `district text` `length_km numeric` `duration varchar` `difficulty varchar` `images jsonb=` `created_at timestamptz=` `ark_id uuid` `location_type varchar` `activity_type varchar` `zone varchar` `source_url text` `source_name varchar` `updated_at timestamptz=` `search_count integer!=` `is_visible boolean!=` `essence text` `photo_url text` `best_season text` `seasonal_notes jsonb` `access_info text` `eco_zone varchar` `eco_permit_required boolean=` `eco_rules text` `eco_permit_url text` `indigenous_info jsonb` `view_count integer!=` `dedupe_key text` `kuzmich_review text` `embedding jsonb` `merged_into_id uuid` `merged_at timestamptz` `geocode_failed_at timestamptz` `slug varchar` `coord_source varchar!=` `coord_source_at timestamptz`
+`id text!` `name text!` `description text` `category text` `category_slug text` `lat numeric!` `lng numeric!` `district text` `length_km numeric` `duration varchar` `difficulty varchar` `images jsonb=` `created_at timestamptz=` `ark_id uuid` `location_type varchar` `activity_type varchar` `zone varchar` `source_url text` `source_name varchar` `updated_at timestamptz=` `search_count integer!=` `is_visible boolean!=` `essence text` `photo_url text` `best_season text` `seasonal_notes jsonb` `access_info text` `eco_zone varchar` `eco_permit_required boolean=` `eco_rules text` `eco_permit_url text` `indigenous_info jsonb` `view_count integer!=` `dedupe_key text` `kuzmich_review text` `embedding jsonb` `merged_into_id uuid` `merged_at timestamptz` `geocode_failed_at timestamptz` `slug varchar` `coord_source varchar!=` `coord_source_at timestamptz` `visitor_limit_per_day integer` `visitor_limit_source text` `visitor_limit_set_at timestamptz`
 
 **road_graph_edges** · 8 кол. · PK id · индексов 3
 

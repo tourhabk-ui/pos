@@ -28,7 +28,7 @@ export const NOT_TRAVELLING_STATUSES: string[] = [...CANCELLED_BOOKING_STATUSES,
 
 /** Спрос по местам на окно дат: самые загруженные сутки каждого места. */
 const DEMAND_CTE = `
-  demand AS (
+  , demand AS (
     SELECT rw.place_id, d.day::date AS date, SUM(b.participants)::int AS people
       FROM operator_bookings b
       JOIN operator_tours t ON t.id = b.operator_tour_id
@@ -70,7 +70,7 @@ const CANDIDATE_LOADS_SQL = `
       JOIN route_waypoints rw
         ON rw.route_id = r.id AND COALESCE(rw.link_kind, 'unknown') <> 'nearby'
       JOIN places p ON p.id = rw.place_id
-  ),${DEMAND_CTE}
+  )${DEMAND_CTE}
   ${SELECT_LOADS}`;
 
 /** Туры — места их маршрута. Тур без маршрута мест не имеет, и судить нечего. */
@@ -82,7 +82,7 @@ const TOUR_LOADS_SQL = `
       JOIN route_waypoints rw
         ON rw.route_id = t.route_id AND COALESCE(rw.link_kind, 'unknown') <> 'nearby'
       JOIN places p ON p.id = rw.place_id
-  ),${DEMAND_CTE}
+  )${DEMAND_CTE}
   ${SELECT_LOADS}`;
 
 interface LoadRow {
