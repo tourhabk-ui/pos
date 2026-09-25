@@ -1,13 +1,12 @@
 {
-  "note": "25.09, прогон 594. ТОЛЬКО ЧТЕНИЕ. Владелец прислал ссылку docs.docker.com/ai/skills — из контейнера Claude домен закрыт, читаем раннером.",
-  "run": 594,
+  "note": "25.09, прогон 595. ТОЛЬКО ЧТЕНИЕ. Владелец: в канале в сентябре вышел пост «Летняя рыбалка на чавычу и нерку». Смотрим сроки сезона у живых туров.",
+  "run": 595,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 20000,
+  "bytes": 30000,
   "urls": [
-    "https://docs.docker.com/ai/skills.md",
-    "https://docs.docker.com/ai/skills/"
+    "https://vedarai.ru/api/tours?limit=50"
   ]
 }
