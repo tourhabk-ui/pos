@@ -63,7 +63,7 @@ describe('туристу: оплата после подтверждения, в
 
 describe('оператору и гиду', () => {
   it('оператору: регистрация группы в МЧС — самостоятельно', () => {
-    expect(allText(OPERATORS)).toMatch(/forms\.mchs\.gov\.ru/);
+    expect(allText(OPERATORS)).toContain('forms.mchs.gov.ru');
     expect(allText(OPERATORS)).not.toMatch(/автоматически (регистрир|отправ)/i);
   });
 
