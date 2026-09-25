@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth';
 import { completeBooking } from '@/lib/bookings/booking.service';
+import { operatorOwnsBooking } from '@/lib/bookings/operator-owns';
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { ApiResponse } from '@/types';
 
@@ -33,6 +34,25 @@ export async function PATCH(
     }
 
     const { id: bookingId } = await params;
+
+    // Оператор завершает только брони своих туров (до 25.09 проверки не было:
+    // чужой оператор мог завершить бронь и начислить туристу баллы).
+    if (auth.role === 'operator') {
+      const own = await operatorOwnsBooking(bookingId, auth.userId);
+      if (own === 'unknown') {
+        return NextResponse.json(
+          { success: false, error: 'Не удалось проверить бронирование, попробуйте позже' } as ApiResponse<null>,
+          { status: 503 }
+        );
+      }
+      if (own === 'denied') {
+        // 404, а не 403: чужая бронь для оператора не существует.
+        return NextResponse.json(
+          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { status: 404 }
+        );
+      }
+    }
 
     // 3. Бизнес-логика
     const booking = await completeBooking(bookingId, auth.userId);

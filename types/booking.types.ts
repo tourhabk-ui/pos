@@ -26,6 +26,9 @@
 export type BookingStatus =
   | 'new'
   | 'confirmed'
+  // Оплата начата (Кузьмич/платёжный путь, lib/types/statuses). До 25.09 тип
+  // её не знал: такая бронь зависала — ни отменить, ни подтвердить.
+  | 'pending_payment'
   | 'completed'
   | 'cancelled'
   | 'no_show';
@@ -48,6 +51,7 @@ export const CANCELLED_STATUSES: ReadonlySet<BookingStatus> = new Set([
  */
 export const ALLOWED_TRANSITIONS: Record<BookingStatus, readonly BookingStatus[]> = {
   new: ['confirmed', 'cancelled'],
+  pending_payment: ['confirmed', 'cancelled'],
   confirmed: ['completed', 'cancelled', 'no_show'],
   completed: [],
   cancelled: [],

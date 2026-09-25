@@ -24,7 +24,7 @@ interface BookingDetail {
   final_price: string | null;
   currency: string;
   payment_status: 'pending' | 'paid' | 'failed' | 'refunded';
-  booking_status: 'new' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
+  booking_status: 'new' | 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
   special_requests: string | null;
   notes: string | null;
   cancellation_reason: string | null;
@@ -40,7 +40,7 @@ const RUB = (v: string | number | null | undefined) =>
   v == null ? '—' : Number(v).toLocaleString('ru-RU') + ' ₽';
 
 const STATUS_LABEL: Record<string, string> = {
-  new: 'Новая', confirmed: 'Подтверждена',
+  new: 'Новая', pending_payment: 'Ждёт оплаты', confirmed: 'Подтверждена',
   cancelled: 'Отменена', completed: 'Завершена', no_show: 'Не явился',
 };
 const STATUS_STYLE: Record<string, string> = {
@@ -121,9 +121,9 @@ export default function BookingDetailClient({ bookingId }: Props) {
     </div>
   );
 
-  const canConfirm = booking.booking_status === 'new';
+  const canConfirm = booking.booking_status === 'new' || booking.booking_status === 'pending_payment';
   const canComplete = booking.booking_status === 'confirmed';
-  const canCancel = booking.booking_status === 'new' || booking.booking_status === 'confirmed';
+  const canCancel = ['new', 'pending_payment', 'confirmed'].includes(booking.booking_status);
   const canMarkNoShow = booking.booking_status === 'confirmed';
 
   return (
@@ -318,8 +318,11 @@ export default function BookingDetailClient({ bookingId }: Props) {
             {canCancel && (
               <button
                 onClick={() => {
-                  const reason = window.prompt('Причина отмены (необязательно):') ?? '';
-                  updateStatus('cancelled', reason || undefined);
+                  // «Отмена» в окне причины — это отказ отменять бронь, а не
+                  // отмена без причины (до 25.09 бронь отменялась в обоих).
+                  const reason = window.prompt('Причина отмены брони (необязательно). Нажмите «Отмена», чтобы не отменять:');
+                  if (reason === null) return;
+                  updateStatus('cancelled', reason.trim() || undefined);
                 }}
                 disabled={updating}
                 className="ds-btn ds-btn-danger flex items-center gap-2"

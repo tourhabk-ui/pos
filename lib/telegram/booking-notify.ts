@@ -93,6 +93,8 @@ export function notifyTouristBookingConfirmed(
     tourTitle: string;
     date: Date;
     participants: number;
+    /** Страница брони с ключом — там кнопка оплаты после подтверждения. */
+    url?: string;
   }
 ): void {
   void (async () => {
@@ -113,9 +115,11 @@ export function notifyTouristBookingConfirmed(
           `<b>Дата:</b> ${dateStr}`,
           `<b>Участников:</b> ${booking.participants}`,
           '',
-          'Подготовьтесь к поездке — оператор свяжется с вами ближе к дате.',
+          booking.url
+            ? 'Теперь бронь можно оплатить — кнопка оплаты на странице брони.'
+            : 'Подготовьтесь к поездке — оператор свяжется с вами ближе к дате.',
           '',
-          `<a href="https://vedarai.ru/hub/tourist/bookings">Детали брони →</a>`,
+          `<a href="${esc(booking.url ?? 'https://vedarai.ru/hub/tourist/bookings')}">Детали брони →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
       });
