@@ -109,7 +109,7 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
     ]);
 
     if (paymentResult.rows.length === 0) {
-      console.error('[payments/webhook] оплата не сопоставлена ни с одной записью:', `invoice_len=${invoice.length}`, `uuid=${UUID_RE.test(invoice)}`);
+      console.error('[payments/webhook] оплата не сопоставлена ни с одной записью (номер счёта не найден ни в tour_payments, ни в payments)');
       return;
     }
 
