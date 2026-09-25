@@ -122,6 +122,22 @@ describe('get_volcano_status: две шкалы, победителя нет', (
     expect(out).not.toContain('Karymsky');
   });
 
+  it('дата сводки в шапке та же, что в строках (приёмка 25.09: шапка убегала на сутки)', () => {
+    const out = composeVolcanoReport(FRESH, undefined, NOW);
+    expect(out).toContain('КФ ЕГС: сводка за 24.09.2026');
+    expect(out).toContain('за 24.09)');
+  });
+
+  it('вулкан вне свежей сводки — «в сводке нет», а не «сводки нет»', () => {
+    const withKuril: VolcanoInput = {
+      ...FRESH,
+      kvert: [...FRESH.kvert!, { ark: null, place_name: null, name: 'CHIKURACHKI', acc: 'orange', ash_height_m: null, observed_at: '2026-09-25T01:00:00Z' }],
+    };
+    const out = composeVolcanoReport(withKuril, undefined, NOW);
+    expect(out).toMatch(/CHIKURACHKI: КФ ЕГС: в сводке этого вулкана нет/);
+    expect(out).not.toMatch(/CHIKURACHKI: КФ ЕГС: свежей сводки нет/);
+  });
+
   it('самые опасные первыми', () => {
     const out = composeVolcanoReport(FRESH, undefined, NOW);
     expect(out.indexOf('Ключевской')).toBeLessThan(out.indexOf('Мутновский'));

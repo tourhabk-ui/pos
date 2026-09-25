@@ -128,8 +128,20 @@ function rank(m: Merged): number {
   return Math.max(r(m.kvert?.acc), r(m.kfegs?.color));
 }
 
-function volcanoLine(m: Merged, nowMs: number): string {
-  return `${m.name}: ${kfegsPhrase(m.kfegs)} · ${kvertPhrase(m.kvert, nowMs)}`;
+/**
+ * Строка вулкана. Нет строки КФ ЕГС при СВЕЖЕЙ сводке — вулкан ею не охвачен
+ * (курильские, северные), а не «сводки нет»: первая приёмка 25.09 писала
+ * про Чикурачки «свежей сводки нет» при сводке того же утра.
+ */
+function volcanoLine(m: Merged, nowMs: number, bulletinFresh: boolean): string {
+  const kf = !m.kfegs && bulletinFresh ? 'КФ ЕГС: в сводке этого вулкана нет' : kfegsPhrase(m.kfegs);
+  return `${m.name}: ${kf} · ${kvertPhrase(m.kvert, nowMs)}`;
+}
+
+/** Дата сводки ДД.ММ.ГГГГ из YYYY-MM-DD — без часовых поясов: это сутки, а не момент. */
+function bulletinDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
 }
 
 function matches(m: Merged, query: string): boolean {
@@ -163,10 +175,10 @@ function sourcesLine(input: VolcanoInput, nowMs: number): { text: string; comple
     parts.push('КФ ЕГС: сводок нет');
     complete = false;
   } else if (!kfegsIsFresh(input.kfegsDate, nowMs)) {
-    parts.push(`КФ ЕГС: последняя сводка за ${ruDate(`${input.kfegsDate}T12:00:00Z`)} — устарела, её цвета не учтены`);
+    parts.push(`КФ ЕГС: последняя сводка за ${bulletinDate(input.kfegsDate)} — устарела, её цвета не учтены`);
     complete = false;
   } else {
-    parts.push(`КФ ЕГС: сводка за ${ruDate(`${input.kfegsDate}T12:00:00Z`)}, вулканов ${input.kfegs.length}`);
+    parts.push(`КФ ЕГС: сводка за ${bulletinDate(input.kfegsDate)}, вулканов ${input.kfegs.length}`);
   }
   return { text: `Источники — ${parts.join('; ')}.`, complete };
 }
@@ -177,6 +189,7 @@ const FOOTER = 'Цветовые коды — об активности вулк
 export function composeVolcanoReport(input: VolcanoInput, query: string | undefined, nowMs: number = Date.now()): string {
   const src = sourcesLine(input, nowMs);
   const all = mergeVolcanoes(input, nowMs);
+  const fresh = input.kfegs !== null && input.kfegsDate !== null && kfegsIsFresh(input.kfegsDate, nowMs);
 
   if (query && query.trim()) {
     const found = all.filter((m) => matches(m, query));
@@ -187,7 +200,7 @@ export function composeVolcanoReport(input: VolcanoInput, query: string | undefi
           + 'Для безопасности конкретного места есть get_guardian_context.',
       ].join('\n');
     }
-    return [src.text, ...found.slice(0, 5).map((m) => volcanoLine(m, nowMs)), FOOTER].join('\n');
+    return [src.text, ...found.slice(0, 5).map((m) => volcanoLine(m, nowMs, fresh)), FOOTER].join('\n');
   }
 
   const elevated = all.filter(isElevated).sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name, 'ru'));
@@ -204,7 +217,7 @@ export function composeVolcanoReport(input: VolcanoInput, query: string | undefi
   return [
     src.text,
     `Повышенная активность хотя бы по одной шкале — ${elevated.length}:`,
-    ...elevated.slice(0, LIST_LIMIT).map((m) => volcanoLine(m, nowMs)),
+    ...elevated.slice(0, LIST_LIMIT).map((m) => volcanoLine(m, nowMs, fresh)),
     ...(more ? [more] : []),
     ...(src.complete ? [] : ['Не все источники проверены — список может быть неполным.']),
     FOOTER,
