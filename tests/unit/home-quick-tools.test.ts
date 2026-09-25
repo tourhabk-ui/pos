@@ -75,3 +75,59 @@ describe('плитки на главной', () => {
     expect(tools).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
+
+describe('чипы интересов — один ряд (владелец 25.09: «занимают 2 строчки, не экономно»)', () => {
+  it('сетка на столько колонок, сколько чипов, без переноса', async () => {
+    const { INTENT_CHIPS } = await import('@/lib/home/intent-chips');
+    const rule = /\.v7 \.hero-chips\{([^}]*)\}/.exec(HOME)?.[1] ?? '';
+    expect(rule).toContain(`grid-template-columns:repeat(${INTENT_CHIPS.length},minmax(0,1fr))`);
+    expect(rule).not.toMatch(/flex-wrap:wrap/);
+  });
+
+  it('подпись в одну строку, зона нажатия не меньше 44px', () => {
+    expect(HOME).toMatch(/\.v7 \.hchip\{[^}]*min-height:56px/);
+    expect(HOME).toMatch(/\.v7 \.hchip \.hc-l\{[^}]*white-space:nowrap/);
+    expect(HOME).toContain('<span className="hc-l">{c.label}</span>');
+  });
+});
+
+describe('полевые инструменты — сеткой 2×2 (владелец 25.09: «место жалко на главной»)', () => {
+  const at = HOME.indexOf('<nav className="qtools stools"');
+  const grid = at === -1 ? '' : HOME.slice(at, HOME.indexOf('</nav>', at));
+
+  it('четыре плитки в секции #radar, а не четыре полноширинные строки', () => {
+    expect(grid).not.toBe('');
+    expect((grid.match(/className="qt(?: mchsline)?"/g) ?? []).length).toBe(4);
+    expect(HOME).not.toMatch(/className="protoline|className="reportbtn/);
+    const radar = HOME.slice(HOME.indexOf('id="radar"'), HOME.indexOf('</section>', HOME.indexOf('id="radar"')));
+    expect(radar).toContain('<nav className="qtools stools"');
+  });
+
+  it('навигатор и наблюдение — жёсткие ссылки <a> (офлайн грузит закэшированную страницу)', () => {
+    expect(grid).toMatch(/<a\s+href="\/planning\?mode=trail"/);
+    expect(grid).toMatch(/<a\s+href="\/planning\?mode=trail&obs=1"/);
+  });
+
+  it('полная фраза каждой плитки — в aria-label, короткая подпись не длиннее 16 знаков', () => {
+    expect((grid.match(/aria-label="[^"]{20,}"/g) ?? []).length).toBe(4);
+    const captions = [...grid.matchAll(/<b>[^<]+<\/b><span>([^<]+)<\/span>/g)].map((m) => m[1]);
+    expect(captions).toHaveLength(4);
+    for (const c of captions) expect(c.length, c).toBeLessThanOrEqual(16);
+  });
+});
+
+describe('поиск без отдельной кнопки «Найти» (владелец 25.09: «дублирует переход»)', () => {
+  const form = HOME.match(/<form className="find"[\s\S]*?<\/form>/)?.[0] ?? '';
+
+  it('отправка — лупой-кнопкой и клавишей клавиатуры, большой кнопки нет', () => {
+    expect(form).toMatch(/<button type="submit" className="find-go" aria-label="Найти">\s*<Search/);
+    expect(form).not.toMatch(/>Найти<\/button>/);
+    expect(form).toContain('enterKeyHint="search"');
+    expect((form.match(/<button/g) ?? []).length).toBe(1);
+  });
+
+  it('лупа — полноценная зона нажатия 44px', () => {
+    expect(HOME).toMatch(/\.v7 \.find \.find-go\{[^}]*width:44px;min-height:44px/);
+  });
+});
+

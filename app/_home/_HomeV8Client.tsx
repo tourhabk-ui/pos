@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, Search, Fish, Map as MapIcon, CalendarX, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Search, Fish, Map as MapIcon, CalendarX, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -370,8 +370,13 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               проводник встречал человека дважды (скриншот владельца 05.09,
               «кузьмич 2 раза»). Медведь ушёл вниз, в медальон таб-бара
               (BottomNav) — там он и есть вход к Кузьмичу; поиск остался
-              поиском. */}
-          <Search size={20} className="hfs" aria-hidden />
+              поиском.
+              Лупа — и есть кнопка «Найти» (владелец 25.09: оранжевая кнопка
+              «Найти» дублировала переход и занимала место). Отправка — лупой
+              или клавишей «Найти» на клавиатуре телефона (enterKeyHint). */}
+          <button type="submit" className="find-go" aria-label="Найти">
+            <Search size={20} aria-hidden />
+          </button>
           <input
             type="search"
             value={intent}
@@ -380,7 +385,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             aria-label="Поиск по маршрутам и местам"
             enterKeyHint="search"
           />
-          <button type="submit">Найти</button>
         </form>
         {/* ТУРЫ СЕЗОНА — сразу под поиском (решение владельца 24.09, пакет П4б).
             Решение 29.07 «тур — не первое обещание главной» пересмотрено под
@@ -429,8 +433,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             const Ic = CHIP_ICON[c.key];
             return (
               <Link key={c.key} href={c.href} className="hchip">
-                {Ic && <Ic size={15} strokeWidth={2} aria-hidden />}
-                {c.label}
+                {Ic && <Ic size={17} strokeWidth={2} aria-hidden />}
+                <span className="hc-l">{c.label}</span>
               </Link>
             );
           })}
@@ -612,34 +616,64 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             навигатор, наблюдение) не удалены — они ниже тем же столбиком,
             просто без заголовка-двери. */}
         <section id="radar" className="sub radar-sec">
-          <Link href="/register" className="mchsline">
-            <b>Зарегистрируй маршрут в МЧС заранее</b>
-            <span>Бесплатно. С гидом или сам — спасателям это спасает жизни →</span>
-          </Link>
+          {/* Четыре полевых инструмента — сеткой 2×2 тех же плиток, что
+              «Планировщик» и «Радар» выше (владелец 25.09: «место жалко на
+              главной»). Было четыре полноширинные строки с подписью в две
+              строки каждая. Полная фраза каждой — в aria-label и title:
+              сокращён вид, а не обещание. МЧС сохраняет свою тёплую
+              подложку (.mchsline, --warning, не --danger): это просьба,
+              а не тревога. */}
+          <nav className="qtools stools" aria-label="Безопасность в поле">
+            <Link
+              href="/register"
+              className="qt mchsline"
+              aria-label="Зарегистрируй маршрут в МЧС заранее. Бесплатно. С гидом или сам — спасателям это спасает жизни"
+              title="Зарегистрируй маршрут в МЧС заранее — бесплатно, с гидом или сам"
+            >
+              <span className="qt-ic"><ClipboardCheck size={19} strokeWidth={1.8} aria-hidden /></span>
+              <span className="qt-tx"><b>Регистрация</b><span>в МЧС заранее</span></span>
+            </Link>
 
-          <Link href="/safety/offline" className="protoline">
-            Что делать при ЧП: медведь · холод · вулкан · потерялся
-            <b>работает без сети →</b>
-          </Link>
+            <Link
+              href="/safety/offline"
+              className="qt"
+              aria-label="Что делать при ЧП: медведь, холод, вулкан, потерялся. Работает без сети"
+              title="Что делать при ЧП: медведь · холод · вулкан · потерялся"
+            >
+              <span className="qt-ic"><LifeBuoy size={19} strokeWidth={1.8} aria-hidden /></span>
+              <span className="qt-tx"><b>Если ЧП</b><span>памятка без сети</span></span>
+            </Link>
 
-          {/* Навигатор — жёсткая ссылка (не Next Link): чтобы офлайн грузилась
-              закэшированная страница, а не заглушка «Нет соединения». */}
-          <a href="/planning?mode=trail" className="protoline">
-            Навигатор по маршруту: компас до точки, высота, трек
-            <b>работает без сети →</b>
-          </a>
+            {/* Навигатор — жёсткая ссылка (не Next Link): чтобы офлайн грузилась
+                закэшированная страница, а не заглушка «Нет соединения». */}
+            <a
+              href="/planning?mode=trail"
+              className="qt"
+              aria-label="Навигатор по маршруту: компас до точки, высота, трек. Работает без сети"
+              title="Навигатор по маршруту: компас до точки, высота, трек"
+            >
+              <span className="qt-ic"><Compass size={19} strokeWidth={1.8} aria-hidden /></span>
+              <span className="qt-tx"><b>Навигатор</b><span>компас без сети</span></span>
+            </a>
 
-          {/* Кнопки создания наблюдения на главной больше НЕТ (владелец
-              27.08): наблюдение создаётся с экрана маршрута, где координаты
-              и офлайн-очередь система даёт сама — прежняя форма отсюда без
-              сети теряла текст. Жёсткая ссылка по той же причине, что у
-              навигатора выше.
-              obs=1 (владелец 29.08) — ссылка обещает открыть форму
-              наблюдения, а без флага открывался общий экран «Куда хотите
-              пойти?»: заголовок звал в форму, а показывалась другая. */}
-          <a href="/planning?mode=trail&obs=1" className="reportbtn">
-            Сообщить о наблюдении <span>с экрана маршрута: фото · координаты · без сети →</span>
-          </a>
+            {/* Кнопки создания наблюдения на главной больше НЕТ (владелец
+                27.08): наблюдение создаётся с экрана маршрута, где координаты
+                и офлайн-очередь система даёт сама — прежняя форма отсюда без
+                сети теряла текст. Жёсткая ссылка по той же причине, что у
+                навигатора выше.
+                obs=1 (владелец 29.08) — ссылка обещает открыть форму
+                наблюдения, а без флага открывался общий экран «Куда хотите
+                пойти?»: заголовок звал в форму, а показывалась другая. */}
+            <a
+              href="/planning?mode=trail&obs=1"
+              className="qt"
+              aria-label="Сообщить о наблюдении с экрана маршрута: фото, координаты, без сети"
+              title="Сообщить о наблюдении с экрана маршрута"
+            >
+              <span className="qt-ic"><Camera size={19} strokeWidth={1.8} aria-hidden /></span>
+              <span className="qt-tx"><b>Наблюдение</b><span>фото без сети</span></span>
+            </a>
+          </nav>
 
         </section>
 
@@ -1025,17 +1059,21 @@ const CSS = `
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* Поиск — карточка на сплошном фоне (не стекло: под ним крем, блюрить нечего).
    Отрицательный отступ кладёт её на растворяющийся низ фото — шов макета. */
-.v7 .find{position:relative;z-index:2;margin-top:-34px;display:flex;align-items:center;gap:10px;padding:9px 9px 9px 13px;border-radius:999px;background:var(--bg-card);border:1px solid var(--border);box-shadow:0 14px 34px -16px rgba(0,0,0,.3)}
-.v7 .find .hfs{flex:none;margin-left:4px;color:var(--text-muted)}
+.v7 .find{position:relative;z-index:2;margin-top:-34px;display:flex;align-items:center;gap:6px;padding:6px 14px 6px 6px;border-radius:999px;background:var(--bg-card);border:1px solid var(--border);box-shadow:0 14px 34px -16px rgba(0,0,0,.3)}
+.v7 .find .find-go{flex:none;width:44px;min-height:44px;display:grid;place-items:center;border:0;border-radius:999px;background:none;color:var(--text-muted);cursor:pointer;transition:color .15s ease,transform .13s ease}
+.v7 .find .find-go:active{transform:scale(.94);color:var(--text-primary)}
 /* align-self:stretch — рамка поля выглядела крупной, а нажималась полоска
    16.8px: сам input не заполнял её по высоте, и промах по вертикали попадал
    мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */
 .v7 .find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:var(--text-primary);font:500 14.5px/1.2 var(--font-outfit),system-ui,sans-serif}
 .v7 .find input::placeholder{color:var(--text-muted)}
-.v7 .find button{flex:none;min-height:44px;padding:0 16px;border:0;border-radius:999px;background:var(--accent);color:var(--on-accent);font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
-.v7 .find button:active{transform:scale(.96)}
-.v7 .hero-chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
-.v7 .hchip{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:999px;text-decoration:none;color:var(--text-primary);font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
+/* Четыре чипа — ОДИН ряд из четырёх плиток (владелец 25.09: «занимают
+   2 строчки, не экономно»). Иконка над подписью: в ширину телефона 360px
+   четыре пилюли в строку не входят, а столбиком входят — 56px вместо двух
+   рядов по 44. Число колонок = числу чипов (INTENT_CHIPS). */
+.v7 .hero-chips{margin-top:14px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.v7 .hchip{min-height:56px;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:6px 2px;border-radius:14px;text-decoration:none;color:var(--text-primary);font:600 10.5px/1.15 var(--font-outfit),system-ui,sans-serif;text-align:center;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
+.v7 .hchip .hc-l{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .hchip svg{color:var(--text-secondary)}
 .v7 .qtools{margin:10px 0 26px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .v7 .qt{min-height:64px;min-width:0;display:flex;align-items:center;gap:8px;padding:8px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
@@ -1050,6 +1088,8 @@ const CSS = `
 .v7 .qt-cov{display:flex;align-items:center;gap:5px}
 .v7 .qt-cov i{width:6px;height:6px;border-radius:50%;flex:none;box-sizing:border-box}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
+/* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
+@media (max-width:340px){.v7 .hero-chips{gap:4px}.v7 .hchip{font-size:9.5px}.v7 .qtools{gap:6px}.v7 .qt{gap:6px;padding:8px 6px}.v7 .qt-ic{width:32px;height:32px;border-radius:10px}.v7 .qt-tx b{font-size:11.5px}.v7 .qt-tx > span{font-size:9.5px}}
 .v7 .hchip:active{transform:scale(.96)}
 .v7 .hchip:hover{background:var(--bg-hover)}
 /* секции */
@@ -1112,21 +1152,13 @@ const CSS = `
    системе закреплён за SOS и ошибками: карточка-совет в красной рамке спорила
    с кнопкой СОС в шапке. Решение владельца 24.09 (развилка 2): --warning —
    это предупреждение «сделай заранее», а не авария. */
-.v7 .mchsline{display:flex;flex-direction:column;gap:2px;margin-top:8px;padding:12px 14px 12px 15px;border-radius:14px;text-decoration:none;background:color-mix(in srgb,var(--warning) 10%,transparent);border:1px solid color-mix(in srgb,var(--warning) 26%,transparent);border-left:3px solid color-mix(in srgb,var(--warning) 70%,transparent)}
-.v7 .mchsline b{font:700 12px/1.3 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
-.v7 .mchsline span{font:500 10px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-.v7 .mchsline:active{transform:scale(.99)}
-.v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;text-decoration:none;background:var(--bg-hover);border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-left:3px solid color-mix(in srgb,var(--ocean) 68%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);font:500 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);transition:transform .2s ease,box-shadow .2s ease}
-.v7 .protoline b{font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
-/* Радар одной строкой (П4б): та же плитка, что у офлайн-инструментов, плюс
-   иконка — это вход в подробности на /safety#radar, а не секция. */
+/* Секция #radar (якорь пилюли шапки): с 25.09 — полевые инструменты сеткой 2×2
+   тех же плиток .qt, что ряд «Планировщик / Радар» выше. */
 .v7 .radar-sec{margin-top:28px}
-.v7 .protoline:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
-.v7 .protoline:active{transform:scale(.99)}
-.v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;background:var(--bg-hover);border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-left:3px solid color-mix(in srgb,var(--warning) 62%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;font:600 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);font-family:var(--font-outfit),system-ui,sans-serif;transition:transform .2s ease,box-shadow .2s ease}
-.v7 .reportbtn span{color:var(--text-secondary);font-weight:500}
-.v7 .reportbtn:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
-.v7 .reportbtn:active{transform:scale(.99)}
+.v7 .stools{margin:0}
+/* Регистрация в МЧС — тёплая подложка (--warning): просьба, не тревога (--danger только SOS). */
+.v7 .mchsline{background:color-mix(in srgb,var(--warning) 10%,var(--bg-card));border-color:color-mix(in srgb,var(--warning) 30%,transparent)}
+.v7 .mchsline .qt-ic{color:color-mix(in srgb,var(--warning) 80%,var(--text-primary));background:color-mix(in srgb,var(--warning) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warning) 28%,transparent)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 /* платы */
 /* «Туры сезона» — первая карточка тура, сразу под поиском (П4б, 24.09).
@@ -1354,7 +1386,7 @@ const CSS = `
   .v7 section{margin-top:52px}
   /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
   .v7 .find{max-width:640px;margin-left:auto;margin-right:auto}
-  .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto;justify-content:center}
+  .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .qtools,.v7 .alerts-now{max-width:640px;margin-left:auto;margin-right:auto}
   .v7 .firstpick{max-width:520px;margin-left:auto;margin-right:auto}
   .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
