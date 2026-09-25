@@ -31,8 +31,6 @@ import {
 } from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { stripTags } from '@/lib/html/text';
-import { resolveCoverImage } from '@/lib/notifications/cover-image';
-import { hashStr } from '@/lib/notifications/post-image';
 import {
   relayBase, relayBaseProblem, relayConfigured, relayFetchUrl, relayHeaders, relayStatus, shouldFallbackToRelay,
   type FetchVia, type RelayStatus,
@@ -42,7 +40,6 @@ import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-f
 import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT, repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { polishDigest } from '@/lib/text/digest-polish';
 import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
-import { digestCoverUrl, digestCoverTitles } from '@/lib/notifications/digest-cover';
 // Правило возраста используется здесь и переэкспортируется ниже: re-export
 // имя в область видимости НЕ вносит, поэтому импорт нужен отдельно.
 import { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
@@ -620,20 +617,6 @@ async function tgSendRich(
   return true;
 }
 
-/**
- * Заголовки материалов выпуска — тема для обложки. Первая жирная строка
- * («AI-дайджест · дата») — шапка, не тема; берутся следующие две. Если
- * жирных строк нет (модель нарушила формат) — тема из первых 200 знаков
- * текста без тегов, чтобы обложка всё равно была про выпуск.
- */
-export function digestHeadlines(digestHtml: string): string {
-  const titles = [...digestHtml.matchAll(/<b>([^<]+)<\/b>/g)]
-    .map((m) => m[1].trim())
-    .filter((t) => !/^AI-дайджест/i.test(t) && !/^Почему важно/i.test(t));
-  if (titles.length > 0) return titles.slice(0, 2).join('. ');
-  return stripTags(digestHtml).replace(/\s+/g, ' ').trim().slice(0, 200);
-}
-
 async function tgSend(text: string, onError?: SendErrorSink): Promise<boolean> {
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!chatId) { onError?.('TELEGRAM_CHAT_ID не задан'); return false; }
@@ -775,7 +758,7 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // Везде judgeClaims, у которого исход именной.
 import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySections, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
-import { aiPostTooThin, aiPostButtons, kamchatkaDate } from '@/lib/notifications/ai-post-shape';
+import { aiPostTooThin, aiPostButtons, aiPostMaterials, kamchatkaDate } from '@/lib/notifications/ai-post-shape';
 
 /**
  * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
@@ -1525,22 +1508,16 @@ export async function runScoutDigest(): Promise<DigestResult> {
         // 26.09 они строились из первых трёх сигналов ленты: английские
         // заголовки, и один вёл на материал, которого в посте не было.
         const buttons = aiPostButtons(aiDigest);
-        // Обложка — своя карточка выпуска (24.09): дата и заголовки материалов.
-        // Генератор рисовал сцену по одному заголовку — из «AutoCAD» вышло
-        // серое здание, а выпуск из трёх разных тем одной сценой не описать
-        // (lib/notifications/digest-cover.ts). Подписать ссылку нечем (нет
-        // CRON_SECRET) — прежняя обложка генератора, и это сказано в лог.
-        let coverUrl = digestCoverUrl(today, digestCoverTitles(aiDigest));
-        if (!coverUrl) {
-          console.error('[scout-digest] карточка-обложка не собрана (нет секрета или заголовков) — обложка генератора');
-          coverUrl = (await resolveCoverImage(
-            digestHeadlines(aiDigest),
-            'ai',
-            hashStr(aiDigest) % 9_999_999,
-          )).url;
-        }
-        // Подвал с реферальными ссылками владельца — после фактчека и обложки
-        // (обложка строится по заголовкам самого выпуска, не по подвалу).
+        // Над постом — превью ПЕРВОЙ статьи выпуска (решение владельца 26.09,
+        // вариант «а»). Своя карточка-обложка 24.09 повторяла заголовок,
+        // стоящий прямо под ней, и читалась шаблоном («полный кринж»); сцена
+        // генератора до неё рисовала серое здание к выпуску про AutoCAD.
+        // Превью статьи — настоящая картинка источника, и пост по-прежнему не
+        // голый текст (требование 02.09). Ссылка задаётся явно: иначе Telegram
+        // взял бы первую ссылку текста, а в подвале — реферальные.
+        // Материалов не меньше двух — это проверено воротами выше.
+        const coverUrl = aiPostMaterials(aiDigest)[0]?.url;
+        // Подвал с реферальными ссылками владельца — после фактчека.
         const aiPost = withAiChannelFooter(aiDigest, TELEGRAM_TEXT_LIMIT, repairTelegramHtml);
         aiSent = await tgSendRich(aiChannelId, aiPost, buttons.length > 0 ? buttons : undefined, coverUrl, (reason) => { aiSkipDetail = reason; });
         aiSkip = aiSent ? undefined : 'ai_send_failed';

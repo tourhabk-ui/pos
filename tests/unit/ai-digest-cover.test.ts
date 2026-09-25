@@ -1,67 +1,37 @@
 /**
- * AI-дайджест уходит в канал с обложкой.
+ * Над AI-дайджестом — превью первой статьи выпуска (решение владельца 26.09).
  *
- * Скрин владельца 02.09: выпуск «AI-дайджест · 2 сентября» (Switchyard, Astra)
- * стоял в ленте @ai_hub_money голым текстом среди постов с картинкой. Новости
- * того же канала (postAINewsToChannel) обложку получают через
- * resolveCoverImage, а дайджест слался через sendMessage и обложки не имел
- * никогда.
+ * История: 02.09 выпуск стоял в ленте голым текстом среди постов с картинкой;
+ * до 24.09 обложку рисовал генератор (к выпуску про AutoCAD — серое здание);
+ * 24.09 её заменила своя карточка с датой и заголовками, и 26.09 владелец
+ * назвал её «полным кринжем»: карточка повторяла заголовок, стоящий прямо
+ * под ней. Выбран вариант «а» — убрать карточку, показать превью статьи.
  *
- * Обложка идёт превью ссылки над текстом (link_preview_options), а не
- * sendPhoto: подпись к фото у ботов — 1024 знака, дайджест длиннее.
+ * Требование 02.09 «не голым текстом» остаётся: превью — картинка источника.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { digestHeadlines } from '@/lib/agents/scout-digest';
 
 const DIGEST = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
 const CODE = DIGEST.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-describe('обложка дайджеста', () => {
-  it('выпуск в AI-канал всегда уходит с обложкой: карточка выпуска, генератор — запасом', () => {
-    // 24.09 (снимок владельца): генератор по одному заголовку нарисовал серое
-    // здание к выпуску про TTS и AutoCAD. Обложка теперь — своя карточка с
-    // датой и заголовками (lib/notifications/digest-cover.ts), а прежний путь
-    // генератора остался запасом на случай, когда подписать ссылку нечем.
-    // Требование 02.09 — «не голым текстом» — не изменилось.
-    expect(CODE).toMatch(/let coverUrl = digestCoverUrl\(today, digestCoverTitles\(aiDigest\)\)/);
-    expect(CODE).toMatch(/resolveCoverImage\(\s*digestHeadlines\(aiDigest\),\s*'ai'/);
-    // Обложка передаётся в отправку, исход отправки по-прежнему присваивается.
+describe('превью над AI-дайджестом', () => {
+  it('ссылка превью — первая статья выпуска, заданная явно (иначе Telegram взял бы реферальную из подвала)', () => {
+    expect(CODE).toMatch(/const coverUrl = aiPostMaterials\(aiDigest\)\[0\]\?\.url/);
     expect(CODE).toMatch(/aiSent = await tgSendRich\([^)]*coverUrl[,)]/);
   });
 
-  it('обложка — превью над полным текстом, а не подпись к фото', () => {
+  it('превью крупное и над полным текстом, а не подпись к фото', () => {
     expect(CODE).toMatch(/link_preview_options/);
     expect(CODE).toMatch(/prefer_large_media: true/);
     expect(CODE).toMatch(/show_above_text: true/);
-    // Устаревший флаг превью ушёл вместе с прежним поведением.
     expect(CODE).not.toMatch(/disable_web_page_preview: false/);
   });
-});
 
-describe('тема обложки — заголовки выпуска', () => {
-  const html = `<b>AI-дайджест · 2 сентября</b>
-
-<b>Switchyard: Rust-прокси для маршрутизации LLM-трафика</b>
-Вышел Switchyard.
-<b>Почему важно:</b> переключение без переписывания кода.
-<a href="https://example.com/a">Читать →</a>
-
-<b>Astra: OpenAI тестирует зацикленный трансформер</b>
-Текст.
-<b>Почему важно:</b> вывод.`;
-
-  it('шапка с датой и «Почему важно» темой не считаются', () => {
-    const t = digestHeadlines(html);
-    expect(t).toBe('Switchyard: Rust-прокси для маршрутизации LLM-трафика. Astra: OpenAI тестирует зацикленный трансформер');
-    expect(t).not.toMatch(/AI-дайджест/);
-    expect(t).not.toMatch(/Почему важно/);
-  });
-
-  it('без жирных строк тема — начало текста без тегов', () => {
-    const t = digestHeadlines('<i>Вышел</i> Switchyard — прокси.\n\n<a href="x">Читать</a>');
-    expect(t).toBe('Вышел Switchyard — прокси. Читать');
-    expect(t).not.toMatch(/</);
+  it('карточка-обложка и сцена генератора из выпуска ушли целиком, без мёртвого маршрута', () => {
+    expect(CODE).not.toMatch(/digestCoverUrl|resolveCoverImage/);
+    expect(existsSync(join(process.cwd(), 'lib/notifications/digest-cover.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'app/api/og/digest-cover/route.tsx'))).toBe(false);
   });
 });
