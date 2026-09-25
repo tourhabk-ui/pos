@@ -26,7 +26,7 @@ import {
   type PlannerCache, type RealTour,
 } from '@/lib/planner/data';
 import {
-  fetchWeatherForecast, computeQualityScore, assessHealthCompatibility,
+  fetchForecastDays, tripForecastWindow, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { tourDaySpan } from '@/lib/planner/tour-span';
@@ -1498,19 +1498,25 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     });
   }
 
-  // Inject weather forecasts for activity days
+  // Прогноз к дням плана — по ДАТЕ дня, от даты приезда. До 25.09 прогноз
+  // брался от сегодня и раскладывался по номеру дня: при приезде через неделю
+  // первый день плана получал сегодняшнюю погоду, и она же уходила в промпт.
+  // Поездка за горизонтом прогноза или неполный день — погоды у дня нет.
   if (profile.arrivalDate && days.length > 0) {
     const primaryZone = zones[0]?.zone ?? 'avachinsky';
-    try {
-      const forecasts = await fetchWeatherForecast(
+    const window = tripForecastWindow(profile.arrivalDate, Math.max(...days.map((d) => d.day)));
+    if (window) {
+      const forecast = await fetchForecastDays(
         ZONE_COORDS[primaryZone][0],
         ZONE_COORDS[primaryZone][1],
-        Math.min(16, days.length),
+        window.horizon,
       );
-      for (const day of days) {
-        const idx = day.day - 1;
-        if (idx >= 0 && idx < forecasts.length) {
-          const fc = forecasts[idx];
+      if (forecast.ok) {
+        for (const day of days) {
+          const date = window.dates[day.day - 1];
+          const fc = date ? forecast.days.find((f) => f.date === date) : undefined;
+          if (!fc || fc.tempMax === null || fc.tempMin === null || fc.precipMm === null
+            || fc.windKmh === null || fc.weatherCode === null || fc.description === null) continue;
           day.weatherForecast = {
             tempMax: fc.tempMax,
             tempMin: fc.tempMin,
@@ -1521,8 +1527,6 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
           };
         }
       }
-    } catch {
-      // Weather unavailable — proceed without
     }
   }
 
