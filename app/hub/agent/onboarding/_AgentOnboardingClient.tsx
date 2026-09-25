@@ -14,7 +14,7 @@ import { usePartnerOnboarding } from '@/components/hub/usePartnerOnboarding';
 const STEPS = [{ icon: User, label: 'Профиль агентства' }];
 
 export default function AgentOnboardingClient() {
-  const { profile, loading, completeOnboarding } = usePartnerOnboarding('/hub/agent');
+  const { profile, loading, completeOnboarding, completeError } = usePartnerOnboarding('/hub/agent');
 
   if (loading) {
     return (
@@ -35,10 +35,15 @@ export default function AgentOnboardingClient() {
       steps={STEPS}
       current={0}
     >
+      {completeError && (
+        <div role="alert" className="mb-4 p-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
+          {completeError}
+        </div>
+      )}
       <PartnerProfileStep
         profile={profile}
         namePlaceholder="Турагентство «Восток»"
-        onNext={() => completeOnboarding('/hub/agent')}
+        onNext={() => { void completeOnboarding('/hub/agent'); }}
       />
     </OnboardingWizard>
   );

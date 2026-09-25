@@ -150,7 +150,7 @@ function FirstObjectStep({ onFinish }: { onFinish: (created: boolean) => void })
 
 export default function StayOnboardingClient() {
   const [step, setStep] = useState(0);
-  const { profile, loading, completeOnboarding } = usePartnerOnboarding('/hub/stay');
+  const { profile, loading, completeOnboarding, completeError } = usePartnerOnboarding('/hub/stay');
 
   async function finish(created: boolean) {
     await completeOnboarding(created ? '/hub/stay/accommodations' : '/hub/stay');
@@ -175,6 +175,11 @@ export default function StayOnboardingClient() {
       steps={STEPS}
       current={step}
     >
+      {completeError && (
+        <div role="alert" className="mb-4 p-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
+          {completeError}
+        </div>
+      )}
       {step === 0 && (
         <PartnerProfileStep
           profile={profile}

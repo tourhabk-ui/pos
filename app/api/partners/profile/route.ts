@@ -86,7 +86,10 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, data: { partner } });
-  } catch {
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    console.error('[partners/profile] GET не выполнился:', `sqlstate=${typeof code === 'string' ? code : 'нет'}`,
+      error instanceof Error ? error.message : String(error));
     return NextResponse.json({ success: false, error: 'Ошибка при получении профиля' }, { status: 500 });
   }
 }
@@ -149,7 +152,18 @@ export async function PATCH(request: NextRequest) {
     if (phone !== undefined || telegram !== undefined || website !== undefined) {
       set('contact', JSON.stringify(newContact));
     }
-    if (complete_onboarding) set('onboarding_completed', true);
+    if (complete_onboarding) {
+      set('onboarding_completed', true);
+      // Гид, прошедший онбординг, подаёт заявку на проверку платформой:
+      // публичный реестр /guides показывает только одобренных
+      // (lib/guides/visibility.ts). Прежде гид оставался в 'none' и в
+      // очередь администратора не попадал вовсе — одобрять было некого.
+      // Одобренного или уже ждущего повторное завершение не трогает.
+      if (partner.category === 'guide') {
+        sets.push(`applied_at = CASE WHEN profile_status = 'none' THEN NOW() ELSE applied_at END`);
+        sets.push(`profile_status = CASE WHEN profile_status = 'none' THEN 'pending' ELSE profile_status END`);
+      }
+    }
 
     params.push(partner.id);
     await query(
@@ -158,7 +172,12 @@ export async function PATCH(request: NextRequest) {
     );
 
     return NextResponse.json({ success: true, message: 'Профиль сохранён' });
-  } catch {
+  } catch (error) {
+    // Отказ здесь — это петля онбординга (визард → кабинет → визард), если
+    // его не видно; теперь визард показывает ошибку, а лог называет причину.
+    const code = (error as { code?: unknown } | null)?.code;
+    console.error('[partners/profile] PATCH не выполнился:', `sqlstate=${typeof code === 'string' ? code : 'нет'}`,
+      error instanceof Error ? error.message : String(error));
     return NextResponse.json({ success: false, error: 'Ошибка при сохранении профиля' }, { status: 500 });
   }
 }

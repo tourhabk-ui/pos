@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { publicGuideWhere } from '@/lib/guides/visibility';
 import { blockingGaps, contentSignals, type GuideReadinessRow } from '@/lib/guides/card-readiness';
 
 export const dynamic     = 'force-dynamic';
@@ -29,9 +30,10 @@ export async function GET(req: NextRequest) {
   const startedAt = Date.now();
 
   try {
-    // Отбор тот же, которым живёт сама страница гида: category = 'guide' и
-    // profile_status = 'active'. Своя копия условия показывала бы готовность
-    // тех, кого на сайте нет (§12).
+    // Отбор тот же, которым живёт сама страница гида, — publicGuideWhere
+    // (lib/guides/visibility.ts). Своя копия условия показывала бы готовность
+    // тех, кого на сайте нет (§12); прежняя копия `profile_status = 'active'`
+    // при CHECK без такого значения отбирала ноль по построению.
     const { rows } = await pool.query<GuideReadinessRow>(`
       SELECT
         g.id::text                                              AS id,
@@ -57,8 +59,7 @@ export async function GET(req: NextRequest) {
         COALESCE(ARRAY_LENGTH(g.specializations, 1), 0)         AS specializations_count
       FROM partners g
       LEFT JOIN partners op ON op.id = g.guide_operator_id
-      WHERE g.category = 'guide'
-        AND g.profile_status = 'active'
+      WHERE ${publicGuideWhere('g')}
       ORDER BY g.id
     `);
 

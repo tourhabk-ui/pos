@@ -25,6 +25,9 @@ export async function PATCH(
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   const { id } = await params;
+  if (!z.string().uuid().safeParse(id).success) {
+    return NextResponse.json({ error: 'Некорректный идентификатор партнёра' }, { status: 400 });
+  }
 
   const body: unknown = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Неверный JSON' }, { status: 400 });
@@ -38,7 +41,7 @@ export async function PATCH(
 
   // Получаем данные партнёра + пользователя
   const partnerRes = await query(`
-    SELECT p.id, p.name AS company_name, p.profile_status,
+    SELECT p.id, p.name AS company_name, p.profile_status, p.category,
            u.id AS user_id, u.email, u.name AS contact_name
     FROM partners p
     JOIN users u ON u.id = p.user_id
@@ -46,12 +49,21 @@ export async function PATCH(
   `, [id]);
 
   if (partnerRes.rows.length === 0) {
-    return NextResponse.json({ error: 'Оператор не найден' }, { status: 404 });
+    return NextResponse.json({ error: 'Партнёр не найден' }, { status: 404 });
   }
 
   const partner = partnerRes.rows[0] as {
-    id: string; company_name: string; profile_status: string;
+    id: string; company_name: string; profile_status: string; category: string;
     user_id: string; email: string; contact_name: string;
+  };
+
+  // Очередь общая для всех партнёров (гиды в ней с пакета A, 25.09): текст
+  // письма обязан говорить о том, что одобрено. Гиду «публикуйте туры» и
+  // ссылка в кабинет оператора — неправда.
+  const isGuide = partner.category === 'guide';
+  const logSendFailure = (channel: string) => (err: unknown) => {
+    console.error(`[admin/operators] ${channel} о решении не отправлено:`, `partner=${id}`,
+      err instanceof Error ? err.message : String(err));
   };
 
   if (action === 'approve') {
@@ -78,11 +90,15 @@ export async function PATCH(
     // Email оператору
     emailService.sendEmail({
       to: partner.email,
-      subject: 'Ваша заявка одобрена — TourHub',
-      html: `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
+      subject: isGuide ? 'Профиль гида одобрен — Ведар' : 'Ваша заявка одобрена — TourHub',
+      html: isGuide
+        ? `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
+             <p>Профиль гида <b>${partner.company_name}</b> проверен и одобрен. Теперь он виден туристам в реестре гидов.</p>
+             <p><a href="https://vedarai.ru/guides/${partner.id}">Открыть профиль на сайте →</a></p>`
+        : `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
              <p>Заявка компании <b>${partner.company_name}</b> одобрена. Теперь вы можете публиковать туры.</p>
              <p><a href="https://vedarai.ru/hub/operator">Перейти в кабинет →</a></p>`,
-    }).catch(() => {});
+    }).catch(logSendFailure('email'));
 
     // Telegram уведомление оператору если есть chat_id
     const tgRes = await query(
@@ -98,13 +114,15 @@ export async function PATCH(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: `Ваша заявка одобрена! Теперь вы можете публиковать туры на TourHub.\nhttps://vedarai.ru/hub/operator`,
+            text: isGuide
+              ? `Ваш профиль гида одобрен и виден туристам в реестре гидов.\nhttps://vedarai.ru/guides/${partner.id}`
+              : `Ваша заявка одобрена! Теперь вы можете публиковать туры на TourHub.\nhttps://vedarai.ru/hub/operator`,
           }),
-        }).catch(() => {});
+        }).catch(logSendFailure('telegram'));
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Оператор одобрен' });
+    return NextResponse.json({ success: true, message: isGuide ? 'Гид одобрен' : 'Оператор одобрен' });
 
   } else {
     await query(`
@@ -128,10 +146,11 @@ export async function PATCH(
       to: partner.email,
       subject: 'Статус заявки — TourHub',
       html: `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
-             <p>К сожалению, заявка компании <b>${partner.company_name}</b> не прошла проверку.</p>
+             <p>К сожалению, ${isGuide ? 'профиль гида' : 'заявка компании'} <b>${partner.company_name}</b> не прошла проверку.</p>
+             ${isGuide ? '<p>Исправьте профиль в кабинете гида и отправьте его на проверку снова.</p>' : ''}
              ${comment ? `<p><b>Комментарий:</b> ${comment}</p>` : ''}
              <p>По вопросам: <a href="mailto:info@tourhab.ru">info@tourhab.ru</a></p>`,
-    }).catch(() => {});
+    }).catch(logSendFailure('email'));
 
     return NextResponse.json({ success: true, message: 'Заявка отклонена' });
   }

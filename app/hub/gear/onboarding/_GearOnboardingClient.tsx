@@ -20,11 +20,12 @@ const STEPS = [
 export default function GearOnboardingClient() {
   const [step, setStep] = useState(0);
   const [finishing, setFinishing] = useState(false);
-  const { profile, loading, completeOnboarding } = usePartnerOnboarding('/hub/gear');
+  const { profile, loading, completeOnboarding, completeError } = usePartnerOnboarding('/hub/gear');
 
   async function finish(goToInventory: boolean) {
     setFinishing(true);
-    await completeOnboarding(goToInventory ? '/hub/gear/inventory' : '/hub/gear');
+    const ok = await completeOnboarding(goToInventory ? '/hub/gear/inventory' : '/hub/gear');
+    if (!ok) setFinishing(false);
   }
 
   if (loading) {
@@ -46,6 +47,11 @@ export default function GearOnboardingClient() {
       steps={STEPS}
       current={step}
     >
+      {completeError && (
+        <div role="alert" className="mb-4 p-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
+          {completeError}
+        </div>
+      )}
       {step === 0 && (
         <PartnerProfileStep
           profile={profile}

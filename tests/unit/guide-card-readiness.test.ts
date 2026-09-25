@@ -164,10 +164,15 @@ describe('перепись только читает', () => {
 describe('отбор гидов тот же, которым живёт сама страница', () => {
   it('перепись судит ровно тех, кого показывает сайт', () => {
     // Своя копия условия показывала бы готовность тех, кого на сайте нет.
+    // До 25.09 этот тест требовал в обоих местах `profile_status = 'active'`
+    // — значения, которого CHECK колонки не допускает: сторож держал
+    // одинаковость двух копий и потому зеленел, пока обе отбирали ноль.
+    // Теперь условие одно — publicGuideWhere (lib/guides/visibility.ts), и
+    // требуется ровно его вызов, без собственных копий.
     const page = read('app/guides/[id]/page.tsx');
-    for (const cond of ["category = 'guide'", "profile_status = 'active'"]) {
-      expect(page, `страница: ${cond}`).toContain(cond);
-      expect(ROUTE_SRC, `перепись: ${cond}`).toContain(cond);
+    for (const [name, src] of [['страница', page], ['перепись', ROUTE_SRC]] as const) {
+      expect(src, name).toMatch(/publicGuideWhere\('(p|g)'\)/);
+      expect(src, name).not.toMatch(/\b[pg]\.profile_status\s*=/);
     }
   });
 

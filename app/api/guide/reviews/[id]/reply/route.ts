@@ -3,7 +3,14 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { verifyReviewOwnership } from '@/lib/auth/guide-helpers';
 import { requireRole } from '@/lib/auth/middleware';
+import { logGuideFailure } from '@/lib/guides/db-failure';
 import { z } from 'zod';
+
+const ReviewIdSchema = z.string().uuid('Некорректный идентификатор отзыва');
+
+function badId(): NextResponse {
+  return NextResponse.json({ success: false, error: 'Некорректный идентификатор отзыва' } as ApiResponse<null>, { status: 400 });
+}
 
 const GuideReplySchema = z.object({
   reply: z.string().min(1, 'Текст ответа не может быть пустым').max(1000, 'Максимальная длина ответа: 1000 символов'),
@@ -25,6 +32,7 @@ export async function POST(
     const userId = guideOrResponse.userId;
 
     const { id } = await params;
+    if (!ReviewIdSchema.safeParse(id).success) return badId();
     const isOwner = await verifyReviewOwnership(userId, id);
     
     if (!isOwner) {
@@ -49,13 +57,16 @@ export async function POST(
       [reply, id]
     );
 
-    // Send notification to tourist
+    // Уведомление туристу. Отказ не отменяет ответ, но и не глушится:
+    // прежде здесь стоял priority='medium', которого CHECK не допускает
+    // (low/normal/high/urgent), — INSERT падал 23514 на КАЖДОМ ответе, а
+    // пустой catch прятал это полностью.
     try {
       const review = result.rows[0];
       if (review.tourist_id) {
         await query(
           `INSERT INTO notifications (user_id, type, title, message, data, priority)
-           VALUES ($1, 'guide_reply', 'Гид ответил на ваш отзыв', $2, $3, 'medium')`,
+           VALUES ($1, 'guide_reply', 'Гид ответил на ваш отзыв', $2, $3, 'normal')`,
           [
             review.tourist_id,
             'Гид ответил на ваш отзыв. Посмотрите ответ.',
@@ -67,7 +78,7 @@ export async function POST(
         );
       }
     } catch (notifError) {
-      // Don't fail the reply if notification fails
+      logGuideFailure('уведомление туристу об ответе гида', notifError);
     }
 
     return NextResponse.json({
@@ -77,6 +88,7 @@ export async function POST(
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    logGuideFailure('POST /api/guide/reviews/[id]/reply', error);
     return NextResponse.json({
       success: false,
       error: 'Ошибка при публикации ответа'
@@ -98,6 +110,7 @@ export async function PUT(
     const userId = guideOrResponse.userId;
 
     const { id } = await params;
+    if (!ReviewIdSchema.safeParse(id).success) return badId();
     const isOwner = await verifyReviewOwnership(userId, id);
     
     if (!isOwner) {
@@ -129,6 +142,7 @@ export async function PUT(
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    logGuideFailure('PUT /api/guide/reviews/[id]/reply', error);
     return NextResponse.json({
       success: false,
       error: 'Ошибка при обновлении ответа'
@@ -150,6 +164,7 @@ export async function DELETE(
     const userId = guideOrResponse.userId;
 
     const { id } = await params;
+    if (!ReviewIdSchema.safeParse(id).success) return badId();
     const isOwner = await verifyReviewOwnership(userId, id);
     
     if (!isOwner) {
@@ -172,6 +187,7 @@ export async function DELETE(
     } as ApiResponse<null>);
 
   } catch (error) {
+    logGuideFailure('DELETE /api/guide/reviews/[id]/reply', error);
     return NextResponse.json({
       success: false,
       error: 'Ошибка при удалении ответа'

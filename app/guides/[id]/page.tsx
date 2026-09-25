@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { pool } from '@/lib/db-pool';
+import { publicGuideWhere } from '@/lib/guides/visibility';
 import { Shield, Award, Star, ArrowLeft, Languages, Mountain, BadgeCheck, Phone, Clock } from 'lucide-react';
 
 // Публичный профиль гида — витрина доверия (паттерн 57hours): турист видит
@@ -40,12 +41,12 @@ async function getGuide(id: string): Promise<{ guide: GuideProfile; certs: Cert[
   try {
     const { rows } = await pool.query<GuideProfile>(
       `SELECT p.id, p.name, p.company_name, p.description,
-              COALESCE(p.rating, 0) AS rating,
+              COALESCE(p.rating, 0)::float8 AS rating,
               COALESCE(p.review_count, 0) AS review_count,
               COALESCE(p.is_verified, false) AS is_verified,
               p.languages, p.specializations, p.experience_years, p.photo_url, p.phone
        FROM partners p
-       WHERE p.id = $1 AND p.category = 'guide' AND p.profile_status = 'active'
+       WHERE p.id = $1 AND ${publicGuideWhere('p')}
        LIMIT 1`,
       [id],
     );
