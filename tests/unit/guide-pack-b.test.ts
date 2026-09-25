@@ -397,7 +397,7 @@ describe('/api/guide/schedule/[id] — владение с третьим исх
 // ── 4. Связка §10.09 и ПД — по SQL ───────────────────────────────────────────
 
 describe('связка: производители, писатели, ПД', () => {
-  const migration = read('migrations/1018_guide_operator_team.sql');
+  const migration = read('migrations/1020_guide_operator_team.sql');
 
   it('статусы приглашения в CHECK миграции = INVITE_STATUSES', () => {
     const m = migration.match(/CHECK \(status IN \(([^)]+)\)\)/);

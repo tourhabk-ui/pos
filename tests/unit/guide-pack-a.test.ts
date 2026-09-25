@@ -232,8 +232,8 @@ describe('5. публичный реестр — одно условие, и о�
     expect(src).toMatch(/profile_status = CASE WHEN profile_status = 'none' THEN 'pending'/);
   });
 
-  it('миграция 1017 переводит прошедших онбординг гидов в очередь', () => {
-    const sql = read('migrations/1017_guide_onboarded_to_pending.sql');
+  it('миграция 1019 переводит прошедших онбординг гидов в очередь', () => {
+    const sql = read('migrations/1019_guide_onboarded_to_pending.sql');
     expect(sql).toMatch(/SET profile_status = 'pending'/);
     expect(sql).toMatch(/AND user_id IS NOT NULL/);
     expect(sql).toMatch(/AND onboarding_completed = TRUE/);
@@ -266,8 +266,8 @@ describe('6. ответ на отзыв и уведомление туристу
 
 // ── 7. Аттестация ───────────────────────────────────────────────────────────
 describe('7. аттестат: производитель у гида, решение у администратора', () => {
-  it('миграция 1016 заводит источник и след проверки', () => {
-    const sql = read('migrations/1016_guide_certifications_review.sql');
+  it('миграция 1018 заводит источник и след проверки', () => {
+    const sql = read('migrations/1018_guide_certifications_review.sql');
     for (const col of ['source', 'reviewed_at', 'reviewed_by', 'review_comment']) {
       expect(sql).toMatch(new RegExp(`ADD COLUMN IF NOT EXISTS ${col}\\b`));
     }

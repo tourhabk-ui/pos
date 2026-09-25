@@ -1,4 +1,4 @@
--- 1018: команда оператора — приглашение гида и назначение гида на бронь.
+-- 1020: команда оператора — приглашение гида и назначение гида на бронь.
 --
 -- ── Что было ──────────────────────────────────────────────────────────────
 -- Связь «гид работает у оператора» в схеме есть с 121-й миграции —
@@ -64,7 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_guide_operator_invites_operator
   ON guide_operator_invites (operator_id, created_at DESC);
 
 COMMENT ON TABLE guide_operator_invites IS
-  'Приглашения гидов в команду оператора. Членство — partners.guide_operator_id, его пишет только принятие приглашения (1018).';
+  'Приглашения гидов в команду оператора. Членство — partners.guide_operator_id, его пишет только принятие приглашения (1020).';
 
 ALTER TABLE operator_bookings
   ADD COLUMN IF NOT EXISTS guide_partner_id UUID REFERENCES partners(id) ON DELETE SET NULL;
