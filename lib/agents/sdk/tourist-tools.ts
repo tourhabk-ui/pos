@@ -13,6 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { composeTrip } from '@/lib/planner/compose';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { fetchForecastDays } from '@/lib/planner/intelligence';
+import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // Вычисляем длительность в днях из реальных колонок
@@ -346,25 +347,8 @@ const compareTours: SDKTool = {
 
 // ── Get Weather ───────────────────────────────────────────────────
 
-/**
- * Координаты живой точки по её имени. Ровно тот предикат живости, что у
- * переписей: скрытые и слитые записи не считаются местом.
- */
-async function resolvePlaceCoords(
-  name: string,
-): Promise<{ name: string; lat: number; lng: number } | null> {
-  const { rows } = await pool.query<{ name: string; lat: number; lng: number }>(
-    `SELECT name, lat::float AS lat, lng::float AS lng
-       FROM places
-      WHERE name ILIKE $1
-        AND lat IS NOT NULL AND lng IS NOT NULL
-        AND is_visible = true AND merged_into_id IS NULL
-      ORDER BY length(name) ASC
-      LIMIT 1`,
-    [`%${name}%`],
-  );
-  return rows[0] ?? null;
-}
+// Координаты места по имени — общий поиск с инструментом Кузьмича и MCP
+// (lib/kuzmich/weather-tool, 25.09): два поиска одного места разошлись бы.
 
 /**
  * Погода МЕСТА, а не города по умолчанию.

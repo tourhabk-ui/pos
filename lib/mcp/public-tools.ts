@@ -108,6 +108,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   get_place_info:        READ,
   safety_status:         READ,
   get_weather:           { ...READ, openWorldHint: true },
+  get_volcano_status:    READ,
   search_accommodations: READ,
   search_transfers:      READ,
   search_gear:           READ,
@@ -143,7 +144,8 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_guardian_context:  { title: 'Place safety',          lead: 'Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info.' },
   get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts: type, coordinates, hazards, nearby places. For current safety and alerts use get_guardian_context.' },
   safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source.' },
-  get_weather:           { title: 'Weather',               lead: 'Weather for a Kamchatka place or coordinates.' },
+  get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
+  get_volcano_status:    { title: 'Volcano status',        lead: 'Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. For one place or route use get_guardian_context.' },
   search_accommodations: { title: 'Stays',                 lead: 'Stays in Kamchatka from platform partners.' },
   search_transfers:      { title: 'Transfers',             lead: 'Transfers in Kamchatka from platform partners.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners.' },
@@ -177,7 +179,15 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   get_place_info: {
     name: { lead: 'Place name.', example: 'Курильское озеро' },
   },
-  get_weather: {},
+  get_weather: {
+    place: { lead: 'Place name from the platform directory (Russian works best).', example: 'Мутновский' },
+    lat: { lead: 'Latitude in decimal degrees; use together with lng. Coordinates take precedence over place.', example: '52.45' },
+    lng: { lead: 'Longitude in decimal degrees; use together with lat.', example: '158.19' },
+    days: { lead: 'Forecast days, 1–7; default 3.', example: '3' },
+  },
+  get_volcano_status: {
+    volcano: { lead: 'Volcano name; empty — all volcanoes elevated on either scale.', example: 'Ключевской' },
+  },
   safety_status: {},
   search_accommodations: {
     zone: { lead: 'Area or town name.', example: 'Паратунка' },

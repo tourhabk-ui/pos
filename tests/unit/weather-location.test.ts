@@ -67,7 +67,10 @@ describe('погода: аргумент места действительно �
   });
 
   it('живость места учтена: скрытые и слитые точки местом не считаются', () => {
-    expect(SRC).toMatch(/is_visible = true AND merged_into_id IS NULL/);
+    // Поиск места с 25.09 общий с инструментом Кузьмича и MCP — сторож идёт
+    // за кодом в lib/kuzmich/weather-tool.
+    expect(SRC).toMatch(/import \{ resolvePlaceCoords \} from '@\/lib\/kuzmich\/weather-tool'/);
+    expect(readFileSync('lib/kuzmich/weather-tool.ts', 'utf8')).toMatch(/is_visible = true AND merged_into_id IS NULL/);
   });
 
   it('место названо в ответе всегда — подмену видно', async () => {

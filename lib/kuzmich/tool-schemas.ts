@@ -71,7 +71,21 @@ const getPlaceInfoSchema = z.object({
 });
 
 // ── get_weather ───────────────────────────────────────────────────────────
-const getWeatherSchema = z.object({});
+// Место или точка (25.09): до этого схема была пустой, и спросить погоду на
+// перевале было нельзя ничем — отвечал город. Исполнитель — weather-tool.
+const getWeatherSchema = z.object({
+  place: looseString(200).optional(),
+  lat: looseString(20).optional(),
+  lng: looseString(20).optional(),
+  days: looseString(2).optional(),
+});
+
+// ── get_volcano_status ───────────────────────────────────────────────────
+// Вулканы края по двум шкалам — KVERT и КФ ЕГС (25.09). Исполнитель —
+// volcano-tool. Без имени — повышенные по любой шкале.
+const getVolcanoStatusSchema = z.object({
+  volcano: looseString(100).optional(),
+});
 
 const safetyStatusSchema = z.object({});
 
@@ -195,11 +209,37 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       type: 'function',
       function: {
         name: 'get_weather',
-        description: 'Получить текущую погоду в Петропавловске-Камчатском.',
-        parameters: { type: 'object', properties: {}, required: [] },
+        description: 'Прогноз погоды по дням (Open-Meteo) для места Камчатки по имени или для любой точки по координатам. Без аргументов — Петропавловск-Камчатский; в горах погода другая, поэтому место лучше назвать.',
+        parameters: {
+          type: 'object',
+          properties: {
+            place: { type: 'string', description: 'Название места из справочника платформы, например «Мутновский» или «Налычево».' },
+            lat: { type: 'string', description: 'Широта в градусах, например 52.45. Вместе с lng; координаты главнее названия.' },
+            lng: { type: 'string', description: 'Долгота в градусах, например 158.19. Вместе с lat.' },
+            days: { type: 'string', description: 'Сколько дней прогноза, 1–7; по умолчанию 3.' },
+          },
+          required: [],
+        },
       },
     },
     schema: getWeatherSchema,
+  },
+  get_volcano_status: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'get_volcano_status',
+        description: 'Вулканическая активность Камчатки по двум шкалам: авиационный код KVERT (пепел) и сводка сейсмичности КФ ЕГС РАН. Без названия — вулканы, повышенные хотя бы по одной шкале; с названием — этот вулкан по обеим. Для безопасности конкретного места и маршрута — get_guardian_context.',
+        parameters: {
+          type: 'object',
+          properties: {
+            volcano: { type: 'string', description: 'Название вулкана, например «Ключевской» или «Мутновский». Пусто — все повышенные.' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: getVolcanoStatusSchema,
   },
   search_accommodations: {
     definition: {

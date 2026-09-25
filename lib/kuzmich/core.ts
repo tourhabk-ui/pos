@@ -1999,7 +1999,14 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       return ctx || 'Данные о месте не найдены в системе. Попробую поискать через другие источники.';
     }
     if (name === 'get_weather') {
-      return (await fetchWeather()) || 'Погода временно недоступна.';
+      // Место или точка — lib/kuzmich/weather-tool (25.09); прежде здесь
+      // отвечал только город, какое бы место ни спросили.
+      const { weatherForKuzmich } = await import('@/lib/kuzmich/weather-tool');
+      return await weatherForKuzmich({ place: args.place, lat: args.lat, lng: args.lng, days: args.days });
+    }
+    if (name === 'get_volcano_status') {
+      const { volcanoStatusForKuzmich } = await import('@/lib/kuzmich/volcano-tool');
+      return await volcanoStatusForKuzmich({ volcano: args.volcano });
     }
     if (name === 'safety_status') {
       const { getCurrentSafetyStatus, formatSafetyStatusForAgent } = await import('@/lib/safety/current-status');
