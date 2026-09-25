@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SignJWT } from 'jose';
 import { z } from 'zod';
 import { pool } from '@/lib/database';
 import { hashPassword, passwordSchema } from '@/lib/auth/password';
+import { createToken } from '@/lib/auth/jwt';
+import { recordUserSession, SESSION_TTL_DAYS } from '@/lib/auth/session-record';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
@@ -17,12 +18,19 @@ const RegisterSchema = z.object({
   roles: z.array(z.enum(VALID_ROLES)).optional(),
   pd_consent: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
   referralCode: z.string().max(20).optional(),
+  // Контакты партнёра с формы /operators/join. До 25.09 форма их собирала и
+  // НЕ отправляла: телефон и Telegram, введённые человеком, терялись молча.
+  // Пустая строка — «не указал», в профиль не пишется.
+  phone: z.string().trim().max(30, 'Телефон длиннее 30 символов').optional(),
+  telegram: z.string().trim().max(100, 'Telegram длиннее 100 символов').optional(),
 });
 
-function getJWTSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET is required');
-  return new TextEncoder().encode(secret);
+/** Контакты партнёра из формы: только непустые поля. */
+function partnerContacts(phone?: string, telegram?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (phone) out.phone = phone;
+  if (telegram) out.telegram = telegram;
+  return out;
 }
 
 const registerLimiter = createRateLimiter({ windowMs: 60_000, max: 3 });
@@ -52,7 +60,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const { email, password, name, role, roles, referralCode } = parsed.data;
+    const { email, password, name, role, roles, referralCode, phone, telegram } = parsed.data;
+    const contacts = partnerContacts(phone, telegram);
 
     // Определяем роль: переданная роль > первая из массива ролей > tourist
     const userRole = role ?? roles?.[0] ?? 'tourist';
@@ -114,13 +123,15 @@ export async function POST(request: NextRequest) {
           .replace(/[^a-zа-я0-9]/gi, '-')
           .replace(/-+/g, '-')
           .slice(0, 40) + '-' + (user.id as string).slice(0, 8);
+        // contacts — то, что читает профиль кабинета (partners.contacts),
+        // и туда же пишет PATCH /api/hub/operator/profile.
         await client.query(
           `INSERT INTO partners
-             (user_id, name, category, contact, commission_rate,
+             (user_id, name, category, contact, contacts, commission_rate,
               profile_status, onboarding_completed, is_public, slug, created_at, updated_at)
-           VALUES ($1, $2, 'operator', '{}'::jsonb, 0.15, 'none', false, false, $3, NOW(), NOW())
+           VALUES ($1, $2, 'operator', '{}'::jsonb, $4::jsonb, 0.15, 'none', false, false, $3, NOW(), NOW())
            ON CONFLICT DO NOTHING`,
-          [user.id, name, slug]
+          [user.id, name, slug, JSON.stringify(contacts)]
         );
       } else {
         await client.query(
@@ -136,7 +147,7 @@ export async function POST(request: NextRequest) {
            WHERE NOT EXISTS (
              SELECT 1 FROM partners WHERE user_id = $1::uuid AND category = $3::varchar
            )`,
-          [user.id, name, partnerRole, JSON.stringify({ email: email.toLowerCase() })]
+          [user.id, name, partnerRole, JSON.stringify({ email: email.toLowerCase(), ...contacts })]
         );
       }
     }
@@ -162,21 +173,22 @@ export async function POST(request: NextRequest) {
       }
     }
     
+    // Токен выдаётся ВМЕСТЕ со строкой сессии и внутри той же транзакции.
+    // До 25.09 строки не было: getUserFromRequest требует её (isSessionActive),
+    // и только что зарегистрированный человек получал 401 на любой запрос до
+    // повторного входа — все роли, не только оператор. Форма записи — общая
+    // с входом (lib/auth/session-record), а не своя копия INSERT.
+    const token = await createToken({
+      userId: user.id as string,
+      email: user.email as string,
+      role: user.role as string,
+      roles: allRoles,
+    });
+    await recordUserSession(client, user.id as string, token);
+
     await client.query('COMMIT');
     transactionOpen = false;
 
-    // Генерируем JWT токен
-    const token = await new SignJWT({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      roles: allRoles,
-    })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setIssuedAt()
-      .setExpirationTime('7d')
-      .sign(getJWTSecret());
-    
     // Возвращаем ответ с токеном
     const response = NextResponse.json(
       {
@@ -199,7 +211,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 дней
+      maxAge: 60 * 60 * 24 * SESSION_TTL_DAYS, // срок сессии и JWT
       path: '/',
     });
     

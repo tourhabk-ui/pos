@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import {
   Building2, Loader2, Save, AlertCircle, CheckCircle,
-  MapPin, Phone, Globe, MessageSquare, BadgeCheck, Clock,
+  MapPin, Phone, Globe, MessageSquare, BadgeCheck, Clock, Send, ExternalLink,
 } from 'lucide-react';
 import { profileStatusView } from '@/lib/operator/profile-status';
 
@@ -13,6 +13,16 @@ const INPUT_RO = 'w-full min-h-[44px] px-4 bg-[var(--bg-hover)] border border-[v
 
 interface Contacts { phone?: string; telegram?: string; website?: string }
 interface Location { address?: string; city?: string }
+
+/**
+ * Уведомления о бронях в Telegram — статус по РЕАЛЬНОМУ источнику
+ * (partners.telegram_chat_id или users.telegram_id, lib/partners/reach.ts).
+ * Поле «Telegram» ниже — публичный контакт для клиентов, бот его не читает.
+ */
+interface TelegramNotifications {
+  status: 'connected' | 'not_connected' | 'unknown';
+  source: 'partner' | 'user' | null;
+}
 
 interface OperatorProfileData {
   id: string;
@@ -28,6 +38,7 @@ interface OperatorProfileData {
   features: string[] | null;
   email: string;
   contact_name: string | null;
+  telegram_notifications?: TelegramNotifications;
 }
 
 export default function OperatorProfileClient() {
@@ -46,6 +57,8 @@ export default function OperatorProfileClient() {
   const [address, setAddress] = useState('');
   const [profileStatus, setProfileStatus] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
+  const [tgNotify, setTgNotify] = useState<TelegramNotifications>({ status: 'unknown', source: null });
+  const [tgLink, setTgLink] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -76,6 +89,19 @@ export default function OperatorProfileClient() {
         setAddress(d.location?.address ?? '');
         setProfileStatus(d.profile_status ?? null);
         setIsVerified(d.is_verified ?? false);
+        const tg = d.telegram_notifications ?? { status: 'unknown', source: null };
+        setTgNotify(tg);
+        if (tg.status === 'not_connected') {
+          // Личная ссылка на бота (/start link_…), живёт 30 минут —
+          // берётся тем же роутом, что и баннер кабинета.
+          try {
+            const linkRes = await fetch('/api/telegram/connect');
+            const linkJson = await linkRes.json() as { linked?: boolean; link?: string };
+            if (!cancelled && linkJson.link) setTgLink(linkJson.link);
+          } catch (err) {
+            console.error('[operator/profile] ссылка на бота не получена:', err instanceof Error ? err.message : err);
+          }
+        }
       } catch {
         if (!cancelled) setFetchError('Не удалось загрузить профиль. Проверьте соединение.');
       } finally {
@@ -95,14 +121,17 @@ export default function OperatorProfileClient() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          description:       description.trim() || undefined,
-          short_description: shortDescription.trim() || undefined,
-          phone:             phone.trim() || undefined,
-          telegram:          telegram.trim() || undefined,
-          website:           website.trim() || undefined,
+          // Пустая строка — «очистить поле» (сервер удаляет значение).
+          // Прежде пустое поле уходило как undefined («не трогать»), и
+          // стёртое оставалось в базе.
+          description:       description.trim(),
+          short_description: shortDescription.trim(),
+          phone:             phone.trim(),
+          telegram:          telegram.trim(),
+          website:           website.trim(),
           location: {
-            city:    city.trim() || undefined,
-            address: address.trim() || undefined,
+            city:    city.trim(),
+            address: address.trim(),
           },
         }),
       });
@@ -240,7 +269,7 @@ export default function OperatorProfileClient() {
                 <div>
                   <label className="block text-sm mb-1 text-[var(--text-secondary)]">
                     <span className="flex items-center gap-1">
-                      <MessageSquare className="w-3.5 h-3.5" /> Telegram
+                      <MessageSquare className="w-3.5 h-3.5" /> Telegram для клиентов
                     </span>
                   </label>
                   <input
@@ -267,6 +296,42 @@ export default function OperatorProfileClient() {
                   className={INPUT}
                 />
               </div>
+            </div>
+
+            {/* Уведомления о бронях */}
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-3">
+              <div className="flex items-center gap-2">
+                <Send className="w-5 h-5 text-[var(--ocean)]" />
+                <h2 className="text-base font-semibold text-[var(--text-primary)]">Уведомления о бронях в Telegram</h2>
+              </div>
+              <p className={`text-sm font-medium ${
+                tgNotify.status === 'connected' ? 'text-[var(--success)]'
+                  : tgNotify.status === 'not_connected' ? 'text-[var(--warning)]'
+                  : 'text-[var(--text-muted)]'
+              }`}>
+                {tgNotify.status === 'connected' ? 'Подключены'
+                  : tgNotify.status === 'not_connected' ? 'Не подключены'
+                  : 'Статус неизвестен — не удалось проверить'}
+              </p>
+              {tgNotify.status !== 'connected' && (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Подключаются через бота: нажмите «Подключить Telegram» — откроется бот
+                  по личной ссылке и сам отправит команду <code>/start link_…</code>.
+                  Ссылка действует 30 минут. Поле «Telegram для клиентов» выше —
+                  это контакт для туристов, уведомления туда не приходят.
+                </p>
+              )}
+              {tgNotify.status === 'not_connected' && tgLink && (
+                <a
+                  href={tgLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ds-btn ds-btn-secondary inline-flex items-center gap-2 min-h-[44px] px-4"
+                >
+                  Подключить Telegram
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              )}
             </div>
 
             {/* Локация */}

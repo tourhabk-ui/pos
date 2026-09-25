@@ -78,7 +78,6 @@ describe('правило пароля одно на платформу', () => {
       'app/api/auth/register/route.ts',
       'app/api/auth/register-operator/route.ts',
       'app/api/partners/register/route.ts',
-      'app/api/hub/operator/register/route.ts',
       'app/api/auth/change-password/route.ts',
       'app/api/tourist/profile/password/route.ts',
     ];

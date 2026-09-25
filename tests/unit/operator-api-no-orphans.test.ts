@@ -31,6 +31,10 @@ const REMOVED = [
   'app/api/operator/tours/route.ts',
   'app/api/operator/tours/[id]/route.ts',
   'app/api/operator/tours/[id]/photos/route.ts',
+  // 25.09 (аудит кабинета оператора, пакет «Г», п.11): потребителя не было ни
+  // одного. revenue числился «для админской сверки», но админка его не звала.
+  'app/api/operator/finance/route.ts',
+  'app/api/operator/reports/revenue/route.ts',
 ];
 
 /**
@@ -44,8 +48,6 @@ const KNOWN_UNCONSUMED: Record<string, string> = {
     'публикация тура; живой SQL, потребитель появится вместе с экраном модерации',
   'app/api/operator/tours/[id]/deactivate/route.ts':
     'снятие тура с витрины; парный к publish',
-  'app/api/operator/reports/revenue/route.ts':
-    'выгрузка выручки; кабинет пользуется /api/hub/operator/reports, этот остаётся для админской сверки',
   'app/api/operator/reviews/route.ts':
     'список отзывов оператора; читается вручную, экран отзывов ещё не собран',
   'app/api/operator/reviews/[id]/reply/route.ts':

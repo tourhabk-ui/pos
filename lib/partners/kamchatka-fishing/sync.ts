@@ -10,6 +10,9 @@ import {
 
 export interface SyncResult {
   success: boolean;
+  /** Сколько туров партнёр отдал по API. Это НЕ импорт. */
+  toursFetched: number;
+  /** Сколько записано в нашу базу. Пока сохранения нет — всегда 0. */
   toursImported: number;
   toursUpdated: number;
   errors: string[];
@@ -61,6 +64,7 @@ export async function syncTours(client?: KamchatkaFishingClient): Promise<SyncRe
   const fishingClient = client || getKamchatkaFishingClient();
   const result: SyncResult = {
     success: false,
+    toursFetched: 0,
     toursImported: 0,
     toursUpdated: 0,
     errors: [],
@@ -69,22 +73,26 @@ export async function syncTours(client?: KamchatkaFishingClient): Promise<SyncRe
 
   try {
     const tours = await fishingClient.getTours();
-    
+
     for (const tour of tours) {
       try {
-        const transformedTour = transformFishingTour(tour);
-        
-        // Здесь должна быть логика сохранения в БД
-        // Пока просто считаем
-        result.toursImported++;
-        
+        // Разбор формата проверяется, чтобы битый ответ партнёра был виден.
+        transformFishingTour(tour);
+        result.toursFetched++;
       } catch (error) {
         result.errors.push(`Tour ${tour.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
-    result.success = result.errors.length === 0;
-    
+    // Сохранения в базу НЕТ. До 25.09 здесь стоял комментарий «здесь должна
+    // быть логика сохранения» и счётчик toursImported++, а наружу уходило
+    // success: true и «Импортировано: N туров» — ложный успех (§4.0).
+    // Пока запись не написана, синхронизация честно не удаётся.
+    result.errors.push(
+      `Сохранение туров партнёра не реализовано: получено ${result.toursFetched}, записано 0`,
+    );
+    result.success = false;
+
   } catch (error) {
     result.errors.push(`Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }

@@ -40,7 +40,7 @@ export const PLATFORM_COMMISSION_PERCENT = 10;
  * на пустое значение каждый отвечал по-своему:
  *
  *   • `recordCommissionFromBooking` (здесь)     — COALESCE до 10%;
- *   • `/api/operator/finance`                   — COALESCE до 10;
+ *   • `/api/operator/finance` (удалён 25.09)    — COALESCE до 10;
  *   • `lib/transfers/service.ts`                — COALESCE до единой ставки;
  *   • `/api/bookings/tour`                      — `Number(null)` = **0**, то
  *     есть НУЛЕВАЯ комиссия платформы, молча и без единой строки в логе;
