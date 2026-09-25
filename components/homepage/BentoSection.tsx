@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Flame, Snowflake, Waves, Droplets, Bird, ShieldCheck } from 'lucide-react';
 import { elementHref } from '@/lib/stats/element-groups';
+import { HOME_CONTAINER, HOME_SECTION } from '@/lib/home/desktop-layout';
 
 // href стихий — из единого маппинга (lib/stats/element-groups): десктоп ведёт
 // туда же, куда мобайл. Раньше Снег/Океан/Природа вели в category=…, а мобайл
@@ -65,8 +66,8 @@ const ELEMENTS = [
 
 export function BentoSection() {
   return (
-    <section className="py-20 bg-[var(--bg-primary)]">
-      <div className="container mx-auto px-6">
+    <section className={`${HOME_SECTION} bg-[var(--bg-primary)]`}>
+      <div className={HOME_CONTAINER}>
         <div className="flex flex-col md:flex-row justify-between items-end mb-12 gap-6">
           <div>
             <span className="text-[var(--accent)] font-bold tracking-[0.4em] uppercase text-xs mb-4 inline-block">

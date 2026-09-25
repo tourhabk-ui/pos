@@ -3,6 +3,7 @@ import { Fish, ArrowRight } from 'lucide-react';
 import { getActiveSpecies } from '@/lib/fish-species';
 import { queryCatalogSummary } from '@/lib/search/tour-search';
 import { fishingTourCount } from '@/lib/home/season-fishing';
+import { HOME_CONTAINER, HOME_SECTION } from '@/lib/home/desktop-layout';
 
 /**
  * «Сейчас на Камчатке» — event-driven travel, пилот на реальных данных
@@ -45,7 +46,7 @@ export async function SeasonNow() {
   const fishing = await fishingCount();
 
   return (
-    <section className="px-4 py-10 max-w-6xl mx-auto">
+    <section className={`${HOME_CONTAINER} ${HOME_SECTION}`}>
       <div className="mb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-[var(--accent)] mb-2">
           Сейчас на Камчатке

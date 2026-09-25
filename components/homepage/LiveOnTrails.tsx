@@ -6,6 +6,7 @@ import { Users, TrendingUp } from 'lucide-react';
 import type { LiveFeedData } from '@/app/api/live-feed/route';
 import { plural } from '@/lib/home/data-freshness';
 import { liveCounters } from '@/lib/home/live-counters';
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 
 /**
  * Живые счётчики под турами: люди на маршрутах и брони за сутки.
@@ -48,7 +49,7 @@ export function LiveOnTrails() {
   if (touristsOnTrail === 0 && bookingsToday === 0) return null;
 
   return (
-    <div className="px-4 pb-4 max-w-6xl mx-auto flex flex-wrap gap-3">
+    <div className={`${HOME_CONTAINER} pb-3 flex flex-wrap gap-3`}>
       {touristsOnTrail > 0 && (
         <Link
           href="/routes"
