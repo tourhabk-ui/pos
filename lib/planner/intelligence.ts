@@ -4,6 +4,7 @@
  */
 
 import { SEA_ACTIVITIES, HARD_ACTIVITIES } from '@/lib/planner-constants';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // ── Weather Forecast ─────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ const WMO_DESCRIPTIONS: Record<number, string> = {
   45: 'Туман', 48: 'Изморозь', 51: 'Морось', 53: 'Морось', 55: 'Сильная морось',
   61: 'Дождь', 63: 'Умеренный дождь', 65: 'Сильный дождь',
   71: 'Снег', 73: 'Умеренный снег', 75: 'Сильный снег', 77: 'Снежная крупа',
-  80: 'Ливень', 81: 'Сильный ливень', 82: 'Шквал',
+  80: 'Ливень', 81: 'Сильный ливень', 82: 'Очень сильный ливень',
   85: 'Снегопад', 86: 'Сильный снегопад',
   95: 'Гроза', 96: 'Гроза с градом', 99: 'Сильная гроза с градом',
 };
@@ -31,55 +32,123 @@ function wmoDescription(code: number): string {
   return WMO_DESCRIPTIONS[code] ?? (code <= 3 ? 'Ясно' : code <= 48 ? 'Облачно' : code <= 67 ? 'Дождь' : code <= 77 ? 'Снег' : 'Осадки');
 }
 
-// Module-level cache, 3h TTL
-const forecastCache = new Map<string, { data: DayForecast[]; expiresAt: number }>();
+/**
+ * День прогноза, в котором отсутствие значения — `null`, а не ноль.
+ *
+ * До 25.09 единственный загрузчик заполнял пропуски нулями: нет кода погоды —
+ * код 0, «Ясно»; нет ветра — 0 км/ч, штиль. А при отказе Open-Meteo отдавал
+ * пустой список без единой строки в логе. Rescue читал это как «угроз нет»,
+ * бронь на четвёртый день не проверялась вовсе (прогноз запрашивался на три),
+ * и ни то ни другое снаружи не было видно (§4.0).
+ */
+export interface ForecastDay {
+  date: string;
+  tempMax: number | null;
+  tempMin: number | null;
+  precipMm: number | null;
+  windKmh: number | null;
+  weatherCode: number | null;
+  description: string | null;
+}
+
+/** Три исхода загрузки сведены к двум: прогноз есть — или «не смог», с причиной. */
+export type ForecastResult =
+  | { ok: true; days: ForecastDay[] }
+  | { ok: false; reason: string };
+
 const FORECAST_TTL = 3 * 60 * 60 * 1000;
+/** Отказ кэшируется коротко: двадцать броней одной зоны — один таймаут, а не двадцать. */
+const FORECAST_FAIL_TTL = 5 * 60 * 1000;
+const forecastCache = new Map<string, { result: ForecastResult; expiresAt: number }>();
+
+function finite(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
 
 /**
- * Fetch up to 16-day daily weather forecast from Open-Meteo.
- * Returns empty array on failure (graceful degradation).
+ * Суточный прогноз Open-Meteo по точке, до 16 дней, в поясе Камчатки.
+ * Отказ сети, не-2xx и ответ не той формы — `{ ok: false }` и строка в логе.
+ */
+export async function fetchForecastDays(lat: number, lng: number, days: number): Promise<ForecastResult> {
+  const horizon = Math.max(1, Math.min(16, Math.round(days)));
+  const cacheKey = `${lat.toFixed(2)},${lng.toFixed(2)},${horizon}`;
+  const hit = forecastCache.get(cacheKey);
+  if (hit && hit.expiresAt > Date.now()) return hit.result;
+
+  let result: ForecastResult;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&forecast_days=${horizon}&timezone=Asia/Kamchatka`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) {
+      result = { ok: false, reason: `Open-Meteo HTTP ${res.status}` };
+    } else {
+      const json = await res.json() as {
+        daily?: {
+          time?: unknown[];
+          temperature_2m_max?: unknown[];
+          temperature_2m_min?: unknown[];
+          precipitation_sum?: unknown[];
+          wind_speed_10m_max?: unknown[];
+          weather_code?: unknown[];
+        };
+      };
+      const d = json.daily;
+      if (!d || !Array.isArray(d.time)) {
+        result = { ok: false, reason: 'Open-Meteo: ответ без daily.time' };
+      } else {
+        result = {
+          ok: true,
+          days: d.time.map((date, i) => {
+            const code = finite(d.weather_code?.[i]);
+            return {
+              date: String(date),
+              tempMax: finite(d.temperature_2m_max?.[i]),
+              tempMin: finite(d.temperature_2m_min?.[i]),
+              precipMm: finite(d.precipitation_sum?.[i]),
+              windKmh: finite(d.wind_speed_10m_max?.[i]),
+              weatherCode: code,
+              description: code === null ? null : wmoDescription(code),
+            };
+          }),
+        };
+      }
+    }
+  } catch (err) {
+    result = { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (!result.ok) {
+    logSwallowedFailure('weather', `прогноз Open-Meteo (${lat.toFixed(2)}, ${lng.toFixed(2)})`, new Error(result.reason));
+  }
+  forecastCache.set(cacheKey, {
+    result,
+    expiresAt: Date.now() + (result.ok ? FORECAST_TTL : FORECAST_FAIL_TTL),
+  });
+  return result;
+}
+
+/**
+ * Прежний загрузчик для планера: пустой список при отказе, пропуски — нулями.
+ *
+ * Оставлен ради потребителей, которые берут день ПО НОМЕРУ (`forecast[day - 1]`
+ * в lib/planner/engine.ts и compose.ts): выбросить неполный день значило бы
+ * сдвинуть им все последующие. Нули здесь — известная ложь, а не решение;
+ * новый код берёт `fetchForecastDays`. Отказ теперь хотя бы пишется в лог.
  */
 export async function fetchWeatherForecast(
   lat: number, lng: number, days: number
 ): Promise<DayForecast[]> {
-  const cacheKey = `${lat.toFixed(2)},${lng.toFixed(2)},${days}`;
-  const hit = forecastCache.get(cacheKey);
-  if (hit && hit.expiresAt > Date.now()) return hit.data;
-
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&forecast_days=${Math.min(days, 16)}&timezone=Asia/Kamchatka`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return [];
-
-    const json = await res.json() as {
-      daily?: {
-        time?: string[];
-        temperature_2m_max?: number[];
-        temperature_2m_min?: number[];
-        precipitation_sum?: number[];
-        wind_speed_10m_max?: number[];
-        weather_code?: number[];
-      };
-    };
-
-    const d = json.daily;
-    if (!d?.time) return [];
-
-    const result: DayForecast[] = d.time.map((date, i) => ({
-      date,
-      tempMax: d.temperature_2m_max?.[i] ?? 0,
-      tempMin: d.temperature_2m_min?.[i] ?? 0,
-      precipMm: d.precipitation_sum?.[i] ?? 0,
-      windKmh: d.wind_speed_10m_max?.[i] ?? 0,
-      weatherCode: d.weather_code?.[i] ?? 0,
-      description: wmoDescription(d.weather_code?.[i] ?? 0),
-    }));
-
-    forecastCache.set(cacheKey, { data: result, expiresAt: Date.now() + FORECAST_TTL });
-    return result;
-  } catch {
-    return [];
-  }
+  const r = await fetchForecastDays(lat, lng, days);
+  if (!r.ok) return [];
+  return r.days.map((d) => ({
+    date: d.date,
+    tempMax: d.tempMax ?? 0,
+    tempMin: d.tempMin ?? 0,
+    precipMm: d.precipMm ?? 0,
+    windKmh: d.windKmh ?? 0,
+    weatherCode: d.weatherCode ?? 0,
+    description: d.description ?? wmoDescription(0),
+  }));
 }
 
 // ── Quality Score ────────────────────────────────────────────────────────────

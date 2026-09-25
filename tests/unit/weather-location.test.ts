@@ -16,11 +16,11 @@ import { readFileSync } from 'node:fs';
 const SRC = readFileSync('lib/agents/sdk/tourist-tools.ts', 'utf8');
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
-vi.mock('@/lib/planner/intelligence', () => ({ fetchWeatherForecast: vi.fn() }));
+vi.mock('@/lib/planner/intelligence', () => ({ fetchForecastDays: vi.fn() }));
 vi.mock('@/lib/planner/compose', () => ({ composeTrip: vi.fn() }));
 
 const { pool } = await import('@/lib/db-pool');
-const { fetchWeatherForecast } = await import('@/lib/planner/intelligence');
+const { fetchForecastDays } = await import('@/lib/planner/intelligence');
 const { getTouristTools } = await import('@/lib/agents/sdk/tourist-tools');
 
 function weatherTool() {
@@ -30,7 +30,7 @@ function weatherTool() {
 }
 
 const q = pool.query as unknown as ReturnType<typeof vi.fn>;
-const forecast = fetchWeatherForecast as unknown as ReturnType<typeof vi.fn>;
+const forecast = fetchForecastDays as unknown as ReturnType<typeof vi.fn>;
 
 const DAY = {
   date: '2026-09-08', tempMax: 9, tempMin: 2, precipMm: 0,
@@ -55,7 +55,7 @@ describe('погода: аргумент места действительно �
   it('координаты берутся у запрошенного места, а не у города по умолчанию', async () => {
     vi.clearAllMocks();
     q.mockResolvedValueOnce({ rows: [{ name: 'Мутновский', lat: 52.45, lng: 158.2 }] });
-    forecast.mockResolvedValueOnce([DAY]);
+    forecast.mockResolvedValueOnce({ ok: true, days: [DAY] });
 
     const out = JSON.parse(await weatherTool().execute({ location: 'Мутновский' }));
 
@@ -72,7 +72,7 @@ describe('погода: аргумент места действительно �
 
   it('место названо в ответе всегда — подмену видно', async () => {
     vi.clearAllMocks();
-    forecast.mockResolvedValueOnce([DAY]);
+    forecast.mockResolvedValueOnce({ ok: true, days: [DAY] });
     const out = JSON.parse(await weatherTool().execute({}));
     expect(out.location).toBe('Петропавловск-Камчатский');
     expect(q).not.toHaveBeenCalled();
@@ -91,10 +91,23 @@ describe('погода: третий исход назван вслух', () => 
 
   it('прогноз не пришёл — «не смог», а не «погода хорошая»', async () => {
     vi.clearAllMocks();
-    forecast.mockResolvedValueOnce([]);
+    forecast.mockResolvedValueOnce({ ok: false, reason: 'Open-Meteo HTTP 503' });
     const out = JSON.parse(await weatherTool().execute({}));
     expect(out.status).toBe('не_смог');
     expect(out.days).toBeUndefined();
+  });
+
+  it('пропуск в прогнозе — null с пометкой, а не штиль и «Ясно» (25.09)', async () => {
+    vi.clearAllMocks();
+    forecast.mockResolvedValueOnce({
+      ok: true,
+      days: [{ ...DAY, windKmh: null, weatherCode: null, description: null }],
+    });
+    const out = JSON.parse(await weatherTool().execute({}));
+    expect(out.status).toBe('ок');
+    expect(out.days[0].wind_kmh).toBeNull();
+    expect(out.days[0].description).toBeNull();
+    expect(out.note).toMatch(/данных нет/);
   });
 
   it('отказ базы пишется в лог поимённо, а не глотается', async () => {

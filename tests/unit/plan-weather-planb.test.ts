@@ -20,7 +20,8 @@ const RESOLVER = readFileSync(join(ROOT, 'lib/tours/top-tour-by-activity.ts'), '
 
 describe('B-5: погода в дне плана', () => {
   it('прогноз — из движка (Open-Meteo), только в горизонте 16 суток', () => {
-    expect(SHARE_API).toMatch(/fetchWeatherForecast/);
+    // С 25.09 — честный загрузчик: неполный день не показывается нулями.
+    expect(SHARE_API).toMatch(/fetchForecastDays/);
     expect(SHARE_API).toMatch(/16 \* 86400000/);
     expect(SHARE_API).toMatch(/if \(dateMs < todayMs \|\| dateMs >= horizonMs\) return;/);
   });

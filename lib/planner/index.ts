@@ -44,9 +44,12 @@ export {
 
 export {
   fetchWeatherForecast,
+  fetchForecastDays,
   computeQualityScore,
   assessHealthCompatibility,
   type DayForecast,
+  type ForecastDay,
+  type ForecastResult,
   type HealthAssessment,
 } from './intelligence';
 
