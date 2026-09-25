@@ -433,9 +433,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
             строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
         <nav className="qtools" aria-label="Инструменты поездки">
-          <Link href="/planner" className="qt qt-plan" aria-label="Планировщик поездки: соберёт маршрут по дням — даты, зоны, реальная занятость">
+          {/* «Своя поездка» (владелец 25.09: «сегодня сам, завтра с оператором,
+              потом отдых — на всё время на Камчатке»). Обещание подписи
+              держит движок: день плана несёт род (lib/planner/day-mode). */}
+          <Link href="/planner" className="qt qt-plan" aria-label="Своя поездка по дням: дни самостоятельно, туры операторов и отдых на всё время на Камчатке">
             <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
-            <span className="qt-tx"><b>Планировщик</b><span>по дням</span></span>
+            <span className="qt-tx"><b>Своя поездка</b><span>сам, тур, отдых</span></span>
           </Link>
           <Link
             href="/safety#radar"

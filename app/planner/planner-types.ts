@@ -30,6 +30,8 @@ export interface DayPlan {
   childFriendly: boolean;
   minChildAge: number;
   dayWarnings: string[];
+  /** Род активного дня — производит движок (lib/planner/day-mode). */
+  activityMode?: 'operator' | 'self' | 'open';
 }
 
 export interface TripWarning {

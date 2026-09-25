@@ -30,6 +30,7 @@ import {
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { tourDaySpan } from '@/lib/planner/tour-span';
+import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -68,6 +69,12 @@ export interface DayPlan {
   childFriendly: boolean;
   minChildAge: number;
   dayWarnings: string[];
+  /**
+   * Род активного дня: тур оператора, самостоятельный выход или «на выбор»
+   * (см. lib/planner/day-mode). Только у `type: 'activity'`; у прилёта,
+   * отдыха и резерва рода нет — их род и есть `type`.
+   */
+  activityMode?: ActivityMode;
   // Reality-aware fields (all optional for backward compat)
   realTour?: {
     tourId: string;
@@ -1120,6 +1127,7 @@ async function generateDayPlans(
         childFriendly: childOk,
         minChildAge: c.minChildAge,
         dayWarnings,
+        activityMode: activityMode({ realTour, route }),
         realTour: realTourData,
         realPrice,
         availableDate,
@@ -1143,6 +1151,7 @@ async function generateDayPlans(
           allowedTransports: allowed.length > 0 ? allowed : [transport],
           difficulty: (realTour?.difficulty as DayPlan['difficulty']) ?? c.difficulty,
           childFriendly: childOk, minChildAge: c.minChildAge, dayWarnings: [],
+          activityMode: activityMode({ realTour, route }),
           // Тот же тур — значит и ночь его, и смета её не считает отдельно.
           realTour: realTourData,
         });
@@ -1219,6 +1228,8 @@ async function generateDayPlans(
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0, dayWarnings: [],
+      // Город пешком — самостоятельный день, тура за ним нет.
+      activityMode: 'self',
     });
   }
 
