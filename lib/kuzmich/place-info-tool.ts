@@ -18,11 +18,17 @@ import { pool } from '@/lib/db-pool';
 import { placeNameSearchSql } from '@/lib/places/name-match';
 import { gradeNameMatch } from '@/lib/kuzmich/guardian-context';
 
-export interface PlaceRow { name: string; description: string | null; category: string | null; district: string | null }
+export interface PlaceRow { name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null }
 export interface NoteRow { title: string; compiled_truth: string }
 
 export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[]): string | null {
-  const [primary, ...others] = places;
+  const [primary, ...rest] = places;
+  // Скрытое место в «похожих» не называется (решение владельца 25.09): список
+  // зовёт спросить о нём отдельно, а скрытые — это мусор вроде «Долина
+  // гейзеров. Курильское озеро. Вулканы Горелый и Авача» (экскурсия, попавшая
+  // в места) и сняты с сайта. Основной ответ правило 19.09 не меняет: страж
+  // может знать скрытое место.
+  const others = rest.filter((p) => p.is_visible !== false);
   const own = notes.filter((n) => gradeNameMatch(query, n.title) === 'high');
   if (!primary && own.length === 0) return null;
 
@@ -50,7 +56,7 @@ export async function placeInfoForKuzmich(placeName: string): Promise<string | n
       // resolvePlaceForLink, и та же сортировка «кратчайшее имя первым».
       // is_visible не фильтруется намеренно: у стража это записанное решение
       // («может знать скрытое место, но ссылку на невидимую страницу не даём»).
-      `SELECT name, description, category, district FROM places
+      `SELECT name, description, category, district, is_visible FROM places
         WHERE merged_into_id IS NULL AND (${placeMatch.clause})
         ORDER BY char_length(name) ASC
         LIMIT 3`,

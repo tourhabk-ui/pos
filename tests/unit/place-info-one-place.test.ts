@@ -32,6 +32,15 @@ describe('get_place_info: одно место', () => {
     expect(out).toContain('Заметка Кузьмича «Курильское озеро: медведи»');
   });
 
+  it('скрытое место не называется среди похожих, но основной ответ о нём остаётся (25.09)', () => {
+    const JUNK = { name: 'Долина гейзеров. Курильское озеро. Вулканы Горелый и Авача', category: 'other', district: null, description: 'x', is_visible: false };
+    const out = composePlaceInfo('Курильское озеро', [LAKE, JUNK, CALDERA], [])!;
+    expect(out).not.toContain('Долина гейзеров');
+    expect(out).toContain('Кальдера Курильского озера');
+    const primaryHidden = composePlaceInfo('Долина гейзеров', [JUNK], [])!;
+    expect(primaryHidden).toContain('Долина гейзеров. Курильское озеро');
+  });
+
   it('ничего нет — null, и вызывающий говорит «нет в базе», а не пустоту', () => {
     expect(composePlaceInfo('Нигдейка', [], [{ title: 'Долина гейзеров', compiled_truth: 'x' }])).toBeNull();
   });
