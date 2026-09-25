@@ -43,7 +43,8 @@ interface MatchedTour {
 interface AdversarialVerdict {
   bullSignals: string[];
   bearRisks: string[];
-  conversionProb: number;
+  /** 0-100; null — Arbiter не дал оценку. */
+  conversionProb: number | null;
   recommendedAction: 'call_immediately' | 'send_proposal' | 'nurture' | 'skip';
   callStrategy: string;
   urgency: 'hot' | 'warm' | 'cold';
@@ -71,7 +72,8 @@ interface Proposal {
   duration_days: number | null;
   primary_tour: MatchedTour | null;
   alt_tours: MatchedTour[];
-  ai_score: number;
+  /** null — лид не оценён ИИ. */
+  ai_score: number | null;
   intent: LeadIntent;
   generation_ms: number;
   adversarial?: AdversarialVerdict;
@@ -118,7 +120,11 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function ScoreMeter({ score }: { score: number }) {
+function ScoreMeter({ score }: { score: number | null }) {
+  if (score === null) {
+    // Честное «не оценено»: ИИ не дал оценку. Не ноль и не заглушка.
+    return <p className="text-sm text-[var(--text-muted)]">AI-оценка: не оценено</p>;
+  }
   const color = score >= 80 ? 'bg-[var(--success)]' : score >= 50 ? 'bg-[var(--warning)]' : 'bg-[var(--danger)]';
   const textColor = score >= 80 ? 'text-[var(--success)]' : score >= 50 ? 'text-[var(--warning)]' : 'text-[var(--danger)]';
   return (
@@ -171,7 +177,7 @@ export default function LeadDetailClient({ leadId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lead_id: leadId }),
       });
-      const json = await res.json() as { success?: boolean; error?: string; headline?: string; ai_score?: number; generation_ms?: number };
+      const json = await res.json() as { success?: boolean; error?: string; headline?: string; ai_score?: number | null; generation_ms?: number };
       if (!res.ok) throw new Error(json.error ?? 'Ошибка обработки');
       showNotification('success', `Готово за ${((json.generation_ms ?? 0) / 1000).toFixed(1)} сек — "${json.headline}" (скор ${json.ai_score}/100)`);
       mutateLead();
@@ -519,7 +525,10 @@ export default function LeadDetailClient({ leadId }: Props) {
                       {URGENCY_CONFIG[proposal.adversarial.urgency]?.label}
                     </span>
                     <span className="text-sm font-bold text-[var(--text-primary)]">
-                      {Math.round(proposal.adversarial.conversionProb * 100)}% конверсия
+                      {/* conversion_prob хранится в процентах 0-100 — без «* 100» */}
+                      {proposal.adversarial.conversionProb === null
+                        ? 'конверсия не оценена'
+                        : `${Math.round(proposal.adversarial.conversionProb)}% конверсия`}
                     </span>
                   </div>
                 </div>

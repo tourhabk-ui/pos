@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-25 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1013_operator_tours_hazards_hidden.sql`.
+> Снято 2026-09-25 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1015_operator_client_notes.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 245 |
+| Таблиц | 246 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3262 |
-| Внешних ключей | 264 |
+| Колонок | 3268 |
+| Внешних ключей | 267 |
 | Таблиц без единого FK в обе стороны | 72 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 6 | `model_catalog` `operator_notification_reads` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `volcano_bulletin_kfegs` |
+| [Прочее](#прочее) | 7 | `model_catalog` `operator_client_notes` `operator_notification_reads` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `volcano_bulletin_kfegs` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -345,9 +345,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `operator_partner_id uuid` `operator_user_id uuid` `group_name text!` `group_members jsonb!=` `route_description text!` `route_region text` `start_date date!` `end_date date!` `guide_contact jsonb!=` `emergency_contacts jsonb!=` `participant_count integer!=` `status varchar!=` `mchs_request_id text` `mchs_response jsonb` `last_error text` `submitted_at timestamptz` `created_at timestamptz!=` `updated_at timestamptz!=`
 
-**mchs_registrations** · 13 кол. · PK id · booking_id → bookings.id, operator_id → partners.id · индексов 5
+**mchs_registrations** · 14 кол. · PK id · booking_id → bookings.id, operator_booking_id → operator_bookings.id, operator_id → partners.id · индексов 6
 
-`id uuid!=` `booking_id uuid` `operator_id uuid` `group_composition jsonb!` `route text!` `start_date date!` `end_date date!` `guide_contacts jsonb!` `emergency_contacts jsonb!` `status varchar=` `mchs_reference text` `created_at timestamptz=` `updated_at timestamptz=`
+`id uuid!=` `booking_id uuid` `operator_id uuid` `group_composition jsonb!` `route text!` `start_date date!` `end_date date!` `guide_contacts jsonb!` `emergency_contacts jsonb!` `status varchar=` `mchs_reference text` `created_at timestamptz=` `updated_at timestamptz=` `operator_booking_id bigint`
 
 **route_registration_notifications** · 9 кол. · PK id · registration_id → route_registrations.id · индексов 2
 
@@ -593,7 +593,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `api_key_id uuid!` `booking_id bigint` `event varchar!` `url varchar!` `status_code integer` `success boolean!=` `request_body jsonb` `response_body text` `duration_ms integer` `created_at timestamp=`
 
-**operator_bookings** · 56 кол. · PK id · alternative_offered_tour_id → operator_tours.id, octo_api_key_id → octo_api_keys.id, operator_tour_id → operator_tours.id, option_id → tour_options.id, referral_link_id → agent_referral_links.id, user_id → users.id · на неё ссылаются: agent_referral_events, booking_change_requests, booking_group_members, booking_logs, booking_waivers, octo_booking_log, octo_webhook_log, operator_commissions, refund_requests, tour_payments, weather_alert_bookings · индексов 23 · триггеры: trigger_operator_bookings_timestamp
+**operator_bookings** · 56 кол. · PK id · alternative_offered_tour_id → operator_tours.id, octo_api_key_id → octo_api_keys.id, operator_tour_id → operator_tours.id, option_id → tour_options.id, referral_link_id → agent_referral_links.id, user_id → users.id · на неё ссылаются: agent_referral_events, booking_change_requests, booking_group_members, booking_logs, booking_waivers, mchs_registrations, octo_booking_log, octo_webhook_log, operator_commissions, refund_requests, tour_payments, weather_alert_bookings · индексов 23 · триггеры: trigger_operator_bookings_timestamp
 
 `id bigint!=` `operator_tour_id bigint!` `tourist_email varchar` `tourist_phone varchar` `tourist_name varchar` `booking_date date!` `participants integer!` `adult_count integer` `child_count integer` `base_total_price numeric` `discount_percent integer=` `discount_reason varchar` `final_price numeric` `currency varchar=` `payment_status varchar!=` `payment_method varchar` `payment_id varchar` `paid_at timestamp` `booking_status varchar!=` `cancellation_reason varchar` `cancelled_at timestamp` `weather_alert_triggered boolean=` `alternative_offered_tour_id bigint` `customer_chose_alternative boolean=` `alternative_booked_date date` `confirmation_sent boolean=` `reminder_sent_24h boolean=` `weather_alert_sent boolean=` `special_requests text` `notes text` `metadata jsonb` `created_at timestamp=` `updated_at timestamp=` `created_via varchar` `deleted_at timestamp` `octo_uuid uuid=` `octo_api_key_id uuid` `hold_expires_at timestamp` `option_id bigint` `availability_id varchar` `tochka_qr_id varchar` `paid_amount numeric` `end_date date` `duration_days integer` `uon_request_id integer` `uon_synced_at timestamptz` `referral_link_id uuid` `user_id uuid` `reseller_reference varchar` `admin_notes text` `review_requested_at timestamptz` `access_token uuid!=` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar`
 
@@ -733,7 +733,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `name varchar!` `source text` `website text` `details jsonb!=` `notes text` `status text!=` `created_at timestamptz!=` `updated_at timestamptz!=`
 
-**partners** · 82 кол. · PK id · guide_operator_id → partners.id, user_id → users.id, user_id → users.id, verified_by → users.id · на неё ссылаются: accommodations, booking_change_requests, booking_transfers, cancellation_policies, contingency_rules, drivers, gear_items, guide_availability, guide_certifications, guide_earnings, guide_reviews, guide_schedule, lead_proposals, leads, mchs_group_registrations, mchs_registrations, octo_api_keys, official_registry_operators, operator_ai_actions, operator_ai_config, operator_applications, operator_commissions, operator_notification_reads, operator_payouts, operator_signups, operator_site_audits, operator_staff, operator_stats_cache, operator_tours, operator_vehicles, partner_assets, partner_integrations, refund_requests, tour_payments, tour_selections, tour_transfer_requests, tours, transfer_fleet_vehicles, transfer_routes, transfer_seat_bookings, transfer_transactions, transfers, vehicles · индексов 16 · триггеры: trg_sync_partner_company_name, update_partners_updated_at
+**partners** · 82 кол. · PK id · guide_operator_id → partners.id, user_id → users.id, user_id → users.id, verified_by → users.id · на неё ссылаются: accommodations, booking_change_requests, booking_transfers, cancellation_policies, contingency_rules, drivers, gear_items, guide_availability, guide_certifications, guide_earnings, guide_reviews, guide_schedule, lead_proposals, leads, mchs_group_registrations, mchs_registrations, octo_api_keys, official_registry_operators, operator_ai_actions, operator_ai_config, operator_applications, operator_client_notes, operator_commissions, operator_notification_reads, operator_payouts, operator_signups, operator_site_audits, operator_staff, operator_stats_cache, operator_tours, operator_vehicles, partner_assets, partner_integrations, refund_requests, tour_payments, tour_selections, tour_transfer_requests, tours, transfer_fleet_vehicles, transfer_routes, transfer_seat_bookings, transfer_transactions, transfers, vehicles · индексов 16 · триггеры: trg_sync_partner_company_name, update_partners_updated_at
 
 `id uuid!=` `user_id uuid` `name varchar!` `category varchar!` `description text` `contact jsonb!` `rating numeric=` `review_count integer=` `is_verified boolean=` `logo_asset_id uuid` `created_at timestamptz=` `updated_at timestamptz=` `legal_info jsonb` `bank_details jsonb` `consents jsonb` `operator_info jsonb` `roles jsonb` `password_hash varchar` `status varchar=` `slug varchar` `short_description text` `hero_image varchar` `gallery jsonb=` `services jsonb=` `features jsonb=` `faq jsonb=` `season_info jsonb=` `reviews_data jsonb=` `contacts jsonb=` `location jsonb` `is_public boolean=` `commission_rate numeric!=` `commission_rules jsonb=` `logo_image varchar` `payout_method varchar` `payout_details jsonb` `payout_verified boolean=` `payout_verified_at timestamp` `commission_start numeric=` `commission_current numeric=` `verified_at timestamp` `verified_by uuid` `company_name varchar` `profile_status text!=` `profile_draft jsonb` `profile_review_comment text` `onboarding_completed boolean!=` `applied_at timestamp` `telegram_chat_id bigint` `reestr_number text` `license_expiry date` `insurance_policy text` `insurance_amount numeric` `widget_enabled boolean=` `widget_domains text[]=` `widget_config jsonb=` `max_chat_id bigint` `company_inn varchar` `company_ogrn varchar` `legal_address text` `efrt_number varchar` `external_source varchar` `external_source_url text` `external_id varchar` `telegram_group_url text` `license_number varchar` `external_rating numeric` `website text` `uon_api_key text` `uon_company_id integer` `registry_status varchar!=` `registry_number varchar` `registry_source_url text` `registry_checked_at timestamptz` `is_available boolean=` `site_audit_consent text!=` `guide_operator_id uuid` `languages text[]` `specializations text[]` `photo_url text` `experience_years integer` `phone varchar`
 
@@ -765,7 +765,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `user_id uuid` `token varchar!` `expires_at timestamptz!` `created_at timestamptz=`
 
-**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_referral_links, audit_logs, board_meeting_sessions, booking_logs, booking_waivers, bookings, chat_sessions, client_communications, collections, commission_payouts, conversation_messages, conversation_participants, conversations, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partners, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tour_payments, tour_selections, tourist_profiles, tracker_links, transfer_reviews, transfer_seat_bookings, transfers, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
+**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_referral_links, audit_logs, board_meeting_sessions, booking_logs, booking_waivers, bookings, chat_sessions, client_communications, collections, commission_payouts, conversation_messages, conversation_participants, conversations, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_client_notes, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partners, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tour_payments, tour_selections, tourist_profiles, tracker_links, transfer_reviews, transfer_seat_bookings, transfers, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
 
 `id uuid!=` `email varchar!` `name varchar!` `password_hash varchar!` `role varchar!` `preferences jsonb=` `created_at timestamptz=` `updated_at timestamptz=` `recommendations jsonb` `recommended_at timestamptz` `phone varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `referral_code varchar` `referred_by uuid` `total_spent numeric=` `pending_role text` `role_applied_at timestamp` `telegram_id bigint` `telegram_username varchar` `pd_consent_given boolean=` `marketing_consent boolean=` `telegram_chat_id bigint` `is_active boolean=` `mfa_secret text` `mfa_enabled boolean=` `metadata jsonb=` `active_trip_id uuid` `active_trip_since timestamptz` `max_user_id bigint` `max_username text` `is_blocked boolean!=` `blocked_reason text`
 
@@ -1296,6 +1296,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **model_catalog** · 9 кол. · PK model_id · индексов 3
 
 `model_id text!` `vendor text!` `display_name text` `usd_per_mtok_in numeric` `usd_per_mtok_out numeric` `context_length integer` `source text!=` `last_seen_at timestamptz!` `updated_at timestamptz!=`
+
+**operator_client_notes** · 5 кол. · PK operator_id, user_id · operator_id → partners.id, user_id → users.id · индексов 1
+
+`operator_id uuid!` `user_id uuid!` `tags text[]!=` `telegram text` `updated_at timestamptz!=`
 
 **operator_notification_reads** · 3 кол. · PK partner_id, notification_id · partner_id → partners.id · индексов 2
 

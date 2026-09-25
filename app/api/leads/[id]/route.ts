@@ -55,9 +55,17 @@ export async function PATCH(
 
   // Чужой лид не обновляется и неотличим от несуществующего (404, не 403).
   const scope = await leadOwnershipCond(user, idx + 1);
+  // Первое действие оператора над ничейным лидом делает его своим (25.09):
+  // иначе два оператора звонили одному туристу и перетирали заметки друг
+  // друга. Уже чужой лид сюда не попадает — его отсекает scope.
+  const claimVals: unknown[] = [];
+  if (user.role !== 'admin' && scope.vals.length > 0) {
+    sets.push(`operator_id = COALESCE(operator_id, $${idx + 1 + scope.vals.length})`);
+    claimVals.push(scope.vals[0]);
+  }
   const res = await pool.query<{ id: string; status: string; notes: string | null }>(
     `UPDATE leads SET ${sets.join(', ')} WHERE id = $${idx}${scope.cond} RETURNING id, status, notes`,
-    [...vals, ...scope.vals]
+    [...vals, ...scope.vals, ...claimVals]
   );
 
   if (!res.rows.length) {

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Mountain, Check, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
 
 /** Цифра маршрутов приходит с сервера из базы; нет её — пункта нет (#1804). */
 const PERKS = [
@@ -40,7 +41,10 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.pd_consent) { setError('Необходимо согласие на обработку персональных данных'); return; }
-    if (form.password.length < 6) { setError('Пароль минимум 6 символов'); return; }
+    // То же правило, что проверит сервер (lib/auth/password-rule). Прежнее
+    // «минимум 6» пропускало пароль, который сервер затем отвергал.
+    const pwd = validatePassword(form.password);
+    if (!pwd.valid) { setError(pwd.errors.join('. ')); return; }
 
     setLoading(true);
     setError('');
@@ -54,6 +58,10 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
           password: form.password,
           role: 'operator',
           roles: ['operator'],
+          // Контакты уходят в partners.contacts (схема регистрации). До 25.09
+          // форма их собирала и не отправляла — введённое терялось молча.
+          phone: form.phone.trim() || undefined,
+          telegram: form.telegram.trim() || undefined,
           pd_consent: true,
         }),
       });
@@ -181,9 +189,9 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
                   value={form.password}
                   onChange={e => set('password', e.target.value)}
                   className={INP + ' pr-10'}
-                  placeholder="Минимум 6 символов"
+                  placeholder={PASSWORD_RULE_HINT}
                   required
-                  minLength={6}
+                  minLength={8}
                 />
                 <button
                   type="button"

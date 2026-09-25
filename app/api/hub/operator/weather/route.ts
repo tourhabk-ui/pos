@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { notifyWeatherAlert } from '@/lib/notifications/operator-booking';
 import { query } from '@/lib/database';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { reachForTour } from '@/lib/partners/reach';
 
 export const dynamic = 'force-dynamic';
 
@@ -134,14 +136,25 @@ export async function GET(request: NextRequest) {
     }
     const tourId = BigInt(tourIdParam);
 
+    // Тур — только свой. До 25.09 любой оператор по чужому tour_id читал
+    // пороги чужого тура и мог запустить алерт в чужой Telegram. Админ
+    // смотрит любой тур; оператор без партнёрской записи — честный 403.
+    const isAdmin = authOrResponse.role === 'admin';
+    const ownerId = isAdmin ? null : await getOperatorPartnerId(authOrResponse.userId);
+    if (!isAdmin && !ownerId) {
+      return NextResponse.json({ error: 'Профиль оператора не найден' }, { status: 403 });
+    }
+
     // Fetch tour with weather thresholds
     const tourResult = await query(
       `SELECT id, title, latitude, longitude,
               min_visibility_m, max_wind_kmh, max_precipitation_mm,
               weather_dependent, operator_id
        FROM operator_tours
-       WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [tourId]
+       WHERE id = $1 AND deleted_at IS NULL
+         AND ($2::uuid IS NULL OR operator_id = $2::uuid)
+       LIMIT 1`,
+      [tourId, ownerId]
     );
 
     if (tourResult.rows.length === 0) {
@@ -213,18 +226,23 @@ export async function GET(request: NextRequest) {
         );
         const affected = parseInt(String(bookingsResult.rows[0]?.total_participants ?? '0'), 10);
 
-        // Get operator telegram config
-        const opResult = await query(
-          `SELECT p.contacts->>'telegram_chat_id' as telegram_chat_id
-           FROM operator_tours t
-           JOIN partners p ON t.operator_id = p.id
-           WHERE t.id = $1 LIMIT 1`,
-          [tourId]
-        );
-        const tgChatId = opResult.rows[0]?.telegram_chat_id as string | undefined;
+        // Адрес оператора — по общему правилу достижимости (partners.
+        // telegram_chat_id, затем users.telegram_id; lib/partners/reach.ts).
+        // Прежнее contacts->>'telegram_chat_id' не пишет никто: алерт
+        // оператору не уходил ни разу, доходил только админу.
+        const reach = await reachForTour(Number(tourId));
+        if (!reach) {
+          console.error(`[hub/operator/weather] адрес оператора тура ${tourId} не прочитан — алерт уйдёт только админу`);
+        }
+        const tgChatId = reach?.telegramChatId ?? undefined;
 
         notifyWeatherAlert(tourId, tour.title, issues, affected, tgChatId)
-          .catch(() => undefined);
+          .catch((err: unknown) => {
+            console.error(
+              `[hub/operator/weather] погодный алерт по туру ${tourId} не отправлен:`,
+              err instanceof Error ? err.message : err,
+            );
+          });
       }
     }
 

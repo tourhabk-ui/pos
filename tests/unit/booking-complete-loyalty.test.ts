@@ -26,6 +26,11 @@ vi.mock('@/lib/bookings/booking.service', () => ({
   completeBooking: (...args: unknown[]) => completeBookingMock(...args),
 }));
 
+// Владение бронью проверяется отдельно (operator-bookings-access); здесь — только лояльность.
+vi.mock('@/lib/bookings/operator-owns', () => ({
+  operatorOwnsBooking: vi.fn().mockResolvedValue('ok'),
+}));
+
 vi.mock('@/lib/auth', () => ({
   verifyAuth: vi.fn().mockResolvedValue({
     isAuthenticated: true,

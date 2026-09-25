@@ -8,6 +8,8 @@ import {
 import { LoadingSpinner, EmptyState } from '@/components/admin/shared';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
+import { isQuickFillField } from '@/lib/operator/quick-fill-fields';
 
 interface TourCompletion {
   tour_id: string;
@@ -106,6 +108,7 @@ interface QuickFillModal {
 }
 
 export default function CompletenessClient() {
+  const router = useRouter();
   const [data, setData] = useState<CompletenessData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +131,11 @@ export default function CompletenessClient() {
   };
 
   const handleQuickFill = (tourId: string, tourTitle: string, field: string) => {
+    // Фото, сезон, состав, координаты — не одной строкой: ведём в редактор.
+    if (!isQuickFillField(field)) {
+      router.push(`/hub/operator/tours/${tourId}`);
+      return;
+    }
     setQuickFill({ open: true, tourId, tourTitle, field, value: '' });
   };
 

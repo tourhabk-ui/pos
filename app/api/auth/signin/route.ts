@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { verifyPassword } from '@/lib/auth/password';
 import { createToken, createMfaPendingToken } from '@/lib/auth/jwt';
+import { recordUserSession } from '@/lib/auth/session-record';
 import { sanitizeError } from '@/lib/errors/sanitize';
 import { ApiResponse } from '@/types';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
@@ -91,15 +92,9 @@ export async function POST(request: NextRequest) {
       role: user.role
     });
 
-    // Store session in database
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
-
-    await pool.query(
-      `INSERT INTO user_sessions (user_id, token, expires_at)
-       VALUES ($1, $2, $3)`,
-      [user.id, token, expiresAt]
-    );
+    // Строка сессии — условие входа (isSessionActive). Та же функция, что у
+    // регистрации: одна форма записи на обе двери.
+    await recordUserSession(pool, user.id, token);
 
     // Prepare response
     const userData = {

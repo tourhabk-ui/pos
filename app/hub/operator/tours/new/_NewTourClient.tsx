@@ -6,23 +6,25 @@ import { TourForm } from '@/components/operator/Tours/TourForm';
 import { TourFormData } from '@/types/operator';
 import { useAuth } from '@/contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { categoryToTourTypes } from '@/lib/tours/form-category';
 
 export default function NewTourClient() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const handleSubmit = async (formData: TourFormData) => {
+  const handleSubmit = async (formData: TourFormData, routeTitle?: string) => {
     const response = await fetch('/api/hub/operator/tours', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title:            formData.name,
         description:      formData.description,
-        location_type:    'other',
-        activity_type:    'other',
-        location_name:    formData.category,
-        latitude:         53.0,
-        longitude:        158.7,
+        // Категория — ЧТО за тур (тип активности и местности), а не ГДЕ:
+        // до 25.09 слаг «rybalka» уходил в location_name и виделся туристу.
+        ...categoryToTourTypes(formData.category),
+        // Где — берётся из выбранного маршрута; без него честно «край», без
+        // выдуманных координат (53.0/158.7 стояли у каждого нового тура).
+        location_name:    routeTitle ?? 'Камчатский край',
         base_price:       formData.price,
         price_unit:       'per_person',
         max_participants: formData.maxGroupSize,
@@ -32,7 +34,9 @@ export default function NewTourClient() {
         included:         formData.includes as string[],
         not_included:     formData.excludes as string[],
         tour_image:       formData.tourImage || undefined,
-        agent_route_id:   formData.routeId   || undefined,
+        // Маршрут тура — route_id (по нему карточка находит трек); в
+        // agent_route_id он уходил мимо, и связь терялась.
+        route_id:         formData.routeId   || undefined,
       }),
     });
 

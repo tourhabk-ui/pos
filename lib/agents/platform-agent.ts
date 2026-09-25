@@ -87,7 +87,13 @@ export type AgentIntent =
 
 export interface DispatchParams {
   message: string;
-  userId?: number;
+  /**
+   * users.id — UUID-строка. Был `number`, и вызывающие делали
+   * parseInt(uuid): «5f3c…» превращалось в 5, «a1b2…» в NaN, и агентства
+   * искали partners по чужому или несуществующему id — помощник оператора
+   * отвечал «Профиль оператора не найден» своему же оператору.
+   */
+  userId?: string;
   role?: string;
   sessionId?: string;
 }

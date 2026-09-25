@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireOperator } from '@/lib/auth/middleware';
 import { callGeminiPDF } from '@/lib/ai/providers';
 
 export const runtime = 'nodejs';
@@ -51,7 +51,8 @@ const EXTRACT_PROMPT = `Ты — ассистент туристической �
 - Верни ТОЛЬКО JSON, начиная с { и заканчивая }`;
 
 export async function POST(req: NextRequest) {
-  const authResult = await requireAuth(req);
+  // Разбор PDF зовёт модель — только оператору, не любому вошедшему.
+  const authResult = await requireOperator(req);
   if (authResult instanceof NextResponse) return authResult;
 
   try {

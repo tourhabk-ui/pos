@@ -52,7 +52,9 @@ export async function POST(req: NextRequest) {
   // Dispatch via PlatformAgent
   const result = await PlatformAgent.dispatch({
     message,
-    userId: parseInt(authResult.userId, 10),
+    // UUID-строкой: parseInt(uuid) давал NaN или случайную цифру — агентство
+    // искало partners не по тому пользователю.
+    userId: authResult.userId,
     role: 'operator',
     sessionId: parsed.data.sessionId,
   });

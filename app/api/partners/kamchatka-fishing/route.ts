@@ -8,10 +8,14 @@ import { requireRole } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
+// Только администратор (25.09): это подключение ПЛАТФОРМЫ, а не оператора.
+// Раньше его видел и «синхронизировал» каждый оператор, получая в ответ
+// «импортировано N туров», хотя syncTours ничего не сохраняет.
+
 // GET /api/partners/kamchatka-fishing - Статус интеграции
 export async function GET(request: NextRequest) {
   try {
-    const userOrResponse = await requireRole(request, ['operator', 'admin']);
+    const userOrResponse = await requireRole(request, ['admin']);
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
     const status = await getSyncStatus();
@@ -33,9 +37,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    console.error('[partners/kamchatka-fishing] статус не получен:', error instanceof Error ? error.message : error);
     return NextResponse.json({
       success: false,
-      error: 'Failed to get partner status',
+      error: 'Не удалось получить статус интеграции',
     }, { status: 500 });
   }
 }
@@ -43,7 +48,7 @@ export async function GET(request: NextRequest) {
 // POST /api/partners/kamchatka-fishing - Запустить синхронизацию
 export async function POST(request: NextRequest) {
   try {
-    const userOrResponse = await requireRole(request, ['operator', 'admin']);
+    const userOrResponse = await requireRole(request, ['admin']);
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
     const apiKey = process.env.KAMCHATKA_FISHING_API_KEY;
@@ -80,6 +85,7 @@ export async function POST(request: NextRequest) {
       data: result,
     });
   } catch (error) {
+    console.error('[partners/kamchatka-fishing] синхронизация упала:', error instanceof Error ? error.message : error);
     return NextResponse.json({
       success: false,
       error: 'Sync failed',

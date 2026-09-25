@@ -11,18 +11,29 @@ import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 // SCHEMAS
 // ============================================================================
 
-export const CreateTourSchema = z.object({
+/**
+ * Поля тура БЕЗ умолчаний — общая основа создания и правки.
+ *
+ * До 25.09 UpdateTourSchema строилась как CreateTourSchema.partial(), а Zod 4
+ * применяет `.default()` и внутри `.partial()`: любой PATCH, где поля не было,
+ * записывал умолчание. Кнопка «скрыть тур» или правка мест переключали тур
+ * «за человека» на «за тур» (группа из восьми платила бы цену одного) и
+ * сбрасывали погодные пороги. Умолчания живут только в CreateTourSchema.
+ */
+const TourFieldsSchema = z.object({
   title: z.string().min(5).max(255),
   description: z.string().max(2000).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
   location_type: z.enum(['volcano', 'hot_spring', 'bay', 'lake', 'mountain', 'river', 'geyser', 'other']),
   activity_type: z.enum(['trekking', 'thermal', 'boat_trip', 'rafting', 'fishing', 'bears', 'helicopter', 'jeep', 'other']),
   location_name: z.string().min(3).max(255),
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
+  // Координаты необязательны (§4.0): форма и импорт до 25.09 подставляли
+  // 53.0/158.7 — «Петропавловск» у тура в Долине гейзеров. Нет — значит NULL.
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
   base_price: z.number().positive(),
   price_old: z.number().positive().optional(),
-  price_unit: z.enum(['per_tour', 'per_person', 'per_day_per_person']).default('per_tour'),
+  price_unit: z.enum(['per_tour', 'per_person', 'per_day_per_person']),
   max_participants: z.number().positive(),
   min_participants: z.number().positive().optional(),
   duration_hours: z.number().positive().optional(),
@@ -37,15 +48,31 @@ export const CreateTourSchema = z.object({
   photos: z.array(z.string().max(500)).max(20).optional(),
   tour_image: z.string().max(500).optional(),
   agent_route_id: z.string().uuid().optional(),
+  /** Маршрут тура (kamchatka_routes.id) — по нему карточка тура находит трек и точки. */
+  route_id: z.string().uuid().optional(),
+  weather_dependent: z.boolean(),
+  min_visibility_m: z.number().positive(),
+  max_wind_kmh: z.number().positive(),
+  max_precipitation_mm: z.number().nonnegative(),
+  tags: z.array(z.string().max(100)).max(20).optional(),
+});
+
+export const CreateTourSchema = TourFieldsSchema.extend({
+  // Умолчание — как у колонки (миграция 056): «за человека». Прежнее
+  // 'per_tour' расходилось с базой, и тур без явной единицы продавался
+  // группе по цене одного.
+  price_unit: z.enum(['per_tour', 'per_person', 'per_day_per_person']).default('per_person'),
   weather_dependent: z.boolean().default(true),
   min_visibility_m: z.number().positive().default(1000),
   max_wind_kmh: z.number().positive().default(30),
   max_precipitation_mm: z.number().nonnegative().default(2),
-  tags: z.array(z.string().max(100)).max(20).optional(),
 });
 
-// Partial + nullable for fields that can be cleared to NULL via PATCH
-export const UpdateTourSchema = CreateTourSchema.partial().extend({
+// Частичная правка: без умолчаний (см. TourFieldsSchema) + поля, которые
+// форма редактора отправляет и PATCH разрешает. До 25.09 их не было в схеме,
+// и Zod их молча выбрасывал: «Изменения сохранены» — а условия отмены,
+// подвоз и публикация не менялись никогда.
+export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   description:       z.string().max(2000).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
   price_old:         z.number().positive().nullable().optional(),
@@ -62,6 +89,12 @@ export const UpdateTourSchema = CreateTourSchema.partial().extend({
   longitude:           z.number().min(-180).max(180).nullable().optional(),
   available_slots:     z.number().int().min(0).nullable().optional(),
   next_available_date: z.string().date().nullable().optional(),
+  is_active:           z.boolean().optional(),
+  is_published:        z.boolean().optional(),
+  seasonal_only:       z.boolean().optional(),
+  cancellation_policy: z.string().trim().max(2000).nullable().optional(),
+  pickup_type:         z.enum(['hotel_pickup', 'meeting_point', 'self_drive']).nullable().optional(),
+  pickup_details:      z.string().trim().max(1000).nullable().optional(),
 });
 
 export const AddAvailabilitySchema = z.object({
@@ -166,8 +199,8 @@ export async function createTour(
       included, not_included, what_to_bring,
       photos, tour_image, agent_route_id,
       weather_dependent, min_visibility_m, max_wind_kmh, max_precipitation_mm,
-      created_by
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
+      created_by, route_id
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
     RETURNING id, title, base_price, location_type, created_at`,
     [
       operatorId,
@@ -177,8 +210,8 @@ export async function createTour(
       input.location_type,
       input.activity_type,
       input.location_name,
-      input.latitude,
-      input.longitude,
+      input.latitude ?? null,
+      input.longitude ?? null,
       input.base_price,
       input.price_old || null,
       input.price_unit,
@@ -201,6 +234,7 @@ export async function createTour(
       input.max_wind_kmh,
       input.max_precipitation_mm,
       userId,
+      input.route_id || null,
     ]
   );
 
@@ -228,7 +262,12 @@ export async function addAvailability(
       `INSERT INTO tour_availability (operator_tour_id, date, available_slots, base_price_override)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (operator_tour_id, date) DO UPDATE
-       SET available_slots = $3, base_price_override = $4, updated_at = NOW()`,
+       SET available_slots = $3, base_price_override = $4,
+           -- Повторно открытая дата открывается и туристу: до 25.09 upsert
+           -- оставлял is_cancelled/deleted_at, ответ был 201, а /slots
+           -- дату по-прежнему скрывал.
+           is_cancelled = FALSE, cancellation_reason = NULL, deleted_at = NULL,
+           updated_at = NOW()`,
       [tourId, slot.date, slot.available_slots, slot.price_override || null]
     );
   }
@@ -249,6 +288,9 @@ export async function getAvailability(tourId: bigint, fromDate: string, toDate: 
     WHERE a.operator_tour_id = $1
       AND a.date BETWEEN $2 AND $3
       AND a.deleted_at IS NULL
+      -- Отменённая дата туристу не видна (/api/tours/[id]/slots) — оператору
+      -- она не показывается открытой.
+      AND a.is_cancelled IS NOT TRUE
     ORDER BY a.date ASC`,
     [tourId, fromDate, toDate]
   );

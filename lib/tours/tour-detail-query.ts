@@ -194,23 +194,44 @@ export async function getTourForCard(id: number): Promise<TourCardRow | null> {
   }
 }
 
+/**
+ * След отказа чтения отзывов. §4.0: пустой catch превращал поломку в «отзывов
+ * нет» — карточка показывала пустой блок, и отличить «никто не писал» от
+ * «запрос упал» было нечем. Имя и SQLSTATE — в лог.
+ */
+function logReviewsFailure(step: string, e: unknown): void {
+  const code = (e as { code?: unknown } | null)?.code;
+  const message = e instanceof Error ? e.message : String(e);
+  console.error(
+    `[tour-detail-query] getTourReviews/${step}: отказ${typeof code === 'string' ? ` SQLSTATE ${code}` : ''} — ${message}`,
+  );
+}
+
 export async function getTourReviews(tourId: number): Promise<TourCardReview[]> {
+  // is_hidden = FALSE — модерация (миграция 878): скрытый админом отзыв не
+  // должен попадать на публичную карточку тура. Без фильтра кнопка «Скрыть»
+  // в /hub/admin/content/tour-reviews ничего не скрывала для туриста.
   const sql = (withPhotos: boolean) =>
     `SELECT id, author_name, author_city, rating, comment, trip_date${withPhotos ? ', photos' : ''}
        FROM operator_tour_reviews
       WHERE tour_id = $1
+        AND is_hidden = FALSE
       ORDER BY created_at DESC
       LIMIT 6`;
   try {
     const { rows } = await pool.query<TourCardReview>(sql(true), [tourId]);
     return rows;
   } catch (e) {
-    if (!isUndefinedColumn(e)) return [];
+    if (!isUndefinedColumn(e)) {
+      logReviewsFailure('with_photos', e);
+      return [];
+    }
     // Миграция 832 (photos) ещё не применилась — отзывы без фото, но живые.
     try {
       const { rows } = await pool.query<TourCardReview>(sql(false), [tourId]);
       return rows;
-    } catch {
+    } catch (e2) {
+      logReviewsFailure('without_photos', e2);
       return [];
     }
   }

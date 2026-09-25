@@ -6,7 +6,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth';
-import { confirmBooking, getBookingById } from '@/lib/bookings/booking.service';
+import { confirmBooking } from '@/lib/bookings/booking.service';
+import { operatorOwnsBooking } from '@/lib/bookings/operator-owns';
 import { ApiResponse } from '@/types';
 
 export async function PATCH(
@@ -33,17 +34,22 @@ export async function PATCH(
 
     const { id: bookingId } = await params;
 
-    // 3. Проверяем что оператор владеет туром (если не админ)
+    // 3. Оператор подтверждает только брони своих туров (operator-owns).
     if (auth.role === 'operator') {
-      const booking = await getBookingById(bookingId);
-      if (!booking) {
+      const own = await operatorOwnsBooking(bookingId, auth.userId);
+      if (own === 'unknown') {
+        return NextResponse.json(
+          { success: false, error: 'Не удалось проверить бронирование, попробуйте позже' } as ApiResponse<null>,
+          { status: 503 }
+        );
+      }
+      if (own === 'denied') {
+        // 404, а не 403: чужая бронь для оператора не существует.
         return NextResponse.json(
           { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
           { status: 404 }
         );
       }
-      // Здесь оператор должен владеть туром — проверка через партнёра
-      // В текущей архитектуре operator_id в tours привязан к partners.id, а partners.user_id = auth.userId
     }
 
     // 4. Бизнес-логика

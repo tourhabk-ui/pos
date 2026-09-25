@@ -12,6 +12,7 @@ import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
+import { leadOwnershipCond } from '@/lib/leads/ownership';
 
 const leadLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5 заявок/мин с одного IP
 
@@ -45,23 +46,12 @@ export async function GET(req: NextRequest) {
   if (authResult instanceof NextResponse) return authResult;
 
   const user = authResult as JWTPayload;
-  const isAdmin = user.role === 'admin';
 
   const { searchParams } = new URL(req.url);
   const parse = ListSchema.safeParse(Object.fromEntries(searchParams));
   if (!parse.success) return NextResponse.json({ error: 'Неверные параметры' }, { status: 400 });
 
   const { status, limit, offset } = parse.data;
-
-  // Операторы видят только свои лиды (по operator_id или unassigned)
-  let operatorId: string | null = null;
-  if (!isAdmin) {
-    const opRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-      [user.userId]
-    );
-    operatorId = opRes.rows[0]?.id ?? null;
-  }
 
   const conditions: string[] = [];
   const vals: unknown[] = [];
@@ -70,9 +60,14 @@ export async function GET(req: NextRequest) {
     vals.push(status);
     conditions.push(`status = $${vals.length}`);
   }
-  if (!isAdmin && operatorId) {
-    vals.push(operatorId);
-    conditions.push(`(operator_id = $${vals.length} OR operator_id IS NULL)`);
+  // Скоуп — единая формула lib/leads/ownership: свои и ничейные, а у
+  // оператора без партнёрской записи — только ничейные. До 25.09 список
+  // считал скоуп сам и при отсутствии записи не ставил фильтра вовсе:
+  // оператор видел ВСЕ лиды платформы с именами и телефонами.
+  const scope = await leadOwnershipCond(user, vals.length + 1);
+  if (scope.cond) {
+    conditions.push(scope.cond.replace(/^ AND /, ''));
+    vals.push(...scope.vals);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

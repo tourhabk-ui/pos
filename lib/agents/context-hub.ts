@@ -13,7 +13,8 @@ import { pool } from '@/lib/db-pool';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface UserContext {
-  userId?: number;
+  /** users.id — UUID-строка, не число (см. DispatchParams.userId). */
+  userId?: string;
   role: string;
   sessionMessages?: number;
 }
@@ -62,7 +63,7 @@ export class ContextHub {
   private platformCacheAt = 0;
 
   async build(
-    userId: number | undefined,
+    userId: string | undefined,
     role: string | undefined,
     agentName = 'platform-agent',
     taskContext: TaskContext = {}
@@ -84,7 +85,7 @@ export class ContextHub {
   }
 
   private async buildUserContext(
-    userId: number | undefined,
+    userId: string | undefined,
     role: string | undefined
   ): Promise<UserContext> {
     if (!userId) {

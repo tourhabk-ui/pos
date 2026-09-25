@@ -1,6 +1,10 @@
 /**
  * GET  /api/hub/selections  — список подборок оператора (с engagement stats)
  * POST /api/hub/selections  — создать подборку
+ *
+ * Профиль оператора ищется с category = 'operator': у одного user_id бывает
+ * несколько записей partners (гид + оператор), и LIMIT 1 без фильтра отдавал
+ * произвольную — подборки уходили на гид-профиль и не находились в кабинете.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -34,7 +38,7 @@ export async function GET(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const operatorRow = await pool.query<{ id: string }>(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
+    `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1`,
     [auth.userId],
   );
   const operatorId = operatorRow.rows[0]?.id;
@@ -82,10 +86,17 @@ export async function POST(req: NextRequest) {
   const data = parsed.data;
 
   const operatorRow = await pool.query<{ id: string }>(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
+    `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1`,
     [auth.userId],
   );
   const operatorId = operatorRow.rows[0]?.id ?? null;
+
+  // Не админ без профиля ОПЕРАТОРА подборку не создаёт. Раньше проверка
+  // владения турами пропускалась при operatorId = null, и любой вошедший
+  // (гид, турист) мог собрать подборку из чужих туров.
+  if (auth.role !== 'admin' && !operatorId) {
+    return NextResponse.json({ error: 'Подборки создаёт оператор: профиль оператора не найден' }, { status: 403 });
+  }
 
   // Verify all tour_ids belong to this operator (or admin bypasses)
   if (auth.role !== 'admin' && operatorId) {

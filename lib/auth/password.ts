@@ -5,6 +5,7 @@
 
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import { validatePassword } from '@/lib/auth/password-rule';
 
 // Align bcrypt cost across the app; 12 is baseline for production workloads.
 const SALT_ROUNDS = 12;
@@ -23,43 +24,11 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return await bcrypt.compare(password, hash);
 }
 
-/**
- * ЕДИНСТВЕННОЕ правило пароля платформы.
- *
- * До 22.08.2026 функция была написана и не вызывалась ниоткуда, а шесть точек
- * входа держали шесть своих правил: регистрация туриста — `min(6)`,
- * регистрация оператора — `min(8)`, партнёра — `min(8)`, смена пароля — свои.
- * Правило, которое каждый пишет заново, — это не одно правило, а шесть, и
- * слабейшее из них и есть настоящее.
- *
- * Буквы считаются по ЮНИКОДУ, а не по латинице. Прежние `[A-Z]`/`[a-z]`
- * отвергли бы «Вулкан2024»: у русскоязычного туриста заглавная буква русская,
- * и сообщение «нужна заглавная» на пароле с заглавной читается как поломка.
- */
-export function validatePassword(password: string): { valid: boolean; errors: string[] } {
-  const errors: string[] = [];
-
-  if (password.length < 8) {
-    errors.push('Пароль должен содержать минимум 8 символов');
-  }
-
-  if (!/\p{Lu}/u.test(password)) {
-    errors.push('Пароль должен содержать хотя бы одну заглавную букву');
-  }
-
-  if (!/\p{Ll}/u.test(password)) {
-    errors.push('Пароль должен содержать хотя бы одну строчную букву');
-  }
-
-  if (!/\p{Nd}/u.test(password)) {
-    errors.push('Пароль должен содержать хотя бы одну цифру');
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors
-  };
-}
+// Само правило живёт в lib/auth/password-rule.ts — без bcrypt, чтобы его
+// могли импортировать и клиентские формы (/operators/join): подсказка
+// «Минимум 6 символов» на форме при правиле из восьми с заглавной и цифрой
+// стоила человеку лишнего похода к серверу.
+export { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
 
 /**
  * То же правило схемой Zod — чтобы маршруты его не переписывали.

@@ -124,7 +124,6 @@ describe('единственный способ начислить комисс�
 const RATE_TOUCHERS: Record<string, 'fallback_sql' | 'fallback_ts' | 'display_only' | 'writer'> = {
   'lib/payments/commission.ts': 'fallback_sql',
   'lib/transfers/service.ts': 'fallback_sql',
-  'app/api/operator/finance/route.ts': 'fallback_sql',
   'app/api/hub/operator/reports/route.ts': 'fallback_sql',
   'app/api/hub/operator/payments/webhook/route.ts': 'fallback_sql',
   'app/api/bookings/tour/route.ts': 'fallback_ts',

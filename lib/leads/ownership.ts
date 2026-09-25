@@ -20,7 +20,9 @@ export async function leadOwnershipCond(
 ): Promise<{ cond: string; vals: unknown[] }> {
   if (user.role === 'admin') return { cond: '', vals: [] };
   const opRes = await pool.query<{ id: string }>(
-    'SELECT id FROM partners WHERE user_id = $1 LIMIT 1',
+    // category = 'operator': у user_id бывает и гид-профиль, LIMIT 1 без
+    // фильтра брал произвольный — и оператор не видел своих лидов.
+    "SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1",
     [user.userId]
   );
   const operatorId = opRes.rows[0]?.id;

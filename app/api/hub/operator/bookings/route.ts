@@ -35,8 +35,12 @@ async function getOperatorRow(userId: string) {
   const result = await query(
     `SELECT p.id, p.name,
             p.max_chat_id::text AS max_chat_id,
-            p.contacts->>'telegram_chat_id' as telegram_chat_id
-     FROM partners p WHERE p.user_id = $1 LIMIT 1`,
+            -- Колонка, а не contacts: её пишет привязка бота и её же читает
+            -- reachForPartner. contacts->>'telegram_chat_id' не заполняет
+            -- никто, и ручная бронь не доходила до Telegram оператора (25.09).
+            p.telegram_chat_id::text AS telegram_chat_id
+     FROM partners p WHERE p.user_id = $1 AND p.category = 'operator'
+     ORDER BY p.created_at ASC LIMIT 1`,
     [userId]
   );
   return result.rows[0] || null;

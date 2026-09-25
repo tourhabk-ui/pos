@@ -90,7 +90,9 @@ export async function POST(
 
     // Публикуем тур
     await query(
-      `UPDATE operator_tours SET is_active = true, updated_at = NOW() WHERE id = $1`,
+      // Витрина и бронь требуют is_published (не только is_active): до 25.09
+      // «опубликованный» тур оставался невидимым в каталоге.
+      `UPDATE operator_tours SET is_active = true, is_published = true, updated_at = NOW() WHERE id = $1`,
       [id]
     );
 

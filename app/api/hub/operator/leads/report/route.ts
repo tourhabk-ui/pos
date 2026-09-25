@@ -39,7 +39,8 @@ export async function GET(request: NextRequest) {
     }
   } else {
     const opRes = await pool.query<{ id: string }>(
-      'SELECT id FROM partners WHERE user_id = $1 LIMIT 1',
+      // category = 'operator': гид-профиль того же user_id — не отчёт оператора.
+      "SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1",
       [user.userId],
     );
     operatorId = opRes.rows[0]?.id ?? null;

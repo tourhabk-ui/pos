@@ -32,6 +32,23 @@ export const LEAD_STATUSES = [
 ] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 
+/**
+ * Лид, которого ещё не взял ЧЕЛОВЕК: пришёл (`new`), разбирается конвейером
+ * (`ai_processing`) или разобран конвейером (`ai_qualified`). Всё прочее —
+ * след действия оператора/админа: предложение отправлено, клиент ждёт
+ * подтверждения, связались, закрыт.
+ *
+ * Watchdog «лид без ответа > 2 ч» считал только `new`, а конвейер переводит
+ * лид в `ai_qualified` за секунды после создания — то есть сторож не видел
+ * почти ни одного лида, которого никто из людей не открыл. Разбор ИИ — не
+ * ответ человеку. Сторож: tests/unit/watchdog-unattended-leads.test.ts.
+ */
+export const UNATTENDED_LEAD_STATUSES: readonly LeadStatus[] = [
+  'new',
+  'ai_processing',
+  'ai_qualified',
+];
+
 /** Статусы, которые админ назначает руками (AI-статусы ставит конвейер). */
 export const MANUAL_LEAD_STATUSES: LeadStatus[] = [
   'new', 'contacted', 'qualified', 'converted', 'lost',

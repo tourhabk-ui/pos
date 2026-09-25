@@ -32,6 +32,7 @@ import {
 } from '@/lib/payments/release-eligibility';
 import { reachFrom, partnerReachCensus, type PartnerReachRow } from '@/lib/partners/reach';
 import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
+import { UNATTENDED_LEAD_STATUSES } from '@/lib/types/statuses';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY, type CronEntry } from '@/lib/agents/cron-registry';
@@ -930,18 +931,21 @@ async function checkHeldForCancelled(): Promise<CheckResult> {
 
 async function checkUnprocessedLeads(): Promise<CheckResult> {
   try {
+    // «Человек не отреагировал» — не только `new`: конвейер ИИ переводит лид
+    // в `ai_qualified` почти сразу, и прежний фильтр по одному `new` не видел
+    // таких лидов вовсе. Набор — UNATTENDED_LEAD_STATUSES.
     const { rows } = await pool.query<{ count: string }>(`
       SELECT COUNT(*)::text AS count
       FROM leads
-      WHERE status = 'new'
+      WHERE status = ANY($1::text[])
         AND created_at < NOW() - INTERVAL '2 hours'
-    `);
+    `, [[...UNATTENDED_LEAD_STATUSES]]);
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;
     return {
       type: 'unprocessed_lead',
       count,
-      details: `${count} новых лидов ожидают обработки > 2ч.`,
+      details: `${count} лидов больше 2ч без реакции оператора (новые или разобранные ИИ, предложение не отправлено).`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос

@@ -670,7 +670,7 @@ export default function EditTourClient() {
       </section>
 
       {/* Расписание / доступность */}
-      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
+      <section id="schedule" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <p className={heading} style={{ marginBottom: 0 }}>
             <CalendarDays className="w-3.5 h-3.5 inline mr-1.5" />

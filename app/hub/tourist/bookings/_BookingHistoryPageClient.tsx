@@ -74,6 +74,10 @@ export default function BookingHistoryPageClient() {
         style: 'bg-[var(--success)]/15 text-[var(--success)]',
         label: 'Подтверждено',
       },
+      pending_payment: {
+        style: 'bg-[var(--ocean)]/15 text-[var(--ocean)]',
+        label: 'Ждёт оплаты',
+      },
       completed: {
         style: 'bg-[var(--accent)]/15 text-[var(--accent)]',
         label: 'Завершено',

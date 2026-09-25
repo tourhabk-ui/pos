@@ -131,6 +131,16 @@ export async function PATCH(
       }
     }
 
+    // Главное фото каталога — первое фото галереи. Редактор пишет только
+    // photos («первое — главное»), а плитка каталога и OG-картинка читают
+    // tour_image: до 25.09 в каталоге оставалась старая картинка.
+    const rec = input as Record<string, unknown>;
+    if (Array.isArray(rec.photos) && rec.tour_image === undefined) {
+      const first = (rec.photos as unknown[]).find((p): p is string => typeof p === 'string' && p.trim().length > 0);
+      fields.push(`tour_image = $${idx++}`);
+      values.push(first ?? null);
+    }
+
     // Числа условий отмены (1012) выведены из ПРЕЖНЕГО текста. Оператор
     // переписал текст — числа больше ему не соответствуют, и счёт возврата
     // разошёлся бы с тем, что турист читает на карточке. Сбрасываем их в NULL

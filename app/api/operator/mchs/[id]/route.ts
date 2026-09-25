@@ -15,7 +15,8 @@ type MchsStatus = 'pending' | 'submitted' | 'confirmed' | 'rejected';
 
 interface MchsRegistrationDetailsRow {
   id: string;
-  booking_id: string;
+  /** operator_bookings.id строкой (миграция 1016); NULL у старых записей по bookings. */
+  operator_booking_id: string | null;
   operator_id: string;
   group_composition: unknown;
   route: string;
@@ -68,7 +69,7 @@ export async function GET(
     const result = await query<MchsRegistrationDetailsRow>(
       `SELECT
          id,
-         booking_id,
+         operator_booking_id::text AS operator_booking_id,
          operator_id,
          group_composition,
          route,
@@ -99,7 +100,7 @@ export async function GET(
       success: true,
       data: {
         id: reg.id,
-        bookingId: reg.booking_id,
+        bookingId: reg.operator_booking_id,
         operatorId: reg.operator_id,
         groupComposition: reg.group_composition,
         route: reg.route,
@@ -114,6 +115,12 @@ export async function GET(
       },
     } as ApiResponse<unknown>);
   } catch (error) {
+    // §4.0: отказ не глушится — SQLSTATE в лог, наружу понятная фраза.
+    const code = (error as { code?: unknown } | null)?.code;
+    console.error(
+      `[operator/mchs/[id]] GET: отказ${typeof code === 'string' ? ` SQLSTATE ${code}` : ''} —`,
+      error instanceof Error ? error.message : String(error),
+    );
     return NextResponse.json(
       { success: false, error: 'Не удалось загрузить регистрацию МЧС' } as ApiResponse<null>,
       { status: 500 }

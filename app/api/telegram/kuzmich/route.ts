@@ -298,8 +298,8 @@ async function handleOwnerCommand(cmd: string, text: string, chatId: number): Pr
   }
   // Free text → PlatformAgent
   try {
-    const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '0', 10);
-    const result = await PlatformAgent.dispatch({ message: text, userId: ownerId, role: 'admin' });
+    // userId не передаётся: TELEGRAM_OWNER_ID — id в Telegram, а не users.id (UUID).
+    const result = await PlatformAgent.dispatch({ message: text, role: 'admin' });
     await tgReply(chatId, result.response);
   } catch (err) {
     await tgReply(chatId, `Ошибка: ${err instanceof Error ? err.message : String(err)}`);

@@ -38,7 +38,9 @@ const TOCHKA = 'app/api/payments/tochka/webhook/route.ts';
 const LIB = read('lib/payments/commission.ts');
 const MIGRATION = read('migrations/811_platform_commission_10.sql');
 const BOOKING = read('app/api/bookings/tour/route.ts');
-const FINANCE = read('app/api/operator/finance/route.ts');
+// /api/operator/finance удалён 25.09 (ни одного потребителя; пакет «Г»,
+// п.11). Финансовый экран оператора — /api/hub/operator/reports?type=finance.
+const FINANCE = read('app/api/hub/operator/reports/route.ts');
 
 /** Исходник без строк-комментариев: пояснения не должны считаться кодом. */
 function code(src: string): string {

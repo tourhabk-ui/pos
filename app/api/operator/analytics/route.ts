@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { z } from 'zod';
 import { ANALYTICS_SQL, logScreenQueryFailure } from '@/lib/operator/screen-queries';
 
 export const dynamic = 'force-dynamic';
@@ -18,12 +19,18 @@ export async function GET(request: NextRequest) {
 
   const userId = userOrResponse.userId;
   const { searchParams } = new URL(request.url);
-  const periodDays = parseInt(searchParams.get('period') ?? '30', 10);
+  const periodParsed = z.coerce.number().int().min(1).max(365).safeParse(searchParams.get('period') ?? '30');
+  if (!periodParsed.success) {
+    return NextResponse.json({ success: false, error: 'Период — целое число дней от 1 до 365' }, { status: 400 });
+  }
+  const periodDays = periodParsed.data;
 
   try {
-    // Resolve userId → partnerId (operator_tours.operator_id is partners.id)
+    // Resolve userId → partnerId (operator_tours.operator_id is partners.id).
+    // category = 'operator': у user_id бывает и гид-профиль, LIMIT 1 без
+    // фильтра брал произвольный — аналитика показывала нули чужого профиля.
     const partnerRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
+      `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1`,
       [userId]
     );
     const partnerId = partnerRes.rows[0]?.id;
