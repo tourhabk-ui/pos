@@ -28,6 +28,7 @@ import { activityLabel, difficultyLabel, priceUnitLabel } from '@/lib/tours/labe
 // kuzmich_tour-постер) — реэкспорт сохраняет прежний публичный контракт.
 export { absolutePhotoUrls, MAX_PHOTOS } from '@/lib/notifications/photo-urls';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
+import { tourPostSeason } from '@/lib/tours/post-season';
 
 export interface TourPostRow {
   id: string;
@@ -127,7 +128,7 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID не настроен' };
 
-  const { rows } = await query<TourPostRow>(
+  const { rows } = await query<TourPostRow & { season_start: string | null; season_end: string | null; duration_type: string | null }>(
     `SELECT ot.id::text,
             ot.title,
             ot.short_description,
@@ -140,7 +141,10 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
             ot.activity_type,
             ot.location_name AS location,
             ot.photos,
-            COALESCE(p.company_name, p.name) AS operator_name
+            COALESCE(p.company_name, p.name) AS operator_name,
+            ot.season_start::text,
+            ot.season_end::text,
+            ot.duration_type
        FROM operator_tours ot
        LEFT JOIN partners p ON p.id = ot.operator_id
       WHERE ot.id::text = $1
@@ -152,6 +156,13 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
 
   const row = rows[0];
   if (!row) return { ok: false, error: `Тур ${tourId} не найден или снят с витрины` };
+
+  // Ручной выбор тура сезон не отменяет (25.09): пост — оферта, и тур, который
+  // сейчас не купить, не рекламируется ни кроном, ни рукой.
+  const season = tourPostSeason({ ...row, duration_hours: row.duration_hours == null ? null : Number(row.duration_hours) });
+  if (season.season === 'out_of_season') {
+    return { ok: false, error: `Тур вне сезона — не публикую: ${season.reason}` };
+  }
 
   const baseUrl = getPublicBaseUrl();
   const photos = absolutePhotoUrls(row.photos, baseUrl);

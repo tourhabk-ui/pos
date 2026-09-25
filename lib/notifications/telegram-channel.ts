@@ -999,7 +999,7 @@ export const TOUR_REPEAT_MIN_GAP_DAYS = 2;
  * пост о месте за выдуманную фактуру; у тура цена ошибки выше — это оферта.
  * Решение владельца 05.09: вечерний слот — туры, не сезонные посты.
  */
-export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string; photo?: PhotoOutcome; photoError?: string }> {
+export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number; error?: string; photo?: PhotoOutcome; photoError?: string; season?: string; skipped?: Array<{ title: string; reason: string }> }> {
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
@@ -1007,7 +1007,13 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
   const { buildTourPostText, tourPostHash } = await import('@/lib/notifications/tour-channel-post');
   type TourPostRow = Parameters<typeof buildTourPostText>[0];
 
-  const pickResult = await query<TourPostRow & { last_posted_at: string | null }>(`
+  type Candidate = TourPostRow & {
+    last_posted_at: string | null;
+    season_start: string | null;
+    season_end: string | null;
+    duration_type: string | null;
+  };
+  const pickResult = await query<Candidate>(`
     SELECT ot.id::text,
            ot.title,
            ot.short_description,
@@ -1021,6 +1027,9 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
            ot.location_name AS location,
            ot.photos,
            COALESCE(p.company_name, p.name) AS operator_name,
+           ot.season_start::text,
+           ot.season_end::text,
+           ot.duration_type,
            lp.last_posted_at
       FROM operator_tours ot
       LEFT JOIN partners p ON p.id = ot.operator_id
@@ -1039,14 +1048,25 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
      ORDER BY lp.last_posted_at ASC NULLS FIRST,
               COALESCE(array_length(ot.photos, 1), 0) DESC,
               RANDOM()
-     LIMIT 1
   `, [TOUR_REPEAT_MIN_GAP_DAYS]);
 
-  const t = pickResult.rows[0];
+  // Сезон судится после выборки, в коде: правило дат то же, что у каталога,
+  // а второе (рыба в тексте поста) в SQL не выразить. Туров единицы — вся
+  // выборка дешёвая. 25.09 в канал ушла «Летняя рыбалка на чавычу и нерку»
+  // через сорок дней после конца её сезона (lib/tours/post-season.ts).
+  const { pickInSeason } = await import('@/lib/tours/post-season');
+  const { pick: t, verdict, skipped } = pickInSeason(
+    pickResult.rows.map((r) => ({
+      ...r,
+      duration_hours: r.duration_hours == null ? null : Number(r.duration_hours),
+    })),
+  );
   if (!t) {
+    const off = skipped.length > 0 ? `; вне сезона: ${skipped.map((x) => `«${x.title}» — ${x.reason}`).join('; ')}` : '';
     return {
       ok: false,
-      error: `Нет туров для поста: живых туров с фотографиями, не публиковавшихся последние ${TOUR_REPEAT_MIN_GAP_DAYS} дн., не осталось`,
+      error: `Нет туров для поста: живых туров с фотографиями, не публиковавшихся последние ${TOUR_REPEAT_MIN_GAP_DAYS} дн. и идущих по сезону, не осталось${off}`,
+      skipped,
     };
   }
 
@@ -1067,12 +1087,12 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
         // Исход снимка — в журнал: по нему видно, ушёл пост с фото или
         // текстом, без чтения канала глазами.
-        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title, text_hash: tourPostHash(text), photo: result.photo, photo_error: result.photoError ?? null })]
+        ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title, text_hash: tourPostHash(text), photo: result.photo, photo_error: result.photoError ?? null, season: verdict?.reason ?? null })]
       );
     } catch { /* таблица ещё не создана — не блокируем пост */ }
   }
 
-  return { ...result, tourId: Number(t.id) };
+  return { ...result, tourId: Number(t.id), season: verdict?.reason, skipped };
 }
 
 // ── AI News channel post ─────────────────────────────────────────────────────

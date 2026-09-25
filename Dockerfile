@@ -98,12 +98,27 @@ RUN apk add --no-cache libc6-compat || \
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY --from=builder /app/public           ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static     ./.next/static
-COPY --from=builder /app/migrations                       ./migrations
-COPY --from=builder /app/scripts/migrate-standalone.js    ./scripts/migrate-standalone.js
-COPY --from=builder /app/start.js                         ./start.js
+# Процесс работает не от root (25.09). Пользователь `node` уже есть в базовом
+# образе node:alpine, заводить своего не нужно. Права раздаются флагом
+# --chown на самих COPY, а не `RUN chown -R` после: тот переписал бы все файлы
+# отдельным слоем и удвоил бы образ — при лимите standalone в 50 МБ (§6.1).
+#
+# Писать процессу нужно в двух местах, и оба под /app: `.next/cache` (кэш
+# Next) и подкаталоги `public/` — запасной путь загрузок, когда S3 не ответил
+# (app/api/upload*, admin/photos, admin/videos). Сама /app отдаётся node
+# отдельной строкой: WORKDIR создаёт её от root, а chown одного каталога
+# слоя не раздувает.
+# Сторож: tests/unit/dockerfile-non-root.test.ts.
+RUN chown node:node /app
+
+COPY --from=builder --chown=node:node /app/public           ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static     ./.next/static
+COPY --from=builder --chown=node:node /app/migrations                       ./migrations
+COPY --from=builder --chown=node:node /app/scripts/migrate-standalone.js    ./scripts/migrate-standalone.js
+COPY --from=builder --chown=node:node /app/start.js                         ./start.js
+
+USER node
 
 EXPOSE 3000
 ENV PORT=3000
