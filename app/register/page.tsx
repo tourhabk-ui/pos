@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Phone, Mail, Shield, AlertTriangle, Download, ArrowLeft, Plus, Trash2, CheckCircle, Loader2, Search, ChevronDown } from 'lucide-react';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import ParkPermitAction from '@/components/safety/ParkPermitAction';
 
 interface RouteOption {
   id: string;
@@ -306,6 +307,13 @@ export default function RegisterRoutePage() {
             </div>
           </div>
 
+          {/* Разрешение парка — вторая, ОТДЕЛЬНАЯ обязанность (lib/safety/park-permit).
+              Владелец 25.09: «где зелёная кнопка регистрации?» — её не было
+              там, где человек регистрируется. */}
+          <div className="mb-6 text-left">
+            <ParkPermitAction />
+          </div>
+
           <button
             onClick={() => router.push('/map')}
             className="w-full py-3 rounded-lg bg-[var(--accent)] text-[var(--text-primary)] font-semibold text-sm hover:opacity-90"
@@ -353,6 +361,12 @@ export default function RegisterRoutePage() {
               Регистрация аккаунта — на странице входа
             </a>.
           </p>
+        )}
+        {step === 1 && (
+          <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+            <p>Идёте в природный парк — нужно ещё <span className="font-semibold text-[var(--text-primary)]">разрешение парка</span>, это отдельно от МЧС:</p>
+            <ParkPermitAction variant="compact" />
+          </div>
         )}
         {/* Шаг 1: Маршрут */}
         {step === 1 && (

@@ -44,17 +44,14 @@ export const GREEN_BUTTON = {
   what: 'Приложение парка: разрешение на посещение, маршруты, правила безопасности',
   androidUrl: 'https://play.google.com/store/apps/details?id=com.empedokl.greenbutton',
   /**
-   * null — «не знаю», а не «нет».
-   *
-   * Парк пишет, что приложение есть «в маркет-плейсах AppStore и Google Play».
-   * Google Play отвечает 200 на id `com.empedokl.greenbutton` (проба 544), а
-   * поиск App Store по тому же идентификатору в российском магазине вернул
-   * `resultCount: 0` (проба 545) — то ли идентификатор под iOS другой, то ли
-   * приложения там сейчас нет. Пока это не выяснено, ссылки под iPhone здесь
-   * не будет: поставить её «по шаблону» значит отправить человека в никуда с
-   * видом уверенности. Экран об этом говорит прямо.
+   * App Store, id1658152262. До 25.09 здесь стоял null: поиск App Store по
+   * идентификатору Android (`com.empedokl.greenbutton`) вернул `resultCount: 0`
+   * (проба 545), и ссылки «по шаблону» не ставили. 25.09 владелец прислал
+   * адрес карточки в российском App Store, и поиск по названию выдаёт ту же
+   * карточку «Зелёная кнопка — Приложение — App Store». Под iOS у приложения
+   * просто другой идентификатор — числовой, как у всех приложений Apple.
    */
-  iosUrl: null as string | null,
+  iosUrl: 'https://apps.apple.com/ru/app/id1658152262' as string | null,
 } as const;
 
 export interface PermitChannel {

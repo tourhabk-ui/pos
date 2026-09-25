@@ -627,11 +627,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <Link
               href="/register"
               className="qt mchsline"
-              aria-label="Зарегистрируй маршрут в МЧС заранее. Бесплатно. С гидом или сам — спасателям это спасает жизни"
-              title="Зарегистрируй маршрут в МЧС заранее — бесплатно, с гидом или сам"
+              aria-label="Регистрация перед выходом: маршрут в МЧС заранее, бесплатно, и разрешение природного парка — «Зелёная кнопка»"
+              title="Маршрут в МЧС заранее — бесплатно; в природный парк — ещё разрешение, «Зелёная кнопка»"
             >
               <span className="qt-ic"><ClipboardCheck size={19} strokeWidth={1.8} aria-hidden /></span>
-              <span className="qt-tx"><b>Регистрация</b><span>в МЧС заранее</span></span>
+              <span className="qt-tx"><b>Регистрация</b><span>МЧС и парк</span></span>
             </Link>
 
             <Link
