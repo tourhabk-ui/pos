@@ -59,7 +59,8 @@ describe('оплата атомарна и защищена от гонки', ()
     // До закрытия транзакции (return true) должны быть все три записи.
     const untilReturn = txBody.slice(0, txBody.indexOf('return true'));
     expect(untilReturn).toMatch(/UPDATE operator_bookings/);
-    expect(untilReturn).toMatch(/INSERT INTO tour_payments/);
+    // Строка платежа — общей дверью, на том же клиенте транзакции (25.09).
+    expect(untilReturn).toMatch(/await holdTourPayment\(client,/);
     expect(untilReturn).toMatch(/UPDATE tour_availability/);
   });
 

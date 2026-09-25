@@ -1,7 +1,19 @@
 /**
  * POST /api/payments/tochka/qr
  * Создаёт СБП QR-код для бронирования.
- * Вызывается из BookingFormCard после успешного создания брони.
+ * Вызывается со страницы брони (/booking-success, SbpQrPayment).
+ *
+ * Платить можно только бронь, подтверждённую оператором (решение владельца
+ * 24.09: «заявка → подтверждение → оплата»). До 25.09 роут принимал только
+ * `new` и `pending_payment`, а страница брони предлагает оплату только
+ * `confirmed` и `pending_payment` — после подтверждения оператором СБП
+ * отвечал 404, а чат Кузьмича выдавал QR на неподтверждённую заявку.
+ *
+ * Статус брони при выдаче QR НЕ меняется. Раньше QR переводил бронь в
+ * `pending_payment`, а это слово значит больше, чем «QR выдан»: такую бронь
+ * крон abandoned-bookings отменяет через сутки без оплаты, а счёт занятости
+ * её мест не держит. Подтверждённая оператором бронь от просмотра QR не
+ * должна ни терять места, ни отменяться сама.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,6 +21,7 @@ import { z } from 'zod';
 import { createSBPQR, isTochkaConfigured, tochkaMissingEnv } from '@/lib/payments/tochka';
 import { pool } from '@/lib/db-pool';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { PAYABLE_BOOKING_STATUSES } from '@/lib/bookings/success-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,11 +59,13 @@ export async function POST(req: NextRequest) {
       final_price: number;
       title: string;
       tochka_qr_id: string | null;
+      booking_status: string;
+      paid_at: Date | null;
     }>(
-      `SELECT ob.final_price, ot.title, ob.tochka_qr_id
+      `SELECT ob.final_price, ot.title, ob.tochka_qr_id, ob.booking_status, ob.paid_at
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-       WHERE ob.id = $1 AND ob.booking_status IN ('new', 'pending_payment')
+       WHERE ob.id = $1 AND ob.deleted_at IS NULL
        LIMIT 1`,
       [bookingId],
     );
@@ -61,10 +76,23 @@ export async function POST(req: NextRequest) {
 
     const booking = rows[0];
 
-    // Если QR уже создан — вернуть его повторно не получится (QR одноразовый),
-    // просто сообщаем что оплата уже инициирована
+    if (booking.paid_at) {
+      return NextResponse.json({ error: 'Бронь уже оплачена', code: 'already_paid' }, { status: 409 });
+    }
+    if (booking.booking_status === 'new') {
+      return NextResponse.json(
+        { error: 'Оплата откроется после того, как оператор подтвердит бронь', code: 'not_confirmed' },
+        { status: 409 },
+      );
+    }
+    if (!PAYABLE_BOOKING_STATUSES.includes(booking.booking_status)) {
+      return NextResponse.json({ error: 'Эту бронь оплатить нельзя', code: 'not_payable' }, { status: 409 });
+    }
+
+    // Один QR на бронь (как у мест, миграция 928): второй qrcId сделал бы
+    // оплату по первому невидимой для приёмника. Истёкший QR — оплата картой.
     if (booking.tochka_qr_id) {
-      return NextResponse.json({ error: 'Оплата уже создана для этой брони' }, { status: 409 });
+      return NextResponse.json({ error: 'Оплата уже создана для этой брони', code: 'qr_exists' }, { status: 409 });
     }
 
     const qr = await createSBPQR({
@@ -78,13 +106,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Не удалось создать QR-код оплаты' }, { status: 502 });
     }
 
-    // Сохраняем qrId в брони для webhook-сопоставления
-    await pool.query(
+    // qrId — единственная связь оплаты с бронью: без него вебхук оплату не
+    // найдёт. Раньше отказ записи глушился, и туристу отдавался QR, деньги по
+    // которому пришли бы в никуда. Условие на пустой QR — от гонки двух вкладок.
+    const attached = await pool.query(
       `UPDATE operator_bookings
-       SET tochka_qr_id = $1, booking_status = 'pending_payment', updated_at = NOW()
-       WHERE id = $2`,
+       SET tochka_qr_id = $1, updated_at = NOW()
+       WHERE id = $2 AND tochka_qr_id IS NULL AND paid_at IS NULL`,
       [qr.qrId, bookingId],
-    ).catch(() => { /* не блокируем если колонки нет — добавим миграцией */ });
+    );
+    if (!attached.rowCount) {
+      console.error('[tochka/qr] QR выпущен, но к брони не привязан:', `qr=${qr.qrId}`, `booking=${bookingId}`);
+      return NextResponse.json({ error: 'Оплата уже создана для этой брони', code: 'qr_exists' }, { status: 409 });
+    }
 
     return NextResponse.json({
       qrCode:    qr.qrCode,    // base64 PNG — показать как <img src="data:image/png;base64,...">
@@ -95,8 +129,12 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка создания QR';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Некорректный номер брони' }, { status: 400 });
+    }
+    const e = err as { code?: string; message?: string };
+    console.error('[tochka/qr] отказ выдачи QR:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    return NextResponse.json({ error: 'Не удалось создать QR-код оплаты' }, { status: 500 });
   }
 }
 
@@ -104,25 +142,30 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const bookingId = req.nextUrl.searchParams.get('bookingId');
-  if (!bookingId) return NextResponse.json({ error: 'bookingId обязателен' }, { status: 400 });
+  if (!bookingId || !/^\d+$/.test(bookingId)) return NextResponse.json({ error: 'bookingId обязателен' }, { status: 400 });
 
   try {
     const { rows } = await pool.query<{
       booking_status: string;
-      tochka_qr_id: string | null;
+      paid_at: Date | null;
     }>(
-      `SELECT booking_status, tochka_qr_id FROM operator_bookings WHERE id = $1 LIMIT 1`,
-      [parseInt(bookingId, 10)],
+      `SELECT booking_status, paid_at FROM operator_bookings WHERE id = $1 LIMIT 1`,
+      [bookingId],
     );
 
     const row = rows[0];
     if (!row) return NextResponse.json({ error: 'Не найдено' }, { status: 404 });
 
+    // Оплачено — это записанная оплата, а не статус: `confirmed` ставит и
+    // оператор, до всякой оплаты. Раньше опрос видел «оплачено» у любой
+    // подтверждённой брони.
     return NextResponse.json({
-      paid: row.booking_status === 'confirmed',
+      paid: row.paid_at !== null,
       status: row.booking_status,
     });
-  } catch {
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[tochka/qr] опрос статуса:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     return NextResponse.json({ error: 'Ошибка' }, { status: 500 });
   }
 }

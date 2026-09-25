@@ -70,7 +70,7 @@ export default function SbpQrPayment({ bookingId, amount, onPaid, api, unavailab
         setPhase('unavailable');
         return;
       }
-      if (res.status === 409) {
+      if (res.status === 409 && (obj.code === undefined || obj.code === 'qr_exists')) {
         // QR уже выпускался раньше — повторно получить его нельзя, но
         // проверять оплату по этой брони можно и без него.
         setPhase('already_started');

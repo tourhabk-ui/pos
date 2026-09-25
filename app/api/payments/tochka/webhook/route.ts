@@ -23,6 +23,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { transaction } from '@/lib/database';
+import { holdTourPayment } from '@/lib/payments/hold-tour-payment';
 import { getSBPPaymentStatus } from '@/lib/payments/tochka';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { settleSeatPaymentByQr } from '@/lib/transfers/seat-payment';
@@ -61,10 +63,16 @@ export async function POST(req: NextRequest) {
 
   try {
     // Находим бронирование по qrId
-    const { rows } = await pool.query<{ id: number; final_price: number; tourist_name: string }>(
-      `SELECT id, final_price, tourist_name
+    // Ищем бронь по QR без условия на статус. До 25.09 здесь стояло
+    // `booking_status = 'pending_payment'`: бронь, которую за это время
+    // отменили, не находилась, приёмник уходил в ветку мест, та отвечала
+    // «не наше» — и деньги, принятые банком, не оставляли следа нигде.
+    // Статус теперь судит UPDATE ниже, а ушедшую бронь разбирает
+    // handleLostRace — с записью факта оплаты.
+    const { rows } = await pool.query<{ id: number; final_price: number; tourist_name: string; paid_at: Date | null }>(
+      `SELECT id, final_price, tourist_name, paid_at
        FROM operator_bookings
-       WHERE tochka_qr_id = $1 AND booking_status = 'pending_payment'
+       WHERE tochka_qr_id = $1
        LIMIT 1`,
       [qrId],
     );
@@ -81,6 +89,9 @@ export async function POST(req: NextRequest) {
     }
 
     const booking = rows[0];
+
+    // Оплата уже записана первым проходом — повторять нечего, банк не спрашиваем.
+    if (booking.paid_at) return NextResponse.json({ ok: true, confirmed: true, repeat: true });
 
     // Спрашиваем у Точки, что реально произошло с этим QR.
     const status = await getSBPPaymentStatus(qrId);
@@ -108,16 +119,29 @@ export async function POST(req: NextRequest) {
     // Подтверждаем бронирование. Условие по статусу в WHERE — идемпотентность
     // при повторной доставке вебхука. Упадёт — уйдём в 503 общим catch: деньги
     // пришли, и потерять это тише, чем попросить повтор, нельзя.
-    const confirmed = await pool.query(
-      `UPDATE operator_bookings
-       SET booking_status = 'confirmed',
-           payment_status = 'paid',
-           paid_at = $1,
-           paid_amount = $2,
-           updated_at = NOW()
-       WHERE id = $3 AND booking_status = 'pending_payment'`,
-      [paidAt, paidAmount, booking.id],
-    );
+    //
+    // Платить можно подтверждённую оператором бронь (решение владельца
+    // 24.09; QR выдаётся только ей и статус больше не меняет) и старую
+    // `pending_payment`. Бронь и строка tour_payments — в ОДНОЙ транзакции:
+    // без строки оператор не видит оплату, выплата её не находит, а возврат
+    // при отмене считает «оплаты не было». До 25.09 СБП её не писал вовсе.
+    const confirmed = await transaction(async (client) => {
+      const res = await client.query(
+        `UPDATE operator_bookings
+         SET booking_status = 'confirmed',
+             payment_status = 'paid',
+             paid_at = $1,
+             paid_amount = $2,
+             updated_at = NOW()
+         WHERE id = $3 AND paid_at IS NULL
+           AND booking_status IN ('confirmed', 'pending_payment')`,
+        [paidAt, paidAmount, booking.id],
+      );
+      if (res.rowCount) {
+        await holdTourPayment(client, booking.id, { transactionId: `tochka:${qrId}`, invoiceId: qrId, method: 'sbp' });
+      }
+      return res;
+    });
 
     // Ноль строк здесь — не мелочь и не идемпотентность «сама собой». Между
     // SELECT выше и этим UPDATE мы УХОДИЛИ СПРАШИВАТЬ БАНК, а это сетевой
@@ -170,19 +194,31 @@ async function handleLostRace(bookingId: number, paidAt: Date, paidAmount: numbe
   // бронью». Просим повтор: за это время строка может вернуться из реплики.
   if (!state) return retryLater('booking_vanished');
 
-  if (state.booking_status === 'confirmed') {
+  // Повтор вебхука узнаётся по записанной оплате, а не по статусу: бронь
+  // бывает confirmed и ДО оплаты — её подтверждает оператор.
+  if (state.paid_at) {
     return NextResponse.json({ ok: true, confirmed: true, repeat: true });
   }
+  // Бронь всё ещё ждёт оплаты, а записать не вышло — это не «ушла», а
+  // «не знаю, что произошло»: просим повтор.
+  if (state.booking_status === 'confirmed' || state.booking_status === 'pending_payment') {
+    return retryLater('booking_state_unclear');
+  }
 
-  await pool.query(
-    `UPDATE operator_bookings
-     SET payment_status = 'paid',
-         paid_at        = COALESCE(paid_at, $1),
-         paid_amount    = $2,
-         updated_at     = NOW()
-     WHERE id = $3`,
-    [paidAt, paidAmount, bookingId],
-  );
+  // Факт оплаты и строка платежа: HELD по отменённой брони попадает в
+  // «Ждут возврата» у администратора (lib/payments/release-eligibility).
+  await transaction(async (client) => {
+    await client.query(
+      `UPDATE operator_bookings
+       SET payment_status = 'paid',
+           paid_at        = COALESCE(paid_at, $1),
+           paid_amount    = $2,
+           updated_at     = NOW()
+       WHERE id = $3`,
+      [paidAt, paidAmount, bookingId],
+    );
+    await holdTourPayment(client, bookingId, { transactionId: `tochka:${qrId}`, invoiceId: qrId, method: 'sbp' });
+  });
 
   console.error(
     '[tochka/webhook] оплата пришла на бронь вне pending_payment:',

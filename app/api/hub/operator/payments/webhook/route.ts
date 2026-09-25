@@ -7,7 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payments/cloudpayments-webhook';
 import { notifyBookingPaid } from '@/lib/notifications/operator-booking';
-import { recordCommissionFromBooking, PLATFORM_COMMISSION_PERCENT } from '@/lib/payments/commission';
+import { recordCommissionFromBooking } from '@/lib/payments/commission';
+import { holdTourPayment } from '@/lib/payments/hold-tour-payment';
 import { query, transaction } from '@/lib/database';
 
 export const dynamic = 'force-dynamic';
@@ -106,39 +107,15 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
       [bookingId, webhook.TransactionId.toString()],
     );
 
-    // Платёж в tour_payments (HELD до release_after = конец тура + 36ч).
-    await client.query(
-      `INSERT INTO tour_payments (
-         booking_id, operator_id,
-         retail_amount, net_amount, commission_amount, commission_rate,
-         cp_transaction_id, cp_invoice_id,
-         status, paid_at, release_after
-       )
-       SELECT
-         ob.id,
-         ot.operator_id,
-         ob.final_price,
-         -- COALESCE обязателен: колонка NULLABLE, а net_amount и
-         -- commission_rate объявлены NOT NULL. Без запаса пустая ставка
-         -- партнёра роняла бы не вставку платежа, а ВСЮ транзакцию оплаты
-         -- (23502): деньги списаны, бронь не подтверждена, CloudPayments
-         -- повторяет вебхук по кругу. Запас — тот же, что у всех остальных
-         -- читателей колонки (lib/payments/commission.ts).
-         ROUND(ob.final_price * (1 - COALESCE(p.commission_current, $4::numeric) / 100), 2),
-         ROUND(ob.final_price * COALESCE(p.commission_current, $4::numeric) / 100, 2),
-         COALESCE(p.commission_current, $4::numeric),
-         $2, $3,
-         'HELD', NOW(),
-         ob.booking_date::timestamp
-           + (COALESCE(ot.multi_day_count, 1) * INTERVAL '1 day')
-           + INTERVAL '36 hours'
-       FROM operator_bookings ob
-       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-       JOIN partners p ON p.id = ot.operator_id
-       WHERE ob.id = $1
-       ON CONFLICT (cp_transaction_id) DO NOTHING`,
-      [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId, PLATFORM_COMMISSION_PERCENT],
-    );
+    // Платёж в tour_payments (HELD до конца тура + 36ч) — общей дверью
+    // lib/payments/hold-tour-payment. До 25.09 здесь стоял свой INSERT с
+    // ON CONFLICT без предиката частичного индекса: 42P10 на каждой оплате,
+    // и вся транзакция откатывалась.
+    await holdTourPayment(client, bookingId, {
+      transactionId: webhook.TransactionId.toString(),
+      invoiceId: webhook.InvoiceId,
+      method: webhook.CardType ?? 'card',
+    });
 
     // Занятость — в той же транзакции: слот не может подтвердиться отдельно от
     // платежа. Раньше это был четвёртый independent query после комиссии.
@@ -163,7 +140,7 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
   // Комиссия платформы. Раньше этот вебхук её НЕ начислял вовсе: попадёт ли
   // оплата в учёт комиссий, зависело от того, какой из двух URL прописан в
   // кабинете CloudPayments (аудит дублей 03.08). Ставка — договорная
-  // (partners.commission_current), та же, по которой строкой выше заполнен
+  // (ставка партнёра), та же, по которой строкой выше заполнен
   // tour_payments. Идемпотентно по invoice_id; сбой учёта не роняет платёж.
   await recordCommissionFromBooking(bookingId, webhook.InvoiceId);
 

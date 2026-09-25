@@ -763,10 +763,15 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 - `lib/auth.ts` — JWT логика
 - `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
   и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`
-  (СБП Точка, QR выдаётся из чата Кузьмича). Комиссию каждый начисляет ЕДИНСТВЕННЫМ
+  (СБП Точка, QR — со страницы брони). Комиссию каждый начисляет ЕДИНСТВЕННЫМ
   способом — `recordCommissionFromBooking()`; своего `INSERT INTO operator_commissions`
   в приёмниках быть не должно. Сторож: `tests/unit/commission-all-receivers.test.ts`
   (приёмники находит по коду — роут, пишущий `paid_at` броне, обязан начислить комиссию)
+  Строку `tour_payments` (HELD) каждый пишет тоже ЕДИНСТВЕННЫМ способом —
+  `holdTourPayment()` (`lib/payments/hold-tour-payment.ts`), срок выплаты оператору —
+  конец тура + 36 ч (`RELEASE_AFTER_SQL`). Платится бронь, ПОДТВЕРЖДЁННАЯ оператором:
+  QR на `new` не выдаётся, выдача QR статус не меняет, «оплачено» — это `paid_at`,
+  а не `confirmed` (разбор 25.09). Сторож: `tests/unit/payments-confirm-then-pay.test.ts`
 - `app/api/safety/sos` — SOS (только через staging)
 
 ### Ставку комиссии назначает владелец (разбор денежного пути 11.09)
