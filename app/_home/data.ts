@@ -6,6 +6,7 @@
  *   - volcano_status (KVERT) → ACC-статус вулканов (aviation_color_code)
  *   - location_real_time_status → открыто/закрыто зон + свежесть
  *   - operator_tours         → платы «Туры сезона» (реальные туры: фото, цена, оператор)
+ *   - places (каталог)       → «Исследовать»: места, куда можно самому (не туры)
  *   - operator_bookings …    → живой журнал
  *   - places counts          → «Стихии» и «В цифрах»
  * Каждая выборка в своём try/catch: сбой одного блока не роняет страницу.
@@ -27,6 +28,8 @@ import { orderPlates } from '@/lib/home/plate-facts';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
+import { queryCatalog } from '@/lib/routes/catalog-query';
+import { locationTypeLabel } from '@/lib/places/location-types';
 import { countRoutesWithoutGeometry, type RouteGeometryGap } from '@/lib/services/routes/routes-geometry-health';
 
 export interface SafetyAlert {
@@ -88,6 +91,21 @@ export interface Plate {
   /** Исход по датам и сезону — тем же правилом, что карточка каталога. */
   availability: CatalogAvailability;
 }
+/**
+ * Место для «Исследовать» — направление «сам» (решение владельца 25.09:
+ * «это же 2 разных направления»). Туры живут в «Турах сезона», здесь —
+ * географические факты без цены и брони (§9: цена — про тур, не про место).
+ */
+export interface ExplorePlace {
+  id: string;
+  title: string;
+  /** Тип словом («Вулкан», «Озеро»); неизвестный — как отдаёт справочник. */
+  typeLabel: string;
+  description: string;
+  /** null — снимка нет; карточка рисует честную заглушку, не чужой кадр. */
+  imageUrl: string | null;
+}
+
 export interface FeedItem { text: string }
 export interface Stat { value: string; label: string; href?: string }
 export interface Element { key: string; label: string; count: number; href: string }
@@ -168,6 +186,8 @@ export interface HomeV8Data {
   radar: RadarSnapshot;
   zones: ZonesSnapshot;
   plates: Plate[];
+  /** Места для «Исследовать»; пусто — блока нет (причина отказа в логе). */
+  explore: ExplorePlace[];
   feed: FeedItem[];
   stats: Stat[];
   elements: Element[];
@@ -353,6 +373,32 @@ export async function fetchPlates(): Promise<Plate[]> {
     // «туров нет» и «запрос упал» снаружи иначе неотличимы (§4.0).
     const e = err as { code?: string; message?: string } | undefined;
     console.error('[home] fetchPlates не выполнен', { sqlstate: e?.code, message: e?.message });
+    return [];
+  }
+}
+
+/** Сколько мест в ленте «Исследовать»: столько же, сколько туров в витрине. */
+export const EXPLORE_LIMIT = 8;
+
+export async function fetchExplore(): Promise<ExplorePlace[]> {
+  // Та же выдача, что у каталога мест (/routes?kind=place), тем же порядком
+  // `recommended`: места со снимком впереди, без снимка — в конце (решение
+  // владельца 20.09). Своей сортировки и своего отбора здесь нет — иначе
+  // главная и каталог отвечали бы на один вопрос по-разному.
+  try {
+    const { items } = await queryCatalog({ kind: 'place', page: 1, limit: EXPLORE_LIMIT, sort: 'recommended' });
+    return items.map((it) => ({
+      id: it.id,
+      title: it.title,
+      typeLabel: locationTypeLabel(it.locationType),
+      description: (it.description || '').slice(0, 140),
+      imageUrl: it.imageUrl ?? null,
+    }));
+  } catch (err) {
+    // Пусто — блок не рисуется; но «мест нет» и «запрос упал» различимы только
+    // в логе, и молчать здесь нельзя (§4.0).
+    const e = err as { code?: string; message?: string } | undefined;
+    console.error('[home] fetchExplore не выполнен', { sqlstate: e?.code, message: e?.message });
     return [];
   }
 }
@@ -717,9 +763,9 @@ export async function getSafetyLiveData(): Promise<SafetyLiveData> {
 }
 
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [live, zones, plates, feedItems, counts, geometry] = await Promise.all([
+  const [live, zones, plates, explore, feedItems, counts, geometry] = await Promise.all([
     getSafetyLiveData(),
-    fetchZones(), fetchPlates(), fetchFeed(),
+    fetchZones(), fetchPlates(), fetchExplore(), fetchFeed(),
     getPlatformCounts().catch(() => null),
     // Сам пишет в лог и отдаёт null при отказе — своего catch здесь не нужно.
     countRoutesWithoutGeometry(),
@@ -728,5 +774,5 @@ export async function getHomeV8Data(): Promise<HomeV8Data> {
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, feed: feedItems, stats, elements, geometry };
+  return { ...live, zones, plates, explore, feed: feedItems, stats, elements, geometry };
 }

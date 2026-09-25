@@ -74,7 +74,7 @@ describe('важность видна цветом, а не только пор�
  * интерактивные, с раскрытием при тапе и закрытием».
  */
 describe('строка предупреждения раскрывается и закрывается тапом', () => {
-  const block = HOME.slice(HOME.indexOf('<section className="alerts-now"'), HOME.indexOf('</section>', HOME.indexOf('<section className="alerts-now"')));
+  const block = HOME.slice(HOME.indexOf('<div className="alerts-now"'), HOME.indexOf('</div>', HOME.indexOf('<div className="alerts-now"')));
 
   it('строка — кнопка с aria-expanded, повторный тап закрывает', () => {
     expect(block).toMatch(/<button\s+type="button"\s+className="an-row"\s+aria-expanded=\{open\}/);

@@ -12,7 +12,7 @@ import { orderPlates, PLATES_LIMIT } from '@/lib/home/plate-facts';
 import type { CatalogAvailability } from '@/lib/tours/catalog-availability';
 
 const data = readFileSync(join(process.cwd(), 'app/_home/data.ts'), 'utf-8');
-const plates = data.slice(data.indexOf('async function fetchPlates'), data.indexOf('async function fetchFeed'));
+const plates = data.slice(data.indexOf('async function fetchPlates'), data.indexOf('export const EXPLORE_LIMIT'));
 
 describe('главная: платы = туры операторов', () => {
   it('fetchPlates берёт из operator_tours, а не из каталога мест/маршрутов', () => {
@@ -41,9 +41,20 @@ describe('главная: платы = туры операторов', () => {
     expect(search).toMatch(/\$\{hasAvailabilitySql\(\)\} as has_availability/);
     expect(search.match(/FROM tour_availability/g) ?? []).toHaveLength(1);
   });
-  it('не добивает витрину маршрутами (queryCatalog убран)', () => {
-    expect(data).not.toContain('queryCatalog');
+  it('не добивает витрину маршрутами (queryCatalog в турах убран)', () => {
+    // С 25.09 queryCatalog в data.ts есть — им «Исследовать» берёт МЕСТА
+    // (fetchExplore). Запрет держится там, где он имеет смысл: в витрине туров.
+    expect(plates).not.toContain('queryCatalog');
     expect(plates).not.toMatch(/kind: 'route'/);
+  });
+  it('«Исследовать» — места, и только места: туры туда не возвращаются', () => {
+    const at = data.indexOf('export async function fetchExplore');
+    const explore = data.slice(at, data.indexOf('\n}\n', at));
+    expect(at).toBeGreaterThan(-1);
+    expect(explore).toMatch(/queryCatalog\(\{ kind: 'place'/);
+    expect(explore).not.toMatch(/operator_tours|kind: 'tour'|kind: 'route'/);
+    // Отказ не молчит: «мест нет» и «запрос упал» различимы в логе (§4.0).
+    expect(explore).toMatch(/console\.error\('\[home\] fetchExplore не выполнен'/);
   });
   it('честная пустота: нет туров → пустой массив, но отказ не молчит', () => {
     // До 24.09 здесь требовался ровно `catch { return []; }` — то есть сторож
