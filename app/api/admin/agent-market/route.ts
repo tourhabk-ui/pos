@@ -5,11 +5,17 @@ import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
+const StatusSchema = z.enum(['all', 'pending', 'confirmed', 'expired']).default('pending');
+
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError instanceof NextResponse) return authError;
 
-  const status = request.nextUrl.searchParams.get('status') ?? 'pending';
+  const parsedStatus = StatusSchema.safeParse(request.nextUrl.searchParams.get('status') ?? undefined);
+  if (!parsedStatus.success) {
+    return NextResponse.json({ error: 'Некорректный статус' }, { status: 400 });
+  }
+  const status = parsedStatus.data;
 
   const { rows } = await pool.query<{
     payment_id: string;
@@ -36,10 +42,11 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ payments: rows, count: rows.length });
 }
 
+// confirmed_by больше не принимается телом: кто подтвердил — это
+// администратор из JWT, а не строка, которую прислал клиент (26.09).
 const ConfirmSchema = z.object({
   payment_id: z.string().uuid(),
-  tx_id: z.string().optional(),
-  confirmed_by: z.string().min(1).default('admin'),
+  tx_id: z.string().trim().max(200).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -56,17 +63,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ошибка валидации', details: parsed.error.flatten() }, { status: 422 });
   }
 
-  const { payment_id, tx_id, confirmed_by } = parsed.data;
+  const { payment_id, tx_id } = parsed.data;
 
+  // Подтверждается только ещё не истёкший платёж: истёкший ответ API уже
+  // заменил новым payment_id, и подтверждение старого открыло бы данные по
+  // платежу, срок которого вышел.
   const { rowCount } = await pool.query(
     `UPDATE agent_market_payments
      SET status = 'confirmed', confirmed_at = NOW(), confirmed_by = $2, tx_id = $3
-     WHERE payment_id = $1 AND status = 'pending'`,
-    [payment_id, confirmed_by, tx_id ?? null],
+     WHERE payment_id = $1 AND status = 'pending' AND expires_at > NOW()`,
+    [payment_id, authError.userId, tx_id ?? null],
   );
 
   if (!rowCount) {
-    return NextResponse.json({ error: 'Платёж не найден или уже обработан' }, { status: 404 });
+    return NextResponse.json({ error: 'Платёж не найден, уже обработан или его срок истёк' }, { status: 404 });
   }
 
   return NextResponse.json({ ok: true, payment_id, status: 'confirmed' });

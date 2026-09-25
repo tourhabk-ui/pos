@@ -61,6 +61,10 @@ export async function PATCH(
   // письма обязан говорить о том, что одобрено. Гиду «публикуйте туры» и
   // ссылка в кабинет оператора — неправда.
   const isGuide = partner.category === 'guide';
+  // Агент (решение владельца 26.09) работает только после одобрения: до него
+  // кабинет открыт, а продажи и выплаты закрыты (lib/auth/agent-approval.ts).
+  // Публичной витрины агентов нет — одобрение не делает его видимым туристам.
+  const isAgent = partner.category === 'agent';
   const logSendFailure = (channel: string) => (err: unknown) => {
     console.error(`[admin/operators] ${channel} о решении не отправлено:`, `partner=${id}`,
       err instanceof Error ? err.message : String(err));
@@ -71,7 +75,7 @@ export async function PATCH(
       UPDATE partners
       SET profile_status = 'approved',
           is_verified    = TRUE,
-          is_public      = TRUE,
+          is_public      = CASE WHEN category = 'agent' THEN is_public ELSE TRUE END,
           verified_at    = NOW(),
           verified_by    = $2,
           updated_at     = NOW()
@@ -90,8 +94,13 @@ export async function PATCH(
     // Email оператору
     emailService.sendEmail({
       to: partner.email,
-      subject: isGuide ? 'Профиль гида одобрен — Ведар' : 'Ваша заявка одобрена — TourHub',
-      html: isGuide
+      subject: isAgent ? 'Кабинет агента открыт — Ведар'
+        : isGuide ? 'Профиль гида одобрен — Ведар' : 'Ваша заявка одобрена — TourHub',
+      html: isAgent
+        ? `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
+             <p>Профиль агента <b>${partner.company_name}</b> проверен и одобрен. Теперь вы можете оформлять брони для клиентов, делиться реферальными ссылками и запрашивать выплату вознаграждения.</p>
+             <p><a href="https://vedarai.ru/hub/agent">Перейти в кабинет агента →</a></p>`
+        : isGuide
         ? `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
              <p>Профиль гида <b>${partner.company_name}</b> проверен и одобрен. Теперь он виден туристам в реестре гидов.</p>
              <p><a href="https://vedarai.ru/guides/${partner.id}">Открыть профиль на сайте →</a></p>`
@@ -114,7 +123,9 @@ export async function PATCH(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: isGuide
+            text: isAgent
+              ? `Ваш профиль агента одобрен: кабинет открыт для продаж и выплат.\nhttps://vedarai.ru/hub/agent`
+              : isGuide
               ? `Ваш профиль гида одобрен и виден туристам в реестре гидов.\nhttps://vedarai.ru/guides/${partner.id}`
               : `Ваша заявка одобрена! Теперь вы можете публиковать туры на TourHub.\nhttps://vedarai.ru/hub/operator`,
           }),
@@ -122,7 +133,7 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json({ success: true, message: isGuide ? 'Гид одобрен' : 'Оператор одобрен' });
+    return NextResponse.json({ success: true, message: isAgent ? 'Агент одобрен' : isGuide ? 'Гид одобрен' : 'Оператор одобрен' });
 
   } else {
     await query(`
@@ -146,8 +157,9 @@ export async function PATCH(
       to: partner.email,
       subject: 'Статус заявки — TourHub',
       html: `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
-             <p>К сожалению, ${isGuide ? 'профиль гида' : 'заявка компании'} <b>${partner.company_name}</b> не прошла проверку.</p>
+             <p>К сожалению, ${isAgent ? 'профиль агента' : isGuide ? 'профиль гида' : 'заявка компании'} <b>${partner.company_name}</b> не прошла проверку.</p>
              ${isGuide ? '<p>Исправьте профиль в кабинете гида и отправьте его на проверку снова.</p>' : ''}
+             ${isAgent ? '<p>Исправьте профиль в кабинете агента (раздел «Профиль») и отправьте его на проверку снова.</p>' : ''}
              ${comment ? `<p><b>Комментарий:</b> ${comment}</p>` : ''}
              <p>По вопросам: <a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>`,
     }).catch(logSendFailure('email'));

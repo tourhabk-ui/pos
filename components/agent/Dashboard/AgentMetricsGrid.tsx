@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Wallet, CreditCard, Users, Handshake, Receipt, Percent, Clock, XCircle,
+  Wallet, CreditCard, Users, Handshake, Receipt, Clock, XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { MetricCard } from '../../admin/shared/MetricCard';
@@ -19,53 +19,73 @@ function MetricIcon({ icon: Icon }: { icon: LucideIcon }) {
   );
 }
 
+/**
+ * Метрики обзора агента (GET /api/agent/dashboard, разбор 26.09): продажи —
+ * брони оператора с agent_user_id; выручка — только оплаченные и не
+ * отменённые; вознаграждение — из единственной функции денег агента. Где
+ * числа нет (ставка не назначена, нет оплаченных броней), приходит null и
+ * показываются слова, а не «0 ₽».
+ */
 interface AgentMetrics {
   totalClients: number;
   activeClients: number;
   totalBookings: number;
-  pendingBookings: number;
-  confirmedBookings: number;
+  unpaidBookings: number;
   completedBookings: number;
   cancelledBookings: number;
-  totalRevenue: number;
-  monthlyRevenue: number;
-  totalCommission: number;
-  pendingCommission: number;
-  averageBookingValue: number;
-  conversionRate: number;
+  paidBookings: number;
+  paidRevenue: number;
+  averageBookingValue: number | null;
+}
+
+interface AgentCommission {
+  rate: number | null;
+  waiting: number | null;
+  payable: number | null;
+  requested: number;
+  paidOut: number;
+  flagged: number;
 }
 
 interface AgentMetricsGridProps {
   period?: string;
 }
 
+function rub(v: number): string {
+  return `${v.toLocaleString('ru-RU')} ₽`;
+}
+
 export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
+  const [commission, setCommission] = useState<AgentCommission | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchMetrics();
+  // Состояние меняется только после ответа: синхронный setState в эффекте
+  // даёт лишний проход рендера. «Повторить» выставляет загрузку само.
+  const fetchMetrics = useCallback(() => {
+    const params = new URLSearchParams({ period });
+    return fetch(`/api/agent/dashboard?${params}`)
+      .then(async (response) => {
+        const result = await response.json().catch(() => null) as {
+          success?: boolean; error?: string;
+          data?: { metrics: AgentMetrics; commission: AgentCommission };
+        } | null;
+        if (response.ok && result?.success && result.data) {
+          setMetrics(result.data.metrics);
+          setCommission(result.data.commission);
+          setError(null);
+        } else {
+          setError(result?.error ?? 'Ошибка загрузки метрик');
+        }
+      })
+      .catch(() => setError('Сеть недоступна — метрики не загружены'))
+      .finally(() => setLoading(false));
   }, [period]);
 
-  const fetchMetrics = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams({ period });
-      const response = await fetch(`/api/agent/dashboard?${params}`);
-      const result = await response.json();
-
-      if (result.success) {
-        setMetrics(result.data.metrics);
-      } else {
-        setError(result.error);
-      }
-    } catch (err) {
-      setError('Ошибка загрузки метрик');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    void fetchMetrics();
+  }, [fetchMetrics]);
 
   if (loading) {
     return (
@@ -75,12 +95,12 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
     );
   }
 
-  if (error) {
+  if (error || !metrics || !commission) {
     return (
       <div className="bg-[var(--bg-card)] border border-[var(--danger)]/30 rounded-lg p-6 text-center">
-        <p className="text-[var(--danger)] mb-4">Ошибка загрузки метрик</p>
+        <p className="text-[var(--danger)] mb-4">{error ?? 'Ошибка загрузки метрик'}</p>
         <button
-          onClick={fetchMetrics}
+          onClick={() => { setLoading(true); setError(null); void fetchMetrics(); }}
           className="px-4 py-2 border border-[var(--danger)]/30 text-[var(--danger)] rounded-md text-sm transition-colors hover:bg-[var(--bg-hover)]"
         >
           Повторить
@@ -89,24 +109,28 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
     );
   }
 
-  if (!metrics) return null;
+  const earned = commission.rate === null
+    ? null
+    : (commission.waiting ?? 0) + (commission.payable ?? 0) + commission.requested + commission.paidOut;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       <MetricCard
-        title="Общий доход"
-        value={`${metrics.totalRevenue.toLocaleString('ru-RU')} ₽`}
-        subtitle={`за ${period} дней`}
+        title="Оплаченные продажи"
+        value={rub(metrics.paidRevenue)}
+        subtitle={`${metrics.paidBookings} броней за ${period} дней`}
         icon={<MetricIcon icon={Wallet} />}
-        trend={metrics.totalRevenue > 0 ? 'up' : 'neutral'}
+        trend={metrics.paidRevenue > 0 ? 'up' : 'neutral'}
       />
 
       <MetricCard
-        title="Комиссионные"
-        value={`${metrics.totalCommission.toLocaleString('ru-RU')} ₽`}
-        subtitle={`${metrics.pendingCommission.toLocaleString('ru-RU')} ₽ ожидает`}
+        title="Вознаграждение"
+        value={earned === null ? 'ставка не назначена' : rub(earned)}
+        subtitle={commission.payable === null
+          ? 'начисления не считаются'
+          : `${rub(commission.payable)} можно запросить`}
         icon={<MetricIcon icon={CreditCard} />}
-        trend={metrics.totalCommission > 0 ? 'up' : 'neutral'}
+        trend={earned !== null && earned > 0 ? 'up' : 'neutral'}
       />
 
       <MetricCard
@@ -127,26 +151,18 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
 
       <MetricCard
         title="Средний чек"
-        value={`${metrics.averageBookingValue.toLocaleString('ru-RU')} ₽`}
-        subtitle="на бронирование"
+        value={metrics.averageBookingValue === null ? 'нет оплаченных' : rub(metrics.averageBookingValue)}
+        subtitle="по оплаченным броням"
         icon={<MetricIcon icon={Receipt} />}
-        trend={metrics.averageBookingValue > 5000 ? 'up' : 'neutral'}
+        trend="neutral"
       />
 
       <MetricCard
-        title="Конверсия"
-        value={`${metrics.conversionRate.toFixed(1)}%`}
-        subtitle="завершенных бронирований"
-        icon={<MetricIcon icon={Percent} />}
-        trend={metrics.conversionRate > 70 ? 'up' : 'down'}
-      />
-
-      <MetricCard
-        title="Ожидает оплаты"
-        value={metrics.pendingBookings.toString()}
+        title="Ждёт оплаты"
+        value={metrics.unpaidBookings.toString()}
         subtitle="бронирований"
         icon={<MetricIcon icon={Clock} />}
-        trend={metrics.pendingBookings > 5 ? 'down' : 'neutral'}
+        trend="neutral"
       />
 
       <MetricCard
@@ -154,9 +170,8 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         value={metrics.cancelledBookings.toString()}
         subtitle="бронирований"
         icon={<MetricIcon icon={XCircle} />}
-        trend={metrics.cancelledBookings > metrics.totalBookings * 0.1 ? 'down' : 'neutral'}
+        trend="neutral"
       />
     </div>
   );
 }
-

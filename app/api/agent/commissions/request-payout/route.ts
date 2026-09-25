@@ -1,108 +1,126 @@
+/**
+ * POST /api/agent/commissions/request-payout — агент запрашивает выплату.
+ *
+ * ── Что было ───────────────────────────────────────────────────────────────
+ * Прежний обработчик не выполнялся НИ РАЗУ: вставлял текстовый id
+ * 'payout-…' в uuid-колонку commission_payouts (22P02), переводил
+ * agent_commissions в 'processing', которого нет в CHECK, и глушил отказ
+ * пустым catch. Кнопки, которая бы его звала, не было вовсе.
+ *
+ * ── Что теперь (решение владельца 26.09) ───────────────────────────────────
+ * Доступно только ОДОБРЕННОМУ агенту (requireApprovedAgent). В заявку входят
+ * продажи в состоянии «к выплате» из единственной функции денег агента:
+ * оплачены, не отменены, конец тура + 36 ч прошёл, ещё не запрошены и не
+ * выплачены. Сумма и ставка каждой брони фиксируются снимком
+ * (agent_payout_items) — смена ставки их не перепишет.
+ *
+ * Всё в одной транзакции, и запись агента берётся FOR UPDATE: две заявки
+ * одного агента выстраиваются в очередь, вторая дожидается и честно получает
+ * «уже есть открытая заявка». SKIP LOCKED здесь не годится — он пропустил бы
+ * занятое и создал пустую или частичную заявку вместо отказа. Страховка в
+ * базе — два уникальных индекса миграции 1026: одна открытая заявка на
+ * агента, одна живая позиция на бронь (дважды не выплатить).
+ *
+ * Деньги переводит администратор вне платформы и отмечает факт с
+ * основанием (/api/admin/agent-commission/payouts).
+ */
 import { NextRequest, NextResponse } from 'next/server';
-import { transaction } from '@/lib/database';
-import { ApiResponse } from '@/types';
-import { requireAgent } from '@/lib/auth/middleware';
 import { z } from 'zod';
-
-const RequestPayoutSchema = z.object({
-  paymentMethod: z.string().optional().default('bank_transfer'),
-});
+import { transaction } from '@/lib/database';
+import { requireApprovedAgent } from '@/lib/auth/agent-approval';
+import {
+  AGENT_MONEY_SQL, loadAgentMoney, payableForRequest, logAgentMoneyFailure, sqlstateOf,
+} from '@/lib/payments/agent-commission';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * POST /api/agent/commissions/request-payout - Запросить выплату комиссионных
- */
+const RequestPayoutSchema = z.object({
+  paymentMethod: z.enum(['bank_transfer', 'card', 'sbp']).default('bank_transfer'),
+  comment: z.string().trim().max(500).optional(),
+});
+
+type Outcome =
+  | { kind: 'ok'; payoutId: string; createdAt: string; totalAmount: number; bookingCount: number }
+  | { kind: 'reject'; status: number; error: string };
+
 export async function POST(request: NextRequest) {
+  const auth = await requireApprovedAgent(request);
+  if (auth instanceof NextResponse) return auth;
+
+  const body: unknown = await request.json().catch(() => ({}));
+  const parsed = RequestPayoutSchema.safeParse(body ?? {});
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
+      { status: 400 },
+    );
+  }
+  const { paymentMethod, comment } = parsed.data;
+
   try {
-    const userOrResponse = await requireAgent(request);
-    if (userOrResponse instanceof NextResponse) return userOrResponse;
+    const outcome = await transaction<Outcome>(async (client) => {
+      // Замок на записи агента — первым запросом: дальше всё под ним.
+      const money = await loadAgentMoney(client, auth.userId, true);
+      if (!money.profile) {
+        return { kind: 'reject', status: 409, error: 'Профиль агента не найден — заполните его в кабинете' };
+      }
+      if (money.rate === null) {
+        return { kind: 'reject', status: 409, error: 'Ставка вознаграждения не назначена — выплату запросить нельзя' };
+      }
 
-    const agentId = userOrResponse.userId;
-    const body = await request.json();
-    const parsed = RequestPayoutSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' } as ApiResponse<null>,
-        { status: 400 }
+      const open = await client.query<{ id: string }>(AGENT_MONEY_SQL.openPayout, [auth.userId]);
+      if (open.rows.length > 0) {
+        return { kind: 'reject', status: 409, error: 'У вас уже есть открытая заявка на выплату — дождитесь решения администратора' };
+      }
+
+      const items = payableForRequest(money.sales);
+      const total = Math.round(items.reduce((s, i) => s + (i.amount ?? 0), 0) * 100) / 100;
+      if (items.length === 0 || total <= 0) {
+        return { kind: 'reject', status: 400, error: 'Нет продаж, готовых к выплате' };
+      }
+
+      const payout = await client.query<{ id: string; created_at: string }>(
+        AGENT_MONEY_SQL.insertPayout,
+        [auth.userId, total, paymentMethod, comment ?? null],
       );
-    }
-    const { paymentMethod } = parsed.data;
+      const payoutId = payout.rows[0].id;
+      await client.query(AGENT_MONEY_SQL.insertItems, [
+        payoutId,
+        auth.userId,
+        items.map((i) => i.bookingId),
+        items.map((i) => i.saleAmount),
+        items.map((i) => i.rate),
+        items.map((i) => i.amount),
+      ]);
 
-    /**
-     * Всё — в одной транзакции, и pending-комиссии берутся под замок.
-     *
-     * Прежде три запроса шли по отдельности: читаем pending, создаём выплату,
-     * переводим комиссии в processing. Между первым и третьим окно, в которое
-     * помещается второй такой же запрос — и он прочитает те же строки, ещё не
-     * ставшие processing. Итог: две выплаты на одни и те же комиссии, то есть
-     * агенту платят дважды. Кнопку «запросить выплату» нажимают дважды
-     * буднично: подвисла сеть, показалось, что не сработало.
-     *
-     * FOR UPDATE держит строки до конца транзакции: второй запрос ждёт, а
-     * дождавшись, не увидит их в pending и честно ответит «нечего выплачивать».
-     * SKIP LOCKED здесь НЕ годится — он бы дал второму запросу пропустить
-     * занятые строки и создать пустую или частичную выплату вместо отказа.
-     * (В кроне payouts SKIP LOCKED уместен: там задача разгрести очередь
-     * параллельно, а не ответить одному человеку на одно нажатие.)
-     */
-    const payoutId = `payout-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-
-    const result = await transaction(async (client) => {
-      const commissionsResult = await client.query<{ id: string; amount: string }>(
-        `SELECT id, amount FROM agent_commissions
-          WHERE agent_id = $1 AND status = 'pending'
-          FOR UPDATE`,
-        [agentId],
-      );
-
-      if (commissionsResult.rows.length === 0) return null;
-
-      const totalAmount = commissionsResult.rows.reduce((sum, row) => sum + parseFloat(row.amount), 0);
-      const commissionIds = commissionsResult.rows.map((row) => row.id);
-
-      const payoutResult = await client.query<{ id: string; created_at: unknown }>(
-        `INSERT INTO commission_payouts (
-           id, agent_id, total_amount, status, payment_method, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-         RETURNING id, created_at`,
-        [payoutId, agentId, totalAmount, 'pending', paymentMethod],
-      );
-
-      await client.query(
-        `UPDATE agent_commissions
-            SET status = 'processing', payout_reference = $1, updated_at = NOW()
-          WHERE id = ANY($2::uuid[])`,
-        [payoutId, commissionIds],
-      );
-
-      return { payout: payoutResult.rows[0], totalAmount, commissionCount: commissionIds.length };
+      return { kind: 'ok', payoutId, createdAt: payout.rows[0].created_at, totalAmount: total, bookingCount: items.length };
     });
 
-    if (result === null) {
-      return NextResponse.json(
-        { success: false, error: 'Нет ожидающих комиссионных для выплаты' } as ApiResponse<null>,
-        { status: 400 },
-      );
+    if (outcome.kind === 'reject') {
+      return NextResponse.json({ success: false, error: outcome.error }, { status: outcome.status });
     }
-
     return NextResponse.json({
       success: true,
       data: {
-        payoutId: result.payout.id,
-        totalAmount: result.totalAmount,
-        commissionCount: result.commissionCount,
-        createdAt: result.payout.created_at,
+        payoutId: outcome.payoutId,
+        totalAmount: outcome.totalAmount,
+        bookingCount: outcome.bookingCount,
+        createdAt: outcome.createdAt,
       },
-      message: 'Запрос на выплату комиссионных успешно создан',
-    } as ApiResponse<unknown>);
-  } catch (error) {
+      message: 'Заявка на выплату отправлена администратору',
+    });
+  } catch (err) {
+    // 23505 — сработал уникальный индекс: параллельная заявка успела первой.
+    if (sqlstateOf(err) === '23505') {
+      return NextResponse.json(
+        { success: false, error: 'Заявка уже создана или брони уже запрошены — обновите страницу' },
+        { status: 409 },
+      );
+    }
+    logAgentMoneyFailure('POST /api/agent/commissions/request-payout', err);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Ошибка при создании запроса на выплату',
-      } as ApiResponse<null>,
-      { status: 500 }
+      { success: false, error: 'Не удалось создать заявку на выплату', sqlstate: sqlstateOf(err) },
+      { status: 503 },
     );
   }
 }

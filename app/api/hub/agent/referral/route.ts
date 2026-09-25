@@ -16,8 +16,9 @@
  * Теперь ссылка создаётся БЕЗ ставки. NULL здесь — «не назначена», и это не
  * ноль и не десять: умолчание снято миграцией 1005 именно потому, что
  * молчаливая десятка была денежным решением, принятым без человека.
- * Назначает ставку ВЛАДЕЛЕЦ своей рукой — POST /api/admin/agent-referral/rate,
- * с автором и основанием. Не «платформа»: платформа ничего не решает, она
+ * Назначает ставку ВЛАДЕЛЕЦ своей рукой — с 26.09 одну на агента, а не на
+ * ссылку: POST /api/admin/agent-commission/rate, с автором и основанием
+ * (у брони, оформленной агентом за клиента, ссылки нет вовсе). Не «платформа»: платформа ничего не решает, она
  * записывает решение человека. Слово здесь важно ровно настолько же, как в
  * §7, где сказано «назначает владелец», а не «назначается».
  *
@@ -32,8 +33,14 @@
  * путь однажды: `/api/bookings/tour` брал так комиссию платформы и молча
  * получал НОЛЬ (§7). Здесь та же ловушка с другой стороны: показать агенту
  * «заработано 0 ₽» при неназначенной ставке значит соврать числом. Поэтому
- * `earned_total` остаётся null, итог считается только по ссылкам со ставкой,
- * а число ссылок без неё идёт рядом.
+ * без ставки агента `earned_total` и `totalEarned` — null.
+ *
+ * ── Деньги — из одной функции (26.09) ─────────────────────────────────────
+ *
+ * Прежде GET считал «заработано» как все оплаченные брони × ставку ссылки —
+ * включая ОТМЕНЁННЫЕ. Теперь ссылка даёт только воронку (клики, брони), а
+ * рубли приходят из lib/payments/agent-commission.ts — той же функции, что
+ * у экрана комиссий и заявки на выплату: оплачено, не отменено.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -42,6 +49,22 @@ import { requireApprovedAgent } from '@/lib/auth/agent-approval';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
 import { randomBytes } from 'crypto';
+import { loadAgentMoney, logAgentMoneyFailure, sqlstateOf, type SaleState } from '@/lib/payments/agent-commission';
+
+/** Продажа начислена: оплачена и не отменена (ждёт, к выплате, запрошена, выплачена). */
+const EARNED_STATES: ReadonlySet<SaleState> = new Set<SaleState>(['waiting', 'payable', 'requested', 'paid_out']);
+
+interface LinkRow {
+  id: string;
+  code: string;
+  tour_id: number | null;
+  clicks: number | null;
+  expires_at: string | null;
+  is_active: boolean | null;
+  created_at: string;
+  tour_title: string | null;
+  conversions: number;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -54,56 +77,58 @@ export async function GET(request: NextRequest) {
   const auth = await requireAgent(request);
   if (auth instanceof NextResponse) return auth;
 
-  // Конверсии и заработок считаем ЖИВО из источника истины
-  // operator_bookings.referral_link_id (миграция 727), а не из сломанного
-  // прежде join к agent_bookings (UUID vs BIGINT). rl.conversions — легаси-кэш.
-  // conversions — все атрибутированные брони (воронка); earned_total — только
-  // оплаченные (payment_status='paid'), чтобы отменённые/неоплаченные не раздували заработок.
-  let rows;
   try {
-    ({ rows } = await pool.query(
-    `SELECT
-       rl.id, rl.code, rl.tour_id, rl.clicks,
-       rl.commission_rate, rl.expires_at, rl.is_active, rl.created_at,
-       ot.title AS tour_title,
-       (SELECT COUNT(*) FROM operator_bookings ob WHERE ob.referral_link_id = rl.id)::int AS conversions,
-       COALESCE(
-         (SELECT SUM(ob.final_price) FROM operator_bookings ob
-           WHERE ob.referral_link_id = rl.id AND ob.payment_status = 'paid'), 0
-       ) * rl.commission_rate / 100 AS earned_total,
-       (rl.commission_rate IS NULL) AS rate_unset
-     FROM agent_referral_links rl
-     LEFT JOIN operator_tours ot ON ot.id = rl.tour_id
-     WHERE rl.agent_id = $1
-     ORDER BY rl.created_at DESC`,
-    [auth.userId]
-    ));
+    // Воронка по ссылке — все атрибутированные брони (operator_bookings.
+    // referral_link_id, миграция 727); rl.conversions — легаси-кэш.
+    const { rows } = await pool.query<LinkRow>(
+      `SELECT
+         rl.id, rl.code, rl.tour_id, rl.clicks,
+         rl.expires_at, rl.is_active, rl.created_at,
+         ot.title AS tour_title,
+         (SELECT COUNT(*) FROM operator_bookings ob WHERE ob.referral_link_id = rl.id)::int AS conversions
+       FROM agent_referral_links rl
+       LEFT JOIN operator_tours ot ON ot.id = rl.tour_id
+       WHERE rl.agent_id = $1
+       ORDER BY rl.created_at DESC`,
+      [auth.userId]
+    );
+
+    // Деньги — ТОЛЬКО из единственной функции денег агента: начислено с
+    // оплаченных и не отменённых продаж по текущей ставке агента (снимок —
+    // у запрошенных и выплаченных). Прежде здесь суммировались все
+    // оплаченные брони × ставку ссылки, включая отменённые.
+    const money = await loadAgentMoney(pool, auth.userId);
+    const earnedFor = (linkId: string): number | null => {
+      if (money.rate === null) return null;
+      const amounts = money.sales
+        .filter((s) => s.referralLinkId === linkId && EARNED_STATES.has(s.state))
+        .map((s) => s.amount ?? 0);
+      return Math.round(amounts.reduce((a, b) => a + b, 0) * 100) / 100;
+    };
+    const data = rows.map((r) => ({
+      ...r,
+      paid_sales: money.sales.filter((s) => s.referralLinkId === r.id && EARNED_STATES.has(s.state)).length,
+      earned_total: earnedFor(r.id),
+    }));
+
+    const stats = {
+      totalClicks:      rows.reduce((s, r) => s + Number(r.clicks ?? 0), 0),
+      totalConversions: rows.reduce((s, r) => s + Number(r.conversions), 0),
+      // null — ставка агента не назначена: считать нечем, это не ноль.
+      totalEarned:      money.rate === null
+        ? null
+        : Math.round(data.reduce((s, r) => s + (r.earned_total ?? 0), 0) * 100) / 100,
+      rate:             money.rate,
+    };
+
+    return NextResponse.json({ success: true, data, stats });
   } catch (err) {
-    console.error(`[hub/agent/referral] ссылки не прочитаны, SQLSTATE ${sqlstateOf(err)}:`,
-      err instanceof Error ? err.message : err);
+    logAgentMoneyFailure('GET /api/hub/agent/referral', err);
     return NextResponse.json(
-      { success: false, error: 'Не удалось загрузить ссылки. Попробуйте позже.' },
-      { status: 500 },
+      { success: false, error: 'Не удалось загрузить реферальные ссылки', sqlstate: sqlstateOf(err) },
+      { status: 503 },
     );
   }
-
-  // Итог по деньгам считается ТОЛЬКО по ссылкам со ставкой. Ссылка без
-  // ставки не даёт нуля — она не даёт ничего, и её число выносится рядом,
-  // чтобы «заработано 0 ₽» не читалось как «вы ничего не заработали», когда
-  // верный ответ — «ставка ещё не назначена».
-  const withRate = rows.filter(r => r.commission_rate !== null);
-  const stats = {
-    totalClicks:      rows.reduce((s, r) => s + Number(r.clicks), 0),
-    totalConversions: rows.reduce((s, r) => s + Number(r.conversions), 0),
-    totalEarned:      withRate.reduce((s, r) => s + Number(r.earned_total ?? 0), 0),
-    linksWithoutRate: rows.length - withRate.length,
-  };
-
-  return NextResponse.json({ success: true, data: rows, stats });
-}
-
-function sqlstateOf(err: unknown): string {
-  return (err as { code?: string }).code ?? 'нет SQLSTATE';
 }
 
 export async function POST(request: NextRequest) {

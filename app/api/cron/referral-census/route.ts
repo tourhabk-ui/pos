@@ -23,9 +23,12 @@
  * ── Что считается и почему именно так ─────────────────────────────────────
  *
  * `promised_total` — та самая сумма, которую кабинет показывает агентам как
- * заработанную. Считается ТЕМ ЖЕ выражением, что и в кабинете
- * (`SUM(final_price) FILTER (payment_status='paid') * commission_rate / 100`),
- * а не своим: перепись, считающая по-своему, меряет не то, что видит человек.
+ * начисленную по ссылкам. С 26.09 кабинет считает её единственной функцией
+ * денег агента (lib/payments/agent-commission.ts): ставка АГЕНТА
+ * (partners.agent_commission_rate), только оплаченные и не отменённые брони.
+ * Перепись повторяет то же правило, а не своё: считающая по-своему меряет не
+ * то, что видит человек. Ставки ссылок ниже (`links.rate_*`, `by_rate`) —
+ * историческая колонка: деньги её больше не читают.
  *
  * Ставка NULL — это «не назначена», и она НЕ приводится к нулю и не к
  * десяти. Такие ссылки идут отдельным счётчиком: ноль процентов и «процент
@@ -42,6 +45,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
+import { CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -105,13 +109,17 @@ async function bookings() {
             COUNT(*) FILTER (WHERE ob.payment_status = 'paid')::text               AS attributed_paid,
             COALESCE(SUM(ob.final_price)
                      FILTER (WHERE ob.payment_status = 'paid'), 0)::text           AS paid_amount,
-            -- ТО ЖЕ выражение, что показывает кабинет агента: считать по-своему
-            -- значило бы мерить не ту сумму, которую видит человек.
-            COALESCE(SUM(ob.final_price * rl.commission_rate / 100)
-                     FILTER (WHERE ob.payment_status = 'paid'), 0)::text           AS promised_total
+            -- ТО ЖЕ правило, что у денег агента (lib/payments/agent-commission):
+            -- ставка агента, только оплаченные и НЕ отменённые. Ставка NULL
+            -- даёт NULL в сумме и не складывается — «не назначена» не ноль.
+            COALESCE(SUM(ob.final_price * p.agent_commission_rate / 100)
+                     FILTER (WHERE ob.payment_status = 'paid'
+                               AND NOT (ob.booking_status = ANY($1::text[]))), 0)::text AS promised_total
        FROM operator_bookings ob
        JOIN agent_referral_links rl ON rl.id = ob.referral_link_id
+       LEFT JOIN partners p ON p.user_id = ob.agent_user_id AND p.category = 'agent'
       WHERE ob.referral_link_id IS NOT NULL`,
+    [CANCELLED_STATUS_PARAM],
   );
   return rows[0];
 }
