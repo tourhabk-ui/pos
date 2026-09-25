@@ -1,19 +1,91 @@
 {
-  "note": "25.09, прогон 589. ТОЛЬКО ЧТЕНИЕ. Прогон 588 покраснел зря: маркер until проверялся и на version.json. Сборка 02:41 уже после 533c32c — снимаем qwen_tools_path.",
-  "run": 589,
+  "note": "25.09, прогон 590. ТОЛЬКО ЧТЕНИЕ. Приёмка MCP после 837cf54: get_weather по координатам и по месту, новый get_volcano_status. Датчик — tools/list с маркером get_volcano_status.",
+  "run": 590,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 20,
-  "allowStale": true,
-  "bytes": 12000,
-  "around": [
-    "qwen_tools_path",
-    "qwen_ping"
-  ],
-  "aroundLines": 0,
-  "aroundBefore": 0,
-  "aroundHits": 2,
-  "urls": [
-    "https://vedarai.ru/api/cron/ai-models?ping=1"
+  "retries": 50,
+  "retryDelay": 60,
+  "allowStale": false,
+  "until": "get_volcano_status",
+  "bytes": 4000,
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+          "name": "get_weather",
+          "arguments": {
+            "lat": "52.45",
+            "lng": "158.19",
+            "days": "2"
+          }
+        }
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "get_weather",
+          "arguments": {
+            "place": "Мутновский"
+          }
+        }
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+          "name": "get_weather",
+          "arguments": {
+            "lat": "52.45"
+          }
+        }
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
+          "name": "get_volcano_status",
+          "arguments": {}
+        }
+      }
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+          "name": "get_volcano_status",
+          "arguments": {
+            "volcano": "Ключевской"
+          }
+        }
+      }
+    }
   ]
 }
