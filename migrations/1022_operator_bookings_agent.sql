@@ -26,5 +26,5 @@ CREATE INDEX IF NOT EXISTS idx_operator_bookings_agent_user
 UPDATE operator_bookings ob
    SET agent_user_id = l.agent_id
   FROM agent_referral_links l
- WHERE ob.referral_link_id = l.id
+ WHERE ob.referral_link_id::text = l.id::text
    AND ob.agent_user_id IS NULL;
