@@ -222,7 +222,6 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'place-link-suggest':        { kind: 'manual', writes: false, note: 'предложения привязки' },
   'place-name-dups':           { kind: 'manual', writes: false, note: 'одноимённые места НЕЗАВИСИМО от координат: places-dedup отбирает пары по близости и требует lat/lng у обеих, поэтому пару, где координат нет или они врут, не увидит никогда — а это ровно тот случай, когда неясно, какая запись живая (14.09: Курильское двумя записями, Паужетка четырьмя). Сообщает состав кластера, не вердикт' },
   'place-unlink':              { kind: 'manual', writes: true,  note: 'отвязка места от маршрута' },
-  'places-by-type':            { kind: 'manual', writes: false, note: 'разрез мест по типу' },
   'places-candidates':         { kind: 'manual', writes: false, note: 'кандидаты в места' },
   'places-no-track-census':    { kind: 'manual', writes: false, note: 'места без трека' },
   'places-routes-census':      { kind: 'manual', writes: false, note: 'связи мест и маршрутов' },

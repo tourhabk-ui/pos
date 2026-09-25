@@ -1,0 +1,40 @@
+name: Места — перепись «экскурсия вместо места»
+
+# 25.09: сверка MCP нашла в справочнике мест запись «Долина гейзеров.
+# Курильское озеро. Вулканы Горелый и Авача» с видом volcano. Этот прогон
+# читает все места с прода (places-by-type) и печатает подозрительные по
+# названию и виду (lib/places/name-junk). Только чтение: прятать — миграцией
+# после решения владельца.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/place-name-junk-scan.json'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Перепись
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set +e
+          npx tsx scripts/place-name-junk-scan.ts | tee scan.log
+          code=${PIPESTATUS[0]}
+          set -e
+          body=$(sed -e 's/%/%25/g' scan.log | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=place-name-junk-scan::${body}"
+          exit $code
