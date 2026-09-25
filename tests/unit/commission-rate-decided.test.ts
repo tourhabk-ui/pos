@@ -125,7 +125,8 @@ const RATE_TOUCHERS: Record<string, 'fallback_sql' | 'fallback_ts' | 'display_on
   'lib/payments/commission.ts': 'fallback_sql',
   'lib/transfers/service.ts': 'fallback_sql',
   'app/api/hub/operator/reports/route.ts': 'fallback_sql',
-  'app/api/hub/operator/payments/webhook/route.ts': 'fallback_sql',
+  // Строку tour_payments пишет общая дверь (25.09); приёмник ставку не читает.
+  'lib/payments/hold-tour-payment.ts': 'fallback_sql',
   'app/api/bookings/tour/route.ts': 'fallback_ts',
   'app/api/hub/operator/payouts/route.ts': 'fallback_ts',
 

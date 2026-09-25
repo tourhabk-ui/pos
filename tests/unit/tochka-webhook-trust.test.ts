@@ -22,7 +22,11 @@ vi.mock('@/lib/payments/tochka', () => ({
   getSBPPaymentStatus: (...a: unknown[]) => statusMock(...a),
 }));
 vi.mock('@/lib/db-pool', () => ({
-  pool: { query: (...a: unknown[]) => queryMock(...a) },
+  pool: {
+    query: (...a: unknown[]) => queryMock(...a),
+    // Подтверждение и строка платежа идут транзакцией (lib/database).
+    connect: async () => ({ query: (...a: unknown[]) => queryMock(...a), release: () => undefined }),
+  },
 }));
 
 import { POST } from '@/app/api/payments/tochka/webhook/route';
@@ -51,11 +55,12 @@ function confirmCalls() {
 beforeEach(() => {
   queryMock.mockReset();
   statusMock.mockReset();
-  queryMock.mockImplementation((sql: string) =>
-    typeof sql === 'string' && sql.trim().startsWith('SELECT')
-      ? Promise.resolve({ rows: [BOOKING] })
-      : Promise.resolve({ rows: [] }),
-  );
+  queryMock.mockImplementation((sql: string) => {
+    if (typeof sql !== 'string') return Promise.resolve({ rows: [] });
+    if (sql.trim().startsWith('SELECT')) return Promise.resolve({ rows: [BOOKING] });
+    if (sql.includes("booking_status = 'confirmed'")) return Promise.resolve({ rows: [], rowCount: 1 });
+    return Promise.resolve({ rows: [], rowCount: 0 });
+  });
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_CHAT_ID;
 });
@@ -95,11 +100,37 @@ describe('POST /api/payments/tochka/webhook', () => {
     expect((params as unknown[])[1]).toBe(12000);
   });
 
-  it('подтверждение идемпотентно: UPDATE только по pending_payment', async () => {
+  it('подтверждение идемпотентно: UPDATE только по неоплаченной брони, которую можно платить', async () => {
     statusMock.mockResolvedValue({ qrId: 'qr-1', status: 'paid', amount: 12000, paidAt: new Date() });
     await POST(request(PAYLOAD));
     const [sql] = confirmCalls()[0];
-    expect(sql).toContain("booking_status = 'pending_payment'");
+    expect(sql).toContain('paid_at IS NULL');
+    // Подтверждённая оператором бронь платится (решение 24.09) — до 25.09
+    // приёмник искал только pending_payment и такую оплату не видел.
+    expect(sql).toContain("booking_status IN ('confirmed', 'pending_payment')");
+  });
+
+  it('оплата записывается в tour_payments той же транзакцией', async () => {
+    statusMock.mockResolvedValue({ qrId: 'qr-1', status: 'paid', amount: 12000, paidAt: new Date() });
+    await POST(request(PAYLOAD));
+    const sqls = queryMock.mock.calls.map(([q]) => String(q));
+    const begin = sqls.indexOf('BEGIN');
+    const commit = sqls.indexOf('COMMIT');
+    const confirm = sqls.findIndex((q) => q.includes("booking_status = 'confirmed'"));
+    const hold = sqls.findIndex((q) => q.includes('FROM tour_payments WHERE cp_transaction_id'));
+    expect(begin).toBeGreaterThan(-1);
+    expect(confirm).toBeGreaterThan(begin);
+    expect(hold).toBeGreaterThan(confirm);
+    expect(commit).toBeGreaterThan(hold);
+  });
+
+  it('повтор после записанной оплаты — банк не спрашивается', async () => {
+    queryMock.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: String(sql).trim().startsWith('SELECT') ? [{ ...BOOKING, paid_at: new Date() }] : [] }),
+    );
+    const res = await POST(request(PAYLOAD));
+    expect(await res.json()).toMatchObject({ repeat: true });
+    expect(statusMock).not.toHaveBeenCalled();
   });
 
   it('чужое событие — банк даже не опрашивается', async () => {

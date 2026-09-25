@@ -75,14 +75,11 @@ function BookingFormCard({
   const [participants, setParticipants] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [qr, setQr] = useState<{ qrCode: string; qrLink: string; amount: number; bookingId: number } | null>(null);
-  const [pollPaid, setPollPaid] = useState(false);
   /**
    * Ключ доступа к созданной брони. До 14.09 из ответа читался только `id`,
    * а ключ выбрасывался — при том что следом бот писал «проверьте детали на
    * странице бронирования», куда без ключа не пускает 404 (#1889).
    */
-  const [accessToken, setAccessToken] = useState('');
 
   // Та же сумма, что запишет сервер (reserve.ts) и выставит QR.
   const total = bookingTotal({
@@ -94,23 +91,6 @@ function BookingFormCard({
   const minDate = new Date();
   minDate.setDate(minDate.getDate() + 1);
   const minDateStr = minDate.toISOString().split('T')[0];
-
-  // Polling статуса оплаты каждые 3 сек
-  useEffect(() => {
-    if (!qr || pollPaid) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/payments/tochka/qr?bookingId=${qr.bookingId}`);
-        const json = await res.json() as { paid?: boolean };
-        if (json.paid) {
-          setPollPaid(true);
-          clearInterval(interval);
-          onConfirmed(qr.bookingId, data.tourTitle, accessToken);
-        }
-      } catch { /* ignore */ }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [qr, pollPaid, onConfirmed, data.tourTitle, accessToken]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -134,27 +114,17 @@ function BookingFormCard({
       if (!bookRes.ok) throw new Error(bookJson.error ?? 'Ошибка сервера');
       const bookingId = bookJson.id!;
       const token = bookJson.access_token ?? '';
-      setAccessToken(token);
       if (!token) {
         // Бронь есть, ключа нет — показать человеку нечего, но промолчать
         // об этом нельзя: «ссылки нет» неотличимо от «ссылка не нужна» (§4.0).
         console.error('[kuzmich-web] бронь создана без ключа доступа в ответе', bookingId);
       }
 
-      // 2. Запрашиваем СБП QR от Точки
-      const qrRes = await fetch('/api/payments/tochka/qr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId }),
-      });
-
-      if (qrRes.ok) {
-        const qrJson = await qrRes.json() as { qrCode: string; qrLink: string; amount: number };
-        setQr({ ...qrJson, bookingId });
-      } else {
-        // Точка недоступна — бронь всё равно создана, оператор позвонит
-        onConfirmed(bookingId, data.tourTitle, token);
-      }
+      // QR здесь больше не выпускается (25.09): оплата — только после
+      // подтверждения оператором (решение владельца 24.09), а новая заявка
+      // ещё не подтверждена. Платить турист будет со страницы брони — ссылка
+      // с ключом ниже и в письме.
+      onConfirmed(bookingId, data.tourTitle, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Попробуйте ещё раз');
     } finally {
@@ -182,36 +152,7 @@ function BookingFormCard({
         </div>
       )}
 
-      {/* QR-экран оплаты */}
-      {qr && (
-        <div className="p-4 flex flex-col items-center gap-3">
-          <p className="text-sm font-semibold text-[var(--text-primary)]">Оплатите через СБП</p>
-          <p className="text-xs text-[var(--text-muted)] text-center">
-            Откройте приложение банка → отсканируйте QR или нажмите кнопку
-          </p>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`data:image/png;base64,${qr.qrCode}`}
-            alt="СБП QR-код"
-            className="w-48 h-48 rounded-lg border border-[var(--border)]"
-          />
-          <p className="text-lg font-bold text-[var(--accent)]">
-            {qr.amount.toLocaleString('ru-RU')} ₽
-          </p>
-          <a
-            href={qr.qrLink}
-            className="ds-btn ds-btn-primary w-full text-sm py-2.5 text-center"
-          >
-            Открыть в приложении банка
-          </a>
-          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Ожидаем оплату...
-          </div>
-        </div>
-      )}
-
-      {!qr && <form onSubmit={submit} className="p-4 space-y-3">
+      <form onSubmit={submit} className="p-4 space-y-3">
         {/* Имя */}
         <div>
           <label className="ds-label mb-1 flex items-center gap-1.5">
@@ -290,9 +231,9 @@ function BookingFormCard({
           type="submit" disabled={submitting}
           className="ds-btn ds-btn-primary w-full text-sm py-2.5 disabled:opacity-50"
         >
-          {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Оставить заявку и перейти к оплате'}
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Оставить заявку'}
         </button>
-      </form>}
+      </form>
     </div>
   );
 }
@@ -481,7 +422,7 @@ export default function KuzmichClient() {
     }));
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: `Заявка создана. Номер #${bookingId}.\n\nПроверьте детали тура на странице бронирования перед оплатой. Оператор получит уведомление автоматически.`,
+      content: `Заявка создана. Номер #${bookingId}.\n\nОператор получит её автоматически и подтвердит дату. Оплата откроется на странице бронирования после подтверждения — ссылка ниже и в письме.`,
     }]);
   }
 

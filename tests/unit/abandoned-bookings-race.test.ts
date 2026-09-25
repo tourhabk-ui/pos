@@ -75,7 +75,9 @@ describe('приёмник Точки не выдаёт проигранную �
 
   it('разбор различает повтор вебхука и уход брони из ожидания', () => {
     expect(WEBHOOK).toMatch(/handleLostRace/);
-    expect(WEBHOOK).toMatch(/booking_status === 'confirmed'/);
+    // Повтор узнаётся по записанной оплате: confirmed бывает и до оплаты
+    // (подтверждение оператором), статус повтора не доказывает (25.09).
+    expect(WEBHOOK).toMatch(/if \(state\.paid_at\)/);
     expect(WEBHOOK).toMatch(/booking_left_pending/);
   });
 
