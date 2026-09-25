@@ -43,11 +43,10 @@ export {
 } from './interests';
 
 export {
-  fetchWeatherForecast,
   fetchForecastDays,
+  tripForecastWindow,
   computeQualityScore,
   assessHealthCompatibility,
-  type DayForecast,
   type ForecastDay,
   type ForecastResult,
   type HealthAssessment,
