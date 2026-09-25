@@ -84,6 +84,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Центр помощи',        href: '/help',           icon: LifeBuoy },
       { label: 'Помощь туристам',     href: '/help/tourists',  icon: LifeBuoy },
       { label: 'Помощь операторам',   href: '/help/operators', icon: Briefcase },
+      { label: 'Помощь гидам',        href: '/help/guides',    icon: LifeBuoy },
       { label: 'Партнёры',            href: '/operators',      icon: Handshake },
       { label: 'Стать партнёром',     href: '/for-operators',  icon: UserPlus },
       { label: 'MCP для ИИ-агентов',  href: '/mcp',            icon: Bot },

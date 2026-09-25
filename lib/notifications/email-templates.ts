@@ -51,7 +51,7 @@ function emailLayout(content: string): string {
                 © 2025 KamHub. Все права защищены.
               </p>
               <p style="margin: 10px 0 0; font-size: 12px;">
-                <a href="https://kamhub.ru" style="color: ${BRAND_COLOR}; text-decoration: none;">kamhub.ru</a>
+                <a href="https://vedarai.ru" style="color: ${BRAND_COLOR}; text-decoration: none;">vedarai.ru</a>
               </p>
             </td>
           </tr>
@@ -112,7 +112,7 @@ export function bookingConfirmationEmail(data: {
     </p>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="https://kamhub.ru/bookings/${data.bookingId}" 
+      <a href="https://vedarai.ru/bookings/${data.bookingId}" 
          style="display: inline-block; background-color: ${BRAND_COLOR}; color: #000; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
         Просмотреть бронирование
       </a>
@@ -327,7 +327,7 @@ export function welcomeEmail(data: {
     </div>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="https://kamhub.ru/hub/tourist" 
+      <a href="https://vedarai.ru/hub/tourist" 
          style="display: inline-block; background-color: ${BRAND_COLOR}; color: #000; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
         Перейти в личный кабинет
       </a>
@@ -428,7 +428,7 @@ export function partnerVerificationEmail(data: {
     </p>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="https://kamhub.ru/hub/operator" 
+      <a href="https://vedarai.ru/hub/operator" 
          style="display: inline-block; background-color: ${BRAND_COLOR}; color: #000; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
         Перейти в панель управления
       </a>

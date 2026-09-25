@@ -481,7 +481,7 @@ async function handleFailedPayment(webhook: CloudPaymentsWebhook) {
               <p><strong>Сумма:</strong> ${parseFloat(payment.amount).toLocaleString('ru-RU')} ₽</p>
               <p><strong>Причина:</strong> ${failureReason}</p>
               <p>Попробуйте оплатить снова или свяжитесь с поддержкой.</p>
-              <p><strong>Служба поддержки:</strong> support@kamhub.ru</p>
+              <p><strong>Служба поддержки:</strong> info@vedarai.ru</p>
             `
           });
         }

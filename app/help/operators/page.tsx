@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
-import OperatorsHelpClient from './_OperatorsHelpClient';
+import HelpArticleView from '@/components/help/HelpArticleView';
+import { OPERATORS } from '@/lib/help/content';
 
 export const metadata: Metadata = {
-  title: 'Инструкция для операторов ',
-  description: 'Как разместить туры, принимать бронирования и получать выплаты на платформе Ведар',
+  title: 'Инструкция оператора',
+  description: 'Как разместить тур, подключить уведомления, подтверждать брони, вести команду гидов и получать выплаты',
 };
 
 export default function OperatorsHelpPage() {
-  return <OperatorsHelpClient />;
+  return <HelpArticleView article={OPERATORS} />;
 }

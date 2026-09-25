@@ -45,7 +45,7 @@ export const REQUISITES: LegalRequisites = {
   ogrn: '1114101005952',
   address: '683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1',
   director: 'Асеев Андрей Валерьевич',
-  emailPrivacy: 'privacy@tourhab.ru',
-  emailSupport: 'support@tourhab.ru',
+  emailPrivacy: 'info@vedarai.ru',
+  emailSupport: 'info@vedarai.ru',
   site: 'vedarai.ru',
 };

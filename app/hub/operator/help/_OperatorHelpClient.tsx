@@ -321,11 +321,11 @@ export default function OperatorHelpClient() {
           <p className="font-semibold text-[var(--text-primary)] mb-1">Нужна помощь?</p>
           <p className="text-sm text-[var(--text-secondary)]">
             Email:{' '}
-            <a href="mailto:operators@tourhab.ru" className="text-[var(--ocean)] hover:underline">
-              operators@tourhab.ru
+            <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">
+              info@vedarai.ru
             </a>
             {' · '}
-            Telegram: <span className="text-[var(--ocean)]">@tourhab_support</span>
+            Telegram: <span className="text-[var(--ocean)]">@kamchatourhub</span>
             {' · '}
             Ответ в течение 4 часов в рабочее время (UTC+12)
           </p>
