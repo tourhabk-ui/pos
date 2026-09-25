@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { isQuickFillField, parseQuickFillValue } from '@/lib/operator/quick-fill-fields';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,11 +20,7 @@ export async function PATCH(request: NextRequest) {
   const userId = userOrResponse.userId;
 
   try {
-    const partnerRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
-    const operatorId = partnerRes.rows[0]?.id;
+    const operatorId = await getOperatorPartnerId(userId);
     if (!operatorId) {
       return NextResponse.json({ error: 'Operator not found' }, { status: 403 });
     }
@@ -37,21 +35,15 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Allowed fields to update via quick-fill
-    const ALLOWED_FIELDS = [
-      'title', 'description', 'short_description',
-      'base_price', 'price_old', 'price_unit',
-      'location_type', 'activity_type', 'location_name',
-      'latitude', 'longitude', 'difficulty',
-      'duration_hours', 'duration_type',
-      'season_start', 'season_end',
-    ];
-
-    if (!ALLOWED_FIELDS.includes(field)) {
-      return NextResponse.json(
-        { error: `Field '${field}' is not allowed for quick-fill` },
-        { status: 400 }
-      );
+    // Поле и значение — по общему списку (lib/operator/quick-fill-fields):
+    // имя поля идёт в SQL, поэтому только из белого списка; значение — с
+    // проверкой типа (раньше в price_unit и difficulty писалась любая строка).
+    if (!isQuickFillField(field)) {
+      return NextResponse.json({ error: 'Это поле заполняется в редакторе тура' }, { status: 400 });
+    }
+    const parsed = parseQuickFillValue(field, value);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
     // Verify tour belongs to operator
@@ -75,7 +67,7 @@ export async function PATCH(request: NextRequest) {
       RETURNING id, ${field}
     `;
 
-    const { rows } = await pool.query(updateQuery, [value, tourId]);
+    const { rows } = await pool.query(updateQuery, [parsed.value, tourId]);
 
     if (rows.length === 0) {
       throw new Error('Failed to update tour');
@@ -90,8 +82,9 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } catch (error) {
+    console.error('[operator/quick-fill] отказ:', error instanceof Error ? error.message : String(error));
     return NextResponse.json(
-      { error: 'Failed to update tour field' },
+      { error: 'Не удалось сохранить поле' },
       { status: 500 }
     );
   }

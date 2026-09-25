@@ -76,10 +76,6 @@ export default function ToursManagementClient() {
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [editingAvail, setEditingAvail] = useState<string | null>(null);
-  const [availSlots, setAvailSlots]   = useState('');
-  const [availDate, setAvailDate]     = useState('');
-  const [savingAvail, setSavingAvail] = useState(false);
 
   // PDF import state
   const [pdfOpen, setPdfOpen]       = useState(false);
@@ -119,6 +115,15 @@ export default function ToursManagementClient() {
 
   const handlePdfCreate = useCallback(async () => {
     if (!pdfResult) return;
+    // Цену не выдумываем (§4.0): до 25.09 тур без цены в PDF создавался за
+    // 1000 ₽ и мог уйти в продажу по ней.
+    if (!(typeof pdfResult.base_price === 'number' && pdfResult.base_price > 0)) {
+      setPdfError('В PDF не нашлась цена тура. Создайте тур вручную и укажите цену.');
+      return;
+    }
+    // null из разбора PDF → поле не отправляется: Zod `.optional()` не
+    // принимает null, и создание падало с 400 на любом неполном PDF.
+    const opt = <T,>(v: T | null | undefined): T | undefined => (v ?? undefined);
     setPdfCreating(true);
     try {
       const res = await fetch('/api/hub/operator/tours', {
@@ -126,31 +131,31 @@ export default function ToursManagementClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title:             pdfResult.title || 'Тур из PDF',
-          description:       pdfResult.description,
-          short_description: pdfResult.short_description,
+          description:       opt(pdfResult.description),
+          short_description: opt(pdfResult.short_description),
           activity_type:     pdfResult.activity_type || 'other',
           location_type:     pdfResult.location_type || 'other',
-          location_name:     pdfResult.location_name || 'Камчатка',
-          latitude:          53.0,
-          longitude:         158.7,
-          base_price:        pdfResult.base_price ?? 1000,
+          location_name:     pdfResult.location_name || 'Камчатский край',
+          // Координаты — только из PDF; выдуманные 53.0/158.7 сняты.
+          base_price:        pdfResult.base_price,
           price_unit:        pdfResult.price_unit || 'per_person',
           max_participants:  pdfResult.max_participants ?? 10,
-          min_participants:  pdfResult.min_participants,
-          duration_hours:    pdfResult.duration_hours,
-          difficulty:        pdfResult.difficulty,
-          season_start:      pdfResult.season_start,
-          season_end:        pdfResult.season_end,
-          included:          pdfResult.included,
-          not_included:      pdfResult.not_included,
-          what_to_bring:     pdfResult.what_to_bring,
-          tags:              pdfResult.tags,
+          min_participants:  opt(pdfResult.min_participants),
+          duration_hours:    opt(pdfResult.duration_hours),
+          difficulty:        opt(pdfResult.difficulty),
+          season_start:      opt(pdfResult.season_start),
+          season_end:        opt(pdfResult.season_end),
+          included:          opt(pdfResult.included),
+          not_included:      opt(pdfResult.not_included),
+          what_to_bring:     opt(pdfResult.what_to_bring),
+          tags:              opt(pdfResult.tags),
         }),
       });
       const data = await res.json() as { success: boolean; data?: { id: string }; error?: string };
       if (data.success && data.data?.id) {
         setPdfOpen(false);
-        router.push(`/hub/operator/tours/${data.data.id}/edit`);
+        // Страница правки — /hub/operator/tours/[id]; «/edit» не существует (404).
+        router.push(`/hub/operator/tours/${data.data.id}`);
       } else {
         setPdfError(data.error ?? 'Ошибка создания тура');
       }
@@ -201,27 +206,6 @@ export default function ToursManagementClient() {
       await fetch(`/api/hub/operator/tours/${id}`, { method: 'DELETE' });
       await load();
     } finally { setDeleting(null); }
-  }
-
-  function openAvailEditor(tour: Tour) {
-    setEditingAvail(tour.id);
-    setAvailSlots(tour.available_slots != null ? String(tour.available_slots) : '');
-    setAvailDate(tour.next_available_date ?? '');
-  }
-
-  async function saveAvailability(id: string) {
-    setSavingAvail(true);
-    try {
-      const slots = availSlots === '' ? null : parseInt(availSlots, 10);
-      const date  = availDate === '' ? null : availDate;
-      await fetch(`/api/hub/operator/tours/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ available_slots: slots, next_available_date: date }),
-      });
-      setEditingAvail(null);
-      await load();
-    } finally { setSavingAvail(false); }
   }
 
   return (
@@ -374,68 +358,18 @@ export default function ToursManagementClient() {
                   </div>
 
                   {/* Availability row */}
-                  {editingAvail === tour.id ? (
-                    <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                      <div className="flex items-center gap-1.5">
-                        <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Мест:</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={availSlots}
-                          onChange={e => setAvailSlots(e.target.value)}
-                          placeholder="0"
-                          className="ds-input text-xs w-16 py-1 px-2"
-                        />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Дата:</label>
-                        <input
-                          type="date"
-                          value={availDate}
-                          onChange={e => setAvailDate(e.target.value)}
-                          className="ds-input text-xs py-1 px-2"
-                        />
-                      </div>
-                      <button
-                        onClick={() => void saveAvailability(tour.id)}
-                        disabled={savingAvail}
-                        className="p-1 rounded-md transition-colors"
-                        style={{ background: 'var(--success)', color: '#fff' }}
-                        title="Сохранить"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setEditingAvail(null)}
-                        className="p-1 rounded-md transition-colors hover:bg-[var(--bg-hover)]"
-                        title="Отмена"
-                      >
-                        <X className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div
-                      className="flex items-center gap-1.5 mt-2 cursor-pointer group w-fit"
-                      onClick={() => openAvailEditor(tour)}
-                      title="Нажмите чтобы обновить доступность"
-                    >
-                      <CalendarDays className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--ocean)' }} />
-                      {tour.available_slots != null || tour.next_available_date ? (
-                        <span className="text-xs" style={{ color: 'var(--ocean)' }}>
-                          {tour.available_slots != null ? `${tour.available_slots} мест` : ''}
-                          {tour.available_slots != null && tour.next_available_date ? ' · ' : ''}
-                          {tour.next_available_date
-                            ? new Date(tour.next_available_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-                            : ''}
-                          <span className="ml-1 opacity-60 md:opacity-0 md:group-hover:opacity-60 text-xs transition-opacity">изменить</span>
-                        </span>
-                      ) : (
-                        <span className="text-xs opacity-60 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-muted)' }}>
-                          Укажите доступность для Кузьмича
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {/* Даты и места — в «Расписании» тура (tour_availability): их
+                      читают карточка тура и Кузьмич. Прежнее поле «Укажите
+                      доступность для Кузьмича» писало available_slots и
+                      next_available_date, которые не читает никто (25.09). */}
+                  <Link
+                    href={`/hub/operator/tours/${tour.id}#schedule`}
+                    className="flex items-center gap-1.5 mt-2 w-fit text-xs no-underline hover:underline"
+                    style={{ color: 'var(--ocean)' }}
+                  >
+                    <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                    Даты и места
+                  </Link>
                 </div>
 
                 {/* Actions */}

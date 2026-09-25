@@ -30,6 +30,11 @@ interface TourData {
   location_name: string | null;
   latitude: string | null;
   longitude: string | null;
+  /** Колонки могут быть jsonb или text[] (см. getColumnTypes) — судим по пустоте. */
+  included: unknown;
+  not_included: unknown;
+  what_to_bring: unknown;
+  notes: string | null;
   short_description: string | null;
 }
 
@@ -91,23 +96,20 @@ Generate the following JSON object with realistic values (respond ONLY with vali
   "not_included": ["item1", "item2"],
   "what_to_bring": ["item1", "item2", "item3", "item4"],
   "duration_hours": 4.5,
-  "duration_type": "day|half_day|multi_day",
+  "duration_type": "day|multi_day",
   "location_name": "Name of the specific place/lake/river/volcano",
-  "latitude": 56.1234,
-  "longitude": 159.5678,
   "notes": "Interesting fact or local knowledge about this tour"
 }
 
 Rules:
 - difficulty: must be exactly one of easy, medium, hard, expert
-- duration_type: day (full day), half_day (2-4h), multi_day (3+ days)
+- duration_type: day (up to one day), multi_day (several days)
 - Generate realistic, specific items not generic ones
 - Focus on what would be needed for this type of activity
 - Keep arrays to 3-5 items max
 - For fishing: include rod, license, waders, bait, etc
 - For trekking: include water, sunscreen, proper shoes, etc
 - location_name: choose a specific place from Kamchatka (lake, river, volcano, geysers)
-- latitude/longitude: must be realistic Kamchatka coordinates (50-60°N, 155-165°E)
 - notes: include useful local knowledge about the location or activity season`;
 
   // Раньше — прямой api.anthropic.com (opus), недоступный из РФ (прод — Timeweb):
@@ -162,7 +164,8 @@ export async function runAutoFillAI(operatorId: string, tourId: string | number)
   const { rows: tours } = await pool.query<TourData>(
     `SELECT id, title, description, activity_type, location_type,
             difficulty, duration_hours::text, duration_type,
-            location_name, latitude::text, longitude::text, short_description
+            location_name, latitude::text, longitude::text, short_description,
+            included, not_included, what_to_bring, notes
      FROM operator_tours
      WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
     [tourId, operatorId]
@@ -197,15 +200,19 @@ export async function runAutoFillAI(operatorId: string, tourId: string | number)
     updates.difficulty = `$${paramIndex++}`;
     values.push(fills.difficulty);
   }
-  if (fills.included) {
+  // Состав, снаряжение и заметки — только в пустое (как остальные поля): до
+  // 25.09 модель перезаписывала то, что оператор вписал руками, в уже
+  // опубликованном туре.
+  const isEmptyList = (v: unknown) => v == null || (Array.isArray(v) && v.length === 0);
+  if (fills.included && isEmptyList(tour.included)) {
     updates.included = `$${paramIndex++}`;
     values.push(fills.included);
   }
-  if (fills.not_included) {
+  if (fills.not_included && isEmptyList(tour.not_included)) {
     updates.not_included = `$${paramIndex++}`;
     values.push(fills.not_included);
   }
-  if (fills.what_to_bring) {
+  if (fills.what_to_bring && isEmptyList(tour.what_to_bring)) {
     updates.what_to_bring = `$${paramIndex++}`;
     values.push(fills.what_to_bring);
   }
@@ -213,7 +220,9 @@ export async function runAutoFillAI(operatorId: string, tourId: string | number)
     updates.duration_hours = `$${paramIndex++}`;
     values.push(fills.duration_hours);
   }
-  if (fills.duration_type && !tour.duration_type) {
+  // Схема тура знает только day/multi_day; «half_day» ломал каждое следующее
+  // сохранение в редакторе (400).
+  if (fills.duration_type && !tour.duration_type && (fills.duration_type === 'day' || fills.duration_type === 'multi_day')) {
     updates.duration_type = `$${paramIndex++}`;
     values.push(fills.duration_type);
   }
@@ -221,15 +230,9 @@ export async function runAutoFillAI(operatorId: string, tourId: string | number)
     updates.location_name = `$${paramIndex++}`;
     values.push(fills.location_name);
   }
-  // Координаты — парой: обновляем, только если ОБЕ отсутствовали, иначе
-  // модель могла бы переписать ручную широту выдуманной долготой.
-  if (fills.latitude && fills.longitude && !tour.latitude && !tour.longitude) {
-    updates.latitude = `$${paramIndex++}`;
-    values.push(fills.latitude);
-    updates.longitude = `$${paramIndex++}`;
-    values.push(fills.longitude);
-  }
-  if (fills.notes) {
+  // Координаты модель не пишет вовсе (§4.0): «реалистичные координаты
+  // Камчатки» из промпта — это выдуманная точка, по которой пойдёт человек.
+  if (fills.notes && !tour.notes) {
     updates.notes = `$${paramIndex++}`;
     values.push(fills.notes);
   }

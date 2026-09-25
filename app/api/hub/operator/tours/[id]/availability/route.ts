@@ -11,17 +11,15 @@ import {
   addAvailability,
   getAvailability,
 } from '@/lib/api/operator-tours';
-import { query } from '@/lib/database';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { ZodError } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const result = await query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return (result.rows[0]?.id as string) || null;
-}
+// Партнёр — через общий getOperatorPartnerId (category='operator'): прежний
+// `partners WHERE user_id LIMIT 1` у «гида и оператора» мог взять запись гида,
+// и добавление дат к своему туру отвечало 404.
+const getOperatorId = getOperatorPartnerId;
 
 export async function POST(
   request: NextRequest,
@@ -61,10 +59,11 @@ export async function POST(
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
-    if (error instanceof Error && error.message.includes('validation')) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof ZodError) {
+      return NextResponse.json({ error: 'Проверьте даты и число мест', details: error.flatten() }, { status: 400 });
     }
-    return NextResponse.json({ error: 'Failed to add availability' }, { status: 500 });
+    console.error('[operator/availability] POST отказ:', error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: 'Не удалось добавить даты' }, { status: 500 });
   }
 }
 
@@ -84,6 +83,16 @@ export async function GET(
     const authOrResponse = await requireOperator(request);
     if (authOrResponse instanceof NextResponse) return authOrResponse;
 
+    // Календарь и занятость — только своего тура (админ видит любой). До
+    // 25.09 любой оператор читал чужое расписание по id.
+    if (authOrResponse.role !== 'admin') {
+      const operatorId = await getOperatorId(authOrResponse.userId);
+      const tour = operatorId ? await getTourById(tourId) : null;
+      if (!tour || tour.operator_id !== operatorId) {
+        return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
+      }
+    }
+
     const rows = await getAvailability(tourId, from, to);
 
     return NextResponse.json({
@@ -93,6 +102,7 @@ export async function GET(
       count: rows.length,
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch availability' }, { status: 500 });
+    console.error('[operator/availability] GET отказ:', error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: 'Не удалось загрузить расписание' }, { status: 500 });
   }
 }
