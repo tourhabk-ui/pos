@@ -65,6 +65,10 @@ export const PLATFORM_COMMISSION_PERCENT = 10;
  * следующий читатель не выдумал срочность заново и не полез чинить по
  * догадке.
  */
+// Вызывающих в коде сейчас нет: последний, app/api/bookings/tour, удалён
+// 26.09 (списывал оплату до подтверждения оператором). Функция оставлена
+// намеренно — это единый TS-исход «ставка не записана» (§7); новый читатель
+// ставки в TS зовёт её. Потолок сирот поднят на 1 в export-census-frozen.
 export function effectiveCommissionPercent(raw: unknown): number {
   if (raw === null || raw === undefined || raw === '') return PLATFORM_COMMISSION_PERCENT;
   const n = typeof raw === 'number' ? raw : Number(raw);

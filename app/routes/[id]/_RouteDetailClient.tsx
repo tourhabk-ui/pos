@@ -1832,7 +1832,6 @@ export default function RouteDetailClient({ id, mapPackBaseUrl }: { id: string; 
           priceBase={bookingOffer.priceBase}
           priceUnit={bookingOffer.priceUnit}
           duration={{ multi_day_count: bookingOffer.multiDayCount, duration_hours: bookingOffer.durationHours }}
-          minGroupSize={bookingOffer.minGroupSize}
           maxGroupSize={bookingOffer.maxGroupSize}
           nextDeparture={calendarDate ?? bookingOffer.nextDeparture}
         />

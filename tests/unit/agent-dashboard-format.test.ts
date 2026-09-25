@@ -34,7 +34,8 @@ describe('обзор агента — формат кабинетов', () => {
       .map((m) => m[1])
       .filter((h) => h !== '/hub/agent');
     // 9 → 8 (26.09): «Заявки» ушли из кабинета агента — ПД туристов (agent-leads-closed).
-    expect(hrefs.length).toBeGreaterThanOrEqual(8);
+    // 8 → 7 (26.09): «Ваучеры» удалены — таблицы vouchers нет (agent-pack-a).
+    expect(hrefs.length).toBeGreaterThanOrEqual(7);
     for (const href of hrefs) {
       expect(dashboard, href).toContain(`href: '${href}'`);
     }
@@ -45,8 +46,9 @@ describe('обзор агента — формат кабинетов', () => {
     expect(dashboard).not.toMatch(/\/api\/agent\/leads/);
   });
 
-  it('Ваучеры и Статистика вернулись в меню', () => {
-    expect(layout).toContain("'/hub/agent/vouchers'");
+  it('Статистика в меню; Ваучеров нет — таблицы vouchers нет (26.09)', () => {
+    expect(layout).not.toContain("'/hub/agent/vouchers'");
+    expect(dashboard).not.toContain("'/hub/agent/vouchers'");
     expect(layout).toContain("'/hub/agent/stats'");
   });
 });

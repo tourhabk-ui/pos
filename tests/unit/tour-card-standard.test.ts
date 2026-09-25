@@ -68,10 +68,11 @@ describe('стандарт карточки тура — безопасност�
     // часто остаётся true. До 27.08 карточка и бронь проверяли только
     // is_active — спрятанный тур жил по прямому URL и принимал брони.
     expect(query).toMatch(/ot\.is_published = true/);
+    // С 26.09 бронь заводит только reserveBooking (/api/bookings/tour удалён).
     const booking = readFileSync(
-      join(process.cwd(), 'app/api/bookings/tour/route.ts'), 'utf-8');
-    expect(booking).toMatch(/!tour\.is_published/);
-    expect(booking).toMatch(/tour\.deleted_at !== null/);
+      join(process.cwd(), 'lib/bookings/reserve.ts'), 'utf-8');
+    expect(booking).toMatch(/ot\.is_published = true/);
+    expect(booking).toMatch(/ot\.deleted_at IS NULL/);
   });
 });
 

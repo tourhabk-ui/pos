@@ -544,7 +544,6 @@ export default function CalendarClient() {
           priceBase={bookingTour.price}
           priceUnit={bookingTour.priceUnit}
           duration={{ multi_day_count: null, duration_hours: bookingTour.durationHours }}
-          minGroupSize={null}
           maxGroupSize={bookingTour.availableSlots}
           nextDeparture={selectedDate}
         />

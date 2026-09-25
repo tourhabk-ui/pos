@@ -7,7 +7,7 @@ import { RecentClientsTable } from '@/components/agent/Dashboard/RecentClientsTa
 import { UpcomingBookingsTable } from '@/components/agent/Dashboard/UpcomingBookingsTable';
 import {
   Users, Calendar, Loader2, Search, Handshake, CreditCard,
-  Link2, Ticket, TrendingUp, User, ArrowRight, type LucideIcon,
+  Link2, TrendingUp, User, ArrowRight, type LucideIcon,
 } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 
@@ -32,7 +32,6 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
     title: 'Деньги и рост',
     items: [
       { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard },
-      { href: '/hub/agent/vouchers',    label: 'Ваучеры',    icon: Ticket },
       { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2 },
       { href: '/hub/agent/stats',       label: 'Статистика', icon: TrendingUp },
     ],

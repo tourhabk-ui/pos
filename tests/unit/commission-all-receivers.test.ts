@@ -37,7 +37,9 @@ const TOCHKA = 'app/api/payments/tochka/webhook/route.ts';
 
 const LIB = read('lib/payments/commission.ts');
 const MIGRATION = read('migrations/811_platform_commission_10.sql');
-const BOOKING = read('app/api/bookings/tour/route.ts');
+// /api/bookings/tour удалён 26.09 (пакет A кабинета агента): он списывал
+// оплату ДО подтверждения оператором. Бронь с сайта теперь — reserveBooking,
+// комиссию при создании брони не считает никто.
 // /api/operator/finance удалён 25.09 (ни одного потребителя; пакет «Г»,
 // п.11). Финансовый экран оператора — /api/hub/operator/reports?type=finance.
 const FINANCE = read('app/api/hub/operator/reports/route.ts');
@@ -167,7 +169,6 @@ describe('ставка одна и берётся из базы', () => {
   });
 
   it('запасные значения нигде не остались 15%', () => {
-    expect(code(BOOKING)).not.toMatch(/commission_current,\s*15\b/);
     expect(code(FINANCE)).not.toMatch(/\*\s*0\.15\b/);
   });
 

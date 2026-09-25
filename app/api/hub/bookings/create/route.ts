@@ -51,6 +51,12 @@ const BookingSchema = z.object({
    * бота за согласие человека нельзя.
    */
   pd_consent:         z.boolean().optional(),
+  /**
+   * Код агентской ссылки (`KH-AGT-...`), пойманный ReferralCapture и
+   * запомненный на 30 дней. Живость кода решает reserveBooking внутри
+   * транзакции: плохой код даёт бронь без атрибуции, а не отказ туристу.
+   */
+  referral_code:      z.string().trim().max(32).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -115,6 +121,7 @@ export async function POST(req: NextRequest) {
       // формулировки. buildConsentRecord вернёт null, когда галочки не было —
       // у Кузьмича и виджета её нет вовсе, и это честное «не спрашивали».
       pdConsent:       buildConsentRecord(data.pd_consent, ip, 'web-form'),
+      referralCode:    data.referral_code ?? null,
     });
 
     // Турист узнаёт, что заявка дошла. Раньше уведомление шло только

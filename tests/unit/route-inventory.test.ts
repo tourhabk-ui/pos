@@ -52,7 +52,6 @@ const NEEDS_REVIEW_FROZEN = [
   // спрашивает про проверку прав, а перечень назначений ею не является.
   // Вычеркнуть можно будет, когда появится настоящая проверка вызывающего.
   '/api/affiliate/link',
-  '/api/agent/plan',
   '/api/ai',
   '/api/ai/deepseek',
   '/api/ai/smart-search',

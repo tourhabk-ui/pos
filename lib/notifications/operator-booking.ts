@@ -50,7 +50,7 @@ export interface BookingNotifyPayload {
    */
   operator_phone?: string | null;
   operator_email?: string | null;
-  via?: string; // 'website' | 'direct_contact' | 'api'
+  via?: string; // 'website' | 'direct_contact' | 'api' | 'agent'
 }
 
 /** Чем кончилась доставка заявки оператору — три исхода, не два (§4.0). */
@@ -85,6 +85,7 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     website: 'Сайт',
     direct_contact: 'Телефон/мессенджер',
     api: 'API',
+    agent: 'Агент платформы (за клиента)',
   };
 
   // Общая часть — без ПД: её видно в обоих каналах.

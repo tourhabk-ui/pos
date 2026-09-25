@@ -56,6 +56,7 @@ export default function ReferralClient() {
   const [failed, setFailed] = useState(false);
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetch('/api/hub/agent/referral')
@@ -64,13 +65,17 @@ export default function ReferralClient() {
         if (d?.success && Array.isArray(d.data)) { setLinks(d.data); setStats(d.stats ?? null); }
         else setFailed(true);
       })
-      .catch(() => setFailed(true));
+      .catch((err: unknown) => {
+        console.error('[agent/referral] ссылки не загружены', err);
+        setFailed(true);
+      });
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   async function createLink() {
     setCreating(true);
+    setActionError(null);
     try {
       const res = await fetch('/api/hub/agent/referral', {
         method: 'POST',
@@ -79,19 +84,33 @@ export default function ReferralClient() {
         // отклоняет. Прежде здесь стояло жёсткое `commissionRate: 10`.
         body: JSON.stringify({}),
       });
-      if (res.ok) load();
-    } catch {
-      // ignore
+      if (res.ok) {
+        load();
+      } else {
+        // 403 — кабинет ещё не одобрен администратором; сервер говорит это словами.
+        const d: unknown = await res.json().catch(() => null);
+        const msg = typeof d === 'object' && d !== null && typeof (d as { error?: unknown }).error === 'string'
+          ? (d as { error: string }).error
+          : 'Не удалось создать ссылку';
+        setActionError(msg);
+      }
+    } catch (err) {
+      console.error('[agent/referral] ссылка не создана', err);
+      setActionError('Не удалось создать ссылку — проверьте соединение');
     } finally {
       setCreating(false);
     }
   }
 
+  /**
+   * Делимся КОРОТКОЙ ссылкой /r/<код>: клик засчитывается на сервере (там же
+   * решается, вести на тур или на главную), код едет дальше в адресе и
+   * запоминается на 30 дней. Прямой `?ref=` клика не считал вовсе — в
+   * кабинете стоял ноль при живых переходах.
+   */
   function shareUrl(link: ReferralLink): string {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return link.tour_id
-      ? `${origin}/marketplace/tours/${link.tour_id}?ref=${link.code}`
-      : `${origin}/?ref=${link.code}`;
+    return `${origin}/r/${link.code}`;
   }
 
   async function copy(link: ReferralLink) {
@@ -99,8 +118,9 @@ export default function ReferralClient() {
       await navigator.clipboard.writeText(shareUrl(link));
       setCopied(link.id);
       setTimeout(() => setCopied(c => (c === link.id ? null : c)), 2000);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('[agent/referral] ссылка не скопирована', err);
+      setActionError(`Не удалось скопировать — ссылка: ${shareUrl(link)}`);
     }
   }
 
@@ -145,6 +165,7 @@ export default function ReferralClient() {
       )}
 
       {failed && <p className="text-sm text-[var(--danger)]">Не удалось загрузить ссылки. Обновите страницу.</p>}
+      {actionError && <p role="alert" className="text-sm text-[var(--danger)]">{actionError}</p>}
 
       {links === null && !failed && (
         <div className="space-y-2">

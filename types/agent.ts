@@ -5,7 +5,8 @@
 export interface AgentClient {
   id: string;
   name: string;
-  email: string;
+  /** Почта клиента агента необязательна: бронь заводится по телефону. */
+  email?: string;
   phone?: string;
   company?: string;
   totalBookings?: number;
@@ -49,16 +50,6 @@ export interface AgentBooking {
   notes: unknown;
   createdAt: unknown;
   updatedAt: unknown;
-}
-
-export interface AgentBookingFormData {
-  clientId: string;
-  tourId: string;
-  tourDate: string;
-  guestsCount: number;
-  specialRequests?: string;
-  voucherCode?: string;
-  notes?: string;
 }
 
 export interface AgentCommission {
@@ -119,40 +110,4 @@ export interface AgentDashboardData {
   revenueChart: { date: unknown; revenue: number; commission: number }[];
   commissionChart: { date: unknown; amount: number }[];
   pendingCommissions: CommissionPayout[];
-}
-
-export interface Voucher {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  discountType: string;
-  discountValue: number;
-  minPurchase?: number;
-  maxDiscount?: number;
-  validFrom: unknown;
-  validTo: unknown;
-  usageLimit?: number;
-  usedCount: number;
-  isActive: boolean;
-  applicableTours: string[];
-  applicableClients: string[];
-  createdBy: string;
-  createdAt: unknown;
-  updatedAt: unknown;
-}
-
-export interface VoucherFormData {
-  name: string;
-  description?: string;
-  code: string;
-  discountType: string;
-  discountValue: number;
-  minPurchase?: number;
-  maxDiscount?: number;
-  validFrom: string;
-  validTo: string;
-  usageLimit?: number;
-  applicableTours?: string[];
-  applicableClients?: string[];
 }

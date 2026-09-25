@@ -10,6 +10,11 @@
  *   group_size    — минимальное количество свободных мест (default: 1)
  *
  * Auth: agent | admin
+ *
+ * Комиссии агента в выдаче НЕТ (до 26.09 здесь стояло `price × 0.10`):
+ * ставку назначает владелец платформы, и число, выдуманное здесь, агент
+ * принял бы за обещание (§4.0, §7). Цена отдаётся вместе с единицей
+ * (`price_unit`) — «за группу» и «за человека» разные деньги.
  */
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
@@ -74,12 +79,13 @@ export async function GET(req: NextRequest) {
       t.season_start,
       t.season_end,
       p.id                                                             AS operator_id,
-      p.company_name                                                   AS operator_name,
+      COALESCE(p.company_name, p.name)                                 AS operator_name,
       p.contacts->>'phone'                                             AS operator_phone,
-      a.date                                                           AS available_date,
+      a.date::text                                                     AS available_date,
       GREATEST(0, LEAST(a.available_slots, COALESCE(t.max_participants, a.available_slots)) - occ.taken) AS available_spots,
       COALESCE(a.base_price_override, t.base_price)::numeric          AS price,
-      ROUND(COALESCE(a.base_price_override, t.base_price) * 0.10)     AS agent_commission
+      t.price_unit,
+      t.multi_day_count
     FROM operator_tours t
     JOIN partners p ON t.operator_id = p.id
     JOIN tour_availability a
@@ -91,6 +97,7 @@ export async function GET(req: NextRequest) {
       ${occupiedOnDaySql({ booking: 'ob', day: 'a.date', tourId: 'a.operator_tour_id' })}
     ) occ
     WHERE t.is_published  = TRUE
+      AND t.is_active     = TRUE
       AND t.deleted_at    IS NULL
       AND GREATEST(0, LEAST(a.available_slots, COALESCE(t.max_participants, a.available_slots)) - occ.taken) >= $3
       ${activityFilter}
@@ -98,7 +105,18 @@ export async function GET(req: NextRequest) {
     LIMIT $4
   `;
 
-  const rows = await query(sql, params);
+  let rows;
+  try {
+    rows = await query(sql, params);
+  } catch (err) {
+    const sqlstate = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[agent/find-tours] поиск не выполнен, SQLSTATE ${sqlstate}:`,
+      err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось выполнить поиск. Попробуйте позже.' },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({
     success: true,

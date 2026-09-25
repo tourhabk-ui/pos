@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { AgentClient, ClientFormData } from '@/types';
 import toast from 'react-hot-toast';
 
@@ -29,7 +30,7 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
     if (client) {
       setFormData({
         name: client.name,
-        email: client.email,
+        email: client.email ?? '',
         phone: client.phone || '',
         company: client.company || '',
         status: client.status,
@@ -43,8 +44,10 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name || !formData.email) {
-      toast.error('Пожалуйста, заполните имя и email');
+    // Телефон обязателен: бронь за клиента заводится по нему — оператору
+    // нужно, чем связаться с туристом. Почта — по желанию.
+    if (!formData.name.trim() || !formData.phone.trim()) {
+      toast.error('Заполните имя и телефон клиента');
       return;
     }
 
@@ -65,10 +68,11 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
       if (result.success) {
         onSave();
       } else {
-        toast.error(`Ошибка: ${result.error}`);
+        toast.error(typeof result.error === 'string' ? result.error : 'Не удалось сохранить клиента');
       }
     } catch (error) {
-      toast.error('Ошибка при сохранении клиента');
+      console.error('[ClientFormModal] клиент не сохранён', error);
+      toast.error('Не удалось сохранить клиента — проверьте соединение');
     } finally {
       setSaving(false);
     }
@@ -100,10 +104,12 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
               {client ? 'Редактирование клиента' : 'Новый клиент'}
             </h2>
             <button
+              type="button"
               onClick={onClose}
+              aria-label="Закрыть"
               className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
-              
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -125,14 +131,15 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
 
             <div>
               <label htmlFor="client-email" className="block text-[var(--text-primary)] font-medium mb-2">
-                Email <span className="text-[var(--danger)]">*</span>
+                Email <span className="text-[var(--text-muted)] font-normal">(необязательно)</span>
               </label>
               <input
                 id="client-email"
+                type="email"
                 value={formData.email}
                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                 className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                required
+                
               />
             </div>
           </div>
@@ -140,10 +147,12 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label htmlFor="client-phone" className="block text-[var(--text-primary)] font-medium mb-2">
-                Телефон
+                Телефон <span className="text-[var(--danger)]">*</span>
               </label>
               <input
                 id="client-phone"
+                type="tel"
+                required
                 value={formData.phone}
                 onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                 className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"

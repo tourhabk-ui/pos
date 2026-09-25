@@ -44,7 +44,9 @@ import { isUserReferralCode, REFERRAL_STORAGE_KEY } from '@/lib/referral/link';
 const ROOT = process.cwd();
 const SHORT   = readFileSync(join(ROOT, 'app/r/[code]/route.ts'), 'utf-8');
 const CAPTURE = readFileSync(join(ROOT, 'components/shared/ReferralCapture.tsx'), 'utf-8');
-const MODAL   = readFileSync(join(ROOT, 'components/booking/TourPaymentModal.tsx'), 'utf-8');
+// С 26.09 код ссылки шлёт главная форма брони (BookingFormClient); модалка
+// TourPaymentModal — лишь её рамка.
+const MODAL   = readFileSync(join(ROOT, 'components/marketplace/BookingFormClient.tsx'), 'utf-8');
 
 const AGENT = 'KH-AGT-1A2B3C';
 const USER  = 'KH-1A2B3C';

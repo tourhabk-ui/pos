@@ -9,6 +9,7 @@ import TourDateField from '@/components/marketplace/TourDateField';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
+import { agentReferralForBooking } from '@/lib/referral/agent-link';
 
 interface BookingFormProps {
   tourId: number;
@@ -19,6 +20,12 @@ interface BookingFormProps {
   duration?: { multi_day_count: number | null; duration_hours: number | null };
   maxParticipants?: number;
   tourTitle?: string;
+  /**
+   * Дата, уже выбранная снаружи (день в /calendar, «ближайший выезд» на
+   * маршруте). Ручной выбор и ?date= она не перетирает — только стартовое
+   * значение.
+   */
+  initialDate?: string | null;
 }
 
 /** Неразрывный пробел перед ₽: «52 000 / ₽» на двух строках — аудит 24.09. */
@@ -44,7 +51,7 @@ interface FormError {
   kind: 'validation' | 'send';
 }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate }: BookingFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
@@ -84,7 +91,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     tourist_email: '',
     tourist_phone: '',
     participants_count: '1',
-    booking_date: '',
+    booking_date: initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : '',
     special_requests: '',
   });
   /**
@@ -155,6 +162,12 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     // Поле, которое назвал сервер, — чтобы подсветить именно его.
     let serverField: FormField | null = null;
 
+    // Код агентской ссылки: сперва адресная строка, потом память (30 дней,
+    // ReferralCapture). До 26.09 эта форма — главная дверь брони — кода не
+    // слала вовсе, и продажа по ссылке агента терялась всякий раз, когда
+    // турист бронировал с карточки тура (issue #1978, пакет A кабинета агента).
+    const referralCode = agentReferralForBooking(window.location.search, Date.now()) ?? undefined;
+
     try {
       const res = await fetch('/api/hub/bookings/create', {
         method: 'POST',
@@ -175,6 +188,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           // `disabled` — согласие уедет без галочки, а сервер не отличит,
           // потому что проверяет, ЧТО пришло, а не что человек нажимал.
           pd_consent: pdConsent,
+          referral_code: referralCode,
         }),
       });
 

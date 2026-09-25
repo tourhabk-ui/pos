@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react';
 import {
   Search, Calendar, Users, MapPin, Clock, Phone,
-  RefreshCw, ChevronRight, Banknote,
+  RefreshCw, ChevronRight, Banknote, AlertTriangle,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import { normalizePriceUnit } from '@/lib/tours/booking-total';
+import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
 
 interface TourSlot {
   tour_id:          number;
@@ -21,7 +23,8 @@ interface TourSlot {
   available_date:   string;
   available_spots:  number;
   price:            string;
-  agent_commission: string;
+  /** operator_tours.price_unit — за что стоит цена (за человека / за группу / в день). */
+  price_unit:       string | null;
 }
 
 const ACTIVITY_OPTIONS = [
@@ -53,6 +56,7 @@ export default function FindToursClient() {
   const [results,       setResults]       = useState<TourSlot[]>([]);
   const [loading,       setLoading]       = useState(false);
   const [searched,      setSearched]      = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
 
   // Автозапуск если пришли с параметрами (из лидов)
   useEffect(() => {
@@ -65,6 +69,7 @@ export default function FindToursClient() {
   async function search() {
     setLoading(true);
     setSearched(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (dateFrom)     params.set('date_from',     dateFrom);
@@ -73,8 +78,18 @@ export default function FindToursClient() {
       params.set('group_size', String(groupSize));
 
       const res  = await fetch(`/api/agent/find-tours?${params}`);
-      const json = await res.json() as { success: boolean; data: TourSlot[] };
-      if (json.success) setResults(json.data);
+      const json = await res.json() as { success: boolean; data?: TourSlot[]; error?: string };
+      if (json.success && Array.isArray(json.data)) {
+        setResults(json.data);
+      } else {
+        // Отказ поиска — не «свободных туров нет» (§4.0).
+        setResults([]);
+        setError(json.error ?? 'Не удалось выполнить поиск');
+      }
+    } catch (err) {
+      console.error('[agent/find] поиск не выполнен', err);
+      setResults([]);
+      setError('Не удалось выполнить поиск — проверьте соединение');
     } finally {
       setLoading(false);
     }
@@ -160,7 +175,14 @@ export default function FindToursClient() {
       </div>
 
       {/* Результаты */}
-      {searched && !loading && results.length === 0 && (
+      {error && !loading && (
+        <div role="alert" className="ds-card flex items-start gap-2 p-4 text-sm text-[var(--danger)]">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+          {error}
+        </div>
+      )}
+
+      {searched && !loading && !error && results.length === 0 && (
         <div className="ds-card text-center py-12 text-[var(--text-secondary)]">
           <Search size={32} className="mx-auto mb-3 opacity-40" />
           <p className="font-medium">Свободных туров не найдено</p>
@@ -227,11 +249,13 @@ export default function FindToursClient() {
                   <div>
                     <p className="text-lg font-bold text-[var(--text-primary)]">
                       {fmtPrice(t.price)}
-                      <span className="text-sm font-normal text-[var(--text-muted)]"> /чел</span>
+                      <span className="text-sm font-normal text-[var(--text-muted)]"> {PRICE_UNIT_SHORT[normalizePriceUnit(t.price_unit)]}</span>
                     </p>
-                    <p className="text-sm flex items-center gap-1 text-[var(--success)]">
+                    {/* Ставку вознаграждения назначает владелец платформы —
+                        выдуманные «10%» здесь агент принял бы за обещание. */}
+                    <p className="text-xs flex items-center gap-1 text-[var(--text-secondary)]">
                       <Banknote size={13} />
-                      Ваша комиссия: {fmtPrice(t.agent_commission)}
+                      Ставку вознаграждения назначает платформа
                     </p>
                   </div>
                   {t.operator_phone && (
@@ -247,10 +271,10 @@ export default function FindToursClient() {
 
                 {/* CTA */}
                 <a
-                  href={`/hub/agent/clients?suggest_tour=${t.tour_id}&date=${date}`}
+                  href={`/hub/agent/bookings?tour=${t.tour_id}&date=${date.slice(0, 10)}`}
                   className="ds-btn ds-btn-primary w-full flex items-center justify-center gap-2 text-sm"
                 >
-                  Предложить клиенту
+                  Оформить за клиента
                   <ChevronRight size={14} />
                 </a>
               </div>

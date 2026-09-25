@@ -75,10 +75,11 @@ describe('длительность тура в днях', () => {
 
 describe('копии правила длительности нет', () => {
   const RESERVE = read('lib/bookings/reserve.ts');
-  const PAID    = read('app/api/bookings/tour/route.ts');
+  // app/api/bookings/tour удалён 26.09: бронь заводит ТОЛЬКО reserveBooking
+  // (модалка TourPaymentModal бронирует через ту же форму, что карточка тура).
 
-  it('обе двери зовут общий модуль', () => {
-    for (const [name, src] of [['reserve', RESERVE], ['bookings/tour', PAID]] as const) {
+  it('дверь брони зовёт общий модуль', () => {
+    for (const [name, src] of [['reserve', RESERVE]] as const) {
       expect(src, `${name} не зовёт общее правило длительности`)
         .toMatch(/from '@\/lib\/bookings\/duration'/);
       expect(src, `${name} не считает длительность`).toMatch(/tourDurationDays\(/);
@@ -88,7 +89,7 @@ describe('копии правила длительности нет', () => {
   it('своей копии вычисления нет ни в одной', () => {
     // Ровно та форма, что лежала в app/api/bookings/tour до 14.09. Копия,
     // заведённая заново, разойдётся — об этом вся шапка reserve.ts.
-    for (const [name, src] of [['reserve', RESERVE], ['bookings/tour', PAID]] as const) {
+    for (const [name, src] of [['reserve', RESERVE]] as const) {
       expect(src, `${name} завёл свою копию правила длительности`)
         .not.toMatch(/duration_hours\s*\/\s*24/);
     }

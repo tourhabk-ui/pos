@@ -37,7 +37,9 @@ export const maxDuration = 60;
 /** Маршруты, через которые бронь вообще может быть создана. */
 export const BOOKING_ROUTES = [
   '/api/hub/bookings/create',  // форма на карточке тура (BookingFormClient)
-  '/api/bookings/tour',        // оплата из модального окна (TourPaymentModal)
+  // /api/bookings/tour удалён 26.09: модалка (TourPaymentModal) бронирует
+  // через форму карточки тура, а деньги берутся после подтверждения.
+  '/api/agent/bookings',       // бронь агента за клиента (reserveBooking)
   '/api/tours/[id]/book',
   '/api/hub/operator/bookings',
 ] as const;

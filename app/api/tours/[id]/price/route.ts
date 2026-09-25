@@ -1,8 +1,14 @@
 /**
- * GET /api/tours/[id]/price?date=YYYY-MM-DD&guests=2&ref=CODE
+ * GET /api/tours/[id]/price?date=YYYY-MM-DD&guests=2
  *
  * Возвращает динамическую цену тура на указанную дату.
- * Если передан ref= (агентский код) — фиксирует клик.
+ *
+ * Клик по агентской ссылке здесь больше НЕ считается (26.09). Считал он
+ * его вторым местом рядом с `/r/<код>`: переход по короткой ссылке уже дал
+ * клик и увёл на карточку с `?ref=`, и любой экран, спросивший цену с тем же
+ * `ref`, засчитал бы тот же переход дважды. Вдобавок счётчик здесь писал IP
+ * туриста (ПД ради счётчика) и глушил отказ пустым `catch`. Клик теперь
+ * считается в одном месте — `app/r/[code]/route.ts`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,7 +21,6 @@ export const dynamic = 'force-dynamic';
 const QuerySchema = z.object({
   date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Формат даты: YYYY-MM-DD'),
   guests: z.coerce.number().min(1).max(50).default(1),
-  ref:    z.string().max(32).optional(),
 });
 
 export async function GET(
@@ -28,7 +33,6 @@ export async function GET(
   const parsed = QuerySchema.safeParse({
     date:   sp.get('date'),
     guests: sp.get('guests'),
-    ref:    sp.get('ref') ?? undefined,
   });
 
   if (!parsed.success) {
@@ -38,7 +42,7 @@ export async function GET(
     );
   }
 
-  const { date, guests, ref } = parsed.data;
+  const { date, guests } = parsed.data;
 
   // Получаем базовую цену тура
   const { rows } = await pool.query<{ base_price: string; title: string }>(
@@ -60,30 +64,6 @@ export async function GET(
     guests,
     basePrice,
   });
-
-  // Фиксируем клик по реф. ссылке (fire-and-forget)
-  if (ref) {
-    pool.query(
-      `UPDATE agent_referral_links SET clicks = clicks + 1
-       WHERE code = $1 AND is_active = TRUE`,
-      [ref]
-    ).then(async (r) => {
-      if (r.rowCount && r.rowCount > 0) {
-        // Записываем событие
-        const linkRes = await pool.query(
-          `SELECT id FROM agent_referral_links WHERE code = $1`,
-          [ref]
-        );
-        if (linkRes.rows[0]) {
-          await pool.query(
-            `INSERT INTO agent_referral_events (link_id, event_type, ip)
-             VALUES ($1, 'click', $2)`,
-            [linkRes.rows[0].id, request.headers.get('x-forwarded-for')?.split(',')[0] ?? null]
-          );
-        }
-      }
-    }).catch(() => {});
-  }
 
   return NextResponse.json({
     success:      true,

@@ -38,6 +38,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAgent } from '@/lib/auth/middleware';
+import { requireApprovedAgent } from '@/lib/auth/agent-approval';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
 import { randomBytes } from 'crypto';
@@ -58,7 +59,9 @@ export async function GET(request: NextRequest) {
   // прежде join к agent_bookings (UUID vs BIGINT). rl.conversions — легаси-кэш.
   // conversions — все атрибутированные брони (воронка); earned_total — только
   // оплаченные (payment_status='paid'), чтобы отменённые/неоплаченные не раздували заработок.
-  const { rows } = await pool.query(
+  let rows;
+  try {
+    ({ rows } = await pool.query(
     `SELECT
        rl.id, rl.code, rl.tour_id, rl.clicks,
        rl.commission_rate, rl.expires_at, rl.is_active, rl.created_at,
@@ -74,7 +77,15 @@ export async function GET(request: NextRequest) {
      WHERE rl.agent_id = $1
      ORDER BY rl.created_at DESC`,
     [auth.userId]
-  );
+    ));
+  } catch (err) {
+    console.error(`[hub/agent/referral] ссылки не прочитаны, SQLSTATE ${sqlstateOf(err)}:`,
+      err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось загрузить ссылки. Попробуйте позже.' },
+      { status: 500 },
+    );
+  }
 
   // Итог по деньгам считается ТОЛЬКО по ссылкам со ставкой. Ссылка без
   // ставки не даёт нуля — она не даёт ничего, и её число выносится рядом,
@@ -91,8 +102,14 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ success: true, data: rows, stats });
 }
 
+function sqlstateOf(err: unknown): string {
+  return (err as { code?: string }).code ?? 'нет SQLSTATE';
+}
+
 export async function POST(request: NextRequest) {
-  const auth = await requireAgent(request);
+  // Ссылку — то есть право на продажи — выдаём только одобренному агенту
+  // (решение владельца 26.09). Смотреть свои ссылки (GET) можно и до одобрения.
+  const auth = await requireApprovedAgent(request);
   if (auth instanceof NextResponse) return auth;
 
   let body: unknown;
@@ -121,15 +138,27 @@ export async function POST(request: NextRequest) {
   // Генерируем код: KH-AGT-XXXX
   const code = `KH-AGT-${randomBytes(3).toString('hex').toUpperCase()}`;
 
-  const { rows } = await pool.query(
-    // commission_rate пишется ЯВНЫМ NULL, а не опускается: пропуск колонки
-    // вернул бы умолчание, если его когда-нибудь заведут обратно.
-    `INSERT INTO agent_referral_links
-       (agent_id, tour_id, code, commission_rate, expires_at)
-     VALUES ($1, $2, $3, NULL, $4)
-     RETURNING id, code, tour_id, commission_rate, expires_at, created_at`,
-    [auth.userId, tourId ?? null, code, expiresAt ?? null]
-  );
-
-  return NextResponse.json({ success: true, data: rows[0] }, { status: 201 });
+  try {
+    const { rows } = await pool.query(
+      // commission_rate пишется ЯВНЫМ NULL, а не опускается: пропуск колонки
+      // вернул бы умолчание, если его когда-нибудь заведут обратно.
+      `INSERT INTO agent_referral_links
+         (agent_id, tour_id, code, commission_rate, expires_at)
+       VALUES ($1, $2, $3, NULL, $4)
+       RETURNING id, code, tour_id, commission_rate, expires_at, created_at`,
+      [auth.userId, tourId ?? null, code, expiresAt ?? null]
+    );
+    return NextResponse.json({ success: true, data: rows[0] }, { status: 201 });
+  } catch (err) {
+    const sqlstate = sqlstateOf(err);
+    console.error(`[hub/agent/referral] ссылка не создана, SQLSTATE ${sqlstate}:`,
+      err instanceof Error ? err.message : err);
+    // 23503 — тура с таким id нет; 23505 — код совпал с существующим (редко).
+    const message = sqlstate === '23503'
+      ? 'Тур не найден'
+      : sqlstate === '23505'
+        ? 'Не удалось выдать код — попробуйте ещё раз'
+        : 'Не удалось создать ссылку. Попробуйте позже.';
+    return NextResponse.json({ success: false, error: message }, { status: sqlstate === '23503' ? 400 : 500 });
+  }
 }

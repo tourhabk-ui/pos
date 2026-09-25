@@ -84,7 +84,6 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/tools/equipment',      // AI-подбор снаряжения: rate-limit есть, вход пока обязателен
   'POST /api/tools/safety',
   'POST /api/tools/X',
-  'POST /api/bookings/tour',        // оплата тура — requireAuth в хендлере
   'POST /api/gear/rentals',         // аренда снаряжения — requireAuth в хендлере
   'GET /api/chat/conversations',    // чат-виджет не рендерится без входа
   'GET /api/chat/unread',

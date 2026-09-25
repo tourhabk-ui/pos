@@ -13,12 +13,12 @@ const INPUT = 'w-full px-3.5 py-2.5 text-sm bg-[var(--bg-primary)] border border
 interface AgentClient {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   phone?: string;
   company?: string;
   totalBookings: number;
   totalSpent: number;
-  lastBooking: Date;
+  lastBooking: string | null;
   status: 'active' | 'inactive' | 'prospect';
   notes?: string;
   tags: string[];
@@ -53,12 +53,14 @@ export default function AgentClientsPageClient() {
       const result = await response.json();
 
       if (result.success) {
+        setError(null);
         setClients(result.data.clients);
       } else {
-        setError(result.error);
+        setError(typeof result.error === 'string' ? result.error : 'Не удалось загрузить клиентов');
       }
-    } catch {
-      setError('Ошибка загрузки клиентов');
+    } catch (err) {
+      console.error('[agent/clients] список не загружен', err);
+      setError('Не удалось загрузить клиентов — проверьте соединение');
     } finally {
       setLoading(false);
     }
@@ -85,7 +87,8 @@ export default function AgentClientsPageClient() {
       render: (client: AgentClient) => (
         <div>
           <div className="font-medium text-[var(--text-primary)]">{client.name}</div>
-          <div className="text-[var(--text-muted)] text-sm">{client.email}</div>
+          {client.phone && <div className="text-[var(--text-muted)] text-sm">{client.phone}</div>}
+          {client.email && <div className="text-[var(--text-muted)] text-sm">{client.email}</div>}
           {client.company && (
             <div className="text-[var(--text-muted)] text-xs">{client.company}</div>
           )}
@@ -131,7 +134,7 @@ export default function AgentClientsPageClient() {
     },
     {
       key: 'totalSpent',
-      header: 'Потрачено',
+      header: 'Оплачено',
       render: (client: AgentClient) => (
         <div className="font-medium text-[var(--text-primary)]">
           {client.totalSpent.toLocaleString('ru-RU')} ₽
@@ -179,7 +182,7 @@ export default function AgentClientsPageClient() {
         Управление клиентами
       </h1>
           <p className="text-[var(--text-secondary)] text-sm mt-0.5">
-            CRM система для работы с клиентами
+            Клиенты, за которых вы оформляете брони: имя и телефон обязательны
           </p>
         </div>
         <button
@@ -195,7 +198,7 @@ export default function AgentClientsPageClient() {
         <div className="flex-1">
           <input
             type="text"
-            placeholder="Поиск по имени или email..."
+            placeholder="Поиск по имени, телефону или email..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className={INPUT}
@@ -220,7 +223,7 @@ export default function AgentClientsPageClient() {
         </div>
       ) : error ? (
         <div className="bg-[var(--bg-card)] border border-[var(--danger)]/30 rounded-lg p-6 text-center">
-          <p className="text-[var(--danger)] mb-4">Ошибка загрузки клиентов</p>
+          <p className="text-[var(--danger)] mb-4">{error}</p>
           <button
             onClick={fetchClients}
             className="px-4 py-2 border border-[var(--danger)]/30 text-[var(--danger)] rounded-md text-sm transition-colors"
