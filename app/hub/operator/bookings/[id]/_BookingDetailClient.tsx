@@ -8,6 +8,7 @@ import {
   Phone, Mail, Calendar, Users, Wallet, AlertTriangle,
 } from 'lucide-react';
 import Link from 'next/link';
+import GuideAssign from './_GuideAssign';
 
 interface BookingDetail {
   id: string;
@@ -32,6 +33,9 @@ interface BookingDetail {
   created_via: string | null;
   created_at: string;
   updated_at: string;
+  /** Назначенный гид (миграция 1018); NULL — не назначен. */
+  guide_partner_id: string | null;
+  guide_name: string | null;
 }
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
@@ -220,6 +224,14 @@ export default function BookingDetailClient({ bookingId }: Props) {
           </div>
         </div>
       </div>
+
+      <GuideAssign
+        bookingId={booking.id}
+        currentGuideId={booking.guide_partner_id}
+        currentGuideName={booking.guide_name}
+        closed={!canCancel}
+        onSaved={() => mutate()}
+      />
 
       {(booking.special_requests || booking.notes || booking.cancellation_reason || booking.weather_alert_triggered) && (
         <div className="ds-card p-5 mb-6">

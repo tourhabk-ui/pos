@@ -46,7 +46,10 @@ function accLine(color: AccColor, p: GuardianPlaceRow): string {
   const meta = ACC_META[color];
   const ash = p.volcano_ash_height_m ? ` Пепел до ${(p.volcano_ash_height_m / 1000).toFixed(1)} км.` : '';
   const seen = p.volcano_observed_at
-    ? ` (наблюдение ${new Date(p.volcano_observed_at).toLocaleDateString('ru-RU')})`
+    // По Камчатке, как в get_volcano_status: по часам сервера (UTC)
+    // наблюдение утра 25.09 читалось как 24.09 — два инструмента называли
+    // одному агенту разные даты одного снимка (сверка 26.09).
+    ? ` (наблюдение ${new Date(p.volcano_observed_at).toLocaleDateString('ru-RU', { timeZone: 'Asia/Kamchatka' })})`
     : '';
   return `Авиационный цветовой код KVERT: ${meta.short.toUpperCase()} — ${meta.label.toLowerCase()}.${ash}${seen}`;
 }

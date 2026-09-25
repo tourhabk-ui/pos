@@ -1,272 +1,163 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import Link from 'next/link';
 import { LoadingSpinner } from '@/components/admin/shared';
-import { Users, Calendar, Phone, Mail, Plus, Loader2 } from 'lucide-react';
+import { Users, Calendar, Phone, MapPin, AlertCircle, RefreshCw, ChevronDown, ChevronUp, UserPlus } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
-
-interface GroupMember {
-  id?: string;
-  name: string;
-  phone?: string;
-  email?: string;
-}
+import { formatDateOnly } from '@/lib/dates/date-only';
+import { plural } from '@/lib/home/data-freshness';
 
 /**
- * Контракт — ровно тот, что отдаёт GET /api/guide/groups.
+ * «Мои группы» — предстоящие брони, на которые гида назначил оператор,
+ * собранные по дате и туру (GET /api/guide/groups).
  *
- * Раньше здесь были поля date/members/notes, которых API не отдавал, а сам
- * ответ разбирался как массив (`(d) => d ?? []`), хотя приходит
- * `data: { groups }` — объект. Итог: `list.map` по объекту, страница падала.
- * Тот же класс, что camelCase-баг витрины снаряжения (аудит 27.07).
+ * До 25.09 группы создавались руками на запись расписания, участников в них
+ * не писал никто, а сам список отвечал 500 (uuid = bigint) и рисовался как
+ * «Нет активных групп». Теперь состав и контакт туриста — из самой брони;
+ * контакт видит только назначенный гид, пока он в команде оператора.
  */
-interface Group {
-  id: string;
-  groupName: string;
-  tourName: string;
-  tourDate: string;
-  startTime: string | null;
-  participants: GroupMember[];
-  specialNeeds: string | null;
-  status: string | null;
+interface GroupBooking {
+  bookingId: string;
+  status: string;
+  participants: number;
+  touristName: string | null;
+  touristPhone: string | null;
+  specialRequests: string | null;
+  endDate: string | null;
 }
 
-interface GroupsApiResponse { groups: Group[] }
+interface Group {
+  key: string;
+  date: string;
+  tourId: string;
+  tourTitle: string;
+  meetingPoint: string | null;
+  operatorName: string | null;
+  totalParticipants: number;
+  bookings: GroupBooking[];
+}
 
-/** Запись расписания — источник scheduleId для новой группы. */
-interface ScheduleEntry { id: string; title?: string; tourName?: string; tourDate?: string; startTime?: string }
+interface GroupsApiResponse { inTeam: boolean; groups: Group[] }
 
-const INPUT = 'w-full px-3 py-2.5 text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors';
-
-const EMPTY_FORM = { scheduleId: '', groupName: '', specialNeeds: '' };
+const STATUS_LABEL: Record<string, string> = {
+  new: 'Новая', pending_payment: 'Ждёт оплаты', confirmed: 'Подтверждена',
+};
 
 export default function GuideGroupsPageClient() {
-  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
-  const [optionsLoading, setOptionsLoading] = useState(false);
-
-  const { data: groups, loading, refetch } = useApiFetch<GroupsApiResponse, Group[]>(
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const { data, loading, error, refetch } = useApiFetch<GroupsApiResponse, GroupsApiResponse>(
     '/api/guide/groups',
-    (d) => d?.groups ?? [],
+    (d) => ({ inTeam: Boolean(d?.inTeam), groups: d?.groups ?? [] }),
+    { errorMessage: 'Не удалось загрузить группы' },
   );
 
-  // Расписание — только при открытии формы: группа создаётся НА запись
-  // расписания (scheduleId в схеме), иначе привязывать её не к чему.
-  useEffect(() => {
-    if (!showForm || schedule.length > 0) return;
-    let cancelled = false;
-    setOptionsLoading(true);
-    fetch('/api/guide/schedule')
-      .then(r => r.json())
-      .then(j => { if (!cancelled) setSchedule((j?.data?.schedule ?? j?.data ?? []) as ScheduleEntry[]); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setOptionsLoading(false); });
-    return () => { cancelled = true; };
-  }, [showForm, schedule.length]);
-
-  const list = groups ?? [];
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setFormError('');
-    try {
-      const res = await fetch('/api/guide/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scheduleId: form.scheduleId,
-          groupName: form.groupName.trim(),
-          ...(form.specialNeeds.trim() ? { specialNeeds: form.specialNeeds.trim() } : {}),
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        setFormError(json.error || 'Не удалось создать группу');
-        return;
-      }
-      setForm(EMPTY_FORM);
-      setShowForm(false);
-      await refetch();
-    } catch {
-      setFormError('Не удалось создать группу — проверьте соединение');
-    } finally {
-      setSaving(false);
-    }
-  }
+  const groups = data?.groups ?? [];
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="ds-h1 flex items-center gap-2">
-            <Users className="w-6 h-6 text-[var(--ocean)]" />
-            Мои группы
-          </h1>
-          <p className="text-sm text-[var(--text-muted)] mt-0.5">
-            Участники предстоящих туров
-          </p>
-        </div>
-        <button
-          onClick={() => setShowForm(s => !s)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg text-sm font-medium transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          Новая группа
-        </button>
+      <div>
+        <h1 className="ds-h1 flex items-center gap-2">
+          <Users className="w-6 h-6 text-[var(--ocean)]" />
+          Мои группы
+        </h1>
+        <p className="text-sm text-[var(--text-muted)] mt-0.5">
+          Брони, на которые вас назначил оператор
+        </p>
       </div>
-
-      {showForm && (
-        <form onSubmit={submit} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-4">
-          {optionsLoading ? (
-            <LoadingSpinner message="Загрузка расписания..." />
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="ds-label">Запись расписания</label>
-                <select required value={form.scheduleId} onChange={e => setForm(f => ({ ...f, scheduleId: e.target.value }))} className={INPUT}>
-                  <option value="">— выберите тур из расписания —</option>
-                  {schedule.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.tourName ?? s.title ?? 'Запись'}
-                      {s.tourDate ? ` — ${new Date(s.tourDate).toLocaleDateString('ru-RU')}` : ''}
-                    </option>
-                  ))}
-                </select>
-                {schedule.length === 0 && (
-                  <p className="text-xs text-[var(--text-muted)] mt-1">Расписание пусто — добавьте запись в разделе «Расписание»</p>
-                )}
-              </div>
-              <div>
-                <label className="ds-label">Название группы</label>
-                <input required value={form.groupName} onChange={e => setForm(f => ({ ...f, groupName: e.target.value }))} placeholder="Группа Иванова, 6 чел." className={INPUT} />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="ds-label">Особые потребности (необязательно)</label>
-                <input value={form.specialNeeds} onChange={e => setForm(f => ({ ...f, specialNeeds: e.target.value }))} placeholder="Вегетарианское питание, ребёнок 8 лет" className={INPUT} />
-              </div>
-            </div>
-          )}
-          {formError && <p className="text-sm text-[var(--danger)]">{formError}</p>}
-          <div className="flex gap-3">
-            <button type="button" onClick={() => { setShowForm(false); setFormError(''); }} className="px-4 py-2.5 border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-sm hover:text-[var(--text-primary)] transition-colors">
-              Отмена
-            </button>
-            <button type="submit" disabled={saving || optionsLoading} className="flex items-center gap-2 px-4 py-2.5 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Создать
-            </button>
-          </div>
-        </form>
-      )}
 
       {loading ? (
         <LoadingSpinner message="Загрузка групп..." />
-      ) : list.length === 0 ? (
+      ) : error ? (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 flex items-start gap-3">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--danger)]" />
+          <div className="flex-1 min-w-0 text-sm">
+            <p className="font-medium text-[var(--text-primary)]">{error}</p>
+            <p className="text-[var(--text-secondary)] mt-0.5">Список не показан — мы не знаем, есть ли у вас группы.</p>
+          </div>
+          <button type="button" onClick={() => void refetch()} className="ds-btn ds-btn-secondary inline-flex items-center gap-1.5 shrink-0">
+            <RefreshCw className="w-4 h-4" /> Повторить
+          </button>
+        </div>
+      ) : !data?.inTeam ? (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-10 text-center space-y-3">
+          <UserPlus className="w-10 h-10 mx-auto text-[var(--text-muted)]" />
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Вы пока не в команде оператора</p>
+          <p className="text-sm text-[var(--text-muted)]">Группы появятся, когда оператор примет вас в команду и назначит на бронь.</p>
+          <Link href="/hub/guide" className="ds-btn ds-btn-secondary inline-flex">К приглашениям</Link>
+        </div>
+      ) : groups.length === 0 ? (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
           <Users className="w-14 h-14 mx-auto mb-4 text-[var(--text-muted)]" />
-          <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-2">
-            Нет активных групп
-          </h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            Создайте группу на запись расписания — участников добавите позже
-          </p>
+          <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-2">Пока пусто</h2>
+          <p className="text-sm text-[var(--text-muted)]">Оператор ещё не назначил вас на предстоящие брони</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {list.map((group) => (
-            <div
-              key={group.id}
-              className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden"
-            >
-              <button
-                onClick={() => setExpandedGroup(expandedGroup === group.id ? null : group.id)}
-                className="w-full px-5 py-4 text-left hover:bg-[var(--bg-hover)] transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                      {group.groupName}
-                    </h3>
-                    <div className="flex items-center gap-4 mt-1.5 text-xs text-[var(--text-muted)]">
-                      <span>{group.tourName}</span>
-                      {group.tourDate && (
+          {groups.map((group) => {
+            const open = expanded === group.key;
+            return (
+              <div key={group.key} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setExpanded(open ? null : group.key)}
+                  aria-expanded={open}
+                  className="w-full px-5 py-4 text-left hover:bg-[var(--bg-hover)] transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-[var(--text-primary)]">{group.tourTitle}</h3>
+                      <div className="flex flex-wrap items-center gap-4 mt-1.5 text-xs text-[var(--text-muted)]">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5" />
-                          {new Date(group.tourDate).toLocaleDateString('ru-RU')}
+                          {formatDateOnly(group.date, { weekday: 'short', day: 'numeric', month: 'long' })}
                         </span>
-                      )}
-                      <span className="flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5" />
-                        {group.participants.length} участников
-                      </span>
+                        <span className="flex items-center gap-1">
+                          <Users className="w-3.5 h-3.5" />
+                          {group.totalParticipants} {plural(group.totalParticipants, 'участник', 'участника', 'участников')}
+                        </span>
+                        {group.operatorName && <span>{group.operatorName}</span>}
+                      </div>
                     </div>
+                    {open
+                      ? <ChevronUp className="w-4 h-4 shrink-0 text-[var(--text-muted)]" />
+                      : <ChevronDown className="w-4 h-4 shrink-0 text-[var(--text-muted)]" />}
                   </div>
-                  <span className="text-lg text-[var(--text-muted)]">
-                    {expandedGroup === group.id ? '−' : '+'}
-                  </span>
-                </div>
-              </button>
+                </button>
 
-              {expandedGroup === group.id && (
-                <div className="border-t border-[var(--border)] px-5 py-4">
-                  {group.specialNeeds && (
-                    <div
-                      className="mb-4 px-3.5 py-2.5 rounded-md text-sm border"
-                      style={{
-                        color: 'var(--warning)',
-                        borderColor: 'var(--warning)',
-                        backgroundColor: 'color-mix(in srgb, var(--warning) 10%, transparent)',
-                      }}
-                    >
-                      <strong>Особые потребности:</strong> {group.specialNeeds}
-                    </div>
-                  )}
-                  {group.participants.length === 0 ? (
-                    <p className="text-sm text-[var(--text-muted)]">Участники пока не добавлены</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {group.participants.map((member, i) => (
-                        <div
-                          key={member.id ?? `${group.id}-${i}`}
-                          className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--bg-hover)] rounded-md"
-                        >
+                {open && (
+                  <div className="border-t border-[var(--border)] px-5 py-4 space-y-3">
+                    {group.meetingPoint && (
+                      <p className="text-sm text-[var(--text-secondary)] flex items-center gap-1.5">
+                        <MapPin className="w-4 h-4 text-[var(--ocean)]" /> {group.meetingPoint}
+                      </p>
+                    )}
+                    {group.bookings.map((b) => (
+                      <div key={b.bookingId} className="px-3.5 py-3 bg-[var(--bg-hover)] rounded-md space-y-1.5">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
                           <span className="text-sm font-medium text-[var(--text-primary)]">
-                            {member.name}
+                            {b.touristName ?? 'Имя не указано'} · {b.participants} чел.
                           </span>
-                          <div className="flex items-center gap-4 text-xs text-[var(--text-muted)]">
-                            {member.phone && (
-                              <a
-                                href={`tel:${member.phone}`}
-                                className="flex items-center gap-1 hover:text-[var(--accent)] transition-colors"
-                              >
-                                <Phone className="w-3.5 h-3.5" />
-                                {member.phone}
-                              </a>
-                            )}
-                            {member.email && (
-                              <a
-                                href={`mailto:${member.email}`}
-                                className="flex items-center gap-1 hover:text-[var(--accent)] transition-colors"
-                              >
-                                <Mail className="w-3.5 h-3.5" />
-                                {member.email}
-                              </a>
-                            )}
-                          </div>
+                          <span className="text-xs text-[var(--text-muted)]">
+                            бронь #{b.bookingId} · {STATUS_LABEL[b.status] ?? b.status}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                        {b.touristPhone ? (
+                          <a href={`tel:${b.touristPhone}`} className="inline-flex items-center gap-1 text-sm text-[var(--ocean)] hover:underline">
+                            <Phone className="w-3.5 h-3.5" /> {b.touristPhone}
+                          </a>
+                        ) : (
+                          <p className="text-xs text-[var(--text-muted)]">Телефон туриста не указан — уточните у оператора</p>
+                        )}
+                        {b.specialRequests && (
+                          <p className="text-xs text-[var(--warning)]">Пожелания: {b.specialRequests}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

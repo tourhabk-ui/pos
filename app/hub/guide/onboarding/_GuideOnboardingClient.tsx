@@ -21,11 +21,12 @@ const STEPS = [
 export default function GuideOnboardingClient() {
   const [step, setStep] = useState(0);
   const [finishing, setFinishing] = useState(false);
-  const { profile, loading, completeOnboarding } = usePartnerOnboarding('/hub/guide');
+  const { profile, loading, completeOnboarding, completeError } = usePartnerOnboarding('/hub/guide');
 
   async function finish() {
     setFinishing(true);
-    await completeOnboarding('/hub/guide');
+    const ok = await completeOnboarding('/hub/guide');
+    if (!ok) setFinishing(false);
   }
 
   if (loading) {
@@ -47,6 +48,11 @@ export default function GuideOnboardingClient() {
       steps={STEPS}
       current={step}
     >
+      {completeError && (
+        <div role="alert" className="mb-4 p-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 text-sm text-[var(--text-primary)]">
+          {completeError}
+        </div>
+      )}
       {step === 0 && (
         <PartnerProfileStep
           profile={profile}
@@ -57,9 +63,10 @@ export default function GuideOnboardingClient() {
       {step === 1 && (
         <div className="space-y-5">
           <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-            Профиль сохранён. Дальше — привяжите свои туры, заполните расписание
-            и аттестации в разделах кабинета. Заявки на группы и доходы будут
-            приходить сюда, на обзорную панель.
+            Профиль сохранён. Нажав «В кабинет гида», вы отправите профиль на
+            проверку платформы: в реестре гидов на сайте показываются только
+            одобренные. Аттестат с датой выдачи добавьте в разделе «Профиль» —
+            по ней видно, нужна ли переаттестация до 1 октября.
           </p>
           <button
             onClick={finish}

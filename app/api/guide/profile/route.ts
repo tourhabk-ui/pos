@@ -1,215 +1,182 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { getGuidePartnerByUserId, ensureGuidePartnerExists, getGuideStats } from '@/lib/auth/guide-helpers';
+import { getGuidePartnerByUserId, ensureGuidePartnerExists, getGuideStats, type GuideStats } from '@/lib/auth/guide-helpers';
 import { requireRole } from '@/lib/auth/middleware';
 import { GuideUserRow } from '@/lib/types/db-rows';
+import { logGuideFailure, sqlState } from '@/lib/guides/db-failure';
 import { z } from 'zod';
 
+/**
+ * Профиль гида.
+ *
+ * «О себе» пишется в `partners.description` — это та колонка, которую
+ * читает публичный профиль `/guides/[id]`. Прежний PUT писал в `bio`,
+ * которой в схеме нет: сохранение падало 42703, но только ПОСЛЕ того, как
+ * имя уже было записано в users, — частичная запись без транзакции.
+ * Теперь users и partners пишутся одной транзакцией.
+ *
+ * `location` — jsonb `{lat, lng}` (PostGIS в базе нет).
+ *
+ * Администратор может смотреть экран, но запись гида для него НЕ создаётся:
+ * прежде админ, открывший профиль гида, получал лишнюю строку partners.
+ */
 const UpdateGuideProfileSchema = z.object({
-  name: z.string().min(1, 'Имя не может быть пустым').optional(),
-  partnerName: z.string().optional(),
-  description: z.string().optional(),
-  contact: z.record(z.string(), z.unknown()).optional(),
-  experienceYears: z.number().int().min(1, 'Опыт работы должен быть от 1 до 50 лет').max(50, 'Опыт работы должен быть от 1 до 50 лет').optional(),
-  languages: z.array(z.string()).optional(),
+  name: z.string().trim().min(1, 'Имя не может быть пустым').max(255).optional(),
+  partnerName: z.string().trim().min(1, 'Название не может быть пустым').max(255).optional(),
+  description: z.string().max(5000, 'Текст «О себе» — не длиннее 5000 символов').optional(),
+  /** Телефон: пустая строка — явная очистка (ключ удаляется из contact). */
+  phone: z.string().trim().max(30, 'Телефон — не длиннее 30 символов').optional(),
+  experienceYears: z.number().int().min(0, 'Опыт работы — от 0 до 60 лет').max(60, 'Опыт работы — от 0 до 60 лет').nullable().optional(),
+  languages: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
   specializations: z.array(z.enum(['volcanoes', 'wildlife', 'fishing', 'history', 'photography', 'extreme', 'hiking', 'cultural', 'rafting', 'skiing'])).optional(),
-  bio: z.string().optional(),
-  location: z.object({ lat: z.number(), lng: z.number() }).optional(),
+  location: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).nullable().optional(),
   isAvailable: z.boolean().optional(),
+  /** Отправить профиль на проверку платформы (none/rejected → pending). */
+  submitForReview: z.boolean().optional(),
 });
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/guide/profile
- * Get guide profile with statistics
  */
 export async function GET(request: NextRequest) {
-  try {
-    const guideOrResponse = await requireRole(request, ['guide', 'admin']);
-    if (guideOrResponse instanceof NextResponse) return guideOrResponse;
-    const userId = guideOrResponse.userId;
+  const guideOrResponse = await requireRole(request, ['guide', 'admin']);
+  if (guideOrResponse instanceof NextResponse) return guideOrResponse;
+  const { userId, role } = guideOrResponse;
 
-    // Get user details
+  try {
     const userResult = await query<GuideUserRow>(
       'SELECT id, email, name, created_at FROM users WHERE id = $1',
       [userId]
     );
-
-    if (userResult.rows.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Пользователь не найден'
-      } as ApiResponse<null>, { status: 404 });
+    const user = userResult.rows[0];
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'Пользователь не найден' } as ApiResponse<null>, { status: 404 });
     }
 
-    const user = userResult.rows[0];
-
-    // Get or create guide partner profile
     let partner = await getGuidePartnerByUserId(userId);
-    if (!partner) {
-      const partnerId = await ensureGuidePartnerExists(userId, user.name, user.email);
+    if (!partner && role === 'guide') {
+      await ensureGuidePartnerExists(userId);
       partner = await getGuidePartnerByUserId(userId);
     }
 
-    // Get statistics
-    const stats = await getGuideStats(userId);
+    // Статистика — отдельно: её отказ не должен ронять профиль, но и не
+    // выдаётся за «нулевую статистику».
+    let stats: GuideStats | null = null;
+    let statsError: string | null = null;
+    if (partner) {
+      try {
+        stats = await getGuideStats(userId);
+      } catch {
+        statsError = 'Статистику загрузить не удалось';
+      }
+    }
 
     return NextResponse.json({
       success: true,
       data: {
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          createdAt: user.created_at
-        },
+        user: { id: user.id, email: user.email, name: user.name, createdAt: user.created_at },
         partner,
-        stats
-      }
+        stats,
+        statsError,
+      },
     } as ApiResponse<unknown>);
-
   } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при получении профиля'
-    } as ApiResponse<null>, { status: 500 });
+    logGuideFailure('GET /api/guide/profile', error);
+    return NextResponse.json({ success: false, error: 'Ошибка при получении профиля' } as ApiResponse<null>, { status: 500 });
   }
 }
 
 /**
  * PUT /api/guide/profile
- * Update guide profile
  */
 export async function PUT(request: NextRequest) {
+  const guideOrResponse = await requireRole(request, ['guide', 'admin']);
+  if (guideOrResponse instanceof NextResponse) return guideOrResponse;
+  const { userId, role } = guideOrResponse;
+
+  let body: unknown;
+  try { body = await request.json(); } catch {
+    return NextResponse.json({ success: false, error: 'Некорректный JSON' }, { status: 400 });
+  }
+  const parsed = UpdateGuideProfileSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
+  }
+  const {
+    name, partnerName, description, phone, experienceYears,
+    languages, specializations, location, isAvailable, submitForReview,
+  } = parsed.data;
+
   try {
-    const guideOrResponse = await requireRole(request, ['guide', 'admin']);
-    if (guideOrResponse instanceof NextResponse) return guideOrResponse;
-    const userId = guideOrResponse.userId;
-
-    const body = await request.json();
-    const parsed = UpdateGuideProfileSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
-    }
-    const {
-      name,
-      partnerName,
-      description,
-      contact,
-      experienceYears,
-      languages,
-      specializations,
-      bio,
-      location,
-      isAvailable
-    } = parsed.data;
-
-    // Update user name if provided
-    if (name) {
-      await query(
-        'UPDATE users SET name = $1 WHERE id = $2',
-        [name, userId]
-      );
-    }
-
-    // Get or create partner
     let partner = await getGuidePartnerByUserId(userId);
-    if (!partner) {
-      const userResult = await query<{ name: string; email: string }>('SELECT name, email FROM users WHERE id = $1', [userId]);
-      const user = userResult.rows[0];
-      await ensureGuidePartnerExists(userId, user.name, user.email);
+    if (!partner && role === 'guide') {
+      await ensureGuidePartnerExists(userId);
       partner = await getGuidePartnerByUserId(userId);
     }
+    if (!partner) {
+      return NextResponse.json({
+        success: false,
+        error: 'Профиля гида у этого аккаунта нет — править нечего',
+      } as ApiResponse<null>, { status: 403 });
+    }
+    const partnerId = partner.id;
 
-    // Build update query
-    const updateFields = [];
-    const updateValues = [];
-    let paramIndex = 1;
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    const set = (sql: (idx: number) => string, value: unknown) => {
+      values.push(value);
+      sets.push(sql(values.length));
+    };
 
-    if (partnerName) {
-      updateFields.push(`name = $${paramIndex++}`);
-      updateValues.push(partnerName);
+    if (partnerName !== undefined) set((i) => `name = $${i}`, partnerName);
+    if (description !== undefined) set((i) => `description = $${i}`, description);
+    if (phone !== undefined) {
+      // Пустая строка — очистка: ключ удаляется, а не остаётся старый номер.
+      if (phone === '') sets.push(`contact = COALESCE(contact, '{}'::jsonb) - 'phone'`);
+      else set((i) => `contact = COALESCE(contact, '{}'::jsonb) || jsonb_build_object('phone', $${i}::text)`, phone);
+    }
+    if (experienceYears !== undefined) set((i) => `experience_years = $${i}`, experienceYears);
+    if (languages !== undefined) set((i) => `languages = $${i}::text[]`, languages);
+    if (specializations !== undefined) set((i) => `specializations = $${i}::text[]`, specializations);
+    if (location !== undefined) set((i) => `location = $${i}::jsonb`, location === null ? null : JSON.stringify(location));
+    if (isAvailable !== undefined) set((i) => `is_available = $${i}`, isAvailable);
+    if (submitForReview) {
+      // Заявка подаётся только из «не подана» или «отклонена»; одобренного
+      // гида повторная отправка не откатывает на проверку.
+      sets.push(`applied_at = CASE WHEN profile_status IN ('none', 'rejected') THEN NOW() ELSE applied_at END`);
+      sets.push(`profile_status = CASE WHEN profile_status IN ('none', 'rejected') THEN 'pending' ELSE profile_status END`);
     }
 
-    if (description !== undefined) {
-      updateFields.push(`description = $${paramIndex++}`);
-      updateValues.push(description);
-    }
+    await transaction(async (client) => {
+      if (name !== undefined) {
+        await client.query('UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2', [name, userId]);
+      }
+      if (sets.length > 0) {
+        values.push(partnerId);
+        await client.query(
+          `UPDATE partners SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${values.length}`,
+          values
+        );
+      }
+    });
 
-    if (contact) {
-      // Merge, не полная замена — иначе правка одного поля стирала
-      // остальные контакты (тот же фикс, что в gear PUT и общем
-      // PATCH /api/partners/profile)
-      updateFields.push(`contact = COALESCE(contact, '{}'::jsonb) || $${paramIndex++}::jsonb`);
-      updateValues.push(JSON.stringify(contact));
-    }
-
-    if (experienceYears !== undefined) {
-      updateFields.push(`experience_years = $${paramIndex++}`);
-      updateValues.push(experienceYears);
-    }
-
-    if (languages) {
-      updateFields.push(`languages = $${paramIndex++}`);
-      updateValues.push(languages);
-    }
-
-    if (specializations) {
-      updateFields.push(`specializations = $${paramIndex++}`);
-      updateValues.push(specializations);
-    }
-
-    if (bio !== undefined) {
-      updateFields.push(`bio = $${paramIndex++}`);
-      updateValues.push(bio);
-    }
-
-    if (location && location.lat && location.lng) {
-      updateFields.push(`location = ST_SetSRID(ST_MakePoint($${paramIndex}, $${paramIndex + 1}), 4326)::geography`);
-      updateValues.push(location.lng, location.lat);
-      paramIndex += 2;
-    }
-
-    if (isAvailable !== undefined) {
-      updateFields.push(`is_available = $${paramIndex++}`);
-      updateValues.push(isAvailable);
-    }
-
-    if (updateFields.length > 0) {
-      updateValues.push(partner!.id);
-      
-      await query(
-        `UPDATE partners 
-         SET ${updateFields.join(', ')}, updated_at = NOW()
-         WHERE id = $${paramIndex}`,
-        updateValues
-      );
-    }
-
-    // Get updated profile
     const updatedPartner = await getGuidePartnerByUserId(userId);
-
     return NextResponse.json({
       success: true,
       data: { partner: updatedPartner },
-      message: 'Профиль успешно обновлён'
+      message: submitForReview ? 'Профиль отправлен на проверку' : 'Профиль сохранён',
     } as ApiResponse<unknown>);
-
   } catch (error: unknown) {
-    
-    // Handle constraint violations
-    if ((error as { code?: string }).code === '23514') { // Check constraint violation
+    logGuideFailure('PUT /api/guide/profile', error);
+    if (sqlState(error) === '23514') {
       return NextResponse.json({
         success: false,
-        error: 'Некорректные данные. Проверьте значения полей.'
+        error: 'Некорректные данные. Проверьте значения полей.',
       } as ApiResponse<null>, { status: 400 });
     }
-    
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при обновлении профиля'
-    } as ApiResponse<null>, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Ошибка при обновлении профиля' } as ApiResponse<null>, { status: 500 });
   }
 }

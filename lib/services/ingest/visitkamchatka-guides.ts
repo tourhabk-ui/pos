@@ -251,8 +251,12 @@ async function upsertGuide(guide: GuideRecord): Promise<{ status: 'inserted' | '
 
 async function upsertCertification(guideId: string, certNumber: string): Promise<void> {
   await pool.query(
-    `INSERT INTO guide_certifications (guide_id, name, issuing_authority, certificate_number, is_verified)
-     VALUES ($1, 'Аттестат гида Камчатки', 'Министерство туризма Камчатского края', $2, true)
+    // source = 'import' (миграция 1016): администратор видит, что это
+    // запись реестра края, а не аттестат, внесённый гидом, и что её
+    // is_verified = true — это «есть в реестре», а не взгляд человека
+    // (reviewed_at остаётся NULL — «подтверждён без проверки»).
+    `INSERT INTO guide_certifications (guide_id, name, issuing_authority, certificate_number, is_verified, source)
+     VALUES ($1, 'Аттестат гида Камчатки', 'Министерство туризма Камчатского края', $2, true, 'import')
      ON CONFLICT DO NOTHING`,
     [guideId, certNumber],
   );

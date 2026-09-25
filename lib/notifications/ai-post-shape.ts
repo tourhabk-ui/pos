@@ -32,10 +32,6 @@ export const AI_POST_MIN_MATERIALS = 2;
 /** Потолок подписи кнопки: длиннее Telegram режет сам, и режет некрасиво. */
 export const AI_BUTTON_LABEL_MAX = 40;
 
-// Разворот сущностей — один проход в одном месте (lib/html/entities, сторож
-// html-entities): цепочка replace(&amp;)… разворачивала «&amp;lt;» дважды.
-const decodeEntities = decodeHtmlEntities;
-
 /**
  * Материалы поста по порядку. Блоки разделены пустой строкой; шапка
  * «AI-дайджест · …» и необязательная цитата-хвост материалами не считаются.
@@ -49,7 +45,7 @@ export function aiPostMaterials(html: string): AiMaterial[] {
     const title = titles[0];
     const why = /<b>\s*Почему важно/i.test(block);
     const href = block.match(/<a\s+href="([^"]+)"/i)?.[1];
-    if (title && why && href) out.push({ title, url: decodeEntities(href) });
+    if (title && why && href) out.push({ title, url: decodeHtmlEntities(href) });
   }
   return out;
 }

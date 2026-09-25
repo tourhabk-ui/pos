@@ -1,270 +1,178 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { getGuidePartnerId, checkScheduleConflicts, hasTourDayConflict } from '@/lib/auth/guide-helpers';
+import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { requireRole } from '@/lib/auth/middleware';
-import { GuideScheduleRow } from '@/lib/types/db-rows';
-import { z } from 'zod';
-
-const CreateScheduleEntrySchema = z.object({
-  startTime: z.string().min(1, 'Время начала обязательно'),
-  endTime: z.string().min(1, 'Время окончания обязательно'),
-  title: z.string().min(1, 'Название обязательно').optional(),
-  description: z.string().optional(),
-  tourId: z.string().optional(),
-  bookingId: z.string().optional(),
-  maxParticipants: z.number().int().positive('maxParticipants должно быть положительным числом').optional(),
-  location: z.object({ lat: z.number(), lng: z.number() }).optional(),
-  locationName: z.string().optional(),
-  notes: z.string().optional(),
-});
+import { SCHEDULE_SQL, TEAM_SQL } from '@/lib/guides/team-queries';
+import { logGuideFailure } from '@/lib/guides/team';
+import {
+  checkScheduleOverlap, checkBookingEntryConflict, bookingAssignedToGuide,
+} from '@/lib/guides/schedule';
+import { mapScheduleRow, DATE_RE, TIME_RE, SCHEDULE_STATUSES, type ScheduleRow } from '@/lib/guides/schedule-shape';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/guide/schedule
- * Get guide's schedule with conflict detection
+ * Расписание гида — его личный календарь (guide_schedule, миграция 1019).
+ *
+ * Дата — `tour_date`, время — `start_time`/`end_time` типа time, местное, как
+ * ввёл гид. Запись может ссылаться на бронь, на которую гида назначил
+ * оператор (`operatorBookingId`), — только на СВОЮ назначенную.
+ *
+ * До 25.09 GET отвечал 500 всегда (uuid = bigint в соединениях с
+ * operator_tours/operator_bookings, ST_X без PostGIS), а POST — 409
+ * «Конфликт» всегда (несуществующая check_schedule_conflicts, отказ читался
+ * как конфликт). Заодно INSERT не заполнял NOT NULL tour_date и клал ISO-время
+ * в колонку time.
  */
+
+const QuerySchema = z.object({
+  dateFrom: z.string().regex(DATE_RE, 'dateFrom — дата ГГГГ-ММ-ДД'),
+  dateTo: z.string().regex(DATE_RE, 'dateTo — дата ГГГГ-ММ-ДД'),
+  status: z.enum(['all', ...SCHEDULE_STATUSES]).default('all'),
+});
+
+const CreateSchema = z.object({
+  date: z.string().regex(DATE_RE, 'Дата — в формате ГГГГ-ММ-ДД'),
+  startTime: z.string().regex(TIME_RE, 'Время начала — ЧЧ:ММ'),
+  endTime: z.string().regex(TIME_RE, 'Время окончания — ЧЧ:ММ'),
+  title: z.string().trim().min(1, 'Название обязательно').max(200),
+  description: z.string().max(2000).optional(),
+  operatorBookingId: z.string().regex(/^\d{1,18}$/, 'Некорректный номер брони').optional(),
+  maxParticipants: z.number().int().positive('Мест должно быть больше нуля').max(500).optional(),
+  locationName: z.string().max(300).optional(),
+  notes: z.string().max(2000).optional(),
+}).refine((d) => d.endTime > d.startTime, {
+  message: 'Время окончания должно быть позже времени начала',
+});
+
+async function guideFrom(request: NextRequest): Promise<string | NextResponse> {
+  const auth = await requireRole(request, ['guide', 'admin']);
+  if (auth instanceof NextResponse) return auth;
+  const guideId = await getGuidePartnerId(auth.userId);
+  if (!guideId) {
+    return NextResponse.json(
+      { success: false, error: 'Профиль гида не найден' } as ApiResponse<null>,
+      { status: 404 },
+    );
+  }
+  return guideId;
+}
+
+const unavailable = (what: string) => NextResponse.json(
+  { success: false, error: `Не удалось проверить ${what}. Попробуйте ещё раз через минуту.` } as ApiResponse<null>,
+  { status: 503 },
+);
+
+/** GET /api/guide/schedule?dateFrom=&dateTo=&status= — записи и назначения в диапазоне. */
 export async function GET(request: NextRequest) {
+  const guideId = await guideFrom(request);
+  if (guideId instanceof NextResponse) return guideId;
+
+  const sp = new URL(request.url).searchParams;
+  const parsed = QuerySchema.safeParse({
+    dateFrom: sp.get('dateFrom') ?? undefined,
+    dateTo: sp.get('dateTo') ?? undefined,
+    status: sp.get('status') ?? undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректный период' } as ApiResponse<null>,
+      { status: 400 },
+    );
+  }
+  const { dateFrom, dateTo, status } = parsed.data;
+
   try {
-    const guideOrResponse = await requireRole(request, ['guide', 'admin']);
-    if (guideOrResponse instanceof NextResponse) return guideOrResponse;
-    const userId = guideOrResponse.userId;
-
-    const guideId = await getGuidePartnerId(userId);
-    
-    if (!guideId) {
-      return NextResponse.json({
-        success: false,
-        error: 'Профиль гида не найден'
-      } as ApiResponse<null>, { status: 404 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const dateFrom = searchParams.get('dateFrom');
-    const dateTo = searchParams.get('dateTo');
-    const status = searchParams.get('status') || 'all';
-
-    let queryStr = `
-      SELECT 
-        gs.*,
-        t.title as tour_title,
-        b.booking_status as booking_status,
-        ST_X(gs.location::geometry) as longitude,
-        ST_Y(gs.location::geometry) as latitude
-      FROM guide_schedule gs
-      LEFT JOIN operator_tours t ON gs.tour_id = t.id
-      LEFT JOIN operator_bookings b ON gs.booking_id = b.id
-      WHERE gs.guide_id = $1
-    `;
-
-    const params: (string | number | null)[] = [guideId];
-    let paramIndex = 2;
-
-    if (dateFrom) {
-      queryStr += ` AND gs.start_time >= $${paramIndex}`;
-      params.push(dateFrom);
-      paramIndex++;
-    }
-
-    if (dateTo) {
-      queryStr += ` AND gs.start_time <= $${paramIndex}`;
-      params.push(dateTo + ' 23:59:59');
-      paramIndex++;
-    }
-
-    if (status !== 'all') {
-      queryStr += ` AND gs.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
-    }
-
-    queryStr += ` ORDER BY gs.start_time ASC`;
-
-    const result = await query<GuideScheduleRow>(queryStr, params);
-
-    const schedule = result.rows.map(row => ({
-      id: row.id,
-      guideId: row.guide_id,
-      startTime: row.start_time,
-      endTime: row.end_time,
-      title: row.title,
-      description: row.description,
-      tourId: row.tour_id,
-      tourTitle: row.tour_title,
-      bookingId: row.booking_id,
-      bookingStatus: row.booking_status,
-      maxParticipants: row.max_participants,
-      currentParticipants: row.current_participants,
-      location: row.latitude && row.longitude ? {
-        lat: parseFloat(row.latitude),
-        lng: parseFloat(row.longitude)
-      } : null,
-      locationName: row.location_name,
-      status: row.status,
-      notes: row.notes,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    const [entries, assignments] = await Promise.all([
+      query<ScheduleRow>(SCHEDULE_SQL.list, [guideId, dateFrom, dateTo, status === 'all' ? null : status]),
+      query<{ booking_id: string; booking_date: string; tour_title: string; participants: number; booking_status: string }>(
+        TEAM_SQL.assignedInRange, [guideId, dateFrom, dateTo],
+      ),
+    ]);
 
     return NextResponse.json({
       success: true,
-      data: { schedule }
+      data: {
+        schedule: entries.rows.map(mapScheduleRow),
+        // Назначения оператора в тот же период — без ПД туриста: контакт
+        // живёт в «Группах», здесь только что и когда.
+        assignments: assignments.rows.map((r) => ({
+          bookingId: r.booking_id,
+          date: r.booking_date,
+          tourTitle: r.tour_title,
+          participants: Number(r.participants),
+          status: r.booking_status,
+        })),
+      },
     } as ApiResponse<unknown>);
-
   } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при получении расписания'
-    } as ApiResponse<null>, { status: 500 });
+    logGuideFailure('guide.schedule.list', error);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось загрузить расписание. Попробуйте обновить страницу.' } as ApiResponse<null>,
+      { status: 500 },
+    );
   }
 }
 
-/**
- * POST /api/guide/schedule
- * Create new schedule entry with conflict detection
- */
+/** POST /api/guide/schedule — новая запись календаря. */
 export async function POST(request: NextRequest) {
+  const guideId = await guideFrom(request);
+  if (guideId instanceof NextResponse) return guideId;
+
+  const parsed = CreateSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' } as ApiResponse<null>,
+      { status: 400 },
+    );
+  }
+  const d = parsed.data;
+
+  if (d.operatorBookingId) {
+    const assigned = await bookingAssignedToGuide(d.operatorBookingId, guideId);
+    if (assigned === 'unknown') return unavailable('назначение на бронь');
+    if (assigned === 'denied') {
+      return NextResponse.json(
+        { success: false, error: 'Бронь не найдена среди назначенных вам' } as ApiResponse<null>,
+        { status: 404 },
+      );
+    }
+    const dup = await checkBookingEntryConflict({ guideId, operatorBookingId: d.operatorBookingId });
+    if (dup === 'unknown') return unavailable('расписание');
+    if (dup === 'conflict') {
+      return NextResponse.json(
+        { success: false, error: 'Для этой брони запись в расписании уже есть' } as ApiResponse<null>,
+        { status: 409 },
+      );
+    }
+  }
+
+  const overlap = await checkScheduleOverlap({ guideId, date: d.date, startTime: d.startTime, endTime: d.endTime });
+  if (overlap === 'unknown') return unavailable('расписание');
+  if (overlap === 'conflict') {
+    return NextResponse.json(
+      { success: false, error: 'В это время у вас уже есть запись. Выберите другое время.' } as ApiResponse<null>,
+      { status: 409 },
+    );
+  }
+
   try {
-    const guideOrResponse = await requireRole(request, ['guide', 'admin']);
-    if (guideOrResponse instanceof NextResponse) return guideOrResponse;
-    const userId = guideOrResponse.userId;
-
-    const guideId = await getGuidePartnerId(userId);
-    
-    if (!guideId) {
-      return NextResponse.json({
-        success: false,
-        error: 'Профиль гида не найден'
-      } as ApiResponse<null>, { status: 404 });
-    }
-
-    const body = await request.json();
-    const parsed = CreateScheduleEntrySchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
-    }
-      const {
-        startTime,
-        endTime,
-        title,
-        description,
-        tourId,
-        bookingId,
-        maxParticipants,
-        location,
-        locationName,
-        notes
-      } = parsed.data;
-
-      // Validation
-      if (!startTime || !endTime || !title) {
-        return NextResponse.json({
-          success: false,
-          error: 'Заполните обязательные поля: startTime, endTime, title'
-        } as ApiResponse<null>, { status: 400 });
-      }
-
-      const parsedStart = new Date(startTime);
-      const parsedEnd = new Date(endTime);
-
-      if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
-        return NextResponse.json({
-          success: false,
-          error: 'Некорректный формат даты/времени'
-        } as ApiResponse<null>, { status: 400 });
-      }
-
-      // Check time logic
-      if (parsedStart >= parsedEnd) {
-        return NextResponse.json({
-          success: false,
-          error: 'Время окончания должно быть позже времени начала'
-        } as ApiResponse<null>, { status: 400 });
-      }
-
-      if (maxParticipants && (typeof maxParticipants !== 'number' || maxParticipants <= 0)) {
-        return NextResponse.json({
-          success: false,
-          error: 'maxParticipants должно быть положительным числом'
-        } as ApiResponse<null>, { status: 400 });
-      }
-
-      // Check for conflicts
-      const noConflicts = await checkScheduleConflicts(guideId, startTime, endTime);
-      
-      if (!noConflicts) {
-        return NextResponse.json({
-          success: false,
-          error: 'Конфликт расписания! У вас уже запланировано мероприятие в это время.',
-          message: 'Выберите другое время или отмените существующее мероприятие.'
-        } as ApiResponse<null>, { status: 409 });
-      }
-
-      if (tourId) {
-        const hasSameDaySlot = await hasTourDayConflict({
-          guideId,
-          tourId,
-          startTime,
-        });
-
-        if (hasSameDaySlot) {
-          return NextResponse.json({
-            success: false,
-            error: 'У вас уже есть слот для этого тура на выбранный день'
-          } as ApiResponse<null>, { status: 409 });
-        }
-      }
-
-    // Create schedule entry
-    let insertQuery = `
-      INSERT INTO guide_schedule (
-        guide_id, start_time, end_time, title, description,
-        tour_id, booking_id, max_participants, location, location_name, notes, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, `;
-    
-    const insertParams: unknown[] = [
-      guideId,
-      startTime,
-      endTime,
-      title,
-      description,
-      tourId,
-      bookingId,
-      maxParticipants || 10
-    ];
-
-    if (location && location.lat && location.lng) {
-      insertQuery += `ST_SetSRID(ST_MakePoint($9, $10), 4326)::geography, $11, $12, 'scheduled')`;
-      insertParams.push(location.lng, location.lat, locationName, notes);
-    } else {
-      insertQuery += `NULL, $9, $10, 'scheduled')`;
-      insertParams.push(locationName, notes);
-    }
-
-    insertQuery += ` RETURNING *`;
-
-    const result = await query(insertQuery, insertParams);
-
+    const result = await query<{ id: string }>(SCHEDULE_SQL.insert, [
+      guideId, d.date, d.startTime, d.endTime, d.title, d.description ?? null,
+      d.operatorBookingId ?? null, d.maxParticipants ?? null, d.locationName ?? null, d.notes ?? null,
+    ]);
     return NextResponse.json({
       success: true,
-      data: result.rows[0],
-      message: 'Мероприятие успешно добавлено в расписание'
+      data: { id: result.rows[0]?.id },
+      message: 'Запись добавлена в расписание',
     } as ApiResponse<unknown>);
-
-  } catch (error: unknown) {
-    
-    // Handle exclusion constraint violation (overlapping schedules)
-    if ((error as { code?: string }).code === '23P01') {
-      return NextResponse.json({
-        success: false,
-        error: 'Конфликт расписания! Время пересекается с существующим мероприятием.'
-      } as ApiResponse<null>, { status: 409 });
-    }
-    
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при создании расписания'
-    } as ApiResponse<null>, { status: 500 });
+  } catch (error) {
+    logGuideFailure('guide.schedule.insert', error);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось сохранить запись. Попробуйте ещё раз.' } as ApiResponse<null>,
+      { status: 500 },
+    );
   }
 }

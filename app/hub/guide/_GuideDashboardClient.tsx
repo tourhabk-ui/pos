@@ -9,6 +9,7 @@ import {
 import { Weather } from '@/types';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 import { FEDERATIONS, REATTESTATION_DEADLINE, type ReattestationStatus } from '@/lib/guides/reattestation';
+import GuideTeamPanel from './_GuideTeamPanel';
 
 // Быстрая навигация по разделам прямо на «Обзоре» — тот же формат, что в ЛК
 // туриста: на телефоне сайдбар спрятан под бургер, а отсюда любой раздел в
@@ -108,6 +109,9 @@ function ReattestationBanner({ info }: { info: ReattestationInfo }) {
             Аттестованным до 1 июля 2024 нужна переаттестация до {DEADLINE_HUMAN} — иначе исключение
             из Единого федерального реестра.
           </p>
+          <Link href="/hub/guide/profile" className="inline-block mt-2 text-[var(--ocean)] hover:underline">
+            Указать дату выдачи в профиле
+          </Link>
         </div>
       </div>
     );
@@ -141,6 +145,9 @@ function ReattestationBanner({ info }: { info: ReattestationInfo }) {
               <li key={step}>{step}</li>
             ))}
           </ol>
+          <Link href="/hub/guide/profile" className="inline-block mt-3 text-sm text-[var(--ocean)] hover:underline">
+            Прошли переаттестацию? Внесите новый аттестат в профиле
+          </Link>
           <div className="mt-3 text-xs text-[var(--text-muted)] space-y-0.5">
             {FEDERATIONS.map((f) => (
               <p key={f.name}>
@@ -233,6 +240,9 @@ export default function GuideDashboardClient() {
       {reattestation && (reattestation.status === 'needed' || reattestation.status === 'unknown') && (
         <ReattestationBanner info={reattestation} />
       )}
+
+      {/* Команда оператора: приглашения, текущий оператор, ближайшие назначения */}
+      <GuideTeamPanel />
 
       {/* Погода зоны как свойство безопасности гида (честно: нет данных — нет карточки) */}
       {weather && <WeatherStrip weather={weather} />}

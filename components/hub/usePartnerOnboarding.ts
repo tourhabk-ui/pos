@@ -80,14 +80,37 @@ export function usePartnerOnboarding(hubPath: string) {
     return () => { cancelled = true; };
   }, [router, hubPath]);
 
-  async function completeOnboarding(redirectTo: string) {
-    await fetch('/api/partners/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ complete_onboarding: true }),
-    }).catch(() => {});
+  const [completeError, setCompleteError] = useState<string | null>(null);
+
+  /**
+   * Завершение онбординга. Переход — ТОЛЬКО после подтверждённой записи.
+   *
+   * Прежде отказ PATCH глушился `.catch(() => {})`, и визард всё равно уводил
+   * в кабинет; гейт кабинета видел onboarding_completed = false и молча
+   * возвращал обратно в визард — петля без единого слова о причине.
+   * Теперь неудача возвращает false и кладёт текст в completeError.
+   */
+  async function completeOnboarding(redirectTo: string): Promise<boolean> {
+    setCompleteError(null);
+    try {
+      const res = await fetch('/api/partners/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ complete_onboarding: true }),
+      });
+      const json: unknown = await res.json().catch(() => null);
+      if (!res.ok || (json as { success?: boolean } | null)?.success !== true) {
+        const msg = (json as { error?: string } | null)?.error;
+        setCompleteError(msg ?? `Не удалось завершить настройку (HTTP ${res.status}). Попробуйте ещё раз.`);
+        return false;
+      }
+    } catch {
+      setCompleteError('Сеть недоступна — настройка не завершена. Попробуйте ещё раз.');
+      return false;
+    }
     router.replace(redirectTo);
+    return true;
   }
 
-  return { profile, loading, completeOnboarding };
+  return { profile, loading, completeOnboarding, completeError };
 }

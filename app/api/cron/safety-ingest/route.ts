@@ -9,6 +9,8 @@ import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, inges
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
+import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
+import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { pool } from '@/lib/db-pool';
 import { buildAnchorIndex, matchAlertAnchor, ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -349,6 +351,40 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           COALESCE(MAX(severity), 0) AS max_severity
         FROM dedup
         GROUP BY lrs_id
+      ),
+      volc AS (
+        -- ВУЛКАНИЧЕСКИЙ УРОВЕНЬ ТОЧКИ (26.09). До этого статус считался
+        -- только по алертам и загрузке, и Шивелуч под KVERT ОРАНЖЕВЫМ (пепел
+        -- до 12 км) стоял [ЗЕЛЁНЫЙ] — первой строкой карточки, у Кузьмича и
+        -- в MCP, а код вулкана печатался строкой ниже, как примечание.
+        -- Статус места — максимум по всем шкалам, а не одна из них.
+        --
+        -- 2 — оранжевый/красный, 1 — жёлтый: то же правило, что у радара
+        -- (levelForColor, lib/services/safety/volcano-scales). Устаревшая
+        -- шкала не голосует: KVERT старше VOLCANO_STALE_DAYS и сводка КФ ЕГС
+        -- старше kfegsIsFresh — это «не знаем», а не «спокойно» и не
+        -- «опасно» (§4.0); о давности говорят сами строки шкал.
+        SELECT
+          lrs.id AS lrs_id,
+          GREATEST(
+            COALESCE((
+              SELECT MAX(CASE vs.aviation_color_code
+                           WHEN 'red' THEN 2 WHEN 'orange' THEN 2 WHEN 'yellow' THEN 1 ELSE 0 END)
+                FROM volcano_status vs
+               WHERE vs.place_ark_id = lrs.agent_route_id
+                 AND vs.observed_at > NOW() - INTERVAL '1 day' * $1::int
+            ), 0),
+            COALESCE((
+              SELECT CASE b.color
+                       WHEN 'red' THEN 2 WHEN 'orange' THEN 2 WHEN 'yellow' THEN 1 ELSE 0 END
+                FROM volcano_bulletin_kfegs b
+               WHERE b.place_ark_id = lrs.agent_route_id
+                 AND (b.observed_date::timestamp AT TIME ZONE 'UTC') >= NOW() - INTERVAL '1 day' * $2::int
+               ORDER BY b.observed_date DESC
+               LIMIT 1
+            ), 0)
+          ) AS level
+        FROM location_real_time_status lrs
       )
       UPDATE location_real_time_status lrs
       SET
@@ -356,6 +392,7 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         alert_severity = agg.max_severity,
         recommender_status = CASE
           WHEN agg.max_severity >= 2 THEN 'red'
+          WHEN volc.level >= 2 THEN 'red'
           WHEN lrs.tourists_today >= COALESCE(
             (SELECT capacity_per_day FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
             50
@@ -364,12 +401,14 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
             (SELECT ROUND(capacity_per_day * 0.7) FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
             35
           ) THEN 'yellow'
+          WHEN volc.level >= 1 THEN 'yellow'
           ELSE 'green'
         END,
         updated_at = NOW()
       FROM agg
+      JOIN volc ON volc.lrs_id = agg.lrs_id
       WHERE agg.lrs_id = lrs.id
-    `);
+    `, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1]);
     // Safety Decision Ledger (925): одно событие на прогон, не на алерт — сам
     // SQL агрегатный (array_agg/MAX(severity) по CTE), per-alert разбивка
     // здесь не восстановима без переписывания запроса на построчный проход
