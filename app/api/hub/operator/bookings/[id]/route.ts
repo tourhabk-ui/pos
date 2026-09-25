@@ -12,6 +12,11 @@ import { emailService } from '@/lib/notifications/email-service';
 import { sendPushToUser } from '@/lib/notifications/web-push';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
+import { recordRefundDue } from '@/lib/payments/record-refund-due';
+import { ALLOWED_TRANSITIONS, type BookingStatus } from '@/types/booking.types';
+import { getPublicBaseUrl } from '@/lib/config';
+import { escapeHtml } from '@/lib/text/escape-html';
+import { notifyTouristBookingConfirmed, notifyTouristBookingCancelled } from '@/lib/telegram/booking-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,9 +92,19 @@ export async function PATCH(
         [BigInt(id), operator_id]
       );
       if (locked.rows.length === 0) {
-        return { row: undefined, alreadyWasCompleted: false };
+        return { row: undefined, alreadyWasCompleted: false, badTransition: null, refund: null };
       }
       const prevStatus = (locked.rows[0] as { booking_status: string }).booking_status;
+
+      // Переход — только разрешённый (ALLOWED_TRANSITIONS, как у сервиса
+      // броней). До 25.09 любой статус ставился из любого: «отменена» →
+      // «подтверждена» возвращала бронь, чьи места уже отданы другим.
+      if (input.booking_status && input.booking_status !== prevStatus) {
+        const allowed = (ALLOWED_TRANSITIONS as Record<string, readonly BookingStatus[]>)[prevStatus] ?? [];
+        if (!allowed.includes(input.booking_status as BookingStatus)) {
+          return { row: undefined, alreadyWasCompleted: false, badTransition: prevStatus, refund: null };
+        }
+      }
 
       const sets: string[] = ['updated_at = NOW()'];
       const values: unknown[] = [];
@@ -117,6 +132,8 @@ export async function PATCH(
         `UPDATE operator_bookings SET ${sets.join(', ')}
          WHERE id = $${idx}
          RETURNING id, booking_status, updated_at, tourist_email, tourist_name, final_price,
+                   access_token::text AS access_token, user_id::text AS user_id,
+                   booking_date::text AS booking_date, participants,
                    (SELECT title FROM operator_tours WHERE id = operator_tour_id) AS tour_title`,
         values
       );
@@ -127,13 +144,24 @@ export async function PATCH(
       // хватало, чтобы дата больше не приняла оплату (#1816, CHECK
       // booked_valid роняет транзакцию оплаты). Условие на prevStatus —
       // чтобы повторная отмена не вычла дважды.
+      let refund: Awaited<ReturnType<typeof recordRefundDue>> = null;
       if (input.booking_status === 'cancelled' && prevStatus !== 'cancelled') {
         await releaseSlotsForCancelledBooking(client, BigInt(id));
+        // Отмена оператором — 100% (lib/payments/tour-refund). Сумма
+        // записывается в tour_payments.refund_due в этой же транзакции, как
+        // у остальных дверей отмены; до 25.09 кабинет её не писал.
+        refund = await recordRefundDue(client, id, true);
       }
 
-      return { row: result.rows[0], alreadyWasCompleted: prevStatus === 'completed' };
+      return { row: result.rows[0], alreadyWasCompleted: prevStatus === 'completed', badTransition: null, refund };
     });
 
+    if (txResult.badTransition) {
+      return NextResponse.json(
+        { error: `Из статуса «${txResult.badTransition}» так перевести бронь нельзя` },
+        { status: 409 },
+      );
+    }
     if (!txResult.row) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }
@@ -141,7 +169,15 @@ export async function PATCH(
     const row = txResult.row as {
       tourist_email?: string; tourist_name?: string;
       final_price?: string; tour_title?: string; booking_status?: string;
+      access_token?: string | null; user_id?: string | null;
+      booking_date?: string | null; participants?: number | null;
     };
+    // Страница брони — там же кнопка оплаты после подтверждения (решение
+    // 24.09). Ключ брони в ссылке, как в письме о создании заявки.
+    const bookingUrl = row.access_token
+      ? `${getPublicBaseUrl()}/booking-success/${id}?t=${encodeURIComponent(row.access_token)}`
+      : `${getPublicBaseUrl()}/hub/tourist/bookings`;
+    const refund = txResult.refund;
 
     // Notify tourist by email when status changes to confirmed or cancelled
     if (row.tourist_email && input.booking_status && ['confirmed', 'cancelled'].includes(input.booking_status)) {
@@ -151,13 +187,14 @@ export async function PATCH(
         : `Бронирование отменено: ${row.tour_title ?? 'тур'}`;
       const html = isConfirmed
         ? `<h2>Ваше бронирование подтверждено!</h2>
-           <p><strong>Тур:</strong> ${row.tour_title ?? ''}</p>
+           <p><strong>Тур:</strong> ${escapeHtml(row.tour_title ?? '')}</p>
            <p><strong>Стоимость:</strong> ${parseFloat(row.final_price ?? '0').toLocaleString('ru-RU')} ₽</p>
-           <p>Оператор свяжется с вами для уточнения деталей.</p>`
+           <p>Теперь бронь можно оплатить: <a href="${bookingUrl}">открыть бронь и перейти к оплате</a>.</p>`
         : `<h2>Бронирование отменено</h2>
-           <p><strong>Тур:</strong> ${row.tour_title ?? ''}</p>
-           ${input.cancellation_reason ? `<p><strong>Причина:</strong> ${input.cancellation_reason}</p>` : ''}
-           <p>Свяжитесь с оператором или выберите другой тур на <a href="https://vedarai.ru/marketplace">vedarai.ru</a>.</p>`;
+           <p><strong>Тур:</strong> ${escapeHtml(row.tour_title ?? '')}</p>
+           ${input.cancellation_reason ? `<p><strong>Причина:</strong> ${escapeHtml(input.cancellation_reason)}</p>` : ''}
+           ${refund ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${refund.reason} Возврат оформляет администрация платформы.</p>` : ''}
+           <p>Свяжитесь с оператором или выберите другой тур на <a href="${getPublicBaseUrl()}/catalog">платформе</a>.</p>`;
       emailService.sendEmail({ to: row.tourist_email, subject, html }).catch(() => {});
 
       // Push notification to tourist
@@ -171,7 +208,7 @@ export async function PATCH(
           body: isConfirmed
             ? `${row.tour_title ?? 'Тур'} — оператор подтвердил. Проверьте детали.`
             : `${row.tour_title ?? 'Тур'} — бронирование отменено.`,
-          url: '/hub/tourist/bookings',
+          url: isConfirmed ? bookingUrl.replace(getPublicBaseUrl(), '') : '/hub/tourist/bookings',
         }, {
           // Следствие действия оператора, не рассылка. Даже если push
           // подавлен настройкой, письмо выше уходит безусловно — человек
@@ -180,6 +217,28 @@ export async function PATCH(
           type: isConfirmed ? 'booking_confirmed' : 'booking_cancelled',
         }).catch(() => {});
       }
+    }
+
+    // Telegram туриста — тем же текстом, что раньше слал ловец кнопок бота
+    // (снят 25.09: кнопок не слал никто). Кабинет — живая дверь подтверждения,
+    // и до этого дня турист с привязанным Telegram о ней не узнавал.
+    if (row.user_id && input.booking_status === 'confirmed') {
+      notifyTouristBookingConfirmed(row.user_id, {
+        id,
+        tourTitle: row.tour_title ?? 'Тур',
+        date: new Date(`${row.booking_date ?? ''}T00:00:00`),
+        participants: Number(row.participants ?? 1),
+        url: bookingUrl,
+      });
+    } else if (row.user_id && input.booking_status === 'cancelled') {
+      notifyTouristBookingCancelled(row.user_id, {
+        id,
+        tourTitle: row.tour_title ?? 'Тур',
+        cancelledBy: 'operator',
+        refundPercent: refund?.percent ?? 0,
+        refundAmount: refund?.amount ?? 0,
+        refundReason: refund?.reason ?? 'Оплаты по этой брони не было — возвращать нечего.',
+      });
     }
 
     // Earn loyalty points when booking is completed — но только один раз:

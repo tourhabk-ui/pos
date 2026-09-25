@@ -39,7 +39,7 @@ export async function getOperatorPartnerId(userId: string): Promise<string | nul
     
     // Auto-create partner profile if missing
     const userResult = await query(
-      `SELECT name, email FROM users WHERE id = $1`,
+      `SELECT name, email, role FROM users WHERE id = $1`,
       [userId]
     );
     
@@ -48,6 +48,14 @@ export async function getOperatorPartnerId(userId: string): Promise<string | nul
     }
     
     const user = userResult.rows[0];
+
+    // Администратор, открывший кабинет оператора, — не оператор. До 25.09
+    // helper заводил ему партнёрскую запись category='operator', и в каталоге
+    // партнёров появлялись «операторы» из сотрудников платформы. Нет записи —
+    // null; вызывающие роуты отвечают на это 403/404 «профиль не найден».
+    if (user.role === 'admin') {
+      return null;
+    }
     const contact = {
       email: user.email || '',
       phone: '',

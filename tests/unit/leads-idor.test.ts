@@ -53,8 +53,9 @@ describe('владение лидом: /api/leads/[id]', () => {
     expect(DETAIL).toMatch(/import \{ leadOwnershipCond \} from '@\/lib\/leads\/ownership'/);
   });
 
-  it('формула резолва партнёра совпадает со списком', () => {
-    expect(LIST).toMatch(/SELECT id FROM partners WHERE user_id = \$1/);
+  it('список берёт ту же формулу владения, а не свою копию', () => {
+    expect(LIST).toMatch(/leadOwnershipCond\(user,/);
+    expect(LIST).not.toMatch(/SELECT id FROM partners WHERE user_id = \$1/);
   });
 
   it('чужой лид неотличим от несуществующего: 404, не 403', () => {

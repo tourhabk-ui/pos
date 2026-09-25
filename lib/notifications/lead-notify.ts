@@ -27,7 +27,10 @@ export async function notifyOperatorProposal(
 ): Promise<import('@/lib/notifications/pd-alert').PdAlertResult> {
   const baseUrl = getPublicBaseUrl();
 
-  const scoreTag = proposal.ai_score >= 80 ? ' [HOT]' : proposal.ai_score >= 50 ? ' [OK]' : '';
+  // NULL — «не оценено» (ИИ не дал оценку), а не ноль и не выдуманное число.
+  const score = proposal.ai_score;
+  const scoreTag = score === null ? '' : score >= 80 ? ' [HOT]' : score >= 50 ? ' [OK]' : '';
+  const scoreText = score === null ? 'не оценено' : `${score} / 100`;
   const toursText = proposal.primary_tour
     ? `<b>${esc(proposal.primary_tour.title)}</b> — ${proposal.primary_tour.price.toLocaleString('ru-RU')} руб/чел`
     : 'Туры подобраны вручную';
@@ -36,7 +39,7 @@ export async function notifyOperatorProposal(
     `<b>AI обработал лид${scoreTag}</b>`,
     '',
     `<b>Заголовок:</b> ${esc(proposal.headline)}`,
-    `<b>AI-оценка:</b> ${proposal.ai_score} / 100`,
+    `<b>AI-оценка:</b> ${scoreText}`,
     `<b>Тур:</b> ${toursText}`,
     proposal.price_from
       ? `<b>Бюджет:</b> от ${proposal.price_from.toLocaleString('ru-RU')} ₽`
@@ -49,7 +52,7 @@ export async function notifyOperatorProposal(
     `<b>AI обработал заявку${scoreTag}</b>`,
     '',
     `Заявка <code>${esc(proposal.lead_id)}</code>.`,
-    `AI-оценка: ${proposal.ai_score} / 100`,
+    `AI-оценка: ${scoreText}`,
     `Тур: ${toursText}`,
     'Заголовок предложения — в MAX и в кабинете: он содержит имя туриста.',
   ].filter(Boolean).join('\n');

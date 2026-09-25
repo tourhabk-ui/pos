@@ -84,7 +84,6 @@ const READS_METADATA = [
 const READS_COLUMN = [
   'app/api/user/export/route.ts',           // выгрузка ПД по требованию человека
   'app/api/operator/stats/route.ts',
-  'app/api/operator/finance/route.ts',
   'app/api/operator/bookings/route.ts',
   'app/api/operator/clients/[id]/route.ts',
 ];

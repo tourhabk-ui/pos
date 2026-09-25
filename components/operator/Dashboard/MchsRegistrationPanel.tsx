@@ -316,8 +316,13 @@ export function MchsRegistrationPanel() {
     setSubmitError(null);
     setSuccessMessage(null);
 
-    if (!formState.bookingId.trim()) {
-      setSubmitError('Укажите ID бронирования');
+    const bookingNumber = formState.bookingId.trim().replace(/^[№#]\s*/, '');
+    if (!bookingNumber) {
+      setSubmitError('Укажите номер брони');
+      return;
+    }
+    if (!/^\d+$/.test(bookingNumber)) {
+      setSubmitError('Номер брони — это число из списка броней, например 1042');
       return;
     }
     if (validMembers.length === 0) {
@@ -336,7 +341,7 @@ export function MchsRegistrationPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bookingId: formState.bookingId.trim(),
+          bookingId: Number(bookingNumber),
           groupComposition: validMembers,
           route: formState.route,
           startDate: formState.startDate,
@@ -349,11 +354,21 @@ export function MchsRegistrationPanel() {
         }),
       });
 
-      const payload: unknown = await response.json();
+      let payload: unknown = null;
+      try {
+        payload = await response.json();
+      } catch {
+        // Не JSON (502 прокси, HTML страницы ошибки) — причину называем кодом ниже.
+        payload = null;
+      }
 
       if (!isRecord(payload) || !payload.success) {
+        // Показываем причину сервера текстом. Раньше 400 приходил массивом
+        // issues, и форма писала безликое «Не удалось» — оператор не видел,
+        // что не так с номером брони (аудит кабинета).
         const errorMsg = isRecord(payload) && typeof payload.error === 'string'
-          ? payload.error : 'Не удалось создать регистрацию';
+          ? payload.error
+          : `Сервер не принял регистрацию (HTTP ${response.status})`;
         throw new Error(errorMsg);
       }
 
@@ -468,12 +483,13 @@ export function MchsRegistrationPanel() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <label htmlFor="mchs-booking-id" className="block">
-                  <span className="text-sm text-[var(--text-secondary)]">ID бронирования</span>
+                  <span className="text-sm text-[var(--text-secondary)]">Номер брони</span>
                   <input
                     id="mchs-booking-id"
                     value={formState.bookingId}
                     onChange={e => updateField('bookingId', e.target.value)}
-                    placeholder="UUID бронирования"
+                    placeholder="Например, 1042"
+                    inputMode="numeric"
                     className={inputClasses}
                     required
                   />
@@ -687,7 +703,7 @@ export function MchsRegistrationPanel() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-[var(--text-primary)] font-medium truncate">
-                        Бронирование: {item.bookingId.slice(0, 8)}...
+                        {item.bookingId ? `Бронь №${item.bookingId}` : 'Бронь не указана'}
                       </p>
                       <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${getStatusClasses(item.status)}`}>
                         {getStatusLabel(item.status)}
@@ -731,7 +747,7 @@ export function MchsRegistrationPanel() {
                   </span>
                 </div>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  Бронирование: {selectedDetails.bookingId}
+                  {selectedDetails.bookingId ? `Бронь №${selectedDetails.bookingId}` : 'Бронь не указана'}
                 </p>
                 <p className="text-sm text-[var(--text-muted)]">{selectedDetails.route}</p>
                 <p className="text-xs text-[var(--text-muted)]">

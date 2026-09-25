@@ -11,7 +11,7 @@ export interface ObservationEntry {
   decision?: string;
   result: 'success' | 'fail' | 'pending';
   duration_ms?: number;
-  user_id?: number;
+  user_id?: string;
   error_message?: string;
   provider?: string;
   tokens_in?: number;

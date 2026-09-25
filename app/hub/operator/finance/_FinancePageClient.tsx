@@ -177,7 +177,9 @@ function PayoutDetailsForm({ initialMethod }: { initialMethod: string | null }) 
 export default function FinancePageClient() {
   const [data, setData] = useState<{
     summary: Summary;
-    commissionCurrent: number;
+    // Ставку назначает владелец платформы (ставка партнёра в профиле).
+    // Нет числа в ответе — число не показывается, а не выдумывается.
+    commissionCurrent: number | null;
     payoutMethod: string | null;
     payoutVerified: boolean;
     payments: Payment[];
@@ -214,6 +216,7 @@ export default function FinancePageClient() {
   }
 
   const { summary, commissionCurrent, payoutMethod, payoutVerified, payments, payouts } = data;
+  const rateKnown = typeof commissionCurrent === 'number' && Number.isFinite(commissionCurrent);
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
@@ -221,7 +224,7 @@ export default function FinancePageClient() {
       <div>
         <h1 className="text-sm font-semibold text-[var(--text-primary)]">Финансы</h1>
         <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
-          Ваша комиссия платформы: {commissionCurrent}%
+          {rateKnown ? `Ваша комиссия платформы: ${commissionCurrent}%` : 'Ставка комиссии платформы не указана'}
         </p>
       </div>
 
@@ -275,7 +278,10 @@ export default function FinancePageClient() {
           <p className="text-xl font-semibold text-[var(--text-primary)] font-mono">{formatRub(summary.totalCommission)}</p>
           <p className="text-[10px] text-[var(--text-muted)] mt-1">
             {summary.totalCommission > 0
-              ? 'Ставка снижается по мере роста броней'
+              // Ставка НЕ снижается с ростом броней: её назначает владелец
+              // платформы, и никакой автомат её не меняет (CLAUDE.md §7,
+              // commission-rate-decided). Прежняя подпись обещала лестницу.
+              ? (rateKnown ? `Ставка назначена платформой: ${commissionCurrent}%` : 'Ставка назначена платформой')
               : 'Начисляется с оплаченных броней'}
           </p>
         </div>

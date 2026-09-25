@@ -44,12 +44,9 @@ describe('тач-цели и контраст кабинета', () => {
     expect(banner).toMatch(/aria-label="Скрыть подсказку"/);
   });
 
-  it('кнопка синхронизации: белый текст на акценте в обеих темах', () => {
-    const integrations = read('app/hub/operator/integrations/_IntegrationsPageClient.tsx');
-    expect(integrations).toMatch(/bg-\[var\(--accent\)\] text-white/);
-    expect(integrations).not.toMatch(/bg-\[var\(--accent\)\] text-\[var\(--bg-card\)\]/);
-    expect(integrations).toMatch(/min-h-\[44px\]/);
-  });
+  // Проверка «кнопка синхронизации: белый текст на акценте» снята 25.09
+  // вместе с самой кнопкой: синхронизация «Камчатской Рыбалки» ничего не
+  // сохраняла и рапортовала импорт. Держит это operator-cabinet-honesty.test.ts.
 });
 
 describe('честные цифры и нули', () => {

@@ -16,7 +16,7 @@ interface Booking {
 
 interface Review {
   id: string; tourName: string; rating: number;
-  comment: string; isVerified: boolean; createdAt: string;
+  comment: string; createdAt: string;
 }
 
 interface CustomerProfile {

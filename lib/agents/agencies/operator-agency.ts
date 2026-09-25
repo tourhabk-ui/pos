@@ -90,7 +90,7 @@ interface RevenueRow {
   bookings_30d: string;
 }
 
-interface PartnerRow { id: number }
+interface PartnerRow { id: string }
 
 export class OperatorAgency {
   async run(intent: string, context: AgentContext, originalMessage = ''): Promise<AgencyResult> {
@@ -105,7 +105,7 @@ export class OperatorAgency {
     }
   }
 
-  private async getPartnerId(userId: number | undefined): Promise<number | null> {
+  private async getPartnerId(userId: string | undefined): Promise<string | null> {
     if (!userId) return null;
     // category='operator': один user_id может держать несколько записей
     // partners (гид+оператор — обычный случай), LIMIT 1 без фильтра и

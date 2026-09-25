@@ -31,7 +31,6 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
-import { confirmBooking, cancelBooking } from '@/lib/bookings/booking.service';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
@@ -49,7 +48,6 @@ import { PlatformAgent } from '@/lib/agents/platform-agent';
 import { classifyIntentByKeywords } from '@/lib/agents/intent-classifier';
 import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { sendWelcomeMessage } from '@/lib/telegram/welcome';
-import { notifyTouristBookingConfirmed, notifyTouristBookingCancelled } from '@/lib/telegram/booking-notify';
 import { createTicket, getUserOpenTickets, addTicketMessage } from '@/lib/support/ticket.service';
 import { categorizeSupport, CATEGORY_LABELS, RESIDENT_INTRO } from '@/lib/support/categorize';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
@@ -135,20 +133,6 @@ interface HistoryMessage { role: 'user' | 'assistant'; content: string }
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-async function isAuthorizedOperator(chatId: number): Promise<boolean> {
-  // Проверяем по БД (partners.telegram_chat_id — заполняется при Telegram-авторизации)
-  try {
-    const res = await query(
-      `SELECT 1 FROM partners WHERE telegram_chat_id = $1 LIMIT 1`,
-      [chatId],
-    );
-    if (res.rows.length > 0) return true;
-  } catch {}
-  // Fallback: legacy env var TELEGRAM_FISHING_CHAT_ID
-  const ids = (process.env.TELEGRAM_FISHING_CHAT_ID ?? '').split(',').map(s => s.trim()).filter(Boolean);
-  return ids.includes(String(chatId));
 }
 
 function isAdmin(userId: number): boolean {
@@ -1255,8 +1239,6 @@ export async function POST(request: NextRequest) {
     const callbackChatId = String(cq.message?.chat?.id ?? senderChatId);
     const data           = cq.data ?? '';
 
-    const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-
     // ── Admin quick-action кнопки (из дайджеста) ──────────────────────────
     if (data.startsWith('admin:') && isAdmin(senderChatId)) {
       await telegramService.answerCallback(cq.id);
@@ -1339,60 +1321,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    if (!(await isAuthorizedOperator(senderChatId))) {
-      await telegramService.answerCallback(cq.id, 'Нет прав');
-      return NextResponse.json({ ok: true });
-    }
-
-    if (data.startsWith('confirm_')) {
-      const match = data.match(uuidPattern);
-      if (!match) { await telegramService.answerCallback(cq.id, 'Неверный формат'); return NextResponse.json({ ok: true }); }
-      try {
-        const booking = await confirmBooking(match[0], `tg:${senderChatId}`);
-        await telegramService.answerCallback(cq.id, 'Подтверждено!');
-        await telegramService.sendMessage({
-          chatId: callbackChatId,
-          text: `<b>Бронирование подтверждено</b>\nТур: ${booking.tour.title}\nДата: ${booking.date.toLocaleDateString('ru-RU')}\nУчастников: ${booking.participants}\nID: ${match[0]}`,
-          parseMode: 'HTML',
-        });
-        // Уведомляем туриста в его личный канал
-        notifyTouristBookingConfirmed(booking.tourist.id, {
-          id:           match[0],
-          tourTitle:    booking.tour.title,
-          date:         booking.date,
-          participants: booking.participants,
-        });
-      } catch (err) {
-        await telegramService.answerCallback(cq.id, err instanceof Error ? err.message : 'Ошибка');
-      }
-
-    } else if (data.startsWith('cancel_')) {
-      const match = data.match(uuidPattern);
-      if (!match) { await telegramService.answerCallback(cq.id, 'Неверный формат'); return NextResponse.json({ ok: true }); }
-      try {
-        const { booking, refund } = await cancelBooking(match[0], `tg:${senderChatId}`, 'operator', 'Отменено оператором через Telegram');
-        await telegramService.answerCallback(cq.id, 'Отменено');
-        await telegramService.sendMessage({
-          chatId: callbackChatId,
-          text: `<b>Бронирование отменено</b>\nТур: ${booking.tour.title}\nID: ${match[0]}`,
-          parseMode: 'HTML',
-        });
-        // Уведомляем туриста в его личный канал
-        notifyTouristBookingCancelled(booking.tourist.id, {
-          id:            match[0],
-          tourTitle:     booking.tour.title,
-          cancelledBy:   'operator',
-          refundPercent: refund?.percent ?? 0,
-          refundAmount:  refund?.amount ?? 0,
-          refundReason:  refund?.reason ?? 'Оплаты по этой брони не было — возвращать нечего.',
-        });
-      } catch (err) {
-        await telegramService.answerCallback(cq.id, err instanceof Error ? err.message : 'Ошибка');
-      }
-
-    } else {
-      await telegramService.answerCallback(cq.id);
-    }
+    // Кнопок confirm_/cancel_ не шлёт никто (заявка оператору уходит со
+    // ссылкой «Открыть бронь»), а ловец ждал UUID при числовых id броней и
+    // пускал любого партнёра с Telegram к ЛЮБОЙ брони. Снят 25.09 (§10.09:
+    // обработчик без производителя). Подтверждение — кабинет оператора.
+    await telegramService.answerCallback(cq.id);
 
     return NextResponse.json({ ok: true });
   }

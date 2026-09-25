@@ -64,6 +64,8 @@ function mockDb() {
       });
     }
     if (sql.includes('INSERT INTO partners')) return Promise.resolve({ rows: [] });
+    // Строка сессии — условие входа (register-session.test.ts держит её отдельно).
+    if (sql.includes('INSERT INTO user_sessions')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + sql);
   });
 }

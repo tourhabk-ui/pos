@@ -21,7 +21,7 @@ interface Booking {
   participants: number;
   final_price: string | null;
   payment_status: string;
-  booking_status: 'new' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
+  booking_status: 'new' | 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
   special_requests: string | null;
   created_at: string;
 }
@@ -67,6 +67,7 @@ const MONTHS_RU  = [
 
 const STATUS_META: Record<string, { label: string; color: string; Icon: typeof Check }> = {
   new:       { label: 'Новая',        color: 'var(--warning)',     Icon: Clock        },
+  pending_payment: { label: 'Ждёт оплаты', color: 'var(--ocean)',  Icon: Clock        },
   confirmed: { label: 'Подтверждена', color: 'var(--success)',     Icon: CheckCircle2 },
   cancelled: { label: 'Отменена',     color: 'var(--danger)',      Icon: Ban          },
   completed: { label: 'Завершена',    color: 'var(--ocean)',       Icon: CheckCircle2 },
@@ -305,9 +306,9 @@ function BookingCard({
         </p>
       )}
 
-      {(booking.booking_status === 'new' || booking.booking_status === 'confirmed') && (
+      {['new', 'pending_payment', 'confirmed'].includes(booking.booking_status) && (
         <div className="flex gap-2">
-          {booking.booking_status === 'new' && (
+          {(booking.booking_status === 'new' || booking.booking_status === 'pending_payment') && (
             <button onClick={() => onStatusChange(booking.id, 'confirmed')}
               disabled={isUpdating}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors"
@@ -351,16 +352,24 @@ export default function CalendarPageClient() {
   const [loading, setLoading]     = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [updating, setUpdating]   = useState<string | null>(null);
+  // Отказ — словами, а не пустым месяцем или «успехом» (до 25.09 ответ
+  // PATCH не читался вовсе, отказ загрузки показывал пустой календарь).
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const m   = `${year}-${String(month).padStart(2,'0')}`;
       const res = await fetch(`/api/hub/operator/bookings-calendar?month=${m}`);
-      if (res.ok) {
-        const json = await res.json() as CalendarData & { success: boolean };
-        if (json.success) setData(json);
+      const json = await res.json().catch(() => null) as (CalendarData & { success: boolean }) | null;
+      if (!res.ok || !json?.success) {
+        setError('Не удалось загрузить брони за месяц. Обновите страницу.');
+        return;
       }
+      setError(null);
+      setData(json);
+    } catch {
+      setError('Нет связи с сервером — брони за месяц не загружены.');
     } finally {
       setLoading(false);
     }
@@ -380,13 +389,19 @@ export default function CalendarPageClient() {
   }
 
   async function handleStatusChange(id: string, status: string) {
+    // Отмена/отклонение — необратимо для туриста: спрашиваем, как в списке броней.
+    if (status === 'cancelled' && !window.confirm('Отменить бронь? Туристу уйдёт письмо об отмене.')) return;
     setUpdating(id);
     try {
-      await fetch(`/api/hub/operator/bookings/${id}`, {
+      const res = await fetch(`/api/hub/operator/bookings/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ booking_status: status }),
       });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null) as { error?: string } | null;
+        setError(j?.error ?? 'Не удалось изменить статус брони.');
+      }
       await load();
     } finally {
       setUpdating(null);
@@ -435,6 +450,13 @@ export default function CalendarPageClient() {
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
+
+      {error && (
+        <div role="alert" className="rounded-lg px-4 py-3 text-sm border"
+          style={{ borderColor: 'var(--danger)', color: 'var(--danger)', background: 'var(--bg-card)' }}>
+          {error}
+        </div>
+      )}
 
       {/* ── Заголовок ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">

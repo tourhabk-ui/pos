@@ -4,7 +4,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
-import { registerGroupWithMchs } from '@/lib/safety/mchs-client';
+import { registerGroupWithMchs, mchsOutcomeMessage } from '@/lib/safety/mchs-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -266,10 +266,9 @@ export async function POST(request: NextRequest) {
           createdAt: insertResult.rows[0].created_at,
           mchsError: mchsResult.errorMessage,
         },
-        message:
-          mchsResult.status === 'failed'
-            ? 'Регистрация сохранена, но отправка в МЧС не удалась'
-            : 'Группа автоматически зарегистрирована в МЧС',
+        // Формулировка по факту исхода: `submitted` — заявка ушла на адрес
+        // MCHS_API_URL без подтверждения, а не «группа зарегистрирована».
+        message: mchsOutcomeMessage(mchsResult.status, mchsResult.requestId, mchsResult.errorMessage),
       } as ApiResponse<unknown>,
       { status: 201 }
     );

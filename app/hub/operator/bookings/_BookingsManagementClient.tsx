@@ -22,7 +22,7 @@ interface Booking {
   final_price: string | null;
   currency: string;
   payment_status: 'pending' | 'paid' | 'failed' | 'refunded';
-  booking_status: 'new' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
+  booking_status: 'new' | 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
   weather_alert_triggered: boolean;
   created_at: string;
 }
@@ -39,11 +39,12 @@ const RUB = (v: number | string | null) =>
   v == null ? '—' : Number(v).toLocaleString('ru-RU') + ' ₽';
 
 const STATUS_LABELS: Record<string, string> = {
-  new: 'Новая', confirmed: 'Подтверждена',
+  new: 'Новая', pending_payment: 'Ждёт оплаты', confirmed: 'Подтверждена',
   cancelled: 'Отменена', completed: 'Завершена', no_show: 'Не явился',
 };
 const STATUS_STYLE: Record<string, string> = {
   new:       'bg-[var(--warning)]/10  text-[var(--warning)]',
+  pending_payment: 'bg-[var(--ocean)]/10 text-[var(--ocean)]',
   confirmed: 'bg-[var(--success)]/10 text-[var(--success)]',
   cancelled: 'bg-[var(--danger)]/10  text-[var(--danger)]',
   completed: 'bg-[var(--ocean)]/10   text-[var(--ocean)]',
@@ -501,13 +502,13 @@ export default function BookingsManagementClient() {
 
                 {/* Actions */}
                 <div className="flex items-center justify-end gap-1 flex-wrap">
-                  {b.booking_status === 'new' && (
+                  {(b.booking_status === 'new' || b.booking_status === 'pending_payment') && (
                     <button onClick={() => requestStatus(b, 'confirmed')} disabled={busyId !== null}
                       className="min-h-[44px] sm:min-h-0 text-xs px-3 py-2 sm:py-1 bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 rounded-lg transition-colors disabled:opacity-50">
                       {busyId === b.id ? 'Сохраняем…' : 'Принять'}
                     </button>
                   )}
-                  {(b.booking_status === 'new' || b.booking_status === 'confirmed') && (
+                  {(b.booking_status === 'new' || b.booking_status === 'pending_payment' || b.booking_status === 'confirmed') && (
                     <button onClick={() => requestStatus(b, 'cancelled')} disabled={busyId !== null}
                       className="min-h-[44px] sm:min-h-0 text-xs px-3 py-2 sm:py-1 bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 rounded-lg transition-colors disabled:opacity-50">
                       Отменить
@@ -596,7 +597,7 @@ export default function BookingsManagementClient() {
 
             {/* Quick status actions in detail */}
             <div className="flex gap-2 flex-wrap pt-1 border-t border-[var(--border)]">
-              {detail.booking_status === 'new' && (
+              {(detail.booking_status === 'new' || detail.booking_status === 'pending_payment') && (
                 <button onClick={() => { const b = detail; setDetail(null); requestStatus(b, 'confirmed'); }} disabled={busyId !== null}
                   className="ds-btn ds-btn-primary text-sm flex items-center gap-1.5 disabled:opacity-50">
                   <Check className="w-3.5 h-3.5" />Принять
@@ -608,7 +609,7 @@ export default function BookingsManagementClient() {
                   Завершить
                 </button>
               )}
-              {(detail.booking_status === 'new' || detail.booking_status === 'confirmed') && (
+              {(detail.booking_status === 'new' || detail.booking_status === 'pending_payment' || detail.booking_status === 'confirmed') && (
                 <button onClick={() => { const b = detail; setDetail(null); requestStatus(b, 'cancelled'); }} disabled={busyId !== null}
                   className="ds-btn ds-btn-danger text-sm disabled:opacity-50">
                   Отменить

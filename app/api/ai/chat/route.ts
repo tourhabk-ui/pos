@@ -272,7 +272,7 @@ export async function POST(request: NextRequest) {
       try {
         const agentResult = await PlatformAgent.dispatch({
           message: message.trim(),
-          userId: user.userId ? parseInt(user.userId, 10) : undefined,
+          userId: user.userId || undefined,
           role: safeRole,
         });
         if (agentResult.intent !== 'unknown') answer = agentResult.response;

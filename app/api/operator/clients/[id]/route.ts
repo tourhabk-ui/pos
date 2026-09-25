@@ -4,6 +4,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { z } from 'zod';
 import { isUuid } from '@/lib/text/slugify';
+import { logScreenQueryFailure } from '@/lib/operator/screen-queries';
 
 const UpdateClientSchema = z.object({
   tags: z.array(z.string()).optional(),
@@ -53,7 +54,8 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Клиент не найден' }, { status: 404 });
     }
 
-    // 1. Инфо о клиенте + теги из preferences + экобаллы.
+    // 1. Инфо о клиенте + экобаллы. Теги и Telegram — ниже, из
+    // operator_client_notes (заметки ЭТОГО оператора), не из users.preferences.
     // Эко берём из реестра (eco_balances), а не из user_eco_points: последней
     // не создаёт ни одна миграция, поэтому JOIN ронял ВЕСЬ запрос — карточка
     // клиента у оператора отдавала 500 независимо от эко. Оператору показываем
@@ -62,7 +64,6 @@ export async function GET(
     const userRes = await query(
       `SELECT
          u.id, u.name, u.email, u.phone,
-         u.preferences,
          COALESCE(eb.balance, 0)::int AS eco_points
        FROM users u
        LEFT JOIN eco_balances eb ON eb.account = 'contrib:' || u.id::text
@@ -73,11 +74,20 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Пользователь не найден' }, { status: 404 });
     }
     const u = userRes.rows[0] as {
-      id: string; name: string; email: string; phone: string | null;
-      preferences: { tags?: string[]; telegram_id?: string } | null; eco_points: number;
+      id: string; name: string; email: string; phone: string | null; eco_points: number;
     };
-    const tags: string[] = u.preferences?.tags ?? [];
-    const telegramId: string = u.preferences?.telegram_id ?? '';
+
+    // Заметки оператора о клиенте — своя строка на пару (оператор, клиент),
+    // миграция 1017. Раньше теги и telegram жили в users.preferences —
+    // общем профиле туриста, и операторы перезаписывали друг друга.
+    const notesRes = await query<{ tags: string[] | null; telegram: string | null }>(
+      `SELECT tags, telegram
+         FROM operator_client_notes
+        WHERE operator_id = $1 AND user_id = $2`,
+      [partnerId, id]
+    );
+    const tags: string[] = notesRes.rows[0]?.tags ?? [];
+    const telegramId: string = notesRes.rows[0]?.telegram ?? '';
 
     // 2. Все бронирования клиента у этого оператора
     interface BookingRow {
@@ -102,18 +112,24 @@ export async function GET(
       [id, partnerId]
     );
 
-    // 3. Отзывы клиента на туры этого оператора
+    // 3. Отзывы клиента на туры этого оператора — из operator_tour_reviews.
+    // Прежний JOIN шёл по старой reviews: reviews.tour_id (uuid) против
+    // operator_tours.id (bigint) — 42883 на КАЖДОМ открытии карточки, то есть
+    // CRM-карточка клиента не открывалась никогда. Скрытые модератором
+    // отзывы (is_hidden, миграция 878) не показываются и здесь.
     interface ReviewRow {
       id: string; rating: number; comment: string | null;
-      is_verified: boolean; created_at: unknown; tour_name: string;
+      created_at: unknown; tour_name: string;
     }
     const reviewsRes = await query<ReviewRow>(
       `SELECT
-         r.id, r.rating, r.comment, r.is_verified, r.created_at,
+         r.id::text AS id, r.rating, r.comment, r.created_at,
          t.title AS tour_name
-       FROM reviews r
+       FROM operator_tour_reviews r
        JOIN operator_tours t ON r.tour_id = t.id
-       WHERE r.user_id = $1 AND t.operator_id = $2 AND t.deleted_at IS NULL
+       WHERE r.user_id = $1 AND t.operator_id = $2
+         AND t.deleted_at IS NULL
+         AND r.is_hidden = FALSE
        ORDER BY r.created_at DESC
        LIMIT 20`,
       [id, partnerId]
@@ -143,20 +159,25 @@ export async function GET(
           tourName:   r.tour_name,
           rating:     r.rating,
           comment:    r.comment ?? '',
-          isVerified: r.is_verified,
           createdAt:  new Date(r.created_at as string).toISOString(),
         })),
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Внутренняя ошибка';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    // Текст PostgreSQL наружу не отдаётся (имена таблиц, колонок) — в лог с
+    // SQLSTATE; оператору понятная фраза (§4.0).
+    logScreenQueryFailure('clients/[id] GET', err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось загрузить карточку клиента. Попробуйте обновить страницу.' },
+      { status: 500 }
+    );
   }
 }
 
 /**
  * PATCH /api/operator/clients/[id]
- * Обновить теги и/или telegram_id клиента (хранятся в users.preferences JSONB)
+ * Обновить теги и/или telegram клиента в заметках ЭТОГО оператора
+ * (operator_client_notes, миграция 1017). users.preferences не трогается.
  */
 export async function PATCH(
   request: NextRequest,
@@ -205,26 +226,33 @@ export async function PATCH(
       }
     }
 
-    // Собираем только изменённые поля для JSONB merge
-    const updates: Record<string, unknown> = {};
-    if ('tags' in body) updates.tags = (body.tags as string[]).slice(0, 10);
-    if (normalizedTgId !== undefined) updates.telegram_id = normalizedTgId;
-
-    if (Object.keys(updates).length === 0) {
+    const hasTags = 'tags' in body;
+    const hasTelegram = normalizedTgId !== undefined;
+    if (!hasTags && !hasTelegram) {
       return NextResponse.json({ success: false, error: 'Нечего обновлять' }, { status: 400 });
     }
+    const nextTags: string[] | null = hasTags ? (body.tags as string[]).slice(0, 10) : null;
+    // Пустая строка — оператор стёр Telegram: храним NULL («не записано»).
+    const nextTelegram: string | null = hasTelegram && normalizedTgId !== '' ? (normalizedTgId as string) : null;
 
+    // Upsert по паре (оператор, клиент). Меняется только переданное поле:
+    // $4/$5 — флаги «поле пришло», чтобы PATCH одних тегов не стирал telegram.
     await query(
-      `UPDATE users
-       SET preferences = COALESCE(preferences, '{}') || $2::jsonb,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [id, JSON.stringify(updates)]
+      `INSERT INTO operator_client_notes (operator_id, user_id, tags, telegram, updated_at)
+       VALUES ($1, $2, COALESCE($3::text[], '{}'::text[]), $6::text, NOW())
+       ON CONFLICT (operator_id, user_id) DO UPDATE
+         SET tags       = CASE WHEN $4::boolean THEN COALESCE($3::text[], '{}'::text[]) ELSE operator_client_notes.tags END,
+             telegram   = CASE WHEN $5::boolean THEN $6::text ELSE operator_client_notes.telegram END,
+             updated_at = NOW()`,
+      [partnerId, id, nextTags, hasTags, hasTelegram, nextTelegram]
     );
 
     return NextResponse.json({ success: true, data: { id } });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Внутренняя ошибка';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    logScreenQueryFailure('clients/[id] PATCH', err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось сохранить заметки о клиенте. Попробуйте ещё раз.' },
+      { status: 500 }
+    );
   }
 }
