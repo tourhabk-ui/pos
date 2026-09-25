@@ -1,12 +1,12 @@
 {
-  "note": "25.09, прогон 592. ТОЛЬКО ЧТЕНИЕ. Приёмка правок по сверке MCP (33ff289): источник тревог VK МЧС, place-info об одном месте, туры по слову. Датчик — шапка get_volcano_status.",
-  "run": 592,
+  "note": "25.09, прогон 593. ТОЛЬКО ЧТЕНИЕ. Проверка миграции 1016 (251b1ee): перевалы с видом pass, фумарола переименована, мусор не всплывает среди похожих у Курильского озера.",
+  "run": 593,
   "timeout": 60,
   "retries": 50,
   "retryDelay": 60,
   "allowStale": false,
-  "until": "самое свежее наблюдение",
-  "bytes": 4000,
+  "until": "Тенуева",
+  "bytes": 3000,
   "post": [
     {
       "url": "https://vedarai.ru/api/mcp",
@@ -15,9 +15,9 @@
         "id": 1,
         "method": "tools/call",
         "params": {
-          "name": "get_volcano_status",
+          "name": "get_place_info",
           "arguments": {
-            "volcano": "Авачинский"
+            "name": "Искусственная фумарола"
           }
         }
       }
@@ -27,18 +27,6 @@
       "body": {
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "tools/call",
-        "params": {
-          "name": "safety_status",
-          "arguments": {}
-        }
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 3,
         "method": "tools/call",
         "params": {
           "name": "get_place_info",
@@ -52,15 +40,23 @@
       "url": "https://vedarai.ru/api/mcp",
       "body": {
         "jsonrpc": "2.0",
-        "id": 4,
+        "id": 3,
         "method": "tools/call",
         "params": {
-          "name": "get_tours",
+          "name": "get_place_info",
           "arguments": {
-            "activity_type": "вулканы"
+            "name": "Камчатка. Такие места"
           }
         }
       }
     }
+  ],
+  "around": [
+    "Тенуева"
+  ],
+  "aroundLines": 0,
+  "aroundHits": 3,
+  "urls": [
+    "https://vedarai.ru/api/cron/places-by-type?type=pass&limit=50"
   ]
 }
