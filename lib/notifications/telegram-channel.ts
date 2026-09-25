@@ -11,7 +11,7 @@ import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
 import { ruThousands } from '@/lib/text/digest-polish';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail } from '@/lib/notifications/post-validation';
+import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail, familiarVoiceIssue } from '@/lib/notifications/post-validation';
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 import { stripTags } from '@/lib/html/text';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
@@ -918,18 +918,45 @@ interface TipTopic {
   topic: string;
   /** Путь в public/images — проверяется тестом на существование файла. */
   photo: string;
+  /**
+   * Что на снимке, включая сезон, — словами для модели. Текст пишется к
+   * картинке, а не вслепую: 26.09 совет «я бы выбрал сентябрь, ягода на
+   * сопках спелая» ушёл под снимком снегоходов на заснеженном берегу —
+   * модель не знала, что под её текстом зима.
+   */
+  photoShows: string;
 }
 
+// Описания сняты глазами с самих файлов 26.09. Тема, в которой назван сезон,
+// обязана совпадать с сезоном снимка — это держит тест kuzmich-channel-photo.
 const KUZMICH_TIP_TOPICS: TipTopic[] = [
-  { topic: 'как правильно выбрать время для поездки на Камчатку',        photo: '/images/categories/vulkany.jpg' },
-  { topic: 'что взять с собой на вулкан — и чего точно не стоит',        photo: '/images/activities/volcanoes.jpg' },
-  { topic: 'почему рыбалка на Камчатке — это не только про рыбу',        photo: '/images/activities/fishing.jpg' },
-  { topic: 'как не облажаться с погодой на Камчатке',                    photo: '/images/categories/morskie.jpg' },
-  { topic: 'чем Камчатка отличается от любого другого путешествия',      photo: '/images/bento/khalaktyr.jpg' },
-  { topic: 'почему термальные источники лучше любого пятизвёздочного спа', photo: '/images/categories/termy.jpg' },
-  { topic: 'как местные относятся к медведям — и как надо вести себя туристу', photo: '/images/hero/bears-kurilskoye.jpg' },
-  { topic: 'зачем ехать на Камчатку не в август, а в другое время',      photo: '/images/activities/snowmobile.jpg' },
-  { topic: 'что туристы чаще всего недооценивают в поездке на Камчатку', photo: '/images/activities/volcanoes.jpg' },
+  { topic: 'как правильно выбрать время для поездки на Камчатку',
+    photo: '/images/categories/morskie.jpg',
+    photoShows: 'бухта с тремя скалами в море, за ней сопки без снега и вулканы с заснеженными вершинами; ясный день, сезон по снимку не определить' },
+  { topic: 'что взять с собой на вулкан — и чего точно не стоит',
+    photo: '/images/activities/volcanoes.jpg',
+    photoShows: 'два конусных вулкана со снегом на вершинах, вид с воздуха на закате, над одним тёмный шлейф пепла' },
+  { topic: 'почему рыбалка на Камчатке — это не только про рыбу',
+    photo: '/images/activities/fishing.jpg',
+    photoShows: 'рыбак в куртке и шапке держит крупного серебристого лосося на берегу широкой реки; пасмурно, у воды зелёная трава' },
+  { topic: 'как не облажаться с погодой на Камчатке',
+    photo: '/images/categories/vulkany.jpg',
+    photoShows: 'заснеженный вулкан, над ним огромный столб пепла от извержения, облака слоями' },
+  { topic: 'чем Камчатка отличается от любого другого путешествия',
+    photo: '/images/bento/khalaktyr.jpg',
+    photoShows: 'вороная лошадь идёт по чёрному вулканическому песку у океанского прибоя; ясный тёплый день без снега' },
+  { topic: 'почему термальные источники лучше любого пятизвёздочного спа',
+    photo: '/images/categories/termy.jpg',
+    photoShows: 'женщина в горячем бассейне под открытым небом, идёт снег, над водой пар, бортик в снегу — зима' },
+  { topic: 'как местные относятся к медведям — и как надо вести себя туристу',
+    photo: '/images/hero/bears-kurilskoye.jpg',
+    photoShows: 'медведица с четырьмя медвежатами идёт по галечному берегу озера, за ним зелёный лес и вулкан; лето' },
+  { topic: 'зачем ехать на Камчатку зимой, а не в августе',
+    photo: '/images/activities/snowmobile.jpg',
+    photoShows: 'два снегохода с санями на заснеженном берегу океана, солнечно, над водой морозная дымка — зима' },
+  { topic: 'что туристы чаще всего недооценивают в поездке на Камчатку',
+    photo: '/images/activities/volcanoes.jpg',
+    photoShows: 'два конусных вулкана со снегом на вершинах, вид с воздуха на закате, над одним тёмный шлейф пепла' },
 ];
 
 /** Темы — для теста и для админки. */
@@ -950,6 +977,10 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 
 Тема: ${topic}
 
+К посту приложен снимок: ${picked.photoShows}.
+Текст стоит прямо под снимком и не должен ему противоречить: если на снимке зима — не пиши о лете, и наоборот; не описывай как видимое то, чего на снимке нет.
+Факты о природе (погода, насекомые, повадки зверей) — только общеизвестные; в чём не уверен, того не утверждай.
+
 Требования:
 - 60-90 слов, разговорный стиль, как объясняешь знакомому
 - Конкретный совет, никаких общих слов
@@ -958,7 +989,18 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 - В конце можно добавить: ${appUrl}/routes
 ${KUZMICH_CHANNEL_VOICE}`;
 
-  const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
+  // Голос проверяется кодом, а не просьбой в промпте (familiarVoiceIssue):
+  // одна повторная попытка с названной причиной, дальше — не публикуем.
+  let text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
+  let voice = familiarVoiceIssue(text);
+  if (voice) {
+    text = await callAIWithModelDirect([{ role: 'user', content: `${prompt}\n\nПредыдущий вариант отклонён: ${voice}. Перепиши без этого.` }], getModelForAgent('kuzmich'));
+    voice = familiarVoiceIssue(text);
+  }
+  if (voice) {
+    console.error('[kuzmich-tip] пост не опубликован — голос:', voice);
+    return { ok: false, error: `голос: ${voice}` };
+  }
   const result = await postToAllChannels({ channelId, postType: 'kuzmich_tip', text, photoUrl: `${appUrl}${picked.photo}` });
 
   if (result.ok) {
