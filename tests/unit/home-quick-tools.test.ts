@@ -77,11 +77,11 @@ describe('плитки на главной', () => {
 });
 
 describe('чипы интересов — один ряд (владелец 25.09: «занимают 2 строчки, не экономно»)', () => {
-  it('сетка на столько колонок, сколько чипов, без переноса', async () => {
-    const { INTENT_CHIPS } = await import('@/lib/home/intent-chips');
+  it('сетка на столько колонок, сколько чипов у логики, без переноса и без числа в CSS', () => {
     const rule = /\.v7 \.hero-chips\{([^}]*)\}/.exec(HOME)?.[1] ?? '';
-    expect(rule).toContain(`grid-template-columns:repeat(${INTENT_CHIPS.length},minmax(0,1fr))`);
-    expect(rule).not.toMatch(/flex-wrap:wrap/);
+    expect(rule).toContain('grid-auto-flow:column');
+    expect(rule).toContain('grid-auto-columns:minmax(0,1fr)');
+    expect(rule).not.toMatch(/flex-wrap:wrap|grid-template-columns/);
   });
 
   it('подпись в одну строку, зона нажатия не меньше 44px', () => {
@@ -116,18 +116,40 @@ describe('полевые инструменты — сеткой 2×2 (влад�
   });
 });
 
-describe('поиск без отдельной кнопки «Найти» (владелец 25.09: «дублирует переход»)', () => {
-  const form = HOME.match(/<form className="find"[\s\S]*?<\/form>/)?.[0] ?? '';
-
-  it('отправка — лупой-кнопкой и клавишей клавиатуры, большой кнопки нет', () => {
-    expect(form).toMatch(/<button type="submit" className="find-go" aria-label="Найти">\s*<Search/);
-    expect(form).not.toMatch(/>Найти<\/button>/);
-    expect(form).toContain('enterKeyHint="search"');
-    expect((form.match(/<button/g) ?? []).length).toBe(1);
-  });
-
-  it('лупа — полноценная зона нажатия 44px', () => {
-    expect(HOME).toMatch(/\.v7 \.find \.find-go\{[^}]*width:44px;min-height:44px/);
+describe('строки поиска на главной нет (владелец 25.09: «поиск лишний — открывает то, что и так открывается»)', () => {
+  it('ни формы поиска, ни перехода /routes?q=', () => {
+    expect(HOME).not.toMatch(/<form className="find"|role="search"/);
+    expect(HOME).not.toContain('/routes?q=');
+    expect(HOME).not.toMatch(/\.v7 \.find\b/);
   });
 });
 
+describe('две логики путешествия (владелец 25.09: «разделить поиск туров и самостоятельного маршрута»)', () => {
+  const block = (id: string) => {
+    const at = HOME.indexOf(`aria-labelledby="${id}"`);
+    return at === -1 ? '' : HOME.slice(at, HOME.indexOf('</section>', at));
+  };
+  const tour = block('lg-tour-h');
+  const self = block('lg-self-h');
+
+  it('два блока подряд с честными заголовками, тур первым', () => {
+    expect(tour).toContain('<h2 id="lg-tour-h">Тур с оператором</h2>');
+    expect(self).toContain('<h2 id="lg-self-h">Сам по маршруту</h2>');
+    expect(HOME.indexOf('lg-tour-h')).toBeLessThan(HOME.indexOf('lg-self-h'));
+  });
+
+  it('туровый блок: первый тур, туровые чипы, витрина туров', () => {
+    expect(tour).toContain('className="firstpick"');
+    expect(tour).toContain("chipLinks('tour')");
+    expect(tour).toContain('href="/catalog"');
+    expect(tour).not.toContain("chipLinks('self')");
+  });
+
+  it('маршрутный блок: чипы мест и маршрутов, планировщик, радар — и никакого тура', () => {
+    expect(self).toContain("chipLinks('self')");
+    expect(self).toContain('href="/routes"');
+    expect(self).toContain('href="/planner"');
+    expect(self).toContain('href="/safety#radar"');
+    expect(self).not.toMatch(/firstpick|chipLinks\('tour'\)|\/catalog/);
+  });
+});
