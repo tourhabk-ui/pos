@@ -43,6 +43,15 @@ vi.mock('@/lib/agents/memory/agent-knowledge', () => ({
   },
 }));
 
+// Сигнал «MCP-канал молчит» зависит от календаря: окно 7–14 суток от
+// MCP_CATALOG_LAUNCH_DATE считается от настоящих часов, и 25.09 оно открылось —
+// на пустом моке (0 вызовов) «чистый прогон» стал прогоном с тревогой. Этот
+// файл не про MCP; сама проверка — в watchdog-mcp-silence.test.ts.
+vi.mock('@/lib/mcp/catalogs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mcp/catalogs')>()),
+  MCP_SILENCE_ALERT_FROM_DAYS: Number.POSITIVE_INFINITY,
+}));
+
 import { runWatchdog } from '@/lib/agents/watchdog';
 
 const UNDELIVERED = 'push_sent_at IS NULL';

@@ -12,7 +12,7 @@ import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
 import { composeTrip } from '@/lib/planner/compose';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
-import { fetchWeatherForecast } from '@/lib/planner/intelligence';
+import { fetchForecastDays } from '@/lib/planner/intelligence';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // Вычисляем длительность в днях из реальных колонок
@@ -409,8 +409,8 @@ const getWeather: SDKTool = {
         place = found;
       }
 
-      const forecast = await fetchWeatherForecast(place.lat, place.lng, 3);
-      if (forecast.length === 0) {
+      const forecast = await fetchForecastDays(place.lat, place.lng, 3);
+      if (!forecast.ok || forecast.days.length === 0) {
         return JSON.stringify({
           location: place.name,
           status: 'не_смог',
@@ -422,7 +422,12 @@ const getWeather: SDKTool = {
         location: place.name,
         coords: [place.lat, place.lng],
         status: 'ок',
-        days: forecast.map((d) => ({
+        // null в поле — значения в прогнозе нет. До 25.09 здесь стоял ноль, и
+        // пропуск ветра доходил до Кузьмича штилем, а пропуск кода — «Ясно».
+        ...(forecast.days.some((d) => d.windKmh === null || d.weatherCode === null)
+          ? { note: 'null — данных нет. Не называй такое значение по памяти, скажи, что его нет.' }
+          : {}),
+        days: forecast.days.map((d) => ({
           date: d.date,
           temp_max: d.tempMax,
           temp_min: d.tempMin,

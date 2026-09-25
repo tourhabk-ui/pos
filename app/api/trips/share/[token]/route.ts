@@ -79,7 +79,7 @@ export async function GET(
     const planB: Record<string, Array<{ tour_id: string; title: string }>> = {};
     if (Number.isFinite(arrivalMs)) {
       try {
-        const { createPlannerCache, fetchWeatherForecast, fetchContingencyAlternatives } = await import('@/lib/planner');
+        const { createPlannerCache, fetchForecastDays, fetchContingencyAlternatives } = await import('@/lib/planner');
         const cache = createPlannerCache();
         const todayMs = Date.parse(new Date().toISOString().slice(0, 10));
         const horizonMs = todayMs + 16 * 86400000;
@@ -90,9 +90,13 @@ export async function GET(
           const date = new Date(dateMs).toISOString().slice(0, 10);
           try {
             const daysAhead = Math.ceil((dateMs - todayMs) / 86400000) + 1;
-            const forecast = await fetchWeatherForecast(d.coords[0], d.coords[1], Math.min(16, daysAhead));
-            const f = forecast.find((x) => x.date === date);
-            if (!f) return;
+            const forecast = await fetchForecastDays(d.coords[0], d.coords[1], Math.min(16, daysAhead));
+            if (!forecast.ok) return;
+            const f = forecast.days.find((x) => x.date === date);
+            // Неполный день не показывается: ноль вместо пропуска рисовал
+            // туристу штиль и «0 °C» там, где данных не было (§4.0).
+            if (!f || f.tempMin === null || f.tempMax === null || f.windKmh === null
+              || f.precipMm === null || f.description === null) return;
             const bad = f.windKmh >= 40 || f.precipMm >= 10;
             weather[String(d.day)] = {
               date, tempMin: Math.round(f.tempMin), tempMax: Math.round(f.tempMax),

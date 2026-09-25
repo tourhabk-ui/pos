@@ -274,8 +274,15 @@ describe('wmo-hazard: один список на платформу', () => {
     expect(rescue).toBeDefined();
     const src = await import('node:fs').then((fs) =>
       fs.readFileSync('lib/agents/evo/rescue-agent.ts', 'utf8'));
-    // Своего множества кодов у агента быть не должно: разойдутся.
-    expect(src).toContain("from '@/lib/weather/wmo-hazard'");
-    expect(src).not.toMatch(/const DANGEROUS_WEATHER\s*=/);
+    // Своего множества кодов у агента быть не должно: разойдутся. С 25.09
+    // суждение о дне брони живёт в rescue-judge.ts — список читает он.
+    const judge = await import('node:fs').then((fs) =>
+      fs.readFileSync('lib/agents/evo/rescue-judge.ts', 'utf8'));
+    expect(src).toContain("from '@/lib/agents/evo/rescue-judge'");
+    expect(judge).toContain("from '@/lib/weather/wmo-hazard'");
+    for (const s of [src, judge]) {
+      expect(s).not.toMatch(/const DANGEROUS_WEATHER\s*=/);
+      expect(s).not.toMatch(/new Set\(\[\s*\d/);
+    }
   });
 });
