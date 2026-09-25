@@ -43,6 +43,22 @@ interface HeaderProps {
   overPhoto?: boolean;
 }
 
+
+/**
+ * Центральная навигация — шесть пунктов, а не десять (решение владельца
+ * 25.09: «да, сократи меню»). Первым — «Туры»: это то, что платформа
+ * продаёт. Подборки, Жильё, AI-арсенал и Операторы ушли в «Ещё» (/menu,
+ * реестр lib/navigation/platform-links) — там они и так были.
+ */
+export const HEADER_NAV = [
+  { href: '/catalog',     label: 'Туры' },
+  { href: '/hub/fishing', label: 'Рыбалка' },
+  { href: '/routes',      label: 'Маршруты' },
+  { href: '/places',      label: 'Места' },
+  { href: '/map',         label: 'Карта' },
+  { href: '/safety',      label: 'Безопасность' },
+] as const;
+
 export function Header({ overPhoto = false }: HeaderProps = {}) {
   const scrollY = useScrollY();
   /**
@@ -149,7 +165,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
       {/*
         Центральная навигация — только там, где она ПОМЕЩАЕТСЯ.
 
-        Десять пунктов занимают 896-970px (замер: два разных гротеска, живой
+        Десять пунктов (до 25.09) занимали 896-970px (замер: два разных гротеска, живой
         шрифт между ними), ряд кнопок справа — 274px. На дорожках это значит
         минимум ~1180px на всё вместе; ниже навигация не сжимается, а
         выталкивает кнопки за край экрана — SOS уезжал бы вправо за границу
@@ -174,18 +190,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
         gridColumn: 2,
         gap: '2px',
       }} className="hidden xl:flex">
-        {[
-          { href: '/hub/fishing', label: 'Рыбалка' },
-          { href: '/places',      label: 'Места' },
-          { href: '/routes',      label: 'Маршруты' },
-          { href: '/safety',      label: 'Безопасность' },
-          { href: '/collections', label: 'Подборки' },
-          { href: '/map',         label: 'Карта' },
-          { href: '/accommodations', label: 'Жильё' },
-          { href: '/ai-tools',    label: 'AI-арсенал' },
-          { href: '/operators',   label: 'Операторы' },
-          { href: '/catalog',     label: 'Туры' },
-        ].map(item => (
+        {HEADER_NAV.map(item => (
           <Link
             key={item.href}
             href={item.href}

@@ -31,7 +31,9 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
-import { dataFreshness, freshnessDot, geometryCoverage, coverageDot, plural } from '@/lib/home/data-freshness';
+import {
+  dataFreshness, freshnessDot, freshnessShort, geometryCoverage, coverageDot, coverageShort, plural,
+} from '@/lib/home/data-freshness';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
@@ -434,51 +436,56 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           })}
         </div>
 
-        {/* Планировщик — явная дверь с честным именем (владелец 01.08: чип
-            «На 3–5 дней» планировщиком не читался и вход терялся). Движок
-            lib/planner: дни, зоны, реальная занятость. */}
-        <Link href="/planner" className="planline">
-          <CalendarDays size={18} strokeWidth={1.8} aria-hidden />
-          <span className="pl-txt"><b>Планировщик поездки</b><span>соберёт маршрут по дням: даты, зоны, реальная занятость</span></span>
-          <span className="pl-go" aria-hidden>→</span>
-        </Link>
+        {/* ИНСТРУМЕНТЫ — две плитки-иконки в один ряд (владелец 25.09:
+            «планировщик модной иконкой и радар модной иконкой, экономить место
+            на мобильной»). Было две полноширинные карточки — плашка
+            планировщика и блок обстановки на две строки; стало ~64px на обе.
 
-        {/* LIVE — обстановка одной строкой. Это не радар: радар показывает
-            подробности, а здесь ответ на вопрос «можно ли вообще сегодня».
-            Свежесть обязательна и показывается тремя состояниями: «спокойно»
-            по позавчерашним данным и «спокойно» по свежим — разные
-            утверждения, и человек должен видеть, какое ему показали. */}
-        <section className="live">
-          <div className="lv-row">
-            <span
-              className="lv-dot"
-              style={freshnessDot(fresh.state)
-                ? { background: freshnessDot(fresh.state) as string }
-                : { border: '1px solid var(--text-muted)' }}
-            />
-            <span className="lv-txt">{fresh.label}</span>
-            <Link className="lv-go" href="/safety">Карта сегодня →</Link>
-          </div>
-          {/* Вторая строка — наличие линии (#1643). У маршрута без линии
-              офлайн-карта не покажет ничего, кроме названия; доля таких —
-              прибор, а не подразумеваемое «всё есть». Больше
-              GEOMETRY_GAP_WARN_PCT без линии — предупреждение, но только
-              ТОЧКОЙ (как у свежести): владелец 06.09 — порог давно пройден
-              (~27%), и жирный алярм-текст на каждом заходе на главную читался
-              бы как постоянная тревога там, где это доля данных, а не
-              случившаяся беда. Текст ровно тот же для обоих состояний по
-              начертанию — состояние несёт цвет точки и сама формулировка
-              (geometryCoverage), не жирность. */}
-          <div className="lv-row lv-cov">
-            <span
-              className="lv-dot"
-              style={coverageDot(coverage.state)
-                ? { background: coverageDot(coverage.state) as string }
-                : { border: '1px solid var(--text-muted)' }}
-            />
-            <span className="lv-txt">{coverage.label}</span>
-          </div>
-        </section>
+            Планировщик — по-прежнему дверь с честным именем (владелец 01.08:
+            чип «На 3–5 дней» планировщиком не читался). Движок lib/planner.
+
+            Радар несёт оба прибора бывшего блока обстановки, и ни один не
+            сокращён до украшения: свежесть — оценкой-точкой на иконке и
+            возрастом словами (три состояния: зелёная, жёлтая, у «нет данных»
+            точки нет — только контур); доля линий для офлайн-карты — второй
+            строкой со своей точкой (#1643, мягкая формулировка владельца
+            06.09). Полные строки — в aria-label и title: сокращён
+            вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
+            строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
+        <nav className="qtools" aria-label="Инструменты поездки">
+          <Link href="/planner" className="qt qt-plan" aria-label="Планировщик поездки: соберёт маршрут по дням — даты, зоны, реальная занятость">
+            <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-tx"><b>Планировщик</b><span>по дням</span></span>
+          </Link>
+          <Link
+            href="/safety#radar"
+            className="qt qt-radar"
+            aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
+            title={`${fresh.label}. ${coverage.label}`}
+          >
+            <span className="qt-ic">
+              <Radar size={19} strokeWidth={1.8} aria-hidden />
+              <i
+                className="qt-badge"
+                style={freshnessDot(fresh.state)
+                  ? { background: freshnessDot(fresh.state) as string }
+                  : { border: '1px solid var(--text-muted)', background: 'var(--bg-card)' }}
+              />
+            </span>
+            <span className="qt-tx">
+              <b>Радар</b>
+              <span className="qt-st">{freshnessShort(fresh)}</span>
+              <span className="qt-st qt-cov">
+                <i
+                  style={coverageDot(coverage.state)
+                    ? { background: coverageDot(coverage.state) as string }
+                    : { border: '1px solid var(--text-muted)' }}
+                />
+                {coverageShort(coverage)}
+              </span>
+            </span>
+          </Link>
+        </nav>
 
         {/* ЧТО ИМЕННО СЛУЧИЛОСЬ. Пилюля в шапке и строка выше сообщают
             СОСТОЯНИЕ — цветную точку и одно слово. Содержания опасности на
@@ -594,7 +601,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </section>
         )}
 
-        {/* РАДАР — одной строкой-ссылкой (пакет П4б, решение владельца 24.09).
+        {/* РАДАР — с 25.09 плиткой в ряду инструментов выше (владелец: «радар
+            модной иконкой, экономить место»); своя строка-ссылка здесь снята
+            как дубль той же двери. Секция и якорь #radar остались.
+            Прежде — одной строкой-ссылкой (пакет П4б, решение владельца 24.09).
             Раньше здесь стояла секция с заголовком и пятью плитками между
             первым туром и остальными семью. Подробности радара живут на
             /safety#radar; якорь #radar оставлен — на него ведёт пилюля шапки.
@@ -602,14 +612,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             навигатор, наблюдение) не удалены — они ниже тем же столбиком,
             просто без заголовка-двери. */}
         <section id="radar" className="sub radar-sec">
-          <Link href="/safety#radar" className="protoline radarline">
-            <Radar size={18} strokeWidth={1.8} aria-hidden />
-            <span>
-              Радар обстановки: сейсмика, вулканы КВЕРТ, наблюдения туристов{' '}
-              <b>смотреть вживую →</b>
-            </span>
-          </Link>
-
           <Link href="/register" className="mchsline">
             <b>Зарегистрируй маршрут в МЧС заранее</b>
             <span>Бесплатно. С гидом или сам — спасателям это спасает жизни →</span>
@@ -1035,25 +1037,23 @@ const CSS = `
 .v7 .hero-chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
 .v7 .hchip{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:999px;text-decoration:none;color:var(--text-primary);font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .hchip svg{color:var(--text-secondary)}
-.v7 .planline{margin-top:10px;display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--ocean);transition:transform .13s ease}
-.v7 .planline:active{transform:scale(.99)}
-.v7 .planline svg{color:var(--ocean);flex:none}
-.v7 .planline .pl-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
-.v7 .planline .pl-txt b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
-.v7 .planline .pl-txt span{font:500 10.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-.v7 .planline .pl-go{margin-left:auto;color:var(--ocean);font-size:16px}
+.v7 .qtools{margin:10px 0 26px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.v7 .qt{min-height:64px;min-width:0;display:flex;align-items:center;gap:8px;padding:8px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
+.v7 .qt:hover{background:var(--bg-hover)}
+.v7 .qt:active{transform:scale(.98)}
+.v7 .qt-ic{position:relative;flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--ocean);background:color-mix(in srgb,var(--ocean) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ocean) 18%,transparent)}
+.v7 .qt-radar .qt-ic{color:var(--text-primary);background:var(--bg-hover);box-shadow:inset 0 0 0 1px var(--border)}
+.v7 .qt-badge{position:absolute;top:-3px;right:-3px;width:11px;height:11px;border-radius:50%;box-sizing:border-box;outline:2px solid var(--bg-card)}
+.v7 .qt-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+.v7 .qt-tx b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+.v7 .qt-tx > span{font:500 10.5px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .qt-cov{display:flex;align-items:center;gap:5px}
+.v7 .qt-cov i{width:6px;height:6px;border-radius:50%;flex:none;box-sizing:border-box}
+@media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 .v7 .hchip:active{transform:scale(.96)}
 .v7 .hchip:hover{background:var(--bg-hover)}
 /* секции */
 .v7 section{margin-top:40px}
-.v7 section.live{margin-top:16px}
-.v7 .live{display:flex;flex-direction:column;gap:2px;padding:8px 14px 11px;margin-bottom:26px;background:var(--bg-card);border:1px solid var(--border);border-radius:16px}
-.v7 .live .lv-row{display:flex;align-items:center;gap:10px}
-.v7 .live .lv-cov{padding-top:7px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
-.v7 .live .lv-cov .lv-txt{color:var(--text-secondary)}
-.v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
-.v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
-.v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none;white-space:nowrap}
 /* ЧТО именно случилось — текстом, не только цветом. Полоса появляется только
    при действующих предупреждениях; пустой рамки «всё спокойно» здесь быть не
    должно. Левая линия цветом опасности: она же отличает эту карточку от
@@ -1121,8 +1121,6 @@ const CSS = `
 /* Радар одной строкой (П4б): та же плитка, что у офлайн-инструментов, плюс
    иконка — это вход в подробности на /safety#radar, а не секция. */
 .v7 .radar-sec{margin-top:28px}
-.v7 .radarline{flex-wrap:nowrap;align-items:center;gap:12px;min-height:44px;margin-top:0}
-.v7 .radarline svg{color:var(--ocean);flex:none}
 .v7 .protoline:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
 .v7 .protoline:active{transform:scale(.99)}
 .v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;background:var(--bg-hover);border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-left:3px solid color-mix(in srgb,var(--warning) 62%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;font:600 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);font-family:var(--font-outfit),system-ui,sans-serif;transition:transform .2s ease,box-shadow .2s ease}
@@ -1357,7 +1355,7 @@ const CSS = `
   /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
   .v7 .find{max-width:640px;margin-left:auto;margin-right:auto}
   .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto;justify-content:center}
-  .v7 .planline,.v7 .live,.v7 .alerts-now{max-width:640px;margin-left:auto;margin-right:auto}
+  .v7 .qtools,.v7 .alerts-now{max-width:640px;margin-left:auto;margin-right:auto}
   .v7 .firstpick{max-width:520px;margin-left:auto;margin-right:auto}
   .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
