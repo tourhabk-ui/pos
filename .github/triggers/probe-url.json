@@ -1,16 +1,19 @@
 {
-  "note": "26.09, прогон 608. ТОЛЬКО ЧТЕНИЕ. Issue #2064: разметка текста статьи kamtoday со сводкой Минтура — где начинается и кончается articleBody, как разделены пункты.",
-  "run": 608,
+  "note": "26.09, прогон 609. ТОЛЬКО ЧТЕНИЕ. Сайт базы отдыха «Голубая лагуна» (озеро Микижа) — владелец прислал ссылку, из контейнера сайт закрыт. Нужно: что за услуги (бассейн — термальный ли), контакты, цены, адрес; sitemap — какие есть страницы. Для записи в partner_prospects (миграция 1035) и описания озера.",
+  "run": 609,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 100,
-  "ua": "Mozilla/5.0 (compatible; KamchatourBot/1.0)",
-  "around": ["itemprop=\"articleBody\""],
-  "aroundLines": 70,
-  "aroundHits": 1,
+  "bytes": 12000,
+  "ua": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36",
+  "grep": ["бассейн", "термал", "Микиж", "Паратунк", "+7", "руб", "₽"],
+  "around": ["бассейн", "термал", "Микиж", "+7"],
+  "aroundLines": 6,
+  "aroundBefore": 2,
+  "aroundHits": 3,
   "urls": [
-    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-gde-otkryty-marshruty-a-k-kakim-vulkanam-luchshe-ne-priblizhatsya/"
+    "https://bluelagoon.su/",
+    "https://bluelagoon.su/sitemap.xml"
   ]
 }
