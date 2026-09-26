@@ -227,7 +227,7 @@ describe('PATCH /api/stay/bookings/[id]', () => {
 describe('фиксы битой публичной витрины', () => {
   const ACC_ROW = {
     id: ACC_ID, name: 'Гостиница «Вулкан»', total_rooms: '10',
-    price_per_night_from: '5000', is_active: true,
+    price_per_night_from: '5000', is_active: true, is_public: true,
   };
 
   it('availability читает check_in_date/check_out_date и цены номеров', async () => {

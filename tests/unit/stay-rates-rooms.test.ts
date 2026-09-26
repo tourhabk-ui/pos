@@ -249,7 +249,7 @@ describe('GET /api/accommodations/[id]/prices — честные цены', () =
   it('override применяется, без override базовая цена, множителей нет', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('FROM accommodations')) {
-        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '8000', is_active: true }] });
+        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '8000', is_public: true }] });
       }
       if (sql.includes('generate_series')) {
         return Promise.resolve({ rows: [

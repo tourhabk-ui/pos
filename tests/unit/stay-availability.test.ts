@@ -125,7 +125,7 @@ describe('GET /availability', () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('WITH rn AS')) return Promise.resolve({ rows });
       if (sql.includes('SUM(available_rooms)')) return Promise.resolve({ rows: [{ stock }] });
-      if (sql.includes('FROM accommodations')) return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', is_active: true }] });
+      if (sql.includes('FROM accommodations')) return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', is_public: true }] });
       throw new Error('unexpected SQL: ' + sql);
     });
   }
@@ -177,7 +177,7 @@ describe('GET /blocked-dates', () => {
   it('закрыта дата, только если продать нечего по всем номерам; окно включает endDate', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('WITH rn AS')) return Promise.resolve({ rows: [{ date: '2099-08-02' }] });
-      if (sql.includes('FROM accommodations')) return Promise.resolve({ rows: [{ id: ACC_ID, is_active: true }] });
+      if (sql.includes('FROM accommodations')) return Promise.resolve({ rows: [{ id: ACC_ID, is_public: true }] });
       throw new Error('unexpected SQL: ' + sql);
     });
     const res = await getBlockedDates(get(`http://l/x?startDate=2099-08-01&endDate=2099-08-05`), params);

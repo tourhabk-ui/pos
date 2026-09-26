@@ -121,7 +121,7 @@ describe('GET /prices?roomId — приоритеты уровня номера'
   it('база = цена номера, JOIN обоих уровней, приоритет номера в COALESCE', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('FROM accommodations')) {
-        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '5000', is_active: true }] });
+        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '5000', is_public: true }] });
       }
       if (sql.includes('FROM accommodation_rooms')) {
         return Promise.resolve({ rows: [{ price_per_night: '9000' }] });
@@ -149,7 +149,7 @@ describe('GET /prices?roomId — приоритеты уровня номера'
   it('чужой/несуществующий номер → 404', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('FROM accommodations')) {
-        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '5000', is_active: true }] });
+        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '5000', is_public: true }] });
       }
       if (sql.includes('FROM accommodation_rooms')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
